@@ -45,7 +45,7 @@ export const NAV_SECTIONS: NavSection[] = [
     defaultOpen: true,
     items: [
       { target: "dashboard", label: "Dashboard", icon: "dashboard" },
-      { target: "inbox", label: "Chat", icon: "chat", badge: "3" },
+      { target: "inbox", label: "Chat", icon: "chat" },
       { target: "calendario", label: "Agenda da Igreja", icon: "calendar" },
       { target: "comunicados", label: "Comunicação", icon: "broadcast" },
       { target: "equipe", label: "Equipe de Liderança", icon: "team" },
