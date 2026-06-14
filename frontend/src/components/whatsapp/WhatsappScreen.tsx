@@ -371,17 +371,21 @@ export function WhatsappScreen() {
                 : "Abra o WhatsApp do número oficial → Aparelhos conectados → Conectar um aparelho e leia o código."}
             </p>
 
-            <div
-              className={`qr${isOnline || !qr || qrExpired ? " idle" : ""}`}
-              role="img"
-              aria-label={
-                isOnline
-                  ? "Conexão pareada"
-                  : qr && !qrExpired
-                    ? "QR code de conexão"
-                    : "QR code indisponível"
-              }
-            />
+            {!isOnline && qr && !qrExpired ? (
+              /* eslint-disable-next-line @next/next/no-img-element -- QR é data URI dinâmico; next/image não se aplica */
+              <img
+                className="qr"
+                src={qr.startsWith("data:") ? qr : `data:image/png;base64,${qr}`}
+                alt="QR code de conexão — leia no WhatsApp do número oficial"
+                style={{ background: "#fff", objectFit: "contain" }}
+              />
+            ) : (
+              <div
+                className={`qr${isOnline || !qr || qrExpired ? " idle" : ""}`}
+                role="img"
+                aria-label={isOnline ? "Conexão pareada" : "QR code indisponível"}
+              />
+            )}
 
             <p className="sub mono" style={{ color: "var(--faint)", marginTop: "var(--s3)" }}>
               {isOnline
