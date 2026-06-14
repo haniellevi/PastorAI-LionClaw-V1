@@ -43,8 +43,8 @@ export interface HandoffResult {
 
 /**
  * Papéis privilegiados do inbox (US-11). Espelha INBOX_ROLES do backend
- * (app/domain/conversations.py): admin passa implicitamente; pastor e lider_g12
- * têm acesso. Líder de célula/membro nunca acessam.
+ * (app/domain/conversations.py): admin passa implicitamente; pastor, lider_g12
+ * e operador têm acesso. Líder de célula/membro nunca acessam.
  */
 const INBOX_ROLES: ReadonlySet<Role> = new Set<Role>(["pastor", "lider_g12", "operador"]);
 

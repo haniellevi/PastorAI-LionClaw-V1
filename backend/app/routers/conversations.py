@@ -30,7 +30,7 @@ from sqlalchemy.orm import Session
 from app.db.models import Conversation, Message, Pessoa, WhatsappConnection
 from app.db.session import get_db
 from app.deps import CurrentUser, require_role
-from app.domain.conversations import resolve_handoff
+from app.domain.conversations import INBOX_ROLES, resolve_handoff
 from app.routers._common import Page, PaginationParams, ensure_tenant_context
 from app.services.evolution import (
     EvolutionClient,
@@ -42,8 +42,9 @@ logger = logging.getLogger("pastorai.conversations")
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 
-# Privileged inbox roles (admin passes implicitly via require_role).
-_INBOX_ROLES = ["pastor", "lider_g12", "operador"]
+# Privileged inbox roles (admin passes implicitly via require_role); derived
+# from the domain INBOX_ROLES so the gate has a single source of truth.
+_INBOX_ROLES = sorted(INBOX_ROLES)
 
 
 # ---------------------------------------------------------------------------

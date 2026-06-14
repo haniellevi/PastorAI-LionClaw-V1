@@ -61,7 +61,10 @@ export function EquipeScreen() {
 
   // base de pessoas cadastradas (para escolher quem recebe acesso ao painel)
   const [pessoas, setPessoas] = useState<Contact[]>([]);
+  const [pessoasTotal, setPessoasTotal] = useState(0);
   const [pessoasLoaded, setPessoasLoaded] = useState(false);
+  // true quando a pessoa escolhida ainda não tem e-mail (precisa pedir um)
+  const [invNeedsEmail, setInvNeedsEmail] = useState(false);
 
   // edição de papéis
   const [editing, setEditing] = useState<TeamMember | null>(null);
@@ -126,6 +129,7 @@ export function EquipeScreen() {
         const page = await fetchContacts(token);
         if (active) {
           setPessoas(page.items);
+          setPessoasTotal(page.total);
           setPessoasLoaded(true);
         }
       } catch (err) {
@@ -152,6 +156,7 @@ export function EquipeScreen() {
     setInvPessoaId(p.id);
     setInvNome(p.nome);
     setInvEmail(p.email ?? "");
+    setInvNeedsEmail(!(p.email ?? "").trim());
     setInvError(null);
   }, []);
 
@@ -162,8 +167,14 @@ export function EquipeScreen() {
     setInvPessoaQuery("");
     setInvNome("");
     setInvEmail("");
+    setInvNeedsEmail(false);
     setInvRoles(new Set());
     setInvError(null);
+    // invalida o cache de pessoas: reabrir o convite recarrega (inclui quem
+    // foi criado no meio tempo).
+    setPessoas([]);
+    setPessoasTotal(0);
+    setPessoasLoaded(false);
   }, []);
 
   const emailValid = (email: string) => /\S+@\S+\.\S+/.test(email.trim());
@@ -301,7 +312,11 @@ export function EquipeScreen() {
           </p>
         </div>
         <div className="actions">
-          <button type="button" className="btn btn-primary" onClick={() => setInviteOpen((v) => !v)}>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={() => (inviteOpen ? resetInvite() : setInviteOpen(true))}
+          >
             <Icon name="plus" />
             <span>Convidar pessoa</span>
           </button>
@@ -340,6 +355,9 @@ export function EquipeScreen() {
               className={`tab${invMode === "existente" ? " active" : ""}`}
               onClick={() => {
                 setInvMode("existente");
+                setInvNome("");
+                setInvEmail("");
+                setInvNeedsEmail(false);
                 setInvError(null);
               }}
             >
@@ -351,8 +369,10 @@ export function EquipeScreen() {
               onClick={() => {
                 setInvMode("nova");
                 setInvPessoaId(null);
+                setInvPessoaQuery("");
                 setInvNome("");
                 setInvEmail("");
+                setInvNeedsEmail(false);
                 setInvError(null);
               }}
             >
@@ -414,7 +434,13 @@ export function EquipeScreen() {
                   ))
                 )}
               </div>
-              {invPessoaId && !invEmail.trim() ? (
+              {pessoas.length < pessoasTotal ? (
+                <p className="sub" style={{ color: "var(--muted)", marginTop: 6 }}>
+                  Mostrando {pessoas.length} de {pessoasTotal}. Refine a busca para
+                  encontrar quem não aparece.
+                </p>
+              ) : null}
+              {invPessoaId && invNeedsEmail ? (
                 <div className="field" style={{ marginTop: "var(--s3)" }}>
                   <label htmlFor="invEmailExist">
                     E-mail para login{" "}

@@ -23,9 +23,10 @@ from app.domain.phone import normalize_phone
 ADMIN_ROLE = "admin"
 
 # Roles privileged to open the inbox / human handoff (US-11). Cell leaders
-# (lider_celula) are intentionally excluded. Mirrors the work-queue
-# "atendimento" resolvers (pastor / lider_g12), plus admin (implicit).
-INBOX_ROLES: frozenset[str] = frozenset({"pastor", "lider_g12"})
+# (lider_celula) are intentionally excluded. Covers pastor / lider_g12 and the
+# operational "operador" (atendimento), plus admin (implicit). Single source of
+# truth — the conversations router derives its require_role list from this set.
+INBOX_ROLES: frozenset[str] = frozenset({"pastor", "lider_g12", "operador"})
 
 # Conversation states (conversation_estado enum).
 VALID_ESTADOS: frozenset[str] = frozenset({"ia", "humano", "aguardando"})

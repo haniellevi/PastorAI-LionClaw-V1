@@ -221,6 +221,20 @@ def invite_member(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Pessoa não encontrada",
             )
+        # Uma pessoa não pode ter dois logins: bloqueia conceder acesso a quem
+        # já tem um app_user vinculado (evita identidade de painel duplicada).
+        linked = db.execute(
+            select(AppUser).where(AppUser.pessoa_id == pessoa_uuid)
+        ).scalar_one_or_none()
+        if linked is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Esta pessoa já possui acesso ao painel",
+            )
+        # A Pessoa é a fonte de verdade: se ainda não tinha e-mail, guarda o
+        # informado no convite para o cadastro não divergir do login.
+        if not (pessoa.email or "").strip():
+            pessoa.email = email
 
     app_user = AppUser(
         igreja_id=igreja_uuid,

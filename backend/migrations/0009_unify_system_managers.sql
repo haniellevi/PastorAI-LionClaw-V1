@@ -22,7 +22,7 @@ select i.id, 'operador'::role_perm_papel, t.tela
 from igrejas i
 cross join (values
   ('dashboard'), ('inbox'), ('contatos'), ('ganhar'),
-  ('celulas'), ('relatorios'), ('comunicados'), ('calendario')
+  ('celulas'), ('relatorios')
 ) as t(tela)
 on conflict (igreja_id, papel, tela) do nothing;
 
@@ -32,13 +32,15 @@ on conflict (igreja_id, papel, tela) do nothing;
 --          mesmo tenant (lower(email)). clerk_user_id fica NULL (UNIQUE permite
 --          multiplos NULL no Postgres).
 insert into app_users (igreja_id, nome, email, status)
-select sm.igreja_id, sm.nome, lower(sm.email), 'convidado'
+select distinct on (sm.igreja_id, lower(sm.email))
+       sm.igreja_id, sm.nome, lower(sm.email), 'convidado'
 from system_managers sm
 where not exists (
   select 1 from app_users au
   where au.igreja_id = sm.igreja_id
     and lower(au.email) = lower(sm.email)
-);
+)
+order by sm.igreja_id, lower(sm.email);
 
 --     (2b) garante o papel mapeado em user_roles:
 --          admin_sistema -> 'admin' ; operador -> 'operador' ;

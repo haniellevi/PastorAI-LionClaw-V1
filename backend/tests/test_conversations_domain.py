@@ -20,6 +20,7 @@ def test_admin_and_privileged_roles_access_inbox() -> None:
     assert can_access_inbox(["admin"]) is True
     assert can_access_inbox(["pastor"]) is True
     assert can_access_inbox(["lider_g12"]) is True
+    assert can_access_inbox(["operador"]) is True
 
 
 def test_cell_leader_cannot_access_inbox() -> None:

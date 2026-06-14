@@ -76,7 +76,6 @@ export const DEFAULT_PERMISSIONS: Record<Exclude<Role, "admin">, readonly string
   ],
   operador: [
     "dashboard", "inbox", "contatos", "ganhar", "celulas", "relatorios",
-    "comunicados", "calendario",
   ],
   membro: ["dashboard", "calendario"],
 };
