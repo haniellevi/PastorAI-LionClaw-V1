@@ -82,10 +82,11 @@ class Settings(BaseSettings):
     # One-time setup fee charged on the first checkout (BRL).
     asaas_setup_fee: float = Field(default=0.0, ge=0)
 
-    # ---- Resend (convites de equipe - RF-40) --------------------------------
-    resend_api_url: str = Field(default="https://api.resend.com")
-    resend_api_key: str = Field(default="")
-    resend_from_email: str = Field(default="no-reply@pastorai.com.br")
+    # ---- Brevo (ex-Sendinblue) — convites de equipe (RF-40) -----------------
+    brevo_api_url: str = Field(default="https://api.brevo.com/v3")
+    brevo_api_key: str = Field(default="")
+    brevo_from_email: str = Field(default="no-reply@pastorai.com.br")
+    brevo_from_name: str = Field(default="PastorAI")
 
     # ---- Google Calendar (sync de eventos - RF-39) --------------------------
     google_calendar_api_url: str = Field(

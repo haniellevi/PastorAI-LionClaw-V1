@@ -1,7 +1,7 @@
 """Team router — invites and accumulated-role management (RF-40 / F3).
 
 Endpoints:
-  - POST /team/invite          create a convidado app_user + Resend activation
+  - POST /team/invite          create a convidado app_user + Brevo activation
   - PUT  /team/{usuarioId}/roles  edit accumulated roles (union)
 
 A duplicate email in the tenant is rejected (409). Roles are stored as the union
@@ -24,7 +24,7 @@ from app.db.models import AppUser, UserRole
 from app.db.session import get_db
 from app.deps import ADMIN_ROLE, CurrentUser, get_current_user, require_role
 from app.routers._common import Page, PaginationParams, ensure_tenant_context
-from app.services.resend import ResendClient, ResendError, get_resend_client
+from app.services.brevo import BrevoClient, BrevoError, get_brevo_client
 
 logger = logging.getLogger("pastorai.team")
 
@@ -178,12 +178,12 @@ def invite_member(
     payload: InviteRequest,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(require_role(["admin"])),
-    resend: ResendClient = Depends(get_resend_client),
+    mailer: BrevoClient = Depends(get_brevo_client),
 ) -> InviteResponse:
     """Create a convidado app_user and email the activation link.
 
     A duplicate email within the tenant is rejected (409). The email send is
-    best-effort: the user is still created if Resend fails (emailEnviado=false),
+    best-effort: the user is still created if Brevo fails (emailEnviado=false),
     so an invite can be re-sent without re-creating the account.
     """
     ensure_tenant_context(db, current_user)
@@ -218,13 +218,13 @@ def invite_member(
 
     email_sent = False
     try:
-        resend.send_invite(
+        mailer.send_invite(
             to_email=email,
             nome=payload.nome,
             activation_link=_activation_link(app_user.id),
         )
         email_sent = True
-    except ResendError:
+    except BrevoError:
         logger.warning("Invite created but activation email failed to send")
 
     return InviteResponse(
