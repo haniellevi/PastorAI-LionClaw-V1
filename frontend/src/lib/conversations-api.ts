@@ -46,7 +46,7 @@ export interface HandoffResult {
  * (app/domain/conversations.py): admin passa implicitamente; pastor e lider_g12
  * têm acesso. Líder de célula/membro nunca acessam.
  */
-const INBOX_ROLES: ReadonlySet<Role> = new Set<Role>(["pastor", "lider_g12"]);
+const INBOX_ROLES: ReadonlySet<Role> = new Set<Role>(["pastor", "lider_g12", "operador"]);
 
 /** True se o conjunto de papéis acumulados pode abrir o inbox (US-11). */
 export function canAccessInbox(roles: readonly Role[]): boolean {
