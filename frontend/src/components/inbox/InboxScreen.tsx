@@ -292,7 +292,7 @@ export function InboxScreen() {
   const holderName = null; // nomes de usuários não são expostos nesta listagem
 
   return (
-    <div className="screen" key="inbox">
+    <div className="screen screen-chat" key="inbox">
       <div className="screen-head">
         <div className="titles">
           <h2>Inbox do WhatsApp</h2>

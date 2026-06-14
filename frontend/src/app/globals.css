@@ -2462,10 +2462,21 @@ table.data-table {
 /* ===========================================================================
    Inbox (#inbox) — conversation-list + conversation-thread (artifact travado)
    =========================================================================== */
+/* A tela do chat (.screen-chat) cabe na viewport: a lista e a thread rolam
+   internamente, então o compositor de resposta fica sempre acessível sem
+   precisar rolar a página inteira. */
+.screen-chat {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
 .inbox {
   display: grid;
   grid-template-columns: 320px 1fr;
-  height: calc(100vh - 122px);
+  flex: 1; /* preenche .screen-chat (antes: height fixo calc(100vh - 122px)) */
+  min-height: 0; /* deixa .conv-list / .thread-body donas do scroll */
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
   overflow: hidden;
@@ -2737,10 +2748,10 @@ table.data-table {
 @media (max-width: 860px) {
   .inbox {
     grid-template-columns: 1fr;
-    height: auto;
+    grid-template-rows: auto 1fr; /* lista (limitada) + thread preenche e rola */
   }
   .conv-list {
-    max-height: 300px;
+    max-height: 40vh;
   }
 }
 
