@@ -1,0 +1,18 @@
+# PastorAI backend — core dependencies (Backend Core sprint)
+fastapi>=0.115,<1.0
+uvicorn[standard]>=0.30,<1.0
+pydantic>=2.7,<3.0
+pydantic-settings>=2.3,<3.0
+SQLAlchemy>=2.0,<2.1
+psycopg2-binary>=2.9,<3.0
+httpx>=0.27,<1.0
+PyJWT[crypto]>=2.8,<3.0
+cryptography>=42.0
+redis>=5.0,<6.0
+
+# Agente Orquestrador / LLM BYO (US-08/US-27 — delta-034)
+langgraph>=0.2,<1.0
+openai>=1.30,<2.0
+
+# Dev / test
+pytest>=8.0

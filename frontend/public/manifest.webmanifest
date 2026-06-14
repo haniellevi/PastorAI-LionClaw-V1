@@ -1,0 +1,26 @@
+{
+  "name": "PastorAI — Painel da Igreja",
+  "short_name": "PastorAI",
+  "description": "Sistema agêntico de gestão de igrejas na Visão G12.",
+  "start_url": "/#dashboard",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#fbfbf9",
+  "theme_color": "#1b2526",
+  "lang": "pt-BR",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

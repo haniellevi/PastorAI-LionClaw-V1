@@ -1,0 +1,1358 @@
+{
+  "project": {
+    "id": "8115fd711728987e9d9618ccbe0ac7cb",
+    "name": "PastorAi-1.0",
+    "description": "",
+    "path": "C:\\Users\\hanie\\Searches\\OneDrive\\Documentos\\workspace\\PastorAi-1.0",
+    "stack": [],
+    "config": {
+      "max_rounds_per_sprint": 3,
+      "use_playwright": false,
+      "evaluator_agent_id": "harness-evaluator",
+      "planner_agent_id": "harness-planner"
+    }
+  },
+  "sprints": [
+    {
+      "id": "sprint-001",
+      "index": 0,
+      "name": "Fundacao de Database (Schema, RLS, Triggers, Seed)",
+      "description": "Cria todo o schema multi-tenant do PastorAI no Supabase/Postgres conforme secao 2 da SPEC: todas as tabelas com igreja_id, policies RLS por tenant, funcao current_igreja_id(), triggers de state machine e seed da igreja piloto. E a fundacao obrigatoria do projeto inteiro.",
+      "coder_agent_id": "postgres-pro",
+      "stack": [
+        "postgresql",
+        "supabase",
+        "sql"
+      ],
+      "features": [
+        {
+          "id": "feat-001",
+          "name": "Schema completo de tabelas",
+          "description": "Criar migrations com todas as tabelas da secao 2.1: igrejas, pessoas, app_users, user_roles, role_permissions, celulas, cell_alerts, conversations, messages, work_queue_items, reports, broadcasts, events, whatsapp_connections, agent_configs, llm_credentials, crons, subscriptions, system_managers, consolidacoes, consolidacao_etapas, decisions, multiplicacoes, consent_records, ai_usage_logs, agent_conversation_logs.",
+          "acceptance_criteria": [
+            "Cada tabela existe com todos os campos, tipos, enums, defaults e PK/FK exatamente como na secao 2.1",
+            "Todas as tabelas (exceto igrejas) possuem coluna igreja_id NOT NULL com FK para igrejas",
+            "pessoas.lider_id e celula_id sao FKs nullable; UNIQUE(user_id, papel) em user_roles e UNIQUE(igreja_id, papel, tela) em role_permissions aplicados",
+            "Tabelas com cardinalidade 1:1 (whatsapp_connections, agent_configs, llm_credentials, subscriptions) tem igreja_id UNIQUE"
+          ]
+        },
+        {
+          "id": "feat-002",
+          "name": "RLS por tenant e current_igreja_id()",
+          "description": "Habilitar RLS em todas as tabelas com igreja_id e criar a funcao current_igreja_id() que deriva o tenant de app_users a partir do clerk_user_id do JWT. Policies padrao USING/WITH CHECK por igreja_id; igrejas restrita ao proprio registro.",
+          "acceptance_criteria": [
+            "RLS habilitado (ENABLE ROW LEVEL SECURITY) em todas as tabelas que possuem igreja_id",
+            "Funcao current_igreja_id() retorna o igreja_id do app_user correspondente ao clerk_user_id do contexto",
+            "Policy padrao de SELECT/INSERT/UPDATE/DELETE com USING (igreja_id = current_igreja_id()) e WITH CHECK equivalente",
+            "Tabela igrejas so permite SELECT do proprio registro (id = current_igreja_id()); gestao global apenas via service role"
+          ]
+        },
+        {
+          "id": "feat-003",
+          "name": "Triggers de state machine e automacoes",
+          "description": "Implementar os triggers da secao 2.3: trg_promote_pipeline, trg_link_cell_promote, trg_report_received_clears_queue, trg_decision_opens_consolidation, trg_consent_on_inbound, trg_subscription_autoupgrade, trg_set_updated_at.",
+          "acceptance_criteria": [
+            "trg_promote_pipeline avanca etapa/subetapa quando presencas_celula>=3 OU aceitou_jesus=true (visitante->membro)",
+            "trg_decision_opens_consolidation cria consolidacoes na insercao de decisions e, se vinculo=visitante, cria work_queue_items tipo conectar_celula com prazo now()+24h",
+            "trg_report_received_clears_queue resolve o work_queue_items tipo relatorio da celula/semana ao inserir report com status=recebido",
+            "trg_set_updated_at mantem updated_at em conversations e demais tabelas com a coluna"
+          ]
+        },
+        {
+          "id": "feat-004",
+          "name": "Seed da igreja piloto",
+          "description": "Inserir os dados de seed da secao 2.4: igreja piloto, app_user admin (Clerk do pastor) com user_roles {admin,pastor}, role_permissions default, agent_configs default, whatsapp_connections offline, subscriptions piloto e amostras de dominio.",
+          "acceptance_criteria": [
+            "Existe 1 igreja com status=ativa e plano=ate_100 como primeiro registro",
+            "Existe 1 app_user admin com user_roles contendo admin e pastor",
+            "role_permissions default libera dashboard para todos os papeis e telas G12 conforme regras (lider_celula: ganhar/central-celula/g12; lider_consol: consolidar/consol-individual)",
+            "Existem registros default de agent_configs, whatsapp_connections (offline) e subscriptions (ativa, limite 100)"
+          ]
+        }
+      ],
+      "hints": {
+        "existing_files": [
+          "docs/Docs20260611_163530/design/design-contract.json"
+        ],
+        "key_interfaces": [
+          "current_igreja_id()",
+          "enums: pessoas.etapa/subetapa/tipo/acompanhamento",
+          "work_queue_items.tipo",
+          "conversations.estado"
+        ],
+        "architecture_notes": "Fundacoes F1 (todo registro com igreja_id e RLS), F2 (maturidade = campo de estado governado por regras), F6 (pessoa unificada), F7 (pessoas.lider_id). Use migrations versionadas em backend/migrations. Esta sprint nao tem UI."
+      },
+      "dependencies": [],
+      "complexity": "high",
+      "estimated_rounds": 3,
+      "metadata": {
+        "touchesUI": false,
+        "affectedScreenIds": [],
+        "affectedComponentIds": [],
+        "designArtifactPath": null
+      }
+    },
+    {
+      "id": "sprint-002",
+      "index": 1,
+      "name": "Backend Core (FastAPI, Clerk Auth, Tenant Resolver, RBAC)",
+      "description": "Estrutura base do backend FastAPI: app principal, config/env, modelos ORM das tabelas, middleware de auth Clerk, resolucao de tenant (current_igreja_id no contexto RLS), RBAC require_role por papeis acumulados e endpoint api-login. Base para todos os routers seguintes.",
+      "coder_agent_id": "backend-developer",
+      "stack": [
+        "python",
+        "fastapi",
+        "supabase",
+        "clerk"
+      ],
+      "features": [
+        {
+          "id": "feat-005",
+          "name": "App FastAPI e modelos",
+          "description": "Criar app/main.py com CORS e mount de routers, app/config.py (settings/env conforme .env.example), app/db/session.py (client Supabase/Postgres) e app/db/models.py com os modelos das tabelas da secao 2.1.",
+          "acceptance_criteria": [
+            "App FastAPI sobe e expoe /health respondendo 200",
+            "config.py carrega variaveis de CLERK, SUPABASE, DATABASE_URL e SECRETS_ENCRYPTION_KEY",
+            "models.py mapeia as tabelas usadas pelos routers (pessoas, app_users, user_roles, role_permissions, igrejas)",
+            "Estrutura de pastas segue a secao 3.1 (app/routers, app/services, app/db, app/agent, app/workers)"
+          ]
+        },
+        {
+          "id": "feat-006",
+          "name": "Auth Clerk + Tenant resolver",
+          "description": "app/deps.py com validacao do JWT/sessao Clerk, populando current_user e clerk_user_id, e resolucao de current_igreja_id a partir de app_users injetando no contexto RLS do Postgres.",
+          "acceptance_criteria": [
+            "Requests sem token Clerk valido recebem 401",
+            "Token valido popula current_user com clerk_user_id e igreja_id resolvido de app_users",
+            "O igreja_id resolvido e injetado no contexto da sessao para que as policies RLS funcionem",
+            "Clerk autenticado sem app_user vinculado retorna erro claro (conta nao vinculada a igreja)"
+          ]
+        },
+        {
+          "id": "feat-007",
+          "name": "RBAC require_role e api-login",
+          "description": "Dependency require_role que revalida papeis acumulados (user_roles) por endpoint, e endpoint POST /auth/login retornando {token, churchId}. Config exige admin; login com credencial invalida nao revela existencia de e-mail.",
+          "acceptance_criteria": [
+            "require_role(['admin']) bloqueia (403) usuarios sem o papel; admin tem acesso implicito",
+            "Papeis sao carregados como uniao (acumulados) de user_roles do usuario",
+            "POST /auth/login responde {token, churchId} em sucesso e erro generico em credencial invalida sem distinguir e-mail valido",
+            "Igreja suspensa/inadimplente barra login com aviso de billing"
+          ]
+        }
+      ],
+      "hints": {
+        "existing_files": [
+          "backend/migrations (sprint-001)",
+          "docs/Docs20260611_163530/design/design-contract.json"
+        ],
+        "key_interfaces": [
+          "current_user",
+          "current_igreja_id()",
+          "require_role(papeis)",
+          "POST /auth/login -> {token, churchId}"
+        ],
+        "architecture_notes": "F4/delta-033: autorizacao revalidada no backend em todo endpoint (igreja_id + papel). Use as tabelas e a funcao current_igreja_id() criadas na sprint-001. Sem UI nesta sprint."
+      },
+      "dependencies": [
+        "sprint-001"
+      ],
+      "complexity": "high",
+      "estimated_rounds": 3,
+      "metadata": {
+        "touchesUI": false,
+        "affectedScreenIds": [],
+        "affectedComponentIds": [],
+        "designArtifactPath": null
+      }
+    },
+    {
+      "id": "sprint-003",
+      "index": 2,
+      "name": "Frontend Foundation + Login + Layout/Sidebar",
+      "description": "Setup do Next.js (PWA, mobile-first), tokens visuais da secao 4.4, layout com sidebar-nav montado pela uniao dos papeis, roteamento por hash e tela de login via Clerk SDK. Estabelece a casca visual consumida por todas as telas seguintes.",
+      "coder_agent_id": "nextjs-developer",
+      "stack": [
+        "nextjs",
+        "react",
+        "typescript",
+        "clerk"
+      ],
+      "features": [
+        {
+          "id": "feat-008",
+          "name": "Setup Next.js + tokens visuais",
+          "description": "Configurar projeto Next.js (PWA), aplicar tokens de cores oklch, tipografia, espacamento e radii da secao 4.4 como sistema de design global, fiel ao artifact HTML travado.",
+          "acceptance_criteria": [
+            "Projeto Next.js sobe com build sem erros e manifest PWA configurado",
+            "Tokens de cor (bg, surface, sidebar, fg, accent, ok/warn/danger) e radii definidos como variaveis CSS/tema",
+            "Layout base reproduz a direcao visual do artifact.html (zinc/off-white, acento teal, bordas hairline)",
+            "Componentes btn-primary e form-field implementados com seus estados (default/hover/loading/disabled e idle/focus/invalid/disabled)"
+          ]
+        },
+        {
+          "id": "feat-009",
+          "name": "Sidebar-nav e roteamento por hash",
+          "description": "Implementar sidebar-nav com grupos Gestao, Visao G12 e Configuracao (adminOnly), roteamento por hash (#rota) e montagem do menu pela uniao dos papeis acumulados, usando role_permissions como fonte de verdade.",
+          "acceptance_criteria": [
+            "sidebar-nav lista os itens dos grupos conforme secao 4.2 com estado default/active",
+            "Grupo Configuracao so aparece para papel admin",
+            "Navegacao por hash troca de tela sem reload e marca o item ativo",
+            "Itens de menu exibidos respeitam as telas liberadas em role_permissions"
+          ]
+        },
+        {
+          "id": "feat-010",
+          "name": "Tela de login (Clerk)",
+          "description": "Tela #login integrada ao Clerk SDK com estados idle/loading/error/success, consumindo api-login, redirecionando para #dashboard em sucesso.",
+          "acceptance_criteria": [
+            "Tela login renderiza form-field e btn-primary conforme artifact e dispara autenticacao via Clerk",
+            "Estados idle, loading, error e success implementados; erro mostra mensagem generica sem revelar e-mail",
+            "Sucesso redireciona para #dashboard; sessao expirada redireciona para #login preservando rota de retorno",
+            "Conta sem igreja vinculada ou igreja suspensa exibe mensagem de bloqueio adequada"
+          ]
+        }
+      ],
+      "hints": {
+        "existing_files": [
+          "docs/Docs20260611_163530/design/artifact.html",
+          "docs/Docs20260611_163530/design/design-contract.json",
+          "backend/app/routers/auth.py (sprint-002)"
+        ],
+        "key_interfaces": [
+          "POST /auth/login -> {token, churchId}",
+          "sidebar-nav",
+          "btn-primary",
+          "form-field"
+        ],
+        "architecture_notes": "Fonte visual oficial e o artifact.html travado; nao alterar direcao visual nem criar telas fora do lock. Menu = uniao dos papeis; permissoes vem de role_permissions (delta-010). O dashboard real e implementado na sprint-009; aqui basta a casca/rota."
+      },
+      "dependencies": [
+        "sprint-002"
+      ],
+      "complexity": "high",
+      "estimated_rounds": 3,
+      "metadata": {
+        "touchesUI": true,
+        "affectedScreenIds": [
+          "login"
+        ],
+        "affectedComponentIds": [
+          "btn-primary",
+          "form-field",
+          "sidebar-nav"
+        ],
+        "designArtifactPath": "docs/Docs20260611_163530/design/artifact.html",
+        "notes": "Esta sprint entrega apenas a casca/rota da #dashboard; a tela real e seus componentes (work-queue-item, stat-card, status-pill, deadline-badge) sao implementados na sprint-009."
+      }
+    },
+    {
+      "id": "sprint-004",
+      "index": 3,
+      "name": "Backend Dominio Pastoral (Pessoas, Celulas, Pipeline, Fila de Trabalho)",
+      "description": "Routers do nucleo pastoral: contatos/pessoas (modelo unificado), celulas e alertas, pipeline (etapa/subetapa), fila de trabalho (work_queue) e mensagem interna. Respeita dedupe por telefone+igreja e validacoes de papel.",
+      "coder_agent_id": "backend-developer",
+      "stack": [
+        "python",
+        "fastapi",
+        "supabase"
+      ],
+      "features": [
+        {
+          "id": "feat-011",
+          "name": "Contatos e vinculo de celula",
+          "description": "Endpoints api-contacts (GET /contacts), api-create-contact (POST /contacts) e api-link-cell (POST /contacts/{id}/cell) sobre pessoas, com dedupe por telefone+igreja e paginacao.",
+          "acceptance_criteria": [
+            "GET /contacts retorna pessoas do tenant com paginacao (RNF-09)",
+            "POST /contacts cria pessoa e nao duplica quando telefone+igreja ja existe (aponta o existente)",
+            "POST /contacts/{id}/cell vincula celula e bloqueia celula inativa/sem lider",
+            "Vincular celula dispara a transicao de acompanhamento (trigger trg_link_cell_promote)"
+          ]
+        },
+        {
+          "id": "feat-012",
+          "name": "Celulas, alertas e descendencias",
+          "description": "Endpoints api-cells (GET/POST /cells) e api-descendencias (GET /descendencias) usando celulas, cell_alerts e a hierarquia lider_id, com cobertura_espiritual obrigatoria.",
+          "acceptance_criteria": [
+            "GET /cells lista celulas do tenant; POST /cells cria/edita exigindo cobertura_espiritual nao vazio",
+            "Apenas lider da celula ou superior na hierarquia pode editar (delta-007)",
+            "GET /descendencias retorna a arvore de liderados a partir de pessoas.lider_id",
+            "cell_alerts sao retornados no detalhe da celula e marcam tratado=true ao serem baixados"
+          ]
+        },
+        {
+          "id": "feat-013",
+          "name": "Pipeline (etapa/subetapa)",
+          "description": "Endpoint api-pipeline (GET/PUT /pipeline) para promover/avancar pessoas conforme state machine, respeitando criterios de promocao.",
+          "acceptance_criteria": [
+            "PUT /pipeline {pessoaId,etapa,subetapa} -> {status,etapa} atualiza a pessoa respeitando regras F2",
+            "Promocao de visitante so e permitida quando presencas_celula>=3 ou aceitou_jesus=true",
+            "GET /pipeline retorna estagio das pessoas para alimentar telas ganhar/consolidar",
+            "Acao de fonovisita (action-queue-fonovisita) cria/atualiza work_queue_items tipo fonovisita"
+          ]
+        },
+        {
+          "id": "feat-014",
+          "name": "Fila de trabalho e mensagem interna",
+          "description": "Endpoints api-queue-action (POST /work-queue/{itemId}/action) e api-send-internal-message (POST /work-queue/{itemId}/message), com filtro por papel e tratamento de concorrencia (item ja resolvido).",
+          "acceptance_criteria": [
+            "POST /work-queue/{itemId}/action aceita action assume/assign e retorna {status}",
+            "Acao em item ja assumido/resolvido por outro usuario retorna conflito (stale) com estado real",
+            "Itens so sao listados/acionaveis por quem pode resolve-los (filtro por papel, delta-006)",
+            "POST /work-queue/{itemId}/message envia mensagem com prefixo 'Nome [papel]: mensagem' e retorna {status, messageId}"
+          ]
+        }
+      ],
+      "hints": {
+        "existing_files": [
+          "backend/app/deps.py (sprint-002)",
+          "backend/app/db/models.py (sprint-002)",
+          "backend/migrations (sprint-001)"
+        ],
+        "key_interfaces": [
+          "GET/POST /contacts",
+          "POST /contacts/{id}/cell",
+          "GET/POST /cells",
+          "GET/PUT /pipeline",
+          "POST /work-queue/{itemId}/action",
+          "POST /work-queue/{itemId}/message"
+        ],
+        "architecture_notes": "Use require_role e current_igreja_id da sprint-002. Os triggers de promocao/baixa de fila ja existem na sprint-001 — nao reimplemente a logica no app, dispare-a via UPDATE/INSERT. Sem UI nesta sprint."
+      },
+      "dependencies": [
+        "sprint-001",
+        "sprint-002"
+      ],
+      "complexity": "high",
+      "estimated_rounds": 3,
+      "metadata": {
+        "touchesUI": false,
+        "affectedScreenIds": [],
+        "affectedComponentIds": [],
+        "designArtifactPath": null
+      }
+    },
+    {
+      "id": "sprint-005",
+      "index": 4,
+      "name": "Backend Consolidacao, Decisoes e Multiplicacoes",
+      "description": "Routers do ciclo G12 avancado: lancamento de decisao por Jesus (que abre consolidacao), avanco de etapas da trilha individual com gate por consolidador, e multiplicacoes com aprovacao gateada por supervisao.",
+      "coder_agent_id": "backend-developer",
+      "stack": [
+        "python",
+        "fastapi",
+        "supabase"
+      ],
+      "features": [
+        {
+          "id": "feat-015",
+          "name": "Lancar decisao e abrir consolidacao",
+          "description": "Endpoint api-launch-decision (POST /consolidacao/decisao) que registra decisao e abre consolidacao; fluxo visitante define prazo de conexao de 24h.",
+          "acceptance_criteria": [
+            "POST /consolidacao/decisao {pessoa,origem,vinculo,celulaId} -> {status,consolidacaoId,etapa:'inicial',prazoConexao,responsavel}",
+            "vinculo=visitante cria work_queue_items conectar_celula com prazo now()+24h (via trigger)",
+            "vinculo=celula vincula celula no fluxo A sem prazo de 24h",
+            "Acesso restrito a lider_consol/admin/pastor"
+          ]
+        },
+        {
+          "id": "feat-016",
+          "name": "Avanco da trilha com gate por consolidador",
+          "description": "Endpoints sobre consolidacoes/consolidacao_etapas (via api-pipeline: assign-consolidador, advance-stage) com confirmacao de etapa apenas pelo responsavel_id.",
+          "acceptance_criteria": [
+            "Atribuir consolidador define responsavel_id na consolidacao",
+            "Confirmar etapa so e permitido ao responsavel_id (gate por identidade, delta-018); demais recebem 403",
+            "Concluir consolidacao e bloqueado se houver etapas obrigatorias pendentes",
+            "Progresso da consolidacao reflete etapas confirmadas"
+          ]
+        },
+        {
+          "id": "feat-017",
+          "name": "Multiplicacoes",
+          "description": "Endpoint api-multiplicacoes (GET/POST /multiplicacoes) para agendar e aprovar multiplicacoes, com aprovacao desabilitada quando supervisao_ok=false.",
+          "acceptance_criteria": [
+            "GET /multiplicacoes lista por status (agendada/sem_agendamento/aprovada/concluida)",
+            "POST agenda multiplicacao com data_prevista e novo_lider_id opcional",
+            "Aprovar multiplicacao retorna erro quando supervisao_ok=false (delta-027)",
+            "Aprovacao registra aprovada_por com o usuario autenticado"
+          ]
+        }
+      ],
+      "hints": {
+        "existing_files": [
+          "backend/app/routers/pipeline.py (sprint-004)",
+          "backend/app/deps.py (sprint-002)",
+          "backend/migrations (sprint-001)"
+        ],
+        "key_interfaces": [
+          "POST /consolidacao/decisao",
+          "GET/PUT /pipeline (assign-consolidador/advance-stage)",
+          "GET/POST /multiplicacoes"
+        ],
+        "architecture_notes": "trg_decision_opens_consolidation ja cria consolidacao e fila ao inserir decisions (sprint-001). Reaproveite o router pipeline da sprint-004. Gate de identidade do consolidador e regra de negocio obrigatoria. Sem UI."
+      },
+      "dependencies": [
+        "sprint-001",
+        "sprint-002",
+        "sprint-004"
+      ],
+      "complexity": "high",
+      "estimated_rounds": 3,
+      "metadata": {
+        "touchesUI": false,
+        "affectedScreenIds": [],
+        "affectedComponentIds": [],
+        "designArtifactPath": null
+      }
+    },
+    {
+      "id": "sprint-006",
+      "index": 5,
+      "name": "Backend WhatsApp, Conversas, Handoff e Worker",
+      "description": "Integracao Evolution API (conexao por QR), conversas e mensagens, handoff IA/humano, webhook de mensagens com validacao de assinatura e idempotencia, e worker de filas com reprocesso. Captura restrita ao numero oficial.",
+      "coder_agent_id": "backend-developer",
+      "stack": [
+        "python",
+        "fastapi",
+        "evolution-api",
+        "redis"
+      ],
+      "features": [
+        {
+          "id": "feat-018",
+          "name": "Conexao WhatsApp (Evolution API)",
+          "description": "Endpoint api-whatsapp-connection (GET/POST /whatsapp/connection) e service evolution.py para connect/reconnect retornando QR e status, mantendo 1 numero por igreja.",
+          "acceptance_criteria": [
+            "POST /whatsapp/connection {action:'connect|reconnect'} -> {status, qr}",
+            "GET /whatsapp/connection retorna numero, status (online/offline/reconectando) e ultima_sync",
+            "whatsapp_connections tem igreja_id UNIQUE (1 numero por igreja, RF-07); conflito sinalizado",
+            "Status muda no banco em queda/reconexao para refletir sem reload na UI"
+          ]
+        },
+        {
+          "id": "feat-019",
+          "name": "Conversas e handoff",
+          "description": "Endpoints api-conversations (GET /conversations) e api-conversation-handoff (POST /conversations/{id}/handoff) com estados ia/humano/aguardando e restricao de acesso a privilegiados.",
+          "acceptance_criteria": [
+            "GET /conversations lista conversas do tenant com estado, ultima_mensagem, nao_lidas e fila humana (espera_desde)",
+            "POST /conversations/{id}/handoff {to:'human|ia'} -> {estado}; assumir registra assumido_por/assumido_em",
+            "Lideres de celula recebem 403 ao acessar conversas/inbox (US-11)",
+            "Concorrencia no handoff retorna conflito refletindo assumido_por real"
+          ]
+        },
+        {
+          "id": "feat-020",
+          "name": "Webhook de mensagens e worker",
+          "description": "Webhook Evolution com validacao de assinatura, dedupe por telefone+igreja, worker de filas (queue_worker) com reprocesso e registro de messages somente do numero oficial.",
+          "acceptance_criteria": [
+            "Webhook valida assinatura e rejeita payloads invalidos",
+            "Mensagens recebidas nao geram contatos duplicados apos reconexao (idempotencia RNF-16)",
+            "Conversas pessoais fora do numero oficial nao sao registradas (US-07)",
+            "Falha temporaria no processamento e reprocessada pelo worker (RNF-17)"
+          ]
+        }
+      ],
+      "hints": {
+        "existing_files": [
+          "backend/app/deps.py (sprint-002)",
+          "backend/app/db/models.py (sprint-002)",
+          "backend/migrations (sprint-001)"
+        ],
+        "key_interfaces": [
+          "GET/POST /whatsapp/connection",
+          "GET /conversations",
+          "POST /conversations/{id}/handoff",
+          "app/services/evolution.py",
+          "app/workers/queue_worker.py"
+        ],
+        "architecture_notes": "trg_consent_on_inbound concede consentimento na 1a mensagem in de novo contato. Use REDIS_URL para a fila. O agente que responde no WhatsApp e a sprint-007; aqui foque em conexao, conversas, handoff e ingestao. Sem UI."
+      },
+      "dependencies": [
+        "sprint-001",
+        "sprint-002",
+        "sprint-004"
+      ],
+      "complexity": "high",
+      "estimated_rounds": 3,
+      "metadata": {
+        "touchesUI": false,
+        "affectedScreenIds": [],
+        "affectedComponentIds": [],
+        "designArtifactPath": null
+      }
+    },
+    {
+      "id": "sprint-007",
+      "index": 6,
+      "name": "Agente Orquestrador (LangGraph), LLM BYO e Tools",
+      "description": "Orquestrador LangGraph (ponto unico de entrada/saida no WhatsApp oficial) com sub-agentes intake/onboarding/report_capture/handoff/consent, credencial LLM BYO cifrada, tools com mesmas validacoes de humano e logs de IA. O assistente do painel e o motor de SLA/cron ficam na sprint-008.",
+      "coder_agent_id": "llm-architect",
+      "stack": [
+        "python",
+        "langgraph",
+        "openai",
+        "fastapi"
+      ],
+      "features": [
+        {
+          "id": "feat-021",
+          "name": "Orquestrador e sub-agentes",
+          "description": "Grafo LangGraph com Orquestrador supervisor e sub-agentes intake, onboarding, report_capture, handoff e consent. Sub-agentes nunca falam direto no WhatsApp; resposta unica sai pelo Orquestrador.",
+          "acceptance_criteria": [
+            "Orquestrador recebe toda mensagem do numero oficial, roteia por intencao/estado e emite resposta unica",
+            "intake cria/atualiza pessoas (nome+telefone, origem, primeiro_contato); onboarding coleta dados configuraveis e classifica contato/visitante",
+            "report_capture extrai relatorio (presentes, visitantes, decisoes, oferta) por texto/audio e abre consolidacao em decisao por Jesus",
+            "consent apresenta termo antes de coletar dados alem de nome+telefone; handoff suspende resposta automatica quando humano assume",
+            "consent grava consent_records com termo_versao e aceite_em ao aceitar o termo; nova versao do termo exige re-aceite antes de coletar dados (delta-040)",
+            "Pedido de opt-out via WhatsApp registra pessoas.optout=true (e consent_records correspondente), passando a excluir a pessoa de comunicados (US-32/RNF-06)"
+          ]
+        },
+        {
+          "id": "feat-022",
+          "name": "Credencial LLM BYO + tools + logs",
+          "description": "Endpoint api-llm-credential (POST /agent/credential) com chave cifrada e validacao, tools do agente (registrar decisao, marcar presenca, vincular celula, avancar trilha) e logs em ai_usage_logs/agent_conversation_logs.",
+          "acceptance_criteria": [
+            "POST /agent/credential {provedor,apiKey} -> {status}; chave cifrada e nunca exibida apos salvar (RNF-03)",
+            "Chave invalida nao ativa a credencial; agente nao opera sem credencial validada",
+            "Tools usam as mesmas funcoes/validacoes de um humano no escopo do tenant (F5)",
+            "Cada interacao registra modelo/tokens/custo em ai_usage_logs e evento em agent_conversation_logs com dados sensiveis mascarados"
+          ]
+        }
+      ],
+      "hints": {
+        "existing_files": [
+          "backend/app/workers/queue_worker.py (sprint-006)",
+          "backend/app/services/evolution.py (sprint-006)",
+          "backend/app/routers/pipeline.py (sprint-004/005)",
+          "backend/migrations (sprint-001)"
+        ],
+        "key_interfaces": [
+          "app/agent/graph.py",
+          "app/agent/nodes.py",
+          "app/agent/tools.py",
+          "POST /agent/credential"
+        ],
+        "architecture_notes": "delta-034: Orquestrador e o unico que fala no WhatsApp oficial; sub-agentes devolvem resultado a ele. Use AGENT_GRAPH_CHECKPOINT_URL para checkpoint. LLM e BYO por igreja (credencial cifrada). O assistente do painel (api-assistant) e o SLA/cron worker foram movidos para a sprint-008. Sem UI nesta sprint; reflexos aparecem em inbox/ganhar/relatorios."
+      },
+      "dependencies": [
+        "sprint-001",
+        "sprint-002",
+        "sprint-004",
+        "sprint-005",
+        "sprint-006"
+      ],
+      "complexity": "high",
+      "estimated_rounds": 3,
+      "metadata": {
+        "touchesUI": false,
+        "affectedScreenIds": [],
+        "affectedComponentIds": [],
+        "designArtifactPath": null
+      }
+    },
+    {
+      "id": "sprint-008",
+      "index": 7,
+      "name": "Assistente do Painel e Motor de SLA/Cron",
+      "description": "Assistente do painel web (api-assistant) ciente de papel/tenant, separado do Orquestrador do WhatsApp, e o motor de SLA + cron_worker que detectam prazos (relatorio 2h, conexao 12h, fonovisita 24h, Numero de Sonho UV) e disparam cobranca/escalonamento por WhatsApp. Sprint derivada do split da antiga sprint-007 (O5).",
+      "coder_agent_id": "llm-architect",
+      "stack": [
+        "python",
+        "fastapi",
+        "openai",
+        "redis"
+      ],
+      "features": [
+        {
+          "id": "feat-023",
+          "name": "Assistente do painel + SLA engine",
+          "description": "Endpoint api-assistant (POST /assistant/message) ciente de papel/tenant, e SLA engine + cron_worker que detectam prazos (relatorio 2h, conexao 12h, fonovisita 24h) e disparam cobranca/escalonamento por WhatsApp.",
+          "acceptance_criteria": [
+            "POST /assistant/message {tenantId,usuarioId,papeis,texto} -> {resposta,telasSugeridas}; sugere apenas telas permitidas ao papel",
+            "Assistente do painel e separado do Orquestrador do WhatsApp (canais distintos)",
+            "sla_engine detecta SLA estourando e dispara cobranca por WhatsApp; escalona lider sem resposta para coordenacao",
+            "cron_worker executa crons e gatilhos por estado conforme tabela crons"
+          ]
+        }
+      ],
+      "hints": {
+        "existing_files": [
+          "backend/app/agent/graph.py (sprint-007)",
+          "backend/app/agent/tools.py (sprint-007)",
+          "backend/app/services/evolution.py (sprint-006)",
+          "backend/app/routers/pipeline.py (sprint-004/005)",
+          "backend/migrations (sprint-001)"
+        ],
+        "key_interfaces": [
+          "POST /assistant/message -> {resposta, telasSugeridas}",
+          "app/services/sla_engine.py",
+          "app/workers/cron_worker.py"
+        ],
+        "architecture_notes": "O assistant-panel e separado do Orquestrador do WhatsApp (canais e publicos distintos). O SLA engine dispara cobranca via Evolution (sprint-006) e le prazos de work_queue/consolidacao (sprint-004/005). Usa a credencial LLM cifrada criada na sprint-007. Use AGENT_GRAPH_CHECKPOINT_URL/REDIS_URL conforme necessario. Sem UI; a UI do assistant-panel e a sprint-017."
+      },
+      "dependencies": [
+        "sprint-001",
+        "sprint-002",
+        "sprint-004",
+        "sprint-005",
+        "sprint-006",
+        "sprint-007"
+      ],
+      "complexity": "high",
+      "estimated_rounds": 2,
+      "metadata": {
+        "touchesUI": false,
+        "affectedScreenIds": [],
+        "affectedComponentIds": [],
+        "designArtifactPath": null
+      }
+    },
+    {
+      "id": "sprint-009",
+      "index": 8,
+      "name": "Backend Relatorios, Comunicados, Eventos e Equipe/Config",
+      "description": "Routers restantes: relatorios de celula, comunicados segmentados (consentimento/opt-out), eventos (Google Calendar), equipe/convites (Resend), permissoes, gerentes, assinatura (Asaas) e config do agente/crons.",
+      "coder_agent_id": "backend-developer",
+      "stack": [
+        "python",
+        "fastapi",
+        "asaas",
+        "resend",
+        "google-calendar"
+      ],
+      "features": [
+        {
+          "id": "feat-024",
+          "name": "Relatorios, comunicados e eventos",
+          "description": "Endpoints api-reports (GET /reports), api-broadcasts (POST /broadcasts) respeitando opt-out, e api-events (GET/POST /events) com sync Google Calendar.",
+          "acceptance_criteria": [
+            "GET /reports retorna relatorios por celula/semana com status recebido/pendente",
+            "POST /broadcasts {titulo,mensagem,segmentos,modo,agendamento} -> {status,enviados,ignoradosOptout,agendadoPara}; exclui opt-out/sem consentimento (RF-38)",
+            "POST /broadcasts com alcance 0 (todos opt-out) bloqueia envio com contagem de ignorados",
+            "GET/POST /events sincroniza com Google Calendar; falha de sync marca evento como nao sincronizado"
+          ]
+        },
+        {
+          "id": "feat-025",
+          "name": "Equipe, permissoes e gerentes",
+          "description": "Endpoints api-team-invite (POST /team/invite via Resend), api-team-roles (PUT /team/{usuarioId}/roles), api-role-perms (GET/PUT /roles/permissions) e api-system-managers (GET/POST/DELETE /system-managers).",
+          "acceptance_criteria": [
+            "POST /team/invite cria app_user status=convidado e envia link de ativacao via Resend; e-mail duplicado retorna erro",
+            "PUT /team/{usuarioId}/roles edita papeis acumulados; remover/rebaixar o ultimo admin e bloqueado",
+            "GET/PUT /roles/permissions le/atualiza a matriz papel x tela; dashboard nao pode ser removido",
+            "GET/POST/DELETE /system-managers gerencia operadores de sistema (papel_operacional)"
+          ]
+        },
+        {
+          "id": "feat-026",
+          "name": "Assinatura (Asaas) e config do agente",
+          "description": "Endpoints api-subscription (GET/POST /subscription com webhook Asaas), api-agent-config (PUT /agent/config) e api-crons (POST /agent/crons).",
+          "acceptance_criteria": [
+            "POST /subscription cria checkout Asaas com setup fee; webhook atualiza status (ativa/pendente/inadimplente)",
+            "Upgrade automatico por porte promove plano ao ultrapassar limite (trigger trg_subscription_autoupgrade) e notifica admin",
+            "PUT /agent/config salva comportamento/tom/publico-alvo/acessos; ativar agente exige credencial validada",
+            "POST /agent/crons valida o gatilho de estado antes de salvar"
+          ]
+        }
+      ],
+      "hints": {
+        "existing_files": [
+          "backend/app/deps.py (sprint-002)",
+          "backend/migrations (sprint-001)",
+          "backend/app/routers/agent.py (sprint-007)"
+        ],
+        "key_interfaces": [
+          "GET /reports",
+          "POST /broadcasts",
+          "GET/POST /events",
+          "POST /team/invite",
+          "PUT /team/{usuarioId}/roles",
+          "GET/PUT /roles/permissions",
+          "GET/POST /subscription",
+          "PUT /agent/config",
+          "POST /agent/crons"
+        ],
+        "architecture_notes": "Webhooks Asaas validam assinatura. Credencial LLM cifrada ja existe (sprint-007) — config do agente apenas referencia. role_permissions e a fonte de verdade do menu. Sem UI nesta sprint."
+      },
+      "dependencies": [
+        "sprint-001",
+        "sprint-002",
+        "sprint-004",
+        "sprint-007"
+      ],
+      "complexity": "high",
+      "estimated_rounds": 3,
+      "metadata": {
+        "touchesUI": false,
+        "affectedScreenIds": [],
+        "affectedComponentIds": [],
+        "designArtifactPath": null
+      }
+    },
+    {
+      "id": "sprint-010",
+      "index": 9,
+      "name": "Frontend Dashboard / Fila de Trabalho Pastoral",
+      "description": "Tela #dashboard com a fila de pendencias pastorais, acoes diretas, proximas acoes por responsavel, pendencias com prazo (deadline-badge), e stat-cards, consumindo a fila de trabalho e pipeline do backend.",
+      "coder_agent_id": "nextjs-developer",
+      "stack": [
+        "nextjs",
+        "react",
+        "typescript"
+      ],
+      "features": [
+        {
+          "id": "feat-027",
+          "name": "Fila de trabalho e acoes diretas",
+          "description": "Renderizar work-queue-item por tipo (visitante/atendimento/relatorio/conectar_celula/fonovisita) com acoes assumir/atribuir e conectar a celula.",
+          "acceptance_criteria": [
+            "Dashboard lista work-queue-items com titulo, contexto e responsavel; estados loading/empty/populated",
+            "Acoes assumir/atribuir chamam api-queue-action e atualizam o item; conflito mostra 'ja tratado por <usuario>'",
+            "Itens sem permissao para o papel atual nao sao listados (filtro por papel)",
+            "Acao conectar a celula consome api-link-cell e fonovisita consome api-pipeline"
+          ]
+        },
+        {
+          "id": "feat-028",
+          "name": "Prazos e stat-cards",
+          "description": "Exibir deadline-badge (dentro/alerta/atrasado) reordenando por prioridade e stat-cards de visao geral.",
+          "acceptance_criteria": [
+            "deadline-badge transiciona dentro->alerta->atrasado sem reload e reordena por prioridade",
+            "stat-cards exibem indicadores com estado normal/alert",
+            "Falha ao carregar a fila exibe banner de erro com 'tentar novamente' mantendo ultimo conteudo",
+            "Mensagem interna na fila usa api-send-internal-message"
+          ]
+        }
+      ],
+      "hints": {
+        "existing_files": [
+          "docs/Docs20260611_163530/design/artifact.html",
+          "app de frontend (sprint-003)",
+          "backend work-queue (sprint-004)"
+        ],
+        "key_interfaces": [
+          "work-queue-item",
+          "stat-card",
+          "status-pill",
+          "deadline-badge",
+          "POST /work-queue/{itemId}/action",
+          "POST /work-queue/{itemId}/message",
+          "POST /contacts/{id}/cell"
+        ],
+        "architecture_notes": "Reaproveite a casca/sidebar da sprint-003 e os tokens visuais. O assistant-panel desta tela e implementado na sprint-017. Fiel ao artifact.html."
+      },
+      "dependencies": [
+        "sprint-003",
+        "sprint-004"
+      ],
+      "complexity": "high",
+      "estimated_rounds": 3,
+      "metadata": {
+        "touchesUI": true,
+        "affectedScreenIds": [
+          "dashboard"
+        ],
+        "affectedComponentIds": [
+          "work-queue-item",
+          "stat-card",
+          "status-pill",
+          "deadline-badge",
+          "sidebar-nav"
+        ],
+        "designArtifactPath": "docs/Docs20260611_163530/design/artifact.html"
+      }
+    },
+    {
+      "id": "sprint-011",
+      "index": 10,
+      "name": "Frontend Contatos & Visitantes (Ganhar)",
+      "description": "Telas #ganhar (novos-contatos/visitantes) e #contatos (list/detail) com data-table, tabs, criacao/edicao de contato, vinculo de celula e promocao de visitante respeitando criterios.",
+      "coder_agent_id": "nextjs-developer",
+      "stack": [
+        "nextjs",
+        "react",
+        "typescript"
+      ],
+      "features": [
+        {
+          "id": "feat-029",
+          "name": "Ganhar (novos contatos e visitantes)",
+          "description": "Tela #ganhar com tabs novos-contatos/visitantes em data-table, status-pill e empty-state, consumindo api-contacts e api-pipeline.",
+          "acceptance_criteria": [
+            "#ganhar lista contatos por aba (novos-contatos, visitantes) com data-table e estados loading/empty/populated",
+            "Promover visitante chama api-pipeline e fica desabilitado com tooltip quando presencas<3 e nao aceitou Jesus",
+            "Abrir contato navega para o detalhe (deep-link #contatos)",
+            "status-pill reflete etapa/acompanhamento de cada pessoa"
+          ]
+        },
+        {
+          "id": "feat-030",
+          "name": "Contatos (lista e detalhe)",
+          "description": "Tela #contatos com lista e detalhe, criacao de contato (form-field/btn-primary) e vinculo de celula.",
+          "acceptance_criteria": [
+            "#contatos exibe list e detail com dados de pessoas; empty-state quando vazio",
+            "Novo contato usa api-create-contact; telefone duplicado aponta contato existente sem criar duplicado",
+            "Vincular celula usa api-link-cell e bloqueia celula inativa/sem lider",
+            "Falha ao salvar mantem formulario preenchido com erro inline"
+          ]
+        }
+      ],
+      "hints": {
+        "existing_files": [
+          "docs/Docs20260611_163530/design/artifact.html",
+          "frontend (sprint-003)",
+          "backend contatos/pipeline (sprint-004)"
+        ],
+        "key_interfaces": [
+          "data-table",
+          "tabs",
+          "status-pill",
+          "empty-state",
+          "form-field",
+          "btn-primary",
+          "GET/POST /contacts",
+          "POST /contacts/{id}/cell",
+          "PUT /pipeline"
+        ],
+        "architecture_notes": "#contatos e tela legada (deep-link, fora do menu - delta-012). assistant-panel destas telas vem na sprint-017. Fiel ao artifact.html."
+      },
+      "dependencies": [
+        "sprint-003",
+        "sprint-004"
+      ],
+      "complexity": "medium",
+      "estimated_rounds": 2,
+      "metadata": {
+        "touchesUI": true,
+        "affectedScreenIds": [
+          "ganhar",
+          "contatos"
+        ],
+        "affectedComponentIds": [
+          "data-table",
+          "tabs",
+          "status-pill",
+          "empty-state",
+          "btn-primary",
+          "form-field"
+        ],
+        "designArtifactPath": "docs/Docs20260611_163530/design/artifact.html"
+      }
+    },
+    {
+      "id": "sprint-012",
+      "index": 11,
+      "name": "Frontend Celulas, G12 e Enviar (Discipular/Enviar)",
+      "description": "Telas #celulas (list/detail), #g12 (organograma de descendencias) e #enviar (multiplicacoes/aptos/aprovacao/historico), consumindo cells, descendencias e multiplicacoes.",
+      "coder_agent_id": "nextjs-developer",
+      "stack": [
+        "nextjs",
+        "react",
+        "typescript"
+      ],
+      "features": [
+        {
+          "id": "feat-031",
+          "name": "Celulas (lista e detalhe)",
+          "description": "Tela #celulas com data-table, stat-card e tabs; criar/editar celula com cobertura_espiritual obrigatoria.",
+          "acceptance_criteria": [
+            "#celulas lista celulas e abre detalhe com membros/visitantes e alertas; estados loading/empty/detail",
+            "Criar/editar celula usa api-cells e exige cobertura_espiritual preenchida",
+            "Edicao restrita a lider da celula ou superior; demais sem acao de editar",
+            "Alertas sobre liderados aparecem no detalhe e podem ser marcados como tratados"
+          ]
+        },
+        {
+          "id": "feat-032",
+          "name": "G12 (organograma)",
+          "description": "Tela #g12 com organograma de descendencias consumindo api-descendencias.",
+          "acceptance_criteria": [
+            "#g12 renderiza a arvore de descendencias a partir de lider_id",
+            "Descendencia vazia/sem liderados exibe empty-state",
+            "Abrir descendencia mostra detalhe do ramo selecionado",
+            "Estados loading/empty/organograma/descendencia implementados"
+          ]
+        },
+        {
+          "id": "feat-033",
+          "name": "Enviar (multiplicacoes)",
+          "description": "Tela #enviar com tabs agendadas/sem-agendamento/aptos/historico, agendar e aprovar multiplicacao com gate de supervisao.",
+          "acceptance_criteria": [
+            "#enviar lista multiplicacoes por aba consumindo api-multiplicacoes",
+            "Agendar multiplicacao usa POST /multiplicacoes; sem-agendamento destaca pendencia de data prevista",
+            "Botao aprovar fica desabilitado com motivo quando supervisao_ok=false (delta-027)",
+            "Aba aptos lista pessoas aptas a liderar"
+          ]
+        }
+      ],
+      "hints": {
+        "existing_files": [
+          "docs/Docs20260611_163530/design/artifact.html",
+          "frontend (sprint-003)",
+          "backend cells/descendencias (sprint-004)",
+          "backend multiplicacoes (sprint-005)"
+        ],
+        "key_interfaces": [
+          "data-table",
+          "stat-card",
+          "tabs",
+          "btn-primary",
+          "GET/POST /cells",
+          "GET /descendencias",
+          "GET/POST /multiplicacoes"
+        ],
+        "architecture_notes": "#celulas e tela legada (deep-link). #g12 e #enviar pertencem ao grupo Visao G12. assistant-panel vem na sprint-017. Fiel ao artifact.html."
+      },
+      "dependencies": [
+        "sprint-003",
+        "sprint-004",
+        "sprint-005"
+      ],
+      "complexity": "high",
+      "estimated_rounds": 3,
+      "metadata": {
+        "touchesUI": true,
+        "affectedScreenIds": [
+          "celulas",
+          "g12",
+          "enviar"
+        ],
+        "affectedComponentIds": [
+          "data-table",
+          "stat-card",
+          "tabs",
+          "btn-primary",
+          "form-field"
+        ],
+        "designArtifactPath": "docs/Docs20260611_163530/design/artifact.html"
+      }
+    },
+    {
+      "id": "sprint-013",
+      "index": 12,
+      "name": "Frontend Consolidacao (Consolidar / Individual) e Trilhas Bloqueadas",
+      "description": "Telas #consolidar (dashboard restrito, fila, lancar decisao, 100% consolidadas) e #consol-individual (1:1, avancar etapas/concluir) com decision-modal e deadline-badge, alem dos placeholders bloqueados #universidade-vida e #capacitacao.",
+      "coder_agent_id": "nextjs-developer",
+      "stack": [
+        "nextjs",
+        "react",
+        "typescript"
+      ],
+      "features": [
+        {
+          "id": "feat-034",
+          "name": "Consolidar (dashboard restrito + decisao)",
+          "description": "Tela #consolidar com fila, estado 100-consolidadas e decision-modal (fluxo celula/visitante), restrita a lider_consol/admin/pastor.",
+          "acceptance_criteria": [
+            "#consolidar so abre para lider_consol/admin/pastor; demais veem acesso negado",
+            "decision-modal lanca decisao via api-launch-decision com fluxo celula-flow ou visitante-flow (prazo 24h)",
+            "Fluxo A sem celula disponivel impede concluir celula-flow e sugere visitante-flow",
+            "deadline-badge marca prazos de 24h como atrasado e destaca itens escalados; estados loading/empty/fila/100-consolidadas"
+          ]
+        },
+        {
+          "id": "feat-035",
+          "name": "Consolidacao individual",
+          "description": "Tela #consol-individual com fila e detalhe, avanco de etapas e conclusao com gate por consolidador.",
+          "acceptance_criteria": [
+            "#consol-individual mostra fila e detalhe com etapas da trilha (api-pipeline)",
+            "Confirmar etapa so funciona para o consolidador responsavel; demais recebem bloqueio",
+            "Concluir consolidacao e bloqueado se houver etapas obrigatorias pendentes",
+            "Lancar decisao na tela usa api-launch-decision"
+          ]
+        },
+        {
+          "id": "feat-036",
+          "name": "Trilhas bloqueadas (UV e Capacitacao)",
+          "description": "Placeholders #universidade-vida e #capacitacao no estado locked-em-breve, presentes no menu mas sem navegar para conteudo.",
+          "acceptance_criteria": [
+            "#universidade-vida e #capacitacao exibem estado locked-em-breve com simbolo de relogio/cinza",
+            "As telas aparecem no menu Visao G12 mas nao navegam para conteudo operacional",
+            "Nenhuma chamada de API operacional e feita a partir delas",
+            "Visual fiel ao estado locked do artifact.html"
+          ]
+        }
+      ],
+      "hints": {
+        "existing_files": [
+          "docs/Docs20260611_163530/design/artifact.html",
+          "frontend (sprint-003)",
+          "backend consolidacao/decisoes (sprint-005)"
+        ],
+        "key_interfaces": [
+          "data-table",
+          "deadline-badge",
+          "decision-modal",
+          "status-pill",
+          "POST /consolidacao/decisao",
+          "GET/PUT /pipeline"
+        ],
+        "architecture_notes": "UV/Capacitacao BLOQUEADAS no MVP (delta-019/028) — apenas placeholder. Gate de identidade do consolidador e regra ja garantida no backend; reflita o bloqueio na UI. assistant-panel vem na sprint-017."
+      },
+      "dependencies": [
+        "sprint-003",
+        "sprint-005"
+      ],
+      "complexity": "high",
+      "estimated_rounds": 3,
+      "metadata": {
+        "touchesUI": true,
+        "affectedScreenIds": [
+          "consolidar",
+          "consol-individual",
+          "universidade-vida",
+          "capacitacao"
+        ],
+        "affectedComponentIds": [
+          "data-table",
+          "deadline-badge",
+          "decision-modal",
+          "status-pill"
+        ],
+        "designArtifactPath": "docs/Docs20260611_163530/design/artifact.html"
+      }
+    },
+    {
+      "id": "sprint-014",
+      "index": 13,
+      "name": "Frontend Inbox & Conexao WhatsApp",
+      "description": "Tela #inbox (conversas, fila humana, thread IA/humano/aguardando, handoff) e tela #whatsapp (QR, status, reconexao em tempo real), consumindo conversas, handoff e conexao do backend.",
+      "coder_agent_id": "nextjs-developer",
+      "stack": [
+        "nextjs",
+        "react",
+        "typescript"
+      ],
+      "features": [
+        {
+          "id": "feat-037",
+          "name": "Inbox e handoff",
+          "description": "Tela #inbox com conversation-list, conversation-thread (ia-active/human/waiting) e acoes assumir/devolver para IA, restrita a privilegiados.",
+          "acceptance_criteria": [
+            "#inbox lista conversas (conversation-list) e abre thread com estados thread-ia-active/thread-human/thread-waiting; empty-state quando vazio",
+            "Assumir chama api-conversation-handoff (to=human) e Devolver (to=ia); conflito reflete assumido_por real",
+            "Lider de celula via deep-link recebe bloqueio de acesso (US-11)",
+            "WhatsApp offline/reconectando mostra banner de degradacao e desabilita envio"
+          ]
+        },
+        {
+          "id": "feat-038",
+          "name": "Conexao WhatsApp (QR)",
+          "description": "Tela #whatsapp com qr-connect e status-pill nos estados connected/disconnected/reconnecting, consumindo api-whatsapp-connection (admin only).",
+          "acceptance_criteria": [
+            "#whatsapp exibe qr-connect e status (connected/disconnected/reconnecting) consumindo a conexao",
+            "Conectar/reconectar usa api-whatsapp-connection; status muda sem recarregar a pagina",
+            "QR expirado regenera automaticamente com aviso; conflito de numero ja conectado e sinalizado",
+            "Tela restrita ao papel admin"
+          ]
+        }
+      ],
+      "hints": {
+        "existing_files": [
+          "docs/Docs20260611_163530/design/artifact.html",
+          "frontend (sprint-003)",
+          "backend whatsapp/conversations (sprint-006)"
+        ],
+        "key_interfaces": [
+          "conversation-list",
+          "conversation-thread",
+          "qr-connect",
+          "status-pill",
+          "empty-state",
+          "GET /conversations",
+          "POST /conversations/{id}/handoff",
+          "GET/POST /whatsapp/connection"
+        ],
+        "architecture_notes": "Atualizacao de status em tempo real (polling/realtime) sem reload. assistant-panel do inbox vem na sprint-017. Fiel ao artifact.html."
+      },
+      "dependencies": [
+        "sprint-003",
+        "sprint-006"
+      ],
+      "complexity": "high",
+      "estimated_rounds": 3,
+      "metadata": {
+        "touchesUI": true,
+        "affectedScreenIds": [
+          "inbox",
+          "whatsapp"
+        ],
+        "affectedComponentIds": [
+          "conversation-list",
+          "conversation-thread",
+          "status-pill",
+          "empty-state",
+          "qr-connect"
+        ],
+        "designArtifactPath": "docs/Docs20260611_163530/design/artifact.html"
+      }
+    },
+    {
+      "id": "sprint-015",
+      "index": 14,
+      "name": "Frontend Relatorios, Central-Celula, Comunicados e Calendario",
+      "description": "Telas #relatorios (recebidos/pendentes), #central-celula (lideres, relatorios, comunicar lideres), #comunicados (segmentado com consentimento/opt-out) e #calendario (Google Calendar).",
+      "coder_agent_id": "nextjs-developer",
+      "stack": [
+        "nextjs",
+        "react",
+        "typescript"
+      ],
+      "features": [
+        {
+          "id": "feat-039",
+          "name": "Relatorios e Central-Celula",
+          "description": "Tela #relatorios (data-table, tabs, status-pill, estados received/pending) e #central-celula (lideres + relatorios + comunicar lideres) consumindo api-reports e api-broadcasts.",
+          "acceptance_criteria": [
+            "#relatorios lista relatorios com status recebido/pendente e abre detalhe (api-reports)",
+            "Relatorio pendente estourando SLA muda status-pill warn->danger e realca a acao na fila",
+            "#central-celula mostra lideres e relatorios, e comunicar lideres usa api-broadcasts",
+            "Cobrar relatorio (charge-report) dispara a acao correspondente"
+          ]
+        },
+        {
+          "id": "feat-040",
+          "name": "Comunicados (segmentado)",
+          "description": "Tela #comunicados com passos compose/segment/review respeitando opt-out, toggle-switch e data-table de destinatarios.",
+          "acceptance_criteria": [
+            "#comunicados percorre compose->segment->review consumindo api-broadcasts",
+            "Alcance 0 (todos opt-out/sem consentimento) bloqueia envio com contagem de ignorados",
+            "Agendamento no passado e bloqueado; WhatsApp offline impede envio 'agora' e sugere agendar",
+            "Segmento sem pessoas avisa no passo segment; empty-state quando sem comunicados"
+          ]
+        },
+        {
+          "id": "feat-041",
+          "name": "Calendario",
+          "description": "Tela #calendario com calendar-month, criacao de evento (form-field/btn-primary) e sync Google Calendar.",
+          "acceptance_criteria": [
+            "#calendario exibe calendar-month com eventos do mes; empty-state quando sem eventos",
+            "Novo evento usa api-events e aparece no mes",
+            "Falha de sync/token Google expirado mostra banner 'calendario desconectado' com CTA reconectar, mantendo eventos locais",
+            "Evento salvo local mas com falha no Google e marcado como nao sincronizado com re-tentar"
+          ]
+        }
+      ],
+      "hints": {
+        "existing_files": [
+          "docs/Docs20260611_163530/design/artifact.html",
+          "frontend (sprint-003)",
+          "backend reports/broadcasts/events (sprint-009)"
+        ],
+        "key_interfaces": [
+          "data-table",
+          "tabs",
+          "status-pill",
+          "empty-state",
+          "form-field",
+          "toggle-switch",
+          "calendar-month",
+          "btn-primary",
+          "GET /reports",
+          "POST /broadcasts",
+          "GET/POST /events"
+        ],
+        "architecture_notes": "#relatorios e tela legada (deep-link). Opt-out/consentimento sao regras ja aplicadas no backend (sprint-009); reflita os bloqueios na UI. Fiel ao artifact.html."
+      },
+      "dependencies": [
+        "sprint-003",
+        "sprint-009"
+      ],
+      "complexity": "high",
+      "estimated_rounds": 3,
+      "metadata": {
+        "touchesUI": true,
+        "affectedScreenIds": [
+          "relatorios",
+          "central-celula",
+          "comunicados",
+          "calendario"
+        ],
+        "affectedComponentIds": [
+          "data-table",
+          "tabs",
+          "status-pill",
+          "empty-state",
+          "form-field",
+          "toggle-switch",
+          "calendar-month",
+          "btn-primary"
+        ],
+        "designArtifactPath": "docs/Docs20260611_163530/design/artifact.html"
+      }
+    },
+    {
+      "id": "sprint-016",
+      "index": 15,
+      "name": "Frontend Equipe, Permissoes, Gerentes, Assinatura e Agente",
+      "description": "Telas de configuracao (admin only): #equipe (convidar/editar papeis), #permissoes (matriz papel x tela em tempo real), #gerentes (operadores), #assinatura (contratar/status/upgrade) e #agente (credencial LLM, comportamento, crons).",
+      "coder_agent_id": "nextjs-developer",
+      "stack": [
+        "nextjs",
+        "react",
+        "typescript"
+      ],
+      "features": [
+        {
+          "id": "feat-042",
+          "name": "Equipe, Permissoes e Gerentes",
+          "description": "Telas #equipe (list/invite/edit-roles), #permissoes (matrix/saved) e #gerentes (list/invite) consumindo api-team-*, api-role-perms e api-system-managers.",
+          "acceptance_criteria": [
+            "#equipe convida (api-team-invite) e edita papeis acumulados (api-team-roles); e-mail duplicado e remover ultimo admin sao bloqueados",
+            "#permissoes mostra matriz papel x tela com toggle; alterar reflete em menu/dashboard em tempo real apos saved",
+            "Remover dashboard da matriz e bloqueado (garantido a todos)",
+            "#gerentes adiciona/remove operadores (api-system-managers)"
+          ]
+        },
+        {
+          "id": "feat-043",
+          "name": "Assinatura",
+          "description": "Tela #assinatura com stat-card, tabs, status-pill nos estados active/past-due/plans, consumindo api-subscription.",
+          "acceptance_criteria": [
+            "#assinatura exibe status active/past-due/plans com stat-card e status-pill",
+            "Contratar plano usa api-subscription (checkout Asaas com setup fee); pagamento pendente mostra 'aguardando confirmacao' sem liberar acesso",
+            "Inadimplente exibe past-due com CTA de regularizacao",
+            "Upgrade automatico por porte reflete novo plano/limite no stat-card; acesso restrito a admin"
+          ]
+        },
+        {
+          "id": "feat-044",
+          "name": "Agente IA",
+          "description": "Tela #agente com tabs behavior/credential/crons, toggle-switch e form-field, consumindo api-llm-credential, api-agent-config e api-crons.",
+          "acceptance_criteria": [
+            "#agente salva credencial LLM (api-llm-credential); chave nunca exibida apos salvar e invalida nao ativa",
+            "Salvar comportamento usa api-agent-config; ativar agente sem credencial validada e bloqueado",
+            "Configurar cron usa api-crons; gatilho de estado invalido e validado antes de salvar",
+            "Tela restrita ao papel admin"
+          ]
+        }
+      ],
+      "hints": {
+        "existing_files": [
+          "docs/Docs20260611_163530/design/artifact.html",
+          "frontend (sprint-003)",
+          "backend equipe/permissoes/assinatura/agente (sprint-009)"
+        ],
+        "key_interfaces": [
+          "data-table",
+          "form-field",
+          "toggle-switch",
+          "btn-primary",
+          "tabs",
+          "stat-card",
+          "status-pill",
+          "POST /team/invite",
+          "PUT /team/{usuarioId}/roles",
+          "GET/PUT /roles/permissions",
+          "GET/POST /subscription",
+          "POST /agent/credential",
+          "PUT /agent/config",
+          "POST /agent/crons"
+        ],
+        "architecture_notes": "Grupo Configuracao e adminOnly (delta-005). permissoes e a fonte de verdade do menu — atualizacao em tempo real (delta-010). Fiel ao artifact.html."
+      },
+      "dependencies": [
+        "sprint-003",
+        "sprint-009"
+      ],
+      "complexity": "high",
+      "estimated_rounds": 3,
+      "metadata": {
+        "touchesUI": true,
+        "affectedScreenIds": [
+          "equipe",
+          "permissoes",
+          "gerentes",
+          "assinatura",
+          "agente"
+        ],
+        "affectedComponentIds": [
+          "data-table",
+          "form-field",
+          "toggle-switch",
+          "btn-primary",
+          "tabs",
+          "stat-card",
+          "status-pill"
+        ],
+        "designArtifactPath": "docs/Docs20260611_163530/design/artifact.html"
+      }
+    },
+    {
+      "id": "sprint-017",
+      "index": 16,
+      "name": "Frontend Assistente do Sistema (assistant-panel)",
+      "description": "Componente assistant-panel (overlay) ciente de papel/tenant integrado as telas operacionais (dashboard, inbox, contatos, celulas, consolidar, consol-individual, ganhar, g12, enviar, agente, equipe, permissoes, assinatura), consumindo api-assistant.",
+      "coder_agent_id": "nextjs-developer",
+      "stack": [
+        "nextjs",
+        "react",
+        "typescript"
+      ],
+      "features": [
+        {
+          "id": "feat-045",
+          "name": "Assistant-panel ciente de papel",
+          "description": "Overlay assistant-panel com estados closed/open/thinking, integrado as telas que o usam, consumindo api-assistant.",
+          "acceptance_criteria": [
+            "assistant-panel abre/fecha em todas as telas listadas em usedInScreenIds com estados closed/open/thinking",
+            "Enviar mensagem usa api-assistant e exibe resposta + telasSugeridas; sauda citando os papeis do usuario",
+            "Sugere apenas telas permitidas ao papel (delta-023); restrito ao tenant",
+            "Sem credencial LLM / indisponivel / timeout mostra 'assistente indisponivel' sem quebrar a tela"
+          ]
+        }
+      ],
+      "hints": {
+        "existing_files": [
+          "docs/Docs20260611_163530/design/artifact.html",
+          "frontend telas (sprints 010-016)",
+          "backend assistant (sprint-008)"
+        ],
+        "key_interfaces": [
+          "assistant-panel",
+          "POST /assistant/message -> {resposta, telasSugeridas}"
+        ],
+        "architecture_notes": "O assistant-panel e separado do Orquestrador do WhatsApp (canais distintos) e consome o api-assistant criado na sprint-008. Integre o overlay nas telas ja construidas sem alterar seus layouts. Fiel ao artifact.html."
+      },
+      "dependencies": [
+        "sprint-008",
+        "sprint-010",
+        "sprint-011",
+        "sprint-012",
+        "sprint-013",
+        "sprint-014",
+        "sprint-015",
+        "sprint-016"
+      ],
+      "complexity": "medium",
+      "estimated_rounds": 2,
+      "metadata": {
+        "touchesUI": true,
+        "affectedScreenIds": [
+          "dashboard",
+          "inbox",
+          "contatos",
+          "celulas",
+          "consolidar",
+          "consol-individual",
+          "ganhar",
+          "g12",
+          "enviar",
+          "agente",
+          "equipe",
+          "permissoes",
+          "assinatura"
+        ],
+        "affectedComponentIds": [
+          "assistant-panel"
+        ],
+        "designArtifactPath": "docs/Docs20260611_163530/design/artifact.html"
+      }
+    }
+  ],
+  "metadata": {
+    "version": 2,
+    "created_at": "2026-06-13T10:56:38.942Z",
+    "updated_at": "2026-06-13T00:00:00.000Z",
+    "total_sprints": 17,
+    "total_features": 45
+  }
+}

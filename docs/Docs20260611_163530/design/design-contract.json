@@ -1,0 +1,3914 @@
+{
+  "version": "1.0",
+  "project": "PastorAI-1.0",
+  "visual": {
+    "direction": "Software web claro, modern-minimal + tech utilitario; base zinc/off-white quente, acento teal dessaturado unico, numeros tabulares, bordas hairline, sem serif e sem preto puro",
+    "density": "balanced",
+    "tokens": {
+      "colors": {
+        "bg": "oklch(98.6% 0.003 95)",
+        "surface": "oklch(100% 0 0)",
+        "sidebar": "oklch(21% 0.012 200)",
+        "fg": "oklch(24% 0.01 90)",
+        "muted": "oklch(52% 0.012 90)",
+        "border": "oklch(91% 0.005 95)",
+        "accent": "oklch(52% 0.078 195)",
+        "ok": "oklch(56% 0.09 155)",
+        "warn": "oklch(64% 0.11 75)",
+        "danger": "oklch(56% 0.13 25)"
+      },
+      "typography": {
+        "display": "system-ui (-apple-system / Segoe UI)",
+        "body": "system-ui (-apple-system / Segoe UI)",
+        "mono": "ui-monospace / JetBrains Mono"
+      },
+      "spacing": {
+        "xs": "4px",
+        "sm": "8px",
+        "md": "12px",
+        "lg": "16px",
+        "xl": "24px",
+        "2xl": "32px"
+      },
+      "radii": {
+        "sm": "6px",
+        "md": "10px",
+        "lg": "14px",
+        "xl": "20px"
+      }
+    }
+  },
+  "navigation": {
+    "primary": [
+      {
+        "id": "nav-dashboard",
+        "label": "Dashboard",
+        "group": "Gestao",
+        "targetScreenId": "dashboard",
+        "userStoryIds": [
+          "US-15",
+          "US-16",
+          "US-17",
+          "US-26"
+        ]
+      },
+      {
+        "id": "nav-inbox",
+        "label": "Chat (WhatsApp da Igreja)",
+        "group": "Gestao",
+        "targetScreenId": "inbox",
+        "userStoryIds": [
+          "US-08",
+          "US-11",
+          "US-12",
+          "US-13",
+          "US-14"
+        ]
+      },
+      {
+        "id": "nav-ganhar",
+        "label": "Ganhar",
+        "group": "Visao G12",
+        "stage": "ganhar",
+        "targetScreenId": "ganhar",
+        "userStoryIds": [
+          "US-09",
+          "US-10",
+          "US-18",
+          "US-19",
+          "US-20"
+        ]
+      },
+      {
+        "id": "nav-consolidar",
+        "label": "Consolidar",
+        "group": "Visao G12",
+        "stage": "consolidar",
+        "targetScreenId": "consolidar",
+        "userStoryIds": [
+          "US-18",
+          "US-19",
+          "US-20"
+        ]
+      },
+      {
+        "id": "nav-consol-individual",
+        "label": "Consolidacao Individual",
+        "group": "Visao G12",
+        "stage": "consolidar",
+        "targetScreenId": "consol-individual",
+        "userStoryIds": [
+          "US-18",
+          "US-19"
+        ]
+      },
+      {
+        "id": "nav-universidade-vida",
+        "label": "Universidade da Vida",
+        "group": "Visao G12",
+        "stage": "consolidar",
+        "targetScreenId": "universidade-vida",
+        "userStoryIds": [
+          "US-18",
+          "US-19"
+        ]
+      },
+      {
+        "id": "nav-capacitacao",
+        "label": "Capacitacao Destino",
+        "group": "Visao G12",
+        "stage": "discipular",
+        "targetScreenId": "capacitacao",
+        "userStoryIds": [
+          "US-18",
+          "US-19"
+        ]
+      },
+      {
+        "id": "nav-g12",
+        "label": "G12 · Descendencias",
+        "group": "Visao G12",
+        "stage": "discipular",
+        "targetScreenId": "g12",
+        "userStoryIds": [
+          "US-21",
+          "US-22",
+          "US-23"
+        ]
+      },
+      {
+        "id": "nav-central-celula",
+        "label": "Central de Celula",
+        "group": "Visao G12",
+        "stage": "discipular",
+        "targetScreenId": "central-celula",
+        "userStoryIds": [
+          "US-21",
+          "US-22",
+          "US-23",
+          "US-24",
+          "US-25",
+          "US-26"
+        ]
+      },
+      {
+        "id": "nav-enviar",
+        "label": "Enviar",
+        "group": "Visao G12",
+        "stage": "enviar",
+        "targetScreenId": "enviar",
+        "userStoryIds": [
+          "US-21",
+          "US-22",
+          "US-23"
+        ]
+      },
+      {
+        "id": "nav-calendario",
+        "label": "Agenda da Igreja",
+        "group": "Gestao",
+        "targetScreenId": "calendario",
+        "userStoryIds": [
+          "US-30"
+        ]
+      },
+      {
+        "id": "nav-comunicados",
+        "label": "Comunicacao",
+        "group": "Gestao",
+        "targetScreenId": "comunicados",
+        "userStoryIds": [
+          "US-31",
+          "US-32",
+          "US-33"
+        ]
+      },
+      {
+        "id": "nav-equipe",
+        "label": "Equipe de Lideranca",
+        "group": "Gestao",
+        "targetScreenId": "equipe",
+        "userStoryIds": [
+          "US-03",
+          "US-04"
+        ]
+      },
+      {
+        "id": "nav-whatsapp",
+        "label": "Conexao WhatsApp",
+        "group": "Configuracao",
+        "adminOnly": true,
+        "targetScreenId": "whatsapp",
+        "userStoryIds": [
+          "US-05",
+          "US-06",
+          "US-07"
+        ]
+      },
+      {
+        "id": "nav-agente",
+        "label": "Agente IA",
+        "group": "Configuracao",
+        "adminOnly": true,
+        "targetScreenId": "agente",
+        "userStoryIds": [
+          "US-27",
+          "US-28",
+          "US-29"
+        ]
+      },
+      {
+        "id": "nav-assinatura",
+        "label": "Assinatura",
+        "group": "Configuracao",
+        "adminOnly": true,
+        "targetScreenId": "assinatura",
+        "userStoryIds": [
+          "US-34",
+          "US-35",
+          "US-36"
+        ]
+      },
+      {
+        "id": "nav-gerentes",
+        "label": "Gerentes de Sistema",
+        "group": "Configuracao",
+        "adminOnly": true,
+        "targetScreenId": "gerentes",
+        "userStoryIds": [
+          "US-03",
+          "US-04"
+        ]
+      },
+      {
+        "id": "nav-permissoes",
+        "label": "Permissoes",
+        "group": "Configuracao",
+        "adminOnly": true,
+        "targetScreenId": "permissoes",
+        "userStoryIds": [
+          "US-04"
+        ]
+      }
+    ],
+    "secondary": [
+      {
+        "id": "nav-logout",
+        "label": "Sair",
+        "targetScreenId": "login",
+        "userStoryIds": [
+          "US-01"
+        ]
+      }
+    ]
+  },
+  "screens": [
+    {
+      "id": "login",
+      "userStoryIds": [
+        "US-01"
+      ],
+      "title": "Login",
+      "route": "#login",
+      "purpose": "Autenticar Pastor/Admin via Clerk antes de acessar dados isolados da igreja",
+      "states": [
+        "idle",
+        "loading",
+        "error",
+        "success"
+      ],
+      "actions": [
+        {
+          "id": "action-login",
+          "label": "Entrar",
+          "type": "submit",
+          "userStoryIds": [
+            "US-01"
+          ],
+          "apiExpectationIds": [
+            "api-login"
+          ]
+        }
+      ],
+      "dataRequirementIds": [
+        "data-user-login"
+      ]
+    },
+    {
+      "id": "dashboard",
+      "userStoryIds": [
+        "US-02",
+        "US-15",
+        "US-16",
+        "US-17",
+        "US-26",
+        "US-40"
+      ],
+      "title": "Dashboard",
+      "route": "#dashboard",
+      "purpose": "Fila de trabalho pastoral: o que exige acao hoje, com acoes diretas e proximas acoes por responsavel. Inclui pendencias com prazo (conectar a celula em 24h, fonovisita) com destaque de atraso",
+      "states": [
+        "loading",
+        "empty",
+        "populated"
+      ],
+      "actions": [
+        {
+          "id": "action-queue-assume",
+          "label": "Assumir",
+          "type": "button",
+          "userStoryIds": [
+            "US-16"
+          ],
+          "apiExpectationIds": [
+            "api-queue-action"
+          ]
+        },
+        {
+          "id": "action-queue-message",
+          "label": "Falar com o responsavel",
+          "type": "button",
+          "userStoryIds": [
+            "US-16",
+            "US-17"
+          ],
+          "apiExpectationIds": [
+            "api-send-internal-message"
+          ]
+        },
+        {
+          "id": "action-queue-assign",
+          "label": "Atribuir",
+          "type": "button",
+          "userStoryIds": [
+            "US-16",
+            "US-17"
+          ],
+          "apiExpectationIds": [
+            "api-queue-action"
+          ]
+        },
+        {
+          "id": "action-queue-connect-cell",
+          "label": "Conectar a celula (prazo 24h)",
+          "type": "button",
+          "userStoryIds": [
+            "US-40"
+          ],
+          "apiExpectationIds": [
+            "api-link-cell"
+          ]
+        },
+        {
+          "id": "action-queue-fonovisita",
+          "label": "Registrar fonovisita",
+          "type": "button",
+          "userStoryIds": [
+            "US-40"
+          ],
+          "apiExpectationIds": [
+            "api-pipeline"
+          ]
+        },
+        {
+          "id": "action-assistant-send",
+          "label": "Perguntar ao assistente do sistema",
+          "type": "submit",
+          "userStoryIds": [
+            "US-41"
+          ],
+          "apiExpectationIds": [
+            "api-assistant"
+          ]
+        }
+      ],
+      "dataRequirementIds": [
+        "data-work-queue",
+        "data-next-actions",
+        "data-assistant"
+      ]
+    },
+    {
+      "id": "inbox",
+      "userStoryIds": [
+        "US-08",
+        "US-11",
+        "US-12",
+        "US-13",
+        "US-14"
+      ],
+      "title": "Inbox",
+      "route": "#inbox",
+      "purpose": "Lista de conversas do WhatsApp da igreja, fila de atendimento humano e alternancia IA/humano por conversa",
+      "states": [
+        "loading",
+        "empty",
+        "list",
+        "thread-ia-active",
+        "thread-human",
+        "thread-waiting"
+      ],
+      "actions": [
+        {
+          "id": "action-open-conversation",
+          "label": "Abrir conversa",
+          "type": "button",
+          "userStoryIds": [
+            "US-11"
+          ],
+          "apiExpectationIds": [
+            "api-conversations"
+          ]
+        },
+        {
+          "id": "action-assume-conversation",
+          "label": "Assumir atendimento (pausar IA)",
+          "type": "button",
+          "userStoryIds": [
+            "US-12"
+          ],
+          "apiExpectationIds": [
+            "api-conversation-handoff"
+          ]
+        },
+        {
+          "id": "action-return-conversation",
+          "label": "Devolver para a IA",
+          "type": "button",
+          "userStoryIds": [
+            "US-13"
+          ],
+          "apiExpectationIds": [
+            "api-conversation-handoff"
+          ]
+        }
+      ],
+      "dataRequirementIds": [
+        "data-conversations",
+        "data-human-queue"
+      ]
+    },
+    {
+      "id": "contatos",
+      "userStoryIds": [
+        "US-09",
+        "US-10",
+        "US-18",
+        "US-19",
+        "US-20",
+        "US-31",
+        "US-32"
+      ],
+      "title": "Contatos",
+      "route": "#contatos",
+      "purpose": "Contatos e visitantes criados pelo agente, visitantes sem acompanhamento, detalhe do contato e vinculo a celula",
+      "states": [
+        "loading",
+        "empty",
+        "list",
+        "detail"
+      ],
+      "actions": [
+        {
+          "id": "action-new-contact",
+          "label": "Novo contato",
+          "type": "button",
+          "userStoryIds": [
+            "US-09"
+          ],
+          "apiExpectationIds": [
+            "api-create-contact"
+          ]
+        },
+        {
+          "id": "action-open-contact",
+          "label": "Abrir contato",
+          "type": "button",
+          "userStoryIds": [
+            "US-19"
+          ],
+          "apiExpectationIds": [
+            "api-contacts"
+          ]
+        },
+        {
+          "id": "action-link-cell",
+          "label": "Vincular a celula",
+          "type": "button",
+          "userStoryIds": [
+            "US-20"
+          ],
+          "apiExpectationIds": [
+            "api-link-cell"
+          ]
+        }
+      ],
+      "dataRequirementIds": [
+        "data-contacts",
+        "data-contact-detail"
+      ]
+    },
+    {
+      "id": "celulas",
+      "userStoryIds": [
+        "US-21",
+        "US-22",
+        "US-23",
+        "US-25"
+      ],
+      "title": "Celulas",
+      "route": "#celulas",
+      "purpose": "Cadastro e edicao de celulas G12, membros/visitantes por celula e alertas sobre liderados",
+      "states": [
+        "loading",
+        "empty",
+        "list",
+        "detail"
+      ],
+      "actions": [
+        {
+          "id": "action-new-cell",
+          "label": "Nova celula",
+          "type": "button",
+          "userStoryIds": [
+            "US-21"
+          ],
+          "apiExpectationIds": [
+            "api-cells"
+          ]
+        },
+        {
+          "id": "action-edit-cell",
+          "label": "Editar celula",
+          "type": "button",
+          "userStoryIds": [
+            "US-21"
+          ],
+          "apiExpectationIds": [
+            "api-cells"
+          ]
+        }
+      ],
+      "dataRequirementIds": [
+        "data-cells",
+        "data-cell-detail"
+      ]
+    },
+    {
+      "id": "relatorios",
+      "userStoryIds": [
+        "US-24",
+        "US-25",
+        "US-26"
+      ],
+      "title": "Relatorios de celula",
+      "route": "#relatorios",
+      "purpose": "Visualizar relatorios semanais de celula recebidos por WhatsApp e ver quais celulas estao pendentes",
+      "states": [
+        "loading",
+        "empty",
+        "received",
+        "pending"
+      ],
+      "actions": [
+        {
+          "id": "action-view-report",
+          "label": "Ver relatorio",
+          "type": "button",
+          "userStoryIds": [
+            "US-25"
+          ],
+          "apiExpectationIds": [
+            "api-reports"
+          ]
+        },
+        {
+          "id": "action-charge-report",
+          "label": "Cobrar relatorio pendente",
+          "type": "button",
+          "userStoryIds": [
+            "US-26"
+          ],
+          "apiExpectationIds": [
+            "api-reports"
+          ]
+        }
+      ],
+      "dataRequirementIds": [
+        "data-reports"
+      ]
+    },
+    {
+      "id": "comunicados",
+      "userStoryIds": [
+        "US-31",
+        "US-32",
+        "US-33"
+      ],
+      "title": "Comunicados",
+      "route": "#comunicados",
+      "purpose": "Envio segmentado de comunicados respeitando consentimento e opt-out registrados por contato",
+      "states": [
+        "compose",
+        "segment",
+        "review",
+        "empty"
+      ],
+      "actions": [
+        {
+          "id": "action-new-broadcast",
+          "label": "Novo comunicado",
+          "type": "button",
+          "userStoryIds": [
+            "US-33"
+          ],
+          "apiExpectationIds": [
+            "api-broadcasts"
+          ]
+        },
+        {
+          "id": "action-send-broadcast",
+          "label": "Enviar agora",
+          "type": "submit",
+          "userStoryIds": [
+            "US-33"
+          ],
+          "apiExpectationIds": [
+            "api-broadcasts"
+          ]
+        },
+        {
+          "id": "action-schedule-broadcast",
+          "label": "Agendar comunicado (cron)",
+          "type": "submit",
+          "userStoryIds": [
+            "US-33"
+          ],
+          "apiExpectationIds": [
+            "api-broadcasts"
+          ]
+        }
+      ],
+      "dataRequirementIds": [
+        "data-broadcasts",
+        "data-consent"
+      ]
+    },
+    {
+      "id": "calendario",
+      "userStoryIds": [
+        "US-30"
+      ],
+      "title": "Calendario",
+      "route": "#calendario",
+      "purpose": "Cadastrar e visualizar eventos da igreja em calendario integrado ao Google Calendar",
+      "states": [
+        "loading",
+        "empty",
+        "month"
+      ],
+      "actions": [
+        {
+          "id": "action-new-event",
+          "label": "Novo evento",
+          "type": "button",
+          "userStoryIds": [
+            "US-30"
+          ],
+          "apiExpectationIds": [
+            "api-events"
+          ]
+        }
+      ],
+      "dataRequirementIds": [
+        "data-events"
+      ]
+    },
+    {
+      "id": "whatsapp",
+      "userStoryIds": [
+        "US-05",
+        "US-06",
+        "US-07"
+      ],
+      "title": "Conexao WhatsApp",
+      "route": "#whatsapp",
+      "purpose": "Conectar o numero oficial via QR code, monitorar status online/offline e reconectar; nao registrar conversas pessoais",
+      "states": [
+        "connected",
+        "disconnected",
+        "reconnecting"
+      ],
+      "actions": [
+        {
+          "id": "action-connect-whatsapp",
+          "label": "Conectar (ler QR code)",
+          "type": "button",
+          "userStoryIds": [
+            "US-05"
+          ],
+          "apiExpectationIds": [
+            "api-whatsapp-connection"
+          ]
+        },
+        {
+          "id": "action-reconnect-whatsapp",
+          "label": "Reconectar",
+          "type": "button",
+          "userStoryIds": [
+            "US-06"
+          ],
+          "apiExpectationIds": [
+            "api-whatsapp-connection"
+          ]
+        }
+      ],
+      "dataRequirementIds": [
+        "data-whatsapp-connection"
+      ]
+    },
+    {
+      "id": "agente",
+      "userStoryIds": [
+        "US-27",
+        "US-28",
+        "US-29"
+      ],
+      "title": "Agente de IA",
+      "route": "#agente",
+      "purpose": "Cadastrar credencial BYO do provedor LLM, configurar comportamento do agente e crons/agendamentos",
+      "states": [
+        "behavior",
+        "credential",
+        "crons"
+      ],
+      "actions": [
+        {
+          "id": "action-save-llm-key",
+          "label": "Salvar credencial LLM",
+          "type": "submit",
+          "userStoryIds": [
+            "US-27"
+          ],
+          "apiExpectationIds": [
+            "api-llm-credential"
+          ]
+        },
+        {
+          "id": "action-save-agent",
+          "label": "Salvar comportamento",
+          "type": "submit",
+          "userStoryIds": [
+            "US-28"
+          ],
+          "apiExpectationIds": [
+            "api-agent-config"
+          ]
+        },
+        {
+          "id": "action-save-cron",
+          "label": "Salvar agendamento",
+          "type": "submit",
+          "userStoryIds": [
+            "US-29"
+          ],
+          "apiExpectationIds": [
+            "api-crons"
+          ]
+        }
+      ],
+      "dataRequirementIds": [
+        "data-agent-config",
+        "data-llm-credential",
+        "data-crons"
+      ]
+    },
+    {
+      "id": "equipe",
+      "userStoryIds": [
+        "US-03",
+        "US-04"
+      ],
+      "title": "Equipe e papeis",
+      "route": "#equipe",
+      "purpose": "Convidar e gerenciar usuarios (lideres) da igreja com controle de acesso por papel",
+      "states": [
+        "loading",
+        "empty",
+        "list",
+        "invite",
+        "edit-roles"
+      ],
+      "actions": [
+        {
+          "id": "action-invite-user",
+          "label": "Convidar pessoa com papeis",
+          "type": "submit",
+          "userStoryIds": [
+            "US-03"
+          ],
+          "apiExpectationIds": [
+            "api-team-invite"
+          ]
+        },
+        {
+          "id": "action-edit-roles",
+          "label": "Editar papeis acumulados da pessoa",
+          "type": "button",
+          "userStoryIds": [
+            "US-03",
+            "US-04"
+          ],
+          "apiExpectationIds": [
+            "api-team-roles"
+          ]
+        }
+      ],
+      "dataRequirementIds": [
+        "data-team",
+        "data-user-roles"
+      ]
+    },
+    {
+      "id": "assinatura",
+      "userStoryIds": [
+        "US-34",
+        "US-35",
+        "US-36"
+      ],
+      "title": "Assinatura",
+      "route": "#assinatura",
+      "purpose": "Contratar assinatura com setup fee, acompanhar status e ver upgrade automatico por porte de pessoas",
+      "states": [
+        "active",
+        "past-due",
+        "plans"
+      ],
+      "actions": [
+        {
+          "id": "action-contract-plan",
+          "label": "Contratar plano",
+          "type": "button",
+          "userStoryIds": [
+            "US-34"
+          ],
+          "apiExpectationIds": [
+            "api-subscription"
+          ]
+        },
+        {
+          "id": "action-manage-billing",
+          "label": "Gerenciar faturamento",
+          "type": "button",
+          "userStoryIds": [
+            "US-35"
+          ],
+          "apiExpectationIds": [
+            "api-subscription"
+          ]
+        }
+      ],
+      "dataRequirementIds": [
+        "data-subscription"
+      ]
+    },
+    {
+      "id": "permissoes",
+      "userStoryIds": [
+        "US-04",
+        "US-03"
+      ],
+      "title": "Permissoes",
+      "route": "#permissoes",
+      "purpose": "Admin configura quais telas cada papel ministerial enxerga; menu e dashboard de cada pessoa sao montados pela uniao dos papeis acumulados no cadastro dela",
+      "states": [
+        "matrix",
+        "saved"
+      ],
+      "actions": [
+        {
+          "id": "action-toggle-perm",
+          "label": "Liberar/bloquear tela por papel",
+          "type": "toggle",
+          "userStoryIds": [
+            "US-04"
+          ],
+          "apiExpectationIds": [
+            "api-role-perms"
+          ]
+        }
+      ],
+      "dataRequirementIds": [
+        "data-role-perms"
+      ]
+    },
+    {
+      "id": "ganhar",
+      "userStoryIds": [
+        "US-09",
+        "US-10",
+        "US-18",
+        "US-19",
+        "US-20"
+      ],
+      "title": "Ganhar",
+      "route": "#ganhar",
+      "purpose": "Primeira etapa do ciclo G12: novos contatos (pessoas que chamaram pelo WhatsApp/redes mas nunca visitaram) e visitantes (ja visitaram celula/igreja, permanecem visitantes ate aceitar Jesus ou atingir 3 presencas em celula)",
+      "states": [
+        "loading",
+        "empty",
+        "novos-contatos",
+        "visitantes"
+      ],
+      "actions": [
+        {
+          "id": "action-open-contact-ganhar",
+          "label": "Abrir contato",
+          "type": "button",
+          "userStoryIds": [
+            "US-19"
+          ],
+          "apiExpectationIds": [
+            "api-contacts"
+          ]
+        },
+        {
+          "id": "action-promote-visitante",
+          "label": "Marcar como visitante",
+          "type": "button",
+          "userStoryIds": [
+            "US-18"
+          ],
+          "apiExpectationIds": [
+            "api-contacts"
+          ]
+        }
+      ],
+      "dataRequirementIds": [
+        "data-contacts",
+        "data-pipeline-stage"
+      ]
+    },
+    {
+      "id": "consolidar",
+      "userStoryIds": [
+        "US-18",
+        "US-19",
+        "US-20",
+        "US-37",
+        "US-38"
+      ],
+      "title": "Consolidar",
+      "route": "#consolidar",
+      "purpose": "Dashboard de Consolidacao (acesso restrito a equipe de consolidacao e lideranca): fila de consolidacao individual, lista a proxima Universidade da Vida conforme criterios da lideranca; quando 100% consolidadas exibe selos de consolidacao individual e/ou UV. Permite lancar decisao por Jesus, inserindo a pessoa na etapa inicial",
+      "states": [
+        "loading",
+        "empty",
+        "fila",
+        "100-consolidadas"
+      ],
+      "actions": [
+        {
+          "id": "action-open-consol-individual",
+          "label": "Abrir Consolidacao Individual",
+          "type": "button",
+          "userStoryIds": [
+            "US-18"
+          ],
+          "apiExpectationIds": [
+            "api-pipeline"
+          ]
+        },
+        {
+          "id": "action-open-uv",
+          "label": "Abrir Universidade da Vida",
+          "type": "button",
+          "userStoryIds": [
+            "US-18"
+          ],
+          "apiExpectationIds": [
+            "api-pipeline"
+          ]
+        },
+        {
+          "id": "action-launch-decision",
+          "label": "Lancar decisao por Jesus",
+          "type": "button",
+          "userStoryIds": [
+            "US-37"
+          ],
+          "apiExpectationIds": [
+            "api-launch-decision"
+          ]
+        }
+      ],
+      "dataRequirementIds": [
+        "data-pipeline-stage",
+        "data-consolidacao",
+        "data-decision"
+      ]
+    },
+    {
+      "id": "consol-individual",
+      "userStoryIds": [
+        "US-18",
+        "US-19",
+        "US-37",
+        "US-39"
+      ],
+      "title": "Consolidacao Individual",
+      "route": "#consol-individual",
+      "purpose": "Acompanhamento 1:1 da consolidacao de cada novo convertido, com responsavel e progresso da trilha individual. Permite avancar etapas e concluir a consolidacao; ao concluir, a pessoa entra na lista de aptos para a proxima turma da Capacitacao Destino",
+      "states": [
+        "loading",
+        "empty",
+        "fila",
+        "detalhe"
+      ],
+      "actions": [
+        {
+          "id": "action-assign-consolidador",
+          "label": "Atribuir consolidador",
+          "type": "button",
+          "userStoryIds": [
+            "US-18"
+          ],
+          "apiExpectationIds": [
+            "api-pipeline"
+          ]
+        },
+        {
+          "id": "action-launch-decision-ci",
+          "label": "Lancar decisao por Jesus",
+          "type": "button",
+          "userStoryIds": [
+            "US-37"
+          ],
+          "apiExpectationIds": [
+            "api-launch-decision"
+          ]
+        },
+        {
+          "id": "action-advance-stage",
+          "label": "Avancar etapa / concluir consolidacao",
+          "type": "button",
+          "userStoryIds": [
+            "US-39"
+          ],
+          "apiExpectationIds": [
+            "api-pipeline"
+          ]
+        }
+      ],
+      "dataRequirementIds": [
+        "data-consolidacao",
+        "data-decision"
+      ]
+    },
+    {
+      "id": "universidade-vida",
+      "userStoryIds": [
+        "US-18",
+        "US-19"
+      ],
+      "title": "Universidade da Vida",
+      "route": "#universidade-vida",
+      "purpose": "Turmas e cronograma da Universidade da Vida (consolidacao em grupo), com presenca e conclusao por aluno",
+      "states": [
+        "loading",
+        "empty",
+        "turmas",
+        "detalhe"
+      ],
+      "actions": [
+        {
+          "id": "action-new-turma-uv",
+          "label": "Nova turma",
+          "type": "button",
+          "userStoryIds": [
+            "US-18"
+          ],
+          "apiExpectationIds": [
+            "api-pipeline"
+          ]
+        }
+      ],
+      "dataRequirementIds": [
+        "data-consolidacao"
+      ]
+    },
+    {
+      "id": "capacitacao",
+      "userStoryIds": [
+        "US-18",
+        "US-19"
+      ],
+      "title": "Capacitacao Destino",
+      "route": "#capacitacao",
+      "purpose": "Trilha de formacao de lideres (Capacitacao Destino). Modelo oficial: 6 modulos, 1 livro por modulo, 10 aulas por livro, organizados em 3 niveis (1+2, 3+4, 5+6); max 2 modulos ativos por turma; semaforo de assiduidade; 4 livros = Apto a Liderar, 6 livros = Certificado completo. Tela BLOQUEADA no MVP (placeholder honesto, em breve).",
+      "states": [
+        "locked-em-breve"
+      ],
+      "actions": [
+        {
+          "id": "action-advance-trilha",
+          "label": "Avancar etapa da trilha",
+          "type": "button",
+          "userStoryIds": [
+            "US-18"
+          ],
+          "apiExpectationIds": [
+            "api-pipeline"
+          ]
+        }
+      ],
+      "dataRequirementIds": [
+        "data-trilha"
+      ]
+    },
+    {
+      "id": "g12",
+      "userStoryIds": [
+        "US-21",
+        "US-22",
+        "US-23"
+      ],
+      "title": "G12 · Descendencias",
+      "route": "#g12",
+      "purpose": "Dashboard de lideranca G12 com organograma de descendencias (abas) a partir dos pastores principais, mostrando a arvore ministerial de lideres e liderados",
+      "states": [
+        "loading",
+        "empty",
+        "organograma",
+        "descendencia"
+      ],
+      "actions": [
+        {
+          "id": "action-open-descendencia",
+          "label": "Abrir descendencia",
+          "type": "button",
+          "userStoryIds": [
+            "US-21",
+            "US-22"
+          ],
+          "apiExpectationIds": [
+            "api-descendencias"
+          ]
+        }
+      ],
+      "dataRequirementIds": [
+        "data-descendencias"
+      ]
+    },
+    {
+      "id": "central-celula",
+      "userStoryIds": [
+        "US-21",
+        "US-22",
+        "US-23",
+        "US-24",
+        "US-25",
+        "US-26"
+      ],
+      "title": "Central de Celula",
+      "route": "#central-celula",
+      "purpose": "Dashboard de celulas: lista de lideres, relatorios de celula recebidos/pendentes e comunicacao em massa ou individual com os lideres",
+      "states": [
+        "loading",
+        "empty",
+        "lideres",
+        "relatorios"
+      ],
+      "actions": [
+        {
+          "id": "action-view-report-central",
+          "label": "Ver relatorio",
+          "type": "button",
+          "userStoryIds": [
+            "US-25"
+          ],
+          "apiExpectationIds": [
+            "api-reports"
+          ]
+        },
+        {
+          "id": "action-charge-report-central",
+          "label": "Cobrar relatorio pendente",
+          "type": "button",
+          "userStoryIds": [
+            "US-26"
+          ],
+          "apiExpectationIds": [
+            "api-reports"
+          ]
+        },
+        {
+          "id": "action-message-leaders",
+          "label": "Comunicar lideres (massa/individual)",
+          "type": "button",
+          "userStoryIds": [
+            "US-31",
+            "US-33"
+          ],
+          "apiExpectationIds": [
+            "api-broadcasts"
+          ]
+        }
+      ],
+      "dataRequirementIds": [
+        "data-cells",
+        "data-reports"
+      ]
+    },
+    {
+      "id": "enviar",
+      "userStoryIds": [
+        "US-21",
+        "US-22",
+        "US-23"
+      ],
+      "title": "Enviar",
+      "route": "#enviar",
+      "purpose": "Etapa de multiplicacao: celulas com multiplicacao agendada, sem agendamento e pessoas aptas a liderar (com info ministerial); cobra, supervisiona e aprova multiplicacoes; historico por ano/mes/descendencia",
+      "states": [
+        "loading",
+        "empty",
+        "agendadas",
+        "sem-agendamento",
+        "aptos",
+        "historico"
+      ],
+      "actions": [
+        {
+          "id": "action-schedule-mult",
+          "label": "Agendar multiplicacao",
+          "type": "button",
+          "userStoryIds": [
+            "US-21",
+            "US-23"
+          ],
+          "apiExpectationIds": [
+            "api-multiplicacoes"
+          ]
+        },
+        {
+          "id": "action-approve-mult",
+          "label": "Aprovar multiplicacao",
+          "type": "button",
+          "userStoryIds": [
+            "US-23"
+          ],
+          "apiExpectationIds": [
+            "api-multiplicacoes"
+          ]
+        }
+      ],
+      "dataRequirementIds": [
+        "data-multiplicacoes",
+        "data-aptos-lideranca"
+      ]
+    },
+    {
+      "id": "gerentes",
+      "userStoryIds": [
+        "US-03",
+        "US-04"
+      ],
+      "title": "Gerentes de Sistema",
+      "route": "#gerentes",
+      "purpose": "Admin define operadores do sistema (papel operacional, distinto do papel ministerial) que administram a conta da igreja no SaaS",
+      "states": [
+        "loading",
+        "empty",
+        "list",
+        "invite"
+      ],
+      "actions": [
+        {
+          "id": "action-add-gerente",
+          "label": "Adicionar gerente de sistema",
+          "type": "submit",
+          "userStoryIds": [
+            "US-03",
+            "US-04"
+          ],
+          "apiExpectationIds": [
+            "api-system-managers"
+          ]
+        },
+        {
+          "id": "action-remove-gerente",
+          "label": "Remover gerente de sistema",
+          "type": "button",
+          "userStoryIds": [
+            "US-04"
+          ],
+          "apiExpectationIds": [
+            "api-system-managers"
+          ]
+        }
+      ],
+      "dataRequirementIds": [
+        "data-system-managers"
+      ]
+    },
+    {
+      "id": "super-admin-igrejas",
+      "userStoryIds": [
+        "US-42"
+      ],
+      "title": "Super-Admin · Igrejas",
+      "route": "#super-admin-igrejas",
+      "purpose": "Console multitenant do provedor (superficie SEPARADA do painel operacional da igreja, ver delta-024): listar e supervisionar igrejas/tenants, custos de IA por igreja e logs globais. Tela de stub para rastreabilidade da UI exigida por US-42; sera prototipada em artifact proprio.",
+      "states": [
+        "loading",
+        "empty",
+        "list",
+        "detail"
+      ],
+      "actions": [
+        {
+          "id": "action-open-tenant",
+          "label": "Abrir igreja",
+          "type": "button",
+          "userStoryIds": [
+            "US-42"
+          ],
+          "apiExpectationIds": [
+            "api-super-admin-tenants"
+          ]
+        }
+      ],
+      "dataRequirementIds": [
+        "data-tenants"
+      ]
+    },
+    {
+      "id": "super-admin-provisionar",
+      "userStoryIds": [
+        "US-43"
+      ],
+      "title": "Super-Admin · Provisionar igreja",
+      "route": "#super-admin-provisionar",
+      "purpose": "Provisionar nova igreja apos verificar o pagamento: criar tenant e enviar convite com link expiravel (superficie SEPARADA, ver delta-024). Tela de stub para rastreabilidade da UI exigida por US-43; sera prototipada em artifact proprio.",
+      "states": [
+        "idle",
+        "verifying",
+        "provisioned"
+      ],
+      "actions": [
+        {
+          "id": "action-provision-tenant",
+          "label": "Provisionar igreja",
+          "type": "submit",
+          "userStoryIds": [
+            "US-43"
+          ],
+          "apiExpectationIds": [
+            "api-super-admin-provision"
+          ]
+        }
+      ],
+      "dataRequirementIds": [
+        "data-provisioning"
+      ]
+    }
+  ],
+  "components": [
+    {
+      "id": "btn-primary",
+      "name": "Botao primario",
+      "type": "form",
+      "usedInScreenIds": [
+        "login",
+        "contatos",
+        "celulas",
+        "comunicados",
+        "agente",
+        "equipe",
+        "assinatura"
+      ],
+      "props": {
+        "variant": "primary"
+      },
+      "states": [
+        "default",
+        "hover",
+        "loading",
+        "disabled"
+      ]
+    },
+    {
+      "id": "form-field",
+      "name": "Campo de formulario",
+      "type": "form",
+      "usedInScreenIds": [
+        "login",
+        "contatos",
+        "comunicados",
+        "agente",
+        "equipe",
+        "calendario"
+      ],
+      "props": {
+        "label": "string",
+        "helper": "string",
+        "error": "string"
+      },
+      "states": [
+        "idle",
+        "focus",
+        "invalid",
+        "disabled"
+      ]
+    },
+    {
+      "id": "sidebar-nav",
+      "name": "Navegacao lateral",
+      "type": "navigation",
+      "usedInScreenIds": [
+        "dashboard",
+        "inbox",
+        "contatos",
+        "celulas",
+        "relatorios",
+        "comunicados",
+        "calendario",
+        "whatsapp",
+        "agente",
+        "equipe",
+        "assinatura"
+      ],
+      "props": {},
+      "states": [
+        "default",
+        "active"
+      ]
+    },
+    {
+      "id": "status-pill",
+      "name": "Pilula de status",
+      "type": "display",
+      "usedInScreenIds": [
+        "dashboard",
+        "inbox",
+        "contatos",
+        "relatorios",
+        "whatsapp",
+        "assinatura"
+      ],
+      "props": {
+        "tone": "ok|warn|danger|accent|muted"
+      },
+      "states": []
+    },
+    {
+      "id": "work-queue-item",
+      "name": "Item da fila pastoral",
+      "type": "display",
+      "usedInScreenIds": [
+        "dashboard"
+      ],
+      "props": {
+        "type": "visitante|atendimento|relatorio"
+      },
+      "states": [
+        "pending",
+        "resolving",
+        "resolved"
+      ]
+    },
+    {
+      "id": "stat-card",
+      "name": "Cartao de indicador",
+      "type": "display",
+      "usedInScreenIds": [
+        "dashboard",
+        "celulas",
+        "assinatura"
+      ],
+      "props": {},
+      "states": [
+        "normal",
+        "alert"
+      ]
+    },
+    {
+      "id": "conversation-list",
+      "name": "Lista de conversas",
+      "type": "display",
+      "usedInScreenIds": [
+        "inbox"
+      ],
+      "props": {},
+      "states": [
+        "default",
+        "active"
+      ]
+    },
+    {
+      "id": "conversation-thread",
+      "name": "Thread de conversa",
+      "type": "display",
+      "usedInScreenIds": [
+        "inbox"
+      ],
+      "props": {},
+      "states": [
+        "ia-active",
+        "human",
+        "waiting"
+      ]
+    },
+    {
+      "id": "data-table",
+      "name": "Tabela de dados",
+      "type": "display",
+      "usedInScreenIds": [
+        "contatos",
+        "celulas",
+        "relatorios",
+        "equipe",
+        "comunicados"
+      ],
+      "props": {},
+      "states": [
+        "empty",
+        "populated"
+      ]
+    },
+    {
+      "id": "tabs",
+      "name": "Abas",
+      "type": "navigation",
+      "usedInScreenIds": [
+        "contatos",
+        "celulas",
+        "relatorios",
+        "agente",
+        "assinatura"
+      ],
+      "props": {},
+      "states": [
+        "default",
+        "active"
+      ]
+    },
+    {
+      "id": "calendar-month",
+      "name": "Calendario mensal",
+      "type": "display",
+      "usedInScreenIds": [
+        "calendario"
+      ],
+      "props": {},
+      "states": []
+    },
+    {
+      "id": "qr-connect",
+      "name": "QR code de conexao",
+      "type": "display",
+      "usedInScreenIds": [
+        "whatsapp"
+      ],
+      "props": {},
+      "states": [
+        "connected",
+        "disconnected",
+        "reconnecting"
+      ]
+    },
+    {
+      "id": "toggle-switch",
+      "name": "Switch",
+      "type": "form",
+      "usedInScreenIds": [
+        "agente",
+        "comunicados",
+        "equipe"
+      ],
+      "props": {},
+      "states": [
+        "on",
+        "off"
+      ]
+    },
+    {
+      "id": "empty-state",
+      "name": "Estado vazio",
+      "type": "display",
+      "usedInScreenIds": [
+        "inbox",
+        "contatos",
+        "relatorios",
+        "calendario"
+      ],
+      "props": {},
+      "states": []
+    },
+    {
+      "id": "deadline-badge",
+      "name": "Selo de prazo",
+      "type": "display",
+      "usedInScreenIds": [
+        "dashboard",
+        "consolidar"
+      ],
+      "props": {
+        "tone": "ok|warn|late"
+      },
+      "states": [
+        "dentro",
+        "alerta",
+        "atrasado"
+      ]
+    },
+    {
+      "id": "decision-modal",
+      "name": "Modal lancar decisao por Jesus",
+      "type": "overlay",
+      "usedInScreenIds": [
+        "consolidar",
+        "consol-individual"
+      ],
+      "props": {
+        "vinculo": "celula|visitante"
+      },
+      "states": [
+        "closed",
+        "celula-flow",
+        "visitante-flow"
+      ]
+    },
+    {
+      "id": "assistant-panel",
+      "name": "Painel do assistente do sistema",
+      "type": "overlay",
+      "usedInScreenIds": [
+        "dashboard",
+        "inbox",
+        "contatos",
+        "celulas",
+        "consolidar",
+        "consol-individual",
+        "ganhar",
+        "g12",
+        "enviar",
+        "agente",
+        "equipe",
+        "permissoes",
+        "assinatura"
+      ],
+      "props": {
+        "scope": "tenant",
+        "roleAware": true
+      },
+      "states": [
+        "closed",
+        "open",
+        "thinking"
+      ]
+    }
+  ],
+  "dataRequirements": [
+    {
+      "id": "data-user-login",
+      "name": "Credenciais de login",
+      "description": "Dados de autenticacao do Pastor/Admin via Clerk",
+      "fields": [
+        {
+          "name": "email",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "password",
+          "typeHint": "string",
+          "required": true
+        }
+      ],
+      "sourceScreenIds": [
+        "login"
+      ],
+      "userStoryIds": [
+        "US-01"
+      ]
+    },
+    {
+      "id": "data-work-queue",
+      "name": "Fila de trabalho pastoral",
+      "description": "Itens que exigem acao hoje: visitantes sem acompanhamento, atendimentos aguardando, relatorios pendentes",
+      "fields": [
+        {
+          "name": "tipo",
+          "typeHint": "enum(visitante,atendimento,relatorio)",
+          "required": true
+        },
+        {
+          "name": "titulo",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "contexto",
+          "typeHint": "string",
+          "required": false
+        },
+        {
+          "name": "responsavel",
+          "typeHint": "string",
+          "required": false
+        },
+        {
+          "name": "status",
+          "typeHint": "enum(aberto,assumido,resolvido)",
+          "required": true
+        }
+      ],
+      "sourceScreenIds": [
+        "dashboard"
+      ],
+      "userStoryIds": [
+        "US-15",
+        "US-16",
+        "US-26"
+      ]
+    },
+    {
+      "id": "data-next-actions",
+      "name": "Proximas acoes por responsavel",
+      "description": "Acoes agrupadas por responsavel",
+      "fields": [
+        {
+          "name": "responsavel",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "papel",
+          "typeHint": "string",
+          "required": false
+        },
+        {
+          "name": "qtdAcoes",
+          "typeHint": "number",
+          "required": true
+        }
+      ],
+      "sourceScreenIds": [
+        "dashboard"
+      ],
+      "userStoryIds": [
+        "US-17"
+      ]
+    },
+    {
+      "id": "data-conversations",
+      "name": "Conversas WhatsApp",
+      "description": "Lista de conversas do numero oficial e mensagens da thread",
+      "fields": [
+        {
+          "name": "contato",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "telefone",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "ultimaMensagem",
+          "typeHint": "string",
+          "required": false
+        },
+        {
+          "name": "estado",
+          "typeHint": "enum(ia,humano,aguardando)",
+          "required": true
+        },
+        {
+          "name": "naoLidas",
+          "typeHint": "number",
+          "required": false
+        }
+      ],
+      "sourceScreenIds": [
+        "inbox"
+      ],
+      "userStoryIds": [
+        "US-08",
+        "US-11",
+        "US-12",
+        "US-13"
+      ]
+    },
+    {
+      "id": "data-human-queue",
+      "name": "Fila de atendimento humano",
+      "description": "Atendimentos aguardando resposta humana",
+      "fields": [
+        {
+          "name": "contato",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "esperaMin",
+          "typeHint": "number",
+          "required": true
+        }
+      ],
+      "sourceScreenIds": [
+        "inbox",
+        "dashboard"
+      ],
+      "userStoryIds": [
+        "US-14"
+      ]
+    },
+    {
+      "id": "data-contacts",
+      "name": "Contatos e visitantes",
+      "description": "Contatos criados pelo agente, com situacao de acompanhamento e consentimento",
+      "fields": [
+        {
+          "name": "nome",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "telefone",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "tipo",
+          "typeHint": "enum(visitante,membro,lider)",
+          "required": true
+        },
+        {
+          "name": "celula",
+          "typeHint": "string",
+          "required": false
+        },
+        {
+          "name": "acompanhamento",
+          "typeHint": "enum(sem,em_andamento,consolidado)",
+          "required": true
+        },
+        {
+          "name": "consentimento",
+          "typeHint": "boolean",
+          "required": true
+        }
+      ],
+      "sourceScreenIds": [
+        "contatos"
+      ],
+      "userStoryIds": [
+        "US-09",
+        "US-10",
+        "US-18",
+        "US-31",
+        "US-32"
+      ]
+    },
+    {
+      "id": "data-contact-detail",
+      "name": "Detalhe do contato",
+      "description": "Perfil, historico e situacao de um contato",
+      "fields": [
+        {
+          "name": "nome",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "historico",
+          "typeHint": "array",
+          "required": false
+        },
+        {
+          "name": "celula",
+          "typeHint": "string",
+          "required": false
+        }
+      ],
+      "sourceScreenIds": [
+        "contatos"
+      ],
+      "userStoryIds": [
+        "US-19",
+        "US-20"
+      ]
+    },
+    {
+      "id": "data-cells",
+      "name": "Celulas",
+      "description": "Celulas G12 da igreja com lider e quantidades",
+      "fields": [
+        {
+          "name": "nome",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "lider",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "membros",
+          "typeHint": "number",
+          "required": true
+        },
+        {
+          "name": "visitantes",
+          "typeHint": "number",
+          "required": false
+        },
+        {
+          "name": "diaReuniao",
+          "typeHint": "string",
+          "required": false
+        }
+      ],
+      "sourceScreenIds": [
+        "celulas"
+      ],
+      "userStoryIds": [
+        "US-21"
+      ]
+    },
+    {
+      "id": "data-cell-detail",
+      "name": "Detalhe da celula",
+      "description": "Membros, visitantes e alertas de uma celula",
+      "fields": [
+        {
+          "name": "membros",
+          "typeHint": "array",
+          "required": true
+        },
+        {
+          "name": "alertas",
+          "typeHint": "array",
+          "required": false
+        }
+      ],
+      "sourceScreenIds": [
+        "celulas"
+      ],
+      "userStoryIds": [
+        "US-22",
+        "US-23"
+      ]
+    },
+    {
+      "id": "data-reports",
+      "name": "Relatorios de celula",
+      "description": "Relatorios semanais recebidos por WhatsApp e pendencias por celula",
+      "fields": [
+        {
+          "name": "celula",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "semana",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "presentes",
+          "typeHint": "number",
+          "required": false
+        },
+        {
+          "name": "visitantes",
+          "typeHint": "number",
+          "required": false
+        },
+        {
+          "name": "status",
+          "typeHint": "enum(recebido,pendente)",
+          "required": true
+        }
+      ],
+      "sourceScreenIds": [
+        "relatorios"
+      ],
+      "userStoryIds": [
+        "US-24",
+        "US-25",
+        "US-26"
+      ]
+    },
+    {
+      "id": "data-broadcasts",
+      "name": "Comunicados",
+      "description": "Comunicados multi-segmento, enviados agora ou agendados com repeticao (cron)",
+      "fields": [
+        {
+          "name": "titulo",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "mensagem",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "segmentos",
+          "typeHint": "array(string)",
+          "required": true
+        },
+        {
+          "name": "modo",
+          "typeHint": "enum(agora,agendado)",
+          "required": true
+        },
+        {
+          "name": "data",
+          "typeHint": "date",
+          "required": false
+        },
+        {
+          "name": "hora",
+          "typeHint": "string",
+          "required": false
+        },
+        {
+          "name": "repeticao",
+          "typeHint": "enum(once,daily,weekly,biweekly,monthly)",
+          "required": false
+        },
+        {
+          "name": "alcance",
+          "typeHint": "number",
+          "required": false
+        }
+      ],
+      "sourceScreenIds": [
+        "comunicados"
+      ],
+      "userStoryIds": [
+        "US-33"
+      ]
+    },
+    {
+      "id": "data-consent",
+      "name": "Consentimento e opt-out",
+      "description": "Estado de consentimento de comunicacao por contato",
+      "fields": [
+        {
+          "name": "contato",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "consentido",
+          "typeHint": "boolean",
+          "required": true
+        },
+        {
+          "name": "optout",
+          "typeHint": "boolean",
+          "required": true
+        }
+      ],
+      "sourceScreenIds": [
+        "comunicados",
+        "contatos"
+      ],
+      "userStoryIds": [
+        "US-31",
+        "US-32"
+      ]
+    },
+    {
+      "id": "data-events",
+      "name": "Eventos do calendario",
+      "description": "Eventos da igreja sincronizados ao Google Calendar",
+      "fields": [
+        {
+          "name": "titulo",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "data",
+          "typeHint": "date",
+          "required": true
+        },
+        {
+          "name": "hora",
+          "typeHint": "string",
+          "required": false
+        }
+      ],
+      "sourceScreenIds": [
+        "calendario"
+      ],
+      "userStoryIds": [
+        "US-30"
+      ]
+    },
+    {
+      "id": "data-whatsapp-connection",
+      "name": "Conexao WhatsApp",
+      "description": "Estado da conexao do numero oficial",
+      "fields": [
+        {
+          "name": "numero",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "status",
+          "typeHint": "enum(online,offline,reconectando)",
+          "required": true
+        },
+        {
+          "name": "ultimaSync",
+          "typeHint": "datetime",
+          "required": false
+        }
+      ],
+      "sourceScreenIds": [
+        "whatsapp"
+      ],
+      "userStoryIds": [
+        "US-05",
+        "US-06",
+        "US-07"
+      ]
+    },
+    {
+      "id": "data-agent-config",
+      "name": "Configuracao do agente",
+      "description": "Identidade, comportamento (prompt), publicos e escopos de acesso do agente",
+      "fields": [
+        {
+          "name": "nome",
+          "typeHint": "string",
+          "required": false
+        },
+        {
+          "name": "tom",
+          "typeHint": "string",
+          "required": false
+        },
+        {
+          "name": "comportamento",
+          "typeHint": "text(prompt)",
+          "required": true
+        },
+        {
+          "name": "publicoAlvo",
+          "typeHint": "array(string)",
+          "required": false
+        },
+        {
+          "name": "acessos",
+          "typeHint": "array(enum(contatos,celulas,relatorios,calendario,comunicados,assinatura))",
+          "required": true
+        },
+        {
+          "name": "ativo",
+          "typeHint": "boolean",
+          "required": true
+        }
+      ],
+      "sourceScreenIds": [
+        "agente"
+      ],
+      "userStoryIds": [
+        "US-28"
+      ]
+    },
+    {
+      "id": "data-llm-credential",
+      "name": "Credencial LLM (BYO)",
+      "description": "Chave de API do provedor de IA da igreja",
+      "fields": [
+        {
+          "name": "provedor",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "apiKey",
+          "typeHint": "string(secret)",
+          "required": true
+        }
+      ],
+      "sourceScreenIds": [
+        "agente"
+      ],
+      "userStoryIds": [
+        "US-27"
+      ]
+    },
+    {
+      "id": "data-crons",
+      "name": "Agendamentos do agente",
+      "description": "Crons para acoes automaticas do agente",
+      "fields": [
+        {
+          "name": "nome",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "frequencia",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "ativo",
+          "typeHint": "boolean",
+          "required": true
+        }
+      ],
+      "sourceScreenIds": [
+        "agente"
+      ],
+      "userStoryIds": [
+        "US-29"
+      ]
+    },
+    {
+      "id": "data-team",
+      "name": "Pessoas da igreja",
+      "description": "Pessoas com acesso ao painel; cada uma acumula um ou mais papeis ministeriais definidos no cadastro, que alimentam o RBAC",
+      "fields": [
+        {
+          "name": "nome",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "email",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "papeis",
+          "typeHint": "array(enum(admin,pastor,lider_g12,lider_consol,lider_celula,lider_mult,membro))",
+          "required": true
+        },
+        {
+          "name": "status",
+          "typeHint": "enum(ativo,convidado)",
+          "required": true
+        }
+      ],
+      "sourceScreenIds": [
+        "equipe"
+      ],
+      "userStoryIds": [
+        "US-03",
+        "US-04"
+      ]
+    },
+    {
+      "id": "data-subscription",
+      "name": "Assinatura da igreja",
+      "description": "Plano, status, setup fee e limite de pessoas",
+      "fields": [
+        {
+          "name": "plano",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "status",
+          "typeHint": "enum(ativa,inadimplente)",
+          "required": true
+        },
+        {
+          "name": "pessoas",
+          "typeHint": "number",
+          "required": true
+        },
+        {
+          "name": "limite",
+          "typeHint": "number",
+          "required": true
+        },
+        {
+          "name": "proximaCobranca",
+          "typeHint": "date",
+          "required": false
+        }
+      ],
+      "sourceScreenIds": [
+        "assinatura"
+      ],
+      "userStoryIds": [
+        "US-34",
+        "US-35",
+        "US-36"
+      ]
+    },
+    {
+      "id": "data-user-roles",
+      "name": "Papeis do usuario",
+      "description": "Conjunto de papeis ministeriais acumulados por pessoa, lidos do cadastro; menu e dashboard sao montados pela uniao desses papeis",
+      "fields": [
+        {
+          "name": "usuarioId",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "papeis",
+          "typeHint": "array(enum(admin,pastor,lider_g12,lider_consol,lider_celula,lider_mult,membro))",
+          "required": true
+        }
+      ],
+      "sourceScreenIds": [
+        "login",
+        "equipe"
+      ],
+      "userStoryIds": [
+        "US-03",
+        "US-04"
+      ]
+    },
+    {
+      "id": "data-role-perms",
+      "name": "Matriz de permissoes por papel",
+      "description": "Telas liberadas para cada papel, configuravel pelo admin; admin tem acesso total implicito e dashboard e garantido a todos",
+      "fields": [
+        {
+          "name": "papel",
+          "typeHint": "enum(pastor,lider_g12,lider_consol,lider_celula,lider_mult,membro)",
+          "required": true
+        },
+        {
+          "name": "telas",
+          "typeHint": "array(string)",
+          "required": true
+        }
+      ],
+      "sourceScreenIds": [
+        "permissoes"
+      ],
+      "userStoryIds": [
+        "US-04"
+      ]
+    },
+    {
+      "id": "data-pipeline-stage",
+      "name": "Etapa do ciclo G12",
+      "description": "Posicao de cada pessoa no ciclo Ganhar/Consolidar/Discipular/Enviar e criterios de avanco (3 presencas em celula, aceitou Jesus, consolidacao individual e/ou UV concluida)",
+      "fields": [
+        {
+          "name": "pessoa",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "etapa",
+          "typeHint": "enum(ganhar,consolidar,discipular,enviar)",
+          "required": true
+        },
+        {
+          "name": "subetapa",
+          "typeHint": "enum(novo_contato,visitante,em_consolidacao,consolidado)",
+          "required": false
+        },
+        {
+          "name": "presencasCelula",
+          "typeHint": "number",
+          "required": false
+        },
+        {
+          "name": "aceitouJesus",
+          "typeHint": "boolean",
+          "required": false
+        }
+      ],
+      "sourceScreenIds": [
+        "ganhar",
+        "consolidar"
+      ],
+      "userStoryIds": [
+        "US-18",
+        "US-19"
+      ]
+    },
+    {
+      "id": "data-consolidacao",
+      "name": "Consolidacao",
+      "description": "Fila de consolidacao individual e turmas da Universidade da Vida, com responsavel, progresso e selos de conclusao (individual e/ou UV)",
+      "fields": [
+        {
+          "name": "pessoa",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "tipo",
+          "typeHint": "enum(individual,universidade_vida)",
+          "required": true
+        },
+        {
+          "name": "responsavel",
+          "typeHint": "string",
+          "required": false
+        },
+        {
+          "name": "progresso",
+          "typeHint": "number",
+          "required": false
+        },
+        {
+          "name": "concluida",
+          "typeHint": "boolean",
+          "required": true
+        }
+      ],
+      "sourceScreenIds": [
+        "consolidar",
+        "consol-individual",
+        "universidade-vida"
+      ],
+      "userStoryIds": [
+        "US-18",
+        "US-19"
+      ]
+    },
+    {
+      "id": "data-trilha",
+      "name": "Trilha de capacitacao (Destino)",
+      "description": "Etapas da Capacitacao Destino (Encontro, Pos-Encontro, Escola de Lideres) por discipulo, ate estar apto a liderar",
+      "fields": [
+        {
+          "name": "discipulo",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "etapa",
+          "typeHint": "enum(encontro,pos_encontro,escola_lideres,apto)",
+          "required": true
+        },
+        {
+          "name": "concluido",
+          "typeHint": "boolean",
+          "required": false
+        }
+      ],
+      "sourceScreenIds": [
+        "capacitacao"
+      ],
+      "userStoryIds": [
+        "US-18",
+        "US-19"
+      ]
+    },
+    {
+      "id": "data-descendencias",
+      "name": "Descendencias G12",
+      "description": "Arvore ministerial (organograma) a partir dos pastores principais: cada lider e seus 12 liderados, recursivamente",
+      "fields": [
+        {
+          "name": "lider",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "papel",
+          "typeHint": "string",
+          "required": false
+        },
+        {
+          "name": "liderados",
+          "typeHint": "array(string)",
+          "required": false
+        },
+        {
+          "name": "qtdDescendencia",
+          "typeHint": "number",
+          "required": false
+        }
+      ],
+      "sourceScreenIds": [
+        "g12"
+      ],
+      "userStoryIds": [
+        "US-21",
+        "US-22",
+        "US-23"
+      ]
+    },
+    {
+      "id": "data-multiplicacoes",
+      "name": "Multiplicacoes de celula",
+      "description": "Celulas com multiplicacao agendada ou sem agendamento e historico de multiplicacoes por ano/mes/descendencia",
+      "fields": [
+        {
+          "name": "celula",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "status",
+          "typeHint": "enum(agendada,sem_agendamento,aprovada,concluida)",
+          "required": true
+        },
+        {
+          "name": "dataPrevista",
+          "typeHint": "date",
+          "required": false
+        },
+        {
+          "name": "descendencia",
+          "typeHint": "string",
+          "required": false
+        }
+      ],
+      "sourceScreenIds": [
+        "enviar"
+      ],
+      "userStoryIds": [
+        "US-21",
+        "US-22",
+        "US-23"
+      ]
+    },
+    {
+      "id": "data-aptos-lideranca",
+      "name": "Aptos a liderar",
+      "description": "Pessoas aptas a liderar uma nova celula, com informacao ministerial (trilha concluida, participacao em multiplicacao)",
+      "fields": [
+        {
+          "name": "pessoa",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "infoMinisterial",
+          "typeHint": "string",
+          "required": false
+        },
+        {
+          "name": "trilhaConcluida",
+          "typeHint": "boolean",
+          "required": true
+        }
+      ],
+      "sourceScreenIds": [
+        "enviar"
+      ],
+      "userStoryIds": [
+        "US-21",
+        "US-23"
+      ]
+    },
+    {
+      "id": "data-system-managers",
+      "name": "Gerentes de sistema",
+      "description": "Operadores do sistema (papel operacional, distinto do ministerial) que administram a conta da igreja no SaaS",
+      "fields": [
+        {
+          "name": "nome",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "email",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "papelOperacional",
+          "typeHint": "enum(admin_sistema,operador)",
+          "required": true
+        }
+      ],
+      "sourceScreenIds": [
+        "gerentes"
+      ],
+      "userStoryIds": [
+        "US-03",
+        "US-04"
+      ]
+    },
+    {
+      "id": "data-decision",
+      "name": "Decisao por Jesus",
+      "description": "Lancamento de uma decisao por Jesus. Dois fluxos: pessoa ja em celula (o lider assume a consolidacao) ou visitante sem vinculo (equipe de consolidacao lanca e abre prazo de 24h para conecta-la a uma celula). Ao lancar, a pessoa entra na etapa inicial do Dashboard de Consolidacao",
+      "fields": [
+        {
+          "name": "pessoa",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "origem",
+          "typeHint": "string",
+          "required": false
+        },
+        {
+          "name": "vinculo",
+          "typeHint": "enum(celula,visitante)",
+          "required": true
+        },
+        {
+          "name": "celulaId",
+          "typeHint": "string",
+          "required": false
+        },
+        {
+          "name": "responsavel",
+          "typeHint": "string",
+          "required": false
+        },
+        {
+          "name": "prazoConexao",
+          "typeHint": "datetime",
+          "required": false
+        }
+      ],
+      "sourceScreenIds": [
+        "consolidar",
+        "consol-individual"
+      ],
+      "userStoryIds": [
+        "US-37",
+        "US-40"
+      ]
+    },
+    {
+      "id": "data-assistant",
+      "name": "Assistente do sistema",
+      "description": "Sessao do assistente no painel: ciente do papel do usuario logado (responde conforme as telas que ele pode ver) e restrito ao tenant/igreja. Protótipo de estados, sem IA real",
+      "fields": [
+        {
+          "name": "usuarioId",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "papeis",
+          "typeHint": "array(string)",
+          "required": true
+        },
+        {
+          "name": "tenantId",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "telasPermitidas",
+          "typeHint": "array(string)",
+          "required": true
+        },
+        {
+          "name": "mensagens",
+          "typeHint": "array",
+          "required": false
+        }
+      ],
+      "sourceScreenIds": [
+        "dashboard"
+      ],
+      "userStoryIds": [
+        "US-41"
+      ]
+    },
+    {
+      "id": "data-tenants",
+      "name": "Igrejas / tenants",
+      "description": "Lista de igrejas (tenants) do SaaS com status, porte e custo de IA, para o console do provedor (superficie separada, ver delta-024)",
+      "fields": [
+        {
+          "name": "igreja",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "status",
+          "typeHint": "enum(ativa,suspensa,aguardando_aprovacao)",
+          "required": true
+        },
+        {
+          "name": "pessoas",
+          "typeHint": "number",
+          "required": false
+        },
+        {
+          "name": "custoIA",
+          "typeHint": "number",
+          "required": false
+        }
+      ],
+      "sourceScreenIds": [
+        "super-admin-igrejas"
+      ],
+      "userStoryIds": [
+        "US-42"
+      ]
+    },
+    {
+      "id": "data-provisioning",
+      "name": "Provisionamento de igreja",
+      "description": "Dados para provisionar uma nova igreja apos verificacao de pagamento e convite com link expiravel",
+      "fields": [
+        {
+          "name": "igreja",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "emailAdmin",
+          "typeHint": "string",
+          "required": true
+        },
+        {
+          "name": "pagamentoVerificado",
+          "typeHint": "boolean",
+          "required": true
+        },
+        {
+          "name": "linkExpiraEm",
+          "typeHint": "datetime",
+          "required": false
+        }
+      ],
+      "sourceScreenIds": [
+        "super-admin-provisionar"
+      ],
+      "userStoryIds": [
+        "US-43"
+      ]
+    }
+  ],
+  "apiExpectations": [
+    {
+      "id": "api-login",
+      "operation": "POST /auth/login",
+      "screenIds": [
+        "login"
+      ],
+      "actionIds": [
+        "action-login"
+      ],
+      "methodHint": "POST",
+      "requestShape": {
+        "email": "string",
+        "password": "string"
+      },
+      "responseShape": {
+        "token": "string",
+        "churchId": "string"
+      },
+      "userStoryIds": [
+        "US-01",
+        "US-02"
+      ]
+    },
+    {
+      "id": "api-queue-action",
+      "operation": "POST /work-queue/{itemId}/action",
+      "screenIds": [
+        "dashboard"
+      ],
+      "actionIds": [
+        "action-queue-assume",
+        "action-queue-assign"
+      ],
+      "methodHint": "POST",
+      "requestShape": {
+        "action": "string",
+        "assignee": "string"
+      },
+      "responseShape": {
+        "status": "string"
+      },
+      "userStoryIds": [
+        "US-16",
+        "US-17"
+      ]
+    },
+    {
+      "id": "api-conversations",
+      "operation": "GET /conversations",
+      "screenIds": [
+        "inbox"
+      ],
+      "actionIds": [
+        "action-open-conversation"
+      ],
+      "methodHint": "GET",
+      "requestShape": {
+        "filter": "string"
+      },
+      "responseShape": {
+        "items": "array"
+      },
+      "userStoryIds": [
+        "US-08",
+        "US-11"
+      ]
+    },
+    {
+      "id": "api-conversation-handoff",
+      "operation": "POST /conversations/{id}/handoff",
+      "screenIds": [
+        "inbox"
+      ],
+      "actionIds": [
+        "action-assume-conversation",
+        "action-return-conversation"
+      ],
+      "methodHint": "POST",
+      "requestShape": {
+        "to": "enum(human,ia)"
+      },
+      "responseShape": {
+        "estado": "string"
+      },
+      "userStoryIds": [
+        "US-12",
+        "US-13"
+      ]
+    },
+    {
+      "id": "api-contacts",
+      "operation": "GET /contacts",
+      "screenIds": [
+        "contatos"
+      ],
+      "actionIds": [
+        "action-open-contact"
+      ],
+      "methodHint": "GET",
+      "requestShape": {
+        "filter": "string"
+      },
+      "responseShape": {
+        "items": "array"
+      },
+      "userStoryIds": [
+        "US-18",
+        "US-19"
+      ]
+    },
+    {
+      "id": "api-create-contact",
+      "operation": "POST /contacts",
+      "screenIds": [
+        "contatos"
+      ],
+      "actionIds": [
+        "action-new-contact"
+      ],
+      "methodHint": "POST",
+      "requestShape": {
+        "nome": "string",
+        "telefone": "string",
+        "tipo": "string"
+      },
+      "responseShape": {
+        "id": "string"
+      },
+      "userStoryIds": [
+        "US-09",
+        "US-10"
+      ]
+    },
+    {
+      "id": "api-link-cell",
+      "operation": "POST /contacts/{id}/cell",
+      "screenIds": [
+        "contatos"
+      ],
+      "actionIds": [
+        "action-link-cell"
+      ],
+      "methodHint": "POST",
+      "requestShape": {
+        "cellId": "string"
+      },
+      "responseShape": {
+        "status": "string"
+      },
+      "userStoryIds": [
+        "US-20"
+      ]
+    },
+    {
+      "id": "api-cells",
+      "operation": "GET/POST /cells",
+      "screenIds": [
+        "celulas"
+      ],
+      "actionIds": [
+        "action-new-cell",
+        "action-edit-cell"
+      ],
+      "methodHint": "POST",
+      "requestShape": {
+        "nome": "string",
+        "lider": "string",
+        "diaReuniao": "string"
+      },
+      "responseShape": {
+        "id": "string"
+      },
+      "userStoryIds": [
+        "US-21",
+        "US-22",
+        "US-23"
+      ]
+    },
+    {
+      "id": "api-reports",
+      "operation": "GET /reports",
+      "screenIds": [
+        "relatorios"
+      ],
+      "actionIds": [
+        "action-view-report",
+        "action-charge-report"
+      ],
+      "methodHint": "GET",
+      "requestShape": {
+        "semana": "string"
+      },
+      "responseShape": {
+        "recebidos": "array",
+        "pendentes": "array"
+      },
+      "userStoryIds": [
+        "US-24",
+        "US-25",
+        "US-26"
+      ]
+    },
+    {
+      "id": "api-broadcasts",
+      "operation": "POST /broadcasts",
+      "screenIds": [
+        "comunicados"
+      ],
+      "actionIds": [
+        "action-new-broadcast",
+        "action-send-broadcast",
+        "action-schedule-broadcast"
+      ],
+      "methodHint": "POST",
+      "requestShape": {
+        "titulo": "string",
+        "mensagem": "string",
+        "segmentos": "array",
+        "modo": "enum(agora,agendado)",
+        "agendamento": {
+          "data": "date",
+          "hora": "string",
+          "repeticao": "enum(once,daily,weekly,biweekly,monthly)"
+        }
+      },
+      "responseShape": {
+        "status": "string",
+        "enviados": "number",
+        "ignoradosOptout": "number",
+        "agendadoPara": "datetime"
+      },
+      "userStoryIds": [
+        "US-31",
+        "US-32",
+        "US-33"
+      ]
+    },
+    {
+      "id": "api-send-internal-message",
+      "operation": "POST /work-queue/{itemId}/message",
+      "screenIds": [
+        "dashboard"
+      ],
+      "actionIds": [
+        "action-queue-message"
+      ],
+      "methodHint": "POST",
+      "requestShape": {
+        "destinatarioId": "string",
+        "remetente": {
+          "nome": "string",
+          "papel": "string"
+        },
+        "canal": "enum(whatsapp)",
+        "texto": "string"
+      },
+      "responseShape": {
+        "status": "string",
+        "messageId": "string"
+      },
+      "userStoryIds": [
+        "US-16",
+        "US-17"
+      ]
+    },
+    {
+      "id": "api-events",
+      "operation": "GET/POST /events",
+      "screenIds": [
+        "calendario"
+      ],
+      "actionIds": [
+        "action-new-event"
+      ],
+      "methodHint": "POST",
+      "requestShape": {
+        "titulo": "string",
+        "data": "date",
+        "hora": "string"
+      },
+      "responseShape": {
+        "id": "string",
+        "googleEventId": "string"
+      },
+      "userStoryIds": [
+        "US-30"
+      ]
+    },
+    {
+      "id": "api-whatsapp-connection",
+      "operation": "GET/POST /whatsapp/connection",
+      "screenIds": [
+        "whatsapp"
+      ],
+      "actionIds": [
+        "action-connect-whatsapp",
+        "action-reconnect-whatsapp"
+      ],
+      "methodHint": "POST",
+      "requestShape": {
+        "action": "enum(connect,reconnect)"
+      },
+      "responseShape": {
+        "status": "string",
+        "qr": "string"
+      },
+      "userStoryIds": [
+        "US-05",
+        "US-06",
+        "US-07"
+      ]
+    },
+    {
+      "id": "api-llm-credential",
+      "operation": "POST /agent/credential",
+      "screenIds": [
+        "agente"
+      ],
+      "actionIds": [
+        "action-save-llm-key"
+      ],
+      "methodHint": "POST",
+      "requestShape": {
+        "provedor": "string",
+        "apiKey": "string"
+      },
+      "responseShape": {
+        "status": "string"
+      },
+      "userStoryIds": [
+        "US-27"
+      ]
+    },
+    {
+      "id": "api-agent-config",
+      "operation": "PUT /agent/config",
+      "screenIds": [
+        "agente"
+      ],
+      "actionIds": [
+        "action-save-agent"
+      ],
+      "methodHint": "PUT",
+      "requestShape": {
+        "tom": "string",
+        "publicoAlvo": "string",
+        "ativo": "boolean"
+      },
+      "responseShape": {
+        "status": "string"
+      },
+      "userStoryIds": [
+        "US-28"
+      ]
+    },
+    {
+      "id": "api-crons",
+      "operation": "POST /agent/crons",
+      "screenIds": [
+        "agente"
+      ],
+      "actionIds": [
+        "action-save-cron"
+      ],
+      "methodHint": "POST",
+      "requestShape": {
+        "nome": "string",
+        "frequencia": "string",
+        "ativo": "boolean"
+      },
+      "responseShape": {
+        "id": "string"
+      },
+      "userStoryIds": [
+        "US-29"
+      ]
+    },
+    {
+      "id": "api-team-invite",
+      "operation": "POST /team/invite",
+      "screenIds": [
+        "equipe"
+      ],
+      "actionIds": [
+        "action-invite-user"
+      ],
+      "methodHint": "POST",
+      "requestShape": {
+        "nome": "string",
+        "email": "string",
+        "papeis": "array(string)"
+      },
+      "responseShape": {
+        "status": "string"
+      },
+      "userStoryIds": [
+        "US-03",
+        "US-04"
+      ]
+    },
+    {
+      "id": "api-team-roles",
+      "operation": "PUT /team/{usuarioId}/roles",
+      "screenIds": [
+        "equipe"
+      ],
+      "actionIds": [
+        "action-edit-roles"
+      ],
+      "methodHint": "PUT",
+      "requestShape": {
+        "usuarioId": "string",
+        "papeis": "array(string)"
+      },
+      "responseShape": {
+        "status": "string",
+        "papeis": "array(string)"
+      },
+      "userStoryIds": [
+        "US-03",
+        "US-04"
+      ]
+    },
+    {
+      "id": "api-subscription",
+      "operation": "GET/POST /subscription",
+      "screenIds": [
+        "assinatura"
+      ],
+      "actionIds": [
+        "action-contract-plan",
+        "action-manage-billing"
+      ],
+      "methodHint": "POST",
+      "requestShape": {
+        "planoId": "string"
+      },
+      "responseShape": {
+        "status": "string",
+        "checkoutUrl": "string"
+      },
+      "userStoryIds": [
+        "US-34",
+        "US-35",
+        "US-36"
+      ]
+    },
+    {
+      "id": "api-role-perms",
+      "operation": "GET/PUT /roles/permissions",
+      "screenIds": [
+        "permissoes"
+      ],
+      "actionIds": [
+        "action-toggle-perm"
+      ],
+      "methodHint": "PUT",
+      "requestShape": {
+        "papel": "string",
+        "telas": "array(string)"
+      },
+      "responseShape": {
+        "status": "string"
+      },
+      "userStoryIds": [
+        "US-04"
+      ]
+    },
+    {
+      "id": "api-pipeline",
+      "operation": "GET/PUT /pipeline",
+      "screenIds": [
+        "ganhar",
+        "consolidar",
+        "consol-individual",
+        "universidade-vida",
+        "capacitacao"
+      ],
+      "actionIds": [
+        "action-promote-visitante",
+        "action-open-consol-individual",
+        "action-open-uv",
+        "action-assign-consolidador",
+        "action-new-turma-uv",
+        "action-advance-trilha"
+      ],
+      "methodHint": "PUT",
+      "requestShape": {
+        "pessoaId": "string",
+        "etapa": "string",
+        "subetapa": "string"
+      },
+      "responseShape": {
+        "status": "string",
+        "etapa": "string"
+      },
+      "userStoryIds": [
+        "US-18",
+        "US-19",
+        "US-20"
+      ]
+    },
+    {
+      "id": "api-descendencias",
+      "operation": "GET /descendencias",
+      "screenIds": [
+        "g12"
+      ],
+      "actionIds": [
+        "action-open-descendencia"
+      ],
+      "methodHint": "GET",
+      "requestShape": {
+        "raizLiderId": "string"
+      },
+      "responseShape": {
+        "arvore": "tree"
+      },
+      "userStoryIds": [
+        "US-21",
+        "US-22",
+        "US-23"
+      ]
+    },
+    {
+      "id": "api-multiplicacoes",
+      "operation": "GET/POST /multiplicacoes",
+      "screenIds": [
+        "enviar"
+      ],
+      "actionIds": [
+        "action-schedule-mult",
+        "action-approve-mult"
+      ],
+      "methodHint": "POST",
+      "requestShape": {
+        "celulaId": "string",
+        "novoLiderId": "string",
+        "dataPrevista": "date",
+        "acao": "enum(agendar,aprovar)"
+      },
+      "responseShape": {
+        "status": "string",
+        "id": "string"
+      },
+      "userStoryIds": [
+        "US-21",
+        "US-22",
+        "US-23"
+      ]
+    },
+    {
+      "id": "api-system-managers",
+      "operation": "GET/POST/DELETE /system-managers",
+      "screenIds": [
+        "gerentes"
+      ],
+      "actionIds": [
+        "action-add-gerente",
+        "action-remove-gerente"
+      ],
+      "methodHint": "POST",
+      "requestShape": {
+        "nome": "string",
+        "email": "string",
+        "papelOperacional": "string"
+      },
+      "responseShape": {
+        "status": "string",
+        "id": "string"
+      },
+      "userStoryIds": [
+        "US-03",
+        "US-04"
+      ]
+    },
+    {
+      "id": "api-launch-decision",
+      "operation": "POST /consolidacao/decisao",
+      "screenIds": [
+        "consolidar",
+        "consol-individual"
+      ],
+      "actionIds": [
+        "action-launch-decision",
+        "action-launch-decision-ci"
+      ],
+      "methodHint": "POST",
+      "requestShape": {
+        "pessoa": "string",
+        "origem": "string",
+        "vinculo": "enum(celula,visitante)",
+        "celulaId": "string"
+      },
+      "responseShape": {
+        "status": "string",
+        "consolidacaoId": "string",
+        "etapa": "enum(inicial)",
+        "prazoConexao": "datetime",
+        "responsavel": "string"
+      },
+      "userStoryIds": [
+        "US-37",
+        "US-40"
+      ]
+    },
+    {
+      "id": "api-assistant",
+      "operation": "POST /assistant/message",
+      "screenIds": [
+        "dashboard"
+      ],
+      "actionIds": [
+        "action-assistant-send"
+      ],
+      "methodHint": "POST",
+      "requestShape": {
+        "tenantId": "string",
+        "usuarioId": "string",
+        "papeis": "array(string)",
+        "texto": "string"
+      },
+      "responseShape": {
+        "resposta": "string",
+        "telasSugeridas": "array(string)"
+      },
+      "userStoryIds": [
+        "US-41"
+      ]
+    },
+    {
+      "id": "api-super-admin-tenants",
+      "operation": "GET /super-admin/tenants",
+      "screenIds": [
+        "super-admin-igrejas"
+      ],
+      "actionIds": [
+        "action-open-tenant"
+      ],
+      "methodHint": "GET",
+      "requestShape": {
+        "filter": "string"
+      },
+      "responseShape": {
+        "items": "array"
+      },
+      "userStoryIds": [
+        "US-42"
+      ]
+    },
+    {
+      "id": "api-super-admin-provision",
+      "operation": "POST /super-admin/tenants",
+      "screenIds": [
+        "super-admin-provisionar"
+      ],
+      "actionIds": [
+        "action-provision-tenant"
+      ],
+      "methodHint": "POST",
+      "requestShape": {
+        "igreja": "string",
+        "emailAdmin": "string",
+        "pagamentoVerificado": "boolean"
+      },
+      "responseShape": {
+        "tenantId": "string",
+        "conviteUrl": "string",
+        "expiraEm": "datetime"
+      },
+      "userStoryIds": [
+        "US-43"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "id": "delta-001",
+      "type": "scope",
+      "description": "RECONCILIADO: as stories US-37 a US-43 (omitidas do mapa compacto) foram recebidas integralmente e tratadas uma a uma. US-38/US-39 anexadas as telas consolidar/consol-individual (rastreabilidade real); US-37 e US-40 construidas (ver delta-021/022); US-41 construida (delta-023); US-42/US-43 fora de escopo (delta-024). Cobertura US-01..US-43 completa.",
+      "impact": "low",
+      "relatedUserStoryIds": [
+        "US-37",
+        "US-38",
+        "US-39",
+        "US-40",
+        "US-41",
+        "US-42",
+        "US-43"
+      ],
+      "requiresRequirementsChange": false
+    },
+    {
+      "id": "delta-002",
+      "type": "assumption",
+      "description": "Painel de Super-Admin (gestao de tenants/igrejas) citado nas notas de cobertura nao foi incluido por ser um painel separado do operacional da igreja; este artifact cobre apenas o painel da igreja (Pastor/Admin/Lider).",
+      "impact": "low",
+      "relatedUserStoryIds": [
+        "US-02"
+      ],
+      "requiresRequirementsChange": false
+    },
+    {
+      "id": "delta-003",
+      "type": "unclear",
+      "description": "Dados exibidos (contatos, celulas, relatorios, conversas) sao amostras representativas do dominio para validar fluxo e estados; nao representam dados reais da igreja piloto.",
+      "impact": "low",
+      "relatedUserStoryIds": [],
+      "requiresRequirementsChange": false
+    },
+    {
+      "id": "delta-004",
+      "type": "assumption",
+      "description": "Integracao Clerk, Google Calendar, gateway de pagamento e provedor LLM sao representados por estados de UI e contratos de API esperados; nenhuma credencial real e usada.",
+      "impact": "low",
+      "relatedUserStoryIds": [
+        "US-01",
+        "US-27",
+        "US-30",
+        "US-34"
+      ],
+      "requiresRequirementsChange": false
+    },
+    {
+      "id": "delta-005",
+      "type": "assumption",
+      "description": "RBAC sem seletor manual: o seletor 'Ver como' foi removido. Cada pessoa acumula um conjunto de papeis no cadastro (ex.: pastor+admin+lider_g12; lider_celula+lider_consol; apenas membro) e o sistema monta menu e dashboard pela uniao dos acessos desses papeis. Itens de Configuracao (Equipe, Agente, WhatsApp, Assinatura, Permissoes) so aparecem para quem tem o papel admin. Os perfis de demonstracao no login simulam pessoas com papeis diferentes; em producao os papeis vem do cadastro autenticado (Clerk).",
+      "impact": "high",
+      "relatedUserStoryIds": [
+        "US-02",
+        "US-03",
+        "US-04"
+      ],
+      "requiresRequirementsChange": false
+    },
+    {
+      "id": "delta-006",
+      "type": "assumption",
+      "description": "Itens da fila pastoral so aparecem para quem pode resolve-los. 'Resolver' = falar com o responsavel: abre um compositor que envia mensagem pelo WhatsApp oficial da igreja, prefixada com a identidade do remetente no formato 'Nome [papel]: mensagem'. Modelado em api-send-internal-message.",
+      "impact": "high",
+      "relatedUserStoryIds": [
+        "US-16",
+        "US-17"
+      ],
+      "requiresRequirementsChange": false
+    },
+    {
+      "id": "delta-007",
+      "type": "assumption",
+      "description": "Abrir/editar uma celula exige ser o lider daquela celula ou um superior na hierarquia ministerial. Cards bloqueados ficam com estado .locked e nao abrem o modal de detalhe/edicao.",
+      "impact": "medium",
+      "relatedUserStoryIds": [
+        "US-21",
+        "US-22",
+        "US-23"
+      ],
+      "requiresRequirementsChange": false
+    },
+    {
+      "id": "delta-008",
+      "type": "assumption",
+      "description": "Contatos reorganizados em Todos, Sem acompanhamento, Visitantes, Discipulos, Lideres, Pastores. O antigo conceito 'sem consentimento' virou estado de Notificacoes (Liberadas/Bloqueadas) por contato, usado para excluir do envio de comunicados.",
+      "impact": "medium",
+      "relatedUserStoryIds": [
+        "US-18",
+        "US-31",
+        "US-32"
+      ],
+      "requiresRequirementsChange": false
+    },
+    {
+      "id": "delta-009",
+      "type": "assumption",
+      "description": "Comunicados aceitam multiplos segmentos (multi-select) e agendamento tipo cron (enviar agora ou agendar com repeticao once/daily/weekly/biweekly/monthly). Agente passa a ter campo de Comportamento (prompt) e escopos de acesso selecionaveis ao sistema.",
+      "impact": "medium",
+      "relatedUserStoryIds": [
+        "US-28",
+        "US-33"
+      ],
+      "requiresRequirementsChange": false
+    },
+    {
+      "id": "delta-010",
+      "type": "scope",
+      "description": "Nova tela Permissoes (admin): matriz papel x tela onde o administrador da igreja define o que cada papel ministerial enxerga. Alteracoes refletem na hora no menu/dashboard. Dashboard tem visao de lideranca (fila pastoral, proximas acoes, status do WhatsApp) e visao de membro (trilha pessoal, celula, proximo evento), alternadas conforme a pessoa tenha ou nao papel de lideranca.",
+      "impact": "high",
+      "relatedUserStoryIds": [
+        "US-04",
+        "US-15"
+      ],
+      "requiresRequirementsChange": false
+    },
+    {
+      "id": "delta-011",
+      "type": "assumption",
+      "description": "Tela Equipe agora edita o cadastro que alimenta o RBAC: cada pessoa recebe um ou mais papeis acumulados via checkboxes (convite com nome+email+papeis, e edicao de papeis por pessoa em modal). Salvar atualiza data-user-roles; se a pessoa editada for o usuario logado, menu e dashboard sao remontados na hora. Fecha o ciclo cadastro -> papeis -> acessos (api-team-roles, PUT /team/{usuarioId}/roles).",
+      "impact": "high",
+      "relatedUserStoryIds": [
+        "US-03",
+        "US-04"
+      ],
+      "requiresRequirementsChange": false
+    },
+    {
+      "id": "delta-012",
+      "type": "scope",
+      "description": "Navegacao reorganizada em torno do ciclo ministerial G12. Grupo 'Gestao' (Dashboard + Chat/WhatsApp da Igreja); secao 'Visao G12 · Igreja' com os 4 estagios do pipeline: Ganhar (novos contatos + visitantes), Consolidar (dashboard + Consolidacao Individual + Universidade da Vida), Discipular (Capacitacao Destino + G12/Descendencias + Central de Celula) e Enviar (multiplicacoes agendadas/sem agendamento, aptos a liderar, aprovacao e historico); grupo 'Gestao' inferior (Agenda da Igreja, Comunicacao, Equipe de Lideranca); grupo 'Configuracao' (admin only). 9 telas novas adicionadas: ganhar, consolidar, consol-individual, universidade-vida, capacitacao, g12, central-celula, enviar, gerentes. Telas legadas contatos/celulas/relatorios permanecem validas para deep-link mas saem do menu (cobertas por ganhar/central-celula).",
+      "impact": "high",
+      "relatedUserStoryIds": [
+        "US-18",
+        "US-19",
+        "US-20",
+        "US-21",
+        "US-22",
+        "US-23",
+        "US-24",
+        "US-25",
+        "US-26"
+      ],
+      "requiresRequirementsChange": false
+    },
+    {
+      "id": "delta-013",
+      "type": "assumption",
+      "description": "Regra de promocao automatica de visitante: pessoa permanece 'visitante' ate (a) aceitar Jesus — informado pela consolidacao ou pelo lider de celula — OU (b) atingir 3 presencas em celula. Modelado em data-pipeline-stage (presencasCelula, aceitouJesus). Nenhuma edicao manual de etapa e necessaria; o sistema avanca a etapa pela trilha ministerial.",
+      "impact": "medium",
+      "relatedUserStoryIds": [
+        "US-18",
+        "US-19"
+      ],
+      "requiresRequirementsChange": false
+    },
+    {
+      "id": "delta-014",
+      "type": "assumption",
+      "description": "Trilha ministerial dirige o RBAC sem edicao manual de cadastro: visitar celula 2+ vezes -> membro; concluir Reencontro/Capacitacao -> apto a liderar; participar de multiplicacao + receber lideranca de celula -> lider de celula. Admins so editam papeis ministeriais como excecao; o fluxo normal e automatico (data-user-roles atualizado pela trilha).",
+      "impact": "high",
+      "relatedUserStoryIds": [
+        "US-03",
+        "US-04",
+        "US-18",
+        "US-21"
+      ],
+      "requiresRequirementsChange": false
+    },
+    {
+      "id": "delta-015",
+      "type": "scope",
+      "description": "Nova tela 'Gerentes de Sistema' (Configuracao, admin only): operador do sistema e um papel OPERACIONAL do SaaS, distinto dos papeis ministeriais (pastor, lider etc.). Definido no onboarding ou adicionado por admin. Modelado em data-system-managers / api-system-managers.",
+      "impact": "medium",
+      "relatedUserStoryIds": [
+        "US-03",
+        "US-04"
+      ],
+      "requiresRequirementsChange": false
+    },
+    {
+      "id": "delta-016",
+      "type": "unclear",
+      "description": "Agente IA foi mantido em Configuracao (admin only) embora nao tenha sido citado na lista explicita de Configuracao do usuario (Conexao WhatsApp, Assinatura, Gerentes de Sistema, Permissoes). Mantido por ser requerido por US-27/28/29 e por ja existir wiring. Confirmar se deve permanecer em Configuracao ou migrar para outro grupo.",
+      "impact": "low",
+      "relatedUserStoryIds": [
+        "US-27",
+        "US-28",
+        "US-29"
+      ],
+      "requiresRequirementsChange": false
+    },
+    {
+      "id": "delta-017",
+      "type": "scope",
+      "description": "Painel do Consolidar: lista '100% consolidados' filtravel por celula, descendencia, genero e faixa etaria. Acao 'Atribuir lider' abre sugestao automatica de responsaveis ranqueada por genero igual (obrigatorio), proximidade de faixa etaria e mesma regiao/bairro; ao escolher, o orquestrador pergunta ao lider pelo WhatsApp se aceita assumir e, com o aceite, vincula a pessoa a celula, abre a consolidacao e avisa quem iniciou. Modelado em data-consolidation-queue / api-assign-consolidator (suggestLeaders + orchestrator flow).",
+      "impact": "high",
+      "relatedUserStoryIds": [
+        "US-18",
+        "US-19",
+        "US-20"
+      ],
+      "requiresRequirementsChange": false
+    },
+    {
+      "id": "delta-018",
+      "type": "assumption",
+      "description": "Consolidacao Individual: cada pessoa abre uma trilha (aceitou Jesus -> conectou em celula -> fonovisita -> N visitas definidas pelas regras da igreja). Quem confirma cada encontro e exclusivamente o consolidador da pessoa; a central apenas supervisiona e o orquestrador lembra quem estiver em atraso. Confirmacao gateada por identidade (usuario logado == consolidador). Concluida a trilha, a pessoa entra no criterio da Universidade da Vida.",
+      "impact": "high",
+      "relatedUserStoryIds": [
+        "US-19",
+        "US-20"
+      ],
+      "requiresRequirementsChange": false
+    },
+    {
+      "id": "delta-019",
+      "type": "scope",
+      "description": "Universidade da Vida e Capacitacao Destino ficam bloqueadas no MVP (estado .locked com simbolo de relogio e cinza claro, rotulo 'em breve'). Conteudo detalhado das aulas/modulos existe e sera desenvolvido depois; o menu sinaliza disponibilidade futura sem navegar.",
+      "impact": "medium",
+      "relatedUserStoryIds": [
+        "US-24",
+        "US-25"
+      ],
+      "requiresRequirementsChange": false
+    },
+    {
+      "id": "delta-020",
+      "type": "scope",
+      "description": "Painel do Discipular (G12): organograma ministerial. O cadastro da igreja define o organograma inicial (so pastor, so pastora, ou familia pastoral -> descendencia masculina E feminina). A liderança principal aparece no topo com 12 slots; conforme os 12 sao marcados, os slots se preenchem e os vagos aparecem apagados. Cada pessoa marca no maximo 12; ao avancar ministerialmente, pode marcar seus proprios 12. Na arvore, a pessoa ve apenas sua linha ascendente/descendente; clicar num card que ja tem time abre o proximo nivel de 12 (drill-down por breadcrumb). Pastor visualiza homens, pastora visualiza mulheres. Modelado em data-g12-org / api-g12-tree.",
+      "impact": "high",
+      "relatedUserStoryIds": [
+        "US-21",
+        "US-22",
+        "US-23"
+      ],
+      "requiresRequirementsChange": false
+    },
+    {
+      "id": "delta-021",
+      "type": "scope",
+      "description": "US-37 Lancar decisao por Jesus: acao disponivel no Dashboard de Consolidacao e na Consolidacao Individual (botao 'Lancar decisao'). Modal com dois fluxos. Fluxo A (pessoa ja em celula): o lider daquela celula assume a consolidacao. Fluxo B (visitante sem vinculo): a equipe de consolidacao lanca a decisao e abre um prazo de 24h para conectar a pessoa a uma celula. Em ambos os casos a pessoa entra na etapa inicial do pipeline de consolidacao. Modelado em data-decision / api-launch-decision.",
+      "impact": "high",
+      "relatedUserStoryIds": [
+        "US-37"
+      ],
+      "requiresRequirementsChange": false
+    },
+    {
+      "id": "delta-022",
+      "type": "scope",
+      "description": "US-40 Pendencias com prazo na fila do Dashboard: 'Conectar a celula' carrega prazo de 24h com selo de tempo (deadline-badge) que muda de tom — dentro do prazo, alerta quando faltam poucas horas e destaque vermelho quando atrasado. Fonovisita tambem aparece como pendencia acionavel na fila, abrindo o acompanhamento da pessoa. Reforca a supervisao do orquestrador (lembretes por WhatsApp a quem estiver em atraso).",
+      "impact": "high",
+      "relatedUserStoryIds": [
+        "US-40"
+      ],
+      "requiresRequirementsChange": false
+    },
+    {
+      "id": "delta-023",
+      "type": "scope",
+      "description": "US-41 Assistente geral do sistema no painel: aside deslizante acionado por botao na topbar, ciente do papel do usuario logado (sauda citando os papeis e so sugere/explica telas que a pessoa pode ver, via allowedScreens) e restrito ao tenant/igreja. Implementado como prototipo de estados com respostas roteadas por palavra-chave e sugestoes de navegacao; NAO ha IA real nem chamada a LLM. Em producao seria api-assistant com contexto de papeis e tenant. Modelado em data-assistant.",
+      "impact": "medium",
+      "relatedUserStoryIds": [
+        "US-41"
+      ],
+      "requiresRequirementsChange": false
+    },
+    {
+      "id": "delta-024",
+      "type": "scope",
+      "description": "US-42 e US-43 (Super-Admin do SaaS: gerir igrejas/tenants e provisionar nova igreja apos verificar pagamento) ficam FORA DO ESCOPO deste artifact, que cobre apenas o painel operacional de uma igreja (tenant). Sao uma superficie separada (console multitenant do provedor), a ser prototipada em artifact proprio. Registrado para rastreabilidade; nao implementado aqui.",
+      "impact": "medium",
+      "relatedUserStoryIds": [
+        "US-42",
+        "US-43"
+      ],
+      "requiresRequirementsChange": false
+    },
+    {
+      "id": "delta-025",
+      "type": "assumption",
+      "description": "Atribuir na fila de trabalho pastoral (Dashboard): o botao 'Atribuir' de um item da fila abre o modal de atribuicao com ranking de lideres aptos (mesmo genero, area e faixa etaria do contato), em vez de apenas notificar. Reutiliza o fluxo de openAssign ja usado na consolidacao. Modelado em api-multiplicacoes/api-send-internal-message para o efeito colateral de notificar o lider escolhido.",
+      "impact": "medium",
+      "relatedUserStoryIds": [
+        "US-16",
+        "US-17",
+        "US-37"
+      ],
+      "requiresRequirementsChange": false
+    },
+    {
+      "id": "delta-026",
+      "type": "assumption",
+      "description": "Convite para celula (Ganhar): contatos novos disponiveis para convite so aparecem para lideres do MESMO genero do contato. Ao convidar, a pessoa fica em estado 'pendente' com selo 'Lider X demonstrou interesse' e e bloqueada para os demais lideres. So volta a ficar aberta para convite se a pessoa recusar o ultimo convite. Estado mantido em inviteState (open/pending/refused, by, prev). Em producao seria api-invite-to-cell.",
+      "impact": "high",
+      "relatedUserStoryIds": [
+        "US-13",
+        "US-14",
+        "US-15"
+      ],
+      "requiresRequirementsChange": false
+    },
+    {
+      "id": "delta-027",
+      "type": "assumption",
+      "description": "Aprovacao de multiplicacao (Enviar): o botao 'Aprovar' nao aprova direto — abre um popup (approveModal) com os dados da solicitacao (celula origem, lider atual, novo lider, descendencia, area, data prevista, membros, criterio de aptidao e status de supervisao). So dentro do popup ha o botao 'Aprovar multiplicacao', e ele fica desabilitado enquanto a solicitacao tiver dados pendentes (sem novo lider ou sem data/supervisao). Modelado em api-multiplicacoes.",
+      "impact": "high",
+      "relatedUserStoryIds": [
+        "US-23"
+      ],
+      "requiresRequirementsChange": false
+    },
+    {
+      "id": "delta-028",
+      "type": "scope",
+      "description": "CORRECAO CAPACITACAO DESTINO: os rotulos antigos da tela capacitacao (Encontro/Reencontro/Escola de Lideres) eram apenas placeholder visual e NAO representam o modelo real. Substituidos por placeholder honesto do modelo oficial da CD: 6 modulos, 1 livro por modulo, 10 aulas por livro (numeracao livro.aula 1.1-1.10..6.1-6.10), organizados em 3 niveis (1+2, 3+4, 5+6); maximo 2 modulos ativos por turma, varias turmas em paralelo; semaforo de assiduidade (>80% verde, 60-70% amarelo, <=50% vermelho); nivel concluido exige >70% assiduidade; 4 livros = selo Apto a Liderar (pode multiplicar), 6 livros = Certificado completo da CD. A Escola de Lideres sera detalhada a parte dentro desta trilha. Tela permanece BLOQUEADA no MVP. Feature completa fica para roadmap (ver delta-042 / Onda 5).",
+      "impact": "high",
+      "relatedUserStoryIds": [
+        "US-18",
+        "US-19"
+      ],
+      "requiresRequirementsChange": false
+    },
+    {
+      "id": "delta-029",
+      "type": "scope",
+      "description": "A4 Cobertura espiritual: o modal de cadastro/edicao de celula ganhou o campo obrigatorio 'cobertura espiritual' (toda celula esta sob uma cobertura no modelo G12). Deve ser persistido por celula no back. Modelado como extensao de data-cells/data-cell-detail.",
+      "impact": "medium",
+      "relatedUserStoryIds": [
+        "US-21"
+      ],
+      "requiresRequirementsChange": false
+    },
+    {
+      "id": "delta-030",
+      "type": "scope",
+      "description": "FUNDACAO F1 (multi-tenant desde a 1a linha) — NAO-UI, decisao de arquitetura para o pipeline: toda tabela nasce com igreja_id e isolamento por tenant (RLS no Postgres). A igreja piloto e apenas o primeiro registro de uma tabela de igrejas que ja existe. Nao construir mono-igreja para adaptar depois. Critico mesmo com Super-Admin (Onda 1) sendo roadmap.",
+      "impact": "high",
+      "relatedUserStoryIds": [
+        "US-02"
+      ],
+      "requiresRequirementsChange": false
+    },
+    {
+      "id": "delta-031",
+      "type": "scope",
+      "description": "FUNDACAO F2 (trilha de maturidade como state machine unica) — NAO-UI: a posicao da pessoa (Conhecendo -> Visitante/Participante -> Em Consolidacao -> Discipulo -> Apto p/ UV -> Cursando UV -> Concluiu UV -> Cursando CD -> Apto a Liderar -> Lider/G12) e UM campo de estado governado por regras, nao flags espalhadas. Mudar de etapa edita o cadastro e reflete em menu, dashboard, permissoes e organograma. Modelar como maquina de estados central desde o MVP (ver data-pipeline-stage).",
+      "impact": "high",
+      "relatedUserStoryIds": [
+        "US-18",
+        "US-19"
+      ],
+      "requiresRequirementsChange": false
+    },
+    {
+      "id": "delta-032",
+      "type": "scope",
+      "description": "FUNDACAO F3 (papeis acumulados dirigem o RBAC) — ja e regra do prototipo (delta-005/011/014): cada pessoa carrega um conjunto de papeis; menu e dashboard sao a uniao dos acessos. Nao modelar um papel por pessoa. A matriz papel x tela (tela Permissoes) e a fonte de verdade dos acessos; a trilha promove papeis automaticamente. O back precisa suportar promocao automatica desde o inicio.",
+      "impact": "high",
+      "relatedUserStoryIds": [
+        "US-03",
+        "US-04"
+      ],
+      "requiresRequirementsChange": false
+    },
+    {
+      "id": "delta-033",
+      "type": "scope",
+      "description": "FUNDACAO F4 (autorizacao no back, nao so na UI) — NAO-UI: o prototipo trava na interface (so consolidador confirma encontro; so lider/superior abre celula; Config so admin), mas cada endpoint precisa revalidar igreja_id + papel do usuario no servidor. A UI e conveniencia; a autorizacao real e no back.",
+      "impact": "high",
+      "relatedUserStoryIds": [
+        "US-02",
+        "US-04"
+      ],
+      "requiresRequirementsChange": false
+    },
+    {
+      "id": "delta-034",
+      "type": "scope",
+      "description": "FUNDACAO F5 (agente usa as mesmas regras de um humano) — NAO-UI: ao registrar decisao, marcar presenca, vincular a celula ou avancar a trilha, o agente usa as mesmas funcoes e validacoes de um usuario humano, com o mesmo escopo de tenant e permissao. O agente nunca tem atalho que ignore regras de negocio. Evita corromper a trilha ou misturar dados de igrejas.",
+      "impact": "high",
+      "relatedUserStoryIds": [
+        "US-05",
+        "US-08",
+        "US-09"
+      ],
+      "requiresRequirementsChange": false
+    },
+    {
+      "id": "delta-035",
+      "type": "scope",
+      "description": "FUNDACAO F6 (modelo de pessoa unificado) — NAO-UI: Conhecendo/Visitante/Discipulo/Lider/Pastor sao estados da MESMA pessoa, nao tabelas diferentes. Quem chega como contato no WhatsApp e vira lider anos depois e o mesmo registro evoluindo. Nao criar entidades separadas que depois precisam ser fundidas.",
+      "impact": "medium",
+      "relatedUserStoryIds": [
+        "US-09",
+        "US-19"
+      ],
+      "requiresRequirementsChange": false
+    },
+    {
+      "id": "delta-036",
+      "type": "scope",
+      "description": "FUNDACAO F7 (organograma G12 com integridade hierarquica) — parcialmente no prototipo (delta-020): ninguem abaixo aparece acima de quem tem hierarquia maior; mover um card edita o cadastro indicando nova lideranca (com confirmacao). Modelar a relacao lider->liderado como campo de lideranca no cadastro da pessoa, nao estrutura paralela, para arvore e cadastro nunca divergirem. Familias pastorais geram descendencia masculina E feminina.",
+      "impact": "medium",
+      "relatedUserStoryIds": [
+        "US-21",
+        "US-22",
+        "US-23"
+      ],
+      "requiresRequirementsChange": false
+    },
+    {
+      "id": "delta-037",
+      "type": "scope",
+      "description": "FUNDACAO F8 (auditoria e custos de IA desde o inicio) — NAO-UI: mesmo sem as telas do Super-Admin, registrar no back logs de conversacao (interacoes do agente, ferramentas usadas) e consumo de IA por igreja (modelo, tokens, custo). Sustenta o BYO-LLM, a futura precificacao e a depuracao. Logar desde o dia 1 e muito mais barato que reconstruir historico depois.",
+      "impact": "medium",
+      "relatedUserStoryIds": [
+        "US-27"
+      ],
+      "requiresRequirementsChange": false
+    },
+    {
+      "id": "delta-038",
+      "type": "scope",
+      "description": "FUNDACAO F9 (crons com gatilhos por estado) — NAO-UI, conecta com A1: a infra de agendamento do Agente nao e so horario fixo; deve suportar gatilhos disparados por estado do banco (prazo vencendo, meta atingida). Mesma fundacao do motor de SLAs (A1) e do Numero de Sonho da UV (Onda 4). Construir generico desde ja.",
+      "impact": "medium",
+      "relatedUserStoryIds": [
+        "US-29"
+      ],
+      "requiresRequirementsChange": false
+    },
+    {
+      "id": "delta-039",
+      "type": "scope",
+      "description": "MVP-BACKEND A1 (motor de SLAs proativo) — diferencial, NAO-UI rica: alem de mostrar pendencias, detectar SLA estourando e disparar cobranca automatica pelo WhatsApp. Prazos: relatorio de pessoas salvas ate 2h; conexao do novo ganho a uma lideranca ate 12h; fonovisita + marcar 1a visita ate 24h. Numero de Sonho da UV: meta configuravel (ex.: 50) -> alerta automatico a pastores/coordenacao. Escalonamento: lider sem resposta -> sobe para a coordenacao. Reaproveita a infra de crons (F9).",
+      "impact": "high",
+      "relatedUserStoryIds": [
+        "US-16",
+        "US-17",
+        "US-29",
+        "US-40"
+      ],
+      "requiresRequirementsChange": false
+    },
+    {
+      "id": "delta-040",
+      "type": "scope",
+      "description": "MVP-BACKEND A2 (registro formal de consentimento LGPD) — dado sensivel, pode ser back sem tela rica: gravar versao do termo + data/hora do aceite por pessoa; nova versao publicada exige re-aceite no proximo contato/acesso; o agente apresenta o termo (mensagem curta + link) ANTES de coletar dados alem de nome+telefone; mascara de CPF e dados sensiveis nos logs. CPF + dados religiosos sao sensiveis sob a LGPD. Hoje o MVP tem apenas o flag Notificacoes (Liberadas/Bloqueadas) por contato (delta-008).",
+      "impact": "high",
+      "relatedUserStoryIds": [
+        "US-31",
+        "US-32"
+      ],
+      "requiresRequirementsChange": false
+    },
+    {
+      "id": "delta-041",
+      "type": "scope",
+      "description": "MVP-BACKEND A3 (relatorio de celula capturado por conversa) — NAO-UI: o lider envia por texto OU audio (ex.: 'realizei a celula ontem, vieram 8, a visitante Maria aceitou Jesus'); o agente extrai e registra presentes, visitantes, quem aceitou Jesus e se houve oferta; visitante que aceitou Jesus abre automaticamente o fluxo de consolidacao. O escopo 'Relatorios via WhatsApp' ja existe nos toggles do Agente; falta especificar a extracao.",
+      "impact": "high",
+      "relatedUserStoryIds": [
+        "US-24",
+        "US-25",
+        "US-26"
+      ],
+      "requiresRequirementsChange": false
+    },
+    {
+      "id": "delta-042",
+      "type": "scope",
+      "description": "ROADMAP Ondas 1-5 (entregaveis independentes, fora do MVP): Onda 1 Multi-tenant de verdade (painel Super-Admin: cadastro/edicao de igrejas, aprovacoes globais, custos de IA por igreja, logs; onboarding de nova igreja por convite com link que expira em 7 dias + validacao de CPF/e-mail + 'Aguardando Aprovacao'; cadastro de pessoas em cascata; presets de metodologia G12). Onda 2 Operacao da celula (Planejar Celula: tema/musica/quebra-gelo/oferta/avisos com distribuicao de tarefas; Realizar Celula: confirmar data -> presentes -> visitantes/aceitou Jesus -> oferta -> relatorio; tudo por conversa com o agente, inclusive audio). Onda 3 Consolidacao completa (telas de consolidacoes individuais com guia, materiais PDF/online, scripts de fonovisita, ranking de consolidadores, supervisao). Onda 4 Universidade da Vida (destravar tela universidade-vida; 10 semanas: aulas 1-4 -> Encontro com Deus (semana 5) -> aulas 5-8 -> Batismo (semana 10); pre-requisito de matricula = consolidacao individual concluida + vinculo a celula, matricula feita pelo lider; turmas anteriores e turma atual; selo 'Apto para Encontro' apos aulas 1-4; Certificado da UV ao concluir -> habilita CD; Numero de Sonho como gatilho automatico via motor de SLAs; gestao do Encontro restrita a coordenacao/pastores com valor/local/data). Onda 5 Capacitacao Destino completa (modelo de 6 livros do delta-028).",
+      "impact": "medium",
+      "relatedUserStoryIds": [
+        "US-18",
+        "US-19",
+        "US-24",
+        "US-25",
+        "US-42",
+        "US-43"
+      ],
+      "requiresRequirementsChange": false
+    }
+  ]
+}

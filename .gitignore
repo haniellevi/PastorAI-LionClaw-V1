@@ -1,0 +1,44 @@
+# ===== OS =====
+.DS_Store
+Thumbs.db
+
+# ===== Segredos / variaveis de ambiente =====
+# (.env.example NAO eh ignorado de proposito — eh template, deve ir pro repo)
+.env
+.env.local
+.env.*.local
+.env.production
+.env.development
+
+# ===== Python (backend) =====
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+.venv/
+venv/
+env/
+ENV/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.log
+
+# ===== Node / Next.js (frontend) =====
+node_modules/
+.next/
+out/
+build/
+dist/
+.turbo/
+*.tsbuildinfo
+next-env.d.ts
+.vercel/
+
+# ===== Editores =====
+.idea/
+.vscode/
+*.swp
