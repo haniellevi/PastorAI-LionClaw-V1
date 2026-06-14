@@ -66,6 +66,37 @@ def test_cell_leader_forbidden_on_whatsapp_connection(app) -> None:
     assert client.get("/whatsapp/connection", headers=_AUTH).status_code == 403
 
 
+# ---- inbox messages: auth, RBAC and validation (US-13) --------------------
+_CONV_MSGS = "/conversations/00000000-0000-0000-0000-0000000000aa/messages"
+
+
+def test_messages_history_requires_auth(app) -> None:
+    client = _client(app, roles=["admin"])
+    assert client.get(_CONV_MSGS).status_code == 401
+
+
+def test_cell_leader_forbidden_on_messages_history(app) -> None:
+    client = _client(app, roles=["lider_celula"])
+    assert client.get(_CONV_MSGS, headers=_AUTH).status_code == 403
+
+
+def test_send_message_requires_auth(app) -> None:
+    client = _client(app, roles=["admin"])
+    assert client.post(_CONV_MSGS, json={"texto": "oi"}).status_code == 401
+
+
+def test_cell_leader_forbidden_on_send_message(app) -> None:
+    client = _client(app, roles=["lider_celula"])
+    resp = client.post(_CONV_MSGS, json={"texto": "oi"}, headers=_AUTH)
+    assert resp.status_code == 403
+
+
+def test_send_message_rejects_empty_text(app) -> None:
+    client = _client(app, roles=["admin"])
+    resp = client.post(_CONV_MSGS, json={"texto": "   "}, headers=_AUTH)
+    assert resp.status_code == 422
+
+
 # ---- validation -----------------------------------------------------------
 def test_handoff_rejects_invalid_target(app) -> None:
     client = _client(app, roles=["admin"])

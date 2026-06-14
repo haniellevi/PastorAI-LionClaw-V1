@@ -3,6 +3,8 @@
 Endpoints:
   - GET  /conversations                list the tenant's conversations
   - POST /conversations/{id}/handoff   switch control between IA and human
+  - GET  /conversations/{id}/messages  conversation history (oldest first)
+  - POST /conversations/{id}/messages  send a human reply to the contact (WhatsApp)
 
 Access (US-11): the inbox is restricted to privileged roles (admin implicitly,
 plus pastor / lider_g12). Cell leaders receive 403 — enforced by require_role,
@@ -21,15 +23,20 @@ import uuid
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
-from app.db.models import Conversation
+from app.db.models import Conversation, Message, WhatsappConnection
 from app.db.session import get_db
 from app.deps import CurrentUser, require_role
 from app.domain.conversations import resolve_handoff
 from app.routers._common import Page, PaginationParams, ensure_tenant_context
+from app.services.evolution import (
+    EvolutionClient,
+    EvolutionError,
+    get_evolution_client,
+)
 
 logger = logging.getLogger("pastorai.conversations")
 
@@ -75,6 +82,38 @@ class HandoffRequest(BaseModel):
 class HandoffResponse(BaseModel):
     estado: str
     assumidoPor: str | None = None  # noqa: N815
+
+
+class MessageOut(BaseModel):
+    """A single message in a conversation thread."""
+
+    id: str
+    direcao: str  # in | out
+    autor: str  # contato | ia | humano
+    texto: str | None = None
+    criadoEm: str  # noqa: N815 - external contract camelCase
+
+    @classmethod
+    def from_model(cls, m: Message) -> "MessageOut":
+        return cls(
+            id=str(m.id),
+            direcao=m.direcao,
+            autor=m.autor,
+            texto=m.texto,
+            criadoEm=m.criado_em.isoformat() if m.criado_em else "",
+        )
+
+
+class SendMessageRequest(BaseModel):
+    texto: str = Field(min_length=1, max_length=4096)
+
+    @field_validator("texto")
+    @classmethod
+    def _texto(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Mensagem vazia")
+        return value
 
 
 # ---------------------------------------------------------------------------
@@ -154,6 +193,101 @@ def handoff(
     )
 
 
+@router.get("/{conversation_id}/messages", response_model=Page[MessageOut])
+def list_messages(
+    conversation_id: str,
+    pagination: PaginationParams = Depends(),
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_role(_INBOX_ROLES)),
+) -> Page[MessageOut]:
+    """Return a conversation's message history, oldest first (US-13)."""
+    ensure_tenant_context(db, current_user)
+    conv = _get_conversation(db, conversation_id)
+
+    total = db.execute(
+        select(func.count())
+        .select_from(Message)
+        .where(Message.conversation_id == conv.id)
+    ).scalar_one()
+    rows = db.execute(
+        select(Message)
+        .where(Message.conversation_id == conv.id)
+        .order_by(Message.criado_em.asc())
+        .offset(pagination.offset)
+        .limit(pagination.limit)
+    ).scalars().all()
+
+    return Page[MessageOut](
+        items=[MessageOut.from_model(m) for m in rows],
+        page=pagination.page,
+        pageSize=pagination.page_size,
+        total=int(total),
+    )
+
+
+@router.post("/{conversation_id}/messages", response_model=MessageOut)
+def send_message(
+    conversation_id: str,
+    payload: SendMessageRequest,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_role(_INBOX_ROLES)),
+    evolution: EvolutionClient = Depends(get_evolution_client),
+) -> MessageOut:
+    """Send a human reply to the contact's WhatsApp (US-13).
+
+    Requires the conversation to be under human control held by the caller
+    (assume first) and the official number to be online. The message is
+    dispatched via Evolution *before* being persisted, so a failed send (502)
+    never leaves a phantom "sent" row in the thread.
+    """
+    ensure_tenant_context(db, current_user)
+    conv = _get_conversation_for_update(db, conversation_id)
+
+    # Composer gate: must hold the conversation under human control (mirrors the
+    # inbox UI, which only enables the composer for the holder).
+    holder = str(conv.assumido_por) if conv.assumido_por else None
+    if conv.estado != "humano" or holder != current_user.app_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Assuma o atendimento antes de responder.",
+        )
+
+    conn = db.execute(
+        select(WhatsappConnection).where(
+            WhatsappConnection.igreja_id == uuid.UUID(current_user.igreja_id)
+        )
+    ).scalar_one_or_none()
+    if conn is None or conn.status != "online" or not conn.instance:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="WhatsApp não está conectado. Conecte o número antes de responder.",
+        )
+
+    # Dispatch first; persist only on success (no phantom rows on failure).
+    try:
+        evolution.send_text(conn.instance, conv.telefone, payload.texto)
+    except EvolutionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
+        ) from exc
+
+    msg = Message(
+        igreja_id=uuid.UUID(current_user.igreja_id),
+        conversation_id=conv.id,
+        direcao="out",
+        autor="humano",
+        texto=payload.texto,
+    )
+    db.add(msg)
+    conv.ultima_mensagem = payload.texto
+    conv.updated_at = dt.datetime.now(dt.timezone.utc)
+    db.flush()
+    db.refresh(msg)
+    db.commit()
+
+    return MessageOut.from_model(msg)
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -164,6 +298,17 @@ def _parse_uuid(value: str) -> uuid.UUID:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Conversa não encontrada"
         ) from exc
+
+
+def _get_conversation(db: Session, conversation_id: str) -> Conversation:
+    conv = db.execute(
+        select(Conversation).where(Conversation.id == _parse_uuid(conversation_id))
+    ).scalar_one_or_none()
+    if conv is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Conversa não encontrada"
+        )
+    return conv
 
 
 def _get_conversation_for_update(db: Session, conversation_id: str) -> Conversation:
