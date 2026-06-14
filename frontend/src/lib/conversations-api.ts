@@ -120,4 +120,23 @@ export async function handoffConversation(
   return (await res.json()) as HandoffResult;
 }
 
+// ---------------------------------------------------------------------------
+// Envio de resposta humana (US-13) — despacha pelo número oficial (WhatsApp)
+// ---------------------------------------------------------------------------
+export async function sendMessage(
+  token: string,
+  conversationId: string,
+  texto: string,
+): Promise<void> {
+  const res = await authedFetch(token, `/conversations/${conversationId}/messages`, {
+    method: "POST",
+    body: JSON.stringify({ texto }),
+  });
+  if (!res.ok) {
+    // 409: assuma o atendimento / WhatsApp offline. 502: falha na Evolution.
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível enviar a resposta.");
+  }
+}
+
 export { ApiError, SessionExpiredError };

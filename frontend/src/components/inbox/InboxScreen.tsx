@@ -23,6 +23,7 @@ import {
   canAccessInbox,
   fetchConversations,
   handoffConversation,
+  sendMessage,
   type Conversation,
 } from "@/lib/conversations-api";
 import { Icon } from "@/lib/icons";
@@ -240,12 +241,26 @@ export function InboxScreen() {
   const handleReturn = useCallback((c: Conversation) => void doHandoff(c, "ia"), [doHandoff]);
 
   const handleSend = useCallback(
-    (c: Conversation, text: string) => {
-      // Eco local da resposta humana (persistência chega na sprint-017).
-      setLocalReplies((prev) => ({ ...prev, [c.id]: [...(prev[c.id] ?? []), text] }));
-      flashToast({ kind: "ok", text: "Resposta enviada pelo número oficial." });
+    async (c: Conversation, text: string) => {
+      if (!token) return;
+      try {
+        await sendMessage(token, c.id, text);
+        // Eco otimista na thread + bump da última mensagem na lista.
+        setLocalReplies((prev) => ({ ...prev, [c.id]: [...(prev[c.id] ?? []), text] }));
+        patch(c.id, { ultimaMensagem: text });
+        flashToast({ kind: "ok", text: "Resposta enviada pelo número oficial." });
+      } catch (err) {
+        if (handleSessionError(err)) return;
+        flashToast({
+          kind: "err",
+          text:
+            err instanceof ApiError
+              ? err.message
+              : "Não foi possível enviar a resposta. Tente novamente.",
+        });
+      }
     },
-    [flashToast],
+    [token, patch, flashToast, handleSessionError],
   );
 
   // ---- bloqueio de acesso (US-11) -----------------------------------------
