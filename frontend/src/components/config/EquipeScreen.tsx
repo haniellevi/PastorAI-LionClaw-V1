@@ -18,6 +18,7 @@ import { StatusPill, type PillTone } from "@/components/dashboard/StatusPill";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { SessionExpiredError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
+import { fetchContacts, type Contact } from "@/lib/contacts-api";
 import { ApiError, fetchTeam, type TeamMember } from "@/lib/dashboard-api";
 import { Icon } from "@/lib/icons";
 import { normalizeRoles, ROLE_ORDER, type Role } from "@/lib/roles";
@@ -49,11 +50,18 @@ export function EquipeScreen() {
 
   // convite
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [invMode, setInvMode] = useState<"existente" | "nova">("existente");
+  const [invPessoaId, setInvPessoaId] = useState<string | null>(null);
+  const [invPessoaQuery, setInvPessoaQuery] = useState("");
   const [invNome, setInvNome] = useState("");
   const [invEmail, setInvEmail] = useState("");
   const [invRoles, setInvRoles] = useState<Set<Role>>(new Set());
   const [invError, setInvError] = useState<string | null>(null);
   const [inviting, setInviting] = useState(false);
+
+  // base de pessoas cadastradas (para escolher quem recebe acesso ao painel)
+  const [pessoas, setPessoas] = useState<Contact[]>([]);
+  const [pessoasLoaded, setPessoasLoaded] = useState(false);
 
   // edição de papéis
   const [editing, setEditing] = useState<TeamMember | null>(null);
@@ -109,8 +117,49 @@ export function EquipeScreen() {
     void load("initial");
   }, [load]);
 
+  // Carrega a base de pessoas ao abrir o convite (uma vez), para o seletor.
+  useEffect(() => {
+    if (!inviteOpen || !token || pessoasLoaded) return;
+    let active = true;
+    void (async () => {
+      try {
+        const page = await fetchContacts(token);
+        if (active) {
+          setPessoas(page.items);
+          setPessoasLoaded(true);
+        }
+      } catch (err) {
+        if (handleSessionError(err)) return;
+        // silencioso: o modo "cadastrar nova" segue como fallback.
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [inviteOpen, token, pessoasLoaded, handleSessionError]);
+
+  const pessoasFiltradas = useMemo(() => {
+    const q = invPessoaQuery.trim().toLowerCase();
+    const base = q
+      ? pessoas.filter((p) =>
+          `${p.nome} ${p.telefone} ${p.email ?? ""}`.toLowerCase().includes(q),
+        )
+      : pessoas;
+    return base.slice(0, 50);
+  }, [pessoas, invPessoaQuery]);
+
+  const selectPessoa = useCallback((p: Contact) => {
+    setInvPessoaId(p.id);
+    setInvNome(p.nome);
+    setInvEmail(p.email ?? "");
+    setInvError(null);
+  }, []);
+
   const resetInvite = useCallback(() => {
     setInviteOpen(false);
+    setInvMode("existente");
+    setInvPessoaId(null);
+    setInvPessoaQuery("");
     setInvNome("");
     setInvEmail("");
     setInvRoles(new Set());
@@ -118,7 +167,10 @@ export function EquipeScreen() {
   }, []);
 
   const emailValid = (email: string) => /\S+@\S+\.\S+/.test(email.trim());
-  const inviteReady = invNome.trim().length > 0 && emailValid(invEmail) && invRoles.size > 0;
+  const inviteReady =
+    invRoles.size > 0 &&
+    emailValid(invEmail) &&
+    (invMode === "existente" ? invPessoaId !== null : invNome.trim().length > 0);
 
   const submitInvite = useCallback(async () => {
     if (!token || !inviteReady) return;
@@ -130,6 +182,7 @@ export function EquipeScreen() {
         nome: invNome.trim(),
         email: dest,
         papeis: Array.from(invRoles),
+        pessoaId: invMode === "existente" ? (invPessoaId ?? undefined) : undefined,
       });
       flashToast(
         result.emailEnviado
@@ -151,7 +204,7 @@ export function EquipeScreen() {
     } finally {
       setInviting(false);
     }
-  }, [token, inviteReady, invNome, invEmail, invRoles, flashToast, resetInvite, load, handleSessionError]);
+  }, [token, inviteReady, invMode, invPessoaId, invNome, invEmail, invRoles, flashToast, resetInvite, load, handleSessionError]);
 
   const openEdit = useCallback((member: TeamMember) => {
     setEditing(member);
@@ -280,31 +333,132 @@ export function EquipeScreen() {
               <span>{invError}</span>
             </div>
           ) : null}
-          <div className="row" style={{ marginBottom: "var(--s3)" }}>
-            <div className="field" style={{ margin: 0 }}>
-              <label htmlFor="invName">Nome</label>
+          {/* Modo: escolher pessoa cadastrada (padrão) ou cadastrar nova */}
+          <div className="tabs" style={{ marginBottom: "var(--s3)" }}>
+            <button
+              type="button"
+              className={`tab${invMode === "existente" ? " active" : ""}`}
+              onClick={() => {
+                setInvMode("existente");
+                setInvError(null);
+              }}
+            >
+              Escolher pessoa cadastrada
+            </button>
+            <button
+              type="button"
+              className={`tab${invMode === "nova" ? " active" : ""}`}
+              onClick={() => {
+                setInvMode("nova");
+                setInvPessoaId(null);
+                setInvNome("");
+                setInvEmail("");
+                setInvError(null);
+              }}
+            >
+              Cadastrar nova
+            </button>
+          </div>
+
+          {invMode === "existente" ? (
+            <div className="field" style={{ marginBottom: "var(--s3)" }}>
+              <label htmlFor="invPessoaQuery">Pessoa</label>
               <input
-                id="invName"
-                value={invNome}
-                onChange={(e) => setInvNome(e.target.value)}
-                placeholder="Nome completo"
+                id="invPessoaQuery"
+                value={invPessoaQuery}
+                onChange={(e) => setInvPessoaQuery(e.target.value)}
+                placeholder="Buscar por nome, telefone ou e-mail…"
                 autoFocus
               />
+              <div
+                style={{
+                  maxHeight: 220,
+                  overflowY: "auto",
+                  border: "1px solid var(--border)",
+                  borderRadius: "var(--r-md)",
+                  marginTop: 6,
+                }}
+              >
+                {pessoasFiltradas.length === 0 ? (
+                  <p className="sub" style={{ color: "var(--muted)", padding: "var(--s3)" }}>
+                    {pessoasLoaded ? "Nenhuma pessoa encontrada." : "Carregando pessoas…"}
+                  </p>
+                ) : (
+                  pessoasFiltradas.map((p) => (
+                    <button
+                      type="button"
+                      key={p.id}
+                      onClick={() => selectPessoa(p)}
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "flex-start",
+                        gap: 2,
+                        width: "100%",
+                        textAlign: "left",
+                        padding: "8px 12px",
+                        background: invPessoaId === p.id ? "var(--accent-soft)" : "transparent",
+                        border: "none",
+                        borderBottom: "1px solid var(--border)",
+                        cursor: "pointer",
+                        font: "inherit",
+                        color: "inherit",
+                      }}
+                    >
+                      <span className="nm">{p.nome}</span>
+                      <span className="sub mono" style={{ color: "var(--muted)" }}>
+                        {p.telefone}
+                        {p.email ? ` · ${p.email}` : " · sem e-mail"}
+                      </span>
+                    </button>
+                  ))
+                )}
+              </div>
+              {invPessoaId && !invEmail.trim() ? (
+                <div className="field" style={{ marginTop: "var(--s3)" }}>
+                  <label htmlFor="invEmailExist">
+                    E-mail para login{" "}
+                    <span className="sub" style={{ color: "var(--muted)", fontWeight: 400 }}>
+                      — esta pessoa ainda não tem e-mail cadastrado
+                    </span>
+                  </label>
+                  <input
+                    id="invEmailExist"
+                    type="email"
+                    value={invEmail}
+                    onChange={(e) => setInvEmail(e.target.value)}
+                    placeholder="lider@igreja.com.br"
+                  />
+                </div>
+              ) : null}
             </div>
-            <div className="field" style={{ margin: 0 }}>
-              <label htmlFor="invEmail">E-mail do convidado</label>
-              <input
-                id="invEmail"
-                type="email"
-                value={invEmail}
-                onChange={(e) => setInvEmail(e.target.value)}
-                placeholder="lider@igreja.com.br"
-              />
+          ) : (
+            <div className="row" style={{ marginBottom: "var(--s3)" }}>
+              <div className="field" style={{ margin: 0 }}>
+                <label htmlFor="invName">Nome</label>
+                <input
+                  id="invName"
+                  value={invNome}
+                  onChange={(e) => setInvNome(e.target.value)}
+                  placeholder="Nome completo"
+                  autoFocus
+                />
+              </div>
+              <div className="field" style={{ margin: 0 }}>
+                <label htmlFor="invEmail">E-mail do convidado</label>
+                <input
+                  id="invEmail"
+                  type="email"
+                  value={invEmail}
+                  onChange={(e) => setInvEmail(e.target.value)}
+                  placeholder="lider@igreja.com.br"
+                />
+              </div>
             </div>
-          </div>
+          )}
           <div className="field" style={{ marginBottom: "var(--s3)" }}>
             <label>
-              Papéis ministeriais{" "}
+              Papéis{" "}
               <span className="sub" style={{ color: "var(--muted)", fontWeight: 400 }}>
                 — selecione um ou mais
               </span>
