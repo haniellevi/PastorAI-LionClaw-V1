@@ -238,12 +238,16 @@ const PATHS: Record<IconKey, ReactNode> = {
 export function Icon({
   name,
   className,
+  size = 20,
 }: {
   name: IconKey;
   className?: string;
+  /** Tamanho-padrão do ícone (px). CSS por contexto (.empty-state svg etc.)
+   *  ainda sobrescreve; isto só evita o SVG estourar onde não há regra. */
+  size?: number;
 }) {
   return (
-    <svg {...base} className={className} aria-hidden="true">
+    <svg {...base} width={size} height={size} className={className} aria-hidden="true">
       {PATHS[name]}
     </svg>
   );

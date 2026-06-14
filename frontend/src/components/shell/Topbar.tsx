@@ -37,12 +37,6 @@ export function Topbar({ user, route, onMenuToggle }: TopbarProps) {
           </span>
         ))}
       </div>
-      <button type="button" className="icon-btn" title="Assistente do sistema" aria-label="Assistente do sistema">
-        <Icon name="sparkles" />
-      </button>
-      <button type="button" className="icon-btn" title="Notificações" aria-label="Notificações">
-        <Icon name="bell" />
-      </button>
     </header>
   );
 }
