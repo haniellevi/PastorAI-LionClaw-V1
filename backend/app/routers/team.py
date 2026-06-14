@@ -20,7 +20,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.db.models import AppUser, UserRole
+from app.db.models import AppUser, Pessoa, UserRole
 from app.db.session import get_db
 from app.deps import ADMIN_ROLE, CurrentUser, get_current_user, require_role
 from app.routers._common import Page, PaginationParams, ensure_tenant_context
@@ -32,6 +32,7 @@ router = APIRouter(prefix="/team", tags=["team"])
 
 VALID_ROLES = {
     "admin",
+    "operador",
     "pastor",
     "lider_g12",
     "lider_consol",
@@ -45,6 +46,7 @@ class InviteRequest(BaseModel):
     nome: str = Field(min_length=1, max_length=200)
     email: str = Field(min_length=3, max_length=320)
     papeis: list[str] = Field(default_factory=list)
+    pessoaId: str | None = Field(default=None)  # noqa: N815
 
     @field_validator("nome")
     @classmethod
@@ -199,11 +201,33 @@ def invite_member(
             detail="Já existe um usuário com este e-mail",
         )
 
+    # Link the panel access to an existing Pessoa when provided (Fase 1): the
+    # invited user IS a registered person, not a parallel identity. RLS scopes
+    # the lookup to the tenant, so an id from another igreja resolves to None.
+    pessoa_uuid: uuid.UUID | None = None
+    if payload.pessoaId:
+        try:
+            pessoa_uuid = uuid.UUID(payload.pessoaId)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="pessoaId inválido",
+            ) from exc
+        pessoa = db.execute(
+            select(Pessoa).where(Pessoa.id == pessoa_uuid)
+        ).scalar_one_or_none()
+        if pessoa is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Pessoa não encontrada",
+            )
+
     app_user = AppUser(
         igreja_id=igreja_uuid,
         nome=payload.nome,
         email=email,
         status="convidado",
+        pessoa_id=pessoa_uuid,
     )
     db.add(app_user)
     db.flush()  # assign id

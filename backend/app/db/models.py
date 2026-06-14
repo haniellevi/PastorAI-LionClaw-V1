@@ -582,22 +582,6 @@ class Event(Base):
     )
 
 
-class SystemManager(Base):
-    """Operational system manager / operator (papel_operacional)."""
-
-    __tablename__ = "system_managers"
-
-    id: Mapped[uuid.UUID] = _uuid_pk()
-    igreja_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("igrejas.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    nome: Mapped[str] = mapped_column(Text, nullable=False)
-    email: Mapped[str] = mapped_column(Text, nullable=False)
-    papel_operacional: Mapped[str | None] = mapped_column(String, nullable=True)
-
-
 class WhatsappConnection(Base):
     """Official WhatsApp connection per igreja (1:1, RF-07 / US-05..US-07).
 
@@ -761,7 +745,6 @@ __all__ = [
     "Report",
     "Broadcast",
     "Event",
-    "SystemManager",
     "WhatsappConnection",
     "ConsentRecord",
     "AgentConfig",

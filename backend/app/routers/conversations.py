@@ -43,7 +43,7 @@ logger = logging.getLogger("pastorai.conversations")
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 
 # Privileged inbox roles (admin passes implicitly via require_role).
-_INBOX_ROLES = ["pastor", "lider_g12"]
+_INBOX_ROLES = ["pastor", "lider_g12", "operador"]
 
 
 # ---------------------------------------------------------------------------

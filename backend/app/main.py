@@ -30,7 +30,6 @@ from app.routers import (
     reports,
     roles,
     subscription,
-    system_managers,
     team,
     whatsapp,
     work_queue,
@@ -91,7 +90,6 @@ def create_app() -> FastAPI:
     app.include_router(events.router)
     app.include_router(team.router)
     app.include_router(roles.router)
-    app.include_router(system_managers.router)
     app.include_router(subscription.router)
 
     @app.get("/health", tags=["health"])

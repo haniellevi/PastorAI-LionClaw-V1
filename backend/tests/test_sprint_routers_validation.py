@@ -46,10 +46,6 @@ def test_roles_permissions_requires_auth(app) -> None:
     assert _client(app).get("/roles/permissions").status_code == 401
 
 
-def test_system_managers_requires_auth(app) -> None:
-    assert _client(app).get("/system-managers").status_code == 401
-
-
 def test_subscription_requires_auth(app) -> None:
     assert _client(app).get("/subscription").status_code == 401
 
@@ -117,16 +113,6 @@ def test_roles_permissions_rejects_invalid_role(app) -> None:
     resp = _client(app).put(
         "/roles/permissions",
         json={"matriz": {"arcanjo": ["dashboard"]}},
-        headers=_AUTH,
-    )
-    assert resp.status_code == 422
-
-
-# ---- system managers validation -------------------------------------------
-def test_system_manager_rejects_invalid_papel(app) -> None:
-    resp = _client(app).post(
-        "/system-managers",
-        json={"nome": "Op", "email": "op@ex.com", "papelOperacional": "rei"},
         headers=_AUTH,
     )
     assert resp.status_code == 422
