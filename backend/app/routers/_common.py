@@ -24,7 +24,11 @@ from app.deps import CurrentUser
 
 T = TypeVar("T")
 
-MAX_PAGE_SIZE = 100
+# List screens load a single batch (no pagination UI yet), and plan tiers go up
+# to 201+ people, so the cap matches the frontend's batch size (200) to avoid
+# silently truncating contacts/cells/reports. True pagination is the long-term
+# fix for tenants beyond a single batch.
+MAX_PAGE_SIZE = 200
 DEFAULT_PAGE_SIZE = 20
 
 
@@ -39,7 +43,7 @@ class PaginationParams:
             ge=1,
             le=MAX_PAGE_SIZE,
             alias="pageSize",
-            description="Items per page (max 100)",
+            description="Items per page (max 200)",
         ),
     ) -> None:
         self.page = page
