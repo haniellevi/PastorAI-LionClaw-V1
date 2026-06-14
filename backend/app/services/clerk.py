@@ -1,31 +1,37 @@
-"""Clerk authentication helpers (US-01 / RNF-01).
+"""Authentication helpers (US-01 / RNF-01).
 
 Two responsibilities:
 
-1. Verify a Clerk-issued session JWT on every request (JWKS / RS256).
-2. Authenticate an email+password pair against Clerk's Backend API for the
-   `POST /auth/login` contract, returning a session token + clerk_user_id.
+1. Authenticate an email+password pair against Clerk's Backend API for the
+   `POST /auth/login` contract (Clerk verifies the password; no password is
+   ever stored — RNF-01).
+2. Mint and verify PastorAI's OWN session JWT (HS256). The panel session is
+   decoupled from Clerk's short-lived (~1 min) session tokens so users are not
+   logged out after a minute; Clerk is only touched at login.
 
-No passwords are ever stored by PastorAI (RNF-01). Errors are normalized to a
-single `ClerkAuthError` so callers can return a generic message that never
-reveals whether an email exists (US-01).
+Errors are normalized to a single `ClerkAuthError` so callers can return a
+generic message that never reveals whether an email exists (US-01).
 """
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
 import jwt
-from jwt import PyJWKClient
 
 from app.config import Settings, get_settings
 
 logger = logging.getLogger("pastorai.clerk")
 
 _CLERK_API_BASE = "https://api.clerk.com/v1"
+
+# PastorAI-issued session JWT (HS256) — see module docstring.
+_SESSION_ISSUER = "pastorai"
+_SESSION_ALG = "HS256"
 
 
 class ClerkAuthError(Exception):
@@ -49,20 +55,24 @@ class ClerkClient:
 
     def __init__(self, settings: Settings | None = None) -> None:
         self._settings = settings or get_settings()
-        self._jwk_client: PyJWKClient | None = None
 
-    # ---- Session token verification -----------------------------------------
-    def _get_jwk_client(self) -> PyJWKClient:
-        if self._jwk_client is None:
-            jwks_url = self._settings.effective_jwks_url
-            if not jwks_url:
-                raise ClerkAuthError("Clerk JWKS URL is not configured")
-            # PyJWKClient caches keys internally between calls.
-            self._jwk_client = PyJWKClient(jwks_url)
-        return self._jwk_client
+    # ---- Session token: PastorAI-issued JWT (panel session) ----------------
+    def _mint_session_token(self, clerk_user_id: str) -> str:
+        """Mint a short-lived PastorAI session JWT (HS256) for the panel."""
+        secret = self._settings.effective_session_secret
+        if not secret:
+            raise ClerkAuthError("Session secret is not configured")
+        now = datetime.now(timezone.utc)
+        payload = {
+            "sub": clerk_user_id,
+            "iss": _SESSION_ISSUER,
+            "iat": now,
+            "exp": now + timedelta(hours=self._settings.session_ttl_hours),
+        }
+        return jwt.encode(payload, secret, algorithm=_SESSION_ALG)
 
     def verify_session_token(self, token: str) -> ClerkIdentity:
-        """Verify a Clerk session JWT and return the resolved identity.
+        """Verify a PastorAI-issued session JWT and return the resolved identity.
 
         Raises ClerkAuthError on any validation failure (expired, bad
         signature, wrong issuer, missing subject).
@@ -70,17 +80,18 @@ class ClerkClient:
         if not token:
             raise ClerkAuthError("Empty token")
 
+        secret = self._settings.effective_session_secret
+        if not secret:
+            raise ClerkAuthError("Session secret is not configured")
+
         try:
-            signing_key = self._get_jwk_client().get_signing_key_from_jwt(token)
-            issuer = self._settings.clerk_jwt_issuer or None
             claims = jwt.decode(
                 token,
-                signing_key.key,
-                algorithms=["RS256"],
-                issuer=issuer,
+                secret,
+                algorithms=[_SESSION_ALG],
+                issuer=_SESSION_ISSUER,
                 options={
-                    "require": ["exp", "sub"],
-                    "verify_iss": bool(issuer),
+                    "require": ["exp", "sub", "iss"],
                     "verify_aud": False,
                 },
             )
@@ -88,7 +99,7 @@ class ClerkClient:
             raise
         except Exception as exc:  # noqa: BLE001 - normalize to one error type
             # Log without leaking the token contents.
-            logger.warning("Clerk token verification failed: %s", type(exc).__name__)
+            logger.warning("Session token verification failed: %s", type(exc).__name__)
             raise ClerkAuthError("Invalid session token") from exc
 
         subject = claims.get("sub")
@@ -100,8 +111,9 @@ class ClerkClient:
     def authenticate_password(self, email: str, password: str) -> tuple[str, str]:
         """Authenticate email+password via Clerk and return (token, clerk_user_id).
 
-        Uses Clerk's Backend API to verify the password and mint a session
-        token. Any failure raises ClerkAuthError with no email-existence signal.
+        Clerk's Backend API verifies the password; PastorAI then mints its own
+        session token (see `_mint_session_token`). Any failure raises
+        ClerkAuthError with no email-existence signal.
         """
         secret = self._settings.clerk_secret_key
         if not secret:
@@ -137,21 +149,11 @@ class ClerkClient:
                 ):
                     raise ClerkAuthError("Invalid credentials")
 
-                # 3) Mint a session and its token.
-                session_resp = client.post(
-                    "/sessions",
-                    json={"user_id": clerk_user_id},
-                    headers=headers,
-                )
-                session_resp.raise_for_status()
-                session_id = str(session_resp.json()["id"])
-
-                token_resp = client.post(
-                    f"/sessions/{session_id}/tokens",
-                    headers=headers,
-                )
-                token_resp.raise_for_status()
-                token = str(token_resp.json()["jwt"])
+                # 3) Password verified. Mint a PastorAI session token (HS256,
+                #    hours-long) instead of Clerk's short-lived session token so
+                #    the panel session does not expire after ~1 minute. Still no
+                #    password is ever stored (RNF-01).
+                token = self._mint_session_token(clerk_user_id)
         except ClerkAuthError:
             raise
         except httpx.HTTPError as exc:

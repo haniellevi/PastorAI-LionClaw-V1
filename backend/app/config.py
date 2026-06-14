@@ -48,6 +48,13 @@ class Settings(BaseSettings):
     # ---- Secrets encryption (RNF-03) ----------------------------------------
     secrets_encryption_key: str = Field(default="")
 
+    # ---- Session token (panel session — backend-issued JWT) -----------------
+    # PastorAI signs its own session JWT at login so the panel session is not
+    # bound to Clerk's ~1 min session-token TTL. Falls back to clerk_secret_key
+    # when empty, so no new required env var is introduced.
+    session_jwt_secret: str = Field(default="")
+    session_ttl_hours: int = Field(default=8, ge=1, le=720)
+
     # ---- Evolution API (WhatsApp - US-05..US-08) ----------------------------
     evolution_api_url: str = Field(default="")
     evolution_api_key: str = Field(default="")
@@ -115,6 +122,11 @@ class Settings(BaseSettings):
         if self.clerk_jwt_issuer:
             return f"{self.clerk_jwt_issuer.rstrip('/')}/.well-known/jwks.json"
         return ""
+
+    @property
+    def effective_session_secret(self) -> str:
+        """Secret used to sign/verify PastorAI's own session JWTs."""
+        return self.session_jwt_secret or self.clerk_secret_key
 
     @field_validator("database_url")
     @classmethod
