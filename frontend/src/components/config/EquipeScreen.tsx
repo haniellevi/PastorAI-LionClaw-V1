@@ -125,12 +125,20 @@ export function EquipeScreen() {
     setInviting(true);
     setInvError(null);
     try {
-      await inviteMember(token, {
+      const dest = invEmail.trim().toLowerCase();
+      const result = await inviteMember(token, {
         nome: invNome.trim(),
-        email: invEmail.trim().toLowerCase(),
+        email: dest,
         papeis: Array.from(invRoles),
       });
-      flashToast({ kind: "ok", text: `Convite enviado para ${invEmail.trim().toLowerCase()}.` });
+      flashToast(
+        result.emailEnviado
+          ? { kind: "ok", text: `Convite enviado para ${dest}.` }
+          : {
+              kind: "err",
+              text: "Pessoa criada, mas o e-mail de convite não saiu (e-mail não configurado no servidor). Configure o envio e reenvie.",
+            },
+      );
       resetInvite();
       await load("retry");
     } catch (err) {
