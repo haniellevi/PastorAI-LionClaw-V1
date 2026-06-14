@@ -26,8 +26,18 @@ from app.domain.work_queue import (
 
 # ---- phone ----------------------------------------------------------------
 def test_normalize_phone_strips_formatting() -> None:
-    assert normalize_phone("+55 (11) 99999-0000") == "5511999990000"
+    # Canonical BR key drops +55 and keeps the local 11-digit mobile.
+    assert normalize_phone("+55 (11) 99999-0000") == "11999990000"
     assert normalize_phone("11 99999 0000") == "11999990000"
+
+
+def test_normalize_phone_canonicalizes_br_variants() -> None:
+    # The same number across WhatsApp/E.164 forms collapses to one dedupe key:
+    # +55 is dropped and the 9th digit (often omitted by WhatsApp) is re-added.
+    assert normalize_phone("89994315927") == "89994315927"        # local, with 9
+    assert normalize_phone("558994315927") == "89994315927"       # +55, 9 omitted
+    assert normalize_phone("+55 89 9431-5927") == "89994315927"   # +55, 8-digit
+    assert normalize_phone("5589994315927") == "89994315927"      # +55, with 9
 
 
 def test_normalize_phone_empty() -> None:

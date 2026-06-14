@@ -70,7 +70,7 @@ def test_parse_message_event_extracts_fields() -> None:
     assert parsed is not None
     assert parsed.instance == "igreja-1"
     assert parsed.provider_message_id == "MSG123"
-    assert parsed.telefone == "5511999990000"
+    assert parsed.telefone == "11999990000"  # canonical: +55 dropped
     assert parsed.texto == "Olá"
     assert parsed.push_name == "Maria"
     assert parsed.from_me is False

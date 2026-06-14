@@ -35,6 +35,7 @@ from app.config import get_settings
 from app.db.models import Conversation, Message, Pessoa, WhatsappConnection
 from app.db.session import get_session_factory
 from app.domain.conversations import ParsedMessage, parse_message_event
+from app.domain.phone import normalize_phone, phone_suffix
 
 logger = logging.getLogger("pastorai.queue_worker")
 
@@ -98,15 +99,23 @@ def ingest_message_event_ex(db: Session, parsed: ParsedMessage) -> IngestionOutc
 
     igreja_id = connection.igreja_id
 
-    # Dedupe person by normalized telefone + igreja (RNF-16). Mirrors the SQL
-    # used elsewhere: regexp_replace(telefone, '\D', '', 'g').
-    normalized = func.regexp_replace(Pessoa.telefone, r"\D", "", "g")
-    pessoa = db.execute(
+    # Dedupe person by CANONICAL telefone + igreja (RNF-16). Always look up an
+    # existing contact before creating, matching across the +55 / 9th-digit
+    # variations (parsed.telefone is already canonical): narrow candidates by the
+    # stable 8-digit suffix in SQL, then confirm the full canonical match in
+    # Python. This is why a person who messages the church number is recognized
+    # instead of being recreated as a new visitor.
+    stored_digits = func.regexp_replace(Pessoa.telefone, r"\D", "", "g")
+    candidates = db.execute(
         select(Pessoa).where(
             Pessoa.igreja_id == igreja_id,
-            normalized == parsed.telefone,
+            func.right(stored_digits, 8) == phone_suffix(parsed.telefone),
         )
-    ).scalar_one_or_none()
+    ).scalars().all()
+    pessoa = next(
+        (p for p in candidates if normalize_phone(p.telefone) == parsed.telefone),
+        None,
+    )
 
     if pessoa is None:
         pessoa = Pessoa(

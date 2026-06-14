@@ -55,6 +55,14 @@ class _Scalar:
     def scalar_one_or_none(self):
         return self._value
 
+    # Candidate-narrowing dedupe uses .scalars().all(); the fake ignores the
+    # WHERE clause and returns the routed row (or none) as the candidate list.
+    def scalars(self):
+        return self
+
+    def all(self):
+        return [] if self._value is None else [self._value]
+
 
 class FakeIngestSession:
     """Routes selects by entity, records added rows; no real persistence."""

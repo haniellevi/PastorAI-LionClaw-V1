@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 from app.db.models import Celula, Pessoa
 from app.db.session import get_db
 from app.deps import CurrentUser, get_current_user
-from app.domain.phone import normalize_phone
+from app.domain.phone import normalize_phone, phone_suffix
 from app.routers._common import Page, PaginationParams, ensure_tenant_context
 
 logger = logging.getLogger("pastorai.contacts")
@@ -183,14 +183,17 @@ def create_contact(
             detail="Telefone inválido",
         )
 
-    # Dedupe: compare the digit-stripped stored value to the normalized input.
-    existing = db.execute(
-        select(Pessoa)
-        .where(
-            func.regexp_replace(Pessoa.telefone, r"\D", "", "g") == normalized
-        )
-        .limit(1)
-    ).scalar_one_or_none()
+    # Dedupe by CANONICAL phone (look up before creating): narrow by the stable
+    # 8-digit suffix in SQL, then confirm the full canonical match in Python so
+    # +55 / 9th-digit variations of the same number collapse to one contact.
+    stored_digits = func.regexp_replace(Pessoa.telefone, r"\D", "", "g")
+    candidates = db.execute(
+        select(Pessoa).where(func.right(stored_digits, 8) == phone_suffix(normalized))
+    ).scalars().all()
+    existing = next(
+        (p for p in candidates if normalize_phone(p.telefone) == normalized),
+        None,
+    )
 
     if existing is not None:
         logger.info("create_contact deduped to existing pessoa")
