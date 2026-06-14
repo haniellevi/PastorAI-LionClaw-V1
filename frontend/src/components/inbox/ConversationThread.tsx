@@ -21,7 +21,13 @@ import { StatusPill } from "@/components/dashboard/StatusPill";
 import type { Conversation } from "@/lib/conversations-api";
 import { Icon } from "@/lib/icons";
 
-import { effectiveEstado, estadoPill, maskPhone, phoneAvatar } from "./conversation-format";
+import {
+  contactAvatar,
+  displayName,
+  effectiveEstado,
+  estadoPill,
+  maskPhone,
+} from "./conversation-format";
 
 interface ThreadCopy {
   bannerClass: "active" | "human";
@@ -104,10 +110,14 @@ export function ConversationThread({
   return (
     <div className="conv-thread">
       <div className="thread-head">
-        <span className="av">{phoneAvatar(conversation.telefone)}</span>
+        <span className="av">{contactAvatar(conversation)}</span>
         <div className="who">
-          <strong>{maskPhone(conversation.telefone)}</strong>
-          <span className="mono">Contato do WhatsApp oficial</span>
+          <strong>{displayName(conversation)}</strong>
+          <span className="mono">
+            {conversation.nome
+              ? maskPhone(conversation.telefone)
+              : "Contato do WhatsApp oficial"}
+          </span>
         </div>
         <div className="ctrl">
           <StatusPill tone={pill.tone}>{pill.label}</StatusPill>

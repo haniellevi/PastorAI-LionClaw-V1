@@ -27,7 +27,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
-from app.db.models import Conversation, Message, WhatsappConnection
+from app.db.models import Conversation, Message, Pessoa, WhatsappConnection
 from app.db.session import get_db
 from app.deps import CurrentUser, require_role
 from app.domain.conversations import resolve_handoff
@@ -53,6 +53,7 @@ class ConversationOut(BaseModel):
     id: str
     telefone: str
     pessoaId: str | None = None  # noqa: N815
+    nome: str | None = None  # nome do contato (humaniza a lista/thread)
     estado: str | None = None
     ultimaMensagem: str | None = None  # noqa: N815
     naoLidas: int  # noqa: N815
@@ -61,11 +62,12 @@ class ConversationOut(BaseModel):
     esperaDesde: str | None = None  # noqa: N815
 
     @classmethod
-    def from_model(cls, c: Conversation) -> "ConversationOut":
+    def from_model(cls, c: Conversation, nome: str | None = None) -> "ConversationOut":
         return cls(
             id=str(c.id),
             telefone=c.telefone,
             pessoaId=str(c.pessoa_id) if c.pessoa_id else None,
+            nome=nome,
             estado=c.estado,
             ultimaMensagem=c.ultima_mensagem,
             naoLidas=c.nao_lidas or 0,
@@ -132,7 +134,10 @@ def list_conversations(
         select(func.count()).select_from(Conversation)
     ).scalar_one()
     rows = db.execute(
-        select(Conversation)
+        select(Conversation, Pessoa.nome)
+        # Nome do contato vinculado (humaniza a UI); LEFT JOIN preserva
+        # conversas sem pessoa vinculada (nome fica None -> front usa telefone).
+        .outerjoin(Pessoa, Pessoa.id == Conversation.pessoa_id)
         # Human-queue first (espera_desde set), then most recently updated.
         .order_by(
             Conversation.espera_desde.asc().nulls_last(),
@@ -140,10 +145,10 @@ def list_conversations(
         )
         .offset(pagination.offset)
         .limit(pagination.limit)
-    ).scalars().all()
+    ).all()
 
     return Page[ConversationOut](
-        items=[ConversationOut.from_model(c) for c in rows],
+        items=[ConversationOut.from_model(c, nome=nome) for c, nome in rows],
         page=pagination.page,
         pageSize=pagination.page_size,
         total=int(total),

@@ -10,10 +10,10 @@ import type { Conversation } from "@/lib/conversations-api";
 import { Icon } from "@/lib/icons";
 
 import {
+  contactAvatar,
+  displayName,
   effectiveEstado,
   estadoPill,
-  maskPhone,
-  phoneAvatar,
   shortTime,
 } from "./conversation-format";
 
@@ -82,10 +82,10 @@ export function ConversationList({
               className={`conv${c.id === selectedId ? " active" : ""}`}
               onClick={() => onSelect(c.id)}
             >
-              <span className="av">{phoneAvatar(c.telefone)}</span>
+              <span className="av">{contactAvatar(c)}</span>
               <div className="conv-main">
                 <div className="conv-top">
-                  <strong>{maskPhone(c.telefone)}</strong>
+                  <strong>{displayName(c)}</strong>
                   <time>{shortTime(c.assumidoEm ?? c.esperaDesde, now)}</time>
                 </div>
                 <div className="snippet">

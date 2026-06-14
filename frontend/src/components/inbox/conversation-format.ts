@@ -39,6 +39,25 @@ export function phoneAvatar(raw: string): string {
   return digits.slice(-2) || "WA";
 }
 
+/**
+ * Nome de exibição do contato: usa o nome real quando o contato está
+ * cadastrado/vinculado; senão cai no telefone mascarado (privacidade).
+ */
+export function displayName(c: Conversation): string {
+  const nome = c.nome?.trim();
+  return nome ? nome : maskPhone(c.telefone);
+}
+
+/** Iniciais do nome para o avatar; sem nome, usa os dígitos do telefone. */
+export function contactAvatar(c: Conversation): string {
+  const nome = c.nome?.trim();
+  if (!nome) return phoneAvatar(c.telefone);
+  const parts = nome.split(/\s+/).filter(Boolean);
+  const first = parts[0]?.[0] ?? "";
+  const last = parts.length > 1 ? (parts[parts.length - 1]?.[0] ?? "") : "";
+  return (first + last).toUpperCase() || phoneAvatar(c.telefone);
+}
+
 /** Horário curto (HH:MM) ou "Ontem"/data para o carimbo da lista. */
 export function shortTime(iso: string | null, now: number): string {
   if (!iso) return "";

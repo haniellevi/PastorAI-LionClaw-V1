@@ -27,6 +27,7 @@ export interface Conversation {
   id: string;
   telefone: string;
   pessoaId: string | null;
+  nome: string | null;
   estado: ConversationEstado | null;
   ultimaMensagem: string | null;
   naoLidas: number;
