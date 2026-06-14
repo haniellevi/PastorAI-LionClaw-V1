@@ -95,7 +95,7 @@ export function LoginScreen() {
               <span className="brand-mark">
                 <Icon name="brand" />
               </span>
-              PastorAI
+              Igreja 12
             </div>
             <span className="aside-kicker">Visão G12 · Agentes de IA · WhatsApp</span>
             <h2>O primeiro sistema de gestão para igreja na Visão&nbsp;G12.</h2>
@@ -113,7 +113,7 @@ export function LoginScreen() {
             </div>
           </div>
           <div className="aside-foot">
-            PastorAI © 2026 · Sistema Agêntico Especialista na Gestão de Igrejas na
+            Igreja 12 © 2026 · Sistema Agêntico Especialista na Gestão de Igrejas na
             Visão&nbsp;G12.
           </div>
         </aside>

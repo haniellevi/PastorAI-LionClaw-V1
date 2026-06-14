@@ -194,7 +194,7 @@ export function Sidebar({
           <span className="brand-mark">
             <Icon name="brand" />
           </span>
-          <span className="lbl">PastorAI</span>
+          <span className="lbl">Igreja 12</span>
         </div>
         <button
           type="button"

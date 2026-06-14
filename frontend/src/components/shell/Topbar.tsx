@@ -16,7 +16,7 @@ interface TopbarProps {
 }
 
 export function Topbar({ user, route, onMenuToggle }: TopbarProps) {
-  const meta = SCREEN_META[route] ?? { title: "PastorAI", crumb: "" };
+  const meta = SCREEN_META[route] ?? { title: "Igreja 12", crumb: "" };
   const roles = sortedRoles(user.roles);
 
   return (

@@ -23,7 +23,7 @@ class BrevoError(Exception):
 def _activation_html(nome: str, link: str) -> str:
     return (
         f"<p>Olá, {nome}!</p>"
-        "<p>Você foi convidado(a) para a equipe no PastorAI. "
+        "<p>Você foi convidado(a) para a equipe da Igreja 12. "
         "Clique no botão abaixo para ativar seu acesso:</p>"
         f'<p><a href="{link}">Ativar acesso</a></p>'
         f"<p>Ou copie e cole este link no navegador:<br>{link}</p>"
@@ -56,7 +56,7 @@ class BrevoClient:
         payload = {
             "sender": {"name": from_name, "email": from_email},
             "to": [{"email": to_email, "name": nome}],
-            "subject": "Seu convite para a equipe no PastorAI",
+            "subject": "Seu convite para a equipe da Igreja 12",
             "htmlContent": f"<html><body>{_activation_html(nome, activation_link)}</body></html>",
         }
         try:

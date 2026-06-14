@@ -85,8 +85,8 @@ class Settings(BaseSettings):
     # ---- Brevo (ex-Sendinblue) — convites de equipe (RF-40) -----------------
     brevo_api_url: str = Field(default="https://api.brevo.com/v3")
     brevo_api_key: str = Field(default="")
-    brevo_from_email: str = Field(default="no-reply@pastorai.com.br")
-    brevo_from_name: str = Field(default="PastorAI")
+    brevo_from_email: str = Field(default="no-reply@igreja12.com.br")
+    brevo_from_name: str = Field(default="Igreja 12")
 
     # ---- Google Calendar (sync de eventos - RF-39) --------------------------
     google_calendar_api_url: str = Field(

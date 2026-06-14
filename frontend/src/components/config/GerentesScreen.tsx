@@ -219,7 +219,7 @@ export function GerentesScreen() {
           <h2>Gerentes de Sistema</h2>
           <p>
             Papéis de operação do sistema (não confundir com cargos ministeriais).
-            Gerentes administram a configuração da igreja como cliente do PastorAI.
+            Gerentes administram a configuração da igreja como cliente do sistema.
           </p>
         </div>
         <div className="actions">
