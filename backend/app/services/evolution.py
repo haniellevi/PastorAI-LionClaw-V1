@@ -69,6 +69,19 @@ def verify_webhook_signature(secret: str, payload: bytes, signature: str | None)
     return hmac.compare_digest(expected, provided.strip())
 
 
+def verify_shared_secret(secret: str, token: str | None) -> bool:
+    """Constant-time check of a static shared-secret webhook header.
+
+    Evolution API v2 does not HMAC-sign its webhooks; instead we configure the
+    instance to send a static secret header (`x-webhook-token`). This
+    authenticates inbound webhooks in constant time without a signature. An
+    empty secret or token is rejected.
+    """
+    if not secret or not token:
+        return False
+    return hmac.compare_digest(secret, token.strip())
+
+
 class EvolutionClient:
     """Thin HTTP client around the Evolution API instance endpoints."""
 
