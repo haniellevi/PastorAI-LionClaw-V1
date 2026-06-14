@@ -366,7 +366,7 @@ export function GerentesScreen() {
         </div>
         <p className="lock-note" style={{ marginTop: "var(--s3)" }}>
           Cargos ministeriais (Pastor, Líder G12, Líder de Célula…) são
-          atualizados automaticamente pela trilha em Equipe de Liderança. Aqui
+          atualizados automaticamente pela trilha em Pessoas. Aqui
           ficam apenas os papéis de operação do sistema.
         </p>
       </div>

@@ -48,7 +48,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { target: "inbox", label: "Chat", icon: "chat" },
       { target: "calendario", label: "Agenda da Igreja", icon: "calendar" },
       { target: "comunicados", label: "Comunicação", icon: "broadcast" },
-      { target: "equipe", label: "Equipe de Liderança", icon: "team" },
+      { target: "equipe", label: "Pessoas", icon: "team" },
     ],
   },
   {
@@ -118,7 +118,7 @@ export const SCREEN_META: Record<string, { title: string; crumb: string }> = {
   inbox: { title: "Chat", crumb: "WhatsApp da Igreja" },
   calendario: { title: "Agenda da Igreja", crumb: "Eventos e cultos" },
   comunicados: { title: "Comunicação", crumb: "Envios segmentados" },
-  equipe: { title: "Equipe de Liderança", crumb: "Pessoas e papéis" },
+  equipe: { title: "Pessoas", crumb: "Quem usa o sistema" },
   ganhar: { title: "Ganhar", crumb: "Novos contatos e visitantes" },
   consolidar: { title: "Consolidar", crumb: "Fila de consolidação" },
   "consol-individual": { title: "Consolidação Individual", crumb: "Acompanhamento 1:1" },

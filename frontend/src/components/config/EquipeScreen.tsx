@@ -232,11 +232,11 @@ export function EquipeScreen() {
     <div className="screen" key="equipe">
       <div className="screen-head">
         <div className="titles">
-          <h2>Equipe e papéis</h2>
+          <h2>Pessoas</h2>
           <p>
-            Cada pessoa acumula os papéis registrados aqui. O menu e o dashboard
-            são montados pela união desses papéis — o que cada papel enxerga é
-            definido em Permissões.
+            Pessoas da igreja que acessam o sistema. Cada uma acumula os papéis
+            registrados aqui — o menu e o dashboard são montados pela união
+            desses papéis (o que cada papel enxerga é definido em Permissões).
           </p>
         </div>
         <div className="actions">
