@@ -13,7 +13,7 @@ import { Icon } from "@/lib/icons";
 import { NAV_SECTIONS, type NavItem, type NavSection } from "@/lib/navigation";
 import { allowedScreens } from "@/lib/permissions";
 import { usePermissions } from "@/lib/permissions-context";
-import { isAdmin, ROLE_DEFS, sortedRoles } from "@/lib/roles";
+import { isAdmin } from "@/lib/roles";
 
 interface SidebarProps {
   user: SessionUser;
@@ -185,8 +185,6 @@ export function Sidebar({
     return Boolean(anyItem || anyStage);
   }
 
-  const roles = sortedRoles(user.roles);
-
   return (
     <nav className={`sidebar${collapsed ? " collapsed" : ""}${mobileOpen ? " open" : ""}`}>
       <div className="side-top">
@@ -266,15 +264,6 @@ export function Sidebar({
           <span className="av">{initials(user.nome)}</span>
           <span className="nm lbl">
             <strong>{user.nome}</strong>
-            <span>
-              <span className="role-chips">
-                {roles.map((r) => (
-                  <span className="rc" key={r}>
-                    {ROLE_DEFS[r].short}
-                  </span>
-                ))}
-              </span>
-            </span>
           </span>
           <button
             type="button"
