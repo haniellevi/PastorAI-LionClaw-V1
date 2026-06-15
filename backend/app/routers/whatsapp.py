@@ -8,7 +8,9 @@ Endpoints:
 A single official number per igreja is enforced by the UNIQUE igreja_id on
 whatsapp_connections (RF-07). Config screens are admin-only (delta-005), so the
 authenticated endpoints require the `admin` role. The webhook is public but
-gated by an HMAC signature instead of Clerk auth (SPEC 3.3).
+gated by a shared-secret token (query `?token=` / HMAC) instead of Clerk auth
+(SPEC 3.3). Connecting an instance also registers this webhook on it, so a
+number paired via the panel QR forwards messages without a manual step.
 """
 
 from __future__ import annotations

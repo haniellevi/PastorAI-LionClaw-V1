@@ -122,6 +122,10 @@ services:
       # Sobrescreve os hosts p/ a rede interna do compose
       REDIS_URL: redis://redis:6379/0
       EVOLUTION_API_URL: http://evolution-api:8080
+      # URL que a Evolution chama de volta para entregar mensagens. O backend
+      # registra esse webhook na instância ao conectar (com ?token=). Use o
+      # endereço interno em que a Evolution alcança o backend nesta rede.
+      EVOLUTION_WEBHOOK_CALLBACK_URL: http://backend:8000/whatsapp/webhook
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
   # --------------------------------------------------------------------------
