@@ -168,6 +168,28 @@ def test_admin_blocks_non_platform_admin(app) -> None:
 
 
 # ---------------------------------------------------------------------------
+# GET /admin/me (console gate)
+# ---------------------------------------------------------------------------
+def test_admin_me_returns_identity(app) -> None:
+    db = PlatformDB(
+        gate_app_user=make_app_user(email="pr@x.com", nome="Raniel"),
+        admin_marker="pa1",
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.get("/admin/me", headers=_AUTH)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["email"] == "pr@x.com"
+    assert body["nome"] == "Raniel"
+
+
+def test_admin_me_blocks_non_admin(app) -> None:
+    db = PlatformDB(gate_app_user=make_app_user(), admin_marker=None)
+    client = _wire(app, db=db, clerk=FakeClerk())
+    assert client.get("/admin/me", headers=_AUTH).status_code == 403
+
+
+# ---------------------------------------------------------------------------
 # GET /admin/igrejas (cross-tenant listing)
 # ---------------------------------------------------------------------------
 def test_admin_lists_all_churches_with_counters(app) -> None:

@@ -136,10 +136,32 @@ class UpdateIgrejaRequest(BaseModel):
         return v
 
 
+class PlatformAdminMe(BaseModel):
+    """Identity of the current platform admin (drives the console gate)."""
+
+    appUserId: str  # noqa: N815
+    email: str
+    nome: str
+
+
 def _activation_link(app_user_id: uuid.UUID) -> str:
     """Activation link for the new church's first admin (tenant panel)."""
     base = get_settings().frontend_url.rstrip("/")
     return f"{base}/#ativar?convite={app_user_id}"
+
+
+@router.get("/me", response_model=PlatformAdminMe)
+def admin_me(
+    admin: PlatformAdminUser = Depends(get_platform_admin),
+) -> PlatformAdminMe:
+    """Confirm the caller is a platform admin and return its identity.
+
+    The console calls this right after login to decide whether to render the
+    cross-tenant surface (200) or refuse (the gate returns 403 otherwise).
+    """
+    return PlatformAdminMe(
+        appUserId=admin.app_user_id, email=admin.email, nome=admin.nome
+    )
 
 
 @router.get("/igrejas", response_model=list[IgrejaOut])
