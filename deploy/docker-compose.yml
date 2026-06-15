@@ -1,0 +1,168 @@
+# ============================================================================
+# PastorAI — stack de produção (VPS Hostinger · Docker Compose puro)
+# ----------------------------------------------------------------------------
+# Sobe 6 serviços:
+#   redis              cache da Evolution (db 1) + fila do worker do app (db 0)
+#   evolution-postgres banco INTERNO da Evolution (NÃO é o banco do app)
+#   evolution-api      WhatsApp (Evolution API v2)
+#   backend            FastAPI (usa o Supabase via DATABASE_URL, externo)
+#   queue-worker       processa webhooks do WhatsApp → banco + agente
+#   cron-worker        motor de SLA + crons
+#
+# O banco do APP é o Supabase (gerenciado, externo). O frontend vai na Vercel.
+#
+# >>> 1º teste (só conectar a Evolution / QR):
+#       docker compose up -d redis evolution-postgres evolution-api
+# >>> stack completa:
+#       docker compose up -d --build
+# ============================================================================
+
+name: pastorai
+
+services:
+  # --------------------------------------------------------------------------
+  # Redis — compartilhado: Evolution usa db 1, worker do app usa db 0
+  # --------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: pastorai_redis
+    restart: always
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # --------------------------------------------------------------------------
+  # Postgres INTERNO da Evolution (instâncias/sessões do WhatsApp).
+  # Atenção: NÃO é o banco do PastorAI — esse é o Supabase (DATABASE_URL).
+  # --------------------------------------------------------------------------
+  evolution-postgres:
+    image: postgres:16-alpine
+    container_name: pastorai_evo_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: evolution
+      POSTGRES_PASSWORD: ${EVOLUTION_POSTGRES_PASSWORD}
+      POSTGRES_DB: evolution
+    volumes:
+      - evolution_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U evolution -d evolution"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # --------------------------------------------------------------------------
+  # Evolution API v2 (canal WhatsApp oficial da igreja)
+  # --------------------------------------------------------------------------
+  evolution-api:
+    image: atendai/evolution-api:v2.1.1
+    container_name: pastorai_evolution
+    restart: always
+    ports:
+      - "8080:8080"
+    depends_on:
+      evolution-postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      SERVER_URL: ${EVOLUTION_SERVER_URL}
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY}
+      DEL_INSTANCE: "false"
+      # Banco interno da Evolution
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: postgresql://evolution:${EVOLUTION_POSTGRES_PASSWORD}@evolution-postgres:5432/evolution
+      DATABASE_CONNECTION_CLIENT_NAME: evolution_pastorai
+      DATABASE_SAVE_DATA_INSTANCE: "true"
+      DATABASE_SAVE_DATA_NEW_MESSAGE: "true"
+      DATABASE_SAVE_MESSAGE_UPDATE: "true"
+      DATABASE_SAVE_DATA_CONTACTS: "true"
+      DATABASE_SAVE_DATA_CHATS: "true"
+      # Cache no Redis (db 1)
+      CACHE_REDIS_ENABLED: "true"
+      CACHE_REDIS_URI: redis://redis:6379/1
+      CACHE_REDIS_PREFIX_KEY: evolution_pastorai
+      CACHE_REDIS_SAVE_INSTANCES: "false"
+      CACHE_LOCAL_ENABLED: "false"
+      RABBITMQ_ENABLED: "false"
+      # Webhook global → backend do PastorAI (ativa quando o backend estiver no ar).
+      # Toda mensagem recebida cai em POST /whatsapp/webhook.
+      # Autenticação: a Evolution v2 self-hosted NÃO assina HMAC nem envia headers
+      # customizados (só a edição Cloud), mas preserva a query string da URL — por
+      # isso o segredo viaja como ?token=... e o backend valida em tempo constante.
+      WEBHOOK_GLOBAL_ENABLED: "true"
+      WEBHOOK_GLOBAL_URL: http://backend:8000/whatsapp/webhook?token=${EVOLUTION_WEBHOOK_SECRET}
+      WEBHOOK_GLOBAL_WEBHOOK_BY_EVENTS: "false"
+    volumes:
+      - evolution_instances:/evolution/instances
+
+  # --------------------------------------------------------------------------
+  # Backend FastAPI — usa o Supabase (DATABASE_URL no .env), Redis e a Evolution
+  # --------------------------------------------------------------------------
+  backend:
+    build:
+      context: ../backend
+    image: pastorai-backend:latest
+    container_name: pastorai_backend
+    restart: always
+    ports:
+      - "8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      # Sobrescreve os hosts p/ a rede interna do compose
+      REDIS_URL: redis://redis:6379/0
+      EVOLUTION_API_URL: http://evolution-api:8080
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+  # --------------------------------------------------------------------------
+  # Worker de fila — drena webhooks do WhatsApp (Redis) → Postgres + agente
+  # --------------------------------------------------------------------------
+  queue-worker:
+    build:
+      context: ../backend
+    image: pastorai-backend:latest
+    container_name: pastorai_queue_worker
+    restart: always
+    depends_on:
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      EVOLUTION_API_URL: http://evolution-api:8080
+    command: ["python", "-m", "app.workers.queue_worker"]
+
+  # --------------------------------------------------------------------------
+  # Worker de cron — motor de SLA + execução de crons (tick configurável)
+  # --------------------------------------------------------------------------
+  cron-worker:
+    build:
+      context: ../backend
+    image: pastorai-backend:latest
+    container_name: pastorai_cron_worker
+    restart: always
+    depends_on:
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      EVOLUTION_API_URL: http://evolution-api:8080
+    command: ["python", "-m", "app.workers.cron_worker"]
+
+volumes:
+  redis_data:
+  evolution_pg_data:
+  evolution_instances:

@@ -18,7 +18,7 @@ import json
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -179,15 +179,23 @@ async def webhook(
     x_evolution_signature: str | None = Header(default=None),
     x_hub_signature_256: str | None = Header(default=None),
     x_webhook_token: str | None = Header(default=None),
+    token: str | None = Query(default=None),
     queue: WebhookQueue = Depends(get_webhook_queue),
 ) -> dict[str, str]:
     """Authenticate and enqueue the event for the worker.
 
-    Evolution API v2 does not HMAC-sign webhooks, so the request is accepted
-    when EITHER a valid HMAC signature is present (GitHub-style) OR a matching
-    static shared-secret header (`x-webhook-token`) is sent — both compared in
-    constant time. An unauthenticated request is rejected with 401 before any
-    parsing. Accepted events are queued and processed asynchronously (RNF-17).
+    Evolution API v2 self-hosted neither HMAC-signs its webhooks nor supports
+    custom headers (header support exists only on the Cloud edition), so the
+    primary authentication is a static shared-secret carried in the webhook URL
+    query string (`?token=...`) — Evolution preserves query params on the
+    configured global/instance webhook URL. The request is accepted when ANY of
+    the following matches, all compared in constant time:
+      - a valid HMAC signature (GitHub-style, future-proofing / Cloud edition);
+      - a matching `x-webhook-token` header (Cloud edition / reverse proxy);
+      - a matching `?token=` query param (Evolution v2 self-hosted — the path
+        actually used by this deploy).
+    An unauthenticated request is rejected with 401 before any parsing. Accepted
+    events are queued and processed asynchronously (RNF-17).
     """
     raw = await request.body()
     secret = get_settings().evolution_webhook_secret
@@ -196,6 +204,7 @@ async def webhook(
     if not (
         verify_webhook_signature(secret, raw, signature)
         or verify_shared_secret(secret, x_webhook_token)
+        or verify_shared_secret(secret, token)
     ):
         logger.warning("Rejected webhook with invalid signature/token")
         raise HTTPException(
