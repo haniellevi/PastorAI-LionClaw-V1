@@ -50,6 +50,8 @@ interface AuthContextValue {
   /** Autentica via api-login + /auth/me. Lança LoginError em falha. */
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
+  /** Atualiza localmente o nome de exibição após editar o perfil. */
+  updateNome: (nome: string) => void;
   /** Sinaliza expiração de sessão preservando a rota atual. */
   expireSession: () => void;
   /** Rota a restaurar após re-login (sessão expirada). */
@@ -150,6 +152,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setStatus("unauthenticated");
   }, []);
 
+  const updateNome = useCallback((nome: string) => {
+    setUser((u) => (u ? { ...u, nome } : u));
+  }, []);
+
   const expireSession = useCallback(() => {
     try {
       const current = window.location.hash.replace(/^#/, "");
@@ -182,10 +188,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       token: tokenRef.current,
       login,
       logout,
+      updateNome,
       expireSession,
       consumeReturnTo,
     }),
-    [status, user, login, logout, expireSession, consumeReturnTo],
+    [status, user, login, logout, updateNome, expireSession, consumeReturnTo],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

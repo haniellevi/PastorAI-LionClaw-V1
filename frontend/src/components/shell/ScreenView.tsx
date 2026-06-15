@@ -24,6 +24,7 @@ import { G12Screen } from "@/components/g12/G12Screen";
 import { InboxScreen } from "@/components/inbox/InboxScreen";
 import { RelatoriosScreen } from "@/components/reports/RelatoriosScreen";
 import { WhatsappScreen } from "@/components/whatsapp/WhatsappScreen";
+import { PerfilScreen } from "@/components/profile/PerfilScreen";
 import { Icon } from "@/lib/icons";
 import { SCREEN_META } from "@/lib/navigation";
 
@@ -90,6 +91,9 @@ export function ScreenView({ route, param }: { route: string; param?: string | n
   }
   if (route === "capacitacao") {
     return <LockedScreen variant="capacitacao" />;
+  }
+  if (route === "perfil") {
+    return <PerfilScreen />;
   }
 
   return (

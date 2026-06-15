@@ -261,10 +261,34 @@ export function Sidebar({
 
       <div className="side-foot">
         <div className="side-user">
-          <span className="av">{initials(user.nome)}</span>
-          <span className="nm lbl">
-            <strong>{user.nome}</strong>
-          </span>
+          <button
+            type="button"
+            className="side-user-link"
+            title="Meu perfil"
+            onClick={() => onNavigate("perfil")}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              flex: 1,
+              minWidth: 0,
+              background: "none",
+              border: "none",
+              padding: 0,
+              font: "inherit",
+              color: "inherit",
+              textAlign: "left",
+              cursor: "pointer",
+            }}
+          >
+            <span className="av">{initials(user.nome)}</span>
+            <span className="nm lbl">
+              <strong>{user.nome}</strong>
+              <span className="sub" style={{ color: "var(--sidebar-muted)" }}>
+                Meu perfil
+              </span>
+            </span>
+          </button>
           <button
             type="button"
             id="logoutBtn"

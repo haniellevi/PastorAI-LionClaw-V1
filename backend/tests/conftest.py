@@ -56,6 +56,9 @@ class FakeSession:
         # Anything else here is the UserRole.papel projection.
         return _FakeResult(scalars_list=self.roles)
 
+    def commit(self) -> None:  # pragma: no cover - in-memory, nothing to persist
+        pass
+
     def close(self) -> None:  # pragma: no cover - nothing to release
         pass
 
@@ -110,6 +113,9 @@ class FakeClerk:
         if self._raise_create:
             raise ClerkAuthError("create failed")
         return self._created_clerk_id
+
+    def set_user_password(self, clerk_user_id: str, password: str) -> None:
+        pass
 
 
 # ---------------------------------------------------------------------------

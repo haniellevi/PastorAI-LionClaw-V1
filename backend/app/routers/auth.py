@@ -25,6 +25,7 @@ from app.config import get_settings
 from app.db.models import AppUser
 from app.db.session import get_db
 from app.deps import BLOCKING_IGREJA_STATUSES, CurrentUser, get_current_user
+from app.routers._common import ensure_tenant_context
 from app.services.brevo import BrevoClient, BrevoError, get_brevo_client
 from app.services.clerk import ClerkAuthError, ClerkClient, get_clerk_client
 
@@ -102,6 +103,27 @@ class MeResponse(BaseModel):
     email: str
     nome: str
     roles: list[str]
+
+
+class UpdateMeRequest(BaseModel):
+    """Edição do próprio perfil (hoje: o nome de exibição)."""
+
+    nome: str = Field(min_length=1, max_length=200)
+
+    @field_validator("nome")
+    @classmethod
+    def _nome(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("nome obrigatório")
+        return value
+
+
+class ChangePasswordRequest(BaseModel):
+    """Troca da própria senha — exige a senha atual."""
+
+    currentPassword: str = Field(min_length=1, max_length=256)  # noqa: N815
+    newPassword: str = Field(min_length=8, max_length=256)  # noqa: N815
 
 
 def _unauthorized() -> HTTPException:
@@ -285,3 +307,53 @@ def me(current_user: CurrentUser = Depends(get_current_user)) -> MeResponse:
         nome=current_user.nome,
         roles=sorted(current_user.roles),
     )
+
+
+@router.patch("/me", response_model=MeResponse)
+def update_me(
+    payload: UpdateMeRequest,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> MeResponse:
+    """Atualiza os próprios dados de perfil (hoje: o nome de exibição).
+
+    Tenant-scoped via RLS; cada usuário só edita o próprio app_user.
+    """
+    ensure_tenant_context(db, current_user)
+    app_user = db.execute(
+        select(AppUser).where(AppUser.id == uuid.UUID(current_user.app_user_id))
+    ).scalar_one_or_none()
+    if app_user is not None:
+        app_user.nome = payload.nome
+        db.commit()
+    return MeResponse(
+        appUserId=current_user.app_user_id,
+        churchId=current_user.igreja_id,
+        email=current_user.email,
+        nome=payload.nome,
+        roles=sorted(current_user.roles),
+    )
+
+
+@router.post("/change-password")
+def change_password(
+    payload: ChangePasswordRequest,
+    clerk: ClerkClient = Depends(get_clerk_client),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> dict[str, str]:
+    """Troca a própria senha. Exige a senha atual, verificada no Clerk."""
+    try:
+        clerk.authenticate_password(current_user.email, payload.currentPassword)
+    except ClerkAuthError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Senha atual incorreta",
+        ) from None
+    try:
+        clerk.set_user_password(current_user.clerk_user_id, payload.newPassword)
+    except ClerkAuthError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Não foi possível alterar a senha. Tente novamente.",
+        ) from exc
+    return {"status": "ok"}

@@ -20,6 +20,10 @@ import { Topbar } from "./Topbar";
 /** Telas bloqueadas no MVP (locked-em-breve): não renderizam conteúdo. */
 const LOCKED_SCREENS = new Set(["universidade-vida", "capacitacao"]);
 
+/** Telas acessíveis a qualquer usuário, fora da matriz de permissões (ex.: o
+ *  próprio perfil — todo mundo edita os próprios dados). */
+const ALWAYS_ALLOWED = new Set(["perfil"]);
+
 export function AppShell() {
   const { user, logout } = useAuth();
   const { matrix } = usePermissions();
@@ -34,7 +38,7 @@ export function AppShell() {
 
   // Resolve a rota: a base precisa existir, ser permitida e não estar bloqueada.
   const known = base in SCREEN_META;
-  const permitted = user ? canSee(base, user.roles, matrix) : false;
+  const permitted = ALWAYS_ALLOWED.has(base) || (user ? canSee(base, user.roles, matrix) : false);
   const allowed = known && permitted && !LOCKED_SCREENS.has(base);
   const resolvedBase = allowed ? base : "dashboard";
   const resolvedRoute = allowed ? route : "dashboard";

@@ -216,4 +216,9 @@ export const SCREEN_META: Record<
     crumb: "Recebidos e pendentes",
     info: "Relatórios semanais de célula: recebidos e pendentes.",
   },
+  perfil: {
+    title: "Meu Perfil",
+    crumb: "Conta",
+    info: "Seus dados de acesso: nome de exibição e senha.",
+  },
 };

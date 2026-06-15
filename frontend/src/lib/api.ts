@@ -202,3 +202,41 @@ export async function activateInvite(token: string, password: string): Promise<v
     await detailMessage(res, "Não foi possível ativar o acesso. Tente novamente."),
   );
 }
+
+/** Atualiza o próprio perfil (hoje: o nome). Retorna o /me atualizado. */
+export async function updateMe(token: string, nome: string): Promise<MeResult> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/auth/me`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ nome }),
+    });
+  } catch {
+    throw new LoginError("network", "Falha de conexão. Tente novamente.");
+  }
+  if (res.status === 401) throw new SessionExpiredError();
+  if (res.ok) return (await res.json()) as MeResult;
+  throw new LoginError("invalid", await detailMessage(res, "Não foi possível salvar o perfil."));
+}
+
+/** Troca a própria senha (exige a senha atual). */
+export async function changePassword(
+  token: string,
+  currentPassword: string,
+  newPassword: string,
+): Promise<void> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/auth/change-password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ currentPassword, newPassword }),
+    });
+  } catch {
+    throw new LoginError("network", "Falha de conexão. Tente novamente.");
+  }
+  if (res.status === 401) throw new SessionExpiredError();
+  if (res.ok) return;
+  throw new LoginError("invalid", await detailMessage(res, "Não foi possível alterar a senha."));
+}
