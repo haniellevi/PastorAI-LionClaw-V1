@@ -18,7 +18,7 @@ from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import AppUser, UserRole
+from app.db.models import AppUser, PlatformAdmin, UserRole
 from app.db.rls import set_tenant_context
 from app.db.session import get_db
 from app.services.clerk import ClerkAuthError, ClerkClient, get_clerk_client
@@ -147,3 +147,80 @@ def require_role(roles: list[str]):
         return current_user
 
     return _checker
+
+
+# ---------------------------------------------------------------------------
+# Platform plane (Super-Admin / console multi-tenant — Onda 1, US-42/43)
+# ---------------------------------------------------------------------------
+# Mensagem genérica e única: não revela se a identidade existe nem por que foi
+# negada (não vaza a existência da allowlist de plataforma).
+_PLATFORM_DENIED = "Acesso restrito à administração da plataforma"
+
+
+@dataclass(frozen=True)
+class PlatformAdminUser:
+    """A platform-level principal (SaaS provider) authorized cross-tenant."""
+
+    app_user_id: str
+    clerk_user_id: str
+    email: str
+    nome: str
+
+
+def get_platform_admin(
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+    clerk: ClerkClient = Depends(get_clerk_client),
+) -> PlatformAdminUser:
+    """Authorize a Super-Admin request — cross-tenant administration plane.
+
+    A deliberately PARALLEL pipeline to ``get_current_user``, with two crucial
+    differences:
+
+      1. It does NOT call ``set_tenant_context``. The session therefore keeps
+         the connection role (BYPASSRLS), so the platform admin can see and
+         manage every igreja. Calling it would scope every query to a single
+         tenant and defeat the purpose of the console.
+      2. It is NOT subject to the per-tenant billing gate (a suspended home
+         church must not lock the provider out of the platform console).
+
+    Authorization is the ``platform_admins`` allowlist: the verified identity
+    must resolve to an app_user that has a row there. 401 on a bad/missing
+    token; 403 for any authenticated identity that is not a platform admin.
+    """
+    token = _extract_bearer_token(authorization)
+
+    try:
+        identity = clerk.verify_session_token(token)
+    except ClerkAuthError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Sessão inválida ou expirada",
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
+
+    # NOTE: intentionally no set_tenant_context — see docstring. Running as the
+    # BYPASSRLS connection role is what makes the lookups (and the console)
+    # cross-tenant.
+    app_user = db.execute(
+        select(AppUser).where(AppUser.clerk_user_id == identity.clerk_user_id)
+    ).scalar_one_or_none()
+    if app_user is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=_PLATFORM_DENIED
+        )
+
+    is_platform_admin = db.execute(
+        select(PlatformAdmin.id).where(PlatformAdmin.app_user_id == app_user.id)
+    ).scalar_one_or_none()
+    if is_platform_admin is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=_PLATFORM_DENIED
+        )
+
+    return PlatformAdminUser(
+        app_user_id=str(app_user.id),
+        clerk_user_id=identity.clerk_user_id,
+        email=app_user.email,
+        nome=app_user.nome,
+    )

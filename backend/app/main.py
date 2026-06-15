@@ -27,6 +27,7 @@ from app.routers import (
     events,
     multiplicacoes,
     pipeline,
+    platform_admin,
     reports,
     roles,
     subscription,
@@ -91,6 +92,9 @@ def create_app() -> FastAPI:
     app.include_router(team.router)
     app.include_router(roles.router)
     app.include_router(subscription.router)
+    # Plano de plataforma (Super-Admin, cross-tenant). Gated por
+    # get_platform_admin — fora do RLS por tenant. Ver routers/platform_admin.py.
+    app.include_router(platform_admin.router)
 
     @app.get("/health", tags=["health"])
     def health() -> dict[str, str]:

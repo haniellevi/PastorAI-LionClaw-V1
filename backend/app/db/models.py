@@ -724,6 +724,29 @@ class AgentConversationLog(Base):
     )
 
 
+class PlatformAdmin(Base):
+    """Super-Admin allowlist (console multi-tenant — Onda 1 / US-42/43).
+
+    Platform plane: it has NO igreja_id and is NOT subject to per-tenant RLS.
+    A row elevates an app_user to a platform administrator able to manage every
+    igreja. See migration 0010 and ``get_platform_admin`` (app/deps.py).
+    """
+
+    __tablename__ = "platform_admins"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    app_user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("app_users.id", ondelete="CASCADE"),
+        unique=True,
+        nullable=False,
+    )
+    email: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+
 __all__ = [
     "Base",
     "Igreja",
@@ -751,4 +774,5 @@ __all__ = [
     "LlmCredential",
     "AiUsageLog",
     "AgentConversationLog",
+    "PlatformAdmin",
 ]
