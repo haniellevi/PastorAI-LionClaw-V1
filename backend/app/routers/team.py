@@ -113,6 +113,7 @@ class TeamMemberOut(BaseModel):
     email: str
     status: str | None = None
     papeis: list[str]
+    pessoaId: str | None = None  # noqa: N815 - liga ao registro de Pessoa
 
 
 def _activation_link(app_user_id: uuid.UUID, clerk: ClerkClient) -> str:
@@ -169,6 +170,7 @@ def list_members(
                 email=u.email,
                 status=u.status,
                 papeis=sorted(roles_by_user.get(u.id, [])),
+                pessoaId=str(u.pessoa_id) if u.pessoa_id else None,
             )
             for u in users
         ],

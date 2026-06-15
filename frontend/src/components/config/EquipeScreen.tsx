@@ -161,6 +161,12 @@ export function EquipeScreen() {
     return base.slice(0, 50);
   }, [pessoas, invPessoaQuery]);
 
+  // Pessoas que já têm login no painel — não podem receber acesso de novo.
+  const pessoasComAcesso = useMemo(
+    () => new Set(members.map((m) => m.pessoaId).filter((id): id is string => !!id)),
+    [members],
+  );
+
   const selectPessoa = useCallback((p: Contact) => {
     setInvPessoaId(p.id);
     setInvNome(p.nome);
@@ -399,11 +405,11 @@ export function EquipeScreen() {
     <div className="screen" key="equipe">
       <div className="screen-head">
         <div className="titles">
-          <h2>Pessoas</h2>
+          <h2>Equipe</h2>
           <p>
-            Pessoas da igreja que acessam o sistema. Cada uma acumula os papéis
-            registrados aqui — o menu e o dashboard são montados pela união
-            desses papéis (o que cada papel enxerga é definido em Permissões).
+            Quem tem acesso ao painel. Cada pessoa acumula os papéis registrados
+            aqui — o menu e o dashboard são a união desses papéis (o que cada
+            papel enxerga é definido em Permissões).
           </p>
         </div>
         <div className="actions">
@@ -413,7 +419,7 @@ export function EquipeScreen() {
             onClick={() => (inviteOpen ? resetInvite() : setInviteOpen(true))}
           >
             <Icon name="plus" />
-            <span>Convidar pessoa</span>
+            <span>Dar acesso ao painel</span>
           </button>
         </div>
       </div>
@@ -443,139 +449,157 @@ export function EquipeScreen() {
               <span>{invError}</span>
             </div>
           ) : null}
-          {/* Modo: escolher pessoa cadastrada (padrão) ou cadastrar nova */}
-          <div className="tabs" style={{ marginBottom: "var(--s3)" }}>
-            <button
-              type="button"
-              className={`tab${invMode === "existente" ? " active" : ""}`}
-              onClick={() => {
-                setInvMode("existente");
-                setInvNome("");
-                setInvEmail("");
-                setInvNeedsEmail(false);
-                setInvError(null);
-              }}
-            >
-              Escolher pessoa cadastrada
-            </button>
-            <button
-              type="button"
-              className={`tab${invMode === "nova" ? " active" : ""}`}
-              onClick={() => {
-                setInvMode("nova");
-                setInvPessoaId(null);
-                setInvPessoaQuery("");
-                setInvNome("");
-                setInvEmail("");
-                setInvNeedsEmail(false);
-                setInvError(null);
-              }}
-            >
-              Cadastrar nova
-            </button>
-          </div>
+          <p className="sub" style={{ color: "var(--muted)", marginBottom: "var(--s3)" }}>
+            Dê acesso ao painel a uma pessoa já cadastrada. Não está na lista?
+            Cadastre uma nova.
+          </p>
 
           {invMode === "existente" ? (
-            <div className="field" style={{ marginBottom: "var(--s3)" }}>
-              <label htmlFor="invPessoaQuery">Pessoa</label>
-              <input
-                id="invPessoaQuery"
-                value={invPessoaQuery}
-                onChange={(e) => setInvPessoaQuery(e.target.value)}
-                placeholder="Buscar por nome, telefone ou e-mail…"
-                autoFocus
-              />
-              <div
-                style={{
-                  maxHeight: 220,
-                  overflowY: "auto",
-                  border: "1px solid var(--border)",
-                  borderRadius: "var(--r-md)",
-                  marginTop: 6,
+            <>
+              <div className="field" style={{ marginBottom: "var(--s2)" }}>
+                <label htmlFor="invPessoaQuery">Buscar pessoa</label>
+                <input
+                  id="invPessoaQuery"
+                  value={invPessoaQuery}
+                  onChange={(e) => setInvPessoaQuery(e.target.value)}
+                  placeholder="Nome, telefone ou e-mail…"
+                  autoFocus
+                />
+                <div
+                  style={{
+                    maxHeight: 220,
+                    overflowY: "auto",
+                    border: "1px solid var(--border)",
+                    borderRadius: "var(--r-md)",
+                    marginTop: 6,
+                  }}
+                >
+                  {pessoasFiltradas.length === 0 ? (
+                    <p className="sub" style={{ color: "var(--muted)", padding: "var(--s3)" }}>
+                      {pessoasLoaded ? "Nenhuma pessoa encontrada." : "Carregando pessoas…"}
+                    </p>
+                  ) : (
+                    pessoasFiltradas.map((p) => {
+                      const jaTemAcesso = pessoasComAcesso.has(p.id);
+                      const sel = invPessoaId === p.id;
+                      return (
+                        <button
+                          type="button"
+                          key={p.id}
+                          onClick={() => {
+                            if (!jaTemAcesso) selectPessoa(p);
+                          }}
+                          disabled={jaTemAcesso}
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            gap: 8,
+                            width: "100%",
+                            textAlign: "left",
+                            padding: "8px 12px",
+                            background: sel ? "var(--accent-soft)" : "transparent",
+                            border: "none",
+                            borderBottom: "1px solid var(--border)",
+                            cursor: jaTemAcesso ? "not-allowed" : "pointer",
+                            opacity: jaTemAcesso ? 0.55 : 1,
+                            font: "inherit",
+                            color: "inherit",
+                          }}
+                        >
+                          <span style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+                            <span className="nm">{p.nome}</span>
+                            <span className="sub mono" style={{ color: "var(--muted)" }}>
+                              {p.telefone}
+                              {p.email ? ` · ${p.email}` : " · sem e-mail"}
+                            </span>
+                          </span>
+                          {jaTemAcesso ? <StatusPill tone="muted">Já tem acesso</StatusPill> : null}
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+                {pessoas.length < pessoasTotal ? (
+                  <p className="sub" style={{ color: "var(--muted)", marginTop: 6 }}>
+                    Mostrando {pessoas.length} de {pessoasTotal}. Refine a busca para
+                    encontrar quem não aparece.
+                  </p>
+                ) : null}
+                {invPessoaId && invNeedsEmail ? (
+                  <div className="field" style={{ marginTop: "var(--s3)" }}>
+                    <label htmlFor="invEmailExist">
+                      E-mail para login{" "}
+                      <span className="sub" style={{ color: "var(--muted)", fontWeight: 400 }}>
+                        — esta pessoa ainda não tem e-mail cadastrado
+                      </span>
+                    </label>
+                    <input
+                      id="invEmailExist"
+                      type="email"
+                      value={invEmail}
+                      onChange={(e) => setInvEmail(e.target.value)}
+                      placeholder="lider@igreja.com.br"
+                    />
+                  </div>
+                ) : null}
+              </div>
+              <button
+                type="button"
+                className="btn btn-sm"
+                style={{ marginBottom: "var(--s3)" }}
+                onClick={() => {
+                  setInvMode("nova");
+                  setInvPessoaId(null);
+                  setInvPessoaQuery("");
+                  setInvNome("");
+                  setInvEmail("");
+                  setInvNeedsEmail(false);
+                  setInvError(null);
                 }}
               >
-                {pessoasFiltradas.length === 0 ? (
-                  <p className="sub" style={{ color: "var(--muted)", padding: "var(--s3)" }}>
-                    {pessoasLoaded ? "Nenhuma pessoa encontrada." : "Carregando pessoas…"}
-                  </p>
-                ) : (
-                  pessoasFiltradas.map((p) => (
-                    <button
-                      type="button"
-                      key={p.id}
-                      onClick={() => selectPessoa(p)}
-                      style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        alignItems: "flex-start",
-                        gap: 2,
-                        width: "100%",
-                        textAlign: "left",
-                        padding: "8px 12px",
-                        background: invPessoaId === p.id ? "var(--accent-soft)" : "transparent",
-                        border: "none",
-                        borderBottom: "1px solid var(--border)",
-                        cursor: "pointer",
-                        font: "inherit",
-                        color: "inherit",
-                      }}
-                    >
-                      <span className="nm">{p.nome}</span>
-                      <span className="sub mono" style={{ color: "var(--muted)" }}>
-                        {p.telefone}
-                        {p.email ? ` · ${p.email}` : " · sem e-mail"}
-                      </span>
-                    </button>
-                  ))
-                )}
-              </div>
-              {pessoas.length < pessoasTotal ? (
-                <p className="sub" style={{ color: "var(--muted)", marginTop: 6 }}>
-                  Mostrando {pessoas.length} de {pessoasTotal}. Refine a busca para
-                  encontrar quem não aparece.
-                </p>
-              ) : null}
-              {invPessoaId && invNeedsEmail ? (
-                <div className="field" style={{ marginTop: "var(--s3)" }}>
-                  <label htmlFor="invEmailExist">
-                    E-mail para login{" "}
-                    <span className="sub" style={{ color: "var(--muted)", fontWeight: 400 }}>
-                      — esta pessoa ainda não tem e-mail cadastrado
-                    </span>
-                  </label>
+                Não está na lista? Cadastrar nova pessoa
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="row" style={{ marginBottom: "var(--s2)" }}>
+                <div className="field" style={{ margin: 0 }}>
+                  <label htmlFor="invName">Nome</label>
                   <input
-                    id="invEmailExist"
+                    id="invName"
+                    value={invNome}
+                    onChange={(e) => setInvNome(e.target.value)}
+                    placeholder="Nome completo"
+                    autoFocus
+                  />
+                </div>
+                <div className="field" style={{ margin: 0 }}>
+                  <label htmlFor="invEmail">E-mail do convidado</label>
+                  <input
+                    id="invEmail"
                     type="email"
                     value={invEmail}
                     onChange={(e) => setInvEmail(e.target.value)}
                     placeholder="lider@igreja.com.br"
                   />
                 </div>
-              ) : null}
-            </div>
-          ) : (
-            <div className="row" style={{ marginBottom: "var(--s3)" }}>
-              <div className="field" style={{ margin: 0 }}>
-                <label htmlFor="invName">Nome</label>
-                <input
-                  id="invName"
-                  value={invNome}
-                  onChange={(e) => setInvNome(e.target.value)}
-                  placeholder="Nome completo"
-                  autoFocus
-                />
               </div>
-              <div className="field" style={{ margin: 0 }}>
-                <label htmlFor="invEmail">E-mail do convidado</label>
-                <input
-                  id="invEmail"
-                  type="email"
-                  value={invEmail}
-                  onChange={(e) => setInvEmail(e.target.value)}
-                  placeholder="lider@igreja.com.br"
-                />
-              </div>
-            </div>
+              <button
+                type="button"
+                className="btn btn-sm"
+                style={{ marginBottom: "var(--s3)" }}
+                onClick={() => {
+                  setInvMode("existente");
+                  setInvNome("");
+                  setInvEmail("");
+                  setInvNeedsEmail(false);
+                  setInvError(null);
+                }}
+              >
+                ← Voltar à busca de pessoa cadastrada
+              </button>
+            </>
           )}
           <div className="field" style={{ marginBottom: "var(--s3)" }}>
             <label>

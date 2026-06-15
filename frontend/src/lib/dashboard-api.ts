@@ -53,6 +53,7 @@ export interface TeamMember {
   email: string;
   status: string | null;
   papeis: string[];
+  pessoaId: string | null;
 }
 
 export interface Cell {
