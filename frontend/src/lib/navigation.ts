@@ -116,8 +116,16 @@ export const SCREEN_META: Record<
   string,
   { title: string; crumb: string; info?: string }
 > = {
-  dashboard: { title: "Dashboard", crumb: "Pendências de hoje" },
-  inbox: { title: "Chat", crumb: "WhatsApp da Igreja" },
+  dashboard: {
+    title: "Dashboard",
+    crumb: "Pendências de hoje",
+    info: "Fila de trabalho pastoral — o que exige sua ação hoje.",
+  },
+  inbox: {
+    title: "Chat",
+    crumb: "WhatsApp da Igreja",
+    info: "Conversas pelo número oficial. Apenas o número da igreja é registrado — conversas pessoais do pastor não entram aqui.",
+  },
   calendario: {
     title: "Agenda da Igreja",
     crumb: "Eventos e cultos",
@@ -133,19 +141,79 @@ export const SCREEN_META: Record<
     crumb: "Quem usa o sistema",
     info: "Quem tem acesso ao painel. Cada pessoa acumula papéis, e o menu e o dashboard são a união deles (o que cada papel enxerga é definido em Permissões).",
   },
-  ganhar: { title: "Ganhar", crumb: "Novos contatos e visitantes" },
-  consolidar: { title: "Consolidar", crumb: "Fila de consolidação" },
-  "consol-individual": { title: "Consolidação Individual", crumb: "Acompanhamento 1:1" },
-  "universidade-vida": { title: "Universidade da Vida", crumb: "Em breve" },
-  capacitacao: { title: "Capacitação Destino", crumb: "Em breve" },
-  g12: { title: "G12 · Descendências", crumb: "Organograma" },
-  "central-celula": { title: "Central de Célula", crumb: "Líderes e relatórios" },
-  enviar: { title: "Enviar", crumb: "Multiplicações" },
-  whatsapp: { title: "Conexão WhatsApp", crumb: "Configuração" },
-  agente: { title: "Agente IA", crumb: "Configuração" },
-  assinatura: { title: "Assinatura", crumb: "Configuração" },
-  permissoes: { title: "Permissões", crumb: "Matriz papel × tela" },
-  contatos: { title: "Contatos", crumb: "Cadastro" },
-  celulas: { title: "Células", crumb: "Cadastro" },
-  relatorios: { title: "Relatórios", crumb: "Recebidos e pendentes" },
+  ganhar: {
+    title: "Ganhar",
+    crumb: "Novos contatos e visitantes",
+    info: "Quem fala com a igreja vira contato; quem já foi à célula ou a um evento vira visitante — até aceitar Jesus ou completar 3 presenças.",
+  },
+  consolidar: {
+    title: "Consolidar",
+    crumb: "Fila de consolidação",
+    info: "Quem decidiu por Jesus e precisa de acompanhamento no prazo, da fonovisita à conexão com uma célula.",
+  },
+  "consol-individual": {
+    title: "Consolidação Individual",
+    crumb: "Acompanhamento 1:1",
+    info: "Acompanhamento individual (1:1) da trilha de consolidação, etapa por etapa.",
+  },
+  "universidade-vida": {
+    title: "Universidade da Vida",
+    crumb: "Em breve",
+    info: "Trilha de discipulado da Universidade da Vida (em breve).",
+  },
+  capacitacao: {
+    title: "Capacitação Destino",
+    crumb: "Em breve",
+    info: "Trilha de capacitação de líderes (em breve).",
+  },
+  g12: {
+    title: "G12 · Descendências",
+    crumb: "Organograma",
+    info: "Organograma G12 e descendências de liderança da igreja.",
+  },
+  "central-celula": {
+    title: "Central de Célula",
+    crumb: "Líderes e relatórios",
+    info: "Central de células: líderes, relatórios semanais e supervisão.",
+  },
+  enviar: {
+    title: "Enviar",
+    crumb: "Multiplicações",
+    info: "Multiplicação de células — o envio na visão G12.",
+  },
+  whatsapp: {
+    title: "Conexão WhatsApp",
+    crumb: "Configuração",
+    info: "Conexão do número oficial de WhatsApp da igreja (QR Code e status).",
+  },
+  agente: {
+    title: "Agente IA",
+    crumb: "Configuração",
+    info: "Configuração do agente de IA: comportamento e credencial do modelo (BYO).",
+  },
+  assinatura: {
+    title: "Assinatura",
+    crumb: "Configuração",
+    info: "Plano e assinatura da igreja.",
+  },
+  permissoes: {
+    title: "Permissões",
+    crumb: "Matriz papel × tela",
+    info: "Matriz papel × tela: o que cada papel enxerga no menu e no dashboard.",
+  },
+  contatos: {
+    title: "Contatos",
+    crumb: "Cadastro",
+    info: "Todas as pessoas da igreja. Filtre por acompanhamento e conecte a células.",
+  },
+  celulas: {
+    title: "Células",
+    crumb: "Cadastro",
+    info: "Cadastro das células da igreja, com líder e cobertura.",
+  },
+  relatorios: {
+    title: "Relatórios",
+    crumb: "Recebidos e pendentes",
+    info: "Relatórios semanais de célula: recebidos e pendentes.",
+  },
 };

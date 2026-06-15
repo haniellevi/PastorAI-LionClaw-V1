@@ -267,12 +267,6 @@ export function InboxScreen() {
   if (!allowed) {
     return (
       <div className="screen" key="inbox-denied">
-        <div className="screen-head">
-          <div className="titles">
-            <h2>Inbox do WhatsApp</h2>
-            <p>Área restrita ao atendimento pastoral.</p>
-          </div>
-        </div>
         <div className="card">
           <div className="access-denied">
             <Icon name="lock" className="access-ic" />
@@ -294,13 +288,6 @@ export function InboxScreen() {
   return (
     <div className="screen screen-chat" key="inbox">
       <div className="screen-head">
-        <div className="titles">
-          <h2>Inbox do WhatsApp</h2>
-          <p>
-            Conversas pelo número oficial. Apenas o número da igreja é registrado —
-            conversas pessoais do pastor não entram aqui.
-          </p>
-        </div>
         <div className="actions">
           <button
             type="button"

@@ -231,13 +231,6 @@ export function CelulasScreen() {
   return (
     <div className="screen" key="celulas">
       <div className="screen-head">
-        <div className="titles">
-          <h2>Células</h2>
-          <p>
-            Estrutura G12 da igreja. Acompanhe membros, visitantes e alertas de cada célula.
-            Apenas o líder da célula ou um superior na hierarquia pode editá-la.
-          </p>
-        </div>
         <div className="actions">
           {canCreate ? (
             <button

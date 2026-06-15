@@ -125,13 +125,6 @@ export function ConsolidarScreen() {
   return (
     <div className="screen" key="consolidar">
       <div className="screen-head">
-        <div className="titles">
-          <h2>Painel do Consolidar</h2>
-          <p>
-            Quem decidiu por Jesus entra na consolidação. Acompanhe a fila individual,
-            quem está pronto para a Universidade da Vida e quem já está 100% consolidado.
-          </p>
-        </div>
         <div className="actions">
           <button
             type="button"

@@ -378,10 +378,6 @@ export function DashboardScreen() {
   return (
     <div className="screen dashboard" key="dashboard">
       <div className="screen-head">
-        <div className="titles">
-          <h2>Dashboard</h2>
-          <p>Fila de trabalho pastoral — o que exige ação hoje.</p>
-        </div>
         <div className="actions">
           <button
             type="button"
@@ -531,12 +527,6 @@ export function DashboardScreen() {
 function MemberWelcome() {
   return (
     <div className="screen" key="dashboard-membro">
-      <div className="screen-head">
-        <div className="titles">
-          <h2>Dashboard</h2>
-          <p>Sua trilha de crescimento e próximos eventos.</p>
-        </div>
-      </div>
       <div className="card card-pad" style={{ maxWidth: 560 }}>
         <div className="member-head">
           <Icon name="user" />

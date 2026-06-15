@@ -290,13 +290,6 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
   return (
     <div className="screen" key="contatos">
       <div className="screen-head">
-        <div className="titles">
-          <h2>Contatos</h2>
-          <p>
-            Quem fala com a igreja é registrado pelo agente. Filtre visitantes sem
-            acompanhamento e conecte-os a uma célula.
-          </p>
-        </div>
         <div className="actions">
           <button
             type="button"

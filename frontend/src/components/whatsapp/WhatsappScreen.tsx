@@ -224,12 +224,6 @@ export function WhatsappScreen() {
   if (!allowed) {
     return (
       <div className="screen" key="whatsapp-denied">
-        <div className="screen-head">
-          <div className="titles">
-            <h2>Conexão do WhatsApp</h2>
-            <p>Área restrita à administração.</p>
-          </div>
-        </div>
         <div className="card">
           <div className="access-denied">
             <Icon name="lock" className="access-ic" />
@@ -251,13 +245,6 @@ export function WhatsappScreen() {
   return (
     <div className="screen" key="whatsapp">
       <div className="screen-head">
-        <div className="titles">
-          <h2>Conexão do WhatsApp</h2>
-          <p>
-            Conecte o número oficial da igreja. Apenas conversas com este número são
-            registradas.
-          </p>
-        </div>
         <div className="actions">
           <button
             type="button"

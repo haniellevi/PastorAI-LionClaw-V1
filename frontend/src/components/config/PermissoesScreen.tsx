@@ -185,14 +185,6 @@ export function PermissoesScreen() {
   return (
     <div className="screen" key="permissoes">
       <div className="screen-head">
-        <div className="titles">
-          <h2>Permissões por papel</h2>
-          <p>
-            Defina o que cada papel ministerial enxerga no painel. O menu e o
-            dashboard de cada pessoa são montados a partir dos papéis registrados
-            no cadastro dela — quem acumula papéis soma os acessos.
-          </p>
-        </div>
         <div className="actions">
           <button type="button" className="btn" onClick={discard} disabled={!dirty || saving}>
             Descartar

@@ -210,14 +210,6 @@ export function AgenteScreen() {
   return (
     <div className="screen" key="agente">
       <div className="screen-head">
-        <div className="titles">
-          <h2>Agente IA</h2>
-          <p>
-            Configure a credencial BYO do provedor, o comportamento do agente e os
-            agendamentos automáticos. O agente só pode ser ativado com uma
-            credencial validada.
-          </p>
-        </div>
         <div className="actions">
           <StatusPill tone={credentialTone(credentialState)}>
             {credentialLabel(credentialState)}
