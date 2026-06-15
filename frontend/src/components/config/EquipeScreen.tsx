@@ -22,7 +22,13 @@ import { fetchContacts, type Contact } from "@/lib/contacts-api";
 import { ApiError, fetchTeam, type TeamMember } from "@/lib/dashboard-api";
 import { Icon } from "@/lib/icons";
 import { normalizeRoles, ROLE_ORDER, type Role } from "@/lib/roles";
-import { inviteMember, TeamConflictError, updateRoles } from "@/lib/team-api";
+import {
+  deleteMember,
+  inviteMember,
+  resendInvite,
+  TeamConflictError,
+  updateRoles,
+} from "@/lib/team-api";
 
 import { RolePick, RoleTags } from "./RolePick";
 
@@ -41,7 +47,7 @@ function statusLabel(status: string | null): string {
 }
 
 export function EquipeScreen() {
-  const { token, expireSession } = useAuth();
+  const { token, user, expireSession } = useAuth();
 
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [loading, setLoading] = useState(true);
@@ -71,6 +77,9 @@ export function EquipeScreen() {
   const [editRoles, setEditRoles] = useState<Set<Role>>(new Set());
   const [editError, setEditError] = useState<string | null>(null);
   const [savingRoles, setSavingRoles] = useState(false);
+
+  // ação por linha (reenviar convite / excluir acesso)
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   const [toast, setToast] = useState<Toast | null>(null);
   const toastTimer = useRef<number | null>(null);
@@ -267,6 +276,66 @@ export function EquipeScreen() {
     [],
   );
 
+  const isSelf = useCallback(
+    (m: TeamMember) => user != null && m.usuarioId === user.appUserId,
+    [user],
+  );
+
+  const handleResend = useCallback(
+    async (m: TeamMember) => {
+      if (!token) return;
+      setBusyId(m.usuarioId);
+      try {
+        const r = await resendInvite(token, m.usuarioId);
+        flashToast(
+          r.emailEnviado
+            ? { kind: "ok", text: `Convite reenviado para ${m.email}.` }
+            : {
+                kind: "err",
+                text: "Não foi possível enviar o e-mail (verifique a configuração de e-mail).",
+              },
+        );
+      } catch (err) {
+        if (handleSessionError(err)) return;
+        flashToast({
+          kind: "err",
+          text: err instanceof ApiError ? err.message : "Não foi possível reenviar o convite.",
+        });
+      } finally {
+        setBusyId(null);
+      }
+    },
+    [token, flashToast, handleSessionError],
+  );
+
+  const handleDelete = useCallback(
+    async (m: TeamMember) => {
+      if (!token) return;
+      if (!window.confirm(`Remover o acesso de ${m.nome}? Esta ação não pode ser desfeita.`)) {
+        return;
+      }
+      setBusyId(m.usuarioId);
+      try {
+        await deleteMember(token, m.usuarioId);
+        flashToast({ kind: "ok", text: `Acesso de ${m.nome} removido.` });
+        await load("retry");
+      } catch (err) {
+        if (handleSessionError(err)) return;
+        if (err instanceof TeamConflictError) {
+          flashToast({ kind: "err", text: err.message });
+        } else {
+          flashToast({
+            kind: "err",
+            text: err instanceof ApiError ? err.message : "Não foi possível remover o acesso.",
+          });
+        }
+      } finally {
+        setBusyId(null);
+      }
+    },
+    [token, flashToast, load, handleSessionError],
+  );
+
   const columns: Array<Column<TeamMember>> = useMemo(
     () => [
       {
@@ -289,13 +358,39 @@ export function EquipeScreen() {
         header: "",
         width: "1px",
         cell: (m) => (
-          <button type="button" className="btn btn-sm" onClick={() => openEdit(m)}>
-            Editar papéis
-          </button>
+          <div style={{ display: "flex", gap: 6, justifyContent: "flex-end" }}>
+            <button type="button" className="btn btn-sm" onClick={() => openEdit(m)}>
+              Editar papéis
+            </button>
+            {m.status === "convidado" ? (
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={() => void handleResend(m)}
+                disabled={busyId === m.usuarioId}
+                aria-busy={busyId === m.usuarioId || undefined}
+              >
+                {busyId === m.usuarioId ? "Enviando…" : "Reenviar convite"}
+              </button>
+            ) : null}
+            {isSelf(m) ? (
+              <StatusPill tone="muted">Você</StatusPill>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-sm btn-danger"
+                onClick={() => void handleDelete(m)}
+                disabled={busyId === m.usuarioId}
+                aria-busy={busyId === m.usuarioId || undefined}
+              >
+                Excluir
+              </button>
+            )}
+          </div>
         ),
       },
     ],
-    [openEdit],
+    [openEdit, isSelf, handleResend, handleDelete, busyId],
   );
 
   const showSkeleton = loading && !loaded;

@@ -76,3 +76,33 @@ export async function updateRoles(
   }
   return (await res.json()) as RolesResult;
 }
+
+/** Reenvia o e-mail de ativação para um membro convidado (best-effort). */
+export async function resendInvite(
+  token: string,
+  usuarioId: string,
+): Promise<InviteResult> {
+  const res = await authedFetch(token, `/team/${usuarioId}/resend`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível reenviar o convite.");
+  }
+  return (await res.json()) as InviteResult;
+}
+
+/** Revoga o acesso de um membro (remove o app_user; 409 no último admin). */
+export async function deleteMember(token: string, usuarioId: string): Promise<void> {
+  const res = await authedFetch(token, `/team/${usuarioId}`, { method: "DELETE" });
+  if (res.status === 409) {
+    const detail = await readDetail(res);
+    throw new TeamConflictError(
+      detail ?? "Não é possível remover o último administrador.",
+    );
+  }
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível remover o acesso.");
+  }
+}

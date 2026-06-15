@@ -332,3 +332,92 @@ def update_roles(
     db.commit()
 
     return RolesResponse(usuarioId=str(user_uuid), papeis=sorted(new_roles))
+
+
+@router.post("/{usuario_id}/resend", response_model=InviteResponse)
+def resend_invite(
+    usuario_id: str,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_role(["admin"])),
+    mailer: BrevoClient = Depends(get_brevo_client),
+) -> InviteResponse:
+    """Re-send the activation email to an existing member (best-effort).
+
+    For an invited (convidado) user whose activation e-mail did not arrive. The
+    send is best-effort: emailEnviado=false when the provider fails, so the
+    invite can be re-sent again without side effects.
+    """
+    ensure_tenant_context(db, current_user)
+
+    try:
+        user_uuid = uuid.UUID(usuario_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Usuário não encontrado"
+        ) from exc
+
+    app_user = db.execute(
+        select(AppUser).where(AppUser.id == user_uuid)
+    ).scalar_one_or_none()
+    if app_user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Usuário não encontrado"
+        )
+
+    email_sent = False
+    try:
+        mailer.send_invite(
+            to_email=app_user.email,
+            nome=app_user.nome,
+            activation_link=_activation_link(app_user.id),
+        )
+        email_sent = True
+    except BrevoError:
+        logger.warning("Resend invite: activation email failed to send")
+
+    return InviteResponse(
+        usuarioId=str(app_user.id),
+        status=app_user.status or "convidado",
+        emailEnviado=email_sent,
+    )
+
+
+@router.delete("/{usuario_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_member(
+    usuario_id: str,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_role(["admin"])),
+) -> None:
+    """Revoke a member's panel access (deletes the app_user and its roles).
+
+    Removing the last admin of the tenant is blocked (409) so a church is never
+    left without an administrator. The user's user_roles are removed by FK
+    cascade (and the linked Pessoa is preserved — only the login is revoked).
+    """
+    ensure_tenant_context(db, current_user)
+    igreja_uuid = uuid.UUID(current_user.igreja_id)
+
+    try:
+        user_uuid = uuid.UUID(usuario_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Usuário não encontrado"
+        ) from exc
+
+    app_user = db.execute(
+        select(AppUser).where(AppUser.id == user_uuid)
+    ).scalar_one_or_none()
+    if app_user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Usuário não encontrado"
+        )
+
+    admin_ids = _admin_user_ids(db, igreja_uuid)
+    if user_uuid in admin_ids and len(admin_ids) <= 1:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Não é possível remover o último administrador",
+        )
+
+    db.delete(app_user)
+    db.commit()
