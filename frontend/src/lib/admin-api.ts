@@ -87,3 +87,98 @@ export async function listIgrejas(token: string): Promise<AdminIgreja[]> {
   if (!res.ok) throw new AdminAuthError("network", "Não foi possível carregar as igrejas.");
   return asJson<AdminIgreja[]>(res);
 }
+
+export interface CreateIgrejaInput {
+  nome: string;
+  plano: string | null;
+  admin: { nome: string; email: string };
+}
+
+export interface CreateIgrejaResult {
+  igrejaId: string;
+  adminUsuarioId: string;
+  emailEnviado: boolean;
+}
+
+export interface UpdateIgrejaInput {
+  status?: string;
+  plano?: string;
+}
+
+/** Erro de validação/regra de negócio numa ação de escrita do console. */
+export class AdminRequestError extends Error {
+  readonly status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "AdminRequestError";
+    this.status = status;
+  }
+}
+
+/** Extrai uma mensagem do corpo de erro do FastAPI (detail string ou lista). */
+function extractDetail(body: unknown, fallback: string): string {
+  if (body && typeof body === "object" && "detail" in body) {
+    const detail = (body as { detail: unknown }).detail;
+    if (typeof detail === "string") return detail;
+    if (Array.isArray(detail) && detail.length > 0) {
+      const first = detail[0] as { msg?: unknown };
+      if (typeof first?.msg === "string") return first.msg;
+    }
+  }
+  return fallback;
+}
+
+async function throwMutationError(res: Response, fallback: string): Promise<never> {
+  if (res.status === 401) throw new AdminSessionExpiredError();
+  if (res.status === 403) throw new AdminAuthError("forbidden", "Acesso negado.");
+  let message = fallback;
+  try {
+    message = extractDetail(await res.json(), fallback);
+  } catch {
+    /* mantém o fallback */
+  }
+  throw new AdminRequestError(res.status, message);
+}
+
+function jsonHeaders(token: string): HeadersInit {
+  return { ...authHeaders(token), "Content-Type": "application/json" };
+}
+
+/** Provisiona uma igreja + admin inicial (convite por e-mail, US-43). */
+export async function createIgreja(
+  token: string,
+  input: CreateIgrejaInput,
+): Promise<CreateIgrejaResult> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/admin/igrejas`, {
+      method: "POST",
+      headers: jsonHeaders(token),
+      body: JSON.stringify(input),
+    });
+  } catch {
+    throw new AdminAuthError("network", "Falha de conexão com o servidor.");
+  }
+  if (!res.ok) await throwMutationError(res, "Não foi possível provisionar a igreja.");
+  return asJson<CreateIgrejaResult>(res);
+}
+
+/** Altera status e/ou plano de uma igreja (US-42). */
+export async function updateIgreja(
+  token: string,
+  id: string,
+  input: UpdateIgrejaInput,
+): Promise<AdminIgreja> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/admin/igrejas/${id}`, {
+      method: "PATCH",
+      headers: jsonHeaders(token),
+      body: JSON.stringify(input),
+    });
+  } catch {
+    throw new AdminAuthError("network", "Falha de conexão com o servidor.");
+  }
+  if (!res.ok) await throwMutationError(res, "Não foi possível atualizar a igreja.");
+  return asJson<AdminIgreja>(res);
+}
