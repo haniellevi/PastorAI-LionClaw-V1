@@ -1,19 +1,19 @@
 "use client";
 
 /**
- * Tela #login (US-01). Renderiza form-field + btn-primary conforme o artifact
- * travado e dispara a autenticação via Clerk (no backend, por api-login).
+ * Tela #login (US-01) com três modos, escolhidos pela hash:
+ *  - login (padrão): e-mail + senha, autenticação via Clerk no backend (api-login);
+ *  - esqueci-senha (#esqueci-senha): pede o e-mail e dispara o link de redefinição;
+ *  - redefinir (#redefinir-senha/<token>): define a nova senha a partir do token.
  *
- * Estados: idle | loading | error | success.
- *  - erro de credencial: mensagem genérica (não revela e-mail);
- *  - igreja suspensa / conta sem igreja: banner de bloqueio dedicado;
- *  - sucesso: redireciona para a rota de retorno (ou #dashboard).
+ * O fluxo de reset roda PRÉ-login (o usuário não está autenticado), por isso vive
+ * aqui dentro da LoginScreen, que é o que a raiz renderiza quando não há sessão.
  */
 import { useState, type FormEvent } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
-import { LoginError } from "@/lib/api";
+import { LoginError, requestPasswordReset, resetPassword } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { Icon } from "@/lib/icons";
 import { useHashRoute } from "@/lib/use-hash-route";
@@ -33,17 +33,40 @@ const ASIDE_POINTS = [
   "Decisões pastorais sem trocar de tela — tudo via mensagem",
 ];
 
+const linkBtnStyle: React.CSSProperties = {
+  background: "none",
+  border: "none",
+  color: "var(--accent)",
+  cursor: "pointer",
+  font: "inherit",
+  fontSize: 13,
+  padding: 0,
+  marginTop: "var(--s2)",
+  alignSelf: "center",
+};
+
 export function LoginScreen() {
   const { login, consumeReturnTo } = useAuth();
-  const [, navigate] = useHashRoute();
+  const [route, navigate] = useHashRoute();
 
+  // Modo derivado da hash. O token do reset vem como #redefinir-senha/<token>.
+  const resetToken = route.startsWith("redefinir-senha/")
+    ? route.slice("redefinir-senha/".length)
+    : "";
+  const mode: "login" | "forgot" | "reset" =
+    route === "redefinir-senha" || route.startsWith("redefinir-senha/")
+      ? "reset"
+      : route === "esqueci-senha"
+        ? "forgot"
+        : "login";
+
+  // ---- login --------------------------------------------------------------
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [emailError, setEmailError] = useState<string>();
   const [passwordError, setPasswordError] = useState<string>();
   const [status, setStatus] = useState<Status>("idle");
   const [authMessage, setAuthMessage] = useState<AuthMessage | null>(null);
-
   const loading = status === "loading";
 
   function validate(): boolean {
@@ -86,6 +109,54 @@ export function LoginScreen() {
     }
   }
 
+  // ---- esqueci a senha ----------------------------------------------------
+  const [fEmail, setFEmail] = useState("");
+  const [fEmailError, setFEmailError] = useState<string>();
+  const [fStatus, setFStatus] = useState<"idle" | "loading" | "sent">("idle");
+
+  async function handleForgot(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (fStatus === "loading") return;
+    if (!fEmail.includes("@")) {
+      setFEmailError("Informe um e-mail válido.");
+      return;
+    }
+    setFEmailError(undefined);
+    setFStatus("loading");
+    await requestPasswordReset(fEmail.trim());
+    setFStatus("sent");
+  }
+
+  // ---- redefinir senha ----------------------------------------------------
+  const [rPass, setRPass] = useState("");
+  const [rPass2, setRPass2] = useState("");
+  const [rError, setRError] = useState<string>();
+  const [rStatus, setRStatus] = useState<"idle" | "loading" | "done">("idle");
+
+  async function handleReset(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (rStatus === "loading") return;
+    if (rPass.length < 8) {
+      setRError("A senha precisa ter ao menos 8 caracteres.");
+      return;
+    }
+    if (rPass !== rPass2) {
+      setRError("As senhas não conferem.");
+      return;
+    }
+    setRError(undefined);
+    setRStatus("loading");
+    try {
+      await resetPassword(resetToken, rPass);
+      setRStatus("done");
+    } catch (err) {
+      setRError(
+        err instanceof LoginError ? err.message : "Não foi possível redefinir. Tente novamente.",
+      );
+      setRStatus("idle");
+    }
+  }
+
   return (
     <section id="login">
       <div className="login-wrap">
@@ -119,52 +190,172 @@ export function LoginScreen() {
         </aside>
 
         <main className="login-main">
-          <form className="login-card" onSubmit={handleSubmit} noValidate>
-            <h1>Entrar no painel</h1>
-            <p className="sub">Use as credenciais da sua igreja para acessar o dashboard.</p>
+          {mode === "login" ? (
+            <form className="login-card" onSubmit={handleSubmit} noValidate>
+              <h1>Entrar no painel</h1>
+              <p className="sub">Use as credenciais da sua igreja para acessar o dashboard.</p>
 
-            {authMessage ? (
-              <div className={`auth-error${authMessage.block ? " block" : ""}`} role="alert">
-                <Icon name={authMessage.block ? "lock" : "alert"} />
-                <span>{authMessage.text}</span>
-              </div>
-            ) : null}
+              {authMessage ? (
+                <div className={`auth-error${authMessage.block ? " block" : ""}`} role="alert">
+                  <Icon name={authMessage.block ? "lock" : "alert"} />
+                  <span>{authMessage.text}</span>
+                </div>
+              ) : null}
 
-            <Field
-              label="E-mail"
-              type="email"
-              name="email"
-              placeholder="seu@igreja.com.br"
-              autoComplete="username"
-              value={email}
-              disabled={loading}
-              error={emailError}
-              onChange={(e) => setEmail(e.target.value)}
-            />
+              <Field
+                label="E-mail"
+                type="email"
+                name="email"
+                placeholder="seu@igreja.com.br"
+                autoComplete="username"
+                value={email}
+                disabled={loading}
+                error={emailError}
+                onChange={(e) => setEmail(e.target.value)}
+              />
 
-            <Field
-              label="Senha"
-              type="password"
-              name="password"
-              placeholder="••••••••"
-              autoComplete="current-password"
-              value={password}
-              disabled={loading}
-              helper="Autenticação via Clerk. Demais métodos habilitados pela igreja."
-              error={passwordError}
-              onChange={(e) => setPassword(e.target.value)}
-            />
+              <Field
+                label="Senha"
+                type="password"
+                name="password"
+                placeholder="••••••••"
+                autoComplete="current-password"
+                value={password}
+                disabled={loading}
+                helper="Autenticação via Clerk. Demais métodos habilitados pela igreja."
+                error={passwordError}
+                onChange={(e) => setPassword(e.target.value)}
+              />
 
-            <Button
-              type="submit"
-              variant="primary"
-              block
-              loading={loading}
-              loadingText="Autenticando…"
-            >
-              Entrar
-            </Button>
-          </form>
+              <Button
+                type="submit"
+                variant="primary"
+                block
+                loading={loading}
+                loadingText="Autenticando…"
+              >
+                Entrar
+              </Button>
+
+              <button type="button" style={linkBtnStyle} onClick={() => navigate("esqueci-senha")}>
+                Esqueci minha senha
+              </button>
+            </form>
+          ) : mode === "forgot" ? (
+            <form className="login-card" onSubmit={handleForgot} noValidate>
+              <h1>Recuperar acesso</h1>
+              <p className="sub">
+                Informe o e-mail da sua conta. Se houver um cadastro, enviaremos um link
+                para você criar uma nova senha.
+              </p>
+
+              {fStatus === "sent" ? (
+                <>
+                  <div className="auth-error" role="status" style={{ background: "var(--accent-soft)", color: "var(--accent)" }}>
+                    <Icon name="check" />
+                    <span>
+                      Se existir uma conta com esse e-mail, enviamos o link de
+                      redefinição. Confira sua caixa de entrada (e o spam).
+                    </span>
+                  </div>
+                  <button type="button" style={linkBtnStyle} onClick={() => navigate("login")}>
+                    Voltar ao login
+                  </button>
+                </>
+              ) : (
+                <>
+                  <Field
+                    label="E-mail"
+                    type="email"
+                    name="forgot-email"
+                    placeholder="seu@igreja.com.br"
+                    autoComplete="username"
+                    value={fEmail}
+                    disabled={fStatus === "loading"}
+                    error={fEmailError}
+                    onChange={(e) => setFEmail(e.target.value)}
+                  />
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    block
+                    loading={fStatus === "loading"}
+                    loadingText="Enviando…"
+                  >
+                    Enviar link de redefinição
+                  </Button>
+                  <button type="button" style={linkBtnStyle} onClick={() => navigate("login")}>
+                    Voltar ao login
+                  </button>
+                </>
+              )}
+            </form>
+          ) : (
+            <form className="login-card" onSubmit={handleReset} noValidate>
+              <h1>Criar nova senha</h1>
+
+              {!resetToken ? (
+                <>
+                  <div className="auth-error" role="alert">
+                    <Icon name="alert" />
+                    <span>Link inválido ou incompleto. Peça um novo na tela de login.</span>
+                  </div>
+                  <button type="button" style={linkBtnStyle} onClick={() => navigate("login")}>
+                    Voltar ao login
+                  </button>
+                </>
+              ) : rStatus === "done" ? (
+                <>
+                  <div className="auth-error" role="status" style={{ background: "var(--accent-soft)", color: "var(--accent)" }}>
+                    <Icon name="check" />
+                    <span>Senha redefinida! Agora é só entrar com a nova senha.</span>
+                  </div>
+                  <Button type="button" variant="primary" block onClick={() => navigate("login")}>
+                    Ir para o login
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <p className="sub">Escolha uma nova senha para sua conta (mínimo 8 caracteres).</p>
+                  {rError ? (
+                    <div className="auth-error" role="alert">
+                      <Icon name="alert" />
+                      <span>{rError}</span>
+                    </div>
+                  ) : null}
+                  <Field
+                    label="Nova senha"
+                    type="password"
+                    name="new-password"
+                    placeholder="••••••••"
+                    autoComplete="new-password"
+                    value={rPass}
+                    disabled={rStatus === "loading"}
+                    onChange={(e) => setRPass(e.target.value)}
+                  />
+                  <Field
+                    label="Confirmar nova senha"
+                    type="password"
+                    name="confirm-password"
+                    placeholder="••••••••"
+                    autoComplete="new-password"
+                    value={rPass2}
+                    disabled={rStatus === "loading"}
+                    onChange={(e) => setRPass2(e.target.value)}
+                  />
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    block
+                    loading={rStatus === "loading"}
+                    loadingText="Redefinindo…"
+                  >
+                    Redefinir senha
+                  </Button>
+                </>
+              )}
+            </form>
+          )}
         </main>
       </div>
     </section>

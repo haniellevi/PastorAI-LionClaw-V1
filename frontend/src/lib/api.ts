@@ -111,3 +111,44 @@ export async function fetchMe(token: string): Promise<MeResult> {
   }
   return (await res.json()) as MeResult;
 }
+
+/**
+ * Pede o envio do link de redefinição de senha (fluxo "esqueci a senha").
+ * Best-effort: a resposta é sempre tratada como "enviado" — o backend nunca
+ * revela se o e-mail existe (US-01), e falha de rede é silenciada de propósito.
+ */
+export async function requestPasswordReset(email: string): Promise<void> {
+  try {
+    await fetch(`${API_BASE}/auth/forgot-password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+  } catch {
+    /* silencioso */
+  }
+}
+
+/** Define a nova senha a partir do token do link de redefinição. */
+export async function resetPassword(token: string, password: string): Promise<void> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/auth/reset-password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, password }),
+    });
+  } catch {
+    throw new LoginError("network", "Falha de conexão. Tente novamente.");
+  }
+  if (!res.ok) {
+    let message = "Link inválido ou expirado. Peça um novo.";
+    try {
+      const body = (await res.json()) as { detail?: unknown };
+      if (typeof body.detail === "string") message = body.detail;
+    } catch {
+      /* mantém default */
+    }
+    throw new LoginError("invalid", message);
+  }
+}

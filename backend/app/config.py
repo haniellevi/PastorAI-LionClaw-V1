@@ -54,6 +54,8 @@ class Settings(BaseSettings):
     # when empty, so no new required env var is introduced.
     session_jwt_secret: str = Field(default="")
     session_ttl_hours: int = Field(default=8, ge=1, le=720)
+    # TTL do link de redefinição de senha (fluxo "esqueci a senha").
+    password_reset_ttl_minutes: int = Field(default=30, ge=5, le=240)
 
     # ---- Evolution API (WhatsApp - US-05..US-08) ----------------------------
     evolution_api_url: str = Field(default="")

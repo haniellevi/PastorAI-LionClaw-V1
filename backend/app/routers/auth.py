@@ -20,9 +20,11 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.db.models import AppUser
 from app.db.session import get_db
 from app.deps import BLOCKING_IGREJA_STATUSES, CurrentUser, get_current_user
+from app.services.brevo import BrevoClient, BrevoError, get_brevo_client
 from app.services.clerk import ClerkAuthError, ClerkClient, get_clerk_client
 
 logger = logging.getLogger("pastorai.auth")
@@ -56,6 +58,24 @@ class LoginResponse(BaseModel):
 
     token: str
     churchId: str  # noqa: N815 - external contract uses camelCase
+
+
+class ForgotPasswordRequest(BaseModel):
+    """Forgot-password payload (only an e-mail)."""
+
+    email: str = Field(min_length=3, max_length=320)
+
+    @field_validator("email")
+    @classmethod
+    def _normalize_email(cls, value: str) -> str:
+        return value.strip().lower()
+
+
+class ResetPasswordRequest(BaseModel):
+    """Reset payload: the link token + the new password."""
+
+    token: str = Field(min_length=1)
+    password: str = Field(min_length=8, max_length=256)
 
 
 class MeResponse(BaseModel):
@@ -117,6 +137,57 @@ def login(
         )
 
     return LoginResponse(token=token, churchId=str(app_user.igreja_id))
+
+
+@router.post("/forgot-password")
+def forgot_password(
+    payload: ForgotPasswordRequest,
+    clerk: ClerkClient = Depends(get_clerk_client),
+    mailer: BrevoClient = Depends(get_brevo_client),
+) -> dict[str, str]:
+    """Send a password-reset link if the e-mail exists — always returns 200.
+
+    Never reveals whether the e-mail is registered (US-01): the response is the
+    same with or without a matching user. The send is best-effort.
+    """
+    try:
+        clerk_user_id = clerk.find_user_id_by_email(payload.email)
+    except ClerkAuthError:
+        clerk_user_id = None
+
+    if clerk_user_id:
+        token = clerk.mint_reset_token(clerk_user_id)
+        base = get_settings().frontend_url.rstrip("/")
+        link = f"{base}/#redefinir-senha/{token}"
+        try:
+            mailer.send_password_reset(to_email=payload.email, reset_link=link)
+        except BrevoError:
+            logger.warning("Password-reset e-mail failed to send")
+
+    return {"status": "ok"}
+
+
+@router.post("/reset-password")
+def reset_password(
+    payload: ResetPasswordRequest,
+    clerk: ClerkClient = Depends(get_clerk_client),
+) -> dict[str, str]:
+    """Set a new password from a valid reset token."""
+    try:
+        clerk_user_id = clerk.verify_reset_token(payload.token)
+    except ClerkAuthError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Link inválido ou expirado. Peça um novo.",
+        ) from None
+    try:
+        clerk.set_user_password(clerk_user_id, payload.password)
+    except ClerkAuthError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Não foi possível redefinir a senha. Tente novamente.",
+        ) from exc
+    return {"status": "ok"}
 
 
 @router.get("/me", response_model=MeResponse)

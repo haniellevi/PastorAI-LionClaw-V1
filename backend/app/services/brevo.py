@@ -30,6 +30,17 @@ def _activation_html(nome: str, link: str) -> str:
     )
 
 
+def _reset_html(link: str) -> str:
+    return (
+        "<p>Recebemos um pedido para redefinir sua senha na Igreja 12.</p>"
+        "<p>Clique no botão abaixo para criar uma nova senha:</p>"
+        f'<p><a href="{link}">Redefinir senha</a></p>'
+        f"<p>Ou copie e cole este link no navegador:<br>{link}</p>"
+        "<p>Se não foi você, ignore este e-mail — sua senha continua a mesma. "
+        "O link expira em alguns minutos.</p>"
+    )
+
+
 class BrevoClient:
     """Thin HTTP client around the Brevo transactional-email endpoint."""
 
@@ -67,6 +78,33 @@ class BrevoClient:
         except httpx.HTTPError as exc:
             logger.warning("Brevo send failed: %s", type(exc).__name__)
             raise BrevoError("Falha ao enviar e-mail de convite") from exc
+        except (ValueError, KeyError) as exc:
+            logger.warning("Unexpected Brevo response shape")
+            raise BrevoError("Resposta inesperada do Brevo") from exc
+        return str(body.get("messageId", ""))
+
+    def send_password_reset(self, *, to_email: str, reset_link: str) -> str:
+        """Send the password-reset email; returns the Brevo message id."""
+        base_url, api_key, from_email, from_name = self._require_config()
+        headers = {
+            "api-key": api_key,
+            "accept": "application/json",
+            "content-type": "application/json",
+        }
+        payload = {
+            "sender": {"name": from_name, "email": from_email},
+            "to": [{"email": to_email}],
+            "subject": "Redefinir sua senha — Igreja 12",
+            "htmlContent": f"<html><body>{_reset_html(reset_link)}</body></html>",
+        }
+        try:
+            with httpx.Client(base_url=base_url, timeout=15.0) as client:
+                resp = client.post("/smtp/email", headers=headers, json=payload)
+                resp.raise_for_status()
+                body = resp.json()
+        except httpx.HTTPError as exc:
+            logger.warning("Brevo reset send failed: %s", type(exc).__name__)
+            raise BrevoError("Falha ao enviar e-mail de redefinição") from exc
         except (ValueError, KeyError) as exc:
             logger.warning("Unexpected Brevo response shape")
             raise BrevoError("Resposta inesperada do Brevo") from exc

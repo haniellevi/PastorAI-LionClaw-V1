@@ -32,6 +32,9 @@ _CLERK_API_BASE = "https://api.clerk.com/v1"
 # PastorAI-issued session JWT (HS256) — see module docstring.
 _SESSION_ISSUER = "pastorai"
 _SESSION_ALG = "HS256"
+# Distinct issuer for password-reset links so a reset token can never be used
+# as a session token (and vice-versa).
+_RESET_ISSUER = "pastorai-reset"
 
 
 class ClerkAuthError(Exception):
@@ -164,6 +167,90 @@ class ClerkClient:
             raise ClerkAuthError("Authentication failed") from exc
 
         return token, clerk_user_id
+
+    # ---- Password reset (forgot-password flow) ------------------------------
+    def mint_reset_token(self, clerk_user_id: str) -> str:
+        """Mint a short-lived password-reset JWT (HS256, distinct issuer)."""
+        secret = self._settings.effective_session_secret
+        if not secret:
+            raise ClerkAuthError("Session secret is not configured")
+        now = datetime.now(timezone.utc)
+        payload = {
+            "sub": clerk_user_id,
+            "iss": _RESET_ISSUER,
+            "iat": now,
+            "exp": now + timedelta(minutes=self._settings.password_reset_ttl_minutes),
+        }
+        return jwt.encode(payload, secret, algorithm=_SESSION_ALG)
+
+    def verify_reset_token(self, token: str) -> str:
+        """Verify a password-reset JWT and return the clerk_user_id (sub)."""
+        if not token:
+            raise ClerkAuthError("Empty token")
+        secret = self._settings.effective_session_secret
+        if not secret:
+            raise ClerkAuthError("Session secret is not configured")
+        try:
+            claims = jwt.decode(
+                token,
+                secret,
+                algorithms=[_SESSION_ALG],
+                issuer=_RESET_ISSUER,
+                options={"require": ["exp", "sub", "iss"], "verify_aud": False},
+            )
+        except Exception as exc:  # noqa: BLE001 - normalize to one error type
+            logger.warning("Reset token verification failed: %s", type(exc).__name__)
+            raise ClerkAuthError("Invalid or expired reset token") from exc
+        subject = claims.get("sub")
+        if not subject:
+            raise ClerkAuthError("Token missing subject")
+        return str(subject)
+
+    def find_user_id_by_email(self, email: str) -> str | None:
+        """Return the Clerk user id for an e-mail, or None when not found."""
+        secret = self._settings.clerk_secret_key
+        if not secret:
+            raise ClerkAuthError("Clerk secret key is not configured")
+        headers = {
+            "Authorization": f"Bearer {secret}",
+            "Content-Type": "application/json",
+        }
+        try:
+            with httpx.Client(base_url=_CLERK_API_BASE, timeout=10.0) as client:
+                resp = client.get(
+                    "/users",
+                    params={"email_address": [email], "limit": 1},
+                    headers=headers,
+                )
+                resp.raise_for_status()
+                users = resp.json()
+        except httpx.HTTPError as exc:
+            logger.warning("Clerk user lookup failed: %s", type(exc).__name__)
+            raise ClerkAuthError("Lookup failed") from exc
+        if not users:
+            return None
+        return str(users[0]["id"])
+
+    def set_user_password(self, clerk_user_id: str, password: str) -> None:
+        """Set a user's password via the Clerk Backend API."""
+        secret = self._settings.clerk_secret_key
+        if not secret:
+            raise ClerkAuthError("Clerk secret key is not configured")
+        headers = {
+            "Authorization": f"Bearer {secret}",
+            "Content-Type": "application/json",
+        }
+        try:
+            with httpx.Client(base_url=_CLERK_API_BASE, timeout=10.0) as client:
+                resp = client.patch(
+                    f"/users/{clerk_user_id}",
+                    json={"password": password, "skip_password_checks": True},
+                    headers=headers,
+                )
+                resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            logger.warning("Clerk set-password failed: %s", type(exc).__name__)
+            raise ClerkAuthError("Could not set password") from exc
 
 
 def get_clerk_client() -> ClerkClient:
