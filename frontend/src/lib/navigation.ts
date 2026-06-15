@@ -48,7 +48,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { target: "inbox", label: "Chat", icon: "chat" },
       { target: "calendario", label: "Agenda da Igreja", icon: "calendar" },
       { target: "comunicados", label: "Comunicação", icon: "broadcast" },
-      { target: "equipe", label: "Pessoas", icon: "team" },
+      { target: "equipe", label: "Equipe", icon: "team" },
     ],
   },
   {
@@ -111,13 +111,28 @@ export const NAV_SECTIONS: NavSection[] = [
   },
 ];
 
-/** Metadados de tela (título/crumb da topbar) para todas as rotas conhecidas. */
-export const SCREEN_META: Record<string, { title: string; crumb: string }> = {
+/** Metadados de tela (título/crumb + info da topbar) para as rotas conhecidas. */
+export const SCREEN_META: Record<
+  string,
+  { title: string; crumb: string; info?: string }
+> = {
   dashboard: { title: "Dashboard", crumb: "Pendências de hoje" },
   inbox: { title: "Chat", crumb: "WhatsApp da Igreja" },
-  calendario: { title: "Agenda da Igreja", crumb: "Eventos e cultos" },
-  comunicados: { title: "Comunicação", crumb: "Envios segmentados" },
-  equipe: { title: "Pessoas", crumb: "Quem usa o sistema" },
+  calendario: {
+    title: "Agenda da Igreja",
+    crumb: "Eventos e cultos",
+    info: "Eventos da igreja, sincronizados com o Google Calendar.",
+  },
+  comunicados: {
+    title: "Comunicação",
+    crumb: "Envios segmentados",
+    info: "Envio segmentado pelo WhatsApp oficial. Contatos com opt-out são excluídos automaticamente.",
+  },
+  equipe: {
+    title: "Equipe",
+    crumb: "Quem usa o sistema",
+    info: "Quem tem acesso ao painel. Cada pessoa acumula papéis, e o menu e o dashboard são a união deles (o que cada papel enxerga é definido em Permissões).",
+  },
   ganhar: { title: "Ganhar", crumb: "Novos contatos e visitantes" },
   consolidar: { title: "Consolidar", crumb: "Fila de consolidação" },
   "consol-individual": { title: "Consolidação Individual", crumb: "Acompanhamento 1:1" },

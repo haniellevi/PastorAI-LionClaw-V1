@@ -404,14 +404,6 @@ export function EquipeScreen() {
   return (
     <div className="screen" key="equipe">
       <div className="screen-head">
-        <div className="titles">
-          <h2>Equipe</h2>
-          <p>
-            Quem tem acesso ao painel. Cada pessoa acumula os papéis registrados
-            aqui — o menu e o dashboard são a união desses papéis (o que cada
-            papel enxerga é definido em Permissões).
-          </p>
-        </div>
         <div className="actions">
           <button
             type="button"

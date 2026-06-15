@@ -1014,6 +1014,50 @@ textarea:disabled {
   display: flex;
   gap: var(--s2);
 }
+
+/* InfoTip — "i" com popover (descrição da tela, ao lado do título na topbar) */
+.infotip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.infotip-btn {
+  width: 17px;
+  height: 17px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--muted);
+  font: 700 11px var(--font);
+  line-height: 1;
+  cursor: help;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.infotip-btn:hover,
+.infotip-btn:focus-visible {
+  color: var(--accent);
+  border-color: var(--accent);
+  outline: none;
+}
+.infotip-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 60;
+  width: max-content;
+  max-width: 300px;
+  background: var(--surface);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow);
+  padding: 8px 10px;
+  font: 400 12.5px/1.45 var(--font);
+  white-space: normal;
+}
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
