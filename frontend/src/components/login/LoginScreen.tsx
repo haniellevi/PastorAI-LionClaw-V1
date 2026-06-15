@@ -161,7 +161,16 @@ export function LoginScreen() {
     <section id="login">
       <div className="login-wrap">
         <aside className="login-aside">
-          <div style={{ position: "relative", zIndex: 1 }}>
+          <div
+            style={{
+              position: "relative",
+              zIndex: 1,
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              justifyContent: "center",
+            }}
+          >
             <div className="brand">
               <span className="brand-mark">
                 <Icon name="brand" />
