@@ -35,6 +35,11 @@ _SESSION_ALG = "HS256"
 # Distinct issuer for password-reset links so a reset token can never be used
 # as a session token (and vice-versa).
 _RESET_ISSUER = "pastorai-reset"
+# Distinct issuer for invite/activation links (7-day expiry). A separate issuer
+# means an invite token can never double as a session or reset token.
+_INVITE_ISSUER = "pastorai-invite"
+# Invite link validity (delta-042: "link que expira em 7 dias").
+_INVITE_TTL_DAYS = 7
 
 
 class ClerkAuthError(Exception):
@@ -206,6 +211,48 @@ class ClerkClient:
             raise ClerkAuthError("Token missing subject")
         return str(subject)
 
+    # ---- Invite / activation token (convite ponta a ponta) ------------------
+    def mint_invite_token(self, app_user_id: str) -> str:
+        """Mint an invite/activation JWT (HS256, 7-day expiry, distinct issuer).
+
+        The subject is the app_user id (the invited account has no Clerk user
+        yet). Signed so the link cannot be forged from a raw id.
+        """
+        secret = self._settings.effective_session_secret
+        if not secret:
+            raise ClerkAuthError("Session secret is not configured")
+        now = datetime.now(timezone.utc)
+        payload = {
+            "sub": app_user_id,
+            "iss": _INVITE_ISSUER,
+            "iat": now,
+            "exp": now + timedelta(days=_INVITE_TTL_DAYS),
+        }
+        return jwt.encode(payload, secret, algorithm=_SESSION_ALG)
+
+    def verify_invite_token(self, token: str) -> str:
+        """Verify an invite token and return the app_user_id (sub)."""
+        if not token:
+            raise ClerkAuthError("Empty token")
+        secret = self._settings.effective_session_secret
+        if not secret:
+            raise ClerkAuthError("Session secret is not configured")
+        try:
+            claims = jwt.decode(
+                token,
+                secret,
+                algorithms=[_SESSION_ALG],
+                issuer=_INVITE_ISSUER,
+                options={"require": ["exp", "sub", "iss"], "verify_aud": False},
+            )
+        except Exception as exc:  # noqa: BLE001 - normalize to one error type
+            logger.warning("Invite token verification failed: %s", type(exc).__name__)
+            raise ClerkAuthError("Invalid or expired invite token") from exc
+        subject = claims.get("sub")
+        if not subject:
+            raise ClerkAuthError("Token missing subject")
+        return str(subject)
+
     def find_user_id_by_email(self, email: str) -> str | None:
         """Return the Clerk user id for an e-mail, or None when not found."""
         secret = self._settings.clerk_secret_key
@@ -251,6 +298,49 @@ class ClerkClient:
         except httpx.HTTPError as exc:
             logger.warning("Clerk set-password failed: %s", type(exc).__name__)
             raise ClerkAuthError("Could not set password") from exc
+
+    def create_user(self, email: str, password: str) -> str:
+        """Create a Clerk user (email+password) and return its id.
+
+        If the e-mail already has a Clerk account (taken), reuse it and set the
+        password — the invitee controls the mailbox. Returns the clerk_user_id
+        either way. Raises ClerkAuthError on any failure.
+        """
+        secret = self._settings.clerk_secret_key
+        if not secret:
+            raise ClerkAuthError("Clerk secret key is not configured")
+        headers = {
+            "Authorization": f"Bearer {secret}",
+            "Content-Type": "application/json",
+        }
+        try:
+            with httpx.Client(base_url=_CLERK_API_BASE, timeout=10.0) as client:
+                resp = client.post(
+                    "/users",
+                    json={
+                        "email_address": [email],
+                        "password": password,
+                        "skip_password_checks": True,
+                    },
+                    headers=headers,
+                )
+            if resp.status_code in (200, 201):
+                return str(resp.json()["id"])
+        except httpx.HTTPError as exc:
+            logger.warning("Clerk create_user error: %s", type(exc).__name__)
+            raise ClerkAuthError("Could not create user") from exc
+        except (KeyError, ValueError, TypeError) as exc:
+            logger.warning("Unexpected Clerk response shape in create_user")
+            raise ClerkAuthError("Could not create user") from exc
+
+        # Não criou (e-mail provavelmente já cadastrado): reaproveita a conta
+        # existente e define a senha informada na ativação.
+        existing = self.find_user_id_by_email(email)
+        if existing:
+            self.set_user_password(existing, password)
+            return existing
+        logger.warning("Clerk create_user failed (status masked) and no existing user")
+        raise ClerkAuthError("Could not create user")
 
 
 def get_clerk_client() -> ClerkClient:

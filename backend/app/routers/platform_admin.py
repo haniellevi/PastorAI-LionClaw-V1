@@ -31,6 +31,7 @@ from app.db.models import AppUser, Igreja, Pessoa, UserRole
 from app.db.session import get_db
 from app.deps import PlatformAdminUser, get_platform_admin
 from app.services.brevo import BrevoClient, BrevoError, get_brevo_client
+from app.services.clerk import ClerkClient, get_clerk_client
 
 logger = logging.getLogger("pastorai.platform_admin")
 
@@ -144,10 +145,14 @@ class PlatformAdminMe(BaseModel):
     nome: str
 
 
-def _activation_link(app_user_id: uuid.UUID) -> str:
-    """Activation link for the new church's first admin (tenant panel)."""
+def _activation_link(app_user_id: uuid.UUID, clerk: ClerkClient) -> str:
+    """Activation link for the new church's first admin (tenant panel).
+
+    Token de convite assinado (expira em 7 dias) — não o id cru.
+    """
+    token = clerk.mint_invite_token(str(app_user_id))
     base = get_settings().frontend_url.rstrip("/")
-    return f"{base}/#ativar?convite={app_user_id}"
+    return f"{base}/#ativar/{token}"
 
 
 @router.get("/me", response_model=PlatformAdminMe)
@@ -213,6 +218,7 @@ def create_igreja(
     db: Session = Depends(get_db),
     _admin: PlatformAdminUser = Depends(get_platform_admin),
     mailer: BrevoClient = Depends(get_brevo_client),
+    clerk: ClerkClient = Depends(get_clerk_client),
 ) -> CreateIgrejaResponse:
     """Provision a new church and invite its first admin (US-43, manual).
 
@@ -245,7 +251,7 @@ def create_igreja(
         mailer.send_invite(
             to_email=email,
             nome=payload.admin.nome,
-            activation_link=_activation_link(app_user.id),
+            activation_link=_activation_link(app_user.id, clerk),
         )
         email_sent = True
     except BrevoError:

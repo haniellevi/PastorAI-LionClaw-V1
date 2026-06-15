@@ -152,3 +152,53 @@ export async function resetPassword(token: string, password: string): Promise<vo
     throw new LoginError("invalid", message);
   }
 }
+
+export interface InviteInfo {
+  nome: string;
+  email: string;
+  igreja: string;
+}
+
+async function detailMessage(res: Response, fallback: string): Promise<string> {
+  try {
+    const body = (await res.json()) as { detail?: unknown };
+    if (typeof body.detail === "string") return body.detail;
+  } catch {
+    /* mantém o fallback */
+  }
+  return fallback;
+}
+
+/** Valida o token do convite e retorna os dados para a tela de ativação. */
+export async function fetchInvite(token: string): Promise<InviteInfo> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/auth/invite/${encodeURIComponent(token)}`);
+  } catch {
+    throw new LoginError("network", "Falha de conexão. Tente novamente.");
+  }
+  if (res.ok) return (await res.json()) as InviteInfo;
+  throw new LoginError(
+    "invalid",
+    await detailMessage(res, "Convite inválido ou expirado. Peça um novo."),
+  );
+}
+
+/** Ativa o convite definindo a senha (cria o acesso e vincula ao Clerk). */
+export async function activateInvite(token: string, password: string): Promise<void> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/auth/activate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, password }),
+    });
+  } catch {
+    throw new LoginError("network", "Falha de conexão. Tente novamente.");
+  }
+  if (res.ok) return;
+  throw new LoginError(
+    "invalid",
+    await detailMessage(res, "Não foi possível ativar o acesso. Tente novamente."),
+  );
+}

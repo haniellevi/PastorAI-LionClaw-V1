@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import re
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
@@ -73,6 +74,21 @@ class ForgotPasswordRequest(BaseModel):
 
 class ResetPasswordRequest(BaseModel):
     """Reset payload: the link token + the new password."""
+
+    token: str = Field(min_length=1)
+    password: str = Field(min_length=8, max_length=256)
+
+
+class InviteInfoResponse(BaseModel):
+    """Dados do convite para a tela de ativação pré-preencher."""
+
+    nome: str
+    email: str
+    igreja: str
+
+
+class ActivateRequest(BaseModel):
+    """Ativação: o token do convite + a senha escolhida."""
 
     token: str = Field(min_length=1)
     password: str = Field(min_length=8, max_length=256)
@@ -187,6 +203,75 @@ def reset_password(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Não foi possível redefinir a senha. Tente novamente.",
         ) from exc
+    return {"status": "ok"}
+
+
+def _resolve_invite(token: str, db: Session, clerk: ClerkClient) -> AppUser:
+    """Valida o token de convite e devolve o app_user 'convidado' alvo.
+
+    Pré-login (sem sessão): roda como o role de conexão, então acha o app_user
+    de qualquer igreja pelo id do token — que é assinado, logo não forjável.
+    """
+    invalid = HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Convite inválido ou expirado. Peça um novo.",
+    )
+    try:
+        app_user_id = clerk.verify_invite_token(token)
+        au_uuid = uuid.UUID(app_user_id)
+    except (ClerkAuthError, ValueError):
+        raise invalid from None
+
+    app_user = db.execute(
+        select(AppUser).where(AppUser.id == au_uuid)
+    ).scalar_one_or_none()
+    if app_user is None:
+        raise invalid
+    if app_user.clerk_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Este convite já foi ativado. Faça login normalmente.",
+        )
+    return app_user
+
+
+@router.get("/invite/{token}", response_model=InviteInfoResponse)
+def invite_info(
+    token: str,
+    db: Session = Depends(get_db),
+    clerk: ClerkClient = Depends(get_clerk_client),
+) -> InviteInfoResponse:
+    """Valida o token do convite e devolve dados para a tela de ativação."""
+    app_user = _resolve_invite(token, db, clerk)
+    return InviteInfoResponse(
+        nome=app_user.nome,
+        email=app_user.email,
+        igreja=app_user.igreja.nome if app_user.igreja else "",
+    )
+
+
+@router.post("/activate")
+def activate(
+    payload: ActivateRequest,
+    db: Session = Depends(get_db),
+    clerk: ClerkClient = Depends(get_clerk_client),
+) -> dict[str, str]:
+    """Ativa o convite: cria o acesso no Clerk + define a senha + vincula.
+
+    Idempotência: um convite já ativado (app_user com clerk_user_id) → 409.
+    """
+    app_user = _resolve_invite(payload.token, db, clerk)
+    try:
+        clerk_user_id = clerk.create_user(app_user.email, payload.password)
+    except ClerkAuthError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Não foi possível criar o acesso. Tente novamente.",
+        ) from exc
+
+    app_user.clerk_user_id = clerk_user_id
+    app_user.status = "ativo"
+    db.commit()
     return {"status": "ok"}
 
 

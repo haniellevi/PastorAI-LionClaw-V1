@@ -71,11 +71,19 @@ class FakeClerk:
         login_result: tuple[str, str] | None = None,
         raise_verify: bool = False,
         raise_login: bool = False,
+        invite_app_user_id: str | None = None,
+        raise_invite: bool = False,
+        created_clerk_id: str = "clerk_new_user",
+        raise_create: bool = False,
     ) -> None:
         self._clerk_user_id = clerk_user_id
         self._login_result = login_result
         self._raise_verify = raise_verify
         self._raise_login = raise_login
+        self._invite_app_user_id = invite_app_user_id
+        self._raise_invite = raise_invite
+        self._created_clerk_id = created_clerk_id
+        self._raise_create = raise_create
 
     def verify_session_token(self, token: str) -> ClerkIdentity:
         if self._raise_verify:
@@ -88,6 +96,20 @@ class FakeClerk:
         if self._raise_login:
             raise ClerkAuthError("invalid")
         return self._login_result or ("session_token_abc", self._clerk_user_id)
+
+    # ---- Invite / activation (convite ponta a ponta) ------------------------
+    def mint_invite_token(self, app_user_id: str) -> str:
+        return f"invite-token-{app_user_id}"
+
+    def verify_invite_token(self, token: str) -> str:
+        if self._raise_invite:
+            raise ClerkAuthError("invalid invite")
+        return self._invite_app_user_id or "00000000-0000-0000-0000-0000000000a1"
+
+    def create_user(self, email: str, password: str) -> str:
+        if self._raise_create:
+            raise ClerkAuthError("create failed")
+        return self._created_clerk_id
 
 
 # ---------------------------------------------------------------------------

@@ -25,6 +25,7 @@ from app.db.session import get_db
 from app.deps import ADMIN_ROLE, CurrentUser, get_current_user, require_role
 from app.routers._common import Page, PaginationParams, ensure_tenant_context
 from app.services.brevo import BrevoClient, BrevoError, get_brevo_client
+from app.services.clerk import ClerkClient, get_clerk_client
 
 logger = logging.getLogger("pastorai.team")
 
@@ -114,9 +115,11 @@ class TeamMemberOut(BaseModel):
     papeis: list[str]
 
 
-def _activation_link(app_user_id: uuid.UUID) -> str:
+def _activation_link(app_user_id: uuid.UUID, clerk: ClerkClient) -> str:
+    """Link de ativação com token de convite assinado (expira em 7 dias)."""
+    token = clerk.mint_invite_token(str(app_user_id))
     base = get_settings().frontend_url.rstrip("/")
-    return f"{base}/#ativar?convite={app_user_id}"
+    return f"{base}/#ativar/{token}"
 
 
 def _admin_user_ids(db: Session, igreja_id: uuid.UUID) -> set[uuid.UUID]:
@@ -181,6 +184,7 @@ def invite_member(
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(require_role(["admin"])),
     mailer: BrevoClient = Depends(get_brevo_client),
+    clerk: ClerkClient = Depends(get_clerk_client),
 ) -> InviteResponse:
     """Create a convidado app_user and email the activation link.
 
@@ -259,7 +263,7 @@ def invite_member(
         mailer.send_invite(
             to_email=email,
             nome=payload.nome,
-            activation_link=_activation_link(app_user.id),
+            activation_link=_activation_link(app_user.id, clerk),
         )
         email_sent = True
     except BrevoError:
@@ -340,6 +344,7 @@ def resend_invite(
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(require_role(["admin"])),
     mailer: BrevoClient = Depends(get_brevo_client),
+    clerk: ClerkClient = Depends(get_clerk_client),
 ) -> InviteResponse:
     """Re-send the activation email to an existing member (best-effort).
 
@@ -369,7 +374,7 @@ def resend_invite(
         mailer.send_invite(
             to_email=app_user.email,
             nome=app_user.nome,
-            activation_link=_activation_link(app_user.id),
+            activation_link=_activation_link(app_user.id, clerk),
         )
         email_sent = True
     except BrevoError:

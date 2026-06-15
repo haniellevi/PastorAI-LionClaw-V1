@@ -9,11 +9,18 @@
  * O fluxo de reset roda PRÉ-login (o usuário não está autenticado), por isso vive
  * aqui dentro da LoginScreen, que é o que a raiz renderiza quando não há sessão.
  */
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
-import { LoginError, requestPasswordReset, resetPassword } from "@/lib/api";
+import {
+  activateInvite,
+  fetchInvite,
+  LoginError,
+  requestPasswordReset,
+  resetPassword,
+  type InviteInfo,
+} from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { Icon } from "@/lib/icons";
 import { useHashRoute } from "@/lib/use-hash-route";
@@ -49,16 +56,21 @@ export function LoginScreen() {
   const { login, consumeReturnTo } = useAuth();
   const [route, navigate] = useHashRoute();
 
-  // Modo derivado da hash. O token do reset vem como #redefinir-senha/<token>.
+  // Modo derivado da hash. Tokens vêm como #redefinir-senha/<token> e #ativar/<token>.
   const resetToken = route.startsWith("redefinir-senha/")
     ? route.slice("redefinir-senha/".length)
     : "";
-  const mode: "login" | "forgot" | "reset" =
-    route === "redefinir-senha" || route.startsWith("redefinir-senha/")
-      ? "reset"
-      : route === "esqueci-senha"
-        ? "forgot"
-        : "login";
+  const inviteToken = route.startsWith("ativar/")
+    ? route.slice("ativar/".length)
+    : "";
+  const mode: "login" | "forgot" | "reset" | "activate" =
+    route === "ativar" || route.startsWith("ativar/")
+      ? "activate"
+      : route === "redefinir-senha" || route.startsWith("redefinir-senha/")
+        ? "reset"
+        : route === "esqueci-senha"
+          ? "forgot"
+          : "login";
 
   // ---- login --------------------------------------------------------------
   const [email, setEmail] = useState("");
@@ -154,6 +166,69 @@ export function LoginScreen() {
         err instanceof LoginError ? err.message : "Não foi possível redefinir. Tente novamente.",
       );
       setRStatus("idle");
+    }
+  }
+
+  // ---- ativar convite -----------------------------------------------------
+  const [aInfo, setAInfo] = useState<InviteInfo | null>(null);
+  const [aInfoError, setAInfoError] = useState<string>();
+  const [aLoading, setALoading] = useState(true);
+  const [aPass, setAPass] = useState("");
+  const [aPass2, setAPass2] = useState("");
+  const [aError, setAError] = useState<string>();
+  const [aStatus, setAStatus] = useState<"idle" | "loading" | "done">("idle");
+
+  // Valida o token do convite ao abrir a tela e busca os dados para exibir.
+  useEffect(() => {
+    if (mode !== "activate") return;
+    if (!inviteToken) {
+      setALoading(false);
+      setAInfoError("Link de ativação inválido ou incompleto.");
+      return;
+    }
+    let active = true;
+    setALoading(true);
+    fetchInvite(inviteToken)
+      .then((info) => {
+        if (!active) return;
+        setAInfo(info);
+        setAInfoError(undefined);
+      })
+      .catch((err) => {
+        if (!active) return;
+        setAInfoError(
+          err instanceof LoginError ? err.message : "Convite inválido ou expirado.",
+        );
+      })
+      .finally(() => {
+        if (active) setALoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [mode, inviteToken]);
+
+  async function handleActivate(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (aStatus === "loading") return;
+    if (aPass.length < 8) {
+      setAError("A senha precisa ter ao menos 8 caracteres.");
+      return;
+    }
+    if (aPass !== aPass2) {
+      setAError("As senhas não conferem.");
+      return;
+    }
+    setAError(undefined);
+    setAStatus("loading");
+    try {
+      await activateInvite(inviteToken, aPass);
+      setAStatus("done");
+    } catch (err) {
+      setAError(
+        err instanceof LoginError ? err.message : "Não foi possível ativar. Tente novamente.",
+      );
+      setAStatus("idle");
     }
   }
 
@@ -296,6 +371,87 @@ export function LoginScreen() {
                   <button type="button" style={linkBtnStyle} onClick={() => navigate("login")}>
                     Voltar ao login
                   </button>
+                </>
+              )}
+            </form>
+          ) : mode === "activate" ? (
+            <form className="login-card" onSubmit={handleActivate} noValidate>
+              <h1>Ativar acesso</h1>
+
+              {aLoading ? (
+                <p className="sub">Validando convite…</p>
+              ) : aInfoError ? (
+                <>
+                  <div className="auth-error" role="alert">
+                    <Icon name="alert" />
+                    <span>{aInfoError}</span>
+                  </div>
+                  <button type="button" style={linkBtnStyle} onClick={() => navigate("login")}>
+                    Ir para o login
+                  </button>
+                </>
+              ) : aStatus === "done" ? (
+                <>
+                  <div
+                    className="auth-error"
+                    role="status"
+                    style={{ background: "var(--accent-soft)", color: "var(--accent)" }}
+                  >
+                    <Icon name="check" />
+                    <span>Acesso ativado! Agora é só entrar com sua nova senha.</span>
+                  </div>
+                  <Button type="button" variant="primary" block onClick={() => navigate("login")}>
+                    Ir para o login
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <p className="sub">
+                    {aInfo ? (
+                      <>
+                        Olá, <strong>{aInfo.nome}</strong> — defina sua senha para acessar{" "}
+                        <strong>{aInfo.igreja}</strong>.
+                      </>
+                    ) : (
+                      "Defina sua senha de acesso."
+                    )}
+                  </p>
+                  {aInfo ? <div className="helper">Conta: {aInfo.email}</div> : null}
+                  {aError ? (
+                    <div className="auth-error" role="alert">
+                      <Icon name="alert" />
+                      <span>{aError}</span>
+                    </div>
+                  ) : null}
+                  <Field
+                    label="Senha"
+                    type="password"
+                    name="activate-password"
+                    placeholder="••••••••"
+                    autoComplete="new-password"
+                    value={aPass}
+                    disabled={aStatus === "loading"}
+                    onChange={(e) => setAPass(e.target.value)}
+                  />
+                  <Field
+                    label="Confirmar senha"
+                    type="password"
+                    name="activate-confirm"
+                    placeholder="••••••••"
+                    autoComplete="new-password"
+                    value={aPass2}
+                    disabled={aStatus === "loading"}
+                    onChange={(e) => setAPass2(e.target.value)}
+                  />
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    block
+                    loading={aStatus === "loading"}
+                    loadingText="Ativando…"
+                  >
+                    Ativar e criar senha
+                  </Button>
                 </>
               )}
             </form>
