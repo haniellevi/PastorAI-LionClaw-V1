@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Celula, Pessoa
 from app.db.session import get_db
-from app.deps import CurrentUser, get_current_user
+from app.deps import CurrentUser, get_current_user, require_role
 from app.domain.phone import normalize_phone, phone_suffix
 from app.routers._common import Page, PaginationParams, ensure_tenant_context
 
@@ -117,6 +117,49 @@ class CreateContactResponse(BaseModel):
 
     contact: ContactOut
     deduped: bool
+
+
+class UpdateContactRequest(BaseModel):
+    """Edição de dados cadastrais (somente admin). Campos ausentes não mudam."""
+
+    nome: str | None = Field(default=None, max_length=200)
+    telefone: str | None = Field(default=None, max_length=40)
+    email: str | None = Field(default=None, max_length=320)
+    genero: str | None = Field(default=None)
+    faixaEtaria: str | None = Field(default=None, max_length=40)  # noqa: N815
+    endereco: str | None = Field(default=None, max_length=400)
+    tipo: str | None = Field(default=None)
+
+    @field_validator("nome", "telefone")
+    @classmethod
+    def _strip_opt(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            raise ValueError("Campo não pode ser vazio")
+        return value
+
+    @field_validator("genero")
+    @classmethod
+    def _genero(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip().lower()
+        if value not in {"m", "f"}:
+            raise ValueError("genero deve ser 'm' ou 'f'")
+        return value
+
+    @field_validator("tipo")
+    @classmethod
+    def _tipo(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip().lower()
+        allowed = {"visitante", "membro", "lider", "pastor", "discipulo"}
+        if value not in allowed:
+            raise ValueError(f"tipo inválido: {value}")
+        return value
 
 
 class LinkCellRequest(BaseModel):
@@ -220,6 +263,78 @@ def create_contact(
     return CreateContactResponse(
         contact=ContactOut.from_model(pessoa), deduped=False
     )
+
+
+@router.patch("/{contact_id}", response_model=ContactOut)
+def update_contact(
+    contact_id: str,
+    payload: UpdateContactRequest,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_role(["admin"])),
+) -> ContactOut:
+    """Edita os dados cadastrais de uma pessoa (somente admin — RF-05).
+
+    Tenant-scoped (RLS). Campos ausentes/None não mudam. Se o telefone mudar,
+    re-checa o dedup canônico por igreja: não pode colidir com OUTRA pessoa
+    (409). Os gatilhos de estado da pessoa não são reimplementados aqui.
+    """
+    ensure_tenant_context(db, current_user)
+
+    try:
+        pessoa_uuid = uuid.UUID(contact_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Contato não encontrado"
+        ) from exc
+
+    pessoa = db.execute(
+        select(Pessoa).where(Pessoa.id == pessoa_uuid)
+    ).scalar_one_or_none()
+    if pessoa is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Contato não encontrado"
+        )
+
+    if payload.telefone is not None:
+        normalized = normalize_phone(payload.telefone)
+        if not normalized:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Telefone inválido",
+            )
+        # Colisão com OUTRA pessoa do tenant (mesmo telefone canônico).
+        stored_digits = func.regexp_replace(Pessoa.telefone, r"\D", "", "g")
+        candidates = db.execute(
+            select(Pessoa).where(
+                func.right(stored_digits, 8) == phone_suffix(normalized),
+                Pessoa.id != pessoa_uuid,
+            )
+        ).scalars().all()
+        if any(normalize_phone(p.telefone) == normalized for p in candidates):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Já existe outra pessoa com este telefone",
+            )
+        pessoa.telefone = payload.telefone
+
+    if payload.nome is not None:
+        pessoa.nome = payload.nome
+    if payload.email is not None:
+        pessoa.email = payload.email
+    if payload.genero is not None:
+        pessoa.genero = payload.genero
+    if payload.faixaEtaria is not None:
+        pessoa.faixa_etaria = payload.faixaEtaria
+    if payload.endereco is not None:
+        pessoa.endereco = payload.endereco
+    if payload.tipo is not None:
+        pessoa.tipo = payload.tipo
+
+    db.flush()
+    db.refresh(pessoa)
+    db.commit()
+
+    return ContactOut.from_model(pessoa)
 
 
 @router.post("/{contact_id}/cell", response_model=ContactOut)

@@ -109,6 +109,34 @@ export async function createContact(
   return (await res.json()) as CreateContactResult;
 }
 
+export interface UpdateContactInput {
+  nome?: string;
+  telefone?: string;
+  email?: string | null;
+  genero?: "m" | "f" | null;
+  tipo?: string | null;
+}
+
+/**
+ * Edita os dados cadastrais de uma pessoa (somente admin no backend — 403 caso
+ * contrário). 409 quando o novo telefone colide com outra pessoa da igreja.
+ */
+export async function updateContact(
+  token: string,
+  contactId: string,
+  input: UpdateContactInput,
+): Promise<Contact> {
+  const res = await authedFetch(token, `/contacts/${contactId}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível salvar as alterações.");
+  }
+  return (await res.json()) as Contact;
+}
+
 /**
  * Vincula um contato a uma célula ativa com líder. Bloqueia (409) célula inativa
  * ou sem líder, propagando a mensagem do backend.

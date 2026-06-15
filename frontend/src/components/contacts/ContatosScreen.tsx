@@ -22,12 +22,15 @@ import {
   linkContactCell,
   tipoLabel,
   tipoTone,
+  updateContact,
   type Contact,
   type CreateContactInput,
+  type UpdateContactInput,
 } from "@/lib/contacts-api";
 import { ApiError, fetchCells, type Cell } from "@/lib/dashboard-api";
 import { Icon } from "@/lib/icons";
 
+import { EditContactModal } from "./EditContactModal";
 import { LinkCellModal } from "./LinkCellModal";
 import { NewContactModal } from "./NewContactModal";
 
@@ -62,7 +65,8 @@ function matchesFilter(c: Contact, f: Filter): boolean {
 }
 
 export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
-  const { token, expireSession } = useAuth();
+  const { token, user, expireSession } = useAuth();
+  const canEdit = (user?.roles ?? []).includes("admin");
 
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [cells, setCells] = useState<Cell[]>([]);
@@ -78,6 +82,9 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
 
   const [linkTarget, setLinkTarget] = useState<Contact | null>(null);
   const [linkError, setLinkError] = useState<string | null>(null);
+  const [editTarget, setEditTarget] = useState<Contact | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
 
@@ -208,6 +215,28 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
       }
     },
     [token, linkTarget, flashToast, handleSessionError],
+  );
+
+  const handleUpdate = useCallback(
+    async (input: UpdateContactInput) => {
+      if (!token || !editTarget) return;
+      setEditSaving(true);
+      setEditError(null);
+      try {
+        const updated = await updateContact(token, editTarget.id, input);
+        setContacts((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
+        flashToast({ kind: "ok", text: `${updated.nome} atualizado.` });
+        setEditTarget(null);
+      } catch (err) {
+        if (handleSessionError(err)) return;
+        setEditError(
+          err instanceof ApiError ? err.message : "Não foi possível salvar as alterações.",
+        );
+      } finally {
+        setEditSaving(false);
+      }
+    },
+    [token, editTarget, flashToast, handleSessionError],
   );
 
   const columns: Array<Column<Contact>> = useMemo(
@@ -357,6 +386,12 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
             contact={selectedContact}
             cellName={cellName(selectedContact?.celulaId ?? null)}
             busy={busyId === selectedContact?.id}
+            canEdit={canEdit}
+            onEdit={() => {
+              if (!selectedContact) return;
+              setEditError(null);
+              setEditTarget(selectedContact);
+            }}
             onLink={() => {
               if (!selectedContact) return;
               setLinkError(null);
@@ -389,6 +424,19 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
         />
       ) : null}
 
+      {editTarget ? (
+        <EditContactModal
+          contact={editTarget}
+          busy={editSaving}
+          error={editError}
+          onClose={() => {
+            setEditTarget(null);
+            setEditError(null);
+          }}
+          onSubmit={(input) => void handleUpdate(input)}
+        />
+      ) : null}
+
       {toast ? (
         <div className={`toast ${toast.kind}`} role="status">
           <Icon name={toast.kind === "ok" ? "check" : "alert"} />
@@ -406,11 +454,15 @@ function ContactDetail({
   contact,
   cellName,
   busy,
+  canEdit,
+  onEdit,
   onLink,
 }: {
   contact: Contact | null;
   cellName: string;
   busy: boolean;
+  canEdit: boolean;
+  onEdit: () => void;
   onLink: () => void;
 }) {
   if (!contact) {
@@ -475,6 +527,17 @@ function ContactDetail({
         >
           <Icon name="link" />
           <span>Vincular célula</span>
+        </button>
+      ) : null}
+
+      {canEdit ? (
+        <button
+          type="button"
+          className="btn btn-block"
+          onClick={onEdit}
+          style={{ marginTop: !contact.celulaId ? "var(--s2)" : 0 }}
+        >
+          Editar dados
         </button>
       ) : null}
     </div>
