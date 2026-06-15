@@ -109,8 +109,14 @@ class Settings(BaseSettings):
 
     @property
     def cors_origins(self) -> list[str]:
-        """Allowed CORS origins. Frontend URL plus base URL in dev."""
-        origins = {self.frontend_url, self.app_base_url}
+        """Allowed CORS origins. Frontend URL plus base URL in dev.
+
+        Trailing slashes are stripped: browsers send the ``Origin`` header
+        as scheme+host+port with no path, so a configured ``https://host/``
+        would never match the browser-sent ``https://host`` and every
+        cross-origin auth call (login, forgot-password) would be rejected.
+        """
+        origins = {self.frontend_url.rstrip("/"), self.app_base_url.rstrip("/")}
         return [o for o in origins if o]
 
     @property
