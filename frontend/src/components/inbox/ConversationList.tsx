@@ -5,7 +5,6 @@
  * Filtra por Todas / Aguardando / IA e abre a thread ao clicar (US-11).
  * Estado vazio (empty-state) quando não há conversas no filtro.
  */
-import { StatusPill } from "@/components/dashboard/StatusPill";
 import type { Conversation } from "@/lib/conversations-api";
 import { Icon } from "@/lib/icons";
 
@@ -13,7 +12,6 @@ import {
   contactAvatar,
   displayName,
   effectiveEstado,
-  estadoPill,
   shortTime,
 } from "./conversation-format";
 
@@ -89,7 +87,6 @@ export function ConversationList({
       ) : (
         conversations.map((c) => {
           const estado = effectiveEstado(c);
-          const pill = estadoPill(estado);
           return (
             <button
               type="button"
@@ -103,13 +100,15 @@ export function ConversationList({
                   <strong>{displayName(c)}</strong>
                   <time>{shortTime(c.atualizadoEm ?? c.assumidoEm ?? c.esperaDesde, now)}</time>
                 </div>
-                <div className="snippet">
-                  {c.ultimaMensagem ?? "Sem mensagens ainda"}
-                </div>
-                <div style={{ marginTop: 5, display: "flex", gap: 6, alignItems: "center" }}>
-                  <StatusPill tone={pill.tone}>{pill.label}</StatusPill>
+                <div className="conv-sub">
+                  {estado === "aguardando" ? (
+                    <span className="conv-dot warn" title="Aguardando atendimento" />
+                  ) : null}
+                  <span className="snippet">
+                    {c.ultimaMensagem ?? "Sem mensagens ainda"}
+                  </span>
                   {c.naoLidas > 0 ? (
-                    <span className="num" aria-label={`${c.naoLidas} não lidas`}>
+                    <span className="conv-badge" aria-label={`${c.naoLidas} não lidas`}>
                       {c.naoLidas}
                     </span>
                   ) : null}
