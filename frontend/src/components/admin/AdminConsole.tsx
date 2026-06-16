@@ -15,9 +15,11 @@ import {
   deleteIgreja,
   fetchMetrics,
   listIgrejas,
+  listPlanos,
   updateIgreja,
   type AdminIgreja,
   type AdminMetrics,
+  type AdminPlano,
   type CreateIgrejaInput,
   type UpdateIgrejaInput,
 } from "@/lib/admin-api";
@@ -26,6 +28,7 @@ import { useAdminAuth } from "@/lib/admin-auth-context";
 import { CreateIgrejaModal } from "./CreateIgrejaModal";
 import { EditIgrejaModal } from "./EditIgrejaModal";
 import { IgrejaDetailModal } from "./IgrejaDetailModal";
+import { PlanosManagerModal } from "./PlanosManagerModal";
 
 const STATUS_LABEL: Record<string, string> = {
   ativa: "Ativa",
@@ -63,15 +66,28 @@ export function AdminConsole() {
   const { admin, token, logout } = useAdminAuth();
   const [igrejas, setIgrejas] = useState<AdminIgreja[] | null>(null);
   const [metrics, setMetrics] = useState<AdminMetrics | null>(null);
+  const [planos, setPlanos] = useState<AdminPlano[]>([]);
   const [error, setError] = useState<string>();
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState<string>();
 
   const [createOpen, setCreateOpen] = useState(false);
+  const [planosOpen, setPlanosOpen] = useState(false);
   const [viewing, setViewing] = useState<AdminIgreja | null>(null);
   const [editing, setEditing] = useState<AdminIgreja | null>(null);
   const [modalBusy, setModalBusy] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
+
+  // Catálogo de planos para os seletores dos modais — best-effort: uma falha
+  // aqui não derruba a lista de igrejas (os modais caem no fallback padrão).
+  const loadPlanos = useCallback(async () => {
+    if (!token) return;
+    try {
+      setPlanos(await listPlanos(token));
+    } catch (err) {
+      if (err instanceof AdminSessionExpiredError) logout();
+    }
+  }, [token, logout]);
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -90,11 +106,14 @@ export function AdminConsole() {
     } finally {
       setLoading(false);
     }
-  }, [token, logout]);
+    void loadPlanos();
+  }, [token, logout, loadPlanos]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  const activePlanos = planos.filter((p) => p.ativo);
 
   // Expira a sessão de forma centralizada; devolve true se tratou o erro.
   const handledSessionError = useCallback(
@@ -189,9 +208,14 @@ export function AdminConsole() {
             {admin ? `${admin.nome} · ${admin.email}` : "Administração multi-igreja"}
           </p>
         </div>
-        <Button variant="ghost" size="sm" onClick={logout}>
-          Sair
-        </Button>
+        <div style={{ display: "flex", gap: "var(--s2)" }}>
+          <Button variant="ghost" size="sm" onClick={() => setPlanosOpen(true)}>
+            Planos
+          </Button>
+          <Button variant="ghost" size="sm" onClick={logout}>
+            Sair
+          </Button>
+        </div>
       </header>
 
       {notice ? (
@@ -296,8 +320,18 @@ export function AdminConsole() {
         <CreateIgrejaModal
           busy={modalBusy}
           error={modalError}
+          planos={activePlanos}
           onClose={() => setCreateOpen(false)}
           onSubmit={submitCreate}
+        />
+      ) : null}
+
+      {planosOpen && token ? (
+        <PlanosManagerModal
+          token={token}
+          onClose={() => setPlanosOpen(false)}
+          onExpired={logout}
+          onChanged={() => void loadPlanos()}
         />
       ) : null}
 
@@ -321,6 +355,7 @@ export function AdminConsole() {
           igreja={editing}
           busy={modalBusy}
           error={modalError}
+          planos={activePlanos}
           onClose={() => setEditing(null)}
           onSubmit={submitEdit}
           onDelete={submitDelete}

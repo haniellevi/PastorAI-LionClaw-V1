@@ -11,21 +11,34 @@ import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
 import type { CreateIgrejaInput } from "@/lib/admin-api";
 
-const PLANOS = [
-  { value: "", label: "Sem plano definido" },
-  { value: "ate_100", label: "Até 100 pessoas" },
-  { value: "101_200", label: "101–200 pessoas" },
-  { value: "acima_201", label: "201+ pessoas" },
+/** Planos oferecidos no seletor (vêm do catálogo; fallback p/ os 3 padrão). */
+export interface PlanoOption {
+  codigo: string;
+  nome: string;
+}
+
+const FALLBACK_PLANOS: PlanoOption[] = [
+  { codigo: "ate_100", nome: "Até 100 pessoas" },
+  { codigo: "101_200", nome: "101–200 pessoas" },
+  { codigo: "acima_201", nome: "201+ pessoas" },
 ];
 
 export interface CreateIgrejaModalProps {
   busy: boolean;
   error: string | null;
+  planos?: PlanoOption[];
   onClose: () => void;
   onSubmit: (input: CreateIgrejaInput) => void;
 }
 
-export function CreateIgrejaModal({ busy, error, onClose, onSubmit }: CreateIgrejaModalProps) {
+export function CreateIgrejaModal({
+  busy,
+  error,
+  planos,
+  onClose,
+  onSubmit,
+}: CreateIgrejaModalProps) {
+  const planOptions = planos && planos.length ? planos : FALLBACK_PLANOS;
   const [nome, setNome] = useState("");
   const [plano, setPlano] = useState("");
   const [adminNome, setAdminNome] = useState("");
@@ -89,9 +102,10 @@ export function CreateIgrejaModal({ busy, error, onClose, onSubmit }: CreateIgre
           <div className="field">
             <label htmlFor="ci-plano">Plano</label>
             <select id="ci-plano" value={plano} onChange={(e) => setPlano(e.target.value)}>
-              {PLANOS.map((p) => (
-                <option key={p.value} value={p.value}>
-                  {p.label}
+              <option value="">Sem plano definido</option>
+              {planOptions.map((p) => (
+                <option key={p.codigo} value={p.codigo}>
+                  {p.nome}
                 </option>
               ))}
             </select>

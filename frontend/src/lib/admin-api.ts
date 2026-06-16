@@ -293,3 +293,100 @@ export async function deleteIgreja(token: string, id: string): Promise<void> {
   }
   if (!res.ok) await throwMutationError(res, "Não foi possível excluir a igreja.");
 }
+
+// ---------------------------------------------------------------------------
+// Catálogo de planos — "o master define os planos" (migration 0012)
+// ---------------------------------------------------------------------------
+export interface AdminPlano {
+  id: string;
+  codigo: string;
+  nome: string;
+  limitePessoas: number | null; // null = ilimitado
+  precoMensal: number;
+  ativo: boolean;
+  ordem: number;
+  emUso: number; // nº de igrejas neste plano (trava a exclusão)
+}
+
+export interface CreatePlanoInput {
+  codigo: string;
+  nome: string;
+  limitePessoas: number | null;
+  precoMensal: number;
+  ordem?: number;
+}
+
+export interface UpdatePlanoInput {
+  nome?: string;
+  limitePessoas?: number | null;
+  precoMensal?: number;
+  ativo?: boolean;
+  ordem?: number;
+}
+
+/** Lista o catálogo de planos (inclui inativos), com nº de igrejas em uso. */
+export async function listPlanos(token: string): Promise<AdminPlano[]> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/admin/planos`, { headers: authHeaders(token) });
+  } catch {
+    throw new AdminAuthError("network", "Falha de conexão com o servidor.");
+  }
+  if (res.status === 401) throw new AdminSessionExpiredError();
+  if (res.status === 403) throw new AdminAuthError("forbidden", "Acesso negado.");
+  if (!res.ok) throw new AdminAuthError("network", "Não foi possível carregar os planos.");
+  return asJson<AdminPlano[]>(res);
+}
+
+/** Cria um plano no catálogo (409 se o código já existir). */
+export async function createPlano(
+  token: string,
+  input: CreatePlanoInput,
+): Promise<AdminPlano> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/admin/planos`, {
+      method: "POST",
+      headers: jsonHeaders(token),
+      body: JSON.stringify(input),
+    });
+  } catch {
+    throw new AdminAuthError("network", "Falha de conexão com o servidor.");
+  }
+  if (!res.ok) await throwMutationError(res, "Não foi possível criar o plano.");
+  return asJson<AdminPlano>(res);
+}
+
+/** Edita um plano (preço, nome, limite, ordem, ativo). O código é imutável. */
+export async function updatePlano(
+  token: string,
+  id: string,
+  input: UpdatePlanoInput,
+): Promise<AdminPlano> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/admin/planos/${id}`, {
+      method: "PATCH",
+      headers: jsonHeaders(token),
+      body: JSON.stringify(input),
+    });
+  } catch {
+    throw new AdminAuthError("network", "Falha de conexão com o servidor.");
+  }
+  if (!res.ok) await throwMutationError(res, "Não foi possível atualizar o plano.");
+  return asJson<AdminPlano>(res);
+}
+
+/** Exclui um plano — só se nenhuma igreja o usar (senão 409: desative). */
+export async function deletePlano(token: string, id: string): Promise<void> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/admin/planos/${id}`, {
+      method: "DELETE",
+      headers: authHeaders(token),
+    });
+  } catch {
+    throw new AdminAuthError("network", "Falha de conexão com o servidor.");
+  }
+  if (!res.ok) await throwMutationError(res, "Não foi possível excluir o plano.");
+}

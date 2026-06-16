@@ -10,6 +10,7 @@ import { useState } from "react";
 
 import { Button } from "@/components/ui/Button";
 import type { AdminIgreja, UpdateIgrejaInput } from "@/lib/admin-api";
+import type { PlanoOption } from "./CreateIgrejaModal";
 
 const STATUSES = [
   { value: "ativa", label: "Ativa" },
@@ -18,17 +19,17 @@ const STATUSES = [
   { value: "inadimplente", label: "Inadimplente" },
 ];
 
-const PLANOS = [
-  { value: "", label: "Sem plano definido" },
-  { value: "ate_100", label: "Até 100 pessoas" },
-  { value: "101_200", label: "101–200 pessoas" },
-  { value: "acima_201", label: "201+ pessoas" },
+const FALLBACK_PLANOS: PlanoOption[] = [
+  { codigo: "ate_100", nome: "Até 100 pessoas" },
+  { codigo: "101_200", nome: "101–200 pessoas" },
+  { codigo: "acima_201", nome: "201+ pessoas" },
 ];
 
 export interface EditIgrejaModalProps {
   igreja: AdminIgreja;
   busy: boolean;
   error: string | null;
+  planos?: PlanoOption[];
   onClose: () => void;
   onSubmit: (input: UpdateIgrejaInput) => void;
   onDelete: () => void;
@@ -38,12 +39,21 @@ export function EditIgrejaModal({
   igreja,
   busy,
   error,
+  planos,
   onClose,
   onSubmit,
   onDelete,
 }: EditIgrejaModalProps) {
   const [status, setStatus] = useState(igreja.status);
   const [plano, setPlano] = useState(igreja.plano ?? "");
+
+  const base = planos && planos.length ? planos : FALLBACK_PLANOS;
+  // Garante que o plano atual apareça no seletor mesmo se já estiver inativo
+  // (igreja grandfathered num plano que o master desativou).
+  const planOptions =
+    igreja.plano && !base.some((p) => p.codigo === igreja.plano)
+      ? [...base, { codigo: igreja.plano, nome: `${igreja.plano} (inativo)` }]
+      : base;
 
   const submit = () => {
     const input: UpdateIgrejaInput = {};
@@ -100,9 +110,10 @@ export function EditIgrejaModal({
           <div className="field">
             <label htmlFor="ei-plano">Plano</label>
             <select id="ei-plano" value={plano} onChange={(e) => setPlano(e.target.value)}>
-              {PLANOS.map((p) => (
-                <option key={p.value} value={p.value}>
-                  {p.label}
+              <option value="">Sem plano definido</option>
+              {planOptions.map((p) => (
+                <option key={p.codigo} value={p.codigo}>
+                  {p.nome}
                 </option>
               ))}
             </select>
