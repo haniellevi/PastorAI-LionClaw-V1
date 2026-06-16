@@ -10,8 +10,9 @@
  *  - e-mail duplicado no tenant é rejeitado (409);
  *  - remover/rebaixar o último admin é bloqueado (409) — a igreja nunca fica
  *    sem administrador (F3);
- *  - papéis são a UNIÃO de user_roles; o convite cria um app_user `convidado`
- *    e dispara o e-mail de ativação via Resend (best-effort).
+ *  - o convite NÃO escolhe papéis: o convidado entra como `membro` vinculado a
+ *    uma célula; o e-mail de ativação é disparado via Brevo (best-effort). Papéis
+ *    são a UNIÃO de user_roles, editados depois só para pessoas já cadastradas.
  */
 
 import { ApiError, authedFetch, readDetail } from "./dashboard-api";
@@ -38,7 +39,7 @@ export class TeamConflictError extends Error {
 
 export async function inviteMember(
   token: string,
-  payload: { nome: string; email: string; papeis: Role[]; pessoaId?: string },
+  payload: { pessoaId: string; email: string; celulaId?: string },
 ): Promise<InviteResult> {
   const res = await authedFetch(token, "/team/invite", {
     method: "POST",

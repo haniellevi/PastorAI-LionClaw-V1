@@ -1,16 +1,20 @@
 "use client";
 
 /**
- * Tela #equipe — convidar pessoas e editar papéis acumulados (F3 / RF-40).
- * Consome api-team (GET /team), api-team-invite (POST /team/invite) e
- * api-team-roles (PUT /team/{id}/roles).
+ * Tela #equipe — dar acesso ao painel (convite) e editar papéis (F3 / RF-40 /
+ * delta-049).
+ *
+ * Convite (Parte A): dá acesso a uma pessoa JÁ cadastrada e a vincula a uma
+ * célula. O convidado entra como MEMBRO — convites não escolhem papéis. Papéis
+ * são editados depois, aqui mesmo, e só para quem já está cadastrado.
  *
  * Regras refletidas na UI (garantidas no backend):
  *  - e-mail duplicado no tenant é bloqueado (409) com erro inline no formulário;
+ *  - uma pessoa só faz parte de UMA célula: quem já tem célula não pode ser
+ *    convidado (transferir é ação exclusiva do admin, à parte);
+ *  - quem já tem acesso ao painel não pode receber acesso de novo;
  *  - remover/rebaixar o ÚLTIMO admin é bloqueado (409) — a igreja nunca fica
- *    sem administrador;
- *  - o menu/dashboard de cada pessoa é a UNIÃO dos papéis (definidos aqui) com
- *    as telas liberadas em #permissoes.
+ *    sem administrador.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -18,6 +22,7 @@ import { StatusPill, type PillTone } from "@/components/dashboard/StatusPill";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { SessionExpiredError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
+import { fetchCellsFull, type CellSummary } from "@/lib/cells-api";
 import { fetchContacts, type Contact } from "@/lib/contacts-api";
 import { ApiError, fetchTeam, type TeamMember } from "@/lib/dashboard-api";
 import { Icon } from "@/lib/icons";
@@ -31,8 +36,6 @@ import {
 } from "@/lib/team-api";
 
 import { RolePick, RoleTags } from "./RolePick";
-
-const INVITE_ROLES: Role[] = ROLE_ORDER.filter((r) => r !== "admin");
 
 interface Toast {
   kind: "ok" | "err";
@@ -49,6 +52,12 @@ function statusLabel(status: string | null): string {
 export function EquipeScreen() {
   const { token, user, expireSession } = useAuth();
 
+  // Convite: admin e pastor marcam a célula (um líder de célula convida para a
+  // própria célula em outra superfície). Editar papéis / remover é só do admin.
+  const isAdminUser = !!user && user.roles.includes("admin");
+  const podeConvidar =
+    !!user && (user.roles.includes("admin") || user.roles.includes("pastor"));
+
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
@@ -56,21 +65,21 @@ export function EquipeScreen() {
 
   // convite
   const [inviteOpen, setInviteOpen] = useState(false);
-  const [invMode, setInvMode] = useState<"existente" | "nova">("existente");
   const [invPessoaId, setInvPessoaId] = useState<string | null>(null);
   const [invPessoaQuery, setInvPessoaQuery] = useState("");
   const [invNome, setInvNome] = useState("");
   const [invEmail, setInvEmail] = useState("");
-  const [invRoles, setInvRoles] = useState<Set<Role>>(new Set());
+  const [invNeedsEmail, setInvNeedsEmail] = useState(false);
+  const [invCelulaId, setInvCelulaId] = useState("");
   const [invError, setInvError] = useState<string | null>(null);
   const [inviting, setInviting] = useState(false);
 
-  // base de pessoas cadastradas (para escolher quem recebe acesso ao painel)
+  // base de pessoas cadastradas + células ativas (carregadas ao abrir o convite)
   const [pessoas, setPessoas] = useState<Contact[]>([]);
   const [pessoasTotal, setPessoasTotal] = useState(0);
   const [pessoasLoaded, setPessoasLoaded] = useState(false);
-  // true quando a pessoa escolhida ainda não tem e-mail (precisa pedir um)
-  const [invNeedsEmail, setInvNeedsEmail] = useState(false);
+  const [celulas, setCelulas] = useState<CellSummary[]>([]);
+  const [celulasLoaded, setCelulasLoaded] = useState(false);
 
   // edição de papéis
   const [editing, setEditing] = useState<TeamMember | null>(null);
@@ -129,27 +138,42 @@ export function EquipeScreen() {
     void load("initial");
   }, [load]);
 
-  // Carrega a base de pessoas ao abrir o convite (uma vez), para o seletor.
+  // Ao abrir o convite, carrega (uma vez) a base de pessoas e as células ativas.
   useEffect(() => {
-    if (!inviteOpen || !token || pessoasLoaded) return;
+    if (!inviteOpen || !token) return;
     let active = true;
-    void (async () => {
-      try {
-        const page = await fetchContacts(token);
-        if (active) {
-          setPessoas(page.items);
-          setPessoasTotal(page.total);
-          setPessoasLoaded(true);
+    if (!pessoasLoaded) {
+      void (async () => {
+        try {
+          const page = await fetchContacts(token);
+          if (active) {
+            setPessoas(page.items);
+            setPessoasTotal(page.total);
+            setPessoasLoaded(true);
+          }
+        } catch (err) {
+          if (handleSessionError(err)) return;
+          // silencioso: a lista vazia já orienta a cadastrar em Contatos.
         }
-      } catch (err) {
-        if (handleSessionError(err)) return;
-        // silencioso: o modo "cadastrar nova" segue como fallback.
-      }
-    })();
+      })();
+    }
+    if (!celulasLoaded) {
+      void (async () => {
+        try {
+          const page = await fetchCellsFull(token);
+          if (active) {
+            setCelulas(page.items.filter((c) => c.ativo));
+            setCelulasLoaded(true);
+          }
+        } catch (err) {
+          if (handleSessionError(err)) return;
+        }
+      })();
+    }
     return () => {
       active = false;
     };
-  }, [inviteOpen, token, pessoasLoaded, handleSessionError]);
+  }, [inviteOpen, token, pessoasLoaded, celulasLoaded, handleSessionError]);
 
   const pessoasFiltradas = useMemo(() => {
     const q = invPessoaQuery.trim().toLowerCase();
@@ -177,45 +201,42 @@ export function EquipeScreen() {
 
   const resetInvite = useCallback(() => {
     setInviteOpen(false);
-    setInvMode("existente");
     setInvPessoaId(null);
     setInvPessoaQuery("");
     setInvNome("");
     setInvEmail("");
     setInvNeedsEmail(false);
-    setInvRoles(new Set());
+    setInvCelulaId("");
     setInvError(null);
-    // invalida o cache de pessoas: reabrir o convite recarrega (inclui quem
-    // foi criado no meio tempo).
+    // invalida os caches: reabrir o convite recarrega (inclui quem/o que foi
+    // criado no meio tempo).
     setPessoas([]);
     setPessoasTotal(0);
     setPessoasLoaded(false);
+    setCelulas([]);
+    setCelulasLoaded(false);
   }, []);
 
   const emailValid = (email: string) => /\S+@\S+\.\S+/.test(email.trim());
-  const inviteReady =
-    invRoles.size > 0 &&
-    emailValid(invEmail) &&
-    (invMode === "existente" ? invPessoaId !== null : invNome.trim().length > 0);
+  const inviteReady = invPessoaId !== null && emailValid(invEmail) && invCelulaId !== "";
 
   const submitInvite = useCallback(async () => {
-    if (!token || !inviteReady) return;
+    if (!token || !inviteReady || !invPessoaId) return;
     setInviting(true);
     setInvError(null);
     try {
       const dest = invEmail.trim().toLowerCase();
       const result = await inviteMember(token, {
-        nome: invNome.trim(),
+        pessoaId: invPessoaId,
         email: dest,
-        papeis: Array.from(invRoles),
-        pessoaId: invMode === "existente" ? (invPessoaId ?? undefined) : undefined,
+        celulaId: invCelulaId,
       });
       flashToast(
         result.emailEnviado
           ? { kind: "ok", text: `Convite enviado para ${dest}.` }
           : {
               kind: "err",
-              text: "Pessoa criada, mas o e-mail de convite não saiu (e-mail não configurado no servidor). Configure o envio e reenvie.",
+              text: "Acesso criado, mas o e-mail de convite não saiu (e-mail não configurado no servidor). Configure o envio e reenvie.",
             },
       );
       resetInvite();
@@ -230,7 +251,7 @@ export function EquipeScreen() {
     } finally {
       setInviting(false);
     }
-  }, [token, inviteReady, invMode, invPessoaId, invNome, invEmail, invRoles, flashToast, resetInvite, load, handleSessionError]);
+  }, [token, inviteReady, invPessoaId, invEmail, invCelulaId, flashToast, resetInvite, load, handleSessionError]);
 
   const openEdit = useCallback((member: TeamMember) => {
     setEditing(member);
@@ -342,8 +363,8 @@ export function EquipeScreen() {
     [token, flashToast, load, handleSessionError],
   );
 
-  const columns: Array<Column<TeamMember>> = useMemo(
-    () => [
+  const columns: Array<Column<TeamMember>> = useMemo(() => {
+    const base: Array<Column<TeamMember>> = [
       {
         header: "Pessoa",
         cell: (m) => <span className="nm">{m.nome}</span>,
@@ -360,7 +381,10 @@ export function EquipeScreen() {
         header: "Status",
         cell: (m) => <StatusPill tone={statusTone(m.status)}>{statusLabel(m.status)}</StatusPill>,
       },
-      {
+    ];
+    // Gestão de acessos (editar papéis / reenviar / remover) é só do admin.
+    if (isAdminUser) {
+      base.push({
         header: "",
         width: "1px",
         cell: (m) => (
@@ -394,10 +418,10 @@ export function EquipeScreen() {
             )}
           </div>
         ),
-      },
-    ],
-    [openEdit, isSelf, handleResend, handleDelete, busyId],
-  );
+      });
+    }
+    return base;
+  }, [openEdit, isSelf, handleResend, handleDelete, busyId, isAdminUser]);
 
   const showSkeleton = loading && !loaded;
 
@@ -405,14 +429,16 @@ export function EquipeScreen() {
     <div className="screen" key="equipe">
       <div className="screen-head">
         <div className="actions">
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={() => (inviteOpen ? resetInvite() : setInviteOpen(true))}
-          >
-            <Icon name="plus" />
-            <span>Dar acesso ao painel</span>
-          </button>
+          {podeConvidar ? (
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => (inviteOpen ? resetInvite() : setInviteOpen(true))}
+            >
+              <Icon name="plus" />
+              <span>Dar acesso ao painel</span>
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -442,166 +468,131 @@ export function EquipeScreen() {
             </div>
           ) : null}
           <p className="sub" style={{ color: "var(--muted)", marginBottom: "var(--s3)" }}>
-            Dê acesso ao painel a uma pessoa já cadastrada. Não está na lista?
-            Cadastre uma nova.
+            Dê acesso ao painel a uma pessoa já cadastrada e defina a célula dela.
+            O convidado entra como <strong>membro</strong> — os papéis são definidos
+            depois, aqui na equipe. Não está na lista? Cadastre em Contatos primeiro.
           </p>
 
-          {invMode === "existente" ? (
-            <>
-              <div className="field" style={{ marginBottom: "var(--s2)" }}>
-                <label htmlFor="invPessoaQuery">Buscar pessoa</label>
-                <input
-                  id="invPessoaQuery"
-                  value={invPessoaQuery}
-                  onChange={(e) => setInvPessoaQuery(e.target.value)}
-                  placeholder="Nome, telefone ou e-mail…"
-                  autoFocus
-                />
-                <div
-                  style={{
-                    maxHeight: 220,
-                    overflowY: "auto",
-                    border: "1px solid var(--border)",
-                    borderRadius: "var(--r-md)",
-                    marginTop: 6,
-                  }}
-                >
-                  {pessoasFiltradas.length === 0 ? (
-                    <p className="sub" style={{ color: "var(--muted)", padding: "var(--s3)" }}>
-                      {pessoasLoaded ? "Nenhuma pessoa encontrada." : "Carregando pessoas…"}
-                    </p>
-                  ) : (
-                    pessoasFiltradas.map((p) => {
-                      const jaTemAcesso = pessoasComAcesso.has(p.id);
-                      const sel = invPessoaId === p.id;
-                      return (
-                        <button
-                          type="button"
-                          key={p.id}
-                          onClick={() => {
-                            if (!jaTemAcesso) selectPessoa(p);
-                          }}
-                          disabled={jaTemAcesso}
-                          style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            alignItems: "center",
-                            gap: 8,
-                            width: "100%",
-                            textAlign: "left",
-                            padding: "8px 12px",
-                            background: sel ? "var(--accent-soft)" : "transparent",
-                            border: "none",
-                            borderBottom: "1px solid var(--border)",
-                            cursor: jaTemAcesso ? "not-allowed" : "pointer",
-                            opacity: jaTemAcesso ? 0.55 : 1,
-                            font: "inherit",
-                            color: "inherit",
-                          }}
-                        >
-                          <span style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
-                            <span className="nm">{p.nome}</span>
-                            <span className="sub mono" style={{ color: "var(--muted)" }}>
-                              {p.telefone}
-                              {p.email ? ` · ${p.email}` : " · sem e-mail"}
-                            </span>
-                          </span>
-                          {jaTemAcesso ? <StatusPill tone="muted">Já tem acesso</StatusPill> : null}
-                        </button>
-                      );
-                    })
-                  )}
-                </div>
-                {pessoas.length < pessoasTotal ? (
-                  <p className="sub" style={{ color: "var(--muted)", marginTop: 6 }}>
-                    Mostrando {pessoas.length} de {pessoasTotal}. Refine a busca para
-                    encontrar quem não aparece.
-                  </p>
-                ) : null}
-                {invPessoaId && invNeedsEmail ? (
-                  <div className="field" style={{ marginTop: "var(--s3)" }}>
-                    <label htmlFor="invEmailExist">
-                      E-mail para login{" "}
-                      <span className="sub" style={{ color: "var(--muted)", fontWeight: 400 }}>
-                        — esta pessoa ainda não tem e-mail cadastrado
-                      </span>
-                    </label>
-                    <input
-                      id="invEmailExist"
-                      type="email"
-                      value={invEmail}
-                      onChange={(e) => setInvEmail(e.target.value)}
-                      placeholder="lider@igreja.com.br"
-                    />
-                  </div>
-                ) : null}
-              </div>
-              <button
-                type="button"
-                className="btn btn-sm"
-                style={{ marginBottom: "var(--s3)" }}
-                onClick={() => {
-                  setInvMode("nova");
-                  setInvPessoaId(null);
-                  setInvPessoaQuery("");
-                  setInvNome("");
-                  setInvEmail("");
-                  setInvNeedsEmail(false);
-                  setInvError(null);
-                }}
-              >
-                Não está na lista? Cadastrar nova pessoa
-              </button>
-            </>
-          ) : (
-            <>
-              <div className="row" style={{ marginBottom: "var(--s2)" }}>
-                <div className="field" style={{ margin: 0 }}>
-                  <label htmlFor="invName">Nome</label>
-                  <input
-                    id="invName"
-                    value={invNome}
-                    onChange={(e) => setInvNome(e.target.value)}
-                    placeholder="Nome completo"
-                    autoFocus
-                  />
-                </div>
-                <div className="field" style={{ margin: 0 }}>
-                  <label htmlFor="invEmail">E-mail do convidado</label>
-                  <input
-                    id="invEmail"
-                    type="email"
-                    value={invEmail}
-                    onChange={(e) => setInvEmail(e.target.value)}
-                    placeholder="lider@igreja.com.br"
-                  />
-                </div>
-              </div>
-              <button
-                type="button"
-                className="btn btn-sm"
-                style={{ marginBottom: "var(--s3)" }}
-                onClick={() => {
-                  setInvMode("existente");
-                  setInvNome("");
-                  setInvEmail("");
-                  setInvNeedsEmail(false);
-                  setInvError(null);
-                }}
-              >
-                ← Voltar à busca de pessoa cadastrada
-              </button>
-            </>
-          )}
           <div className="field" style={{ marginBottom: "var(--s3)" }}>
-            <label>
-              Papéis{" "}
-              <span className="sub" style={{ color: "var(--muted)", fontWeight: 400 }}>
-                — selecione um ou mais
-              </span>
-            </label>
-            <RolePick options={INVITE_ROLES} selected={invRoles} onToggle={toggle(setInvRoles)} />
+            <label htmlFor="invPessoaQuery">Pessoa</label>
+            <input
+              id="invPessoaQuery"
+              value={invPessoaQuery}
+              onChange={(e) => setInvPessoaQuery(e.target.value)}
+              placeholder="Buscar por nome, telefone ou e-mail…"
+              autoFocus
+            />
+            <div
+              style={{
+                maxHeight: 220,
+                overflowY: "auto",
+                border: "1px solid var(--border)",
+                borderRadius: "var(--r-md)",
+                marginTop: 6,
+              }}
+            >
+              {pessoasFiltradas.length === 0 ? (
+                <p className="sub" style={{ color: "var(--muted)", padding: "var(--s3)" }}>
+                  {pessoasLoaded ? "Nenhuma pessoa encontrada." : "Carregando pessoas…"}
+                </p>
+              ) : (
+                pessoasFiltradas.map((p) => {
+                  const jaTemAcesso = pessoasComAcesso.has(p.id);
+                  const jaTemCelula = !!p.celulaId;
+                  const bloqueado = jaTemAcesso || jaTemCelula;
+                  const sel = invPessoaId === p.id;
+                  return (
+                    <button
+                      type="button"
+                      key={p.id}
+                      onClick={() => {
+                        if (!bloqueado) selectPessoa(p);
+                      }}
+                      disabled={bloqueado}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        gap: 8,
+                        width: "100%",
+                        textAlign: "left",
+                        padding: "8px 12px",
+                        background: sel ? "var(--accent-soft)" : "transparent",
+                        border: "none",
+                        borderBottom: "1px solid var(--border)",
+                        cursor: bloqueado ? "not-allowed" : "pointer",
+                        opacity: bloqueado ? 0.55 : 1,
+                        font: "inherit",
+                        color: "inherit",
+                      }}
+                    >
+                      <span style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+                        <span className="nm">{p.nome}</span>
+                        <span className="sub mono" style={{ color: "var(--muted)" }}>
+                          {p.telefone}
+                          {p.email ? ` · ${p.email}` : " · sem e-mail"}
+                        </span>
+                      </span>
+                      {jaTemAcesso ? (
+                        <StatusPill tone="muted">Já tem acesso</StatusPill>
+                      ) : jaTemCelula ? (
+                        <StatusPill tone="muted">Já em célula</StatusPill>
+                      ) : null}
+                    </button>
+                  );
+                })
+              )}
+            </div>
+            {pessoas.length < pessoasTotal ? (
+              <p className="sub" style={{ color: "var(--muted)", marginTop: 6 }}>
+                Mostrando {pessoas.length} de {pessoasTotal}. Refine a busca para
+                encontrar quem não aparece.
+              </p>
+            ) : null}
           </div>
+
+          {invPessoaId && invNeedsEmail ? (
+            <div className="field" style={{ marginBottom: "var(--s3)" }}>
+              <label htmlFor="invEmailExist">
+                E-mail para login{" "}
+                <span className="sub" style={{ color: "var(--muted)", fontWeight: 400 }}>
+                  — esta pessoa ainda não tem e-mail cadastrado
+                </span>
+              </label>
+              <input
+                id="invEmailExist"
+                type="email"
+                value={invEmail}
+                onChange={(e) => setInvEmail(e.target.value)}
+                placeholder="lider@igreja.com.br"
+              />
+            </div>
+          ) : null}
+
+          <div className="field" style={{ marginBottom: "var(--s3)" }}>
+            <label htmlFor="invCelula">Célula do convidado</label>
+            {celulasLoaded && celulas.length === 0 ? (
+              <p className="sub" style={{ color: "var(--muted)" }}>
+                Nenhuma célula ativa. Crie uma célula antes de convidar membros.
+              </p>
+            ) : (
+              <select
+                id="invCelula"
+                value={invCelulaId}
+                onChange={(e) => setInvCelulaId(e.target.value)}
+              >
+                <option value="">
+                  {celulasLoaded ? "Selecione a célula…" : "Carregando células…"}
+                </option>
+                {celulas.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.nome}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+
           <div style={{ display: "flex", gap: 8 }}>
             <button type="submit" className="btn btn-primary" disabled={!inviteReady || inviting} aria-busy={inviting || undefined}>
               {inviting ? "Enviando…" : "Enviar convite"}

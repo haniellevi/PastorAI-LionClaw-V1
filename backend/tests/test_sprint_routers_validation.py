@@ -84,16 +84,20 @@ def test_event_requires_data(app) -> None:
 def test_team_invite_rejects_invalid_email(app) -> None:
     resp = _client(app).post(
         "/team/invite",
-        json={"nome": "Novo", "email": "invalido", "papeis": []},
+        json={
+            "pessoaId": "00000000-0000-0000-0000-0000000000b1",
+            "email": "invalido",
+        },
         headers=_AUTH,
     )
     assert resp.status_code == 422
 
 
-def test_team_invite_rejects_invalid_role(app) -> None:
+def test_team_invite_requires_pessoa(app) -> None:
+    # Convites não escolhem papéis e exigem uma pessoa já cadastrada (delta-049).
     resp = _client(app).post(
         "/team/invite",
-        json={"nome": "Novo", "email": "novo@ex.com", "papeis": ["arcanjo"]},
+        json={"email": "novo@ex.com"},
         headers=_AUTH,
     )
     assert resp.status_code == 422
