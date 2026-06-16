@@ -17,6 +17,7 @@ import {
   fetchIgrejaAdmins,
   fetchIgrejaAgente,
   fetchIgrejaDetail,
+  fetchOrquestrador,
   removeIgrejaAdmin,
   resendAdminInvite,
   saveIgrejaAgente,
@@ -360,6 +361,22 @@ function AgenteTab({
   const [err, setErr] = useState<string | null>(null);
   const credStatus = agente?.credencialStatus ?? "none";
 
+  const usarPadrao = async () => {
+    try {
+      const o = await fetchOrquestrador(token);
+      setNome(o.nome ?? "");
+      setTom(o.tom ?? "");
+      setComportamento(o.comportamento ?? "");
+      setErr(null);
+    } catch (e) {
+      if (e instanceof AdminSessionExpiredError) {
+        onExpired();
+        return;
+      }
+      setErr("Não foi possível carregar o modelo padrão.");
+    }
+  };
+
   const save = async () => {
     if (!comportamento.trim()) {
       setErr("Descreva o comportamento do agente.");
@@ -439,9 +456,20 @@ function AgenteTab({
         {CRED_LABEL[credStatus]}
         {credStatus !== "active" ? " — a igreja precisa cadastrar a chave de LLM para ligar." : ""}
       </p>
-      <Button type="submit" variant="primary" size="sm" loading={busy} loadingText="Salvando…">
-        Salvar agente
-      </Button>
+      <div style={{ display: "flex", gap: "var(--s2)" }}>
+        <Button type="submit" variant="primary" size="sm" loading={busy} loadingText="Salvando…">
+          Salvar agente
+        </Button>
+        <button
+          type="button"
+          className="btn btn-sm btn-ghost"
+          disabled={busy}
+          onClick={() => void usarPadrao()}
+          title="Preenche com o modelo padrão do orquestrador (você revisa e salva)"
+        >
+          Usar o padrão
+        </button>
+      </div>
     </form>
   );
 }

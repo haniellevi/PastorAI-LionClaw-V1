@@ -808,6 +808,28 @@ class PlatformAdmin(Base):
     )
 
 
+class PlatformOrchestrator(Base):
+    """Modelo padrão do orquestrador (1 linha), definido pelo master.
+
+    Padrão TEMPLATE: o master define um comportamento base e, ao aprovar uma
+    igreja, ele é COPIADO para o ``AgentConfig`` dela (por igreja). O runtime do
+    agente NÃO muda — segue lendo o AgentConfig por igreja. Plano de plataforma
+    (sem igreja_id), só service role. Ver migration 0014.
+    """
+
+    __tablename__ = "platform_orchestrator"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    nome: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tom: Mapped[str | None] = mapped_column(Text, nullable=True)
+    comportamento: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("''")
+    )
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+
 __all__ = [
     "Base",
     "Igreja",
@@ -838,4 +860,5 @@ __all__ = [
     "Plano",
     "PlatformAdmin",
     "PlatformAuditLog",
+    "PlatformOrchestrator",
 ]

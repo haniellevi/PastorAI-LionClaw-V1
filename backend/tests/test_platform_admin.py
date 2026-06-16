@@ -22,6 +22,7 @@ from app.db.models import (
     Plano,
     PlatformAdmin,
     PlatformAuditLog,
+    PlatformOrchestrator,
     RolePermission,
     UserRole,
 )
@@ -94,6 +95,7 @@ class PlatformDB:
         llm_credential=None,
         igreja_admins=None,
         user_role=None,
+        orchestrator=None,
     ) -> None:
         self.gate_app_user = gate_app_user
         self.admin_marker = admin_marker
@@ -117,6 +119,7 @@ class PlatformDB:
         self.llm_credential = llm_credential
         self.igreja_admins = igreja_admins or []
         self.user_role = user_role
+        self.orchestrator = orchestrator
         self.added: list = []
         self.deleted: list = []
         self.committed = False
@@ -153,6 +156,8 @@ class PlatformDB:
             return _Result(scalar=self.llm_credential)
         if ent is UserRole:
             return _Result(scalar=self.user_role)
+        if ent is PlatformOrchestrator:
+            return _Result(scalar=self.orchestrator)
         # select(func.count()) — scalar count with no mapped entity.
         return _Result(scalar_one=self.count_value)
 
@@ -1031,3 +1036,73 @@ def test_admin_remove_blocks_last_admin(app) -> None:
     client = _wire(app, db=db, clerk=FakeClerk())
     resp = client.delete(f"/admin/igrejas/{_IG_ID}/admins/{u.id}", headers=_AUTH)
     assert resp.status_code == 409
+
+
+# ---------------------------------------------------------------------------
+# Orquestrador padrão (modelo do master) — Fatia 3
+# ---------------------------------------------------------------------------
+def test_admin_gets_orquestrador(app) -> None:
+    tmpl = SimpleNamespace(
+        id="o1", nome="Assistente", tom="acolhedor", comportamento="Seja gentil."
+    )
+    db = PlatformDB(gate_app_user=make_app_user(), admin_marker="pa1", orchestrator=tmpl)
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.get("/admin/orquestrador", headers=_AUTH)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["comportamento"] == "Seja gentil."
+    assert body["nome"] == "Assistente"
+
+
+def test_admin_gets_orquestrador_empty(app) -> None:
+    db = PlatformDB(gate_app_user=make_app_user(), admin_marker="pa1", orchestrator=None)
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.get("/admin/orquestrador", headers=_AUTH)
+    assert resp.status_code == 200
+    assert resp.json()["comportamento"] == ""
+
+
+def test_admin_puts_orquestrador(app) -> None:
+    db = PlatformDB(gate_app_user=make_app_user(), admin_marker="pa1", orchestrator=None)
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.put(
+        "/admin/orquestrador",
+        headers=_AUTH,
+        json={"comportamento": "Acolha bem.", "nome": "Ana"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["comportamento"] == "Acolha bem."
+    assert db.committed is True
+    assert any(isinstance(o, PlatformOrchestrator) for o in db.added)
+    assert any(
+        isinstance(o, PlatformAuditLog) and o.acao == "orquestrador_editar"
+        for o in db.added
+    )
+
+
+def test_admin_orquestrador_blocks_non_master(app) -> None:
+    db = PlatformDB(gate_app_user=make_app_user(), admin_marker=None)
+    client = _wire(app, db=db, clerk=FakeClerk())
+    assert client.get("/admin/orquestrador", headers=_AUTH).status_code == 403
+
+
+def test_admin_aprovar_seeds_agent_from_template(app) -> None:
+    igreja = _igreja_ns(status="aguardando_aprovacao")
+    tmpl = SimpleNamespace(
+        id="o1", nome="Assistente", tom="acolhedor", comportamento="Seja gentil."
+    )
+    db = PlatformDB(
+        gate_app_user=make_app_user(),
+        admin_marker="pa1",
+        igreja_scalar=igreja,
+        agent_config=None,  # igreja ainda sem agente
+        orchestrator=tmpl,
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.post(f"/admin/igrejas/{_IG_ID}/aprovar", headers=_AUTH)
+    assert resp.status_code == 200
+    # O modelo padrão foi COPIADO para um AgentConfig da igreja (desligado).
+    assert any(
+        isinstance(o, AgentConfig) and o.comportamento == "Seja gentil." and not o.ativo
+        for o in db.added
+    )
