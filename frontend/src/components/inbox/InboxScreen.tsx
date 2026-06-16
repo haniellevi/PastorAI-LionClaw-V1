@@ -22,8 +22,10 @@ import {
   SessionExpiredError,
   canAccessInbox,
   fetchConversations,
+  fetchMessages,
   handoffConversation,
   sendMessage,
+  type ChatMessage,
   type Conversation,
 } from "@/lib/conversations-api";
 import { Icon } from "@/lib/icons";
@@ -55,10 +57,12 @@ export function InboxScreen() {
   const [now, setNow] = useState(() => Date.now());
 
   const [filter, setFilter] = useState<ConvFilter>("todas");
+  const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [conflicts, setConflicts] = useState<Record<string, string>>({});
-  const [localReplies, setLocalReplies] = useState<Record<string, string[]>>({});
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messagesLoading, setMessagesLoading] = useState(false);
   const [toast, setToast] = useState<Toast | null>(null);
 
   // "unknown" quando o papel não pode ler a conexão (não-admin) — tratado como
@@ -121,6 +125,34 @@ export function InboxScreen() {
     }
   }, [token, canReadConnection, handleSessionError]);
 
+  // ---- histórico de mensagens da conversa selecionada ---------------------
+  const loadMessages = useCallback(
+    async (convId: string, mode: "initial" | "poll" = "initial") => {
+      if (!token) return;
+      if (mode === "initial") setMessagesLoading(true);
+      try {
+        const items = await fetchMessages(token, convId);
+        setMessages(items);
+      } catch (err) {
+        if (handleSessionError(err)) return;
+        // No poll a falha é silenciosa; no initial a thread mostra vazio.
+      } finally {
+        if (mode === "initial") setMessagesLoading(false);
+      }
+    },
+    [token, handleSessionError],
+  );
+
+  // Ao trocar de conversa, limpa e recarrega o histórico daquela conversa.
+  useEffect(() => {
+    if (!selectedId) {
+      setMessages([]);
+      return;
+    }
+    setMessages([]);
+    void loadMessages(selectedId, "initial");
+  }, [selectedId, loadMessages]);
+
   useEffect(() => {
     if (!allowed) {
       setLoading(false);
@@ -136,9 +168,10 @@ export function InboxScreen() {
       setNow(Date.now());
       void load("poll");
       void loadConnection();
+      if (selectedId) void loadMessages(selectedId, "poll");
     }, POLL_MS);
     return () => window.clearInterval(id);
-  }, [allowed, load, loadConnection]);
+  }, [allowed, load, loadConnection, selectedId, loadMessages]);
 
   // ---- toast efêmero ------------------------------------------------------
   const toastTimer = useRef<number | null>(null);
@@ -161,13 +194,16 @@ export function InboxScreen() {
   );
 
   const visible = useMemo(() => {
-    if (filter === "todas") return conversations;
+    const q = search.trim().toLowerCase();
     return conversations.filter((c) => {
       const estado = effectiveEstado(c);
-      if (filter === "aguardando") return estado === "aguardando";
-      return estado === "ia";
+      if (filter === "aguardando" && estado !== "aguardando") return false;
+      if (filter === "ia" && estado !== "ia") return false;
+      if (!q) return true;
+      const hay = `${c.nome ?? ""} ${c.telefone} ${c.ultimaMensagem ?? ""}`.toLowerCase();
+      return hay.includes(q);
     });
-  }, [conversations, filter]);
+  }, [conversations, filter, search]);
 
   // Seleção padrão: primeira conversa visível quando nenhuma escolhida.
   useEffect(() => {
@@ -245,9 +281,10 @@ export function InboxScreen() {
       if (!token) return;
       try {
         await sendMessage(token, c.id, text);
-        // Eco otimista na thread + bump da última mensagem na lista.
-        setLocalReplies((prev) => ({ ...prev, [c.id]: [...(prev[c.id] ?? []), text] }));
+        // Bump da última mensagem na lista + recarrega o histórico (a mensagem
+        // enviada é persistida no backend e aparece na thread).
         patch(c.id, { ultimaMensagem: text });
+        void loadMessages(c.id, "poll");
         flashToast({ kind: "ok", text: "Resposta enviada pelo número oficial." });
       } catch (err) {
         if (handleSessionError(err)) return;
@@ -260,7 +297,7 @@ export function InboxScreen() {
         });
       }
     },
-    [token, patch, flashToast, handleSessionError],
+    [token, patch, flashToast, handleSessionError, loadMessages],
   );
 
   // ---- bloqueio de acesso (US-11) -----------------------------------------
@@ -346,8 +383,10 @@ export function InboxScreen() {
             filter={filter}
             waitingCount={waitingCount}
             now={now}
+            search={search}
             onSelect={setSelectedId}
             onFilter={setFilter}
+            onSearch={setSearch}
           />
         )}
 
@@ -359,7 +398,8 @@ export function InboxScreen() {
             degraded={degraded}
             busy={busyId === selected.id}
             conflict={conflicts[selected.id] ?? null}
-            localReplies={localReplies[selected.id] ?? []}
+            messages={messages}
+            messagesLoading={messagesLoading}
             onAssume={handleAssume}
             onReturn={handleReturn}
             onSend={handleSend}

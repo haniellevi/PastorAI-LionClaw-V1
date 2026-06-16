@@ -61,6 +61,7 @@ class ConversationOut(BaseModel):
     assumidoPor: str | None = None  # noqa: N815
     assumidoEm: str | None = None  # noqa: N815
     esperaDesde: str | None = None  # noqa: N815
+    atualizadoEm: str | None = None  # noqa: N815 - hora da última atividade (lista)
 
     @classmethod
     def from_model(cls, c: Conversation, nome: str | None = None) -> "ConversationOut":
@@ -75,6 +76,7 @@ class ConversationOut(BaseModel):
             assumidoPor=str(c.assumido_por) if c.assumido_por else None,
             assumidoEm=c.assumido_em.isoformat() if c.assumido_em else None,
             esperaDesde=c.espera_desde.isoformat() if c.espera_desde else None,
+            atualizadoEm=c.updated_at.isoformat() if c.updated_at else None,
         )
 
 
