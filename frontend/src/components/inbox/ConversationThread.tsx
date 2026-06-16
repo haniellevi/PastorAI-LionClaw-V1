@@ -22,7 +22,6 @@ import type { ChatMessage, Conversation } from "@/lib/conversations-api";
 import { Icon } from "@/lib/icons";
 
 import {
-  authorLabel,
   contactAvatar,
   displayName,
   effectiveEstado,
@@ -195,9 +194,6 @@ export function ConversationThread({
         ) : (
           messages.map((m) => (
             <div className={`msg ${m.direcao === "out" ? "out" : "in"}`} key={m.id}>
-              <span className="tag">
-                {m.autor === "contato" ? displayName(conversation) : authorLabel(m.autor)}
-              </span>
               {m.texto ?? ""}
               <time>{messageStamp(m.criadoEm)}</time>
             </div>
