@@ -2525,6 +2525,10 @@ table.data-table {
 .inbox {
   display: grid;
   grid-template-columns: 320px 1fr;
+  /* Linha limitada à altura do container (não ao conteúdo): sem isto a linha
+     vira `auto` e a thread cresce com as mensagens, empurrando o compositor
+     pra fora. minmax(0,1fr) deixa a coluna/lista rolarem por dentro. */
+  grid-template-rows: minmax(0, 1fr);
   flex: 1; /* preenche .screen-chat (antes: height fixo calc(100vh - 122px)) */
   min-height: 0; /* deixa .conv-list / .thread-body donas do scroll */
   border: 1px solid var(--border);
@@ -2535,6 +2539,7 @@ table.data-table {
 .conv-list {
   border-right: 1px solid var(--border);
   overflow-y: auto;
+  min-height: 0; /* grid item rola por dentro, não estoura a linha */
   display: flex;
   flex-direction: column;
 }
@@ -2646,6 +2651,7 @@ table.data-table {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0; /* limita à coluna do grid: thread-body rola, thread-foot fixo */
 }
 .thread-head {
   padding: var(--s3) var(--s4);
@@ -2679,6 +2685,7 @@ table.data-table {
 }
 .thread-body {
   flex: 1;
+  min-height: 0; /* essencial: flex:1 + min-height:0 faz a área de mensagens rolar */
   overflow-y: auto;
   padding: var(--s4);
   background: var(--surface-2);
