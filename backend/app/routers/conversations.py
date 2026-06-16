@@ -6,9 +6,9 @@ Endpoints:
   - GET  /conversations/{id}/messages  conversation history (oldest first)
   - POST /conversations/{id}/messages  send a human reply to the contact (WhatsApp)
 
-Access (US-11): the inbox is restricted to privileged roles (admin implicitly,
-plus pastor / lider_g12). Cell leaders receive 403 — enforced by require_role,
-which already grants admin implicit access and unions accumulated roles.
+Access (US-11): the inbox screen is gated by the tenant's role_permissions
+matrix via require_screen("inbox") — the same matrix the admin edits in
+#permissoes (admin implicit). Roles without the inbox screen receive 403.
 
 Handoff concurrency (US-12): the conversation row is locked FOR UPDATE; if a
 human already assumed it, a second "assume" returns 409 carrying the real
@@ -29,8 +29,8 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Conversation, Message, Pessoa, WhatsappConnection
 from app.db.session import get_db
-from app.deps import CurrentUser, require_role
-from app.domain.conversations import INBOX_ROLES, resolve_handoff
+from app.deps import CurrentUser, require_screen
+from app.domain.conversations import resolve_handoff
 from app.routers._common import Page, PaginationParams, ensure_tenant_context
 from app.services.evolution import (
     EvolutionClient,
@@ -41,10 +41,6 @@ from app.services.evolution import (
 logger = logging.getLogger("pastorai.conversations")
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
-
-# Privileged inbox roles (admin passes implicitly via require_role); derived
-# from the domain INBOX_ROLES so the gate has a single source of truth.
-_INBOX_ROLES = sorted(INBOX_ROLES)
 
 
 # ---------------------------------------------------------------------------
@@ -126,7 +122,7 @@ class SendMessageRequest(BaseModel):
 def list_conversations(
     pagination: PaginationParams = Depends(),
     db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(require_role(_INBOX_ROLES)),
+    current_user: CurrentUser = Depends(require_screen("inbox")),
 ) -> Page[ConversationOut]:
     """List tenant conversations (estado, última mensagem, não lidas, fila)."""
     ensure_tenant_context(db, current_user)
@@ -161,7 +157,7 @@ def handoff(
     conversation_id: str,
     payload: HandoffRequest,
     db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(require_role(_INBOX_ROLES)),
+    current_user: CurrentUser = Depends(require_screen("inbox")),
 ) -> HandoffResponse:
     """Switch a conversation between IA and human control (US-12/US-13)."""
     ensure_tenant_context(db, current_user)
@@ -204,7 +200,7 @@ def list_messages(
     conversation_id: str,
     pagination: PaginationParams = Depends(),
     db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(require_role(_INBOX_ROLES)),
+    current_user: CurrentUser = Depends(require_screen("inbox")),
 ) -> Page[MessageOut]:
     """Return a conversation's message history, oldest first (US-13)."""
     ensure_tenant_context(db, current_user)
@@ -236,7 +232,7 @@ def send_message(
     conversation_id: str,
     payload: SendMessageRequest,
     db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(require_role(_INBOX_ROLES)),
+    current_user: CurrentUser = Depends(require_screen("inbox")),
     evolution: EvolutionClient = Depends(get_evolution_client),
 ) -> MessageOut:
     """Send a human reply to the contact's WhatsApp (US-13).

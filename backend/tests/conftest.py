@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.db.models import AppUser
+from app.db.models import AppUser, RolePermission
 from app.services.clerk import ClerkAuthError, ClerkIdentity
 
 
@@ -27,9 +27,10 @@ class _FakeScalars:
 
 
 class _FakeResult:
-    def __init__(self, scalar=None, scalars_list=None) -> None:
+    def __init__(self, scalar=None, scalars_list=None, rows=None) -> None:
         self._scalar = scalar
         self._scalars_list = scalars_list or []
+        self._rows = rows or []
 
     def scalar_one_or_none(self):
         return self._scalar
@@ -37,13 +38,23 @@ class _FakeResult:
     def scalars(self) -> _FakeScalars:
         return _FakeScalars(self._scalars_list)
 
+    def all(self) -> list:
+        return list(self._rows)
+
 
 class FakeSession:
     """Minimal session: routes selects by entity, ignores set_config text."""
 
-    def __init__(self, app_user=None, roles: list[str] | None = None) -> None:
+    def __init__(
+        self,
+        app_user=None,
+        roles: list[str] | None = None,
+        role_permissions: list[tuple[str, str]] | None = None,
+    ) -> None:
         self.app_user = app_user
         self.roles = roles or []
+        # Linhas (papel, tela) da matriz do tenant, p/ testar require_screen.
+        self.role_permissions = role_permissions or []
 
     def execute(self, statement, params=None) -> _FakeResult:
         descriptions = getattr(statement, "column_descriptions", None)
@@ -53,6 +64,8 @@ class FakeSession:
         entity = descriptions[0].get("entity")
         if entity is AppUser:
             return _FakeResult(scalar=self.app_user)
+        if entity is RolePermission:
+            return _FakeResult(rows=self.role_permissions)
         # Anything else here is the UserRole.papel projection.
         return _FakeResult(scalars_list=self.roles)
 

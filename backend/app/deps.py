@@ -18,9 +18,10 @@ from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import AppUser, PlatformAdmin, UserRole
+from app.db.models import AppUser, PlatformAdmin, RolePermission, UserRole
 from app.db.rls import set_tenant_context
 from app.db.session import get_db
+from app.domain.permissions import can_access_screen
 from app.services.clerk import ClerkAuthError, ClerkClient, get_clerk_client
 
 # Role that is granted access implicitly to every protected resource (F4).
@@ -143,6 +144,41 @@ def require_role(roles: list[str]):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Você não tem permissão para acessar este recurso",
+            )
+        return current_user
+
+    return _checker
+
+
+def require_screen(screen: str):
+    """Dependency factory: autoriza pela MATRIZ de telas (role_permissions) que o
+    admin edita em #permissoes — não por listas fixas de papéis (delta-010 / M0c).
+
+    Admin tem acesso implícito. Para os demais, libera se ALGUM papel do usuário
+    concede ``screen`` na matriz do tenant; quando a igreja nunca customizou a
+    matriz (sem linhas), cai nos defaults (app/domain/permissions.py). 403 caso
+    contrário. ``dashboard`` é sempre liberado.
+
+    Lê role_permissions na MESMA sessão (RLS já escopada por get_current_user),
+    então a matriz é a do próprio tenant — um admin não afeta outra igreja.
+    """
+
+    def _checker(
+        db: Session = Depends(get_db),
+        current_user: CurrentUser = Depends(get_current_user),
+    ) -> CurrentUser:
+        if ADMIN_ROLE in current_user.roles:
+            return current_user
+        rows = db.execute(
+            select(RolePermission.papel, RolePermission.tela)
+        ).all()
+        tenant_matrix: dict[str, set[str]] = {}
+        for papel, tela in rows:
+            tenant_matrix.setdefault(papel, set()).add(tela)
+        if not can_access_screen(current_user.roles, screen, tenant_matrix):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Você não tem acesso a esta tela",
             )
         return current_user
 
