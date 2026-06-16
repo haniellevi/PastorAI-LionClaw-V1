@@ -115,3 +115,36 @@ def test_set_webhook_raises_on_http_error(monkeypatch) -> None:
     _use_transport(monkeypatch, handler)
     with pytest.raises(EvolutionError):
         EvolutionClient(_settings()).set_webhook("igreja-1")
+
+
+def test_disconnect_logs_out_instance(monkeypatch) -> None:
+    seen: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["method"] = request.method
+        seen["url"] = str(request.url)
+        return httpx.Response(200, json={"status": "SUCCESS"})
+
+    _use_transport(monkeypatch, handler)
+
+    result = EvolutionClient(_settings()).disconnect("igreja-1")
+    assert result.status == "offline"
+    assert seen["method"] == "DELETE"
+    assert seen["url"].endswith("/instance/logout/igreja-1")
+
+
+def test_disconnect_idempotent_when_already_logged_out(monkeypatch) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"error": "instance not found"})
+
+    _use_transport(monkeypatch, handler)
+    assert EvolutionClient(_settings()).disconnect("igreja-1").status == "offline"
+
+
+def test_disconnect_raises_on_server_error(monkeypatch) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, json={"error": "boom"})
+
+    _use_transport(monkeypatch, handler)
+    with pytest.raises(EvolutionError):
+        EvolutionClient(_settings()).disconnect("igreja-1")

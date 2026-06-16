@@ -99,4 +99,28 @@ export async function connectWhatsapp(
   return { status: normalizeStatus(data.status), qr: data.qr ?? null };
 }
 
+// ---------------------------------------------------------------------------
+// Desconectar (logout do aparelho)
+// ---------------------------------------------------------------------------
+/**
+ * Desconecta (faz logout) do número oficial, mantendo a instância para um novo
+ * pareamento. Usado para trocar o número/aparelho da igreja (US-06).
+ */
+export async function disconnectWhatsapp(token: string): Promise<ConnectResult> {
+  const res = await authedFetch(token, `/whatsapp/connection`, {
+    method: "POST",
+    body: JSON.stringify({ action: "disconnect" }),
+  });
+
+  if (res.status === 403) {
+    throw new ApiError(403, "Acesso restrito à configuração do WhatsApp.");
+  }
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível desconectar o número.");
+  }
+  const data = (await res.json()) as { status?: unknown; qr?: string | null };
+  return { status: normalizeStatus(data.status), qr: data.qr ?? null };
+}
+
 export { ApiError, SessionExpiredError };

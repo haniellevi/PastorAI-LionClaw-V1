@@ -165,6 +165,30 @@ class EvolutionClient:
             return ConnectionResult(status="reconectando")
         return result
 
+    def disconnect(self, instance: str) -> ConnectionResult:
+        """Log out (unpair) an instance's WhatsApp session (US-06).
+
+        Drops the paired device so a different number can be paired, but keeps
+        the instance so a later connect reuses it (RF-07). A missing/already
+        logged-out instance is treated as success (idempotent). Returns offline.
+        """
+        base_url, api_key = self._require_config()
+        headers = self._headers(api_key)
+        try:
+            with httpx.Client(base_url=base_url, timeout=15.0) as client:
+                resp = client.delete(
+                    f"/instance/logout/{instance}", headers=headers
+                )
+                # 200 ok, or 404/409 (already logged out / missing) are fine.
+                if resp.status_code not in (200, 201, 404, 409):
+                    resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            logger.warning("Evolution logout failed: %s", type(exc).__name__)
+            raise EvolutionError(
+                "Falha ao desconectar na Evolution API"
+            ) from exc
+        return ConnectionResult(status="offline")
+
     def send_text(self, instance: str, telefone: str, texto: str) -> bool:
         """Send a text message through the official number (agent single reply).
 

@@ -2,7 +2,7 @@
 
 Endpoints:
   - GET  /whatsapp/connection   current numero / status / ultima_sync (admin)
-  - POST /whatsapp/connection   connect|reconnect -> {status, qr} (admin)
+  - POST /whatsapp/connection   connect|reconnect|disconnect -> {status, qr} (admin)
   - POST /whatsapp/webhook      Evolution inbound events (signature-gated)
 
 A single official number per igreja is enforced by the UNIQUE igreja_id on
@@ -115,10 +115,10 @@ def post_connection(
     Keeps a single connection row per igreja (RF-07). The status is persisted so
     the UI reflects drops/reconnects without a reload.
     """
-    if payload.action not in ("connect", "reconnect"):
+    if payload.action not in ("connect", "reconnect", "disconnect"):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="action deve ser 'connect' ou 'reconnect'",
+            detail="action deve ser 'connect', 'reconnect' ou 'disconnect'",
         )
 
     ensure_tenant_context(db, current_user)
@@ -129,6 +129,23 @@ def post_connection(
         .where(WhatsappConnection.igreja_id == igreja_uuid)
         .with_for_update()
     ).scalar_one_or_none()
+
+    # Disconnect: log out the paired device but keep the row so a later connect
+    # reuses the same instance (RF-07). No-op when the igreja never connected.
+    if payload.action == "disconnect":
+        if conn is None or not conn.instance:
+            return ConnectResponse(status="offline", qr=None)
+        try:
+            result = evolution.disconnect(conn.instance)
+        except EvolutionError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
+            ) from exc
+        conn.status = result.status
+        conn.numero = None
+        conn.ultima_sync = dt.datetime.now(dt.timezone.utc)
+        db.commit()
+        return ConnectResponse(status=result.status, qr=None)
 
     # Reuse the igreja's existing instance when present (it may have been
     # provisioned out-of-band, e.g. an already-connected number); only mint a
