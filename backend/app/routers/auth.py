@@ -169,12 +169,18 @@ def login(
 
     igreja_status = app_user.igreja.status if app_user.igreja else None
     if igreja_status in BLOCKING_IGREJA_STATUSES:
+        pending = igreja_status == "aguardando_aprovacao"
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={
-                "error": "billing_blocked",
-                "message": "Acesso bloqueado por pendência de assinatura. "
-                "Contate o administrador da igreja.",
+                "error": "pending_approval" if pending else "billing_blocked",
+                "message": (
+                    "Cadastro em análise — o acesso é liberado assim que a "
+                    "plataforma aprovar a sua igreja."
+                    if pending
+                    else "Acesso bloqueado por pendência de assinatura. "
+                    "Contate o administrador da igreja."
+                ),
                 "igrejaStatus": igreja_status,
             },
         )

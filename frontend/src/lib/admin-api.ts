@@ -280,6 +280,21 @@ export async function fetchIgrejaDetail(
   return asJson<AdminIgrejaDetail>(res);
 }
 
+/** Aprova uma igreja pendente (M2): aguardando_aprovacao -> ativa + cascata. */
+export async function aprovarIgreja(token: string, id: string): Promise<AdminIgreja> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/admin/igrejas/${id}/aprovar`, {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+  } catch {
+    throw new AdminAuthError("network", "Falha de conexão com o servidor.");
+  }
+  if (!res.ok) await throwMutationError(res, "Não foi possível aprovar a igreja.");
+  return asJson<AdminIgreja>(res);
+}
+
 /** Exclui uma igreja e TODOS os seus dados (cascade, irreversível). */
 export async function deleteIgreja(token: string, id: string): Promise<void> {
   let res: Response;

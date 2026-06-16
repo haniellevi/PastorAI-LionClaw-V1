@@ -36,11 +36,13 @@ from app.db.models import (
     Pessoa,
     Plano,
     PlatformAdmin,
+    RolePermission,
     Subscription,
     UserRole,
 )
 from app.db.session import get_db
 from app.deps import PlatformAdminUser, get_platform_admin
+from app.domain.permissions import DEFAULT_PERMISSIONS
 from app.services.brevo import BrevoClient, BrevoError, get_brevo_client
 from app.services.clerk import ClerkAuthError, ClerkClient, get_clerk_client
 
@@ -316,18 +318,23 @@ def create_igreja(
 ) -> CreateIgrejaResponse:
     """Provision a new church and invite its first admin (US-43, manual).
 
-    Creates the igreja (status 'ativa'), an app_user (convidado, role admin) and
-    emails the activation link (best-effort: emailEnviado=false if Brevo fails,
-    the church is still created). The new church is an isolated tenant; its admin
-    activates via the standard invite flow. Runs as the connection role
-    (BYPASSRLS), so the cross-tenant inserts bypass the per-igreja RLS policies.
+    Cria a igreja em **'aguardando_aprovacao'** (M2): o acesso ao painel fica
+    bloqueado (BLOCKING_IGREJA_STATUSES) até o master aprovar
+    (POST /admin/igrejas/{id}/aprovar). O convidado já pode ATIVAR o acesso
+    (definir senha), mas só loga após a aprovação. Cria também um app_user
+    (convidado, role admin) e envia o link de ativação (best-effort:
+    emailEnviado=false se o Brevo falhar, a igreja é criada mesmo assim). Roda
+    como o role de conexão (BYPASSRLS), então os inserts cross-tenant passam por
+    cima da RLS por igreja.
     """
     email = payload.admin.email
 
     if payload.plano is not None:
         _validate_plano_or_422(db, payload.plano)
 
-    igreja = Igreja(nome=payload.nome, status="ativa", plano=payload.plano)
+    igreja = Igreja(
+        nome=payload.nome, status="aguardando_aprovacao", plano=payload.plano
+    )
     db.add(igreja)
     db.flush()  # assign igreja.id
 
@@ -459,6 +466,93 @@ def delete_igreja(
 
     db.delete(igreja)
     db.commit()
+
+
+def _seed_role_permissions(db: Session, igreja_id: uuid.UUID) -> None:
+    """Semeia a matriz role_permissions com os defaults (idempotente).
+
+    Roda na aprovação (M2) para a igreja já nascer com a matriz de #permissoes
+    explícita e editável. Idempotente: se a igreja já tem qualquer linha (ex.:
+    re-aprovação ou o admin já customizou), não faz nada — não sobrescreve.
+    Obs.: ``require_screen`` cai nos mesmos defaults quando não há linhas, então
+    isto é uma conveniência (matriz visível desde o dia 1), não um pré-requisito.
+    """
+    existe = db.execute(
+        select(RolePermission.id)
+        .where(RolePermission.igreja_id == igreja_id)
+        .limit(1)
+    ).scalar_one_or_none()
+    if existe is not None:
+        return
+    for papel, telas in DEFAULT_PERMISSIONS.items():
+        for tela in telas:
+            db.add(RolePermission(igreja_id=igreja_id, papel=papel, tela=tela))
+
+
+@router.post("/igrejas/{igreja_id}/aprovar", response_model=IgrejaOut)
+def aprovar_igreja(
+    igreja_id: str,
+    db: Session = Depends(get_db),
+    _admin: PlatformAdminUser = Depends(get_platform_admin),
+) -> IgrejaOut:
+    """Aprova uma igreja pendente (M2): 'aguardando_aprovacao' -> 'ativa'.
+
+    Libera o acesso ao painel (sai do BLOCKING_IGREJA_STATUSES) e dispara a
+    cascata: semeia a matriz role_permissions padrão (idempotente). Idempotente
+    se já estiver 'ativa' (no-op); 409 se estiver suspensa/inadimplente (esses
+    voltam por PATCH status, não por aprovação).
+    """
+    try:
+        ig_uuid = uuid.UUID(igreja_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Igreja não encontrada"
+        ) from exc
+
+    igreja = db.execute(
+        select(Igreja).where(Igreja.id == ig_uuid)
+    ).scalar_one_or_none()
+    if igreja is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Igreja não encontrada"
+        )
+
+    if igreja.status != "ativa":
+        if igreja.status != "aguardando_aprovacao":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Só é possível aprovar uma igreja em 'aguardando aprovação'."
+                ),
+            )
+        igreja.status = "ativa"
+        _seed_role_permissions(db, ig_uuid)
+        db.commit()
+
+    membros = int(
+        db.execute(
+            select(func.count())
+            .select_from(AppUser)
+            .where(AppUser.igreja_id == ig_uuid)
+        ).scalar_one()
+    )
+    pessoas = int(
+        db.execute(
+            select(func.count())
+            .select_from(Pessoa)
+            .where(Pessoa.igreja_id == ig_uuid)
+        ).scalar_one()
+    )
+
+    return IgrejaOut(
+        id=str(igreja.id),
+        nome=igreja.nome,
+        status=igreja.status,
+        plano=igreja.plano,
+        membros=membros,
+        pessoas=pessoas,
+        createdAt=igreja.created_at.isoformat() if igreja.created_at else None,
+    )
 
 
 # ---------------------------------------------------------------------------

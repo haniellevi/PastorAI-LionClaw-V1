@@ -43,9 +43,22 @@ interface Props {
   onClose: () => void;
   onEdit: () => void;
   onExpired: () => void;
+  onApprove?: () => void;
+  approving?: boolean;
+  actionError?: string | null;
 }
 
-export function IgrejaDetailModal({ igreja, token, onClose, onEdit, onExpired }: Props) {
+export function IgrejaDetailModal({
+  igreja,
+  token,
+  onClose,
+  onEdit,
+  onExpired,
+  onApprove,
+  approving,
+  actionError,
+}: Props) {
+  const pending = igreja.status === "aguardando_aprovacao";
   const [detail, setDetail] = useState<AdminIgrejaDetail | null>(null);
   const [error, setError] = useState<string>();
 
@@ -85,6 +98,11 @@ export function IgrejaDetailModal({ igreja, token, onClose, onEdit, onExpired }:
         </div>
 
         <div className="modal-form">
+          {actionError ? (
+            <div className="error-banner" role="alert">
+              <span>{actionError}</span>
+            </div>
+          ) : null}
           {error ? (
             <div className="error-banner" role="alert">
               <span>{error}</span>
@@ -138,9 +156,20 @@ export function IgrejaDetailModal({ igreja, token, onClose, onEdit, onExpired }:
             <button type="button" className="btn btn-sm" onClick={onClose}>
               Fechar
             </button>
-            <Button variant="primary" size="sm" onClick={onEdit}>
+            <Button variant="ghost" size="sm" onClick={onEdit}>
               Editar status/plano
             </Button>
+            {pending && onApprove ? (
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={onApprove}
+                loading={approving}
+                loadingText="Aprovando…"
+              >
+                Aprovar igreja
+              </Button>
+            ) : null}
           </div>
         </div>
       </div>

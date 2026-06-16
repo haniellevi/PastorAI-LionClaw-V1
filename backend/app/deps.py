@@ -27,8 +27,10 @@ from app.services.clerk import ClerkAuthError, ClerkClient, get_clerk_client
 # Role that is granted access implicitly to every protected resource (F4).
 ADMIN_ROLE = "admin"
 
-# Igreja statuses that block panel access at login/auth time (US-35).
-BLOCKING_IGREJA_STATUSES = {"suspensa", "inadimplente"}
+# Igreja statuses that block panel access at login/auth time (US-35) + onboarding
+# (M2): uma igreja recém-provisionada nasce 'aguardando_aprovacao' e só libera o
+# acesso após o master aprovar (POST /admin/igrejas/{id}/aprovar).
+BLOCKING_IGREJA_STATUSES = {"suspensa", "inadimplente", "aguardando_aprovacao"}
 
 
 @dataclass(frozen=True)

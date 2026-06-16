@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/Button";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import {
   AdminSessionExpiredError,
+  aprovarIgreja,
   createIgreja,
   deleteIgreja,
   fetchMetrics,
@@ -182,6 +183,24 @@ export function AdminConsole() {
     }
   };
 
+  // M2: aprova a igreja em foco no detalhe (aguardando_aprovacao -> ativa).
+  const submitAprovar = async () => {
+    if (!token || !viewing) return;
+    setModalBusy(true);
+    setModalError(null);
+    try {
+      await aprovarIgreja(token, viewing.id);
+      setNotice(`Igreja "${viewing.nome}" aprovada e ativada.`);
+      setViewing(null);
+      await load();
+    } catch (err) {
+      if (handledSessionError(err)) return;
+      setModalError(err instanceof Error ? err.message : "Não foi possível aprovar.");
+    } finally {
+      setModalBusy(false);
+    }
+  };
+
   const columns: Array<Column<AdminIgreja>> = [
     { header: "Igreja", cell: (r) => <strong>{r.nome}</strong> },
     { header: "Status", cell: (r) => STATUS_LABEL[r.status] ?? r.status },
@@ -243,6 +262,11 @@ export function AdminConsole() {
         >
           <MetricCard label="Igrejas" value={String(metrics.totalIgrejas)} />
           <MetricCard label="Ativas" value={String(metrics.porStatus.ativa ?? 0)} />
+          <MetricCard
+            label="Aguardando aprovação"
+            value={String(metrics.porStatus.aguardando_aprovacao ?? 0)}
+            hint="provisionadas, a aprovar"
+          />
           <MetricCard
             label="Em pendência"
             value={String(
@@ -339,8 +363,11 @@ export function AdminConsole() {
         <IgrejaDetailModal
           igreja={viewing}
           token={token}
+          approving={modalBusy}
+          actionError={modalError}
           onClose={() => setViewing(null)}
           onExpired={logout}
+          onApprove={submitAprovar}
           onEdit={() => {
             const target = viewing;
             setViewing(null);

@@ -13,7 +13,7 @@ from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
-from app.db.models import AppUser, Igreja, Pessoa, Plano, PlatformAdmin
+from app.db.models import AppUser, Igreja, Pessoa, Plano, PlatformAdmin, RolePermission
 from app.db.session import get_db
 from app.services.brevo import BrevoError, get_brevo_client
 from app.services.clerk import get_clerk_client
@@ -498,6 +498,86 @@ def test_admin_delete_blocks_non_master(app) -> None:
     resp = client.delete(
         "/admin/igrejas/00000000-0000-0000-0000-000000000009", headers=_AUTH
     )
+    assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# M2 — provisionar como pendente + aprovar (cascata)
+# ---------------------------------------------------------------------------
+def test_admin_provisions_church_as_pending(app) -> None:
+    db = PlatformDB(gate_app_user=make_app_user(), admin_marker="pa1")
+    client = _wire(app, db=db, clerk=FakeClerk(), mailer=FakeMailer())
+    resp = client.post(
+        "/admin/igrejas",
+        headers=_AUTH,
+        json={"nome": "Nova", "admin": {"nome": "P", "email": "p@nova.org"}},
+    )
+    assert resp.status_code == 201
+    # A igreja nasce 'aguardando_aprovacao' (acesso bloqueado até aprovar).
+    igreja = next(o for o in db.added if isinstance(o, Igreja))
+    assert igreja.status == "aguardando_aprovacao"
+
+
+_IG_ID = "00000000-0000-0000-0000-000000000009"
+
+
+def test_admin_aprova_igreja_pendente(app) -> None:
+    igreja = SimpleNamespace(
+        id=_IG_ID, nome="Igreja Y", status="aguardando_aprovacao", plano=None, created_at=None
+    )
+    db = PlatformDB(
+        gate_app_user=make_app_user(), admin_marker="pa1", igreja_scalar=igreja
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.post(f"/admin/igrejas/{_IG_ID}/aprovar", headers=_AUTH)
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ativa"
+    assert igreja.status == "ativa"
+    assert db.committed is True
+    # Cascata: semeou a matriz role_permissions (defaults).
+    assert any(isinstance(o, RolePermission) for o in db.added)
+
+
+def test_admin_aprovar_idempotente_quando_ja_ativa(app) -> None:
+    igreja = SimpleNamespace(
+        id=_IG_ID, nome="Igreja Z", status="ativa", plano=None, created_at=None
+    )
+    db = PlatformDB(
+        gate_app_user=make_app_user(), admin_marker="pa1", igreja_scalar=igreja
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.post(f"/admin/igrejas/{_IG_ID}/aprovar", headers=_AUTH)
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ativa"
+    # No-op: não semeia de novo nem altera.
+    assert all(not isinstance(o, RolePermission) for o in db.added)
+
+
+def test_admin_aprovar_rejeita_suspensa(app) -> None:
+    igreja = SimpleNamespace(
+        id=_IG_ID, nome="Igreja W", status="suspensa", plano=None, created_at=None
+    )
+    db = PlatformDB(
+        gate_app_user=make_app_user(), admin_marker="pa1", igreja_scalar=igreja
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.post(f"/admin/igrejas/{_IG_ID}/aprovar", headers=_AUTH)
+    assert resp.status_code == 409
+
+
+def test_admin_aprovar_404(app) -> None:
+    db = PlatformDB(
+        gate_app_user=make_app_user(), admin_marker="pa1", igreja_scalar=None
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.post(f"/admin/igrejas/{_IG_ID}/aprovar", headers=_AUTH)
+    assert resp.status_code == 404
+
+
+def test_admin_aprovar_blocks_non_master(app) -> None:
+    db = PlatformDB(gate_app_user=make_app_user(), admin_marker=None)
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.post(f"/admin/igrejas/{_IG_ID}/aprovar", headers=_AUTH)
     assert resp.status_code == 403
 
 
