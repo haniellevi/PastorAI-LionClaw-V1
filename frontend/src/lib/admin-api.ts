@@ -438,3 +438,61 @@ export async function fetchAudit(
   if (!res.ok) throw new AdminAuthError("network", "Não foi possível carregar a auditoria.");
   return asJson<AdminAuditEntry[]>(res);
 }
+
+// ---------------------------------------------------------------------------
+// Agente de IA da igreja — configurado pelo master (cross-tenant)
+// ---------------------------------------------------------------------------
+export interface AdminAgente {
+  configured: boolean;
+  nome: string | null;
+  tom: string | null;
+  comportamento: string | null;
+  ativo: boolean;
+  credencialStatus: "active" | "invalid" | "none";
+}
+
+/** Lê a config do agente de uma igreja (para o master editar). */
+export async function fetchIgrejaAgente(
+  token: string,
+  id: string,
+): Promise<AdminAgente> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/admin/igrejas/${id}/agente`, {
+      headers: authHeaders(token),
+    });
+  } catch {
+    throw new AdminAuthError("network", "Falha de conexão com o servidor.");
+  }
+  if (res.status === 401) throw new AdminSessionExpiredError();
+  if (res.status === 403) throw new AdminAuthError("forbidden", "Acesso negado.");
+  if (!res.ok) {
+    throw new AdminRequestError(res.status, "Não foi possível carregar o agente.");
+  }
+  return asJson<AdminAgente>(res);
+}
+
+/** Salva o comportamento do agente da igreja (409 se ligar sem credencial). */
+export async function saveIgrejaAgente(
+  token: string,
+  id: string,
+  payload: {
+    comportamento: string;
+    nome?: string | null;
+    tom?: string | null;
+    ativo: boolean;
+  },
+): Promise<AdminAgente> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/admin/igrejas/${id}/agente`, {
+      method: "PUT",
+      headers: jsonHeaders(token),
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    throw new AdminAuthError("network", "Falha de conexão com o servidor.");
+  }
+  if (!res.ok) await throwMutationError(res, "Não foi possível salvar o agente.");
+  return asJson<AdminAgente>(res);
+}

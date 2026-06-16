@@ -29,10 +29,12 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db.models import (
+    AgentConfig,
     AiUsageLog,
     AppUser,
     Celula,
     Igreja,
+    LlmCredential,
     Pessoa,
     Plano,
     PlatformAdmin,
@@ -119,6 +121,24 @@ def _audit(
             detalhe=detalhe,
         )
     )
+
+
+def _get_igreja_or_404(db: Session, igreja_id: str) -> Igreja:
+    """Resolve uma igreja pelo id (404 se uuid inválido ou inexistente)."""
+    try:
+        ig_uuid = uuid.UUID(igreja_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Igreja não encontrada"
+        ) from exc
+    igreja = db.execute(
+        select(Igreja).where(Igreja.id == ig_uuid)
+    ).scalar_one_or_none()
+    if igreja is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Igreja não encontrada"
+        )
+    return igreja
 
 
 # ---------------------------------------------------------------------------
@@ -785,6 +805,125 @@ def get_igreja_detail(
         custoIa=custo_ia,
         tokensIa=tokens_ia,
         assinatura=assinatura,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Agente de IA da igreja — configurado pelo MASTER (cross-tenant)
+# ---------------------------------------------------------------------------
+# Decisão de produto: o COMPORTAMENTO do agente (orquestrador) é responsabilidade
+# do master (provedor do SaaS), não do dono da igreja — o dono só o vê (read-only)
+# no painel dele. A CHAVE de LLM e os crons seguem com o dono. Por isso a edição
+# do AgentConfig ganha esta porta no plano de plataforma (gate get_platform_admin,
+# BYPASSRLS), separada do PUT /agent/config do tenant.
+class AdminAgenteOut(BaseModel):
+    configured: bool
+    nome: str | None = None
+    tom: str | None = None
+    comportamento: str | None = None
+    ativo: bool = False
+    # Status da credencial BYO da igreja (a chave é do dono): active|invalid|none.
+    credencialStatus: str  # noqa: N815
+
+
+class AdminAgenteRequest(BaseModel):
+    comportamento: str = Field(min_length=1, max_length=4000)
+    nome: str | None = Field(default=None, max_length=120)
+    tom: str | None = Field(default=None, max_length=120)
+    ativo: bool = Field(default=False)
+
+    @field_validator("comportamento")
+    @classmethod
+    def _comportamento(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("comportamento obrigatório")
+        return v
+
+
+def _credencial_status(db: Session, igreja_uuid: uuid.UUID) -> str:
+    """Status da credencial BYO da igreja (a chave é do dono, não do master)."""
+    cred = db.execute(
+        select(LlmCredential).where(LlmCredential.igreja_id == igreja_uuid)
+    ).scalar_one_or_none()
+    if cred is None:
+        return "none"
+    return "active" if (cred.validado and cred.ativo) else "invalid"
+
+
+@router.get("/igrejas/{igreja_id}/agente", response_model=AdminAgenteOut)
+def get_igreja_agente(
+    igreja_id: str,
+    db: Session = Depends(get_db),
+    _admin: PlatformAdminUser = Depends(get_platform_admin),
+) -> AdminAgenteOut:
+    """Lê a config do agente de uma igreja (cross-tenant) para o master editar."""
+    igreja = _get_igreja_or_404(db, igreja_id)
+    ig_uuid = uuid.UUID(igreja_id)  # já validado em _get_igreja_or_404
+    cred_status = _credencial_status(db, ig_uuid)
+    cfg = db.execute(
+        select(AgentConfig).where(AgentConfig.igreja_id == ig_uuid)
+    ).scalar_one_or_none()
+    if cfg is None:
+        return AdminAgenteOut(configured=False, credencialStatus=cred_status)
+    return AdminAgenteOut(
+        configured=True,
+        nome=cfg.nome,
+        tom=cfg.tom,
+        comportamento=cfg.comportamento,
+        ativo=cfg.ativo,
+        credencialStatus=cred_status,
+    )
+
+
+@router.put("/igrejas/{igreja_id}/agente", response_model=AdminAgenteOut)
+def put_igreja_agente(
+    igreja_id: str,
+    payload: AdminAgenteRequest,
+    db: Session = Depends(get_db),
+    admin: PlatformAdminUser = Depends(get_platform_admin),
+) -> AdminAgenteOut:
+    """Salva o comportamento do agente da igreja (master, cross-tenant).
+
+    Ligar o agente (``ativo=true``) exige que a igreja tenha uma credencial BYO
+    ativa (a chave é do dono) — senão 409. Audita a edição.
+    """
+    igreja = _get_igreja_or_404(db, igreja_id)
+    ig_uuid = uuid.UUID(igreja_id)  # já validado em _get_igreja_or_404
+
+    cred_status = _credencial_status(db, ig_uuid)
+    if payload.ativo and cred_status != "active":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "A igreja precisa de uma credencial de IA ativa (chave do dono) "
+                "para ligar o agente."
+            ),
+        )
+
+    cfg = db.execute(
+        select(AgentConfig).where(AgentConfig.igreja_id == ig_uuid)
+    ).scalar_one_or_none()
+    if cfg is None:
+        cfg = AgentConfig(igreja_id=ig_uuid, comportamento=payload.comportamento)
+        db.add(cfg)
+    cfg.comportamento = payload.comportamento
+    cfg.nome = payload.nome
+    cfg.tom = payload.tom
+    cfg.ativo = payload.ativo
+    _audit(
+        db, admin, "agente_editar", "igreja", ig_uuid, igreja.nome,
+        {"ativo": payload.ativo},
+    )
+    db.commit()
+
+    return AdminAgenteOut(
+        configured=True,
+        nome=cfg.nome,
+        tom=cfg.tom,
+        comportamento=cfg.comportamento,
+        ativo=cfg.ativo,
+        credencialStatus=cred_status,
     )
 
 

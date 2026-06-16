@@ -14,8 +14,10 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 
 from app.db.models import (
+    AgentConfig,
     AppUser,
     Igreja,
+    LlmCredential,
     Pessoa,
     Plano,
     PlatformAdmin,
@@ -87,6 +89,8 @@ class PlatformDB:
         plano_precos_rows=None,
         em_uso_rows=None,
         audit_rows=None,
+        agent_config=None,
+        llm_credential=None,
     ) -> None:
         self.gate_app_user = gate_app_user
         self.admin_marker = admin_marker
@@ -106,6 +110,8 @@ class PlatformDB:
         )
         self.em_uso_rows = em_uso_rows or []
         self.audit_rows = audit_rows or []
+        self.agent_config = agent_config
+        self.llm_credential = llm_credential
         self.added: list = []
         self.deleted: list = []
         self.committed = False
@@ -135,6 +141,10 @@ class PlatformDB:
             return _Result(scalar=self.plano_scalar, scalars=self.planos)
         if ent is PlatformAuditLog:
             return _Result(scalars=self.audit_rows)
+        if ent is AgentConfig:
+            return _Result(scalar=self.agent_config)
+        if ent is LlmCredential:
+            return _Result(scalar=self.llm_credential)
         # select(func.count()) — scalar count with no mapped entity.
         return _Result(scalar_one=self.count_value)
 
@@ -780,4 +790,93 @@ def test_admin_delete_igreja_writes_audit(app) -> None:
     assert resp.status_code == 204
     assert any(
         isinstance(o, PlatformAuditLog) and o.acao == "excluir" for o in db.added
+    )
+
+
+# ---------------------------------------------------------------------------
+# Agente de IA da igreja — configurado pelo master (cross-tenant)
+# ---------------------------------------------------------------------------
+def _igreja_ns(**over):
+    base = dict(id="ig-1", nome="Igreja X", status="ativa", plano=None, created_at=None)
+    base.update(over)
+    return SimpleNamespace(**base)
+
+
+def test_admin_get_igreja_agente(app) -> None:
+    cfg = SimpleNamespace(
+        nome="Pastora Ana", tom="acolhedor", comportamento="Seja gentil.", ativo=True
+    )
+    cred = SimpleNamespace(validado=True, ativo=True)
+    db = PlatformDB(
+        gate_app_user=make_app_user(),
+        admin_marker="pa1",
+        igreja_scalar=_igreja_ns(),
+        agent_config=cfg,
+        llm_credential=cred,
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.get(f"/admin/igrejas/{_IG_ID}/agente", headers=_AUTH)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["configured"] is True
+    assert body["comportamento"] == "Seja gentil."
+    assert body["credencialStatus"] == "active"
+
+
+def test_admin_put_igreja_agente(app) -> None:
+    cred = SimpleNamespace(validado=True, ativo=True)
+    db = PlatformDB(
+        gate_app_user=make_app_user(),
+        admin_marker="pa1",
+        igreja_scalar=_igreja_ns(),
+        agent_config=None,  # ainda não configurado → cria
+        llm_credential=cred,
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.put(
+        f"/admin/igrejas/{_IG_ID}/agente",
+        headers=_AUTH,
+        json={"comportamento": "Seja pastoral.", "nome": "Ana", "ativo": True},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["ativo"] is True
+    assert db.committed is True
+    assert any(isinstance(o, AgentConfig) for o in db.added)
+    assert any(
+        isinstance(o, PlatformAuditLog) and o.acao == "agente_editar"
+        for o in db.added
+    )
+
+
+def test_admin_put_agente_blocks_activation_without_credential(app) -> None:
+    db = PlatformDB(
+        gate_app_user=make_app_user(),
+        admin_marker="pa1",
+        igreja_scalar=_igreja_ns(),
+        llm_credential=None,  # sem credencial ativa → não pode ligar
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.put(
+        f"/admin/igrejas/{_IG_ID}/agente",
+        headers=_AUTH,
+        json={"comportamento": "X", "ativo": True},
+    )
+    assert resp.status_code == 409
+
+
+def test_admin_agente_404(app) -> None:
+    db = PlatformDB(
+        gate_app_user=make_app_user(), admin_marker="pa1", igreja_scalar=None
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+    assert (
+        client.get(f"/admin/igrejas/{_IG_ID}/agente", headers=_AUTH).status_code == 404
+    )
+
+
+def test_admin_agente_blocks_non_master(app) -> None:
+    db = PlatformDB(gate_app_user=make_app_user(), admin_marker=None)
+    client = _wire(app, db=db, clerk=FakeClerk())
+    assert (
+        client.get(f"/admin/igrejas/{_IG_ID}/agente", headers=_AUTH).status_code == 403
     )

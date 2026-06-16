@@ -46,6 +46,7 @@ interface Props {
   onApprove?: () => void;
   approving?: boolean;
   actionError?: string | null;
+  onAgente?: () => void;
 }
 
 export function IgrejaDetailModal({
@@ -57,6 +58,7 @@ export function IgrejaDetailModal({
   onApprove,
   approving,
   actionError,
+  onAgente,
 }: Props) {
   const pending = igreja.status === "aguardando_aprovacao";
   const [detail, setDetail] = useState<AdminIgrejaDetail | null>(null);
@@ -159,6 +161,11 @@ export function IgrejaDetailModal({
             <button type="button" className="btn btn-sm" onClick={onClose}>
               Fechar
             </button>
+            {onAgente ? (
+              <Button variant="ghost" size="sm" onClick={onAgente}>
+                Agente de IA
+              </Button>
+            ) : null}
             <Button variant="ghost" size="sm" onClick={onEdit}>
               Editar status/plano
             </Button>

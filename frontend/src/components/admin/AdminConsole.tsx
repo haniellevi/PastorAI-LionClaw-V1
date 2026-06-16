@@ -29,6 +29,7 @@ import { useAdminAuth } from "@/lib/admin-auth-context";
 import { AuditModal } from "./AuditModal";
 import { CreateIgrejaModal } from "./CreateIgrejaModal";
 import { EditIgrejaModal } from "./EditIgrejaModal";
+import { IgrejaAgenteModal } from "./IgrejaAgenteModal";
 import { IgrejaDetailModal } from "./IgrejaDetailModal";
 import { PlanosManagerModal } from "./PlanosManagerModal";
 
@@ -78,6 +79,7 @@ export function AdminConsole() {
   const [auditOpen, setAuditOpen] = useState(false);
   const [viewing, setViewing] = useState<AdminIgreja | null>(null);
   const [editing, setEditing] = useState<AdminIgreja | null>(null);
+  const [agenteFor, setAgenteFor] = useState<AdminIgreja | null>(null);
   const [modalBusy, setModalBusy] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
 
@@ -377,12 +379,27 @@ export function AdminConsole() {
           onClose={() => setViewing(null)}
           onExpired={logout}
           onApprove={submitAprovar}
+          onAgente={() => {
+            const target = viewing;
+            setViewing(null);
+            setAgenteFor(target);
+          }}
           onEdit={() => {
             const target = viewing;
             setViewing(null);
             setModalError(null);
             setEditing(target);
           }}
+        />
+      ) : null}
+
+      {agenteFor && token ? (
+        <IgrejaAgenteModal
+          igreja={agenteFor}
+          token={token}
+          onClose={() => setAgenteFor(null)}
+          onExpired={logout}
+          onSaved={() => setNotice(`Agente de "${agenteFor.nome}" atualizado.`)}
         />
       ) : null}
 
