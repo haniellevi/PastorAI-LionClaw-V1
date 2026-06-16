@@ -121,6 +121,29 @@ def test_send_media_rejects_missing_fields(app) -> None:
     assert resp.status_code == 422
 
 
+# ---- MessageOut carrega o nome de quem respondeu (Parte A) -----------------
+def test_message_out_maps_author_name() -> None:
+    from types import SimpleNamespace
+
+    from app.routers.conversations import MessageOut
+
+    m = SimpleNamespace(
+        id="m1",
+        direcao="out",
+        autor="humano",
+        autor_nome="Pastor Raniel",
+        tipo="texto",
+        texto="oi",
+        media_mime=None,
+        media_nome=None,
+        criado_em=None,
+    )
+    out = MessageOut.from_model(m)
+    assert out.autorNome == "Pastor Raniel"
+    assert out.autor == "humano"
+    assert out.direcao == "out"
+
+
 # ---- validation -----------------------------------------------------------
 def test_handoff_rejects_invalid_target(app) -> None:
     client = _client(app, roles=["admin"])

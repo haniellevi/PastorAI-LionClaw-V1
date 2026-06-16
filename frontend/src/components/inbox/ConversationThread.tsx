@@ -302,6 +302,9 @@ export function ConversationThread({
               }`}
               key={m.id}
             >
+              {m.direcao === "out" && m.autor === "humano" && m.autorNome ? (
+                <span className="msg-author">{m.autorNome}</span>
+              ) : null}
               <MessageBody m={m} />
               <time>{messageStamp(m.criadoEm)}</time>
             </div>

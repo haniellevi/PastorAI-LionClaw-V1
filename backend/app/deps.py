@@ -39,6 +39,8 @@ class CurrentUser:
     igreja_id: str
     email: str
     nome: str
+    # Nome de exibição no chat (assinatura). None = usa `nome`.
+    chat_nome: str | None = None
     roles: frozenset[str] = field(default_factory=frozenset)
 
     def has_role(self, role: str) -> bool:
@@ -126,6 +128,7 @@ def get_current_user(
         igreja_id=str(app_user.igreja_id),
         email=app_user.email,
         nome=app_user.nome,
+        chat_nome=app_user.chat_nome,
         roles=frozenset(roles),
     )
 

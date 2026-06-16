@@ -104,6 +104,7 @@ class MessageOut(BaseModel):
     id: str
     direcao: str  # in | out
     autor: str  # contato | ia | humano
+    autorNome: str | None = None  # noqa: N815 - quem respondeu (humano)
     tipo: str = "texto"  # texto | imagem | arquivo | audio
     texto: str | None = None
     mediaUrl: str | None = None  # noqa: N815 - URL assinada de curta duração
@@ -117,6 +118,7 @@ class MessageOut(BaseModel):
             id=str(m.id),
             direcao=m.direcao,
             autor=m.autor,
+            autorNome=m.autor_nome,
             tipo=m.tipo or "texto",
             texto=m.texto,
             mediaUrl=media_url,
@@ -337,6 +339,8 @@ def send_message(
         conversation_id=conv.id,
         direcao="out",
         autor="humano",
+        autor_nome=current_user.chat_nome or current_user.nome,
+        enviado_por=uuid.UUID(current_user.app_user_id),
         texto=payload.texto,
     )
     db.add(msg)
@@ -428,6 +432,8 @@ def send_media_message(
         conversation_id=conv.id,
         direcao="out",
         autor="humano",
+        autor_nome=current_user.chat_nome or current_user.nome,
+        enviado_por=uuid.UUID(current_user.app_user_id),
         texto=payload.caption,
         tipo=tipo,
         media_path=stored.path,

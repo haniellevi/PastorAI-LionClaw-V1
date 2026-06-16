@@ -45,6 +45,8 @@ export interface ChatMessage {
   id: string;
   direcao: "in" | "out";
   autor: "contato" | "ia" | "humano";
+  /** Nome de quem respondeu (humano). null para IA/contato. */
+  autorNome: string | null;
   tipo: ChatMessageTipo;
   texto: string | null;
   /** URL assinada de curta duração para a mídia (imagem/arquivo/áudio). */

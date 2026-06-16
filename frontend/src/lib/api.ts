@@ -23,6 +23,7 @@ export interface MeResult {
   churchId: string;
   email: string;
   nome: string;
+  chatNome: string | null;
   roles: string[];
 }
 
@@ -213,14 +214,21 @@ export async function activateInvite(
   );
 }
 
-/** Atualiza o próprio perfil (hoje: o nome). Retorna o /me atualizado. */
-export async function updateMe(token: string, nome: string): Promise<MeResult> {
+/**
+ * Atualiza o próprio perfil — nome da conta e/ou nome de exibição no chat.
+ * Semântica PATCH: só os campos enviados mudam. `chatNome: ""` limpa a
+ * assinatura (volta a usar o nome da conta). Retorna o /me atualizado.
+ */
+export async function updateMe(
+  token: string,
+  fields: { nome?: string; chatNome?: string },
+): Promise<MeResult> {
   let res: Response;
   try {
     res = await fetch(`${API_BASE}/auth/me`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ nome }),
+      body: JSON.stringify(fields),
     });
   } catch {
     throw new LoginError("network", "Falha de conexão. Tente novamente.");

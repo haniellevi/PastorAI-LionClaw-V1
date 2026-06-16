@@ -134,6 +134,8 @@ class AppUser(Base):
     nome: Mapped[str] = mapped_column(Text, nullable=False)
     email: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Nome de exibição no chat do WhatsApp (assinatura). NULL = usa `nome`.
+    chat_nome: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
@@ -308,6 +310,12 @@ class Message(Base):
     media_mime: Mapped[str | None] = mapped_column(Text, nullable=True)
     media_nome: Mapped[str | None] = mapped_column(Text, nullable=True)
     media_tamanho: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Autoria (Parte A do chat): quem enviou a resposta humana. autor_nome é o
+    # snapshot do nome exibido no envio; enviado_por é o app_user (auditoria).
+    autor_nome: Mapped[str | None] = mapped_column(Text, nullable=True)
+    enviado_por: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("app_users.id", ondelete="SET NULL"), nullable=True
+    )
     criado_em: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )

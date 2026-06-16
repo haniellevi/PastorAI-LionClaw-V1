@@ -15,7 +15,7 @@ import { useAuth } from "@/lib/auth-context";
 type Status = "idle" | "loading" | "ok";
 
 export function PerfilScreen() {
-  const { token, user, updateNome, expireSession } = useAuth();
+  const { token, user, updateNome, updateChatNome, expireSession } = useAuth();
 
   // ---- nome de exibição ---------------------------------------------------
   const [nome, setNome] = useState(user?.nome ?? "");
@@ -32,7 +32,7 @@ export function PerfilScreen() {
     setNomeError(undefined);
     setNomeStatus("loading");
     try {
-      const me = await updateMe(token, nome.trim());
+      const me = await updateMe(token, { nome: nome.trim() });
       updateNome(me.nome);
       setNomeStatus("ok");
     } catch (err) {
@@ -42,6 +42,31 @@ export function PerfilScreen() {
       }
       setNomeError(err instanceof LoginError ? err.message : "Não foi possível salvar.");
       setNomeStatus("idle");
+    }
+  }
+
+  // ---- nome de exibição no chat do WhatsApp (assinatura) ------------------
+  const [chatNome, setChatNome] = useState(user?.chatNome ?? "");
+  const [chatStatus, setChatStatus] = useState<Status>("idle");
+  const [chatError, setChatError] = useState<string>();
+
+  async function saveChatNome(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (chatStatus === "loading" || !token) return;
+    setChatError(undefined);
+    setChatStatus("loading");
+    try {
+      // "" limpa a assinatura (volta a usar o nome da conta).
+      const me = await updateMe(token, { chatNome: chatNome.trim() });
+      updateChatNome(me.chatNome);
+      setChatStatus("ok");
+    } catch (err) {
+      if (err instanceof SessionExpiredError) {
+        expireSession();
+        return;
+      }
+      setChatError(err instanceof LoginError ? err.message : "Não foi possível salvar.");
+      setChatStatus("idle");
     }
   }
 
@@ -115,6 +140,32 @@ export function PerfilScreen() {
           />
           <Button type="submit" variant="primary" loading={nomeStatus === "loading"} loadingText="Salvando…">
             Salvar nome
+          </Button>
+        </form>
+
+        <form className="card card-pad" onSubmit={saveChatNome}>
+          <h3>Nome no chat do WhatsApp</h3>
+          <p className="sub" style={{ color: "var(--muted)", marginBottom: "var(--s3)" }}>
+            Aparece nas suas respostas no WhatsApp (ex.: “Pastor Raniel Levi”). Em
+            branco, usa seu nome: <strong>{user?.nome}</strong>.
+          </p>
+          {chatError ? (
+            <div className="error-banner" role="alert">
+              <span>{chatError}</span>
+            </div>
+          ) : null}
+          {chatStatus === "ok" ? okBanner("Nome de exibição atualizado.") : null}
+          <Field
+            label="Nome de exibição"
+            value={chatNome}
+            placeholder={user?.nome ?? ""}
+            onChange={(e) => {
+              setChatNome(e.target.value);
+              setChatStatus("idle");
+            }}
+          />
+          <Button type="submit" variant="primary" loading={chatStatus === "loading"} loadingText="Salvando…">
+            Salvar
           </Button>
         </form>
 
