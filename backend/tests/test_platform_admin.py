@@ -13,11 +13,16 @@ from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
-from app.db.models import AppUser, Igreja, Pessoa, PlatformAdmin
+from app.db.models import AppUser, Igreja, Pessoa, Plano, PlatformAdmin
 from app.db.session import get_db
 from app.services.brevo import BrevoError, get_brevo_client
 from app.services.clerk import get_clerk_client
 from tests.conftest import FakeClerk, make_app_user
+
+# Catálogo padrão usado pelo fake quando o teste não fornece planos: os 3
+# planos seedados na migration 0012 (espelha PRD: 199/299/399). Faz MRR e
+# mensalidade continuarem batendo sem cada teste precisar montar o catálogo.
+_DEFAULT_PLANO_PRECOS = [("ate_100", 199), ("101_200", 299), ("acima_201", 399)]
 
 
 # ---------------------------------------------------------------------------
@@ -69,6 +74,10 @@ class PlatformDB:
         membros_rows=None,
         pessoas_rows=None,
         count_value: int = 0,
+        planos=None,
+        plano_scalar=None,
+        plano_precos_rows=None,
+        em_uso_rows=None,
     ) -> None:
         self.gate_app_user = gate_app_user
         self.admin_marker = admin_marker
@@ -77,6 +86,16 @@ class PlatformDB:
         self.membros_rows = membros_rows or []
         self.pessoas_rows = pessoas_rows or []
         self.count_value = count_value
+        # Catálogo de planos (migration 0012). plano_precos_rows alimenta MRR /
+        # mensalidade / validação de plano; default = os 3 planos seedados.
+        self.planos = planos or []
+        self.plano_scalar = plano_scalar
+        self.plano_precos_rows = (
+            plano_precos_rows
+            if plano_precos_rows is not None
+            else list(_DEFAULT_PLANO_PRECOS)
+        )
+        self.em_uso_rows = em_uso_rows or []
         self.added: list = []
         self.deleted: list = []
         self.committed = False
@@ -84,12 +103,16 @@ class PlatformDB:
     def execute(self, statement, params=None) -> _Result:
         descs = list(getattr(statement, "column_descriptions", []) or [])
         entities = [d.get("entity") for d in descs]
-        # Grouped aggregation: (igreja_id, count) — two output columns.
+        # Grouped aggregation: (chave, count) — duas colunas de saída.
         if len(descs) >= 2:
             if entities[0] is AppUser:
                 return _Result(rows=self.membros_rows)
             if entities[0] is Pessoa:
                 return _Result(rows=self.pessoas_rows)
+            if entities[0] is Plano:  # select(Plano.codigo, Plano.preco_mensal)
+                return _Result(rows=self.plano_precos_rows)
+            if entities[0] is Igreja:  # select(Igreja.plano, count()) — em uso
+                return _Result(rows=self.em_uso_rows)
             return _Result(rows=[])
         ent = entities[0] if entities else None
         if ent is AppUser:
@@ -98,6 +121,8 @@ class PlatformDB:
             return _Result(scalar=self.admin_marker)
         if ent is Igreja:
             return _Result(scalar=self.igreja_scalar, scalars=self.igrejas)
+        if ent is Plano:
+            return _Result(scalar=self.plano_scalar, scalars=self.planos)
         # select(func.count()) — scalar count with no mapped entity.
         return _Result(scalar_one=self.count_value)
 
@@ -474,3 +499,141 @@ def test_admin_delete_blocks_non_master(app) -> None:
         "/admin/igrejas/00000000-0000-0000-0000-000000000009", headers=_AUTH
     )
     assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Gestão de planos — "o master pode definir os planos" (migration 0012)
+# ---------------------------------------------------------------------------
+def _plano_ns(**over):
+    base = dict(
+        id="p1",
+        codigo="ate_100",
+        nome="Até 100 pessoas",
+        limite_pessoas=100,
+        preco_mensal=199,
+        ativo=True,
+        ordem=1,
+    )
+    base.update(over)
+    return SimpleNamespace(**base)
+
+
+_PLANO_ID = "00000000-0000-0000-0000-000000000005"
+
+
+def test_admin_lists_planos(app) -> None:
+    db = PlatformDB(
+        gate_app_user=make_app_user(),
+        admin_marker="pa1",
+        planos=[_plano_ns(), _plano_ns(id="p3", codigo="acima_201", preco_mensal=399)],
+        em_uso_rows=[("ate_100", 2)],
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.get("/admin/planos", headers=_AUTH)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert [p["codigo"] for p in body] == ["ate_100", "acima_201"]
+    ate = next(p for p in body if p["codigo"] == "ate_100")
+    assert ate["precoMensal"] == 199 and ate["emUso"] == 2
+    assert next(p for p in body if p["codigo"] == "acima_201")["emUso"] == 0
+
+
+def test_admin_planos_block_non_master(app) -> None:
+    db = PlatformDB(gate_app_user=make_app_user(), admin_marker=None)
+    client = _wire(app, db=db, clerk=FakeClerk())
+    assert client.get("/admin/planos", headers=_AUTH).status_code == 403
+
+
+def test_admin_creates_plano(app) -> None:
+    db = PlatformDB(gate_app_user=make_app_user(), admin_marker="pa1")
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.post(
+        "/admin/planos",
+        headers=_AUTH,
+        json={"codigo": "premium", "nome": "Premium", "precoMensal": 499},
+    )
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["codigo"] == "premium" and body["precoMensal"] == 499
+    assert body["ativo"] is True
+    assert db.committed is True
+
+
+def test_admin_create_plano_rejects_bad_codigo(app) -> None:
+    db = PlatformDB(gate_app_user=make_app_user(), admin_marker="pa1")
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.post(
+        "/admin/planos",
+        headers=_AUTH,
+        json={"codigo": "Plano Premium", "nome": "X", "precoMensal": 10},
+    )
+    assert resp.status_code == 422
+
+
+def test_admin_create_plano_conflict(app) -> None:
+    # codigo já existe (dup-check encontra uma linha) -> 409.
+    db = PlatformDB(
+        gate_app_user=make_app_user(), admin_marker="pa1", plano_scalar="existing"
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.post(
+        "/admin/planos",
+        headers=_AUTH,
+        json={"codigo": "ate_100", "nome": "Dup", "precoMensal": 199},
+    )
+    assert resp.status_code == 409
+
+
+def test_admin_updates_plano_price(app) -> None:
+    plano = _plano_ns()
+    db = PlatformDB(
+        gate_app_user=make_app_user(), admin_marker="pa1", plano_scalar=plano
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.patch(
+        f"/admin/planos/{_PLANO_ID}", headers=_AUTH, json={"precoMensal": 249}
+    )
+    assert resp.status_code == 200
+    assert resp.json()["precoMensal"] == 249
+    assert plano.preco_mensal == 249
+    assert db.committed is True
+
+
+def test_admin_update_plano_404(app) -> None:
+    db = PlatformDB(
+        gate_app_user=make_app_user(), admin_marker="pa1", plano_scalar=None
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.patch(
+        f"/admin/planos/{_PLANO_ID}", headers=_AUTH, json={"precoMensal": 1}
+    )
+    assert resp.status_code == 404
+
+
+def test_admin_deletes_plano_when_free(app) -> None:
+    plano = _plano_ns(codigo="premium")
+    db = PlatformDB(
+        gate_app_user=make_app_user(),
+        admin_marker="pa1",
+        plano_scalar=plano,
+        count_value=0,  # nenhuma igreja no plano
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.delete(f"/admin/planos/{_PLANO_ID}", headers=_AUTH)
+    assert resp.status_code == 204
+    assert db.deleted == [plano]
+    assert db.committed is True
+
+
+def test_admin_delete_plano_blocked_when_in_use(app) -> None:
+    plano = _plano_ns()
+    db = PlatformDB(
+        gate_app_user=make_app_user(),
+        admin_marker="pa1",
+        plano_scalar=plano,
+        count_value=3,  # 3 igrejas usam o plano
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.delete(f"/admin/planos/{_PLANO_ID}", headers=_AUTH)
+    assert resp.status_code == 409
+    assert db.deleted == []

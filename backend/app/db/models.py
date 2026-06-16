@@ -729,6 +729,35 @@ class AgentConversationLog(Base):
     )
 
 
+class Plano(Base):
+    """Catálogo de planos do SaaS (preço mensal por porte) — definido pelo master.
+
+    Tabela de REFERÊNCIA GLOBAL (sem igreja_id): o console de plataforma faz o
+    CRUD e todos os tenants leem (tela de Assinatura). ``igrejas.plano`` guarda
+    o ``codigo`` deste catálogo. Fonte única do preço para MRR/detalhe. Ver
+    migration 0012.
+    """
+
+    __tablename__ = "planos"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    codigo: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    nome: Mapped[str] = mapped_column(Text, nullable=False)
+    limite_pessoas: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    preco_mensal: Mapped[float] = mapped_column(
+        Numeric(10, 2), nullable=False, server_default=text("0")
+    )
+    ativo: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
+    ordem: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+
 class PlatformAdmin(Base):
     """Super-Admin allowlist (console multi-tenant — Onda 1 / US-42/43).
 
@@ -779,5 +808,6 @@ __all__ = [
     "LlmCredential",
     "AiUsageLog",
     "AgentConversationLog",
+    "Plano",
     "PlatformAdmin",
 ]

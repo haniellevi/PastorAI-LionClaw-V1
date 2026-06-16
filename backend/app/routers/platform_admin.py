@@ -19,6 +19,7 @@ and must never expose cross-tenant data.
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -33,6 +34,7 @@ from app.db.models import (
     Celula,
     Igreja,
     Pessoa,
+    Plano,
     PlatformAdmin,
     Subscription,
     UserRole,
@@ -49,13 +51,32 @@ router = APIRouter(prefix="/admin", tags=["platform-admin"])
 # Status válidos de igreja (enum igreja_status — migration 0001).
 IGREJA_STATUSES = {"ativa", "suspensa", "aguardando_aprovacao", "inadimplente"}
 
-# Planos conhecidos (igrejas.plano é texto livre; validamos o conjunto atual
-# para evitar typo, mantendo a coluna extensível no banco).
-IGREJA_PLANOS = {"ate_100", "101_200", "acima_201"}
 
-# Mensalidade por plano em R$ (PRD: até 100=199; 101-200=299; acima 201=399).
-# O setup único de R$1.000 é one-time e NÃO entra no MRR.
-PLANO_PRECOS = {"ate_100": 199, "101_200": 299, "acima_201": 399}
+# Catálogo de planos (preço por plano) agora vive na tabela `planos` (migration
+# 0012), editável pelo master. Estes helpers são a fonte única do preço para
+# MRR, detalhe da igreja e validação de plano nas igrejas.
+def _plano_precos(db: Session) -> dict[str, float]:
+    """Mapa ``codigo -> preço mensal`` de TODOS os planos.
+
+    Inclui planos inativos de propósito: uma igreja ATIVA grandfathered num
+    plano que o master desativou continua pagando o preço dele, então ainda
+    conta no MRR. O setup único (R$1.000) é one-time e não entra aqui.
+    """
+    rows = db.execute(select(Plano.codigo, Plano.preco_mensal)).all()
+    return {codigo: float(preco) for codigo, preco in rows}
+
+
+def _validate_plano_or_422(db: Session, codigo: str) -> None:
+    """Garante que o código de plano existe no catálogo (senão 422).
+
+    A UI só oferece planos ativos no seletor; aqui basta existir (a igreja pode
+    permanecer num plano depois desativado — grandfathering).
+    """
+    if codigo not in _plano_precos(db):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"plano inválido: {codigo}",
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -174,14 +195,11 @@ class CreateIgrejaRequest(BaseModel):
     @field_validator("plano")
     @classmethod
     def _plano(cls, v: str | None) -> str | None:
+        # Só normaliza; a existência no catálogo é checada no handler (precisa
+        # do banco — ver _validate_plano_or_422).
         if v is None:
             return None
-        v = v.strip()
-        if not v:
-            return None
-        if v not in IGREJA_PLANOS:
-            raise ValueError(f"plano inválido: {v}")
-        return v
+        return v.strip() or None
 
 
 class CreateIgrejaResponse(BaseModel):
@@ -207,12 +225,10 @@ class UpdateIgrejaRequest(BaseModel):
     @field_validator("plano")
     @classmethod
     def _plano(cls, v: str | None) -> str | None:
+        # Só normaliza; a existência no catálogo é checada no handler.
         if v is None:
             return None
-        v = v.strip()
-        if not v or v not in IGREJA_PLANOS:
-            raise ValueError(f"plano inválido: {v}")
-        return v
+        return v.strip() or None
 
 
 class PlatformAdminMe(BaseModel):
@@ -308,6 +324,9 @@ def create_igreja(
     """
     email = payload.admin.email
 
+    if payload.plano is not None:
+        _validate_plano_or_422(db, payload.plano)
+
     igreja = Igreja(nome=payload.nome, status="ativa", plano=payload.plano)
     db.add(igreja)
     db.flush()  # assign igreja.id
@@ -374,6 +393,9 @@ def update_igreja(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Igreja não encontrada"
         )
+
+    if payload.plano is not None:
+        _validate_plano_or_422(db, payload.plano)
 
     if payload.status is not None:
         igreja.status = payload.status
@@ -448,7 +470,7 @@ class AdminMetricsOut(BaseModel):
     totalIgrejas: int  # noqa: N815
     porStatus: dict[str, int]  # noqa: N815 - {ativa: N, suspensa: N, ...}
     porPlano: dict[str, int]  # noqa: N815 - {ate_100: N, ...}
-    mrr: int  # R$/mês recorrente (igrejas ATIVAS com plano)
+    mrr: float  # R$/mês recorrente (igrejas ATIVAS com plano)
     totalMembros: int  # noqa: N815 - app_users (todas as igrejas)
     totalPessoas: int  # noqa: N815 - pessoas cadastradas
     custoIaTotal: float  # noqa: N815 - soma de ai_usage_logs.custo
@@ -471,7 +493,7 @@ class IgrejaDetailOut(BaseModel):
     status: str
     plano: str | None = None
     createdAt: str | None = None  # noqa: N815
-    mensalidade: int | None = None  # R$/mês do plano (None se sem plano)
+    mensalidade: float | None = None  # R$/mês do plano (None se sem plano)
     membros: int = 0  # app_users (acessos ao painel)
     pessoas: int = 0  # Pessoa (cadastro)
     celulas: int = 0
@@ -487,21 +509,22 @@ def admin_metrics(
 ) -> AdminMetricsOut:
     """Visão global da plataforma (cross-tenant, BYPASSRLS).
 
-    MRR = soma da mensalidade (PLANO_PRECOS) das igrejas ATIVAS com plano. O
-    custo de IA é a soma de ai_usage_logs (BYO-LLM, fora do preço do PastorAI —
+    MRR = soma da mensalidade (catálogo `planos`) das igrejas ATIVAS com plano.
+    O custo de IA é a soma de ai_usage_logs (BYO-LLM, fora do preço do PastorAI —
     mas o provedor acompanha o consumo por aqui).
     """
     igrejas = db.execute(select(Igreja)).scalars().all()
+    precos = _plano_precos(db)
 
     por_status: dict[str, int] = {}
     por_plano: dict[str, int] = {}
-    mrr = 0
+    mrr = 0.0
     for ig in igrejas:
         por_status[ig.status] = por_status.get(ig.status, 0) + 1
         if ig.plano:
             por_plano[ig.plano] = por_plano.get(ig.plano, 0) + 1
-        if ig.status == "ativa" and ig.plano in PLANO_PRECOS:
-            mrr += PLANO_PRECOS[ig.plano]
+        if ig.status == "ativa" and ig.plano in precos:
+            mrr += precos[ig.plano]
 
     total_membros = int(
         db.execute(select(func.count()).select_from(AppUser)).scalar_one()
@@ -599,13 +622,15 @@ def get_igreja_detail(
         else None
     )
 
+    mensalidade = _plano_precos(db).get(igreja.plano) if igreja.plano else None
+
     return IgrejaDetailOut(
         id=str(igreja.id),
         nome=igreja.nome,
         status=igreja.status,
         plano=igreja.plano,
         createdAt=igreja.created_at.isoformat() if igreja.created_at else None,
-        mensalidade=PLANO_PRECOS.get(igreja.plano) if igreja.plano else None,
+        mensalidade=mensalidade,
         membros=membros,
         pessoas=pessoas,
         celulas=celulas,
@@ -613,3 +638,210 @@ def get_igreja_detail(
         tokensIa=tokens_ia,
         assinatura=assinatura,
     )
+
+
+# ---------------------------------------------------------------------------
+# Gestão de planos — "o master pode definir os planos" (catálogo, migration 0012)
+# ---------------------------------------------------------------------------
+class PlanoOut(BaseModel):
+    """Um plano do catálogo, como visto pelo console master."""
+
+    id: str
+    codigo: str
+    nome: str
+    limitePessoas: int | None = None  # noqa: N815 - None = ilimitado
+    precoMensal: float  # noqa: N815
+    ativo: bool
+    ordem: int
+    emUso: int = 0  # noqa: N815 - nº de igrejas neste plano (trava o DELETE)
+
+
+class CreatePlanoRequest(BaseModel):
+    codigo: str = Field(min_length=1, max_length=50)
+    nome: str = Field(min_length=1, max_length=120)
+    limitePessoas: int | None = Field(default=None, ge=1)  # noqa: N815
+    precoMensal: float = Field(ge=0)  # noqa: N815
+    ordem: int = Field(default=0, ge=0)
+
+    @field_validator("codigo")
+    @classmethod
+    def _codigo(cls, v: str) -> str:
+        v = v.strip().lower()
+        if not re.fullmatch(r"[a-z0-9_]+", v):
+            raise ValueError(
+                "codigo deve conter apenas letras minúsculas, números e _"
+            )
+        return v
+
+    @field_validator("nome")
+    @classmethod
+    def _nome(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("nome obrigatório")
+        return v
+
+
+class UpdatePlanoRequest(BaseModel):
+    # PATCH parcial: só os campos presentes no corpo são alterados (model_fields_set).
+    # limitePessoas aceita null EXPLÍCITO para marcar "ilimitado".
+    nome: str | None = Field(default=None, max_length=120)
+    limitePessoas: int | None = Field(default=None, ge=1)  # noqa: N815
+    precoMensal: float | None = Field(default=None, ge=0)  # noqa: N815
+    ativo: bool | None = Field(default=None)
+    ordem: int | None = Field(default=None, ge=0)
+
+    @field_validator("nome")
+    @classmethod
+    def _nome(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip()
+        if not v:
+            raise ValueError("nome não pode ficar vazio")
+        return v
+
+
+def _plano_out(p: Plano, em_uso: int = 0) -> PlanoOut:
+    return PlanoOut(
+        id=str(p.id),
+        codigo=p.codigo,
+        nome=p.nome,
+        limitePessoas=p.limite_pessoas,
+        precoMensal=float(p.preco_mensal),
+        ativo=p.ativo,
+        ordem=p.ordem,
+        emUso=em_uso,
+    )
+
+
+def _get_plano_or_404(db: Session, plano_id: str) -> Plano:
+    try:
+        pid = uuid.UUID(plano_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Plano não encontrado"
+        ) from exc
+    plano = db.execute(select(Plano).where(Plano.id == pid)).scalar_one_or_none()
+    if plano is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Plano não encontrado"
+        )
+    return plano
+
+
+def _igrejas_no_plano(db: Session, codigo: str) -> int:
+    return int(
+        db.execute(
+            select(func.count()).select_from(Igreja).where(Igreja.plano == codigo)
+        ).scalar_one()
+    )
+
+
+@router.get("/planos", response_model=list[PlanoOut])
+def list_planos(
+    db: Session = Depends(get_db),
+    _admin: PlatformAdminUser = Depends(get_platform_admin),
+) -> list[PlanoOut]:
+    """Lista o catálogo de planos (inclui inativos), com nº de igrejas em uso."""
+    planos = db.execute(
+        select(Plano).order_by(Plano.ordem, Plano.codigo)
+    ).scalars().all()
+    em_uso = dict(
+        db.execute(
+            select(Igreja.plano, func.count())
+            .where(Igreja.plano.is_not(None))
+            .group_by(Igreja.plano)
+        ).all()
+    )
+    return [_plano_out(p, int(em_uso.get(p.codigo, 0))) for p in planos]
+
+
+@router.post("/planos", response_model=PlanoOut, status_code=status.HTTP_201_CREATED)
+def create_plano(
+    payload: CreatePlanoRequest,
+    db: Session = Depends(get_db),
+    _admin: PlatformAdminUser = Depends(get_platform_admin),
+) -> PlanoOut:
+    """Cria um plano no catálogo (US-42 — definir planos).
+
+    O ``codigo`` é a chave estável referenciada por ``igrejas.plano`` e é
+    imutável depois de criado (409 se já existir).
+    """
+    existe = db.execute(
+        select(Plano.id).where(Plano.codigo == payload.codigo)
+    ).scalar_one_or_none()
+    if existe is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Já existe um plano com código '{payload.codigo}'",
+        )
+    plano = Plano(
+        codigo=payload.codigo,
+        nome=payload.nome,
+        limite_pessoas=payload.limitePessoas,
+        preco_mensal=payload.precoMensal,
+        ativo=True,  # explícito: server_default só vale no banco (não no objeto)
+        ordem=payload.ordem,
+    )
+    db.add(plano)
+    db.commit()
+    return _plano_out(plano, 0)
+
+
+@router.patch("/planos/{plano_id}", response_model=PlanoOut)
+def update_plano(
+    plano_id: str,
+    payload: UpdatePlanoRequest,
+    db: Session = Depends(get_db),
+    _admin: PlatformAdminUser = Depends(get_platform_admin),
+) -> PlanoOut:
+    """Edita um plano: nome, preço, limite, ordem ou ativa/desativa.
+
+    O ``codigo`` não muda (as igrejas o referenciam). Atualização parcial: só
+    os campos enviados são alterados — ``limitePessoas: null`` marca ilimitado.
+    """
+    plano = _get_plano_or_404(db, plano_id)
+    fields = payload.model_fields_set
+    if not fields:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Informe ao menos um campo para atualizar",
+        )
+    if "nome" in fields and payload.nome is not None:
+        plano.nome = payload.nome
+    if "limitePessoas" in fields:  # null explícito = ilimitado
+        plano.limite_pessoas = payload.limitePessoas
+    if "precoMensal" in fields and payload.precoMensal is not None:
+        plano.preco_mensal = payload.precoMensal
+    if "ativo" in fields and payload.ativo is not None:
+        plano.ativo = payload.ativo
+    if "ordem" in fields and payload.ordem is not None:
+        plano.ordem = payload.ordem
+    db.commit()
+    return _plano_out(plano, _igrejas_no_plano(db, plano.codigo))
+
+
+@router.delete("/planos/{plano_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_plano(
+    plano_id: str,
+    db: Session = Depends(get_db),
+    _admin: PlatformAdminUser = Depends(get_platform_admin),
+) -> None:
+    """Exclui um plano do catálogo — só se NENHUMA igreja o estiver usando.
+
+    Se houver igrejas no plano (409), o master deve desativá-lo (PATCH
+    ativo=false) em vez de excluir, para não quebrar a referência delas.
+    """
+    plano = _get_plano_or_404(db, plano_id)
+    em_uso = _igrejas_no_plano(db, plano.codigo)
+    if em_uso > 0:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"{em_uso} igreja(s) usam este plano. "
+                "Desative-o em vez de excluir."
+            ),
+        )
+    db.delete(plano)
+    db.commit()
