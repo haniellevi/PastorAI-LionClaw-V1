@@ -349,6 +349,9 @@ def link_cell(
     Blocks linking to an inactive cell or one without a leader. The actual
     follow-up promotion is performed by the database trigger
     `trg_link_cell_promote` when celula_id transitions to a value.
+
+    A person belongs to a single cell (delta-049): the first link is open to the
+    normal flow, but MOVING someone from one cell to another is admin-only.
     """
     ensure_tenant_context(db, current_user)
 
@@ -384,6 +387,18 @@ def link_cell(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Célula sem líder não pode receber contatos",
+        )
+
+    # Transferir alguém que já está numa célula para OUTRA é só do admin; a
+    # primeira vinculação (sem célula) segue liberada ao fluxo normal.
+    if (
+        pessoa.celula_id is not None
+        and pessoa.celula_id != celula.id
+        and not current_user.has_role("admin")
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Apenas um administrador pode transferir alguém de célula",
         )
 
     pessoa.celula_id = celula.id
