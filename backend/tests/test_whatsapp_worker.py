@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
-from app.db.models import Conversation, Pessoa, WhatsappConnection
+from app.db.models import Conversation, Message, Pessoa, WhatsappConnection
 from app.domain.conversations import parse_message_event
 from app.domain.phone import normalize_phone
 from app.workers.queue_worker import (
@@ -17,6 +17,7 @@ from app.workers.queue_worker import (
     WebhookQueue,
     _Envelope,
     ingest_message_event,
+    ingest_message_event_ex,
     process_webhook_payload,
 )
 
@@ -261,6 +262,100 @@ def test_ingest_outbound_to_known_contact_still_records() -> None:
     result = ingest_message_event(session, parsed)
     assert result is IngestionResult.REGISTERED
     assert not any(isinstance(o, Pessoa) for o in session.added)
+
+
+# ---------------------------------------------------------------------------
+# Media ingestion (Etapa 2): download via resolver -> Storage pointer on the row
+# ---------------------------------------------------------------------------
+def _media_payload(message_id: str = "IMG1") -> dict:
+    return {
+        "event": "messages.upsert",
+        "instance": "igreja-1",
+        "data": {
+            "key": {
+                "remoteJid": "5511988887777@s.whatsapp.net",
+                "fromMe": False,
+                "id": message_id,
+            },
+            "pushName": "João",
+            "message": {"imageMessage": {"mimetype": "image/jpeg"}},
+        },
+    }
+
+
+def test_ingest_media_uploads_and_sets_fields() -> None:
+    connection = WhatsappConnection(igreja_id=_IGREJA, instance="igreja-1")
+    session = FakeIngestSession(connection=connection, pessoa=None, conversation=None)
+
+    stored = SimpleNamespace(
+        path="igreja/conv/abc.jpg", mime="image/jpeg", nome=None, tamanho=42
+    )
+    calls: list = []
+
+    def resolver(parsed, igreja_id, conversation_id):
+        calls.append(parsed.media_kind)
+        return stored
+
+    parsed = parse_message_event(_media_payload())
+    outcome = ingest_message_event_ex(session, parsed, media_resolver=resolver)
+
+    assert outcome.result is IngestionResult.REGISTERED
+    msg = next(o for o in session.added if isinstance(o, Message))
+    assert msg.tipo == "imagem"
+    assert msg.media_path == "igreja/conv/abc.jpg"
+    assert msg.media_mime == "image/jpeg"
+    assert msg.media_tamanho == 42
+    assert calls == ["imagem"]
+
+
+def test_ingest_media_degrades_when_resolver_fails() -> None:
+    connection = WhatsappConnection(igreja_id=_IGREJA, instance="igreja-1")
+    session = FakeIngestSession(connection=connection, pessoa=None, conversation=None)
+
+    def boom(parsed, igreja_id, conversation_id):
+        raise RuntimeError("evolution down")
+
+    parsed = parse_message_event(_media_payload())
+    outcome = ingest_message_event_ex(session, parsed, media_resolver=boom)
+
+    # A mensagem NÃO se perde: fica marcada como imagem, sem ponteiro de mídia.
+    assert outcome.result is IngestionResult.REGISTERED
+    msg = next(o for o in session.added if isinstance(o, Message))
+    assert msg.tipo == "imagem"
+    assert msg.media_path is None
+
+
+def test_ingest_media_snippet_without_caption() -> None:
+    connection = WhatsappConnection(igreja_id=_IGREJA, instance="igreja-1")
+    existing = Pessoa(igreja_id=_IGREJA, nome="João", telefone="5511988887777")
+    conv = Conversation(
+        igreja_id=_IGREJA, telefone="5511988887777", estado="ia", nao_lidas=0
+    )
+    session = FakeIngestSession(
+        connection=connection, pessoa=existing, conversation=conv
+    )
+
+    stored = SimpleNamespace(path="p.jpg", mime="image/jpeg", nome=None, tamanho=10)
+    parsed = parse_message_event(_media_payload())
+    ingest_message_event_ex(session, parsed, media_resolver=lambda *a: stored)
+
+    assert conv.ultima_mensagem == "📷 Imagem"
+
+
+def test_ingest_text_message_has_no_media_resolver_call() -> None:
+    # Mensagem de texto não dispara o resolver de mídia.
+    connection = WhatsappConnection(igreja_id=_IGREJA, instance="igreja-1")
+    session = FakeIngestSession(connection=connection, pessoa=None, conversation=None)
+
+    def resolver(*_a):  # pragma: no cover - não deve ser chamado
+        raise AssertionError("resolver não deveria rodar para texto")
+
+    parsed = parse_message_event(_parsed_payload())
+    outcome = ingest_message_event_ex(session, parsed, media_resolver=resolver)
+    assert outcome.result is IngestionResult.REGISTERED
+    msg = next(o for o in session.added if isinstance(o, Message))
+    assert msg.tipo == "texto"
+    assert msg.media_path is None
 
 
 # ---------------------------------------------------------------------------

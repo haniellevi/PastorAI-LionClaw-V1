@@ -32,17 +32,29 @@ export interface Conversation {
   ultimaMensagem: string | null;
   naoLidas: number;
   assumidoPor: string | null;
+  /** Nome de quem assumiu o atendimento (humano). null quando IA/aguardando. */
+  assumidoPorNome: string | null;
   assumidoEm: string | null;
   esperaDesde: string | null;
   atualizadoEm: string | null;
 }
+
+/** Tipo do conteúdo de uma mensagem (Etapa 2 — mídia). */
+export type ChatMessageTipo = "texto" | "imagem" | "arquivo" | "audio";
 
 /** Uma mensagem do histórico da conversa (GET /conversations/{id}/messages). */
 export interface ChatMessage {
   id: string;
   direcao: "in" | "out";
   autor: "contato" | "ia" | "humano";
+  /** Nome de quem respondeu (humano). null para IA/contato. */
+  autorNome: string | null;
+  tipo: ChatMessageTipo;
   texto: string | null;
+  /** URL assinada de curta duração para a mídia (imagem/arquivo/áudio). */
+  mediaUrl: string | null;
+  mediaMime: string | null;
+  mediaNome: string | null;
   criadoEm: string;
 }
 
@@ -168,6 +180,133 @@ export async function sendMessage(
     const detail = await readDetail(res);
     throw new ApiError(res.status, detail ?? "Não foi possível enviar a resposta.");
   }
+}
+
+// ---------------------------------------------------------------------------
+// Envio de mídia (Etapa 2) — imagem/arquivo pelo número oficial (WhatsApp)
+// ---------------------------------------------------------------------------
+/** Lê um File e devolve o base64 puro (sem o prefixo `data:...;base64,`). */
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      if (typeof result !== "string") {
+        reject(new Error("Falha ao ler o arquivo."));
+        return;
+      }
+      const comma = result.indexOf(",");
+      resolve(comma >= 0 ? result.slice(comma + 1) : result);
+    };
+    reader.onerror = () => reject(new Error("Falha ao ler o arquivo."));
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * Envia uma imagem/arquivo ao contato pelo número oficial (Etapa 2). O arquivo
+ * é lido como base64 e enviado em JSON (sem multipart). Mesmas regras do envio
+ * de texto: é preciso ter assumido o atendimento e o WhatsApp estar online.
+ */
+export async function sendMedia(
+  token: string,
+  conversationId: string,
+  file: File,
+  caption?: string,
+): Promise<ChatMessage> {
+  const base64 = await fileToBase64(file);
+  const res = await authedFetch(token, `/conversations/${conversationId}/messages/media`, {
+    method: "POST",
+    body: JSON.stringify({
+      mime: file.type || "application/octet-stream",
+      base64,
+      nome: file.name || null,
+      caption: caption && caption.trim() ? caption.trim() : null,
+    }),
+  });
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível enviar a mídia.");
+  }
+  return (await res.json()) as ChatMessage;
+}
+
+// ---------------------------------------------------------------------------
+// Exclusão de conversa (hard delete — admin)
+// ---------------------------------------------------------------------------
+/**
+ * Exclui permanentemente uma conversa (mensagens + mídia). Ação destrutiva e
+ * restrita ao admin no backend (403 caso contrário); 204 no sucesso.
+ */
+export async function deleteConversation(
+  token: string,
+  conversationId: string,
+): Promise<void> {
+  const res = await authedFetch(token, `/conversations/${conversationId}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível excluir a conversa.");
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Marcar como lida (zera o contador ao abrir a conversa)
+// ---------------------------------------------------------------------------
+export async function markConversationRead(
+  token: string,
+  conversationId: string,
+): Promise<void> {
+  const res = await authedFetch(token, `/conversations/${conversationId}/read`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    throw new ApiError(res.status, "Não foi possível marcar como lida.");
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Transferir o atendimento para outro membro
+// ---------------------------------------------------------------------------
+export interface TransferResult {
+  estado: string;
+  assumidoPor: string | null;
+  assumidoPorNome: string | null;
+}
+
+/**
+ * Transfere o atendimento humano para outro usuário com acesso ao inbox. Admin
+ * transfere qualquer conversa; o detentor atual transfere a que está atendendo
+ * (409 caso contrário). 422 se o destino não tiver acesso ao inbox.
+ */
+export async function transferConversation(
+  token: string,
+  conversationId: string,
+  toUserId: string,
+): Promise<TransferResult> {
+  const res = await authedFetch(token, `/conversations/${conversationId}/transfer`, {
+    method: "POST",
+    body: JSON.stringify({ toUserId }),
+  });
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível transferir a conversa.");
+  }
+  return (await res.json()) as TransferResult;
+}
+
+// ---------------------------------------------------------------------------
+// Foto de perfil do contato (Etapa 4) — best-effort, pode ser null
+// ---------------------------------------------------------------------------
+export async function fetchConversationPhoto(
+  token: string,
+  conversationId: string,
+): Promise<string | null> {
+  const res = await authedFetch(token, `/conversations/${conversationId}/photo`);
+  if (!res.ok) return null;
+  const body = (await res.json()) as { url?: string | null };
+  return body.url ?? null;
 }
 
 export { ApiError, SessionExpiredError };

@@ -70,6 +70,73 @@ class ContactOut(BaseModel):
         )
 
 
+class ContactDetailOut(BaseModel):
+    """Detalhe completo de uma pessoa — alimenta o painel de dados do chat.
+
+    Estende ``ContactOut`` com os campos cadastrais e de jornada que só fazem
+    sentido na visão de um contato (endereço, faixa etária, datas, consentimento)
+    e resolve os nomes da célula e do líder para exibição direta.
+    """
+
+    id: str
+    nome: str
+    telefone: str
+    email: str | None = None
+    genero: str | None = None
+    faixaEtaria: str | None = None  # noqa: N815
+    endereco: str | None = None
+    tipo: str | None = None
+    etapa: str | None = None
+    subetapa: str | None = None
+    acompanhamento: str | None = None
+    presencasCelula: int  # noqa: N815
+    aceitouJesus: bool  # noqa: N815
+    celulaId: str | None = None  # noqa: N815
+    celulaNome: str | None = None  # noqa: N815
+    liderId: str | None = None  # noqa: N815
+    liderNome: str | None = None  # noqa: N815
+    consentimento: bool
+    optout: bool
+    origem: str | None = None
+    primeiroContato: str | None = None  # noqa: N815
+    criadoEm: str | None = None  # noqa: N815
+
+    @classmethod
+    def from_model(
+        cls,
+        p: Pessoa,
+        *,
+        celula_nome: str | None = None,
+        lider_nome: str | None = None,
+    ) -> "ContactDetailOut":
+        return cls(
+            id=str(p.id),
+            nome=p.nome,
+            telefone=p.telefone,
+            email=p.email,
+            genero=p.genero,
+            faixaEtaria=p.faixa_etaria,
+            endereco=p.endereco,
+            tipo=p.tipo,
+            etapa=p.etapa,
+            subetapa=p.subetapa,
+            acompanhamento=p.acompanhamento,
+            presencasCelula=p.presencas_celula,
+            aceitouJesus=p.aceitou_jesus,
+            celulaId=str(p.celula_id) if p.celula_id else None,
+            celulaNome=celula_nome,
+            liderId=str(p.lider_id) if p.lider_id else None,
+            liderNome=lider_nome,
+            consentimento=p.consentimento,
+            optout=p.optout,
+            origem=p.origem,
+            primeiroContato=(
+                p.primeiro_contato.isoformat() if p.primeiro_contato else None
+            ),
+            criadoEm=p.created_at.isoformat() if p.created_at else None,
+        )
+
+
 class CreateContactRequest(BaseModel):
     """Payload for creating a contact (validated at the edge)."""
 
@@ -262,6 +329,54 @@ def create_contact(
 
     return CreateContactResponse(
         contact=ContactOut.from_model(pessoa), deduped=False
+    )
+
+
+@router.get("/{contact_id}", response_model=ContactDetailOut)
+def get_contact(
+    contact_id: str,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> ContactDetailOut:
+    """Detalhe completo de uma pessoa para o painel de dados do chat (Parte B).
+
+    Tenant-scoped (RLS). Resolve, para exibição, os nomes da célula e do líder.
+    Leitura aberta a qualquer usuário autenticado do tenant (como GET /contacts);
+    a edição segue restrita ao admin (PATCH /contacts/{id}).
+    """
+    ensure_tenant_context(db, current_user)
+
+    try:
+        pessoa_uuid = uuid.UUID(contact_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Contato não encontrado"
+        ) from exc
+
+    pessoa = db.execute(
+        select(Pessoa).where(Pessoa.id == pessoa_uuid)
+    ).scalar_one_or_none()
+    if pessoa is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Contato não encontrado"
+        )
+
+    # Nomes de célula e líder resolvidos à parte (consultas simples, escopo de
+    # tenant garantido pela RLS) para exibir rótulos legíveis no painel.
+    celula_nome: str | None = None
+    if pessoa.celula_id:
+        celula_nome = db.execute(
+            select(Celula.nome).where(Celula.id == pessoa.celula_id)
+        ).scalar_one_or_none()
+
+    lider_nome: str | None = None
+    if pessoa.lider_id:
+        lider_nome = db.execute(
+            select(Pessoa.nome).where(Pessoa.id == pessoa.lider_id)
+        ).scalar_one_or_none()
+
+    return ContactDetailOut.from_model(
+        pessoa, celula_nome=celula_nome, lider_nome=lider_nome
     )
 
 

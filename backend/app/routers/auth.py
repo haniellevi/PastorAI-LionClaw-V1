@@ -107,21 +107,35 @@ class MeResponse(BaseModel):
     churchId: str  # noqa: N815
     email: str
     nome: str
+    chatNome: str | None = None  # noqa: N815 - nome de exibição no chat (assinatura)
     roles: list[str]
 
 
 class UpdateMeRequest(BaseModel):
-    """Edição do próprio perfil (hoje: o nome de exibição)."""
+    """Edição do próprio perfil: nome da conta e/ou nome de exibição no chat.
 
-    nome: str = Field(min_length=1, max_length=200)
+    Semântica PATCH: campos ausentes (None) não mudam. `chatNome` vazio limpa a
+    assinatura (volta a usar o nome da conta).
+    """
+
+    nome: str | None = Field(default=None, max_length=200)
+    chatNome: str | None = Field(default=None, max_length=80)  # noqa: N815
 
     @field_validator("nome")
     @classmethod
-    def _nome(cls, value: str) -> str:
+    def _nome(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         value = value.strip()
         if not value:
-            raise ValueError("nome obrigatório")
+            raise ValueError("nome não pode ser vazio")
         return value
+
+    @field_validator("chatNome")
+    @classmethod
+    def _chat_nome(cls, value: str | None) -> str | None:
+        # Mantém "" (sinal de limpar -> NULL no banco); só apara espaços.
+        return value.strip() if value is not None else None
 
 
 class ChangePasswordRequest(BaseModel):
@@ -380,6 +394,7 @@ def me(current_user: CurrentUser = Depends(get_current_user)) -> MeResponse:
         churchId=current_user.igreja_id,
         email=current_user.email,
         nome=current_user.nome,
+        chatNome=current_user.chat_nome,
         roles=sorted(current_user.roles),
     )
 
@@ -390,22 +405,33 @@ def update_me(
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> MeResponse:
-    """Atualiza os próprios dados de perfil (hoje: o nome de exibição).
+    """Atualiza os próprios dados de perfil: nome da conta e/ou nome de exibição.
 
-    Tenant-scoped via RLS; cada usuário só edita o próprio app_user.
+    Tenant-scoped via RLS; cada usuário só edita o próprio app_user. Semântica
+    PATCH: só os campos enviados mudam. `chatNome` vazio limpa a assinatura.
     """
     ensure_tenant_context(db, current_user)
     app_user = db.execute(
         select(AppUser).where(AppUser.id == uuid.UUID(current_user.app_user_id))
     ).scalar_one_or_none()
+
+    nome = current_user.nome
+    chat_nome = current_user.chat_nome
     if app_user is not None:
-        app_user.nome = payload.nome
+        if payload.nome is not None:
+            app_user.nome = payload.nome
+            nome = payload.nome
+        if payload.chatNome is not None:
+            app_user.chat_nome = payload.chatNome or None
+            chat_nome = app_user.chat_nome
         db.commit()
+
     return MeResponse(
         appUserId=current_user.app_user_id,
         churchId=current_user.igreja_id,
         email=current_user.email,
-        nome=payload.nome,
+        nome=nome,
+        chatNome=chat_nome,
         roles=sorted(current_user.roles),
     )
 

@@ -34,7 +34,11 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.db.models import Conversation, Message, Pessoa, WhatsappConnection
 from app.db.session import get_session_factory
-from app.domain.conversations import ParsedMessage, parse_message_event
+from app.domain.conversations import (
+    ParsedMessage,
+    media_snippet,
+    parse_message_event,
+)
 from app.domain.phone import normalize_phone, phone_suffix
 
 logger = logging.getLogger("pastorai.queue_worker")
@@ -54,6 +58,13 @@ class IngestionResult(str, Enum):
     DUPLICATE = "duplicate"
     SKIPPED_NOT_OFFICIAL = "skipped_not_official"
     IGNORED = "ignored"
+
+
+# Resolver que baixa a mídia da Evolution e a sobe no Storage, devolvendo o
+# ponteiro (StoredMedia: .path/.mime/.nome/.tamanho). Injetado no worker para
+# manter a ingestão testável (sem rede) — tipado como Any para evitar acoplar a
+# ingestão ao módulo de storage.
+MediaResolver = Callable[[ParsedMessage, Any, Any], Any]
 
 
 # ---------------------------------------------------------------------------
@@ -80,11 +91,20 @@ def ingest_message_event(db: Session, parsed: ParsedMessage) -> IngestionResult:
     return ingest_message_event_ex(db, parsed).result
 
 
-def ingest_message_event_ex(db: Session, parsed: ParsedMessage) -> IngestionOutcome:
+def ingest_message_event_ex(
+    db: Session,
+    parsed: ParsedMessage,
+    media_resolver: MediaResolver | None = None,
+) -> IngestionOutcome:
     """Like `ingest_message_event` but also returns the conversation context.
 
     Used by the worker to hand the persisted inbound message to the agent
     orchestrator (delta-034), which emits the single official-number reply.
+
+    When the message carries media (`parsed.media_kind`) and a `media_resolver`
+    is supplied, the bytes are fetched from Evolution and uploaded to Storage;
+    a resolver failure degrades gracefully (the row keeps its media `tipo` so
+    the panel shows a placeholder, instead of losing the message).
     """
     connection = db.execute(
         select(WhatsappConnection).where(
@@ -168,16 +188,38 @@ def ingest_message_event_ex(db: Session, parsed: ParsedMessage) -> IngestionOutc
         db.add(conversation)
         db.flush()
 
+    # Mídia (Etapa 2): baixa da Evolution + sobe no Storage. Se falhar, o `tipo`
+    # ainda reflete que era mídia (painel mostra "indisponível"), sem quebrar a
+    # ingestão nem perder a mensagem.
+    stored = None
+    if parsed.media_kind and media_resolver is not None:
+        try:
+            stored = media_resolver(parsed, igreja_id, conversation.id)
+        except Exception:  # noqa: BLE001 - falha de mídia não derruba a ingestão
+            logger.warning(
+                "Falha ao baixar/guardar mídia da mensagem %s",
+                parsed.provider_message_id,
+            )
+
     message = Message(
         igreja_id=igreja_id,
         conversation_id=conversation.id,
         direcao="in" if inbound else "out",
         autor="contato" if inbound else "humano",
         texto=parsed.texto,
+        tipo=parsed.media_kind or "texto",
+        media_path=stored.path if stored else None,
+        media_mime=(stored.mime if stored else parsed.media_mime)
+        if parsed.media_kind
+        else None,
+        media_nome=(stored.nome if stored else parsed.media_nome)
+        if parsed.media_kind
+        else None,
+        media_tamanho=stored.tamanho if stored else None,
     )
     db.add(message)
 
-    conversation.ultima_mensagem = parsed.texto
+    conversation.ultima_mensagem = parsed.texto or media_snippet(parsed.media_kind)
     if inbound:
         conversation.nao_lidas = (conversation.nao_lidas or 0) + 1
 
@@ -265,6 +307,7 @@ class QueueWorker:
         queue: WebhookQueue | None = None,
         session_factory: Any | None = None,
         agent_runner: "Callable[[Any, IngestionOutcome], None] | None" = None,
+        media_resolver: MediaResolver | None = None,
     ) -> None:
         self._queue = queue or WebhookQueue()
         self._session_factory = session_factory or get_session_factory()
@@ -272,6 +315,9 @@ class QueueWorker:
         # inbound message is handed to the agent, which emits the single reply.
         # Defaulting to None keeps ingestion-only tests free of agent/DB needs.
         self._agent_runner = agent_runner
+        # Optional media hook (Etapa 2). When set, inbound media is fetched from
+        # Evolution and uploaded to Storage. None keeps ingestion tests offline.
+        self._media_resolver = media_resolver
         self._running = False
 
     def stop(self, *_: Any) -> None:
@@ -322,7 +368,9 @@ class QueueWorker:
         try:
             session: Session = self._session_factory()
             try:
-                outcome = ingest_message_event_ex(session, parsed)
+                outcome = ingest_message_event_ex(
+                    session, parsed, media_resolver=self._media_resolver
+                )
             finally:
                 session.close()
         except Exception:
@@ -404,6 +452,48 @@ def run_agent_for_message(session_factory: Any, outcome: IngestionOutcome) -> No
 
 
 # ---------------------------------------------------------------------------
+# Media resolver (Etapa 2): Evolution download -> Supabase Storage upload
+# ---------------------------------------------------------------------------
+def _key_from(parsed: ParsedMessage) -> dict[str, Any]:
+    """Reconstruct the Evolution message key used to fetch the media bytes.
+
+    Only 1:1 chats are captured (groups are skipped at parse time), so the
+    remoteJid is always the contact's `@s.whatsapp.net` JID.
+    """
+    return {
+        "id": parsed.provider_message_id,
+        "remoteJid": f"{parsed.telefone_raw}@s.whatsapp.net",
+        "fromMe": parsed.from_me,
+    }
+
+
+def resolve_media_via_evolution(
+    parsed: ParsedMessage, igreja_id: Any, conversation_id: Any
+) -> Any:
+    """Real media resolver: pull bytes from Evolution, upload to Storage.
+
+    Imports are deferred so ingestion-only tests don't need the storage/HTTP
+    stack. Returns a StoredMedia (pointer) or raises (the worker degrades).
+    """
+    import base64  # noqa: PLC0415
+
+    from app.services.evolution import EvolutionClient  # noqa: PLC0415
+    from app.services.storage import SupabaseStorage  # noqa: PLC0415
+
+    base64_data, mimetype = EvolutionClient().get_media_base64(
+        parsed.instance, _key_from(parsed)
+    )
+    raw = base64.b64decode(base64_data)
+    return SupabaseStorage().upload(
+        igreja_id,
+        conversation_id,
+        raw,
+        mimetype or parsed.media_mime,
+        parsed.media_nome,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Redis client + entrypoint
 # ---------------------------------------------------------------------------
 def _build_redis() -> Any:
@@ -419,7 +509,10 @@ def main() -> None:  # pragma: no cover - process entrypoint
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
-    worker = QueueWorker(agent_runner=run_agent_for_message)
+    worker = QueueWorker(
+        agent_runner=run_agent_for_message,
+        media_resolver=resolve_media_via_evolution,
+    )
     signal.signal(signal.SIGTERM, worker.stop)
     signal.signal(signal.SIGINT, worker.stop)
     worker.run()
