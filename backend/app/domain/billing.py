@@ -19,11 +19,13 @@ PLAN_LIMIT: dict[str, int] = {
     "acima_201": 999999,
 }
 
-# Monthly price per plan (BRL). Source of truth for the Asaas checkout value.
+# Monthly price per plan (BRL). Espelha o catálogo `planos` (PRD: 199/299/399),
+# que o console master edita. Valor usado no checkout do Asaas.
+# TODO: ler da tabela `planos` para a edição de preço do master valer no checkout.
 PLAN_PRICE: dict[str, float] = {
-    "ate_100": 97.0,
-    "101_200": 197.0,
-    "acima_201": 397.0,
+    "ate_100": 199.0,
+    "101_200": 299.0,
+    "acima_201": 399.0,
 }
 
 
