@@ -11,26 +11,20 @@ import { Button } from "@/components/ui/Button";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import {
   AdminSessionExpiredError,
-  aprovarIgreja,
   createIgreja,
-  deleteIgreja,
   fetchMetrics,
   listIgrejas,
   listPlanos,
-  updateIgreja,
   type AdminIgreja,
   type AdminMetrics,
   type AdminPlano,
   type CreateIgrejaInput,
-  type UpdateIgrejaInput,
 } from "@/lib/admin-api";
 import { useAdminAuth } from "@/lib/admin-auth-context";
 
 import { AuditModal } from "./AuditModal";
+import { ChurchPage } from "./ChurchPage";
 import { CreateIgrejaModal } from "./CreateIgrejaModal";
-import { EditIgrejaModal } from "./EditIgrejaModal";
-import { IgrejaAgenteModal } from "./IgrejaAgenteModal";
-import { IgrejaDetailModal } from "./IgrejaDetailModal";
 import { PlanosManagerModal } from "./PlanosManagerModal";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -78,8 +72,6 @@ export function AdminConsole() {
   const [planosOpen, setPlanosOpen] = useState(false);
   const [auditOpen, setAuditOpen] = useState(false);
   const [viewing, setViewing] = useState<AdminIgreja | null>(null);
-  const [editing, setEditing] = useState<AdminIgreja | null>(null);
-  const [agenteFor, setAgenteFor] = useState<AdminIgreja | null>(null);
   const [modalBusy, setModalBusy] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
 
@@ -153,58 +145,6 @@ export function AdminConsole() {
     }
   };
 
-  const submitEdit = async (input: UpdateIgrejaInput) => {
-    if (!token || !editing) return;
-    setModalBusy(true);
-    setModalError(null);
-    try {
-      await updateIgreja(token, editing.id, input);
-      setNotice(`"${editing.nome}" atualizada.`);
-      setEditing(null);
-      await load();
-    } catch (err) {
-      if (handledSessionError(err)) return;
-      setModalError(err instanceof Error ? err.message : "Não foi possível atualizar.");
-    } finally {
-      setModalBusy(false);
-    }
-  };
-
-  const submitDelete = async () => {
-    if (!token || !editing) return;
-    setModalBusy(true);
-    setModalError(null);
-    try {
-      await deleteIgreja(token, editing.id);
-      setNotice(`Igreja "${editing.nome}" excluída.`);
-      setEditing(null);
-      await load();
-    } catch (err) {
-      if (handledSessionError(err)) return;
-      setModalError(err instanceof Error ? err.message : "Não foi possível excluir.");
-    } finally {
-      setModalBusy(false);
-    }
-  };
-
-  // M2: aprova a igreja em foco no detalhe (aguardando_aprovacao -> ativa).
-  const submitAprovar = async () => {
-    if (!token || !viewing) return;
-    setModalBusy(true);
-    setModalError(null);
-    try {
-      await aprovarIgreja(token, viewing.id);
-      setNotice(`Igreja "${viewing.nome}" aprovada e ativada.`);
-      setViewing(null);
-      await load();
-    } catch (err) {
-      if (handledSessionError(err)) return;
-      setModalError(err instanceof Error ? err.message : "Não foi possível aprovar.");
-    } finally {
-      setModalBusy(false);
-    }
-  };
-
   const columns: Array<Column<AdminIgreja>> = [
     { header: "Igreja", cell: (r) => <strong>{r.nome}</strong> },
     { header: "Status", cell: (r) => STATUS_LABEL[r.status] ?? r.status },
@@ -213,6 +153,25 @@ export function AdminConsole() {
     { header: "Pessoas", numeric: true, cell: (r) => r.pessoas },
     { header: "", width: "1px", cell: () => <span className="sub">Detalhes →</span> },
   ];
+
+  // Igreja aberta → página dedicada em tela cheia (substitui o antigo modal).
+  if (viewing && token) {
+    return (
+      <ChurchPage
+        igreja={viewing}
+        token={token}
+        planos={activePlanos}
+        onBack={() => setViewing(null)}
+        onExpired={logout}
+        onChanged={() => void load()}
+        onDeleted={() => {
+          setViewing(null);
+          setNotice("Igreja excluída.");
+          void load();
+        }}
+      />
+    );
+  }
 
   return (
     <div style={{ maxWidth: 980, margin: "0 auto", padding: "var(--s4)" }}>
@@ -368,51 +327,6 @@ export function AdminConsole() {
 
       {auditOpen && token ? (
         <AuditModal token={token} onClose={() => setAuditOpen(false)} onExpired={logout} />
-      ) : null}
-
-      {viewing && token ? (
-        <IgrejaDetailModal
-          igreja={viewing}
-          token={token}
-          approving={modalBusy}
-          actionError={modalError}
-          onClose={() => setViewing(null)}
-          onExpired={logout}
-          onApprove={submitAprovar}
-          onAgente={() => {
-            const target = viewing;
-            setViewing(null);
-            setAgenteFor(target);
-          }}
-          onEdit={() => {
-            const target = viewing;
-            setViewing(null);
-            setModalError(null);
-            setEditing(target);
-          }}
-        />
-      ) : null}
-
-      {agenteFor && token ? (
-        <IgrejaAgenteModal
-          igreja={agenteFor}
-          token={token}
-          onClose={() => setAgenteFor(null)}
-          onExpired={logout}
-          onSaved={() => setNotice(`Agente de "${agenteFor.nome}" atualizado.`)}
-        />
-      ) : null}
-
-      {editing ? (
-        <EditIgrejaModal
-          igreja={editing}
-          busy={modalBusy}
-          error={modalError}
-          planos={activePlanos}
-          onClose={() => setEditing(null)}
-          onSubmit={submitEdit}
-          onDelete={submitDelete}
-        />
       ) : null}
     </div>
   );
