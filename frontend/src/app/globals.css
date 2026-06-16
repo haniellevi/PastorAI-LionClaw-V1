@@ -375,7 +375,8 @@ textarea:disabled {
 .app {
   display: grid;
   grid-template-columns: 248px 1fr;
-  min-height: 100dvh;
+  height: 100dvh;
+  overflow: hidden;
 }
 .sidebar {
   background: var(--sidebar);
@@ -882,8 +883,10 @@ textarea:disabled {
 /* ---------- MAIN / TOPBAR ---------- */
 .main {
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 .topbar {
   position: sticky;
@@ -981,6 +984,9 @@ textarea:disabled {
 
 /* ---------- SCREENS ---------- */
 .screen {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   padding: var(--s5);
   animation: fade 0.22s ease;
 }
@@ -2544,22 +2550,57 @@ table.data-table {
 }
 .conv {
   display: flex;
-  gap: 10px;
-  padding: var(--s3) var(--s4);
+  gap: 12px;
+  align-items: center;
+  padding: 11px 14px;
   border-bottom: 1px solid var(--border);
+  border-left: 3px solid transparent;
   cursor: pointer;
   text-align: left;
   width: 100%;
   background: none;
   font: inherit;
   color: inherit;
-  transition: background 0.12s;
+  transition: background 0.12s, border-color 0.12s;
 }
 .conv:hover {
   background: var(--surface-2);
 }
 .conv.active {
   background: var(--accent-soft);
+  border-left-color: var(--accent);
+}
+.conv-sub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
+}
+.conv-sub .snippet {
+  margin-top: 0;
+  flex: 1;
+}
+.conv-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex: none;
+}
+.conv-dot.warn {
+  background: var(--warn);
+}
+.conv-badge {
+  flex: none;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-size: 11px;
+  font-weight: 600;
+  display: grid;
+  place-items: center;
 }
 .conv .av {
   width: 38px;
@@ -2675,6 +2716,7 @@ table.data-table {
   font-size: 10px;
   opacity: 0.7;
   margin-top: 3px;
+  text-align: right;
 }
 .msg .tag {
   font-size: 10px;
