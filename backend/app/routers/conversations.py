@@ -326,9 +326,14 @@ def send_message(
             detail="WhatsApp não está conectado. Conecte o número antes de responder.",
         )
 
-    # Dispatch first; persist only on success (no phantom rows on failure).
+    # Dispatch first; persist only on success (no phantom rows on failure). O
+    # nome de quem responde vai PREFIXADO no texto do WhatsApp (o contato precisa
+    # saber quem é); no banco guardamos o texto limpo + autor_nome.
+    author = current_user.chat_nome or current_user.nome
     try:
-        evolution.send_text(conn.instance, conv.telefone, payload.texto)
+        evolution.send_text(
+            conn.instance, conv.telefone, _author_caption(author, payload.texto)
+        )
     except EvolutionError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
@@ -339,7 +344,7 @@ def send_message(
         conversation_id=conv.id,
         direcao="out",
         autor="humano",
-        autor_nome=current_user.chat_nome or current_user.nome,
+        autor_nome=author,
         enviado_por=uuid.UUID(current_user.app_user_id),
         texto=payload.texto,
     )
@@ -412,6 +417,9 @@ def send_media_message(
             status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
         ) from exc
 
+    # O nome de quem responde vai PREFIXADO na legenda do WhatsApp (mesmo sem
+    # legenda, envia o nome); no banco guardamos a legenda limpa + autor_nome.
+    author = current_user.chat_nome or current_user.nome
     try:
         evolution.send_media(
             conn.instance,
@@ -420,7 +428,7 @@ def send_media_message(
             media_base64=payload.base64,
             mime=payload.mime,
             filename=payload.nome,
-            caption=payload.caption,
+            caption=_author_caption(author, payload.caption),
         )
     except EvolutionError as exc:
         raise HTTPException(
@@ -432,7 +440,7 @@ def send_media_message(
         conversation_id=conv.id,
         direcao="out",
         autor="humano",
-        autor_nome=current_user.chat_nome or current_user.nome,
+        autor_nome=author,
         enviado_por=uuid.UUID(current_user.app_user_id),
         texto=payload.caption,
         tipo=tipo,
@@ -455,6 +463,18 @@ def send_media_message(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+def _author_caption(author: str, text: str | None) -> str:
+    """Prefixa o nome de quem respondeu no texto que vai pro WhatsApp.
+
+    O contato precisa saber QUEM respondeu (a igreja usa um único número). O nome
+    vai em negrito + quebra de linha antes da mensagem; sem texto (mídia sem
+    legenda), envia só o nome. No banco guardamos o texto limpo — o painel já
+    exibe o nome como rótulo, então não há duplicação.
+    """
+    base = f"*{author}:*"
+    return f"{base}\n{text}" if text else base
+
+
 def _parse_uuid(value: str) -> uuid.UUID:
     try:
         return uuid.UUID(value)

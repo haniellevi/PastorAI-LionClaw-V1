@@ -144,6 +144,15 @@ def test_message_out_maps_author_name() -> None:
     assert out.direcao == "out"
 
 
+def test_author_caption_prefixes_name_for_whatsapp() -> None:
+    # O contato precisa ver QUEM respondeu: o nome vai prefixado no texto.
+    from app.routers.conversations import _author_caption
+
+    assert _author_caption("Pastor Raniel", "oi") == "*Pastor Raniel:*\noi"
+    assert _author_caption("Pastor Raniel", None) == "*Pastor Raniel:*"
+    assert _author_caption("Pastor Raniel", "") == "*Pastor Raniel:*"
+
+
 # ---- validation -----------------------------------------------------------
 def test_handoff_rejects_invalid_target(app) -> None:
     client = _client(app, roles=["admin"])
