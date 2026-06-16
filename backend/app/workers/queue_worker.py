@@ -98,6 +98,21 @@ def ingest_message_event_ex(db: Session, parsed: ParsedMessage) -> IngestionOutc
         return IngestionOutcome(result=IngestionResult.SKIPPED_NOT_OFFICIAL)
 
     igreja_id = connection.igreja_id
+    inbound = not parsed.from_me
+
+    # Data integrity (regra do usuário + US-07): só uma mensagem RECEBIDA de um
+    # número que NÃO é o próprio número oficial da igreja vira contato. O número
+    # da igreja (auto-conversa, ou a sincronização de histórico ao ler o QR) e os
+    # ecos de mensagens enviadas NUNCA viram "pessoa".
+    official = parsed.owner or (
+        normalize_phone(connection.numero) if connection.numero else None
+    )
+    if official and parsed.telefone == official:
+        logger.info(
+            "Ignoring the church's own number as a contact (instance %s)",
+            parsed.instance,
+        )
+        return IngestionOutcome(result=IngestionResult.IGNORED)
 
     # Dedupe person by CANONICAL telefone + igreja (RNF-16). Always look up an
     # existing contact before creating, matching across the +55 / 9th-digit
@@ -118,6 +133,12 @@ def ingest_message_event_ex(db: Session, parsed: ParsedMessage) -> IngestionOutc
     )
 
     if pessoa is None:
+        if not inbound:
+            # Mensagem ENVIADA para um número ainda desconhecido (ex.: histórico
+            # sincronizado ao conectar) não cria contato — só quem fala com a
+            # igreja vira contato.
+            logger.info("Outbound to unknown number — not creating a contact")
+            return IngestionOutcome(result=IngestionResult.IGNORED)
         pessoa = Pessoa(
             igreja_id=igreja_id,
             nome=parsed.push_name or parsed.telefone_raw,
@@ -147,7 +168,6 @@ def ingest_message_event_ex(db: Session, parsed: ParsedMessage) -> IngestionOutc
         db.add(conversation)
         db.flush()
 
-    inbound = not parsed.from_me
     message = Message(
         igreja_id=igreja_id,
         conversation_id=conversation.id,

@@ -80,6 +80,10 @@ class ParsedMessage:
     texto: str | None
     push_name: str | None
     from_me: bool
+    # Canonical number of the instance owner (the church's own official number),
+    # when the provider includes it. Used to never ingest the church's own
+    # number as a contact (self-chat / history sync on connect).
+    owner: str | None = None
 
 
 def _extract_text(message: dict[str, Any]) -> str | None:
@@ -141,6 +145,10 @@ def parse_message_event(payload: dict[str, Any]) -> ParsedMessage | None:
     if not telefone:
         return None
 
+    # The instance owner (church's own number) — Evolution puts it in `sender`.
+    sender = payload.get("sender")
+    owner = normalize_phone(_phone_from_jid(sender)) if isinstance(sender, str) else None
+
     return ParsedMessage(
         instance=instance,
         provider_message_id=provider_message_id,
@@ -149,4 +157,5 @@ def parse_message_event(payload: dict[str, Any]) -> ParsedMessage | None:
         texto=_extract_text(data.get("message") or {}),
         push_name=data.get("pushName") if isinstance(data.get("pushName"), str) else None,
         from_me=bool(key.get("fromMe", False)),
+        owner=owner or None,
     )
