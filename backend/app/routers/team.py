@@ -204,20 +204,26 @@ def _resolve_invite_cell(
 ) -> Celula:
     """Determine which cell the invited member joins (delta-049).
 
-    An admin or pastor marks the cell explicitly (``celulaId``). Otherwise the
-    cell is derived from the inviter's own leadership: the active cell whose
-    leader is the acting user. A cell leader thus brings the member into their
-    own cell without choosing; an admin/pastor who leads a cell and omits the id
-    falls back to it too. A non-leader with no cell to derive — or an admin/
-    pastor who picked none — gets a clear error.
+    Admin and pastor MARK any cell (``celulaId``). A cell leader may only invite
+    into a cell they actually lead: an explicit ``celulaId`` is honored when it
+    is theirs (403 otherwise), and omitting it derives their own active cell.
+    A non-leader with no cell to derive — or an admin/pastor who picked none —
+    gets a clear error.
     """
-    # Admin e pastor MARCAM a célula do convidado; um líder de célula traz para
-    # a sua própria célula (derivada da liderança), sem escolher.
     marks_cell = ADMIN_ROLE in current_user.roles or "pastor" in current_user.roles
-    if celula_id and marks_cell:
-        return _get_cell_in_tenant(db, celula_id)
-
     actor = _actor_pessoa_id(db, current_user)
+
+    if celula_id:
+        cell = _get_cell_in_tenant(db, celula_id)
+        # Admin/pastor escolhem qualquer célula; um líder só a que ele lidera.
+        if marks_cell or (actor is not None and cell.lider_id == actor):
+            return cell
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Você só pode convidar para a sua própria célula",
+        )
+
+    # Sem id explícito: deriva a célula ativa que o próprio usuário lidera.
     if actor is not None:
         led = db.execute(
             select(Celula)
