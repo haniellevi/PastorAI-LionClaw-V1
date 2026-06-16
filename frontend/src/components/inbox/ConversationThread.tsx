@@ -195,7 +195,9 @@ export function ConversationThread({
         ) : (
           messages.map((m) => (
             <div className={`msg ${m.direcao === "out" ? "out" : "in"}`} key={m.id}>
-              <span className="tag">{authorLabel(m.autor)}</span>
+              <span className="tag">
+                {m.autor === "contato" ? displayName(conversation) : authorLabel(m.autor)}
+              </span>
               {m.texto ?? ""}
               <time>{messageStamp(m.criadoEm)}</time>
             </div>
