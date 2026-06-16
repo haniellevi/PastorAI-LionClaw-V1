@@ -33,3 +33,16 @@ def test_cors_origins_without_slash_unchanged() -> None:
         "https://pastorai-frontend.vercel.app",
         "https://api.filadelfiacorrente.com",
     }
+
+
+def test_cors_origins_adds_admin_subdomain() -> None:
+    # O console master roda em admin.<dominio> (mesma app na Vercel). Deve ser
+    # liberado automaticamente junto do app.<dominio>, senão o login do console
+    # a partir de admin.igreja12.com.br cai em CORS.
+    settings = Settings(
+        frontend_url="https://app.igreja12.com.br",
+        app_base_url="https://api.igreja12.com.br",
+    )
+    origins = settings.cors_origins
+    assert "https://app.igreja12.com.br" in origins
+    assert "https://admin.igreja12.com.br" in origins
