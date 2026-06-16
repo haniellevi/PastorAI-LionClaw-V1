@@ -25,6 +25,40 @@ export interface AdminIgreja {
   createdAt: string | null;
 }
 
+export interface AdminMetrics {
+  totalIgrejas: number;
+  porStatus: Record<string, number>;
+  porPlano: Record<string, number>;
+  mrr: number;
+  totalMembros: number;
+  totalPessoas: number;
+  custoIaTotal: number;
+}
+
+export interface AdminSubscription {
+  plano: string | null;
+  status: string | null;
+  pessoas: number | null;
+  limite: number | null;
+  proximaCobranca: string | null;
+  setupPago: boolean;
+}
+
+export interface AdminIgrejaDetail {
+  id: string;
+  nome: string;
+  status: string;
+  plano: string | null;
+  createdAt: string | null;
+  mensalidade: number | null;
+  membros: number;
+  pessoas: number;
+  celulas: number;
+  custoIa: number;
+  tokensIa: number;
+  assinatura: AdminSubscription | null;
+}
+
 export type AdminAuthErrorKind = "forbidden" | "network";
 
 /** Token recusado pelo gate de plataforma (não é admin) ou falha de rede. */
@@ -211,4 +245,37 @@ export async function updateIgreja(
   }
   if (!res.ok) await throwMutationError(res, "Não foi possível atualizar a igreja.");
   return asJson<AdminIgreja>(res);
+}
+
+/** Métricas globais da plataforma (total/status/plano/MRR/custo de IA). */
+export async function fetchMetrics(token: string): Promise<AdminMetrics> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/admin/metrics`, { headers: authHeaders(token) });
+  } catch {
+    throw new AdminAuthError("network", "Falha de conexão com o servidor.");
+  }
+  if (res.status === 401) throw new AdminSessionExpiredError();
+  if (res.status === 403) throw new AdminAuthError("forbidden", "Acesso negado.");
+  if (!res.ok) throw new AdminAuthError("network", "Não foi possível carregar as métricas.");
+  return asJson<AdminMetrics>(res);
+}
+
+/** Drill-down de uma igreja (assinatura, custo de IA, contadores). */
+export async function fetchIgrejaDetail(
+  token: string,
+  id: string,
+): Promise<AdminIgrejaDetail> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/admin/igrejas/${id}`, { headers: authHeaders(token) });
+  } catch {
+    throw new AdminAuthError("network", "Falha de conexão com o servidor.");
+  }
+  if (res.status === 401) throw new AdminSessionExpiredError();
+  if (res.status === 403) throw new AdminAuthError("forbidden", "Acesso negado.");
+  if (!res.ok) {
+    throw new AdminRequestError(res.status, "Não foi possível carregar a igreja.");
+  }
+  return asJson<AdminIgrejaDetail>(res);
 }

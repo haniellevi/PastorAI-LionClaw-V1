@@ -368,3 +368,66 @@ def test_admin_login_rejects_bad_credentials(app) -> None:
     client = _wire(app, db=db, clerk=FakeClerk(raise_login=True))
     resp = client.post("/admin/login", json={"email": "p@x.com", "password": "no"})
     assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# M1 — métricas globais e drill-down por igreja
+# ---------------------------------------------------------------------------
+def test_admin_metrics_global_view(app) -> None:
+    ig_a = SimpleNamespace(status="ativa", plano="ate_100")
+    ig_b = SimpleNamespace(status="suspensa", plano="101_200")
+    ig_c = SimpleNamespace(status="ativa", plano="acima_201")
+    db = PlatformDB(
+        gate_app_user=make_app_user(),
+        admin_marker="pa1",
+        igrejas=[ig_a, ig_b, ig_c],
+        count_value=0,
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.get("/admin/metrics", headers=_AUTH)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["totalIgrejas"] == 3
+    assert body["porStatus"] == {"ativa": 2, "suspensa": 1}
+    assert body["porPlano"] == {"ate_100": 1, "101_200": 1, "acima_201": 1}
+    # MRR conta só as ATIVAS com plano: 199 (ate_100) + 399 (acima_201) = 598.
+    assert body["mrr"] == 598
+
+
+def test_admin_metrics_blocks_non_master(app) -> None:
+    db = PlatformDB(gate_app_user=make_app_user(), admin_marker=None)
+    client = _wire(app, db=db, clerk=FakeClerk())
+    assert client.get("/admin/metrics", headers=_AUTH).status_code == 403
+
+
+def test_admin_igreja_detail_drilldown(app) -> None:
+    igreja = SimpleNamespace(
+        id="ig-1", nome="Igreja X", status="ativa", plano="ate_100", created_at=None
+    )
+    db = PlatformDB(
+        gate_app_user=make_app_user(),
+        admin_marker="pa1",
+        igreja_scalar=igreja,
+        count_value=7,
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.get(
+        "/admin/igrejas/00000000-0000-0000-0000-000000000009", headers=_AUTH
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["nome"] == "Igreja X"
+    assert body["membros"] == 7 and body["pessoas"] == 7 and body["celulas"] == 7
+    assert body["mensalidade"] == 199  # plano ate_100
+    assert body["assinatura"] is None  # sem linha em subscriptions no fake
+
+
+def test_admin_igreja_detail_404(app) -> None:
+    db = PlatformDB(
+        gate_app_user=make_app_user(), admin_marker="pa1", igreja_scalar=None
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.get(
+        "/admin/igrejas/00000000-0000-0000-0000-000000000009", headers=_AUTH
+    )
+    assert resp.status_code == 404

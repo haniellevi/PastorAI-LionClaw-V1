@@ -12,9 +12,11 @@ import { DataTable, type Column } from "@/components/ui/DataTable";
 import {
   AdminSessionExpiredError,
   createIgreja,
+  fetchMetrics,
   listIgrejas,
   updateIgreja,
   type AdminIgreja,
+  type AdminMetrics,
   type CreateIgrejaInput,
   type UpdateIgrejaInput,
 } from "@/lib/admin-api";
@@ -22,6 +24,7 @@ import { useAdminAuth } from "@/lib/admin-auth-context";
 
 import { CreateIgrejaModal } from "./CreateIgrejaModal";
 import { EditIgrejaModal } from "./EditIgrejaModal";
+import { IgrejaDetailModal } from "./IgrejaDetailModal";
 
 const STATUS_LABEL: Record<string, string> = {
   ativa: "Ativa",
@@ -36,14 +39,35 @@ const PLANO_LABEL: Record<string, string> = {
   acima_201: "201+",
 };
 
+const brl = (v: number) =>
+  v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+function MetricCard({ label, value, hint }: { label: string; value: string; hint?: string }) {
+  return (
+    <div className="card" style={{ padding: "var(--s3)" }}>
+      <div className="sub" style={{ color: "var(--muted)" }}>
+        {label}
+      </div>
+      <div style={{ fontSize: "1.4rem", fontWeight: 700 }}>{value}</div>
+      {hint ? (
+        <div className="sub" style={{ color: "var(--muted)" }}>
+          {hint}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function AdminConsole() {
   const { admin, token, logout } = useAdminAuth();
   const [igrejas, setIgrejas] = useState<AdminIgreja[] | null>(null);
+  const [metrics, setMetrics] = useState<AdminMetrics | null>(null);
   const [error, setError] = useState<string>();
   const [loading, setLoading] = useState(true);
   const [notice, setNotice] = useState<string>();
 
   const [createOpen, setCreateOpen] = useState(false);
+  const [viewing, setViewing] = useState<AdminIgreja | null>(null);
   const [editing, setEditing] = useState<AdminIgreja | null>(null);
   const [modalBusy, setModalBusy] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
@@ -53,7 +77,9 @@ export function AdminConsole() {
     setLoading(true);
     setError(undefined);
     try {
-      setIgrejas(await listIgrejas(token));
+      const [list, mtr] = await Promise.all([listIgrejas(token), fetchMetrics(token)]);
+      setIgrejas(list);
+      setMetrics(mtr);
     } catch (err) {
       if (err instanceof AdminSessionExpiredError) {
         logout();
@@ -125,7 +151,7 @@ export function AdminConsole() {
     { header: "Plano", cell: (r) => (r.plano ? PLANO_LABEL[r.plano] ?? r.plano : "—") },
     { header: "Membros", numeric: true, cell: (r) => r.membros },
     { header: "Pessoas", numeric: true, cell: (r) => r.pessoas },
-    { header: "", width: "1px", cell: () => <span className="sub">Editar →</span> },
+    { header: "", width: "1px", cell: () => <span className="sub">Detalhes →</span> },
   ];
 
   return (
@@ -161,6 +187,29 @@ export function AdminConsole() {
           }}
         >
           <span>{notice}</span>
+        </div>
+      ) : null}
+
+      {metrics ? (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+            gap: "var(--s3)",
+            marginBottom: "var(--s4)",
+          }}
+        >
+          <MetricCard label="Igrejas" value={String(metrics.totalIgrejas)} />
+          <MetricCard label="Ativas" value={String(metrics.porStatus.ativa ?? 0)} />
+          <MetricCard
+            label="Em pendência"
+            value={String(
+              (metrics.porStatus.suspensa ?? 0) + (metrics.porStatus.inadimplente ?? 0),
+            )}
+            hint="suspensas + inadimplentes"
+          />
+          <MetricCard label="MRR" value={brl(metrics.mrr)} hint="igrejas ativas" />
+          <MetricCard label="Custo de IA" value={brl(metrics.custoIaTotal)} hint="acumulado" />
         </div>
       ) : null}
 
@@ -211,7 +260,7 @@ export function AdminConsole() {
             rowKey={(r) => r.id}
             onRowClick={(r) => {
               setModalError(null);
-              setEditing(r);
+              setViewing(r);
             }}
             empty={{
               title: "Nenhuma igreja ainda.",
@@ -231,6 +280,21 @@ export function AdminConsole() {
           error={modalError}
           onClose={() => setCreateOpen(false)}
           onSubmit={submitCreate}
+        />
+      ) : null}
+
+      {viewing && token ? (
+        <IgrejaDetailModal
+          igreja={viewing}
+          token={token}
+          onClose={() => setViewing(null)}
+          onExpired={logout}
+          onEdit={() => {
+            const target = viewing;
+            setViewing(null);
+            setModalError(null);
+            setEditing(target);
+          }}
         />
       ) : null}
 

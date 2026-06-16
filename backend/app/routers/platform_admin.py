@@ -27,7 +27,16 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.db.models import AppUser, Igreja, Pessoa, PlatformAdmin, UserRole
+from app.db.models import (
+    AiUsageLog,
+    AppUser,
+    Celula,
+    Igreja,
+    Pessoa,
+    PlatformAdmin,
+    Subscription,
+    UserRole,
+)
 from app.db.session import get_db
 from app.deps import PlatformAdminUser, get_platform_admin
 from app.services.brevo import BrevoClient, BrevoError, get_brevo_client
@@ -43,6 +52,10 @@ IGREJA_STATUSES = {"ativa", "suspensa", "aguardando_aprovacao", "inadimplente"}
 # Planos conhecidos (igrejas.plano é texto livre; validamos o conjunto atual
 # para evitar typo, mantendo a coluna extensível no banco).
 IGREJA_PLANOS = {"ate_100", "101_200", "acima_201"}
+
+# Mensalidade por plano em R$ (PRD: até 100=199; 101-200=299; acima 201=399).
+# O setup único de R$1.000 é one-time e NÃO entra no MRR.
+PLANO_PRECOS = {"ate_100": 199, "101_200": 299, "acima_201": 399}
 
 
 # ---------------------------------------------------------------------------
@@ -391,4 +404,180 @@ def update_igreja(
         membros=membros,
         pessoas=pessoas,
         createdAt=igreja.created_at.isoformat() if igreja.created_at else None,
+    )
+
+
+# ---------------------------------------------------------------------------
+# M1 — Visão global e drill-down por igreja
+# ---------------------------------------------------------------------------
+class AdminMetricsOut(BaseModel):
+    """Métricas globais da plataforma para o console master."""
+
+    totalIgrejas: int  # noqa: N815
+    porStatus: dict[str, int]  # noqa: N815 - {ativa: N, suspensa: N, ...}
+    porPlano: dict[str, int]  # noqa: N815 - {ate_100: N, ...}
+    mrr: int  # R$/mês recorrente (igrejas ATIVAS com plano)
+    totalMembros: int  # noqa: N815 - app_users (todas as igrejas)
+    totalPessoas: int  # noqa: N815 - pessoas cadastradas
+    custoIaTotal: float  # noqa: N815 - soma de ai_usage_logs.custo
+
+
+class SubscriptionOut(BaseModel):
+    plano: str | None = None
+    status: str | None = None
+    pessoas: int | None = None
+    limite: int | None = None
+    proximaCobranca: str | None = None  # noqa: N815
+    setupPago: bool = False  # noqa: N815
+
+
+class IgrejaDetailOut(BaseModel):
+    """Drill-down de uma igreja (cross-tenant)."""
+
+    id: str
+    nome: str
+    status: str
+    plano: str | None = None
+    createdAt: str | None = None  # noqa: N815
+    mensalidade: int | None = None  # R$/mês do plano (None se sem plano)
+    membros: int = 0  # app_users (acessos ao painel)
+    pessoas: int = 0  # Pessoa (cadastro)
+    celulas: int = 0
+    custoIa: float = 0  # noqa: N815 - soma ai_usage_logs.custo
+    tokensIa: int = 0  # noqa: N815 - soma tokens_in + tokens_out
+    assinatura: SubscriptionOut | None = None
+
+
+@router.get("/metrics", response_model=AdminMetricsOut)
+def admin_metrics(
+    db: Session = Depends(get_db),
+    _admin: PlatformAdminUser = Depends(get_platform_admin),
+) -> AdminMetricsOut:
+    """Visão global da plataforma (cross-tenant, BYPASSRLS).
+
+    MRR = soma da mensalidade (PLANO_PRECOS) das igrejas ATIVAS com plano. O
+    custo de IA é a soma de ai_usage_logs (BYO-LLM, fora do preço do PastorAI —
+    mas o provedor acompanha o consumo por aqui).
+    """
+    igrejas = db.execute(select(Igreja)).scalars().all()
+
+    por_status: dict[str, int] = {}
+    por_plano: dict[str, int] = {}
+    mrr = 0
+    for ig in igrejas:
+        por_status[ig.status] = por_status.get(ig.status, 0) + 1
+        if ig.plano:
+            por_plano[ig.plano] = por_plano.get(ig.plano, 0) + 1
+        if ig.status == "ativa" and ig.plano in PLANO_PRECOS:
+            mrr += PLANO_PRECOS[ig.plano]
+
+    total_membros = int(
+        db.execute(select(func.count()).select_from(AppUser)).scalar_one()
+    )
+    total_pessoas = int(
+        db.execute(select(func.count()).select_from(Pessoa)).scalar_one()
+    )
+    custo_ia = float(
+        db.execute(select(func.coalesce(func.sum(AiUsageLog.custo), 0))).scalar_one()
+        or 0
+    )
+
+    return AdminMetricsOut(
+        totalIgrejas=len(igrejas),
+        porStatus=por_status,
+        porPlano=por_plano,
+        mrr=mrr,
+        totalMembros=total_membros,
+        totalPessoas=total_pessoas,
+        custoIaTotal=custo_ia,
+    )
+
+
+@router.get("/igrejas/{igreja_id}", response_model=IgrejaDetailOut)
+def get_igreja_detail(
+    igreja_id: str,
+    db: Session = Depends(get_db),
+    _admin: PlatformAdminUser = Depends(get_platform_admin),
+) -> IgrejaDetailOut:
+    """Drill-down de uma igreja: assinatura, custo de IA e contadores."""
+    try:
+        ig_uuid = uuid.UUID(igreja_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Igreja não encontrada"
+        ) from exc
+
+    igreja = db.execute(
+        select(Igreja).where(Igreja.id == ig_uuid)
+    ).scalar_one_or_none()
+    if igreja is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Igreja não encontrada"
+        )
+
+    membros = int(
+        db.execute(
+            select(func.count()).select_from(AppUser).where(AppUser.igreja_id == ig_uuid)
+        ).scalar_one()
+    )
+    pessoas = int(
+        db.execute(
+            select(func.count()).select_from(Pessoa).where(Pessoa.igreja_id == ig_uuid)
+        ).scalar_one()
+    )
+    celulas = int(
+        db.execute(
+            select(func.count()).select_from(Celula).where(Celula.igreja_id == ig_uuid)
+        ).scalar_one()
+    )
+
+    custo_ia = float(
+        db.execute(
+            select(func.coalesce(func.sum(AiUsageLog.custo), 0)).where(
+                AiUsageLog.igreja_id == ig_uuid
+            )
+        ).scalar_one()
+        or 0
+    )
+    tokens_ia = int(
+        db.execute(
+            select(
+                func.coalesce(func.sum(AiUsageLog.tokens_in), 0)
+                + func.coalesce(func.sum(AiUsageLog.tokens_out), 0)
+            ).where(AiUsageLog.igreja_id == ig_uuid)
+        ).scalar_one()
+        or 0
+    )
+
+    sub = db.execute(
+        select(Subscription).where(Subscription.igreja_id == ig_uuid)
+    ).scalar_one_or_none()
+    assinatura = (
+        SubscriptionOut(
+            plano=sub.plano,
+            status=sub.status,
+            pessoas=sub.pessoas,
+            limite=sub.limite,
+            proximaCobranca=(
+                sub.proxima_cobranca.isoformat() if sub.proxima_cobranca else None
+            ),
+            setupPago=sub.setup_pago,
+        )
+        if sub is not None
+        else None
+    )
+
+    return IgrejaDetailOut(
+        id=str(igreja.id),
+        nome=igreja.nome,
+        status=igreja.status,
+        plano=igreja.plano,
+        createdAt=igreja.created_at.isoformat() if igreja.created_at else None,
+        mensalidade=PLANO_PRECOS.get(igreja.plano) if igreja.plano else None,
+        membros=membros,
+        pessoas=pessoas,
+        celulas=celulas,
+        custoIa=custo_ia,
+        tokensIa=tokens_ia,
+        assinatura=assinatura,
     )
