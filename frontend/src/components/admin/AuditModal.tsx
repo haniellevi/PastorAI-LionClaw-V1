@@ -106,8 +106,11 @@ export function AuditModal({ token, onClose, onExpired }: AuditModalProps) {
           ) : null}
 
           {rows === null ? (
-            <div style={{ padding: "var(--s5)", textAlign: "center" }}>
+            <div style={{ padding: "var(--s5)", textAlign: "center", color: "var(--muted)" }}>
               <span className="spinner" aria-hidden="true" />
+              <div className="sub" style={{ marginTop: "var(--s2)" }}>
+                Carregando a auditoria…
+              </div>
             </div>
           ) : rows.length === 0 ? (
             <p className="sub" style={{ color: "var(--muted)" }}>

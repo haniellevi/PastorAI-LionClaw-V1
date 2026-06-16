@@ -316,8 +316,11 @@ export function PlanosManagerModal({
             ) : null}
 
             {planos === null ? (
-              <div style={{ padding: "var(--s5)", textAlign: "center" }}>
+              <div style={{ padding: "var(--s5)", textAlign: "center", color: "var(--muted)" }}>
                 <span className="spinner" aria-hidden="true" />
+                <div className="sub" style={{ marginTop: "var(--s2)" }}>
+                  Carregando os planos…
+                </div>
               </div>
             ) : planos.length === 0 ? (
               <p className="sub" style={{ color: "var(--muted)" }}>

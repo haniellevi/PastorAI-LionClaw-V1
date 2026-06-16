@@ -108,8 +108,11 @@ export function IgrejaDetailModal({
               <span>{error}</span>
             </div>
           ) : !detail ? (
-            <div style={{ padding: "var(--s5)", textAlign: "center" }}>
+            <div style={{ padding: "var(--s5)", textAlign: "center", color: "var(--muted)" }}>
               <span className="spinner" aria-hidden="true" />
+              <div className="sub" style={{ marginTop: "var(--s2)" }}>
+                Carregando dados da igreja…
+              </div>
             </div>
           ) : (
             <>
