@@ -53,6 +53,36 @@ async function asJson<T>(res: Response): Promise<T> {
   return (await res.json()) as T;
 }
 
+/**
+ * Login dedicado do console master (POST /admin/login). Isento do gate de
+ * billing do tenant: o master entra mesmo que a própria igreja-casa esteja
+ * suspensa. Qualquer falha (credencial inválida OU conta sem acesso) volta como
+ * AdminAuthError("forbidden") — o backend não distingue os casos.
+ */
+export async function adminLogin(
+  email: string,
+  password: string,
+): Promise<{ token: string }> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/admin/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+  } catch {
+    throw new AdminAuthError("network", "Falha de conexão com o servidor.");
+  }
+  if (res.status === 401 || res.status === 403) {
+    throw new AdminAuthError(
+      "forbidden",
+      "E-mail/senha inválidos ou conta sem acesso à administração da plataforma.",
+    );
+  }
+  if (!res.ok) throw new AdminAuthError("network", "Não foi possível entrar no console.");
+  return asJson<{ token: string }>(res);
+}
+
 /** Confirma que o token pertence a um platform admin e devolve sua identidade. */
 export async function fetchAdminMe(token: string): Promise<AdminMe> {
   let res: Response;

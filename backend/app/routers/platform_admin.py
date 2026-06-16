@@ -27,11 +27,11 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.db.models import AppUser, Igreja, Pessoa, UserRole
+from app.db.models import AppUser, Igreja, Pessoa, PlatformAdmin, UserRole
 from app.db.session import get_db
 from app.deps import PlatformAdminUser, get_platform_admin
 from app.services.brevo import BrevoClient, BrevoError, get_brevo_client
-from app.services.clerk import ClerkClient, get_clerk_client
+from app.services.clerk import ClerkAuthError, ClerkClient, get_clerk_client
 
 logger = logging.getLogger("pastorai.platform_admin")
 
@@ -43,6 +43,71 @@ IGREJA_STATUSES = {"ativa", "suspensa", "aguardando_aprovacao", "inadimplente"}
 # Planos conhecidos (igrejas.plano é texto livre; validamos o conjunto atual
 # para evitar typo, mantendo a coluna extensível no banco).
 IGREJA_PLANOS = {"ate_100", "101_200", "acima_201"}
+
+
+# ---------------------------------------------------------------------------
+# Login dedicado do console (isento do gate de billing do tenant)
+# ---------------------------------------------------------------------------
+# Mensagem única para QUALQUER falha (credencial inválida OU conta sem acesso de
+# plataforma): não revela se o e-mail existe nem se a conta é master.
+_LOGIN_DENIED = "E-mail ou senha inválidos, ou acesso de plataforma não autorizado"
+
+
+class AdminLoginRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    password: str = Field(min_length=1, max_length=256)
+
+    @field_validator("email")
+    @classmethod
+    def _email(cls, v: str) -> str:
+        return v.strip().lower()
+
+
+class AdminLoginResponse(BaseModel):
+    token: str
+
+
+@router.post("/login", response_model=AdminLoginResponse)
+def admin_login(
+    payload: AdminLoginRequest,
+    db: Session = Depends(get_db),
+    clerk: ClerkClient = Depends(get_clerk_client),
+) -> AdminLoginResponse:
+    """Login do console master — NÃO aplica o gate de billing do tenant.
+
+    Diferente de POST /auth/login, este caminho ignora o status da igreja: o
+    provedor precisa entrar no console mesmo que a própria igreja-casa esteja
+    suspensa/inadimplente (senão não conseguiria reativar ninguém). Autentica a
+    credencial no Clerk, resolve o app_user SEM tenant context (cross-tenant) e
+    exige uma linha em ``platform_admins``. Qualquer falha — credencial inválida
+    OU conta sem acesso de plataforma — retorna o MESMO 401 genérico.
+    """
+    denied = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail=_LOGIN_DENIED,
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        token, clerk_user_id = clerk.authenticate_password(
+            payload.email, payload.password
+        )
+    except ClerkAuthError:
+        raise denied from None
+
+    # Sem set_tenant_context: resolve cross-tenant, igual ao gate de plataforma.
+    app_user = db.execute(
+        select(AppUser).where(AppUser.clerk_user_id == clerk_user_id)
+    ).scalar_one_or_none()
+    if app_user is None:
+        raise denied
+
+    is_admin = db.execute(
+        select(PlatformAdmin.id).where(PlatformAdmin.app_user_id == app_user.id)
+    ).scalar_one_or_none()
+    if is_admin is None:
+        raise denied
+
+    return AdminLoginResponse(token=token)
 
 
 class IgrejaOut(BaseModel):

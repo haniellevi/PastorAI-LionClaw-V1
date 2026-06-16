@@ -5,9 +5,9 @@
  * igreja. Usa uma chave de token PRÓPRIA (`pastorai:admin-token`) para que
  * logar no console não interfira na sessão do painel operacional e vice-versa.
  *
- * Login: reutiliza POST /auth/login (o admin é um app_user normal) e, na
- * sequência, /admin/me — que só responde 200 para quem está na allowlist
- * platform_admins; 403 caso contrário (conta sem acesso de plataforma).
+ * Login: POST /admin/login (dedicado, isento do gate de billing do tenant — o
+ * master entra mesmo com a igreja-casa suspensa) e, na sequência, /admin/me —
+ * que só responde 200 para quem está na allowlist platform_admins.
  */
 import {
   createContext,
@@ -20,8 +20,7 @@ import {
   type ReactNode,
 } from "react";
 
-import { login as apiLogin } from "./api";
-import { fetchAdminMe, type AdminMe } from "./admin-api";
+import { adminLogin, fetchAdminMe, type AdminMe } from "./admin-api";
 
 const ADMIN_TOKEN_KEY = "pastorai:admin-token";
 
@@ -31,7 +30,7 @@ interface AdminAuthValue {
   status: AdminAuthStatus;
   admin: AdminMe | null;
   token: string | null;
-  /** Autentica via /auth/login + /admin/me. Repassa o erro em caso de falha. */
+  /** Autentica via /admin/login + /admin/me. Repassa o erro em caso de falha. */
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
 }
@@ -88,7 +87,7 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {
-    const { token } = await apiLogin(email, password);
+    const { token } = await adminLogin(email, password);
     let me: AdminMe;
     try {
       me = await fetchAdminMe(token);

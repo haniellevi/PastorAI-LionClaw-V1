@@ -330,3 +330,41 @@ def test_admin_patch_updates_status(app) -> None:
     assert resp.json()["status"] == "suspensa"
     assert igreja.status == "suspensa"
     assert db.committed is True
+
+
+# ---------------------------------------------------------------------------
+# POST /admin/login (login dedicado do console, isento do billing gate)
+# ---------------------------------------------------------------------------
+def test_admin_login_returns_token_for_master(app) -> None:
+    db = PlatformDB(gate_app_user=make_app_user(), admin_marker="pa1")
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.post("/admin/login", json={"email": "pr@x.com", "password": "x"})
+    assert resp.status_code == 200
+    assert resp.json()["token"]
+
+
+def test_admin_login_ignores_billing_block(app) -> None:
+    # O ponto do M0b: master cuja igreja-casa está SUSPENSA ainda entra no
+    # console (o login do tenant bloquearia; o do console não).
+    db = PlatformDB(
+        gate_app_user=make_app_user(igreja_status="suspensa"), admin_marker="pa1"
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.post("/admin/login", json={"email": "pr@x.com", "password": "x"})
+    assert resp.status_code == 200
+    assert resp.json()["token"]
+
+
+def test_admin_login_blocks_non_master(app) -> None:
+    # Credencial válida, mas a conta não está na allowlist de plataforma.
+    db = PlatformDB(gate_app_user=make_app_user(), admin_marker=None)
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.post("/admin/login", json={"email": "p@x.com", "password": "x"})
+    assert resp.status_code == 401
+
+
+def test_admin_login_rejects_bad_credentials(app) -> None:
+    db = PlatformDB(gate_app_user=make_app_user(), admin_marker="pa1")
+    client = _wire(app, db=db, clerk=FakeClerk(raise_login=True))
+    resp = client.post("/admin/login", json={"email": "p@x.com", "password": "no"})
+    assert resp.status_code == 401
