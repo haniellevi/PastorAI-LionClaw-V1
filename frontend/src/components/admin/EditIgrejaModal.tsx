@@ -44,6 +44,7 @@ export function EditIgrejaModal({
   onSubmit,
   onDelete,
 }: EditIgrejaModalProps) {
+  const [nome, setNome] = useState(igreja.nome);
   const [status, setStatus] = useState(igreja.status);
   const [plano, setPlano] = useState(igreja.plano ?? "");
 
@@ -57,6 +58,8 @@ export function EditIgrejaModal({
 
   const submit = () => {
     const input: UpdateIgrejaInput = {};
+    const nomeT = nome.trim();
+    if (nomeT && nomeT !== igreja.nome) input.nome = nomeT;
     if (status !== igreja.status) input.status = status;
     // Só envia plano quando há um valor (o backend não aceita limpar plano).
     if (plano && plano !== (igreja.plano ?? "")) input.plano = plano;
@@ -95,6 +98,16 @@ export function EditIgrejaModal({
               <span>{error}</span>
             </div>
           ) : null}
+
+          <div className="field">
+            <label htmlFor="ei-nome">Nome da igreja</label>
+            <input
+              id="ei-nome"
+              value={nome}
+              onChange={(e) => setNome(e.target.value)}
+              placeholder="Nome da igreja"
+            />
+          </div>
 
           <div className="field">
             <label htmlFor="ei-status">Status</label>

@@ -165,8 +165,16 @@ export interface CreateIgrejaResult {
 }
 
 export interface UpdateIgrejaInput {
+  nome?: string;
   status?: string;
   plano?: string;
+}
+
+export interface AdminIgrejaAdmin {
+  id: string;
+  nome: string;
+  email: string;
+  status: string | null;
 }
 
 /** Erro de validação/regra de negócio numa ação de escrita do console. */
@@ -437,6 +445,27 @@ export async function fetchAudit(
   if (res.status === 403) throw new AdminAuthError("forbidden", "Acesso negado.");
   if (!res.ok) throw new AdminAuthError("network", "Não foi possível carregar a auditoria.");
   return asJson<AdminAuditEntry[]>(res);
+}
+
+/** Lista os administradores (owners) de uma igreja. */
+export async function fetchIgrejaAdmins(
+  token: string,
+  id: string,
+): Promise<AdminIgrejaAdmin[]> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/admin/igrejas/${id}/admins`, {
+      headers: authHeaders(token),
+    });
+  } catch {
+    throw new AdminAuthError("network", "Falha de conexão com o servidor.");
+  }
+  if (res.status === 401) throw new AdminSessionExpiredError();
+  if (res.status === 403) throw new AdminAuthError("forbidden", "Acesso negado.");
+  if (!res.ok) {
+    throw new AdminRequestError(res.status, "Não foi possível carregar os admins.");
+  }
+  return asJson<AdminIgrejaAdmin[]>(res);
 }
 
 // ---------------------------------------------------------------------------

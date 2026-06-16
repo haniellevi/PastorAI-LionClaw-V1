@@ -91,6 +91,7 @@ class PlatformDB:
         audit_rows=None,
         agent_config=None,
         llm_credential=None,
+        igreja_admins=None,
     ) -> None:
         self.gate_app_user = gate_app_user
         self.admin_marker = admin_marker
@@ -112,6 +113,7 @@ class PlatformDB:
         self.audit_rows = audit_rows or []
         self.agent_config = agent_config
         self.llm_credential = llm_credential
+        self.igreja_admins = igreja_admins or []
         self.added: list = []
         self.deleted: list = []
         self.committed = False
@@ -132,7 +134,8 @@ class PlatformDB:
             return _Result(rows=[])
         ent = entities[0] if entities else None
         if ent is AppUser:
-            return _Result(scalar=self.gate_app_user)
+            # scalar -> gate (clerk_user_id lookup); scalars -> admins da igreja.
+            return _Result(scalar=self.gate_app_user, scalars=self.igreja_admins)
         if ent is PlatformAdmin:
             return _Result(scalar=self.admin_marker)
         if ent is Igreja:
@@ -879,4 +882,48 @@ def test_admin_agente_blocks_non_master(app) -> None:
     client = _wire(app, db=db, clerk=FakeClerk())
     assert (
         client.get(f"/admin/igrejas/{_IG_ID}/agente", headers=_AUTH).status_code == 403
+    )
+
+
+# ---------------------------------------------------------------------------
+# Fatia 2 — editar dados da igreja (nome) + ver o admin owner
+# ---------------------------------------------------------------------------
+def test_admin_patch_updates_nome(app) -> None:
+    igreja = _igreja_ns(nome="Nome Velho")
+    db = PlatformDB(
+        gate_app_user=make_app_user(), admin_marker="pa1", igreja_scalar=igreja
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.patch(
+        f"/admin/igrejas/{_IG_ID}", headers=_AUTH, json={"nome": "Igreja Nova"}
+    )
+    assert resp.status_code == 200
+    assert resp.json()["nome"] == "Igreja Nova"
+    assert igreja.nome == "Igreja Nova"
+    assert db.committed is True
+
+
+def test_admin_lists_igreja_admins(app) -> None:
+    owner = SimpleNamespace(id="u1", nome="Pastor", email="p@x.com", status="ativo")
+    db = PlatformDB(
+        gate_app_user=make_app_user(),
+        admin_marker="pa1",
+        igreja_scalar=_igreja_ns(),
+        igreja_admins=[owner],
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.get(f"/admin/igrejas/{_IG_ID}/admins", headers=_AUTH)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert len(body) == 1
+    assert body[0]["email"] == "p@x.com"
+    assert body[0]["nome"] == "Pastor"
+    assert body[0]["status"] == "ativo"
+
+
+def test_admin_lists_igreja_admins_blocks_non_master(app) -> None:
+    db = PlatformDB(gate_app_user=make_app_user(), admin_marker=None)
+    client = _wire(app, db=db, clerk=FakeClerk())
+    assert (
+        client.get(f"/admin/igrejas/{_IG_ID}/admins", headers=_AUTH).status_code == 403
     )

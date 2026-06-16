@@ -271,8 +271,19 @@ class CreateIgrejaResponse(BaseModel):
 
 
 class UpdateIgrejaRequest(BaseModel):
+    nome: str | None = Field(default=None, max_length=200)
     status: str | None = Field(default=None)
     plano: str | None = Field(default=None)
+
+    @field_validator("nome")
+    @classmethod
+    def _nome(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        v = v.strip()
+        if not v:
+            raise ValueError("nome não pode ficar vazio")
+        return v
 
     @field_validator("status")
     @classmethod
@@ -439,15 +450,15 @@ def update_igreja(
     db: Session = Depends(get_db),
     admin: PlatformAdminUser = Depends(get_platform_admin),
 ) -> IgrejaOut:
-    """Change a church's status and/or plano (US-42).
+    """Change a church's nome, status and/or plano (US-42).
 
-    Suspend/reactivate/approve a church or move it between plans. At least one
-    field must be provided (422 otherwise).
+    Edit church data, suspend/reactivate/approve, or move it between plans. At
+    least one field must be provided (422 otherwise).
     """
-    if payload.status is None and payload.plano is None:
+    if payload.nome is None and payload.status is None and payload.plano is None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Informe ao menos um campo para atualizar (status ou plano)",
+            detail="Informe ao menos um campo para atualizar (nome, status ou plano)",
         )
 
     try:
@@ -468,14 +479,23 @@ def update_igreja(
     if payload.plano is not None:
         _validate_plano_or_422(db, payload.plano)
 
-    antes = {"status": igreja.status, "plano": igreja.plano}
+    antes = {"nome": igreja.nome, "status": igreja.status, "plano": igreja.plano}
+    if payload.nome is not None:
+        igreja.nome = payload.nome
     if payload.status is not None:
         igreja.status = payload.status
     if payload.plano is not None:
         igreja.plano = payload.plano
     _audit(
         db, admin, "editar", "igreja", igreja.id, igreja.nome,
-        {"de": antes, "para": {"status": igreja.status, "plano": igreja.plano}},
+        {
+            "de": antes,
+            "para": {
+                "nome": igreja.nome,
+                "status": igreja.status,
+                "plano": igreja.plano,
+            },
+        },
     )
     db.commit()
 
@@ -925,6 +945,41 @@ def put_igreja_agente(
         ativo=cfg.ativo,
         credencialStatus=cred_status,
     )
+
+
+# ---------------------------------------------------------------------------
+# Admins (owner) da igreja — ver quem administra (US-42)
+# ---------------------------------------------------------------------------
+class IgrejaAdminOut(BaseModel):
+    id: str
+    nome: str
+    email: str
+    status: str | None = None  # convidado | ativo
+
+
+@router.get("/igrejas/{igreja_id}/admins", response_model=list[IgrejaAdminOut])
+def list_igreja_admins(
+    igreja_id: str,
+    db: Session = Depends(get_db),
+    _admin: PlatformAdminUser = Depends(get_platform_admin),
+) -> list[IgrejaAdminOut]:
+    """Lista os administradores (owners) de uma igreja — quem tem papel admin.
+
+    O master usa isto para ver/saber quem é o dono que vai terminar de configurar
+    a igreja. Cross-tenant (BYPASSRLS).
+    """
+    _get_igreja_or_404(db, igreja_id)
+    ig_uuid = uuid.UUID(igreja_id)
+    rows = db.execute(
+        select(AppUser)
+        .join(UserRole, UserRole.user_id == AppUser.id)
+        .where(UserRole.igreja_id == ig_uuid, UserRole.papel == "admin")
+        .order_by(AppUser.created_at)
+    ).scalars().all()
+    return [
+        IgrejaAdminOut(id=str(u.id), nome=u.nome, email=u.email, status=u.status)
+        for u in rows
+    ]
 
 
 # ---------------------------------------------------------------------------

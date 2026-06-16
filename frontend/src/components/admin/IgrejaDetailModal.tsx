@@ -10,8 +10,10 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
 import {
   AdminSessionExpiredError,
+  fetchIgrejaAdmins,
   fetchIgrejaDetail,
   type AdminIgreja,
+  type AdminIgrejaAdmin,
   type AdminIgrejaDetail,
 } from "@/lib/admin-api";
 
@@ -62,6 +64,7 @@ export function IgrejaDetailModal({
 }: Props) {
   const pending = igreja.status === "aguardando_aprovacao";
   const [detail, setDetail] = useState<AdminIgrejaDetail | null>(null);
+  const [admins, setAdmins] = useState<AdminIgrejaAdmin[] | null>(null);
   const [error, setError] = useState<string>();
 
   useEffect(() => {
@@ -77,6 +80,14 @@ export function IgrejaDetailModal({
           return;
         }
         setError("Não foi possível carregar o detalhe da igreja.");
+      });
+    // Admins (owner) — best-effort, não bloqueia o detalhe.
+    fetchIgrejaAdmins(token, igreja.id)
+      .then((a) => {
+        if (active) setAdmins(a);
+      })
+      .catch(() => {
+        if (active) setAdmins([]);
       });
     return () => {
       active = false;
@@ -153,6 +164,43 @@ export function IgrejaDetailModal({
                   Sem registro de assinatura (o provisionamento manual ainda não cria a
                   linha de billing).
                 </p>
+              )}
+
+              <div style={{ fontWeight: 600, margin: "var(--s4) 0 var(--s2)" }}>
+                Administradores (owner)
+              </div>
+              {admins === null ? (
+                <p className="sub" style={{ color: "var(--muted)" }}>
+                  Carregando…
+                </p>
+              ) : admins.length === 0 ? (
+                <p className="sub" style={{ color: "var(--muted)" }}>
+                  Nenhum administrador.
+                </p>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: "var(--s2)" }}>
+                  {admins.map((a) => (
+                    <div
+                      key={a.id}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        gap: "var(--s2)",
+                      }}
+                    >
+                      <div>
+                        <div style={{ fontWeight: 600 }}>{a.nome}</div>
+                        <div className="sub" style={{ color: "var(--muted)" }}>
+                          {a.email}
+                        </div>
+                      </div>
+                      <span className="sub" style={{ color: "var(--muted)" }}>
+                        {a.status === "ativo" ? "ativo" : "convite pendente"}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               )}
             </>
           )}
