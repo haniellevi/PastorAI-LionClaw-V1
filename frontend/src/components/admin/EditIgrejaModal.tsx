@@ -31,9 +31,17 @@ export interface EditIgrejaModalProps {
   error: string | null;
   onClose: () => void;
   onSubmit: (input: UpdateIgrejaInput) => void;
+  onDelete: () => void;
 }
 
-export function EditIgrejaModal({ igreja, busy, error, onClose, onSubmit }: EditIgrejaModalProps) {
+export function EditIgrejaModal({
+  igreja,
+  busy,
+  error,
+  onClose,
+  onSubmit,
+  onDelete,
+}: EditIgrejaModalProps) {
   const [status, setStatus] = useState(igreja.status);
   const [plano, setPlano] = useState(igreja.plano ?? "");
 
@@ -113,6 +121,38 @@ export function EditIgrejaModal({ igreja, busy, error, onClose, onSubmit }: Edit
             >
               Salvar alterações
             </Button>
+          </div>
+
+          <div
+            style={{
+              borderTop: "1px solid var(--border)",
+              marginTop: "var(--s3)",
+              paddingTop: "var(--s3)",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: "var(--s2)",
+            }}
+          >
+            <span className="sub" style={{ color: "var(--muted)" }}>
+              Excluir apaga a igreja e todos os seus dados.
+            </span>
+            <button
+              type="button"
+              className="btn btn-sm btn-danger"
+              disabled={busy}
+              onClick={() => {
+                if (
+                  window.confirm(
+                    `Excluir a igreja "${igreja.nome}" e TODOS os seus dados? Esta ação é irreversível.`,
+                  )
+                ) {
+                  onDelete();
+                }
+              }}
+            >
+              Excluir igreja
+            </button>
           </div>
         </form>
       </div>

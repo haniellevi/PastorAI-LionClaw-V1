@@ -78,6 +78,7 @@ class PlatformDB:
         self.pessoas_rows = pessoas_rows or []
         self.count_value = count_value
         self.added: list = []
+        self.deleted: list = []
         self.committed = False
 
     def execute(self, statement, params=None) -> _Result:
@@ -102,6 +103,9 @@ class PlatformDB:
 
     def add(self, obj) -> None:
         self.added.append(obj)
+
+    def delete(self, obj) -> None:
+        self.deleted.append(obj)
 
     def flush(self) -> None:
         # Assign a primary key the way a real flush would, so the router can
@@ -431,3 +435,42 @@ def test_admin_igreja_detail_404(app) -> None:
         "/admin/igrejas/00000000-0000-0000-0000-000000000009", headers=_AUTH
     )
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# DELETE /admin/igrejas/{id} (CRUD completo)
+# ---------------------------------------------------------------------------
+def test_admin_delete_igreja(app) -> None:
+    igreja = SimpleNamespace(
+        id="ig-1", nome="Igreja X", status="ativa", plano=None, created_at=None
+    )
+    db = PlatformDB(
+        gate_app_user=make_app_user(), admin_marker="pa1", igreja_scalar=igreja
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.delete(
+        "/admin/igrejas/00000000-0000-0000-0000-000000000009", headers=_AUTH
+    )
+    assert resp.status_code == 204
+    assert db.deleted == [igreja]
+    assert db.committed is True
+
+
+def test_admin_delete_igreja_404(app) -> None:
+    db = PlatformDB(
+        gate_app_user=make_app_user(), admin_marker="pa1", igreja_scalar=None
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.delete(
+        "/admin/igrejas/00000000-0000-0000-0000-000000000009", headers=_AUTH
+    )
+    assert resp.status_code == 404
+
+
+def test_admin_delete_blocks_non_master(app) -> None:
+    db = PlatformDB(gate_app_user=make_app_user(), admin_marker=None)
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.delete(
+        "/admin/igrejas/00000000-0000-0000-0000-000000000009", headers=_AUTH
+    )
+    assert resp.status_code == 403

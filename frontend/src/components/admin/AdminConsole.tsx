@@ -12,6 +12,7 @@ import { DataTable, type Column } from "@/components/ui/DataTable";
 import {
   AdminSessionExpiredError,
   createIgreja,
+  deleteIgreja,
   fetchMetrics,
   listIgrejas,
   updateIgreja,
@@ -140,6 +141,23 @@ export function AdminConsole() {
     } catch (err) {
       if (handledSessionError(err)) return;
       setModalError(err instanceof Error ? err.message : "Não foi possível atualizar.");
+    } finally {
+      setModalBusy(false);
+    }
+  };
+
+  const submitDelete = async () => {
+    if (!token || !editing) return;
+    setModalBusy(true);
+    setModalError(null);
+    try {
+      await deleteIgreja(token, editing.id);
+      setNotice(`Igreja "${editing.nome}" excluída.`);
+      setEditing(null);
+      await load();
+    } catch (err) {
+      if (handledSessionError(err)) return;
+      setModalError(err instanceof Error ? err.message : "Não foi possível excluir.");
     } finally {
       setModalBusy(false);
     }
@@ -305,6 +323,7 @@ export function AdminConsole() {
           error={modalError}
           onClose={() => setEditing(null)}
           onSubmit={submitEdit}
+          onDelete={submitDelete}
         />
       ) : null}
     </div>

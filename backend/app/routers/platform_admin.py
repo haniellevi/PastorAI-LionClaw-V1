@@ -407,6 +407,38 @@ def update_igreja(
     )
 
 
+@router.delete("/igrejas/{igreja_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_igreja(
+    igreja_id: str,
+    db: Session = Depends(get_db),
+    _admin: PlatformAdminUser = Depends(get_platform_admin),
+) -> None:
+    """Excluir uma igreja e TODOS os seus dados (cross-tenant, irreversível).
+
+    O schema tem ON DELETE CASCADE em todas as tabelas filhas (app_users,
+    pessoas, células, conversas…), então remover a igreja limpa tudo sem deixar
+    órfãos. Operação destrutiva — a UI exige confirmação. Suspender (PATCH
+    status) é o caminho normal; excluir é para igrejas de teste/erro.
+    """
+    try:
+        ig_uuid = uuid.UUID(igreja_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Igreja não encontrada"
+        ) from exc
+
+    igreja = db.execute(
+        select(Igreja).where(Igreja.id == ig_uuid)
+    ).scalar_one_or_none()
+    if igreja is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Igreja não encontrada"
+        )
+
+    db.delete(igreja)
+    db.commit()
+
+
 # ---------------------------------------------------------------------------
 # M1 — Visão global e drill-down por igreja
 # ---------------------------------------------------------------------------
