@@ -405,3 +405,36 @@ export async function deletePlano(token: string, id: string): Promise<void> {
   }
   if (!res.ok) await throwMutationError(res, "Não foi possível excluir o plano.");
 }
+
+// ---------------------------------------------------------------------------
+// Auditoria das ações do console (M3 / migration 0013)
+// ---------------------------------------------------------------------------
+export interface AdminAuditEntry {
+  id: string;
+  actorEmail: string | null;
+  acao: string;
+  alvoTipo: string;
+  alvoId: string | null;
+  alvoNome: string | null;
+  detalhe: Record<string, unknown> | null;
+  createdAt: string | null;
+}
+
+/** Lista as ações recentes do console (mais novas primeiro). */
+export async function fetchAudit(
+  token: string,
+  limit = 100,
+): Promise<AdminAuditEntry[]> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/admin/audit?limit=${limit}`, {
+      headers: authHeaders(token),
+    });
+  } catch {
+    throw new AdminAuthError("network", "Falha de conexão com o servidor.");
+  }
+  if (res.status === 401) throw new AdminSessionExpiredError();
+  if (res.status === 403) throw new AdminAuthError("forbidden", "Acesso negado.");
+  if (!res.ok) throw new AdminAuthError("network", "Não foi possível carregar a auditoria.");
+  return asJson<AdminAuditEntry[]>(res);
+}

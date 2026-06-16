@@ -758,6 +758,33 @@ class Plano(Base):
     )
 
 
+class PlatformAuditLog(Base):
+    """Log de auditoria das ações cross-tenant do console master (M3).
+
+    Plano de plataforma (sem igreja_id). Histórico imutável: ``actor_id`` e
+    ``alvo_id`` NÃO têm FK de propósito, para o rastro sobreviver à exclusão da
+    igreja/usuário. Ver migration 0013 e ``_audit`` (routers/platform_admin.py).
+    """
+
+    __tablename__ = "platform_audit_log"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    actor_email: Mapped[str | None] = mapped_column(Text, nullable=True)
+    acao: Mapped[str] = mapped_column(Text, nullable=False)
+    alvo_tipo: Mapped[str] = mapped_column(Text, nullable=False)
+    alvo_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    alvo_nome: Mapped[str | None] = mapped_column(Text, nullable=True)
+    detalhe: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+
 class PlatformAdmin(Base):
     """Super-Admin allowlist (console multi-tenant — Onda 1 / US-42/43).
 
@@ -810,4 +837,5 @@ __all__ = [
     "AgentConversationLog",
     "Plano",
     "PlatformAdmin",
+    "PlatformAuditLog",
 ]

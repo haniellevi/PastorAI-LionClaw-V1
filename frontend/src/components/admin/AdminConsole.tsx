@@ -26,6 +26,7 @@ import {
 } from "@/lib/admin-api";
 import { useAdminAuth } from "@/lib/admin-auth-context";
 
+import { AuditModal } from "./AuditModal";
 import { CreateIgrejaModal } from "./CreateIgrejaModal";
 import { EditIgrejaModal } from "./EditIgrejaModal";
 import { IgrejaDetailModal } from "./IgrejaDetailModal";
@@ -74,6 +75,7 @@ export function AdminConsole() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [planosOpen, setPlanosOpen] = useState(false);
+  const [auditOpen, setAuditOpen] = useState(false);
   const [viewing, setViewing] = useState<AdminIgreja | null>(null);
   const [editing, setEditing] = useState<AdminIgreja | null>(null);
   const [modalBusy, setModalBusy] = useState(false);
@@ -231,6 +233,9 @@ export function AdminConsole() {
           <Button variant="ghost" size="sm" onClick={() => setPlanosOpen(true)}>
             Planos
           </Button>
+          <Button variant="ghost" size="sm" onClick={() => setAuditOpen(true)}>
+            Auditoria
+          </Button>
           <Button variant="ghost" size="sm" onClick={logout}>
             Sair
           </Button>
@@ -357,6 +362,10 @@ export function AdminConsole() {
           onExpired={logout}
           onChanged={() => void loadPlanos()}
         />
+      ) : null}
+
+      {auditOpen && token ? (
+        <AuditModal token={token} onClose={() => setAuditOpen(false)} onExpired={logout} />
       ) : null}
 
       {viewing && token ? (

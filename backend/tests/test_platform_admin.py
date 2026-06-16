@@ -13,7 +13,15 @@ from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
-from app.db.models import AppUser, Igreja, Pessoa, Plano, PlatformAdmin, RolePermission
+from app.db.models import (
+    AppUser,
+    Igreja,
+    Pessoa,
+    Plano,
+    PlatformAdmin,
+    PlatformAuditLog,
+    RolePermission,
+)
 from app.db.session import get_db
 from app.services.brevo import BrevoError, get_brevo_client
 from app.services.clerk import get_clerk_client
@@ -78,6 +86,7 @@ class PlatformDB:
         plano_scalar=None,
         plano_precos_rows=None,
         em_uso_rows=None,
+        audit_rows=None,
     ) -> None:
         self.gate_app_user = gate_app_user
         self.admin_marker = admin_marker
@@ -96,6 +105,7 @@ class PlatformDB:
             else list(_DEFAULT_PLANO_PRECOS)
         )
         self.em_uso_rows = em_uso_rows or []
+        self.audit_rows = audit_rows or []
         self.added: list = []
         self.deleted: list = []
         self.committed = False
@@ -123,6 +133,8 @@ class PlatformDB:
             return _Result(scalar=self.igreja_scalar, scalars=self.igrejas)
         if ent is Plano:
             return _Result(scalar=self.plano_scalar, scalars=self.planos)
+        if ent is PlatformAuditLog:
+            return _Result(scalars=self.audit_rows)
         # select(func.count()) — scalar count with no mapped entity.
         return _Result(scalar_one=self.count_value)
 
@@ -536,6 +548,10 @@ def test_admin_aprova_igreja_pendente(app) -> None:
     assert db.committed is True
     # Cascata: semeou a matriz role_permissions (defaults).
     assert any(isinstance(o, RolePermission) for o in db.added)
+    # M3: a aprovação foi registrada na auditoria.
+    assert any(
+        isinstance(o, PlatformAuditLog) and o.acao == "aprovar" for o in db.added
+    )
 
 
 def test_admin_aprovar_idempotente_quando_ja_ativa(app) -> None:
@@ -717,3 +733,51 @@ def test_admin_delete_plano_blocked_when_in_use(app) -> None:
     resp = client.delete(f"/admin/planos/{_PLANO_ID}", headers=_AUTH)
     assert resp.status_code == 409
     assert db.deleted == []
+
+
+# ---------------------------------------------------------------------------
+# M3 — auditoria das ações do console (migration 0013)
+# ---------------------------------------------------------------------------
+def test_admin_lists_audit(app) -> None:
+    entry = SimpleNamespace(
+        id="aud-1",
+        actor_email="master@x.com",
+        acao="aprovar",
+        alvo_tipo="igreja",
+        alvo_id=None,
+        alvo_nome="Igreja X",
+        detalhe={"plano": "ate_100"},
+        created_at=None,
+    )
+    db = PlatformDB(
+        gate_app_user=make_app_user(), admin_marker="pa1", audit_rows=[entry]
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.get("/admin/audit", headers=_AUTH)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert len(body) == 1
+    assert body[0]["acao"] == "aprovar"
+    assert body[0]["alvoNome"] == "Igreja X"
+    assert body[0]["actorEmail"] == "master@x.com"
+
+
+def test_admin_audit_blocks_non_master(app) -> None:
+    db = PlatformDB(gate_app_user=make_app_user(), admin_marker=None)
+    client = _wire(app, db=db, clerk=FakeClerk())
+    assert client.get("/admin/audit", headers=_AUTH).status_code == 403
+
+
+def test_admin_delete_igreja_writes_audit(app) -> None:
+    igreja = SimpleNamespace(
+        id="ig-1", nome="Igreja X", status="ativa", plano=None, created_at=None
+    )
+    db = PlatformDB(
+        gate_app_user=make_app_user(), admin_marker="pa1", igreja_scalar=igreja
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.delete(f"/admin/igrejas/{_IG_ID}", headers=_AUTH)
+    assert resp.status_code == 204
+    assert any(
+        isinstance(o, PlatformAuditLog) and o.acao == "excluir" for o in db.added
+    )

@@ -36,6 +36,7 @@ from app.db.models import (
     Pessoa,
     Plano,
     PlatformAdmin,
+    PlatformAuditLog,
     RolePermission,
     Subscription,
     UserRole,
@@ -79,6 +80,45 @@ def _validate_plano_or_422(db: Session, codigo: str) -> None:
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"plano inválido: {codigo}",
         )
+
+
+def _as_uuid(value: object) -> uuid.UUID | None:
+    """Coage para UUID (str/UUID); None se inválido — o audit nunca quebra a ação."""
+    if value is None:
+        return None
+    if isinstance(value, uuid.UUID):
+        return value
+    try:
+        return uuid.UUID(str(value))
+    except (ValueError, TypeError):
+        return None
+
+
+def _audit(
+    db: Session,
+    admin: PlatformAdminUser,
+    acao: str,
+    alvo_tipo: str,
+    alvo_id: object,
+    alvo_nome: str | None,
+    detalhe: dict | None = None,
+) -> None:
+    """Registra uma ação do console no log de auditoria (M3).
+
+    Adiciona a linha à sessão — o caller faz o commit JUNTO com a mutação, então
+    o rastro é atômico com a ação. Nunca lança (o audit não pode derrubar a ação).
+    """
+    db.add(
+        PlatformAuditLog(
+            actor_id=_as_uuid(admin.app_user_id),
+            actor_email=getattr(admin, "email", None),
+            acao=acao,
+            alvo_tipo=alvo_tipo,
+            alvo_id=_as_uuid(alvo_id),
+            alvo_nome=alvo_nome,
+            detalhe=detalhe,
+        )
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -312,7 +352,7 @@ def list_igrejas(
 def create_igreja(
     payload: CreateIgrejaRequest,
     db: Session = Depends(get_db),
-    _admin: PlatformAdminUser = Depends(get_platform_admin),
+    admin: PlatformAdminUser = Depends(get_platform_admin),
     mailer: BrevoClient = Depends(get_brevo_client),
     clerk: ClerkClient = Depends(get_clerk_client),
 ) -> CreateIgrejaResponse:
@@ -348,6 +388,10 @@ def create_igreja(
     db.flush()  # assign app_user.id
 
     db.add(UserRole(igreja_id=igreja.id, user_id=app_user.id, papel="admin"))
+    _audit(
+        db, admin, "provisionar", "igreja", igreja.id, igreja.nome,
+        {"plano": payload.plano, "adminEmail": email},
+    )
     db.commit()
 
     email_sent = False
@@ -373,7 +417,7 @@ def update_igreja(
     igreja_id: str,
     payload: UpdateIgrejaRequest,
     db: Session = Depends(get_db),
-    _admin: PlatformAdminUser = Depends(get_platform_admin),
+    admin: PlatformAdminUser = Depends(get_platform_admin),
 ) -> IgrejaOut:
     """Change a church's status and/or plano (US-42).
 
@@ -404,10 +448,15 @@ def update_igreja(
     if payload.plano is not None:
         _validate_plano_or_422(db, payload.plano)
 
+    antes = {"status": igreja.status, "plano": igreja.plano}
     if payload.status is not None:
         igreja.status = payload.status
     if payload.plano is not None:
         igreja.plano = payload.plano
+    _audit(
+        db, admin, "editar", "igreja", igreja.id, igreja.nome,
+        {"de": antes, "para": {"status": igreja.status, "plano": igreja.plano}},
+    )
     db.commit()
 
     membros = int(
@@ -440,7 +489,7 @@ def update_igreja(
 def delete_igreja(
     igreja_id: str,
     db: Session = Depends(get_db),
-    _admin: PlatformAdminUser = Depends(get_platform_admin),
+    admin: PlatformAdminUser = Depends(get_platform_admin),
 ) -> None:
     """Excluir uma igreja e TODOS os seus dados (cross-tenant, irreversível).
 
@@ -464,6 +513,10 @@ def delete_igreja(
             status_code=status.HTTP_404_NOT_FOUND, detail="Igreja não encontrada"
         )
 
+    _audit(
+        db, admin, "excluir", "igreja", igreja.id, igreja.nome,
+        {"status": igreja.status, "plano": igreja.plano},
+    )
     db.delete(igreja)
     db.commit()
 
@@ -493,7 +546,7 @@ def _seed_role_permissions(db: Session, igreja_id: uuid.UUID) -> None:
 def aprovar_igreja(
     igreja_id: str,
     db: Session = Depends(get_db),
-    _admin: PlatformAdminUser = Depends(get_platform_admin),
+    admin: PlatformAdminUser = Depends(get_platform_admin),
 ) -> IgrejaOut:
     """Aprova uma igreja pendente (M2): 'aguardando_aprovacao' -> 'ativa'.
 
@@ -527,6 +580,7 @@ def aprovar_igreja(
             )
         igreja.status = "ativa"
         _seed_role_permissions(db, ig_uuid)
+        _audit(db, admin, "aprovar", "igreja", igreja.id, igreja.nome, None)
         db.commit()
 
     membros = int(
@@ -855,7 +909,7 @@ def list_planos(
 def create_plano(
     payload: CreatePlanoRequest,
     db: Session = Depends(get_db),
-    _admin: PlatformAdminUser = Depends(get_platform_admin),
+    admin: PlatformAdminUser = Depends(get_platform_admin),
 ) -> PlanoOut:
     """Cria um plano no catálogo (US-42 — definir planos).
 
@@ -879,6 +933,11 @@ def create_plano(
         ordem=payload.ordem,
     )
     db.add(plano)
+    db.flush()  # popula plano.id para o audit referenciar
+    _audit(
+        db, admin, "plano_criar", "plano", plano.id, plano.nome,
+        {"codigo": plano.codigo, "preco": float(plano.preco_mensal)},
+    )
     db.commit()
     return _plano_out(plano, 0)
 
@@ -888,7 +947,7 @@ def update_plano(
     plano_id: str,
     payload: UpdatePlanoRequest,
     db: Session = Depends(get_db),
-    _admin: PlatformAdminUser = Depends(get_platform_admin),
+    admin: PlatformAdminUser = Depends(get_platform_admin),
 ) -> PlanoOut:
     """Edita um plano: nome, preço, limite, ordem ou ativa/desativa.
 
@@ -912,6 +971,10 @@ def update_plano(
         plano.ativo = payload.ativo
     if "ordem" in fields and payload.ordem is not None:
         plano.ordem = payload.ordem
+    _audit(
+        db, admin, "plano_editar", "plano", plano.id, plano.nome,
+        {"campos": sorted(fields)},
+    )
     db.commit()
     return _plano_out(plano, _igrejas_no_plano(db, plano.codigo))
 
@@ -920,7 +983,7 @@ def update_plano(
 def delete_plano(
     plano_id: str,
     db: Session = Depends(get_db),
-    _admin: PlatformAdminUser = Depends(get_platform_admin),
+    admin: PlatformAdminUser = Depends(get_platform_admin),
 ) -> None:
     """Exclui um plano do catálogo — só se NENHUMA igreja o estiver usando.
 
@@ -937,5 +1000,53 @@ def delete_plano(
                 "Desative-o em vez de excluir."
             ),
         )
+    _audit(
+        db, admin, "plano_excluir", "plano", plano.id, plano.nome,
+        {"codigo": plano.codigo},
+    )
     db.delete(plano)
     db.commit()
+
+
+# ---------------------------------------------------------------------------
+# M3 — Auditoria das ações cross-tenant do console (migration 0013)
+# ---------------------------------------------------------------------------
+class AuditEntryOut(BaseModel):
+    """Uma entrada do log de auditoria do console."""
+
+    id: str
+    actorEmail: str | None = None  # noqa: N815 - quem fez a ação
+    acao: str
+    alvoTipo: str  # noqa: N815 - 'igreja' | 'plano'
+    alvoId: str | None = None  # noqa: N815
+    alvoNome: str | None = None  # noqa: N815
+    detalhe: dict | None = None
+    createdAt: str | None = None  # noqa: N815
+
+
+@router.get("/audit", response_model=list[AuditEntryOut])
+def list_audit(
+    limit: int = 100,
+    db: Session = Depends(get_db),
+    _admin: PlatformAdminUser = Depends(get_platform_admin),
+) -> list[AuditEntryOut]:
+    """Lista as ações recentes do console (mais novas primeiro). Limite 1..200."""
+    limit = max(1, min(limit, 200))
+    rows = db.execute(
+        select(PlatformAuditLog)
+        .order_by(PlatformAuditLog.created_at.desc())
+        .limit(limit)
+    ).scalars().all()
+    return [
+        AuditEntryOut(
+            id=str(r.id),
+            actorEmail=r.actor_email,
+            acao=r.acao,
+            alvoTipo=r.alvo_tipo,
+            alvoId=str(r.alvo_id) if r.alvo_id else None,
+            alvoNome=r.alvo_nome,
+            detalhe=r.detalhe,
+            createdAt=r.created_at.isoformat() if r.created_at else None,
+        )
+        for r in rows
+    ]
