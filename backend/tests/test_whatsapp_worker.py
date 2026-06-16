@@ -6,6 +6,8 @@ import json
 from types import SimpleNamespace
 
 from app.db.models import Conversation, Pessoa, WhatsappConnection
+from app.domain.conversations import parse_message_event
+from app.domain.phone import normalize_phone
 from app.workers.queue_worker import (
     DEAD_LETTER_QUEUE,
     MAX_ATTEMPTS,
@@ -180,6 +182,85 @@ def test_process_webhook_payload_ignores_non_message() -> None:
         process_webhook_payload(session, {"event": "connection.update"})
         is IngestionResult.IGNORED
     )
+
+
+# ---------------------------------------------------------------------------
+# Contact integrity: never ingest the church's own number; only inbound creates
+# ---------------------------------------------------------------------------
+_IGREJA = "00000000-0000-0000-0000-000000000001"
+
+
+def test_parser_captures_owner_from_sender() -> None:
+    payload = _parsed_payload()
+    payload["sender"] = "558994711318@s.whatsapp.net"
+    parsed = parse_message_event(payload)
+    assert parsed is not None
+    assert parsed.owner == normalize_phone("558994711318")
+
+
+def test_ingest_ignores_church_own_number_via_sender() -> None:
+    # A message whose contact == the instance owner (self-chat / connect sync)
+    # must never become a contact.
+    connection = WhatsappConnection(igreja_id=_IGREJA, instance="igreja-1")
+    session = FakeIngestSession(connection=connection)
+    payload = {
+        "event": "messages.upsert",
+        "instance": "igreja-1",
+        "sender": "558994711318@s.whatsapp.net",
+        "data": {
+            "key": {
+                "remoteJid": "558994711318@s.whatsapp.net",
+                "fromMe": True,
+                "id": "SELF1",
+            },
+            "message": {"conversation": "x"},
+        },
+    }
+    parsed = parse_message_event(payload)
+    result = ingest_message_event(session, parsed)
+    assert result is IngestionResult.IGNORED
+    assert not any(isinstance(o, Pessoa) for o in session.added)
+
+
+def test_ingest_ignores_official_number_via_connection_numero() -> None:
+    # Fallback when the payload has no `sender`: the registered official number.
+    connection = WhatsappConnection(
+        igreja_id=_IGREJA, instance="igreja-1", numero="5511988887777"
+    )
+    session = FakeIngestSession(connection=connection)
+    parsed = parse_message_event(_parsed_payload())  # remoteJid 5511988887777
+    result = ingest_message_event(session, parsed)
+    assert result is IngestionResult.IGNORED
+    assert not any(isinstance(o, Pessoa) for o in session.added)
+
+
+def test_ingest_outbound_to_unknown_does_not_create_contact() -> None:
+    connection = WhatsappConnection(igreja_id=_IGREJA, instance="igreja-1")
+    session = FakeIngestSession(connection=connection, pessoa=None)
+    payload = _parsed_payload()
+    payload["data"]["key"]["fromMe"] = True  # outbound to a not-yet-known number
+    parsed = parse_message_event(payload)
+    result = ingest_message_event(session, parsed)
+    assert result is IngestionResult.IGNORED
+    assert not any(isinstance(o, Pessoa) for o in session.added)
+
+
+def test_ingest_outbound_to_known_contact_still_records() -> None:
+    # Outbound to an EXISTING contact is still recorded (no new contact created).
+    connection = WhatsappConnection(igreja_id=_IGREJA, instance="igreja-1")
+    existing = Pessoa(igreja_id=_IGREJA, nome="João", telefone="5511988887777")
+    existing_conv = Conversation(
+        igreja_id=_IGREJA, telefone="5511988887777", estado="ia", nao_lidas=0
+    )
+    session = FakeIngestSession(
+        connection=connection, pessoa=existing, conversation=existing_conv
+    )
+    payload = _parsed_payload()
+    payload["data"]["key"]["fromMe"] = True
+    parsed = parse_message_event(payload)
+    result = ingest_message_event(session, parsed)
+    assert result is IngestionResult.REGISTERED
+    assert not any(isinstance(o, Pessoa) for o in session.added)
 
 
 # ---------------------------------------------------------------------------
