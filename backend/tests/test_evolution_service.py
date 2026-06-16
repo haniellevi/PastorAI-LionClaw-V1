@@ -217,3 +217,43 @@ def test_send_media_raises_on_error(monkeypatch) -> None:
             mime="application/pdf",
             filename="a.pdf",
         )
+
+
+# ---- foto de perfil (fetchProfilePictureUrl) — Etapa 4 --------------------
+def test_fetch_profile_picture_url_returns_url(monkeypatch) -> None:
+    seen: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"profilePictureUrl": "https://cdn/x.jpg"})
+
+    _use_transport(monkeypatch, handler)
+    url = EvolutionClient(_settings()).fetch_profile_picture_url("igreja-1", "5599")
+    assert url == "https://cdn/x.jpg"
+    assert seen["url"].endswith("/chat/fetchProfilePictureUrl/igreja-1")
+    assert seen["body"]["number"] == "5599"
+
+
+def test_fetch_profile_picture_url_none_when_no_photo(monkeypatch) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={})
+
+    _use_transport(monkeypatch, handler)
+    assert EvolutionClient(_settings()).fetch_profile_picture_url("i", "5599") is None
+
+
+def test_fetch_profile_picture_url_none_on_404(monkeypatch) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"error": "not found"})
+
+    _use_transport(monkeypatch, handler)
+    assert EvolutionClient(_settings()).fetch_profile_picture_url("i", "5599") is None
+
+
+def test_fetch_profile_picture_url_none_on_transport_error(monkeypatch) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("boom")
+
+    _use_transport(monkeypatch, handler)
+    assert EvolutionClient(_settings()).fetch_profile_picture_url("i", "5599") is None

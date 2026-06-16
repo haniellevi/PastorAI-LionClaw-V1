@@ -22,16 +22,20 @@ import {
   SessionExpiredError,
   canAccessInbox,
   deleteConversation,
+  fetchConversationPhoto,
   fetchConversations,
   fetchMessages,
   handoffConversation,
+  markConversationRead,
   sendMedia,
   sendMessage,
+  transferConversation,
   type ChatMessage,
   type Conversation,
 } from "@/lib/conversations-api";
+import { fetchTeamLookup, type TeamMember } from "@/lib/dashboard-api";
 import { Icon } from "@/lib/icons";
-import { isAdmin } from "@/lib/roles";
+import { isAdmin, type Role } from "@/lib/roles";
 import {
   ApiError as WaApiError,
   canManageWhatsapp,
@@ -43,6 +47,7 @@ import { ContactPanel } from "./ContactPanel";
 import { ConversationList, type ConvFilter } from "./ConversationList";
 import { ConversationThread } from "./ConversationThread";
 import { DeleteConversationDialog } from "./DeleteConversationDialog";
+import { TransferConversationModal } from "./TransferConversationModal";
 import { effectiveEstado } from "./conversation-format";
 
 const POLL_MS = 15_000;
@@ -75,6 +80,14 @@ export function InboxScreen() {
   const [deleteTarget, setDeleteTarget] = useState<Conversation | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // Foto de perfil da conversa selecionada (Etapa 4) e transferência (#2).
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [transferTarget, setTransferTarget] = useState<Conversation | null>(null);
+  const [transferBusy, setTransferBusy] = useState(false);
+  const [transferError, setTransferError] = useState<string | null>(null);
+  const [team, setTeam] = useState<TeamMember[]>([]);
+  const [teamLoading, setTeamLoading] = useState(false);
 
   // "unknown" quando o papel não pode ler a conexão (não-admin) — tratado como
   // operante, sem banner de degradação.
@@ -373,6 +386,87 @@ export function InboxScreen() {
     }
   }, [token, deleteTarget, selectedId, flashToast, handleSessionError]);
 
+  // ---- marcar como lida ao abrir + foto de perfil -------------------------
+  useEffect(() => {
+    if (!selectedId || !token) return;
+    const conv = conversations.find((c) => c.id === selectedId);
+    if (conv && conv.naoLidas > 0) {
+      patch(selectedId, { naoLidas: 0 });
+      void markConversationRead(token, selectedId).catch(() => {});
+    }
+  }, [selectedId, conversations, token, patch]);
+
+  useEffect(() => {
+    setPhotoUrl(null);
+    if (!selectedId || !token) return;
+    let cancelled = false;
+    void fetchConversationPhoto(token, selectedId)
+      .then((url) => {
+        if (!cancelled) setPhotoUrl(url);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedId, token]);
+
+  // ---- transferir conversa (#2) -------------------------------------------
+  const openTransfer = useCallback(
+    (c: Conversation) => {
+      setTransferError(null);
+      setTransferTarget(c);
+      if (team.length === 0 && token) {
+        setTeamLoading(true);
+        fetchTeamLookup(token)
+          .then((page) => setTeam(page.items))
+          .catch(() => {})
+          .finally(() => setTeamLoading(false));
+      }
+    },
+    [team.length, token],
+  );
+
+  const confirmTransfer = useCallback(
+    async (userId: string) => {
+      if (!token || !transferTarget) return;
+      setTransferBusy(true);
+      setTransferError(null);
+      try {
+        const res = await transferConversation(token, transferTarget.id, userId);
+        patch(transferTarget.id, {
+          estado: (res.estado as Conversation["estado"]) ?? "humano",
+          assumidoPor: res.assumidoPor,
+          assumidoPorNome: res.assumidoPorNome,
+          esperaDesde: null,
+        });
+        flashToast({
+          kind: "ok",
+          text: `Conversa transferida para ${res.assumidoPorNome ?? "outro líder"}.`,
+        });
+        setTransferTarget(null);
+      } catch (err) {
+        if (handleSessionError(err)) return;
+        setTransferError(
+          err instanceof ApiError
+            ? err.message
+            : "Não foi possível transferir a conversa.",
+        );
+      } finally {
+        setTransferBusy(false);
+      }
+    },
+    [token, transferTarget, patch, flashToast, handleSessionError],
+  );
+
+  const transferMembers = useMemo(() => {
+    const selfId = user?.appUserId;
+    const holderId = transferTarget?.assumidoPor;
+    return team
+      .filter((m) => canAccessInbox(m.papeis as Role[]))
+      .filter((m) => m.usuarioId !== selfId && m.usuarioId !== holderId)
+      .sort((a, b) => a.nome.localeCompare(b.nome));
+  }, [team, user, transferTarget]);
+
   // ---- bloqueio de acesso (US-11) -----------------------------------------
   if (!allowed) {
     return (
@@ -393,7 +487,6 @@ export function InboxScreen() {
   }
 
   const showSkeleton = loading && !loaded;
-  const holderName = null; // nomes de usuários não são expostos nesta listagem
 
   return (
     <div className="screen screen-chat" key="inbox">
@@ -467,14 +560,15 @@ export function InboxScreen() {
           <ConversationThread
             conversation={selected}
             selfId={user?.appUserId ?? ""}
-            holderName={holderName}
+            holderName={selected.assumidoPorNome}
             degraded={degraded}
             busy={busyId === selected.id}
             conflict={conflicts[selected.id] ?? null}
             messages={messages}
             messagesLoading={messagesLoading}
             panelOpen={panelOpen}
-            canDelete={isAdminUser}
+            isAdmin={isAdminUser}
+            avatarUrl={photoUrl}
             onAssume={handleAssume}
             onReturn={handleReturn}
             onSend={handleSend}
@@ -484,6 +578,7 @@ export function InboxScreen() {
               setDeleteError(null);
               setDeleteTarget(c);
             }}
+            onTransfer={openTransfer}
           />
         ) : (
           <div className="empty-pane">
@@ -508,6 +603,7 @@ export function InboxScreen() {
             <ContactPanel
               pessoaId={selected.pessoaId}
               telefone={selected.telefone}
+              avatarUrl={photoUrl}
               onClose={() => setPanelOpen(false)}
             />
           </>
@@ -525,6 +621,22 @@ export function InboxScreen() {
             setDeleteError(null);
           }}
           onConfirm={() => void confirmDelete()}
+        />
+      ) : null}
+
+      {transferTarget ? (
+        <TransferConversationModal
+          conversation={transferTarget}
+          members={transferMembers}
+          loading={teamLoading}
+          busy={transferBusy}
+          error={transferError}
+          onCancel={() => {
+            if (transferBusy) return;
+            setTransferTarget(null);
+            setTransferError(null);
+          }}
+          onConfirm={(userId) => void confirmTransfer(userId)}
         />
       ) : null}
 

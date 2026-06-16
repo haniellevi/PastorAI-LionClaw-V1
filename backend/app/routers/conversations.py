@@ -27,12 +27,24 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import desc, func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
-from app.db.models import Conversation, Message, Pessoa, WhatsappConnection
+from app.db.models import (
+    AppUser,
+    Conversation,
+    Message,
+    Pessoa,
+    UserRole,
+    WhatsappConnection,
+)
 from app.db.session import get_db
 from app.deps import CurrentUser, require_role
-from app.domain.conversations import INBOX_ROLES, media_snippet, resolve_handoff
+from app.domain.conversations import (
+    INBOX_ROLES,
+    can_access_inbox,
+    media_snippet,
+    resolve_handoff,
+)
 from app.routers._common import Page, PaginationParams, ensure_tenant_context
 from app.services.evolution import (
     EvolutionClient,
@@ -68,12 +80,18 @@ class ConversationOut(BaseModel):
     ultimaMensagem: str | None = None  # noqa: N815
     naoLidas: int  # noqa: N815
     assumidoPor: str | None = None  # noqa: N815
+    assumidoPorNome: str | None = None  # noqa: N815 - nome de quem assumiu (humano)
     assumidoEm: str | None = None  # noqa: N815
     esperaDesde: str | None = None  # noqa: N815
     atualizadoEm: str | None = None  # noqa: N815 - hora da última atividade (lista)
 
     @classmethod
-    def from_model(cls, c: Conversation, nome: str | None = None) -> "ConversationOut":
+    def from_model(
+        cls,
+        c: Conversation,
+        nome: str | None = None,
+        assumido_por_nome: str | None = None,
+    ) -> "ConversationOut":
         return cls(
             id=str(c.id),
             telefone=c.telefone,
@@ -83,6 +101,7 @@ class ConversationOut(BaseModel):
             ultimaMensagem=c.ultima_mensagem,
             naoLidas=c.nao_lidas or 0,
             assumidoPor=str(c.assumido_por) if c.assumido_por else None,
+            assumidoPorNome=assumido_por_nome,
             assumidoEm=c.assumido_em.isoformat() if c.assumido_em else None,
             esperaDesde=c.espera_desde.isoformat() if c.espera_desde else None,
             atualizadoEm=c.updated_at.isoformat() if c.updated_at else None,
@@ -162,6 +181,33 @@ class SendMediaRequest(BaseModel):
         return value or None
 
 
+class TransferRequest(BaseModel):
+    """Transferir a conversa para outro membro com acesso ao inbox."""
+
+    toUserId: str = Field(min_length=1)  # noqa: N815
+
+    @field_validator("toUserId")
+    @classmethod
+    def _to_user(cls, value: str) -> str:
+        try:
+            uuid.UUID(value)
+        except ValueError as exc:
+            raise ValueError("toUserId inválido") from exc
+        return value
+
+
+class TransferResponse(BaseModel):
+    estado: str
+    assumidoPor: str | None = None  # noqa: N815
+    assumidoPorNome: str | None = None  # noqa: N815
+
+
+class PhotoResponse(BaseModel):
+    """Foto de perfil do contato (URL do CDN do WhatsApp) — pode ser None."""
+
+    url: str | None = None
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -174,14 +220,17 @@ def list_conversations(
     """List tenant conversations (estado, última mensagem, não lidas, fila)."""
     ensure_tenant_context(db, current_user)
 
+    holder = aliased(AppUser)
     total = db.execute(
         select(func.count()).select_from(Conversation)
     ).scalar_one()
     rows = db.execute(
-        select(Conversation, Pessoa.nome)
+        select(Conversation, Pessoa.nome, holder.nome, holder.chat_nome)
         # Nome do contato vinculado (humaniza a UI); LEFT JOIN preserva
         # conversas sem pessoa vinculada (nome fica None -> front usa telefone).
         .outerjoin(Pessoa, Pessoa.id == Conversation.pessoa_id)
+        # Nome de quem assumiu (humano), p/ exibir "em atendimento por X".
+        .outerjoin(holder, holder.id == Conversation.assumido_por)
         # Human-queue first (espera_desde set), then most recently updated.
         .order_by(
             Conversation.espera_desde.asc().nulls_last(),
@@ -192,7 +241,12 @@ def list_conversations(
     ).all()
 
     return Page[ConversationOut](
-        items=[ConversationOut.from_model(c, nome=nome) for c, nome in rows],
+        items=[
+            ConversationOut.from_model(
+                c, nome=nome, assumido_por_nome=(holder_chat or holder_nome)
+            )
+            for c, nome, holder_nome, holder_chat in rows
+        ],
         page=pagination.page,
         pageSize=pagination.page_size,
         total=int(total),
@@ -240,6 +294,109 @@ def handoff(
         estado=conv.estado or target.estado,
         assumidoPor=str(conv.assumido_por) if conv.assumido_por else None,
     )
+
+
+@router.post("/{conversation_id}/read", status_code=status.HTTP_204_NO_CONTENT)
+def mark_read(
+    conversation_id: str,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_role(_INBOX_ROLES)),
+) -> Response:
+    """Zera o contador de não lidas quando o atendente abre a conversa (US-13)."""
+    ensure_tenant_context(db, current_user)
+    conv = _get_conversation(db, conversation_id)
+    if conv.nao_lidas:
+        conv.nao_lidas = 0
+        db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/{conversation_id}/transfer", response_model=TransferResponse)
+def transfer_conversation(
+    conversation_id: str,
+    payload: TransferRequest,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_role(_INBOX_ROLES)),
+) -> TransferResponse:
+    """Transferir o atendimento humano para outro membro com acesso ao inbox.
+
+    Quem pode transferir: o **admin** (qualquer conversa) ou o **detentor atual**
+    de uma conversa já sob controle humano. O destino precisa ser um usuário do
+    tenant com acesso ao inbox (admin/pastor/lider_g12/operador) — caso contrário
+    422. A conversa passa ao controle humano do destino (sai da fila de espera).
+    """
+    ensure_tenant_context(db, current_user)
+    conv = _get_conversation_for_update(db, conversation_id)
+
+    holder = str(conv.assumido_por) if conv.assumido_por else None
+    if not current_user.has_role("admin"):
+        # Não-admin só transfere o que ele mesmo está atendendo.
+        if conv.estado != "humano" or holder != current_user.app_user_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Assuma o atendimento antes de transferir.",
+            )
+
+    target_id = uuid.UUID(payload.toUserId)
+    target = db.execute(
+        select(AppUser).where(AppUser.id == target_id)
+    ).scalar_one_or_none()
+    if target is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Usuário de destino não encontrado",
+        )
+    target_roles = db.execute(
+        select(UserRole.papel).where(UserRole.user_id == target_id)
+    ).scalars().all()
+    if not can_access_inbox(target_roles):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="O usuário escolhido não tem acesso ao inbox",
+        )
+
+    conv.estado = "humano"
+    conv.assumido_por = target_id
+    conv.assumido_em = dt.datetime.now(dt.timezone.utc)
+    conv.espera_desde = None
+    db.flush()
+    db.commit()
+
+    nome = target.chat_nome or target.nome
+    return TransferResponse(
+        estado="humano", assumidoPor=str(target_id), assumidoPorNome=nome
+    )
+
+
+@router.get("/{conversation_id}/photo", response_model=PhotoResponse)
+def conversation_photo(
+    conversation_id: str,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_role(_INBOX_ROLES)),
+    evolution: EvolutionClient = Depends(get_evolution_client),
+) -> PhotoResponse:
+    """Foto de perfil do contato no WhatsApp (Etapa 4) — best-effort.
+
+    Consulta a Evolution pelo número oficial da igreja. Sem conexão/instância, ou
+    quando o contato não tem foto / a oculta por privacidade, retorna ``url=None``
+    e a UI cai nas iniciais. O avatar nunca quebra o inbox.
+    """
+    ensure_tenant_context(db, current_user)
+    conv = _get_conversation(db, conversation_id)
+
+    conn = db.execute(
+        select(WhatsappConnection).where(
+            WhatsappConnection.igreja_id == uuid.UUID(current_user.igreja_id)
+        )
+    ).scalar_one_or_none()
+    if conn is None or not conn.instance:
+        return PhotoResponse(url=None)
+
+    try:
+        url = evolution.fetch_profile_picture_url(conn.instance, conv.telefone)
+    except EvolutionError:
+        url = None
+    return PhotoResponse(url=url)
 
 
 @router.get("/{conversation_id}/messages", response_model=Page[MessageOut])

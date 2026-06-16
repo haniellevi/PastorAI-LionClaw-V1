@@ -56,7 +56,9 @@ export type IconKey =
   | "download"
   | "close"
   | "trash"
-  | "info";
+  | "info"
+  | "transfer"
+  | "mic";
 
 const PATHS: Record<IconKey, ReactNode> = {
   brand: <path d="M12 3v18M5 9h14M8 21h8" strokeLinecap="round" />,
@@ -272,6 +274,19 @@ const PATHS: Record<IconKey, ReactNode> = {
     <>
       <circle cx="12" cy="12" r="9" />
       <path d="M12 11v5M12 8h.01" strokeLinecap="round" />
+    </>
+  ),
+  transfer: (
+    <path
+      d="M7 4 3 8l4 4M3 8h13M17 20l4-4-4-4M21 16H8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
+  ),
+  mic: (
+    <>
+      <rect x="9" y="3" width="6" height="11" rx="3" />
+      <path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6" strokeLinecap="round" />
     </>
   ),
 };

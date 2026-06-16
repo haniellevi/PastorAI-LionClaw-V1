@@ -85,10 +85,12 @@ function toContact(d: ContactDetail): Contact {
 export function ContactPanel({
   pessoaId,
   telefone,
+  avatarUrl,
   onClose,
 }: {
   pessoaId: string | null;
   telefone: string;
+  avatarUrl?: string | null;
   onClose: () => void;
 }) {
   const { token, user, expireSession } = useAuth();
@@ -194,7 +196,14 @@ export function ContactPanel({
       ) : detail ? (
         <div className="panel-body">
           <div className="panel-id">
-            <span className="panel-av">{initials(detail.nome)}</span>
+            <span className="panel-av">
+              {avatarUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={avatarUrl} alt="" className="av-img" />
+              ) : (
+                initials(detail.nome)
+              )}
+            </span>
             <div className="panel-id-main">
               <strong>{detail.nome}</strong>
               {detail.tipo ? (

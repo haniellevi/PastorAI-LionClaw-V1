@@ -359,6 +359,39 @@ class EvolutionClient:
         state = (body.get("instance") or {}).get("state") or body.get("state")
         return ConnectionResult(status=map_connection_state(state))
 
+    def fetch_profile_picture_url(
+        self, instance: str, telefone: str
+    ) -> str | None:
+        """Fetch a contact's WhatsApp profile photo URL (Etapa 4 do chat).
+
+        Best-effort: returns the URL (a public WhatsApp CDN link) or **None** when
+        the contact has no photo, hides it by privacy, or anything fails. Never
+        raises — a missing avatar must never break the inbox; the UI falls back to
+        the contact's initials.
+        """
+        base_url, api_key = self._require_config()
+        headers = self._headers(api_key)
+        try:
+            with httpx.Client(base_url=base_url, timeout=10.0) as client:
+                resp = client.post(
+                    f"/chat/fetchProfilePictureUrl/{instance}",
+                    headers=headers,
+                    json={"number": telefone},
+                )
+                if resp.status_code >= 400:
+                    return None
+                body = resp.json()
+        except (httpx.HTTPError, ValueError) as exc:
+            logger.warning(
+                "Evolution fetchProfilePictureUrl failed: %s", type(exc).__name__
+            )
+            return None
+
+        if not isinstance(body, dict):
+            return None
+        url = body.get("profilePictureUrl") or body.get("url")
+        return url if isinstance(url, str) and url else None
+
     # ---- helpers ------------------------------------------------------------
     def _ensure_instance(
         self, client: httpx.Client, headers: dict[str, str], instance: str

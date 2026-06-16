@@ -32,6 +32,8 @@ export interface Conversation {
   ultimaMensagem: string | null;
   naoLidas: number;
   assumidoPor: string | null;
+  /** Nome de quem assumiu o atendimento (humano). null quando IA/aguardando. */
+  assumidoPorNome: string | null;
   assumidoEm: string | null;
   esperaDesde: string | null;
   atualizadoEm: string | null;
@@ -247,6 +249,64 @@ export async function deleteConversation(
     const detail = await readDetail(res);
     throw new ApiError(res.status, detail ?? "Não foi possível excluir a conversa.");
   }
+}
+
+// ---------------------------------------------------------------------------
+// Marcar como lida (zera o contador ao abrir a conversa)
+// ---------------------------------------------------------------------------
+export async function markConversationRead(
+  token: string,
+  conversationId: string,
+): Promise<void> {
+  const res = await authedFetch(token, `/conversations/${conversationId}/read`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    throw new ApiError(res.status, "Não foi possível marcar como lida.");
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Transferir o atendimento para outro membro
+// ---------------------------------------------------------------------------
+export interface TransferResult {
+  estado: string;
+  assumidoPor: string | null;
+  assumidoPorNome: string | null;
+}
+
+/**
+ * Transfere o atendimento humano para outro usuário com acesso ao inbox. Admin
+ * transfere qualquer conversa; o detentor atual transfere a que está atendendo
+ * (409 caso contrário). 422 se o destino não tiver acesso ao inbox.
+ */
+export async function transferConversation(
+  token: string,
+  conversationId: string,
+  toUserId: string,
+): Promise<TransferResult> {
+  const res = await authedFetch(token, `/conversations/${conversationId}/transfer`, {
+    method: "POST",
+    body: JSON.stringify({ toUserId }),
+  });
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível transferir a conversa.");
+  }
+  return (await res.json()) as TransferResult;
+}
+
+// ---------------------------------------------------------------------------
+// Foto de perfil do contato (Etapa 4) — best-effort, pode ser null
+// ---------------------------------------------------------------------------
+export async function fetchConversationPhoto(
+  token: string,
+  conversationId: string,
+): Promise<string | null> {
+  const res = await authedFetch(token, `/conversations/${conversationId}/photo`);
+  if (!res.ok) return null;
+  const body = (await res.json()) as { url?: string | null };
+  return body.url ?? null;
 }
 
 export { ApiError, SessionExpiredError };
