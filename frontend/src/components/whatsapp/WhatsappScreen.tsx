@@ -23,6 +23,7 @@ import {
   SessionExpiredError,
   canManageWhatsapp,
   connectWhatsapp,
+  disconnectWhatsapp,
   fetchConnection,
   type ConnectionInfo,
   type ConnectionStatus,
@@ -80,6 +81,7 @@ export function WhatsappScreen() {
   const [notice, setNotice] = useState<string | null>(null);
   const [conflict, setConflict] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
   const [toast, setToast] = useState<Toast | null>(null);
 
   const allowed = user ? canManageWhatsapp(user.roles) : false;
@@ -208,6 +210,30 @@ export function WhatsappScreen() {
     [token, handleSessionError, flashToast],
   );
 
+  // ---- desconectar (logout do aparelho) ----------------------------------
+  const doDisconnect = useCallback(async () => {
+    if (!token) return;
+    setBusy(true);
+    setConflict(null);
+    setNotice(null);
+    try {
+      const res = await disconnectWhatsapp(token);
+      setInfo({ numero: null, status: res.status, ultimaSync: new Date().toISOString() });
+      setQr(null);
+      setQrExpired(false);
+      setConfirmDisconnect(false);
+      flashToast({ kind: "ok", text: "Número desconectado." });
+    } catch (err) {
+      if (handleSessionError(err)) return;
+      flashToast({
+        kind: "err",
+        text: err instanceof ApiError ? err.message : "Não foi possível desconectar o número.",
+      });
+    } finally {
+      setBusy(false);
+    }
+  }, [token, handleSessionError, flashToast]);
+
   // ---- expiração + regeneração automática do QR --------------------------
   useEffect(() => {
     if (!qr || status === "online") return;
@@ -319,14 +345,25 @@ export function WhatsappScreen() {
 
             <div style={{ display: "flex", gap: 8, marginTop: "var(--s4)" }}>
               {isOnline ? (
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={() => void doConnect("reconnect")}
-                  disabled={busy}
-                >
-                  {busy ? "Reconectando…" : "Reparear aparelho"}
-                </button>
+                <>
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => void doConnect("reconnect")}
+                    disabled={busy}
+                  >
+                    {busy ? "Reconectando…" : "Reparear aparelho"}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-danger"
+                    onClick={() => setConfirmDisconnect(true)}
+                    disabled={busy}
+                  >
+                    <Icon name="logout" />
+                    <span>Desconectar</span>
+                  </button>
+                </>
               ) : (
                 <button
                   type="button"
@@ -345,6 +382,43 @@ export function WhatsappScreen() {
                 </button>
               )}
             </div>
+
+            {confirmDisconnect ? (
+              <div
+                className="degraded-banner"
+                role="alertdialog"
+                aria-label="Confirmar desconexão do WhatsApp"
+                style={{
+                  borderRadius: "var(--r-md)",
+                  marginTop: "var(--s3)",
+                  flexWrap: "wrap",
+                }}
+              >
+                <Icon name="alert" />
+                <span>
+                  Desconectar o número oficial? A IA para de atender no WhatsApp até
+                  você parear um número novamente.
+                </span>
+                <span style={{ display: "flex", gap: 8, marginLeft: "auto" }}>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-danger"
+                    onClick={() => void doDisconnect()}
+                    disabled={busy}
+                  >
+                    {busy ? "Desconectando…" : "Confirmar desconexão"}
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={() => setConfirmDisconnect(false)}
+                    disabled={busy}
+                  >
+                    Cancelar
+                  </button>
+                </span>
+              </div>
+            ) : null}
           </div>
 
           {/* qr-connect */}

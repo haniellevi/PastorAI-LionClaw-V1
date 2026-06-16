@@ -60,8 +60,16 @@ class Settings(BaseSettings):
     # ---- Evolution API (WhatsApp - US-05..US-08) ----------------------------
     evolution_api_url: str = Field(default="")
     evolution_api_key: str = Field(default="")
-    # Shared secret used to validate inbound webhook signatures (HMAC-SHA256).
+    # Shared secret used to validate inbound webhooks (HMAC or `?token=`).
     evolution_webhook_secret: str = Field(default="")
+    # URL the Evolution instance calls back to deliver inbound events. The
+    # backend registers it on the instance at connect time so a number paired
+    # via the panel QR actually forwards messages (without this the instance is
+    # "deaf"). Evolution v2 self-hosted has no custom webhook headers, so the
+    # shared secret is appended as a `?token=` query param. Use the address
+    # Evolution reaches the backend at — e.g. the internal container name on the
+    # shared Docker network: http://pastorai_backend:8000/whatsapp/webhook
+    evolution_webhook_callback_url: str = Field(default="")
 
     # ---- Worker / Filas (RNF-17) --------------------------------------------
     redis_url: str = Field(default="redis://localhost:6379/0")

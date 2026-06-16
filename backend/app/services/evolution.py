@@ -4,8 +4,10 @@ Responsibilities:
 
 1. Bring an instance online and return its QR code + connection state
    (`connect` / `reconnect`), keeping a single official number per igreja.
-2. Read the live connection state (`fetch_status`).
-3. Verify inbound webhook signatures (HMAC-SHA256) so spoofed payloads are
+2. Register the inbound webhook on the instance at connect time (`set_webhook`)
+   so a freshly-paired number actually forwards messages to the backend.
+3. Read the live connection state (`fetch_status`).
+4. Verify inbound webhook signatures (HMAC-SHA256) so spoofed payloads are
    rejected before any processing (webhook signature requirement).
 
 The client never raises raw HTTP errors to callers: failures are normalized to
@@ -70,12 +72,13 @@ def verify_webhook_signature(secret: str, payload: bytes, signature: str | None)
 
 
 def verify_shared_secret(secret: str, token: str | None) -> bool:
-    """Constant-time check of a static shared-secret webhook header.
+    """Constant-time check of a static shared-secret webhook token.
 
-    Evolution API v2 does not HMAC-sign its webhooks; instead we configure the
-    instance to send a static secret header (`x-webhook-token`). This
-    authenticates inbound webhooks in constant time without a signature. An
-    empty secret or token is rejected.
+    Evolution API v2 self-hosted neither HMAC-signs its webhooks nor supports
+    custom headers, so the secret is carried in the webhook URL as a `?token=`
+    query param (and accepted as an `x-webhook-token` header on Cloud/proxied
+    setups). This authenticates inbound webhooks in constant time. An empty
+    secret or token is rejected.
     """
     if not secret or not token:
         return False
@@ -119,7 +122,16 @@ class EvolutionClient:
             logger.warning("Unexpected Evolution connect response shape")
             raise EvolutionError("Resposta inesperada da Evolution API") from exc
 
-        return self._result_from_connect(body)
+        result = self._result_from_connect(body)
+        # Register the inbound webhook so the instance forwards messages. Best
+        # effort: a webhook failure must not hide the QR from the admin.
+        try:
+            self.set_webhook(instance)
+        except EvolutionError:
+            logger.warning(
+                "Instance %s connected but webhook registration failed", instance
+            )
+        return result
 
     def reconnect(self, instance: str) -> ConnectionResult:
         """Restart an instance and return a fresh QR + state."""
@@ -140,10 +152,42 @@ class EvolutionClient:
             raise EvolutionError("Resposta inesperada da Evolution API") from exc
 
         result = self._result_from_connect(body)
+        # Re-register the webhook on reconnect too (idempotent), so a recovered
+        # instance keeps forwarding messages.
+        try:
+            self.set_webhook(instance)
+        except EvolutionError:
+            logger.warning(
+                "Instance %s reconnected but webhook registration failed", instance
+            )
         # A reconnect in progress is surfaced as 'reconectando' when no QR yet.
         if result.qr is None and result.status == "offline":
             return ConnectionResult(status="reconectando")
         return result
+
+    def disconnect(self, instance: str) -> ConnectionResult:
+        """Log out (unpair) an instance's WhatsApp session (US-06).
+
+        Drops the paired device so a different number can be paired, but keeps
+        the instance so a later connect reuses it (RF-07). A missing/already
+        logged-out instance is treated as success (idempotent). Returns offline.
+        """
+        base_url, api_key = self._require_config()
+        headers = self._headers(api_key)
+        try:
+            with httpx.Client(base_url=base_url, timeout=15.0) as client:
+                resp = client.delete(
+                    f"/instance/logout/{instance}", headers=headers
+                )
+                # 200 ok, or 404/409 (already logged out / missing) are fine.
+                if resp.status_code not in (200, 201, 404, 409):
+                    resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            logger.warning("Evolution logout failed: %s", type(exc).__name__)
+            raise EvolutionError(
+                "Falha ao desconectar na Evolution API"
+            ) from exc
+        return ConnectionResult(status="offline")
 
     def send_text(self, instance: str, telefone: str, texto: str) -> bool:
         """Send a text message through the official number (agent single reply).
@@ -164,6 +208,63 @@ class EvolutionClient:
         except httpx.HTTPError as exc:
             logger.warning("Evolution sendText failed: %s", type(exc).__name__)
             raise EvolutionError("Falha ao enviar mensagem pela Evolution API") from exc
+        return True
+
+    def set_webhook(self, instance: str) -> bool:
+        """Register the inbound webhook on an instance (US-08).
+
+        Without this an instance is "deaf": Evolution receives WhatsApp messages
+        but forwards them nowhere. Called right after connecting so a number
+        paired through the panel QR starts delivering events immediately.
+
+        The callback URL comes from settings; the shared secret is appended as a
+        `?token=` query param because Evolution v2 self-hosted supports neither
+        HMAC signing nor custom webhook headers. No-ops (logs a warning) when no
+        callback URL is configured. Tries the nested v2.1+ body first, falling
+        back to the flat body for older shapes. Returns True when registered.
+        """
+        callback = (self._settings.evolution_webhook_callback_url or "").strip()
+        if not callback:
+            logger.warning(
+                "evolution_webhook_callback_url not set; instance %s will not "
+                "receive inbound messages until a webhook is configured",
+                instance,
+            )
+            return False
+
+        secret = self._settings.evolution_webhook_secret
+        url = callback
+        if secret:
+            sep = "&" if "?" in callback else "?"
+            url = f"{callback}{sep}token={secret}"
+
+        base_url, api_key = self._require_config()
+        headers = self._headers(api_key)
+        events = ["MESSAGES_UPSERT"]
+        body = {
+            "enabled": True,
+            "url": url,
+            "webhookByEvents": False,
+            "webhookBase64": False,
+            "events": events,
+        }
+        # v2.1+ wraps the config under a `webhook` key; older shapes are flat.
+        nested = {"webhook": body}
+        try:
+            with httpx.Client(base_url=base_url, timeout=15.0) as client:
+                resp = client.post(
+                    f"/webhook/set/{instance}", headers=headers, json=nested
+                )
+                if resp.status_code >= 400:
+                    resp = client.post(
+                        f"/webhook/set/{instance}", headers=headers, json=body
+                    )
+                resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            logger.warning("Evolution set_webhook failed: %s", type(exc).__name__)
+            raise EvolutionError(
+                "Falha ao registrar webhook na Evolution API"
+            ) from exc
         return True
 
     def fetch_status(self, instance: str) -> ConnectionResult:

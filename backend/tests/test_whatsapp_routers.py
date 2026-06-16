@@ -150,3 +150,30 @@ def test_webhook_accepts_valid_signature(app, monkeypatch) -> None:
     )
     assert resp.status_code == 202
     assert len(queue.enqueued) == 1
+
+
+def test_webhook_accepts_valid_query_token(app, monkeypatch) -> None:
+    # Evolution v2 self-hosted authenticates via the URL query string (?token=).
+    secret = "topsecret"
+    monkeypatch.setattr(get_settings(), "evolution_webhook_secret", secret)
+    queue = _FakeQueue()
+    app.dependency_overrides[get_webhook_queue] = lambda: queue
+    client = TestClient(app)
+
+    body = json.dumps({"event": "messages.upsert", "instance": "igreja-1"}).encode()
+    resp = client.post(
+        f"/whatsapp/webhook?token={secret}",
+        content=body,
+    )
+    assert resp.status_code == 202
+    assert len(queue.enqueued) == 1
+
+
+def test_webhook_rejects_invalid_query_token(app, monkeypatch) -> None:
+    monkeypatch.setattr(get_settings(), "evolution_webhook_secret", "topsecret")
+    client = _webhook_client(app)
+    resp = client.post(
+        "/whatsapp/webhook?token=wrong",
+        content=b'{"event":"messages.upsert"}',
+    )
+    assert resp.status_code == 401
