@@ -23,6 +23,9 @@ import {
   AgentCredentialRequiredError,
   createCron,
   CRON_TRIGGERS,
+  fetchAgentConfig,
+  fetchCredentialStatus,
+  fetchCrons,
   LLM_PROVIDERS,
   saveAgentConfig,
   saveCredential,
@@ -64,6 +67,7 @@ export function AgenteScreen() {
   const { token, expireSession } = useAuth();
 
   const [tab, setTab] = useState<Tab>("behavior");
+  const [loading, setLoading] = useState(true);
 
   // ── Credencial LLM ──────────────────────────────────────────────────────
   const [provedor, setProvedor] = useState<LlmProvider>("openai");
@@ -114,6 +118,39 @@ export function AgenteScreen() {
     },
     [expireSession],
   );
+
+  // ── Carrega o que já está salvo ao abrir (credencial/config/crons) ───────
+  useEffect(() => {
+    if (!token) return;
+    let alive = true;
+    void (async () => {
+      try {
+        const [cred, cfg, cronList] = await Promise.all([
+          fetchCredentialStatus(token),
+          fetchAgentConfig(token),
+          fetchCrons(token),
+        ]);
+        if (!alive) return;
+        setCredentialState(cred.status);
+        if (cred.provedor) setProvedor(cred.provedor as LlmProvider);
+        if (cfg.configured) {
+          setNome(cfg.nome ?? "");
+          setTom(cfg.tom ?? "");
+          setComportamento(cfg.comportamento ?? "");
+          setAtivo(cfg.ativo);
+        }
+        setCrons(cronList);
+      } catch (err) {
+        if (handleSessionError(err)) return;
+        // Falha de leitura não trava a tela — ainda dá pra salvar.
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [token, handleSessionError]);
 
   // ── Salvar credencial (a chave nunca volta após salvar) ──────────────────
   const submitCredential = useCallback(async () => {
@@ -211,8 +248,8 @@ export function AgenteScreen() {
     <div className="screen" key="agente">
       <div className="screen-head">
         <div className="actions">
-          <StatusPill tone={credentialTone(credentialState)}>
-            {credentialLabel(credentialState)}
+          <StatusPill tone={loading ? "muted" : credentialTone(credentialState)}>
+            {loading ? "Carregando…" : credentialLabel(credentialState)}
           </StatusPill>
         </div>
       </div>
@@ -334,13 +371,7 @@ export function AgenteScreen() {
               <span>{credError}</span>
             </div>
           ) : null}
-          <div className="config-row">
-            <span style={{ color: "var(--muted)" }}>Status</span>
-            <StatusPill tone={credentialTone(credentialState)}>
-              {credentialLabel(credentialState)}
-            </StatusPill>
-          </div>
-          <div className="field" style={{ marginTop: "var(--s3)", marginBottom: "var(--s3)" }}>
+          <div className="field" style={{ marginBottom: "var(--s3)" }}>
             <label htmlFor="agProvider">Provedor</label>
             <select
               id="agProvider"
@@ -363,8 +394,29 @@ export function AgenteScreen() {
               autoComplete="off"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
-              placeholder="sk-…"
+              placeholder={
+                credentialState === "none"
+                  ? "sk-…"
+                  : "•••••••• — deixe em branco para manter"
+              }
             />
+            {credentialState === "active" ? (
+              <p
+                className="sub"
+                style={{ color: "var(--ok)", marginTop: 6, display: "flex", alignItems: "center", gap: 6 }}
+              >
+                <Icon name="check" />
+                <span>Chave configurada — preencha só se quiser trocá-la.</span>
+              </p>
+            ) : credentialState === "invalid" ? (
+              <p
+                className="sub"
+                style={{ color: "var(--danger)", marginTop: 6, display: "flex", alignItems: "center", gap: 6 }}
+              >
+                <Icon name="alert" />
+                <span>Há uma chave salva, mas inválida — informe uma nova.</span>
+              </p>
+            ) : null}
             <p className="sub" style={{ color: "var(--muted)", marginTop: 6 }}>
               A chave é cifrada no servidor e nunca é reexibida após salvar.
             </p>
