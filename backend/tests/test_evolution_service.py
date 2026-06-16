@@ -148,3 +148,72 @@ def test_disconnect_raises_on_server_error(monkeypatch) -> None:
     _use_transport(monkeypatch, handler)
     with pytest.raises(EvolutionError):
         EvolutionClient(_settings()).disconnect("igreja-1")
+
+
+# ---- media: receive (getBase64) + send (sendMedia) — Etapa 2 --------------
+def test_get_media_base64_returns_data_and_mime(monkeypatch) -> None:
+    seen: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json={"base64": "Zm9v", "mimetype": "image/png"})
+
+    _use_transport(monkeypatch, handler)
+    data, mime = EvolutionClient(_settings()).get_media_base64(
+        "igreja-1", {"id": "M1", "remoteJid": "x@s.whatsapp.net", "fromMe": False}
+    )
+    assert data == "Zm9v"
+    assert mime == "image/png"
+    assert seen["url"].endswith("/chat/getBase64FromMediaMessage/igreja-1")
+    assert seen["body"]["message"]["key"]["id"] == "M1"
+
+
+def test_get_media_base64_raises_when_empty(monkeypatch) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"base64": ""})
+
+    _use_transport(monkeypatch, handler)
+    with pytest.raises(EvolutionError):
+        EvolutionClient(_settings()).get_media_base64("igreja-1", {"id": "M1"})
+
+
+def test_send_media_posts_payload(monkeypatch) -> None:
+    seen: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(201, json={"key": {"id": "X"}})
+
+    _use_transport(monkeypatch, handler)
+    ok = EvolutionClient(_settings()).send_media(
+        "igreja-1",
+        "5511999990000",
+        mediatype="image",
+        media_base64="Zm9v",
+        mime="image/png",
+        caption="oi",
+    )
+    assert ok is True
+    assert seen["url"].endswith("/message/sendMedia/igreja-1")
+    assert seen["body"]["number"] == "5511999990000"
+    assert seen["body"]["mediatype"] == "image"
+    assert seen["body"]["media"] == "Zm9v"
+    assert seen["body"]["caption"] == "oi"
+
+
+def test_send_media_raises_on_error(monkeypatch) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, json={"error": "boom"})
+
+    _use_transport(monkeypatch, handler)
+    with pytest.raises(EvolutionError):
+        EvolutionClient(_settings()).send_media(
+            "igreja-1",
+            "5511999990000",
+            mediatype="document",
+            media_base64="Zm9v",
+            mime="application/pdf",
+            filename="a.pdf",
+        )

@@ -97,6 +97,30 @@ def test_send_message_rejects_empty_text(app) -> None:
     assert resp.status_code == 422
 
 
+# ---- inbox media send: auth, RBAC and validation (Etapa 2) ----------------
+_CONV_MEDIA = "/conversations/00000000-0000-0000-0000-0000000000aa/messages/media"
+
+
+def test_send_media_requires_auth(app) -> None:
+    client = _client(app, roles=["admin"])
+    resp = client.post(_CONV_MEDIA, json={"mime": "image/png", "base64": "Zm9v"})
+    assert resp.status_code == 401
+
+
+def test_cell_leader_forbidden_on_send_media(app) -> None:
+    client = _client(app, roles=["lider_celula"])
+    resp = client.post(
+        _CONV_MEDIA, json={"mime": "image/png", "base64": "Zm9v"}, headers=_AUTH
+    )
+    assert resp.status_code == 403
+
+
+def test_send_media_rejects_missing_fields(app) -> None:
+    client = _client(app, roles=["admin"])
+    resp = client.post(_CONV_MEDIA, json={"mime": "image/png"}, headers=_AUTH)
+    assert resp.status_code == 422
+
+
 # ---- validation -----------------------------------------------------------
 def test_handoff_rejects_invalid_target(app) -> None:
     client = _client(app, roles=["admin"])

@@ -2727,6 +2727,121 @@ table.data-table {
   margin-bottom: 3px;
   display: block;
 }
+/* Mídia (Etapa 2): imagem, arquivo e áudio dentro do balão */
+.msg.msg-media {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px;
+}
+.msg-img-link {
+  display: block;
+  line-height: 0;
+}
+.msg-img {
+  width: 100%;
+  max-width: 260px;
+  height: auto;
+  max-height: 320px;
+  border-radius: 8px;
+  object-fit: cover;
+  cursor: pointer;
+}
+.msg-caption {
+  display: block;
+  padding: 0 4px;
+  white-space: pre-wrap;
+}
+.msg-audio {
+  max-width: 260px;
+  height: 38px;
+}
+.msg-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  text-decoration: none;
+  color: inherit;
+  background: color-mix(in oklch, currentColor 8%, transparent);
+}
+.msg.in .msg-file {
+  color: var(--text);
+}
+.msg-file-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.msg-file svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+.msg-media-na {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-style: italic;
+  opacity: 0.8;
+}
+.msg-media-na svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+/* Chip do anexo pendente (acima do compositor) */
+.attach-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 var(--s4);
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  font-size: 13px;
+}
+.attach-chip svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  color: var(--muted);
+}
+.attach-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.attach-x {
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--muted);
+  display: flex;
+  padding: 2px;
+  border-radius: 6px;
+}
+.attach-x:hover {
+  color: var(--text);
+  background: var(--border);
+}
+.btn-icon {
+  padding: 0;
+  width: 38px;
+  height: 38px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
 .thread-foot {
   padding: var(--s3) var(--s4);
   border-top: 1px solid var(--border);

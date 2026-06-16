@@ -56,6 +56,80 @@ function threadCopy(estado: "ia" | "humano" | "aguardando"): ThreadCopy {
   };
 }
 
+/** Ícone do anexo pela MIME (imagem vs. documento genérico). */
+function attachIcon(mime: string): "image" | "document" {
+  return mime.startsWith("image/") ? "image" : "document";
+}
+
+/** Corpo de uma mensagem: texto puro ou mídia (imagem/arquivo/áudio). */
+function MessageBody({ m }: { m: ChatMessage }) {
+  if (m.tipo === "imagem") {
+    return (
+      <>
+        {m.mediaUrl ? (
+          <a
+            href={m.mediaUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="msg-img-link"
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={m.mediaUrl} alt={m.texto ?? "Imagem"} className="msg-img" />
+          </a>
+        ) : (
+          <span className="msg-media-na">
+            <Icon name="image" /> Imagem indisponível
+          </span>
+        )}
+        {m.texto ? <span className="msg-caption">{m.texto}</span> : null}
+      </>
+    );
+  }
+
+  if (m.tipo === "audio") {
+    return (
+      <>
+        {m.mediaUrl ? (
+          // eslint-disable-next-line jsx-a11y/media-has-caption
+          <audio controls src={m.mediaUrl} className="msg-audio" />
+        ) : (
+          <span className="msg-media-na">
+            <Icon name="alert" /> Áudio indisponível
+          </span>
+        )}
+        {m.texto ? <span className="msg-caption">{m.texto}</span> : null}
+      </>
+    );
+  }
+
+  if (m.tipo === "arquivo") {
+    return (
+      <>
+        {m.mediaUrl ? (
+          <a
+            href={m.mediaUrl}
+            download={m.mediaNome ?? undefined}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="msg-file"
+          >
+            <Icon name="document" />
+            <span className="msg-file-name">{m.mediaNome ?? "Arquivo"}</span>
+            <Icon name="download" />
+          </a>
+        ) : (
+          <span className="msg-media-na">
+            <Icon name="alert" /> Arquivo indisponível
+          </span>
+        )}
+        {m.texto ? <span className="msg-caption">{m.texto}</span> : null}
+      </>
+    );
+  }
+
+  return <>{m.texto ?? ""}</>;
+}
+
 export function ConversationThread({
   conversation,
   selfId,
@@ -68,6 +142,7 @@ export function ConversationThread({
   onAssume,
   onReturn,
   onSend,
+  onSendMedia,
 }: {
   conversation: Conversation;
   selfId: string;
@@ -80,9 +155,13 @@ export function ConversationThread({
   onAssume: (c: Conversation) => void;
   onReturn: (c: Conversation) => void;
   onSend: (c: Conversation, text: string) => void;
+  onSendMedia: (c: Conversation, file: File, caption?: string) => Promise<boolean>;
 }) {
   const [draft, setDraft] = useState("");
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [sending, setSending] = useState(false);
   const bodyRef = useRef<HTMLDivElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const estado = effectiveEstado(conversation);
   const pill = estadoPill(estado);
@@ -96,16 +175,40 @@ export function ConversationThread({
   // Auto-scroll ao trocar de conversa / ao ecoar uma resposta.
   useEffect(() => {
     setDraft("");
+    setPendingFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
   }, [conversation.id]);
   useEffect(() => {
     const el = bodyRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [conversation.id, messages.length]);
 
-  function submit(e: React.FormEvent) {
+  function clearAttachment() {
+    setPendingFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (!canCompose || sending) return;
+
+    // Anexo pendente: envia a mídia (com a legenda atual, se houver).
+    if (pendingFile) {
+      setSending(true);
+      try {
+        const ok = await onSendMedia(conversation, pendingFile, draft.trim() || undefined);
+        if (ok) {
+          clearAttachment();
+          setDraft("");
+        }
+      } finally {
+        setSending(false);
+      }
+      return;
+    }
+
     const value = draft.trim();
-    if (!value || !canCompose) return;
+    if (!value) return;
     onSend(conversation, value);
     setDraft("");
   }
@@ -193,15 +296,57 @@ export function ConversationThread({
           </div>
         ) : (
           messages.map((m) => (
-            <div className={`msg ${m.direcao === "out" ? "out" : "in"}`} key={m.id}>
-              {m.texto ?? ""}
+            <div
+              className={`msg ${m.direcao === "out" ? "out" : "in"}${
+                m.tipo !== "texto" ? " msg-media" : ""
+              }`}
+              key={m.id}
+            >
+              <MessageBody m={m} />
               <time>{messageStamp(m.criadoEm)}</time>
             </div>
           ))
         )}
       </div>
 
+      {pendingFile ? (
+        <div className="attach-chip">
+          <Icon name={attachIcon(pendingFile.type)} />
+          <span className="attach-name">{pendingFile.name}</span>
+          <button
+            type="button"
+            className="attach-x"
+            onClick={clearAttachment}
+            aria-label="Remover anexo"
+            disabled={sending}
+          >
+            <Icon name="close" size={16} />
+          </button>
+        </div>
+      ) : null}
+
       <form className="thread-foot" onSubmit={submit}>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.zip,audio/*"
+          style={{ display: "none" }}
+          onChange={(e) => {
+            const f = e.target.files?.[0] ?? null;
+            if (f) setPendingFile(f);
+          }}
+          disabled={!canCompose || sending}
+        />
+        <button
+          type="button"
+          className="btn btn-icon"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={!canCompose || sending}
+          title="Anexar imagem ou arquivo"
+          aria-label="Anexar imagem ou arquivo"
+        >
+          <Icon name="paperclip" />
+        </button>
         <input
           type="text"
           value={draft}
@@ -209,19 +354,21 @@ export function ConversationThread({
           placeholder={
             degraded
               ? "Envio desabilitado — WhatsApp indisponível"
-              : isMine
-                ? "Escreva uma resposta…"
-                : "Assuma o atendimento para responder"
+              : !isMine
+                ? "Assuma o atendimento para responder"
+                : pendingFile
+                  ? "Adicione uma legenda (opcional)…"
+                  : "Escreva uma resposta…"
           }
-          disabled={!canCompose}
+          disabled={!canCompose || sending}
         />
         <button
           type="submit"
           className="btn btn-primary"
-          disabled={!canCompose || draft.trim().length === 0}
+          disabled={!canCompose || sending || (!pendingFile && draft.trim().length === 0)}
         >
           <Icon name="send" />
-          <span>Enviar</span>
+          <span>{sending ? "Enviando…" : "Enviar"}</span>
         </button>
       </form>
     </div>

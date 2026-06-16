@@ -24,6 +24,7 @@ import {
   fetchConversations,
   fetchMessages,
   handoffConversation,
+  sendMedia,
   sendMessage,
   type ChatMessage,
   type Conversation,
@@ -300,6 +301,38 @@ export function InboxScreen() {
     [token, patch, flashToast, handleSessionError, loadMessages],
   );
 
+  const handleSendMedia = useCallback(
+    async (c: Conversation, file: File, caption?: string): Promise<boolean> => {
+      if (!token) return false;
+      try {
+        await sendMedia(token, c.id, file, caption);
+        // Bump da lista + recarrega o histórico (a mídia enviada é persistida).
+        const label = caption?.trim()
+          ? caption.trim()
+          : file.type.startsWith("image/")
+            ? "📷 Imagem"
+            : file.type.startsWith("audio/")
+              ? "🎤 Áudio"
+              : "📎 Arquivo";
+        patch(c.id, { ultimaMensagem: label });
+        void loadMessages(c.id, "poll");
+        flashToast({ kind: "ok", text: "Mídia enviada pelo número oficial." });
+        return true;
+      } catch (err) {
+        if (handleSessionError(err)) return false;
+        flashToast({
+          kind: "err",
+          text:
+            err instanceof ApiError
+              ? err.message
+              : "Não foi possível enviar a mídia. Tente novamente.",
+        });
+        return false;
+      }
+    },
+    [token, patch, flashToast, handleSessionError, loadMessages],
+  );
+
   // ---- bloqueio de acesso (US-11) -----------------------------------------
   if (!allowed) {
     return (
@@ -403,6 +436,7 @@ export function InboxScreen() {
             onAssume={handleAssume}
             onReturn={handleReturn}
             onSend={handleSend}
+            onSendMedia={handleSendMedia}
           />
         ) : (
           <div className="empty-pane">

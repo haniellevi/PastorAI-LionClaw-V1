@@ -17,6 +17,8 @@ human already assumed it, a second "assume" returns 409 carrying the real
 
 from __future__ import annotations
 
+import base64
+import binascii
 import datetime as dt
 import logging
 import uuid
@@ -30,12 +32,19 @@ from sqlalchemy.orm import Session
 from app.db.models import Conversation, Message, Pessoa, WhatsappConnection
 from app.db.session import get_db
 from app.deps import CurrentUser, require_role
-from app.domain.conversations import INBOX_ROLES, resolve_handoff
+from app.domain.conversations import INBOX_ROLES, media_snippet, resolve_handoff
 from app.routers._common import Page, PaginationParams, ensure_tenant_context
 from app.services.evolution import (
     EvolutionClient,
     EvolutionError,
     get_evolution_client,
+)
+from app.services.storage import (
+    StorageError,
+    SupabaseStorage,
+    get_storage,
+    kind_for_mime,
+    mediatype_for_tipo,
 )
 
 logger = logging.getLogger("pastorai.conversations")
@@ -95,16 +104,24 @@ class MessageOut(BaseModel):
     id: str
     direcao: str  # in | out
     autor: str  # contato | ia | humano
+    tipo: str = "texto"  # texto | imagem | arquivo | audio
     texto: str | None = None
+    mediaUrl: str | None = None  # noqa: N815 - URL assinada de curta duração
+    mediaMime: str | None = None  # noqa: N815
+    mediaNome: str | None = None  # noqa: N815
     criadoEm: str  # noqa: N815 - external contract camelCase
 
     @classmethod
-    def from_model(cls, m: Message) -> "MessageOut":
+    def from_model(cls, m: Message, media_url: str | None = None) -> "MessageOut":
         return cls(
             id=str(m.id),
             direcao=m.direcao,
             autor=m.autor,
+            tipo=m.tipo or "texto",
             texto=m.texto,
+            mediaUrl=media_url,
+            mediaMime=m.media_mime,
+            mediaNome=m.media_nome,
             criadoEm=m.criado_em.isoformat() if m.criado_em else "",
         )
 
@@ -119,6 +136,28 @@ class SendMessageRequest(BaseModel):
         if not value:
             raise ValueError("Mensagem vazia")
         return value
+
+
+class SendMediaRequest(BaseModel):
+    """Upload de mídia (imagem/arquivo) como base64 — Etapa 2 do chat.
+
+    O painel lê o arquivo (FileReader) e envia o base64 puro (sem o prefixo
+    `data:`). Evita a dependência `python-multipart` e reaproveita o base64 como
+    transporte direto para a Evolution.
+    """
+
+    mime: str = Field(min_length=1, max_length=255)
+    base64: str = Field(min_length=1)
+    nome: str | None = Field(default=None, max_length=255)
+    caption: str | None = Field(default=None, max_length=4096)
+
+    @field_validator("caption")
+    @classmethod
+    def _caption(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
 
 
 # ---------------------------------------------------------------------------
@@ -207,8 +246,14 @@ def list_messages(
     pagination: PaginationParams = Depends(),
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(require_role(_INBOX_ROLES)),
+    storage: SupabaseStorage = Depends(get_storage),
 ) -> Page[MessageOut]:
-    """Return a conversation's message history, oldest first (US-13)."""
+    """Return a conversation's message history, oldest first (US-13).
+
+    Media messages carry a short-lived **signed URL** (`mediaUrl`) so the panel
+    can render images/download files without the bucket ever being public. URLs
+    are batch-signed in one call; a signing failure degrades to a placeholder.
+    """
     ensure_tenant_context(db, current_user)
     conv = _get_conversation(db, conversation_id)
 
@@ -225,8 +270,16 @@ def list_messages(
         .limit(pagination.limit)
     ).scalars().all()
 
+    paths = [m.media_path for m in rows if m.media_path]
+    signed = storage.sign(paths) if paths else {}
+
     return Page[MessageOut](
-        items=[MessageOut.from_model(m) for m in rows],
+        items=[
+            MessageOut.from_model(
+                m, media_url=signed.get(m.media_path) if m.media_path else None
+            )
+            for m in rows
+        ],
         page=pagination.page,
         pageSize=pagination.page_size,
         total=int(total),
@@ -294,6 +347,103 @@ def send_message(
     db.commit()
 
     return MessageOut.from_model(msg)
+
+
+@router.post("/{conversation_id}/messages/media", response_model=MessageOut)
+def send_media_message(
+    conversation_id: str,
+    payload: SendMediaRequest,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_role(_INBOX_ROLES)),
+    evolution: EvolutionClient = Depends(get_evolution_client),
+    storage: SupabaseStorage = Depends(get_storage),
+) -> MessageOut:
+    """Send an image/file to the contact's WhatsApp (Etapa 2 do chat).
+
+    Same gate as the text reply (US-13): the caller must hold the conversation
+    under human control and the official number must be online. The bytes go to
+    Storage and are dispatched via Evolution as base64; the row is persisted
+    only after a successful send (no phantom "sent" media in the thread).
+    """
+    ensure_tenant_context(db, current_user)
+    conv = _get_conversation_for_update(db, conversation_id)
+
+    # Composer gate: mirror send_message (must hold the conversation).
+    holder = str(conv.assumido_por) if conv.assumido_por else None
+    if conv.estado != "humano" or holder != current_user.app_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Assuma o atendimento antes de responder.",
+        )
+
+    conn = db.execute(
+        select(WhatsappConnection).where(
+            WhatsappConnection.igreja_id == uuid.UUID(current_user.igreja_id)
+        )
+    ).scalar_one_or_none()
+    if conn is None or conn.status != "online" or not conn.instance:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="WhatsApp não está conectado. Conecte o número antes de responder.",
+        )
+
+    try:
+        raw = base64.b64decode(payload.base64, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Mídia inválida (base64).",
+        ) from exc
+
+    tipo = kind_for_mime(payload.mime)
+
+    # Storage primeiro (ponteiro), depois despacho. Se o upload falhar, nada é
+    # enviado; se o envio falhar, não persistimos linha "enviada" fantasma.
+    try:
+        stored = storage.upload(
+            current_user.igreja_id, conv.id, raw, payload.mime, payload.nome
+        )
+    except StorageError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
+        ) from exc
+
+    try:
+        evolution.send_media(
+            conn.instance,
+            conv.telefone,
+            mediatype=mediatype_for_tipo(tipo),
+            media_base64=payload.base64,
+            mime=payload.mime,
+            filename=payload.nome,
+            caption=payload.caption,
+        )
+    except EvolutionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
+        ) from exc
+
+    msg = Message(
+        igreja_id=uuid.UUID(current_user.igreja_id),
+        conversation_id=conv.id,
+        direcao="out",
+        autor="humano",
+        texto=payload.caption,
+        tipo=tipo,
+        media_path=stored.path,
+        media_mime=stored.mime,
+        media_nome=stored.nome,
+        media_tamanho=stored.tamanho,
+    )
+    db.add(msg)
+    conv.ultima_mensagem = payload.caption or media_snippet(tipo)
+    conv.updated_at = dt.datetime.now(dt.timezone.utc)
+    db.flush()
+    db.refresh(msg)
+    db.commit()
+
+    signed = storage.sign([stored.path])
+    return MessageOut.from_model(msg, media_url=signed.get(stored.path))
 
 
 # ---------------------------------------------------------------------------

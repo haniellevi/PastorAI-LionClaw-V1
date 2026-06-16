@@ -210,6 +210,80 @@ class EvolutionClient:
             raise EvolutionError("Falha ao enviar mensagem pela Evolution API") from exc
         return True
 
+    def get_media_base64(
+        self, instance: str, key: dict[str, object]
+    ) -> tuple[str, str | None]:
+        """Download a received media message's bytes (base64) + mimetype.
+
+        Evolution does not push media bytes in the webhook by default, so the
+        worker pulls them on demand via the message `key`. Returns
+        ``(base64, mimetype)``; raises EvolutionError when the media has no
+        content. The key only needs id/remoteJid/fromMe to locate the message.
+        """
+        base_url, api_key = self._require_config()
+        headers = self._headers(api_key)
+        try:
+            with httpx.Client(base_url=base_url, timeout=30.0) as client:
+                resp = client.post(
+                    f"/chat/getBase64FromMediaMessage/{instance}",
+                    headers=headers,
+                    json={"message": {"key": key}, "convertToMp4": False},
+                )
+                resp.raise_for_status()
+                body = resp.json()
+        except httpx.HTTPError as exc:
+            logger.warning("Evolution getBase64 failed: %s", type(exc).__name__)
+            raise EvolutionError("Falha ao baixar a mídia da Evolution API") from exc
+        except ValueError as exc:
+            raise EvolutionError("Resposta inesperada da Evolution API") from exc
+
+        data = body.get("base64") if isinstance(body, dict) else None
+        mimetype = body.get("mimetype") if isinstance(body, dict) else None
+        if not isinstance(data, str) or not data:
+            raise EvolutionError("Mídia sem conteúdo na resposta da Evolution API")
+        return data, (mimetype if isinstance(mimetype, str) and mimetype else None)
+
+    def send_media(
+        self,
+        instance: str,
+        telefone: str,
+        *,
+        mediatype: str,
+        media_base64: str,
+        mime: str | None = None,
+        filename: str | None = None,
+        caption: str | None = None,
+    ) -> bool:
+        """Send an image/document/audio through the official number (Etapa 2).
+
+        `mediatype` is Evolution's `image|document|audio`; `media_base64` is the
+        raw base64 (no `data:` prefix). Returns True on success; failures are
+        normalized to EvolutionError so the caller can surface a 502.
+        """
+        base_url, api_key = self._require_config()
+        headers = self._headers(api_key)
+        body: dict[str, object] = {
+            "number": telefone,
+            "mediatype": mediatype,
+            "media": media_base64,
+        }
+        if mime:
+            body["mimetype"] = mime
+        if filename:
+            body["fileName"] = filename
+        if caption:
+            body["caption"] = caption
+        try:
+            with httpx.Client(base_url=base_url, timeout=30.0) as client:
+                resp = client.post(
+                    f"/message/sendMedia/{instance}", headers=headers, json=body
+                )
+                resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            logger.warning("Evolution sendMedia failed: %s", type(exc).__name__)
+            raise EvolutionError("Falha ao enviar a mídia pela Evolution API") from exc
+        return True
+
     def set_webhook(self, instance: str) -> bool:
         """Register the inbound webhook on an instance (US-08).
 

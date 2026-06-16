@@ -298,6 +298,16 @@ class Message(Base):
     direcao: Mapped[str] = mapped_column(String, nullable=False)
     autor: Mapped[str] = mapped_column(String, nullable=False)
     texto: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Mídia (Etapa 2 do chat): o binário vive no Supabase Storage (bucket
+    # whatsapp-media); aqui guardamos só o ponteiro + metadados. tipo='texto'
+    # para mensagens de texto puro (default).
+    tipo: Mapped[str] = mapped_column(
+        String, nullable=False, server_default=text("'texto'")
+    )
+    media_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    media_mime: Mapped[str | None] = mapped_column(Text, nullable=True)
+    media_nome: Mapped[str | None] = mapped_column(Text, nullable=True)
+    media_tamanho: Mapped[int | None] = mapped_column(Integer, nullable=True)
     criado_em: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
