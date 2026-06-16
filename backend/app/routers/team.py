@@ -15,7 +15,7 @@ import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -51,15 +51,20 @@ class InviteRequest(BaseModel):
     """Convite = acesso ao painel + vínculo de célula como MEMBRO (delta-049).
 
     O convite NÃO escolhe papéis: o convidado entra como ``membro``. Papéis só
-    são editados depois, para pessoas já cadastradas (PUT .../roles). A pessoa
-    convidada precisa estar cadastrada (já tem telefone) e ainda não pertencer
-    a nenhuma célula. A célula é de quem convida: um líder de célula traz para a
-    SUA célula (derivada); um admin marca a célula em ``celulaId``.
+    são editados depois, para pessoas já cadastradas (PUT .../roles). A célula é
+    de quem convida: um líder traz para a SUA célula; um admin/pastor marca em
+    ``celulaId``. Dois modos:
+
+    - Parte A — ``pessoaId``: a pessoa JÁ está cadastrada (tem telefone) e ainda
+      não pertence a nenhuma célula;
+    - Parte B — ``nome``: a pessoa é NOVA; completa o cadastro (telefone) na
+      ativação e só então vira a Pessoa-membro (a célula fica pendente até lá).
     """
 
-    pessoaId: str = Field(min_length=1)  # noqa: N815 - pessoa já cadastrada
+    pessoaId: str | None = Field(default=None)  # noqa: N815 - Parte A
+    nome: str | None = Field(default=None, max_length=200)  # Parte B
     email: str = Field(min_length=3, max_length=320)
-    celulaId: str | None = Field(default=None)  # noqa: N815 - admin escolhe
+    celulaId: str | None = Field(default=None)  # noqa: N815 - admin/pastor marca
 
     @field_validator("email")
     @classmethod
@@ -68,6 +73,22 @@ class InviteRequest(BaseModel):
         if "@" not in value or "." not in value.split("@")[-1]:
             raise ValueError("e-mail inválido")
         return value
+
+    @field_validator("nome")
+    @classmethod
+    def _nome(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
+
+    @model_validator(mode="after")
+    def _target(self) -> "InviteRequest":
+        if not self.pessoaId and not self.nome:
+            raise ValueError(
+                "Informe a pessoa a convidar (pessoaId) ou o nome para cadastrar"
+            )
+        return self
 
 
 class InviteResponse(BaseModel):
@@ -254,18 +275,21 @@ def invite_member(
     mailer: BrevoClient = Depends(get_brevo_client),
     clerk: ClerkClient = Depends(get_clerk_client),
 ) -> InviteResponse:
-    """Invite a registered person as a cell MEMBER and email the activation link.
+    """Invite someone as a cell MEMBER and email the activation link.
 
     Allowed for an admin, a pastor or a cell leader (delta-049). The invite
     grants panel access (status ``convidado``, role ``membro``) AND binds the
-    person to a cell: the leader's own cell, or the cell an admin/pastor marks
-    in ``celulaId``.
+    member to a cell: the leader's own cell, or the cell an admin/pastor marks
+    in ``celulaId``. Two modes:
 
-    Guards: duplicate tenant e-mail (409); the person must be registered (404 if
-    not) and must not already have panel access (409) nor already belong to a
-    cell — moving someone between cells is an admin-only action, not an invite
-    (409). The e-mail send is best-effort (emailEnviado=false on failure), so an
-    invite can be re-sent without re-creating the account.
+    - Parte A (``pessoaId``): a registered person — bound to the cell now; must
+      not already have panel access (409) nor already belong to a cell (409,
+      moving is admin-only);
+    - Parte B (``nome``): a NEW person — the activation collects the phone and
+      creates the Pessoa-member then; the cell is held in ``celula_pendente_id``.
+
+    Duplicate tenant e-mail is rejected (409). The e-mail send is best-effort
+    (emailEnviado=false on failure), so an invite can be re-sent.
     """
     ensure_tenant_context(db, current_user)
     igreja_uuid = uuid.UUID(current_user.igreja_id)
@@ -280,60 +304,75 @@ def invite_member(
             detail="Já existe um usuário com este e-mail",
         )
 
-    # The invited user IS a registered person (Parte A — already has a phone).
-    # RLS scopes the lookup to the tenant, so an id from another igreja is None.
-    try:
-        pessoa_uuid = uuid.UUID(payload.pessoaId)
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="pessoaId inválido",
-        ) from exc
-    pessoa = db.execute(
-        select(Pessoa).where(Pessoa.id == pessoa_uuid)
-    ).scalar_one_or_none()
-    if pessoa is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Pessoa não encontrada"
-        )
-
-    # Uma pessoa não pode ter dois logins.
-    linked = db.execute(
-        select(AppUser).where(AppUser.pessoa_id == pessoa_uuid)
-    ).scalar_one_or_none()
-    if linked is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Esta pessoa já possui acesso ao painel",
-        )
-
-    # Quem convida define a célula; o convidado não a escolhe.
+    # Quem convida define a célula; o convidado não a escolhe (vale p/ A e B).
     celula = _resolve_invite_cell(db, current_user, payload.celulaId)
 
-    # Uma pessoa só faz parte de UMA célula: convite é só para quem ainda não
-    # tem célula. Transferir entre células é exclusivo do admin (ação à parte).
-    if pessoa.celula_id is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                "Esta pessoa já faz parte de uma célula. Apenas um administrador "
-                "pode transferi-la de célula."
-            ),
+    if payload.pessoaId:
+        # Parte A — a pessoa JÁ está cadastrada (tem telefone). RLS escopa a
+        # busca ao tenant, então um id de outra igreja resolve para None.
+        try:
+            pessoa_uuid = uuid.UUID(payload.pessoaId)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="pessoaId inválido",
+            ) from exc
+        pessoa = db.execute(
+            select(Pessoa).where(Pessoa.id == pessoa_uuid)
+        ).scalar_one_or_none()
+        if pessoa is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Pessoa não encontrada"
+            )
+
+        # Uma pessoa não pode ter dois logins.
+        linked = db.execute(
+            select(AppUser).where(AppUser.pessoa_id == pessoa_uuid)
+        ).scalar_one_or_none()
+        if linked is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Esta pessoa já possui acesso ao painel",
+            )
+
+        # Célula única: convite só para quem ainda não tem célula. Transferir
+        # entre células é exclusivo do admin (ação à parte).
+        if pessoa.celula_id is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Esta pessoa já faz parte de uma célula. Apenas um "
+                    "administrador pode transferi-la de célula."
+                ),
+            )
+
+        pessoa.celula_id = celula.id
+        # A Pessoa é a fonte de verdade: se ainda não tinha e-mail, guarda o do
+        # convite para o cadastro não divergir do login.
+        if not (pessoa.email or "").strip():
+            pessoa.email = email
+
+        nome = pessoa.nome
+        app_user = AppUser(
+            igreja_id=igreja_uuid,
+            nome=nome,
+            email=email,
+            status="convidado",
+            pessoa_id=pessoa_uuid,
+        )
+    else:
+        # Parte B — pessoa NOVA: app_user convidado sem Pessoa ainda; a célula
+        # fica pendente até a ativação coletar o telefone e criar a Pessoa.
+        nome = str(payload.nome)  # garantido pelo validador (Parte A ou B)
+        app_user = AppUser(
+            igreja_id=igreja_uuid,
+            nome=nome,
+            email=email,
+            status="convidado",
+            pessoa_id=None,
+            celula_pendente_id=celula.id,
         )
 
-    pessoa.celula_id = celula.id
-    # A Pessoa é a fonte de verdade: se ainda não tinha e-mail, guarda o do
-    # convite para o cadastro não divergir do login.
-    if not (pessoa.email or "").strip():
-        pessoa.email = email
-
-    app_user = AppUser(
-        igreja_id=igreja_uuid,
-        nome=pessoa.nome,
-        email=email,
-        status="convidado",
-        pessoa_id=pessoa_uuid,
-    )
     db.add(app_user)
     db.flush()  # assign id
 
@@ -347,7 +386,7 @@ def invite_member(
     try:
         mailer.send_invite(
             to_email=email,
-            nome=pessoa.nome,
+            nome=nome,
             activation_link=_activation_link(app_user.id, clerk),
         )
         email_sent = True

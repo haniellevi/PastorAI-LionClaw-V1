@@ -39,7 +39,7 @@ export class TeamConflictError extends Error {
 
 export async function inviteMember(
   token: string,
-  payload: { pessoaId: string; email: string; celulaId?: string },
+  payload: { pessoaId?: string; nome?: string; email: string; celulaId?: string },
 ): Promise<InviteResult> {
   const res = await authedFetch(token, "/team/invite", {
     method: "POST",

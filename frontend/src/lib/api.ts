@@ -157,6 +157,8 @@ export interface InviteInfo {
   nome: string;
   email: string;
   igreja: string;
+  /** Parte B: o convidado completa o cadastro (telefone) na ativação. */
+  precisaCadastro: boolean;
 }
 
 async function detailMessage(res: Response, fallback: string): Promise<string> {
@@ -184,14 +186,22 @@ export async function fetchInvite(token: string): Promise<InviteInfo> {
   );
 }
 
-/** Ativa o convite definindo a senha (cria o acesso e vincula ao Clerk). */
-export async function activateInvite(token: string, password: string): Promise<void> {
+/**
+ * Ativa o convite definindo a senha (cria o acesso e vincula ao Clerk). Na
+ * Parte B (precisaCadastro), o telefone é obrigatório: a ativação completa o
+ * cadastro e cria a Pessoa-membro na célula.
+ */
+export async function activateInvite(
+  token: string,
+  password: string,
+  telefone?: string,
+): Promise<void> {
   let res: Response;
   try {
     res = await fetch(`${API_BASE}/auth/activate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token, password }),
+      body: JSON.stringify({ token, password, telefone: telefone ?? null }),
     });
   } catch {
     throw new LoginError("network", "Falha de conexão. Tente novamente.");

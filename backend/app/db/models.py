@@ -126,6 +126,11 @@ class AppUser(Base):
     pessoa_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("pessoas.id", ondelete="SET NULL"), nullable=True
     )
+    # Convite Parte B (delta-049): célula destino guardada até a ativação criar
+    # a Pessoa-membro. NULL na Parte A e após a ativação.
+    celula_pendente_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("celulas.id", ondelete="SET NULL"), nullable=True
+    )
     nome: Mapped[str] = mapped_column(Text, nullable=False)
     email: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str | None] = mapped_column(String, nullable=True)

@@ -18,13 +18,14 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.db.models import AppUser
+from app.db.models import AppUser, Pessoa
 from app.db.session import get_db
 from app.deps import BLOCKING_IGREJA_STATUSES, CurrentUser, get_current_user
+from app.domain.phone import normalize_phone, phone_suffix
 from app.routers._common import ensure_tenant_context
 from app.services.brevo import BrevoClient, BrevoError, get_brevo_client
 from app.services.clerk import ClerkAuthError, ClerkClient, get_clerk_client
@@ -86,13 +87,17 @@ class InviteInfoResponse(BaseModel):
     nome: str
     email: str
     igreja: str
+    # Parte B (delta-049): o convidado ainda não é Pessoa — a ativação precisa
+    # coletar o telefone/WhatsApp para completar o cadastro como membro.
+    precisaCadastro: bool = False  # noqa: N815
 
 
 class ActivateRequest(BaseModel):
-    """Ativação: o token do convite + a senha escolhida."""
+    """Ativação: token do convite + senha escolhida (+ telefone na Parte B)."""
 
     token: str = Field(min_length=1)
     password: str = Field(min_length=8, max_length=256)
+    telefone: str | None = Field(default=None, max_length=40)
 
 
 class MeResponse(BaseModel):
@@ -269,7 +274,54 @@ def invite_info(
         nome=app_user.nome,
         email=app_user.email,
         igreja=app_user.igreja.nome if app_user.igreja else "",
+        precisaCadastro=app_user.pessoa_id is None,
     )
+
+
+def _complete_cadastro_pessoa(
+    db: Session, app_user: AppUser, telefone_raw: str, normalized: str
+) -> None:
+    """Parte B: cria/vincula a Pessoa-membro do convidado na ativação.
+
+    Pré-login (service role / BYPASSRLS), por isso TODA query é escopada
+    explicitamente por ``app_user.igreja_id``. Dedup canônico por telefone
+    (mesmo critério de create_contact): se já existe uma Pessoa com esse número
+    na igreja, vincula a ela (adotando a célula pendente só se ela ainda não tem
+    célula — não transfere); senão cria a Pessoa-membro na célula pendente.
+    """
+    igreja_uuid = app_user.igreja_id
+    celula_id = app_user.celula_pendente_id
+
+    stored_digits = func.regexp_replace(Pessoa.telefone, r"\D", "", "g")
+    candidates = db.execute(
+        select(Pessoa).where(
+            Pessoa.igreja_id == igreja_uuid,
+            func.right(stored_digits, 8) == phone_suffix(normalized),
+        )
+    ).scalars().all()
+    existing = next(
+        (p for p in candidates if normalize_phone(p.telefone) == normalized),
+        None,
+    )
+
+    if existing is not None:
+        app_user.pessoa_id = existing.id
+        if existing.celula_id is None and celula_id is not None:
+            existing.celula_id = celula_id
+    else:
+        pessoa = Pessoa(
+            igreja_id=igreja_uuid,
+            nome=app_user.nome,
+            telefone=telefone_raw.strip(),
+            email=app_user.email,
+            tipo="membro",
+            celula_id=celula_id,
+        )
+        db.add(pessoa)
+        db.flush()  # fires person/cell triggers; assigns id
+        app_user.pessoa_id = pessoa.id
+
+    app_user.celula_pendente_id = None
 
 
 @router.post("/activate")
@@ -280,9 +332,23 @@ def activate(
 ) -> dict[str, str]:
     """Ativa o convite: cria o acesso no Clerk + define a senha + vincula.
 
+    Parte B (delta-049): quando o convidado ainda não é Pessoa, o telefone é
+    obrigatório e a ativação cria/vincula a Pessoa-membro na célula pendente.
     Idempotência: um convite já ativado (app_user com clerk_user_id) → 409.
     """
     app_user = _resolve_invite(payload.token, db, clerk)
+    needs_cadastro = app_user.pessoa_id is None
+
+    # Parte B: valida o telefone ANTES de criar a conta (evita conta órfã).
+    normalized = ""
+    if needs_cadastro:
+        normalized = normalize_phone(payload.telefone or "")
+        if not normalized:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Informe um telefone/WhatsApp válido para concluir o cadastro.",
+            )
+
     try:
         clerk_user_id = clerk.create_user(app_user.email, payload.password)
     except ClerkAuthError as exc:
@@ -290,6 +356,9 @@ def activate(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Não foi possível criar o acesso. Tente novamente.",
         ) from exc
+
+    if needs_cadastro:
+        _complete_cadastro_pessoa(db, app_user, payload.telefone or "", normalized)
 
     app_user.clerk_user_id = clerk_user_id
     app_user.status = "ativo"

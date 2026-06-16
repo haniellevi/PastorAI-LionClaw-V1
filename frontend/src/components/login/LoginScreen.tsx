@@ -175,6 +175,7 @@ export function LoginScreen() {
   const [aLoading, setALoading] = useState(true);
   const [aPass, setAPass] = useState("");
   const [aPass2, setAPass2] = useState("");
+  const [aTel, setATel] = useState("");
   const [aError, setAError] = useState<string>();
   const [aStatus, setAStatus] = useState<"idle" | "loading" | "done">("idle");
 
@@ -219,10 +220,18 @@ export function LoginScreen() {
       setAError("As senhas não conferem.");
       return;
     }
+    if (aInfo?.precisaCadastro && aTel.trim().length < 8) {
+      setAError("Informe seu telefone/WhatsApp para concluir o cadastro.");
+      return;
+    }
     setAError(undefined);
     setAStatus("loading");
     try {
-      await activateInvite(inviteToken, aPass);
+      await activateInvite(
+        inviteToken,
+        aPass,
+        aInfo?.precisaCadastro ? aTel.trim() : undefined,
+      );
       setAStatus("done");
     } catch (err) {
       setAError(
@@ -409,7 +418,10 @@ export function LoginScreen() {
                   <p className="sub">
                     {aInfo ? (
                       <>
-                        Olá, <strong>{aInfo.nome}</strong> — defina sua senha para acessar{" "}
+                        Olá, <strong>{aInfo.nome}</strong> —{" "}
+                        {aInfo.precisaCadastro
+                          ? "complete seu cadastro e defina sua senha para acessar "
+                          : "defina sua senha para acessar "}
                         <strong>{aInfo.igreja}</strong>.
                       </>
                     ) : (
@@ -422,6 +434,18 @@ export function LoginScreen() {
                       <Icon name="alert" />
                       <span>{aError}</span>
                     </div>
+                  ) : null}
+                  {aInfo?.precisaCadastro ? (
+                    <Field
+                      label="Telefone / WhatsApp"
+                      type="tel"
+                      name="activate-phone"
+                      placeholder="(11) 90000-0000"
+                      autoComplete="tel"
+                      value={aTel}
+                      disabled={aStatus === "loading"}
+                      onChange={(e) => setATel(e.target.value)}
+                    />
                   ) : null}
                   <Field
                     label="Senha"

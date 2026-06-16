@@ -65,6 +65,7 @@ export function EquipeScreen() {
 
   // convite
   const [inviteOpen, setInviteOpen] = useState(false);
+  const [invMode, setInvMode] = useState<"existente" | "nova">("existente");
   const [invPessoaId, setInvPessoaId] = useState<string | null>(null);
   const [invPessoaQuery, setInvPessoaQuery] = useState("");
   const [invNome, setInvNome] = useState("");
@@ -201,6 +202,7 @@ export function EquipeScreen() {
 
   const resetInvite = useCallback(() => {
     setInviteOpen(false);
+    setInvMode("existente");
     setInvPessoaId(null);
     setInvPessoaQuery("");
     setInvNome("");
@@ -218,18 +220,23 @@ export function EquipeScreen() {
   }, []);
 
   const emailValid = (email: string) => /\S+@\S+\.\S+/.test(email.trim());
-  const inviteReady = invPessoaId !== null && emailValid(invEmail) && invCelulaId !== "";
+  const inviteReady =
+    emailValid(invEmail) &&
+    invCelulaId !== "" &&
+    (invMode === "existente" ? invPessoaId !== null : invNome.trim().length > 0);
 
   const submitInvite = useCallback(async () => {
-    if (!token || !inviteReady || !invPessoaId) return;
+    if (!token || !inviteReady) return;
     setInviting(true);
     setInvError(null);
     try {
       const dest = invEmail.trim().toLowerCase();
       const result = await inviteMember(token, {
-        pessoaId: invPessoaId,
         email: dest,
         celulaId: invCelulaId,
+        ...(invMode === "existente"
+          ? { pessoaId: invPessoaId ?? undefined }
+          : { nome: invNome.trim() }),
       });
       flashToast(
         result.emailEnviado
@@ -251,7 +258,7 @@ export function EquipeScreen() {
     } finally {
       setInviting(false);
     }
-  }, [token, inviteReady, invPessoaId, invEmail, invCelulaId, flashToast, resetInvite, load, handleSessionError]);
+  }, [token, inviteReady, invMode, invPessoaId, invNome, invEmail, invCelulaId, flashToast, resetInvite, load, handleSessionError]);
 
   const openEdit = useCallback((member: TeamMember) => {
     setEditing(member);
@@ -468,106 +475,166 @@ export function EquipeScreen() {
             </div>
           ) : null}
           <p className="sub" style={{ color: "var(--muted)", marginBottom: "var(--s3)" }}>
-            Dê acesso ao painel a uma pessoa já cadastrada e defina a célula dela.
-            O convidado entra como <strong>membro</strong> — os papéis são definidos
-            depois, aqui na equipe. Não está na lista? Cadastre em Contatos primeiro.
+            Dê acesso ao painel e defina a célula. O convidado entra como{" "}
+            <strong>membro</strong> — os papéis são definidos depois, aqui na equipe.
+            Quem ainda não está cadastrado completa o cadastro (telefone) ao ativar o
+            convite.
           </p>
 
-          <div className="field" style={{ marginBottom: "var(--s3)" }}>
-            <label htmlFor="invPessoaQuery">Pessoa</label>
-            <input
-              id="invPessoaQuery"
-              value={invPessoaQuery}
-              onChange={(e) => setInvPessoaQuery(e.target.value)}
-              placeholder="Buscar por nome, telefone ou e-mail…"
-              autoFocus
-            />
-            <div
-              style={{
-                maxHeight: 220,
-                overflowY: "auto",
-                border: "1px solid var(--border)",
-                borderRadius: "var(--r-md)",
-                marginTop: 6,
-              }}
-            >
-              {pessoasFiltradas.length === 0 ? (
-                <p className="sub" style={{ color: "var(--muted)", padding: "var(--s3)" }}>
-                  {pessoasLoaded ? "Nenhuma pessoa encontrada." : "Carregando pessoas…"}
-                </p>
-              ) : (
-                pessoasFiltradas.map((p) => {
-                  const jaTemAcesso = pessoasComAcesso.has(p.id);
-                  const jaTemCelula = !!p.celulaId;
-                  const bloqueado = jaTemAcesso || jaTemCelula;
-                  const sel = invPessoaId === p.id;
-                  return (
-                    <button
-                      type="button"
-                      key={p.id}
-                      onClick={() => {
-                        if (!bloqueado) selectPessoa(p);
-                      }}
-                      disabled={bloqueado}
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        gap: 8,
-                        width: "100%",
-                        textAlign: "left",
-                        padding: "8px 12px",
-                        background: sel ? "var(--accent-soft)" : "transparent",
-                        border: "none",
-                        borderBottom: "1px solid var(--border)",
-                        cursor: bloqueado ? "not-allowed" : "pointer",
-                        opacity: bloqueado ? 0.55 : 1,
-                        font: "inherit",
-                        color: "inherit",
-                      }}
-                    >
-                      <span style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
-                        <span className="nm">{p.nome}</span>
-                        <span className="sub mono" style={{ color: "var(--muted)" }}>
-                          {p.telefone}
-                          {p.email ? ` · ${p.email}` : " · sem e-mail"}
-                        </span>
-                      </span>
-                      {jaTemAcesso ? (
-                        <StatusPill tone="muted">Já tem acesso</StatusPill>
-                      ) : jaTemCelula ? (
-                        <StatusPill tone="muted">Já em célula</StatusPill>
-                      ) : null}
-                    </button>
-                  );
-                })
-              )}
-            </div>
-            {pessoas.length < pessoasTotal ? (
-              <p className="sub" style={{ color: "var(--muted)", marginTop: 6 }}>
-                Mostrando {pessoas.length} de {pessoasTotal}. Refine a busca para
-                encontrar quem não aparece.
-              </p>
-            ) : null}
-          </div>
+          {invMode === "existente" ? (
+            <>
+              <div className="field" style={{ marginBottom: "var(--s2)" }}>
+                <label htmlFor="invPessoaQuery">Pessoa</label>
+                <input
+                  id="invPessoaQuery"
+                  value={invPessoaQuery}
+                  onChange={(e) => setInvPessoaQuery(e.target.value)}
+                  placeholder="Buscar por nome, telefone ou e-mail…"
+                  autoFocus
+                />
+                <div
+                  style={{
+                    maxHeight: 220,
+                    overflowY: "auto",
+                    border: "1px solid var(--border)",
+                    borderRadius: "var(--r-md)",
+                    marginTop: 6,
+                  }}
+                >
+                  {pessoasFiltradas.length === 0 ? (
+                    <p className="sub" style={{ color: "var(--muted)", padding: "var(--s3)" }}>
+                      {pessoasLoaded ? "Nenhuma pessoa encontrada." : "Carregando pessoas…"}
+                    </p>
+                  ) : (
+                    pessoasFiltradas.map((p) => {
+                      const jaTemAcesso = pessoasComAcesso.has(p.id);
+                      const jaTemCelula = !!p.celulaId;
+                      const bloqueado = jaTemAcesso || jaTemCelula;
+                      const sel = invPessoaId === p.id;
+                      return (
+                        <button
+                          type="button"
+                          key={p.id}
+                          onClick={() => {
+                            if (!bloqueado) selectPessoa(p);
+                          }}
+                          disabled={bloqueado}
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            gap: 8,
+                            width: "100%",
+                            textAlign: "left",
+                            padding: "8px 12px",
+                            background: sel ? "var(--accent-soft)" : "transparent",
+                            border: "none",
+                            borderBottom: "1px solid var(--border)",
+                            cursor: bloqueado ? "not-allowed" : "pointer",
+                            opacity: bloqueado ? 0.55 : 1,
+                            font: "inherit",
+                            color: "inherit",
+                          }}
+                        >
+                          <span style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+                            <span className="nm">{p.nome}</span>
+                            <span className="sub mono" style={{ color: "var(--muted)" }}>
+                              {p.telefone}
+                              {p.email ? ` · ${p.email}` : " · sem e-mail"}
+                            </span>
+                          </span>
+                          {jaTemAcesso ? (
+                            <StatusPill tone="muted">Já tem acesso</StatusPill>
+                          ) : jaTemCelula ? (
+                            <StatusPill tone="muted">Já em célula</StatusPill>
+                          ) : null}
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+                {pessoas.length < pessoasTotal ? (
+                  <p className="sub" style={{ color: "var(--muted)", marginTop: 6 }}>
+                    Mostrando {pessoas.length} de {pessoasTotal}. Refine a busca para
+                    encontrar quem não aparece.
+                  </p>
+                ) : null}
+              </div>
 
-          {invPessoaId && invNeedsEmail ? (
-            <div className="field" style={{ marginBottom: "var(--s3)" }}>
-              <label htmlFor="invEmailExist">
-                E-mail para login{" "}
-                <span className="sub" style={{ color: "var(--muted)", fontWeight: 400 }}>
-                  — esta pessoa ainda não tem e-mail cadastrado
-                </span>
-              </label>
-              <input
-                id="invEmailExist"
-                type="email"
-                value={invEmail}
-                onChange={(e) => setInvEmail(e.target.value)}
-                placeholder="lider@igreja.com.br"
-              />
-            </div>
-          ) : null}
+              {invPessoaId && invNeedsEmail ? (
+                <div className="field" style={{ marginBottom: "var(--s2)" }}>
+                  <label htmlFor="invEmailExist">
+                    E-mail para login{" "}
+                    <span className="sub" style={{ color: "var(--muted)", fontWeight: 400 }}>
+                      — esta pessoa ainda não tem e-mail cadastrado
+                    </span>
+                  </label>
+                  <input
+                    id="invEmailExist"
+                    type="email"
+                    value={invEmail}
+                    onChange={(e) => setInvEmail(e.target.value)}
+                    placeholder="lider@igreja.com.br"
+                  />
+                </div>
+              ) : null}
+
+              <button
+                type="button"
+                className="btn btn-sm"
+                style={{ marginBottom: "var(--s3)" }}
+                onClick={() => {
+                  setInvMode("nova");
+                  setInvPessoaId(null);
+                  setInvPessoaQuery("");
+                  setInvNome("");
+                  setInvEmail("");
+                  setInvNeedsEmail(false);
+                  setInvError(null);
+                }}
+              >
+                Não está na lista? Cadastrar pessoa nova
+              </button>
+            </>
+          ) : (
+            <>
+              <div className="row" style={{ marginBottom: "var(--s2)" }}>
+                <div className="field" style={{ margin: 0 }}>
+                  <label htmlFor="invNovoNome">Nome</label>
+                  <input
+                    id="invNovoNome"
+                    value={invNome}
+                    onChange={(e) => setInvNome(e.target.value)}
+                    placeholder="Nome completo"
+                    autoFocus
+                  />
+                </div>
+                <div className="field" style={{ margin: 0 }}>
+                  <label htmlFor="invNovoEmail">E-mail do convidado</label>
+                  <input
+                    id="invNovoEmail"
+                    type="email"
+                    value={invEmail}
+                    onChange={(e) => setInvEmail(e.target.value)}
+                    placeholder="lider@igreja.com.br"
+                  />
+                </div>
+              </div>
+              <button
+                type="button"
+                className="btn btn-sm"
+                style={{ marginBottom: "var(--s3)" }}
+                onClick={() => {
+                  setInvMode("existente");
+                  setInvNome("");
+                  setInvEmail("");
+                  setInvError(null);
+                }}
+              >
+                ← Voltar à busca de pessoa cadastrada
+              </button>
+            </>
+          )}
 
           <div className="field" style={{ marginBottom: "var(--s3)" }}>
             <label htmlFor="invCelula">Célula do convidado</label>
