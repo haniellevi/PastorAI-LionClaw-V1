@@ -468,6 +468,63 @@ export async function fetchIgrejaAdmins(
   return asJson<AdminIgrejaAdmin[]>(res);
 }
 
+/** Convida mais um admin (owner) para a igreja. */
+export async function addIgrejaAdmin(
+  token: string,
+  id: string,
+  input: { nome: string; email: string },
+): Promise<AdminIgrejaAdmin & { emailEnviado: boolean }> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/admin/igrejas/${id}/admins`, {
+      method: "POST",
+      headers: jsonHeaders(token),
+      body: JSON.stringify(input),
+    });
+  } catch {
+    throw new AdminAuthError("network", "Falha de conexão com o servidor.");
+  }
+  if (!res.ok) await throwMutationError(res, "Não foi possível convidar o admin.");
+  return asJson<AdminIgrejaAdmin & { emailEnviado: boolean }>(res);
+}
+
+/** Reenvia o convite a um admin que ainda não ativou. */
+export async function resendAdminInvite(
+  token: string,
+  id: string,
+  userId: string,
+): Promise<{ emailEnviado: boolean }> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/admin/igrejas/${id}/admins/${userId}/reenviar`, {
+      method: "POST",
+      headers: authHeaders(token),
+    });
+  } catch {
+    throw new AdminAuthError("network", "Falha de conexão com o servidor.");
+  }
+  if (!res.ok) await throwMutationError(res, "Não foi possível reenviar o convite.");
+  return asJson<{ emailEnviado: boolean }>(res);
+}
+
+/** Remove o papel de admin de um usuário (trava no último admin). */
+export async function removeIgrejaAdmin(
+  token: string,
+  id: string,
+  userId: string,
+): Promise<void> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/admin/igrejas/${id}/admins/${userId}`, {
+      method: "DELETE",
+      headers: authHeaders(token),
+    });
+  } catch {
+    throw new AdminAuthError("network", "Falha de conexão com o servidor.");
+  }
+  if (!res.ok) await throwMutationError(res, "Não foi possível remover o admin.");
+}
+
 // ---------------------------------------------------------------------------
 // Agente de IA da igreja — configurado pelo master (cross-tenant)
 // ---------------------------------------------------------------------------

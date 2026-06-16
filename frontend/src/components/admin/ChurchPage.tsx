@@ -10,12 +10,15 @@ import { useCallback, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
 import {
+  addIgrejaAdmin,
   AdminSessionExpiredError,
   aprovarIgreja,
   deleteIgreja,
   fetchIgrejaAdmins,
   fetchIgrejaAgente,
   fetchIgrejaDetail,
+  removeIgrejaAdmin,
+  resendAdminInvite,
   saveIgrejaAgente,
   updateIgreja,
   type AdminAgente,
@@ -111,6 +114,14 @@ export function ChurchPage({
   useEffect(() => {
     void loadAll();
   }, [loadAll]);
+
+  const reloadAdmins = useCallback(() => {
+    fetchIgrejaAdmins(token, igreja.id)
+      .then(setAdmins)
+      .catch(() => {
+        /* mantém a lista atual */
+      });
+  }, [token, igreja.id]);
 
   const pending = igreja.status === "aguardando_aprovacao";
 
@@ -217,7 +228,15 @@ export function ChurchPage({
         />
       ) : null}
 
-      {tab === "admins" ? <AdminsTab admins={admins} /> : null}
+      {tab === "admins" ? (
+        <AdminsTab
+          token={token}
+          igrejaId={igreja.id}
+          admins={admins}
+          onReload={reloadAdmins}
+          onExpired={onExpired}
+        />
+      ) : null}
 
       {editOpen ? (
         <EditIgrejaModal
@@ -427,12 +446,76 @@ function AgenteTab({
   );
 }
 
-function AdminsTab({ admins }: { admins: AdminIgrejaAdmin[] | null }) {
+function AdminsTab({
+  token,
+  igrejaId,
+  admins,
+  onReload,
+  onExpired,
+}: {
+  token: string;
+  igrejaId: string;
+  admins: AdminIgrejaAdmin[] | null;
+  onReload: () => void;
+  onExpired: () => void;
+}) {
+  const [nome, setNome] = useState("");
+  const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const run = async (fn: () => Promise<void>, okMsg: string) => {
+    setBusy(true);
+    setErr(null);
+    setNotice(null);
+    try {
+      await fn();
+      setNotice(okMsg);
+      onReload();
+    } catch (e) {
+      if (e instanceof AdminSessionExpiredError) {
+        onExpired();
+        return;
+      }
+      setErr(e instanceof Error ? e.message : "Não foi possível concluir.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const add = () => {
+    if (!nome.trim() || !email.includes("@")) {
+      setErr("Informe nome e e-mail válidos.");
+      return;
+    }
+    void run(async () => {
+      await addIgrejaAdmin(token, igrejaId, { nome: nome.trim(), email: email.trim() });
+      setNome("");
+      setEmail("");
+    }, "Convite enviado.");
+  };
+
   return (
     <div className="card card-pad">
       <div style={{ fontWeight: 600, marginBottom: "var(--s3)" }}>
         Administradores (owner)
       </div>
+      {err ? (
+        <div className="error-banner" role="alert" style={{ marginBottom: "var(--s2)" }}>
+          <span>{err}</span>
+        </div>
+      ) : null}
+      {notice ? (
+        <div
+          className="error-banner"
+          role="status"
+          style={{ background: "var(--accent-soft)", color: "var(--accent)", marginBottom: "var(--s2)" }}
+        >
+          <span>{notice}</span>
+        </div>
+      ) : null}
+
       {admins === null ? (
         <p className="sub" style={{ color: "var(--muted)" }}>
           Carregando…
@@ -442,7 +525,14 @@ function AdminsTab({ admins }: { admins: AdminIgrejaAdmin[] | null }) {
           Nenhum administrador.
         </p>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: "var(--s2)" }}>
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "var(--s2)",
+            marginBottom: "var(--s3)",
+          }}
+        >
           {admins.map((a) => (
             <div
               key={a.id}
@@ -458,19 +548,71 @@ function AdminsTab({ admins }: { admins: AdminIgrejaAdmin[] | null }) {
               <div>
                 <div style={{ fontWeight: 600 }}>{a.nome}</div>
                 <div className="sub" style={{ color: "var(--muted)" }}>
-                  {a.email}
+                  {a.email} · {a.status === "ativo" ? "ativo" : "convite pendente"}
                 </div>
               </div>
-              <span className="sub" style={{ color: "var(--muted)" }}>
-                {a.status === "ativo" ? "ativo" : "convite pendente"}
-              </span>
+              <div style={{ display: "flex", gap: "var(--s2)" }}>
+                {a.status !== "ativo" ? (
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-ghost"
+                    disabled={busy}
+                    onClick={() =>
+                      void run(
+                        () => resendAdminInvite(token, igrejaId, a.id).then(() => undefined),
+                        "Convite reenviado.",
+                      )
+                    }
+                  >
+                    Reenviar
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="btn btn-sm btn-danger"
+                  disabled={busy}
+                  onClick={() => {
+                    if (window.confirm(`Remover ${a.nome} como administrador?`)) {
+                      void run(
+                        () => removeIgrejaAdmin(token, igrejaId, a.id),
+                        "Administrador removido.",
+                      );
+                    }
+                  }}
+                >
+                  Remover
+                </button>
+              </div>
             </div>
           ))}
         </div>
       )}
-      <p className="sub" style={{ color: "var(--muted)", marginTop: "var(--s3)" }}>
-        Convidar / remover admins chega na próxima atualização.
-      </p>
+
+      <div style={{ borderTop: "1px solid var(--border)", paddingTop: "var(--s3)" }}>
+        <div style={{ fontWeight: 600, marginBottom: "var(--s2)" }}>Convidar admin</div>
+        <div className="field" style={{ marginBottom: "var(--s2)" }}>
+          <label htmlFor="ad-nome">Nome</label>
+          <input
+            id="ad-nome"
+            value={nome}
+            onChange={(e) => setNome(e.target.value)}
+            placeholder="Nome do administrador"
+          />
+        </div>
+        <div className="field" style={{ marginBottom: "var(--s2)" }}>
+          <label htmlFor="ad-email">E-mail</label>
+          <input
+            id="ad-email"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="admin@igreja.org"
+          />
+        </div>
+        <Button variant="primary" size="sm" onClick={add} loading={busy} loadingText="Enviando…">
+          Convidar
+        </Button>
+      </div>
     </div>
   );
 }

@@ -982,6 +982,190 @@ def list_igreja_admins(
     ]
 
 
+def _igreja_admin_users(db: Session, ig_uuid: uuid.UUID) -> list[AppUser]:
+    return list(
+        db.execute(
+            select(AppUser)
+            .join(UserRole, UserRole.user_id == AppUser.id)
+            .where(UserRole.igreja_id == ig_uuid, UserRole.papel == "admin")
+        ).scalars().all()
+    )
+
+
+class AddAdminResponse(BaseModel):
+    id: str
+    nome: str
+    email: str
+    status: str | None = None
+    emailEnviado: bool  # noqa: N815
+
+
+@router.post(
+    "/igrejas/{igreja_id}/admins",
+    response_model=AddAdminResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def add_igreja_admin(
+    igreja_id: str,
+    payload: AdminSeed,
+    db: Session = Depends(get_db),
+    admin: PlatformAdminUser = Depends(get_platform_admin),
+    mailer: BrevoClient = Depends(get_brevo_client),
+    clerk: ClerkClient = Depends(get_clerk_client),
+) -> AddAdminResponse:
+    """Convida mais um admin (owner) para a igreja (cria + envia convite).
+
+    409 se o e-mail já for admin da igreja. O convidado ativa pelo fluxo padrão.
+    """
+    igreja = _get_igreja_or_404(db, igreja_id)
+    ig_uuid = uuid.UUID(igreja_id)
+    email = payload.email
+    if any(u.email.lower() == email for u in _igreja_admin_users(db, ig_uuid)):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Já existe um administrador com esse e-mail nesta igreja.",
+        )
+
+    app_user = AppUser(
+        igreja_id=ig_uuid, nome=payload.nome, email=email, status="convidado"
+    )
+    db.add(app_user)
+    db.flush()
+    db.add(UserRole(igreja_id=ig_uuid, user_id=app_user.id, papel="admin"))
+    _audit(db, admin, "admin_add", "igreja", ig_uuid, igreja.nome, {"email": email})
+    db.commit()
+
+    sent = False
+    try:
+        mailer.send_invite(
+            to_email=email,
+            nome=payload.nome,
+            activation_link=_activation_link(app_user.id, clerk),
+        )
+        sent = True
+    except BrevoError:
+        logger.warning("Admin adicionado, mas o convite falhou")
+
+    return AddAdminResponse(
+        id=str(app_user.id),
+        nome=app_user.nome,
+        email=email,
+        status="convidado",
+        emailEnviado=sent,
+    )
+
+
+class ResendInviteResponse(BaseModel):
+    emailEnviado: bool  # noqa: N815
+
+
+def _get_admin_user_or_404(
+    db: Session, ig_uuid: uuid.UUID, user_id: str
+) -> AppUser:
+    try:
+        uid = uuid.UUID(user_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Admin não encontrado"
+        ) from exc
+    user = db.execute(
+        select(AppUser).where(AppUser.id == uid, AppUser.igreja_id == ig_uuid)
+    ).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Admin não encontrado"
+        )
+    return user
+
+
+@router.post(
+    "/igrejas/{igreja_id}/admins/{user_id}/reenviar",
+    response_model=ResendInviteResponse,
+)
+def resend_admin_invite(
+    igreja_id: str,
+    user_id: str,
+    db: Session = Depends(get_db),
+    admin: PlatformAdminUser = Depends(get_platform_admin),
+    mailer: BrevoClient = Depends(get_brevo_client),
+    clerk: ClerkClient = Depends(get_clerk_client),
+) -> ResendInviteResponse:
+    """Reenvia o convite de ativação a um admin que ainda não ativou (409 se ativo)."""
+    igreja = _get_igreja_or_404(db, igreja_id)
+    ig_uuid = uuid.UUID(igreja_id)
+    user = _get_admin_user_or_404(db, ig_uuid, user_id)
+    if user.status == "ativo":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Este administrador já ativou o acesso.",
+        )
+
+    sent = False
+    try:
+        mailer.send_invite(
+            to_email=user.email,
+            nome=user.nome,
+            activation_link=_activation_link(user.id, clerk),
+        )
+        sent = True
+    except BrevoError:
+        logger.warning("Reenvio de convite ao admin falhou")
+
+    _audit(
+        db, admin, "admin_reenviar", "igreja", ig_uuid, igreja.nome,
+        {"email": user.email},
+    )
+    db.commit()
+    return ResendInviteResponse(emailEnviado=sent)
+
+
+@router.delete(
+    "/igrejas/{igreja_id}/admins/{user_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def remove_igreja_admin(
+    igreja_id: str,
+    user_id: str,
+    db: Session = Depends(get_db),
+    admin: PlatformAdminUser = Depends(get_platform_admin),
+) -> None:
+    """Remove o papel de admin de um usuário na igreja (sem apagar o app_user).
+
+    Trava: não remove o ÚLTIMO admin (deixaria a igreja sem owner) -> 409.
+    """
+    igreja = _get_igreja_or_404(db, igreja_id)
+    ig_uuid = uuid.UUID(igreja_id)
+
+    admin_count = int(
+        db.execute(
+            select(func.count())
+            .select_from(UserRole)
+            .where(UserRole.igreja_id == ig_uuid, UserRole.papel == "admin")
+        ).scalar_one()
+    )
+    if admin_count <= 1:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Não é possível remover o último administrador da igreja.",
+        )
+
+    user = _get_admin_user_or_404(db, ig_uuid, user_id)
+    role = db.execute(
+        select(UserRole).where(
+            UserRole.user_id == user.id,
+            UserRole.igreja_id == ig_uuid,
+            UserRole.papel == "admin",
+        )
+    ).scalar_one_or_none()
+    if role is not None:
+        db.delete(role)
+    _audit(
+        db, admin, "admin_remover", "igreja", ig_uuid, igreja.nome,
+        {"email": user.email},
+    )
+    db.commit()
+
+
 # ---------------------------------------------------------------------------
 # Gestão de planos — "o master pode definir os planos" (catálogo, migration 0012)
 # ---------------------------------------------------------------------------

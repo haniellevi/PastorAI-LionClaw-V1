@@ -23,6 +23,7 @@ from app.db.models import (
     PlatformAdmin,
     PlatformAuditLog,
     RolePermission,
+    UserRole,
 )
 from app.db.session import get_db
 from app.services.brevo import BrevoError, get_brevo_client
@@ -92,6 +93,7 @@ class PlatformDB:
         agent_config=None,
         llm_credential=None,
         igreja_admins=None,
+        user_role=None,
     ) -> None:
         self.gate_app_user = gate_app_user
         self.admin_marker = admin_marker
@@ -114,6 +116,7 @@ class PlatformDB:
         self.agent_config = agent_config
         self.llm_credential = llm_credential
         self.igreja_admins = igreja_admins or []
+        self.user_role = user_role
         self.added: list = []
         self.deleted: list = []
         self.committed = False
@@ -148,6 +151,8 @@ class PlatformDB:
             return _Result(scalar=self.agent_config)
         if ent is LlmCredential:
             return _Result(scalar=self.llm_credential)
+        if ent is UserRole:
+            return _Result(scalar=self.user_role)
         # select(func.count()) — scalar count with no mapped entity.
         return _Result(scalar_one=self.count_value)
 
@@ -927,3 +932,102 @@ def test_admin_lists_igreja_admins_blocks_non_master(app) -> None:
     assert (
         client.get(f"/admin/igrejas/{_IG_ID}/admins", headers=_AUTH).status_code == 403
     )
+
+
+# ---------------------------------------------------------------------------
+# CRUD de admins (owner) — convidar / reenviar / remover
+# ---------------------------------------------------------------------------
+def test_admin_adds_igreja_admin(app) -> None:
+    db = PlatformDB(
+        gate_app_user=make_app_user(),
+        admin_marker="pa1",
+        igreja_scalar=_igreja_ns(),
+        igreja_admins=[],  # ninguém com esse e-mail ainda
+    )
+    mailer = FakeMailer()
+    client = _wire(app, db=db, clerk=FakeClerk(), mailer=mailer)
+    resp = client.post(
+        f"/admin/igrejas/{_IG_ID}/admins",
+        headers=_AUTH,
+        json={"nome": "Novo Admin", "email": "Novo@Igreja.org"},
+    )
+    assert resp.status_code == 201
+    body = resp.json()
+    assert body["email"] == "novo@igreja.org"  # normalizado
+    assert body["emailEnviado"] is True
+    assert mailer.sent == ["novo@igreja.org"]
+    assert any(isinstance(o, AppUser) for o in db.added)
+    assert any(isinstance(o, UserRole) and o.papel == "admin" for o in db.added)
+    assert any(
+        isinstance(o, PlatformAuditLog) and o.acao == "admin_add" for o in db.added
+    )
+
+
+def test_admin_add_admin_conflict(app) -> None:
+    existing = SimpleNamespace(id="u1", nome="P", email="dup@x.com", status="ativo")
+    db = PlatformDB(
+        gate_app_user=make_app_user(),
+        admin_marker="pa1",
+        igreja_scalar=_igreja_ns(),
+        igreja_admins=[existing],
+    )
+    client = _wire(app, db=db, clerk=FakeClerk(), mailer=FakeMailer())
+    resp = client.post(
+        f"/admin/igrejas/{_IG_ID}/admins",
+        headers=_AUTH,
+        json={"nome": "X", "email": "dup@x.com"},
+    )
+    assert resp.status_code == 409
+
+
+def test_admin_resends_admin_invite(app) -> None:
+    u = make_app_user()
+    u.status = "convidado"
+    db = PlatformDB(gate_app_user=u, admin_marker="pa1", igreja_scalar=_igreja_ns())
+    mailer = FakeMailer()
+    client = _wire(app, db=db, clerk=FakeClerk(), mailer=mailer)
+    resp = client.post(f"/admin/igrejas/{_IG_ID}/admins/{u.id}/reenviar", headers=_AUTH)
+    assert resp.status_code == 200
+    assert resp.json()["emailEnviado"] is True
+    assert mailer.sent == [u.email]
+    assert any(
+        isinstance(o, PlatformAuditLog) and o.acao == "admin_reenviar" for o in db.added
+    )
+
+
+def test_admin_resend_blocks_active(app) -> None:
+    u = make_app_user()
+    u.status = "ativo"
+    db = PlatformDB(gate_app_user=u, admin_marker="pa1", igreja_scalar=_igreja_ns())
+    client = _wire(app, db=db, clerk=FakeClerk(), mailer=FakeMailer())
+    resp = client.post(f"/admin/igrejas/{_IG_ID}/admins/{u.id}/reenviar", headers=_AUTH)
+    assert resp.status_code == 409
+
+
+def test_admin_removes_igreja_admin(app) -> None:
+    u = make_app_user()
+    role = SimpleNamespace(id="r1", papel="admin")
+    db = PlatformDB(
+        gate_app_user=u,
+        admin_marker="pa1",
+        igreja_scalar=_igreja_ns(),
+        count_value=2,  # não é o último admin
+        user_role=role,
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.delete(f"/admin/igrejas/{_IG_ID}/admins/{u.id}", headers=_AUTH)
+    assert resp.status_code == 204
+    assert role in db.deleted
+    assert any(
+        isinstance(o, PlatformAuditLog) and o.acao == "admin_remover" for o in db.added
+    )
+
+
+def test_admin_remove_blocks_last_admin(app) -> None:
+    u = make_app_user()
+    db = PlatformDB(
+        gate_app_user=u, admin_marker="pa1", igreja_scalar=_igreja_ns(), count_value=1
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.delete(f"/admin/igrejas/{_IG_ID}/admins/{u.id}", headers=_AUTH)
+    assert resp.status_code == 409
