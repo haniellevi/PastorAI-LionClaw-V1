@@ -139,10 +139,14 @@ export function ConversationThread({
   conflict,
   messages,
   messagesLoading,
+  panelOpen,
+  canDelete,
   onAssume,
   onReturn,
   onSend,
   onSendMedia,
+  onTogglePanel,
+  onDelete,
 }: {
   conversation: Conversation;
   selfId: string;
@@ -152,10 +156,14 @@ export function ConversationThread({
   conflict: string | null;
   messages: ChatMessage[];
   messagesLoading: boolean;
+  panelOpen: boolean;
+  canDelete: boolean;
   onAssume: (c: Conversation) => void;
   onReturn: (c: Conversation) => void;
   onSend: (c: Conversation, text: string) => void;
   onSendMedia: (c: Conversation, file: File, caption?: string) => Promise<boolean>;
+  onTogglePanel: () => void;
+  onDelete: (c: Conversation) => void;
 }) {
   const [draft, setDraft] = useState("");
   const [pendingFile, setPendingFile] = useState<File | null>(null);
@@ -253,6 +261,27 @@ export function ConversationThread({
               <span>Assumir (pausar IA)</span>
             </button>
           )}
+          <button
+            type="button"
+            className={`btn btn-sm btn-icon thread-tool${panelOpen ? " active" : ""}`}
+            onClick={onTogglePanel}
+            title="Dados do contato"
+            aria-label="Dados do contato"
+            aria-pressed={panelOpen}
+          >
+            <Icon name="info" />
+          </button>
+          {canDelete ? (
+            <button
+              type="button"
+              className="btn btn-sm btn-icon thread-tool danger"
+              onClick={() => onDelete(conversation)}
+              title="Excluir conversa"
+              aria-label="Excluir conversa"
+            >
+              <Icon name="trash" />
+            </button>
+          ) : null}
         </div>
       </div>
 

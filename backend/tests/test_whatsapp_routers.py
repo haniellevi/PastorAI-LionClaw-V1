@@ -5,10 +5,12 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
 from app.config import get_settings
+from app.db.models import AppUser, Conversation, Message
 from app.db.session import get_db
 from app.routers.whatsapp import get_webhook_queue
 from app.services.clerk import get_clerk_client
@@ -233,3 +235,91 @@ def test_webhook_rejects_invalid_query_token(app, monkeypatch) -> None:
         content=b'{"event":"messages.upsert"}',
     )
     assert resp.status_code == 401
+
+
+# ---- excluir conversa: auth, RBAC e sucesso (hard delete, admin-only) ------
+_CONV_DELETE = "/conversations/00000000-0000-0000-0000-0000000000aa"
+
+
+def test_delete_conversation_requires_auth(app) -> None:
+    client = _client(app, roles=["admin"])
+    assert client.delete(_CONV_DELETE).status_code == 401
+
+
+def test_cell_leader_forbidden_on_delete_conversation(app) -> None:
+    client = _client(app, roles=["lider_celula"])
+    assert client.delete(_CONV_DELETE, headers=_AUTH).status_code == 403
+
+
+def test_pastor_forbidden_on_delete_conversation(app) -> None:
+    # Exclusão é admin-only mesmo para papéis com acesso ao inbox (pastor).
+    client = _client(app, roles=["pastor"])
+    assert client.delete(_CONV_DELETE, headers=_AUTH).status_code == 403
+
+
+class _DelResult:
+    def __init__(self, *, scalar=None, scalars=None) -> None:
+        self._scalar = scalar
+        self._scalars = scalars or []
+
+    def scalar_one_or_none(self):
+        return self._scalar
+
+    def scalars(self):
+        return SimpleNamespace(all=lambda: list(self._scalars))
+
+
+class DeleteConvSession:
+    """Routes auth (AppUser/UserRole) + the conversation/messages lookups."""
+
+    def __init__(self, *, app_user, roles, conv, media=None) -> None:
+        self.app_user = app_user
+        self.roles = roles
+        self.conv = conv
+        self.media = media or []
+        self.deleted: list = []
+        self.committed = False
+
+    def execute(self, statement, params=None) -> _DelResult:
+        descs = list(getattr(statement, "column_descriptions", []) or [])
+        ent = descs[0].get("entity") if descs else None
+        if ent is AppUser:
+            return _DelResult(scalar=self.app_user)
+        if ent is Conversation:
+            return _DelResult(scalar=self.conv)
+        if ent is Message:
+            return _DelResult(scalars=self.media)
+        return _DelResult(scalars=self.roles)
+
+    def delete(self, obj) -> None:
+        self.deleted.append(obj)
+
+    def commit(self) -> None:
+        self.committed = True
+
+    def close(self) -> None:  # pragma: no cover
+        pass
+
+
+def _del_client(app, session) -> TestClient:
+    app.dependency_overrides[get_db] = lambda: session
+    app.dependency_overrides[get_clerk_client] = lambda: FakeClerk()
+    return TestClient(app)
+
+
+def test_delete_conversation_success(app) -> None:
+    conv = SimpleNamespace(id="00000000-0000-0000-0000-0000000000aa")
+    session = DeleteConvSession(
+        app_user=make_app_user(), roles=["admin"], conv=conv, media=[]
+    )
+    client = _del_client(app, session)
+    resp = client.delete(_CONV_DELETE, headers=_AUTH)
+    assert resp.status_code == 204
+    assert session.deleted == [conv]
+    assert session.committed is True
+
+
+def test_delete_conversation_not_found(app) -> None:
+    session = DeleteConvSession(app_user=make_app_user(), roles=["admin"], conv=None)
+    client = _del_client(app, session)
+    assert client.delete(_CONV_DELETE, headers=_AUTH).status_code == 404

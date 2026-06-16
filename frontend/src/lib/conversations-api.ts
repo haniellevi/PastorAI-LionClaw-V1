@@ -229,4 +229,24 @@ export async function sendMedia(
   return (await res.json()) as ChatMessage;
 }
 
+// ---------------------------------------------------------------------------
+// Exclusão de conversa (hard delete — admin)
+// ---------------------------------------------------------------------------
+/**
+ * Exclui permanentemente uma conversa (mensagens + mídia). Ação destrutiva e
+ * restrita ao admin no backend (403 caso contrário); 204 no sucesso.
+ */
+export async function deleteConversation(
+  token: string,
+  conversationId: string,
+): Promise<void> {
+  const res = await authedFetch(token, `/conversations/${conversationId}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível excluir a conversa.");
+  }
+}
+
 export { ApiError, SessionExpiredError };

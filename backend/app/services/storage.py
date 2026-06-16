@@ -206,6 +206,37 @@ class SupabaseStorage:
             out[p] = f"{url}/storage/v1{signed}" if signed.startswith("/") else signed
         return out
 
+    def remove(self, paths: list[str]) -> None:
+        """Best-effort delete of stored objects (used when a conversa is excluded).
+
+        Silent on failure: a user-facing conversation delete must not break just
+        because the media couldn't be cleaned up (the orphan is a minor cost; the
+        DB row — the source of truth — is already gone). Dedupes and ignores
+        empty paths; a no-op when there's nothing to remove.
+        """
+        clean = [p for p in dict.fromkeys(paths) if p]
+        if not clean:
+            return
+        try:
+            url, key = self._require()
+        except StorageError:
+            return
+        endpoint = f"{url}/storage/v1/object/{MEDIA_BUCKET}"
+        try:
+            with httpx.Client(timeout=15.0) as client:
+                resp = client.request(
+                    "DELETE",
+                    endpoint,
+                    headers={
+                        "Authorization": f"Bearer {key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={"prefixes": clean},
+                )
+                resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            logger.warning("Supabase Storage remove failed: %s", type(exc).__name__)
+
 
 def get_storage() -> SupabaseStorage:
     """FastAPI dependency / factory for the storage client."""

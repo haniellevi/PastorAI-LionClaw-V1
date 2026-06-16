@@ -21,6 +21,7 @@ import {
   ConversationConflictError,
   SessionExpiredError,
   canAccessInbox,
+  deleteConversation,
   fetchConversations,
   fetchMessages,
   handoffConversation,
@@ -30,6 +31,7 @@ import {
   type Conversation,
 } from "@/lib/conversations-api";
 import { Icon } from "@/lib/icons";
+import { isAdmin } from "@/lib/roles";
 import {
   ApiError as WaApiError,
   canManageWhatsapp,
@@ -37,8 +39,10 @@ import {
   type ConnectionStatus,
 } from "@/lib/whatsapp-api";
 
+import { ContactPanel } from "./ContactPanel";
 import { ConversationList, type ConvFilter } from "./ConversationList";
 import { ConversationThread } from "./ConversationThread";
+import { DeleteConversationDialog } from "./DeleteConversationDialog";
 import { effectiveEstado } from "./conversation-format";
 
 const POLL_MS = 15_000;
@@ -66,11 +70,19 @@ export function InboxScreen() {
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [toast, setToast] = useState<Toast | null>(null);
 
+  // Painel de dados do contato (Parte B) e exclusão de conversa.
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Conversation | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
   // "unknown" quando o papel não pode ler a conexão (não-admin) — tratado como
   // operante, sem banner de degradação.
   const [connStatus, setConnStatus] = useState<ConnectionStatus | "unknown">("unknown");
 
   const allowed = user ? canAccessInbox(user.roles) : false;
+  // Exclusão de conversa é admin-only (espelha require_role(["admin"]) no backend).
+  const isAdminUser = user ? isAdmin(user.roles) : false;
   // Só admin pode ler a conexão (/whatsapp/connection é admin-only). Para os
   // demais papéis privilegiados, o status fica "unknown" (sem banner).
   const canReadConnection = user ? canManageWhatsapp(user.roles) : false;
@@ -173,6 +185,12 @@ export function InboxScreen() {
     }, POLL_MS);
     return () => window.clearInterval(id);
   }, [allowed, load, loadConnection, selectedId, loadMessages]);
+
+  // Painel de dados: aberto por padrão no desktop, fechado (drawer) no mobile.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setPanelOpen(window.matchMedia("(min-width: 1101px)").matches);
+  }, []);
 
   // ---- toast efêmero ------------------------------------------------------
   const toastTimer = useRef<number | null>(null);
@@ -333,6 +351,28 @@ export function InboxScreen() {
     [token, patch, flashToast, handleSessionError, loadMessages],
   );
 
+  // ---- exclusão de conversa (hard delete, admin) --------------------------
+  const confirmDelete = useCallback(async () => {
+    if (!token || !deleteTarget) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await deleteConversation(token, deleteTarget.id);
+      const deletedId = deleteTarget.id;
+      setConversations((prev) => prev.filter((c) => c.id !== deletedId));
+      if (selectedId === deletedId) setSelectedId(null);
+      setDeleteTarget(null);
+      flashToast({ kind: "ok", text: "Conversa excluída." });
+    } catch (err) {
+      if (handleSessionError(err)) return;
+      setDeleteError(
+        err instanceof ApiError ? err.message : "Não foi possível excluir a conversa.",
+      );
+    } finally {
+      setDeleting(false);
+    }
+  }, [token, deleteTarget, selectedId, flashToast, handleSessionError]);
+
   // ---- bloqueio de acesso (US-11) -----------------------------------------
   if (!allowed) {
     return (
@@ -396,7 +436,7 @@ export function InboxScreen() {
         </div>
       ) : null}
 
-      <div className="inbox">
+      <div className={`inbox${selected && panelOpen ? " with-panel" : ""}`}>
         {showSkeleton ? (
           <div className="conv-list">
             {Array.from({ length: 5 }).map((_, i) => (
@@ -433,10 +473,17 @@ export function InboxScreen() {
             conflict={conflicts[selected.id] ?? null}
             messages={messages}
             messagesLoading={messagesLoading}
+            panelOpen={panelOpen}
+            canDelete={isAdminUser}
             onAssume={handleAssume}
             onReturn={handleReturn}
             onSend={handleSend}
             onSendMedia={handleSendMedia}
+            onTogglePanel={() => setPanelOpen((v) => !v)}
+            onDelete={(c) => {
+              setDeleteError(null);
+              setDeleteTarget(c);
+            }}
           />
         ) : (
           <div className="empty-pane">
@@ -450,7 +497,36 @@ export function InboxScreen() {
             </p>
           </div>
         )}
+
+        {selected && panelOpen ? (
+          <>
+            <div
+              className="panel-backdrop"
+              onClick={() => setPanelOpen(false)}
+              role="presentation"
+            />
+            <ContactPanel
+              pessoaId={selected.pessoaId}
+              telefone={selected.telefone}
+              onClose={() => setPanelOpen(false)}
+            />
+          </>
+        ) : null}
       </div>
+
+      {deleteTarget ? (
+        <DeleteConversationDialog
+          conversation={deleteTarget}
+          busy={deleting}
+          error={deleteError}
+          onCancel={() => {
+            if (deleting) return;
+            setDeleteTarget(null);
+            setDeleteError(null);
+          }}
+          onConfirm={() => void confirmDelete()}
+        />
+      ) : null}
 
       {toast ? (
         <div className={`toast ${toast.kind}`} role="status">

@@ -24,7 +24,7 @@ import logging
 import uuid
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
@@ -458,6 +458,44 @@ def send_media_message(
 
     signed = storage.sign([stored.path])
     return MessageOut.from_model(msg, media_url=signed.get(stored.path))
+
+
+@router.delete("/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_conversation(
+    conversation_id: str,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_role(["admin"])),
+    storage: SupabaseStorage = Depends(get_storage),
+) -> Response:
+    """Excluir permanentemente uma conversa e tudo que ela contém (admin-only).
+
+    Ação destrutiva e irreversível: remove a conversa, suas mensagens (cascata
+    via FK ``messages.conversation_id``) e limpa a mídia no Storage (best-effort).
+    Restrita ao admin — o inbox é acessível a outros papéis, mas a exclusão não.
+    Tenant-scoped (RLS): só apaga conversas da própria igreja.
+    """
+    ensure_tenant_context(db, current_user)
+    conv = _get_conversation(db, conversation_id)
+
+    # Coleta os ponteiros de mídia ANTES de apagar (a cascata leva as mensagens
+    # junto). A limpeza no Storage é best-effort e roda após o commit, então
+    # nunca bloqueia a exclusão da conversa em si.
+    media_paths = list(
+        db.execute(
+            select(Message.media_path).where(
+                Message.conversation_id == conv.id,
+                Message.media_path.is_not(None),
+            )
+        ).scalars().all()
+    )
+
+    db.delete(conv)  # ON DELETE CASCADE remove as mensagens da conversa
+    db.commit()
+
+    if media_paths:
+        storage.remove(media_paths)
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 # ---------------------------------------------------------------------------

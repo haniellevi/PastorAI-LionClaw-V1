@@ -158,3 +158,52 @@ def test_sign_degrades_on_error(monkeypatch) -> None:
 
 def test_sign_degrades_without_config() -> None:
     assert SupabaseStorage(_settings(supabase_url="")).sign(["i/c/a.jpg"]) == {}
+
+
+# ---- remove (limpeza ao excluir a conversa) -------------------------------
+def test_remove_deletes_prefixes(monkeypatch) -> None:
+    seen: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["method"] = request.method
+        seen["url"] = str(request.url)
+        seen["body"] = request.content
+        seen["auth"] = request.headers.get("authorization")
+        return httpx.Response(200, json=[{"name": "a.jpg"}])
+
+    _use_transport(monkeypatch, handler)
+    SupabaseStorage(_settings()).remove(["i/c/a.jpg", "i/c/b.png", "i/c/a.jpg"])
+
+    assert seen["method"] == "DELETE"
+    assert seen["url"].endswith("/storage/v1/object/whatsapp-media")
+    assert seen["auth"] == "Bearer svc-key"
+    # Corpo carrega os prefixos deduplicados.
+    assert b"i/c/a.jpg" in seen["body"]
+    assert b"i/c/b.png" in seen["body"]
+
+
+def test_remove_empty_is_noop(monkeypatch) -> None:
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(200, json=[])
+
+    _use_transport(monkeypatch, handler)
+    SupabaseStorage(_settings()).remove([])
+    SupabaseStorage(_settings()).remove(["", None])  # type: ignore[list-item]
+    assert calls["n"] == 0
+
+
+def test_remove_degrades_on_error(monkeypatch) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, json={"error": "boom"})
+
+    _use_transport(monkeypatch, handler)
+    # Best-effort: não levanta mesmo quando o Storage falha.
+    SupabaseStorage(_settings()).remove(["i/c/a.jpg"])
+
+
+def test_remove_degrades_without_config() -> None:
+    # Sem config, é no-op silencioso (não levanta).
+    SupabaseStorage(_settings(supabase_url="")).remove(["i/c/a.jpg"])
