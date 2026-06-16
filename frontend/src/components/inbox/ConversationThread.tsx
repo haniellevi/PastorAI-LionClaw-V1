@@ -12,21 +12,23 @@
  * real (conflito) e o botão de assumir fica indisponível.
  *
  * Degradação (banner): com o WhatsApp offline/reconectando, o envio é desativado.
- * O endpoint de persistência da resposta humana chega com a integração do
- * assistente (sprint-017); aqui o envio ecoa localmente na thread.
+ * O histórico completo é carregado do backend (GET /conversations/{id}/messages)
+ * e cada mensagem exibe data/hora (dia da semana, data e hora).
  */
 import { useEffect, useRef, useState } from "react";
 
 import { StatusPill } from "@/components/dashboard/StatusPill";
-import type { Conversation } from "@/lib/conversations-api";
+import type { ChatMessage, Conversation } from "@/lib/conversations-api";
 import { Icon } from "@/lib/icons";
 
 import {
+  authorLabel,
   contactAvatar,
   displayName,
   effectiveEstado,
   estadoPill,
   maskPhone,
+  messageStamp,
 } from "./conversation-format";
 
 interface ThreadCopy {
@@ -62,7 +64,8 @@ export function ConversationThread({
   degraded,
   busy,
   conflict,
-  localReplies,
+  messages,
+  messagesLoading,
   onAssume,
   onReturn,
   onSend,
@@ -73,7 +76,8 @@ export function ConversationThread({
   degraded: boolean;
   busy: boolean;
   conflict: string | null;
-  localReplies: string[];
+  messages: ChatMessage[];
+  messagesLoading: boolean;
   onAssume: (c: Conversation) => void;
   onReturn: (c: Conversation) => void;
   onSend: (c: Conversation, text: string) => void;
@@ -97,7 +101,7 @@ export function ConversationThread({
   useEffect(() => {
     const el = bodyRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [conversation.id, localReplies.length]);
+  }, [conversation.id, messages.length]);
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -176,28 +180,27 @@ export function ConversationThread({
       ) : null}
 
       <div className="thread-body" ref={bodyRef}>
-        {conversation.ultimaMensagem ? (
-          <div className="msg in">
-            <span className="tag">Contato</span>
-            {conversation.ultimaMensagem}
-          </div>
-        ) : (
+        {messagesLoading && messages.length === 0 ? (
+          <p
+            className="sub"
+            style={{ textAlign: "center", color: "var(--faint)", marginTop: "var(--s4)" }}
+          >
+            Carregando conversa…
+          </p>
+        ) : messages.length === 0 ? (
           <div className="empty-pane" style={{ padding: "var(--s5)" }}>
             <Icon name="chat" />
             <p className="sub">Ainda não há mensagens nesta conversa.</p>
           </div>
+        ) : (
+          messages.map((m) => (
+            <div className={`msg ${m.direcao === "out" ? "out" : "in"}`} key={m.id}>
+              <span className="tag">{authorLabel(m.autor)}</span>
+              {m.texto ?? ""}
+              <time>{messageStamp(m.criadoEm)}</time>
+            </div>
+          ))
         )}
-
-        {localReplies.map((text, i) => (
-          <div className="msg out" key={i}>
-            <span className="tag">Você</span>
-            {text}
-          </div>
-        ))}
-
-        <p className="sub" style={{ textAlign: "center", color: "var(--faint)", marginTop: "var(--s2)" }}>
-          O histórico completo da conversa chega com o painel do assistente.
-        </p>
       </div>
 
       <form className="thread-foot" onSubmit={submit}>

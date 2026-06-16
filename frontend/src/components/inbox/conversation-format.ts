@@ -58,6 +58,37 @@ export function contactAvatar(c: Conversation): string {
   return (first + last).toUpperCase() || phoneAvatar(c.telefone);
 }
 
+const WEEKDAYS_PT = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"] as const;
+const MONTHS_PT = [
+  "Jan", "Fev", "Mar", "Abr", "Mai", "Jun",
+  "Jul", "Ago", "Set", "Out", "Nov", "Dez",
+] as const;
+
+/**
+ * Carimbo completo de uma mensagem, no formato "Ter, 16 Jun 2026, 09:07"
+ * (dia da semana + dia + mês + ano + hora). Vazio quando a data é inválida.
+ */
+export function messageStamp(iso: string | null): string {
+  if (!iso) return "";
+  const ts = Date.parse(iso);
+  if (Number.isNaN(ts)) return "";
+  const d = new Date(ts);
+  const wd = WEEKDAYS_PT[d.getDay()];
+  const day = String(d.getDate()).padStart(2, "0");
+  const mon = MONTHS_PT[d.getMonth()];
+  const year = d.getFullYear();
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${wd}, ${day} ${mon} ${year}, ${hh}:${mm}`;
+}
+
+/** Rótulo do autor da mensagem para a bolha (contato | ia | humano). */
+export function authorLabel(autor: string): string {
+  if (autor === "ia") return "IA";
+  if (autor === "humano") return "Você";
+  return "Contato";
+}
+
 /** Horário curto (HH:MM) ou "Ontem"/data para o carimbo da lista. */
 export function shortTime(iso: string | null, now: number): string {
   if (!iso) return "";

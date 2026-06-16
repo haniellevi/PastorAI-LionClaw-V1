@@ -25,16 +25,20 @@ export function ConversationList({
   filter,
   waitingCount,
   now,
+  search,
   onSelect,
   onFilter,
+  onSearch,
 }: {
   conversations: Conversation[];
   selectedId: string | null;
   filter: ConvFilter;
   waitingCount: number;
   now: number;
+  search: string;
   onSelect: (id: string) => void;
   onFilter: (filter: ConvFilter) => void;
+  onSearch: (value: string) => void;
 }) {
   return (
     <div className="conv-list">
@@ -64,11 +68,22 @@ export function ConversationList({
         </div>
       </div>
 
+      <div className="conv-search" style={{ padding: "0 var(--s3) var(--s2)" }}>
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => onSearch(e.target.value)}
+          placeholder="Buscar por nome, telefone ou mensagem…"
+          aria-label="Buscar conversa"
+          style={{ width: "100%" }}
+        />
+      </div>
+
       {conversations.length === 0 ? (
         <div className="empty-state" style={{ padding: "var(--s6)" }}>
           <Icon name="chat" />
           <p>
-            <strong>Nenhuma conversa neste filtro.</strong>
+            <strong>Nenhuma conversa encontrada.</strong>
           </p>
         </div>
       ) : (
@@ -86,7 +101,7 @@ export function ConversationList({
               <div className="conv-main">
                 <div className="conv-top">
                   <strong>{displayName(c)}</strong>
-                  <time>{shortTime(c.assumidoEm ?? c.esperaDesde, now)}</time>
+                  <time>{shortTime(c.atualizadoEm ?? c.assumidoEm ?? c.esperaDesde, now)}</time>
                 </div>
                 <div className="snippet">
                   {c.ultimaMensagem ?? "Sem mensagens ainda"}

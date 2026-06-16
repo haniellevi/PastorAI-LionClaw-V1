@@ -34,6 +34,16 @@ export interface Conversation {
   assumidoPor: string | null;
   assumidoEm: string | null;
   esperaDesde: string | null;
+  atualizadoEm: string | null;
+}
+
+/** Uma mensagem do histórico da conversa (GET /conversations/{id}/messages). */
+export interface ChatMessage {
+  id: string;
+  direcao: "in" | "out";
+  autor: "contato" | "ia" | "humano";
+  texto: string | null;
+  criadoEm: string;
 }
 
 export interface HandoffResult {
@@ -81,6 +91,26 @@ export async function fetchConversations(
     throw new ApiError(res.status, "Não foi possível carregar as conversas.");
   }
   return (await res.json()) as Page<Conversation>;
+}
+
+/** Histórico completo da conversa, mais antigas primeiro (US-13). */
+export async function fetchMessages(
+  token: string,
+  conversationId: string,
+  pageSize = 200,
+): Promise<ChatMessage[]> {
+  const res = await authedFetch(
+    token,
+    `/conversations/${conversationId}/messages?page=1&pageSize=${pageSize}`,
+  );
+  if (res.status === 403) {
+    throw new ApiError(403, "Acesso restrito ao inbox.");
+  }
+  if (!res.ok) {
+    throw new ApiError(res.status, "Não foi possível carregar as mensagens.");
+  }
+  const page = (await res.json()) as Page<ChatMessage>;
+  return page.items;
 }
 
 // ---------------------------------------------------------------------------
