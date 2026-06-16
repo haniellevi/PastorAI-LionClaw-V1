@@ -23,7 +23,7 @@ import {
   ApiError,
   StaleItemError,
   fetchCells,
-  fetchTeam,
+  fetchTeamLookup,
   fetchWorkQueue,
   linkCell,
   queueAction,
@@ -101,7 +101,7 @@ export function DashboardScreen() {
       try {
         const [queue, team, cellPage] = await Promise.all([
           fetchWorkQueue(token),
-          fetchTeam(token),
+          fetchTeamLookup(token),
           fetchCells(token),
         ]);
         setItems(queue.items);

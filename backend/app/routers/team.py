@@ -149,12 +149,15 @@ def _admin_user_ids(db: Session, igreja_id: uuid.UUID) -> set[uuid.UUID]:
 def list_members(
     pagination: PaginationParams = Depends(),
     db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(
+        require_role(["admin", "pastor", "lider_g12"])
+    ),
 ) -> Page[TeamMemberOut]:
-    """List tenant members and their accumulated roles (F3).
+    """List tenant members with e-mail and accumulated roles (F3).
 
-    Tenant-scoped via RLS; used by the dashboard to populate the "assign"
-    picker and the "next actions by responsible" panel. Paginated (RNF-09).
+    Restrita a quem enxerga a tela Equipe (admin/pastor/lider_g12): a resposta
+    expõe e-mail (PII) e o mapa de papéis. O painel usa GET /team/lookup (enxuto,
+    sem e-mail) para resolver nomes — não este endpoint. Paginado (RNF-09).
     """
     ensure_tenant_context(db, current_user)
 
@@ -182,6 +185,54 @@ def list_members(
                 nome=u.nome,
                 email=u.email,
                 status=u.status,
+                papeis=sorted(roles_by_user.get(u.id, [])),
+                pessoaId=str(u.pessoa_id) if u.pessoa_id else None,
+            )
+            for u in users
+        ],
+        page=pagination.page,
+        pageSize=pagination.page_size,
+        total=int(total),
+    )
+
+
+@router.get("/lookup", response_model=Page[TeamMemberOut])
+def list_members_lookup(
+    pagination: PaginationParams = Depends(),
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> Page[TeamMemberOut]:
+    """Lista ENXUTA de membros (id, nome, papéis) para o painel.
+
+    Acessível a qualquer usuário autenticado do tenant: o dashboard precisa
+    resolver o NOME (e o papel) do responsável de cada item da fila — para todos
+    os papéis. O e-mail (PII) é OMITIDO de propósito; a lista completa com e-mail
+    vive em GET /team, restrita a admin/pastor/lider_g12.
+    """
+    ensure_tenant_context(db, current_user)
+
+    total = db.execute(
+        select(func.count()).select_from(AppUser)
+    ).scalar_one()
+    users = db.execute(
+        select(AppUser)
+        .order_by(AppUser.nome.asc())
+        .offset(pagination.offset)
+        .limit(pagination.limit)
+    ).scalars().all()
+
+    role_rows = db.execute(select(UserRole.user_id, UserRole.papel)).all()
+    roles_by_user: dict[uuid.UUID, list[str]] = {}
+    for user_id, papel in role_rows:
+        roles_by_user.setdefault(user_id, []).append(papel)
+
+    return Page[TeamMemberOut](
+        items=[
+            TeamMemberOut(
+                usuarioId=str(u.id),
+                nome=u.nome,
+                email="",  # PII omitida na busca enxuta do painel
+                status=None,
                 papeis=sorted(roles_by_user.get(u.id, [])),
                 pessoaId=str(u.pessoa_id) if u.pessoa_id else None,
             )
