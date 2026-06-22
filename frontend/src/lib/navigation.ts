@@ -48,7 +48,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { target: "inbox", label: "Chat", icon: "chat" },
       { target: "calendario", label: "Agenda da Igreja", icon: "calendar" },
       { target: "comunicados", label: "Comunicação", icon: "broadcast" },
-      { target: "equipe", label: "Pessoas", icon: "team" },
+      { target: "equipe", label: "Equipe", icon: "team" },
     ],
   },
   {
@@ -106,33 +106,119 @@ export const NAV_SECTIONS: NavSection[] = [
       { target: "whatsapp", label: "Conexão WhatsApp", icon: "whatsapp" },
       { target: "agente", label: "Agente IA", icon: "agent" },
       { target: "assinatura", label: "Assinatura", icon: "card" },
-      { target: "gerentes", label: "Gerentes de Sistema", icon: "shield" },
       { target: "permissoes", label: "Permissões", icon: "lock" },
     ],
   },
 ];
 
-/** Metadados de tela (título/crumb da topbar) para todas as rotas conhecidas. */
-export const SCREEN_META: Record<string, { title: string; crumb: string }> = {
-  dashboard: { title: "Dashboard", crumb: "Pendências de hoje" },
-  inbox: { title: "Chat", crumb: "WhatsApp da Igreja" },
-  calendario: { title: "Agenda da Igreja", crumb: "Eventos e cultos" },
-  comunicados: { title: "Comunicação", crumb: "Envios segmentados" },
-  equipe: { title: "Pessoas", crumb: "Quem usa o sistema" },
-  ganhar: { title: "Ganhar", crumb: "Novos contatos e visitantes" },
-  consolidar: { title: "Consolidar", crumb: "Fila de consolidação" },
-  "consol-individual": { title: "Consolidação Individual", crumb: "Acompanhamento 1:1" },
-  "universidade-vida": { title: "Universidade da Vida", crumb: "Em breve" },
-  capacitacao: { title: "Capacitação Destino", crumb: "Em breve" },
-  g12: { title: "G12 · Descendências", crumb: "Organograma" },
-  "central-celula": { title: "Central de Célula", crumb: "Líderes e relatórios" },
-  enviar: { title: "Enviar", crumb: "Multiplicações" },
-  whatsapp: { title: "Conexão WhatsApp", crumb: "Configuração" },
-  agente: { title: "Agente IA", crumb: "Configuração" },
-  assinatura: { title: "Assinatura", crumb: "Configuração" },
-  gerentes: { title: "Gerentes de Sistema", crumb: "Configuração" },
-  permissoes: { title: "Permissões", crumb: "Matriz papel × tela" },
-  contatos: { title: "Contatos", crumb: "Cadastro" },
-  celulas: { title: "Células", crumb: "Cadastro" },
-  relatorios: { title: "Relatórios", crumb: "Recebidos e pendentes" },
+/** Metadados de tela (título/crumb + info da topbar) para as rotas conhecidas. */
+export const SCREEN_META: Record<
+  string,
+  { title: string; crumb: string; info?: string }
+> = {
+  dashboard: {
+    title: "Dashboard",
+    crumb: "Pendências de hoje",
+    info: "Fila de trabalho pastoral — o que exige sua ação hoje.",
+  },
+  inbox: {
+    title: "Chat",
+    crumb: "WhatsApp da Igreja",
+    info: "Conversas pelo número oficial. Apenas o número da igreja é registrado — conversas pessoais do pastor não entram aqui.",
+  },
+  calendario: {
+    title: "Agenda da Igreja",
+    crumb: "Eventos e cultos",
+    info: "Eventos da igreja, sincronizados com o Google Calendar.",
+  },
+  comunicados: {
+    title: "Comunicação",
+    crumb: "Envios segmentados",
+    info: "Envio segmentado pelo WhatsApp oficial. Contatos com opt-out são excluídos automaticamente.",
+  },
+  equipe: {
+    title: "Equipe",
+    crumb: "Quem usa o sistema",
+    info: "Quem tem acesso ao painel. Cada pessoa acumula papéis, e o menu e o dashboard são a união deles (o que cada papel enxerga é definido em Permissões).",
+  },
+  ganhar: {
+    title: "Ganhar",
+    crumb: "Novos contatos e visitantes",
+    info: "Quem fala com a igreja vira contato; quem já foi à célula ou a um evento vira visitante — até aceitar Jesus ou completar 3 presenças.",
+  },
+  consolidar: {
+    title: "Consolidar",
+    crumb: "Fila de consolidação",
+    info: "Quem decidiu por Jesus e precisa de acompanhamento no prazo, da fonovisita à conexão com uma célula.",
+  },
+  "consol-individual": {
+    title: "Consolidação Individual",
+    crumb: "Acompanhamento 1:1",
+    info: "Acompanhamento individual (1:1) da trilha de consolidação, etapa por etapa.",
+  },
+  "universidade-vida": {
+    title: "Universidade da Vida",
+    crumb: "Em breve",
+    info: "Trilha de discipulado da Universidade da Vida (em breve).",
+  },
+  capacitacao: {
+    title: "Capacitação Destino",
+    crumb: "Em breve",
+    info: "Trilha de capacitação de líderes (em breve).",
+  },
+  g12: {
+    title: "G12 · Descendências",
+    crumb: "Organograma",
+    info: "Organograma G12 e descendências de liderança da igreja.",
+  },
+  "central-celula": {
+    title: "Central de Célula",
+    crumb: "Líderes e relatórios",
+    info: "Central de células: líderes, relatórios semanais e supervisão.",
+  },
+  enviar: {
+    title: "Enviar",
+    crumb: "Multiplicações",
+    info: "Multiplicação de células — o envio na visão G12.",
+  },
+  whatsapp: {
+    title: "Conexão WhatsApp",
+    crumb: "Configuração",
+    info: "Conexão do número oficial de WhatsApp da igreja (QR Code e status).",
+  },
+  agente: {
+    title: "Agente IA",
+    crumb: "Configuração",
+    info: "Configuração do agente de IA: comportamento e credencial do modelo (BYO).",
+  },
+  assinatura: {
+    title: "Assinatura",
+    crumb: "Configuração",
+    info: "Plano e assinatura da igreja.",
+  },
+  permissoes: {
+    title: "Permissões",
+    crumb: "Matriz papel × tela",
+    info: "Matriz papel × tela: o que cada papel enxerga no menu e no dashboard.",
+  },
+  contatos: {
+    title: "Contatos",
+    crumb: "Cadastro",
+    info: "Todas as pessoas da igreja. Filtre por acompanhamento e conecte a células.",
+  },
+  celulas: {
+    title: "Células",
+    crumb: "Cadastro",
+    info: "Cadastro das células da igreja, com líder e cobertura.",
+  },
+  relatorios: {
+    title: "Relatórios",
+    crumb: "Recebidos e pendentes",
+    info: "Relatórios semanais de célula: recebidos e pendentes.",
+  },
+  perfil: {
+    title: "Meu Perfil",
+    crumb: "Conta",
+    info: "Seus dados de acesso: nome de exibição e senha.",
+  },
 };

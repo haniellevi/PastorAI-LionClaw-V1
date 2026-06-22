@@ -112,13 +112,6 @@ export function G12Screen() {
   return (
     <div className="screen" key="g12">
       <div className="screen-head">
-        <div className="titles">
-          <h2>Painel do Discipular</h2>
-          <p>
-            Organograma ministerial da igreja na Visão G12, começando pela liderança principal.
-            Cada pessoa lidera seu time e abre sua própria descendência.
-          </p>
-        </div>
         <div className="actions">
           <button type="button" className="btn btn-sm" onClick={() => void load("retry")} disabled={loading}>
             <Icon name="refresh" />

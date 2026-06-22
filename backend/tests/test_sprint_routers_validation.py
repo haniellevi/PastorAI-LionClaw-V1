@@ -46,10 +46,6 @@ def test_roles_permissions_requires_auth(app) -> None:
     assert _client(app).get("/roles/permissions").status_code == 401
 
 
-def test_system_managers_requires_auth(app) -> None:
-    assert _client(app).get("/system-managers").status_code == 401
-
-
 def test_subscription_requires_auth(app) -> None:
     assert _client(app).get("/subscription").status_code == 401
 
@@ -88,16 +84,20 @@ def test_event_requires_data(app) -> None:
 def test_team_invite_rejects_invalid_email(app) -> None:
     resp = _client(app).post(
         "/team/invite",
-        json={"nome": "Novo", "email": "invalido", "papeis": []},
+        json={
+            "pessoaId": "00000000-0000-0000-0000-0000000000b1",
+            "email": "invalido",
+        },
         headers=_AUTH,
     )
     assert resp.status_code == 422
 
 
-def test_team_invite_rejects_invalid_role(app) -> None:
+def test_team_invite_requires_pessoa(app) -> None:
+    # Convites não escolhem papéis e exigem uma pessoa já cadastrada (delta-049).
     resp = _client(app).post(
         "/team/invite",
-        json={"nome": "Novo", "email": "novo@ex.com", "papeis": ["arcanjo"]},
+        json={"email": "novo@ex.com"},
         headers=_AUTH,
     )
     assert resp.status_code == 422
@@ -117,16 +117,6 @@ def test_roles_permissions_rejects_invalid_role(app) -> None:
     resp = _client(app).put(
         "/roles/permissions",
         json={"matriz": {"arcanjo": ["dashboard"]}},
-        headers=_AUTH,
-    )
-    assert resp.status_code == 422
-
-
-# ---- system managers validation -------------------------------------------
-def test_system_manager_rejects_invalid_papel(app) -> None:
-    resp = _client(app).post(
-        "/system-managers",
-        json={"nome": "Op", "email": "op@ex.com", "papelOperacional": "rei"},
         headers=_AUTH,
     )
     assert resp.status_code == 422

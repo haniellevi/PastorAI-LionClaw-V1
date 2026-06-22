@@ -126,9 +126,16 @@ class AppUser(Base):
     pessoa_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("pessoas.id", ondelete="SET NULL"), nullable=True
     )
+    # Convite Parte B (delta-049): célula destino guardada até a ativação criar
+    # a Pessoa-membro. NULL na Parte A e após a ativação.
+    celula_pendente_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("celulas.id", ondelete="SET NULL"), nullable=True
+    )
     nome: Mapped[str] = mapped_column(Text, nullable=False)
     email: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Nome de exibição no chat do WhatsApp (assinatura). NULL = usa `nome`.
+    chat_nome: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
@@ -293,6 +300,22 @@ class Message(Base):
     direcao: Mapped[str] = mapped_column(String, nullable=False)
     autor: Mapped[str] = mapped_column(String, nullable=False)
     texto: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Mídia (Etapa 2 do chat): o binário vive no Supabase Storage (bucket
+    # whatsapp-media); aqui guardamos só o ponteiro + metadados. tipo='texto'
+    # para mensagens de texto puro (default).
+    tipo: Mapped[str] = mapped_column(
+        String, nullable=False, server_default=text("'texto'")
+    )
+    media_path: Mapped[str | None] = mapped_column(Text, nullable=True)
+    media_mime: Mapped[str | None] = mapped_column(Text, nullable=True)
+    media_nome: Mapped[str | None] = mapped_column(Text, nullable=True)
+    media_tamanho: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Autoria (Parte A do chat): quem enviou a resposta humana. autor_nome é o
+    # snapshot do nome exibido no envio; enviado_por é o app_user (auditoria).
+    autor_nome: Mapped[str | None] = mapped_column(Text, nullable=True)
+    enviado_por: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("app_users.id", ondelete="SET NULL"), nullable=True
+    )
     criado_em: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
@@ -582,22 +605,6 @@ class Event(Base):
     )
 
 
-class SystemManager(Base):
-    """Operational system manager / operator (papel_operacional)."""
-
-    __tablename__ = "system_managers"
-
-    id: Mapped[uuid.UUID] = _uuid_pk()
-    igreja_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("igrejas.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    nome: Mapped[str] = mapped_column(Text, nullable=False)
-    email: Mapped[str] = mapped_column(Text, nullable=False)
-    papel_operacional: Mapped[str | None] = mapped_column(String, nullable=True)
-
-
 class WhatsappConnection(Base):
     """Official WhatsApp connection per igreja (1:1, RF-07 / US-05..US-07).
 
@@ -740,6 +747,107 @@ class AgentConversationLog(Base):
     )
 
 
+class Plano(Base):
+    """Catálogo de planos do SaaS (preço mensal por porte) — definido pelo master.
+
+    Tabela de REFERÊNCIA GLOBAL (sem igreja_id): o console de plataforma faz o
+    CRUD e todos os tenants leem (tela de Assinatura). ``igrejas.plano`` guarda
+    o ``codigo`` deste catálogo. Fonte única do preço para MRR/detalhe. Ver
+    migration 0012.
+    """
+
+    __tablename__ = "planos"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    codigo: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    nome: Mapped[str] = mapped_column(Text, nullable=False)
+    limite_pessoas: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    preco_mensal: Mapped[float] = mapped_column(
+        Numeric(10, 2), nullable=False, server_default=text("0")
+    )
+    ativo: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
+    ordem: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+
+class PlatformAuditLog(Base):
+    """Log de auditoria das ações cross-tenant do console master (M3).
+
+    Plano de plataforma (sem igreja_id). Histórico imutável: ``actor_id`` e
+    ``alvo_id`` NÃO têm FK de propósito, para o rastro sobreviver à exclusão da
+    igreja/usuário. Ver migration 0013 e ``_audit`` (routers/platform_admin.py).
+    """
+
+    __tablename__ = "platform_audit_log"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    actor_email: Mapped[str | None] = mapped_column(Text, nullable=True)
+    acao: Mapped[str] = mapped_column(Text, nullable=False)
+    alvo_tipo: Mapped[str] = mapped_column(Text, nullable=False)
+    alvo_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    alvo_nome: Mapped[str | None] = mapped_column(Text, nullable=True)
+    detalhe: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+
+class PlatformAdmin(Base):
+    """Super-Admin allowlist (console multi-tenant — Onda 1 / US-42/43).
+
+    Platform plane: it has NO igreja_id and is NOT subject to per-tenant RLS.
+    A row elevates an app_user to a platform administrator able to manage every
+    igreja. See migration 0010 and ``get_platform_admin`` (app/deps.py).
+    """
+
+    __tablename__ = "platform_admins"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    app_user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("app_users.id", ondelete="CASCADE"),
+        unique=True,
+        nullable=False,
+    )
+    email: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+
+class PlatformOrchestrator(Base):
+    """Modelo padrão do orquestrador (1 linha), definido pelo master.
+
+    Padrão TEMPLATE: o master define um comportamento base e, ao aprovar uma
+    igreja, ele é COPIADO para o ``AgentConfig`` dela (por igreja). O runtime do
+    agente NÃO muda — segue lendo o AgentConfig por igreja. Plano de plataforma
+    (sem igreja_id), só service role. Ver migration 0014.
+    """
+
+    __tablename__ = "platform_orchestrator"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    nome: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tom: Mapped[str | None] = mapped_column(Text, nullable=True)
+    comportamento: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("''")
+    )
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+
 __all__ = [
     "Base",
     "Igreja",
@@ -761,11 +869,14 @@ __all__ = [
     "Report",
     "Broadcast",
     "Event",
-    "SystemManager",
     "WhatsappConnection",
     "ConsentRecord",
     "AgentConfig",
     "LlmCredential",
     "AiUsageLog",
     "AgentConversationLog",
+    "Plano",
+    "PlatformAdmin",
+    "PlatformAuditLog",
+    "PlatformOrchestrator",
 ]

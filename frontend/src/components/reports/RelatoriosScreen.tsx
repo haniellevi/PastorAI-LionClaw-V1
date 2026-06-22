@@ -180,13 +180,6 @@ export function RelatoriosScreen() {
   return (
     <div className="screen" key="relatorios">
       <div className="screen-head">
-        <div className="titles">
-          <h2>Relatórios de célula</h2>
-          <p>
-            Líderes enviam o relatório semanal pelo WhatsApp. Veja o que chegou e
-            cobre quem está pendente.
-          </p>
-        </div>
         <div className="actions">
           <div className="tabs">
             <button

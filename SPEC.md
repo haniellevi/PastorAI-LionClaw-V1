@@ -343,6 +343,8 @@
 | email | text NOT NULL | data-system-managers.email |
 | papel_operacional | enum(`admin_sistema`,`operador`) | data-system-managers.papelOperacional |
 
+> **[Fase 1 — divergência de implementação · 2026-06-14]** Tabela `system_managers` **descontinuada**: `operador` → papel `operador` em `user_roles`; `admin_sistema` → papel `admin`. Módulo `system_managers.py` e a API `api-system-managers` (`/system-managers`) **removidos**; a tela `#gerentes`/`nav-gerentes` saiu do contrato operacional (gestão concentra-se em `#equipe` + `#permissoes`). Migração: `0008_add_operador_role.sql` (enums) + `0009_unify_system_managers.sql` (backfill); tabela/enum não dropados ainda (rollback). Conceder acesso passa a vincular `app_user` a uma `pessoa` (FK `app_users.pessoa_id`).
+
 #### `consolidacoes` (data-consolidacao; US-38/39 — delta-018)
 | Campo | Tipo | Notas |
 |-------|------|-------|
@@ -563,7 +565,7 @@ backend/
 | api-whatsapp-connection | `GET/POST /whatsapp/connection` | whatsapp | action-connect-whatsapp, action-reconnect-whatsapp | US-05, US-06, US-07 |
 | api-llm-credential | `POST /agent/credential` | agente | action-save-llm-key | US-27 |
 | api-agent-config | `PUT /agent/config` | agente | action-save-agent | US-28 |
-| api-crons | `POST /agent/crons` | agente | action-save-cron | US-29 |
+| api-crons | `GET/POST /agent/crons`, `PUT /agent/crons/{id}` | agente | action-save-cron | US-29 |
 | api-team-invite | `POST /team/invite` | equipe | action-invite-user | US-03, US-04 |
 | api-team-roles | `PUT /team/{usuarioId}/roles` | equipe | action-edit-roles | US-03, US-04 |
 | api-subscription | `GET/POST /subscription` | assinatura | action-contract-plan, action-manage-billing | US-34, US-35, US-36 |

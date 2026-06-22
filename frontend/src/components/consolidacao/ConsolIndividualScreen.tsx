@@ -52,14 +52,6 @@ export function ConsolIndividualScreen() {
   return (
     <div className="screen" key="consol-individual">
       <div className="screen-head">
-        <div className="titles">
-          <h2>Consolidação Individual</h2>
-          <p>
-            Acompanhamento um a um de quem decidiu por Jesus. Clique numa pessoa para
-            abrir a trilha. Quem confirma cada visita é o consolidador dela — a central
-            apenas supervisiona, e o orquestrador lembra quem estiver em atraso.
-          </p>
-        </div>
         <div className="actions">
           <button type="button" className="btn btn-primary" onClick={() => c.openDecision()}>
             <Icon name="plus" />

@@ -20,6 +20,7 @@ def test_admin_and_privileged_roles_access_inbox() -> None:
     assert can_access_inbox(["admin"]) is True
     assert can_access_inbox(["pastor"]) is True
     assert can_access_inbox(["lider_g12"]) is True
+    assert can_access_inbox(["operador"]) is True
 
 
 def test_cell_leader_cannot_access_inbox() -> None:
@@ -103,6 +104,78 @@ def test_parse_message_event_requires_message_id() -> None:
 def test_parse_message_event_handles_malformed() -> None:
     assert parse_message_event(None) is None  # type: ignore[arg-type]
     assert parse_message_event({}) is None
+
+
+# ---- media parsing (Etapa 2) ----------------------------------------------
+def test_parse_message_event_image() -> None:
+    payload = _message_payload()
+    payload["data"]["message"] = {
+        "imageMessage": {"mimetype": "image/jpeg", "caption": "olha isso"}
+    }
+    parsed = parse_message_event(payload)
+    assert parsed is not None
+    assert parsed.media_kind == "imagem"
+    assert parsed.media_mime == "image/jpeg"
+    assert parsed.media_nome is None
+    assert parsed.texto == "olha isso"  # caption vira o texto da mensagem
+
+
+def test_parse_message_event_document() -> None:
+    payload = _message_payload()
+    payload["data"]["message"] = {
+        "documentMessage": {"mimetype": "application/pdf", "fileName": "contrato.pdf"}
+    }
+    parsed = parse_message_event(payload)
+    assert parsed is not None
+    assert parsed.media_kind == "arquivo"
+    assert parsed.media_mime == "application/pdf"
+    assert parsed.media_nome == "contrato.pdf"
+
+
+def test_parse_message_event_audio() -> None:
+    payload = _message_payload()
+    payload["data"]["message"] = {"audioMessage": {"mimetype": "audio/ogg"}}
+    parsed = parse_message_event(payload)
+    assert parsed is not None
+    assert parsed.media_kind == "audio"
+    assert parsed.media_mime == "audio/ogg"
+
+
+def test_parse_message_event_document_with_caption() -> None:
+    payload = _message_payload()
+    payload["data"]["message"] = {
+        "documentWithCaptionMessage": {
+            "message": {
+                "documentMessage": {
+                    "mimetype": "application/pdf",
+                    "fileName": "bola.pdf",
+                    "caption": "segue o arquivo",
+                }
+            }
+        }
+    }
+    parsed = parse_message_event(payload)
+    assert parsed is not None
+    assert parsed.media_kind == "arquivo"
+    assert parsed.media_nome == "bola.pdf"
+    assert parsed.texto == "segue o arquivo"
+
+
+def test_parse_message_event_plain_text_has_no_media() -> None:
+    parsed = parse_message_event(_message_payload())
+    assert parsed is not None
+    assert parsed.media_kind is None
+    assert parsed.media_mime is None
+
+
+def test_media_snippet_labels() -> None:
+    from app.domain.conversations import media_snippet
+
+    assert media_snippet("imagem") == "📷 Imagem"
+    assert media_snippet("arquivo") == "📎 Arquivo"
+    assert media_snippet("audio") == "🎤 Áudio"
+    assert media_snippet(None) == ""
+    assert media_snippet("texto") == ""
 
 
 # ---- signature verification -----------------------------------------------

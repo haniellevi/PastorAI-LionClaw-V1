@@ -10,7 +10,6 @@ import { CelulasScreen } from "@/components/cells/CelulasScreen";
 import { AgenteScreen } from "@/components/config/AgenteScreen";
 import { AssinaturaScreen } from "@/components/config/AssinaturaScreen";
 import { EquipeScreen } from "@/components/config/EquipeScreen";
-import { GerentesScreen } from "@/components/config/GerentesScreen";
 import { PermissoesScreen } from "@/components/config/PermissoesScreen";
 import { CentralCelulaScreen } from "@/components/central-celula/CentralCelulaScreen";
 import { ComunicadosScreen } from "@/components/comunicados/ComunicadosScreen";
@@ -25,6 +24,7 @@ import { G12Screen } from "@/components/g12/G12Screen";
 import { InboxScreen } from "@/components/inbox/InboxScreen";
 import { RelatoriosScreen } from "@/components/reports/RelatoriosScreen";
 import { WhatsappScreen } from "@/components/whatsapp/WhatsappScreen";
+import { PerfilScreen } from "@/components/profile/PerfilScreen";
 import { Icon } from "@/lib/icons";
 import { SCREEN_META } from "@/lib/navigation";
 
@@ -80,9 +80,6 @@ export function ScreenView({ route, param }: { route: string; param?: string | n
   if (route === "permissoes") {
     return <PermissoesScreen />;
   }
-  if (route === "gerentes") {
-    return <GerentesScreen />;
-  }
   if (route === "assinatura") {
     return <AssinaturaScreen />;
   }
@@ -94,6 +91,9 @@ export function ScreenView({ route, param }: { route: string; param?: string | n
   }
   if (route === "capacitacao") {
     return <LockedScreen variant="capacitacao" />;
+  }
+  if (route === "perfil") {
+    return <PerfilScreen />;
   }
 
   return (

@@ -23,15 +23,23 @@ from app.domain.phone import normalize_phone
 ADMIN_ROLE = "admin"
 
 # Roles privileged to open the inbox / human handoff (US-11). Cell leaders
-# (lider_celula) are intentionally excluded. Mirrors the work-queue
-# "atendimento" resolvers (pastor / lider_g12), plus admin (implicit).
-INBOX_ROLES: frozenset[str] = frozenset({"pastor", "lider_g12"})
+# (lider_celula) are intentionally excluded. Covers pastor / lider_g12 and the
+# operational "operador" (atendimento), plus admin (implicit). Single source of
+# truth — the conversations router derives its require_role list from this set.
+INBOX_ROLES: frozenset[str] = frozenset({"pastor", "lider_g12", "operador"})
 
 # Conversation states (conversation_estado enum).
 VALID_ESTADOS: frozenset[str] = frozenset({"ia", "humano", "aguardando"})
 
 # Provider event that carries a chat message.
 MESSAGE_EVENT = "messages.upsert"
+
+
+def media_snippet(kind: str | None) -> str:
+    """Short list label for media that arrives without a caption (Etapa 2)."""
+    return {"imagem": "📷 Imagem", "arquivo": "📎 Arquivo", "audio": "🎤 Áudio"}.get(
+        kind or "", ""
+    )
 
 
 def can_access_inbox(roles: Iterable[str]) -> bool:
@@ -79,6 +87,17 @@ class ParsedMessage:
     texto: str | None
     push_name: str | None
     from_me: bool
+    # Canonical number of the instance owner (the church's own official number),
+    # when the provider includes it. Used to never ingest the church's own
+    # number as a contact (self-chat / history sync on connect).
+    owner: str | None = None
+    # Media (Etapa 2): when the message carries an image/document/audio, the
+    # kind (imagem|arquivo|audio) plus its mimetype and original filename. The
+    # bytes are NOT here — the worker pulls them from Evolution on demand and
+    # uploads to Storage. None for plain-text messages.
+    media_kind: str | None = None
+    media_mime: str | None = None
+    media_nome: str | None = None
 
 
 def _extract_text(message: dict[str, Any]) -> str | None:
@@ -95,6 +114,46 @@ def _extract_text(message: dict[str, Any]) -> str | None:
         media = message.get(media_key)
         if isinstance(media, dict) and isinstance(media.get("caption"), str):
             return media["caption"]
+    # documentWithCaptionMessage wraps a documentMessage one level down.
+    wrapped = message.get("documentWithCaptionMessage")
+    if isinstance(wrapped, dict):
+        inner = (wrapped.get("message") or {}).get("documentMessage")
+        if isinstance(inner, dict) and isinstance(inner.get("caption"), str):
+            return inner["caption"]
+    return None
+
+
+def _extract_media(message: dict[str, Any]) -> tuple[str, str | None, str | None] | None:
+    """Detect a media payload on an Evolution `message` object.
+
+    Returns ``(kind, mimetype, filename)`` where kind is imagem|arquivo|audio,
+    or None for a plain-text message. The bytes are fetched later (worker) via
+    the message key — here we only classify and read the metadata.
+    """
+    if not isinstance(message, dict):
+        return None
+    img = message.get("imageMessage")
+    if isinstance(img, dict):
+        return ("imagem", img.get("mimetype") or "image/jpeg", None)
+    aud = message.get("audioMessage")
+    if isinstance(aud, dict):
+        return ("audio", aud.get("mimetype") or "audio/ogg", None)
+    doc = message.get("documentMessage")
+    if isinstance(doc, dict):
+        return (
+            "arquivo",
+            doc.get("mimetype") or "application/octet-stream",
+            doc.get("fileName") or doc.get("title"),
+        )
+    wrapped = message.get("documentWithCaptionMessage")
+    if isinstance(wrapped, dict):
+        inner = (wrapped.get("message") or {}).get("documentMessage")
+        if isinstance(inner, dict):
+            return (
+                "arquivo",
+                inner.get("mimetype") or "application/octet-stream",
+                inner.get("fileName") or inner.get("title"),
+            )
     return None
 
 
@@ -140,12 +199,23 @@ def parse_message_event(payload: dict[str, Any]) -> ParsedMessage | None:
     if not telefone:
         return None
 
+    # The instance owner (church's own number) — Evolution puts it in `sender`.
+    sender = payload.get("sender")
+    owner = normalize_phone(_phone_from_jid(sender)) if isinstance(sender, str) else None
+
+    message = data.get("message") or {}
+    media = _extract_media(message)
+
     return ParsedMessage(
         instance=instance,
         provider_message_id=provider_message_id,
         telefone=telefone,
         telefone_raw=telefone_raw,
-        texto=_extract_text(data.get("message") or {}),
+        texto=_extract_text(message),
         push_name=data.get("pushName") if isinstance(data.get("pushName"), str) else None,
         from_me=bool(key.get("fromMe", False)),
+        owner=owner or None,
+        media_kind=media[0] if media else None,
+        media_mime=media[1] if media else None,
+        media_nome=media[2] if media else None,
     )

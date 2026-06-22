@@ -271,16 +271,6 @@ export function ComunicadosScreen() {
 
   return (
     <div className="screen" key="comunicados">
-      <div className="screen-head">
-        <div className="titles">
-          <h2>Comunicados</h2>
-          <p>
-            Envio segmentado pelo WhatsApp oficial. Contatos com opt-out são
-            excluídos automaticamente.
-          </p>
-        </div>
-      </div>
-
       {error ? (
         <div className="error-banner" role="alert">
           <Icon name="alert" />

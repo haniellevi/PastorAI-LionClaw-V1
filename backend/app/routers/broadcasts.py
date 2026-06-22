@@ -27,7 +27,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Broadcast, Pessoa, WhatsappConnection
 from app.db.session import get_db
-from app.deps import CurrentUser, require_role
+from app.deps import CurrentUser, require_screen
 from app.domain.broadcast import RecipientCandidate, resolve_audience
 from app.routers._common import Page, PaginationParams, ensure_tenant_context
 from app.services.evolution import EvolutionClient, EvolutionError, get_evolution_client
@@ -131,7 +131,7 @@ def _scheduled_for(agendamento: ScheduleIn | None) -> str | None:
 def list_broadcasts(
     pagination: PaginationParams = Depends(),
     db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(require_role(["pastor", "lider_g12"])),
+    current_user: CurrentUser = Depends(require_screen("comunicados")),
 ) -> Page[BroadcastOut]:
     """Return the tenant's broadcasts, newest first (RNF-09)."""
     ensure_tenant_context(db, current_user)
@@ -156,7 +156,7 @@ def list_broadcasts(
 def create_broadcast(
     payload: CreateBroadcastRequest,
     db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(require_role(["pastor", "lider_g12"])),
+    current_user: CurrentUser = Depends(require_screen("comunicados")),
     evolution: EvolutionClient = Depends(get_evolution_client),
 ) -> BroadcastResponse:
     """Resolve the audience (honoring opt-out) and send or schedule it.

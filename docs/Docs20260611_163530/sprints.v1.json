@@ -565,13 +565,13 @@
       "id": "sprint-008",
       "index": 7,
       "name": "Backend Relatorios, Comunicados, Eventos e Equipe/Config",
-      "description": "Routers restantes: relatorios de celula, comunicados segmentados (consentimento/opt-out), eventos (Google Calendar), equipe/convites (Resend), permissoes, gerentes, assinatura (Asaas) e config do agente/crons.",
+      "description": "Routers restantes: relatorios de celula, comunicados segmentados (consentimento/opt-out), eventos (Google Calendar), equipe/convites (Brevo), permissoes, gerentes, assinatura (Asaas) e config do agente/crons.",
       "coder_agent_id": "backend-developer",
       "stack": [
         "python",
         "fastapi",
         "asaas",
-        "resend",
+        "brevo",
         "google-calendar"
       ],
       "features": [
@@ -589,9 +589,9 @@
         {
           "id": "feat-025",
           "name": "Equipe, permissoes e gerentes",
-          "description": "Endpoints api-team-invite (POST /team/invite via Resend), api-team-roles (PUT /team/{usuarioId}/roles), api-role-perms (GET/PUT /roles/permissions) e api-system-managers (GET/POST/DELETE /system-managers).",
+          "description": "Endpoints api-team-invite (POST /team/invite via Brevo), api-team-roles (PUT /team/{usuarioId}/roles), api-role-perms (GET/PUT /roles/permissions) e api-system-managers (GET/POST/DELETE /system-managers).",
           "acceptance_criteria": [
-            "POST /team/invite cria app_user status=convidado e envia link de ativacao via Resend; e-mail duplicado retorna erro",
+            "POST /team/invite cria app_user status=convidado e envia link de ativacao via Brevo; e-mail duplicado retorna erro",
             "PUT /team/{usuarioId}/roles edita papeis acumulados; remover/rebaixar o ultimo admin e bloqueado",
             "GET/PUT /roles/permissions le/atualiza a matriz papel x tela; dashboard nao pode ser removido",
             "GET/POST/DELETE /system-managers gerencia operadores de sistema (papel_operacional)"

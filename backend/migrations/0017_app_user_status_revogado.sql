@@ -1,5 +1,5 @@
 -- ============================================================================
--- PastorAI 1.0 — Migration 0008: status "revogado" para app_users
+-- PastorAI 1.0 — Migration 0017: status "revogado" para app_users
 -- RF-04 / US-03 / SPEC S3 — revogacao de acesso de usuarios da igreja.
 --
 -- Acrescenta o valor 'revogado' ao enum app_user_status (antes: 'ativo',
@@ -7,13 +7,10 @@
 -- status='revogado' para preservar auditoria/historico; o bloqueio efetivo
 -- de acesso e aplicado no backend (get_current_user + login).
 --
--- Idempotente: ADD VALUE IF NOT EXISTS — re-executar e no-op.
--- PG 12+ permite ADD VALUE dentro de transacao desde que o valor nao seja
--- usado na mesma transacao (aqui so e adicionado). Supabase roda PG 15.
+-- IMPORTANTE (PostgreSQL): ALTER TYPE ... ADD VALUE NAO pode ser referenciado
+-- na MESMA transacao em que e adicionado, e em PG<12 nem roda dentro de
+-- BEGIN/COMMIT. Por isso esta migration NAO abre transacao: o statement
+-- auto-commita. IF NOT EXISTS => idempotente (re-rodar e no-op).
 -- ============================================================================
 
-begin;
-
 alter type app_user_status add value if not exists 'revogado';
-
-commit;

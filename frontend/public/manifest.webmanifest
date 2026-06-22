@@ -1,6 +1,6 @@
 {
-  "name": "PastorAI — Painel da Igreja",
-  "short_name": "PastorAI",
+  "name": "Igreja 12 — Painel da Igreja",
+  "short_name": "Igreja 12",
   "description": "Sistema agêntico de gestão de igrejas na Visão G12.",
   "start_url": "/#dashboard",
   "scope": "/",

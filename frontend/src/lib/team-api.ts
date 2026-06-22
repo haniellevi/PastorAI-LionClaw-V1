@@ -11,8 +11,9 @@
  *  - e-mail duplicado no tenant é rejeitado (409);
  *  - remover/rebaixar OU revogar o último admin ativo é bloqueado (409) — a
  *    igreja nunca fica sem administrador (F3 / RF-04);
- *  - papéis são a UNIÃO de user_roles; o convite cria um app_user `convidado`
- *    e dispara o e-mail de ativação via Resend (best-effort);
+ *  - o convite NÃO escolhe papéis: o convidado entra como `membro` vinculado a
+ *    uma célula; o e-mail de ativação é disparado via Brevo (best-effort). Papéis
+ *    são a UNIÃO de user_roles, editados depois só para pessoas já cadastradas;
  *  - revogar é soft: o usuário fica com status `revogado` (auditoria preservada)
  *    e perde o acesso ao painel imediatamente.
  */
@@ -46,7 +47,7 @@ export class TeamConflictError extends Error {
 
 export async function inviteMember(
   token: string,
-  payload: { nome: string; email: string; papeis: Role[] },
+  payload: { pessoaId?: string; nome?: string; email: string; celulaId?: string },
 ): Promise<InviteResult> {
   const res = await authedFetch(token, "/team/invite", {
     method: "POST",
@@ -85,6 +86,22 @@ export async function updateRoles(
   return (await res.json()) as RolesResult;
 }
 
+/** Reenvia o e-mail de ativação para um membro convidado (best-effort). */
+export async function resendInvite(
+  token: string,
+  usuarioId: string,
+): Promise<InviteResult> {
+  const res = await authedFetch(token, `/team/${usuarioId}/resend`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível reenviar o convite.");
+  }
+  return (await res.json()) as InviteResult;
+}
+
+/** Revoga o acesso de um membro (soft: status 'revogado'; 409 no último admin). */
 export async function revokeAccess(
   token: string,
   usuarioId: string,

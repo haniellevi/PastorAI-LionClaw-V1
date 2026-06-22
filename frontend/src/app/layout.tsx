@@ -6,17 +6,17 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: {
-    default: "PastorAI — Painel da Igreja",
-    template: "%s · PastorAI",
+    default: "Igreja 12 — Painel da Igreja",
+    template: "%s · Igreja 12",
   },
   description:
     "Sistema agêntico de gestão de igrejas na Visão G12: consolidação, discipulado e células orquestrados por IA no WhatsApp.",
-  applicationName: "PastorAI",
+  applicationName: "Igreja 12",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "PastorAI",
+    title: "Igreja 12",
   },
   icons: {
     icon: "/icon.svg",
