@@ -378,7 +378,7 @@ def list_crons(
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(require_role(["admin"])),
 ) -> list[CronResponse]:
-    """List the igreja's crons (most recent first) for the Agendamentos tab."""
+    """List the igreja's crons for the Agendamentos tab (scoped by igreja_id)."""
     ensure_tenant_context(db, current_user)
     igreja_uuid = uuid.UUID(current_user.igreja_id)
 
@@ -386,7 +386,7 @@ def list_crons(
         db.execute(
             select(Cron)
             .where(Cron.igreja_id == igreja_uuid)
-            .order_by(Cron.created_at.desc())
+            .order_by(Cron.nome)
         )
         .scalars()
         .all()
