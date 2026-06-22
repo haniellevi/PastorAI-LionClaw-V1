@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Celula, Pessoa
 from app.db.session import get_db
-from app.deps import CurrentUser, get_current_user
+from app.deps import CurrentUser, get_current_user, require_role
 from app.domain.phone import normalize_phone, phone_suffix
 from app.routers._common import Page, PaginationParams, ensure_tenant_context
 
@@ -67,6 +67,73 @@ class ContactOut(BaseModel):
             aceitouJesus=p.aceitou_jesus,
             celulaId=str(p.celula_id) if p.celula_id else None,
             liderId=str(p.lider_id) if p.lider_id else None,
+        )
+
+
+class ContactDetailOut(BaseModel):
+    """Detalhe completo de uma pessoa — alimenta o painel de dados do chat.
+
+    Estende ``ContactOut`` com os campos cadastrais e de jornada que só fazem
+    sentido na visão de um contato (endereço, faixa etária, datas, consentimento)
+    e resolve os nomes da célula e do líder para exibição direta.
+    """
+
+    id: str
+    nome: str
+    telefone: str
+    email: str | None = None
+    genero: str | None = None
+    faixaEtaria: str | None = None  # noqa: N815
+    endereco: str | None = None
+    tipo: str | None = None
+    etapa: str | None = None
+    subetapa: str | None = None
+    acompanhamento: str | None = None
+    presencasCelula: int  # noqa: N815
+    aceitouJesus: bool  # noqa: N815
+    celulaId: str | None = None  # noqa: N815
+    celulaNome: str | None = None  # noqa: N815
+    liderId: str | None = None  # noqa: N815
+    liderNome: str | None = None  # noqa: N815
+    consentimento: bool
+    optout: bool
+    origem: str | None = None
+    primeiroContato: str | None = None  # noqa: N815
+    criadoEm: str | None = None  # noqa: N815
+
+    @classmethod
+    def from_model(
+        cls,
+        p: Pessoa,
+        *,
+        celula_nome: str | None = None,
+        lider_nome: str | None = None,
+    ) -> "ContactDetailOut":
+        return cls(
+            id=str(p.id),
+            nome=p.nome,
+            telefone=p.telefone,
+            email=p.email,
+            genero=p.genero,
+            faixaEtaria=p.faixa_etaria,
+            endereco=p.endereco,
+            tipo=p.tipo,
+            etapa=p.etapa,
+            subetapa=p.subetapa,
+            acompanhamento=p.acompanhamento,
+            presencasCelula=p.presencas_celula,
+            aceitouJesus=p.aceitou_jesus,
+            celulaId=str(p.celula_id) if p.celula_id else None,
+            celulaNome=celula_nome,
+            liderId=str(p.lider_id) if p.lider_id else None,
+            liderNome=lider_nome,
+            consentimento=p.consentimento,
+            optout=p.optout,
+            origem=p.origem,
+            primeiroContato=(
+                p.primeiro_contato.isoformat() if p.primeiro_contato else None
+            ),
+            criadoEm=p.created_at.isoformat() if p.created_at else None,
         )
 
 
@@ -117,6 +184,49 @@ class CreateContactResponse(BaseModel):
 
     contact: ContactOut
     deduped: bool
+
+
+class UpdateContactRequest(BaseModel):
+    """Edição de dados cadastrais (somente admin). Campos ausentes não mudam."""
+
+    nome: str | None = Field(default=None, max_length=200)
+    telefone: str | None = Field(default=None, max_length=40)
+    email: str | None = Field(default=None, max_length=320)
+    genero: str | None = Field(default=None)
+    faixaEtaria: str | None = Field(default=None, max_length=40)  # noqa: N815
+    endereco: str | None = Field(default=None, max_length=400)
+    tipo: str | None = Field(default=None)
+
+    @field_validator("nome", "telefone")
+    @classmethod
+    def _strip_opt(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            raise ValueError("Campo não pode ser vazio")
+        return value
+
+    @field_validator("genero")
+    @classmethod
+    def _genero(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip().lower()
+        if value not in {"m", "f"}:
+            raise ValueError("genero deve ser 'm' ou 'f'")
+        return value
+
+    @field_validator("tipo")
+    @classmethod
+    def _tipo(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip().lower()
+        allowed = {"visitante", "membro", "lider", "pastor", "discipulo"}
+        if value not in allowed:
+            raise ValueError(f"tipo inválido: {value}")
+        return value
 
 
 class LinkCellRequest(BaseModel):
@@ -222,6 +332,126 @@ def create_contact(
     )
 
 
+@router.get("/{contact_id}", response_model=ContactDetailOut)
+def get_contact(
+    contact_id: str,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> ContactDetailOut:
+    """Detalhe completo de uma pessoa para o painel de dados do chat (Parte B).
+
+    Tenant-scoped (RLS). Resolve, para exibição, os nomes da célula e do líder.
+    Leitura aberta a qualquer usuário autenticado do tenant (como GET /contacts);
+    a edição segue restrita ao admin (PATCH /contacts/{id}).
+    """
+    ensure_tenant_context(db, current_user)
+
+    try:
+        pessoa_uuid = uuid.UUID(contact_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Contato não encontrado"
+        ) from exc
+
+    pessoa = db.execute(
+        select(Pessoa).where(Pessoa.id == pessoa_uuid)
+    ).scalar_one_or_none()
+    if pessoa is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Contato não encontrado"
+        )
+
+    # Nomes de célula e líder resolvidos à parte (consultas simples, escopo de
+    # tenant garantido pela RLS) para exibir rótulos legíveis no painel.
+    celula_nome: str | None = None
+    if pessoa.celula_id:
+        celula_nome = db.execute(
+            select(Celula.nome).where(Celula.id == pessoa.celula_id)
+        ).scalar_one_or_none()
+
+    lider_nome: str | None = None
+    if pessoa.lider_id:
+        lider_nome = db.execute(
+            select(Pessoa.nome).where(Pessoa.id == pessoa.lider_id)
+        ).scalar_one_or_none()
+
+    return ContactDetailOut.from_model(
+        pessoa, celula_nome=celula_nome, lider_nome=lider_nome
+    )
+
+
+@router.patch("/{contact_id}", response_model=ContactOut)
+def update_contact(
+    contact_id: str,
+    payload: UpdateContactRequest,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_role(["admin"])),
+) -> ContactOut:
+    """Edita os dados cadastrais de uma pessoa (somente admin — RF-05).
+
+    Tenant-scoped (RLS). Campos ausentes/None não mudam. Se o telefone mudar,
+    re-checa o dedup canônico por igreja: não pode colidir com OUTRA pessoa
+    (409). Os gatilhos de estado da pessoa não são reimplementados aqui.
+    """
+    ensure_tenant_context(db, current_user)
+
+    try:
+        pessoa_uuid = uuid.UUID(contact_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Contato não encontrado"
+        ) from exc
+
+    pessoa = db.execute(
+        select(Pessoa).where(Pessoa.id == pessoa_uuid)
+    ).scalar_one_or_none()
+    if pessoa is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Contato não encontrado"
+        )
+
+    if payload.telefone is not None:
+        normalized = normalize_phone(payload.telefone)
+        if not normalized:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Telefone inválido",
+            )
+        # Colisão com OUTRA pessoa do tenant (mesmo telefone canônico).
+        stored_digits = func.regexp_replace(Pessoa.telefone, r"\D", "", "g")
+        candidates = db.execute(
+            select(Pessoa).where(
+                func.right(stored_digits, 8) == phone_suffix(normalized),
+                Pessoa.id != pessoa_uuid,
+            )
+        ).scalars().all()
+        if any(normalize_phone(p.telefone) == normalized for p in candidates):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Já existe outra pessoa com este telefone",
+            )
+        pessoa.telefone = payload.telefone
+
+    if payload.nome is not None:
+        pessoa.nome = payload.nome
+    if payload.email is not None:
+        pessoa.email = payload.email
+    if payload.genero is not None:
+        pessoa.genero = payload.genero
+    if payload.faixaEtaria is not None:
+        pessoa.faixa_etaria = payload.faixaEtaria
+    if payload.endereco is not None:
+        pessoa.endereco = payload.endereco
+    if payload.tipo is not None:
+        pessoa.tipo = payload.tipo
+
+    db.flush()
+    db.refresh(pessoa)
+    db.commit()
+
+    return ContactOut.from_model(pessoa)
+
+
 @router.post("/{contact_id}/cell", response_model=ContactOut)
 def link_cell(
     contact_id: str,
@@ -234,6 +464,9 @@ def link_cell(
     Blocks linking to an inactive cell or one without a leader. The actual
     follow-up promotion is performed by the database trigger
     `trg_link_cell_promote` when celula_id transitions to a value.
+
+    A person belongs to a single cell (delta-049): the first link is open to the
+    normal flow, but MOVING someone from one cell to another is admin-only.
     """
     ensure_tenant_context(db, current_user)
 
@@ -269,6 +502,18 @@ def link_cell(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Célula sem líder não pode receber contatos",
+        )
+
+    # Transferir alguém que já está numa célula para OUTRA é só do admin; a
+    # primeira vinculação (sem célula) segue liberada ao fluxo normal.
+    if (
+        pessoa.celula_id is not None
+        and pessoa.celula_id != celula.id
+        and not current_user.has_role("admin")
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Apenas um administrador pode transferir alguém de célula",
         )
 
     pessoa.celula_id = celula.id

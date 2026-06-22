@@ -21,12 +21,21 @@ import {
   ConversationConflictError,
   SessionExpiredError,
   canAccessInbox,
+  deleteConversation,
+  fetchConversationPhoto,
   fetchConversations,
+  fetchMessages,
   handoffConversation,
+  markConversationRead,
+  sendMedia,
   sendMessage,
+  transferConversation,
+  type ChatMessage,
   type Conversation,
 } from "@/lib/conversations-api";
+import { fetchTeamLookup, type TeamMember } from "@/lib/dashboard-api";
 import { Icon } from "@/lib/icons";
+import { isAdmin, type Role } from "@/lib/roles";
 import {
   ApiError as WaApiError,
   canManageWhatsapp,
@@ -34,8 +43,11 @@ import {
   type ConnectionStatus,
 } from "@/lib/whatsapp-api";
 
+import { ContactPanel } from "./ContactPanel";
 import { ConversationList, type ConvFilter } from "./ConversationList";
 import { ConversationThread } from "./ConversationThread";
+import { DeleteConversationDialog } from "./DeleteConversationDialog";
+import { TransferConversationModal } from "./TransferConversationModal";
 import { effectiveEstado } from "./conversation-format";
 
 const POLL_MS = 15_000;
@@ -55,17 +67,35 @@ export function InboxScreen() {
   const [now, setNow] = useState(() => Date.now());
 
   const [filter, setFilter] = useState<ConvFilter>("todas");
+  const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [conflicts, setConflicts] = useState<Record<string, string>>({});
-  const [localReplies, setLocalReplies] = useState<Record<string, string[]>>({});
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messagesLoading, setMessagesLoading] = useState(false);
   const [toast, setToast] = useState<Toast | null>(null);
+
+  // Painel de dados do contato (Parte B) e exclusão de conversa.
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Conversation | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // Foto de perfil da conversa selecionada (Etapa 4) e transferência (#2).
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [transferTarget, setTransferTarget] = useState<Conversation | null>(null);
+  const [transferBusy, setTransferBusy] = useState(false);
+  const [transferError, setTransferError] = useState<string | null>(null);
+  const [team, setTeam] = useState<TeamMember[]>([]);
+  const [teamLoading, setTeamLoading] = useState(false);
 
   // "unknown" quando o papel não pode ler a conexão (não-admin) — tratado como
   // operante, sem banner de degradação.
   const [connStatus, setConnStatus] = useState<ConnectionStatus | "unknown">("unknown");
 
   const allowed = user ? canAccessInbox(user.roles) : false;
+  // Exclusão de conversa é admin-only (espelha require_role(["admin"]) no backend).
+  const isAdminUser = user ? isAdmin(user.roles) : false;
   // Só admin pode ler a conexão (/whatsapp/connection é admin-only). Para os
   // demais papéis privilegiados, o status fica "unknown" (sem banner).
   const canReadConnection = user ? canManageWhatsapp(user.roles) : false;
@@ -121,6 +151,34 @@ export function InboxScreen() {
     }
   }, [token, canReadConnection, handleSessionError]);
 
+  // ---- histórico de mensagens da conversa selecionada ---------------------
+  const loadMessages = useCallback(
+    async (convId: string, mode: "initial" | "poll" = "initial") => {
+      if (!token) return;
+      if (mode === "initial") setMessagesLoading(true);
+      try {
+        const items = await fetchMessages(token, convId);
+        setMessages(items);
+      } catch (err) {
+        if (handleSessionError(err)) return;
+        // No poll a falha é silenciosa; no initial a thread mostra vazio.
+      } finally {
+        if (mode === "initial") setMessagesLoading(false);
+      }
+    },
+    [token, handleSessionError],
+  );
+
+  // Ao trocar de conversa, limpa e recarrega o histórico daquela conversa.
+  useEffect(() => {
+    if (!selectedId) {
+      setMessages([]);
+      return;
+    }
+    setMessages([]);
+    void loadMessages(selectedId, "initial");
+  }, [selectedId, loadMessages]);
+
   useEffect(() => {
     if (!allowed) {
       setLoading(false);
@@ -136,9 +194,16 @@ export function InboxScreen() {
       setNow(Date.now());
       void load("poll");
       void loadConnection();
+      if (selectedId) void loadMessages(selectedId, "poll");
     }, POLL_MS);
     return () => window.clearInterval(id);
-  }, [allowed, load, loadConnection]);
+  }, [allowed, load, loadConnection, selectedId, loadMessages]);
+
+  // Painel de dados: aberto por padrão no desktop, fechado (drawer) no mobile.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setPanelOpen(window.matchMedia("(min-width: 1101px)").matches);
+  }, []);
 
   // ---- toast efêmero ------------------------------------------------------
   const toastTimer = useRef<number | null>(null);
@@ -161,13 +226,16 @@ export function InboxScreen() {
   );
 
   const visible = useMemo(() => {
-    if (filter === "todas") return conversations;
+    const q = search.trim().toLowerCase();
     return conversations.filter((c) => {
       const estado = effectiveEstado(c);
-      if (filter === "aguardando") return estado === "aguardando";
-      return estado === "ia";
+      if (filter === "aguardando" && estado !== "aguardando") return false;
+      if (filter === "ia" && estado !== "ia") return false;
+      if (!q) return true;
+      const hay = `${c.nome ?? ""} ${c.telefone} ${c.ultimaMensagem ?? ""}`.toLowerCase();
+      return hay.includes(q);
     });
-  }, [conversations, filter]);
+  }, [conversations, filter, search]);
 
   // Seleção padrão: primeira conversa visível quando nenhuma escolhida.
   useEffect(() => {
@@ -245,9 +313,10 @@ export function InboxScreen() {
       if (!token) return;
       try {
         await sendMessage(token, c.id, text);
-        // Eco otimista na thread + bump da última mensagem na lista.
-        setLocalReplies((prev) => ({ ...prev, [c.id]: [...(prev[c.id] ?? []), text] }));
+        // Bump da última mensagem na lista + recarrega o histórico (a mensagem
+        // enviada é persistida no backend e aparece na thread).
         patch(c.id, { ultimaMensagem: text });
+        void loadMessages(c.id, "poll");
         flashToast({ kind: "ok", text: "Resposta enviada pelo número oficial." });
       } catch (err) {
         if (handleSessionError(err)) return;
@@ -260,19 +329,148 @@ export function InboxScreen() {
         });
       }
     },
-    [token, patch, flashToast, handleSessionError],
+    [token, patch, flashToast, handleSessionError, loadMessages],
   );
+
+  const handleSendMedia = useCallback(
+    async (c: Conversation, file: File, caption?: string): Promise<boolean> => {
+      if (!token) return false;
+      try {
+        await sendMedia(token, c.id, file, caption);
+        // Bump da lista + recarrega o histórico (a mídia enviada é persistida).
+        const label = caption?.trim()
+          ? caption.trim()
+          : file.type.startsWith("image/")
+            ? "📷 Imagem"
+            : file.type.startsWith("audio/")
+              ? "🎤 Áudio"
+              : "📎 Arquivo";
+        patch(c.id, { ultimaMensagem: label });
+        void loadMessages(c.id, "poll");
+        flashToast({ kind: "ok", text: "Mídia enviada pelo número oficial." });
+        return true;
+      } catch (err) {
+        if (handleSessionError(err)) return false;
+        flashToast({
+          kind: "err",
+          text:
+            err instanceof ApiError
+              ? err.message
+              : "Não foi possível enviar a mídia. Tente novamente.",
+        });
+        return false;
+      }
+    },
+    [token, patch, flashToast, handleSessionError, loadMessages],
+  );
+
+  // ---- exclusão de conversa (hard delete, admin) --------------------------
+  const confirmDelete = useCallback(async () => {
+    if (!token || !deleteTarget) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await deleteConversation(token, deleteTarget.id);
+      const deletedId = deleteTarget.id;
+      setConversations((prev) => prev.filter((c) => c.id !== deletedId));
+      if (selectedId === deletedId) setSelectedId(null);
+      setDeleteTarget(null);
+      flashToast({ kind: "ok", text: "Conversa excluída." });
+    } catch (err) {
+      if (handleSessionError(err)) return;
+      setDeleteError(
+        err instanceof ApiError ? err.message : "Não foi possível excluir a conversa.",
+      );
+    } finally {
+      setDeleting(false);
+    }
+  }, [token, deleteTarget, selectedId, flashToast, handleSessionError]);
+
+  // ---- marcar como lida ao abrir + foto de perfil -------------------------
+  useEffect(() => {
+    if (!selectedId || !token) return;
+    const conv = conversations.find((c) => c.id === selectedId);
+    if (conv && conv.naoLidas > 0) {
+      patch(selectedId, { naoLidas: 0 });
+      void markConversationRead(token, selectedId).catch(() => {});
+    }
+  }, [selectedId, conversations, token, patch]);
+
+  useEffect(() => {
+    setPhotoUrl(null);
+    if (!selectedId || !token) return;
+    let cancelled = false;
+    void fetchConversationPhoto(token, selectedId)
+      .then((url) => {
+        if (!cancelled) setPhotoUrl(url);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedId, token]);
+
+  // ---- transferir conversa (#2) -------------------------------------------
+  const openTransfer = useCallback(
+    (c: Conversation) => {
+      setTransferError(null);
+      setTransferTarget(c);
+      if (team.length === 0 && token) {
+        setTeamLoading(true);
+        fetchTeamLookup(token)
+          .then((page) => setTeam(page.items))
+          .catch(() => {})
+          .finally(() => setTeamLoading(false));
+      }
+    },
+    [team.length, token],
+  );
+
+  const confirmTransfer = useCallback(
+    async (userId: string) => {
+      if (!token || !transferTarget) return;
+      setTransferBusy(true);
+      setTransferError(null);
+      try {
+        const res = await transferConversation(token, transferTarget.id, userId);
+        patch(transferTarget.id, {
+          estado: (res.estado as Conversation["estado"]) ?? "humano",
+          assumidoPor: res.assumidoPor,
+          assumidoPorNome: res.assumidoPorNome,
+          esperaDesde: null,
+        });
+        flashToast({
+          kind: "ok",
+          text: `Conversa transferida para ${res.assumidoPorNome ?? "outro líder"}.`,
+        });
+        setTransferTarget(null);
+      } catch (err) {
+        if (handleSessionError(err)) return;
+        setTransferError(
+          err instanceof ApiError
+            ? err.message
+            : "Não foi possível transferir a conversa.",
+        );
+      } finally {
+        setTransferBusy(false);
+      }
+    },
+    [token, transferTarget, patch, flashToast, handleSessionError],
+  );
+
+  const transferMembers = useMemo(() => {
+    const selfId = user?.appUserId;
+    const holderId = transferTarget?.assumidoPor;
+    return team
+      .filter((m) => canAccessInbox(m.papeis as Role[]))
+      .filter((m) => m.usuarioId !== selfId && m.usuarioId !== holderId)
+      .sort((a, b) => a.nome.localeCompare(b.nome));
+  }, [team, user, transferTarget]);
 
   // ---- bloqueio de acesso (US-11) -----------------------------------------
   if (!allowed) {
     return (
       <div className="screen" key="inbox-denied">
-        <div className="screen-head">
-          <div className="titles">
-            <h2>Inbox do WhatsApp</h2>
-            <p>Área restrita ao atendimento pastoral.</p>
-          </div>
-        </div>
         <div className="card">
           <div className="access-denied">
             <Icon name="lock" className="access-ic" />
@@ -289,18 +487,10 @@ export function InboxScreen() {
   }
 
   const showSkeleton = loading && !loaded;
-  const holderName = null; // nomes de usuários não são expostos nesta listagem
 
   return (
-    <div className="screen" key="inbox">
+    <div className="screen screen-chat" key="inbox">
       <div className="screen-head">
-        <div className="titles">
-          <h2>Inbox do WhatsApp</h2>
-          <p>
-            Conversas pelo número oficial. Apenas o número da igreja é registrado —
-            conversas pessoais do pastor não entram aqui.
-          </p>
-        </div>
         <div className="actions">
           <button
             type="button"
@@ -339,7 +529,7 @@ export function InboxScreen() {
         </div>
       ) : null}
 
-      <div className="inbox">
+      <div className={`inbox${selected && panelOpen ? " with-panel" : ""}`}>
         {showSkeleton ? (
           <div className="conv-list">
             {Array.from({ length: 5 }).map((_, i) => (
@@ -359,8 +549,10 @@ export function InboxScreen() {
             filter={filter}
             waitingCount={waitingCount}
             now={now}
+            search={search}
             onSelect={setSelectedId}
             onFilter={setFilter}
+            onSearch={setSearch}
           />
         )}
 
@@ -368,14 +560,25 @@ export function InboxScreen() {
           <ConversationThread
             conversation={selected}
             selfId={user?.appUserId ?? ""}
-            holderName={holderName}
+            holderName={selected.assumidoPorNome}
             degraded={degraded}
             busy={busyId === selected.id}
             conflict={conflicts[selected.id] ?? null}
-            localReplies={localReplies[selected.id] ?? []}
+            messages={messages}
+            messagesLoading={messagesLoading}
+            panelOpen={panelOpen}
+            isAdmin={isAdminUser}
+            avatarUrl={photoUrl}
             onAssume={handleAssume}
             onReturn={handleReturn}
             onSend={handleSend}
+            onSendMedia={handleSendMedia}
+            onTogglePanel={() => setPanelOpen((v) => !v)}
+            onDelete={(c) => {
+              setDeleteError(null);
+              setDeleteTarget(c);
+            }}
+            onTransfer={openTransfer}
           />
         ) : (
           <div className="empty-pane">
@@ -389,7 +592,53 @@ export function InboxScreen() {
             </p>
           </div>
         )}
+
+        {selected && panelOpen ? (
+          <>
+            <div
+              className="panel-backdrop"
+              onClick={() => setPanelOpen(false)}
+              role="presentation"
+            />
+            <ContactPanel
+              pessoaId={selected.pessoaId}
+              telefone={selected.telefone}
+              avatarUrl={photoUrl}
+              onClose={() => setPanelOpen(false)}
+            />
+          </>
+        ) : null}
       </div>
+
+      {deleteTarget ? (
+        <DeleteConversationDialog
+          conversation={deleteTarget}
+          busy={deleting}
+          error={deleteError}
+          onCancel={() => {
+            if (deleting) return;
+            setDeleteTarget(null);
+            setDeleteError(null);
+          }}
+          onConfirm={() => void confirmDelete()}
+        />
+      ) : null}
+
+      {transferTarget ? (
+        <TransferConversationModal
+          conversation={transferTarget}
+          members={transferMembers}
+          loading={teamLoading}
+          busy={transferBusy}
+          error={transferError}
+          onCancel={() => {
+            if (transferBusy) return;
+            setTransferTarget(null);
+            setTransferError(null);
+          }}
+          onConfirm={(userId) => void confirmTransfer(userId)}
+        />
+      ) : null}
 
       {toast ? (
         <div className={`toast ${toast.kind}`} role="status">

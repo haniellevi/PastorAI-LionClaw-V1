@@ -34,6 +34,7 @@ MANDATORY_SCREEN = "dashboard"
 
 # Roles that participate in the matrix (admin has implicit access, excluded).
 MATRIX_ROLES = {
+    "operador",
     "pastor",
     "lider_g12",
     "lider_consol",

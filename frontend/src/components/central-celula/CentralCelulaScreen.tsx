@@ -180,13 +180,6 @@ export function CentralCelulaScreen() {
   return (
     <div className="screen" key="central-celula">
       <div className="screen-head">
-        <div className="titles">
-          <h2>Central de Célula</h2>
-          <p>
-            Gestão de todas as células: líderes, relatórios da semana e envio de
-            material em massa ou individual.
-          </p>
-        </div>
         <div className="actions">
           <button
             type="button"

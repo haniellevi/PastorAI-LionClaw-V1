@@ -47,6 +47,17 @@ logger = logging.getLogger("pastorai.pipeline")
 
 router = APIRouter(tags=["pipeline"])
 
+# Papéis que podem MOVER pessoas na jornada / registrar fonovisita. 'membro'
+# (papel padrão de quem é convidado) fica de fora — coerente com os gates dos
+# endpoints irmãos (assign/advance-stage). Admin passa implicitamente.
+PIPELINE_WRITE_ROLES = [
+    "operador",
+    "lider_celula",
+    "lider_consol",
+    "lider_g12",
+    "pastor",
+]
+
 
 # ---------------------------------------------------------------------------
 # Schemas
@@ -205,6 +216,12 @@ def update_pipeline(
     """Move a person along the pipeline, enforcing F2 promotion rules."""
     ensure_tenant_context(db, current_user)
 
+    if not current_user.has_any_role(PIPELINE_WRITE_ROLES):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Você não tem permissão para mover pessoas na jornada",
+        )
+
     pessoa = db.execute(
         select(Pessoa).where(Pessoa.id == uuid.UUID(payload.pessoaId))
     ).scalar_one_or_none()
@@ -254,6 +271,12 @@ def queue_fonovisita(
     context updated instead of creating a duplicate.
     """
     ensure_tenant_context(db, current_user)
+
+    if not current_user.has_any_role(PIPELINE_WRITE_ROLES):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Você não tem permissão para registrar fonovisita",
+        )
 
     pessoa = db.execute(
         select(Pessoa).where(Pessoa.id == uuid.UUID(payload.pessoaId))

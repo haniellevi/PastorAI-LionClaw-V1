@@ -342,14 +342,6 @@ export function GanharScreen() {
   return (
     <div className="screen" key="ganhar">
       <div className="screen-head">
-        <div className="titles">
-          <h2>Painel do Ganhar</h2>
-          <p>
-            Quem fala com a igreja pelas redes ou WhatsApp vira contato. Quem já foi
-            à célula ou a um evento vira visitante — e segue visitante até aceitar
-            Jesus ou completar 3 presenças numa célula.
-          </p>
-        </div>
         <div className="actions">
           <button
             type="button"

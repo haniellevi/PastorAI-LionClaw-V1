@@ -13,7 +13,7 @@ import { Icon } from "@/lib/icons";
 import { NAV_SECTIONS, type NavItem, type NavSection } from "@/lib/navigation";
 import { allowedScreens } from "@/lib/permissions";
 import { usePermissions } from "@/lib/permissions-context";
-import { isAdmin, ROLE_DEFS, sortedRoles } from "@/lib/roles";
+import { isAdmin } from "@/lib/roles";
 
 interface SidebarProps {
   user: SessionUser;
@@ -185,8 +185,6 @@ export function Sidebar({
     return Boolean(anyItem || anyStage);
   }
 
-  const roles = sortedRoles(user.roles);
-
   return (
     <nav className={`sidebar${collapsed ? " collapsed" : ""}${mobileOpen ? " open" : ""}`}>
       <div className="side-top">
@@ -194,7 +192,7 @@ export function Sidebar({
           <span className="brand-mark">
             <Icon name="brand" />
           </span>
-          <span className="lbl">PastorAI</span>
+          <span className="lbl">Igreja 12</span>
         </div>
         <button
           type="button"
@@ -263,19 +261,34 @@ export function Sidebar({
 
       <div className="side-foot">
         <div className="side-user">
-          <span className="av">{initials(user.nome)}</span>
-          <span className="nm lbl">
-            <strong>{user.nome}</strong>
-            <span>
-              <span className="role-chips">
-                {roles.map((r) => (
-                  <span className="rc" key={r}>
-                    {ROLE_DEFS[r].short}
-                  </span>
-                ))}
+          <button
+            type="button"
+            className="side-user-link"
+            title="Meu perfil"
+            onClick={() => onNavigate("perfil")}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              flex: 1,
+              minWidth: 0,
+              background: "none",
+              border: "none",
+              padding: 0,
+              font: "inherit",
+              color: "inherit",
+              textAlign: "left",
+              cursor: "pointer",
+            }}
+          >
+            <span className="av">{initials(user.nome)}</span>
+            <span className="nm lbl">
+              <strong>{user.nome}</strong>
+              <span className="sub" style={{ color: "var(--sidebar-muted)" }}>
+                Meu perfil
               </span>
             </span>
-          </span>
+          </button>
           <button
             type="button"
             id="logoutBtn"

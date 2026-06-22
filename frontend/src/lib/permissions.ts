@@ -33,7 +33,6 @@ export const ADMIN_ONLY = [
   "agente",
   "whatsapp",
   "assinatura",
-  "gerentes",
   "permissoes",
 ] as const;
 
@@ -74,6 +73,9 @@ export const DEFAULT_PERMISSIONS: Record<Exclude<Role, "admin">, readonly string
   lider_mult: [
     "dashboard", "g12", "central-celula", "enviar", "calendario", "celulas",
     "relatorios",
+  ],
+  operador: [
+    "dashboard", "inbox", "contatos", "ganhar", "celulas", "relatorios",
   ],
   membro: ["dashboard", "calendario"],
 };

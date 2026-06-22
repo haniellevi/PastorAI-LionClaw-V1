@@ -53,11 +53,11 @@ export interface PlanInfo {
 /** Taxa de implantação (setup fee) — cobrada uma vez (design-locked). */
 export const SETUP_FEE = 290;
 
-/** Catálogo de planos (espelha billing.py + rótulos do artifact). */
+/** Catálogo de planos (espelha billing.py + catálogo `planos` do PRD: 199/299/399). */
 export const PLAN_CATALOG: PlanInfo[] = [
-  { code: "ate_100", label: "Célula", limite: 100, preco: 97 },
-  { code: "101_200", label: "Comunidade", limite: 200, preco: 197 },
-  { code: "acima_201", label: "Rede", limite: null, preco: 397 },
+  { code: "ate_100", label: "Célula", limite: 100, preco: 199 },
+  { code: "101_200", label: "Comunidade", limite: 200, preco: 299 },
+  { code: "acima_201", label: "Rede", limite: null, preco: 399 },
 ];
 
 export function planInfo(code: PlanCode): PlanInfo {

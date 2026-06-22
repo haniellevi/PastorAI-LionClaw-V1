@@ -166,16 +166,6 @@ export function AssinaturaScreen() {
 
   return (
     <div className="screen" key="assinatura">
-      <div className="screen-head">
-        <div className="titles">
-          <h2>Assinatura</h2>
-          <p>
-            Status do plano da igreja. O plano sobe automaticamente quando o
-            número de pessoas ultrapassa o limite.
-          </p>
-        </div>
-      </div>
-
       {error ? (
         <div className="error-banner" role="alert">
           <Icon name="alert" />

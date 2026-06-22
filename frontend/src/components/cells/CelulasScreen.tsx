@@ -33,6 +33,7 @@ import { Icon, type IconKey } from "@/lib/icons";
 import { isLeader, type Role } from "@/lib/roles";
 
 import { CellFormModal } from "./CellFormModal";
+import { InviteMemberModal } from "./InviteMemberModal";
 
 interface Toast {
   kind: "ok" | "err";
@@ -59,6 +60,7 @@ export function CelulasScreen() {
   const [detailError, setDetailError] = useState<string | null>(null);
 
   const [showForm, setShowForm] = useState(false);
+  const [showInvite, setShowInvite] = useState(false);
   const [editing, setEditing] = useState<CellSummary | null>(null);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -192,6 +194,17 @@ export function CelulasScreen() {
     [token, detail, flashToast, handleSessionError],
   );
 
+  const handleInvited = useCallback(
+    (text: string) => {
+      setShowInvite(false);
+      flashToast({ kind: "ok", text });
+      // O convite vinculou a pessoa à célula: recarrega para refletir o membro.
+      void load("retry");
+      if (selectedId) void openDetail(selectedId);
+    },
+    [flashToast, load, selectedId, openDetail],
+  );
+
   // Membros e visitantes da célula selecionada (derivados de api-contacts).
   const { membros, visitantes } = useMemo(() => {
     if (!detail) return { membros: [] as Contact[], visitantes: [] as Contact[] };
@@ -231,13 +244,6 @@ export function CelulasScreen() {
   return (
     <div className="screen" key="celulas">
       <div className="screen-head">
-        <div className="titles">
-          <h2>Células</h2>
-          <p>
-            Estrutura G12 da igreja. Acompanhe membros, visitantes e alertas de cada célula.
-            Apenas o líder da célula ou um superior na hierarquia pode editá-la.
-          </p>
-        </div>
         <div className="actions">
           {canCreate ? (
             <button
@@ -371,6 +377,7 @@ export function CelulasScreen() {
             leaderName={leaderName(detail?.liderId ?? null)}
             canEdit={canManage}
             busyAlert={busyAlert}
+            onInvite={() => setShowInvite(true)}
             onEdit={() => {
               const target = cells.find((c) => c.id === selectedId);
               if (!target) return;
@@ -399,6 +406,16 @@ export function CelulasScreen() {
         />
       ) : null}
 
+      {showInvite && detail ? (
+        <InviteMemberModal
+          celulaId={detail.id}
+          celulaNome={detail.nome}
+          contacts={contacts}
+          onClose={() => setShowInvite(false)}
+          onInvited={handleInvited}
+        />
+      ) : null}
+
       {toast ? (
         <div className={`toast ${toast.kind}`} role="status">
           <Icon name={toast.kind === "ok" ? "check" : "alert"} />
@@ -422,6 +439,7 @@ function CellDetailPanel({
   leaderName,
   canEdit,
   busyAlert,
+  onInvite,
   onEdit,
   onTreatAlert,
   onRetry,
@@ -435,6 +453,7 @@ function CellDetailPanel({
   leaderName: string;
   canEdit: boolean;
   busyAlert: string | null;
+  onInvite: () => void;
   onEdit: () => void;
   onTreatAlert: (alert: CellAlert) => void;
   onRetry: () => void;
@@ -516,10 +535,16 @@ function CellDetailPanel({
       </dl>
 
       {canEdit ? (
-        <button type="button" className="btn btn-block" onClick={onEdit} style={{ marginBottom: "var(--s4)" }}>
-          <Icon name="document" />
-          <span>Editar célula</span>
-        </button>
+        <div style={{ display: "flex", gap: "var(--s2)", marginBottom: "var(--s4)" }}>
+          <button type="button" className="btn" onClick={onEdit} style={{ flex: 1 }}>
+            <Icon name="document" />
+            <span>Editar célula</span>
+          </button>
+          <button type="button" className="btn btn-primary" onClick={onInvite} style={{ flex: 1 }}>
+            <Icon name="plus" />
+            <span>Convidar membro</span>
+          </button>
+        </div>
       ) : null}
 
       <div className="panel-title" style={{ padding: "0 0 var(--s2)", borderBottom: "none" }}>
