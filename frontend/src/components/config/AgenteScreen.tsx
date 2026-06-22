@@ -23,9 +23,11 @@ import {
   AgentCredentialRequiredError,
   createCron,
   CRON_TRIGGERS,
+  listCrons,
   LLM_PROVIDERS,
   saveAgentConfig,
   saveCredential,
+  updateCron,
   type CronResult,
   type LlmProvider,
 } from "@/lib/agent-api";
@@ -89,6 +91,9 @@ export function AgenteScreen() {
   const [savingCron, setSavingCron] = useState(false);
   const [cronError, setCronError] = useState<string | null>(null);
   const [crons, setCrons] = useState<CronResult[]>([]);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [loadingCrons, setLoadingCrons] = useState(false);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
 
   const [toast, setToast] = useState<Toast | null>(null);
   const toastTimer = useRef<number | null>(null);
@@ -114,6 +119,53 @@ export function AgenteScreen() {
     },
     [expireSession],
   );
+
+  // ── Carregar agendamentos existentes ao abrir a tela ─────────────────────
+  useEffect(() => {
+    if (!token) return;
+    let active = true;
+    setLoadingCrons(true);
+    listCrons(token)
+      .then((rows) => {
+        if (active) setCrons(rows);
+      })
+      .catch((err) => {
+        if (handleSessionError(err)) return;
+        if (active) {
+          setCronError(
+            err instanceof ApiError ? err.message : "Não foi possível carregar os agendamentos.",
+          );
+        }
+      })
+      .finally(() => {
+        if (active) setLoadingCrons(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [token, handleSessionError]);
+
+  // ── Resetar o formulário de cron (sai do modo edição) ────────────────────
+  const resetCronForm = useCallback(() => {
+    setEditingId(null);
+    setCronNome("");
+    setCronFrequencia(CRON_FREQUENCIES[0].code);
+    setCronGatilho(CRON_TRIGGERS[0].code);
+    setCronAcao("");
+    setCronAtivo(true);
+    setCronError(null);
+  }, []);
+
+  // ── Carregar um cron no formulário para edição ───────────────────────────
+  const startEdit = useCallback((cron: CronResult) => {
+    setEditingId(cron.id);
+    setCronNome(cron.nome);
+    setCronFrequencia(cron.frequencia);
+    setCronGatilho(cron.gatilhoEstado ?? CRON_TRIGGERS[0].code);
+    setCronAcao(cron.acao ?? "");
+    setCronAtivo(cron.ativo);
+    setCronError(null);
+  }, []);
 
   // ── Salvar credencial (a chave nunca volta após salvar) ──────────────────
   const submitCredential = useCallback(async () => {
@@ -175,33 +227,74 @@ export function AgenteScreen() {
     }
   }, [token, savingBehavior, comportamento, nome, tom, ativo, flashToast, handleSessionError]);
 
-  // ── Criar cron (gatilho de estado validado antes de salvar) ──────────────
+  // ── Criar/editar cron (gatilho de estado validado antes de salvar) ───────
   const submitCron = useCallback(async () => {
     if (!token || savingCron || cronNome.trim().length === 0) return;
     setSavingCron(true);
     setCronError(null);
+    const payload = {
+      nome: cronNome.trim(),
+      frequencia: cronFrequencia,
+      gatilhoEstado: cronGatilho || null,
+      acao: cronAcao.trim() || null,
+      ativo: cronAtivo,
+    };
     try {
-      const result = await createCron(token, {
-        nome: cronNome.trim(),
-        frequencia: cronFrequencia,
-        gatilhoEstado: cronGatilho || null,
-        acao: cronAcao.trim() || null,
-        ativo: cronAtivo,
-      });
-      setCrons((prev) => [result, ...prev]);
-      setCronNome("");
-      setCronAcao("");
-      flashToast({ kind: "ok", text: `Agendamento “${result.nome}” criado.` });
+      if (editingId) {
+        const result = await updateCron(token, editingId, payload);
+        setCrons((prev) => prev.map((c) => (c.id === result.id ? result : c)));
+        resetCronForm();
+        flashToast({ kind: "ok", text: `Agendamento “${result.nome}” atualizado.` });
+      } else {
+        const result = await createCron(token, payload);
+        setCrons((prev) => [result, ...prev]);
+        setCronNome("");
+        setCronAcao("");
+        flashToast({ kind: "ok", text: `Agendamento “${result.nome}” criado.` });
+      }
     } catch (err) {
       if (handleSessionError(err)) return;
-      // 422 → gatilho de estado inválido (validado antes de salvar).
+      // 422 → gatilho de estado inválido; 404 → cron de outra igreja.
       setCronError(
         err instanceof ApiError ? err.message : "Não foi possível salvar o agendamento.",
       );
     } finally {
       setSavingCron(false);
     }
-  }, [token, savingCron, cronNome, cronFrequencia, cronGatilho, cronAcao, cronAtivo, flashToast, handleSessionError]);
+  }, [token, savingCron, cronNome, cronFrequencia, cronGatilho, cronAcao, cronAtivo, editingId, resetCronForm, flashToast, handleSessionError]);
+
+  // ── Ativar/desativar um cron (soft-disable via toggle de `ativo`) ────────
+  const toggleCron = useCallback(
+    async (cron: CronResult) => {
+      if (!token || togglingId) return;
+      setTogglingId(cron.id);
+      setCronError(null);
+      try {
+        const result = await updateCron(token, cron.id, {
+          nome: cron.nome,
+          frequencia: cron.frequencia,
+          gatilhoEstado: cron.gatilhoEstado,
+          acao: cron.acao,
+          ativo: !cron.ativo,
+        });
+        setCrons((prev) => prev.map((c) => (c.id === result.id ? result : c)));
+        flashToast({
+          kind: "ok",
+          text: result.ativo
+            ? `Agendamento “${result.nome}” ativado.`
+            : `Agendamento “${result.nome}” desativado.`,
+        });
+      } catch (err) {
+        if (handleSessionError(err)) return;
+        setCronError(
+          err instanceof ApiError ? err.message : "Não foi possível atualizar o agendamento.",
+        );
+      } finally {
+        setTogglingId(null);
+      }
+    },
+    [token, togglingId, flashToast, handleSessionError],
+  );
 
   const behaviorReady = comportamento.trim().length > 0;
   const credReady = apiKey.trim().length > 0;
@@ -475,14 +568,33 @@ export function AgenteScreen() {
                 disabled={!cronReady || savingCron}
                 aria-busy={savingCron || undefined}
               >
-                {savingCron ? "Salvando…" : "Criar agendamento"}
+                {savingCron
+                  ? "Salvando…"
+                  : editingId
+                    ? "Salvar alterações"
+                    : "Criar agendamento"}
               </button>
+              {editingId ? (
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={resetCronForm}
+                  disabled={savingCron}
+                >
+                  Cancelar
+                </button>
+              ) : null}
             </div>
           </form>
 
           <div className="card">
             <div className="panel-title">Agendamentos configurados</div>
-            {crons.length === 0 ? (
+            {loadingCrons && crons.length === 0 ? (
+              <div className="empty-state" style={{ padding: "var(--s6)" }}>
+                <Icon name="clock" />
+                <p>Carregando agendamentos…</p>
+              </div>
+            ) : crons.length === 0 ? (
               <div className="empty-state" style={{ padding: "var(--s6)" }}>
                 <Icon name="clock" />
                 <p>
@@ -498,6 +610,7 @@ export function AgenteScreen() {
                     <th>Frequência</th>
                     <th>Gatilho</th>
                     <th>Status</th>
+                    <th>Ações</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -514,6 +627,27 @@ export function AgenteScreen() {
                         <StatusPill tone={c.ativo ? "ok" : "muted"}>
                           {c.ativo ? "Ativo" : "Pausado"}
                         </StatusPill>
+                      </td>
+                      <td>
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <button
+                            type="button"
+                            className="btn btn-sm"
+                            onClick={() => startEdit(c)}
+                            disabled={togglingId === c.id}
+                          >
+                            Editar
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-sm"
+                            onClick={() => void toggleCron(c)}
+                            disabled={togglingId === c.id}
+                            aria-busy={togglingId === c.id || undefined}
+                          >
+                            {c.ativo ? "Desativar" : "Ativar"}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
