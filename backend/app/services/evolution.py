@@ -45,6 +45,23 @@ def map_connection_state(raw_state: str | None) -> str:
     return _STATE_MAP.get(raw_state.lower(), "offline")
 
 
+def numero_from_jid(jid: str | None) -> str | None:
+    """Extract a bare phone number from a WhatsApp owner JID.
+
+    Evolution reports the paired device as a JID such as
+    ``5511999999999@s.whatsapp.net`` or ``5511999999999:12@s.whatsapp.net``
+    (the ``:n`` is a device index). The paired number is unknown at QR time and
+    only appears once the device pairs, so this is how we recover it. Returns
+    the digits before the ``@`` (and before any ``:device`` suffix), or None
+    when the JID is absent/malformed.
+    """
+    if not jid or not isinstance(jid, str):
+        return None
+    local = jid.split("@", 1)[0].split(":", 1)[0]
+    digits = "".join(ch for ch in local if ch.isdigit())
+    return digits or None
+
+
 class EvolutionError(Exception):
     """Raised when the Evolution API call fails or is misconfigured."""
 
@@ -342,22 +359,79 @@ class EvolutionClient:
         return True
 
     def fetch_status(self, instance: str) -> ConnectionResult:
-        """Read the live connection state of an instance."""
+        """Read the live connection state **and paired number** of an instance.
+
+        Uses ``/instance/fetchInstances`` (filtered by name) instead of
+        ``/instance/connectionState`` because only the former carries the owner
+        JID — the paired phone number is unknown at QR time and only becomes
+        available after the device pairs, so the connect/reconnect responses
+        never include it. The response shape differs across Evolution versions,
+        so both the flat v2 shape (``name`` / ``connectionStatus`` /
+        ``ownerJid``) and the nested v1 shape (``instance.instanceName`` /
+        ``instance.status`` / ``instance.owner``) are handled.
+        """
         base_url, api_key = self._require_config()
         headers = self._headers(api_key)
         try:
             with httpx.Client(base_url=base_url, timeout=10.0) as client:
                 resp = client.get(
-                    f"/instance/connectionState/{instance}", headers=headers
+                    "/instance/fetchInstances",
+                    headers=headers,
+                    params={"instanceName": instance},
                 )
                 resp.raise_for_status()
                 body = resp.json()
         except httpx.HTTPError as exc:
             logger.warning("Evolution status failed: %s", type(exc).__name__)
             raise EvolutionError("Falha ao consultar status na Evolution API") from exc
+        except ValueError as exc:
+            raise EvolutionError("Resposta inesperada da Evolution API") from exc
 
-        state = (body.get("instance") or {}).get("state") or body.get("state")
-        return ConnectionResult(status=map_connection_state(state))
+        entry = self._select_instance(body, instance)
+        state, owner = self._state_and_owner(entry)
+        return ConnectionResult(
+            status=map_connection_state(state), numero=numero_from_jid(owner)
+        )
+
+    @staticmethod
+    def _select_instance(body: object, instance: str) -> dict:
+        """Pick the entry matching `instance` from a fetchInstances response.
+
+        Evolution returns a list (one item per instance); filtering by name may
+        still return several on some versions. Falls back to the first dict
+        entry when no name matches (single-instance servers).
+        """
+        items = body if isinstance(body, list) else [body]
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            inner = item.get("instance") if isinstance(item.get("instance"), dict) else item
+            name = inner.get("instanceName") or inner.get("name") or item.get("name")
+            if name == instance:
+                return item
+        for item in items:
+            if isinstance(item, dict):
+                return item
+        return {}
+
+    @staticmethod
+    def _state_and_owner(entry: dict) -> tuple[str | None, str | None]:
+        """Extract ``(state, owner_jid)`` from a fetchInstances entry (any version)."""
+        inner = entry.get("instance") if isinstance(entry.get("instance"), dict) else entry
+        state = (
+            inner.get("connectionStatus")
+            or inner.get("state")
+            or inner.get("status")
+            or entry.get("connectionStatus")
+        )
+        owner = (
+            inner.get("ownerJid")
+            or inner.get("owner")
+            or inner.get("wuid")
+            or entry.get("ownerJid")
+            or entry.get("owner")
+        )
+        return state, owner
 
     def fetch_profile_picture_url(
         self, instance: str, telefone: str

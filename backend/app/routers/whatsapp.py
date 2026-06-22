@@ -83,8 +83,17 @@ def _instance_name(igreja_id: str) -> str:
 def get_connection(
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(require_role(["admin"])),
+    evolution: EvolutionClient = Depends(get_evolution_client),
 ) -> ConnectionStatusOut:
-    """Return the igreja's official number, status and last sync."""
+    """Return the igreja's official number, status and last sync.
+
+    Refreshes the live state + paired number from Evolution when an instance
+    exists. The number is unknown at QR time and only appears after the device
+    pairs, so a pure DB read would never show it (the connect response carries
+    no number). Best-effort: when Evolution is unreachable or unconfigured the
+    stored values are returned. Values are captured into locals before any
+    commit so no attribute reload runs outside the tenant context.
+    """
     ensure_tenant_context(db, current_user)
 
     conn = db.execute(
@@ -96,10 +105,31 @@ def get_connection(
     if conn is None:
         return ConnectionStatusOut(numero=None, status="offline", ultimaSync=None)
 
+    numero = conn.numero
+    status_val = conn.status or "offline"
+    ultima = conn.ultima_sync
+
+    if conn.instance:
+        try:
+            live = evolution.fetch_status(conn.instance)
+        except EvolutionError:
+            live = None
+        if live is not None:
+            changed = False
+            if live.status and live.status != conn.status:
+                conn.status = status_val = live.status
+                changed = True
+            if live.numero and live.numero != conn.numero:
+                conn.numero = numero = live.numero
+                changed = True
+            if changed:
+                ultima = conn.ultima_sync = dt.datetime.now(dt.timezone.utc)
+                db.commit()
+
     return ConnectionStatusOut(
-        numero=conn.numero,
-        status=conn.status or "offline",
-        ultimaSync=conn.ultima_sync.isoformat() if conn.ultima_sync else None,
+        numero=numero,
+        status=status_val,
+        ultimaSync=ultima.isoformat() if ultima else None,
     )
 
 
