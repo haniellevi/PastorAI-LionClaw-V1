@@ -78,6 +78,22 @@ def test_login_blocked_for_suspended_church(app) -> None:
     assert detail["igrejaStatus"] == "suspensa"
 
 
+def test_login_blocked_for_revoked_user(app) -> None:
+    # A revoked user gets no token; generic 401 does not disclose the state.
+    user = make_app_user(status="revogado")
+    client = _client(
+        app,
+        session=FakeSession(app_user=user, roles=["admin"]),
+        clerk=FakeClerk(login_result=("token_xyz", "clerk_user_1")),
+    )
+    resp = client.post(
+        "/auth/login",
+        json={"email": "pastor@igrejapiloto.com", "password": "secret"},
+    )
+    assert resp.status_code == 401
+    assert resp.json()["detail"] == "E-mail ou senha inválidos"
+
+
 def test_login_rejects_malformed_email(app) -> None:
     client = _client(
         app,

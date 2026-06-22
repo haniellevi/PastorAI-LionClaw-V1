@@ -29,6 +29,11 @@ ADMIN_ROLE = "admin"
 # Igreja statuses that block panel access at login/auth time (US-35).
 BLOCKING_IGREJA_STATUSES = {"suspensa", "inadimplente"}
 
+# app_users.status of a member whose access was revoked (RF-04 / US-03). Blocks
+# panel access on every request even while a previously issued session JWT is
+# still unexpired. Single source of truth, reused by the team and auth routers.
+REVOKED_USER_STATUS = "revogado"
+
 
 @dataclass(frozen=True)
 class CurrentUser:
@@ -103,6 +108,13 @@ def get_current_user(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Sua conta não está vinculada a nenhuma igreja",
+        )
+
+    if app_user.status == REVOKED_USER_STATUS:
+        # Access revoked by an admin (RF-04): block even on a still-valid JWT.
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Seu acesso foi revogado. Contate o administrador da igreja.",
         )
 
     igreja_status = app_user.igreja.status if app_user.igreja else None

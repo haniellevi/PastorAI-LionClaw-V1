@@ -21,7 +21,7 @@ import { useAuth } from "@/lib/auth-context";
 import { ApiError, fetchTeam, type TeamMember } from "@/lib/dashboard-api";
 import { Icon } from "@/lib/icons";
 import { normalizeRoles, ROLE_ORDER, type Role } from "@/lib/roles";
-import { inviteMember, TeamConflictError, updateRoles } from "@/lib/team-api";
+import { inviteMember, revokeAccess, TeamConflictError, updateRoles } from "@/lib/team-api";
 
 import { RolePick, RoleTags } from "./RolePick";
 
@@ -33,9 +33,11 @@ interface Toast {
 }
 
 function statusTone(status: string | null): PillTone {
+  if (status === "revogado") return "danger";
   return status === "convidado" ? "warn" : "ok";
 }
 function statusLabel(status: string | null): string {
+  if (status === "revogado") return "Revogado";
   return status === "convidado" ? "Convidado" : "Ativo";
 }
 
@@ -60,6 +62,11 @@ export function EquipeScreen() {
   const [editRoles, setEditRoles] = useState<Set<Role>>(new Set());
   const [editError, setEditError] = useState<string | null>(null);
   const [savingRoles, setSavingRoles] = useState(false);
+
+  // revogação de acesso (confirmação)
+  const [revoking, setRevoking] = useState<TeamMember | null>(null);
+  const [revokeError, setRevokeError] = useState<string | null>(null);
+  const [revokeBusy, setRevokeBusy] = useState(false);
 
   const [toast, setToast] = useState<Toast | null>(null);
   const toastTimer = useRef<number | null>(null);
@@ -182,6 +189,32 @@ export function EquipeScreen() {
     }
   }, [token, editing, editRoles, flashToast, closeEdit, load, handleSessionError]);
 
+  const closeRevoke = useCallback(() => {
+    setRevoking(null);
+    setRevokeError(null);
+  }, []);
+
+  const submitRevoke = useCallback(async () => {
+    if (!token || !revoking) return;
+    setRevokeBusy(true);
+    setRevokeError(null);
+    try {
+      await revokeAccess(token, revoking.usuarioId);
+      flashToast({ kind: "ok", text: `Acesso de ${revoking.nome} revogado.` });
+      setRevoking(null);
+      await load("retry");
+    } catch (err) {
+      if (handleSessionError(err)) return;
+      if (err instanceof TeamConflictError) {
+        setRevokeError(err.message);
+      } else {
+        setRevokeError(err instanceof ApiError ? err.message : "Não foi possível revogar o acesso.");
+      }
+    } finally {
+      setRevokeBusy(false);
+    }
+  }, [token, revoking, flashToast, load, handleSessionError]);
+
   const toggle = useCallback(
     (setFn: React.Dispatch<React.SetStateAction<Set<Role>>>) =>
       (role: Role, on: boolean) => {
@@ -217,9 +250,20 @@ export function EquipeScreen() {
         header: "",
         width: "1px",
         cell: (m) => (
-          <button type="button" className="btn btn-sm" onClick={() => openEdit(m)}>
-            Editar papéis
-          </button>
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <button type="button" className="btn btn-sm" onClick={() => openEdit(m)}>
+              Editar papéis
+            </button>
+            {m.status !== "revogado" ? (
+              <button
+                type="button"
+                className="btn btn-sm btn-danger"
+                onClick={() => setRevoking(m)}
+              >
+                Revogar acesso
+              </button>
+            ) : null}
+          </div>
         ),
       },
     ],
@@ -378,6 +422,57 @@ export function EquipeScreen() {
                 </button>
                 <button type="submit" className="btn btn-primary btn-sm" disabled={savingRoles} aria-busy={savingRoles || undefined}>
                   {savingRoles ? "Salvando…" : "Salvar papéis"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+
+      {revoking ? (
+        <div className="modal-overlay" role="presentation" onClick={closeRevoke}>
+          <div
+            className="modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Revogar acesso de ${revoking.nome}`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-head">
+              <strong>Revogar acesso · {revoking.nome}</strong>
+              <button type="button" className="btn btn-sm btn-ghost" onClick={closeRevoke} disabled={revokeBusy}>
+                Fechar
+              </button>
+            </div>
+            <form
+              className="modal-form"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void submitRevoke();
+              }}
+            >
+              {revokeError ? (
+                <div className="error-banner" role="alert">
+                  <Icon name="alert" />
+                  <span>{revokeError}</span>
+                </div>
+              ) : null}
+              <p className="sub" style={{ color: "var(--muted)" }}>
+                {revoking.nome} perderá o acesso ao painel imediatamente. O cadastro
+                e o histórico são preservados. Revogar o último administrador é
+                bloqueado.
+              </p>
+              <div className="modal-foot">
+                <button type="button" className="btn btn-sm" onClick={closeRevoke} disabled={revokeBusy}>
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="btn btn-danger btn-sm"
+                  disabled={revokeBusy}
+                  aria-busy={revokeBusy || undefined}
+                >
+                  {revokeBusy ? "Revogando…" : "Revogar acesso"}
                 </button>
               </div>
             </form>

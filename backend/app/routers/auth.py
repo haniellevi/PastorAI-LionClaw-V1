@@ -22,7 +22,12 @@ from sqlalchemy.orm import Session
 
 from app.db.models import AppUser
 from app.db.session import get_db
-from app.deps import BLOCKING_IGREJA_STATUSES, CurrentUser, get_current_user
+from app.deps import (
+    BLOCKING_IGREJA_STATUSES,
+    REVOKED_USER_STATUS,
+    CurrentUser,
+    get_current_user,
+)
 from app.services.clerk import ClerkAuthError, ClerkClient, get_clerk_client
 
 logger = logging.getLogger("pastorai.auth")
@@ -102,6 +107,12 @@ def login(
         # Authenticated at Clerk but not linked to an igreja: keep it generic
         # at login to avoid disclosing account state to anonymous callers.
         logger.info("Login with no linked app_user for clerk_user_id (masked)")
+        raise _unauthorized() from None
+
+    if app_user.status == REVOKED_USER_STATUS:
+        # Access revoked (RF-04): no token is issued. Generic 401 — does not
+        # disclose that the account exists but was revoked (US-01).
+        logger.info("Login attempt by revoked app_user (masked)")
         raise _unauthorized() from None
 
     igreja_status = app_user.igreja.status if app_user.igreja else None

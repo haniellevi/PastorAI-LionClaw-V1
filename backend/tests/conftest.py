@@ -99,6 +99,7 @@ def make_app_user(
     igreja_status: str = "ativa",
     email: str = "pastor@igrejapiloto.com",
     nome: str = "Pastor Piloto",
+    status: str = "ativo",
 ):
     """Build an app_user stand-in compatible with the deps/router access."""
     igreja = SimpleNamespace(
@@ -110,6 +111,7 @@ def make_app_user(
         clerk_user_id=clerk_user_id,
         email=email,
         nome=nome,
+        status=status,
         igreja=igreja,
     )
 
