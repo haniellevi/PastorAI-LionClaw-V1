@@ -3,7 +3,7 @@
 SaaS de gestão pastoral (jornada G12: ganhar → consolidar → discipular → enviar) com WhatsApp, IA e billing. MVP gerado pelo pipeline `development-v2` do LionClaw (16 sprints). Repositório: https://github.com/haniellevi/PastorAI-LionClaw-V1
 
 ## Stack
-- **Backend**: FastAPI (Python) em `backend/` — entry `app/main.py`. SQLAlchemy + PostgreSQL (Supabase), RLS por tenant (`igreja_id`). Auth Clerk. LangGraph (agente orquestrador). Migrations SQL em `backend/migrations/` (0001…0009).
+- **Backend**: FastAPI (Python) em `backend/` — entry `app/main.py`. SQLAlchemy + PostgreSQL (Supabase), RLS por tenant (`igreja_id`). Auth Clerk. LangGraph (agente orquestrador). Migrations SQL em `backend/migrations/` — histórico `0001…0017` (numeração congelada); **novas migrations usam nome por timestamp** `AAAAMMDD_HHMMSS_slug.sql` (helper: `python scripts/new_migration.py "..."`), pra não colidir entre branches. Aplicação manual no Supabase, em ordem de nome. Ver `backend/migrations/README.md`.
 - **Frontend**: Next.js 14 (App Router) em `frontend/` — Clerk, PWA, mobile-first.
 - **Serviços externos**: Supabase, Clerk, Evolution API (WhatsApp), OpenAI, Asaas (billing), Brevo (e-mail de convite), Google Calendar.
 - **Docs do pipeline**: `docs/Docs<id>/` (PRD, SPEC, sprints, design).
