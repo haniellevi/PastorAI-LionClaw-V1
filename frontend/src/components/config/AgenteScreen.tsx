@@ -20,12 +20,12 @@ import { StatusPill, type PillTone } from "@/components/dashboard/StatusPill";
 import { Toggle } from "@/components/ui/Toggle";
 import { SessionExpiredError } from "@/lib/api";
 import {
-  AgentCredentialRequiredError,
   createCron,
   CRON_TRIGGERS,
-  listCrons,
+  fetchAgentConfig,
+  fetchCredentialStatus,
+  fetchCrons,
   LLM_PROVIDERS,
-  saveAgentConfig,
   saveCredential,
   updateCron,
   type CronResult,
@@ -66,6 +66,7 @@ export function AgenteScreen() {
   const { token, expireSession } = useAuth();
 
   const [tab, setTab] = useState<Tab>("behavior");
+  const [loading, setLoading] = useState(true);
 
   // ── Credencial LLM ──────────────────────────────────────────────────────
   const [provedor, setProvedor] = useState<LlmProvider>("openai");
@@ -74,13 +75,11 @@ export function AgenteScreen() {
   const [savingCred, setSavingCred] = useState(false);
   const [credError, setCredError] = useState<string | null>(null);
 
-  // ── Comportamento ───────────────────────────────────────────────────────
+  // ── Comportamento (READ-ONLY — configurado pelo master/plataforma) ───────
   const [nome, setNome] = useState("");
   const [tom, setTom] = useState("");
   const [comportamento, setComportamento] = useState("");
   const [ativo, setAtivo] = useState(false);
-  const [savingBehavior, setSavingBehavior] = useState(false);
-  const [behaviorError, setBehaviorError] = useState<string | null>(null);
 
   // ── Crons ───────────────────────────────────────────────────────────────
   const [cronNome, setCronNome] = useState("");
@@ -92,7 +91,6 @@ export function AgenteScreen() {
   const [cronError, setCronError] = useState<string | null>(null);
   const [crons, setCrons] = useState<CronResult[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [loadingCrons, setLoadingCrons] = useState(false);
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
   const [toast, setToast] = useState<Toast | null>(null);
@@ -120,55 +118,38 @@ export function AgenteScreen() {
     [expireSession],
   );
 
-  // ── Carregar agendamentos existentes ao abrir a tela ─────────────────────
+  // ── Carrega o que já está salvo ao abrir (credencial/config/crons) ───────
   useEffect(() => {
     if (!token) return;
-    let active = true;
-    setLoadingCrons(true);
-    listCrons(token)
-      .then((rows) => {
-        if (active) setCrons(rows);
-      })
-      .catch((err) => {
-        if (handleSessionError(err)) return;
-        if (active) {
-          setCronError(
-            err instanceof ApiError ? err.message : "Não foi possível carregar os agendamentos.",
-          );
+    let alive = true;
+    void (async () => {
+      try {
+        const [cred, cfg, cronList] = await Promise.all([
+          fetchCredentialStatus(token),
+          fetchAgentConfig(token),
+          fetchCrons(token),
+        ]);
+        if (!alive) return;
+        setCredentialState(cred.status);
+        if (cred.provedor) setProvedor(cred.provedor as LlmProvider);
+        if (cfg.configured) {
+          setNome(cfg.nome ?? "");
+          setTom(cfg.tom ?? "");
+          setComportamento(cfg.comportamento ?? "");
+          setAtivo(cfg.ativo);
         }
-      })
-      .finally(() => {
-        if (active) setLoadingCrons(false);
-      });
+        setCrons(cronList);
+      } catch (err) {
+        if (handleSessionError(err)) return;
+        // Falha de leitura não trava a tela — ainda dá pra salvar.
+      } finally {
+        if (alive) setLoading(false);
+      }
+    })();
     return () => {
-      active = false;
+      alive = false;
     };
   }, [token, handleSessionError]);
-
-  // ── Resetar o formulário de cron (sai do modo edição) ────────────────────
-  const resetCronForm = useCallback(() => {
-    setEditingId(null);
-    setCronNome("");
-    setCronFrequencia(CRON_FREQUENCIES[0].code);
-    setCronGatilho(CRON_TRIGGERS[0].code);
-    setCronAcao("");
-    setCronAtivo(true);
-    setCronError(null);
-  }, []);
-
-  // ── Carregar um cron no formulário para edição ───────────────────────────
-  const startEdit = useCallback((cron: CronResult) => {
-    setEditingId(cron.id);
-    setCronNome(cron.nome);
-    setCronFrequencia(cron.frequencia);
-    // Preserva "sem gatilho" (cron só por frequência) ao editar — string vazia
-    // vira null no submit. Sem isso, um cron sem gatilho ganharia um gatilho
-    // silenciosamente no round-trip de edição (PUT é substituição total).
-    setCronGatilho(cron.gatilhoEstado ?? "");
-    setCronAcao(cron.acao ?? "");
-    setCronAtivo(cron.ativo);
-    setCronError(null);
-  }, []);
 
   // ── Salvar credencial (a chave nunca volta após salvar) ──────────────────
   const submitCredential = useCallback(async () => {
@@ -197,38 +178,30 @@ export function AgenteScreen() {
     }
   }, [token, savingCred, apiKey, provedor, flashToast, handleSessionError]);
 
-  // ── Salvar comportamento (ativar exige credencial validada) ──────────────
-  const submitBehavior = useCallback(async () => {
-    if (!token || savingBehavior || comportamento.trim().length === 0) return;
-    setSavingBehavior(true);
-    setBehaviorError(null);
-    try {
-      const result = await saveAgentConfig(token, {
-        comportamento: comportamento.trim(),
-        nome: nome.trim() || null,
-        tom: tom.trim() || null,
-        ativo,
-      });
-      setAtivo(result.ativo);
-      flashToast({
-        kind: "ok",
-        text: result.ativo ? "Comportamento salvo e agente ativado." : "Comportamento salvo.",
-      });
-    } catch (err) {
-      if (handleSessionError(err)) return;
-      if (err instanceof AgentCredentialRequiredError) {
-        // Ativação bloqueada: reverte o toggle e mantém a configuração salva manualmente.
-        setAtivo(false);
-        setBehaviorError(err.message);
-      } else {
-        setBehaviorError(
-          err instanceof ApiError ? err.message : "Não foi possível salvar o comportamento.",
-        );
-      }
-    } finally {
-      setSavingBehavior(false);
-    }
-  }, [token, savingBehavior, comportamento, nome, tom, ativo, flashToast, handleSessionError]);
+  // ── Resetar o formulário de cron (sai do modo edição) ────────────────────
+  const resetCronForm = useCallback(() => {
+    setEditingId(null);
+    setCronNome("");
+    setCronFrequencia(CRON_FREQUENCIES[0].code);
+    setCronGatilho(CRON_TRIGGERS[0].code);
+    setCronAcao("");
+    setCronAtivo(true);
+    setCronError(null);
+  }, []);
+
+  // ── Carregar um cron no formulário para edição ───────────────────────────
+  const startEdit = useCallback((cron: CronResult) => {
+    setEditingId(cron.id);
+    setCronNome(cron.nome);
+    setCronFrequencia(cron.frequencia);
+    // Preserva "sem gatilho" (cron só por frequência) ao editar — string vazia
+    // vira null no submit. Sem isso, um cron sem gatilho ganharia um gatilho
+    // silenciosamente no round-trip de edição (PUT é substituição total).
+    setCronGatilho(cron.gatilhoEstado ?? "");
+    setCronAcao(cron.acao ?? "");
+    setCronAtivo(cron.ativo);
+    setCronError(null);
+  }, []);
 
   // ── Criar/editar cron (gatilho de estado validado antes de salvar) ───────
   const submitCron = useCallback(async () => {
@@ -301,24 +274,15 @@ export function AgenteScreen() {
     [token, togglingId, editingId, flashToast, handleSessionError],
   );
 
-  const behaviorReady = comportamento.trim().length > 0;
   const credReady = apiKey.trim().length > 0;
   const cronReady = cronNome.trim().length > 0;
 
   return (
     <div className="screen" key="agente">
       <div className="screen-head">
-        <div className="titles">
-          <h2>Agente IA</h2>
-          <p>
-            Configure a credencial BYO do provedor, o comportamento do agente e os
-            agendamentos automáticos. O agente só pode ser ativado com uma
-            credencial validada.
-          </p>
-        </div>
         <div className="actions">
-          <StatusPill tone={credentialTone(credentialState)}>
-            {credentialLabel(credentialState)}
+          <StatusPill tone={loading ? "muted" : credentialTone(credentialState)}>
+            {loading ? "Carregando…" : credentialLabel(credentialState)}
           </StatusPill>
         </div>
       </div>
@@ -347,82 +311,47 @@ export function AgenteScreen() {
         </button>
       </div>
 
-      {/* ── Tab: Comportamento ─────────────────────────────────────────── */}
+      {/* ── Tab: Comportamento (read-only — definido pela plataforma) ───── */}
       {tab === "behavior" ? (
-        <form
-          className="card card-pad"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void submitBehavior();
-          }}
-        >
-          {behaviorError ? (
-            <div className="error-banner" role="alert" style={{ marginBottom: "var(--s3)" }}>
-              <Icon name="alert" />
-              <span>{behaviorError}</span>
-            </div>
-          ) : null}
+        <div className="card card-pad">
+          <div
+            className="error-banner"
+            role="status"
+            style={{
+              marginBottom: "var(--s3)",
+              background: "var(--accent-soft)",
+              color: "var(--accent)",
+            }}
+          >
+            <Icon name="lock" />
+            <span>
+              O comportamento do agente é definido pela{" "}
+              <strong>plataforma PastorAI</strong>. Fale com o suporte para ajustes.
+            </span>
+          </div>
           <div className="row" style={{ marginBottom: "var(--s3)" }}>
             <div className="field" style={{ margin: 0 }}>
-              <label htmlFor="agName">Nome do agente</label>
-              <input
-                id="agName"
-                value={nome}
-                onChange={(e) => setNome(e.target.value)}
-                placeholder="Ex.: Pastora Ana"
-              />
+              <label>Nome do agente</label>
+              <div className="val">{nome || "—"}</div>
             </div>
             <div className="field" style={{ margin: 0 }}>
-              <label htmlFor="agTom">Tom de voz</label>
-              <input
-                id="agTom"
-                value={tom}
-                onChange={(e) => setTom(e.target.value)}
-                placeholder="Ex.: acolhedor e pastoral"
-              />
+              <label>Tom de voz</label>
+              <div className="val">{tom || "—"}</div>
             </div>
           </div>
           <div className="field" style={{ marginBottom: "var(--s3)" }}>
-            <label htmlFor="agBehavior">Comportamento e instruções</label>
-            <textarea
-              id="agBehavior"
-              rows={6}
-              value={comportamento}
-              onChange={(e) => setComportamento(e.target.value)}
-              placeholder="Descreva como o agente deve se comunicar, o que pode e o que não pode fazer…"
-            />
+            <label>Comportamento e instruções</label>
+            <div className="val" style={{ whiteSpace: "pre-wrap" }}>
+              {comportamento || "Ainda não configurado pela plataforma."}
+            </div>
           </div>
-          <div className="seg-toggle-row" style={{ marginBottom: "var(--s3)" }}>
-            <span>{ativo ? "Agente ativo" : "Agente desativado"}</span>
-            <Toggle
-              checked={ativo}
-              onChange={setAtivo}
-              label="Ativar agente"
-              disabled={savingBehavior}
-            />
+          <div className="seg-toggle-row">
+            <span>Status do agente</span>
+            <StatusPill tone={ativo ? "ok" : "muted"}>
+              {ativo ? "Ativo" : "Desativado"}
+            </StatusPill>
           </div>
-          {credentialState !== "active" ? (
-            <p
-              className="sub"
-              style={{ color: "var(--muted)", display: "flex", alignItems: "center", gap: 6, marginBottom: "var(--s3)" }}
-            >
-              <Icon name="lock" />
-              <span>
-                A ativação exige uma credencial validada na aba “Credencial LLM”.
-              </span>
-            </p>
-          ) : null}
-          <div style={{ display: "flex", gap: 8 }}>
-            <button
-              type="submit"
-              className="btn btn-primary"
-              disabled={!behaviorReady || savingBehavior}
-              aria-busy={savingBehavior || undefined}
-            >
-              {savingBehavior ? "Salvando…" : "Salvar comportamento"}
-            </button>
-          </div>
-        </form>
+        </div>
       ) : null}
 
       {/* ── Tab: Credencial LLM ────────────────────────────────────────── */}
@@ -440,13 +369,7 @@ export function AgenteScreen() {
               <span>{credError}</span>
             </div>
           ) : null}
-          <div className="config-row">
-            <span style={{ color: "var(--muted)" }}>Status</span>
-            <StatusPill tone={credentialTone(credentialState)}>
-              {credentialLabel(credentialState)}
-            </StatusPill>
-          </div>
-          <div className="field" style={{ marginTop: "var(--s3)", marginBottom: "var(--s3)" }}>
+          <div className="field" style={{ marginBottom: "var(--s3)" }}>
             <label htmlFor="agProvider">Provedor</label>
             <select
               id="agProvider"
@@ -469,8 +392,29 @@ export function AgenteScreen() {
               autoComplete="off"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
-              placeholder="sk-…"
+              placeholder={
+                credentialState === "none"
+                  ? "sk-…"
+                  : "•••••••• — deixe em branco para manter"
+              }
             />
+            {credentialState === "active" ? (
+              <p
+                className="sub"
+                style={{ color: "var(--ok)", marginTop: 6, display: "flex", alignItems: "center", gap: 6 }}
+              >
+                <Icon name="check" />
+                <span>Chave configurada — preencha só se quiser trocá-la.</span>
+              </p>
+            ) : credentialState === "invalid" ? (
+              <p
+                className="sub"
+                style={{ color: "var(--danger)", marginTop: 6, display: "flex", alignItems: "center", gap: 6 }}
+              >
+                <Icon name="alert" />
+                <span>Há uma chave salva, mas inválida — informe uma nova.</span>
+              </p>
+            ) : null}
             <p className="sub" style={{ color: "var(--muted)", marginTop: 6 }}>
               A chave é cifrada no servidor e nunca é reexibida após salvar.
             </p>
@@ -595,12 +539,7 @@ export function AgenteScreen() {
 
           <div className="card">
             <div className="panel-title">Agendamentos configurados</div>
-            {loadingCrons && crons.length === 0 ? (
-              <div className="empty-state" style={{ padding: "var(--s6)" }}>
-                <Icon name="clock" />
-                <p>Carregando agendamentos…</p>
-              </div>
-            ) : crons.length === 0 ? (
+            {crons.length === 0 ? (
               <div className="empty-state" style={{ padding: "var(--s6)" }}>
                 <Icon name="clock" />
                 <p>

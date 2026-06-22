@@ -38,6 +38,8 @@ export interface SessionUser {
   churchId: string;
   email: string;
   nome: string;
+  /** Nome de exibição no chat (assinatura). null = usa `nome`. */
+  chatNome: string | null;
   roles: Role[];
 }
 
@@ -50,6 +52,10 @@ interface AuthContextValue {
   /** Autentica via api-login + /auth/me. Lança LoginError em falha. */
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
+  /** Atualiza localmente o nome de exibição após editar o perfil. */
+  updateNome: (nome: string) => void;
+  /** Atualiza localmente a assinatura do chat após editar o perfil. */
+  updateChatNome: (chatNome: string | null) => void;
   /** Sinaliza expiração de sessão preservando a rota atual. */
   expireSession: () => void;
   /** Rota a restaurar após re-login (sessão expirada). */
@@ -81,6 +87,7 @@ function toSessionUser(me: MeResult): SessionUser {
     churchId: me.churchId,
     email: me.email,
     nome: me.nome,
+    chatNome: me.chatNome,
     roles: normalizeRoles(me.roles),
   };
 }
@@ -150,6 +157,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setStatus("unauthenticated");
   }, []);
 
+  const updateNome = useCallback((nome: string) => {
+    setUser((u) => (u ? { ...u, nome } : u));
+  }, []);
+
+  const updateChatNome = useCallback((chatNome: string | null) => {
+    setUser((u) => (u ? { ...u, chatNome } : u));
+  }, []);
+
   const expireSession = useCallback(() => {
     try {
       const current = window.location.hash.replace(/^#/, "");
@@ -182,10 +197,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       token: tokenRef.current,
       login,
       logout,
+      updateNome,
+      updateChatNome,
       expireSession,
       consumeReturnTo,
     }),
-    [status, user, login, logout, expireSession, consumeReturnTo],
+    [status, user, login, logout, updateNome, updateChatNome, expireSession, consumeReturnTo],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

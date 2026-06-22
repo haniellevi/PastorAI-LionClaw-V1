@@ -76,6 +76,53 @@ export class AgentCredentialRequiredError extends Error {
   }
 }
 
+/** Status atual da credencial (sem a chave — RNF-03). */
+export interface CredentialStatus {
+  status: "active" | "invalid" | "none";
+  provedor: string | null;
+}
+
+/** Config salva do agente; `configured=false` quando ainda não há. */
+export interface AgentConfigStatus {
+  configured: boolean;
+  nome: string | null;
+  tom: string | null;
+  comportamento: string | null;
+  publicoAlvo: string[] | null;
+  acessos: string[] | null;
+  ativo: boolean;
+}
+
+/** Lê o status da credencial (pra tela indicar "chave configurada" ao abrir). */
+export async function fetchCredentialStatus(token: string): Promise<CredentialStatus> {
+  const res = await authedFetch(token, "/agent/credential");
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível carregar a credencial.");
+  }
+  return (await res.json()) as CredentialStatus;
+}
+
+/** Lê a configuração de comportamento salva. */
+export async function fetchAgentConfig(token: string): Promise<AgentConfigStatus> {
+  const res = await authedFetch(token, "/agent/config");
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível carregar a configuração do agente.");
+  }
+  return (await res.json()) as AgentConfigStatus;
+}
+
+/** Lista os agendamentos salvos. */
+export async function fetchCrons(token: string): Promise<CronResult[]> {
+  const res = await authedFetch(token, "/agent/crons");
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível carregar os agendamentos.");
+  }
+  return (await res.json()) as CronResult[];
+}
+
 export async function saveCredential(
   token: string,
   payload: { provedor: LlmProvider; apiKey: string },
@@ -149,16 +196,6 @@ export async function createCron(
     throw new ApiError(res.status, detail ?? "Não foi possível salvar o agendamento.");
   }
   return (await res.json()) as CronResult;
-}
-
-/** Lista os agendamentos da igreja (GET /agent/crons). */
-export async function listCrons(token: string): Promise<CronResult[]> {
-  const res = await authedFetch(token, "/agent/crons");
-  if (!res.ok) {
-    const detail = await readDetail(res);
-    throw new ApiError(res.status, detail ?? "Não foi possível carregar os agendamentos.");
-  }
-  return (await res.json()) as CronResult[];
 }
 
 /**

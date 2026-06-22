@@ -173,7 +173,6 @@ export function CalendarioScreen() {
       <div className="screen-head">
         <div className="titles">
           <h2>Calendário · {monthLabel(year, month)}</h2>
-          <p>Eventos da igreja sincronizados com o Google Calendar.</p>
         </div>
         <div className="actions">
           <button type="button" className="btn btn-sm" onClick={goPrev} aria-label="Mês anterior">

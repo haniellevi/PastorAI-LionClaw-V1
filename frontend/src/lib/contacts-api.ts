@@ -40,6 +40,36 @@ export interface Contact {
   liderId: string | null;
 }
 
+/**
+ * Detalhe completo de uma pessoa (GET /contacts/{id}) — alimenta o painel de
+ * dados do contato no chat (Parte B). Estende `Contact` com campos cadastrais e
+ * de jornada e já traz os nomes resolvidos de célula e líder.
+ */
+export interface ContactDetail {
+  id: string;
+  nome: string;
+  telefone: string;
+  email: string | null;
+  genero: string | null;
+  faixaEtaria: string | null;
+  endereco: string | null;
+  tipo: string | null;
+  etapa: string | null;
+  subetapa: string | null;
+  acompanhamento: string | null;
+  presencasCelula: number;
+  aceitouJesus: boolean;
+  celulaId: string | null;
+  celulaNome: string | null;
+  liderId: string | null;
+  liderNome: string | null;
+  consentimento: boolean;
+  optout: boolean;
+  origem: string | null;
+  primeiroContato: string | null;
+  criadoEm: string | null;
+}
+
 export interface CreateContactInput {
   nome: string;
   telefone: string;
@@ -77,6 +107,18 @@ export async function fetchContacts(
   return (await res.json()) as Page<Contact>;
 }
 
+/** Detalhe completo de uma pessoa para o painel do chat (404 → erro). */
+export async function fetchContactDetail(
+  token: string,
+  contactId: string,
+): Promise<ContactDetail> {
+  const res = await authedFetch(token, `/contacts/${contactId}`);
+  if (!res.ok) {
+    throw new ApiError(res.status, "Não foi possível carregar os dados do contato.");
+  }
+  return (await res.json()) as ContactDetail;
+}
+
 export async function fetchPipeline(
   token: string,
   etapa?: string,
@@ -107,6 +149,34 @@ export async function createContact(
     throw new ApiError(res.status, detail ?? "Não foi possível salvar o contato.");
   }
   return (await res.json()) as CreateContactResult;
+}
+
+export interface UpdateContactInput {
+  nome?: string;
+  telefone?: string;
+  email?: string | null;
+  genero?: "m" | "f" | null;
+  tipo?: string | null;
+}
+
+/**
+ * Edita os dados cadastrais de uma pessoa (somente admin no backend — 403 caso
+ * contrário). 409 quando o novo telefone colide com outra pessoa da igreja.
+ */
+export async function updateContact(
+  token: string,
+  contactId: string,
+  input: UpdateContactInput,
+): Promise<Contact> {
+  const res = await authedFetch(token, `/contacts/${contactId}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível salvar as alterações.");
+  }
+  return (await res.json()) as Contact;
 }
 
 /**

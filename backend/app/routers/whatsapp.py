@@ -2,13 +2,15 @@
 
 Endpoints:
   - GET  /whatsapp/connection   current numero / status / ultima_sync (admin)
-  - POST /whatsapp/connection   connect|reconnect -> {status, qr} (admin)
+  - POST /whatsapp/connection   connect|reconnect|disconnect -> {status, qr} (admin)
   - POST /whatsapp/webhook      Evolution inbound events (signature-gated)
 
 A single official number per igreja is enforced by the UNIQUE igreja_id on
 whatsapp_connections (RF-07). Config screens are admin-only (delta-005), so the
 authenticated endpoints require the `admin` role. The webhook is public but
-gated by an HMAC signature instead of Clerk auth (SPEC 3.3).
+gated by a shared-secret token (query `?token=` / HMAC) instead of Clerk auth
+(SPEC 3.3). Connecting an instance also registers this webhook on it, so a
+number paired via the panel QR forwards messages without a manual step.
 """
 
 from __future__ import annotations
@@ -18,7 +20,7 @@ import json
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -113,10 +115,10 @@ def post_connection(
     Keeps a single connection row per igreja (RF-07). The status is persisted so
     the UI reflects drops/reconnects without a reload.
     """
-    if payload.action not in ("connect", "reconnect"):
+    if payload.action not in ("connect", "reconnect", "disconnect"):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="action deve ser 'connect' ou 'reconnect'",
+            detail="action deve ser 'connect', 'reconnect' ou 'disconnect'",
         )
 
     ensure_tenant_context(db, current_user)
@@ -127,6 +129,23 @@ def post_connection(
         .where(WhatsappConnection.igreja_id == igreja_uuid)
         .with_for_update()
     ).scalar_one_or_none()
+
+    # Disconnect: log out the paired device but keep the row so a later connect
+    # reuses the same instance (RF-07). No-op when the igreja never connected.
+    if payload.action == "disconnect":
+        if conn is None or not conn.instance:
+            return ConnectResponse(status="offline", qr=None)
+        try:
+            result = evolution.disconnect(conn.instance)
+        except EvolutionError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
+            ) from exc
+        conn.status = result.status
+        conn.numero = None
+        conn.ultima_sync = dt.datetime.now(dt.timezone.utc)
+        db.commit()
+        return ConnectResponse(status=result.status, qr=None)
 
     # Reuse the igreja's existing instance when present (it may have been
     # provisioned out-of-band, e.g. an already-connected number); only mint a
@@ -179,15 +198,23 @@ async def webhook(
     x_evolution_signature: str | None = Header(default=None),
     x_hub_signature_256: str | None = Header(default=None),
     x_webhook_token: str | None = Header(default=None),
+    token: str | None = Query(default=None),
     queue: WebhookQueue = Depends(get_webhook_queue),
 ) -> dict[str, str]:
     """Authenticate and enqueue the event for the worker.
 
-    Evolution API v2 does not HMAC-sign webhooks, so the request is accepted
-    when EITHER a valid HMAC signature is present (GitHub-style) OR a matching
-    static shared-secret header (`x-webhook-token`) is sent — both compared in
-    constant time. An unauthenticated request is rejected with 401 before any
-    parsing. Accepted events are queued and processed asynchronously (RNF-17).
+    Evolution API v2 self-hosted neither HMAC-signs its webhooks nor supports
+    custom headers (header support exists only on the Cloud edition), so the
+    primary authentication is a static shared-secret carried in the webhook URL
+    query string (`?token=...`) — Evolution preserves query params on the
+    configured global/instance webhook URL. The request is accepted when ANY of
+    the following matches, all compared in constant time:
+      - a valid HMAC signature (GitHub-style, future-proofing / Cloud edition);
+      - a matching `x-webhook-token` header (Cloud edition / reverse proxy);
+      - a matching `?token=` query param (Evolution v2 self-hosted — the path
+        actually used by this deploy).
+    An unauthenticated request is rejected with 401 before any parsing. Accepted
+    events are queued and processed asynchronously (RNF-17).
     """
     raw = await request.body()
     secret = get_settings().evolution_webhook_secret
@@ -196,6 +223,7 @@ async def webhook(
     if not (
         verify_webhook_signature(secret, raw, signature)
         or verify_shared_secret(secret, x_webhook_token)
+        or verify_shared_secret(secret, token)
     ):
         logger.warning("Rejected webhook with invalid signature/token")
         raise HTTPException(

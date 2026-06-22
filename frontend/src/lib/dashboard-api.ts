@@ -53,6 +53,7 @@ export interface TeamMember {
   email: string;
   status: string | null;
   papeis: string[];
+  pessoaId: string | null;
 }
 
 export interface Cell {
@@ -143,6 +144,19 @@ export async function fetchWorkQueue(token: string, pageSize = 100): Promise<Pag
 
 export async function fetchTeam(token: string, pageSize = 100): Promise<Page<TeamMember>> {
   const res = await authedFetch(token, `/team?page=1&pageSize=${pageSize}`);
+  if (!res.ok) {
+    throw new ApiError(res.status, "Não foi possível carregar a equipe.");
+  }
+  return (await res.json()) as Page<TeamMember>;
+}
+
+/**
+ * Busca ENXUTA de membros (id, nome, papéis; e-mail vazio) para o painel
+ * resolver o nome do responsável de cada item — liberada a qualquer papel. A
+ * lista completa com e-mail (GET /team) é restrita a admin/pastor/lider_g12.
+ */
+export async function fetchTeamLookup(token: string, pageSize = 200): Promise<Page<TeamMember>> {
+  const res = await authedFetch(token, `/team/lookup?page=1&pageSize=${pageSize}`);
   if (!res.ok) {
     throw new ApiError(res.status, "Não foi possível carregar a equipe.");
   }

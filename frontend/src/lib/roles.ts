@@ -11,6 +11,7 @@ export type Role =
   | "lider_consol"
   | "lider_celula"
   | "lider_mult"
+  | "operador"
   | "membro";
 
 export interface RoleDef {
@@ -27,6 +28,7 @@ export const ROLE_DEFS: Record<Role, RoleDef> = {
   lider_consol: { label: "Líder de Consolidação", short: "Consolidação", lead: true },
   lider_celula: { label: "Líder de Célula", short: "Célula", lead: true },
   lider_mult: { label: "Líder de Multiplicação", short: "Multiplicação", lead: true },
+  operador: { label: "Operador", short: "Operador", lead: false },
   membro: { label: "Membro", short: "Membro", lead: false },
 };
 
@@ -37,6 +39,7 @@ export const ROLE_ORDER: Role[] = [
   "lider_consol",
   "lider_celula",
   "lider_mult",
+  "operador",
   "membro",
 ];
 

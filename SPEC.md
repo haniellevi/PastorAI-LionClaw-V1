@@ -343,6 +343,8 @@
 | email | text NOT NULL | data-system-managers.email |
 | papel_operacional | enum(`admin_sistema`,`operador`) | data-system-managers.papelOperacional |
 
+> **[Fase 1 — divergência de implementação · 2026-06-14]** Tabela `system_managers` **descontinuada**: `operador` → papel `operador` em `user_roles`; `admin_sistema` → papel `admin`. Módulo `system_managers.py` e a API `api-system-managers` (`/system-managers`) **removidos**; a tela `#gerentes`/`nav-gerentes` saiu do contrato operacional (gestão concentra-se em `#equipe` + `#permissoes`). Migração: `0008_add_operador_role.sql` (enums) + `0009_unify_system_managers.sql` (backfill); tabela/enum não dropados ainda (rollback). Conceder acesso passa a vincular `app_user` a uma `pessoa` (FK `app_users.pessoa_id`).
+
 #### `consolidacoes` (data-consolidacao; US-38/39 — delta-018)
 | Campo | Tipo | Notas |
 |-------|------|-------|

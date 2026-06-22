@@ -229,13 +229,6 @@ export function EnviarScreen() {
   return (
     <div className="screen" key="enviar">
       <div className="screen-head">
-        <div className="titles">
-          <h2>Painel do Enviar</h2>
-          <p>
-            Cobre, supervisione e aprove multiplicações de células. Acompanhe quem está apto a
-            liderar e o histórico por descendência.
-          </p>
-        </div>
         <div className="actions">
           {canManage ? (
             <button

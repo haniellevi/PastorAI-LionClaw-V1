@@ -375,7 +375,8 @@ textarea:disabled {
 .app {
   display: grid;
   grid-template-columns: 248px 1fr;
-  min-height: 100dvh;
+  height: 100dvh;
+  overflow: hidden;
 }
 .sidebar {
   background: var(--sidebar);
@@ -882,8 +883,10 @@ textarea:disabled {
 /* ---------- MAIN / TOPBAR ---------- */
 .main {
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 .topbar {
   position: sticky;
@@ -981,6 +984,9 @@ textarea:disabled {
 
 /* ---------- SCREENS ---------- */
 .screen {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   padding: var(--s5);
   animation: fade 0.22s ease;
 }
@@ -1013,6 +1019,50 @@ textarea:disabled {
   margin-left: auto;
   display: flex;
   gap: var(--s2);
+}
+
+/* InfoTip — "i" com popover (descrição da tela, ao lado do título na topbar) */
+.infotip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.infotip-btn {
+  width: 17px;
+  height: 17px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--muted);
+  font: 700 11px var(--font);
+  line-height: 1;
+  cursor: help;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.infotip-btn:hover,
+.infotip-btn:focus-visible {
+  color: var(--accent);
+  border-color: var(--accent);
+  outline: none;
+}
+.infotip-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 60;
+  width: max-content;
+  max-width: 300px;
+  background: var(--surface);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow);
+  padding: 8px 10px;
+  font: 400 12.5px/1.45 var(--font);
+  white-space: normal;
 }
 .card {
   background: var(--surface);
@@ -2462,10 +2512,25 @@ table.data-table {
 /* ===========================================================================
    Inbox (#inbox) — conversation-list + conversation-thread (artifact travado)
    =========================================================================== */
+/* A tela do chat (.screen-chat) cabe na viewport: a lista e a thread rolam
+   internamente, então o compositor de resposta fica sempre acessível sem
+   precisar rolar a página inteira. */
+.screen-chat {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
 .inbox {
   display: grid;
   grid-template-columns: 320px 1fr;
-  height: calc(100vh - 122px);
+  /* Linha limitada à altura do container (não ao conteúdo): sem isto a linha
+     vira `auto` e a thread cresce com as mensagens, empurrando o compositor
+     pra fora. minmax(0,1fr) deixa a coluna/lista rolarem por dentro. */
+  grid-template-rows: minmax(0, 1fr);
+  flex: 1; /* preenche .screen-chat (antes: height fixo calc(100vh - 122px)) */
+  min-height: 0; /* deixa .conv-list / .thread-body donas do scroll */
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
   overflow: hidden;
@@ -2474,6 +2539,7 @@ table.data-table {
 .conv-list {
   border-right: 1px solid var(--border);
   overflow-y: auto;
+  min-height: 0; /* grid item rola por dentro, não estoura a linha */
   display: flex;
   flex-direction: column;
 }
@@ -2489,22 +2555,57 @@ table.data-table {
 }
 .conv {
   display: flex;
-  gap: 10px;
-  padding: var(--s3) var(--s4);
+  gap: 12px;
+  align-items: center;
+  padding: 11px 14px;
   border-bottom: 1px solid var(--border);
+  border-left: 3px solid transparent;
   cursor: pointer;
   text-align: left;
   width: 100%;
   background: none;
   font: inherit;
   color: inherit;
-  transition: background 0.12s;
+  transition: background 0.12s, border-color 0.12s;
 }
 .conv:hover {
   background: var(--surface-2);
 }
 .conv.active {
   background: var(--accent-soft);
+  border-left-color: var(--accent);
+}
+.conv-sub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
+}
+.conv-sub .snippet {
+  margin-top: 0;
+  flex: 1;
+}
+.conv-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  flex: none;
+}
+.conv-dot.warn {
+  background: var(--warn);
+}
+.conv-badge {
+  flex: none;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-size: 11px;
+  font-weight: 600;
+  display: grid;
+  place-items: center;
 }
 .conv .av {
   width: 38px;
@@ -2550,6 +2651,7 @@ table.data-table {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 0; /* limita à coluna do grid: thread-body rola, thread-foot fixo */
 }
 .thread-head {
   padding: var(--s3) var(--s4);
@@ -2583,6 +2685,7 @@ table.data-table {
 }
 .thread-body {
   flex: 1;
+  min-height: 0; /* essencial: flex:1 + min-height:0 faz a área de mensagens rolar */
   overflow-y: auto;
   padding: var(--s4);
   background: var(--surface-2);
@@ -2620,6 +2723,7 @@ table.data-table {
   font-size: 10px;
   opacity: 0.7;
   margin-top: 3px;
+  text-align: right;
 }
 .msg .tag {
   font-size: 10px;
@@ -2629,6 +2733,129 @@ table.data-table {
   opacity: 0.75;
   margin-bottom: 3px;
   display: block;
+}
+/* Nome de quem respondeu (Parte A) — só nas mensagens enviadas por humano */
+.msg-author {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 700;
+  margin-bottom: 2px;
+  opacity: 0.85;
+}
+/* Mídia (Etapa 2): imagem, arquivo e áudio dentro do balão */
+.msg.msg-media {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px;
+}
+.msg-img-link {
+  display: block;
+  line-height: 0;
+}
+.msg-img {
+  width: 100%;
+  max-width: 260px;
+  height: auto;
+  max-height: 320px;
+  border-radius: 8px;
+  object-fit: cover;
+  cursor: pointer;
+}
+.msg-caption {
+  display: block;
+  padding: 0 4px;
+  white-space: pre-wrap;
+}
+.msg-audio {
+  max-width: 260px;
+  height: 38px;
+}
+.msg-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  text-decoration: none;
+  color: inherit;
+  background: color-mix(in oklch, currentColor 8%, transparent);
+}
+.msg.in .msg-file {
+  color: var(--text);
+}
+.msg-file-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.msg-file svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+.msg-media-na {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-style: italic;
+  opacity: 0.8;
+}
+.msg-media-na svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+/* Chip do anexo pendente (acima do compositor) */
+.attach-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 var(--s4);
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  font-size: 13px;
+}
+.attach-chip svg {
+  width: 18px;
+  height: 18px;
+  flex: none;
+  color: var(--muted);
+}
+.attach-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.attach-x {
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--muted);
+  display: flex;
+  padding: 2px;
+  border-radius: 6px;
+}
+.attach-x:hover {
+  color: var(--text);
+  background: var(--border);
+}
+.btn-icon {
+  padding: 0;
+  width: 38px;
+  height: 38px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .thread-foot {
   padding: var(--s3) var(--s4);
@@ -2691,6 +2918,218 @@ table.data-table {
 }
 
 /* ===========================================================================
+   contact-panel (#inbox — Parte B) — 3ª coluna com os dados do contato
+   =========================================================================== */
+/* Botões-ícone do cabeçalho da thread: dados (alterna painel) e excluir. */
+.thread-head .thread-tool {
+  width: 32px;
+  height: 32px;
+}
+.thread-head .thread-tool.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.thread-head .thread-tool.danger {
+  color: var(--danger);
+}
+.thread-head .thread-tool.danger:hover {
+  background: var(--danger-soft);
+  border-color: var(--danger);
+}
+
+/* Avatar com foto de perfil do WhatsApp (Etapa 4) — preenche o círculo. */
+.av-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 999px;
+}
+
+/* Barra de gravação de áudio (Etapa 3) no compositor. */
+.rec-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  flex: 1;
+  min-width: 0;
+}
+.rec-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--danger);
+  flex: none;
+  animation: rec-pulse 1s ease-in-out infinite;
+}
+.rec-time {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--fg);
+}
+.rec-label {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+@keyframes rec-pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.conv-panel {
+  border-left: 1px solid var(--border);
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+}
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+  padding: var(--s3) var(--s4);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+  z-index: 1;
+}
+.panel-head strong {
+  font-size: 13.5px;
+}
+.panel-head .btn-icon {
+  width: 30px;
+  height: 30px;
+}
+.panel-body {
+  padding: var(--s4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+}
+.panel-id {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+}
+.panel-av {
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: oklch(42% 0.08 195);
+  display: grid;
+  place-items: center;
+  font-weight: 600;
+  flex: none;
+}
+.panel-id-main {
+  min-width: 0;
+}
+.panel-id-main strong {
+  display: block;
+  font-size: 15px;
+}
+.panel-tipo {
+  display: inline-block;
+  margin-top: 3px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-soft);
+  padding: 1px 8px;
+  border-radius: 999px;
+}
+.panel-section h4 {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--faint);
+  margin: 0 0 var(--s2);
+}
+.panel-section dl {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.panel-row {
+  display: flex;
+  gap: var(--s3);
+  align-items: baseline;
+  justify-content: space-between;
+  font-size: 13px;
+}
+.panel-row dt {
+  color: var(--muted);
+  flex: none;
+}
+.panel-row dd {
+  margin: 0;
+  text-align: right;
+  color: var(--fg);
+  word-break: break-word;
+}
+.panel-empty {
+  display: grid;
+  place-items: center;
+  text-align: center;
+  color: var(--muted);
+  padding: var(--s6) var(--s4);
+  gap: 4px;
+}
+.panel-empty svg {
+  width: 34px;
+  height: 34px;
+  color: var(--border-strong);
+  margin-bottom: var(--s2);
+}
+.panel-loading {
+  padding: var(--s5);
+  text-align: center;
+  color: var(--faint);
+  font-size: 13px;
+}
+.panel-backdrop {
+  display: none;
+}
+
+/* Painel como 3ª coluna no desktop largo. */
+@media (min-width: 1101px) {
+  .inbox.with-panel {
+    grid-template-columns: 320px 1fr 320px;
+  }
+}
+
+/* Painel vira drawer sobreposto (com backdrop) em telas menores. */
+@media (max-width: 1100px) {
+  .conv-panel {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(360px, 92vw);
+    z-index: 50;
+    box-shadow: var(--shadow);
+  }
+  .panel-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 49;
+    background: oklch(20% 0.02 90 / 0.32);
+  }
+}
+
+/* ===========================================================================
    Conexão WhatsApp (#whatsapp) — qr-connect + status (artifact travado)
    =========================================================================== */
 .conn-grid {
@@ -2737,10 +3176,10 @@ table.data-table {
 @media (max-width: 860px) {
   .inbox {
     grid-template-columns: 1fr;
-    height: auto;
+    grid-template-rows: auto 1fr; /* lista (limitada) + thread preenche e rola */
   }
   .conv-list {
-    max-height: 300px;
+    max-height: 40vh;
   }
 }
 

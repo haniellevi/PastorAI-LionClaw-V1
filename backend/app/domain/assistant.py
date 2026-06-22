@@ -39,7 +39,6 @@ KNOWN_SCREENS: frozenset[str] = frozenset(
         "whatsapp",
         "agente",
         "assinatura",
-        "gerentes",
         "permissoes",
     }
 )
@@ -67,7 +66,6 @@ _INTENT_KEYWORDS: dict[str, tuple[str, ...]] = {
     "whatsapp": ("conexao", "conexão", "qr code", "numero oficial", "número oficial"),
     "agente": ("agente", "ia", "credencial", "modelo de ia", "openai"),
     "assinatura": ("assinatura", "plano", "cobranca", "cobrança", "pagamento"),
-    "gerentes": ("gerente de sistema", "gerentes"),
     "permissoes": ("permissao", "permissão", "permissoes", "matriz de acesso"),
 }
 

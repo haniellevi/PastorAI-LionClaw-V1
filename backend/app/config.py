@@ -54,12 +54,22 @@ class Settings(BaseSettings):
     # when empty, so no new required env var is introduced.
     session_jwt_secret: str = Field(default="")
     session_ttl_hours: int = Field(default=8, ge=1, le=720)
+    # TTL do link de redefinição de senha (fluxo "esqueci a senha").
+    password_reset_ttl_minutes: int = Field(default=30, ge=5, le=240)
 
     # ---- Evolution API (WhatsApp - US-05..US-08) ----------------------------
     evolution_api_url: str = Field(default="")
     evolution_api_key: str = Field(default="")
-    # Shared secret used to validate inbound webhook signatures (HMAC-SHA256).
+    # Shared secret used to validate inbound webhooks (HMAC or `?token=`).
     evolution_webhook_secret: str = Field(default="")
+    # URL the Evolution instance calls back to deliver inbound events. The
+    # backend registers it on the instance at connect time so a number paired
+    # via the panel QR actually forwards messages (without this the instance is
+    # "deaf"). Evolution v2 self-hosted has no custom webhook headers, so the
+    # shared secret is appended as a `?token=` query param. Use the address
+    # Evolution reaches the backend at — e.g. the internal container name on the
+    # shared Docker network: http://pastorai_backend:8000/whatsapp/webhook
+    evolution_webhook_callback_url: str = Field(default="")
 
     # ---- Worker / Filas (RNF-17) --------------------------------------------
     redis_url: str = Field(default="redis://localhost:6379/0")
@@ -82,10 +92,11 @@ class Settings(BaseSettings):
     # One-time setup fee charged on the first checkout (BRL).
     asaas_setup_fee: float = Field(default=0.0, ge=0)
 
-    # ---- Resend (convites de equipe - RF-40) --------------------------------
-    resend_api_url: str = Field(default="https://api.resend.com")
-    resend_api_key: str = Field(default="")
-    resend_from_email: str = Field(default="no-reply@pastorai.com.br")
+    # ---- Brevo (ex-Sendinblue) — convites de equipe (RF-40) -----------------
+    brevo_api_url: str = Field(default="https://api.brevo.com/v3")
+    brevo_api_key: str = Field(default="")
+    brevo_from_email: str = Field(default="no-reply@igreja12.com.br")
+    brevo_from_name: str = Field(default="Igreja 12")
 
     # ---- Google Calendar (sync de eventos - RF-39) --------------------------
     google_calendar_api_url: str = Field(
@@ -106,8 +117,21 @@ class Settings(BaseSettings):
 
     @property
     def cors_origins(self) -> list[str]:
-        """Allowed CORS origins. Frontend URL plus base URL in dev."""
-        origins = {self.frontend_url, self.app_base_url}
+        """Allowed CORS origins. Frontend URL plus base URL in dev.
+
+        Trailing slashes are stripped: browsers send the ``Origin`` header
+        as scheme+host+port with no path, so a configured ``https://host/``
+        would never match the browser-sent ``https://host`` and every
+        cross-origin auth call (login, forgot-password) would be rejected.
+        """
+        origins = {self.frontend_url.rstrip("/"), self.app_base_url.rstrip("/")}
+        # O console master tem subdomínio dedicado (admin.<dominio>), servido
+        # pela MESMA app na Vercel. Libera-o automaticamente junto do
+        # app.<dominio>, senão o login do console (POST /admin/login) feito a
+        # partir de admin.igreja12.com.br cai em CORS (origem diferente).
+        for origin in list(origins):
+            if "://app." in origin:
+                origins.add(origin.replace("://app.", "://admin.", 1))
         return [o for o in origins if o]
 
     @property

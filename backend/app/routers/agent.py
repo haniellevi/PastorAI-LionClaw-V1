@@ -1,16 +1,18 @@
-"""Agent router — BYO LLM credential management (US-27 / RNF-03).
+"""Agent router — BYO LLM credential, behaviour config and crons (US-27..29).
 
 Endpoints (all admin-only — delta-005):
-  - POST /agent/credential    {provedor, apiKey} -> {status}
-  - PUT  /agent/config        -> behaviour/tone/audience/access config
-  - POST /agent/crons         -> create a cron/state-triggered automation
-  - GET  /agent/crons         -> list the igreja's crons
-  - PUT  /agent/crons/{id}    -> edit a cron (RF-33: criar/editar/desativar)
+  - POST /agent/credential   {provedor, apiKey} -> {status}   (save, RNF-03)
+  - GET  /agent/credential   -> {status, provedor}            (read, no key)
+  - PUT  /agent/config       -> {...}                         (save behaviour)
+  - GET  /agent/config       -> {configured, ...}             (read)
+  - POST /agent/crons        -> create a cron/state-triggered automation
+  - GET  /agent/crons        -> list the igreja's crons
+  - PUT  /agent/crons/{id}   -> edit a cron (RF-33: criar/editar/desativar)
 
-The provided key is validated against the provider, encrypted at rest, and
+The credential key is validated against the provider, encrypted at rest, and
 never returned in clear text after being saved (RNF-03). An invalid key does
-NOT activate the credential, so the agent will not operate with it. Config
-screens are admin-only (delta-005), so the endpoint requires the `admin` role.
+NOT activate the credential, so the agent will not operate with it. The GET
+endpoints let the screen reflect what is already saved on open.
 """
 
 from __future__ import annotations
@@ -129,6 +131,35 @@ def save_credential(
     )
 
 
+class CredentialStatusResponse(BaseModel):
+    """Current BYO credential status. Never returns the key itself (RNF-03)."""
+
+    status: str  # active | invalid | none
+    provedor: str | None = None
+
+
+@router.get("/credential", response_model=CredentialStatusResponse)
+def get_credential(
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_role(["admin"])),
+) -> CredentialStatusResponse:
+    """Report whether a BYO credential is configured/active (RNF-03 safe read).
+
+    Lets the screen show "key configured" on open instead of looking empty. The
+    key is never returned — only the status and provider.
+    """
+    ensure_tenant_context(db, current_user)
+    igreja_uuid = uuid.UUID(current_user.igreja_id)
+
+    cred = db.execute(
+        select(LlmCredential).where(LlmCredential.igreja_id == igreja_uuid)
+    ).scalar_one_or_none()
+    if cred is None:
+        return CredentialStatusResponse(status="none", provedor=None)
+    status_ = "active" if (cred.validado and cred.ativo) else "invalid"
+    return CredentialStatusResponse(status=status_, provedor=cred.provedor)
+
+
 # ---------------------------------------------------------------------------
 # Agent config (PUT /agent/config) — US-28
 # ---------------------------------------------------------------------------
@@ -207,6 +238,43 @@ def save_agent_config(
     db.commit()
 
     return AgentConfigResponse(
+        nome=cfg.nome,
+        tom=cfg.tom,
+        comportamento=cfg.comportamento,
+        publicoAlvo=cfg.publico_alvo,
+        acessos=cfg.acessos,
+        ativo=cfg.ativo,
+    )
+
+
+class AgentConfigStatusResponse(BaseModel):
+    """Saved agent config; `configured` is false when none exists yet."""
+
+    configured: bool
+    nome: str | None = None
+    tom: str | None = None
+    comportamento: str | None = None
+    publicoAlvo: list[str] | None = None  # noqa: N815
+    acessos: list[str] | None = None
+    ativo: bool = False
+
+
+@router.get("/config", response_model=AgentConfigStatusResponse)
+def get_agent_config(
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_role(["admin"])),
+) -> AgentConfigStatusResponse:
+    """Return the saved agent config so the screen reflects it on open."""
+    ensure_tenant_context(db, current_user)
+    igreja_uuid = uuid.UUID(current_user.igreja_id)
+
+    cfg = db.execute(
+        select(AgentConfig).where(AgentConfig.igreja_id == igreja_uuid)
+    ).scalar_one_or_none()
+    if cfg is None:
+        return AgentConfigStatusResponse(configured=False)
+    return AgentConfigStatusResponse(
+        configured=True,
         nome=cfg.nome,
         tom=cfg.tom,
         comportamento=cfg.comportamento,
@@ -317,7 +385,9 @@ def list_crons(
 
     rows = (
         db.execute(
-            select(Cron).where(Cron.igreja_id == igreja_uuid).order_by(Cron.nome)
+            select(Cron)
+            .where(Cron.igreja_id == igreja_uuid)
+            .order_by(Cron.nome)
         )
         .scalars()
         .all()
