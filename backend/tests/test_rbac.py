@@ -115,6 +115,20 @@ def test_role_union_grants_access(protected_app) -> None:
     assert resp.status_code == 200
 
 
+def test_revoked_user_is_blocked(protected_app) -> None:
+    # A revoked app_user is denied even with a still-valid session token (RF-04).
+    client = _wire(
+        protected_app,
+        session=FakeSession(
+            app_user=make_app_user(status="revogado"), roles=["admin"]
+        ),
+        clerk=FakeClerk(),
+    )
+    resp = client.get("/me", headers={"Authorization": "Bearer good"})
+    assert resp.status_code == 403
+    assert "revogado" in resp.json()["detail"]
+
+
 def test_blocked_church_denies_protected_access(protected_app) -> None:
     client = _wire(
         protected_app,

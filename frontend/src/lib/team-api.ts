@@ -2,17 +2,20 @@
  * Cliente da API de equipe e papéis acumulados (tela #equipe).
  * Consome o backend (sprint-009):
  *
- *   GET  /team                     -> Page<TeamMember>   (api-team, em dashboard-api)
- *   POST /team/invite              -> { usuarioId, status, emailEnviado }  (api-team-invite)
- *   PUT  /team/{usuarioId}/roles   -> { usuarioId, papeis }                (api-team-roles)
+ *   GET    /team                   -> Page<TeamMember>   (api-team, em dashboard-api)
+ *   POST   /team/invite            -> { usuarioId, status, emailEnviado }  (api-team-invite)
+ *   PUT    /team/{usuarioId}/roles -> { usuarioId, papeis }                (api-team-roles)
+ *   DELETE /team/{usuarioId}       -> { usuarioId, status }                (revogar acesso, RF-04)
  *
  * Regras refletidas na UI (garantidas no backend):
  *  - e-mail duplicado no tenant é rejeitado (409);
- *  - remover/rebaixar o último admin é bloqueado (409) — a igreja nunca fica
- *    sem administrador (F3);
+ *  - remover/rebaixar OU revogar o último admin ativo é bloqueado (409) — a
+ *    igreja nunca fica sem administrador (F3 / RF-04);
  *  - o convite NÃO escolhe papéis: o convidado entra como `membro` vinculado a
  *    uma célula; o e-mail de ativação é disparado via Brevo (best-effort). Papéis
- *    são a UNIÃO de user_roles, editados depois só para pessoas já cadastradas.
+ *    são a UNIÃO de user_roles, editados depois só para pessoas já cadastradas;
+ *  - revogar é soft: o usuário fica com status `revogado` (auditoria preservada)
+ *    e perde o acesso ao painel imediatamente.
  */
 
 import { ApiError, authedFetch, readDetail } from "./dashboard-api";
@@ -27,6 +30,11 @@ export interface InviteResult {
 export interface RolesResult {
   usuarioId: string;
   papeis: string[];
+}
+
+export interface RevokeResult {
+  usuarioId: string;
+  status: string; // revogado
 }
 
 /** Conflito 409 dedicado (e-mail duplicado / último admin). */
@@ -93,17 +101,23 @@ export async function resendInvite(
   return (await res.json()) as InviteResult;
 }
 
-/** Revoga o acesso de um membro (remove o app_user; 409 no último admin). */
-export async function deleteMember(token: string, usuarioId: string): Promise<void> {
-  const res = await authedFetch(token, `/team/${usuarioId}`, { method: "DELETE" });
+/** Revoga o acesso de um membro (soft: status 'revogado'; 409 no último admin). */
+export async function revokeAccess(
+  token: string,
+  usuarioId: string,
+): Promise<RevokeResult> {
+  const res = await authedFetch(token, `/team/${usuarioId}`, {
+    method: "DELETE",
+  });
   if (res.status === 409) {
     const detail = await readDetail(res);
     throw new TeamConflictError(
-      detail ?? "Não é possível remover o último administrador.",
+      detail ?? "Não é possível revogar o último administrador.",
     );
   }
   if (!res.ok) {
     const detail = await readDetail(res);
-    throw new ApiError(res.status, detail ?? "Não foi possível remover o acesso.");
+    throw new ApiError(res.status, detail ?? "Não foi possível revogar o acesso.");
   }
+  return (await res.json()) as RevokeResult;
 }

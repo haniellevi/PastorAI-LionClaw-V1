@@ -28,9 +28,9 @@ import { ApiError, fetchTeam, type TeamMember } from "@/lib/dashboard-api";
 import { Icon } from "@/lib/icons";
 import { normalizeRoles, ROLE_ORDER, type Role } from "@/lib/roles";
 import {
-  deleteMember,
   inviteMember,
   resendInvite,
+  revokeAccess,
   TeamConflictError,
   updateRoles,
 } from "@/lib/team-api";
@@ -342,16 +342,20 @@ export function EquipeScreen() {
     [token, flashToast, handleSessionError],
   );
 
-  const handleDelete = useCallback(
+  const handleRevoke = useCallback(
     async (m: TeamMember) => {
       if (!token) return;
-      if (!window.confirm(`Remover o acesso de ${m.nome}? Esta ação não pode ser desfeita.`)) {
+      if (
+        !window.confirm(
+          `Revogar o acesso de ${m.nome}? Ele perde o acesso ao painel imediatamente (o cadastro é preservado para auditoria).`,
+        )
+      ) {
         return;
       }
       setBusyId(m.usuarioId);
       try {
-        await deleteMember(token, m.usuarioId);
-        flashToast({ kind: "ok", text: `Acesso de ${m.nome} removido.` });
+        await revokeAccess(token, m.usuarioId);
+        flashToast({ kind: "ok", text: `Acesso de ${m.nome} revogado.` });
         await load("retry");
       } catch (err) {
         if (handleSessionError(err)) return;
@@ -360,7 +364,7 @@ export function EquipeScreen() {
         } else {
           flashToast({
             kind: "err",
-            text: err instanceof ApiError ? err.message : "Não foi possível remover o acesso.",
+            text: err instanceof ApiError ? err.message : "Não foi possível revogar o acesso.",
           });
         }
       } finally {
@@ -412,15 +416,15 @@ export function EquipeScreen() {
             ) : null}
             {isSelf(m) ? (
               <StatusPill tone="muted">Você</StatusPill>
-            ) : (
+            ) : m.status === "revogado" ? null : (
               <button
                 type="button"
                 className="btn btn-sm btn-danger"
-                onClick={() => void handleDelete(m)}
+                onClick={() => void handleRevoke(m)}
                 disabled={busyId === m.usuarioId}
                 aria-busy={busyId === m.usuarioId || undefined}
               >
-                Excluir
+                Revogar
               </button>
             )}
           </div>
@@ -428,7 +432,7 @@ export function EquipeScreen() {
       });
     }
     return base;
-  }, [openEdit, isSelf, handleResend, handleDelete, busyId, isAdminUser]);
+  }, [openEdit, isSelf, handleResend, handleRevoke, busyId, isAdminUser]);
 
   const showSkeleton = loading && !loaded;
 

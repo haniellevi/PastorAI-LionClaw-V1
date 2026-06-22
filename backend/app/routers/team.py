@@ -1,12 +1,14 @@
-"""Team router — invites and accumulated-role management (RF-40 / F3).
+"""Team router — invites, accumulated-role management and access revocation.
 
-Endpoints:
-  - POST /team/invite          create a convidado app_user + Brevo activation
-  - PUT  /team/{usuarioId}/roles  edit accumulated roles (union)
+Endpoints (RF-40 / RF-04 / F3):
+  - POST   /team/invite           create a convidado app_user + Brevo activation
+  - PUT    /team/{usuarioId}/roles  edit accumulated roles (union)
+  - DELETE /team/{usuarioId}      revoke access (soft: status -> 'revogado')
 
 A duplicate email in the tenant is rejected (409). Roles are stored as the union
-of user_roles (F3). Removing or demoting the LAST admin is blocked so a tenant
-never loses its only administrator. Config screens are admin-only (delta-005).
+of user_roles (F3). Removing/demoting (roles) or revoking (access) the LAST
+active admin is blocked so a tenant never loses its administrator. Config screens
+are admin-only (delta-005).
 """
 
 from __future__ import annotations
@@ -22,7 +24,13 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.db.models import AppUser, Celula, Pessoa, UserRole
 from app.db.session import get_db
-from app.deps import ADMIN_ROLE, CurrentUser, get_current_user, require_role
+from app.deps import (
+    ADMIN_ROLE,
+    REVOKED_USER_STATUS,
+    CurrentUser,
+    get_current_user,
+    require_role,
+)
 from app.routers._common import Page, PaginationParams, ensure_tenant_context
 from app.services.brevo import BrevoClient, BrevoError, get_brevo_client
 from app.services.clerk import ClerkClient, get_clerk_client
@@ -118,6 +126,11 @@ class RolesResponse(BaseModel):
     papeis: list[str]
 
 
+class RevokeResponse(BaseModel):
+    usuarioId: str  # noqa: N815
+    status: str  # revogado
+
+
 class TeamMemberOut(BaseModel):
     """A panel user with its accumulated roles (for assignment pickers)."""
 
@@ -140,6 +153,26 @@ def _admin_user_ids(db: Session, igreja_id: uuid.UUID) -> set[uuid.UUID]:
     rows = db.execute(
         select(UserRole.user_id).where(
             UserRole.igreja_id == igreja_id, UserRole.papel == ADMIN_ROLE
+        )
+    ).scalars().all()
+    return set(rows)
+
+
+def _active_admin_user_ids(db: Session, igreja_id: uuid.UUID) -> set[uuid.UUID]:
+    """User ids holding the admin role whose account is NOT revoked.
+
+    The revoke guard counts active admins only: a revoked admin keeps its admin
+    user_role (soft revoke preserves history) but must not count toward the
+    administrator floor, otherwise the second-to-last admin could be revoked and
+    leave the tenant with no usable administrator. NULL status counts as active.
+    """
+    rows = db.execute(
+        select(UserRole.user_id)
+        .join(AppUser, AppUser.id == UserRole.user_id)
+        .where(
+            UserRole.igreja_id == igreja_id,
+            UserRole.papel == ADMIN_ROLE,
+            AppUser.status.is_distinct_from(REVOKED_USER_STATUS),
         )
     ).scalars().all()
     return set(rows)
@@ -562,17 +595,21 @@ def resend_invite(
     )
 
 
-@router.delete("/{usuario_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_member(
+@router.delete("/{usuario_id}", response_model=RevokeResponse)
+def revoke_member(
     usuario_id: str,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(require_role(["admin"])),
-) -> None:
-    """Revoke a member's panel access (deletes the app_user and its roles).
+) -> RevokeResponse:
+    """Revoke a member's access (RF-04 / US-03). Soft: status -> 'revogado'.
 
-    Removing the last admin of the tenant is blocked (409) so a church is never
-    left without an administrator. The user's user_roles are removed by FK
-    cascade (and the linked Pessoa is preserved — only the login is revoked).
+    The app_user row is kept for auditability; access is blocked at auth time
+    (get_current_user and /auth/login both reject a revoked app_user). The panel
+    session is a PastorAI-issued JWT (not a Clerk session), so the status gate is
+    what enforces revocation — there is no live Clerk session created at login to
+    revoke. Revoking the last *active* admin is blocked (409) so the church is
+    never left without an administrator. A cross-tenant id is invisible under RLS
+    and returns 404 (S4: never reveal existence). Already-revoked is idempotent.
     """
     ensure_tenant_context(db, current_user)
     igreja_uuid = uuid.UUID(current_user.igreja_id)
@@ -592,12 +629,17 @@ def delete_member(
             status_code=status.HTTP_404_NOT_FOUND, detail="Usuário não encontrado"
         )
 
-    admin_ids = _admin_user_ids(db, igreja_uuid)
-    if user_uuid in admin_ids and len(admin_ids) <= 1:
+    if app_user.status == REVOKED_USER_STATUS:
+        return RevokeResponse(usuarioId=str(user_uuid), status=REVOKED_USER_STATUS)
+
+    active_admins = _active_admin_user_ids(db, igreja_uuid)
+    if user_uuid in active_admins and len(active_admins) <= 1:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Não é possível remover o último administrador",
+            detail="Não é possível revogar o último administrador",
         )
 
-    db.delete(app_user)
+    app_user.status = REVOKED_USER_STATUS
     db.commit()
+
+    return RevokeResponse(usuarioId=str(user_uuid), status=REVOKED_USER_STATUS)
