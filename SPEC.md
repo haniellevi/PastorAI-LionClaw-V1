@@ -563,7 +563,7 @@ backend/
 | api-whatsapp-connection | `GET/POST /whatsapp/connection` | whatsapp | action-connect-whatsapp, action-reconnect-whatsapp | US-05, US-06, US-07 |
 | api-llm-credential | `POST /agent/credential` | agente | action-save-llm-key | US-27 |
 | api-agent-config | `PUT /agent/config` | agente | action-save-agent | US-28 |
-| api-crons | `POST /agent/crons` | agente | action-save-cron | US-29 |
+| api-crons | `GET/POST /agent/crons`, `PUT /agent/crons/{id}` | agente | action-save-cron | US-29 |
 | api-team-invite | `POST /team/invite` | equipe | action-invite-user | US-03, US-04 |
 | api-team-roles | `PUT /team/{usuarioId}/roles` | equipe | action-edit-roles | US-03, US-04 |
 | api-subscription | `GET/POST /subscription` | assinatura | action-contract-plan, action-manage-billing | US-34, US-35, US-36 |

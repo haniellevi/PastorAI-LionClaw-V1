@@ -161,7 +161,10 @@ export function AgenteScreen() {
     setEditingId(cron.id);
     setCronNome(cron.nome);
     setCronFrequencia(cron.frequencia);
-    setCronGatilho(cron.gatilhoEstado ?? CRON_TRIGGERS[0].code);
+    // Preserva "sem gatilho" (cron só por frequência) ao editar — string vazia
+    // vira null no submit. Sem isso, um cron sem gatilho ganharia um gatilho
+    // silenciosamente no round-trip de edição (PUT é substituição total).
+    setCronGatilho(cron.gatilhoEstado ?? "");
     setCronAcao(cron.acao ?? "");
     setCronAtivo(cron.ativo);
     setCronError(null);
@@ -266,7 +269,9 @@ export function AgenteScreen() {
   // ── Ativar/desativar um cron (soft-disable via toggle de `ativo`) ────────
   const toggleCron = useCallback(
     async (cron: CronResult) => {
-      if (!token || togglingId) return;
+      // Bloqueia se há outro toggle em voo ou se a linha está em edição: editar
+      // + alternar a mesma linha causaria um revert silencioso ao salvar.
+      if (!token || togglingId || editingId === cron.id) return;
       setTogglingId(cron.id);
       setCronError(null);
       try {
@@ -293,7 +298,7 @@ export function AgenteScreen() {
         setTogglingId(null);
       }
     },
-    [token, togglingId, flashToast, handleSessionError],
+    [token, togglingId, editingId, flashToast, handleSessionError],
   );
 
   const behaviorReady = comportamento.trim().length > 0;
@@ -532,6 +537,7 @@ export function AgenteScreen() {
                 value={cronGatilho}
                 onChange={(e) => setCronGatilho(e.target.value)}
               >
+                <option value="">Sem gatilho (só frequência)</option>
                 {CRON_TRIGGERS.map((t) => (
                   <option key={t.code} value={t.code}>
                     {t.label}
@@ -617,7 +623,10 @@ export function AgenteScreen() {
                   {crons.map((c) => (
                     <tr key={c.id}>
                       <td className="nm">{c.nome}</td>
-                      <td>{c.frequencia}</td>
+                      <td>
+                        {CRON_FREQUENCIES.find((f) => f.code === c.frequencia)?.label ??
+                          c.frequencia}
+                      </td>
                       <td className="sub">
                         {CRON_TRIGGERS.find((t) => t.code === c.gatilhoEstado)?.label ??
                           c.gatilhoEstado ??
@@ -642,7 +651,7 @@ export function AgenteScreen() {
                             type="button"
                             className="btn btn-sm"
                             onClick={() => void toggleCron(c)}
-                            disabled={togglingId === c.id}
+                            disabled={togglingId !== null || editingId === c.id}
                             aria-busy={togglingId === c.id || undefined}
                           >
                             {c.ativo ? "Desativar" : "Ativar"}
