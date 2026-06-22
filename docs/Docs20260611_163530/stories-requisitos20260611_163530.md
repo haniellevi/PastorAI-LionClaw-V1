@@ -43,7 +43,7 @@ Como **Pastor/Admin**, quero **convidar e gerenciar usuarios (lideres) da minha 
 - **Interface:** tela de listagem de usuarios + formulario/modal de convite.
 - **Criterios de aceite:**
   - O Admin pode convidar um novo usuario informando e-mail e papel (Pastor/Admin ou Lider).
-  - O convite gera envio de e-mail (via Resend) com link de ativacao.
+  - O convite gera envio de e-mail (via Brevo) com link de ativacao.
   - O Admin pode listar usuarios ativos e pendentes com seu papel.
   - O Admin pode revogar o acesso de um usuario.
 
@@ -447,7 +447,7 @@ Como **Admin do Sistema (Super-Admin)**, quero **criar uma nova igreja apos veri
 ## Autenticacao e Multi-tenant
 - **RF-01** — O sistema deve autenticar usuarios via Clerk e estabelecer sessao. *(US-01)*
 - **RF-02** — O sistema deve isolar todos os dados por igreja (tenant) usando RLS do Supabase, retornando apenas registros do tenant do usuario autenticado. *(US-02)*
-- **RF-03** — O sistema deve permitir ao Admin convidar usuarios informando e-mail e papel, com envio de e-mail de ativacao via Resend. *(US-03)*
+- **RF-03** — O sistema deve permitir ao Admin convidar usuarios informando e-mail e papel, com envio de e-mail de ativacao via Brevo. *(US-03)*
 - **RF-04** — O sistema deve permitir ao Admin listar e revogar acesso de usuarios da igreja. *(US-03)*
 - **RF-05** — O sistema deve aplicar controle de acesso por papel (Pastor/Admin x Lider), restringindo telas, dados e acoes conforme o papel. *(US-04, US-22)*
 
