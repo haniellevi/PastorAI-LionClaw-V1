@@ -149,15 +149,6 @@ def _activation_link(app_user_id: uuid.UUID, clerk: ClerkClient) -> str:
     return f"{base}/#ativar/{token}"
 
 
-def _admin_user_ids(db: Session, igreja_id: uuid.UUID) -> set[uuid.UUID]:
-    rows = db.execute(
-        select(UserRole.user_id).where(
-            UserRole.igreja_id == igreja_id, UserRole.papel == ADMIN_ROLE
-        )
-    ).scalars().all()
-    return set(rows)
-
-
 def _active_admin_user_ids(db: Session, igreja_id: uuid.UUID) -> set[uuid.UUID]:
     """User ids holding the admin role whose account is NOT revoked.
 
@@ -491,8 +482,9 @@ def update_roles(
 ) -> RolesResponse:
     """Replace a user's accumulated roles (union), guarding the last admin.
 
-    Removing/demoting the last admin of the tenant is blocked (409) so a church
-    is never left without an administrator.
+    Removing/demoting the last *active* admin of the tenant is blocked (409) so a
+    church is never left without an administrator; revoked admins don't count
+    toward that floor (mirrors the revoke guard).
     """
     ensure_tenant_context(db, current_user)
     igreja_uuid = uuid.UUID(current_user.igreja_id)
@@ -513,8 +505,10 @@ def update_roles(
         )
 
     new_roles = set(payload.papeis)
-    admin_ids = _admin_user_ids(db, igreja_uuid)
-    # Block if this user is the last admin and the new roles drop admin.
+    admin_ids = _active_admin_user_ids(db, igreja_uuid)
+    # Block if this user is the last *active* admin and the new roles drop admin.
+    # A revoked admin keeps its admin user_role but doesn't count toward the
+    # administrator floor, so it's excluded here too (mirrors the revoke guard).
     if (
         user_uuid in admin_ids
         and ADMIN_ROLE not in new_roles
