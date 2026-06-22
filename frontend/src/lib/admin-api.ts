@@ -558,6 +558,50 @@ export async function fetchIgrejaAgente(
   return asJson<AdminAgente>(res);
 }
 
+// ---------------------------------------------------------------------------
+// Orquestrador padrão (modelo do master) — copiado p/ cada igreja na aprovação
+// ---------------------------------------------------------------------------
+export interface AdminOrquestrador {
+  nome: string | null;
+  tom: string | null;
+  comportamento: string;
+}
+
+/** Lê o modelo padrão do orquestrador. */
+export async function fetchOrquestrador(token: string): Promise<AdminOrquestrador> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/admin/orquestrador`, { headers: authHeaders(token) });
+  } catch {
+    throw new AdminAuthError("network", "Falha de conexão com o servidor.");
+  }
+  if (res.status === 401) throw new AdminSessionExpiredError();
+  if (res.status === 403) throw new AdminAuthError("forbidden", "Acesso negado.");
+  if (!res.ok) {
+    throw new AdminRequestError(res.status, "Não foi possível carregar o orquestrador.");
+  }
+  return asJson<AdminOrquestrador>(res);
+}
+
+/** Salva o modelo padrão do orquestrador (template do master). */
+export async function saveOrquestrador(
+  token: string,
+  payload: { comportamento: string; nome?: string | null; tom?: string | null },
+): Promise<AdminOrquestrador> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/admin/orquestrador`, {
+      method: "PUT",
+      headers: jsonHeaders(token),
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    throw new AdminAuthError("network", "Falha de conexão com o servidor.");
+  }
+  if (!res.ok) await throwMutationError(res, "Não foi possível salvar o orquestrador.");
+  return asJson<AdminOrquestrador>(res);
+}
+
 /** Salva o comportamento do agente da igreja (409 se ligar sem credencial). */
 export async function saveIgrejaAgente(
   token: string,

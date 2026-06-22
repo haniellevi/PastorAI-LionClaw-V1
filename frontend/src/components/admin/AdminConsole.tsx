@@ -25,6 +25,7 @@ import { useAdminAuth } from "@/lib/admin-auth-context";
 import { AuditModal } from "./AuditModal";
 import { ChurchPage } from "./ChurchPage";
 import { CreateIgrejaModal } from "./CreateIgrejaModal";
+import { OrquestradorModal } from "./OrquestradorModal";
 import { PlanosManagerModal } from "./PlanosManagerModal";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -71,6 +72,7 @@ export function AdminConsole() {
   const [createOpen, setCreateOpen] = useState(false);
   const [planosOpen, setPlanosOpen] = useState(false);
   const [auditOpen, setAuditOpen] = useState(false);
+  const [orquestradorOpen, setOrquestradorOpen] = useState(false);
   const [viewing, setViewing] = useState<AdminIgreja | null>(null);
   const [modalBusy, setModalBusy] = useState(false);
   const [modalError, setModalError] = useState<string | null>(null);
@@ -191,6 +193,9 @@ export function AdminConsole() {
           </p>
         </div>
         <div style={{ display: "flex", gap: "var(--s2)" }}>
+          <Button variant="ghost" size="sm" onClick={() => setOrquestradorOpen(true)}>
+            Orquestrador
+          </Button>
           <Button variant="ghost" size="sm" onClick={() => setPlanosOpen(true)}>
             Planos
           </Button>
@@ -327,6 +332,14 @@ export function AdminConsole() {
 
       {auditOpen && token ? (
         <AuditModal token={token} onClose={() => setAuditOpen(false)} onExpired={logout} />
+      ) : null}
+
+      {orquestradorOpen && token ? (
+        <OrquestradorModal
+          token={token}
+          onClose={() => setOrquestradorOpen(false)}
+          onExpired={logout}
+        />
       ) : null}
     </div>
   );

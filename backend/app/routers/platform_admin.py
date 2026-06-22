@@ -39,6 +39,7 @@ from app.db.models import (
     Plano,
     PlatformAdmin,
     PlatformAuditLog,
+    PlatformOrchestrator,
     RolePermission,
     Subscription,
     UserRole,
@@ -620,6 +621,7 @@ def aprovar_igreja(
             )
         igreja.status = "ativa"
         _seed_role_permissions(db, ig_uuid)
+        _seed_agent_from_template(db, ig_uuid)  # começa com o orquestrador padrão
         _audit(db, admin, "aprovar", "igreja", igreja.id, igreja.nome, None)
         db.commit()
 
@@ -945,6 +947,95 @@ def put_igreja_agente(
         ativo=cfg.ativo,
         credencialStatus=cred_status,
     )
+
+
+# ---------------------------------------------------------------------------
+# Orquestrador padrão (modelo do master) — copiado p/ cada igreja na aprovação
+# ---------------------------------------------------------------------------
+def _get_orchestrator(db: Session) -> PlatformOrchestrator | None:
+    return db.execute(
+        select(PlatformOrchestrator).order_by(PlatformOrchestrator.id).limit(1)
+    ).scalar_one_or_none()
+
+
+def _seed_agent_from_template(db: Session, igreja_id: uuid.UUID) -> None:
+    """Copia o modelo padrão do orquestrador para o AgentConfig da igreja.
+
+    Padrão TEMPLATE: só se a igreja ainda NÃO tem AgentConfig (não sobrescreve).
+    Começa desligado (ativo=False) — liga quando a igreja cadastra a chave de
+    LLM. NÃO toca no runtime do agente (que segue lendo o AgentConfig por igreja).
+    """
+    existing = db.execute(
+        select(AgentConfig.id).where(AgentConfig.igreja_id == igreja_id).limit(1)
+    ).scalar_one_or_none()
+    if existing is not None:
+        return
+    tmpl = _get_orchestrator(db)
+    if tmpl is None or not (tmpl.comportamento or "").strip():
+        return
+    db.add(
+        AgentConfig(
+            igreja_id=igreja_id,
+            nome=tmpl.nome,
+            tom=tmpl.tom,
+            comportamento=tmpl.comportamento,
+            ativo=False,
+        )
+    )
+
+
+class OrquestradorOut(BaseModel):
+    nome: str | None = None
+    tom: str | None = None
+    comportamento: str
+
+
+class OrquestradorRequest(BaseModel):
+    comportamento: str = Field(min_length=1, max_length=4000)
+    nome: str | None = Field(default=None, max_length=120)
+    tom: str | None = Field(default=None, max_length=120)
+
+    @field_validator("comportamento")
+    @classmethod
+    def _comportamento(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("comportamento obrigatório")
+        return v
+
+
+@router.get("/orquestrador", response_model=OrquestradorOut)
+def get_orquestrador(
+    db: Session = Depends(get_db),
+    _admin: PlatformAdminUser = Depends(get_platform_admin),
+) -> OrquestradorOut:
+    """Lê o modelo padrão do orquestrador (o 'começa igual a todas')."""
+    o = _get_orchestrator(db)
+    if o is None:
+        return OrquestradorOut(comportamento="")
+    return OrquestradorOut(nome=o.nome, tom=o.tom, comportamento=o.comportamento)
+
+
+@router.put("/orquestrador", response_model=OrquestradorOut)
+def put_orquestrador(
+    payload: OrquestradorRequest,
+    db: Session = Depends(get_db),
+    admin: PlatformAdminUser = Depends(get_platform_admin),
+) -> OrquestradorOut:
+    """Edita o modelo padrão do orquestrador (template do master)."""
+    o = _get_orchestrator(db)
+    if o is None:
+        o = PlatformOrchestrator(comportamento=payload.comportamento)
+        db.add(o)
+    o.comportamento = payload.comportamento
+    o.nome = payload.nome
+    o.tom = payload.tom
+    _audit(
+        db, admin, "orquestrador_editar", "plataforma", None,
+        "Orquestrador padrão", None,
+    )
+    db.commit()
+    return OrquestradorOut(nome=o.nome, tom=o.tom, comportamento=o.comportamento)
 
 
 # ---------------------------------------------------------------------------
