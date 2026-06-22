@@ -5,8 +5,9 @@ Endpoints (all admin-only — delta-005):
   - GET  /agent/credential   -> {status, provedor}            (read, no key)
   - PUT  /agent/config       -> {...}                         (save behaviour)
   - GET  /agent/config       -> {configured, ...}             (read)
-  - POST /agent/crons        -> {...}                         (create)
-  - GET  /agent/crons        -> [ {...} ]                     (list)
+  - POST /agent/crons        -> create a cron/state-triggered automation
+  - GET  /agent/crons        -> list the igreja's crons
+  - PUT  /agent/crons/{id}   -> edit a cron (RF-33: criar/editar/desativar)
 
 The credential key is validated against the provider, encrypted at rest, and
 never returned in clear text after being saved (RNF-03). An invalid key does
@@ -402,3 +403,54 @@ def list_crons(
         )
         for c in rows
     ]
+
+
+# UpdateCronRequest mirrors CreateCronRequest (same fields/validators): editing
+# replaces the whole cron, including re-validating the gatilho against
+# VALID_CRON_GATILHOS. Toggling `ativo` is a soft-disable — there is no delete.
+class UpdateCronRequest(CreateCronRequest):
+    pass
+
+
+@router.put("/crons/{cron_id}", response_model=CronResponse)
+def update_cron(
+    cron_id: uuid.UUID,
+    payload: UpdateCronRequest,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_role(["admin"])),
+) -> CronResponse:
+    """Edit a cron (admin-only), re-validating the gatilho before saving.
+
+    The lookup is scoped to the caller's igreja_id, so a cron belonging to
+    another tenant is never found and the request 404s (no cross-tenant edit).
+    Disabling is done by toggling `ativo` (soft-disable); rows are not deleted.
+    """
+    ensure_tenant_context(db, current_user)
+    igreja_uuid = uuid.UUID(current_user.igreja_id)
+
+    cron = db.execute(
+        select(Cron)
+        .where(Cron.id == cron_id, Cron.igreja_id == igreja_uuid)
+        .with_for_update()
+    ).scalar_one_or_none()
+    if cron is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Agendamento não encontrado",
+        )
+
+    cron.nome = payload.nome
+    cron.frequencia = payload.frequencia
+    cron.gatilho_estado = payload.gatilhoEstado
+    cron.acao = payload.acao
+    cron.ativo = payload.ativo
+    db.commit()
+
+    return CronResponse(
+        id=str(cron.id),
+        nome=cron.nome,
+        frequencia=cron.frequencia,
+        gatilhoEstado=cron.gatilho_estado,
+        acao=cron.acao,
+        ativo=cron.ativo,
+    )

@@ -5,6 +5,8 @@
  *   POST /agent/credential  {provedor, apiKey} -> {status, provedor, validado}  (US-27 / RNF-03)
  *   PUT  /agent/config      -> {nome, tom, comportamento, publicoAlvo, acessos, ativo}  (US-28)
  *   POST /agent/crons       -> {id, nome, frequencia, gatilhoEstado, acao, ativo}
+ *   GET  /agent/crons       -> [ {id, nome, frequencia, gatilhoEstado, acao, ativo} ]
+ *   PUT  /agent/crons/{id}  -> editar/desativar um agendamento (RF-33)
  *
  * Regras refletidas na UI (garantidas no backend):
  *  - a chave nunca é exibida após salvar (RNF-03); chave inválida NÃO ativa a
@@ -188,6 +190,42 @@ export async function createCron(
   if (res.status === 422) {
     const detail = await readDetail(res);
     throw new ApiError(422, detail ?? "Gatilho de estado inválido.");
+  }
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível salvar o agendamento.");
+  }
+  return (await res.json()) as CronResult;
+}
+
+/**
+ * Edita um agendamento (PUT /agent/crons/{id}). Substitui o cron inteiro; o
+ * gatilho é revalidado no backend (422 quando inválido) e a edição é escopada
+ * por igreja (404 quando o cron é de outra igreja). Desativar é um toggle de
+ * `ativo` (soft-disable) — basta reenviar o cron com `ativo: false`.
+ */
+export async function updateCron(
+  token: string,
+  id: string,
+  payload: {
+    nome: string;
+    frequencia: string;
+    gatilhoEstado?: string | null;
+    acao?: string | null;
+    ativo: boolean;
+  },
+): Promise<CronResult> {
+  const res = await authedFetch(token, `/agent/crons/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+  if (res.status === 422) {
+    const detail = await readDetail(res);
+    throw new ApiError(422, detail ?? "Gatilho de estado inválido.");
+  }
+  if (res.status === 404) {
+    const detail = await readDetail(res);
+    throw new ApiError(404, detail ?? "Agendamento não encontrado.");
   }
   if (!res.ok) {
     const detail = await readDetail(res);
