@@ -20,6 +20,7 @@ from app.routers import (
     assistant,
     auth,
     broadcasts,
+    calendar,
     cells,
     consolidacao,
     contacts,
@@ -89,6 +90,7 @@ def create_app() -> FastAPI:
     app.include_router(reports.router)
     app.include_router(broadcasts.router)
     app.include_router(events.router)
+    app.include_router(calendar.router)
     app.include_router(team.router)
     app.include_router(roles.router)
     app.include_router(subscription.router)

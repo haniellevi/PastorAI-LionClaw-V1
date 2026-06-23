@@ -103,9 +103,22 @@ class Settings(BaseSettings):
         default="https://www.googleapis.com/calendar/v3"
     )
     # OAuth access token (or service-account derived token) with Calendar scope.
+    # Legacy: used by the static GoogleCalendarClient. The events module (F1)
+    # connects each igreja's own calendar via OAuth below instead.
     google_calendar_access_token: str = Field(default="")
     # Target calendar id; defaults to the primary calendar of the credential.
     google_calendar_id: str = Field(default="primary")
+
+    # ---- Google OAuth 2.0 (conectar a agenda existente por igreja - eventos F1)
+    google_oauth_client_id: str = Field(default="")
+    google_oauth_client_secret: str = Field(default="")
+    # Backend callback registrado no Google Cloud Console (ex.:
+    # https://api.igreja12.com.br/calendar/callback).
+    google_oauth_redirect_uri: str = Field(default="")
+    google_oauth_auth_url: str = Field(
+        default="https://accounts.google.com/o/oauth2/v2/auth"
+    )
+    google_oauth_token_url: str = Field(default="https://oauth2.googleapis.com/token")
 
     # ---- SLA engine + cron worker (O5) --------------------------------------
     # Seconds between cron_worker ticks (SLA scan + cron dispatch).

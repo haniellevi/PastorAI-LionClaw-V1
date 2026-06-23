@@ -610,6 +610,36 @@ class Event(Base):
     )
 
 
+class CalendarSync(Base):
+    """Per-igreja Google Calendar connection + sync state (events module F1).
+
+    Holds the OAuth refresh/access tokens (encrypted at rest) and the chosen
+    calendar id. Sync-token/watch-channel columns are added in later phases.
+    """
+
+    __tablename__ = "calendar_sync"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    igreja_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("igrejas.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    google_calendar_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    refresh_token_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    access_token_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    access_token_expira_em: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    criado_em: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    atualizado_em: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+
 class WhatsappConnection(Base):
     """Official WhatsApp connection per igreja (1:1, RF-07 / US-05..US-07).
 
