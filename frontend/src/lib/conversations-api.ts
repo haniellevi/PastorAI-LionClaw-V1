@@ -37,6 +37,10 @@ export interface Conversation {
   assumidoEm: string | null;
   esperaDesde: string | null;
   atualizadoEm: string | null;
+  /** Tipo da pessoa vinculada (marca discreta no chat). null sem cadastro. */
+  tipo: string | null;
+  /** CSIM (sem interesse ministerial) da pessoa vinculada. */
+  semInteresse: boolean;
 }
 
 /** Tipo do conteúdo de uma mensagem (Etapa 2 — mídia). */

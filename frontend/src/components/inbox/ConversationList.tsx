@@ -13,6 +13,7 @@ import {
   displayName,
   effectiveEstado,
   shortTime,
+  tipoMarker,
 } from "./conversation-format";
 
 export type ConvFilter = "todas" | "aguardando" | "ia";
@@ -87,6 +88,7 @@ export function ConversationList({
       ) : (
         conversations.map((c) => {
           const estado = effectiveEstado(c);
+          const marker = tipoMarker(c);
           return (
             <button
               type="button"
@@ -98,6 +100,11 @@ export function ConversationList({
               <div className="conv-main">
                 <div className="conv-top">
                   <strong>{displayName(c)}</strong>
+                  {marker ? (
+                    <span className={`conv-tipo${marker.csim ? " csim" : ""}`}>
+                      {marker.label}
+                    </span>
+                  ) : null}
                   <time>{shortTime(c.atualizadoEm ?? c.assumidoEm ?? c.esperaDesde, now)}</time>
                 </div>
                 <div className="conv-sub">
