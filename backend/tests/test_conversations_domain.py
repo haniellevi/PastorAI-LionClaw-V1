@@ -9,24 +9,41 @@ import pytest
 
 from app.domain.conversations import (
     can_access_inbox,
+    has_full_inbox,
     parse_message_event,
     resolve_handoff,
 )
 from app.services.evolution import map_connection_state, verify_webhook_signature
 
 
-# ---- inbox access (US-11) -------------------------------------------------
+# ---- inbox access (US-11/#5) ----------------------------------------------
 def test_admin_and_privileged_roles_access_inbox() -> None:
     assert can_access_inbox(["admin"]) is True
     assert can_access_inbox(["pastor"]) is True
     assert can_access_inbox(["lider_g12"]) is True
     assert can_access_inbox(["operador"]) is True
+    # #5: líder de consolidação e de célula passaram a acessar (visão restrita).
+    assert can_access_inbox(["lider_consol"]) is True
+    assert can_access_inbox(["lider_celula"]) is True
 
 
-def test_cell_leader_cannot_access_inbox() -> None:
-    assert can_access_inbox(["lider_celula"]) is False
+def test_member_cannot_access_inbox() -> None:
     assert can_access_inbox(["membro"]) is False
+    assert can_access_inbox(["lider_mult"]) is False
     assert can_access_inbox([]) is False
+
+
+def test_full_inbox_only_admin_and_pastor() -> None:
+    # Visão COMPLETA (todas as conversas): só admin e pastor (#5).
+    assert has_full_inbox(["admin"]) is True
+    assert has_full_inbox(["pastor"]) is True
+    # Responsáveis (visão restrita) NÃO têm visão completa.
+    assert has_full_inbox(["lider_g12"]) is False
+    assert has_full_inbox(["lider_consol"]) is False
+    assert has_full_inbox(["lider_celula"]) is False
+    assert has_full_inbox(["operador"]) is False
+    assert has_full_inbox(["membro"]) is False
+    assert has_full_inbox([]) is False
 
 
 # ---- handoff state machine (US-12/US-13) ----------------------------------

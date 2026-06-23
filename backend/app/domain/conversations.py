@@ -22,11 +22,22 @@ from app.domain.phone import normalize_phone
 
 ADMIN_ROLE = "admin"
 
-# Roles privileged to open the inbox / human handoff (US-11). Cell leaders
-# (lider_celula) are intentionally excluded. Covers pastor / lider_g12 and the
-# operational "operador" (atendimento), plus admin (implicit). Single source of
-# truth — the conversations router derives its require_role list from this set.
-INBOX_ROLES: frozenset[str] = frozenset({"pastor", "lider_g12", "operador"})
+# Visão COMPLETA do inbox: enxerga todas as conversas do tenant (#5). admin tem
+# acesso implícito; pastor é o único papel não-admin com visão completa.
+FULL_INBOX_ROLES: frozenset[str] = frozenset({"pastor"})
+
+# Visão RESTRITA ("responsável", #5): acessa o inbox mas só vê as conversas
+# atribuídas a si (assumido_por). Inclui líder G12, líder de consolidação,
+# líder de célula e o operador de atendimento.
+RESTRICTED_INBOX_ROLES: frozenset[str] = frozenset(
+    {"lider_g12", "lider_consol", "lider_celula", "operador"}
+)
+
+# Todos os papéis (não-admin) com ALGUM acesso ao inbox = união dos dois. É a
+# fonte de verdade para "quem pode ser destino de transferência" e para o gate
+# de tela no front; a VISIBILIDADE (completa × só as suas) é decidida por
+# has_full_inbox + o filtro por assumido_por no router.
+INBOX_ROLES: frozenset[str] = FULL_INBOX_ROLES | RESTRICTED_INBOX_ROLES
 
 # Conversation states (conversation_estado enum).
 VALID_ESTADOS: frozenset[str] = frozenset({"ia", "humano", "aguardando"})
@@ -43,14 +54,27 @@ def media_snippet(kind: str | None) -> str:
 
 
 def can_access_inbox(roles: Iterable[str]) -> bool:
-    """True if the caller may access conversations/inbox (US-11).
+    """True if the caller may access conversations/inbox at all (US-11/#5).
 
-    `admin` always passes; cell leaders and members never do.
+    `admin` always passes; membro and papéis sem inbox nunca passam. Inclui os
+    "responsáveis" (visão restrita) — eles acessam, mas só veem as suas.
     """
     role_set = set(roles)
     if ADMIN_ROLE in role_set:
         return True
     return bool(role_set & INBOX_ROLES)
+
+
+def has_full_inbox(roles: Iterable[str]) -> bool:
+    """True se o usuário vê TODAS as conversas do tenant (#5).
+
+    `admin` (implícito) e `pastor` têm visão completa. Os demais papéis com
+    acesso ao inbox são "responsáveis": veem só as conversas atribuídas a eles.
+    """
+    role_set = set(roles)
+    if ADMIN_ROLE in role_set:
+        return True
+    return bool(role_set & FULL_INBOX_ROLES)
 
 
 @dataclass(frozen=True)

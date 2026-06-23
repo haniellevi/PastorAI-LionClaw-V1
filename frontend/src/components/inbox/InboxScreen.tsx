@@ -3,9 +3,10 @@
 /**
  * Tela #inbox — Inbox do WhatsApp oficial (US-08/US-11..US-14).
  *
- * Área RESTRITA a papéis privilegiados (admin · pastor · lider_g12). Líder de
- * célula que chegar por deep-link recebe o bloqueio de acesso (US-11) — sem
- * qualquer chamada operacional à API.
+ * Área RESTRITA à liderança de atendimento (US-11/#5). admin/pastor têm visão
+ * completa; líder G12/consolidação/célula e operador são "responsáveis" e veem
+ * só as conversas transferidas a eles (o backend filtra por assumido_por).
+ * Papéis sem acesso (ex.: membro) recebem o bloqueio — sem chamar a API.
  *
  * Reúne conversation-list (Todas/Aguardando/IA) e conversation-thread nos
  * estados ia-active/human/waiting, com handoff Assumir/Devolver (US-12/US-13)
@@ -476,9 +477,10 @@ export function InboxScreen() {
             <Icon name="lock" className="access-ic" />
             <h3>Acesso restrito</h3>
             <p>
-              O inbox do WhatsApp é exclusivo da liderança de atendimento
-              (Administrador, Pastor ou Líder G12). Líderes de célula não têm acesso
-              às conversas. Fale com a liderança da sua igreja se precisar de acesso.
+              O inbox do WhatsApp é restrito à liderança de atendimento. Conforme o
+              seu papel, você veria todas as conversas (admin/pastor) ou apenas as
+              transferidas a você (responsável). Fale com a liderança da sua igreja
+              se precisar de acesso.
             </p>
           </div>
         </div>
