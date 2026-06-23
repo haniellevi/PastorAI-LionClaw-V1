@@ -42,7 +42,7 @@ const SCREEN_LABEL: Record<string, string> = {
   enviar: "Enviar",
   calendario: "Agenda",
   comunicados: "Comunicação",
-  equipe: "Equipe",
+  equipe: "Discípulos",
 };
 
 interface Toast {

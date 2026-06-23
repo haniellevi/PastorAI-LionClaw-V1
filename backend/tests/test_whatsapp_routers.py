@@ -558,3 +558,125 @@ def test_photo_none_without_connection(app) -> None:
     resp = client.get(_CONV_PHOTO, headers=_AUTH)
     assert resp.status_code == 200
     assert resp.json()["url"] is None
+
+
+# ---- GET /connection captura o número pareado da Evolution (#3) ------------
+class _ConnSession:
+    """Routes auth (AppUser/UserRole) + the WhatsappConnection lookup."""
+
+    def __init__(self, *, app_user, roles, conn) -> None:
+        self.app_user = app_user
+        self.roles = roles
+        self.conn = conn
+        self.committed = False
+
+    def execute(self, statement, params=None) -> _DelResult:
+        descs = list(getattr(statement, "column_descriptions", []) or [])
+        ent = descs[0].get("entity") if descs else None
+        if ent is AppUser:
+            return _DelResult(scalar=self.app_user)
+        if ent is WhatsappConnection:
+            return _DelResult(scalar=self.conn)
+        return _DelResult(scalars=self.roles)
+
+    def commit(self) -> None:
+        self.committed = True
+
+    def close(self) -> None:  # pragma: no cover
+        pass
+
+
+class _FakeEvoStatus:
+    def __init__(self, result) -> None:
+        self.result = result
+        self.asked: list[str] = []
+
+    def fetch_status(self, instance):
+        self.asked.append(instance)
+        return self.result
+
+
+def test_get_connection_captures_paired_number(app) -> None:
+    # Após o pareamento, o número vem da Evolution (fetchInstances), é persistido
+    # e exibido — connect/reconnect nunca trazem o número na fase do QR.
+    from app.services.evolution import ConnectionResult
+
+    conn = SimpleNamespace(
+        instance="igreja-x", numero=None, status="reconectando", ultima_sync=None
+    )
+    session = _ConnSession(app_user=make_app_user(), roles=["admin"], conn=conn)
+    evo = _FakeEvoStatus(ConnectionResult(status="online", numero="5511999999999"))
+    app.dependency_overrides[get_db] = lambda: session
+    app.dependency_overrides[get_clerk_client] = lambda: FakeClerk()
+    app.dependency_overrides[get_evolution_client] = lambda: evo
+    client = TestClient(app)
+
+    resp = client.get("/whatsapp/connection", headers=_AUTH)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["numero"] == "5511999999999"
+    assert body["status"] == "online"
+    assert conn.numero == "5511999999999"  # persistido no banco
+    assert conn.status == "online"
+    assert session.committed is True
+    assert evo.asked == ["igreja-x"]
+
+
+def test_get_connection_falls_back_when_evolution_down(app) -> None:
+    # Evolution indisponível não pode quebrar a tela: cai nos valores do banco.
+    from app.services.evolution import EvolutionError
+
+    conn = SimpleNamespace(
+        instance="igreja-x", numero="5500", status="online", ultima_sync=None
+    )
+    session = _ConnSession(app_user=make_app_user(), roles=["admin"], conn=conn)
+
+    class _BoomEvo:
+        def fetch_status(self, instance):
+            raise EvolutionError("down")
+
+    app.dependency_overrides[get_db] = lambda: session
+    app.dependency_overrides[get_clerk_client] = lambda: FakeClerk()
+    app.dependency_overrides[get_evolution_client] = lambda: _BoomEvo()
+    client = TestClient(app)
+
+    resp = client.get("/whatsapp/connection", headers=_AUTH)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["numero"] == "5500"
+    assert body["status"] == "online"
+    assert session.committed is False  # nada mudou → sem commit
+
+
+def test_numero_from_jid_strips_suffixes() -> None:
+    from app.services.evolution import numero_from_jid
+
+    assert numero_from_jid("5511999999999@s.whatsapp.net") == "5511999999999"
+    assert numero_from_jid("5511999999999:12@s.whatsapp.net") == "5511999999999"
+    assert numero_from_jid(None) is None
+    assert numero_from_jid("") is None
+    assert numero_from_jid("@s.whatsapp.net") is None
+
+
+def test_fetch_instances_parsing_both_shapes() -> None:
+    from app.services.evolution import EvolutionClient
+
+    flat = {
+        "name": "igreja-x",
+        "connectionStatus": "open",
+        "ownerJid": "5599@s.whatsapp.net",
+    }
+    nested = {
+        "instance": {
+            "instanceName": "igreja-x",
+            "status": "open",
+            "owner": "5588@s.whatsapp.net",
+        }
+    }
+    assert EvolutionClient._state_and_owner(flat) == ("open", "5599@s.whatsapp.net")
+    assert EvolutionClient._state_and_owner(nested) == ("open", "5588@s.whatsapp.net")
+
+    body = [{"name": "other", "connectionStatus": "close"}, flat]
+    assert EvolutionClient._select_instance(body, "igreja-x")["name"] == "igreja-x"
+    # sem match → cai no primeiro dict (servidor de instância única)
+    assert EvolutionClient._select_instance([nested], "zzz") == nested

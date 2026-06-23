@@ -48,7 +48,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { target: "inbox", label: "Chat", icon: "chat" },
       { target: "calendario", label: "Agenda da Igreja", icon: "calendar" },
       { target: "comunicados", label: "Comunicação", icon: "broadcast" },
-      { target: "equipe", label: "Equipe", icon: "team" },
+      { target: "equipe", label: "Discípulos", icon: "team" },
     ],
   },
   {
@@ -137,7 +137,7 @@ export const SCREEN_META: Record<
     info: "Envio segmentado pelo WhatsApp oficial. Contatos com opt-out são excluídos automaticamente.",
   },
   equipe: {
-    title: "Equipe",
+    title: "Discípulos",
     crumb: "Quem usa o sistema",
     info: "Quem tem acesso ao painel. Cada pessoa acumula papéis, e o menu e o dashboard são a união deles (o que cada papel enxerga é definido em Permissões).",
   },
