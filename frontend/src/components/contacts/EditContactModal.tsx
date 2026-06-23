@@ -135,27 +135,32 @@ export function EditContactModal({ contact, busy, error, onClose, onSubmit }: Ed
             </div>
             <div className="field">
               <label htmlFor="ec-tipo">Tipo</label>
-              <select id="ec-tipo" value={tipo} onChange={(e) => setTipo(e.target.value)}>
+              <select
+                id="ec-tipo"
+                value={semInteresse ? "csim" : tipo}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  // "csim" é um valor virtual do select: liga o flag
+                  // sem_interesse e mantém o tipo real por baixo.
+                  if (v === "csim") {
+                    setSemInteresse(true);
+                  } else {
+                    setSemInteresse(false);
+                    setTipo(v);
+                  }
+                }}
+              >
                 <option value="">—</option>
                 {TIPOS.map((t) => (
                   <option key={t.value} value={t.value}>
                     {t.label}
                   </option>
                 ))}
+                <option value="csim">Sem interesse (CSIM)</option>
               </select>
             </div>
           </div>
 
-          <div className="field">
-            <label style={{ display: "flex", gap: 8, alignItems: "center", cursor: "pointer" }}>
-              <input
-                type="checkbox"
-                checked={semInteresse}
-                onChange={(e) => setSemInteresse(e.target.checked)}
-              />
-              <span>Sem interesse ministerial (CSIM)</span>
-            </label>
-          </div>
           {semInteresse ? (
             <Field
               label="Motivo (CSIM)"
