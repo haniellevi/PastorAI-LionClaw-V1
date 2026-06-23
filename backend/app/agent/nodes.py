@@ -54,10 +54,6 @@ class PessoaSnapshot(TypedDict, total=False):
     origem: str
     has_endereco: bool
     primeiro_contato_set: bool
-    # Sinais de classificação (#1).
-    tem_celula: bool
-    presencas_celula: int
-    aceitou_jesus: bool
     sem_interesse: bool
 
 
@@ -281,22 +277,22 @@ def report_capture_node(state: AgentState) -> AgentState:
 
 
 def onboarding_node(state: AgentState) -> AgentState:
-    """onboarding (US-10/RF-13/#1): classify the contact, then drive the turn.
+    """onboarding (US-10/RF-13/#1): flag CSIM, then drive the turn.
 
-    Reached only after consent is in place. Runs the heuristic classification
-    (contato vs visitante; CSIM) and records it in ``intake_update`` for the
-    runtime to persist. A CSIM contact (no ministerial link) gets a polite close
-    and leaves the funnel; everyone else continues the configurable onboarding.
+    Reached only after consent is in place. Detects CSIM (a contact with no
+    ministerial link) and records it in ``intake_update`` for the runtime to
+    persist; a CSIM contact gets a polite close and leaves the funnel. The
+    ``contato → visitante`` transition is NOT decided here — it happens through a
+    real event (leader cadastro, consolidation handoff, church check-in), never
+    from a self-declared "I went to church" in chat.
     """
     pessoa = state.get("pessoa", {})
     texto = state.get("texto") or ""
-    cls = classify_contact(pessoa, texto)
+    cls = classify_contact(texto)
 
-    # Mescla a classificação no intake_update já produzido pelo intake_node
+    # Mescla o CSIM no intake_update já produzido pelo intake_node
     # (origem/primeiro_contato), sem sobrescrevê-lo.
     intake = dict(state.get("intake_update") or {})
-    if cls.subetapa:
-        intake["subetapa"] = cls.subetapa
     if cls.sem_interesse is not None:
         intake["sem_interesse"] = cls.sem_interesse
         intake["sem_interesse_motivo"] = cls.motivo
@@ -308,9 +304,9 @@ def onboarding_node(state: AgentState) -> AgentState:
             "atendimento por aqui, mas agradecemos a sua mensagem. 🙏"
         )
     else:
-        classificacao = cls.subetapa or pessoa.get("subetapa") or "novo_contato"
+        classificacao = pessoa.get("subetapa") or "novo_contato"
         resposta = (
-            "Que bom falar com você! Você já frequenta alguma igreja ou célula?"
+            "Que bom falar com você! Como posso te ajudar?"
             if not pessoa.get("has_endereco")
             else "Pode me contar um pouco sobre o que você está buscando?"
         )

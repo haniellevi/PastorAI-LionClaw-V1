@@ -128,18 +128,7 @@ def test_mask_payload_is_recursive() -> None:
     assert masked["ok"] is True
 
 
-# ---- classificação no onboarding (#1 / US-10) -----------------------------
-def test_onboarding_promotes_contato_to_visitante() -> None:
-    final = run_turn_direct(
-        _state(
-            texto="já frequento a célula de vocês",
-            pessoa={"subetapa": "novo_contato", "has_endereco": False},
-        )
-    )
-    assert final["route"] == ROUTE_ONBOARDING
-    assert final["intake_update"]["subetapa"] == "visitante"
-
-
+# ---- CSIM no onboarding (#1) ----------------------------------------------
 def test_onboarding_flags_csim_and_closes_politely() -> None:
     final = run_turn_direct(
         _state(
@@ -154,12 +143,26 @@ def test_onboarding_flags_csim_and_closes_politely() -> None:
     assert ev and ev[0]["payload"]["classificacao"] == "csim"
 
 
-def test_onboarding_preserves_intake_basics_when_classifying() -> None:
-    # O intake_node produz origem/primeiro_contato; o onboarding mescla a
-    # classificação SEM perder esses campos.
+def test_onboarding_does_not_promote_on_attendance_claim() -> None:
+    # Dizer que foi à igreja NÃO promove a visitante (transição é por evento
+    # real: cadastro do líder / consolidação / check-in).
     final = run_turn_direct(
         _state(
-            texto="já fui no culto",
+            texto="já fui no culto de vocês",
+            pessoa={"subetapa": "novo_contato", "has_endereco": False},
+        )
+    )
+    assert final["route"] == ROUTE_ONBOARDING
+    assert "subetapa" not in final["intake_update"]
+    assert "sem_interesse" not in final["intake_update"]
+
+
+def test_onboarding_preserves_intake_basics_when_flagging_csim() -> None:
+    # O intake_node produz origem/primeiro_contato; o onboarding mescla o CSIM
+    # SEM perder esses campos.
+    final = run_turn_direct(
+        _state(
+            texto="represento uma empresa de marketing",
             pessoa={
                 "subetapa": "novo_contato",
                 "has_endereco": False,
@@ -171,11 +174,11 @@ def test_onboarding_preserves_intake_basics_when_classifying() -> None:
     upd = final["intake_update"]
     assert upd["origem"] == "whatsapp"
     assert upd["set_primeiro_contato"] is True
-    assert upd["subetapa"] == "visitante"
+    assert upd["sem_interesse"] is True
 
 
-# ---- persistência da classificação (_apply_intake) ------------------------
-def test_apply_intake_promotes_and_flags_csim() -> None:
+# ---- persistência do CSIM (_apply_intake) ---------------------------------
+def test_apply_intake_flags_csim() -> None:
     from types import SimpleNamespace
 
     from app.agent.runtime import _apply_intake
@@ -183,24 +186,18 @@ def test_apply_intake_promotes_and_flags_csim() -> None:
     p = SimpleNamespace(
         origem="whatsapp",
         primeiro_contato="x",
-        subetapa="novo_contato",
         sem_interesse=False,
         sem_interesse_motivo=None,
     )
     _apply_intake(
-        p,
-        {
-            "subetapa": "visitante",
-            "sem_interesse": True,
-            "sem_interesse_motivo": "comercial/empresa",
-        },
+        p, {"sem_interesse": True, "sem_interesse_motivo": "comercial/empresa"}
     )
-    assert p.subetapa == "visitante"
     assert p.sem_interesse is True
     assert p.sem_interesse_motivo == "comercial/empresa"
 
 
-def test_apply_intake_never_downgrades_subetapa() -> None:
+def test_apply_intake_neutral_turn_keeps_csim() -> None:
+    # Sem sinal de CSIM no update, um flag já setado não é limpo.
     from types import SimpleNamespace
 
     from app.agent.runtime import _apply_intake
@@ -208,9 +205,8 @@ def test_apply_intake_never_downgrades_subetapa() -> None:
     p = SimpleNamespace(
         origem="whatsapp",
         primeiro_contato="x",
-        subetapa="em_consolidacao",
-        sem_interesse=False,
-        sem_interesse_motivo=None,
+        sem_interesse=True,
+        sem_interesse_motivo="comercial/empresa",
     )
-    _apply_intake(p, {"subetapa": "visitante"})
-    assert p.subetapa == "em_consolidacao"  # nunca rebaixa
+    _apply_intake(p, {"origem": "whatsapp"})
+    assert p.sem_interesse is True
