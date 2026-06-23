@@ -11,6 +11,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { CalendarConnectCard } from "@/components/calendario/CalendarConnectCard";
 import { EventFormModal } from "@/components/calendario/EventFormModal";
 import { SessionExpiredError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
@@ -187,6 +188,8 @@ export function CalendarioScreen() {
           </button>
         </div>
       </div>
+
+      <CalendarConnectCard />
 
       {error ? (
         <div className="error-banner" role="alert">
