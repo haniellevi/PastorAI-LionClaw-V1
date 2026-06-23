@@ -25,6 +25,7 @@ from app.routers import (
     consolidacao,
     contacts,
     conversations,
+    dashboard,
     events,
     multiplicacoes,
     pipeline,
@@ -85,6 +86,7 @@ def create_app() -> FastAPI:
     app.include_router(multiplicacoes.router)
     app.include_router(whatsapp.router)
     app.include_router(conversations.router)
+    app.include_router(dashboard.router)
     app.include_router(agent.router)
     app.include_router(assistant.router)
     app.include_router(reports.router)

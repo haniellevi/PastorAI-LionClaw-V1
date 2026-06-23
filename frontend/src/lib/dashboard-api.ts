@@ -63,6 +63,18 @@ export interface Cell {
   ativo: boolean;
 }
 
+/** Visão geral do dashboard (#2): totais por tipo/etapa + KPIs, escopados por papel. */
+export interface OverviewStats {
+  /** "igreja" (admin/pastor/sênior) ou "celula" (líder de célula, só as suas). */
+  scope: string;
+  total: number;
+  decisoesJesus: number;
+  celulasAtivas: number;
+  semInteresse: number;
+  porTipo: Record<string, number>;
+  porEtapa: Record<string, number>;
+}
+
 export interface QueueActionResult {
   status: string;
   itemId: string;
@@ -161,6 +173,14 @@ export async function fetchTeamLookup(token: string, pageSize = 200): Promise<Pa
     throw new ApiError(res.status, "Não foi possível carregar a equipe.");
   }
   return (await res.json()) as Page<TeamMember>;
+}
+
+export async function fetchOverview(token: string): Promise<OverviewStats> {
+  const res = await authedFetch(token, `/dashboard/overview`);
+  if (!res.ok) {
+    throw new ApiError(res.status, "Não foi possível carregar a visão geral.");
+  }
+  return (await res.json()) as OverviewStats;
 }
 
 export async function fetchCells(token: string, pageSize = 100): Promise<Page<Cell>> {
