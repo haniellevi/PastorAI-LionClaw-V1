@@ -181,7 +181,7 @@ class CreateContactRequest(BaseModel):
         if value is None:
             return None
         value = value.strip().lower()
-        allowed = {"visitante", "membro", "lider", "pastor", "discipulo"}
+        allowed = {"contato", "visitante", "membro", "lider", "pastor", "discipulo"}
         if value not in allowed:
             raise ValueError(f"tipo inválido: {value}")
         return value
@@ -233,7 +233,7 @@ class UpdateContactRequest(BaseModel):
         if value is None:
             return None
         value = value.strip().lower()
-        allowed = {"visitante", "membro", "lider", "pastor", "discipulo"}
+        allowed = {"contato", "visitante", "membro", "lider", "pastor", "discipulo"}
         if value not in allowed:
             raise ValueError(f"tipo inválido: {value}")
         return value
@@ -329,7 +329,8 @@ def create_contact(
         genero=payload.genero,
         faixa_etaria=payload.faixaEtaria,
         endereco=payload.endereco,
-        tipo=payload.tipo or "visitante",
+        # Entrada da jornada: sem tipo explícito, nasce como "contato" (US-10).
+        tipo=payload.tipo or "contato",
         origem=payload.origem,
     )
     db.add(pessoa)

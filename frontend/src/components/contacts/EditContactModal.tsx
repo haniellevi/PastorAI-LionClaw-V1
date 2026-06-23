@@ -12,6 +12,7 @@ import { Field } from "@/components/ui/Field";
 import type { Contact, UpdateContactInput } from "@/lib/contacts-api";
 
 const TIPOS = [
+  { value: "contato", label: "Contato" },
   { value: "visitante", label: "Visitante" },
   { value: "discipulo", label: "Discípulo" },
   { value: "membro", label: "Membro" },

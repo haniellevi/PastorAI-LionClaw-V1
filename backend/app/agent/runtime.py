@@ -102,7 +102,7 @@ def _build_state(
             "id": str(pessoa.id),
             "nome": pessoa.nome,
             "telefone": pessoa.telefone,
-            "tipo": pessoa.tipo or "visitante",
+            "tipo": pessoa.tipo or "contato",
             "etapa": pessoa.etapa or "ganhar",
             "subetapa": pessoa.subetapa or "novo_contato",
             "origem": pessoa.origem or "",

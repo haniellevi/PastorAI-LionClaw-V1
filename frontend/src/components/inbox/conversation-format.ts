@@ -49,6 +49,7 @@ export function displayName(c: Conversation): string {
 }
 
 const TIPO_SHORT: Record<string, string> = {
+  contato: "Contato",
   visitante: "Visitante",
   discipulo: "Discípulo",
   membro: "Membro",

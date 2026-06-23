@@ -160,14 +160,14 @@ def ingest_message_event_ex(
             logger.info("Outbound to unknown number — not creating a contact")
             return IngestionOutcome(result=IngestionResult.IGNORED)
         # Nasce como "contato" (US-10): quem fala pela 1ª vez e ainda não foi à
-        # igreja/célula. subetapa=novo_contato é o estado "contato"; o
-        # orquestrador promove para "visitante" ao detectar que já frequentou.
+        # igreja/célula. Vira "visitante" só por evento real (líder cadastra,
+        # consolidação ou check-in) — nunca por autodeclaração no chat.
         pessoa = Pessoa(
             igreja_id=igreja_id,
             nome=parsed.push_name or parsed.telefone_raw,
             telefone=parsed.telefone_raw,
             origem="whatsapp",
-            tipo="visitante",
+            tipo="contato",
             etapa="ganhar",
             subetapa="novo_contato",
         )

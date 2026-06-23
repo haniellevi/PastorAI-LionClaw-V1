@@ -37,6 +37,7 @@ import { NewContactModal } from "./NewContactModal";
 type Filter =
   | "all"
   | "pending"
+  | "contato"
   | "visitante"
   | "discipulo"
   | "lider"
@@ -51,6 +52,7 @@ interface Toast {
 const FILTERS: Array<{ id: Filter; label: string; warn?: boolean }> = [
   { id: "all", label: "Todos" },
   { id: "pending", label: "Sem acompanhamento", warn: true },
+  { id: "contato", label: "Contatos" },
   { id: "visitante", label: "Visitantes" },
   { id: "discipulo", label: "Discípulos" },
   { id: "lider", label: "Líderes" },

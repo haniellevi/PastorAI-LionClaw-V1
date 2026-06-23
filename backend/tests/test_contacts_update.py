@@ -154,6 +154,16 @@ def test_update_unmarks_csim_clears_motivo(app) -> None:
     assert pessoa.sem_interesse_motivo is None
 
 
+def test_update_accepts_contato(app) -> None:
+    pessoa = make_pessoa()
+    session = ContactSession(app_user=make_app_user(), roles=["admin"], pessoa=pessoa)
+    client = _wire(app, session=session, clerk=FakeClerk())
+    resp = client.patch(f"/contacts/{_PID}", headers=_AUTH, json={"tipo": "contato"})
+    assert resp.status_code == 200
+    assert resp.json()["tipo"] == "contato"
+    assert pessoa.tipo == "contato"
+
+
 def test_update_rejects_invalid_tipo(app) -> None:
     session = ContactSession(
         app_user=make_app_user(), roles=["admin"], pessoa=make_pessoa()

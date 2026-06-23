@@ -269,6 +269,7 @@ export interface StatusInfo {
 }
 
 const TIPO_TONE: Record<string, StatusTone> = {
+  contato: "warn",
   visitante: "accent",
   discipulo: "accent",
   membro: "muted",
@@ -277,6 +278,7 @@ const TIPO_TONE: Record<string, StatusTone> = {
 };
 
 const TIPO_LABEL: Record<string, string> = {
+  contato: "Contato",
   visitante: "Visitante",
   discipulo: "Discípulo",
   membro: "Membro",
