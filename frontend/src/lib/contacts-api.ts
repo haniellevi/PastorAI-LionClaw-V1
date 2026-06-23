@@ -34,6 +34,8 @@ export interface Contact {
   etapa: string | null;
   subetapa: string | null;
   acompanhamento: string | null;
+  semInteresse: boolean;
+  semInteresseMotivo: string | null;
   presencasCelula: number;
   aceitouJesus: boolean;
   celulaId: string | null;
@@ -57,6 +59,8 @@ export interface ContactDetail {
   etapa: string | null;
   subetapa: string | null;
   acompanhamento: string | null;
+  semInteresse: boolean;
+  semInteresseMotivo: string | null;
   presencasCelula: number;
   aceitouJesus: boolean;
   celulaId: string | null;
@@ -157,6 +161,8 @@ export interface UpdateContactInput {
   email?: string | null;
   genero?: "m" | "f" | null;
   tipo?: string | null;
+  semInteresse?: boolean;
+  semInteresseMotivo?: string | null;
 }
 
 /**

@@ -72,6 +72,8 @@ def make_pessoa(*, nome="Antigo", telefone="+5589999990000", email="a@x.com"):
         etapa=None,
         subetapa=None,
         acompanhamento=None,
+        sem_interesse=False,
+        sem_interesse_motivo=None,
         faixa_etaria=None,
         endereco=None,
         presencas_celula=0,
@@ -121,6 +123,35 @@ def test_update_changes_name_and_email(app) -> None:
     assert body["email"] == "novo@x.com"
     assert pessoa.nome == "Novo Nome"
     assert session.committed is True
+
+
+def test_update_marks_csim_with_motivo(app) -> None:
+    pessoa = make_pessoa()
+    session = ContactSession(app_user=make_app_user(), roles=["admin"], pessoa=pessoa)
+    client = _wire(app, session=session, clerk=FakeClerk())
+    resp = client.patch(
+        f"/contacts/{_PID}",
+        headers=_AUTH,
+        json={"semInteresse": True, "semInteresseMotivo": "empresa"},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["semInteresse"] is True
+    assert body["semInteresseMotivo"] == "empresa"
+    assert pessoa.sem_interesse is True
+    assert pessoa.sem_interesse_motivo == "empresa"
+
+
+def test_update_unmarks_csim_clears_motivo(app) -> None:
+    pessoa = make_pessoa()
+    pessoa.sem_interesse = True
+    pessoa.sem_interesse_motivo = "empresa"
+    session = ContactSession(app_user=make_app_user(), roles=["admin"], pessoa=pessoa)
+    client = _wire(app, session=session, clerk=FakeClerk())
+    resp = client.patch(f"/contacts/{_PID}", headers=_AUTH, json={"semInteresse": False})
+    assert resp.status_code == 200
+    assert pessoa.sem_interesse is False
+    assert pessoa.sem_interesse_motivo is None
 
 
 def test_update_rejects_invalid_tipo(app) -> None:

@@ -34,7 +34,14 @@ import { EditContactModal } from "./EditContactModal";
 import { LinkCellModal } from "./LinkCellModal";
 import { NewContactModal } from "./NewContactModal";
 
-type Filter = "all" | "pending" | "visitante" | "discipulo" | "lider" | "pastor";
+type Filter =
+  | "all"
+  | "pending"
+  | "visitante"
+  | "discipulo"
+  | "lider"
+  | "pastor"
+  | "csim";
 
 interface Toast {
   kind: "ok" | "err";
@@ -48,6 +55,7 @@ const FILTERS: Array<{ id: Filter; label: string; warn?: boolean }> = [
   { id: "discipulo", label: "Discípulos" },
   { id: "lider", label: "Líderes" },
   { id: "pastor", label: "Pastores" },
+  { id: "csim", label: "Sem interesse (CSIM)", warn: true },
 ];
 
 function maskPhone(phone: string): string {
@@ -61,6 +69,7 @@ function maskPhone(phone: string): string {
 function matchesFilter(c: Contact, f: Filter): boolean {
   if (f === "all") return true;
   if (f === "pending") return followStatus(c).label === "Sem acompanhamento";
+  if (f === "csim") return c.semInteresse === true;
   return c.tipo === f;
 }
 

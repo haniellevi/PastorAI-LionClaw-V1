@@ -75,6 +75,8 @@ function toContact(d: ContactDetail): Contact {
     etapa: d.etapa,
     subetapa: d.subetapa,
     acompanhamento: d.acompanhamento,
+    semInteresse: d.semInteresse,
+    semInteresseMotivo: d.semInteresseMotivo,
     presencasCelula: d.presencasCelula,
     aceitouJesus: d.aceitouJesus,
     celulaId: d.celulaId,

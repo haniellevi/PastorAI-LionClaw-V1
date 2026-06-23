@@ -31,7 +31,7 @@ const EDITABLE_ROLES: Array<Exclude<Role, "admin">> = ROLE_ORDER.filter(
 /** Rótulos compactos das colunas (portados do artifact travado). */
 const SCREEN_LABEL: Record<string, string> = {
   dashboard: "Dashboard",
-  inbox: "Chat",
+  inbox: "Conversas",
   ganhar: "Ganhar",
   consolidar: "Consolidar",
   "consol-individual": "Consol. Individual",
@@ -42,7 +42,7 @@ const SCREEN_LABEL: Record<string, string> = {
   enviar: "Enviar",
   calendario: "Agenda",
   comunicados: "Comunicação",
-  equipe: "Discípulos",
+  contatos: "Pessoas",
 };
 
 interface Toast {

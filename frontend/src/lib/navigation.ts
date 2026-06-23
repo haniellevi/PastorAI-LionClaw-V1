@@ -45,10 +45,10 @@ export const NAV_SECTIONS: NavSection[] = [
     defaultOpen: true,
     items: [
       { target: "dashboard", label: "Dashboard", icon: "dashboard" },
-      { target: "inbox", label: "Chat", icon: "chat" },
+      { target: "inbox", label: "Conversas", icon: "chat" },
+      { target: "contatos", label: "Pessoas", icon: "team" },
       { target: "calendario", label: "Agenda da Igreja", icon: "calendar" },
       { target: "comunicados", label: "Comunicação", icon: "broadcast" },
-      { target: "equipe", label: "Discípulos", icon: "team" },
     ],
   },
   {
@@ -103,6 +103,7 @@ export const NAV_SECTIONS: NavSection[] = [
     adminOnly: true,
     defaultOpen: false,
     items: [
+      { target: "equipe", label: "Usuários do Sistema", icon: "team" },
       { target: "whatsapp", label: "Conexão WhatsApp", icon: "whatsapp" },
       { target: "agente", label: "Agente IA", icon: "agent" },
       { target: "assinatura", label: "Assinatura", icon: "card" },
@@ -122,7 +123,7 @@ export const SCREEN_META: Record<
     info: "Fila de trabalho pastoral — o que exige sua ação hoje.",
   },
   inbox: {
-    title: "Chat",
+    title: "Conversas",
     crumb: "WhatsApp da Igreja",
     info: "Conversas pelo número oficial. Apenas o número da igreja é registrado — conversas pessoais do pastor não entram aqui.",
   },
@@ -137,9 +138,14 @@ export const SCREEN_META: Record<
     info: "Envio segmentado pelo WhatsApp oficial. Contatos com opt-out são excluídos automaticamente.",
   },
   equipe: {
-    title: "Discípulos",
-    crumb: "Quem usa o sistema",
-    info: "Quem tem acesso ao painel. Cada pessoa acumula papéis, e o menu e o dashboard são a união deles (o que cada papel enxerga é definido em Permissões).",
+    title: "Usuários do Sistema",
+    crumb: "Quem tem acesso ao painel",
+    info: "Quem tem login no sistema. Cada pessoa acumula papéis, e o menu e o dashboard são a união deles (o que cada papel enxerga é definido em Permissões).",
+  },
+  contatos: {
+    title: "Pessoas",
+    crumb: "Todas as pessoas da igreja",
+    info: "Lista geral de contatos, visitantes, membros e líderes — filtre por papel/status. O admin pode editar os dados de cada pessoa.",
   },
   ganhar: {
     title: "Ganhar",
@@ -200,11 +206,6 @@ export const SCREEN_META: Record<
     title: "Permissões",
     crumb: "Matriz papel × tela",
     info: "Matriz papel × tela: o que cada papel enxerga no menu e no dashboard.",
-  },
-  contatos: {
-    title: "Contatos",
-    crumb: "Cadastro",
-    info: "Todas as pessoas da igreja. Filtre por acompanhamento e conecte a células.",
   },
   celulas: {
     title: "Células",

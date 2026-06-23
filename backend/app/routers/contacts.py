@@ -46,6 +46,8 @@ class ContactOut(BaseModel):
     etapa: str | None = None
     subetapa: str | None = None
     acompanhamento: str | None = None
+    semInteresse: bool = False  # noqa: N815 - CSIM (#1)
+    semInteresseMotivo: str | None = None  # noqa: N815
     presencasCelula: int  # noqa: N815
     aceitouJesus: bool  # noqa: N815
     celulaId: str | None = None  # noqa: N815
@@ -63,6 +65,8 @@ class ContactOut(BaseModel):
             etapa=p.etapa,
             subetapa=p.subetapa,
             acompanhamento=p.acompanhamento,
+            semInteresse=bool(p.sem_interesse),
+            semInteresseMotivo=p.sem_interesse_motivo,
             presencasCelula=p.presencas_celula,
             aceitouJesus=p.aceitou_jesus,
             celulaId=str(p.celula_id) if p.celula_id else None,
@@ -89,6 +93,8 @@ class ContactDetailOut(BaseModel):
     etapa: str | None = None
     subetapa: str | None = None
     acompanhamento: str | None = None
+    semInteresse: bool = False  # noqa: N815 - CSIM (#1)
+    semInteresseMotivo: str | None = None  # noqa: N815
     presencasCelula: int  # noqa: N815
     aceitouJesus: bool  # noqa: N815
     celulaId: str | None = None  # noqa: N815
@@ -121,6 +127,8 @@ class ContactDetailOut(BaseModel):
             etapa=p.etapa,
             subetapa=p.subetapa,
             acompanhamento=p.acompanhamento,
+            semInteresse=bool(p.sem_interesse),
+            semInteresseMotivo=p.sem_interesse_motivo,
             presencasCelula=p.presencas_celula,
             aceitouJesus=p.aceitou_jesus,
             celulaId=str(p.celula_id) if p.celula_id else None,
@@ -196,6 +204,8 @@ class UpdateContactRequest(BaseModel):
     faixaEtaria: str | None = Field(default=None, max_length=40)  # noqa: N815
     endereco: str | None = Field(default=None, max_length=400)
     tipo: str | None = Field(default=None)
+    semInteresse: bool | None = Field(default=None)  # noqa: N815 - CSIM (#1)
+    semInteresseMotivo: str | None = Field(default=None, max_length=200)  # noqa: N815
 
     @field_validator("nome", "telefone")
     @classmethod
@@ -444,6 +454,13 @@ def update_contact(
         pessoa.endereco = payload.endereco
     if payload.tipo is not None:
         pessoa.tipo = payload.tipo
+    # CSIM (#1): admin marca/desmarca; ao desmarcar, limpa o motivo.
+    if payload.semInteresse is not None:
+        pessoa.sem_interesse = payload.semInteresse
+        if not payload.semInteresse:
+            pessoa.sem_interesse_motivo = None
+        elif payload.semInteresseMotivo is not None:
+            pessoa.sem_interesse_motivo = payload.semInteresseMotivo
 
     db.flush()
     db.refresh(pessoa)
