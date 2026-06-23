@@ -261,7 +261,12 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
       },
       {
         header: "Tipo",
-        cell: (c) => <StatusPill tone={tipoTone(c.tipo)}>{tipoLabel(c.tipo)}</StatusPill>,
+        cell: (c) => (
+          <span className="pill-stack">
+            <StatusPill tone={tipoTone(c.tipo)}>{tipoLabel(c.tipo)}</StatusPill>
+            {c.semInteresse ? <StatusPill tone="danger">CSIM</StatusPill> : null}
+          </span>
+        ),
       },
       {
         header: "Célula",
@@ -378,7 +383,15 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
                     ? "Crie um contato ou aguarde o agente registrar as conversas."
                     : undefined,
               }}
-              onRowClick={(c) => setSelected(c.id)}
+              onRowClick={(c) => {
+                setSelected(c.id);
+                // Admin: clicar na linha já abre a edição. Demais papéis só
+                // selecionam (painel lateral à direita).
+                if (canEdit) {
+                  setEditError(null);
+                  setEditTarget(c);
+                }
+              }}
             />
           )}
         </div>
@@ -490,10 +503,19 @@ function ContactDetail({
           <h3>{contact.nome}</h3>
           <div className="sub mono">{contact.telefone}</div>
         </div>
-        <StatusPill tone={tipoTone(contact.tipo)}>{tipoLabel(contact.tipo)}</StatusPill>
+        <span className="pill-stack">
+          <StatusPill tone={tipoTone(contact.tipo)}>{tipoLabel(contact.tipo)}</StatusPill>
+          {contact.semInteresse ? <StatusPill tone="danger">CSIM</StatusPill> : null}
+        </span>
       </div>
 
       <dl className="detail-list">
+        {contact.semInteresse ? (
+          <div>
+            <dt>Sem interesse (CSIM)</dt>
+            <dd>{contact.semInteresseMotivo?.trim() || "Sim"}</dd>
+          </div>
+        ) : null}
         <div>
           <dt>Acompanhamento</dt>
           <dd>
