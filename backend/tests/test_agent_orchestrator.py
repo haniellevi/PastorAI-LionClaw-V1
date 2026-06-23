@@ -126,3 +126,91 @@ def test_mask_payload_is_recursive() -> None:
     assert "111.222.333-44" not in str(masked)
     # Non-sensitive scalars are preserved untouched.
     assert masked["ok"] is True
+
+
+# ---- classificação no onboarding (#1 / US-10) -----------------------------
+def test_onboarding_promotes_contato_to_visitante() -> None:
+    final = run_turn_direct(
+        _state(
+            texto="já frequento a célula de vocês",
+            pessoa={"subetapa": "novo_contato", "has_endereco": False},
+        )
+    )
+    assert final["route"] == ROUTE_ONBOARDING
+    assert final["intake_update"]["subetapa"] == "visitante"
+
+
+def test_onboarding_flags_csim_and_closes_politely() -> None:
+    final = run_turn_direct(
+        _state(
+            texto="sou de uma empresa e quero vender um serviço",
+            pessoa={"subetapa": "novo_contato", "has_endereco": False},
+        )
+    )
+    assert final["route"] == ROUTE_ONBOARDING
+    assert final["intake_update"]["sem_interesse"] is True
+    assert final["intake_update"]["sem_interesse_motivo"] == "comercial/empresa"
+    ev = [e for e in final["events"] if e["evento"] == "onboarding"]
+    assert ev and ev[0]["payload"]["classificacao"] == "csim"
+
+
+def test_onboarding_preserves_intake_basics_when_classifying() -> None:
+    # O intake_node produz origem/primeiro_contato; o onboarding mescla a
+    # classificação SEM perder esses campos.
+    final = run_turn_direct(
+        _state(
+            texto="já fui no culto",
+            pessoa={
+                "subetapa": "novo_contato",
+                "has_endereco": False,
+                "origem": "",
+                "primeiro_contato_set": False,
+            },
+        )
+    )
+    upd = final["intake_update"]
+    assert upd["origem"] == "whatsapp"
+    assert upd["set_primeiro_contato"] is True
+    assert upd["subetapa"] == "visitante"
+
+
+# ---- persistência da classificação (_apply_intake) ------------------------
+def test_apply_intake_promotes_and_flags_csim() -> None:
+    from types import SimpleNamespace
+
+    from app.agent.runtime import _apply_intake
+
+    p = SimpleNamespace(
+        origem="whatsapp",
+        primeiro_contato="x",
+        subetapa="novo_contato",
+        sem_interesse=False,
+        sem_interesse_motivo=None,
+    )
+    _apply_intake(
+        p,
+        {
+            "subetapa": "visitante",
+            "sem_interesse": True,
+            "sem_interesse_motivo": "comercial/empresa",
+        },
+    )
+    assert p.subetapa == "visitante"
+    assert p.sem_interesse is True
+    assert p.sem_interesse_motivo == "comercial/empresa"
+
+
+def test_apply_intake_never_downgrades_subetapa() -> None:
+    from types import SimpleNamespace
+
+    from app.agent.runtime import _apply_intake
+
+    p = SimpleNamespace(
+        origem="whatsapp",
+        primeiro_contato="x",
+        subetapa="em_consolidacao",
+        sem_interesse=False,
+        sem_interesse_motivo=None,
+    )
+    _apply_intake(p, {"subetapa": "visitante"})
+    assert p.subetapa == "em_consolidacao"  # nunca rebaixa

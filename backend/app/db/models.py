@@ -104,6 +104,11 @@ class Pessoa(Base):
     apto_proxima_cd: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false")
     )
+    # CSIM (#1): contato sem interesse ministerial — fica fora do funil pastoral.
+    sem_interesse: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    sem_interesse_motivo: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )

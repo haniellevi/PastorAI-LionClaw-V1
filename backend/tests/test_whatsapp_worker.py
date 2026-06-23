@@ -144,6 +144,10 @@ def test_ingest_registers_and_creates_contact_and_conversation() -> None:
     # A new person, a new conversation and the message were added.
     assert any(isinstance(o, Pessoa) for o in session.added)
     assert any(isinstance(o, Conversation) for o in session.added)
+    # Nasce como "contato" (US-10/#1): novo_contato na etapa ganhar.
+    pessoa = next(o for o in session.added if isinstance(o, Pessoa))
+    assert pessoa.etapa == "ganhar"
+    assert pessoa.subetapa == "novo_contato"
 
 
 def test_ingest_reuses_existing_contact() -> None:

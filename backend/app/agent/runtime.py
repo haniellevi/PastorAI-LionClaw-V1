@@ -104,9 +104,15 @@ def _build_state(
             "telefone": pessoa.telefone,
             "tipo": pessoa.tipo or "visitante",
             "etapa": pessoa.etapa or "ganhar",
+            "subetapa": pessoa.subetapa or "novo_contato",
             "origem": pessoa.origem or "",
             "has_endereco": bool(pessoa.endereco),
             "primeiro_contato_set": pessoa.primeiro_contato is not None,
+            # Sinais de classificação (#1).
+            "tem_celula": pessoa.celula_id is not None,
+            "presencas_celula": pessoa.presencas_celula or 0,
+            "aceitou_jesus": bool(pessoa.aceitou_jesus),
+            "sem_interesse": bool(pessoa.sem_interesse),
         },
         "term_accepted_version": accepted_version,
         "term_current_version": current_version,
@@ -116,11 +122,27 @@ def _build_state(
 
 
 def _apply_intake(pessoa: Pessoa, update: dict) -> None:
-    """Backfill person basics produced by the intake sub-agent (US-09)."""
+    """Backfill person basics + classification (US-09 / #1).
+
+    Classification is forward-only and conservative: a contato is promoted to
+    visitante (never the reverse), and the CSIM flag is only written when the
+    classifier produced an explicit signal — a neutral turn never clears a
+    previously set flag.
+    """
     if update.get("origem") and not pessoa.origem:
         pessoa.origem = update["origem"]
     if update.get("set_primeiro_contato") and pessoa.primeiro_contato is None:
         pessoa.primeiro_contato = dt.datetime.now(dt.timezone.utc)
+    # Promoção contato -> visitante (nunca rebaixa).
+    if update.get("subetapa") == "visitante" and pessoa.subetapa in (
+        None,
+        "novo_contato",
+    ):
+        pessoa.subetapa = "visitante"
+    # CSIM: só escreve quando o classificador deu um sinal explícito.
+    if "sem_interesse" in update:
+        pessoa.sem_interesse = bool(update["sem_interesse"])
+        pessoa.sem_interesse_motivo = update.get("sem_interesse_motivo") or None
 
 
 def _apply_optout(pessoa: Pessoa, igreja_id: uuid.UUID, session: Session, current_version: str) -> None:
