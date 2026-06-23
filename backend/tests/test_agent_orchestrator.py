@@ -126,3 +126,87 @@ def test_mask_payload_is_recursive() -> None:
     assert "111.222.333-44" not in str(masked)
     # Non-sensitive scalars are preserved untouched.
     assert masked["ok"] is True
+
+
+# ---- CSIM no onboarding (#1) ----------------------------------------------
+def test_onboarding_flags_csim_and_closes_politely() -> None:
+    final = run_turn_direct(
+        _state(
+            texto="sou de uma empresa e quero vender um serviço",
+            pessoa={"subetapa": "novo_contato", "has_endereco": False},
+        )
+    )
+    assert final["route"] == ROUTE_ONBOARDING
+    assert final["intake_update"]["sem_interesse"] is True
+    assert final["intake_update"]["sem_interesse_motivo"] == "comercial/empresa"
+    ev = [e for e in final["events"] if e["evento"] == "onboarding"]
+    assert ev and ev[0]["payload"]["classificacao"] == "csim"
+
+
+def test_onboarding_does_not_promote_on_attendance_claim() -> None:
+    # Dizer que foi à igreja NÃO promove a visitante (transição é por evento
+    # real: cadastro do líder / consolidação / check-in).
+    final = run_turn_direct(
+        _state(
+            texto="já fui no culto de vocês",
+            pessoa={"subetapa": "novo_contato", "has_endereco": False},
+        )
+    )
+    assert final["route"] == ROUTE_ONBOARDING
+    assert "subetapa" not in final["intake_update"]
+    assert "sem_interesse" not in final["intake_update"]
+
+
+def test_onboarding_preserves_intake_basics_when_flagging_csim() -> None:
+    # O intake_node produz origem/primeiro_contato; o onboarding mescla o CSIM
+    # SEM perder esses campos.
+    final = run_turn_direct(
+        _state(
+            texto="represento uma empresa de marketing",
+            pessoa={
+                "subetapa": "novo_contato",
+                "has_endereco": False,
+                "origem": "",
+                "primeiro_contato_set": False,
+            },
+        )
+    )
+    upd = final["intake_update"]
+    assert upd["origem"] == "whatsapp"
+    assert upd["set_primeiro_contato"] is True
+    assert upd["sem_interesse"] is True
+
+
+# ---- persistência do CSIM (_apply_intake) ---------------------------------
+def test_apply_intake_flags_csim() -> None:
+    from types import SimpleNamespace
+
+    from app.agent.runtime import _apply_intake
+
+    p = SimpleNamespace(
+        origem="whatsapp",
+        primeiro_contato="x",
+        sem_interesse=False,
+        sem_interesse_motivo=None,
+    )
+    _apply_intake(
+        p, {"sem_interesse": True, "sem_interesse_motivo": "comercial/empresa"}
+    )
+    assert p.sem_interesse is True
+    assert p.sem_interesse_motivo == "comercial/empresa"
+
+
+def test_apply_intake_neutral_turn_keeps_csim() -> None:
+    # Sem sinal de CSIM no update, um flag já setado não é limpo.
+    from types import SimpleNamespace
+
+    from app.agent.runtime import _apply_intake
+
+    p = SimpleNamespace(
+        origem="whatsapp",
+        primeiro_contato="x",
+        sem_interesse=True,
+        sem_interesse_motivo="comercial/empresa",
+    )
+    _apply_intake(p, {"origem": "whatsapp"})
+    assert p.sem_interesse is True

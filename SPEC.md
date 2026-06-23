@@ -126,6 +126,8 @@
 | presencas_celula | int default 0 | data-pipeline-stage / delta-013 |
 | aceitou_jesus | boolean default false | data-pipeline-stage / delta-013 |
 | acompanhamento | enum(`sem`,`em_andamento`,`consolidado`) | data-contacts.acompanhamento / US-18 |
+| sem_interesse | boolean default false | CSIM (Onda 1/#1) — contato sem interesse ministerial, fora do funil |
+| sem_interesse_motivo | text | CSIM (Onda 1/#1) — motivo curto (ex.: empresa, outra cidade) |
 | origem | text | US-09 (ex.: whatsapp) |
 | primeiro_contato | timestamptz | US-09 |
 | celula_id | uuid FK -> celulas NULL | data-contacts.celula / US-20 |

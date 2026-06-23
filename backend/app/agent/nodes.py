@@ -18,6 +18,7 @@ from __future__ import annotations
 from typing import Any, TypedDict
 
 from app.domain import consent as consent_rules
+from app.domain.classification import classify_contact
 from app.domain.report import looks_like_report, parse_cell_report
 
 # Route identifiers (which sub-agent the supervisor selected).
@@ -49,9 +50,11 @@ class PessoaSnapshot(TypedDict, total=False):
     telefone: str
     tipo: str
     etapa: str
+    subetapa: str
     origem: str
     has_endereco: bool
     primeiro_contato_set: bool
+    sem_interesse: bool
 
 
 class AgentState(TypedDict, total=False):
@@ -274,22 +277,44 @@ def report_capture_node(state: AgentState) -> AgentState:
 
 
 def onboarding_node(state: AgentState) -> AgentState:
-    """onboarding (US-10/RF-13): collect configurable data, classify the person.
+    """onboarding (US-10/RF-13/#1): flag CSIM, then drive the turn.
 
-    Reached only after consent is in place. Classifies contato vs visitante by
-    a simple rule (already-attends -> contato; otherwise visitante) and asks the
-    next configurable question.
+    Reached only after consent is in place. Detects CSIM (a contact with no
+    ministerial link) and records it in ``intake_update`` for the runtime to
+    persist; a CSIM contact gets a polite close and leaves the funnel. The
+    ``contato → visitante`` transition is NOT decided here — it happens through a
+    real event (leader cadastro, consolidation handoff, church check-in), never
+    from a self-declared "I went to church" in chat.
     """
     pessoa = state.get("pessoa", {})
-    classificacao = pessoa.get("tipo") or "visitante"
-    proxima_pergunta = (
-        "Que bom falar com você! Você já frequenta alguma igreja ou célula?"
-        if not pessoa.get("has_endereco")
-        else "Pode me contar um pouco sobre o que você está buscando?"
-    )
+    texto = state.get("texto") or ""
+    cls = classify_contact(texto)
+
+    # Mescla o CSIM no intake_update já produzido pelo intake_node
+    # (origem/primeiro_contato), sem sobrescrevê-lo.
+    intake = dict(state.get("intake_update") or {})
+    if cls.sem_interesse is not None:
+        intake["sem_interesse"] = cls.sem_interesse
+        intake["sem_interesse_motivo"] = cls.motivo
+
+    if cls.sem_interesse:
+        classificacao = "csim"
+        resposta = (
+            "Obrigado pelo contato! No momento não conseguimos seguir o "
+            "atendimento por aqui, mas agradecemos a sua mensagem. 🙏"
+        )
+    else:
+        classificacao = pessoa.get("subetapa") or "novo_contato"
+        resposta = (
+            "Que bom falar com você! Como posso te ajudar?"
+            if not pessoa.get("has_endereco")
+            else "Pode me contar um pouco sobre o que você está buscando?"
+        )
+
     return {
         "route": ROUTE_ONBOARDING,
-        "response": proxima_pergunta,
+        "intake_update": intake,
+        "response": resposta,
         "events": [
             {
                 "evento": "onboarding",

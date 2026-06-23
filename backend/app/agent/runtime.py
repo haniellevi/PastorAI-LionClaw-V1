@@ -104,9 +104,11 @@ def _build_state(
             "telefone": pessoa.telefone,
             "tipo": pessoa.tipo or "visitante",
             "etapa": pessoa.etapa or "ganhar",
+            "subetapa": pessoa.subetapa or "novo_contato",
             "origem": pessoa.origem or "",
             "has_endereco": bool(pessoa.endereco),
             "primeiro_contato_set": pessoa.primeiro_contato is not None,
+            "sem_interesse": bool(pessoa.sem_interesse),
         },
         "term_accepted_version": accepted_version,
         "term_current_version": current_version,
@@ -116,11 +118,20 @@ def _build_state(
 
 
 def _apply_intake(pessoa: Pessoa, update: dict) -> None:
-    """Backfill person basics produced by the intake sub-agent (US-09)."""
+    """Backfill person basics + CSIM flag (US-09 / #1).
+
+    The CSIM flag is only written when the classifier produced an explicit
+    signal — a neutral turn never clears a previously set flag. The
+    contato → visitante transition is event-driven elsewhere (leader cadastro,
+    consolidation handoff, church check-in), not here.
+    """
     if update.get("origem") and not pessoa.origem:
         pessoa.origem = update["origem"]
     if update.get("set_primeiro_contato") and pessoa.primeiro_contato is None:
         pessoa.primeiro_contato = dt.datetime.now(dt.timezone.utc)
+    if "sem_interesse" in update:
+        pessoa.sem_interesse = bool(update["sem_interesse"])
+        pessoa.sem_interesse_motivo = update.get("sem_interesse_motivo") or None
 
 
 def _apply_optout(pessoa: Pessoa, igreja_id: uuid.UUID, session: Session, current_version: str) -> None:
