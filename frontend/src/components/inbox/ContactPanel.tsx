@@ -53,13 +53,27 @@ function initials(nome: string): string {
   return (first + last).toUpperCase() || "?";
 }
 
-/** Linha rótulo/valor; mostra "—" quando vazio. */
+/** Linha rótulo/valor; some quando vazio (painel mostra só o que está preenchido). */
 function Row({ label, value }: { label: string; value: string | null | undefined }) {
+  if (!value || !value.trim()) return null;
   return (
     <div className="panel-row">
       <dt>{label}</dt>
-      <dd>{value && value.trim() ? value : "—"}</dd>
+      <dd>{value}</dd>
     </div>
+  );
+}
+
+/** Há algum dado de jornada G12 preenchido? (senão, esconde a seção inteira) */
+function hasJornadaData(d: ContactDetail): boolean {
+  return Boolean(
+    d.etapa ||
+      d.subetapa ||
+      d.acompanhamento ||
+      d.presencasCelula > 0 ||
+      d.aceitouJesus ||
+      d.celulaNome ||
+      d.liderNome,
   );
 }
 
@@ -208,8 +222,10 @@ export function ContactPanel({
             </span>
             <div className="panel-id-main">
               <strong>{detail.nome}</strong>
-              {detail.tipo ? (
-                <span className="panel-tipo">{tipoLabel(detail.tipo)}</span>
+              {detail.semInteresse || detail.tipo ? (
+                <span className={`panel-tipo${detail.semInteresse ? " csim" : ""}`}>
+                  {detail.semInteresse ? "Sem interesse" : tipoLabel(detail.tipo)}
+                </span>
               ) : null}
             </div>
           </div>
@@ -230,23 +246,41 @@ export function ContactPanel({
             </dl>
           </section>
 
-          <section className="panel-section">
-            <h4>Jornada G12</h4>
-            <dl>
-              <Row label="Etapa" value={detail.etapa ? ETAPA_LABEL[detail.etapa] ?? detail.etapa : null} />
-              <Row label="Subetapa" value={detail.subetapa} />
-              <Row label="Acompanhamento" value={detail.acompanhamento} />
-              <Row label="Presenças na célula" value={String(detail.presencasCelula)} />
-              <Row label="Aceitou Jesus" value={detail.aceitouJesus ? "Sim" : "Não"} />
-              <Row label="Célula" value={detail.celulaNome} />
-              <Row label="Líder" value={detail.liderNome} />
-            </dl>
-          </section>
+          {hasJornadaData(detail) ? (
+            <section className="panel-section">
+              <h4>Jornada G12</h4>
+              <dl>
+                <Row label="Etapa" value={detail.etapa ? ETAPA_LABEL[detail.etapa] ?? detail.etapa : null} />
+                <Row label="Subetapa" value={detail.subetapa} />
+                <Row label="Acompanhamento" value={detail.acompanhamento} />
+                <Row
+                  label="Presenças na célula"
+                  value={detail.presencasCelula > 0 ? String(detail.presencasCelula) : null}
+                />
+                <Row label="Aceitou Jesus" value={detail.aceitouJesus ? "Sim" : null} />
+                <Row label="Célula" value={detail.celulaNome} />
+                <Row label="Líder" value={detail.liderNome} />
+              </dl>
+            </section>
+          ) : null}
 
           <section className="panel-section">
             <h4>Cadastro</h4>
             <dl>
-              <Row label="Tipo" value={detail.tipo ? tipoLabel(detail.tipo) : null} />
+              <Row
+                label="Tipo"
+                value={
+                  detail.semInteresse
+                    ? "Sem interesse"
+                    : detail.tipo
+                      ? tipoLabel(detail.tipo)
+                      : null
+                }
+              />
+              <Row
+                label="Motivo (CSIM)"
+                value={detail.semInteresse ? detail.semInteresseMotivo : null}
+              />
               <Row
                 label="Gênero"
                 value={detail.genero ? GENERO_LABEL[detail.genero] ?? detail.genero : null}

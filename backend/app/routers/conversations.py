@@ -79,6 +79,8 @@ class ConversationOut(BaseModel):
     assumidoEm: str | None = None  # noqa: N815
     esperaDesde: str | None = None  # noqa: N815
     atualizadoEm: str | None = None  # noqa: N815 - hora da última atividade (lista)
+    tipo: str | None = None  # tipo da pessoa vinculada (marca discreta no chat)
+    semInteresse: bool = False  # noqa: N815 - CSIM da pessoa vinculada
 
     @classmethod
     def from_model(
@@ -86,6 +88,8 @@ class ConversationOut(BaseModel):
         c: Conversation,
         nome: str | None = None,
         assumido_por_nome: str | None = None,
+        tipo: str | None = None,
+        sem_interesse: bool = False,
     ) -> "ConversationOut":
         return cls(
             id=str(c.id),
@@ -100,6 +104,8 @@ class ConversationOut(BaseModel):
             assumidoEm=c.assumido_em.isoformat() if c.assumido_em else None,
             esperaDesde=c.espera_desde.isoformat() if c.espera_desde else None,
             atualizadoEm=c.updated_at.isoformat() if c.updated_at else None,
+            tipo=tipo,
+            semInteresse=bool(sem_interesse),
         )
 
 
@@ -220,7 +226,14 @@ def list_conversations(
         select(func.count()).select_from(Conversation)
     ).scalar_one()
     rows = db.execute(
-        select(Conversation, Pessoa.nome, holder.nome, holder.chat_nome)
+        select(
+            Conversation,
+            Pessoa.nome,
+            holder.nome,
+            holder.chat_nome,
+            Pessoa.tipo,
+            Pessoa.sem_interesse,
+        )
         # Nome do contato vinculado (humaniza a UI); LEFT JOIN preserva
         # conversas sem pessoa vinculada (nome fica None -> front usa telefone).
         .outerjoin(Pessoa, Pessoa.id == Conversation.pessoa_id)
@@ -238,9 +251,13 @@ def list_conversations(
     return Page[ConversationOut](
         items=[
             ConversationOut.from_model(
-                c, nome=nome, assumido_por_nome=(holder_chat or holder_nome)
+                c,
+                nome=nome,
+                assumido_por_nome=(holder_chat or holder_nome),
+                tipo=tipo,
+                sem_interesse=sem_interesse,
             )
-            for c, nome, holder_nome, holder_chat in rows
+            for c, nome, holder_nome, holder_chat, tipo, sem_interesse in rows
         ],
         page=pagination.page,
         pageSize=pagination.page_size,

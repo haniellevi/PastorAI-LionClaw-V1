@@ -28,6 +28,7 @@ import {
   estadoPill,
   maskPhone,
   messageStamp,
+  tipoMarker,
 } from "./conversation-format";
 
 interface ThreadCopy {
@@ -216,6 +217,7 @@ export function ConversationThread({
   const estado = effectiveEstado(conversation);
   const pill = estadoPill(estado);
   const copy = threadCopy(estado);
+  const marker = tipoMarker(conversation);
 
   const holder = conversation.assumidoPor;
   const isMine = estado === "humano" && holder === selfId;
@@ -363,6 +365,9 @@ export function ConversationThread({
         </span>
         <div className="who">
           <strong>{displayName(conversation)}</strong>
+          {marker ? (
+            <span className={`who-tipo${marker.csim ? " csim" : ""}`}>{marker.label}</span>
+          ) : null}
           <span className="mono">
             {conversation.nome
               ? maskPhone(conversation.telefone)

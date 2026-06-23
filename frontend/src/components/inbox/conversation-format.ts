@@ -48,6 +48,24 @@ export function displayName(c: Conversation): string {
   return nome ? nome : maskPhone(c.telefone);
 }
 
+const TIPO_SHORT: Record<string, string> = {
+  visitante: "Visitante",
+  discipulo: "Discípulo",
+  membro: "Membro",
+  lider: "Líder",
+  pastor: "Pastor",
+};
+
+/**
+ * Marca discreta de tipo exibida ao lado do nome no chat. CSIM tem prioridade
+ * ("Sem interesse"); sem cadastro/tipo retorna null (não mostra nada).
+ */
+export function tipoMarker(c: Conversation): { label: string; csim: boolean } | null {
+  if (c.semInteresse) return { label: "Sem interesse", csim: true };
+  if (!c.tipo) return null;
+  return { label: TIPO_SHORT[c.tipo] ?? c.tipo, csim: false };
+}
+
 /** Iniciais do nome para o avatar; sem nome, usa os dígitos do telefone. */
 export function contactAvatar(c: Conversation): string {
   const nome = c.nome?.trim();
