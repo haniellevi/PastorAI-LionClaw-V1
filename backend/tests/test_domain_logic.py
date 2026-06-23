@@ -94,6 +94,20 @@ def test_visitante_can_move_within_ganhar() -> None:
     assert result.allowed is True
 
 
+def test_contato_cannot_be_promoted_without_criteria() -> None:
+    # "contato" é estado de entrada: também não sai de "ganhar" sem F2.
+    result = validate_transition(
+        current_tipo="contato",
+        current_etapa="ganhar",
+        target_etapa="consolidar",
+        target_subetapa=None,
+        presencas_celula=0,
+        aceitou_jesus=False,
+    )
+    assert result.allowed is False
+    assert result.reason is not None
+
+
 def test_invalid_etapa_rejected() -> None:
     result = validate_transition(
         current_tipo="membro",

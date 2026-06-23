@@ -24,6 +24,9 @@ VALID_SUBETAPAS: frozenset[str] = frozenset(
 )
 
 VISITANTE_TIPO = "visitante"
+CONTATO_TIPO = "contato"
+# Estados de entrada (etapa "ganhar"): só saem de "ganhar" com os critérios F2.
+ENTRY_TIPOS: frozenset[str] = frozenset({CONTATO_TIPO, VISITANTE_TIPO})
 
 
 @dataclass(frozen=True)
@@ -59,9 +62,9 @@ def validate_transition(
 
     Rules:
       - target_etapa must be a known stage; target_subetapa (when given) too.
-      - A visitante may only be promoted beyond "ganhar" once the F2 criteria
-        are satisfied (presencas_celula >= 3 OR aceitou_jesus). Moving within
-        or back to "ganhar" is always allowed.
+      - A contato/visitante may only be promoted beyond "ganhar" once the F2
+        criteria are satisfied (presencas_celula >= 3 OR aceitou_jesus). Moving
+        within or back to "ganhar" is always allowed.
     """
     if target_etapa not in VALID_ETAPAS:
         return TransitionResult(False, f"Etapa inválida: {target_etapa}")
@@ -70,14 +73,14 @@ def validate_transition(
 
     is_promotion = etapa_rank(target_etapa) > etapa_rank(current_etapa)
     if (
-        current_tipo == VISITANTE_TIPO
+        current_tipo in ENTRY_TIPOS
         and is_promotion
         and etapa_rank(target_etapa) > etapa_rank("ganhar")
     ):
         if not meets_promotion_criteria(presencas_celula, aceitou_jesus):
             return TransitionResult(
                 False,
-                "Visitante só pode ser promovido com 3+ presenças em célula "
-                "ou decisão registrada",
+                "Contato ou visitante só pode ser promovido com 3+ presenças "
+                "em célula ou decisão registrada",
             )
     return TransitionResult(True)

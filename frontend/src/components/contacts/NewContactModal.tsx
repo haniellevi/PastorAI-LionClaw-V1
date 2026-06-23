@@ -24,7 +24,7 @@ export function NewContactModal({ busy, error, onClose, onSubmit }: NewContactMo
   const [telefone, setTelefone] = useState("");
   const [email, setEmail] = useState("");
   const [genero, setGenero] = useState<"" | "m" | "f">("");
-  const [tipo, setTipo] = useState("visitante");
+  const [tipo, setTipo] = useState("contato");
   const [touched, setTouched] = useState(false);
 
   const nomeError = touched && !nome.trim() ? "Informe o nome." : undefined;
@@ -113,6 +113,7 @@ export function NewContactModal({ busy, error, onClose, onSubmit }: NewContactMo
             <div className="field">
               <label htmlFor="nc-tipo">Tipo</label>
               <select id="nc-tipo" value={tipo} onChange={(e) => setTipo(e.target.value)}>
+                <option value="contato">Contato</option>
                 <option value="visitante">Visitante</option>
                 <option value="membro">Membro</option>
                 <option value="discipulo">Discípulo</option>

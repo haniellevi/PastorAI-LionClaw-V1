@@ -22,7 +22,7 @@ SEGMENT_ALL = "todos"
 
 # Recognized segment tokens beyond "todos"; matched against pessoa.tipo.
 KNOWN_TIPO_SEGMENTS: frozenset[str] = frozenset(
-    {"visitante", "membro", "lider", "pastor", "discipulo"}
+    {"contato", "visitante", "membro", "lider", "pastor", "discipulo"}
 )
 
 
