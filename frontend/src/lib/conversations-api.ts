@@ -6,9 +6,10 @@
  *   GET  /conversations                    -> Page<ConversationOut>
  *   POST /conversations/{id}/handoff {to}  -> { estado, assumidoPor }
  *
- * Acesso (US-11): o inbox é restrito a papéis privilegiados — admin (implícito),
- * pastor e lider_g12. Líderes de célula recebem 403 no backend; no front o gate
- * de papel evita a chamada e exibe o bloqueio de acesso.
+ * Acesso (US-11/#5): admin (implícito) e pastor têm visão COMPLETA; líder
+ * G12/consolidação/célula e operador são "responsáveis" (acessam, mas veem só as
+ * conversas atribuídas a eles). Membro nunca acessa: recebe 403 no backend e o
+ * gate de papel no front evita a chamada e exibe o bloqueio de acesso.
  *
  * Concorrência no handoff (US-12): se outro humano já assumiu, a API responde
  * 409 carregando o `assumidoPor` real para a UI refletir quem detém a conversa.
@@ -68,11 +69,18 @@ export interface HandoffResult {
 }
 
 /**
- * Papéis privilegiados do inbox (US-11). Espelha INBOX_ROLES do backend
- * (app/domain/conversations.py): admin passa implicitamente; pastor, lider_g12
- * e operador têm acesso. Líder de célula/membro nunca acessam.
+ * Papéis com acesso ao inbox (US-11/#5). Espelha INBOX_ROLES do backend
+ * (app/domain/conversations.py): admin passa implicitamente; pastor tem visão
+ * completa; líder G12/consolidação/célula e operador são "responsáveis" (veem
+ * só as conversas transferidas a eles). Membro nunca acessa.
  */
-const INBOX_ROLES: ReadonlySet<Role> = new Set<Role>(["pastor", "lider_g12", "operador"]);
+const INBOX_ROLES: ReadonlySet<Role> = new Set<Role>([
+  "pastor",
+  "lider_g12",
+  "lider_consol",
+  "lider_celula",
+  "operador",
+]);
 
 /** True se o conjunto de papéis acumulados pode abrir o inbox (US-11). */
 export function canAccessInbox(roles: readonly Role[]): boolean {

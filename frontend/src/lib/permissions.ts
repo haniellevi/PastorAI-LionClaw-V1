@@ -68,8 +68,8 @@ export const DEFAULT_PERMISSIONS: Record<Exclude<Role, "admin">, readonly string
     "universidade-vida", "calendario", "comunicados", "contatos",
   ],
   lider_celula: [
-    "dashboard", "ganhar", "central-celula", "capacitacao", "calendario",
-    "celulas", "relatorios",
+    "dashboard", "inbox", "ganhar", "central-celula", "capacitacao",
+    "calendario", "celulas", "relatorios",
   ],
   lider_mult: [
     "dashboard", "g12", "central-celula", "enviar", "calendario", "celulas",

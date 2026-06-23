@@ -41,8 +41,8 @@ DEFAULT_PERMISSIONS: dict[str, frozenset[str]] = {
     ),
     "lider_celula": frozenset(
         {
-            "dashboard", "ganhar", "central-celula", "capacitacao", "calendario",
-            "celulas", "relatorios",
+            "dashboard", "inbox", "ganhar", "central-celula", "capacitacao",
+            "calendario", "celulas", "relatorios",
         }
     ),
     "lider_mult": frozenset(

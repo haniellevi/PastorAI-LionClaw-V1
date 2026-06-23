@@ -48,13 +48,14 @@ def test_whatsapp_connection_requires_auth(app) -> None:
 
 
 # ---- inbox RBAC (US-11) ---------------------------------------------------
-def test_cell_leader_forbidden_on_conversations(app) -> None:
-    client = _client(app, roles=["lider_celula"])
+def test_member_forbidden_on_conversations(app) -> None:
+    # Papel sem inbox (membro). lider_celula passou a ter acesso restrito (#5).
+    client = _client(app, roles=["membro"])
     assert client.get("/conversations", headers=_AUTH).status_code == 403
 
 
-def test_cell_leader_forbidden_on_handoff(app) -> None:
-    client = _client(app, roles=["lider_celula"])
+def test_member_forbidden_on_handoff(app) -> None:
+    client = _client(app, roles=["membro"])
     resp = client.post(
         "/conversations/00000000-0000-0000-0000-0000000000aa/handoff",
         json={"to": "human"},
@@ -78,8 +79,8 @@ def test_messages_history_requires_auth(app) -> None:
     assert client.get(_CONV_MSGS).status_code == 401
 
 
-def test_cell_leader_forbidden_on_messages_history(app) -> None:
-    client = _client(app, roles=["lider_celula"])
+def test_member_forbidden_on_messages_history(app) -> None:
+    client = _client(app, roles=["membro"])
     assert client.get(_CONV_MSGS, headers=_AUTH).status_code == 403
 
 
@@ -88,8 +89,8 @@ def test_send_message_requires_auth(app) -> None:
     assert client.post(_CONV_MSGS, json={"texto": "oi"}).status_code == 401
 
 
-def test_cell_leader_forbidden_on_send_message(app) -> None:
-    client = _client(app, roles=["lider_celula"])
+def test_member_forbidden_on_send_message(app) -> None:
+    client = _client(app, roles=["membro"])
     resp = client.post(_CONV_MSGS, json={"texto": "oi"}, headers=_AUTH)
     assert resp.status_code == 403
 
@@ -110,8 +111,8 @@ def test_send_media_requires_auth(app) -> None:
     assert resp.status_code == 401
 
 
-def test_cell_leader_forbidden_on_send_media(app) -> None:
-    client = _client(app, roles=["lider_celula"])
+def test_member_forbidden_on_send_media(app) -> None:
+    client = _client(app, roles=["membro"])
     resp = client.post(
         _CONV_MEDIA, json={"mime": "image/png", "base64": "Zm9v"}, headers=_AUTH
     )
@@ -271,7 +272,8 @@ class _DelResult:
 
     def all(self):
         # require_screen("inbox") consulta role_permissions; matriz vazia → cai
-        # nos defaults (pastor/operador/lider_g12 têm inbox; lider_celula não).
+        # nos defaults (pastor/operador/lider_g12/lider_consol/lider_celula têm
+        # inbox; membro não).
         return []
 
 
@@ -340,8 +342,8 @@ def test_mark_read_requires_auth(app) -> None:
     assert client.post(_CONV_READ).status_code == 401
 
 
-def test_cell_leader_forbidden_on_mark_read(app) -> None:
-    client = _client(app, roles=["lider_celula"])
+def test_member_forbidden_on_mark_read(app) -> None:
+    client = _client(app, roles=["membro"])
     assert client.post(_CONV_READ, headers=_AUTH).status_code == 403
 
 
@@ -353,6 +355,20 @@ def test_mark_read_zeroes_unread(app) -> None:
     assert resp.status_code == 204
     assert conv.nao_lidas == 0
     assert session.committed is True
+
+
+def test_responsavel_cannot_mark_read_others_conversation(app) -> None:
+    # #5: responsável (visão restrita) recebe 404 numa conversa que não é dele.
+    conv = SimpleNamespace(
+        id="00000000-0000-0000-0000-0000000000aa",
+        nao_lidas=5,
+        assumido_por="00000000-0000-0000-0000-0000000000c9",  # outro usuário
+    )
+    session = DeleteConvSession(app_user=make_app_user(), roles=["lider_g12"], conv=conv)
+    client = _del_client(app, session)
+    resp = client.post(_CONV_READ, headers=_AUTH)
+    assert resp.status_code == 404
+    assert conv.nao_lidas == 5  # não zerou
 
 
 # ---- transferir conversa (reatribuir o atendimento) -----------------------
@@ -420,8 +436,8 @@ def test_transfer_requires_auth(app) -> None:
     assert client.post(_CONV_TRANSFER, json={"toUserId": _TARGET_ID}).status_code == 401
 
 
-def test_cell_leader_forbidden_on_transfer(app) -> None:
-    client = _client(app, roles=["lider_celula"])
+def test_member_forbidden_on_transfer(app) -> None:
+    client = _client(app, roles=["membro"])
     resp = client.post(_CONV_TRANSFER, json={"toUserId": _TARGET_ID}, headers=_AUTH)
     assert resp.status_code == 403
 
@@ -465,11 +481,41 @@ def test_transfer_rejects_target_without_inbox_access(app) -> None:
         roles=["admin"],  # admin pula a trava de detentor
         conv=_held_conv(estado="ia", holder=None),
         target=target,
-        target_roles=["lider_celula"],  # sem acesso ao inbox
+        target_roles=["membro"],  # sem acesso ao inbox
     )
     client = _del_client(app, session)
     resp = client.post(_CONV_TRANSFER, json={"toUserId": _TARGET_ID}, headers=_AUTH)
     assert resp.status_code == 422
+
+
+def test_transfer_to_cell_leader_succeeds(app) -> None:
+    # #5: líder de célula passou a ser destino válido (responsável, visão restrita).
+    target = SimpleNamespace(id=_TARGET_ID, nome="Líder Célula", chat_nome=None)
+    session = TransferSession(
+        app_user=make_app_user(),
+        roles=["admin"],
+        conv=_held_conv(estado="ia", holder=None),
+        target=target,
+        target_roles=["lider_celula"],
+    )
+    client = _del_client(app, session)
+    resp = client.post(_CONV_TRANSFER, json={"toUserId": _TARGET_ID}, headers=_AUTH)
+    assert resp.status_code == 200
+    assert resp.json()["assumidoPor"] == _TARGET_ID
+
+
+def test_responsavel_cannot_transfer_others_conversation(app) -> None:
+    # #5: responsável (visão restrita) recebe 404 ao mexer numa conversa alheia.
+    session = TransferSession(
+        app_user=make_app_user(),
+        roles=["lider_g12"],
+        conv=_held_conv(estado="humano", holder=_TARGET_ID),  # de outra pessoa
+        target=None,
+        target_roles=[],
+    )
+    client = _del_client(app, session)
+    resp = client.post(_CONV_TRANSFER, json={"toUserId": _TARGET_ID}, headers=_AUTH)
+    assert resp.status_code == 404
 
 
 def test_transfer_target_not_found(app) -> None:
@@ -530,8 +576,8 @@ def test_photo_requires_auth(app) -> None:
     assert client.get(_CONV_PHOTO).status_code == 401
 
 
-def test_cell_leader_forbidden_on_photo(app) -> None:
-    client = _client(app, roles=["lider_celula"])
+def test_member_forbidden_on_photo(app) -> None:
+    client = _client(app, roles=["membro"])
     assert client.get(_CONV_PHOTO, headers=_AUTH).status_code == 403
 
 

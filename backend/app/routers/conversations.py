@@ -41,6 +41,7 @@ from app.db.session import get_db
 from app.deps import CurrentUser, require_role, require_screen
 from app.domain.conversations import (
     can_access_inbox,
+    has_full_inbox,
     media_snippet,
     resolve_handoff,
 )
@@ -218,14 +219,25 @@ def list_conversations(
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(require_screen("inbox")),
 ) -> Page[ConversationOut]:
-    """List tenant conversations (estado, última mensagem, não lidas, fila)."""
+    """List tenant conversations (estado, última mensagem, não lidas, fila).
+
+    Visibilidade (#5): admin/pastor veem TODAS as conversas do tenant; os demais
+    papéis com acesso ("responsáveis") veem só as atribuídas a si (assumido_por).
+    """
     ensure_tenant_context(db, current_user)
 
+    # Filtro de visibilidade: responsável só enxerga as suas (assumido_por = ele).
+    restrict = None
+    if not has_full_inbox(current_user.roles):
+        restrict = Conversation.assumido_por == uuid.UUID(current_user.app_user_id)
+
     holder = aliased(AppUser)
-    total = db.execute(
-        select(func.count()).select_from(Conversation)
-    ).scalar_one()
-    rows = db.execute(
+    count_q = select(func.count()).select_from(Conversation)
+    if restrict is not None:
+        count_q = count_q.where(restrict)
+    total = db.execute(count_q).scalar_one()
+
+    rows_q = (
         select(
             Conversation,
             Pessoa.nome,
@@ -239,6 +251,11 @@ def list_conversations(
         .outerjoin(Pessoa, Pessoa.id == Conversation.pessoa_id)
         # Nome de quem assumiu (humano), p/ exibir "em atendimento por X".
         .outerjoin(holder, holder.id == Conversation.assumido_por)
+    )
+    if restrict is not None:
+        rows_q = rows_q.where(restrict)
+    rows = db.execute(
+        rows_q
         # Human-queue first (espera_desde set), then most recently updated.
         .order_by(
             Conversation.espera_desde.asc().nulls_last(),
@@ -277,6 +294,7 @@ def handoff(
 
     target = resolve_handoff(payload.to)
     conv = _get_conversation_for_update(db, conversation_id)
+    _authorize_conversation_view(conv, current_user)
 
     current_holder = str(conv.assumido_por) if conv.assumido_por else None
 
@@ -317,6 +335,7 @@ def mark_read(
     """Zera o contador de não lidas quando o atendente abre a conversa (US-13)."""
     ensure_tenant_context(db, current_user)
     conv = _get_conversation(db, conversation_id)
+    _authorize_conversation_view(conv, current_user)
     if conv.nao_lidas:
         conv.nao_lidas = 0
         db.commit()
@@ -333,16 +352,20 @@ def transfer_conversation(
     """Transferir o atendimento humano para outro membro com acesso ao inbox.
 
     Quem pode transferir: o **admin** (qualquer conversa) ou o **detentor atual**
-    de uma conversa já sob controle humano. O destino precisa ser um usuário do
-    tenant com acesso ao inbox (admin/pastor/lider_g12/operador) — caso contrário
-    422. A conversa passa ao controle humano do destino (sai da fila de espera).
+    de uma conversa já sob controle humano (o responsável, visão restrita, só vê
+    e só transfere as suas — garantido por _authorize_conversation_view). O
+    destino precisa ser usuário do tenant com acesso ao inbox (admin/pastor/líder
+    G12/consolidação/célula/operador) — caso contrário 422. A conversa passa ao
+    controle humano do destino (sai da fila de espera).
     """
     ensure_tenant_context(db, current_user)
     conv = _get_conversation_for_update(db, conversation_id)
+    _authorize_conversation_view(conv, current_user)
 
     holder = str(conv.assumido_por) if conv.assumido_por else None
     if not current_user.has_role("admin"):
-        # Não-admin só transfere o que ele mesmo está atendendo.
+        # Não-admin só transfere o que ele mesmo está atendendo (o responsável já
+        # foi barrado por _authorize_conversation_view se não for dele).
         if conv.estado != "humano" or holder != current_user.app_user_id:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -395,6 +418,7 @@ def conversation_photo(
     """
     ensure_tenant_context(db, current_user)
     conv = _get_conversation(db, conversation_id)
+    _authorize_conversation_view(conv, current_user)
 
     conn = db.execute(
         select(WhatsappConnection).where(
@@ -427,6 +451,7 @@ def list_messages(
     """
     ensure_tenant_context(db, current_user)
     conv = _get_conversation(db, conversation_id)
+    _authorize_conversation_view(conv, current_user)
 
     total = db.execute(
         select(func.count())
@@ -474,6 +499,7 @@ def send_message(
     """
     ensure_tenant_context(db, current_user)
     conv = _get_conversation_for_update(db, conversation_id)
+    _authorize_conversation_view(conv, current_user)
 
     # Composer gate: must hold the conversation under human control (mirrors the
     # inbox UI, which only enables the composer for the holder).
@@ -545,6 +571,7 @@ def send_media_message(
     """
     ensure_tenant_context(db, current_user)
     conv = _get_conversation_for_update(db, conversation_id)
+    _authorize_conversation_view(conv, current_user)
 
     # Composer gate: mirror send_message (must hold the conversation).
     holder = str(conv.assumido_por) if conv.assumido_por else None
@@ -713,6 +740,22 @@ def _get_conversation_for_update(db: Session, conversation_id: str) -> Conversat
             status_code=status.HTTP_404_NOT_FOUND, detail="Conversa não encontrada"
         )
     return conv
+
+
+def _authorize_conversation_view(conv: Conversation, current_user: CurrentUser) -> None:
+    """Visão restrita (#5): o "responsável" só acessa as conversas atribuídas a
+    ele; admin/pastor (visão completa) acessam qualquer conversa do tenant.
+
+    Retorna 404 (não 403) para um responsável que tenta uma conversa que não é
+    sua — não confirma a existência da conversa para quem não deveria vê-la.
+    """
+    if has_full_inbox(current_user.roles):
+        return
+    holder = str(conv.assumido_por) if conv.assumido_por else None
+    if holder != current_user.app_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Conversa não encontrada"
+        )
 
 
 def _conflict(conv: Conversation) -> HTTPException:
