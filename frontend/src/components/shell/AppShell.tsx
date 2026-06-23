@@ -24,6 +24,9 @@ const LOCKED_SCREENS = new Set(["universidade-vida", "capacitacao"]);
  *  próprio perfil — todo mundo edita os próprios dados). */
 const ALWAYS_ALLOWED = new Set(["perfil"]);
 
+/** Telas restritas ao DONO (admin principal) da igreja — admin não basta (#4). */
+const OWNER_ONLY = new Set(["assinatura"]);
+
 export function AppShell() {
   const { user, logout } = useAuth();
   const { matrix } = usePermissions();
@@ -38,7 +41,11 @@ export function AppShell() {
 
   // Resolve a rota: a base precisa existir, ser permitida e não estar bloqueada.
   const known = base in SCREEN_META;
-  const permitted = ALWAYS_ALLOWED.has(base) || (user ? canSee(base, user.roles, matrix) : false);
+  // #4: telas OWNER_ONLY exigem ser o dono (admin não basta).
+  const ownerOk = !OWNER_ONLY.has(base) || (user?.isOwner ?? false);
+  const permitted =
+    ownerOk &&
+    (ALWAYS_ALLOWED.has(base) || (user ? canSee(base, user.roles, matrix) : false));
   const allowed = known && permitted && !LOCKED_SCREENS.has(base);
   const resolvedBase = allowed ? base : "dashboard";
   const resolvedRoute = allowed ? route : "dashboard";

@@ -53,6 +53,13 @@ class Igreja(Base):
         String, nullable=False, server_default=text("'ativa'")
     )
     plano: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # #4: dono (admin principal) — único admin que enxerga/gerencia a Assinatura.
+    # FK -> app_users (definido adiante); SET NULL no delete. NULL = sem dono.
+    dono_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("app_users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
@@ -148,7 +155,11 @@ class AppUser(Base):
     roles: Mapped[list["UserRole"]] = relationship(
         back_populates="user", cascade="all, delete-orphan", lazy="selectin"
     )
-    igreja: Mapped["Igreja"] = relationship(lazy="joined")
+    # foreign_keys explícito: igrejas.dono_id (#4) cria um 2º caminho de FK entre
+    # app_users e igrejas; sem isto o relationship fica ambíguo.
+    igreja: Mapped["Igreja"] = relationship(
+        lazy="joined", foreign_keys="AppUser.igreja_id"
+    )
 
 
 class UserRole(Base):

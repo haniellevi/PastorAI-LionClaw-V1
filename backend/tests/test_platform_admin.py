@@ -397,6 +397,51 @@ def test_admin_patch_updates_status(app) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Dono (admin principal) — PUT /admin/igrejas/{id}/dono (#4)
+# ---------------------------------------------------------------------------
+def test_admin_set_dono_succeeds(app) -> None:
+    igreja = SimpleNamespace(
+        id="00000000-0000-0000-0000-000000000009", nome="Igreja X", dono_id=None
+    )
+    db = PlatformDB(
+        gate_app_user=make_app_user(),  # serve o gate e o alvo (.id = a1)
+        admin_marker="pa1",
+        igreja_scalar=igreja,
+        user_role=SimpleNamespace(id="r1"),  # alvo TEM papel admin
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.put(
+        "/admin/igrejas/00000000-0000-0000-0000-000000000009/dono",
+        headers=_AUTH,
+        json={"appUserId": "00000000-0000-0000-0000-0000000000a1"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["donoId"] == "00000000-0000-0000-0000-0000000000a1"
+    assert str(igreja.dono_id) == "00000000-0000-0000-0000-0000000000a1"
+    assert db.committed is True
+
+
+def test_admin_set_dono_rejects_non_admin_target(app) -> None:
+    igreja = SimpleNamespace(
+        id="00000000-0000-0000-0000-000000000009", nome="Igreja X", dono_id=None
+    )
+    db = PlatformDB(
+        gate_app_user=make_app_user(),
+        admin_marker="pa1",
+        igreja_scalar=igreja,
+        user_role=None,  # alvo NÃO é admin da igreja
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.put(
+        "/admin/igrejas/00000000-0000-0000-0000-000000000009/dono",
+        headers=_AUTH,
+        json={"appUserId": "00000000-0000-0000-0000-0000000000a1"},
+    )
+    assert resp.status_code == 422
+    assert igreja.dono_id is None
+
+
+# ---------------------------------------------------------------------------
 # POST /admin/login (login dedicado do console, isento do billing gate)
 # ---------------------------------------------------------------------------
 def test_admin_login_returns_token_for_master(app) -> None:
@@ -810,7 +855,10 @@ def test_admin_delete_igreja_writes_audit(app) -> None:
 # Agente de IA da igreja — configurado pelo master (cross-tenant)
 # ---------------------------------------------------------------------------
 def _igreja_ns(**over):
-    base = dict(id="ig-1", nome="Igreja X", status="ativa", plano=None, created_at=None)
+    base = dict(
+        id="ig-1", nome="Igreja X", status="ativa", plano=None, created_at=None,
+        dono_id=None,
+    )
     base.update(over)
     return SimpleNamespace(**base)
 
@@ -1026,6 +1074,26 @@ def test_admin_removes_igreja_admin(app) -> None:
     assert any(
         isinstance(o, PlatformAuditLog) and o.acao == "admin_remover" for o in db.added
     )
+
+
+def test_admin_removing_dono_clears_dono_id(app) -> None:
+    # #4: remover o admin que É o dono limpa dono_id -> igreja sem dono (o master
+    # reatribui antes que alguém volte a ver a Assinatura).
+    u = make_app_user()  # id == ...0000a1
+    role = SimpleNamespace(id="r1", papel="admin")
+    igreja = _igreja_ns(dono_id="00000000-0000-0000-0000-0000000000a1")
+    db = PlatformDB(
+        gate_app_user=u,
+        admin_marker="pa1",
+        igreja_scalar=igreja,
+        count_value=2,  # não é o último admin -> passa da trava
+        user_role=role,
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.delete(f"/admin/igrejas/{_IG_ID}/admins/{u.id}", headers=_AUTH)
+    assert resp.status_code == 204
+    assert igreja.dono_id is None
+    assert role in db.deleted
 
 
 def test_admin_remove_blocks_last_admin(app) -> None:

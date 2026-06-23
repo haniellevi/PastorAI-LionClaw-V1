@@ -420,6 +420,7 @@ def create_igreja(
     db.flush()  # assign app_user.id
 
     db.add(UserRole(igreja_id=igreja.id, user_id=app_user.id, papel="admin"))
+    igreja.dono_id = app_user.id  # #4: o primeiro admin é o dono (gerencia a Assinatura)
     _audit(
         db, admin, "provisionar", "igreja", igreja.id, igreja.nome,
         {"plano": payload.plano, "adminEmail": email},
@@ -1046,6 +1047,7 @@ class IgrejaAdminOut(BaseModel):
     nome: str
     email: str
     status: str | None = None  # convidado | ativo
+    isDono: bool = False  # noqa: N815 - dono (admin principal) da igreja (#4)
 
 
 @router.get("/igrejas/{igreja_id}/admins", response_model=list[IgrejaAdminOut])
@@ -1059,7 +1061,7 @@ def list_igreja_admins(
     O master usa isto para ver/saber quem é o dono que vai terminar de configurar
     a igreja. Cross-tenant (BYPASSRLS).
     """
-    _get_igreja_or_404(db, igreja_id)
+    igreja = _get_igreja_or_404(db, igreja_id)
     ig_uuid = uuid.UUID(igreja_id)
     rows = db.execute(
         select(AppUser)
@@ -1067,8 +1069,15 @@ def list_igreja_admins(
         .where(UserRole.igreja_id == ig_uuid, UserRole.papel == "admin")
         .order_by(AppUser.created_at)
     ).scalars().all()
+    dono_id = igreja.dono_id
     return [
-        IgrejaAdminOut(id=str(u.id), nome=u.nome, email=u.email, status=u.status)
+        IgrejaAdminOut(
+            id=str(u.id),
+            nome=u.nome,
+            email=u.email,
+            status=u.status,
+            isDono=(dono_id is not None and u.id == dono_id),
+        )
         for u in rows
     ]
 
@@ -1241,6 +1250,11 @@ def remove_igreja_admin(
         )
 
     user = _get_admin_user_or_404(db, ig_uuid, user_id)
+    # #4: se removeu o DONO, a igreja fica sem dono (o master precisa reatribuir);
+    # evita um dono_id apontando para quem não é mais admin.
+    dono_limpo = igreja.dono_id == user.id
+    if dono_limpo:
+        igreja.dono_id = None
     role = db.execute(
         select(UserRole).where(
             UserRole.user_id == user.id,
@@ -1252,9 +1266,56 @@ def remove_igreja_admin(
         db.delete(role)
     _audit(
         db, admin, "admin_remover", "igreja", ig_uuid, igreja.nome,
-        {"email": user.email},
+        {"email": user.email, "donoLimpo": dono_limpo},
     )
     db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Dono (admin principal) da igreja — gating da Assinatura (#4)
+# ---------------------------------------------------------------------------
+class SetDonoRequest(BaseModel):
+    appUserId: str  # noqa: N815
+
+
+class DonoResponse(BaseModel):
+    donoId: str  # noqa: N815
+
+
+@router.put("/igrejas/{igreja_id}/dono", response_model=DonoResponse)
+def set_igreja_dono(
+    igreja_id: str,
+    payload: SetDonoRequest,
+    db: Session = Depends(get_db),
+    admin: PlatformAdminUser = Depends(get_platform_admin),
+) -> DonoResponse:
+    """Reatribui o DONO (admin principal) da igreja — só o master (#4).
+
+    O dono precisa ser um administrador (papel admin) da própria igreja: 422 caso
+    contrário. 404 se a igreja ou o usuário não existirem. Cross-tenant (BYPASSRLS).
+    """
+    igreja = _get_igreja_or_404(db, igreja_id)
+    ig_uuid = uuid.UUID(igreja_id)
+    user = _get_admin_user_or_404(db, ig_uuid, payload.appUserId)
+    is_admin = db.execute(
+        select(UserRole).where(
+            UserRole.user_id == user.id,
+            UserRole.igreja_id == ig_uuid,
+            UserRole.papel == "admin",
+        )
+    ).scalar_one_or_none()
+    if is_admin is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="O dono precisa ser um administrador da igreja.",
+        )
+    igreja.dono_id = user.id
+    _audit(
+        db, admin, "dono_set", "igreja", ig_uuid, igreja.nome,
+        {"appUserId": str(user.id), "email": user.email},
+    )
+    db.commit()
+    return DonoResponse(donoId=str(user.id))
 
 
 # ---------------------------------------------------------------------------

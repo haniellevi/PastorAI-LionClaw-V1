@@ -142,10 +142,18 @@ def make_app_user(
     nome: str = "Pastor Piloto",
     status: str = "ativo",
     chat_nome: str | None = None,
+    dono_id: str | None = "00000000-0000-0000-0000-0000000000a1",
 ):
-    """Build an app_user stand-in compatible with the deps/router access."""
+    """Build an app_user stand-in compatible with the deps/router access.
+
+    Por padrão o usuário É o dono da igreja (dono_id == seu id, #4), para que os
+    testes de telas admin que viraram owner-gated (Assinatura) sigam passando.
+    Passe ``dono_id=None`` (ou outro id) para simular um admin que NÃO é o dono.
+    """
     igreja = SimpleNamespace(
-        id="00000000-0000-0000-0000-000000000001", status=igreja_status
+        id="00000000-0000-0000-0000-000000000001",
+        status=igreja_status,
+        dono_id=dono_id,
     )
     return SimpleNamespace(
         id="00000000-0000-0000-0000-0000000000a1",

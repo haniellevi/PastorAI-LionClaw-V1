@@ -22,7 +22,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.db.models import AppUser, Celula, Pessoa, UserRole
+from app.db.models import AppUser, Celula, Igreja, Pessoa, UserRole
 from app.db.session import get_db
 from app.deps import (
     ADMIN_ROLE,
@@ -534,6 +534,13 @@ def update_roles(
             db.add(
                 UserRole(igreja_id=igreja_uuid, user_id=user_uuid, papel=role)
             )
+
+    # #4: se o DONO perdeu o papel admin, a igreja fica sem dono — um dono_id
+    # velho daria acesso à Assinatura a quem não é mais admin. O master reatribui.
+    if ADMIN_ROLE not in new_roles:
+        igreja = db.get(Igreja, igreja_uuid)
+        if igreja is not None and igreja.dono_id == user_uuid:
+            igreja.dono_id = None
 
     db.commit()
 
