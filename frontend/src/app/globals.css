@@ -1245,6 +1245,60 @@ input[type="checkbox"] {
 }
 
 /* grid assimétrico do dashboard */
+/* ---------- VISÃO GERAL (#2 — totais por tipo/etapa + KPIs) ---------- */
+.overview {
+  margin-bottom: var(--s5);
+}
+.ov-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: var(--s3);
+}
+.ov-scope {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--faint);
+}
+.overview-breakdown {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s4);
+  margin-top: var(--s4);
+}
+.ov-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: var(--s3);
+}
+.ov-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+}
+.ov-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 12.5px;
+}
+.ov-pill-label {
+  color: var(--muted);
+}
+.ov-pill-val {
+  font-weight: 600;
+}
+@media (max-width: 720px) {
+  .overview-breakdown {
+    grid-template-columns: 1fr;
+  }
+}
+
 .dash-grid {
   display: grid;
   grid-template-columns: 1.55fr 1fr;

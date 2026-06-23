@@ -23,6 +23,7 @@ import {
   ApiError,
   StaleItemError,
   fetchCells,
+  fetchOverview,
   fetchTeamLookup,
   fetchWorkQueue,
   linkCell,
@@ -30,6 +31,7 @@ import {
   queueFonovisita,
   sendInternalMessage,
   type Cell,
+  type OverviewStats,
   type TeamMember,
   type WorkItem,
 } from "@/lib/dashboard-api";
@@ -38,6 +40,7 @@ import { Icon } from "@/lib/icons";
 import { isLeader } from "@/lib/roles";
 
 import { NextActions } from "./NextActions";
+import { OverviewSection } from "./OverviewSection";
 import { StatCard, type StatCardData } from "./StatCard";
 import { WorkQueueItem } from "./WorkQueueItem";
 
@@ -63,6 +66,7 @@ export function DashboardScreen() {
   const [items, setItems] = useState<WorkItem[]>([]);
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [cells, setCells] = useState<Cell[]>([]);
+  const [overview, setOverview] = useState<OverviewStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -99,14 +103,17 @@ export function DashboardScreen() {
       if (mode === "initial") setLoading(true);
       setError(null);
       try {
-        const [queue, team, cellPage] = await Promise.all([
+        const [queue, team, cellPage, ov] = await Promise.all([
           fetchWorkQueue(token),
           fetchTeamLookup(token),
           fetchCells(token),
+          // Visão geral (#2) é aditiva: uma falha não derruba a fila.
+          fetchOverview(token).catch(() => null),
         ]);
         setItems(queue.items);
         setMembers(team.items);
         setCells(cellPage.items);
+        setOverview(ov);
         setLoaded(true);
       } catch (err) {
         if (handleSessionError(err)) return;
@@ -405,6 +412,8 @@ export function DashboardScreen() {
           </button>
         </div>
       ) : null}
+
+      {overview ? <OverviewSection stats={overview} /> : null}
 
       <div className="stat-grid">
         {showSkeleton
