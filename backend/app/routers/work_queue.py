@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 from app.db.models import Conversation, Message, Pessoa, WorkQueueItem
 from app.db.session import get_db
 from app.deps import CurrentUser, get_current_user
+from app.domain.conversations import has_full_inbox
 from app.domain.work_queue import (
     can_resolve,
     format_internal_message,
@@ -249,6 +250,20 @@ def send_internal_message(
     conversation = db.execute(
         select(Conversation).where(Conversation.pessoa_id == pessoa.id).limit(1)
     ).scalar_one_or_none()
+
+    # Visão restrita (#5): o "responsável" (sem visão completa) só anota em uma
+    # conversa JÁ atribuída a ele — e não cria conversa nova. admin/pastor (visão
+    # completa) seguem livres (a fila é o mecanismo de atribuição de trabalho).
+    if not has_full_inbox(current_user.roles):
+        holder = (
+            str(conversation.assumido_por)
+            if conversation and conversation.assumido_por
+            else None
+        )
+        if holder != current_user.app_user_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Conversa não encontrada"
+            )
 
     igreja_uuid = uuid.UUID(current_user.igreja_id)
     if conversation is None:
