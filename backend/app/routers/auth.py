@@ -114,6 +114,7 @@ class MeResponse(BaseModel):
     nome: str
     chatNome: str | None = None  # noqa: N815 - nome de exibição no chat (assinatura)
     roles: list[str]
+    isOwner: bool = False  # noqa: N815 - dono (admin principal) da igreja (#4)
 
 
 class UpdateMeRequest(BaseModel):
@@ -407,6 +408,7 @@ def me(current_user: CurrentUser = Depends(get_current_user)) -> MeResponse:
         nome=current_user.nome,
         chatNome=current_user.chat_nome,
         roles=sorted(current_user.roles),
+        isOwner=current_user.is_owner,
     )
 
 
@@ -444,6 +446,7 @@ def update_me(
         nome=nome,
         chatNome=chat_nome,
         roles=sorted(current_user.roles),
+        isOwner=current_user.is_owner,
     )
 
 

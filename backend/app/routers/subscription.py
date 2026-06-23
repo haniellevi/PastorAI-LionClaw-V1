@@ -33,7 +33,7 @@ from app.db.models import (
     WhatsappConnection,
 )
 from app.db.session import get_db
-from app.deps import ADMIN_ROLE, CurrentUser, require_role
+from app.deps import ADMIN_ROLE, CurrentUser, require_owner
 from app.domain.billing import plan_limit, plan_price
 from app.routers._common import ensure_tenant_context
 from app.services.asaas import (
@@ -172,7 +172,7 @@ def notify_autoupgrade(
 @router.get("", response_model=SubscriptionOut)
 def get_subscription(
     db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(require_role(["admin"])),
+    current_user: CurrentUser = Depends(require_owner),
     evolution: EvolutionClient = Depends(get_evolution_client),
 ) -> SubscriptionOut:
     """Return the tenant's subscription, notifying any pending autoupgrade."""
@@ -199,7 +199,7 @@ def get_subscription(
 def create_checkout(
     payload: CheckoutRequest,
     db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(require_role(["admin"])),
+    current_user: CurrentUser = Depends(require_owner),
     asaas: AsaasClient = Depends(get_asaas_client),
 ) -> CheckoutResponse:
     """Create an Asaas checkout (subscription + one-time setup fee)."""

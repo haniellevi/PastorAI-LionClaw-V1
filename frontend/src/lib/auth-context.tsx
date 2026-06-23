@@ -41,6 +41,8 @@ export interface SessionUser {
   /** Nome de exibição no chat (assinatura). null = usa `nome`. */
   chatNome: string | null;
   roles: Role[];
+  /** É o dono (admin principal) da igreja? Só o dono gerencia a Assinatura (#4). */
+  isOwner: boolean;
 }
 
 export type AuthStatus = "loading" | "unauthenticated" | "authenticated";
@@ -89,6 +91,7 @@ function toSessionUser(me: MeResult): SessionUser {
     nome: me.nome,
     chatNome: me.chatNome,
     roles: normalizeRoles(me.roles),
+    isOwner: me.isOwner === true,
   };
 }
 

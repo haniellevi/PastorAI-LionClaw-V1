@@ -56,10 +56,11 @@ class _RolesSession:
     admin and the revoked-peer case would stop raising 409.
     """
 
-    def __init__(self, *, target, admins, current_roles=()) -> None:
+    def __init__(self, *, target, admins, current_roles=(), igreja=None) -> None:
         self.target = target
         self.admins = list(admins)
         self.current_roles = list(current_roles)
+        self.igreja = igreja  # #4: db.get(Igreja, ...) ao rebaixar o dono
         self.committed = False
         self.deleted: list = []
         self.added: list = []
@@ -80,6 +81,9 @@ class _RolesSession:
             return _Result(scalars_list=ids)
         # select(UserRole) -> the target's current roles
         return _Result(scalars_list=self.current_roles)
+
+    def get(self, model, pk):  # #4: db.get(Igreja, igreja_uuid)
+        return self.igreja
 
     def delete(self, obj) -> None:
         self.deleted.append(obj)
@@ -159,4 +163,26 @@ def test_demote_admin_with_another_active_admin_is_allowed(app) -> None:
 
     assert resp.status_code == 200
     assert resp.json() == {"usuarioId": str(_ADMIN_A), "papeis": ["membro"]}
+    assert session.committed is True
+
+
+def test_demote_dono_clears_church_dono_id(app) -> None:
+    # #4: rebaixar o DONO (perde 'admin') limpa igreja.dono_id — senão o ex-admin
+    # continuaria com is_owner=True e manteria acesso à Assinatura.
+    target = _target(_ADMIN_A, status="ativo")
+    igreja = SimpleNamespace(id=uuid.UUID(_IGREJA_ID), dono_id=_ADMIN_A)
+    session = _RolesSession(
+        target=target,
+        admins=[(_ADMIN_A, "ativo"), (_ADMIN_B, "ativo")],  # 2 admins: passa a trava
+        current_roles=[SimpleNamespace(papel="admin")],
+        igreja=igreja,
+    )
+    client = _client(app, session=session, current_user=_admin())
+
+    resp = client.put(
+        f"/team/{_ADMIN_A}/roles", json={"papeis": ["membro"]}, headers=_AUTH
+    )
+
+    assert resp.status_code == 200
+    assert igreja.dono_id is None  # cobre a limpeza do dono ao rebaixar
     assert session.committed is True

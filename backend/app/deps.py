@@ -50,6 +50,8 @@ class CurrentUser:
     # Nome de exibição no chat (assinatura). None = usa `nome`.
     chat_nome: str | None = None
     roles: frozenset[str] = field(default_factory=frozenset)
+    # #4: é o DONO (admin principal) da igreja? Só o dono gerencia a Assinatura.
+    is_owner: bool = False
 
     def has_role(self, role: str) -> bool:
         """True if the user holds `role` or is an admin (implicit access)."""
@@ -137,6 +139,10 @@ def get_current_user(
         select(UserRole.papel).where(UserRole.user_id == app_user.id)
     ).scalars().all()
 
+    # #4: dono = quando o app_user é o dono_id da própria igreja.
+    dono_id = app_user.igreja.dono_id if app_user.igreja else None
+    is_owner = dono_id is not None and dono_id == app_user.id
+
     return CurrentUser(
         app_user_id=str(app_user.id),
         clerk_user_id=identity.clerk_user_id,
@@ -145,6 +151,7 @@ def get_current_user(
         nome=app_user.nome,
         chat_nome=app_user.chat_nome,
         roles=frozenset(roles),
+        is_owner=is_owner,
     )
 
 
@@ -165,6 +172,23 @@ def require_role(roles: list[str]):
         return current_user
 
     return _checker
+
+
+def require_owner(
+    current_user: CurrentUser = Depends(get_current_user),
+) -> CurrentUser:
+    """Só o DONO (admin principal) da igreja passa — gating da Assinatura (#4).
+
+    Diferente de require_role(['admin']): admin NÃO basta. Outros admins (não
+    donos) recebem 403. Se a igreja está sem dono (dono_id NULL), ninguém passa
+    até o master reatribuir o dono pelo console.
+    """
+    if not current_user.is_owner:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Apenas o dono da igreja pode acessar a assinatura",
+        )
+    return current_user
 
 
 def require_screen(screen: str):

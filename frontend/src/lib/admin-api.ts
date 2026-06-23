@@ -175,6 +175,8 @@ export interface AdminIgrejaAdmin {
   nome: string;
   email: string;
   status: string | null;
+  /** É o dono (admin principal) da igreja? Só o dono gerencia a Assinatura (#4). */
+  isDono?: boolean;
 }
 
 /** Erro de validação/regra de negócio numa ação de escrita do console. */
@@ -486,6 +488,26 @@ export async function addIgrejaAdmin(
   }
   if (!res.ok) await throwMutationError(res, "Não foi possível convidar o admin.");
   return asJson<AdminIgrejaAdmin & { emailEnviado: boolean }>(res);
+}
+
+/** Reatribui o dono (admin principal) da igreja — só o master (#4). */
+export async function setIgrejaDono(
+  token: string,
+  id: string,
+  appUserId: string,
+): Promise<{ donoId: string }> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/admin/igrejas/${id}/dono`, {
+      method: "PUT",
+      headers: jsonHeaders(token),
+      body: JSON.stringify({ appUserId }),
+    });
+  } catch {
+    throw new AdminAuthError("network", "Falha de conexão com o servidor.");
+  }
+  if (!res.ok) await throwMutationError(res, "Não foi possível definir o dono.");
+  return asJson<{ donoId: string }>(res);
 }
 
 /** Reenvia o convite a um admin que ainda não ativou. */

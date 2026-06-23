@@ -21,6 +21,7 @@ import {
   removeIgrejaAdmin,
   resendAdminInvite,
   saveIgrejaAgente,
+  setIgrejaDono,
   updateIgreja,
   type AdminAgente,
   type AdminIgreja,
@@ -574,7 +575,24 @@ function AdminsTab({
               }}
             >
               <div>
-                <div style={{ fontWeight: 600 }}>{a.nome}</div>
+                <div style={{ fontWeight: 600, display: "flex", alignItems: "center", gap: "var(--s2)" }}>
+                  {a.nome}
+                  {a.isDono ? (
+                    <span
+                      title="Dono (admin principal) — gerencia a Assinatura"
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 600,
+                        color: "var(--accent)",
+                        border: "1px solid var(--accent)",
+                        borderRadius: 6,
+                        padding: "1px 7px",
+                      }}
+                    >
+                      Dono
+                    </span>
+                  ) : null}
+                </div>
                 <div className="sub" style={{ color: "var(--muted)" }}>
                   {a.email} · {a.status === "ativo" ? "ativo" : "convite pendente"}
                 </div>
@@ -593,6 +611,27 @@ function AdminsTab({
                     }
                   >
                     Reenviar
+                  </button>
+                ) : null}
+                {!a.isDono ? (
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-ghost"
+                    disabled={busy}
+                    onClick={() => {
+                      if (
+                        window.confirm(
+                          `Tornar ${a.nome} o dono (admin principal) da igreja? Só o dono gerencia a Assinatura.`,
+                        )
+                      ) {
+                        void run(
+                          () => setIgrejaDono(token, igrejaId, a.id).then(() => undefined),
+                          "Dono atualizado.",
+                        );
+                      }
+                    }}
+                  >
+                    Tornar dono
                   </button>
                 ) : null}
                 <button

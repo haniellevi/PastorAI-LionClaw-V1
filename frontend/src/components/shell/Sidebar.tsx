@@ -45,10 +45,12 @@ export function Sidebar({
   const { matrix } = usePermissions();
   // O menu reage à matriz de permissões vigente (delta-010): editar em
   // #permissoes reflete aqui em tempo real, sem reload.
-  const allowed = useMemo(
-    () => new Set(allowedScreens(user.roles, matrix)),
-    [user.roles, matrix],
-  );
+  const allowed = useMemo(() => {
+    const s = new Set(allowedScreens(user.roles, matrix));
+    // #4: só o dono (admin principal) vê a Assinatura no menu — admin não basta.
+    if (!user.isOwner) s.delete("assinatura");
+    return s;
+  }, [user.roles, user.isOwner, matrix]);
   const visible = (target: string) => allowed.has(target);
 
   // Seções visíveis (Configuração apenas para admin + telas liberadas).

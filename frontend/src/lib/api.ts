@@ -25,6 +25,8 @@ export interface MeResult {
   nome: string;
   chatNome: string | null;
   roles: string[];
+  /** Dono (admin principal) da igreja — só o dono gerencia a Assinatura (#4). */
+  isOwner?: boolean;
 }
 
 export type LoginErrorKind =
