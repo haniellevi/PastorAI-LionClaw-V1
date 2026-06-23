@@ -35,6 +35,8 @@ export function EditContactModal({ contact, busy, error, onClose, onSubmit }: Ed
     contact.genero === "m" || contact.genero === "f" ? contact.genero : "",
   );
   const [tipo, setTipo] = useState(contact.tipo ?? "");
+  const [semInteresse, setSemInteresse] = useState(contact.semInteresse);
+  const [csimMotivo, setCsimMotivo] = useState(contact.semInteresseMotivo ?? "");
   const [touched, setTouched] = useState(false);
 
   const nomeError = touched && !nome.trim() ? "Informe o nome." : undefined;
@@ -53,6 +55,12 @@ export function EditContactModal({ contact, busy, error, onClose, onSubmit }: Ed
       input.genero = (genero || null) as "m" | "f" | null;
     }
     if ((tipo || null) !== (contact.tipo ?? null)) input.tipo = tipo || null;
+    // CSIM: marca/desmarca + motivo (só envia o que mudou).
+    if (semInteresse !== contact.semInteresse) input.semInteresse = semInteresse;
+    const motivoNorm = csimMotivo.trim() || null;
+    if (semInteresse && motivoNorm !== (contact.semInteresseMotivo ?? null)) {
+      input.semInteresseMotivo = motivoNorm;
+    }
     if (Object.keys(input).length === 0) {
       onClose();
       return;
@@ -137,6 +145,25 @@ export function EditContactModal({ contact, busy, error, onClose, onSubmit }: Ed
               </select>
             </div>
           </div>
+
+          <div className="field">
+            <label style={{ display: "flex", gap: 8, alignItems: "center", cursor: "pointer" }}>
+              <input
+                type="checkbox"
+                checked={semInteresse}
+                onChange={(e) => setSemInteresse(e.target.checked)}
+              />
+              <span>Sem interesse ministerial (CSIM)</span>
+            </label>
+          </div>
+          {semInteresse ? (
+            <Field
+              label="Motivo (CSIM)"
+              value={csimMotivo}
+              onChange={(e) => setCsimMotivo(e.target.value)}
+              placeholder="ex.: empresa, outra cidade"
+            />
+          ) : null}
 
           <div className="modal-foot">
             <button type="button" className="btn btn-sm" onClick={onClose} disabled={busy}>

@@ -25,7 +25,7 @@ export const MENU_SCREENS = [
   "enviar",
   "calendario",
   "comunicados",
-  "equipe",
+  "contatos",
 ] as const;
 
 /** Telas exclusivas de admin (grupo Configuração). */
@@ -34,10 +34,11 @@ export const ADMIN_ONLY = [
   "whatsapp",
   "assinatura",
   "permissoes",
+  "equipe",
 ] as const;
 
 /** Telas legadas: deep-link válido, fora do menu (delta-012). */
-export const LEGACY = ["contatos", "celulas", "relatorios"] as const;
+export const LEGACY = ["celulas", "relatorios"] as const;
 
 export const ALL_SCREENS: readonly string[] = [
   ...MENU_SCREENS,
@@ -55,12 +56,12 @@ export const DEFAULT_PERMISSIONS: Record<Exclude<Role, "admin">, readonly string
   pastor: [
     "dashboard", "inbox", "ganhar", "consolidar", "consol-individual",
     "universidade-vida", "capacitacao", "g12", "central-celula", "enviar",
-    "calendario", "comunicados", "equipe", "contatos", "celulas", "relatorios",
+    "calendario", "comunicados", "contatos", "celulas", "relatorios",
   ],
   lider_g12: [
     "dashboard", "inbox", "ganhar", "consolidar", "consol-individual",
     "universidade-vida", "capacitacao", "g12", "central-celula", "enviar",
-    "calendario", "comunicados", "equipe", "contatos", "celulas", "relatorios",
+    "calendario", "comunicados", "contatos", "celulas", "relatorios",
   ],
   lider_consol: [
     "dashboard", "inbox", "ganhar", "consolidar", "consol-individual",

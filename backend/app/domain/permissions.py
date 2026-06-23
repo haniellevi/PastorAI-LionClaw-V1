@@ -23,14 +23,14 @@ DEFAULT_PERMISSIONS: dict[str, frozenset[str]] = {
         {
             "dashboard", "inbox", "ganhar", "consolidar", "consol-individual",
             "universidade-vida", "capacitacao", "g12", "central-celula", "enviar",
-            "calendario", "comunicados", "equipe", "contatos", "celulas", "relatorios",
+            "calendario", "comunicados", "contatos", "celulas", "relatorios",
         }
     ),
     "lider_g12": frozenset(
         {
             "dashboard", "inbox", "ganhar", "consolidar", "consol-individual",
             "universidade-vida", "capacitacao", "g12", "central-celula", "enviar",
-            "calendario", "comunicados", "equipe", "contatos", "celulas", "relatorios",
+            "calendario", "comunicados", "contatos", "celulas", "relatorios",
         }
     ),
     "lider_consol": frozenset(
