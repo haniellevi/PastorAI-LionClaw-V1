@@ -1117,12 +1117,6 @@ input[type="checkbox"] {
 .pill.muted::before {
   background: var(--faint);
 }
-/* empilha pílulas (ex.: tipo + CSIM) sem colar uma na outra */
-.pill-stack {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: var(--s1);
-}
 
 /* placeholder de tela em construção (casca desta sprint) */
 .scaffold {

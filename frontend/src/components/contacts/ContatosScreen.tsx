@@ -58,6 +58,26 @@ const FILTERS: Array<{ id: Filter; label: string; warn?: boolean }> = [
   { id: "csim", label: "Sem interesse (CSIM)", warn: true },
 ];
 
+const ETAPA_LABEL: Record<string, string> = {
+  ganhar: "Ganhar",
+  consolidar: "Consolidar",
+  discipular: "Discipular",
+  enviar: "Enviar",
+};
+
+function etapaTone(etapa: string | null): "ok" | "warn" | "accent" | "muted" {
+  switch (etapa) {
+    case "ganhar":
+      return "accent";
+    case "consolidar":
+      return "warn";
+    case "discipular":
+      return "ok";
+    default:
+      return "muted";
+  }
+}
+
 function maskPhone(phone: string): string {
   const digits = phone.replace(/\D/g, "");
   if (digits.length < 6) return phone;
@@ -261,39 +281,27 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
       },
       {
         header: "Tipo",
-        cell: (c) => (
-          <span className="pill-stack">
+        cell: (c) =>
+          c.semInteresse ? (
+            <StatusPill tone="danger">Sem interesse</StatusPill>
+          ) : (
             <StatusPill tone={tipoTone(c.tipo)}>{tipoLabel(c.tipo)}</StatusPill>
-            {c.semInteresse ? <StatusPill tone="danger">CSIM</StatusPill> : null}
-          </span>
-        ),
+          ),
       },
       {
         header: "Célula",
         cell: (c) => <span className="sub">{cellName(c.celulaId)}</span>,
       },
       {
-        header: "Acompanhamento",
-        cell: (c) => {
-          const s = followStatus(c);
-          return <StatusPill tone={s.tone}>{s.label}</StatusPill>;
-        },
-      },
-      {
-        header: "",
-        width: "1px",
-        cell: (c) => (
-          <button
-            type="button"
-            className="btn btn-sm"
-            onClick={(e) => {
-              e.stopPropagation();
-              setSelected(c.id);
-            }}
-          >
-            Ver
-          </button>
-        ),
+        header: "Estágio na Visão",
+        cell: (c) =>
+          c.etapa ? (
+            <StatusPill tone={etapaTone(c.etapa)}>
+              {ETAPA_LABEL[c.etapa] ?? c.etapa}
+            </StatusPill>
+          ) : (
+            <span className="sub">—</span>
+          ),
       },
     ],
     [cellName],
@@ -503,17 +511,18 @@ function ContactDetail({
           <h3>{contact.nome}</h3>
           <div className="sub mono">{contact.telefone}</div>
         </div>
-        <span className="pill-stack">
+        {contact.semInteresse ? (
+          <StatusPill tone="danger">Sem interesse</StatusPill>
+        ) : (
           <StatusPill tone={tipoTone(contact.tipo)}>{tipoLabel(contact.tipo)}</StatusPill>
-          {contact.semInteresse ? <StatusPill tone="danger">CSIM</StatusPill> : null}
-        </span>
+        )}
       </div>
 
       <dl className="detail-list">
         {contact.semInteresse ? (
           <div>
-            <dt>Sem interesse (CSIM)</dt>
-            <dd>{contact.semInteresseMotivo?.trim() || "Sim"}</dd>
+            <dt>Motivo (CSIM)</dt>
+            <dd>{contact.semInteresseMotivo?.trim() || "—"}</dd>
           </div>
         ) : null}
         <div>
