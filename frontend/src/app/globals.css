@@ -267,6 +267,13 @@ textarea:disabled {
   color: var(--faint);
   cursor: not-allowed;
 }
+/* checkbox não herda o box (width/padding/borda) dos inputs de texto */
+input[type="checkbox"] {
+  width: auto;
+  padding: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
 
 /* ---------- BUTTON / BTN-PRIMARY ---------- */
 .btn {
