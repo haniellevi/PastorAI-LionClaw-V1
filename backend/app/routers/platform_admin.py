@@ -950,6 +950,53 @@ def put_igreja_agente(
     )
 
 
+@router.post("/igrejas/{igreja_id}/agente/reset", response_model=AdminAgenteOut)
+def reset_igreja_agente(
+    igreja_id: str,
+    db: Session = Depends(get_db),
+    admin: PlatformAdminUser = Depends(get_platform_admin),
+) -> AdminAgenteOut:
+    """Restaura a config do agente da igreja para o modelo padrão do master.
+
+    Sobrescreve nome/tom/comportamento com o template atual do orquestrador
+    (#10b Fase 1). Preserva o estado ``ativo`` — reset é de conteúdo, não
+    liga/desliga o agente (evita derrubar um agente em produção). 409 se ainda
+    não há template configurado. Cross-tenant (BYPASSRLS); audita a ação.
+    """
+    igreja = _get_igreja_or_404(db, igreja_id)
+    ig_uuid = uuid.UUID(igreja_id)  # já validado em _get_igreja_or_404
+
+    tmpl = _get_orchestrator(db)
+    if tmpl is None or not (tmpl.comportamento or "").strip():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Não há orquestrador padrão configurado para restaurar.",
+        )
+
+    cfg = db.execute(
+        select(AgentConfig).where(AgentConfig.igreja_id == ig_uuid)
+    ).scalar_one_or_none()
+    if cfg is None:
+        cfg = AgentConfig(
+            igreja_id=ig_uuid, comportamento=tmpl.comportamento, ativo=False
+        )
+        db.add(cfg)
+    cfg.nome = tmpl.nome
+    cfg.tom = tmpl.tom
+    cfg.comportamento = tmpl.comportamento
+    _audit(db, admin, "agente_resetar", "igreja", ig_uuid, igreja.nome, None)
+    db.commit()
+
+    return AdminAgenteOut(
+        configured=True,
+        nome=cfg.nome,
+        tom=cfg.tom,
+        comportamento=cfg.comportamento,
+        ativo=cfg.ativo,
+        credencialStatus=_credencial_status(db, ig_uuid),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Orquestrador padrão (modelo do master) — copiado p/ cada igreja na aprovação
 # ---------------------------------------------------------------------------
