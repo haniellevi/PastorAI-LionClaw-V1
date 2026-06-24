@@ -113,6 +113,48 @@ export async function fetchAgentConfig(token: string): Promise<AgentConfigStatus
   return (await res.json()) as AgentConfigStatus;
 }
 
+/** Requisição de mudança no agente (admin → master). */
+export interface AgentConfigRequestItem {
+  id: string;
+  mensagem: string;
+  status: "pendente" | "atendida" | "recusada";
+  resposta: string | null;
+  criadoEm: string | null;
+  resolvidoEm: string | null;
+}
+
+/** Lista as requisições da própria igreja (histórico + status). */
+export async function fetchConfigRequests(
+  token: string,
+): Promise<AgentConfigRequestItem[]> {
+  const res = await authedFetch(token, "/agent/config/requests");
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível carregar as requisições.");
+  }
+  return (await res.json()) as AgentConfigRequestItem[];
+}
+
+/** Abre uma requisição de mudança no agente para o master. */
+export async function createConfigRequest(
+  token: string,
+  mensagem: string,
+): Promise<AgentConfigRequestItem> {
+  const res = await authedFetch(token, "/agent/config/requests", {
+    method: "POST",
+    body: JSON.stringify({ mensagem }),
+  });
+  if (res.status === 422) {
+    const detail = await readDetail(res);
+    throw new ApiError(422, detail ?? "Descreva a mudança desejada.");
+  }
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível enviar a requisição.");
+  }
+  return (await res.json()) as AgentConfigRequestItem;
+}
+
 /** Lista os agendamentos salvos. */
 export async function fetchCrons(token: string): Promise<CronResult[]> {
   const res = await authedFetch(token, "/agent/crons");

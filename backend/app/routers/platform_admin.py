@@ -30,6 +30,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.db.models import (
     AgentConfig,
+    AgentConfigRequest,
     AiUsageLog,
     AppUser,
     Celula,
@@ -995,6 +996,130 @@ def reset_igreja_agente(
         ativo=cfg.ativo,
         credencialStatus=_credencial_status(db, ig_uuid),
     )
+
+
+# ---------------------------------------------------------------------------
+# Fila de requisição admin → master (#10b Fase 1 / delta-043/044)
+# ---------------------------------------------------------------------------
+# O admin solicita mudanças no agente; o master lê aqui (cross-tenant) e resolve.
+AGENTE_REQUEST_OUTCOMES = {"atendida", "recusada"}
+
+
+class AdminAgenteRequestOut(BaseModel):
+    id: str
+    mensagem: str
+    status: str  # pendente | atendida | recusada
+    resposta: str | None = None
+    solicitanteNome: str | None = None  # noqa: N815
+    solicitanteEmail: str | None = None  # noqa: N815
+    criadoEm: str | None = None  # noqa: N815
+    resolvidoEm: str | None = None  # noqa: N815
+
+
+class ResolveAgenteRequestRequest(BaseModel):
+    status: str = Field(description="atendida | recusada")
+    resposta: str | None = Field(default=None, max_length=2000)
+
+    @field_validator("status")
+    @classmethod
+    def _status(cls, v: str) -> str:
+        v = v.strip().lower()
+        if v not in AGENTE_REQUEST_OUTCOMES:
+            raise ValueError("status deve ser 'atendida' ou 'recusada'")
+        return v
+
+
+def _iso(value: object) -> str | None:
+    """ISO de um timestamp; None se ausente ou ainda uma cláusula SQL (func.now())."""
+    return value.isoformat() if hasattr(value, "isoformat") else None
+
+
+def _request_row_out(
+    req: AgentConfigRequest, nome: str | None, email: str | None
+) -> AdminAgenteRequestOut:
+    return AdminAgenteRequestOut(
+        id=str(req.id),
+        mensagem=req.mensagem,
+        status=req.status,
+        resposta=req.resposta,
+        solicitanteNome=nome,
+        solicitanteEmail=email,
+        criadoEm=_iso(req.criado_em),
+        resolvidoEm=_iso(req.resolvido_em),
+    )
+
+
+@router.get(
+    "/igrejas/{igreja_id}/agente/requests",
+    response_model=list[AdminAgenteRequestOut],
+)
+def list_igreja_agente_requests(
+    igreja_id: str,
+    db: Session = Depends(get_db),
+    _admin: PlatformAdminUser = Depends(get_platform_admin),
+) -> list[AdminAgenteRequestOut]:
+    """Lista as requisições de mudança no agente de uma igreja (cross-tenant)."""
+    _get_igreja_or_404(db, igreja_id)
+    ig_uuid = uuid.UUID(igreja_id)
+    rows = db.execute(
+        select(AgentConfigRequest, AppUser.nome, AppUser.email)
+        .outerjoin(AppUser, AppUser.id == AgentConfigRequest.solicitante_user_id)
+        .where(AgentConfigRequest.igreja_id == ig_uuid)
+        .order_by(AgentConfigRequest.criado_em.desc())
+    ).all()
+    return [_request_row_out(req, nome, email) for req, nome, email in rows]
+
+
+@router.post(
+    "/agente/requests/{req_id}/resolver",
+    response_model=AdminAgenteRequestOut,
+)
+def resolve_agente_request(
+    req_id: str,
+    payload: ResolveAgenteRequestRequest,
+    db: Session = Depends(get_db),
+    admin: PlatformAdminUser = Depends(get_platform_admin),
+) -> AdminAgenteRequestOut:
+    """Resolve uma requisição (atendida|recusada) com resposta opcional.
+
+    O master ajusta a config pelo editor (PUT /igrejas/{id}/agente); esta ação
+    só marca a requisição como resolvida e registra a resposta. 404 se não existe;
+    409 se já estava resolvida (evita resolução dupla). Auditado.
+    """
+    try:
+        rid = uuid.UUID(req_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Requisição não encontrada."
+        ) from exc
+
+    req = db.execute(
+        select(AgentConfigRequest).where(AgentConfigRequest.id == rid)
+    ).scalar_one_or_none()
+    if req is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Requisição não encontrada."
+        )
+    if req.status != "pendente":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Esta requisição já foi resolvida.",
+        )
+
+    req.status = payload.status
+    req.resposta = (payload.resposta or "").strip() or None
+    req.resolvido_por = _as_uuid(admin.app_user_id)
+    req.resolvido_em = func.now()
+    _audit(
+        db, admin, "agente_requisicao_resolver", "igreja", req.igreja_id, None,
+        {"requisicao_id": str(rid), "status": payload.status},
+    )
+    db.commit()
+    db.refresh(req)
+
+    # O nome do solicitante não é re-consultado aqui: o front já o tem da listagem
+    # e só atualiza o status/resposta da linha resolvida.
+    return _request_row_out(req, None, None)
 
 
 # ---------------------------------------------------------------------------

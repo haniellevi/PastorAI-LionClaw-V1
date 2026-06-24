@@ -15,6 +15,7 @@ from fastapi.testclient import TestClient
 
 from app.db.models import (
     AgentConfig,
+    AgentConfigRequest,
     AppUser,
     Igreja,
     LlmCredential,
@@ -96,6 +97,8 @@ class PlatformDB:
         igreja_admins=None,
         user_role=None,
         orchestrator=None,
+        agent_request=None,
+        agent_request_rows=None,
     ) -> None:
         self.gate_app_user = gate_app_user
         self.admin_marker = admin_marker
@@ -120,6 +123,8 @@ class PlatformDB:
         self.igreja_admins = igreja_admins or []
         self.user_role = user_role
         self.orchestrator = orchestrator
+        self.agent_request = agent_request
+        self.agent_request_rows = agent_request_rows or []
         self.added: list = []
         self.deleted: list = []
         self.committed = False
@@ -137,6 +142,8 @@ class PlatformDB:
                 return _Result(rows=self.plano_precos_rows)
             if entities[0] is Igreja:  # select(Igreja.plano, count()) — em uso
                 return _Result(rows=self.em_uso_rows)
+            if entities[0] is AgentConfigRequest:  # list (req, nome, email)
+                return _Result(rows=self.agent_request_rows)
             return _Result(rows=[])
         ent = entities[0] if entities else None
         if ent is AppUser:
@@ -158,6 +165,8 @@ class PlatformDB:
             return _Result(scalar=self.user_role)
         if ent is PlatformOrchestrator:
             return _Result(scalar=self.orchestrator)
+        if ent is AgentConfigRequest:
+            return _Result(scalar=self.agent_request)
         # select(func.count()) — scalar count with no mapped entity.
         return _Result(scalar_one=self.count_value)
 
@@ -1246,3 +1255,110 @@ def test_admin_reset_agente_404(app) -> None:
     client = _wire(app, db=db, clerk=FakeClerk())
     resp = client.post(f"/admin/igrejas/{_IG_ID}/agente/reset", headers=_AUTH)
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Fila de requisição admin → master (#10b Fase 1) — lado do master
+# ---------------------------------------------------------------------------
+def _req_ns(**over):
+    base = dict(
+        id=uuid.uuid4(),
+        igreja_id=uuid.UUID(_IG_ID),
+        mensagem="Pode deixar o tom mais formal?",
+        status="pendente",
+        resposta=None,
+        resolvido_por=None,
+        criado_em=None,
+        resolvido_em=None,
+    )
+    base.update(over)
+    return SimpleNamespace(**base)
+
+
+def test_admin_lists_agente_requests(app) -> None:
+    req = _req_ns()
+    db = PlatformDB(
+        gate_app_user=make_app_user(),
+        admin_marker="pa1",
+        igreja_scalar=_igreja_ns(),
+        agent_request_rows=[(req, "Ana", "ana@x.com")],
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.get(f"/admin/igrejas/{_IG_ID}/agente/requests", headers=_AUTH)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body[0]["mensagem"] == "Pode deixar o tom mais formal?"
+    assert body[0]["status"] == "pendente"
+    assert body[0]["solicitanteNome"] == "Ana"
+
+
+def test_admin_resolve_agente_request_atendida(app) -> None:
+    req = _req_ns()
+    db = PlatformDB(
+        gate_app_user=make_app_user(), admin_marker="pa1", agent_request=req
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.post(
+        f"/admin/agente/requests/{req.id}/resolver",
+        headers=_AUTH,
+        json={"status": "atendida", "resposta": "Ajustado o tom."},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "atendida"
+    assert body["resposta"] == "Ajustado o tom."
+    assert req.status == "atendida"  # mutou a linha
+    assert db.committed is True
+    assert any(
+        isinstance(o, PlatformAuditLog) and o.acao == "agente_requisicao_resolver"
+        for o in db.added
+    )
+
+
+def test_admin_resolve_agente_request_404(app) -> None:
+    db = PlatformDB(
+        gate_app_user=make_app_user(), admin_marker="pa1", agent_request=None
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.post(
+        f"/admin/agente/requests/{uuid.uuid4()}/resolver",
+        headers=_AUTH,
+        json={"status": "atendida"},
+    )
+    assert resp.status_code == 404
+
+
+def test_admin_resolve_agente_request_409_quando_ja_resolvida(app) -> None:
+    req = _req_ns(status="atendida")
+    db = PlatformDB(
+        gate_app_user=make_app_user(), admin_marker="pa1", agent_request=req
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.post(
+        f"/admin/agente/requests/{req.id}/resolver",
+        headers=_AUTH,
+        json={"status": "recusada"},
+    )
+    assert resp.status_code == 409
+
+
+def test_admin_resolve_agente_request_rejects_bad_status(app) -> None:
+    db = PlatformDB(gate_app_user=make_app_user(), admin_marker="pa1")
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.post(
+        f"/admin/agente/requests/{uuid.uuid4()}/resolver",
+        headers=_AUTH,
+        json={"status": "voar"},
+    )
+    assert resp.status_code == 422
+
+
+def test_admin_agente_requests_blocks_non_master(app) -> None:
+    db = PlatformDB(gate_app_user=make_app_user(), admin_marker=None)
+    client = _wire(app, db=db, clerk=FakeClerk())
+    assert (
+        client.get(
+            f"/admin/igrejas/{_IG_ID}/agente/requests", headers=_AUTH
+        ).status_code
+        == 403
+    )

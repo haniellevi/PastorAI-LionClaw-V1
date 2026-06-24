@@ -25,7 +25,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import AgentConfig, Cron, LlmCredential
+from app.db.models import AgentConfig, AgentConfigRequest, Cron, LlmCredential
 from app.db.session import get_db
 from app.deps import CurrentUser, require_role
 from app.routers._common import ensure_tenant_context
@@ -219,6 +219,94 @@ def get_agent_config(
         acessos=cfg.acessos,
         ativo=cfg.ativo,
     )
+
+
+# ---------------------------------------------------------------------------
+# Requisição de mudança no agente — admin SOLICITA ao master (delta-043/044)
+# ---------------------------------------------------------------------------
+# O admin não edita o comportamento (PUT /config é 403); aqui ele pede mudanças
+# por mensagem livre. O master resolve no console da plataforma.
+class CreateAgentConfigRequest(BaseModel):
+    mensagem: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("mensagem")
+    @classmethod
+    def _mensagem(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("mensagem obrigatória")
+        return value
+
+
+class AgentConfigRequestResponse(BaseModel):
+    id: str
+    mensagem: str
+    status: str  # pendente | atendida | recusada
+    resposta: str | None = None
+    criadoEm: str | None = None  # noqa: N815 - external contract
+    resolvidoEm: str | None = None  # noqa: N815
+
+
+def _request_out(req: AgentConfigRequest) -> AgentConfigRequestResponse:
+    return AgentConfigRequestResponse(
+        id=str(req.id),
+        mensagem=req.mensagem,
+        status=req.status or "pendente",  # server_default ainda não aplicado no flush
+        resposta=req.resposta,
+        criadoEm=req.criado_em.isoformat() if req.criado_em else None,
+        resolvidoEm=req.resolvido_em.isoformat() if req.resolvido_em else None,
+    )
+
+
+@router.post(
+    "/config/requests",
+    response_model=AgentConfigRequestResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_config_request(
+    payload: CreateAgentConfigRequest,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_role(["admin"])),
+) -> AgentConfigRequestResponse:
+    """Abre uma requisição de mudança no agente para o master (admin-only).
+
+    A config segue exclusiva do master (delta-043); esta é a via oficial do admin
+    pedir ajustes. Escopada à igreja do solicitante (RLS + igreja_id explícito).
+    """
+    ensure_tenant_context(db, current_user)
+    igreja_uuid = uuid.UUID(current_user.igreja_id)
+
+    req = AgentConfigRequest(
+        igreja_id=igreja_uuid,
+        solicitante_user_id=uuid.UUID(current_user.app_user_id),
+        mensagem=payload.mensagem,
+    )
+    db.add(req)
+    db.flush()
+    db.refresh(req)
+    db.commit()
+    return _request_out(req)
+
+
+@router.get("/config/requests", response_model=list[AgentConfigRequestResponse])
+def list_config_requests(
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_role(["admin"])),
+) -> list[AgentConfigRequestResponse]:
+    """Lista as requisições da própria igreja (histórico + status) para o admin."""
+    ensure_tenant_context(db, current_user)
+    igreja_uuid = uuid.UUID(current_user.igreja_id)
+
+    rows = (
+        db.execute(
+            select(AgentConfigRequest)
+            .where(AgentConfigRequest.igreja_id == igreja_uuid)
+            .order_by(AgentConfigRequest.criado_em.desc())
+        )
+        .scalars()
+        .all()
+    )
+    return [_request_out(r) for r in rows]
 
 
 # ---------------------------------------------------------------------------

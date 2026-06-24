@@ -16,15 +16,18 @@ import {
   deleteIgreja,
   fetchIgrejaAdmins,
   fetchIgrejaAgente,
+  fetchIgrejaAgenteRequests,
   fetchIgrejaDetail,
   fetchOrquestrador,
   removeIgrejaAdmin,
   resendAdminInvite,
   resetIgrejaAgente,
+  resolveAgenteRequest,
   saveIgrejaAgente,
   setIgrejaDono,
   updateIgreja,
   type AdminAgente,
+  type AdminAgenteRequest,
   type AdminIgreja,
   type AdminIgrejaAdmin,
   type AdminIgrejaDetail,
@@ -39,6 +42,12 @@ const STATUS_LABEL: Record<string, string> = {
   suspensa: "Suspensa",
   aguardando_aprovacao: "Aguardando aprovação",
   inadimplente: "Inadimplente",
+};
+
+const REQUEST_STATUS_LABEL: Record<string, string> = {
+  pendente: "Pendente",
+  atendida: "Atendida",
+  recusada: "Recusada",
 };
 const PLANO_LABEL: Record<string, string> = {
   ate_100: "Até 100",
@@ -364,6 +373,60 @@ function AgenteTab({
   const [err, setErr] = useState<string | null>(null);
   const credStatus = agente?.credencialStatus ?? "none";
 
+  // ── Fila de requisição admin → master ───────────────────────────────────
+  const [requests, setRequests] = useState<AdminAgenteRequest[]>([]);
+  const [resolvingId, setResolvingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const list = await fetchIgrejaAgenteRequests(token, igrejaId);
+        if (alive) setRequests(list);
+      } catch {
+        // Falha de leitura não trava a aba de config.
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [token, igrejaId]);
+
+  const resolver = async (req: AdminAgenteRequest, status: "atendida" | "recusada") => {
+    if (resolvingId) return;
+    const resposta = window.prompt(
+      status === "atendida"
+        ? "Resposta ao solicitante (opcional) — descreva o ajuste feito:"
+        : "Motivo da recusa (opcional):",
+      "",
+    );
+    if (resposta === null) return; // cancelou
+    setResolvingId(req.id);
+    setErr(null);
+    try {
+      const updated = await resolveAgenteRequest(token, req.id, {
+        status,
+        resposta: resposta.trim() || null,
+      });
+      // O endpoint não devolve o solicitante; preservamos o da linha original.
+      setRequests((prev) =>
+        prev.map((r) =>
+          r.id === req.id
+            ? { ...updated, solicitanteNome: r.solicitanteNome, solicitanteEmail: r.solicitanteEmail }
+            : r,
+        ),
+      );
+    } catch (e) {
+      if (e instanceof AdminSessionExpiredError) {
+        onExpired();
+        return;
+      }
+      setErr(e instanceof Error ? e.message : "Não foi possível resolver a requisição.");
+    } finally {
+      setResolvingId(null);
+    }
+  };
+
   const restaurarPadrao = async () => {
     if (
       !window.confirm(
@@ -437,6 +500,7 @@ function AgenteTab({
   };
 
   return (
+    <>
     <form
       className="card card-pad"
       onSubmit={(e) => {
@@ -512,6 +576,66 @@ function AgenteTab({
         </button>
       </div>
     </form>
+
+    {/* ── Requisições do admin desta igreja ──────────────────────────── */}
+    <div className="card card-pad" style={{ marginTop: "var(--s4)" }}>
+      <div className="panel-title">Requisições de mudança do admin</div>
+      {requests.length === 0 ? (
+        <p className="sub" style={{ color: "var(--muted)" }}>
+          Nenhuma requisição desta igreja.
+        </p>
+      ) : (
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Solicitante</th>
+              <th>Mensagem</th>
+              <th>Status</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody>
+            {requests.map((r) => (
+              <tr key={r.id}>
+                <td className="sub">{r.solicitanteNome ?? "—"}</td>
+                <td style={{ whiteSpace: "pre-wrap" }}>{r.mensagem}</td>
+                <td className="sub">
+                  {REQUEST_STATUS_LABEL[r.status]}
+                  {r.resposta ? ` — “${r.resposta}”` : ""}
+                </td>
+                <td>
+                  {r.status === "pendente" ? (
+                    <div style={{ display: "flex", gap: "var(--s2)" }}>
+                      <button
+                        type="button"
+                        className="btn btn-sm"
+                        disabled={resolvingId !== null}
+                        onClick={() => void resolver(r, "atendida")}
+                      >
+                        Atender
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-ghost"
+                        disabled={resolvingId !== null}
+                        onClick={() => void resolver(r, "recusada")}
+                      >
+                        Recusar
+                      </button>
+                    </div>
+                  ) : (
+                    <span className="sub" style={{ color: "var(--muted)" }}>
+                      Resolvida
+                    </span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+    </>
   );
 }
 
