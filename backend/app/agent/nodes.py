@@ -67,6 +67,9 @@ class AgentState(TypedDict, total=False):
     texto: str
     estado: str
     pessoa: PessoaSnapshot
+    # Privilégio do interlocutor resolvido no servidor (#10b Fase 2): habilita
+    # ações ministeriais (relatório/decisão). Um contato comum é False.
+    is_ministerial: bool
     term_accepted_version: str | None
     term_current_version: str
     # Outputs produced along the graph:
@@ -90,7 +93,7 @@ def route_intent(state: AgentState) -> str:
       2. optout    — the contact asked to stop receiving messages (US-32).
       3. consent   — acceptance of a pending term, or a term must be presented
                      before collecting data beyond name+telefone (delta-040).
-      4. report    — the message looks like a cell report (US-24).
+      4. report    — a MINISTERIAL interlocutor sent a cell report (US-24).
       5. onboarding— default configurable data-collection / classification.
     """
     if state.get("estado") == ESTADO_HUMANO:
@@ -109,7 +112,12 @@ def route_intent(state: AgentState) -> str:
     if needs_term and consent_rules.is_acceptance(texto):
         return ROUTE_CONSENT
 
-    if looks_like_report(texto):
+    # Report capture is a ministerial action (#10b Fase 2): only a leader/pastor
+    # files cell reports/decisions. A non-ministerial contact whose message just
+    # "looks like" a report falls through to onboarding (no false confirmation,
+    # no self-registered decision). Defense-in-depth: the tool executor also
+    # gates the call.
+    if state.get("is_ministerial") and looks_like_report(texto):
         return ROUTE_REPORT
 
     # Collecting onboarding data beyond the baseline requires the term first.
