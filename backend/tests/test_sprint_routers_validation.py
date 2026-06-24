@@ -138,9 +138,13 @@ def test_subscription_webhook_rejects_missing_token(app) -> None:
 
 
 # ---- agent config + crons validation --------------------------------------
-def test_agent_config_requires_comportamento(app) -> None:
-    resp = _client(app).put("/agent/config", json={"ativo": False}, headers=_AUTH)
-    assert resp.status_code == 422
+def test_agent_config_put_forbidden_for_admin(app) -> None:
+    # #10b Fase 1 (delta-043): a config do agente é exclusiva do master; o admin
+    # não edita por aqui (antes este PUT salvava o comportamento — brecha).
+    resp = _client(app).put(
+        "/agent/config", json={"comportamento": "x"}, headers=_AUTH
+    )
+    assert resp.status_code == 403
 
 
 def test_agent_cron_rejects_invalid_gatilho(app) -> None:

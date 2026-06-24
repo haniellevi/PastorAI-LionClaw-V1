@@ -3,8 +3,8 @@
 Endpoints (all admin-only — delta-005):
   - POST /agent/credential   {provedor, apiKey} -> {status}   (save, RNF-03)
   - GET  /agent/credential   -> {status, provedor}            (read, no key)
-  - PUT  /agent/config       -> {...}                         (save behaviour)
-  - GET  /agent/config       -> {configured, ...}             (read)
+  - PUT  /agent/config       -> 403 (config é do master — #10b delta-043)
+  - GET  /agent/config       -> {configured, ...}             (read, admin)
   - POST /agent/crons        -> create a cron/state-triggered automation
   - GET  /agent/crons        -> list the igreja's crons
   - PUT  /agent/crons/{id}   -> edit a cron (RF-33: criar/editar/desativar)
@@ -161,89 +161,26 @@ def get_credential(
 
 
 # ---------------------------------------------------------------------------
-# Agent config (PUT /agent/config) — US-28
+# Agent config — EDIÇÃO é exclusiva do master (#10b Fase 1 / delta-043)
 # ---------------------------------------------------------------------------
-class AgentConfigRequest(BaseModel):
-    """Payload for saving the agent behaviour config (api-agent-config)."""
-
-    comportamento: str = Field(min_length=1, max_length=4000)
-    nome: str | None = Field(default=None, max_length=120)
-    tom: str | None = Field(default=None, max_length=120)
-    publicoAlvo: list[str] | None = Field(default=None)  # noqa: N815
-    acessos: list[str] | None = Field(default=None)
-    ativo: bool = Field(default=True)
-
-    @field_validator("comportamento")
-    @classmethod
-    def _comportamento(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise ValueError("comportamento obrigatório")
-        return value
-
-
-class AgentConfigResponse(BaseModel):
-    nome: str | None = None
-    tom: str | None = None
-    comportamento: str
-    publicoAlvo: list[str] | None = None  # noqa: N815
-    acessos: list[str] | None = None
-    ativo: bool
-
-
-def _has_active_credential(db: Session, igreja_uuid: uuid.UUID) -> bool:
-    """True only when a validated AND active BYO credential exists (US-27)."""
-    cred = db.execute(
-        select(LlmCredential).where(LlmCredential.igreja_id == igreja_uuid)
-    ).scalar_one_or_none()
-    return bool(cred and cred.validado and cred.ativo)
-
-
-@router.put("/config", response_model=AgentConfigResponse)
-def save_agent_config(
-    payload: AgentConfigRequest,
-    db: Session = Depends(get_db),
+@router.put("/config")
+def save_agent_config_forbidden(
     current_user: CurrentUser = Depends(require_role(["admin"])),
-) -> AgentConfigResponse:
-    """Save the agent behaviour/tone/audience/access config (1:1 per igreja).
+) -> None:
+    """A configuração do agente é exclusiva do MASTER (#10b Fase 1 / delta-043).
 
-    Activating the agent (`ativo=true`) requires a validated+active BYO LLM
-    credential (US-27); otherwise the request is rejected (409) and the agent is
-    not turned on.
+    O comportamento/persona do agente é definido pelo master no console da
+    plataforma (`PUT /admin/igrejas/{id}/agente`); o admin da igreja NÃO edita
+    por aqui — apenas vê (GET /config), alimenta a KB e solicita mudanças. Antes
+    este endpoint salvava o comportamento com require_role(admin), contradizendo
+    o front read-only e a governança; agora retorna 403 explícito.
     """
-    ensure_tenant_context(db, current_user)
-    igreja_uuid = uuid.UUID(current_user.igreja_id)
-
-    if payload.ativo and not _has_active_credential(db, igreja_uuid):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Ative uma credencial de IA validada antes de ligar o agente",
-        )
-
-    cfg = db.execute(
-        select(AgentConfig)
-        .where(AgentConfig.igreja_id == igreja_uuid)
-        .with_for_update()
-    ).scalar_one_or_none()
-    if cfg is None:
-        cfg = AgentConfig(igreja_id=igreja_uuid, comportamento=payload.comportamento)
-        db.add(cfg)
-
-    cfg.comportamento = payload.comportamento
-    cfg.nome = payload.nome
-    cfg.tom = payload.tom
-    cfg.publico_alvo = payload.publicoAlvo
-    cfg.acessos = payload.acessos
-    cfg.ativo = payload.ativo
-    db.commit()
-
-    return AgentConfigResponse(
-        nome=cfg.nome,
-        tom=cfg.tom,
-        comportamento=cfg.comportamento,
-        publicoAlvo=cfg.publico_alvo,
-        acessos=cfg.acessos,
-        ativo=cfg.ativo,
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=(
+            "A configuração do agente é gerida pelo master (console da "
+            "plataforma); o admin não edita o comportamento por aqui."
+        ),
     )
 
 
