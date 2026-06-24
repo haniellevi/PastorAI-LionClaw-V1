@@ -20,6 +20,7 @@ import {
   fetchOrquestrador,
   removeIgrejaAdmin,
   resendAdminInvite,
+  resetIgrejaAgente,
   saveIgrejaAgente,
   setIgrejaDono,
   updateIgreja,
@@ -359,8 +360,38 @@ function AgenteTab({
   const [comportamento, setComportamento] = useState(agente?.comportamento ?? "");
   const [ativo, setAtivo] = useState(agente?.ativo ?? false);
   const [busy, setBusy] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const credStatus = agente?.credencialStatus ?? "none";
+
+  const restaurarPadrao = async () => {
+    if (
+      !window.confirm(
+        "Restaurar o agente desta igreja para o modelo padrão do orquestrador? " +
+          "O comportamento atual será substituído (o estado ligado/desligado é mantido).",
+      )
+    ) {
+      return;
+    }
+    setResetting(true);
+    setErr(null);
+    try {
+      const saved = await resetIgrejaAgente(token, igrejaId);
+      setNome(saved.nome ?? "");
+      setTom(saved.tom ?? "");
+      setComportamento(saved.comportamento ?? "");
+      setAtivo(saved.ativo);
+      onSaved(saved);
+    } catch (e) {
+      if (e instanceof AdminSessionExpiredError) {
+        onExpired();
+        return;
+      }
+      setErr(e instanceof Error ? e.message : "Não foi possível restaurar o agente.");
+    } finally {
+      setResetting(false);
+    }
+  };
 
   const usarPadrao = async () => {
     try {
@@ -464,11 +495,20 @@ function AgenteTab({
         <button
           type="button"
           className="btn btn-sm btn-ghost"
-          disabled={busy}
+          disabled={busy || resetting}
           onClick={() => void usarPadrao()}
           title="Preenche com o modelo padrão do orquestrador (você revisa e salva)"
         >
           Usar o padrão
+        </button>
+        <button
+          type="button"
+          className="btn btn-sm btn-ghost"
+          disabled={busy || resetting}
+          onClick={() => void restaurarPadrao()}
+          title="Restaura já a config para o modelo padrão (mantém ligado/desligado)"
+        >
+          {resetting ? "Restaurando…" : "Restaurar padrão"}
         </button>
       </div>
     </form>

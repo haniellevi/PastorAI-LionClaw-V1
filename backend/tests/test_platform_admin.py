@@ -1174,3 +1174,75 @@ def test_admin_aprovar_seeds_agent_from_template(app) -> None:
         isinstance(o, AgentConfig) and o.comportamento == "Seja gentil." and not o.ativo
         for o in db.added
     )
+
+
+def test_admin_reset_agente_sobrescreve_preservando_ativo(app) -> None:
+    # #10b Fase 1: o master restaura a config da igreja para o template atual,
+    # sobrescrevendo o conteúdo MAS preservando o ativo (não derruba o agente).
+    cfg = SimpleNamespace(
+        nome="Velho", tom="seco", comportamento="comportamento antigo", ativo=True
+    )
+    tmpl = SimpleNamespace(
+        id="o1", nome="Assistente", tom="acolhedor", comportamento="Seja gentil."
+    )
+    db = PlatformDB(
+        gate_app_user=make_app_user(),
+        admin_marker="pa1",
+        igreja_scalar=_igreja_ns(),
+        agent_config=cfg,
+        orchestrator=tmpl,
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.post(f"/admin/igrejas/{_IG_ID}/agente/reset", headers=_AUTH)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["comportamento"] == "Seja gentil."
+    assert body["nome"] == "Assistente"
+    assert body["ativo"] is True  # preservou o estado ligado
+    assert cfg.comportamento == "Seja gentil."  # sobrescreveu a config existente
+    assert db.committed is True
+    assert any(
+        isinstance(o, PlatformAuditLog) and o.acao == "agente_resetar"
+        for o in db.added
+    )
+
+
+def test_admin_reset_agente_cria_quando_sem_config(app) -> None:
+    tmpl = SimpleNamespace(
+        id="o1", nome="Assistente", tom="acolhedor", comportamento="Seja gentil."
+    )
+    db = PlatformDB(
+        gate_app_user=make_app_user(),
+        admin_marker="pa1",
+        igreja_scalar=_igreja_ns(),
+        agent_config=None,  # igreja sem agente → cria, desligado
+        orchestrator=tmpl,
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.post(f"/admin/igrejas/{_IG_ID}/agente/reset", headers=_AUTH)
+    assert resp.status_code == 200
+    assert any(
+        isinstance(o, AgentConfig) and o.comportamento == "Seja gentil." and not o.ativo
+        for o in db.added
+    )
+
+
+def test_admin_reset_agente_409_sem_template(app) -> None:
+    db = PlatformDB(
+        gate_app_user=make_app_user(),
+        admin_marker="pa1",
+        igreja_scalar=_igreja_ns(),
+        orchestrator=None,  # não há orquestrador padrão para restaurar
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.post(f"/admin/igrejas/{_IG_ID}/agente/reset", headers=_AUTH)
+    assert resp.status_code == 409
+
+
+def test_admin_reset_agente_404(app) -> None:
+    db = PlatformDB(
+        gate_app_user=make_app_user(), admin_marker="pa1", igreja_scalar=None
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+    resp = client.post(f"/admin/igrejas/{_IG_ID}/agente/reset", headers=_AUTH)
+    assert resp.status_code == 404

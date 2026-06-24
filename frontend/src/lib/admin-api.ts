@@ -648,3 +648,21 @@ export async function saveIgrejaAgente(
   if (!res.ok) await throwMutationError(res, "Não foi possível salvar o agente.");
   return asJson<AdminAgente>(res);
 }
+
+/** Restaura a config do agente da igreja para o template do orquestrador. */
+export async function resetIgrejaAgente(
+  token: string,
+  id: string,
+): Promise<AdminAgente> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/admin/igrejas/${id}/agente/reset`, {
+      method: "POST",
+      headers: jsonHeaders(token),
+    });
+  } catch {
+    throw new AdminAuthError("network", "Falha de conexão com o servidor.");
+  }
+  if (!res.ok) await throwMutationError(res, "Não foi possível restaurar o agente.");
+  return asJson<AdminAgente>(res);
+}
