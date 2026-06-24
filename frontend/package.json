@@ -2,7 +2,7 @@
   "name": "pastorai-frontend",
   "version": "1.0.0",
   "private": true,
-  "description": "PastorAI — painel da igreja (Next.js App Router, PWA, mobile-first)",
+  "description": "Igreja 12 — painel da igreja (Next.js App Router, PWA, mobile-first)",
   "scripts": {
     "dev": "next dev",
     "build": "next build",

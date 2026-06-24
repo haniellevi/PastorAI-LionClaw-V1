@@ -369,7 +369,7 @@ export function AgenteScreen() {
             <Icon name="lock" />
             <span>
               O comportamento do agente é definido pela{" "}
-              <strong>plataforma PastorAI</strong>. Para ajustes, envie uma
+              <strong>plataforma Igreja 12</strong>. Para ajustes, envie uma
               requisição ao master abaixo.
             </span>
           </div>
