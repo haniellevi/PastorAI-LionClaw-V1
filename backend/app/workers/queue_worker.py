@@ -33,6 +33,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db.models import Conversation, Message, Pessoa, WhatsappConnection
+from app.db.rls import set_tenant_context_for_igreja
 from app.db.session import get_session_factory
 from app.domain.conversations import (
     ParsedMessage,
@@ -80,6 +81,7 @@ class IngestionOutcome:
     telefone: str | None = None
     texto: str | None = None
     inbound: bool = False
+    igreja_id: Any | None = None
 
 
 def ingest_message_event(db: Session, parsed: ParsedMessage) -> IngestionResult:
@@ -118,6 +120,12 @@ def ingest_message_event_ex(
         return IngestionOutcome(result=IngestionResult.SKIPPED_NOT_OFFICIAL)
 
     igreja_id = connection.igreja_id
+    # Fase 0 (#10b): a partir daqui o processamento é escopado à igreja. Ativa o
+    # tenant-context por igreja_id (o contato do WhatsApp não tem JWT do Clerk) e
+    # cai no papel `authenticated` para a RLS valer no caminho assíncrono. O
+    # lookup de whatsapp_connections acima é deliberadamente cross-tenant
+    # (descobre a igreja pelo `instance`) e por isso roda ANTES desta linha.
+    set_tenant_context_for_igreja(db, igreja_id)
     inbound = not parsed.from_me
 
     # Data integrity (regra do usuário + US-07): só uma mensagem RECEBIDA de um
@@ -237,6 +245,7 @@ def ingest_message_event_ex(
         telefone=parsed.telefone_raw,
         texto=parsed.texto,
         inbound=inbound,
+        igreja_id=igreja_id,
     )
 
 
@@ -418,6 +427,10 @@ def run_agent_for_message(session_factory: Any, outcome: IngestionOutcome) -> No
 
     session: Session = session_factory()
     try:
+        # Fase 0 (#10b): RLS por igreja também no caminho do agente — é aqui que
+        # tools, retrieval da KB e memória vão ler/escrever dados do tenant.
+        if outcome.igreja_id is not None:
+            set_tenant_context_for_igreja(session, outcome.igreja_id)
         result = process_inbound_message(
             session, conversation_id=outcome.conversation_id, texto=outcome.texto
         )
@@ -439,6 +452,8 @@ def run_agent_for_message(session_factory: Any, outcome: IngestionOutcome) -> No
     # Persist the outbound message and refresh the conversation snapshot.
     session = session_factory()
     try:
+        if outcome.igreja_id is not None:
+            set_tenant_context_for_igreja(session, outcome.igreja_id)
         conv = session.get(Conversation, outcome.conversation_id)
         if conv is not None:
             session.add(
