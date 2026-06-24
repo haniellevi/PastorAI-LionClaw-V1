@@ -33,12 +33,16 @@ from app.agent.tools import TOOLS, ToolError
 from app.config import get_settings
 from app.db.models import (
     AgentConfig,
+    AppUser,
+    Celula,
     Conversation,
     ConsentRecord,
     Igreja,
     LlmCredential,
     Pessoa,
+    UserRole,
 )
+from app.domain.agent_authz import PrivilegeContext, tool_allowed
 from app.services.crypto import SecretDecryptionError, decrypt_secret
 from app.services.llm import LLMClient, LLMError
 
@@ -81,6 +85,48 @@ def _latest_consent_version(
     return row.termo_versao if row else None
 
 
+def _resolve_privilege(
+    session: Session, igreja_id: uuid.UUID, pessoa: Pessoa
+) -> PrivilegeContext:
+    """Resolve the interlocutor's privilege from their Pessoa (#10b Fase 2).
+
+    A WhatsApp contact has no Clerk login, so privilege is derived from (a) a
+    panel login linked to this pessoa (app_users.pessoa_id → user_roles), (b)
+    cells they lead (celulas.lider_id), plus their tipo/CSIM. Tenant-scoped (RLS
+    via Fase 0 + explicit igreja_id). The LLM never decides this.
+    """
+    app_user_id = session.execute(
+        select(AppUser.id)
+        .where(AppUser.pessoa_id == pessoa.id, AppUser.igreja_id == igreja_id)
+        .limit(1)
+    ).scalar_one_or_none()
+    roles: set[str] = set()
+    if app_user_id is not None:
+        roles = set(
+            session.execute(
+                select(UserRole.papel).where(
+                    UserRole.user_id == app_user_id,
+                    UserRole.igreja_id == igreja_id,  # defesa em profundidade
+                )
+            ).scalars().all()
+        )
+    leads_cells = (
+        session.execute(
+            select(Celula.id)
+            .where(Celula.lider_id == pessoa.id, Celula.igreja_id == igreja_id)
+            .limit(1)
+        ).scalar_one_or_none()
+        is not None
+    )
+    return PrivilegeContext(
+        pessoa_id=str(pessoa.id),
+        tipo=pessoa.tipo or "contato",
+        sem_interesse=bool(pessoa.sem_interesse),
+        roles=frozenset(roles),
+        leads_cells=leads_cells,
+    )
+
+
 def _build_state(
     *,
     igreja_id: uuid.UUID,
@@ -90,6 +136,7 @@ def _build_state(
     texto: str | None,
     accepted_version: str | None,
     current_version: str,
+    is_ministerial: bool,
 ) -> AgentState:
     return {
         "igreja_id": str(igreja_id),
@@ -110,6 +157,7 @@ def _build_state(
             "primeiro_contato_set": pessoa.primeiro_contato is not None,
             "sem_interesse": bool(pessoa.sem_interesse),
         },
+        "is_ministerial": is_ministerial,
         "term_accepted_version": accepted_version,
         "term_current_version": current_version,
         "events": [],
@@ -163,9 +211,19 @@ def _apply_consent(
 
 
 def _execute_tools(
-    session: Session, igreja_id: uuid.UUID, tool_calls: list[dict]
+    session: Session,
+    igreja_id: uuid.UUID,
+    ctx: PrivilegeContext,
+    tool_calls: list[dict],
 ) -> tuple[list[str], list[dict]]:
-    """Run the tool calls emitted by a sub-agent with human-equivalent rules."""
+    """Run the tool calls emitted by a sub-agent with human-equivalent rules.
+
+    Every call is gated by the interlocutor's privilege (#10b Fase 2): the 4
+    tools are ministerial write-actions, so a non-ministerial contact can never
+    trigger them (e.g. self-registering a decision via a fake report). This is
+    the hard security boundary — server-decided, never the LLM — and every
+    refusal is audited.
+    """
     executed: list[str] = []
     audit: list[dict] = []
     for call in tool_calls:
@@ -173,6 +231,22 @@ def _execute_tools(
         fn = TOOLS.get(name)
         if fn is None:
             logger.warning("Unknown tool requested by agent: %s", name)
+            continue
+        if not tool_allowed(ctx, name):
+            audit.append(
+                {
+                    "evento": "tool_negada",
+                    "payload": {
+                        "ferramenta": name,
+                        "motivo": "interlocutor sem privilégio ministerial",
+                        "tipo": ctx.tipo,
+                    },
+                }
+            )
+            logger.info(
+                "Tool %s negada: pessoa %s sem privilégio (tipo=%s)",
+                name, ctx.pessoa_id, ctx.tipo,
+            )
             continue
         args = dict(call.get("args") or {})
         try:
@@ -259,6 +333,7 @@ def process_inbound_message(
     ).scalar_one_or_none()
 
     accepted_version = _latest_consent_version(session, igreja_id, pessoa.id)
+    privilege = _resolve_privilege(session, igreja_id, pessoa)
     state = _build_state(
         igreja_id=igreja_id,
         igreja_nome=igreja.nome if igreja else None,
@@ -267,6 +342,7 @@ def process_inbound_message(
         texto=texto,
         accepted_version=accepted_version,
         current_version=settings.agent_term_version,
+        is_ministerial=privilege.is_ministerial,
     )
 
     final = run_turn(state)
@@ -281,9 +357,10 @@ def process_inbound_message(
     if final.get("apply_consent_version"):
         _apply_consent(pessoa, igreja_id, session, final["apply_consent_version"])
 
-    # Execute tool calls (human-equivalent validations, tenant-scoped).
+    # Execute tool calls (human-equivalent validations, tenant-scoped, gated by
+    # the interlocutor's privilege — #10b Fase 2).
     executed, tool_audit = _execute_tools(
-        session, igreja_id, final.get("tool_calls") or []
+        session, igreja_id, privilege, final.get("tool_calls") or []
     )
 
     # Audit every routing/sub-agent event + tool calls (masked payloads).

@@ -56,8 +56,16 @@ def test_acceptance_when_term_pending_routes_to_consent() -> None:
 
 
 def test_report_routes_to_report_capture() -> None:
-    state = _state(texto="Relatório: 10 presentes, 2 decisões")
+    # Relatório é ação ministerial (#10b Fase 2): só roteia p/ report se líder.
+    state = _state(texto="Relatório: 10 presentes, 2 decisões", is_ministerial=True)
     assert route_intent(state) == ROUTE_REPORT
+
+
+def test_report_from_non_ministerial_routes_to_onboarding() -> None:
+    # Um contato comum mandando algo que "parece relatório" cai em onboarding —
+    # sem confirmação falsa, sem decisão auto-registrada (anti-escalonamento).
+    state = _state(texto="Relatório: 10 presentes, 2 decisões")  # is_ministerial ausente
+    assert route_intent(state) == ROUTE_ONBOARDING
 
 
 def test_missing_term_blocks_onboarding_with_consent_gate() -> None:
@@ -100,10 +108,20 @@ def test_consent_acceptance_flags_version_to_persist() -> None:
 
 
 def test_report_decision_emits_tool_call() -> None:
-    final = run_turn_direct(_state(texto="Relatório: 5 presentes, 1 decisão"))
+    final = run_turn_direct(
+        _state(texto="Relatório: 5 presentes, 1 decisão", is_ministerial=True)
+    )
     assert final["route"] == ROUTE_REPORT
     names = [c["ferramenta"] for c in final.get("tool_calls", [])]
     assert "registrar_decisao" in names
+
+
+def test_report_decision_from_non_ministerial_emits_no_tool() -> None:
+    # #10b Fase 2: contato comum não vira report nem emite registrar_decisao.
+    final = run_turn_direct(_state(texto="Relatório: 5 presentes, 1 decisão"))
+    assert final["route"] == ROUTE_ONBOARDING
+    names = [c["ferramenta"] for c in final.get("tool_calls", [])]
+    assert "registrar_decisao" not in names
 
 
 # ---- masking (F8 / RNF-24 / delta-040) ------------------------------------
