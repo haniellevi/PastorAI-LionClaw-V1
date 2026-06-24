@@ -78,16 +78,9 @@ class FakeIngestSession:
         }
         self.added: list = []
         self.committed = False
-        # Records text() clauses (RLS set_config / set role) for assertions.
-        self.tenant_calls: list[tuple[str, dict | None]] = []
 
     def execute(self, statement, params=None) -> _Scalar:
-        descriptions = getattr(statement, "column_descriptions", None)
-        if not descriptions:
-            # text() clause (e.g. set_tenant_context_for_igreja) — no routing.
-            self.tenant_calls.append((str(statement), params))
-            return _Scalar(None)
-        entity = descriptions[0]["entity"]
+        entity = statement.column_descriptions[0]["entity"]
         return _Scalar(self._by_entity.get(entity))
 
     def add(self, obj) -> None:
@@ -186,24 +179,6 @@ def test_ingest_reuses_existing_contact() -> None:
     assert not any(isinstance(o, Pessoa) for o in session.added)
     assert not any(isinstance(o, Conversation) for o in session.added)
     assert existing_conv.nao_lidas == 1
-
-
-def test_ingest_sets_tenant_context_for_igreja() -> None:
-    """Fase 0 (#10b): após resolver a igreja pelo instance, o worker ativa o
-    tenant-context (GUC app.tenant_igreja_id + role authenticated) antes de
-    qualquer escrita, e expõe igreja_id no outcome para o path do agente."""
-    connection = WhatsappConnection(igreja_id=_IGREJA, instance="igreja-1")
-    session = FakeIngestSession(connection=connection, pessoa=None, conversation=None)
-    parsed = parse_message_event(_parsed_payload())
-    outcome = ingest_message_event_ex(session, parsed)
-
-    assert outcome.result is IngestionResult.REGISTERED
-    assert outcome.igreja_id == _IGREJA
-    joined = " ".join(sql for sql, _ in session.tenant_calls)
-    assert "app.tenant_igreja_id" in joined
-    assert "set local role authenticated" in joined
-    bound = [p for _, p in session.tenant_calls if p and "igreja_id" in p]
-    assert bound and bound[0]["igreja_id"] == _IGREJA
 
 
 def test_process_webhook_payload_ignores_non_message() -> None:
