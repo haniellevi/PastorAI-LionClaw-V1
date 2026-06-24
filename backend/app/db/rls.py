@@ -41,30 +41,6 @@ def set_tenant_context(session: Session, clerk_user_id: str) -> None:
     session.execute(text("set local role authenticated"))
 
 
-def set_tenant_context_for_igreja(session: Session, igreja_id: str) -> None:
-    """Inject the tenant directly for async/worker paths that have no Clerk JWT.
-
-    The WhatsApp worker processes inbound messages on behalf of a contact who
-    has no Clerk login, so `set_tenant_context` (which needs a clerk_user_id)
-    does not apply. We set the `app.tenant_igreja_id` GUC that
-    `current_igreja_id()` also honors, then drop to the `authenticated` role so
-    the RLS policies are actually enforced — exactly as the HTTP path does.
-
-    Must be called AFTER any deliberately cross-tenant lookup (e.g. resolving an
-    igreja from a WhatsApp `instance`), since dropping to `authenticated` makes
-    every subsequent query in this transaction RLS-scoped to this igreja. The id
-    is bound as a parameter (cast to uuid in `current_igreja_id`) to avoid any
-    injection.
-    """
-    session.execute(
-        text("select set_config('app.tenant_igreja_id', :igreja_id, true)"),
-        {"igreja_id": str(igreja_id)},
-    )
-    # Same role drop as set_tenant_context: the connection role has BYPASSRLS,
-    # so without this the policies are ignored. SET LOCAL reverts on commit.
-    session.execute(text("set local role authenticated"))
-
-
 def clear_tenant_context(session: Session) -> None:
     """Reset the tenant claim for the current transaction."""
     session.execute(
