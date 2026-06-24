@@ -666,3 +666,58 @@ export async function resetIgrejaAgente(
   if (!res.ok) await throwMutationError(res, "Não foi possível restaurar o agente.");
   return asJson<AdminAgente>(res);
 }
+
+// ---------------------------------------------------------------------------
+// Fila de requisição admin → master (#10b Fase 1)
+// ---------------------------------------------------------------------------
+export interface AdminAgenteRequest {
+  id: string;
+  mensagem: string;
+  status: "pendente" | "atendida" | "recusada";
+  resposta: string | null;
+  solicitanteNome: string | null;
+  solicitanteEmail: string | null;
+  criadoEm: string | null;
+  resolvidoEm: string | null;
+}
+
+/** Lista as requisições de mudança no agente de uma igreja (master). */
+export async function fetchIgrejaAgenteRequests(
+  token: string,
+  id: string,
+): Promise<AdminAgenteRequest[]> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/admin/igrejas/${id}/agente/requests`, {
+      headers: authHeaders(token),
+    });
+  } catch {
+    throw new AdminAuthError("network", "Falha de conexão com o servidor.");
+  }
+  if (res.status === 401) throw new AdminSessionExpiredError();
+  if (res.status === 403) throw new AdminAuthError("forbidden", "Acesso negado.");
+  if (!res.ok) {
+    throw new AdminRequestError(res.status, "Não foi possível carregar as requisições.");
+  }
+  return asJson<AdminAgenteRequest[]>(res);
+}
+
+/** Resolve uma requisição (atendida|recusada) com resposta opcional. */
+export async function resolveAgenteRequest(
+  token: string,
+  reqId: string,
+  payload: { status: "atendida" | "recusada"; resposta?: string | null },
+): Promise<AdminAgenteRequest> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/admin/agente/requests/${reqId}/resolver`, {
+      method: "POST",
+      headers: jsonHeaders(token),
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    throw new AdminAuthError("network", "Falha de conexão com o servidor.");
+  }
+  if (!res.ok) await throwMutationError(res, "Não foi possível resolver a requisição.");
+  return asJson<AdminAgenteRequest>(res);
+}

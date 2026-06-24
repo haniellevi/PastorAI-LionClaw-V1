@@ -722,6 +722,45 @@ class AgentConfig(Base):
     )
 
 
+class AgentConfigRequest(Base):
+    """Requisição admin → master para mudar o agente (#10b Fase 1 / delta-043).
+
+    O admin da igreja não edita o comportamento (só o master); aqui ele SOLICITA
+    mudanças por mensagem livre. O master lê no console, ajusta a config pelo
+    editor existente e RESOLVE (``atendida``/``recusada`` + ``resposta``). Tenant
+    (RLS por igreja_id); o master acessa cross-tenant via BYPASSRLS.
+    """
+
+    __tablename__ = "agent_config_requests"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    igreja_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("igrejas.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    solicitante_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("app_users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    mensagem: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'pendente'")
+    )
+    resposta: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # platform_admin (app_user) que resolveu — sem FK (rastro imutável).
+    resolvido_por: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    criado_em: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    resolvido_em: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
 class LlmCredential(Base):
     """BYO LLM credential per igreja (1:1, US-27 / RNF-03).
 

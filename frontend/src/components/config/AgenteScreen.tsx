@@ -20,14 +20,17 @@ import { StatusPill, type PillTone } from "@/components/dashboard/StatusPill";
 import { Toggle } from "@/components/ui/Toggle";
 import { SessionExpiredError } from "@/lib/api";
 import {
+  createConfigRequest,
   createCron,
   CRON_TRIGGERS,
   fetchAgentConfig,
+  fetchConfigRequests,
   fetchCredentialStatus,
   fetchCrons,
   LLM_PROVIDERS,
   saveCredential,
   updateCron,
+  type AgentConfigRequestItem,
   type CronResult,
   type LlmProvider,
 } from "@/lib/agent-api";
@@ -62,6 +65,17 @@ function credentialLabel(state: CredentialState): string {
   return "Sem credencial";
 }
 
+const REQUEST_TONE: Record<AgentConfigRequestItem["status"], PillTone> = {
+  pendente: "muted",
+  atendida: "ok",
+  recusada: "danger",
+};
+const REQUEST_LABEL: Record<AgentConfigRequestItem["status"], string> = {
+  pendente: "Pendente",
+  atendida: "Atendida",
+  recusada: "Recusada",
+};
+
 export function AgenteScreen() {
   const { token, expireSession } = useAuth();
 
@@ -80,6 +94,12 @@ export function AgenteScreen() {
   const [tom, setTom] = useState("");
   const [comportamento, setComportamento] = useState("");
   const [ativo, setAtivo] = useState(false);
+
+  // ── Requisições de mudança (admin → master) ──────────────────────────────
+  const [requests, setRequests] = useState<AgentConfigRequestItem[]>([]);
+  const [reqMensagem, setReqMensagem] = useState("");
+  const [sendingReq, setSendingReq] = useState(false);
+  const [reqError, setReqError] = useState<string | null>(null);
 
   // ── Crons ───────────────────────────────────────────────────────────────
   const [cronNome, setCronNome] = useState("");
@@ -124,10 +144,11 @@ export function AgenteScreen() {
     let alive = true;
     void (async () => {
       try {
-        const [cred, cfg, cronList] = await Promise.all([
+        const [cred, cfg, cronList, reqList] = await Promise.all([
           fetchCredentialStatus(token),
           fetchAgentConfig(token),
           fetchCrons(token),
+          fetchConfigRequests(token),
         ]);
         if (!alive) return;
         setCredentialState(cred.status);
@@ -139,6 +160,7 @@ export function AgenteScreen() {
           setAtivo(cfg.ativo);
         }
         setCrons(cronList);
+        setRequests(reqList);
       } catch (err) {
         if (handleSessionError(err)) return;
         // Falha de leitura não trava a tela — ainda dá pra salvar.
@@ -177,6 +199,26 @@ export function AgenteScreen() {
       setSavingCred(false);
     }
   }, [token, savingCred, apiKey, provedor, flashToast, handleSessionError]);
+
+  // ── Enviar requisição de mudança ao master ───────────────────────────────
+  const submitRequest = useCallback(async () => {
+    if (!token || sendingReq || reqMensagem.trim().length === 0) return;
+    setSendingReq(true);
+    setReqError(null);
+    try {
+      const created = await createConfigRequest(token, reqMensagem.trim());
+      setRequests((prev) => [created, ...prev]);
+      setReqMensagem("");
+      flashToast({ kind: "ok", text: "Requisição enviada ao master." });
+    } catch (err) {
+      if (handleSessionError(err)) return;
+      setReqError(
+        err instanceof ApiError ? err.message : "Não foi possível enviar a requisição.",
+      );
+    } finally {
+      setSendingReq(false);
+    }
+  }, [token, sendingReq, reqMensagem, flashToast, handleSessionError]);
 
   // ── Resetar o formulário de cron (sai do modo edição) ────────────────────
   const resetCronForm = useCallback(() => {
@@ -313,6 +355,7 @@ export function AgenteScreen() {
 
       {/* ── Tab: Comportamento (read-only — definido pela plataforma) ───── */}
       {tab === "behavior" ? (
+        <>
         <div className="card card-pad">
           <div
             className="error-banner"
@@ -326,7 +369,8 @@ export function AgenteScreen() {
             <Icon name="lock" />
             <span>
               O comportamento do agente é definido pela{" "}
-              <strong>plataforma PastorAI</strong>. Fale com o suporte para ajustes.
+              <strong>plataforma PastorAI</strong>. Para ajustes, envie uma
+              requisição ao master abaixo.
             </span>
           </div>
           <div className="row" style={{ marginBottom: "var(--s3)" }}>
@@ -352,6 +396,75 @@ export function AgenteScreen() {
             </StatusPill>
           </div>
         </div>
+
+        {/* ── Requisição de mudança ao master ──────────────────────────── */}
+        <form
+          className="card card-pad"
+          style={{ marginTop: "var(--s4)" }}
+          onSubmit={(e) => {
+            e.preventDefault();
+            void submitRequest();
+          }}
+        >
+          <div className="panel-title">Solicitar mudança ao master</div>
+          {reqError ? (
+            <div className="error-banner" role="alert" style={{ marginBottom: "var(--s3)" }}>
+              <Icon name="alert" />
+              <span>{reqError}</span>
+            </div>
+          ) : null}
+          <div className="field" style={{ marginBottom: "var(--s3)" }}>
+            <label htmlFor="agReq">O que você gostaria de ajustar?</label>
+            <textarea
+              id="agReq"
+              rows={3}
+              value={reqMensagem}
+              onChange={(e) => setReqMensagem(e.target.value)}
+              placeholder="Ex.: deixar o tom mais formal e citar o nome da igreja na saudação."
+            />
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              type="submit"
+              className="btn btn-primary"
+              disabled={reqMensagem.trim().length === 0 || sendingReq}
+              aria-busy={sendingReq || undefined}
+            >
+              {sendingReq ? "Enviando…" : "Enviar requisição"}
+            </button>
+          </div>
+
+          {requests.length > 0 ? (
+            <div style={{ marginTop: "var(--s4)" }}>
+              <div className="panel-title">Minhas requisições</div>
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Mensagem</th>
+                    <th>Status</th>
+                    <th>Resposta do master</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {requests.map((r) => (
+                    <tr key={r.id}>
+                      <td className="nm" style={{ whiteSpace: "pre-wrap" }}>{r.mensagem}</td>
+                      <td>
+                        <StatusPill tone={REQUEST_TONE[r.status]}>
+                          {REQUEST_LABEL[r.status]}
+                        </StatusPill>
+                      </td>
+                      <td className="sub" style={{ whiteSpace: "pre-wrap" }}>
+                        {r.resposta ?? "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null}
+        </form>
+        </>
       ) : null}
 
       {/* ── Tab: Credencial LLM ────────────────────────────────────────── */}
