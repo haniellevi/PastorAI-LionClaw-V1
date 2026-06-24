@@ -227,3 +227,15 @@ TOOLS = {
     "vincular_celula": vincular_celula,
     "avancar_trilha": avancar_trilha,
 }
+
+
+# Whitelist de argumentos aceitos por cada tool (#10b higiene): o executor
+# rejeita qualquer chave de arg fora deste conjunto ANTES do splat **args,
+# evitando que um tool_call malformado/futuro injete kwargs inesperados numa
+# tool mutante. igreja_id é injetado pelo runtime (não vem do tool_call).
+TOOL_ARG_SCHEMA: dict[str, frozenset[str]] = {
+    "registrar_decisao": frozenset({"pessoa_id", "vinculo", "origem", "celula_id"}),
+    "marcar_presenca": frozenset({"pessoa_id", "quantidade"}),
+    "vincular_celula": frozenset({"pessoa_id", "celula_id"}),
+    "avancar_trilha": frozenset({"pessoa_id", "etapa", "subetapa"}),
+}
