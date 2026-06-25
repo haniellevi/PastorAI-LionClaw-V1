@@ -133,6 +133,30 @@ Marque **todos** antes de considerar staging pronto:
       projeto de produção durante o B1.
 - [ ] **RLS efetiva** — após o login da conta de teste, uma consulta cross-tenant
       retorna só a igreja piloto (prova que a RLS funciona no clone).
+- [ ] **Guard de envios off** — com `APP_ENV=staging` e `ALLOW_REAL_SENDS=false`,
+      uma ação de envio (responder no inbox, abrir checkout, convidar membro,
+      criar evento) apenas loga `[SANDBOX]`; nenhuma mensagem, cobrança, e-mail,
+      custo de LLM ou evento real dispara.
+
+---
+
+## Guard de envios (B2)
+
+Fora de produção, os efeitos externos reais ficam **desligados por padrão** por
+um guard na camada de serviço (`app/services/outbound_guard.py`). Viram **no-op
+logado** (`[SANDBOX] …`), retornando um valor neutro — o fluxo continua, nada sai
+para o mundo: `send_text`, `send_media`, `set_webhook`, `connect`/`reconnect`/
+`disconnect` (Evolution), `create_checkout` (Asaas), `send_invite`/
+`send_password_reset` (Brevo), `LLMClient.complete` (OpenAI) e `create_event`/
+`delete_event` (Google Calendar).
+
+Trava dupla: `external_sends_enabled = is_production or ALLOW_REAL_SENDS`. Em
+produção é sempre permitido; em staging/dev só com `ALLOW_REAL_SENDS=true` — e
+**apenas com credenciais sandbox** (Asaas sandbox, Evolution/Brevo de teste).
+
+Permanecem sempre ativos (auth/infra do próprio ambiente, senão staging não
+funciona): login/identidade Clerk, OAuth do Google, Supabase Storage, leituras da
+Evolution e o `validate_credential` do LLM (custo ~zero).
 
 ---
 

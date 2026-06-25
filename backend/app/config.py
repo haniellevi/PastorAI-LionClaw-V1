@@ -32,6 +32,12 @@ class Settings(BaseSettings):
     app_base_url: str = Field(default="http://localhost:8000")
     frontend_url: str = Field(default="http://localhost:3000")
 
+    # ---- Guard de envios externos (B2) --------------------------------------
+    # Fora de produção, efeitos REAIS (WhatsApp, cobrança, e-mail, LLM, agenda)
+    # ficam DESLIGADOS por padrão. Este flag liga-os explicitamente — use apenas
+    # com credenciais de SANDBOX, nunca de produção. Ver external_sends_enabled.
+    allow_real_sends: bool = Field(default=False)
+
     # ---- Clerk (Auth - US-01 / RNF-01) --------------------------------------
     clerk_publishable_key: str = Field(default="")
     clerk_secret_key: str = Field(default="")
@@ -150,6 +156,17 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.app_env.lower() == "production"
+
+    @property
+    def external_sends_enabled(self) -> bool:
+        """Se efeitos externos reais podem disparar (guard B2).
+
+        Produção permite; fora de produção fica bloqueado por padrão, a menos
+        que ``ALLOW_REAL_SENDS`` seja ligado explicitamente (só com credenciais
+        sandbox). É a trava dupla que protege local/staging de enviar WhatsApp,
+        cobrar, mandar e-mail, gastar token de LLM ou mexer no Google Calendar.
+        """
+        return self.is_production or self.allow_real_sends
 
     @property
     def effective_jwks_url(self) -> str:

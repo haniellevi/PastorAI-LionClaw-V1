@@ -17,6 +17,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from app.services.outbound_guard import external_sends_allowed, log_suppressed
+
 SUPPORTED_PROVIDERS: frozenset[str] = frozenset({"openai"})
 
 # Indicative per-1k-token prices (USD) for cost estimation in ai_usage_logs.
@@ -125,6 +127,14 @@ class LLMClient:
 
     def complete(self, system_prompt: str, user_prompt: str) -> LLMResult:
         """Generate a single assistant reply and return text + usage."""
+        if not external_sends_allowed():
+            log_suppressed("LLM", "complete")
+            return LLMResult(
+                texto="[Resposta simulada — envios externos desativados neste ambiente.]",
+                usage=LLMUsage(
+                    modelo=self.model, tokens_in=0, tokens_out=0, custo=0.0
+                ),
+            )
         if self.provedor == "openai":
             client = _build_openai_client(self._api_key)
             resp = client.chat.completions.create(

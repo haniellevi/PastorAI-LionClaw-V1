@@ -13,6 +13,7 @@ import logging
 import httpx
 
 from app.config import Settings, get_settings
+from app.services.outbound_guard import external_sends_allowed, log_suppressed
 
 logger = logging.getLogger("pastorai.gcal")
 
@@ -67,6 +68,11 @@ class GoogleCalendarClient:
         descricao: str | None,
     ) -> str:
         """Create an event and return its Google event id."""
+        if not external_sends_allowed(self._settings):
+            log_suppressed("Google Calendar", "create_event")
+            raise GoogleCalendarError(
+                "Google Calendar desativado fora de producao (guard B2)"
+            )
         base_url, token, calendar_id = self._require_config()
         start, end = _to_rfc3339(data, hora)
         payload: dict[str, object] = {"summary": titulo, "start": start, "end": end}
@@ -91,6 +97,9 @@ class GoogleCalendarClient:
 
     def delete_event(self, google_event_id: str) -> None:
         """Best-effort delete of a previously synced event."""
+        if not external_sends_allowed(self._settings):
+            log_suppressed("Google Calendar", "delete_event")
+            return
         base_url, token, calendar_id = self._require_config()
         try:
             with httpx.Client(base_url=base_url, timeout=15.0) as client:
