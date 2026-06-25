@@ -3,12 +3,14 @@
 Thumbs.db
 
 # ===== Segredos / variaveis de ambiente =====
-# (.env.example NAO eh ignorado de proposito — eh template, deve ir pro repo)
+# (.env.example e .env.staging.example NAO sao ignorados de proposito — sao
+#  templates sem segredo, devem ir pro repo)
 .env
 .env.local
 .env.*.local
 .env.production
 .env.development
+.env.staging
 
 # ===== Python (backend) =====
 __pycache__/
