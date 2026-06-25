@@ -31,6 +31,11 @@ def _use_transport(monkeypatch, handler) -> None:
 
 def _settings(**over) -> Settings:
     base = dict(
+        # allow_real_sends=True: estes testes exercitam o caminho de ENVIO real
+        # (httpx mockado). O guard B2 (outbound_guard) bloquearia em não-produção;
+        # aqui habilitamos para validar o comportamento de envio em si. O bloqueio
+        # do guard é testado em test_outbound_guard.py.
+        allow_real_sends=True,
         evolution_api_url="http://evo:8080",
         evolution_api_key="key",
         evolution_webhook_secret="s3cr3t",

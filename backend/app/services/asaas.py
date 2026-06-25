@@ -18,6 +18,7 @@ from dataclasses import dataclass
 import httpx
 
 from app.config import Settings, get_settings
+from app.services.outbound_guard import external_sends_allowed, log_suppressed
 
 logger = logging.getLogger("pastorai.asaas")
 
@@ -101,6 +102,15 @@ class AsaasClient:
         The setup fee is charged as a one-time payment alongside the recurring
         subscription. Both are created via the official Asaas v3 endpoints.
         """
+        if not external_sends_allowed(self._settings):
+            log_suppressed("Asaas", "create_checkout")
+            return CheckoutResult(
+                customer_id="sandbox",
+                subscription_id="sandbox",
+                setup_charge_id=None,
+                invoice_url=None,
+                status="pendente",
+            )
         base_url, api_key = self._require_config()
         headers = self._headers(api_key)
         fee = self._settings.asaas_setup_fee if setup_fee is None else setup_fee

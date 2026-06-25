@@ -24,6 +24,7 @@ from dataclasses import dataclass
 import httpx
 
 from app.config import Settings, get_settings
+from app.services.outbound_guard import external_sends_allowed, log_suppressed
 
 logger = logging.getLogger("pastorai.evolution")
 
@@ -124,6 +125,9 @@ class EvolutionClient:
         Idempotent: connecting an already-online instance returns its state
         without a QR. The instance is created on demand when missing.
         """
+        if not external_sends_allowed(self._settings):
+            log_suppressed("WhatsApp", "connect")
+            return ConnectionResult(status="offline")
         base_url, api_key = self._require_config()
         headers = self._headers(api_key)
         try:
@@ -152,6 +156,9 @@ class EvolutionClient:
 
     def reconnect(self, instance: str) -> ConnectionResult:
         """Restart an instance and return a fresh QR + state."""
+        if not external_sends_allowed(self._settings):
+            log_suppressed("WhatsApp", "reconnect")
+            return ConnectionResult(status="offline")
         base_url, api_key = self._require_config()
         headers = self._headers(api_key)
         try:
@@ -189,6 +196,9 @@ class EvolutionClient:
         the instance so a later connect reuses it (RF-07). A missing/already
         logged-out instance is treated as success (idempotent). Returns offline.
         """
+        if not external_sends_allowed(self._settings):
+            log_suppressed("WhatsApp", "disconnect")
+            return ConnectionResult(status="offline")
         base_url, api_key = self._require_config()
         headers = self._headers(api_key)
         try:
@@ -212,6 +222,9 @@ class EvolutionClient:
         Returns True on success. Failures are normalized to EvolutionError so the
         caller can retry; the API key is never logged.
         """
+        if not external_sends_allowed(self._settings):
+            log_suppressed("WhatsApp", "send_text")
+            return True
         base_url, api_key = self._require_config()
         headers = self._headers(api_key)
         try:
@@ -277,6 +290,9 @@ class EvolutionClient:
         raw base64 (no `data:` prefix). Returns True on success; failures are
         normalized to EvolutionError so the caller can surface a 502.
         """
+        if not external_sends_allowed(self._settings):
+            log_suppressed("WhatsApp", "send_media")
+            return True
         base_url, api_key = self._require_config()
         headers = self._headers(api_key)
         body: dict[str, object] = {
@@ -314,6 +330,9 @@ class EvolutionClient:
         callback URL is configured. Tries the nested v2.1+ body first, falling
         back to the flat body for older shapes. Returns True when registered.
         """
+        if not external_sends_allowed(self._settings):
+            log_suppressed("WhatsApp", "set_webhook")
+            return True
         callback = (self._settings.evolution_webhook_callback_url or "").strip()
         if not callback:
             logger.warning(

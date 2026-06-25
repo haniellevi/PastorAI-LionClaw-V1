@@ -12,6 +12,7 @@ import logging
 import httpx
 
 from app.config import Settings, get_settings
+from app.services.outbound_guard import external_sends_allowed, log_suppressed
 
 logger = logging.getLogger("pastorai.brevo")
 
@@ -58,6 +59,9 @@ class BrevoClient:
 
     def send_invite(self, *, to_email: str, nome: str, activation_link: str) -> str:
         """Send the activation email; returns the Brevo message id."""
+        if not external_sends_allowed(self._settings):
+            log_suppressed("Brevo", "send_invite")
+            return ""
         base_url, api_key, from_email, from_name = self._require_config()
         headers = {
             "api-key": api_key,
@@ -85,6 +89,9 @@ class BrevoClient:
 
     def send_password_reset(self, *, to_email: str, reset_link: str) -> str:
         """Send the password-reset email; returns the Brevo message id."""
+        if not external_sends_allowed(self._settings):
+            log_suppressed("Brevo", "send_password_reset")
+            return ""
         base_url, api_key, from_email, from_name = self._require_config()
         headers = {
             "api-key": api_key,
