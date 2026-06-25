@@ -32,17 +32,23 @@
   --border-2: oklch(92.8% 0.008 177);
   --border-teal: oklch(90% 0.022 183);
 
-  /* acento teal vivo + mint */
-  --accent: oklch(60% 0.104 185);
+  /* acento teal vivo + mint
+     F1: --accent escurecido 60%→53.5% para AA — texto branco no CTA 3.65→~4.67:1
+     e accent-como-texto sobre branco 3.75→~4.79:1 (medido oklch→WCAG).
+     --accent-bright (mint) e --accent-soft seguem para decoração/estados. */
+  --accent: oklch(53.5% 0.108 186);
   --accent-fg: oklch(99% 0.01 185);
   --accent-soft: oklch(95.8% 0.016 187);
-  --accent-dark: oklch(51.1% 0.086 186);
+  --accent-dark: oklch(46% 0.092 186);
   --accent-bright: oklch(85.5% 0.125 181);
 
   /* estados */
   --ok: oklch(62.7% 0.17 149);
   --ok-soft: oklch(96.2% 0.043 157);
-  --warn: oklch(66.6% 0.157 58);
+  /* F1: --warn escurecido 66.6%→55% para AA como texto sobre branco
+     (3.18→~5.0:1, medido) — diverge do estágio Consolidar (que segue 66.6%),
+     desfazendo a colisão byte-idêntica registrada na reconciliação. */
+  --warn: oklch(55% 0.146 58);
   --warn-soft: oklch(96.2% 0.058 96);
   --danger: oklch(57.7% 0.215 27);
   --danger-soft: oklch(97.1% 0.013 17);
@@ -79,12 +85,12 @@
   /* sombras & efeitos */
   --shadow: 0 1px 2px oklch(31.8% 0.047 186 / 0.05), 0 8px 24px oklch(31.8% 0.047 186 / 0.06);
   --shadow-sm: 0 1px 2px oklch(31.8% 0.047 186 / 0.06);
-  --shadow-primary: 0 8px 20px oklch(60% 0.104 185 / 0.3);
-  --ring: 0 0 0 3px oklch(60% 0.104 185 / 0.12);
+  --shadow-primary: 0 8px 20px oklch(53.5% 0.108 186 / 0.32);
+  --ring: 0 0 0 3px oklch(53.5% 0.108 186 / 0.16);
 
   /* gradientes de marca — aplicados na F1 */
-  --grad-brand: linear-gradient(135deg, oklch(60% 0.104 185), oklch(51.1% 0.086 186));
-  --grad-brand-mint: linear-gradient(135deg, oklch(60% 0.104 185), oklch(85.5% 0.125 181));
+  --grad-brand: linear-gradient(135deg, oklch(53.5% 0.108 186), oklch(46% 0.092 186));
+  --grad-brand-mint: linear-gradient(135deg, oklch(53.5% 0.108 186), oklch(85.5% 0.125 181));
   --grad-sidebar: radial-gradient(120% 120% at 30% 0%, oklch(31.8% 0.047 186), oklch(26.8% 0.038 187) 55%, oklch(23.1% 0.032 188));
 
   --ink: oklch(28% 0.012 186);
@@ -116,6 +122,7 @@ h2,
 h3,
 h4 {
   margin: 0;
+  font-family: var(--font-display);
   font-weight: 620;
   letter-spacing: -0.015em;
   color: var(--fg);
@@ -145,7 +152,7 @@ a {
   grid-template-columns: 1.1fr 0.9fr;
 }
 .login-aside {
-  background: var(--sidebar);
+  background: var(--grad-sidebar);
   color: var(--sidebar-fg);
   padding: var(--s7) var(--s6);
   display: flex;
@@ -167,6 +174,7 @@ a {
   display: flex;
   align-items: center;
   gap: 10px;
+  font-family: var(--font-display);
   font-weight: 640;
   letter-spacing: -0.02em;
   color: #fff;
@@ -176,7 +184,7 @@ a {
   width: 30px;
   height: 30px;
   border-radius: 8px;
-  background: var(--accent);
+  background: var(--grad-brand-mint);
   display: grid;
   place-items: center;
 }
@@ -185,6 +193,22 @@ a {
   height: 18px;
   color: var(--accent-fg);
 }
+
+/* selo dourado do dono (admin principal — feature #4) na sidebar dark */
+.owner-seal {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-family: var(--font-display);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--gold-plan);
+  background: color-mix(in oklch, var(--gold-plan) 18%, transparent);
+}
 .aside-kicker {
   display: inline-block;
   margin-top: var(--s5);
@@ -192,7 +216,7 @@ a {
   font-weight: 600;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: var(--accent);
+  color: var(--accent-bright);
   font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
 }
 .login-aside h2 {
@@ -226,7 +250,7 @@ a {
 .aside-item svg {
   width: 16px;
   height: 16px;
-  color: var(--accent);
+  color: var(--accent-bright);
   flex: none;
   margin-top: 2px;
 }
@@ -294,7 +318,7 @@ input:focus,
 select:focus,
 textarea:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  box-shadow: var(--ring);
 }
 input::placeholder,
 textarea::placeholder {
@@ -320,6 +344,7 @@ input[type="checkbox"] {
 
 /* ---------- BUTTON / BTN-PRIMARY ---------- */
 .btn {
+  font-family: var(--font-display);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -340,6 +365,10 @@ input[type="checkbox"] {
 .btn:active {
   transform: translateY(1px);
 }
+.btn:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
 .btn svg {
   width: 15px;
   height: 15px;
@@ -348,9 +377,10 @@ input[type="checkbox"] {
   background: var(--accent);
   color: var(--accent-fg);
   border-color: transparent;
+  box-shadow: var(--shadow-primary);
 }
 .btn-primary:hover {
-  background: oklch(47% 0.08 185);
+  background: var(--accent-dark);
 }
 .btn-ghost {
   background: transparent;
@@ -429,7 +459,7 @@ input[type="checkbox"] {
   overflow: hidden;
 }
 .sidebar {
-  background: var(--sidebar);
+  background: var(--grad-sidebar);
   color: var(--sidebar-fg);
   display: flex;
   flex-direction: column;
@@ -627,8 +657,13 @@ input[type="checkbox"] {
   color: #fff;
 }
 .nav-item.active {
-  background: var(--accent);
-  color: var(--accent-fg);
+  background: color-mix(in oklch, var(--accent) 22%, transparent);
+  color: #fff;
+  box-shadow: inset 3px 0 0 var(--accent-bright);
+}
+.nav-item.active svg {
+  color: var(--accent-bright);
+  opacity: 1;
 }
 .nav-item svg {
   width: 17px;
@@ -654,7 +689,8 @@ input[type="checkbox"] {
   text-align: center;
 }
 .nav-item.active .badge {
-  background: oklch(99% 0.01 185 / 0.25);
+  background: color-mix(in oklch, var(--accent-bright) 26%, transparent);
+  color: #fff;
 }
 
 /* level 2 — escada do sucesso */
@@ -1224,6 +1260,7 @@ input[type="checkbox"] {
   display: flex;
   align-items: center;
   gap: 8px;
+  font-family: var(--font-display);
   font-size: 13.5px;
   font-weight: 600;
   padding: var(--s4);
@@ -1274,6 +1311,7 @@ input[type="checkbox"] {
   color: var(--accent);
 }
 .stat .val {
+  font-family: var(--font-display);
   font-size: 30px;
   font-weight: 640;
   letter-spacing: -0.02em;

@@ -210,7 +210,14 @@ export function Sidebar({
       <div className="side-church" data-tip="Sua igreja">
         <span className="church-avatar">{initials(user.nome)}</span>
         <span className="church-meta lbl">
-          <strong>Painel da Igreja</strong>
+          <strong>
+            Painel da Igreja
+            {user.isOwner ? (
+              <span className="owner-seal" title="Dono da conta (admin principal)">
+                Dono
+              </span>
+            ) : null}
+          </strong>
           <span>Visão G12</span>
         </span>
       </div>
