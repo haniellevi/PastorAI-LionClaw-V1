@@ -68,7 +68,7 @@
   --r-xs: 5px;
   --r-sm: 10px;
   --r-md: 12px;
-  --r-lg: 14px;
+  --r-lg: 16px; /* design-parity: cards/painéis/modais mais suaves (protótipo 16–18) */
   --r-xl: 20px;
   --r-container: 18px;
   --s1: 4px;
@@ -160,15 +160,32 @@ a {
 }
 
 /* ---------- LOGIN ---------- */
-.login-wrap {
+/* #login = hero (fundo radial escuro); .login-wrap = card flutuante central.
+   O teal vivo do protótipo fica escopado ao login/hero/marca — não vaza
+   para --accent global (que segue calibrado p/ AA na UI autenticada). */
+#login {
   min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--s5);
+  background: radial-gradient(120% 120% at 0% 0%, #0f3a36 0%, #0b2c29 55%, #082220 100%);
+}
+.login-wrap {
+  width: 960px;
+  max-width: 100%;
+  min-height: 540px;
   display: grid;
-  grid-template-columns: 1.1fr 0.9fr;
+  grid-template-columns: 1fr 1fr;
+  background: var(--surface);
+  border-radius: 24px;
+  overflow: hidden;
+  box-shadow: 0 30px 80px oklch(23% 0.03 188 / 0.35);
 }
 .login-aside {
-  background: var(--grad-sidebar);
+  background: linear-gradient(150deg, #0d9488, #0f766e 60%, #0f3a36);
   color: var(--sidebar-fg);
-  padding: var(--s7) var(--s6);
+  padding: 44px 40px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -201,6 +218,13 @@ a {
   background: var(--grad-brand-mint);
   display: grid;
   place-items: center;
+  /* marca "12" (texto) — protótipo Igreja 12. Sora 800. */
+  font-family: var(--font-display);
+  font-weight: 800;
+  font-size: 14px;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--accent-fg);
 }
 .brand-mark svg {
   width: 18px;
@@ -278,11 +302,11 @@ a {
 .login-main {
   display: grid;
   place-items: center;
-  padding: var(--s6);
+  padding: 44px 40px;
 }
 .login-card {
   width: 100%;
-  max-width: 360px;
+  max-width: 380px;
 }
 .login-card h1 {
   font-size: 22px;
@@ -563,6 +587,7 @@ input[type="checkbox"] {
   height: 24px;
   flex: none;
   background: var(--accent);
+  font-size: 12px; /* "12" proporcional à caixa menor da sidebar */
 }
 .side-brand .brand-mark svg {
   width: 16px;
@@ -1204,7 +1229,7 @@ input[type="checkbox"] {
 }
 .card {
   background: var(--surface);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   border-radius: var(--r-lg);
   box-shadow: var(--shadow);
 }
@@ -1340,7 +1365,7 @@ input[type="checkbox"] {
 }
 .stat {
   background: var(--surface);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
   border-radius: var(--r-lg);
   padding: var(--s4);
   position: relative;
@@ -2317,6 +2342,11 @@ table.data-table {
      no mobile. Desktop já tinha .menu-toggle oculto (sidebar sempre visível). */
   .menu-toggle {
     display: none !important;
+  }
+  /* "Recolher menu" é affordance só de desktop; no drawer mobile o usuário fecha
+     pelo overlay/"Mais" do bottom-nav. Oculto p/ não poluir o topo da sidebar. */
+  .collapse-btn {
+    display: none;
   }
   .who {
     display: none;

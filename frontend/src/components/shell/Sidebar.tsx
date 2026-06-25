@@ -191,8 +191,8 @@ export function Sidebar({
     <nav className={`sidebar${collapsed ? " collapsed" : ""}${mobileOpen ? " open" : ""}`}>
       <div className="side-top">
         <div className="side-brand">
-          <span className="brand-mark">
-            <Icon name="brand" />
+          <span className="brand-mark" aria-hidden="true">
+            12
           </span>
           <span className="lbl">Igreja 12</span>
         </div>
