@@ -33,7 +33,7 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: "/icon.svg",
-    apple: "/icon.svg",
+    apple: "/apple-touch-icon.png",
   },
   formatDetection: { telephone: false },
 };
@@ -47,7 +47,7 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: "#1b2526",
+  themeColor: "#0b2c29",
   colorScheme: "light",
 };
 
