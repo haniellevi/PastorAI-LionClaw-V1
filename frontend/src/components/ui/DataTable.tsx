@@ -16,6 +16,8 @@ export interface Column<T> {
   numeric?: boolean;
   /** Largura sugerida (ex.: "1px" para coluna de ação encolher). */
   width?: string;
+  /** Rótulo do card mobile (data-label). Use quando o header não for string. */
+  label?: string;
 }
 
 export interface DataTableProps<T> {
@@ -83,7 +85,13 @@ export function DataTable<T>({
               }
             >
               {columns.map((col, i) => (
-                <td key={i} className={col.numeric ? "num" : undefined}>
+                <td
+                  key={i}
+                  className={col.numeric ? "num" : undefined}
+                  data-label={
+                    col.label ?? (typeof col.header === "string" ? col.header : undefined)
+                  }
+                >
                   {col.cell(row)}
                 </td>
               ))}
