@@ -19,7 +19,9 @@
      o gradiente petróleo + mint nos ativos entram na F1 */
   --sidebar: oklch(21% 0.03 187);
   --sidebar-fg: oklch(86% 0.025 187);
-  --sidebar-muted: oklch(64% 0.03 186);
+  /* F4: 64%→70% p/ passar AA como texto no stop claro do gradiente da sidebar
+     (3.77→4.75:1, medido oklch→WCAG). Segue claramente mais dim que --sidebar-fg. */
+  --sidebar-muted: oklch(70% 0.03 186);
 
   /* tinta (verde-petróleo) */
   --fg: oklch(31.8% 0.047 186);
@@ -102,6 +104,18 @@
 }
 [hidden] {
   display: none !important;
+}
+/* F4 — a11y: respeita "reduzir movimento" do SO; neutraliza fade da .screen e
+   transições globais sem remover o estado final (evita motion sickness). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 html,
 body {
@@ -292,7 +306,7 @@ a {
 }
 .field .helper {
   font-size: 12px;
-  color: var(--faint);
+  color: var(--muted); /* F4: texto essencial (helper) — faint reprovava AA (2.46:1) */
   margin-top: 5px;
 }
 .field .err {
@@ -1028,7 +1042,7 @@ input[type="checkbox"] {
   font-size: 17px;
 }
 .topbar .crumb {
-  color: var(--faint);
+  color: var(--muted); /* F4: breadcrumb é texto essencial — faint reprovava AA */
   font-size: 13px;
 }
 .topbar .search {
@@ -1879,7 +1893,7 @@ table.data-table {
   font-size: 11.5px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--faint);
+  color: var(--muted); /* F4: cabeçalho de coluna é texto essencial — faint reprovava AA */
   font-weight: 600;
   padding: 10px var(--s4);
   border-bottom: 1px solid var(--border);
@@ -2298,8 +2312,11 @@ table.data-table {
   .topbar .search input {
     width: 140px;
   }
+  /* F4 (D1): hambúrguer da Topbar é redundante com o atalho "Mais" do bottom-nav
+     (ambos abrem o mesmo drawer ≤860). Oculto — "Mais" é a entrada única do drawer
+     no mobile. Desktop já tinha .menu-toggle oculto (sidebar sempre visível). */
   .menu-toggle {
-    display: grid !important;
+    display: none !important;
   }
   .who {
     display: none;
@@ -2514,7 +2531,7 @@ table.data-table {
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--faint);
+  color: var(--muted); /* F4: rótulo de filtro é texto essencial — faint reprovava AA */
 }
 .filter-bar select {
   padding: 6px 9px;
@@ -3272,7 +3289,7 @@ table.data-table {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
-  color: var(--faint);
+  color: var(--muted); /* F4: título de seção é texto essencial — faint reprovava AA */
   margin: 0 0 var(--s2);
 }
 .panel-section dl {
