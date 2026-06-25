@@ -276,6 +276,40 @@ a {
   color: var(--danger);
   margin-top: 5px;
 }
+/* campo de senha com botão revelar/ocultar */
+.field-pass {
+  position: relative;
+}
+.field-pass input {
+  padding-right: 42px;
+}
+.field-reveal {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 100%;
+  width: 40px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--faint);
+  border-radius: var(--r-sm);
+  transition: color 0.15s;
+}
+.field-reveal:hover:not(:disabled) {
+  color: var(--fg);
+}
+.field-reveal:focus-visible {
+  color: var(--accent);
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.field-reveal:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
 input,
 select,
 textarea {
