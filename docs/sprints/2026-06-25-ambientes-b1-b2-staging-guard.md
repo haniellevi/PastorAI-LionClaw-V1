@@ -91,11 +91,63 @@ cobriria esses caminhos.
 
 ## Gate para liberar F2/F3
 Liberar o redesign F2/F3 **somente quando**:
-- [ ] B1 manual concluído (Supabase staging + bucket + Clerk dev/test + usuário + migrations);
-- [ ] gates de isolamento do `deploy/STAGING.md` validados (em especial RLS efetiva e
+- [x] B1 manual concluído (Supabase staging + bucket + Clerk dev/test + usuário + migrations);
+- [x] gates de isolamento do `deploy/STAGING.md` validados (em especial RLS efetiva e
       guard off comprovado por log `[SANDBOX]`).
 
 Com B2 já na `main` (`7cd30bb`) e os gates B1 fechados, F2/F3 ficam desbloqueadas.
 
 > Detalhe de contagem: a descrição do PR #41 mencionava "11 métodos"; a contagem real é
 > **12** (subcontagem benigna — mais protegido, não menos).
+
+---
+
+## B1 manual — execução e gates fechados (2026-06-25)
+
+Execução dos passos operacionais descritos em `deploy/STAGING.md`. Projeto de staging:
+**Igreja12-dev** (ref distinto de produção — verificado caractere a caractere antes de
+qualquer escrita no banco).
+
+### Sequência executada
+
+| Passo | Ação | Resultado |
+|-------|------|-----------|
+| 1 | Projeto Supabase de staging criado (free tier) | ref staging ≠ ref prod ✅ |
+| 2 | `backend/.env` preenchido a partir de `.env.staging.example` | `APP_ENV=staging`, `ALLOW_REAL_SENDS=false`, URLs/keys de staging, Fernet exclusivo ✅ |
+| 3 | Bucket privado `whatsapp-media` criado no Storage de staging | `public=False` confirmado via API ✅ |
+| 4 | Instância Clerk dev criada; chaves `pk_test_`/`sk_test_` configuradas em back e front | Clerk de teste em ambos ✅ |
+| 5 | Migrations aplicadas via runner (`apply_migrations.py apply`) com confirmação interativa do host | 24/24 migrations aplicadas, tabela `schema_migrations` criada ✅ |
+| 6 | `app_users.clerk_user_id` atualizado de `user_seed_pastor_clerk_id` → id real do Clerk dev | `SELECT` confirmou a troca ✅ |
+| 7 | Backend iniciado (`uvicorn app.main:app --port 8000`) | `env=staging`, `startup complete` ✅ |
+
+### Gates de isolamento — todos fechados
+
+| Gate (`deploy/STAGING.md`) | Evidência | Status |
+|-----------------------------|-----------|--------|
+| Ref distinto | ref staging ≠ `pffafnchtxbimpwyaczq` (prod) | ✅ |
+| Clerk de teste | `pk_test_`/`sk_test_` nos dois arquivos; validado por script | ✅ |
+| Cripto exclusiva | `SECRETS_ENCRYPTION_KEY` gerado localmente, Fernet válido, ≠ prod | ✅ |
+| Volume = seed | `igrejas=1`, `pessoas=1`, `app_users=1` — apenas dados fictícios | ✅ |
+| Externos sem credencial | Evolution/OpenAI/Asaas/Brevo/Google vazios no `.env` | ✅ |
+| Produção intocada | Nenhuma migration, linha ou credencial tocada no projeto de prod | ✅ |
+| Migrations 24/24 | Runner aplicou em ordem, registrado em `schema_migrations` | ✅ |
+| Login + seed casado | `POST /auth/login` → `churchId = 00000000-…-000001` (igreja piloto) | ✅ |
+| RLS efetiva | `GET /contacts` autenticado → só a pessoa do seed, zero cross-tenant | ✅ |
+| Guard `[SANDBOX]` | `POST /auth/forgot-password` → `[SANDBOX] Brevo suprimido em nao-producao: send_password_reset` no log | ✅ |
+| `/health` | `{"status":"ok"}` | ✅ |
+
+### Ressalvas pós-B1
+
+- **Workers não sobem nesta fase:** `queue_worker` e `cron_worker` permanecem parados
+  conforme orientação do `STAGING.md`. Iniciá-los exigiria credenciais sandbox de
+  Evolution/Asaas (ausentes por design neste estágio).
+- **`frontend/.env.local`** preenchido com `pk_test_` e `NEXT_PUBLIC_API_URL`; o frontend
+  Next não foi iniciado no B1 (os gates de ambiente provam pelo backend).
+- **venv ausente:** `pip install` foi feito no Python global (Windows, sem venv), o que
+  rebaixou pacotes globais (`langgraph`, `openai`). Não afeta o B1 nem produção, mas
+  deve ser corrigido antes de F2/F3 (criar `backend/.venv`).
+
+### Decisão: F2/F3 liberadas do ponto de vista de ambiente
+
+Todos os gates do `deploy/STAGING.md` estão fechados. O ambiente de staging está isolado,
+funcional e com o guard B2 ativo. **F2 e F3 podem ser iniciadas.**
