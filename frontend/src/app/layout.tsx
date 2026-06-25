@@ -2,6 +2,19 @@ import type { Metadata, Viewport } from "next";
 
 import { AppProviders } from "@/components/providers/AppProviders";
 
+// Webfonts self-hosted (Igreja 12 — F1). Servidas do node_modules via @fontsource;
+// o build empacota os woff2 localmente, sem chamadas externas. As famílias batem
+// com os tokens --font / --font-display / --mono do globals.css.
+import "@fontsource/plus-jakarta-sans/400.css";
+import "@fontsource/plus-jakarta-sans/500.css";
+import "@fontsource/plus-jakarta-sans/600.css";
+import "@fontsource/plus-jakarta-sans/700.css";
+import "@fontsource/sora/600.css";
+import "@fontsource/sora/700.css";
+import "@fontsource/sora/800.css";
+import "@fontsource/jetbrains-mono/400.css";
+import "@fontsource/jetbrains-mono/500.css";
+
 import "./globals.css";
 
 export const metadata: Metadata = {

@@ -12,6 +12,9 @@
   },
   "dependencies": {
     "@clerk/nextjs": "^5.7.5",
+    "@fontsource/jetbrains-mono": "^5.2.8",
+    "@fontsource/plus-jakarta-sans": "^5.2.8",
+    "@fontsource/sora": "^5.2.8",
     "next": "14.2.15",
     "react": "18.3.1",
     "react-dom": "18.3.1"
