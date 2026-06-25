@@ -127,7 +127,7 @@ export function Sidebar({
         {item.badge ? <span className="badge">{item.badge}</span> : null}
         {item.locked ? (
           <span className="soon" title="Disponível em breve" aria-hidden="true">
-            ⌛
+            <Icon name="lock" />
           </span>
         ) : null}
       </button>

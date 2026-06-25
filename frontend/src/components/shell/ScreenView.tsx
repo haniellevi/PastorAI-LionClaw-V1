@@ -25,6 +25,7 @@ import { InboxScreen } from "@/components/inbox/InboxScreen";
 import { RelatoriosScreen } from "@/components/reports/RelatoriosScreen";
 import { WhatsappScreen } from "@/components/whatsapp/WhatsappScreen";
 import { PerfilScreen } from "@/components/profile/PerfilScreen";
+import { ModuleTabs } from "./ModuleTabs";
 import { Icon } from "@/lib/icons";
 import { SCREEN_META } from "@/lib/navigation";
 
@@ -45,16 +46,31 @@ export function ScreenView({ route, param }: { route: string; param?: string | n
     return <CelulasScreen />;
   }
   if (route === "g12") {
-    return <G12Screen />;
+    return (
+      <>
+        <ModuleTabs group="discipular" />
+        <G12Screen />
+      </>
+    );
   }
   if (route === "enviar") {
     return <EnviarScreen />;
   }
   if (route === "consolidar") {
-    return <ConsolidarScreen />;
+    return (
+      <>
+        <ModuleTabs group="consolidar" />
+        <ConsolidarScreen />
+      </>
+    );
   }
   if (route === "consol-individual") {
-    return <ConsolIndividualScreen />;
+    return (
+      <>
+        <ModuleTabs group="consolidar" />
+        <ConsolIndividualScreen />
+      </>
+    );
   }
   if (route === "inbox") {
     return <InboxScreen />;
@@ -66,7 +82,12 @@ export function ScreenView({ route, param }: { route: string; param?: string | n
     return <RelatoriosScreen />;
   }
   if (route === "central-celula") {
-    return <CentralCelulaScreen />;
+    return (
+      <>
+        <ModuleTabs group="discipular" />
+        <CentralCelulaScreen />
+      </>
+    );
   }
   if (route === "comunicados") {
     return <ComunicadosScreen />;

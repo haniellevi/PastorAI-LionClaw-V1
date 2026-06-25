@@ -1614,6 +1614,25 @@ input[type="checkbox"] {
   color: var(--fg);
   box-shadow: 0 1px 2px oklch(20% 0.02 186 / 0.08);
 }
+/* abas de módulo (F2): barra acima da tela rolável, alinhada ao padding da .screen */
+.module-tabs {
+  align-self: flex-start;
+  margin: var(--s5) var(--s5) 0;
+}
+.module-tabs .tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.module-tabs .tab.locked {
+  color: var(--faint);
+  cursor: default;
+}
+.module-tabs .tab svg {
+  width: 13px;
+  height: 13px;
+  opacity: 0.7;
+}
 
 /* empty-state */
 .empty-state {
