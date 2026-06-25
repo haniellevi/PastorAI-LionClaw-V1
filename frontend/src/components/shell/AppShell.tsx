@@ -13,6 +13,7 @@ import { canSee } from "@/lib/permissions";
 import { usePermissions } from "@/lib/permissions-context";
 import { useHashRoute } from "@/lib/use-hash-route";
 
+import { BottomNav } from "./BottomNav";
 import { ScreenView } from "./ScreenView";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
@@ -83,6 +84,7 @@ export function AppShell() {
         <Topbar user={user} route={resolvedBase} onMenuToggle={() => setMobileOpen((v) => !v)} />
         <ScreenView route={resolvedBase} param={resolvedParam} />
       </div>
+      <BottomNav onMore={() => setMobileOpen((v) => !v)} />
     </div>
   );
 }

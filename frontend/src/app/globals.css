@@ -3782,3 +3782,103 @@ table.data-table {
 .meter.over > span {
   background: var(--warn);
 }
+
+/* ===========================================================================
+   F3 — mobile-first: bottom-nav, folga p/ a barra e data-table em cards.
+   Apresentação apenas. O bottom-nav (components/shell/BottomNav.tsx) navega por
+   #hash p/ screenIds JÁ existentes e aparece só em telas estreitas.
+   =========================================================================== */
+
+/* Bottom-nav: oculto no desktop; fixo no rodapé em mobile. */
+.bottom-nav {
+  display: none;
+}
+.bn-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-height: 52px;
+  padding: 6px 4px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+.bn-item svg {
+  width: 22px;
+  height: 22px;
+}
+.bn-item.active {
+  color: var(--accent);
+}
+
+@media (max-width: 860px) {
+  .bottom-nav {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 30; /* sob o drawer-sidebar (z40) e o conv-panel (z50) */
+    display: flex;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  /* Folga p/ o conteúdo rolável não ficar sob a barra. */
+  .screen {
+    padding-bottom: calc(56px + env(safe-area-inset-bottom));
+  }
+}
+
+/* data-table → cards empilhados no telefone (rótulo via data-label). */
+@media (max-width: 600px) {
+  .data-table thead {
+    display: none;
+  }
+  .data-table,
+  .data-table tbody,
+  .data-table tr,
+  .data-table td {
+    display: block;
+    width: 100%;
+  }
+  .data-table tr {
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    margin-bottom: var(--s3);
+    padding: 4px var(--s3);
+  }
+  .data-table td {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--s3);
+    border-bottom: 1px solid var(--border);
+    padding: 8px 0;
+    text-align: right;
+  }
+  .data-table td::before {
+    content: attr(data-label);
+    font-weight: 600;
+    color: var(--muted);
+    text-align: left;
+  }
+  .data-table td:last-child {
+    border-bottom: none;
+  }
+  .data-table td.num {
+    text-align: right;
+  }
+}
+
+/* Fallback seguro p/ tabelas inline (não-DataTable): aplicar a classe só onde o
+   smoke detectar estouro horizontal real — não pré-aplicar em massa. */
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
