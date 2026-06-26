@@ -2886,23 +2886,32 @@ table.data-table {
   display: flex;
   gap: 12px;
   align-items: center;
-  padding: 11px 14px;
-  border-bottom: 1px solid var(--border);
-  border-left: 3px solid transparent;
+  padding: 11px 12px;
+  margin: 1px 6px;
+  /* zera a borda nativa do <button>: o reset global só ajusta font/cursor, então
+     topo+direita herdavam o outset cinza do UA = efeito "planilha". Sem borda,
+     a separação fica por respiro + estado (hover/selecionado). */
+  border: 0;
+  border-radius: var(--r-md);
   cursor: pointer;
   text-align: left;
-  width: 100%;
   background: none;
   font: inherit;
   color: inherit;
-  transition: background 0.12s, border-color 0.12s;
+  position: relative;
+  transition: background 0.12s, box-shadow 0.12s;
 }
 .conv:hover {
   background: var(--surface-2);
 }
+.conv:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
 .conv.active {
   background: var(--accent-soft);
-  border-left-color: var(--accent);
+  /* barra lateral teal sutil (segue o arredondamento), sem borda preta */
+  box-shadow: inset 3px 0 0 var(--accent);
 }
 .conv-sub {
   display: flex;
@@ -2937,14 +2946,14 @@ table.data-table {
   place-items: center;
 }
 .conv .av {
-  width: 38px;
-  height: 38px;
+  width: 40px;
+  height: 40px;
   border-radius: 999px;
-  background: var(--surface-2);
+  background: var(--accent-soft);
   display: grid;
   place-items: center;
   font-weight: 600;
-  color: var(--muted);
+  color: var(--accent-dark);
   flex: none;
 }
 .conv-main {
@@ -2957,8 +2966,8 @@ table.data-table {
   gap: 6px;
 }
 .conv-top strong {
-  font-size: 13.5px;
-  font-weight: 560;
+  font-size: 14px;
+  font-weight: 600;
   flex: 1;
   white-space: nowrap;
   overflow: hidden;
@@ -3546,6 +3555,23 @@ table.data-table {
   /* Lista ocupa a tela inteira (antes ficava capada em 40vh, empilhada). */
   .conv-list {
     max-height: none;
+  }
+  /* Linhas com mais respiro, avatar maior e alvo de toque confortável —
+     cara de app de mensagens, não de tabela. */
+  .conv {
+    padding: 12px 14px;
+    margin: 2px 8px;
+    gap: 13px;
+  }
+  .conv .av {
+    width: 44px;
+    height: 44px;
+  }
+  .conv-top strong {
+    font-size: 15px;
+  }
+  .conv .snippet {
+    font-size: 13.5px;
   }
   /* placeholder do painel direito não compete com a lista; o vazio real da
      lista é tratado pelo .empty-state interno da ConversationList. */
