@@ -394,6 +394,19 @@ textarea {
   outline: none;
   transition: border-color 0.15s, box-shadow 0.15s;
 }
+/* select nativo: troca o chevron do SO por um do design system (Igreja 12) e
+   reserva espaço à direita pro ícone, pra opção longa não encostar nele.
+   Aplicado em todo <select> (filtros, forms, modais) — fix sistêmico. */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  min-height: 40px;
+  padding-right: 34px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23586a68' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 11px center;
+  background-size: 16px;
+}
 input:focus,
 select:focus,
 textarea:focus {
@@ -1881,6 +1894,10 @@ button.jr-row:focus-visible {
   border-radius: var(--r-lg);
   box-shadow: var(--shadow);
   padding: var(--s4);
+  /* nunca estourar a viewport: form alto rola dentro do modal, em vez de
+     empurrar o rodapé (Salvar/Cancelar) pra fora da tela no mobile. */
+  max-height: calc(100dvh - 2 * var(--s4));
+  overflow-y: auto;
   animation: modal-rise 0.18s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .modal-head {
@@ -1888,6 +1905,9 @@ button.jr-row:focus-visible {
   align-items: center;
   justify-content: space-between;
   gap: var(--s3);
+  padding-bottom: var(--s3);
+  margin-bottom: var(--s3);
+  border-bottom: 1px solid var(--border);
 }
 .modal-head strong {
   font-size: 14px;
@@ -1952,7 +1972,18 @@ button.jr-row:focus-visible {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: var(--s3);
+  margin-top: var(--s4);
+  padding-top: var(--s3);
+  border-top: 1px solid var(--border);
+}
+
+/* alvo de toque ≥44px no mobile pros controles de modal e selects */
+@media (max-width: 600px) {
+  select,
+  .modal-head .btn,
+  .modal-foot .btn {
+    min-height: 44px;
+  }
 }
 @keyframes modal-fade {
   from {
@@ -2662,10 +2693,12 @@ table.data-table {
   color: var(--muted); /* F4: rótulo de filtro é texto essencial — faint reprovava AA */
 }
 .filter-bar select {
-  padding: 6px 9px;
+  /* background-COLOR (não o shorthand): o shorthand apagaria o chevron
+     definido em `select`. padding-right mantém o espaço do ícone. */
+  padding: 6px 34px 6px 9px;
   border: 1px solid var(--border);
   border-radius: var(--r-sm);
-  background: var(--surface);
+  background-color: var(--surface);
   font: inherit;
   font-size: 13px;
   color: var(--fg);
