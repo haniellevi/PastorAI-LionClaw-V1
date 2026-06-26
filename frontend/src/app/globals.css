@@ -2025,8 +2025,9 @@ table.data-table {
   font-size: 12px;
   color: var(--muted);
 }
-/* Avatar de pessoa só serve ao card mobile; some na tabela desktop. */
-.data-table td .avatar {
+/* Avatar de pessoa só serve ao card mobile; some na tabela desktop.
+   Escopado em .people-cards: outras DataTables com .avatar em célula ficam intocadas. */
+.data-table.people-cards td .avatar {
   display: none;
 }
 .row-link {
