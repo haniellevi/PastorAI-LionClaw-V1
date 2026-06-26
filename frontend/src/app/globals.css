@@ -3283,6 +3283,17 @@ table.data-table {
   background: var(--danger-soft);
   border-color: var(--danger);
 }
+/* PR2 — botão "voltar" do cabeçalho da thread (mobile master-detail). O render é
+   condicionado por showBack=isMobile; o @media é defesa para o desktop. */
+.thread-back {
+  flex: none;
+  margin-left: -4px;
+}
+@media (min-width: 861px) {
+  .thread-back {
+    display: none;
+  }
+}
 
 /* Avatar com foto de perfil do WhatsApp (Etapa 4) — preenche o círculo. */
 .av-img {
@@ -3524,12 +3535,42 @@ table.data-table {
   }
 }
 @media (max-width: 860px) {
+  /* PR2 — master-detail: o inbox vira tela única (lista OU thread), nunca as
+     duas empilhadas. selectedId controla o estado (.thread-open via React). */
   .inbox {
     grid-template-columns: 1fr;
-    grid-template-rows: auto 1fr; /* lista (limitada) + thread preenche e rola */
+    grid-template-rows: minmax(0, 1fr); /* uma célula só, ocupa a altura toda */
+    border: 0; /* full-bleed no telefone (mais "app de mensagens") */
+    border-radius: 0;
   }
+  /* Lista ocupa a tela inteira (antes ficava capada em 40vh, empilhada). */
   .conv-list {
-    max-height: 40vh;
+    max-height: none;
+  }
+  /* placeholder do painel direito não compete com a lista; o vazio real da
+     lista é tratado pelo .empty-state interno da ConversationList. */
+  .inbox > .empty-pane {
+    display: none;
+  }
+
+  /* Estado THREAD: a lista some e a conversa ocupa a célula inteira. */
+  .screen-chat.thread-open .conv-list {
+    display: none;
+  }
+  /* Modo thread ganha o máximo de altura: some o cabeçalho da tela (botão
+     Atualizar — o polling segue) e os banners de nível de tela (a thread já
+     mostra seus próprios). Uma tela, uma tarefa. */
+  .screen-chat.thread-open .screen-head,
+  .screen-chat.thread-open > .error-banner,
+  .screen-chat.thread-open > .degraded-banner {
+    display: none;
+  }
+  /* Encosta a tela do chat nas bordas no telefone (acompanha o full-bleed do
+     .inbox), dando largura útil à lista e ao composer. */
+  .screen-chat {
+    padding-left: var(--s2);
+    padding-right: var(--s2);
+    padding-top: var(--s3);
   }
 }
 
