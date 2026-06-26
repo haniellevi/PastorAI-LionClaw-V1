@@ -1,16 +1,23 @@
 "use client";
 
 /**
- * sidebar-nav (contrato 4.3 / seção 4.2).
- * Monta o menu pela UNIÃO dos papéis acumulados, usando role_permissions
- * (permissions.ts) como fonte de verdade. Grupo Configuração só aparece para
- * admin. Estados default/active; navegação por hash sem reload.
+ * sidebar-nav FLAT (paridade protótipo "Igreja 12").
+ * Grupos planos com título (sem accordion/expand). Cada item é uma linha com
+ * bloco de ícone arredondado colorido + label. A Jornada renderiza só o head
+ * de cada estágio (as subs vivem no ModuleTabs/deep-link). O menu é a UNIÃO
+ * dos papéis acumulados (role_permissions). Configuração só para admin.
+ * Navegação por hash, sem reload. canSee/locked/deep-link preservados.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 
 import type { SessionUser } from "@/lib/auth-context";
 import { Icon } from "@/lib/icons";
-import { NAV_SECTIONS, type NavItem, type NavSection } from "@/lib/navigation";
+import {
+  NAV_SECTIONS,
+  STAGE_ACCENT,
+  type NavItem,
+  type NavSection,
+} from "@/lib/navigation";
 import { allowedScreens } from "@/lib/permissions";
 import { usePermissions } from "@/lib/permissions-context";
 import { isAdmin } from "@/lib/roles";
@@ -53,57 +60,16 @@ export function Sidebar({
   }, [user.roles, user.isOwner, matrix]);
   const visible = (target: string) => allowed.has(target);
 
-  // Seções visíveis (Configuração apenas para admin + telas liberadas).
+  // Seções visíveis (Configuração apenas para admin).
   const sections = useMemo(
     () => NAV_SECTIONS.filter((s) => (s.adminOnly ? admin : true)),
     [admin],
   );
 
-  const [openSections, setOpenSections] = useState<Set<string>>(
-    () => new Set(NAV_SECTIONS.filter((s) => s.defaultOpen).map((s) => s.id)),
-  );
-  const [openStages, setOpenStages] = useState<Set<string>>(() => new Set());
-
-  // Auto-expande a seção/estágio que contém a rota ativa.
-  useEffect(() => {
-    for (const section of NAV_SECTIONS) {
-      const inItems = section.items?.some((i) => i.target === route);
-      const stage = section.stages?.find(
-        (st) => st.head.target === route || st.subs?.some((sub) => sub.target === route),
-      );
-      if (inItems || stage) {
-        setOpenSections((prev) => (prev.has(section.id) ? prev : new Set(prev).add(section.id)));
-      }
-      if (stage) {
-        setOpenStages((prev) =>
-          prev.has(stage.stage) ? prev : new Set(prev).add(stage.stage),
-        );
-      }
-    }
-  }, [route]);
-
-  function toggleSection(id: string) {
-    setOpenSections((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-
-  function toggleStage(id: string) {
-    setOpenStages((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
-
-  function renderItem(item: NavItem, kind: "item" | "sub") {
+  function renderItem(item: NavItem, accent?: NavItem["accent"]) {
+    const tint = item.accent ?? accent;
     const classes = [
       "nav-item",
-      kind === "sub" ? "nav-sub" : "",
       item.locked ? "locked" : "",
       !item.locked && route === item.target ? "active" : "",
     ]
@@ -112,17 +78,20 @@ export function Sidebar({
 
     return (
       <button
-        key={`${kind}-${item.target}-${item.label}`}
+        key={`${item.target}-${item.label}`}
         type="button"
         className={classes}
         data-tip={item.label}
+        data-accent={tint}
         aria-current={!item.locked && route === item.target ? "page" : undefined}
         aria-disabled={item.locked || undefined}
         onClick={() => {
           if (!item.locked) onNavigate(item.target);
         }}
       >
-        <Icon name={item.icon} />
+        <span className="nav-ic" aria-hidden="true">
+          <Icon name={item.icon} />
+        </span>
         <span className="lbl">{item.label}</span>
         {item.badge ? <span className="badge">{item.badge}</span> : null}
         {item.locked ? (
@@ -134,57 +103,24 @@ export function Sidebar({
     );
   }
 
-  function renderSectionBody(section: NavSection) {
-    const items = (section.items ?? []).filter((i) => visible(i.target) || i.locked);
-    const stages = (section.stages ?? []).filter((st) => {
-      const headVisible = visible(st.head.target);
-      const anySub = st.subs?.some((sub) => visible(sub.target) || sub.locked);
-      return headVisible || anySub;
-    });
+  function renderSection(section: NavSection) {
+    // Itens diretos + heads de estágio (flat) que o usuário pode ver.
+    const directItems = (section.items ?? []).filter(
+      (i) => visible(i.target) || i.locked,
+    );
+    const stageHeads = (section.stages ?? [])
+      .filter((st) => visible(st.head.target))
+      .map((st) => ({ item: st.head, accent: STAGE_ACCENT[st.stage] }));
+
+    if (directItems.length === 0 && stageHeads.length === 0) return null;
 
     return (
-      <>
-        {items.map((i) => renderItem(i, "item"))}
-        {stages.map((st) => {
-          const headActive = route === st.head.target;
-          const stageOpen = openStages.has(st.stage);
-          const hasSubs = (st.subs ?? []).length > 0;
-          const subs = (st.subs ?? []).filter((sub) => visible(sub.target) || sub.locked);
-          return (
-            <div
-              key={st.stage}
-              className={`stage${stageOpen ? " open" : ""}`}
-              data-stage={st.stage}
-            >
-              <button
-                type="button"
-                className={`nav-stage${headActive ? " active" : ""}`}
-                data-tip={st.head.label}
-                aria-current={headActive ? "page" : undefined}
-                onClick={() => {
-                  if (hasSubs) toggleStage(st.stage);
-                  onNavigate(st.head.target);
-                }}
-              >
-                <span className="st-bar" aria-hidden="true" />
-                <Icon name={st.head.icon} className="st-ic" />
-                <span className="lbl">{st.head.label}</span>
-                {hasSubs ? <Icon name="caret" className="st-caret" /> : null}
-              </button>
-              {subs.map((sub) => renderItem(sub, "sub"))}
-            </div>
-          );
-        })}
-      </>
+      <div className="nav-group" key={section.id}>
+        <div className="nav-group-title lbl">{section.label}</div>
+        {directItems.map((i) => renderItem(i))}
+        {stageHeads.map(({ item, accent }) => renderItem(item, accent))}
+      </div>
     );
-  }
-
-  function isSectionVisible(section: NavSection): boolean {
-    const anyItem = section.items?.some((i) => visible(i.target) || i.locked);
-    const anyStage = section.stages?.some(
-      (st) => visible(st.head.target) || st.subs?.some((sub) => visible(sub.target) || sub.locked),
-    );
-    return Boolean(anyItem || anyStage);
   }
 
   return (
@@ -222,51 +158,7 @@ export function Sidebar({
         </span>
       </div>
 
-      <div className="nav-scroll">
-        {sections
-          .filter((s) => !s.adminOnly && isSectionVisible(s))
-          .map((section) => {
-            const open = openSections.has(section.id);
-            return (
-              <section key={section.id} className={`navsec${open ? " open" : ""}`}>
-                <button
-                  type="button"
-                  className="navsec-head"
-                  aria-expanded={open}
-                  onClick={() => toggleSection(section.id)}
-                >
-                  <span className="lbl">{section.label}</span>
-                  <Icon name="caret" className="sec-caret" />
-                </button>
-                <div className="navsec-body">{renderSectionBody(section)}</div>
-              </section>
-            );
-          })}
-      </div>
-
-      {admin
-        ? sections
-            .filter((s) => s.adminOnly && isSectionVisible(s))
-            .map((section) => {
-              const open = openSections.has(section.id);
-              return (
-                <div className="nav-config" key={section.id}>
-                  <section className={`navsec${open ? " open" : ""}`}>
-                    <button
-                      type="button"
-                      className="navsec-head"
-                      aria-expanded={open}
-                      onClick={() => toggleSection(section.id)}
-                    >
-                      <span className="lbl">{section.label}</span>
-                      <Icon name="caret" className="sec-caret" />
-                    </button>
-                    <div className="navsec-body">{renderSectionBody(section)}</div>
-                  </section>
-                </div>
-              );
-            })
-        : null}
+      <div className="nav-scroll">{sections.map(renderSection)}</div>
 
       <div className="side-foot">
         <div className="side-user">
