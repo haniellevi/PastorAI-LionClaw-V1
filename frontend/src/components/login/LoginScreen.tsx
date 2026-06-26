@@ -256,8 +256,8 @@ export function LoginScreen() {
             }}
           >
             <div className="brand">
-              <span className="brand-mark">
-                <Icon name="brand" />
+              <span className="brand-mark" aria-hidden="true">
+                12
               </span>
               Igreja 12
             </div>
