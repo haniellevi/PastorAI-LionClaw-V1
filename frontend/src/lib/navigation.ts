@@ -144,7 +144,7 @@ export const SCREEN_META: Record<
   { title: string; crumb: string; info?: string }
 > = {
   dashboard: {
-    title: "Dashboard",
+    title: "Painel de Hoje",
     crumb: "Pendências de hoje",
     info: "Fila de trabalho pastoral — o que exige sua ação hoje.",
   },

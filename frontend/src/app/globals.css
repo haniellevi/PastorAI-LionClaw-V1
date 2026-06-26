@@ -2199,6 +2199,10 @@ table.data-table {
   .topbar .search input {
     width: 140px;
   }
+  /* eyebrow (grupo) é só de desktop — paridade protótipo Igreja 12 (some no mobile). */
+  .tb-eyebrow {
+    display: none;
+  }
   /* F4 (D1): hambúrguer da Topbar é redundante com o atalho "Mais" do bottom-nav
      (ambos abrem o mesmo drawer ≤860). Oculto — "Mais" é a entrada única do drawer
      no mobile. Desktop já tinha .menu-toggle oculto (sidebar sempre visível). */
