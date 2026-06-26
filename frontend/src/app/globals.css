@@ -1264,6 +1264,223 @@ input[type="checkbox"] {
   color: var(--warn);
 }
 
+/* ---------- HERO do Painel de Hoje (saudação + data) ---------- */
+.dash-hero {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--s4);
+  flex-wrap: wrap;
+  margin-bottom: var(--s5);
+}
+.dash-greet h2 {
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 680;
+  letter-spacing: -0.02em;
+}
+.dash-lead {
+  color: var(--muted);
+  font-size: 14px;
+  margin-top: 4px;
+}
+.dash-lead strong {
+  color: var(--danger);
+  font-weight: 680;
+}
+.dash-greet .sk-line {
+  width: 60%;
+  margin-top: 8px;
+}
+.dash-hero-side {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+}
+.dash-today {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--faint);
+  white-space: nowrap;
+}
+
+/* ---------- TILES principais (clicáveis quando a rota é permitida) ---------- */
+.tile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: var(--s4);
+  margin-bottom: var(--s5);
+}
+.tile {
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-lg);
+  padding: var(--s4);
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+button.tile {
+  cursor: pointer;
+  transition: border-color 0.12s, box-shadow 0.12s, transform 0.12s;
+}
+button.tile:hover {
+  border-color: var(--accent);
+  box-shadow: var(--shadow);
+}
+button.tile:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.tile-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.tile-label {
+  font-size: 12.5px;
+  font-weight: 560;
+  color: var(--muted);
+}
+.tile-ic {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  background: var(--accent-soft);
+  color: var(--accent);
+  flex: none;
+}
+.tile-ic svg {
+  width: 16px;
+  height: 16px;
+}
+.tile-val {
+  font-family: var(--font-display);
+  font-size: 30px;
+  font-weight: 680;
+  letter-spacing: -0.02em;
+  margin-top: 10px;
+}
+.tile-sub {
+  font-size: 12px;
+  color: var(--faint);
+  margin-top: 4px;
+}
+
+/* ---------- KPIs secundários (Decisões / CSIM) — faixa discreta ---------- */
+.kpi-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--s4);
+  margin-bottom: var(--s5);
+}
+.kpi {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 12px var(--s4);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.kpi-label {
+  font-size: 12px;
+  font-weight: 560;
+  color: var(--muted);
+}
+.kpi-val {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 660;
+  letter-spacing: -0.01em;
+}
+.kpi-hint {
+  font-size: 11.5px;
+  color: var(--faint);
+}
+
+/* ---------- "A jornada esta semana" (etapas G12 — card lateral forte) ---------- */
+.jornada .jr-body {
+  padding: var(--s3) var(--s4) var(--s4);
+}
+.jr-row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 9px;
+  border-radius: var(--r-md);
+}
+button.jr-row {
+  width: 100%;
+  background: transparent;
+  border: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+button.jr-row:hover {
+  background: var(--surface-2);
+}
+button.jr-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.jr-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  flex: none;
+}
+.jr-dot.ganhar {
+  background: oklch(71.9% 0.169 13);
+}
+.jr-dot.consolidar {
+  background: oklch(64% 0.151 60);
+}
+.jr-dot.discipular {
+  background: oklch(64% 0.13 162);
+}
+.jr-dot.enviar {
+  background: oklch(58% 0.2 277);
+}
+.jr-label {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 560;
+  color: var(--fg);
+}
+.jr-val {
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 680;
+}
+.jr-foot {
+  margin-top: var(--s3);
+  padding-top: var(--s3);
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.jr-cta {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--accent);
+  font-weight: 600;
+  cursor: pointer;
+}
+.jr-cta:hover {
+  text-decoration: underline;
+}
+
 /* grid assimétrico do dashboard */
 /* ---------- VISÃO GERAL (#2 — totais por tipo/etapa + KPIs) ---------- */
 .overview {

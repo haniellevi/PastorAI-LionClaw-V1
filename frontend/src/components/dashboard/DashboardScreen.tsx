@@ -35,13 +35,14 @@ import {
   type TeamMember,
   type WorkItem,
 } from "@/lib/dashboard-api";
-import { compareUrgency, computeDeadline } from "@/lib/deadline";
-import { Icon } from "@/lib/icons";
+import { compareUrgency } from "@/lib/deadline";
+import { Icon, type IconKey } from "@/lib/icons";
+import { canSee } from "@/lib/permissions";
+import { usePermissions } from "@/lib/permissions-context";
 import { isLeader } from "@/lib/roles";
+import { useHashRoute } from "@/lib/use-hash-route";
 
 import { NextActions } from "./NextActions";
-import { OverviewSection } from "./OverviewSection";
-import { StatCard, type StatCardData } from "./StatCard";
 import { WorkQueueItem } from "./WorkQueueItem";
 
 const TICK_MS = 30_000;
@@ -60,8 +61,20 @@ interface Toast {
   text: string;
 }
 
+/** Tile principal do Painel de Hoje. `value` undefined = dado indisponível ("—"). */
+interface DashTile {
+  key: string;
+  label: string;
+  icon: IconKey;
+  value: number | undefined;
+  sub: string;
+  target: string;
+}
+
 export function DashboardScreen() {
   const { user, token, expireSession } = useAuth();
+  const { matrix } = usePermissions();
+  const [, navigate] = useHashRoute();
 
   const [items, setItems] = useState<WorkItem[]>([]);
   const [members, setMembers] = useState<TeamMember[]>([]);
@@ -172,46 +185,84 @@ export function DashboardScreen() {
     return [...filtered].sort((a, b) => compareUrgency(a, b, now));
   }, [openItems, tab, user, now]);
 
-  // ---- stat-cards derivados ----------------------------------------------
-  const stats: StatCardData[] = useMemo(() => {
-    const countByTipo = (tipos: string[]) =>
-      openItems.filter((i) => tipos.includes(i.tipo)).length;
-    const overdue = openItems.filter(
-      (i) => computeDeadline(i.prazo, now).tone === "late",
-    ).length;
-    const visitantes = countByTipo(["visitante", "conectar_celula"]);
-    const atendimentos = countByTipo(["atendimento"]);
-    const relatorios = countByTipo(["relatorio"]);
-    return [
-      {
-        icon: "user",
-        label: "Visitantes sem acompanhamento",
-        value: visitantes,
-        delta: "aguardando conexão à célula",
-        alert: visitantes > 0,
-      },
-      {
-        icon: "chat",
-        label: "Atendimentos aguardando",
-        value: atendimentos,
-        delta: "pedidos de atendimento humano",
-        alert: atendimentos > 0,
-      },
-      {
-        icon: "document",
-        label: "Relatórios pendentes",
-        value: relatorios,
-        delta: "células nesta semana",
-      },
-      {
-        icon: "clock",
-        label: "Prazos atrasados",
-        value: overdue,
-        delta: "itens fora do prazo",
-        alert: overdue > 0,
-      },
-    ];
-  }, [openItems, now]);
+  // ---- hero: saudação + data + nº de ações pendentes ----------------------
+  const firstName = user?.nome ? user.nome.trim().split(/\s+/)[0] : "";
+  const greeting = useMemo(() => {
+    const h = new Date().getHours();
+    return h < 12 ? "Bom dia" : h < 18 ? "Boa tarde" : "Boa noite";
+  }, []);
+  const todayLabel = useMemo(() => {
+    const full = new Date().toLocaleDateString("pt-BR", {
+      weekday: "long",
+      day: "2-digit",
+      month: "long",
+      year: "numeric",
+    });
+    return full.charAt(0).toUpperCase() + full.slice(1);
+  }, []);
+  const acoesHoje = openItems.length;
+
+  // ---- tiles principais (dados reais; sem deltas inventados) --------------
+  const relatoriosPendentes = useMemo(
+    () => openItems.filter((i) => i.tipo === "relatorio").length,
+    [openItems],
+  );
+  const membros = overview?.porTipo?.membro;
+  const tiles: DashTile[] = [
+    {
+      key: "visitantes",
+      label: "Visitantes novos",
+      icon: "ganhar",
+      value: overview?.porTipo?.visitante,
+      sub: "no funil de Ganhar",
+      target: "ganhar",
+    },
+    {
+      key: "consolidar",
+      label: "Em consolidação",
+      icon: "consolidar",
+      value: overview?.porEtapa?.consolidar,
+      sub: "na trilha de Consolidar",
+      target: "consolidar",
+    },
+    {
+      key: "celulas",
+      label: "Células ativas",
+      icon: "discipular",
+      value: overview?.celulasAtivas,
+      sub: membros != null ? `${membros} membros` : "com líder",
+      target: "celulas",
+    },
+    {
+      key: "relatorios",
+      label: "Relatórios pendentes",
+      icon: "document",
+      value: relatoriosPendentes,
+      sub: "células nesta semana",
+      target: "relatorios",
+    },
+  ];
+
+  // ---- KPIs secundários (dado real de overview; "—" se indisponível) ------
+  const secondaryKpis: Array<{
+    key: string;
+    label: string;
+    value: number | undefined;
+    hint: string;
+  }> = [
+    {
+      key: "decisoes",
+      label: "Decisões por Jesus",
+      value: overview?.decisoesJesus,
+      hint: "decisões registradas",
+    },
+    {
+      key: "csim",
+      label: "Sem interesse (CSIM)",
+      value: overview?.semInteresse,
+      hint: "fora do funil",
+    },
+  ];
 
   // ---- helpers de mutação -------------------------------------------------
   const removeWithAnim = useCallback((id: string) => {
@@ -384,8 +435,28 @@ export function DashboardScreen() {
 
   return (
     <div className="screen dashboard" key="dashboard">
-      <div className="screen-head">
-        <div className="actions">
+      <div className="dash-hero">
+        <div className="dash-greet">
+          <h2>
+            {greeting}
+            {firstName ? `, ${firstName}` : ""}
+          </h2>
+          {showSkeleton ? (
+            <div className="sk-line sk-md" />
+          ) : acoesHoje > 0 ? (
+            <p className="dash-lead">
+              Você tem{" "}
+              <strong>
+                {acoesHoje} {acoesHoje === 1 ? "ação" : "ações"}
+              </strong>{" "}
+              que {acoesHoje === 1 ? "precisa" : "precisam"} de atenção hoje.
+            </p>
+          ) : (
+            <p className="dash-lead">Nenhuma ação pastoral pendente agora.</p>
+          )}
+        </div>
+        <div className="dash-hero-side">
+          <span className="dash-today">{todayLabel}</span>
           <button
             type="button"
             className="btn btn-sm"
@@ -413,17 +484,39 @@ export function DashboardScreen() {
         </div>
       ) : null}
 
-      {overview ? <OverviewSection stats={overview} /> : null}
-
-      <div className="stat-grid">
+      <div className="tile-grid">
         {showSkeleton
           ? Array.from({ length: 4 }).map((_, i) => (
-              <div className="stat skeleton" key={i}>
+              <div className="tile skeleton" key={i}>
                 <div className="sk-line sk-sm" />
                 <div className="sk-line sk-lg" />
               </div>
             ))
-          : stats.map((s) => <StatCard key={s.label} {...s} />)}
+          : tiles.map((t) => (
+              <DashTileCard
+                key={t.key}
+                tile={t}
+                canNavigate={user ? canSee(t.target, user.roles, matrix) : false}
+                onNavigate={navigate}
+              />
+            ))}
+      </div>
+
+      <div className="kpi-strip">
+        {showSkeleton
+          ? Array.from({ length: 2 }).map((_, i) => (
+              <div className="kpi skeleton" key={i}>
+                <div className="sk-line sk-sm" />
+                <div className="sk-line sk-md" />
+              </div>
+            ))
+          : secondaryKpis.map((k) => (
+              <div className="kpi" key={k.key}>
+                <span className="kpi-label">{k.label}</span>
+                <span className="kpi-val num">{k.value == null ? "—" : k.value}</span>
+                <span className="kpi-hint">{k.hint}</span>
+              </div>
+            ))}
       </div>
 
       <div className="dash-grid">
@@ -503,7 +596,15 @@ export function DashboardScreen() {
               <div className="sk-line sk-sm" />
             </div>
           ) : (
-            <NextActions items={openItems} members={members} />
+            <>
+              <JourneyCard
+                overview={overview}
+                canSeeAgente={user ? canSee("agente", user.roles, matrix) : false}
+                canNavigate={(target) => (user ? canSee(target, user.roles, matrix) : false)}
+                onNavigate={navigate}
+              />
+              <NextActions items={openItems} members={members} />
+            </>
           )}
         </div>
       </div>
@@ -668,6 +769,114 @@ function ActionModal({
               </button>
             </div>
           </form>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Tile principal do Painel (clicável só quando a rota é permitida ao usuário)
+// ---------------------------------------------------------------------------
+function DashTileCard({
+  tile,
+  canNavigate,
+  onNavigate,
+}: {
+  tile: DashTile;
+  canNavigate: boolean;
+  onNavigate: (target: string) => void;
+}) {
+  const display = tile.value == null ? "—" : tile.value;
+  const inner = (
+    <>
+      <div className="tile-head">
+        <span className="tile-label">{tile.label}</span>
+        <span className="tile-ic">
+          <Icon name={tile.icon} />
+        </span>
+      </div>
+      <div className="tile-val num">{display}</div>
+      <div className="tile-sub">{tile.sub}</div>
+    </>
+  );
+  if (!canNavigate) {
+    return <div className="tile">{inner}</div>;
+  }
+  return (
+    <button type="button" className="tile is-link" onClick={() => onNavigate(tile.target)}>
+      {inner}
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// "A jornada esta semana" — totais por etapa G12 (dado real de overview)
+// ---------------------------------------------------------------------------
+const JOURNEY_STAGES: Array<{ key: string; label: string; route: string }> = [
+  { key: "ganhar", label: "Ganhar", route: "ganhar" },
+  { key: "consolidar", label: "Consolidar", route: "consolidar" },
+  { key: "discipular", label: "Discipular", route: "g12" },
+  { key: "enviar", label: "Enviar", route: "enviar" },
+];
+
+function JourneyCard({
+  overview,
+  canSeeAgente,
+  canNavigate,
+  onNavigate,
+}: {
+  overview: OverviewStats | null;
+  canSeeAgente: boolean;
+  canNavigate: (target: string) => boolean;
+  onNavigate: (target: string) => void;
+}) {
+  const scopeLabel = overview
+    ? overview.scope === "celula"
+      ? "sua célula"
+      : "sua igreja"
+    : null;
+
+  return (
+    <div className="card jornada">
+      <div className="panel-title">
+        A jornada esta semana
+        {scopeLabel ? <span className="count">· {scopeLabel}</span> : null}
+      </div>
+      <div className="jr-body">
+        {JOURNEY_STAGES.map((stage) => {
+          const value = overview?.porEtapa?.[stage.key];
+          const display = value == null ? "—" : value;
+          const can = canNavigate(stage.route);
+          const content = (
+            <>
+              <span className={`jr-dot ${stage.key}`} />
+              <span className="jr-label">{stage.label}</span>
+              <span className="jr-val num">{display}</span>
+            </>
+          );
+          return can ? (
+            <button
+              type="button"
+              className="jr-row"
+              key={stage.key}
+              onClick={() => onNavigate(stage.route)}
+            >
+              {content}
+            </button>
+          ) : (
+            <div className="jr-row" key={stage.key}>
+              {content}
+            </div>
+          );
+        })}
+        {canSeeAgente ? (
+          <div className="jr-foot">
+            A cada estágio, o agente cobra prazos e avisa quem precisa agir.{" "}
+            <button type="button" className="jr-cta" onClick={() => onNavigate("agente")}>
+              Configurar agente →
+            </button>
+          </div>
         ) : null}
       </div>
     </div>
