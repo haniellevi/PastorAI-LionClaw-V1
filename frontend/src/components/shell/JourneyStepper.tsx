@@ -13,15 +13,39 @@
  *  - sub-telas mapeiam para a etapa pai via journeyStageOf;
  *  - fora da Jornada (journeyStageOf=null) não renderiza nada.
  */
+import type { SessionUser } from "@/lib/auth-context";
 import { useAuth } from "@/lib/auth-context";
 import {
   STAGE_ACCENT,
   journeyStageOf,
   journeyStages,
+  type NavStage,
 } from "@/lib/navigation";
-import { canSee } from "@/lib/permissions";
+import { canSee, type PermissionMatrix } from "@/lib/permissions";
 import { usePermissions } from "@/lib/permissions-context";
 import { useHashRoute } from "@/lib/use-hash-route";
+
+interface JourneyStep {
+  stage: NavStage["stage"];
+  label: string;
+  /** Primeiro target navegável da etapa (head ou 1ª sub visível). */
+  target: string;
+}
+
+/** Primeiro target navegável da etapa: o head se acessível, senão a primeira
+ *  sub visível (pulando telas bloqueadas/sem permissão). null = etapa sem
+ *  nenhuma tela acessível ao usuário. Mantém permissões: nunca devolve um
+ *  target que o usuário não pode ver (e nunca uma tela locked). */
+function firstVisibleTarget(
+  stage: NavStage,
+  user: SessionUser,
+  matrix: PermissionMatrix,
+): string | null {
+  for (const item of [stage.head, ...(stage.subs ?? [])]) {
+    if (!item.locked && canSee(item.target, user.roles, matrix)) return item.target;
+  }
+  return null;
+}
 
 export function JourneyStepper() {
   const { user } = useAuth();
@@ -37,30 +61,38 @@ export function JourneyStepper() {
   const active = journeyStageOf(base);
   if (!active) return null;
 
-  // Visibilidade igual à Sidebar: etapa sem canSee no head some.
-  const stages = journeyStages().filter((st) =>
-    canSee(st.head.target, user.roles, matrix),
-  );
-  if (stages.length <= 1) return null;
+  // Etapa visível = tem ≥1 target navegável (head ou sub). O chip navega para
+  // esse target — ex.: Discipular com #g12 bloqueado e #central-celula visível
+  // aparece e leva a #central-celula. Sem rota nova; permissões preservadas.
+  const steps = journeyStages()
+    .map((st): JourneyStep | null => {
+      const target = firstVisibleTarget(st, user, matrix);
+      return target ? { stage: st.stage, label: st.head.label, target } : null;
+    })
+    .filter((s): s is JourneyStep => s !== null);
+
+  if (steps.length <= 1) return null;
+  // Defensivo: nunca renderizar a trilha sem a etapa atual representável.
+  if (!steps.some((s) => s.stage === active)) return null;
 
   return (
     <nav className="journey-stepper" aria-label="Etapas da Jornada G12">
       <ol>
-        {stages.map((st, i) => {
-          const isActive = st.stage === active;
+        {steps.map((s, i) => {
+          const isActive = s.stage === active;
           return (
-            <li className="journey-step" key={st.stage}>
+            <li className="journey-step" key={s.stage}>
               <button
                 type="button"
                 className={`journey-step-btn${isActive ? " active" : ""}`}
-                data-accent={STAGE_ACCENT[st.stage]}
+                data-accent={STAGE_ACCENT[s.stage]}
                 aria-current={isActive ? "step" : undefined}
-                onClick={() => navigate(st.head.target)}
+                onClick={() => navigate(s.target)}
               >
                 <span className="journey-step-num" aria-hidden="true">
                   {i + 1}
                 </span>
-                <span className="journey-step-lbl">{st.head.label}</span>
+                <span className="journey-step-lbl">{s.label}</span>
               </button>
             </li>
           );
