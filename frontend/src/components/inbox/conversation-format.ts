@@ -101,6 +101,21 @@ export function messageStamp(iso: string | null): string {
   return `${wd}, ${day} ${mon} ${year}, ${hh}:${mm}`;
 }
 
+/**
+ * Horário curto (HH:MM) para o balão da mensagem — reduz o ruído visual do
+ * carimbo completo (que vai para o `title`/tooltip). Mesma base de `messageStamp`
+ * (hora local), sem alterar fuso. Vazio quando a data é inválida.
+ */
+export function messageTime(iso: string | null): string {
+  if (!iso) return "";
+  const ts = Date.parse(iso);
+  if (Number.isNaN(ts)) return "";
+  const d = new Date(ts);
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${hh}:${mm}`;
+}
+
 /** Rótulo do autor da mensagem para a bolha (contato | ia | humano). */
 export function authorLabel(autor: string): string {
   if (autor === "ia") return "IA";
