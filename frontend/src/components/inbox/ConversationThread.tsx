@@ -182,6 +182,8 @@ export function ConversationThread({
   onTogglePanel,
   onDelete,
   onTransfer,
+  onBack,
+  showBack,
 }: {
   conversation: Conversation;
   selfId: string;
@@ -201,6 +203,9 @@ export function ConversationThread({
   onTogglePanel: () => void;
   onDelete: (c: Conversation) => void;
   onTransfer: (c: Conversation) => void;
+  /** Mobile (master-detail): volta da thread para a lista. */
+  onBack?: () => void;
+  showBack?: boolean;
 }) {
   const [draft, setDraft] = useState("");
   const [pendingFile, setPendingFile] = useState<File | null>(null);
@@ -356,6 +361,17 @@ export function ConversationThread({
   return (
     <div className="conv-thread">
       <div className="thread-head">
+        {showBack && onBack ? (
+          <button
+            type="button"
+            className="btn btn-icon thread-back"
+            onClick={onBack}
+            aria-label="Voltar para a lista de conversas"
+            title="Voltar"
+          >
+            <Icon name="chevron-left" />
+          </button>
+        ) : null}
         <span className="av">
           {avatarUrl ? (
             // eslint-disable-next-line @next/next/no-img-element

@@ -94,6 +94,20 @@ export function InboxScreen() {
   // operante, sem banner de degradação.
   const [connStatus, setConnStatus] = useState<ConnectionStatus | "unknown">("unknown");
 
+  // Master-detail mobile (PR2): em ≤860px o inbox é tela única (lista OU thread).
+  // selectedId null = lista; tocar uma conversa abre a thread; "voltar" volta à
+  // lista. No desktop a lista e a thread seguem lado a lado (seleção automática).
+  const [isMobile, setIsMobile] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(max-width: 860px)").matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 860px)");
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+
   const allowed = user ? canAccessInbox(user.roles) : false;
   // Exclusão de conversa é admin-only (espelha require_role(["admin"]) no backend).
   const isAdminUser = user ? isAdmin(user.roles) : false;
@@ -238,11 +252,17 @@ export function InboxScreen() {
     });
   }, [conversations, filter, search]);
 
-  // Seleção padrão: primeira conversa visível quando nenhuma escolhida.
+  // Seleção padrão: no desktop abre a 1ª conversa visível; no mobile o inbox é
+  // master-detail (começa na lista), então só limpamos uma seleção que ficou
+  // inválida (conversa saiu da lista) — voltando para a lista.
   useEffect(() => {
     if (selectedId && conversations.some((c) => c.id === selectedId)) return;
+    if (isMobile) {
+      if (selectedId) setSelectedId(null);
+      return;
+    }
     setSelectedId(visible[0]?.id ?? null);
-  }, [visible, conversations, selectedId]);
+  }, [visible, conversations, selectedId, isMobile]);
 
   const selected = useMemo(
     () => conversations.find((c) => c.id === selectedId) ?? null,
@@ -491,7 +511,7 @@ export function InboxScreen() {
   const showSkeleton = loading && !loaded;
 
   return (
-    <div className="screen screen-chat" key="inbox">
+    <div className={`screen screen-chat${selected ? " thread-open" : ""}`} key="inbox">
       <div className="screen-head">
         <div className="actions">
           <button
@@ -581,6 +601,8 @@ export function InboxScreen() {
               setDeleteTarget(c);
             }}
             onTransfer={openTransfer}
+            showBack={isMobile}
+            onBack={() => setSelectedId(null)}
           />
         ) : (
           <div className="empty-pane">
