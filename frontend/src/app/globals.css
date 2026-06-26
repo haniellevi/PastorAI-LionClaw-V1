@@ -1749,11 +1749,25 @@ button.jr-row:focus-visible {
   background: transparent;
   border: none;
   cursor: pointer;
+  /* rótulo não quebra no meio: contador .num fica colado e alinhado */
+  white-space: nowrap;
 }
 .tab.active {
   background: var(--surface);
   color: var(--fg);
   box-shadow: 0 1px 2px oklch(20% 0.02 186 / 0.08);
+}
+/* No mobile, o strip de abas no cabeçalho do painel (ex.: #enviar, 4 abas com
+   rótulos longos) cai para a própria linha e quebra em pílulas, sem vazar na
+   horizontal. flex-wrap só age quando há estouro → desktop fica intacto. */
+@media (max-width: 860px) {
+  .panel-title {
+    flex-wrap: wrap;
+    row-gap: var(--s2);
+  }
+  .panel-title .tabs {
+    flex-wrap: wrap;
+  }
 }
 /* abas de módulo (F2): barra acima da tela rolável, alinhada ao padding da .screen */
 .module-tabs {
