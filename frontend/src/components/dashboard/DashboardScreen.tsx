@@ -243,6 +243,27 @@ export function DashboardScreen() {
     },
   ];
 
+  // ---- KPIs secundários (dado real de overview; "—" se indisponível) ------
+  const secondaryKpis: Array<{
+    key: string;
+    label: string;
+    value: number | undefined;
+    hint: string;
+  }> = [
+    {
+      key: "decisoes",
+      label: "Decisões por Jesus",
+      value: overview?.decisoesJesus,
+      hint: "decisões registradas",
+    },
+    {
+      key: "csim",
+      label: "Sem interesse (CSIM)",
+      value: overview?.semInteresse,
+      hint: "fora do funil",
+    },
+  ];
+
   // ---- helpers de mutação -------------------------------------------------
   const removeWithAnim = useCallback((id: string) => {
     setResolvingIds((prev) => new Set(prev).add(id));
@@ -478,6 +499,23 @@ export function DashboardScreen() {
                 canNavigate={user ? canSee(t.target, user.roles, matrix) : false}
                 onNavigate={navigate}
               />
+            ))}
+      </div>
+
+      <div className="kpi-strip">
+        {showSkeleton
+          ? Array.from({ length: 2 }).map((_, i) => (
+              <div className="kpi skeleton" key={i}>
+                <div className="sk-line sk-sm" />
+                <div className="sk-line sk-md" />
+              </div>
+            ))
+          : secondaryKpis.map((k) => (
+              <div className="kpi" key={k.key}>
+                <span className="kpi-label">{k.label}</span>
+                <span className="kpi-val num">{k.value == null ? "—" : k.value}</span>
+                <span className="kpi-hint">{k.hint}</span>
+              </div>
             ))}
       </div>
 
