@@ -9,11 +9,15 @@
    ============================================================ */
 
 :root {
-  /* superfícies & neutros (paleta fria) */
-  --bg: oklch(96% 0.005 183);
+  /* superfícies & neutros (paleta fria)
+     PR fix/design-surface-hierarchy: re-tune da escada de elevação (revê o Design Lock
+     F0 de superfícies). Antes os 3 canais de separação ficavam no piso ao mesmo tempo e
+     --surface-2 era MAIS clara que o --bg (plano do meio invertido). Agora escada
+     monotônica bg(94) < surface-2(96.5) < surface(100). Só muda L; hue/chroma preservados. */
+  --bg: oklch(94% 0.005 183);
   --surface: oklch(100% 0 0);
-  --surface-2: oklch(98% 0.003 174);
-  --surface-3: oklch(96.7% 0.004 180);
+  --surface-2: oklch(96.5% 0.003 174);
+  --surface-3: oklch(95% 0.004 180);
 
   /* sidebar dark — F0 só esfria o matiz (mantém a escada de L atual);
      o gradiente petróleo + mint nos ativos entram na F1 */
@@ -28,10 +32,12 @@
   --muted: oklch(41.1% 0.024 184);
   --faint: oklch(72% 0.016 182);
 
-  /* bordas frias */
-  --border: oklch(94.6% 0.008 177);
-  --border-strong: oklch(90.5% 0.014 181);
-  --border-2: oklch(92.8% 0.008 177);
+  /* bordas frias
+     PR fix/design-surface-hierarchy: hairlines escurecidas p/ ficarem visíveis sobre branco
+     E sobre o novo --bg, sem virar borda preta/grossa (87.5% ainda é cinza claro). */
+  --border: oklch(91.5% 0.008 177);
+  --border-strong: oklch(87.5% 0.014 181);
+  --border-2: oklch(91% 0.008 177);
   --border-teal: oklch(90% 0.022 183);
 
   /* acento teal vivo + mint
@@ -84,9 +90,11 @@
   --font-display: "Sora", var(--font);
   --mono: "JetBrains Mono", ui-monospace, "SF Mono", "IBM Plex Mono", Menlo, monospace;
 
-  /* sombras & efeitos */
-  --shadow: 0 1px 2px oklch(31.8% 0.047 186 / 0.05), 0 8px 24px oklch(31.8% 0.047 186 / 0.06);
-  --shadow-sm: 0 1px 2px oklch(31.8% 0.047 186 / 0.06);
+  /* sombras & efeitos
+     PR fix/design-surface-hierarchy: opacidade reforçada p/ lift leve (2º stop 0.06→0.09,
+     sm 0.06→0.08). Segue difusa/petróleo — elevação suave, não sombra pesada. */
+  --shadow: 0 1px 2px oklch(31.8% 0.047 186 / 0.05), 0 8px 24px oklch(31.8% 0.047 186 / 0.09);
+  --shadow-sm: 0 1px 2px oklch(31.8% 0.047 186 / 0.08);
   --shadow-primary: 0 8px 20px oklch(53.5% 0.108 186 / 0.32);
   --ring: 0 0 0 3px oklch(53.5% 0.108 186 / 0.16);
 
@@ -898,7 +906,9 @@ input[type="checkbox"] {
   position: sticky;
   top: 0;
   z-index: 5;
-  background: oklch(96% 0.005 183 / 0.82);
+  /* PR fix/design-surface-hierarchy: acompanha o --bg via color-mix (antes era o valor
+     96% hardcoded do --bg antigo; com --bg→94% viraria "faixa clara fantasma" ao rolar). */
+  background: color-mix(in oklch, var(--bg) 82%, transparent);
   backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--border);
   padding: var(--s4) var(--s5);
