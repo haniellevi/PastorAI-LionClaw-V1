@@ -7,7 +7,7 @@
 import { InfoTip } from "@/components/ui/InfoTip";
 import type { SessionUser } from "@/lib/auth-context";
 import { Icon } from "@/lib/icons";
-import { SCREEN_META } from "@/lib/navigation";
+import { SCREEN_META, groupLabelForScreen } from "@/lib/navigation";
 import { ROLE_DEFS, sortedRoles } from "@/lib/roles";
 
 interface TopbarProps {
@@ -18,6 +18,7 @@ interface TopbarProps {
 
 export function Topbar({ user, route, onMenuToggle }: TopbarProps) {
   const meta = SCREEN_META[route] ?? { title: "Igreja 12", crumb: "" };
+  const group = groupLabelForScreen(route);
   const roles = sortedRoles(user.roles);
 
   return (
@@ -25,9 +26,12 @@ export function Topbar({ user, route, onMenuToggle }: TopbarProps) {
       <button type="button" className="menu-toggle" aria-label="Abrir menu" onClick={onMenuToggle}>
         <Icon name="menu" />
       </button>
-      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-        <h1>{meta.title}</h1>
-        {meta.info ? <InfoTip text={meta.info} /> : null}
+      <div className="tb-titles">
+        {group ? <span className="tb-eyebrow">{group}</span> : null}
+        <div className="tb-title-row">
+          <h1>{meta.title}</h1>
+          {meta.info ? <InfoTip text={meta.info} /> : null}
+        </div>
       </div>
       <div className="search">
         <Icon name="search" />

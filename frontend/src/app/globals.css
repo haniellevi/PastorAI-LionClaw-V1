@@ -652,98 +652,89 @@ input[type="checkbox"] {
   color: var(--sidebar-muted);
 }
 
-/* level 1 — seções colapsáveis */
-.navsec {
+/* grupos planos (paridade protótipo Igreja 12 — F2 flat) */
+.nav-group {
   margin-top: var(--s4);
 }
-.navsec:first-child {
-  margin-top: 0;
+.nav-group:first-child {
+  margin-top: 2px;
 }
-.navsec-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  cursor: pointer;
+.nav-group-title {
+  display: block;
   margin: 0 4px 6px;
-  padding: 4px 8px 6px;
-  border: none;
-  background: transparent;
-  text-align: left;
+  padding: 0 8px;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: oklch(62% 0.015 187);
-  border-bottom: 1px solid oklch(30% 0.012 187);
-  transition: color 0.12s;
-}
-.navsec-head:hover {
-  color: oklch(80% 0.02 187);
-}
-.navsec-head .sec-caret {
-  margin-left: auto;
-  width: 13px;
-  height: 13px;
-  flex: none;
-  opacity: 0.65;
-  transition: transform 0.18s;
-}
-.navsec.open > .navsec-head .sec-caret {
-  transform: rotate(90deg);
-}
-.navsec-body {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-.navsec:not(.open) > .navsec-body {
-  display: none;
-}
-.nav-config {
-  margin-top: var(--s4);
-  padding-top: var(--s3);
-  border-top: 1px solid oklch(28% 0.012 187);
-}
-.nav-config .navsec {
-  margin-top: 0;
 }
 
-/* nav items genéricos */
+/* nav items — linha com bloco de ícone arredondado colorido */
 .nav-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
+  gap: 11px;
+  padding: 7px 10px;
   border-radius: var(--r-sm);
   color: var(--sidebar-fg);
   font-size: 13.5px;
+  font-weight: 500;
   border: none;
   background: transparent;
   width: 100%;
   text-align: left;
   transition: background 0.12s, color 0.12s;
   position: relative;
+  margin-bottom: 1px;
 }
 .nav-item:hover {
   background: oklch(26% 0.012 187);
   color: #fff;
 }
 .nav-item.active {
-  background: color-mix(in oklch, var(--accent) 22%, transparent);
-  color: #fff;
-  box-shadow: inset 3px 0 0 var(--accent-bright);
-}
-.nav-item.active svg {
+  background: color-mix(in oklch, var(--accent) 18%, transparent);
   color: var(--accent-bright);
+  font-weight: 640;
+}
+
+/* bloco do ícone: 27x27, tint + fg coloridos (--ic, default teal #0d9488) */
+.nav-ic {
+  --ic: oklch(60% 0.094 184);
+  width: 27px;
+  height: 27px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  background: color-mix(in oklch, var(--ic) 18%, transparent);
+  color: var(--ic);
+  transition: background 0.12s;
+}
+.nav-ic svg {
+  width: 16px;
+  height: 16px;
   opacity: 1;
 }
-.nav-item svg {
-  width: 17px;
-  height: 17px;
-  flex: none;
-  opacity: 0.9;
+.nav-item[data-accent="rose"] .nav-ic {
+  --ic: oklch(71.9% 0.169 13);
 }
+.nav-item[data-accent="amber"] .nav-ic {
+  --ic: oklch(64% 0.151 60);
+}
+.nav-item[data-accent="green"] .nav-ic {
+  --ic: oklch(64% 0.13 162);
+}
+.nav-item[data-accent="indigo"] .nav-ic {
+  --ic: oklch(58% 0.2 277);
+}
+.nav-item[data-accent="whats"] .nav-ic {
+  --ic: oklch(63% 0.144 152);
+}
+.nav-item.active .nav-ic {
+  background: color-mix(in oklch, var(--ic) 30%, transparent);
+}
+
 .nav-item .lbl {
   min-width: 0;
   overflow: hidden;
@@ -766,136 +757,13 @@ input[type="checkbox"] {
   color: #fff;
 }
 
-/* level 2 — escada do sucesso */
-.stage {
-  margin-top: 3px;
-}
-.stage[data-stage="ganhar"] {
-  --st: oklch(71.9% 0.169 13);
-  --st-soft: oklch(94.1% 0.03 13);
-}
-.stage[data-stage="consolidar"] {
-  --st: oklch(66.6% 0.157 58);
-  --st-soft: oklch(96.2% 0.058 96);
-}
-.stage[data-stage="discipular"] {
-  --st: oklch(62.2% 0.133 162);
-  --st-soft: oklch(95% 0.051 163);
-}
-.stage[data-stage="enviar"] {
-  --st: oklch(58.5% 0.204 277);
-  --st-soft: oklch(93% 0.033 273);
-}
-.nav-stage {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 9px 10px;
-  border-radius: var(--r-sm);
-  width: 100%;
-  border: none;
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
-  color: #fff;
-  font-size: 13.5px;
-  font-weight: 660;
-  letter-spacing: 0.02em;
-  position: relative;
-  transition: background 0.12s;
-}
-.nav-stage .st-bar {
-  position: absolute;
-  left: 1px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 3px;
-  height: 17px;
-  border-radius: 99px;
-  background: var(--st);
-  transition: height 0.12s;
-}
-.nav-stage svg.st-ic {
-  width: 17px;
-  height: 17px;
-  flex: none;
-  color: var(--st);
-}
-.nav-stage .lbl {
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-size: 13.5px;
-}
-.st-caret {
-  margin-left: auto;
-  width: 15px;
-  height: 15px;
-  flex: none;
-  color: var(--sidebar-muted);
-  transition: transform 0.18s;
-}
-.stage.open > .nav-stage .st-caret {
-  transform: rotate(90deg);
-}
-.stage:not(.open) .nav-sub {
-  display: none;
-}
-.nav-stage:hover {
-  background: oklch(26% 0.012 187);
-}
-.nav-stage:hover .st-bar {
-  height: 21px;
-}
-.nav-stage.active {
-  background: color-mix(in oklch, var(--st) 16%, transparent);
-}
-.nav-stage.active .st-bar {
-  height: 23px;
-}
-.nav-stage.active .lbl {
-  color: var(--st);
-}
-
-/* level 3 — submenus rebaixados */
-.nav-sub {
-  margin-left: 18px;
-  padding-left: 14px;
-  font-size: 13.5px;
-  color: var(--sidebar-muted);
-}
-.nav-sub::before {
-  content: "";
-  position: absolute;
-  left: 3px;
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  background: oklch(32% 0.012 187);
-}
-.nav-sub svg {
-  width: 17px;
-  height: 17px;
-  opacity: 0.7;
-}
-.nav-sub:hover {
-  color: #fff;
-}
-.nav-sub.active {
-  background: color-mix(in oklch, var(--st) 18%, transparent);
-  color: #fff;
-}
-.nav-sub.active::before {
-  background: var(--st);
-  width: 2px;
-  left: 2px;
-}
 /* locked / em breve */
 .nav-item.locked {
   color: oklch(46% 0.01 187);
   cursor: not-allowed;
 }
-.nav-item.locked svg {
-  opacity: 0.4;
+.nav-item.locked .nav-ic {
+  opacity: 0.45;
 }
 .nav-item.locked:hover {
   background: transparent;
@@ -970,15 +838,11 @@ input[type="checkbox"] {
 .sidebar.collapsed .lbl,
 .sidebar.collapsed .badge,
 .sidebar.collapsed .soon,
-.sidebar.collapsed .navsec-head {
+.sidebar.collapsed .nav-group-title {
   display: none;
 }
-.sidebar.collapsed .nav-config {
-  border-top: none;
-  padding-top: 0;
-}
-.sidebar.collapsed .navsec:not(.open) > .navsec-body {
-  display: flex;
+.sidebar.collapsed .nav-group {
+  margin-top: var(--s3);
 }
 .sidebar.collapsed .side-top {
   justify-content: center;
@@ -990,31 +854,10 @@ input[type="checkbox"] {
   justify-content: center;
   padding: 8px;
 }
-.sidebar.collapsed .nav-item,
-.sidebar.collapsed .nav-stage {
+.sidebar.collapsed .nav-item {
   justify-content: center;
   gap: 0;
-  padding: 9px 0;
-}
-.sidebar.collapsed .nav-sub {
-  margin-left: 0;
-  padding-left: 0;
-}
-.sidebar.collapsed .nav-sub::before {
-  display: none;
-}
-.sidebar.collapsed .st-caret {
-  display: none;
-}
-.sidebar.collapsed .stage:not(.open) .nav-sub {
-  display: flex;
-}
-.sidebar.collapsed .nav-stage .st-bar {
-  left: 50%;
-  transform: translate(-50%, -50%);
-  top: 50%;
-  width: 20px;
-  height: 3px;
+  padding: 7px 0;
 }
 .sidebar.collapsed .side-user {
   justify-content: center;
@@ -1065,6 +908,25 @@ input[type="checkbox"] {
 }
 .topbar h1 {
   font-size: 17px;
+}
+.tb-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.tb-eyebrow {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  line-height: 1.1;
+}
+.tb-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 .topbar .crumb {
   color: var(--muted); /* F4: breadcrumb é texto essencial — faint reprovava AA */
@@ -2336,6 +2198,10 @@ table.data-table {
   }
   .topbar .search input {
     width: 140px;
+  }
+  /* eyebrow (grupo) é só de desktop — paridade protótipo Igreja 12 (some no mobile). */
+  .tb-eyebrow {
+    display: none;
   }
   /* F4 (D1): hambúrguer da Topbar é redundante com o atalho "Mais" do bottom-nav
      (ambos abrem o mesmo drawer ≤860). Oculto — "Mais" é a entrada única do drawer

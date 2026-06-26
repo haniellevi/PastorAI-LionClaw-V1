@@ -1,7 +1,10 @@
 /**
- * Estrutura da sidebar-nav (seção 4.2 / artifact travado).
- * Grupos: Igreja (Gestão), Visão G12 (escada do sucesso) e Configuração
- * (adminOnly). Cada item referencia o screenId/rota por hash (#target).
+ * Estrutura da sidebar-nav (paridade protótipo "Igreja 12" — F2 flat).
+ * Grupos planos (sem accordion/expand): Gestão, A Jornada G12, Igreja e
+ * Configuração (adminOnly). Cada item referencia o screenId/rota por hash
+ * (#target). Os `stages` da Jornada guardam head + `subs`: a Sidebar renderiza
+ * SÓ o head (flat), e as subs continuam acessíveis via ModuleTabs/deep-link
+ * (fonte única — ModuleTabs deriva as abas daqui).
  */
 import type { IconKey } from "./icons";
 
@@ -14,6 +17,8 @@ export interface NavItem {
   locked?: boolean;
   /** Badge numérico (ex.: pendências de chat). */
   badge?: string;
+  /** Cor do bloco do ícone (protótipo). Default = teal do tema. */
+  accent?: "rose" | "amber" | "green" | "indigo" | "whats";
 }
 
 export interface NavStage {
@@ -21,7 +26,7 @@ export interface NavStage {
   stage: "ganhar" | "consolidar" | "discipular" | "enviar";
   /** Cabeçalho do estágio (navega para o painel do estágio). */
   head: NavItem;
-  /** Submenus rebaixados (nível 3). */
+  /** Submenus rebaixados (acessíveis via ModuleTabs, não na sidebar flat). */
   subs?: NavItem[];
 }
 
@@ -32,29 +37,22 @@ export interface NavSection {
   adminOnly?: boolean;
   /** Itens diretos (nível 1). */
   items?: NavItem[];
-  /** Estágios da escada (nível 2/3). */
+  /** Estágios da escada (a sidebar flat mostra só o head). */
   stages?: NavStage[];
-  /** Estado inicial expandido. */
-  defaultOpen?: boolean;
 }
 
 export const NAV_SECTIONS: NavSection[] = [
   {
-    id: "igreja",
-    label: "Igreja",
-    defaultOpen: true,
+    id: "gestao",
+    label: "Gestão",
     items: [
-      { target: "dashboard", label: "Dashboard", icon: "dashboard" },
+      { target: "dashboard", label: "Painel de Hoje", icon: "dashboard" },
       { target: "inbox", label: "Conversas", icon: "chat" },
-      { target: "contatos", label: "Pessoas", icon: "team" },
-      { target: "calendario", label: "Agenda da Igreja", icon: "calendar" },
-      { target: "comunicados", label: "Comunicação", icon: "broadcast" },
     ],
   },
   {
-    id: "g12",
-    label: "Visão G12",
-    defaultOpen: false,
+    id: "jornada",
+    label: "A Jornada G12",
     stages: [
       {
         stage: "ganhar",
@@ -98,19 +96,47 @@ export const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
+    id: "igreja",
+    label: "Igreja",
+    items: [
+      { target: "contatos", label: "Pessoas", icon: "team" },
+      { target: "calendario", label: "Agenda", icon: "calendar" },
+      { target: "comunicados", label: "Comunicação", icon: "broadcast" },
+    ],
+  },
+  {
     id: "config",
     label: "Configuração",
     adminOnly: true,
-    defaultOpen: false,
     items: [
-      { target: "equipe", label: "Usuários do Sistema", icon: "team" },
-      { target: "whatsapp", label: "Conexão WhatsApp", icon: "whatsapp" },
+      { target: "whatsapp", label: "Conexão WhatsApp", icon: "whatsapp", accent: "whats" },
       { target: "agente", label: "Agente IA", icon: "agent" },
       { target: "assinatura", label: "Assinatura", icon: "card" },
       { target: "permissoes", label: "Permissões", icon: "lock" },
+      { target: "equipe", label: "Usuários do Sistema", icon: "team" },
     ],
   },
 ];
+
+/** Cor do bloco de ícone por estágio da Jornada (protótipo). */
+export const STAGE_ACCENT: Record<NavStage["stage"], NonNullable<NavItem["accent"]>> = {
+  ganhar: "rose",
+  consolidar: "amber",
+  discipular: "green",
+  enviar: "indigo",
+};
+
+/** Rótulo do grupo (eyebrow da topbar) que contém um screenId. */
+export function groupLabelForScreen(target: string): string | null {
+  for (const section of NAV_SECTIONS) {
+    if (section.items?.some((i) => i.target === target)) return section.label;
+    const inStage = section.stages?.some(
+      (st) => st.head.target === target || st.subs?.some((s) => s.target === target),
+    );
+    if (inStage) return section.label;
+  }
+  return null;
+}
 
 /** Metadados de tela (título/crumb + info da topbar) para as rotas conhecidas. */
 export const SCREEN_META: Record<
@@ -118,7 +144,7 @@ export const SCREEN_META: Record<
   { title: string; crumb: string; info?: string }
 > = {
   dashboard: {
-    title: "Dashboard",
+    title: "Painel de Hoje",
     crumb: "Pendências de hoje",
     info: "Fila de trabalho pastoral — o que exige sua ação hoje.",
   },
