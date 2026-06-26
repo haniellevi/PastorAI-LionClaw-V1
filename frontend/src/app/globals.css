@@ -4012,3 +4012,92 @@ table.data-table {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
 }
+
+/* ===========================================================================
+   PR1 — Conversas (#inbox): densidade e usabilidade. Apresentacao apenas,
+   escopada as classes do inbox (thread-foot, thread-head, ctrl, who,
+   ia-banner, degraded-banner, msg). NAO faz master-detail (PR2): a lista e a
+   thread seguem empilhadas no mobile; aqui so damos protagonismo ao input,
+   evitamos o transbordo do cabecalho e reduzimos a altura dos banners.
+   =========================================================================== */
+
+/* Composer: o input é o protagonista — pode encolher sem estourar a linha
+   (min-width:0 destrava o flex item para caber junto dos botões). */
+.thread-foot input {
+  min-width: 0;
+}
+
+/* Cabeçalho da thread: o nome trunca em vez de empurrar/transbordar os
+   controles. Reutiliza a classe .who (topbar), que o @media ≤860 esconde com
+   `.who{display:none}` — por isso re-declaramos display:flex aqui (escopo mais
+   específico vence) para o nome do contato não sumir no mobile. */
+.thread-head .who {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  max-width: none;
+  justify-content: flex-start;
+}
+.thread-head .who strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Os controles podem quebrar para uma 2ª linha (sem overflow horizontal). */
+.thread-head .ctrl {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  row-gap: 6px;
+}
+
+@media (max-width: 860px) {
+  /* Cabeçalho quebra em duas linhas: avatar + nome (que trunca) na 1ª; os
+     controles descem para a 2ª linha inteira, sem espremer o nome. */
+  .thread-head {
+    flex-wrap: wrap;
+  }
+  .thread-head .ctrl {
+    width: 100%;
+  }
+
+  /* Botão "Enviar" vira só-ícone (rótulo preservado via aria-label/title),
+     devolvendo largura útil ao input. */
+  .thread-foot button[type="submit"] span {
+    display: none;
+  }
+  .thread-foot button[type="submit"] {
+    width: 38px;
+    height: 38px;
+    padding: 0;
+    flex: none;
+  }
+
+  /* Botões de texto do cabeçalho (Assumir/Devolver) viram compactos só-ícone,
+     mantendo a área tocável (34px). Ícones de ação (.btn-icon) seguem iguais. */
+  .thread-head .ctrl .btn-sm:not(.btn-icon) {
+    width: 34px;
+    height: 34px;
+    padding: 0;
+    justify-content: center;
+  }
+  .thread-head .ctrl .btn-sm:not(.btn-icon) span {
+    display: none;
+  }
+
+  /* Banners de estado ocupam menos altura — a área de mensagens é escassa. */
+  .ia-banner,
+  .degraded-banner {
+    padding: 6px var(--s3);
+    font-size: 12px;
+    gap: 6px;
+  }
+
+  /* Densidade: mais respiro para as mensagens e balões um pouco mais largos. */
+  .thread-body {
+    padding: var(--s3);
+  }
+  .msg {
+    max-width: 85%;
+  }
+}

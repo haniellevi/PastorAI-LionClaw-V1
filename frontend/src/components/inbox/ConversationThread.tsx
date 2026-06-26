@@ -28,6 +28,7 @@ import {
   estadoPill,
   maskPhone,
   messageStamp,
+  messageTime,
   tipoMarker,
 } from "./conversation-format";
 
@@ -382,6 +383,8 @@ export function ConversationThread({
               className="btn btn-sm"
               onClick={() => onReturn(conversation)}
               disabled={busy}
+              aria-label="Devolver para a IA"
+              title="Devolver para a IA"
             >
               <Icon name="sparkles" />
               <span>Devolver para a IA</span>
@@ -392,6 +395,7 @@ export function ConversationThread({
               className="btn btn-sm btn-primary"
               onClick={() => onAssume(conversation)}
               disabled={busy || heldByOther}
+              aria-label="Assumir (pausar IA)"
               title={
                 heldByOther
                   ? "Conversa já assumida por outro líder"
@@ -487,7 +491,9 @@ export function ConversationThread({
                 <span className="msg-author">{m.autorNome}</span>
               ) : null}
               <MessageBody m={m} />
-              <time>{messageStamp(m.criadoEm)}</time>
+              <time dateTime={m.criadoEm ?? undefined} title={messageStamp(m.criadoEm)}>
+                {messageTime(m.criadoEm)}
+              </time>
             </div>
           ))
         )}
@@ -578,6 +584,8 @@ export function ConversationThread({
             <button
               type="submit"
               className="btn btn-primary"
+              aria-label="Enviar mensagem"
+              title="Enviar mensagem"
               disabled={
                 !canCompose || sending || (!pendingFile && draft.trim().length === 0)
               }
