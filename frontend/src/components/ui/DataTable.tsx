@@ -28,6 +28,8 @@ export interface DataTableProps<T> {
   empty: { icon?: IconKey; title: string; hint?: string };
   /** Abre o detalhe da linha (linha vira clicável/acessível). */
   onRowClick?: (row: T) => void;
+  /** Classe extra na <table> (ex.: variante de card mobile por tela). */
+  className?: string;
 }
 
 export function DataTable<T>({
@@ -36,6 +38,7 @@ export function DataTable<T>({
   rowKey,
   empty,
   onRowClick,
+  className,
 }: DataTableProps<T>) {
   if (rows.length === 0) {
     return (
@@ -50,7 +53,7 @@ export function DataTable<T>({
   }
 
   return (
-    <table className="data-table">
+    <table className={className ? `data-table ${className}` : "data-table"}>
       <thead>
         <tr>
           {columns.map((col, i) => (

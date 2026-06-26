@@ -80,6 +80,14 @@ function etapaTone(etapa: string | null): "ok" | "warn" | "accent" | "muted" {
   }
 }
 
+function initials(nome: string): string {
+  const parts = nome.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  const first = parts[0]?.[0] ?? "";
+  const last = parts.length > 1 ? parts[parts.length - 1]?.[0] ?? "" : "";
+  return (first + last).toUpperCase();
+}
+
 function maskPhone(phone: string): string {
   const digits = phone.replace(/\D/g, "");
   if (digits.length < 6) return phone;
@@ -276,8 +284,14 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
         header: "Contato",
         cell: (c) => (
           <>
-            <div className="nm">{c.nome}</div>
-            <div className="sub mono">{maskPhone(c.telefone)}</div>
+            {/* Avatar só aparece no card mobile (oculto na tabela desktop). */}
+            <span className="avatar" aria-hidden="true">
+              {initials(c.nome)}
+            </span>
+            <div className="person-id">
+              <div className="nm">{c.nome}</div>
+              <div className="sub mono">{maskPhone(c.telefone)}</div>
+            </div>
           </>
         ),
       },
@@ -379,6 +393,7 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
             </div>
           ) : (
             <DataTable
+              className="people-cards"
               columns={columns}
               rows={filtered}
               rowKey={(c) => c.id}

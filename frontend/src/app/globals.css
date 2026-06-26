@@ -2025,6 +2025,10 @@ table.data-table {
   font-size: 12px;
   color: var(--muted);
 }
+/* Avatar de pessoa só serve ao card mobile; some na tabela desktop. */
+.data-table td .avatar {
+  display: none;
+}
 .row-link {
   cursor: pointer;
 }
@@ -4070,6 +4074,90 @@ table.data-table {
   }
   .data-table td.num {
     text-align: right;
+  }
+}
+
+/* Pessoas (#contatos): card com cabeçalho próprio + campos rotulados.
+   Sobe o modo card de 600 → 768px (cobre celular e tablet retrato; dash-grid já
+   é coluna única ≤980, então a lista ocupa a largura toda) e dá hierarquia clara.
+   Escopado em .people-cards: as outras DataTables (Ganhar/Consolidar/etc.) ficam
+   com o card genérico de ≤600px, intocadas. */
+@media (max-width: 768px) {
+  .data-table.people-cards thead {
+    display: none;
+  }
+  .data-table.people-cards,
+  .data-table.people-cards tbody,
+  .data-table.people-cards tr,
+  .data-table.people-cards td {
+    display: block;
+    width: 100%;
+  }
+  /* Card = a pessoa. Fundo branco, radius suave, sombra leve, folga entre cards. */
+  .data-table.people-cards tr {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    box-shadow: var(--shadow-sm);
+    margin-bottom: var(--s3);
+    padding: var(--s3) var(--s4) calc(var(--s3) - 2px);
+  }
+  .data-table.people-cards tr:hover {
+    background: var(--surface);
+  }
+  .data-table.people-cards tr.row-link:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+
+  /* Campos internos: rótulo muted à esquerda, valor forte à direita. */
+  .data-table.people-cards td {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--s3);
+    padding: 8px 0;
+    border-bottom: 1px solid color-mix(in oklch, var(--border) 55%, transparent);
+    text-align: right;
+  }
+  .data-table.people-cards td::before {
+    content: attr(data-label);
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--muted);
+    text-align: left;
+    white-space: nowrap;
+  }
+  .data-table.people-cards td:last-child {
+    border-bottom: none;
+    padding-bottom: 2px;
+  }
+
+  /* Cabeçalho do card: avatar + nome/telefone como título. Sem rótulo "Contato". */
+  .data-table.people-cards td:first-child {
+    justify-content: flex-start;
+    gap: var(--s3);
+    padding: 0 0 var(--s3);
+    margin-bottom: var(--s1);
+    border-bottom: 1px solid var(--border);
+    text-align: left;
+  }
+  .data-table.people-cards td:first-child::before {
+    display: none;
+  }
+  .data-table.people-cards td:first-child .avatar {
+    display: grid;
+  }
+  .data-table.people-cards .person-id {
+    min-width: 0;
+  }
+  .data-table.people-cards td:first-child .nm {
+    font-size: 15px;
+    font-weight: 620;
+    line-height: 1.25;
+  }
+  .data-table.people-cards td:first-child .sub {
+    font-size: 12.5px;
   }
 }
 
