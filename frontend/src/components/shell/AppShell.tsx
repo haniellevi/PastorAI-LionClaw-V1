@@ -14,6 +14,7 @@ import { usePermissions } from "@/lib/permissions-context";
 import { useHashRoute } from "@/lib/use-hash-route";
 
 import { BottomNav } from "./BottomNav";
+import { JourneyStepper } from "./JourneyStepper";
 import { ScreenView } from "./ScreenView";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
@@ -82,6 +83,7 @@ export function AppShell() {
       />
       <div className="main">
         <Topbar user={user} route={resolvedBase} onMenuToggle={() => setMobileOpen((v) => !v)} />
+        <JourneyStepper />
         <ScreenView route={resolvedBase} param={resolvedParam} />
       </div>
       <BottomNav onMore={() => setMobileOpen((v) => !v)} />
