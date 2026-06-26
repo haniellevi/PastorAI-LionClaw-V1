@@ -152,10 +152,13 @@ Camadas de memória deste projeto e o papel de cada uma:
   granular, mas **não** deve ser a única memória — por isso este doc existe.
 - **Memória local do Claude** (`~/.claude/.../memory/`) = anotações **voláteis / por máquina**, não
   portáveis e sujeitas a ficar stale. Útil para continuidade entre conversas, **não** é registro canônico.
-- **CodeGraph (code-review-graph)** = grafo estrutural **sob demanda, por worktree**, ótimo para
-  impacto/`detect_changes` durante uma revisão. **Não é mantido automaticamente** (estava vazio neste
-  worktree) e seus erros de encoding no console Windows são **cosméticos** (display, não índice).
-  Tratar como **apoio**, nunca como fonte única de verdade.
+- **CodeGraph (code-review-graph)** = grafo estrutural, ótimo para impacto/`detect_changes` durante
+  uma revisão. Roda via **hook git-level em commits** e pode **atualizar incrementalmente** (observado
+  no commit desta PR: `Incremental: 4 files updated, 9 nodes, 177 edges`). No **Windows** há um **erro
+  cosmético de encoding** (`UnicodeEncodeError` cp1252) ao **imprimir o painel** — que ocorre **depois**
+  de o índice já ter sido atualizado, ou seja, é falha de **output no console**, não de indexação.
+  Ainda assim, CodeGraph é **ferramenta de apoio**: a fonte canônica versionada é **este documento +
+  PRs/sprints**, nunca o grafo sozinho.
 
 **Regra prática:** uma mudança de UX só está "registrada" quando está **neste doc** (resumo +
 decisão) **e** na PR (detalhe). GitHub sozinho ou memória local sozinha não bastam.
