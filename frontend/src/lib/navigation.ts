@@ -126,6 +126,24 @@ export const STAGE_ACCENT: Record<NavStage["stage"], NonNullable<NavItem["accent
   enviar: "indigo",
 };
 
+/** Estágio da Jornada G12 a que um screenId pertence (head ou sub-tela);
+ *  null se a tela não faz parte da Jornada. Usado pelo JourneyStepper para
+ *  destacar a etapa atual mesmo em sub-telas (ex.: consol-individual →
+ *  consolidar; g12/central-celula → discipular). */
+export function journeyStageOf(target: string): NavStage["stage"] | null {
+  const jornada = NAV_SECTIONS.find((s) => s.id === "jornada");
+  for (const st of jornada?.stages ?? []) {
+    if (st.head.target === target) return st.stage;
+    if (st.subs?.some((s) => s.target === target)) return st.stage;
+  }
+  return null;
+}
+
+/** Estágios da Jornada na ordem do contrato (fonte única — NAV_SECTIONS). */
+export function journeyStages(): NavStage[] {
+  return NAV_SECTIONS.find((s) => s.id === "jornada")?.stages ?? [];
+}
+
 /** Rótulo do grupo (eyebrow da topbar) que contém um screenId. */
 export function groupLabelForScreen(target: string): string | null {
   for (const section of NAV_SECTIONS) {
