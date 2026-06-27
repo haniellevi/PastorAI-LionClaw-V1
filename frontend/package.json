@@ -15,7 +15,7 @@
     "@fontsource/jetbrains-mono": "^5.2.8",
     "@fontsource/plus-jakarta-sans": "^5.2.8",
     "@fontsource/sora": "^5.2.8",
-    "next": "14.2.15",
+    "next": "14.2.35",
     "react": "18.3.1",
     "react-dom": "18.3.1"
   },
@@ -24,7 +24,7 @@
     "@types/react": "18.3.3",
     "@types/react-dom": "18.3.0",
     "eslint": "8.57.0",
-    "eslint-config-next": "14.2.15",
+    "eslint-config-next": "14.2.35",
     "typescript": "5.5.4"
   }
 }
