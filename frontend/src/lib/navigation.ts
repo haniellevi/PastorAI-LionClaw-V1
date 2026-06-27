@@ -44,9 +44,10 @@ export interface NavSection {
 export const NAV_SECTIONS: NavSection[] = [
   {
     id: "gestao",
-    label: "Gestão",
+    label: "Igreja",
     items: [
       { target: "dashboard", label: "Painel de Hoje", icon: "dashboard" },
+      { target: "calendario", label: "Agenda", icon: "calendar" },
       { target: "inbox", label: "Conversas", icon: "chat" },
     ],
   },
@@ -97,10 +98,9 @@ export const NAV_SECTIONS: NavSection[] = [
   },
   {
     id: "igreja",
-    label: "Igreja",
+    label: "Gestão",
     items: [
       { target: "contatos", label: "Pessoas", icon: "team" },
-      { target: "calendario", label: "Agenda", icon: "calendar" },
       { target: "comunicados", label: "Comunicação", icon: "broadcast" },
     ],
   },
