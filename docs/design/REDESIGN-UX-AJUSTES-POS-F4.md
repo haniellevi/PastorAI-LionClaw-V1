@@ -4,7 +4,7 @@
 > veio **depois** do redesign #8 (F0–F4).
 > Continuação de [`RECONCILIACAO-igreja12.md`](RECONCILIACAO-igreja12.md) (o contrato F0–F4).
 > Este é um **índice vivo** — recebe novas entradas conforme a onda avança.
-> **Última atualização:** 2026-06-26 · **origin/main de referência:** `5f15e58`.
+> **Última atualização:** 2026-06-27 · **origin/main de referência:** `99716bf`.
 
 ## 1. Contexto
 
@@ -19,6 +19,10 @@ mescladas em 2026-06-26) trata **paridade visual e UX mobile**, **sem tocar regr
 Diferença em relação ao F0–F4: aquilo foi um bloco planejado de 5 fases; **isto é uma sequência
 de PRs corretivas pequenas e cirúrgicas**, cada uma escopada a uma tela/área. Por isso o registro
 é um doc vivo, não um sprint-snapshot.
+
+As PRs dessa onda foram divididas em duas levas: **Onda 1 (#50–#56)** e **Onda 2 (#58–#64)** —
+ambas mergidas em `origin/main` e deployadas em produção. O §3 cobre a Onda 1; a seção
+[**Onda 2 — #58–#64**](#onda-2----58-64) cobre a segunda leva.
 
 ## 2. Princípios / gates duros (herdados do F0–F4)
 
@@ -35,7 +39,7 @@ Toda PR desta onda respeita:
   entra atrás de uma classe-flag opcional (ex.: `.people-cards`), nunca no seletor genérico.
 - **QA visual baseado em evidência.** Screenshot/harness/breakpoint medido — **nunca "parece bom"**.
 
-## 3. PRs da onda (#50–#56)
+## 3. PRs — Onda 1 (#50–#56)
 
 Todas **MERGED** em `origin/main` (`5f15e58`). Repo: `haniellevi/PastorAI-LionClaw-V1`.
 **Deploy:** nenhuma destas PRs foi deployada por si — são merges em `main`; a produção precisa de
@@ -123,21 +127,107 @@ Como esta onda **valida** uma mudança visual antes do merge:
 - **Nunca declarar "APTO visual" sem evidência** (screenshot, medição de breakpoint, ou comparação
   lado a lado protótipo × app). "Parece bom" não conta.
 
+## Onda 2 — #58–#64
+
+Fechou as pendências visuais listadas no §6 após a Onda 1 (superfícies, selects/modais,
+Jornada G12, overflow de Enviar, contraste textual) e reordenou labels do menu de navegação.
+Mesmos princípios e gates da Onda 1 (§2 e §5).
+
+Todas **MERGED** em `origin/main` (`99716bf`) e **deployadas em produção**
+(CSS/JS verificado no domínio público após cada deploy via CLI).
+
+### PRs
+
+| PR | Branch | Tema | Arquivo(s) | Decisão-chave | Risco controlado | Status |
+|---|---|---|---|---|---|---|
+| [#58](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/58) | `fix/design-surface-hierarchy` | Tokens de superfície — hierarquia visual | `globals.css` | Escada monotônica bg(94%) < surface-2(96.5%) < surface(100%); bordas e sombras reforçadas; `.topbar` troca cor hardcoded por `color-mix(var(--bg) 82%)` | Alcance global; hue/chroma da identidade Igreja 12 preservados; `--fg/--muted/--faint/--accent` intactos | MERGED + DEPLOYED |
+| [#59](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/59) | `fix/pwa-bg-token` | Manifest PWA — background_color | `manifest.webmanifest` | `background_color` #eef3f2 → #ebf0ef — alinha splash do PWA ao novo `--bg` pós-#58 | JSON-only; `theme_color`, ícones e layout intactos | MERGED + DEPLOYED |
+| [#60](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/60) | `fix/selects-modais-base` | Selects nativos + base de modal (PR1) | `globals.css` | `select` ganha chevron SVG do design system (appearance:none + SVG inline + padding-right); modal ganha `max-height`/`overflow-y`; alvo de toque ≥44px. **PR2** (bottom-sheet, Esc/focus-trap) fica de fora | Regra base `select` tem alcance global — smoke em 360/390/768/1024; nenhum TSX alterado | MERGED + DEPLOYED |
+| [#61](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/61) | `fix/enviar-tabs-overflow` | Enviar — tabs/overflow mobile | `globals.css` | `.tab { white-space: nowrap }` + `flex-wrap` em `≤860px`; rótulos longos ("Sem agendamento", "Aptos a liderar") não quebram nem transbordam | `.tabs` melhora todas as telas com abas; `flex-wrap` só age com estouro — desktop inalterado | MERGED + DEPLOYED |
+| [#62](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/62) | `feat/jornada-stepper` | Jornada G12 — stepper horizontal | `JourneyStepper.tsx` · `AppShell.tsx` · `navigation.ts` · `globals.css` | Stepper deriva de `NAV_SECTIONS` (fonte única); navega por `#hash` para `head.target` existentes; filtra por `canSee`; `firstVisibleTarget` resolve target navegável por etapa; fallback anti-render sem ativo | Componente novo `JourneyStepper.tsx`; BottomNav/Sidebar/ModuleTabs intocados; etapa sem target acessível = oculta | MERGED + DEPLOYED |
+| [#63](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/63) | `fix/contraste-faint-muted` | Contraste textual fino (faint → muted) | `globals.css` | 10 classes promovidas `var(--faint)` → `var(--muted)` (≈7.3–8.7:1); `--faint` global **intacto**; `.lock-note` propositalmente fora (classe sobrecarregada) | CSS-only, sem tokens globais alterados; `.lock-note` → PR futura só se dor aparecer | MERGED + DEPLOYED |
+| [#64](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/64) | `feat/menu-labels-agenda-ordem` | Menu — labels Gestão↔Igreja + Agenda após Painel | `navigation.ts` | `gestao.label` "Gestão"→"Igreja"; `igreja.label` "Igreja"→"Gestão"; `calendario` move de `igreja` para `gestao`, logo após `dashboard` | Só `label` e ordem; `screenId`, `target`, rotas e permissões **zero alteração** | MERGED + DEPLOYED |
+
+### Decisões da Onda 2
+
+#### Token `--faint` e contraste (#63)
+
+- `--faint` **não alterado globalmente** (oklch L 72%, ≈2.07–2.46:1 em superfície).
+- Uso correto de `--faint`: placeholder, texto desabilitado, ícones decorativos, separadores.
+- **10 classes** promovidas para `--muted` (≈7.3–8.7:1, passa AA/AAA):
+  `.panel-title .count`, `.stat .delta`, `.dash-today`, `.tile-sub`, `.kpi-hint`,
+  `.ov-scope`, `.qbody .meta-line .resp`, `.tab .num`, `.org-leader .ol-count .cap`,
+  `.conv-top time`.
+- `.lock-note`: classe sobrecarregada (decorativo e status visível compartilham a mesma classe).
+  Ficou em `--faint` por ora. **Só vira PR se dor real de leitura for reportada.**
+  Candidato: modificador `.lock-note--info` que aplica `--muted` ao texto informativo em
+  contextos como `TrackModal`.
+
+#### Jornada Stepper (#62)
+
+- Stepper horizontal acima do conteúdo nas telas da Jornada (e acima de `ModuleTabs` em
+  Consolidar/Discipular).
+- **Fonte única:** `NAV_SECTIONS` — mesma fonte da Sidebar e das ModuleTabs. Mudança no menu
+  reflete automaticamente no stepper.
+- **Navegação:** `#hash` para `head.target` existentes. Nenhuma rota nova criada; `screenId` e
+  `canSee` preservados.
+- **Sub-telas:** `journeyStageOf` mapeia para etapa pai (ex.: `consol-individual` → Consolidar;
+  `g12/central-celula` → Discipular).
+- **Edge de permissões resolvido (commit `9557990`):** `firstVisibleTarget` percorre cada etapa
+  e devolve o primeiro target acessível (`head` se `canSee`, senão a primeira sub visível,
+  pulando `locked`). Etapa sem nenhum target acessível = oculta. Fallback defensivo: se a
+  etapa atual (`journeyStageOf`) não estiver na lista filtrada, stepper não renderiza — nunca
+  aparece sem etapa ativa.
+
+#### Menu labels e Agenda (#64)
+
+- Reorganização **visual** de menu, zero impacto técnico.
+- `gestao` (comunidade, pessoas, agenda) renomeado para **"Igreja"**.
+- `igreja` (admin, configuração) renomeado para **"Gestão"**.
+- `calendario` (Agenda) movido do grupo `igreja` para o grupo `gestao`, imediatamente após
+  `dashboard` (Painel de Hoje).
+- `screenId`, `target`, hash, rotas e permissões: **intactos**.
+
+#### Deploy — padrão observado
+
+Vercel não disparou build automático de forma confiável em merges diretos para `origin/main`.
+Padrão adotado: **deploy manual via CLI em worktree limpo**. Resultado verificado por CSS/JS live
+no domínio público após cada deploy. Monitorar recorrência antes de investir em workaround de CI.
+
+---
+
 ## 6. Pendências atuais
 
-- **Superfícies / contraste global:** varredura dos rótulos suplementares ainda em `--faint`
-  (~2.46:1, reprova AA) — `.stat .delta`, `.panel-title .count`, `.ov-scope`, `.qbody … .resp`.
-  Decisão F4 foi "só texto essencial"; subir os secundários é polish futuro.
-- **Enviar:** abas + forms (paridade visual ainda não feita).
-- **Selects / forms:** padronização visual pendente.
-- **Jornada G12:** paridade visual da tela de estágios.
-- **Banner WhatsApp:** PR B do dashboard (status admin-only + contagem inbox-gated).
+### Resolvidas
+
+| Item | Onda | PR |
+|---|---|---|
+| Superfícies / hierarquia visual | 2 | #58 |
+| Manifest PWA background_color desatualizado | 2 | #59 |
+| Selects — chevron + base modal (PR1) | 2 | #60 |
+| Enviar — abas overflow mobile | 2 | #61 |
+| Jornada G12 — stepper visual | 2 | #62 |
+| Contraste `--faint` em texto informativo | 2 | #63 |
+| Login + shell parity | 1 | #50 |
+| Sidebar flat + topbar | 1 | #51 |
+| Painel de Hoje | 1 | #52 |
+| Conversas — densidade, master-detail, lista | 1 | #53–#55 |
+| Pessoas — cards mobile | 1 | #56 |
+
+### Abertas
+
+- **Selects / Modais PR2:** bottom-sheet nativo, Esc/focus-trap — somente se sentido na prática.
+- **Banner WhatsApp (PR B):** status admin-only via `fetchConnection` + contagem inbox-gated.
+- **`.lock-note--info` / TrackModal:** modificador opcional para `.lock-note` com conteúdo
+  informativo. Criar PR **apenas** se dor real de leitura for reportada.
+- **Smoke em celular físico:** validar master-detail, drawer "Mais", BottomNav e stepper em
+  device real (Android/iOS), não só harness ou emulador.
 - **Itens sem `screenId` real** (não implementar até existir a tela): **Minha Célula**,
   **Árvore Ministerial**, **Gestão Administrativa**.
-- **Smoke autenticado mobile real** (drawer via "Mais", `collapse-btn` ≤860) em staging.
-- **Repo principal local atrasado/sujo:** o worktree principal estava ~48 commits atrás de
-  `origin/main` e com `globals.css` editado/não-commitado + `globals.css.bak`. **Não usar** esse
-  worktree para editar — reconciliar antes. `origin/main` é a fonte de verdade.
+- **Deploy automático:** Vercel às vezes não dispara ao merge em `main`. Padrão atual = CLI
+  manual em worktree limpo. Monitorar recorrência.
+- **Repo principal local:** pode estar atrasado ou sujo — checar `git status` e
+  `git log origin/main -3` antes de editar. `origin/main` é a fonte de verdade.
 - **CodeGraph como apoio, não fonte única** (ver §7).
 
 ## 7. Notas de rastreabilidade
