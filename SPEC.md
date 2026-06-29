@@ -914,6 +914,7 @@ backend/
 - touchesUI: **true**
 - artifactPath: `docs/Docs20260611_163530/design/artifact.html`
 - stories: US-30
+- **revisao (EVT-0, delta-049/050/051):** modulo Agenda expandido (abas Semana/Mes/Ano/A confirmar/Planejamento, status/confirmacao, import Google→pendente). MVP EVT-1..5 manual. Ver `docs/design/AGENDA-EVENTOS-EVT0-decisao.md`.
 
 **Area: Comunicados / Consentimento & Opt-out**
 - affectedScreenIds: `comunicados`
@@ -1092,6 +1093,9 @@ AGENT_GRAPH_CHECKPOINT_URL=postgresql://user:pass@host:5432/pastorai
 | Devolver para IA com IA pausada por erro de credencial | Aviso de que a IA esta indisponivel (sem credencial valida); mantem em `thread-human` | `thread-human` | US-13, RF-30 |
 
 ### 6.4 calendario (loading, empty, month)
+
+> **Em expansao (delta-049/050/051 — EVT-0, 2026-06-29):** a tela `month`-only abaixo e o **baseline atual**. O modulo Agenda passa a ter abas **Semana/Mes/Ano/A confirmar/Planejamento**, status do evento (`confirmado`/`a_confirmar`), confirmacao manual e import Google→pendente. MVP = EVT-1..5 (manual, sem Google, sem envio). Decisao completa: `docs/design/AGENDA-EVENTOS-EVT0-decisao.md`.
+
 | Edge case | Comportamento | Estado | Refs |
 |-----------|---------------|--------|------|
 | Falha de sync / token Google expirado | Banner "calendario desconectado" + CTA reconectar; eventos locais ainda visiveis | `error` (sobre `month`) | US-30, RF-34 |
