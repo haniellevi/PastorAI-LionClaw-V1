@@ -17,6 +17,7 @@ ver docs/design/AGENDA-EVENTOS-EVT0-decisao.md e a própria migration.
 from __future__ import annotations
 
 import datetime as dt
+import uuid
 
 import pytest
 from fastapi.testclient import TestClient
@@ -24,7 +25,7 @@ from pydantic import ValidationError
 
 from app.db.models import Event
 from app.db.session import get_db
-from app.routers.events import CreateEventRequest
+from app.routers.events import CreateEventRequest, EventOut
 from app.services.clerk import get_clerk_client
 from tests.conftest import FakeClerk, FakeSession, make_app_user
 
@@ -111,6 +112,22 @@ def test_create_event_rejects_invalid_hora(hora: str) -> None:
 def test_create_event_blank_hora_becomes_none() -> None:
     req = CreateEventRequest(titulo="Culto", data=dt.date(2026, 1, 1), hora="  ")
     assert req.hora is None
+
+
+# ---- EventOut: serializa evento semanal (data=None) sem quebrar ------------
+def test_eventout_from_model_handles_null_data() -> None:
+    """Evento semanal não tem data específica; EventOut.data agora é opcional,
+    senão o GET /events estouraria 500 ao serializar uma linha data=None."""
+    ev = Event(
+        id=uuid.uuid4(),
+        titulo="Culto de quarta",
+        data=None,
+        recorrencia="semanal",
+        dia_semana=3,
+    )
+    out = EventOut.from_model(ev)
+    assert out.data is None
+    assert out.titulo == "Culto de quarta"
 
 
 # ---- HTTP: contrato 422 (espelha test_event_requires_data) -----------------

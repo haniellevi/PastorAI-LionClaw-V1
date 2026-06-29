@@ -43,7 +43,9 @@ router = APIRouter(prefix="/events", tags=["events"])
 class EventOut(BaseModel):
     id: str
     titulo: str
-    data: dt.date
+    # EVT-1: nullable porque eventos semanais (recorrencia='semanal') não têm
+    # data específica — espelha events.data, que deixou de ser NOT NULL.
+    data: dt.date | None = None
     hora: str | None = None
     descricao: str | None = None
     googleEventId: str | None = None  # noqa: N815
