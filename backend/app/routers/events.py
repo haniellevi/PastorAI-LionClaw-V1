@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import re
 import uuid
 
 from fastapi import APIRouter, Depends
@@ -32,13 +33,19 @@ from app.services.google_calendar import (
 
 logger = logging.getLogger("pastorai.events")
 
+# EVT-1: `hora` é texto livre na coluna; aqui validamos HH:MM (24h) no payload
+# para não persistir lixo (espelha a CHECK constraint events_hora_formato_chk).
+_HORA_RE = re.compile(r"^([01][0-9]|2[0-3]):[0-5][0-9]$")
+
 router = APIRouter(prefix="/events", tags=["events"])
 
 
 class EventOut(BaseModel):
     id: str
     titulo: str
-    data: dt.date
+    # EVT-1: nullable porque eventos semanais (recorrencia='semanal') não têm
+    # data específica — espelha events.data, que deixou de ser NOT NULL.
+    data: dt.date | None = None
     hora: str | None = None
     descricao: str | None = None
     googleEventId: str | None = None  # noqa: N815
@@ -69,6 +76,18 @@ class CreateEventRequest(BaseModel):
         value = value.strip()
         if not value:
             raise ValueError("titulo obrigatório")
+        return value
+
+    @field_validator("hora")
+    @classmethod
+    def _hora(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            return None
+        if not _HORA_RE.match(value):
+            raise ValueError("hora deve estar no formato HH:MM (24h)")
         return value
 
 
