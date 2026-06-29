@@ -601,7 +601,14 @@ class Broadcast(Base):
 
 
 class Event(Base):
-    """Church event (RF-39). Optionally mirrored to Google Calendar."""
+    """Church event (RF-39 / Agenda de Eventos).
+
+    Optionally mirrored to Google Calendar. The EVT-1 columns (status, tipo,
+    origem, recorrencia + confirmation/communication fields) back the Agenda
+    MVP; enums are kept as plain strings (the DB enforces the types). `data` is
+    nullable so weekly-recurring events (recorrencia='semanal') can live without
+    a specific date. See docs/design/AGENDA-EVENTOS-EVT0-decisao.md.
+    """
 
     __tablename__ = "events"
 
@@ -612,10 +619,33 @@ class Event(Base):
         nullable=False,
     )
     titulo: Mapped[str] = mapped_column(Text, nullable=False)
-    data: Mapped[dt.date] = mapped_column(Date, nullable=False)
+    data: Mapped[dt.date | None] = mapped_column(Date, nullable=True)
     hora: Mapped[str | None] = mapped_column(Text, nullable=True)
     descricao: Mapped[str | None] = mapped_column(Text, nullable=True)
     google_event_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # EVT-1 — Agenda de Eventos (enums mapeados como string, DB enforça o tipo).
+    status: Mapped[str] = mapped_column(
+        String, nullable=False, server_default=text("'confirmado'")
+    )
+    tipo: Mapped[str | None] = mapped_column(String, nullable=True)
+    origem: Mapped[str] = mapped_column(
+        String, nullable=False, server_default=text("'manual'")
+    )
+    recorrencia: Mapped[str] = mapped_column(
+        String, nullable=False, server_default=text("'pontual'")
+    )
+    dia_semana: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    publico_alvo: Mapped[list[str] | None] = mapped_column(ARRAY(Text), nullable=True)
+    antecedencia_horas: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    mensagem_confirmacao: Mapped[str | None] = mapped_column(Text, nullable=True)
+    confirmado_em: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    confirmado_por: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("app_users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
