@@ -28,7 +28,6 @@ from fastapi.testclient import TestClient
 
 from app.db.models import AppUser, Event
 from app.db.session import get_db
-from app.routers.events import get_google_calendar_client
 from app.services.clerk import get_clerk_client
 from tests.conftest import FakeClerk, make_app_user
 
@@ -91,11 +90,6 @@ class EventSession:
         pass
 
 
-class _FakeGcal:
-    def create_event(self, **kwargs) -> None:
-        return None
-
-
 def make_event(
     *,
     status="confirmado",
@@ -122,10 +116,9 @@ def make_event(
     )
 
 
-def _wire(app, *, session, gcal=None) -> TestClient:
+def _wire(app, *, session) -> TestClient:
     app.dependency_overrides[get_db] = lambda: session
     app.dependency_overrides[get_clerk_client] = lambda: FakeClerk()
-    app.dependency_overrides[get_google_calendar_client] = lambda: gcal or _FakeGcal()
     return TestClient(app)
 
 
@@ -308,3 +301,39 @@ def test_create_allows_admin(app) -> None:
         json={"titulo": "Culto", "data": "2026-01-01", "hora": "19:30"},
     )
     assert resp.status_code == 200
+
+
+# ---- POST /events — EVT-6 PR6.0: push Google legado desarmado ---------------
+def test_create_does_not_call_legacy_google_push(app, monkeypatch) -> None:
+    """O create NÃO invoca mais `GoogleCalendarClient.create_event`.
+
+    O push legado usava o token GLOBAL de settings (risco multi-tenant) e gerava
+    órfãos (PUT não ressincroniza, DELETE não remove). Aqui patchamos o método do
+    cliente legado para registrar qualquer chamada: o evento deve ser criado só no
+    banco, sem tocar esse caminho. Se alguém reintroduzir o push global, `calls`
+    deixa de ser vazio e este teste falha.
+    """
+    calls: list = []
+
+    def _record(self, **kwargs):  # pragma: no cover - não deve ser chamado
+        calls.append(kwargs)
+        return "should-not-be-used"
+
+    monkeypatch.setattr(
+        "app.services.google_calendar.GoogleCalendarClient.create_event", _record
+    )
+
+    session = _session(roles=["pastor"])
+    resp = _wire(app, session=session).post(
+        "/events",
+        headers=_AUTH,
+        json={"titulo": "Culto", "data": "2026-01-01", "hora": "19:30"},
+    )
+
+    assert resp.status_code == 200
+    assert calls == []  # push legado nunca chamado
+    assert session.added is not None
+    body = resp.json()
+    # contrato preservado: sem google_event_id => não sincronizado.
+    assert body["sincronizado"] is False
+    assert body.get("googleEventId") is None
