@@ -1,16 +1,22 @@
-"""Events router — church events mirrored to Google Calendar (RF-39).
+"""Events router — church events (RF-35/RF-39 / Agenda de Eventos).
 
 Endpoints:
   - GET    /events              paginated events (RNF-09)
-  - POST   /events              create an event and try to sync it to Google
+  - POST   /events              create a tenant event (persisted locally only)
   - GET    /events/{id}         single tenant event or 404 (EVT-2)
   - PUT    /events/{id}         edit a manual tenant event (EVT-2)
   - DELETE /events/{id}         remove a tenant event (EVT-2)
   - POST   /events/{id}/confirm manual confirmation of an 'a_confirmar' event
 
-On POST, sync to Google Calendar is best-effort: a sync failure does NOT fail
-the request — the event is persisted with `google_event_id=null` and the
-response sets `sincronizado=false` so the panel can flag it for retry.
+EVT-6 PR6.0 — o push legado app→Google foi DESARMADO no POST /events. Ele usava o
+token/calendar GLOBAIS de `settings` ("Legacy"), nunca os tokens OAuth por igreja
+(`calendar_sync`): em produção isso fazia todas as igrejas escreverem numa única
+conta Google compartilhada (risco multi-tenant) e gerava órfãos — PUT não
+ressincroniza e DELETE não remove no Google. Agora o evento nasce só no banco com
+`google_event_id=null` → `sincronizado=false`. O `GoogleCalendarClient` legado
+permanece no código (e seguro pelo guard B2), reservado para um push POR IGREJA de
+fase futura. O import Google (Google→app como 'a_confirmar') é o próximo passo
+(EVT-6 PR6.1, read-only por igreja).
 
 EVT-2 (CRUD + manual confirmation) is tenant-scoped: every by-id lookup filters
 by `igreja_id` on top of RLS, so an event from another tenant is never reachable.
@@ -20,7 +26,6 @@ Edit/delete do NOT touch Google Calendar (out of scope, EVT-6+).
 from __future__ import annotations
 
 import datetime as dt
-import logging
 import re
 import uuid
 
@@ -33,13 +38,6 @@ from app.db.models import Event
 from app.db.session import get_db
 from app.deps import CurrentUser, get_current_user, require_role
 from app.routers._common import Page, PaginationParams, ensure_tenant_context
-from app.services.google_calendar import (
-    GoogleCalendarClient,
-    GoogleCalendarError,
-    get_google_calendar_client,
-)
-
-logger = logging.getLogger("pastorai.events")
 
 # EVT-1: `hora` é texto livre na coluna; aqui validamos HH:MM (24h) no payload
 # para não persistir lixo (espelha a CHECK constraint events_hora_formato_chk).
@@ -201,26 +199,15 @@ def create_event(
     payload: CreateEventRequest,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(require_role(["pastor"])),
-    gcal: GoogleCalendarClient = Depends(get_google_calendar_client),
 ) -> EventOut:
-    """Create an event and attempt to mirror it to Google Calendar.
+    """Create a tenant event (persisted locally only).
 
-    The event is always persisted. If the Google Calendar sync fails (or is not
-    configured), the event is saved unsynced and the response reflects that
-    instead of erroring.
+    EVT-6 PR6.0: o push Google legado global foi removido daqui (ver docstring do
+    módulo) — criava risco multi-tenant e órfãos. O evento nasce com
+    `google_event_id=null` → `sincronizado=false`. A sincronização com o Google
+    volta como push POR IGREJA (via calendar_sync) numa fase futura.
     """
     ensure_tenant_context(db, current_user)
-
-    google_event_id: str | None = None
-    try:
-        google_event_id = gcal.create_event(
-            titulo=payload.titulo,
-            data=payload.data,
-            hora=payload.hora,
-            descricao=payload.descricao,
-        )
-    except GoogleCalendarError:
-        logger.warning("Event created but Google Calendar sync failed")
 
     event = Event(
         igreja_id=uuid.UUID(current_user.igreja_id),
@@ -228,7 +215,7 @@ def create_event(
         data=payload.data,
         hora=payload.hora,
         descricao=payload.descricao,
-        google_event_id=google_event_id,
+        google_event_id=None,
     )
     db.add(event)
     db.flush()

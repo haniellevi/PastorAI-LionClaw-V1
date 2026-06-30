@@ -3,6 +3,13 @@
 Creates/updates/deletes events on a Google Calendar via the REST API using an
 OAuth access token. Failures are normalized to `GoogleCalendarError` so callers
 can mark the event as not synchronized instead of failing the whole request.
+
+EVT-6 PR6.0: este cliente NÃO está mais ligado ao `POST /events`. Ele usa o
+token/calendar GLOBAIS de `settings` ("Legacy"), nunca os tokens OAuth por igreja
+em `calendar_sync` — em produção isso escreveria todos os tenants numa única conta
+Google (risco multi-tenant). A classe é mantida (e seguro pelo guard B2),
+reservada para um push POR IGREJA de fase futura que leia o token correto.
+Nenhum caminho ativo o invoca hoje; o uso atual é só nos testes do guard B2.
 """
 
 from __future__ import annotations
