@@ -18,9 +18,10 @@
  *
  * Estados: loading (skeleton) · empty (sem eventos na visão) · populated.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 
 import { CalendarConnectCard } from "@/components/calendario/CalendarConnectCard";
+import { EventDetailModal } from "@/components/calendario/EventDetailModal";
 import { EventFormModal } from "@/components/calendario/EventFormModal";
 import { SessionExpiredError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
@@ -29,12 +30,15 @@ import {
   buildMonthGrid,
   buildWeekDays,
   buildYearMonths,
+  confirmEvent,
   createEvent,
   dateFromIso,
+  deleteEvent,
   eventsInMonth,
   fetchEvents,
   partitionEvents,
   shiftCursor,
+  updateEvent,
   viewLabel,
   type CreateEventInput,
   type EventItem,
@@ -81,6 +85,13 @@ export function CalendarioScreen() {
   const [formError, setFormError] = useState<string | null>(null);
   const [reconnecting, setReconnecting] = useState(false);
   const [toast, setToast] = useState<Toast | null>(null);
+
+  // EVT-4: detalhe / edição / exclusão. `selected` abre o detalhe; `editing`
+  // abre o form em modo edição. `mut*` cobrem excluir/confirmar (ações do detalhe).
+  const [selected, setSelected] = useState<EventItem | null>(null);
+  const [editing, setEditing] = useState<EventItem | null>(null);
+  const [mutBusy, setMutBusy] = useState(false);
+  const [mutError, setMutError] = useState<string | null>(null);
 
   const handleSessionError = useCallback(
     (err: unknown): boolean => {
@@ -195,6 +206,87 @@ export function CalendarioScreen() {
     [token, flashToast, handleSessionError],
   );
 
+  // EVT-4 ---------------------------------------------------------------------
+  const replaceEvent = useCallback((updated: EventItem) => {
+    setEvents((prev) => prev.map((e) => (e.id === updated.id ? updated : e)));
+  }, []);
+
+  const openDetail = useCallback((ev: EventItem) => {
+    setMutError(null);
+    setSelected(ev);
+  }, []);
+
+  /** Props para tornar um item de evento clicável/acessível (abre o detalhe). */
+  const eventActivation = useCallback(
+    (ev: EventItem) => ({
+      role: "button" as const,
+      tabIndex: 0,
+      style: { cursor: "pointer" as const },
+      onClick: () => openDetail(ev),
+      onKeyDown: (e: KeyboardEvent) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          openDetail(ev);
+        }
+      },
+    }),
+    [openDetail],
+  );
+
+  const handleEdit = useCallback(
+    async (input: CreateEventInput) => {
+      if (!token || !editing) return;
+      setSaving(true);
+      setFormError(null);
+      try {
+        const updated = await updateEvent(token, editing.id, input);
+        replaceEvent(updated);
+        setEditing(null);
+        flashToast({ kind: "ok", text: `Evento "${updated.titulo}" atualizado.` });
+      } catch (err) {
+        if (handleSessionError(err)) return;
+        setFormError(err instanceof ApiError ? err.message : "Não foi possível salvar as alterações.");
+      } finally {
+        setSaving(false);
+      }
+    },
+    [token, editing, replaceEvent, flashToast, handleSessionError],
+  );
+
+  const handleDelete = useCallback(async () => {
+    if (!token || !selected) return;
+    setMutBusy(true);
+    setMutError(null);
+    try {
+      await deleteEvent(token, selected.id);
+      setEvents((prev) => prev.filter((e) => e.id !== selected.id));
+      flashToast({ kind: "ok", text: `Evento "${selected.titulo}" excluído.` });
+      setSelected(null);
+    } catch (err) {
+      if (handleSessionError(err)) return;
+      setMutError(err instanceof ApiError ? err.message : "Não foi possível excluir o evento.");
+    } finally {
+      setMutBusy(false);
+    }
+  }, [token, selected, flashToast, handleSessionError]);
+
+  const handleConfirm = useCallback(async () => {
+    if (!token || !selected) return;
+    setMutBusy(true);
+    setMutError(null);
+    try {
+      const updated = await confirmEvent(token, selected.id);
+      replaceEvent(updated);
+      setSelected(updated);
+      flashToast({ kind: "ok", text: `Evento "${updated.titulo}" confirmado.` });
+    } catch (err) {
+      if (handleSessionError(err)) return;
+      setMutError(err instanceof ApiError ? err.message : "Não foi possível confirmar o evento.");
+    } finally {
+      setMutBusy(false);
+    }
+  }, [token, selected, replaceEvent, flashToast, handleSessionError]);
+
   const handleReconnect = useCallback(async () => {
     setReconnecting(true);
     try {
@@ -304,6 +396,7 @@ export function CalendarioScreen() {
                         key={ev.id}
                         className={`cal-ev${ev.sincronizado ? "" : " warn"}`}
                         title={ev.sincronizado ? ev.titulo : `${ev.titulo} · não sincronizado`}
+                        {...eventActivation(ev)}
                       >
                         {ev.hora ? `${ev.hora} ` : ""}
                         {ev.titulo}
@@ -330,6 +423,7 @@ export function CalendarioScreen() {
                           key={ev.id}
                           className={`cal-ev${ev.sincronizado ? "" : " warn"}`}
                           title={ev.sincronizado ? ev.titulo : `${ev.titulo} · não sincronizado`}
+                          {...eventActivation(ev)}
                         >
                           {ev.hora ? `${ev.hora} · ` : ""}
                           {ev.titulo}
@@ -396,7 +490,7 @@ export function CalendarioScreen() {
                 <span className="count">· {recurring.length}</span>
               </div>
               {recurring.map((ev) => (
-                <div className="list-row" key={ev.id}>
+                <div className="list-row" key={ev.id} {...eventActivation(ev)}>
                   <div style={{ flex: 1 }}>
                     <div className="nm">{ev.titulo}</div>
                     <div className="sub">
@@ -438,15 +532,36 @@ export function CalendarioScreen() {
         </>
       )}
 
-      {showForm ? (
+      {selected && !editing ? (
+        <EventDetailModal
+          event={selected}
+          busy={mutBusy}
+          error={mutError}
+          onClose={() => {
+            setSelected(null);
+            setMutError(null);
+          }}
+          onEdit={() => {
+            setFormError(null);
+            setEditing(selected);
+            setSelected(null);
+          }}
+          onDelete={() => void handleDelete()}
+          onConfirm={() => void handleConfirm()}
+        />
+      ) : null}
+
+      {showForm || editing ? (
         <EventFormModal
+          event={editing ?? undefined}
           busy={saving}
           error={formError}
           onClose={() => {
             setShowForm(false);
+            setEditing(null);
             setFormError(null);
           }}
-          onSubmit={(input) => void handleCreate(input)}
+          onSubmit={(input) => void (editing ? handleEdit(input) : handleCreate(input))}
         />
       ) : null}
 

@@ -43,6 +43,16 @@ export interface CreateEventInput {
   descricao?: string | null;
 }
 
+// EVT-4: edição parcial. O backend (PUT /events/{id}) trata campos None como
+// "inalterados" — não dá pra zerar hora/descrição por aqui (limitação aceita;
+// sem mudança de backend nesta fase).
+export interface UpdateEventInput {
+  titulo?: string;
+  data?: string; // YYYY-MM-DD
+  hora?: string | null;
+  descricao?: string | null;
+}
+
 // ---------------------------------------------------------------------------
 // Leitura
 // ---------------------------------------------------------------------------
@@ -76,6 +86,61 @@ export async function createEvent(
   if (!res.ok) {
     const detail = await readDetail(res);
     throw new ApiError(res.status, detail ?? "Não foi possível salvar o evento.");
+  }
+  return (await res.json()) as EventItem;
+}
+
+/** EVT-4: edição parcial de um evento (PUT /events/{id}). */
+export async function updateEvent(
+  token: string,
+  id: string,
+  input: UpdateEventInput,
+): Promise<EventItem> {
+  const res = await authedFetch(token, `/events/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+  if (res.status === 403) {
+    throw new ApiError(403, "Acesso restrito à agenda da igreja.");
+  }
+  if (res.status === 404) {
+    throw new ApiError(404, "Evento não encontrado.");
+  }
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível salvar as alterações.");
+  }
+  return (await res.json()) as EventItem;
+}
+
+/** EVT-4: exclusão de um evento (DELETE /events/{id}). 404 é tratado como idempotente. */
+export async function deleteEvent(token: string, id: string): Promise<void> {
+  const res = await authedFetch(token, `/events/${id}`, { method: "DELETE" });
+  if (res.status === 403) {
+    throw new ApiError(403, "Acesso restrito à agenda da igreja.");
+  }
+  if (res.status === 404) return; // já não existe — remoção é idempotente
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível excluir o evento.");
+  }
+}
+
+/** EVT-4: confirmação manual de um evento 'a_confirmar' (POST /events/{id}/confirm). */
+export async function confirmEvent(token: string, id: string): Promise<EventItem> {
+  const res = await authedFetch(token, `/events/${id}/confirm`, { method: "POST" });
+  if (res.status === 403) {
+    throw new ApiError(403, "Acesso restrito à agenda da igreja.");
+  }
+  if (res.status === 404) {
+    throw new ApiError(404, "Evento não encontrado.");
+  }
+  if (res.status === 409) {
+    throw new ApiError(409, "Este evento não está aguardando confirmação.");
+  }
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível confirmar o evento.");
   }
   return (await res.json()) as EventItem;
 }
@@ -151,6 +216,13 @@ function isoDate(year: number, month: number, day: number): string {
 export function dateFromIso(iso: string): Date {
   const [y, m, d] = iso.split("-").map(Number);
   return new Date(y ?? 1970, (m ?? 1) - 1, d ?? 1);
+}
+
+/** "YYYY-MM-DD" → "29 de junho de 2026" (string-based, sem Date/fuso). EVT-4. */
+export function formatLongDate(iso: string): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  const name = MONTH_NAMES[(m ?? 1) - 1]?.toLowerCase() ?? "";
+  return `${d} de ${name} de ${y}`;
 }
 
 /** Ordena por hora ("HH:MM"); sem hora (dia inteiro) vem primeiro. */

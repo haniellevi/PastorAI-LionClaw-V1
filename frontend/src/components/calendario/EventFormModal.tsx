@@ -1,33 +1,39 @@
 "use client";
 
 /**
- * Novo evento da agenda (api-events) — form-field + btn-primary. O backend
- * tenta espelhar no Google Calendar; se o sync falhar, o evento é salvo local
- * e devolvido como não sincronizado (a tela sinaliza para re-tentar).
+ * Form de evento da agenda (api-events) — form-field + btn-primary. Cria um novo
+ * evento ou, quando recebe `event` (EVT-4), edita um existente (PUT parcial). O
+ * backend tenta espelhar no Google Calendar na criação; se o sync falhar, o
+ * evento é salvo local e devolvido como não sincronizado (a tela sinaliza para
+ * re-tentar). A edição não re-sincroniza (escopo EVT-6+).
  */
 import { useState } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
-import type { CreateEventInput } from "@/lib/events-api";
+import type { CreateEventInput, EventItem } from "@/lib/events-api";
 
 export function EventFormModal({
+  event,
   defaultDate,
   busy,
   error,
   onClose,
   onSubmit,
 }: {
+  /** Quando presente, o form abre em modo edição pré-preenchido (EVT-4). */
+  event?: EventItem;
   defaultDate?: string;
   busy: boolean;
   error: string | null;
   onClose: () => void;
   onSubmit: (input: CreateEventInput) => void;
 }) {
-  const [titulo, setTitulo] = useState("");
-  const [data, setData] = useState(defaultDate ?? "");
-  const [hora, setHora] = useState("");
-  const [descricao, setDescricao] = useState("");
+  const isEdit = event != null;
+  const [titulo, setTitulo] = useState(event?.titulo ?? "");
+  const [data, setData] = useState(event?.data ?? defaultDate ?? "");
+  const [hora, setHora] = useState(event?.hora ?? "");
+  const [descricao, setDescricao] = useState(event?.descricao ?? "");
   const [touched, setTouched] = useState(false);
 
   const tituloError = touched && !titulo.trim() ? "Informe o título." : undefined;
@@ -44,17 +50,19 @@ export function EventFormModal({
     });
   };
 
+  const title = isEdit ? "Editar evento" : "Novo evento";
+
   return (
     <div className="modal-overlay" onClick={onClose} role="presentation">
       <div
         className="modal"
         role="dialog"
         aria-modal="true"
-        aria-label="Novo evento"
+        aria-label={title}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="modal-head">
-          <strong>Novo evento</strong>
+          <strong>{title}</strong>
           <button type="button" className="btn btn-sm btn-ghost" onClick={onClose}>
             Fechar
           </button>
@@ -115,7 +123,7 @@ export function EventFormModal({
               Cancelar
             </button>
             <Button type="submit" variant="primary" size="sm" loading={busy} loadingText="Salvando…">
-              Salvar evento
+              {isEdit ? "Salvar alterações" : "Salvar evento"}
             </Button>
           </div>
         </form>
