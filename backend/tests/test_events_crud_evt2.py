@@ -11,9 +11,12 @@ do Event por entidade, sem DB real. Cobre os contratos HTTP novos:
   - POST   /events               bloqueia lider_g12, permite pastor/admin.
 
 O filtro `igreja_id` no nível de query (defesa em profundidade além da RLS) é
-verificado inspecionando o SQL compilado do SELECT por id — o fake ignora o WHERE
-ao devolver o objeto canônico, então o 404 "outro tenant" é simulado com event=None
-(é o que a RLS + filtro igreja_id produziriam).
+provado inspecionando o PREDICADO WHERE do SELECT por id (`statement.whereclause`),
+que exclui a projeção de colunas — `events.igreja_id` só aparece ali se `_get_event`
+realmente filtra por tenant (e a asserção falha se o predicado for removido). O fake
+ignora o WHERE ao devolver o objeto canônico, então o 404 "outro tenant" é simulado
+com event=None (é o que a RLS + filtro igreja_id produziriam); a barreira efetiva
+entre tenants é a RLS, exercitada fora deste harness offline.
 """
 
 from __future__ import annotations
@@ -57,7 +60,7 @@ class EventSession:
         self.committed = False
         self.deleted = None
         self.added = None
-        self.last_event_sql: str | None = None
+        self.last_event_stmt = None
 
     def execute(self, statement, params=None) -> _R:
         descs = list(getattr(statement, "column_descriptions", []) or [])
@@ -65,7 +68,7 @@ class EventSession:
         if ent is AppUser:
             return _R(scalar=self.app_user)
         if ent is Event:
-            self.last_event_sql = str(statement)
+            self.last_event_stmt = statement
             return _R(scalar=self.event)
         return _R(scalars=self.roles)
 
@@ -130,6 +133,19 @@ def _session(*, roles, event=None):
     return EventSession(app_user=make_app_user(), roles=roles, event=event)
 
 
+def _last_event_where(session) -> str:
+    """SQL apenas do predicado WHERE do último SELECT de Event (sem a projeção).
+
+    `str(stmt.whereclause)` rende só a cláusula WHERE — ex.:
+    ``events.id = :id_1 AND events.igreja_id = :igreja_id_1`` — então a presença
+    de ``events.igreja_id`` aqui prova o filtro de tenant, não a lista de colunas
+    do SELECT (onde igreja_id sempre apareceria por ser coluna mapeada). Substring
+    de ``tabela.coluna`` é estável a espaçamento/nome de bind param.
+    """
+    where = getattr(session.last_event_stmt, "whereclause", None)
+    return str(where) if where is not None else ""
+
+
 # ---- GET /events/{id} ------------------------------------------------------
 def test_get_event_found(app) -> None:
     session = _session(roles=["admin"], event=make_event())
@@ -140,8 +156,12 @@ def test_get_event_found(app) -> None:
     assert body["titulo"] == "Culto"
     assert body["status"] == "confirmado"
     assert body["origem"] == "manual"
-    # filtro de tenant no nível de query (defesa em profundidade além da RLS).
-    assert "igreja_id" in (session.last_event_sql or "")
+    # Prova o filtro de tenant NO PREDICADO WHERE (não na projeção): _get_event
+    # filtra por Event.id E Event.igreja_id. A asserção falha se o predicado
+    # igreja_id for removido do router (defesa em profundidade além da RLS).
+    where_sql = _last_event_where(session)
+    assert "events.id" in where_sql
+    assert "events.igreja_id" in where_sql
 
 
 def test_get_event_404_other_tenant_or_missing(app) -> None:
