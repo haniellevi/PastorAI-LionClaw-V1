@@ -150,6 +150,52 @@ class GoogleOAuthClient:
             expires_in=int(body.get("expires_in") or 3600),
         )
 
+    def list_events(
+        self,
+        access_token: str,
+        calendar_id: str,
+        time_min: str,
+        time_max: str,
+        *,
+        max_results: int = 250,
+    ) -> list[dict]:
+        """Read-only: list a calendar's events in ``[time_min, time_max)``.
+
+        Uses Google Calendar ``events.list`` with ``singleEvents=true`` so
+        recurring series are expanded into individual occurrences. This is a GET
+        only — it never writes. Tokens are per-igreja (passed in by the caller);
+        the global legacy token/calendar are never read here. Returns normalized
+        dicts ready for the import-preview response (no ``events`` row written).
+        """
+        base = self._settings.google_calendar_api_url.rstrip("/")
+        params = {
+            "timeMin": time_min,
+            "timeMax": time_max,
+            "singleEvents": "true",
+            "orderBy": "startTime",
+            "maxResults": str(max_results),
+        }
+        try:
+            with httpx.Client(timeout=15.0) as client:
+                resp = client.get(
+                    f"{base}/calendars/{calendar_id}/events",
+                    headers={"Authorization": f"Bearer {access_token}"},
+                    params=params,
+                )
+                resp.raise_for_status()
+                body = resp.json()
+        except httpx.HTTPError as exc:
+            logger.warning("Google events.list failed: %s", type(exc).__name__)
+            raise GoogleOAuthError("Falha ao listar eventos do Google") from exc
+        except ValueError as exc:
+            raise GoogleOAuthError("Resposta inesperada do Google (events)") from exc
+        items = body.get("items") or []
+        return [
+            _normalize_event(it)
+            for it in items
+            if isinstance(it, dict) and it.get("id") and it.get("status") != "cancelled"
+        ]
+
     def list_calendars(self, access_token: str) -> list[dict]:
         """Return the user's calendars as ``[{id, summary, primary}]``."""
         base = self._settings.google_calendar_api_url.rstrip("/")
@@ -176,6 +222,40 @@ class GoogleOAuthClient:
             for it in items
             if isinstance(it, dict) and it.get("id")
         ]
+
+
+def _split_dt(block: dict) -> tuple[str | None, str | None]:
+    """``(date 'YYYY-MM-DD', time 'HH:MM' or None)`` from a start/end block.
+
+    All-day events carry ``date``; timed events carry ``dateTime`` (RFC3339).
+    """
+    if block.get("date"):  # all-day event
+        return str(block["date"]), None
+    raw = block.get("dateTime")
+    if not raw:
+        return None, None
+    try:
+        parsed = dt.datetime.fromisoformat(raw)
+    except ValueError:
+        return None, None
+    return parsed.date().isoformat(), parsed.strftime("%H:%M")
+
+
+def _normalize_event(it: dict) -> dict:
+    """Map a Google event to the import-preview shape (read-only projection)."""
+    data, hora = _split_dt(it.get("start") or {})
+    _, fim = _split_dt(it.get("end") or {})
+    return {
+        "googleEventId": str(it.get("id")),
+        "titulo": it.get("summary"),
+        "descricao": it.get("description"),
+        "data": data,
+        "hora": hora,
+        "fim": fim,
+        # singleEvents=true expands a series, so each occurrence carries
+        # recurringEventId; `recurrence` covers the unexpanded master case.
+        "recorrente": bool(it.get("recurringEventId") or it.get("recurrence")),
+    }
 
 
 def get_google_oauth_client() -> GoogleOAuthClient:

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -121,11 +122,16 @@ class _CalSession:
 
 
 class _FakeOAuth:
-    def __init__(self, *, consent="https://consent", tokens=None, calendars=None) -> None:
+    def __init__(
+        self, *, consent="https://consent", tokens=None, calendars=None, events=None
+    ) -> None:
         self._consent = consent
         self._tokens = tokens
         self._calendars = calendars or []
+        self._events = events or []
         self.state_igreja = _IGREJA
+        self.refreshed = False
+        self.list_events_args = None
 
     def build_consent_url(self, igreja_id):
         return self._consent
@@ -137,10 +143,15 @@ class _FakeOAuth:
         return self._tokens
 
     def refresh_access_token(self, refresh):
+        self.refreshed = True
         return self._tokens
 
     def list_calendars(self, token):
         return self._calendars
+
+    def list_events(self, token, calendar_id, time_min, time_max, **kwargs):
+        self.list_events_args = (token, calendar_id, time_min, time_max)
+        return self._events
 
 
 def _client(app, roles, *, session=None, oauth=None) -> TestClient:
@@ -268,3 +279,174 @@ def test_callback_stores_encrypted_tokens(app, monkeypatch) -> None:
         assert session.committed is True
     finally:
         crypto._get_fernet.cache_clear()  # noqa: SLF001 - don't leak the test key
+
+
+# ---------------------------------------------------------------------------
+# import/preview (read-only; admin/pastor only) — EVT-6 PR6.1
+# ---------------------------------------------------------------------------
+def test_import_preview_requires_auth(app) -> None:
+    c = _client(app, ["pastor"], oauth=_FakeOAuth())
+    assert c.get("/calendar/import/preview").status_code == 401
+
+
+def test_import_preview_forbidden_for_non_privileged(app) -> None:
+    c = _client(app, ["lider_celula"], oauth=_FakeOAuth())
+    assert c.get("/calendar/import/preview", headers=_AUTH).status_code == 403
+
+
+def test_import_preview_not_connected_returns_409(app) -> None:
+    session = _CalSession(app_user=make_app_user(), roles=["pastor"], sync=None)
+    c = _client(app, ["pastor"], session=session, oauth=_FakeOAuth())
+    r = c.get("/calendar/import/preview", headers=_AUTH)
+    assert r.status_code == 409
+    assert session.added == []  # nothing persisted
+
+
+def test_import_preview_returns_events_without_persisting(app, monkeypatch) -> None:
+    """Connected igreja → preview via per-igreja token, refreshing it, no writes."""
+    from app.services import crypto
+
+    monkeypatch.setattr(crypto.get_settings(), "secrets_encryption_key", "k" * 32)
+    crypto._get_fernet.cache_clear()  # noqa: SLF001 - rebuild Fernet with test key
+    try:
+        # access token absent → forces the per-igreja refresh path.
+        sync = SimpleNamespace(
+            refresh_token_encrypted=crypto.encrypt_secret("rt"),
+            access_token_encrypted=None,
+            access_token_expira_em=None,
+            google_calendar_id="cal@x",
+            atualizado_em=None,
+        )
+        oauth = _FakeOAuth(
+            tokens=OAuthTokens(access_token="fresh", refresh_token=None, expires_in=3600),
+            events=[
+                {
+                    "googleEventId": "g1",
+                    "titulo": "Culto",
+                    "descricao": "domingo",
+                    "data": "2026-07-05",
+                    "hora": "19:00",
+                    "fim": "20:30",
+                    "recorrente": False,
+                }
+            ],
+        )
+        session = _CalSession(app_user=make_app_user(), roles=["pastor"], sync=sync)
+        c = _client(app, ["pastor"], session=session, oauth=oauth)
+        r = c.get("/calendar/import/preview", headers=_AUTH)
+        assert r.status_code == 200
+        body = r.json()
+        assert body["calendarId"] == "cal@x"
+        assert body["events"][0]["googleEventId"] == "g1"
+        assert body["events"][0]["hora"] == "19:00"
+        # per-igreja refresh happened with the igreja's calendar id...
+        assert oauth.refreshed is True
+        assert oauth.list_events_args[0] == "fresh"  # per-igreja token, not global
+        assert oauth.list_events_args[1] == "cal@x"
+        # ...and NOTHING was written to events (no rows added).
+        assert session.added == []
+    finally:
+        crypto._get_fernet.cache_clear()  # noqa: SLF001 - don't leak the test key
+
+
+# ---------------------------------------------------------------------------
+# GoogleOAuthClient.list_events — real HTTP path (mocked transport, no Google)
+# ---------------------------------------------------------------------------
+def _use_transport(monkeypatch, handler) -> None:
+    """Route every httpx.Client through a MockTransport with `handler`."""
+    transport = httpx.MockTransport(handler)
+    real = httpx.Client
+
+    def fake(*args, **kwargs):
+        kwargs.pop("transport", None)
+        return real(*args, transport=transport, **kwargs)
+
+    monkeypatch.setattr(httpx, "Client", fake)
+
+
+def test_list_events_is_read_only_and_normalizes(monkeypatch) -> None:
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["method"] = request.method
+        captured["url"] = str(request.url)
+        captured["params"] = dict(request.url.params)
+        captured["auth"] = request.headers.get("Authorization")
+        captured["body"] = request.content
+        return httpx.Response(
+            200,
+            json={
+                "items": [
+                    {
+                        "id": "timed1",
+                        "summary": "Culto",
+                        "description": "domingo",
+                        "start": {"dateTime": "2026-07-05T19:00:00-03:00"},
+                        "end": {"dateTime": "2026-07-05T20:30:00-03:00"},
+                    },
+                    {
+                        "id": "allday1",
+                        "summary": "Feriado",
+                        "start": {"date": "2026-07-09"},
+                        "end": {"date": "2026-07-10"},
+                    },
+                    {
+                        "id": "rec1",
+                        "summary": "Reunião semanal",
+                        "start": {"dateTime": "2026-07-06T08:00:00-03:00"},
+                        "end": {"dateTime": "2026-07-06T09:00:00-03:00"},
+                        "recurringEventId": "master",
+                    },
+                    {
+                        "id": "cancelled1",
+                        "status": "cancelled",
+                        "start": {"dateTime": "2026-07-07T10:00:00-03:00"},
+                    },
+                ]
+            },
+        )
+
+    _use_transport(monkeypatch, handler)
+    # A global legacy token is set on settings to prove it is NEVER used.
+    oauth = GoogleOAuthClient(
+        settings=Settings(
+            session_jwt_secret="x", google_calendar_access_token="GLOBAL-LEAK"
+        )
+    )
+    out = oauth.list_events(
+        "per-igreja-tok", "primary", "2026-07-01T00:00:00Z", "2026-08-01T00:00:00Z"
+    )
+
+    # read-only GET, right query, per-igreja bearer token, empty body
+    assert captured["method"] == "GET"
+    assert "/calendars/primary/events" in captured["url"]
+    assert captured["params"]["singleEvents"] == "true"
+    assert captured["params"]["orderBy"] == "startTime"
+    assert captured["params"]["timeMin"] == "2026-07-01T00:00:00Z"
+    assert captured["params"]["timeMax"] == "2026-08-01T00:00:00Z"
+    assert captured["auth"] == "Bearer per-igreja-tok"  # not the global token
+    assert "GLOBAL-LEAK" not in (captured["auth"] or "")
+    assert captured["body"] == b""
+
+    # cancelled dropped; timed/all-day/recurring normalized
+    ids = [e["googleEventId"] for e in out]
+    assert ids == ["timed1", "allday1", "rec1"]
+    assert (out[0]["data"], out[0]["hora"], out[0]["fim"]) == (
+        "2026-07-05",
+        "19:00",
+        "20:30",
+    )
+    assert out[0]["recorrente"] is False
+    assert out[1]["hora"] is None and out[1]["fim"] is None
+    assert out[1]["data"] == "2026-07-09"
+    assert out[2]["recorrente"] is True
+
+
+def test_list_events_http_error_is_controlled(monkeypatch) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, json={"error": "boom"})
+
+    _use_transport(monkeypatch, handler)
+    oauth = GoogleOAuthClient(settings=Settings(session_jwt_secret="x"))
+    with pytest.raises(GoogleOAuthError):
+        oauth.list_events("tok", "primary", "t0", "t1")
