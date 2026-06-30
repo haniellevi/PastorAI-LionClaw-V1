@@ -64,6 +64,21 @@ class SelectCalendarRequest(BaseModel):
     calendarId: str = Field(min_length=1, max_length=300)  # noqa: N815
 
 
+class PreviewEventItem(BaseModel):
+    googleEventId: str  # noqa: N815
+    titulo: str | None = None
+    descricao: str | None = None
+    data: str | None = None  # YYYY-MM-DD
+    hora: str | None = None  # HH:MM (None for all-day)
+    fim: str | None = None  # HH:MM end (None for all-day / unset)
+    recorrente: bool = False
+
+
+class ImportPreviewOut(BaseModel):
+    calendarId: str  # noqa: N815
+    events: list[PreviewEventItem]
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -202,6 +217,45 @@ def list_calendars(
             status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
         ) from exc
     return CalendarListOut(calendars=[CalendarItem(**c) for c in cals])
+
+
+@router.get("/import/preview", response_model=ImportPreviewOut)
+def import_preview(
+    timeMin: str | None = Query(default=None),  # noqa: N803 - external camelCase
+    timeMax: str | None = Query(default=None),  # noqa: N803
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_role(["pastor"])),
+    oauth: GoogleOAuthClient = Depends(get_google_oauth_client),
+) -> ImportPreviewOut:
+    """Read-only preview of the igreja's Google Calendar events (EVT-6 PR6.1).
+
+    Lists events using the per-igreja OAuth token (``calendar_sync``); nothing is
+    written to ``events``. Defaults to a safe forward window (now → +90d) when
+    the range is omitted. 409 when the igreja has no calendar connected.
+    """
+    ensure_tenant_context(db, current_user)
+    sync = _sync_for(db, uuid.UUID(current_user.igreja_id))
+    if not _connected(sync):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Agenda não conectada"
+        )
+    now = dt.datetime.now(dt.timezone.utc)
+    time_min = timeMin or now.isoformat()
+    time_max = timeMax or (now + dt.timedelta(days=90)).isoformat()
+    token = _valid_access_token(db, sync, oauth)
+    # ponytail: default to "primary" when no calendar selected yet — same
+    # convention as the legacy client and Google's own default.
+    calendar_id = sync.google_calendar_id or "primary"
+    try:
+        events = oauth.list_events(token, calendar_id, time_min, time_max)
+    except GoogleOAuthError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
+        ) from exc
+    return ImportPreviewOut(
+        calendarId=calendar_id,
+        events=[PreviewEventItem(**e) for e in events],
+    )
 
 
 @router.put("", response_model=StatusOut)
