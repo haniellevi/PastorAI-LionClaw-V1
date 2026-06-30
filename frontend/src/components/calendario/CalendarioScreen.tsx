@@ -1,13 +1,22 @@
 "use client";
 
 /**
- * Tela #calendario — agenda da igreja em calendar-month, sincronizada com o
- * Google Calendar (api-events). Cria evento (form-field/btn-primary) e o mostra
- * no mês. Falha de sync / token Google expirado exibe o banner "calendário
- * desconectado" com CTA reconectar, mantendo os eventos locais; eventos salvos
- * sem sincronizar ficam marcados como "não sincronizado" com re-tentar.
+ * Tela #calendario — Agenda da igreja (EVT-3). Lê eventos reais de GET /events e
+ * oferece três visões: Semana, Mês e Ano.
+ *  - Semana: lista vertical dos 7 dias (Dom→Sáb) da semana em foco, eventos por
+ *    dia. Lista (não 7 colunas) → legível no mobile, sem overflow horizontal.
+ *  - Mês: grade mensal (calendar-month) com os eventos reais do mês.
+ *  - Ano: grade compacta dos 12 meses, cada um com contagem + prévia; clicar abre
+ *    o mês.
+ * Eventos com recorrencia='semanal' não têm data fixa (EVT-1, `data=null`) e
+ * `dia_semana` não é exposto no EventOut — então não entram no grid: vão para a
+ * seção "Eventos recorrentes". A navegação usa um cursor (Date) deslocado pela
+ * unidade da visão atual.
  *
- * Estados: loading (skeleton) · empty (sem eventos no mês) · populated.
+ * A criação manual de evento (EventFormModal) e a UX de sync com o Google
+ * (banner desconectado / re-tentar) são preservadas como estavam.
+ *
+ * Estados: loading (skeleton) · empty (sem eventos na visão) · populated.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -18,12 +27,18 @@ import { useAuth } from "@/lib/auth-context";
 import { ApiError } from "@/lib/dashboard-api";
 import {
   buildMonthGrid,
+  buildWeekDays,
+  buildYearMonths,
   createEvent,
+  dateFromIso,
   eventsInMonth,
   fetchEvents,
-  monthLabel,
+  partitionEvents,
+  shiftCursor,
+  viewLabel,
   type CreateEventInput,
   type EventItem,
+  type EventView,
 } from "@/lib/events-api";
 import { Icon } from "@/lib/icons";
 
@@ -33,6 +48,21 @@ interface Toast {
 }
 
 const WEEKDAYS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+const VIEWS: { id: EventView; label: string }[] = [
+  { id: "semana", label: "Semana" },
+  { id: "mes", label: "Mês" },
+  { id: "ano", label: "Ano" },
+];
+const PREV_LABEL: Record<EventView, string> = {
+  semana: "Semana anterior",
+  mes: "Mês anterior",
+  ano: "Ano anterior",
+};
+const NEXT_LABEL: Record<EventView, string> = {
+  semana: "Próxima semana",
+  mes: "Próximo mês",
+  ano: "Próximo ano",
+};
 
 export function CalendarioScreen() {
   const { token, expireSession } = useAuth();
@@ -43,8 +73,8 @@ export function CalendarioScreen() {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [year, setYear] = useState(today.getFullYear());
-  const [month, setMonth] = useState(today.getMonth());
+  const [view, setView] = useState<EventView>("mes");
+  const [cursor, setCursor] = useState<Date>(() => new Date());
 
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -99,32 +129,41 @@ export function CalendarioScreen() {
     [],
   );
 
-  const monthEvents = useMemo(() => eventsInMonth(events, year, month), [events, year, month]);
-  const cells = useMemo(
-    () => buildMonthGrid(year, month, monthEvents, today),
-    [year, month, monthEvents, today],
+  // Eventos com data fixa alimentam os grids; recorrentes (data=null) vão à
+  // seção própria e são excluídos da heurística de "não sincronizado".
+  const { dated, recurring } = useMemo(() => partitionEvents(events), [events]);
+
+  const year = cursor.getFullYear();
+  const month = cursor.getMonth();
+
+  const monthEvents = useMemo(
+    () => (view === "mes" ? eventsInMonth(dated, year, month) : []),
+    [view, dated, year, month],
   );
-  const unsynced = useMemo(() => events.filter((e) => !e.sincronizado), [events]);
+  const monthCells = useMemo(
+    () => (view === "mes" ? buildMonthGrid(year, month, monthEvents, today) : []),
+    [view, year, month, monthEvents, today],
+  );
+  const weekDays = useMemo(
+    () => (view === "semana" ? buildWeekDays(cursor, dated, today) : []),
+    [view, cursor, dated, today],
+  );
+  const yearMonths = useMemo(
+    () => (view === "ano" ? buildYearMonths(year, dated, today) : []),
+    [view, year, dated, today],
+  );
+
+  const viewIsEmpty =
+    (view === "mes" && monthEvents.length === 0) ||
+    (view === "semana" && weekDays.every((d) => d.events.length === 0)) ||
+    (view === "ano" && yearMonths.every((m) => m.count === 0));
+
+  const unsynced = useMemo(() => dated.filter((e) => !e.sincronizado), [dated]);
   const disconnected = unsynced.length > 0;
 
-  const goPrev = useCallback(() => {
-    setMonth((m) => {
-      if (m === 0) {
-        setYear((y) => y - 1);
-        return 11;
-      }
-      return m - 1;
-    });
-  }, []);
-  const goNext = useCallback(() => {
-    setMonth((m) => {
-      if (m === 11) {
-        setYear((y) => y + 1);
-        return 0;
-      }
-      return m + 1;
-    });
-  }, []);
+  const goPrev = useCallback(() => setCursor((c) => shiftCursor(c, view, -1)), [view]);
+  const goNext = useCallback(() => setCursor((c) => shiftCursor(c, view, 1)), [view]);
+  const goToday = useCallback(() => setCursor(new Date()), []);
 
   const handleCreate = useCallback(
     async (input: CreateEventInput) => {
@@ -136,10 +175,9 @@ export function CalendarioScreen() {
         setEvents((prev) => [...prev, created]);
         setShowForm(false);
         // Pula para o mês do evento criado para que apareça no grid.
-        const [y, m] = created.data.split("-").map(Number);
-        if (y != null && m != null && !Number.isNaN(y) && !Number.isNaN(m)) {
-          setYear(y);
-          setMonth(m - 1);
+        if (created.data) {
+          setCursor(dateFromIso(created.data));
+          setView("mes");
         }
         flashToast({
           kind: created.sincronizado ? "ok" : "err",
@@ -168,18 +206,22 @@ export function CalendarioScreen() {
   }, [load, flashToast]);
 
   const showSkeleton = loading && !loaded;
+  const periodLabel = viewLabel(cursor, view);
 
   return (
     <div className="screen" key="calendario">
       <div className="screen-head">
         <div className="titles">
-          <h2>Calendário · {monthLabel(year, month)}</h2>
+          <h2>Calendário · {periodLabel}</h2>
         </div>
         <div className="actions">
-          <button type="button" className="btn btn-sm" onClick={goPrev} aria-label="Mês anterior">
+          <button type="button" className="btn btn-sm" onClick={goToday}>
+            Hoje
+          </button>
+          <button type="button" className="btn btn-sm" onClick={goPrev} aria-label={PREV_LABEL[view]}>
             <Icon name="chevron-left" />
           </button>
-          <button type="button" className="btn btn-sm" onClick={goNext} aria-label="Próximo mês">
+          <button type="button" className="btn btn-sm" onClick={goNext} aria-label={NEXT_LABEL[view]}>
             <Icon name="caret" />
           </button>
           <button type="button" className="btn btn-primary" onClick={() => { setFormError(null); setShowForm(true); }}>
@@ -187,6 +229,21 @@ export function CalendarioScreen() {
             <span>Novo evento</span>
           </button>
         </div>
+      </div>
+
+      <div className="tabs agenda-tabs" role="tablist" aria-label="Visualização da agenda">
+        {VIEWS.map((v) => (
+          <button
+            key={v.id}
+            type="button"
+            role="tab"
+            aria-selected={view === v.id}
+            className={`tab${view === v.id ? " active" : ""}`}
+            onClick={() => setView(v.id)}
+          >
+            {v.label}
+          </button>
+        ))}
       </div>
 
       <CalendarConnectCard />
@@ -228,43 +285,128 @@ export function CalendarioScreen() {
         </div>
       ) : (
         <>
-          <div className="cal">
-            <div className="cal-head">
-              {WEEKDAYS.map((d) => (
-                <div key={d}>{d}</div>
-              ))}
+          {view === "mes" ? (
+            <div className="cal">
+              <div className="cal-head">
+                {WEEKDAYS.map((d) => (
+                  <div key={d}>{d}</div>
+                ))}
+              </div>
+              <div className="cal-grid">
+                {monthCells.map((cell, i) => (
+                  <div
+                    key={cell.iso ?? `pad-${i}`}
+                    className={`cal-cell${cell.day == null ? " off" : ""}${cell.today ? " today" : ""}`}
+                  >
+                    {cell.day != null ? <div className="d num">{cell.day}</div> : null}
+                    {cell.events.map((ev) => (
+                      <div
+                        key={ev.id}
+                        className={`cal-ev${ev.sincronizado ? "" : " warn"}`}
+                        title={ev.sincronizado ? ev.titulo : `${ev.titulo} · não sincronizado`}
+                      >
+                        {ev.hora ? `${ev.hora} ` : ""}
+                        {ev.titulo}
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
             </div>
-            <div className="cal-grid">
-              {cells.map((cell, i) => (
-                <div
-                  key={cell.iso ?? `pad-${i}`}
-                  className={`cal-cell${cell.day == null ? " off" : ""}${cell.today ? " today" : ""}`}
-                >
-                  {cell.day != null ? <div className="d num">{cell.day}</div> : null}
-                  {cell.events.map((ev) => (
-                    <div
-                      key={ev.id}
-                      className={`cal-ev${ev.sincronizado ? "" : " warn"}`}
-                      title={ev.sincronizado ? ev.titulo : `${ev.titulo} · não sincronizado`}
-                    >
-                      {ev.hora ? `${ev.hora} ` : ""}
-                      {ev.titulo}
+          ) : null}
+
+          {view === "semana" ? (
+            <div className="agenda-week">
+              {weekDays.map((d) => (
+                <div key={d.iso} className={`agenda-day${d.today ? " today" : ""}`}>
+                  <div className="agenda-day-head">
+                    <span className="wd">{WEEKDAYS[d.weekday]}</span>
+                    <span className="dt">{d.day} {d.monthShort}{d.today ? " · hoje" : ""}</span>
+                  </div>
+                  {d.events.length ? (
+                    <div className="agenda-day-evs">
+                      {d.events.map((ev) => (
+                        <div
+                          key={ev.id}
+                          className={`cal-ev${ev.sincronizado ? "" : " warn"}`}
+                          title={ev.sincronizado ? ev.titulo : `${ev.titulo} · não sincronizado`}
+                        >
+                          {ev.hora ? `${ev.hora} · ` : ""}
+                          {ev.titulo}
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  ) : (
+                    <div className="agenda-day-empty">—</div>
+                  )}
                 </div>
               ))}
             </div>
-          </div>
+          ) : null}
 
-          {monthEvents.length === 0 ? (
+          {view === "ano" ? (
+            <div className="agenda-year">
+              {yearMonths.map((mo) => (
+                <button
+                  key={mo.month}
+                  type="button"
+                  className={`agenda-month${mo.isCurrent ? " current" : ""}`}
+                  onClick={() => { setCursor(new Date(year, mo.month, 1)); setView("mes"); }}
+                  aria-label={`Abrir ${mo.label} de ${year}`}
+                >
+                  <div className="agenda-month-head">
+                    <span className="mn">{mo.label}</span>
+                    <span className="count">{mo.count}</span>
+                  </div>
+                  {mo.count ? (
+                    <ul className="agenda-month-list">
+                      {mo.events.slice(0, 3).map((ev) => (
+                        <li key={ev.id}>
+                          <span className="dot" />
+                          {ev.data ? `${Number(ev.data.slice(8, 10))} ` : ""}
+                          {ev.titulo}
+                        </li>
+                      ))}
+                      {mo.count > 3 ? <li className="more">+{mo.count - 3} mais</li> : null}
+                    </ul>
+                  ) : (
+                    <div className="agenda-month-empty">Sem eventos</div>
+                  )}
+                </button>
+              ))}
+            </div>
+          ) : null}
+
+          {viewIsEmpty ? (
             <div className="card" style={{ marginTop: "var(--s4)" }}>
               <div className="empty-state" style={{ padding: "var(--s6)" }}>
                 <Icon name="calendar" />
                 <p>
-                  <strong>Nenhum evento em {monthLabel(year, month)}.</strong> Crie
-                  o primeiro evento para aparecer no calendário.
+                  <strong>Nenhum evento em {periodLabel}.</strong> Use as setas para
+                  navegar ou crie um novo evento.
                 </p>
               </div>
+            </div>
+          ) : null}
+
+          {recurring.length > 0 ? (
+            <div className="card" style={{ marginTop: "var(--s4)" }}>
+              <div className="panel-title">
+                <Icon name="refresh" /> Eventos recorrentes
+                <span className="count">· {recurring.length}</span>
+              </div>
+              {recurring.map((ev) => (
+                <div className="list-row" key={ev.id}>
+                  <div style={{ flex: 1 }}>
+                    <div className="nm">{ev.titulo}</div>
+                    <div className="sub">
+                      {ev.hora ? `${ev.hora} · ` : ""}
+                      {ev.recorrencia === "semanal" ? "Semanal" : "Recorrente"}
+                    </div>
+                  </div>
+                  <span className="pill">Recorrente</span>
+                </div>
+              ))}
             </div>
           ) : null}
 
