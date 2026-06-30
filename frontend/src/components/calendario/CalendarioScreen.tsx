@@ -23,6 +23,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent }
 import { CalendarConnectCard } from "@/components/calendario/CalendarConnectCard";
 import { EventDetailModal } from "@/components/calendario/EventDetailModal";
 import { EventFormModal } from "@/components/calendario/EventFormModal";
+import { Button } from "@/components/ui/Button";
 import { SessionExpiredError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { ApiError } from "@/lib/dashboard-api";
@@ -36,6 +37,7 @@ import {
   deleteEvent,
   eventsInMonth,
   fetchEvents,
+  formatLongDate,
   partitionEvents,
   shiftCursor,
   updateEvent,
@@ -51,12 +53,30 @@ interface Toast {
   text: string;
 }
 
+// EVT-5: a barra de abas inclui a fila "A confirmar" além das visões de
+// calendário (EVT-3). "A confirmar" não é um período → não usa cursor/navegação.
+type AgendaTab = EventView | "confirmar";
+
 const WEEKDAYS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
-const VIEWS: { id: EventView; label: string }[] = [
+const VIEWS: { id: AgendaTab; label: string }[] = [
   { id: "semana", label: "Semana" },
   { id: "mes", label: "Mês" },
   { id: "ano", label: "Ano" },
+  { id: "confirmar", label: "A confirmar" },
 ];
+
+/** EVT-5: rótulo de "quando" para a fila (data por extenso ou recorrência). */
+function whenLabel(ev: EventItem): string {
+  if (ev.data) return `${formatLongDate(ev.data)}${ev.hora ? ` · ${ev.hora}` : ""}`;
+  return `Recorrente${ev.recorrencia === "semanal" ? " · semanal" : ""}${ev.hora ? ` · ${ev.hora}` : ""}`;
+}
+
+/** EVT-5: rótulo de origem do evento (null quando desconhecida). */
+function origemLabel(o: string | null | undefined): string | null {
+  if (o === "google") return "Importado do Google";
+  if (o === "manual") return "Manual";
+  return null;
+}
 const PREV_LABEL: Record<EventView, string> = {
   semana: "Semana anterior",
   mes: "Mês anterior",
@@ -77,7 +97,7 @@ export function CalendarioScreen() {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const [view, setView] = useState<EventView>("mes");
+  const [view, setView] = useState<AgendaTab>("mes");
   const [cursor, setCursor] = useState<Date>(() => new Date());
 
   const [showForm, setShowForm] = useState(false);
@@ -92,6 +112,9 @@ export function CalendarioScreen() {
   const [editing, setEditing] = useState<EventItem | null>(null);
   const [mutBusy, setMutBusy] = useState(false);
   const [mutError, setMutError] = useState<string | null>(null);
+
+  // EVT-5: id do evento sendo confirmado pela fila (loading por linha).
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
 
   const handleSessionError = useCallback(
     (err: unknown): boolean => {
@@ -144,6 +167,14 @@ export function CalendarioScreen() {
   // seção própria e são excluídos da heurística de "não sincronizado".
   const { dated, recurring } = useMemo(() => partitionEvents(events), [events]);
 
+  // EVT-5: a aba ativa pode ser um calendário (Semana/Mês/Ano) ou a fila
+  // "A confirmar". `calendarView` é null nesta última (não há período/navegação).
+  const calendarView: EventView | null = view === "confirmar" ? null : view;
+  const isCalendar = calendarView !== null;
+
+  // Fila "A confirmar": eventos status='a_confirmar' (semeados/importados EVT-6).
+  const pendentes = useMemo(() => events.filter((e) => e.status === "a_confirmar"), [events]);
+
   const year = cursor.getFullYear();
   const month = cursor.getMonth();
 
@@ -172,8 +203,14 @@ export function CalendarioScreen() {
   const unsynced = useMemo(() => dated.filter((e) => !e.sincronizado), [dated]);
   const disconnected = unsynced.length > 0;
 
-  const goPrev = useCallback(() => setCursor((c) => shiftCursor(c, view, -1)), [view]);
-  const goNext = useCallback(() => setCursor((c) => shiftCursor(c, view, 1)), [view]);
+  const goPrev = useCallback(
+    () => setCursor((c) => shiftCursor(c, calendarView ?? "mes", -1)),
+    [calendarView],
+  );
+  const goNext = useCallback(
+    () => setCursor((c) => shiftCursor(c, calendarView ?? "mes", 1)),
+    [calendarView],
+  );
   const goToday = useCallback(() => setCursor(new Date()), []);
 
   const handleCreate = useCallback(
@@ -287,6 +324,31 @@ export function CalendarioScreen() {
     }
   }, [token, selected, replaceEvent, flashToast, handleSessionError]);
 
+  // EVT-5: confirmação direto da fila "A confirmar" (sem abrir o detalhe). Em
+  // sucesso, `replaceEvent` muda o status para 'confirmado' e o item sai da fila
+  // (filtro por status). 409 e demais erros viram toast. O detalhe (EVT-4)
+  // continua sendo um caminho alternativo de confirmação.
+  const handleConfirmQueue = useCallback(
+    async (ev: EventItem) => {
+      if (!token) return;
+      setConfirmingId(ev.id);
+      try {
+        const updated = await confirmEvent(token, ev.id);
+        replaceEvent(updated);
+        flashToast({ kind: "ok", text: `Evento "${updated.titulo}" confirmado.` });
+      } catch (err) {
+        if (handleSessionError(err)) return;
+        flashToast({
+          kind: "err",
+          text: err instanceof ApiError ? err.message : "Não foi possível confirmar o evento.",
+        });
+      } finally {
+        setConfirmingId(null);
+      }
+    },
+    [token, replaceEvent, flashToast, handleSessionError],
+  );
+
   const handleReconnect = useCallback(async () => {
     setReconnecting(true);
     try {
@@ -298,7 +360,7 @@ export function CalendarioScreen() {
   }, [load, flashToast]);
 
   const showSkeleton = loading && !loaded;
-  const periodLabel = viewLabel(cursor, view);
+  const periodLabel = calendarView ? viewLabel(cursor, calendarView) : "A confirmar";
 
   return (
     <div className="screen" key="calendario">
@@ -307,15 +369,29 @@ export function CalendarioScreen() {
           <h2>Calendário · {periodLabel}</h2>
         </div>
         <div className="actions">
-          <button type="button" className="btn btn-sm" onClick={goToday}>
-            Hoje
-          </button>
-          <button type="button" className="btn btn-sm" onClick={goPrev} aria-label={PREV_LABEL[view]}>
-            <Icon name="chevron-left" />
-          </button>
-          <button type="button" className="btn btn-sm" onClick={goNext} aria-label={NEXT_LABEL[view]}>
-            <Icon name="caret" />
-          </button>
+          {isCalendar ? (
+            <>
+              <button type="button" className="btn btn-sm" onClick={goToday}>
+                Hoje
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={goPrev}
+                aria-label={PREV_LABEL[calendarView ?? "mes"]}
+              >
+                <Icon name="chevron-left" />
+              </button>
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={goNext}
+                aria-label={NEXT_LABEL[calendarView ?? "mes"]}
+              >
+                <Icon name="caret" />
+              </button>
+            </>
+          ) : null}
           <button type="button" className="btn btn-primary" onClick={() => { setFormError(null); setShowForm(true); }}>
             <Icon name="plus" />
             <span>Novo evento</span>
@@ -334,6 +410,7 @@ export function CalendarioScreen() {
             onClick={() => setView(v.id)}
           >
             {v.label}
+            {v.id === "confirmar" && pendentes.length > 0 ? ` · ${pendentes.length}` : ""}
           </button>
         ))}
       </div>
@@ -375,7 +452,7 @@ export function CalendarioScreen() {
           <div className="sk-line sk-md" />
           <div className="sk-line sk-sm" />
         </div>
-      ) : (
+      ) : isCalendar ? (
         <>
           {view === "mes" ? (
             <div className="cal">
@@ -530,6 +607,63 @@ export function CalendarioScreen() {
             </div>
           ) : null}
         </>
+      ) : pendentes.length > 0 ? (
+        <div className="card" style={{ marginTop: "var(--s4)" }}>
+          <div className="panel-title">
+            <Icon name="clock" /> A confirmar
+            <span className="count">· {pendentes.length}</span>
+          </div>
+          {pendentes.map((ev) => {
+            const meta = [whenLabel(ev), origemLabel(ev.origem)].filter(Boolean).join(" · ");
+            return (
+              <div className="list-row" key={ev.id}>
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => openDetail(ev)}
+                  onKeyDown={(e: KeyboardEvent) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      openDetail(ev);
+                    }
+                  }}
+                  style={{ flex: 1, minWidth: 0, cursor: "pointer" }}
+                >
+                  <div className="nm">{ev.titulo}</div>
+                  <div className="sub">{meta}</div>
+                  {ev.descricao ? (
+                    <div
+                      className="sub"
+                      style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                    >
+                      {ev.descricao}
+                    </div>
+                  ) : null}
+                </div>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  loading={confirmingId === ev.id}
+                  loadingText="Confirmando…"
+                  disabled={confirmingId != null}
+                  onClick={() => void handleConfirmQueue(ev)}
+                >
+                  <Icon name="check" /> Confirmar
+                </Button>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="card" style={{ marginTop: "var(--s4)" }}>
+          <div className="empty-state" style={{ padding: "var(--s6)" }}>
+            <Icon name="check" />
+            <p>
+              <strong>Nenhum evento aguardando confirmação.</strong> Eventos
+              importados aparecerão aqui para confirmação manual.
+            </p>
+          </div>
+        </div>
       )}
 
       {selected && !editing ? (
