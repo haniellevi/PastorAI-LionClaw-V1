@@ -22,7 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.db.models import CalendarSync
+from app.db.models import CalendarSync, Event
 from app.db.session import get_db
 from app.deps import CurrentUser, require_role
 from app.routers._common import ensure_tenant_context
@@ -79,6 +79,25 @@ class ImportPreviewOut(BaseModel):
     events: list[PreviewEventItem]
 
 
+# EVT-6 PR6.2 — eventos importados do Google nascem pendentes de confirmação,
+# marcados como origem Google e tratados como pontuais (têm data específica).
+_IMPORT_STATUS = "a_confirmar"
+_IMPORT_ORIGEM = "google"
+_IMPORT_RECORRENCIA = "pontual"
+
+
+class ImportResultItem(BaseModel):
+    id: str
+    googleEventId: str  # noqa: N815
+    titulo: str
+
+
+class ImportResultOut(BaseModel):
+    created: int
+    skipped: int
+    events: list[ImportResultItem]
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -90,6 +109,16 @@ def _sync_for(db: Session, igreja_id: uuid.UUID) -> CalendarSync | None:
 
 def _connected(sync: CalendarSync | None) -> bool:
     return sync is not None and bool(sync.refresh_token_encrypted)
+
+
+def _parse_date(value: str | None) -> dt.date | None:
+    """Parse a preview ``'YYYY-MM-DD'`` into a date, or None when absent/invalid."""
+    if not value:
+        return None
+    try:
+        return dt.date.fromisoformat(value)
+    except ValueError:
+        return None
 
 
 def _valid_access_token(
@@ -255,6 +284,103 @@ def import_preview(
     return ImportPreviewOut(
         calendarId=calendar_id,
         events=[PreviewEventItem(**e) for e in events],
+    )
+
+
+@router.post("/import", response_model=ImportResultOut)
+def import_events(
+    timeMin: str | None = Query(default=None),  # noqa: N803 - external camelCase
+    timeMax: str | None = Query(default=None),  # noqa: N803
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_role(["pastor"])),
+    oauth: GoogleOAuthClient = Depends(get_google_oauth_client),
+) -> ImportResultOut:
+    """Importa eventos do Google como ``a_confirmar`` / ``origem='google'`` (PR6.2).
+
+    Lê o Google **por igreja** (read-only, mesma janela do preview) e **persiste**
+    localmente, tenant-scoped, **sem confirmar** e **sem enviar** nada (WhatsApp/
+    e-mail só no fluxo de confirmação/worker, não aqui). Dedup **simples em código**
+    por ``(igreja_id, google_event_id)`` — o índice único parcial vem no PR6.3.
+    Não escreve no Google (só ``events.list``). 409 quando a igreja não está
+    conectada; 502 em falha do Google.
+    """
+    ensure_tenant_context(db, current_user)
+    igreja_uuid = uuid.UUID(current_user.igreja_id)
+    sync = _sync_for(db, igreja_uuid)
+    if not _connected(sync):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Agenda não conectada"
+        )
+    now = dt.datetime.now(dt.timezone.utc)
+    time_min = timeMin or now.isoformat()
+    time_max = timeMax or (now + dt.timedelta(days=90)).isoformat()
+    token = _valid_access_token(db, sync, oauth)
+    calendar_id = sync.google_calendar_id or "primary"
+    try:
+        previews = oauth.list_events(token, calendar_id, time_min, time_max)
+    except GoogleOAuthError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
+        ) from exc
+
+    # Dedup tenant-scoped: ids já importados NESTA igreja (RLS + filtro igreja_id,
+    # defesa em profundidade). Eventos de outro tenant com o mesmo google_event_id
+    # não aparecem aqui, então não bloqueiam este tenant.
+    candidate_ids = [p["googleEventId"] for p in previews if p.get("googleEventId")]
+    seen: set[str] = set()
+    if candidate_ids:
+        rows = db.execute(
+            select(Event.google_event_id).where(
+                Event.igreja_id == igreja_uuid,
+                Event.google_event_id.in_(candidate_ids),
+            )
+        ).scalars().all()
+        seen.update(r for r in rows if r)
+
+    created: list[Event] = []
+    skipped = 0
+    for p in previews:
+        gid = p.get("googleEventId")
+        data = _parse_date(p.get("data"))
+        # Pula: sem id Google, já importado (dedup), ou sem data — 'pontual' exige
+        # data NOT NULL pela CHECK events_recorrencia_chk (recorrente fica p/ depois).
+        if not gid or gid in seen or data is None:
+            skipped += 1
+            continue
+        seen.add(gid)
+        event = Event(
+            igreja_id=igreja_uuid,
+            # ponytail: placeholder se o Google não expõe summary — evita violar
+            # events.titulo NOT NULL; o usuário ajusta o título ao confirmar.
+            titulo=p.get("titulo") or "(sem título)",
+            descricao=p.get("descricao"),
+            data=data,
+            hora=p.get("hora"),
+            google_event_id=gid,
+            status=_IMPORT_STATUS,
+            origem=_IMPORT_ORIGEM,
+            recorrencia=_IMPORT_RECORRENCIA,
+        )
+        db.add(event)
+        created.append(event)
+
+    if created:
+        db.flush()
+        for event in created:
+            db.refresh(event)
+    db.commit()
+
+    return ImportResultOut(
+        created=len(created),
+        skipped=skipped,
+        events=[
+            ImportResultItem(
+                id=str(e.id),
+                googleEventId=e.google_event_id or "",
+                titulo=e.titulo,
+            )
+            for e in created
+        ],
     )
 
 
