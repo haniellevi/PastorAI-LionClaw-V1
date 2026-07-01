@@ -6,6 +6,7 @@ in-memory session/clerk fakes plus a fake OAuth client (no live Google).
 
 from __future__ import annotations
 
+import uuid
 from types import SimpleNamespace
 
 import httpx
@@ -13,7 +14,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.config import Settings
-from app.db.models import AppUser, CalendarSync
+from app.db.models import AppUser, CalendarSync, Event
 from app.db.session import get_db
 from app.services.clerk import get_clerk_client
 from app.services.google_oauth import (
@@ -91,13 +92,16 @@ class _Res:
 
 
 class _CalSession:
-    def __init__(self, *, app_user, roles, sync) -> None:
+    def __init__(self, *, app_user, roles, sync, existing_gids=None) -> None:
         self.app_user = app_user
         self.roles = roles
         self.sync = sync
+        # google_event_ids já presentes NESTE tenant (resultado do dedup query).
+        self.existing_gids = existing_gids or []
         self.added: list = []
         self.deleted: list = []
         self.committed = False
+        self.last_event_stmt = None
 
     def execute(self, statement, params=None) -> _Res:
         descs = list(getattr(statement, "column_descriptions", []) or [])
@@ -106,6 +110,9 @@ class _CalSession:
             return _Res(scalar=self.app_user)
         if ent is CalendarSync:
             return _Res(scalar=self.sync)
+        if ent is Event:
+            self.last_event_stmt = statement
+            return _Res(scalars=self.existing_gids)
         return _Res(scalars=self.roles)
 
     def add(self, obj) -> None:
@@ -113,6 +120,12 @@ class _CalSession:
 
     def delete(self, obj) -> None:
         self.deleted.append(obj)
+
+    def flush(self) -> None:
+        pass
+
+    def refresh(self, obj) -> None:
+        pass
 
     def commit(self) -> None:
         self.committed = True
@@ -450,3 +463,176 @@ def test_list_events_http_error_is_controlled(monkeypatch) -> None:
     oauth = GoogleOAuthClient(settings=Settings(session_jwt_secret="x"))
     with pytest.raises(GoogleOAuthError):
         oauth.list_events("tok", "primary", "t0", "t1")
+
+
+# ---------------------------------------------------------------------------
+# POST /calendar/import — persiste como 'a_confirmar'/origem='google' (PR6.2)
+# ---------------------------------------------------------------------------
+@pytest.fixture
+def crypto_enabled(monkeypatch):
+    """Habilita a criptografia de segredos (para o refresh do token por igreja)."""
+    from app.services import crypto
+
+    monkeypatch.setattr(crypto.get_settings(), "secrets_encryption_key", "k" * 32)
+    crypto._get_fernet.cache_clear()  # noqa: SLF001 - rebuild Fernet with test key
+    yield crypto
+    crypto._get_fernet.cache_clear()  # noqa: SLF001 - don't leak the test key
+
+
+def _connected_sync(crypto, *, calendar_id="cal@x"):
+    """Sync conectado sem access token em cache → força o refresh por igreja."""
+    return SimpleNamespace(
+        refresh_token_encrypted=crypto.encrypt_secret("rt"),
+        access_token_encrypted=None,
+        access_token_expira_em=None,
+        google_calendar_id=calendar_id,
+        atualizado_em=None,
+    )
+
+
+def _preview_ev(gid, *, titulo="Culto", data="2026-07-05", hora="19:00", descricao=None):
+    """Dict no formato normalizado que GoogleOAuthClient.list_events devolve."""
+    return {
+        "googleEventId": gid,
+        "titulo": titulo,
+        "descricao": descricao,
+        "data": data,
+        "hora": hora,
+        "fim": None,
+        "recorrente": False,
+    }
+
+
+def _import_oauth(events):
+    return _FakeOAuth(
+        tokens=OAuthTokens(access_token="fresh", refresh_token=None, expires_in=3600),
+        events=events,
+    )
+
+
+def test_import_requires_auth(app) -> None:
+    c = _client(app, ["pastor"], oauth=_FakeOAuth())
+    assert c.post("/calendar/import").status_code == 401
+
+
+def test_import_forbidden_for_non_privileged(app) -> None:
+    c = _client(app, ["lider_celula"], oauth=_FakeOAuth())
+    assert c.post("/calendar/import", headers=_AUTH).status_code == 403
+
+
+def test_import_not_connected_returns_409(app) -> None:
+    session = _CalSession(app_user=make_app_user(), roles=["pastor"], sync=None)
+    c = _client(app, ["pastor"], session=session, oauth=_FakeOAuth())
+    r = c.post("/calendar/import", headers=_AUTH)
+    assert r.status_code == 409
+    assert session.added == []  # nada persistido
+
+
+def test_import_creates_pending_google_events(app, crypto_enabled) -> None:
+    sync = _connected_sync(crypto_enabled)
+    oauth = _import_oauth([_preview_ev("g1"), _preview_ev("g2", hora=None)])
+    session = _CalSession(app_user=make_app_user(), roles=["pastor"], sync=sync)
+    c = _client(app, ["pastor"], session=session, oauth=oauth)
+    r = c.post("/calendar/import", headers=_AUTH)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["created"] == 2
+    assert body["skipped"] == 0
+    assert {it["googleEventId"] for it in body["events"]} == {"g1", "g2"}
+    # cada Event nasce a_confirmar / origem google / pontual, tenant-scoped.
+    assert len(session.added) == 2
+    for ev in session.added:
+        assert ev.status == "a_confirmar"
+        assert ev.origem == "google"
+        assert ev.recorrencia == "pontual"
+        assert ev.confirmado_em is None
+        assert ev.igreja_id == uuid.UUID(_IGREJA)
+        assert ev.google_event_id in {"g1", "g2"}
+    # token POR IGREJA usado (refresh), não o global legacy.
+    assert oauth.refreshed is True
+    assert oauth.list_events_args[0] == "fresh"
+    assert oauth.list_events_args[1] == "cal@x"
+    assert session.committed is True
+
+
+def test_import_skips_already_imported(app, crypto_enabled) -> None:
+    sync = _connected_sync(crypto_enabled)
+    oauth = _import_oauth([_preview_ev("g1"), _preview_ev("g2")])
+    session = _CalSession(
+        app_user=make_app_user(), roles=["pastor"], sync=sync, existing_gids=["g1"]
+    )
+    c = _client(app, ["pastor"], session=session, oauth=oauth)
+    r = c.post("/calendar/import", headers=_AUTH)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["created"] == 1
+    assert body["skipped"] == 1
+    assert [it["googleEventId"] for it in body["events"]] == ["g2"]
+    assert [ev.google_event_id for ev in session.added] == ["g2"]
+
+
+def test_import_other_tenant_same_gid_not_blocked(app, crypto_enabled) -> None:
+    # Dedup é tenant-scoped: um evento de OUTRO tenant com o mesmo gid não retorna
+    # do query (existing_gids vazio para esta igreja) → g1 importa normalmente.
+    sync = _connected_sync(crypto_enabled)
+    oauth = _import_oauth([_preview_ev("g1")])
+    session = _CalSession(
+        app_user=make_app_user(), roles=["pastor"], sync=sync, existing_gids=[]
+    )
+    c = _client(app, ["pastor"], session=session, oauth=oauth)
+    r = c.post("/calendar/import", headers=_AUTH)
+    assert r.status_code == 200
+    assert r.json()["created"] == 1
+    # prova o filtro de tenant NO PREDICADO WHERE do dedup (não só na projeção).
+    where_sql = str(getattr(session.last_event_stmt, "whereclause", ""))
+    assert "events.igreja_id" in where_sql
+    assert "events.google_event_id" in where_sql
+
+
+def test_import_skips_event_without_google_id(app, crypto_enabled) -> None:
+    sync = _connected_sync(crypto_enabled)
+    no_id = _preview_ev("x")
+    no_id["googleEventId"] = None
+    oauth = _import_oauth([no_id, _preview_ev("g2")])
+    session = _CalSession(app_user=make_app_user(), roles=["pastor"], sync=sync)
+    c = _client(app, ["pastor"], session=session, oauth=oauth)
+    r = c.post("/calendar/import", headers=_AUTH)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["created"] == 1
+    assert body["skipped"] == 1
+    assert [ev.google_event_id for ev in session.added] == ["g2"]
+
+
+def test_import_skips_event_without_date(app, crypto_enabled) -> None:
+    # 'pontual' exige data NOT NULL (CHECK events_recorrencia_chk): sem data, pula.
+    sync = _connected_sync(crypto_enabled)
+    no_date = _preview_ev("g1")
+    no_date["data"] = None
+    oauth = _import_oauth([no_date, _preview_ev("g2", data="2026-07-08")])
+    session = _CalSession(app_user=make_app_user(), roles=["pastor"], sync=sync)
+    c = _client(app, ["pastor"], session=session, oauth=oauth)
+    r = c.post("/calendar/import", headers=_AUTH)
+    body = r.json()
+    assert body["created"] == 1
+    assert body["skipped"] == 1
+    assert [ev.google_event_id for ev in session.added] == ["g2"]
+
+
+def test_import_does_not_autoconfirm_or_notify(app, crypto_enabled) -> None:
+    """Importados ficam pendentes: sem confirmar, sem enviar WhatsApp/e-mail.
+
+    O endpoint não referencia nenhum cliente de WhatsApp/e-mail/worker — o envio só
+    ocorre no fluxo de confirmação/worker, não aqui. Garantia comportamental: o
+    evento nasce a_confirmar, sem confirmado_em/por nem mensagem_confirmacao.
+    """
+    sync = _connected_sync(crypto_enabled)
+    oauth = _import_oauth([_preview_ev("g1")])
+    session = _CalSession(app_user=make_app_user(), roles=["pastor"], sync=sync)
+    c = _client(app, ["pastor"], session=session, oauth=oauth)
+    r = c.post("/calendar/import", headers=_AUTH)
+    assert r.status_code == 200
+    ev = session.added[0]
+    assert ev.status == "a_confirmar"
+    assert ev.confirmado_em is None and ev.confirmado_por is None
+    assert getattr(ev, "mensagem_confirmacao", None) is None
