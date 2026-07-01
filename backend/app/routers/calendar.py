@@ -15,16 +15,17 @@ import datetime as dt
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from fastapi.responses import RedirectResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.db.models import CalendarSync, Event
+from app.db.models import AgendaAlertRecipient, CalendarSync, Event
 from app.db.session import get_db
 from app.deps import CurrentUser, require_role
+from app.domain.phone import normalize_phone
 from app.routers._common import ensure_tenant_context
 from app.services.crypto import SecretDecryptionError, decrypt_secret, encrypt_secret
 from app.services.google_oauth import (
@@ -415,3 +416,207 @@ def disconnect(
         db.delete(sync)
         db.commit()
     return None
+
+
+# ---------------------------------------------------------------------------
+# EVT-7 PR2 — destinatários de alerta da Agenda (admin-only, tenant-scoped)
+#
+# Config explícita de quem recebe os avisos internos da Agenda por WhatsApp,
+# independente de papel / AppUser.pessoa_id (ver ADR EVT-7-destinatarios-alerta).
+# Estes endpoints só CONFIGURAM — nada é enviado aqui (o envio é do event_notify,
+# atrás da flag AGENDA_NOTIFY_ENABLED). `telefone` é guardado normalizado
+# (só-dígitos), como conversations.telefone.
+# ---------------------------------------------------------------------------
+class RecipientOut(BaseModel):
+    id: str
+    nome: str
+    telefone: str
+    ativo: bool
+
+    @classmethod
+    def from_model(cls, r: AgendaAlertRecipient) -> "RecipientOut":
+        return cls(id=str(r.id), nome=r.nome, telefone=r.telefone, ativo=r.ativo)
+
+
+class RecipientListOut(BaseModel):
+    recipients: list[RecipientOut]
+
+
+class CreateRecipientRequest(BaseModel):
+    nome: str = Field(min_length=1, max_length=200)
+    telefone: str = Field(min_length=1, max_length=40)
+
+    @field_validator("nome")
+    @classmethod
+    def _nome(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("nome obrigatório")
+        return value
+
+    @field_validator("telefone")
+    @classmethod
+    def _telefone(cls, value: str) -> str:
+        canonical = normalize_phone(value)
+        if not canonical:
+            raise ValueError("telefone deve conter dígitos")
+        return canonical
+
+
+class UpdateRecipientRequest(BaseModel):
+    """Edição parcial de um destinatário (EVT-7 PR2). None = inalterado."""
+
+    nome: str | None = Field(default=None, max_length=200)
+    telefone: str | None = Field(default=None, max_length=40)
+    ativo: bool | None = None
+
+    @field_validator("nome")
+    @classmethod
+    def _nome(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            raise ValueError("nome não pode ser vazio")
+        return value
+
+    @field_validator("telefone")
+    @classmethod
+    def _telefone(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        canonical = normalize_phone(value)
+        if not canonical:
+            raise ValueError("telefone deve conter dígitos")
+        return canonical
+
+
+def _recipient_for(
+    db: Session, current_user: CurrentUser, recipient_id: str
+) -> AgendaAlertRecipient:
+    """Busca um destinatário do tenant por id ou levanta 404 (RLS + igreja_id)."""
+    try:
+        rid = uuid.UUID(recipient_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Destinatário não encontrado"
+        ) from exc
+    recipient = db.execute(
+        select(AgendaAlertRecipient).where(
+            AgendaAlertRecipient.id == rid,
+            AgendaAlertRecipient.igreja_id == uuid.UUID(current_user.igreja_id),
+        )
+    ).scalar_one_or_none()
+    if recipient is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Destinatário não encontrado"
+        )
+    return recipient
+
+
+def _active_dup_exists(
+    db: Session, igreja_id: uuid.UUID, telefone: str, *, exclude_id: uuid.UUID | None
+) -> bool:
+    """Já existe outro destinatário ATIVO com esse telefone nesta igreja?
+
+    Espelha o índice único parcial (igreja_id, telefone) WHERE ativo — devolve um
+    409 limpo em vez de deixar o INSERT/UPDATE estourar IntegrityError.
+    """
+    rows = db.execute(
+        select(AgendaAlertRecipient.id).where(
+            AgendaAlertRecipient.igreja_id == igreja_id,
+            AgendaAlertRecipient.telefone == telefone,
+            AgendaAlertRecipient.ativo.is_(True),
+        )
+    ).scalars().all()
+    return any(rid != exclude_id for rid in rows)
+
+
+@router.get("/recipients", response_model=RecipientListOut)
+def list_recipients(
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_role(["admin"])),
+) -> RecipientListOut:
+    """Lista os destinatários de alerta da igreja (ativos e inativos)."""
+    ensure_tenant_context(db, current_user)
+    rows = db.execute(
+        select(AgendaAlertRecipient)
+        .where(AgendaAlertRecipient.igreja_id == uuid.UUID(current_user.igreja_id))
+        .order_by(AgendaAlertRecipient.created_at.asc())
+    ).scalars().all()
+    return RecipientListOut(recipients=[RecipientOut.from_model(r) for r in rows])
+
+
+@router.post("/recipients", response_model=RecipientOut)
+def create_recipient(
+    payload: CreateRecipientRequest,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_role(["admin"])),
+) -> RecipientOut:
+    """Cadastra um destinatário de alerta (opt-in). Nada é enviado aqui."""
+    ensure_tenant_context(db, current_user)
+    igreja_uuid = uuid.UUID(current_user.igreja_id)
+    if _active_dup_exists(db, igreja_uuid, payload.telefone, exclude_id=None):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Já existe um destinatário ativo com esse telefone",
+        )
+    recipient = AgendaAlertRecipient(
+        igreja_id=igreja_uuid,
+        nome=payload.nome,
+        telefone=payload.telefone,
+    )
+    db.add(recipient)
+    db.flush()
+    db.refresh(recipient)
+    db.commit()
+    return RecipientOut.from_model(recipient)
+
+
+@router.put("/recipients/{recipient_id}", response_model=RecipientOut)
+def update_recipient(
+    recipient_id: str,
+    payload: UpdateRecipientRequest,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_role(["admin"])),
+) -> RecipientOut:
+    """Edita/desativa um destinatário (parcial). Campos None ficam inalterados."""
+    ensure_tenant_context(db, current_user)
+    recipient = _recipient_for(db, current_user, recipient_id)
+
+    novo_telefone = payload.telefone if payload.telefone is not None else recipient.telefone
+    novo_ativo = payload.ativo if payload.ativo is not None else recipient.ativo
+    if novo_ativo and _active_dup_exists(
+        db, recipient.igreja_id, novo_telefone, exclude_id=recipient.id
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Já existe um destinatário ativo com esse telefone",
+        )
+
+    if payload.nome is not None:
+        recipient.nome = payload.nome
+    if payload.telefone is not None:
+        recipient.telefone = payload.telefone
+    if payload.ativo is not None:
+        recipient.ativo = payload.ativo
+    recipient.updated_at = dt.datetime.now(dt.timezone.utc)
+
+    db.flush()
+    db.refresh(recipient)
+    db.commit()
+    return RecipientOut.from_model(recipient)
+
+
+@router.delete("/recipients/{recipient_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_recipient(
+    recipient_id: str,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_role(["admin"])),
+) -> Response:
+    """Remove um destinatário de alerta do tenant (RLS + igreja_id)."""
+    ensure_tenant_context(db, current_user)
+    recipient = _recipient_for(db, current_user, recipient_id)
+    db.delete(recipient)
+    db.commit()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

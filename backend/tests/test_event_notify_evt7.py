@@ -1,16 +1,21 @@
-"""EVT-7 PR1 — aviso síncrono de confirmação de evento à equipe interna.
+"""EVT-7 — aviso síncrono de confirmação de evento à equipe interna.
 
 Testa o helper `notify_event_confirmed` com fakes em memória (sem DB nem rede),
 espelhando o estilo dos testes do motor de SLA. Cobre o contrato da missão:
 
   - flag OFF                        → não chama Evolution;
   - flag ON, sem destinatário       → não envia e não quebra;
-  - flag ON, com destinatário       → envia UMA vez e marca notificado_em;
+  - flag ON, com destinatário ativo → envia UMA vez e marca notificado_em;
+  - destinatário inativo            → filtrado na query (WHERE ativo);
   - já notificado (notificado_em)   → não reenvia (idempotência);
   - evento ainda 'a_confirmar'      → não dispara envio;
   - falha do Evolution              → não desfaz nada e deixa notificado_em NULL;
   - outbound_guard NÃO é contornado (send_text guardado é o único caminho);
   - modelo e migration espelham a coluna notificado_em.
+
+EVT-7 PR2: a fonte do telefone passou de papel→pessoa para a config explícita
+``agenda_alert_recipients`` (só destinatários ativos). O fake devolve os telefones
+já resolvidos (a tabela guarda o número normalizado).
 """
 
 from __future__ import annotations
@@ -23,13 +28,11 @@ from types import SimpleNamespace
 import httpx
 
 from app.config import Settings
-from app.db.models import AppUser, Event, Pessoa, UserRole, WhatsappConnection
-from app.services.event_notify import notify_event_confirmed
+from app.db.models import AgendaAlertRecipient, Event, WhatsappConnection
+from app.services.event_notify import _alert_phones, notify_event_confirmed
 from app.services.evolution import EvolutionError
 
 _IGREJA = uuid.UUID("00000000-0000-0000-0000-000000000001")
-_UID = uuid.UUID("00000000-0000-0000-0000-0000000000a1")
-_PID = uuid.UUID("00000000-0000-0000-0000-0000000000b1")
 
 
 # ---------------------------------------------------------------------------
@@ -55,33 +58,24 @@ class _Result:
 
 
 class FakeNotifySession:
-    """Roteia execute() por entidade e get() por (modelo, id)."""
+    """Roteia execute() por entidade: destinatários ativos e número oficial."""
 
-    def __init__(
-        self, *, user_ids=None, users=None, pessoas=None, connection=None
-    ) -> None:
-        self.user_ids = user_ids or []
-        self.users = users or {}
-        self.pessoas = pessoas or {}
+    def __init__(self, *, recipient_phones=None, connection=None) -> None:
+        self.recipient_phones = recipient_phones or []
         self.connection = connection
         self.flushed = False
         self.committed = False
+        self.last_recipient_stmt = None
 
     def execute(self, statement, params=None) -> _Result:
         descs = getattr(statement, "column_descriptions", None)
         entity = descs[0].get("entity") if descs else None
-        if entity is UserRole:
-            return _Result(self.user_ids)
+        if entity is AgendaAlertRecipient:
+            self.last_recipient_stmt = statement
+            return _Result(list(self.recipient_phones))
         if entity is WhatsappConnection:
             return _Result([self.connection] if self.connection else [])
         return _Result([])
-
-    def get(self, model, ident):
-        if model is AppUser:
-            return self.users.get(ident)
-        if model is Pessoa:
-            return self.pessoas.get(ident)
-        return None
 
     def flush(self) -> None:
         self.flushed = True
@@ -116,13 +110,9 @@ def _event(*, status: str = "confirmado", notificado_em=None):
 
 
 def _session_with_recipient() -> FakeNotifySession:
-    """Sessão com 1 usuário de coordenação (com telefone) e número oficial."""
-    user = SimpleNamespace(id=_UID, pessoa_id=_PID)
-    pessoa = SimpleNamespace(id=_PID, telefone="5511999990000")
+    """Sessão com 1 destinatário ativo (com telefone) e número oficial."""
     return FakeNotifySession(
-        user_ids=[_UID],
-        users={_UID: user},
-        pessoas={_PID: pessoa},
+        recipient_phones=["5511999990000"],
         connection=SimpleNamespace(instance="igreja-inst"),
     )
 
@@ -154,9 +144,9 @@ def test_flag_off_does_not_call_evolution() -> None:
 def test_flag_on_without_recipient_does_not_send() -> None:
     spy = SpyEvolution()
     event = _event()
-    # tem número oficial, mas ninguém com papel de coordenação → sem destinatário.
+    # tem número oficial, mas nenhum destinatário configurado → sem destinatário.
     session = FakeNotifySession(
-        user_ids=[], connection=SimpleNamespace(instance="igreja-inst")
+        recipient_phones=[], connection=SimpleNamespace(instance="igreja-inst")
     )
     assert notify_event_confirmed(session, event, settings=_on(), evolution=spy) is False
     assert spy.sent == []
@@ -167,12 +157,8 @@ def test_flag_on_without_recipient_does_not_send() -> None:
 def test_flag_on_without_official_number_does_not_send() -> None:
     spy = SpyEvolution()
     event = _event()
-    # tem destinatário com telefone, mas nenhum número oficial conectado.
-    user = SimpleNamespace(id=_UID, pessoa_id=_PID)
-    pessoa = SimpleNamespace(id=_PID, telefone="5511999990000")
-    session = FakeNotifySession(
-        user_ids=[_UID], users={_UID: user}, pessoas={_PID: pessoa}, connection=None
-    )
+    # tem destinatário ativo, mas nenhum número oficial conectado.
+    session = FakeNotifySession(recipient_phones=["5511999990000"], connection=None)
     assert notify_event_confirmed(session, event, settings=_on(), evolution=spy) is False
     assert spy.sent == []
     assert event.notificado_em is None
@@ -193,6 +179,20 @@ def test_flag_on_with_recipient_sends_once_and_marks() -> None:
     assert texto == "Evento confirmado: Culto em 2026-01-01 19:30. Abra a Agenda para revisar."
     assert event.notificado_em is not None
     assert session.committed is True
+
+
+# ---------------------------------------------------------------------------
+# 3b) só destinatários ATIVOS entram na consulta (inativo nunca é notificado)
+# ---------------------------------------------------------------------------
+def test_alert_phones_queries_active_recipients_only() -> None:
+    session = _session_with_recipient()
+    phones = _alert_phones(session, _IGREJA)
+    assert phones == ["5511999990000"]
+    where_sql = str(session.last_recipient_stmt.whereclause)
+    # a query restringe a destinatários ativos e ao tenant → um destinatário
+    # inativo (ativo=false) fica de fora por construção, sem enviar.
+    assert "agenda_alert_recipients.ativo" in where_sql
+    assert "agenda_alert_recipients.igreja_id" in where_sql
 
 
 # ---------------------------------------------------------------------------

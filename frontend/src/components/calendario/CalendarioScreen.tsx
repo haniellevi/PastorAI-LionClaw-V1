@@ -20,6 +20,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 
+import { AlertRecipientsCard } from "@/components/calendario/AlertRecipientsCard";
 import { CalendarConnectCard } from "@/components/calendario/CalendarConnectCard";
 import type { ImportResult } from "@/lib/calendar-api";
 import { EventDetailModal } from "@/components/calendario/EventDetailModal";
@@ -436,6 +437,7 @@ export function CalendarioScreen() {
       </div>
 
       <CalendarConnectCard onImported={handleImported} />
+      <AlertRecipientsCard />
 
       {error ? (
         <div className="error-banner" role="alert">
