@@ -27,6 +27,8 @@ export interface ConnectionInfo {
 export interface ConnectResult {
   status: ConnectionStatus;
   qr: string | null;
+  /** Código numérico de pareamento (quando conectado com número). */
+  pairingCode: string | null;
 }
 
 /** Tela de conexão é restrita ao papel admin (delta-005 / US-05..07). */
@@ -76,10 +78,13 @@ export async function fetchConnection(token: string): Promise<ConnectionInfo> {
 export async function connectWhatsapp(
   token: string,
   action: "connect" | "reconnect",
+  numero?: string | null,
 ): Promise<ConnectResult> {
+  const body: { action: string; numero?: string } = { action };
+  if (numero) body.numero = numero;
   const res = await authedFetch(token, `/whatsapp/connection`, {
     method: "POST",
-    body: JSON.stringify({ action }),
+    body: JSON.stringify(body),
   });
 
   if (res.status === 409) {
@@ -95,8 +100,16 @@ export async function connectWhatsapp(
     const detail = await readDetail(res);
     throw new ApiError(res.status, detail ?? "Não foi possível atualizar a conexão.");
   }
-  const data = (await res.json()) as { status?: unknown; qr?: string | null };
-  return { status: normalizeStatus(data.status), qr: data.qr ?? null };
+  const data = (await res.json()) as {
+    status?: unknown;
+    qr?: string | null;
+    pairingCode?: string | null;
+  };
+  return {
+    status: normalizeStatus(data.status),
+    qr: data.qr ?? null,
+    pairingCode: data.pairingCode ?? null,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -119,8 +132,16 @@ export async function disconnectWhatsapp(token: string): Promise<ConnectResult> 
     const detail = await readDetail(res);
     throw new ApiError(res.status, detail ?? "Não foi possível desconectar o número.");
   }
-  const data = (await res.json()) as { status?: unknown; qr?: string | null };
-  return { status: normalizeStatus(data.status), qr: data.qr ?? null };
+  const data = (await res.json()) as {
+    status?: unknown;
+    qr?: string | null;
+    pairingCode?: string | null;
+  };
+  return {
+    status: normalizeStatus(data.status),
+    qr: data.qr ?? null,
+    pairingCode: data.pairingCode ?? null,
+  };
 }
 
 export { ApiError, SessionExpiredError };

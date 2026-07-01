@@ -262,3 +262,148 @@ def test_fetch_profile_picture_url_none_on_transport_error(monkeypatch) -> None:
 
     _use_transport(monkeypatch, handler)
     assert EvolutionClient(_settings()).fetch_profile_picture_url("i", "5599") is None
+
+
+# ---- connect / reconnect: QR, nested QR, pairing code, restart 404 --------
+def test_connect_returns_qr_base64(monkeypatch) -> None:
+    seen: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.endswith("/instance/create"):
+            return httpx.Response(201, json={})
+        if "/instance/connect/" in path:
+            seen["connect_url"] = str(request.url)
+            return httpx.Response(
+                200, json={"base64": "data:image/png;base64,AAA", "code": "2@abc"}
+            )
+        if "/webhook/set/" in path:
+            return httpx.Response(200, json={})
+        raise AssertionError(f"unexpected path {path}")  # pragma: no cover
+
+    _use_transport(monkeypatch, handler)
+    res = EvolutionClient(_settings()).connect("igreja-1")
+    assert res.qr == "data:image/png;base64,AAA"
+    assert res.pairing_code is None
+    assert res.status == "reconectando"
+    # Sem número informado -> modo QR (não anexa ?number=).
+    assert "number=" not in seen["connect_url"]
+
+
+def test_connect_reads_nested_qrcode(monkeypatch) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.endswith("/instance/create"):
+            return httpx.Response(409, json={})  # já existe
+        if "/instance/connect/" in path:
+            return httpx.Response(
+                200,
+                json={"qrcode": {"base64": "data:image/png;base64,NEST", "pairingCode": None}},
+            )
+        if "/webhook/set/" in path:
+            return httpx.Response(200, json={})
+        raise AssertionError(f"unexpected path {path}")  # pragma: no cover
+
+    _use_transport(monkeypatch, handler)
+    res = EvolutionClient(_settings()).connect("igreja-1")
+    assert res.qr == "data:image/png;base64,NEST"
+    assert res.pairing_code is None
+
+
+def test_connect_with_number_returns_pairing_code(monkeypatch) -> None:
+    seen: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.endswith("/instance/create"):
+            return httpx.Response(201, json={})
+        if "/instance/connect/" in path:
+            seen["connect_url"] = str(request.url)
+            # Evolution devolve o code (texto do QR) + o pairingCode numérico.
+            return httpx.Response(200, json={"pairingCode": "ABCD-1234", "code": "2@abc"})
+        if "/webhook/set/" in path:
+            return httpx.Response(200, json={})
+        raise AssertionError(f"unexpected path {path}")  # pragma: no cover
+
+    _use_transport(monkeypatch, handler)
+    res = EvolutionClient(_settings()).connect("igreja-1", numero="5511999998888")
+    assert res.pairing_code == "ABCD-1234"
+    # O `code` é texto do QR, não imagem: nunca vira QR.
+    assert res.qr is None
+    assert res.status == "reconectando"
+    assert "number=5511999998888" in seen["connect_url"]
+
+
+def test_reconnect_survives_restart_404_and_ensures_instance(monkeypatch) -> None:
+    calls: list[tuple[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        calls.append((request.method, path))
+        if path.endswith("/instance/create"):
+            return httpx.Response(409, json={})  # já existe
+        if "/instance/restart/" in path:
+            return httpx.Response(404, json={"error": "not found"})
+        if "/instance/connect/" in path:
+            return httpx.Response(200, json={"base64": "QR"})
+        if "/webhook/set/" in path:
+            return httpx.Response(200, json={})
+        raise AssertionError(f"unexpected path {path}")  # pragma: no cover
+
+    _use_transport(monkeypatch, handler)
+    res = EvolutionClient(_settings()).reconnect("igreja-1")
+    assert res.qr == "QR"
+    assert res.status == "reconectando"
+    # O restart 404 não abortou; ensure_instance + connect rodaram mesmo assim.
+    assert any(m == "POST" and p.endswith("/instance/create") for m, p in calls)
+    assert any("/instance/restart/" in p for _, p in calls)
+    assert any("/instance/connect/" in p for _, p in calls)
+
+
+def test_reconnect_survives_restart_transport_error_with_number(monkeypatch) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.endswith("/instance/create"):
+            return httpx.Response(201, json={})
+        if "/instance/restart/" in path:
+            raise httpx.ConnectError("boom")  # restart indisponível
+        if "/instance/connect/" in path:
+            return httpx.Response(200, json={"pairingCode": "WXYZ-9876"})
+        if "/webhook/set/" in path:
+            return httpx.Response(200, json={})
+        raise AssertionError(f"unexpected path {path}")  # pragma: no cover
+
+    _use_transport(monkeypatch, handler)
+    res = EvolutionClient(_settings()).reconnect("igreja-1", numero="5511999998888")
+    assert res.pairing_code == "WXYZ-9876"
+    assert res.status == "reconectando"
+
+
+def test_reconnect_with_number_resets_session_before_pairing(monkeypatch) -> None:
+    # Evolution v2.3.7 só emite pairingCode se a sessão foi RESETADA antes do
+    # connect com número; numa instância já em "connecting" ele ignora o número e
+    # devolve só o QR. reconnect faz o restart primeiro — este teste falha se o
+    # caminho voltar a usar connect direto (sem reset), pegando o QR silenciosamente.
+    state = {"restarted": False}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path.endswith("/instance/create"):
+            return httpx.Response(409, json={})  # já existe / conectando
+        if "/instance/restart/" in path:
+            state["restarted"] = True
+            return httpx.Response(200, json={})
+        if "/instance/connect/" in path:
+            has_number = "number=" in str(request.url)
+            if has_number and state["restarted"]:
+                return httpx.Response(200, json={"pairingCode": "PAIR-0001", "code": "2@x"})
+            # sessão em "connecting" sem reset -> Evolution ignora o número, só QR
+            return httpx.Response(200, json={"base64": "QRONLY"})
+        if "/webhook/set/" in path:
+            return httpx.Response(200, json={})
+        raise AssertionError(f"unexpected path {path}")  # pragma: no cover
+
+    _use_transport(monkeypatch, handler)
+    res = EvolutionClient(_settings()).reconnect("igreja-1", numero="5511999998888")
+    assert res.pairing_code == "PAIR-0001"
+    assert res.qr is None

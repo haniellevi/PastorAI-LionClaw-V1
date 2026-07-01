@@ -668,6 +668,76 @@ def test_get_connection_captures_paired_number(app) -> None:
     assert evo.asked == ["igreja-x"]
 
 
+class _FakeEvoConnect:
+    """Captura os argumentos de connect/reconnect e devolve um resultado fixo."""
+
+    def __init__(self, result) -> None:
+        self.result = result
+        self.calls: list[tuple] = []
+
+    def connect(self, instance, numero=None):
+        self.calls.append(("connect", instance, numero))
+        return self.result
+
+    def reconnect(self, instance, numero=None):
+        self.calls.append(("reconnect", instance, numero))
+        return self.result
+
+
+def test_post_connection_number_forces_reset_reconnect(app) -> None:
+    # Um número explícito é pedido de código: rota SEMPRE por reconnect (reset da
+    # sessão), mesmo com action="connect" — senão uma sessão QR já em "connecting"
+    # faria o Evolution ignorar o número. O número é higienizado (só dígitos).
+    from app.services.evolution import ConnectionResult
+
+    conn = SimpleNamespace(
+        instance="igreja-x", numero=None, status="reconectando", ultima_sync=None
+    )
+    session = _ConnSession(app_user=make_app_user(), roles=["admin"], conn=conn)
+    evo = _FakeEvoConnect(ConnectionResult(status="reconectando", pairing_code="ABCD-1234"))
+    app.dependency_overrides[get_db] = lambda: session
+    app.dependency_overrides[get_clerk_client] = lambda: FakeClerk()
+    app.dependency_overrides[get_evolution_client] = lambda: evo
+    client = TestClient(app)
+
+    resp = client.post(
+        "/whatsapp/connection",
+        json={"action": "connect", "numero": "55-11-99999-8888"},
+        headers=_AUTH,
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["pairingCode"] == "ABCD-1234"
+    assert body["status"] == "reconectando"
+    # action="connect" + número -> reconnect (reset), nunca connect direto.
+    assert evo.calls == [("reconnect", "igreja-x", "5511999998888")]
+    assert session.committed is True
+
+
+def test_post_connection_qr_path_ignores_saved_number(app) -> None:
+    # Caminho QR (sem número no payload) não reaproveita o número salvo: "Gerar
+    # novo QR" (reconnect sem número) não pode virar pedido de código.
+    from app.services.evolution import ConnectionResult
+
+    conn = SimpleNamespace(
+        instance="igreja-x", numero="5511999998888", status="offline", ultima_sync=None
+    )
+    session = _ConnSession(app_user=make_app_user(), roles=["admin"], conn=conn)
+    evo = _FakeEvoConnect(ConnectionResult(status="reconectando", qr="QR"))
+    app.dependency_overrides[get_db] = lambda: session
+    app.dependency_overrides[get_clerk_client] = lambda: FakeClerk()
+    app.dependency_overrides[get_evolution_client] = lambda: evo
+    client = TestClient(app)
+
+    resp = client.post(
+        "/whatsapp/connection", json={"action": "reconnect"}, headers=_AUTH
+    )
+    assert resp.status_code == 200
+    assert resp.json()["qr"] == "QR"
+    # número salvo NÃO é enviado no caminho QR.
+    assert evo.calls == [("reconnect", "igreja-x", None)]
+
+
 def test_get_connection_falls_back_when_evolution_down(app) -> None:
     # Evolution indisponível não pode quebrar a tela: cai nos valores do banco.
     from app.services.evolution import EvolutionError
