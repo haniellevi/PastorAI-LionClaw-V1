@@ -9,8 +9,11 @@
  *
  * Exibe o status (connected/disconnected/reconnecting) e o qr-connect consumindo
  * api-whatsapp-connection. Conectar/reconectar troca o status sem recarregar a
- * página (polling). QR expirado é regenerado automaticamente com aviso; número já
- * conectado por outra instância é sinalizado (RF-07).
+ * página (polling). Quando o QR expira ele NÃO é regenerado sozinho — o admin
+ * clica em "Gerar novo QR" (regenerar sozinho invalidaria o QR que ele está
+ * tentando ler). Como alternativa ao QR, o admin pode informar o número para a
+ * Evolution emitir um código numérico (pairingCode). Número já conectado por
+ * outra instância é sinalizado (RF-07).
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -78,6 +81,8 @@ export function WhatsappScreen() {
 
   const [qr, setQr] = useState<string | null>(null);
   const [qrExpired, setQrExpired] = useState(false);
+  const [pairingCode, setPairingCode] = useState<string | null>(null);
+  const [numeroInput, setNumeroInput] = useState("");
   const [notice, setNotice] = useState<string | null>(null);
   const [conflict, setConflict] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -122,13 +127,14 @@ export function WhatsappScreen() {
         const data = await fetchConnection(token);
         setInfo(data);
         setLoaded(true);
-        // Pareou com sucesso: limpa o QR e avisa.
+        // Pareou com sucesso: limpa o QR/código e avisa.
         if (data.status === "online") {
           setQr((prev) => {
             if (prev) flashToast({ kind: "ok", text: "Número conectado com sucesso." });
             return null;
           });
           setQrExpired(false);
+          setPairingCode(null);
           setNotice(null);
         }
       } catch (err) {
@@ -164,12 +170,14 @@ export function WhatsappScreen() {
   }, [allowed, status, load]);
 
   // ---- conectar / reconectar ---------------------------------------------
+  // Caminho QR. Nunca envia número: "Gerar novo QR"/"Reparear" usam reconnect
+  // (restart reseta uma sessão presa em "connecting"); connect é só o 1º pareamento.
   const doConnect = useCallback(
-    async (action: "connect" | "reconnect", auto = false) => {
+    async (action: "connect" | "reconnect") => {
       if (!token) return;
       setBusy(true);
       setConflict(null);
-      if (!auto) setNotice(null);
+      setNotice(null);
       try {
         const res = await connectWhatsapp(token, action);
         setInfo((prev) => ({
@@ -178,20 +186,15 @@ export function WhatsappScreen() {
           ultimaSync: new Date().toISOString(),
         }));
         setQr(res.qr);
+        setPairingCode(null); // caminho QR nunca produz código
         setQrExpired(false);
         if (res.qr) {
-          setNotice(
-            auto
-              ? "QR code expirado. Geramos um novo — leia no WhatsApp do aparelho."
-              : "Leia o QR code no app do WhatsApp do número oficial da igreja.",
-          );
+          setNotice("Leia o QR code no app do WhatsApp do número oficial da igreja.");
         }
-        if (!auto) {
-          flashToast({
-            kind: "ok",
-            text: action === "connect" ? "Conexão iniciada." : "Reconexão iniciada.",
-          });
-        }
+        flashToast({
+          kind: "ok",
+          text: action === "connect" ? "Conexão iniciada." : "Reconexão iniciada.",
+        });
       } catch (err) {
         if (handleSessionError(err)) return;
         if (err instanceof ConnectionConflictError) {
@@ -202,6 +205,57 @@ export function WhatsappScreen() {
         flashToast({
           kind: "err",
           text: err instanceof ApiError ? err.message : "Não foi possível atualizar a conexão.",
+        });
+      } finally {
+        setBusy(false);
+      }
+    },
+    [token, handleSessionError, flashToast],
+  );
+
+  // Caminho explícito de código: pede o pairingCode por número. O backend reseta
+  // a sessão antes (senão o Evolution ignora o número e devolve só o QR). Se
+  // mesmo assim não vier código, não fingimos sucesso — avisamos e oferecemos o QR.
+  const doGenerateCode = useCallback(
+    async (numero: string) => {
+      if (!token || numero.length < 10) return;
+      setBusy(true);
+      setConflict(null);
+      setNotice(null);
+      try {
+        const res = await connectWhatsapp(token, "reconnect", numero);
+        setInfo((prev) => ({
+          numero: prev?.numero ?? null,
+          status: res.status,
+          ultimaSync: new Date().toISOString(),
+        }));
+        setQrExpired(false);
+        if (res.pairingCode) {
+          setPairingCode(res.pairingCode);
+          setQr(null);
+          setNotice(
+            "Código gerado. No WhatsApp do número oficial: Aparelhos conectados → Conectar com número de telefone.",
+          );
+          flashToast({ kind: "ok", text: "Código de pareamento gerado." });
+        } else {
+          // Evolution não emitiu o código (sessão em pareamento). Sem fingir sucesso.
+          setPairingCode(null);
+          setQr(res.qr);
+          setNotice(
+            "Não foi possível gerar o código agora (a sessão estava em pareamento). Tente de novo ou use o QR code.",
+          );
+          flashToast({ kind: "err", text: "Evolution não retornou o código. Tente de novo ou use o QR." });
+        }
+      } catch (err) {
+        if (handleSessionError(err)) return;
+        if (err instanceof ConnectionConflictError) {
+          setConflict(err.message);
+          flashToast({ kind: "err", text: err.message });
+          return;
+        }
+        flashToast({
+          kind: "err",
+          text: err instanceof ApiError ? err.message : "Não foi possível gerar o código.",
         });
       } finally {
         setBusy(false);
@@ -221,6 +275,7 @@ export function WhatsappScreen() {
       setInfo({ numero: null, status: res.status, ultimaSync: new Date().toISOString() });
       setQr(null);
       setQrExpired(false);
+      setPairingCode(null);
       setConfirmDisconnect(false);
       flashToast({ kind: "ok", text: "Número desconectado." });
     } catch (err) {
@@ -234,17 +289,18 @@ export function WhatsappScreen() {
     }
   }, [token, handleSessionError, flashToast]);
 
-  // ---- expiração + regeneração automática do QR --------------------------
+  // ---- expiração do QR (sem regenerar sozinho) ---------------------------
+  // O QR expira no servidor após alguns segundos. Ao expirar, apenas marcamos
+  // como expirado e pedimos ação explícita do admin — regenerar sozinho
+  // invalidaria o QR que ele está justamente tentando ler no aparelho.
   useEffect(() => {
-    if (!qr || status === "online") return;
+    if (!qr || qrExpired || status === "online") return;
     const id = window.setTimeout(() => {
       setQrExpired(true);
-      setNotice("QR code expirado. Gerando um novo…");
-      // Regenera automaticamente (reconnect mantém o número/instância).
-      void doConnect(info?.numero ? "reconnect" : "connect", true);
+      setNotice("QR code expirado. Gere um novo para tentar novamente.");
     }, QR_TTL_MS);
     return () => window.clearTimeout(id);
-  }, [qr, status, info?.numero, doConnect]);
+  }, [qr, qrExpired, status]);
 
   // ---- bloqueio de acesso (admin only) -----------------------------------
   if (!allowed) {
@@ -451,19 +507,79 @@ export function WhatsappScreen() {
             <p className="sub mono" style={{ color: "var(--faint)", marginTop: "var(--s3)" }}>
               {isOnline
                 ? "Pareado"
-                : status === "reconectando"
-                  ? "Reconectando…"
-                  : qrExpired
-                    ? "QR expirado — gerando novo"
-                    : qr
-                      ? "Aguardando leitura"
-                      : "Clique em Conectar para gerar o QR"}
+                : qrExpired
+                  ? "QR expirado"
+                  : qr
+                    ? "Aguardando leitura"
+                    : pairingCode
+                      ? "Aguardando código"
+                      : status === "reconectando"
+                        ? "Reconectando…"
+                        : "Clique em Conectar para gerar o QR"}
             </p>
+
+            {!isOnline && qrExpired ? (
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => void doConnect("reconnect")}
+                disabled={busy}
+                style={{ marginTop: "var(--s3)" }}
+              >
+                <Icon name="refresh" />
+                <span>{busy ? "Gerando…" : "Gerar novo QR"}</span>
+              </button>
+            ) : null}
+
+            {!isOnline && pairingCode ? (
+              <div style={{ marginTop: "var(--s3)" }}>
+                <div className="sub" style={{ color: "var(--muted)" }}>
+                  Código de pareamento
+                </div>
+                <div
+                  className="mono"
+                  style={{ fontSize: 22, fontWeight: 700, letterSpacing: 2 }}
+                >
+                  {pairingCode}
+                </div>
+                <p className="sub" style={{ color: "var(--muted)", marginTop: 4 }}>
+                  No WhatsApp do número oficial: Aparelhos conectados → Conectar com
+                  número de telefone.
+                </p>
+              </div>
+            ) : null}
 
             {notice && !isOnline ? (
               <p className="sub" style={{ marginTop: "var(--s2)", color: "var(--accent)" }}>
                 {notice}
               </p>
+            ) : null}
+
+            {!isOnline ? (
+              <div className="field" style={{ marginTop: "var(--s4)", textAlign: "left" }}>
+                <label htmlFor="wa-numero">
+                  Não consegue ler o QR? Gere um código pelo número
+                </label>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input
+                    id="wa-numero"
+                    inputMode="numeric"
+                    placeholder="Ex.: 558999771896"
+                    value={numeroInput}
+                    onChange={(e) => setNumeroInput(e.target.value.replace(/\D/g, ""))}
+                    disabled={busy}
+                    style={{ flex: 1 }}
+                  />
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => void doGenerateCode(numeroInput)}
+                    disabled={busy || numeroInput.length < 10}
+                  >
+                    {busy ? "Gerando…" : "Gerar código"}
+                  </button>
+                </div>
+              </div>
             ) : null}
           </div>
         </div>

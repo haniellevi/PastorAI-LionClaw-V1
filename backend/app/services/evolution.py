@@ -74,6 +74,7 @@ class ConnectionResult:
     status: str  # online | offline | reconectando
     qr: str | None = None
     numero: str | None = None
+    pairing_code: str | None = None  # numeric pairing code (connect with number)
 
 
 def verify_webhook_signature(secret: str, payload: bytes, signature: str | None) -> bool:
@@ -119,21 +120,27 @@ class EvolutionClient:
     def _headers(self, api_key: str) -> dict[str, str]:
         return {"apikey": api_key, "Content-Type": "application/json"}
 
-    def connect(self, instance: str) -> ConnectionResult:
+    def connect(self, instance: str, numero: str | None = None) -> ConnectionResult:
         """Connect (or resume) an instance and return its QR + state.
 
         Idempotent: connecting an already-online instance returns its state
-        without a QR. The instance is created on demand when missing.
+        without a QR. The instance is created on demand when missing. When
+        ``numero`` (a full phone number, digits only) is given, Evolution issues a
+        numeric **pairing code** for that number instead of a QR-only session —
+        the fallback when QR scanning fails.
         """
         if not external_sends_allowed(self._settings):
             log_suppressed("WhatsApp", "connect")
             return ConnectionResult(status="offline")
         base_url, api_key = self._require_config()
         headers = self._headers(api_key)
+        params = {"number": numero} if numero else None
         try:
             with httpx.Client(base_url=base_url, timeout=15.0) as client:
                 self._ensure_instance(client, headers, instance)
-                resp = client.get(f"/instance/connect/{instance}", headers=headers)
+                resp = client.get(
+                    f"/instance/connect/{instance}", headers=headers, params=params
+                )
                 resp.raise_for_status()
                 body = resp.json()
         except httpx.HTTPError as exc:
@@ -154,18 +161,47 @@ class EvolutionClient:
             )
         return result
 
-    def reconnect(self, instance: str) -> ConnectionResult:
-        """Restart an instance and return a fresh QR + state."""
+    def reconnect(self, instance: str, numero: str | None = None) -> ConnectionResult:
+        """Restart an instance and return a fresh QR/pairing code + state.
+
+        Evolution v2.3.7 answers ``PUT /instance/restart`` with 404 when the
+        instance has no live socket yet, so the restart is best-effort: its
+        failure is logged but never aborts the reconnect. The instance is
+        (re)created if missing and ``/instance/connect`` still yields a fresh QR
+        (a plain restart alone would 404 on a never-connected instance). When
+        ``numero`` is given a numeric pairing code is requested instead of a QR.
+        """
         if not external_sends_allowed(self._settings):
             log_suppressed("WhatsApp", "reconnect")
             return ConnectionResult(status="offline")
         base_url, api_key = self._require_config()
         headers = self._headers(api_key)
+        params = {"number": numero} if numero else None
         try:
             with httpx.Client(base_url=base_url, timeout=15.0) as client:
-                # Restart drops the current socket; connect then yields a QR.
-                client.put(f"/instance/restart/{instance}", headers=headers)
-                resp = client.get(f"/instance/connect/{instance}", headers=headers)
+                # Ensure the instance exists so a never-connected igreja can pair.
+                self._ensure_instance(client, headers, instance)
+                # Restart drops the current socket so connect yields a fresh QR.
+                # A 404/failure here is expected on v2.3.7 and must not hide the
+                # QR from the admin — log it and fall through to connect.
+                try:
+                    restart = client.put(
+                        f"/instance/restart/{instance}", headers=headers
+                    )
+                    if restart.status_code >= 400:
+                        logger.info(
+                            "Evolution restart returned %s for %s; connecting anyway",
+                            restart.status_code,
+                            instance,
+                        )
+                except httpx.HTTPError:
+                    logger.info(
+                        "Evolution restart unavailable for %s; connecting anyway",
+                        instance,
+                    )
+                resp = client.get(
+                    f"/instance/connect/{instance}", headers=headers, params=params
+                )
                 resp.raise_for_status()
                 body = resp.json()
         except httpx.HTTPError as exc:
@@ -184,8 +220,13 @@ class EvolutionClient:
             logger.warning(
                 "Instance %s reconnected but webhook registration failed", instance
             )
-        # A reconnect in progress is surfaced as 'reconectando' when no QR yet.
-        if result.qr is None and result.status == "offline":
+        # A reconnect in progress is surfaced as 'reconectando' when neither a QR
+        # nor a pairing code came back yet.
+        if (
+            result.qr is None
+            and result.pairing_code is None
+            and result.status == "offline"
+        ):
             return ConnectionResult(status="reconectando")
         return result
 
@@ -501,20 +542,31 @@ class EvolutionClient:
 
     @staticmethod
     def _result_from_connect(body: dict) -> ConnectionResult:
-        """Normalize a /instance/connect response to a ConnectionResult."""
-        # Evolution returns the QR under `base64`/`code`, or an instance state.
-        qr = body.get("base64") or body.get("code")
-        if isinstance(qr, dict):  # some versions nest it under `qrcode`
-            qr = qr.get("base64") or qr.get("code")
-        if not qr and isinstance(body.get("qrcode"), dict):
-            qr = body["qrcode"].get("base64") or body["qrcode"].get("code")
+        """Normalize a /instance/connect response to a ConnectionResult.
+
+        Evolution returns the QR as a base64 PNG under ``base64`` (newer shapes)
+        or nested under ``qrcode`` (older ones). The sibling ``code`` field is the
+        QR's *text* payload, not an image, so it is never surfaced as the QR
+        (rendering it as a base64 image is what produced broken/blank QRs). When
+        the connect carried a phone number, a numeric ``pairingCode`` is returned
+        too — top-level on v2 or nested under ``qrcode``.
+        """
+        qrcode = body.get("qrcode") if isinstance(body.get("qrcode"), dict) else {}
+        qr = body.get("base64") or qrcode.get("base64")
+        if isinstance(qr, dict):  # defensive: some builds double-nest base64
+            qr = qr.get("base64")
+        pairing = body.get("pairingCode") or qrcode.get("pairingCode")
 
         state = (body.get("instance") or {}).get("state") or body.get("state")
         status = map_connection_state(state)
-        # If a QR was issued the device is pairing -> reconectando.
-        if qr and status == "offline":
+        # A QR or pairing code means the device is pairing -> reconectando.
+        if (qr or pairing) and status == "offline":
             status = "reconectando"
-        return ConnectionResult(status=status, qr=qr if isinstance(qr, str) else None)
+        return ConnectionResult(
+            status=status,
+            qr=qr if isinstance(qr, str) else None,
+            pairing_code=pairing if isinstance(pairing, str) and pairing else None,
+        )
 
 
 def get_evolution_client() -> EvolutionClient:

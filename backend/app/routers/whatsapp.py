@@ -55,12 +55,14 @@ class ConnectionStatusOut(BaseModel):
 
 
 class ConnectRequest(BaseModel):
-    action: str  # connect | reconnect
+    action: str  # connect | reconnect | disconnect
+    numero: str | None = None  # optional: pair via numeric code for this number
 
 
 class ConnectResponse(BaseModel):
     status: str
     qr: str | None = None
+    pairingCode: str | None = None  # noqa: N815 - external contract camelCase
 
 
 # ---------------------------------------------------------------------------
@@ -74,6 +76,19 @@ def get_webhook_queue() -> WebhookQueue:
 def _instance_name(igreja_id: str) -> str:
     """Deterministic Evolution instance name for an igreja (1 per tenant)."""
     return f"igreja-{igreja_id}"
+
+
+def _clean_numero(raw: str | None) -> str | None:
+    """Keep only the digits of a phone number, or None when implausible.
+
+    Evolution needs a full number (country code + DDD + line) to mint a numeric
+    pairing code; anything shorter than a DDI+number is treated as absent so we
+    never hand the API garbage.
+    """
+    if not raw:
+        return None
+    digits = "".join(c for c in raw if c.isdigit())
+    return digits if 10 <= len(digits) <= 15 else None
 
 
 # ---------------------------------------------------------------------------
@@ -199,8 +214,18 @@ def post_connection(
                 detail="Já existe um número conectado para esta igreja",
             ) from exc
 
+    # Um número explícito no payload significa "parear por código". Evolution
+    # v2.3.7 IGNORA o número quando a instância já está em "connecting" (devolve
+    # só o QR atual, sem pairingCode); por isso o pedido de código SEMPRE passa
+    # por reconnect — que dá um restart best-effort para resetar a sessão antes do
+    # connect com número. O caminho QR nunca envia número (nem reaproveita o
+    # salvo), senão "Gerar novo QR" viraria pedido de código sem o admin querer.
+    numero = _clean_numero(payload.numero)
+
     try:
-        if payload.action == "connect":
+        if numero:
+            result = evolution.reconnect(instance, numero=numero)
+        elif payload.action == "connect":
             result = evolution.connect(instance)
         else:
             result = evolution.reconnect(instance)
@@ -216,7 +241,9 @@ def post_connection(
         conn.numero = result.numero
     db.commit()
 
-    return ConnectResponse(status=result.status, qr=result.qr)
+    return ConnectResponse(
+        status=result.status, qr=result.qr, pairingCode=result.pairing_code
+    )
 
 
 # ---------------------------------------------------------------------------
