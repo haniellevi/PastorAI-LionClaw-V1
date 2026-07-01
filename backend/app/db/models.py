@@ -646,6 +646,12 @@ class Event(Base):
         ForeignKey("app_users.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # EVT-7 PR1 — carimbo de idempotência do aviso interno de confirmação (atrás
+    # da flag AGENDA_NOTIFY_ENABLED). NULL = ainda não avisado; preenchido = aviso
+    # já despachado, não reenvia. Ver app/services/event_notify.py.
+    notificado_em: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )

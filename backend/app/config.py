@@ -38,6 +38,13 @@ class Settings(BaseSettings):
     # com credenciais de SANDBOX, nunca de produção. Ver external_sends_enabled.
     allow_real_sends: bool = Field(default=False)
 
+    # ---- Agenda: aviso de confirmação (EVT-7 PR1) ---------------------------
+    # Liga o aviso síncrono à equipe interna quando um evento é confirmado
+    # (POST /events/{id}/confirm). Default OFF, inclusive em produção, até uma
+    # env explícita ligar. Ortogonal ao guard B2: mesmo ligado, o envio real só
+    # sai se external_sends_enabled também permitir (send_text respeita o guard).
+    agenda_notify_enabled: bool = Field(default=False)
+
     # ---- Clerk (Auth - US-01 / RNF-01) --------------------------------------
     clerk_publishable_key: str = Field(default="")
     clerk_secret_key: str = Field(default="")
