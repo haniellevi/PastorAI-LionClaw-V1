@@ -18,12 +18,19 @@ import {
   fetchCalendarList,
   fetchCalendarStatus,
   fetchConnectUrl,
+  importEvents,
   selectCalendar,
   type CalendarOption,
+  type ImportResult,
 } from "@/lib/calendar-api";
 import { Icon } from "@/lib/icons";
 
-export function CalendarConnectCard() {
+interface CalendarConnectCardProps {
+  /** EVT-6 PR6.4: chamado após importar do Google (a agenda recarrega a lista). */
+  onImported?: (result: ImportResult) => void;
+}
+
+export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
   const { user, token, expireSession } = useAuth();
   const isAdmin = user ? canManageCalendar(user.roles) : false;
 
@@ -32,6 +39,7 @@ export function CalendarConnectCard() {
   const [calendars, setCalendars] = useState<CalendarOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const onErr = useCallback(
@@ -101,6 +109,20 @@ export function CalendarConnectCard() {
     },
     [token, onErr],
   );
+
+  const runImport = useCallback(async () => {
+    if (!token) return;
+    setImporting(true);
+    setError(null);
+    try {
+      const result = await importEvents(token);
+      onImported?.(result);
+    } catch (e) {
+      onErr(e);
+    } finally {
+      setImporting(false);
+    }
+  }, [token, onErr, onImported]);
 
   const disconnect = useCallback(async () => {
     if (!token) return;
@@ -179,9 +201,18 @@ export function CalendarConnectCard() {
           <div style={{ display: "flex", gap: 8, marginTop: "var(--s4)" }}>
             <button
               type="button"
+              className="btn btn-primary"
+              onClick={() => void runImport()}
+              disabled={busy || importing}
+            >
+              <Icon name="download" />
+              <span>{importing ? "Importando…" : "Importar eventos do Google"}</span>
+            </button>
+            <button
+              type="button"
               className="btn btn-danger"
               onClick={() => void disconnect()}
-              disabled={busy}
+              disabled={busy || importing}
             >
               <Icon name="logout" />
               <span>Desconectar</span>

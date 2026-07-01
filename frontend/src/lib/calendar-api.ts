@@ -83,4 +83,29 @@ export async function disconnectCalendar(token: string): Promise<void> {
   }
 }
 
+// EVT-6 PR6.4 -------------------------------------------------------------
+export interface ImportResult {
+  created: number;
+  skipped: number;
+}
+
+/**
+ * Importa os eventos do Google da igreja (POST /calendar/import). O backend lê a
+ * janela padrão (now→+90d), persiste como `a_confirmar`/`origem='google'` e
+ * deduplica — nada é enviado. Os eventos aparecem na aba "A confirmar" da agenda.
+ * 409 quando a agenda não está conectada.
+ */
+export async function importEvents(token: string): Promise<ImportResult> {
+  const res = await authedFetch(token, `/calendar/import`, { method: "POST" });
+  if (res.status === 409) {
+    throw new ApiError(409, "Conecte a agenda do Google antes de importar.");
+  }
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível importar os eventos.");
+  }
+  const d = (await res.json()) as { created?: number; skipped?: number };
+  return { created: d.created ?? 0, skipped: d.skipped ?? 0 };
+}
+
 export { ApiError, SessionExpiredError };
