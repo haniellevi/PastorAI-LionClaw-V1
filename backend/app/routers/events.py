@@ -26,6 +26,7 @@ Edit/delete do NOT touch Google Calendar (out of scope, EVT-6+).
 from __future__ import annotations
 
 import datetime as dt
+import logging
 import re
 import uuid
 
@@ -38,6 +39,9 @@ from app.db.models import Event
 from app.db.session import get_db
 from app.deps import CurrentUser, get_current_user, require_role
 from app.routers._common import Page, PaginationParams, ensure_tenant_context
+from app.services.event_notify import notify_event_confirmed
+
+logger = logging.getLogger("pastorai.events")
 
 # EVT-1: `hora` é texto livre na coluna; aqui validamos HH:MM (24h) no payload
 # para não persistir lixo (espelha a CHECK constraint events_hora_formato_chk).
@@ -317,4 +321,13 @@ def confirm_event(
     db.flush()
     db.refresh(event)
     db.commit()
+
+    # EVT-7 PR1: aviso interno best-effort, atrás da flag AGENDA_NOTIFY_ENABLED.
+    # A confirmação já foi commitada acima; o aviso nunca pode 500 o confirm, então
+    # engolimos qualquer erro (o próprio notify já trata falha de envio).
+    try:
+        notify_event_confirmed(db, event)
+    except Exception:  # noqa: BLE001 - aviso é best-effort, não derruba a confirmação
+        logger.exception("Falha inesperada ao avisar confirmação de evento")
+
     return EventOut.from_model(event)
