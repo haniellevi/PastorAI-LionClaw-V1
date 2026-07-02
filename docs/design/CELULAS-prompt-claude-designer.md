@@ -171,7 +171,7 @@ h1,h2,h3,h4,.btn,.val { font-family: var(--font-display); }
 - Lista **numerada em ordem alfabética**, com o **Auxiliar sempre em 1º lugar** (destaque: pill `accent` "Auxiliar"). Anfitrião marcado com pill `muted` "Anfitrião".
 - Cada linha: nº, avatar de iniciais, nome, **5 bolinhas das últimas 5 reuniões** (verde presença, vermelha ausência), e **alerta amarelo** quando há dado cadastral pendente.
 - Botão "Adicionar participante" → modal com dados básicos (nome*, WhatsApp*, nascimento, endereço).
-- Clicar no discípulo → **ficha completa** (modal wide ou tela): 
+- Clicar no discípulo → **ficha completa** (modal wide ou tela):
   - Cabeçalho: nome, idade, pills (etapa da trilha, Auxiliar/Anfitrião se for o caso).
   - **Próxima meta na trilha** (ganhar → consolidar → discipular → enviar), ex.: "Concluir a Universidade da Vida".
   - **Atividades na célula**: participações na programação, ex.: "Quebra-gelo — 12/06/2026 · Oferta — 28/05/2026".
@@ -193,7 +193,7 @@ h1,h2,h3,h4,.btn,.val { font-family: var(--font-display); }
   - **Teve oferta?** (toggle sim/não; se sim, campo opcional de valor);
   - **Presentes**: lista de membros com checkbox (auxiliar primeiro, demais em ordem alfabética);
   - **Visitantes**: lista dinâmica "+ Adicionar visitante" → nome*, WhatsApp*, **Aceitou Jesus?** (sim/não — se sim, dot verde e microtexto "vai iniciar consolidação");
-  - Botão primário **"Enviar relatório"** → toast "Relatório enviado para a Central de Células." 
+  - Botão primário **"Enviar relatório"** → toast "Relatório enviado para a Central de Células."
 - Abaixo, card "Relatórios anteriores": linhas "nº · data · tema · presentes/visitantes" com pill Enviado.
 
 ### 6.5 `#lider-multiplicacao` — Multiplicação
@@ -217,7 +217,7 @@ Ordem vertical (mobile-first; no desktop pode virar 2 colunas):
 3. **Contador**: card pequeno "Nossa célula já realizou **47 encontros**" (número em Sora 30px).
 4. **Mural de avisos** (minimalista e discreto): cards compactos — **igreja em vermelho, célula em azul** (borda esquerda + fundo soft), título 13px + texto 12px.
 5. **Participantes**: lista começando pelo **Líder** (pill accent "Líder"), depois **Auxiliar**, depois os demais **numerados**.
-6. **Últimas células realizadas**: card com **rolagem interna** (max-height ~280px): linhas "**nº** · data · tema". 
+6. **Últimas células realizadas**: card com **rolagem interna** (max-height ~280px): linhas "**nº** · data · tema".
 
 O discípulo NÃO vê: relatórios, dados de outros membros, gestão. Tom geral: leve, acolhedor, zero jargão administrativo.
 
