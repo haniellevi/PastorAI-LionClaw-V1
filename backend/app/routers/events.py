@@ -57,6 +57,20 @@ STATUS_A_CONFIRMAR = "a_confirmar"
 # (legado/opcional, coluna events.tipo é nullable).
 EventTipo = Literal["culto", "reuniao", "celula", "especial", "conferencia"]
 
+# EVT-8a — allowlist fechada de públicos-alvo do aviso de confirmação. Literal dá
+# 422 no payload para valores fora da lista. Importante: EVT-8a só PERSISTE a
+# intenção (colunas publico_alvo/antecedencia_horas/mensagem_confirmacao); não
+# envia nem agenda comunicação alguma.
+PublicoAlvo = Literal[
+    "toda_igreja",
+    "lideres",
+    "discipulos",
+    "visitantes",
+    "casais",
+    "jovens",
+    "criancas",
+]
+
 
 def _normalize_hora(value: str | None) -> str | None:
     """Normaliza/valida `hora` HH:MM (24h); vazio vira None. Reusado nos schemas."""
@@ -91,6 +105,11 @@ class EventOut(BaseModel):
     recorrencia: str | None = None
     confirmadoEm: dt.datetime | None = None  # noqa: N815
     confirmadoPor: str | None = None  # noqa: N815
+    # EVT-8a — intenção de comunicação persistida no confirm (aditivo, camelCase).
+    # None em eventos legados/sem body — coluna é nullable desde o EVT-1.
+    publicoAlvo: list[str] | None = None  # noqa: N815
+    antecedenciaHoras: int | None = None  # noqa: N815
+    mensagemConfirmacao: str | None = None  # noqa: N815
 
     @classmethod
     def from_model(cls, e: Event) -> "EventOut":
@@ -108,6 +127,9 @@ class EventOut(BaseModel):
             recorrencia=e.recorrencia,
             confirmadoEm=e.confirmado_em,
             confirmadoPor=str(e.confirmado_por) if e.confirmado_por else None,
+            publicoAlvo=e.publico_alvo,
+            antecedenciaHoras=e.antecedencia_horas,
+            mensagemConfirmacao=e.mensagem_confirmacao,
         )
 
 
@@ -155,6 +177,45 @@ class UpdateEventRequest(BaseModel):
     @classmethod
     def _hora(cls, value: str | None) -> str | None:
         return _normalize_hora(value)
+
+
+class ConfirmEventRequest(BaseModel):
+    """Dados opcionais de comunicação enviados na confirmação (EVT-8a).
+
+    Tudo opcional: confirmar sem body (ou com `{}`) mantém o comportamento
+    anterior. EVT-8a apenas PERSISTE a intenção (público/antecedência/mensagem)
+    nas colunas do evento — não envia nem agenda comunicação alguma.
+    """
+
+    publicoAlvo: list[PublicoAlvo] | None = None  # noqa: N815
+    antecedenciaHoras: int | None = Field(default=None, ge=0)  # noqa: N815
+    mensagemConfirmacao: str | None = None  # noqa: N815
+
+    @field_validator("publicoAlvo")
+    @classmethod
+    def _publico(cls, value: list[str] | None) -> list[str] | None:
+        if value is None:
+            return None
+        if len(value) > 7:
+            raise ValueError("publicoAlvo aceita no máximo 7 itens")
+        # dedup preservando a ordem; lista vazia normaliza para None.
+        deduped: list[str] = []
+        for item in value:
+            if item not in deduped:
+                deduped.append(item)
+        return deduped or None
+
+    @field_validator("mensagemConfirmacao")
+    @classmethod
+    def _mensagem(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            return None
+        if len(value) > 2000:
+            raise ValueError("mensagemConfirmacao aceita no máximo 2000 caracteres")
+        return value
 
 
 def _get_event(db: Session, current_user: CurrentUser, event_id: str) -> Event:
@@ -310,6 +371,7 @@ def delete_event(
 @router.post("/{event_id}/confirm", response_model=EventOut)
 def confirm_event(
     event_id: str,
+    payload: ConfirmEventRequest | None = None,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(require_role(["pastor"])),
 ) -> EventOut:
@@ -320,6 +382,12 @@ def confirm_event(
     etc.) retorna 409 — regra explícita e consistente com o uso de 409 para
     conflito de estado no projeto. Em sucesso: status='confirmado', grava
     confirmado_em (UTC) e confirmado_por (app_user atual). Tenant-scoped.
+
+    EVT-8a: aceita body OPCIONAL de comunicação (`ConfirmEventRequest`). Sem body
+    (ou `{}`) o comportamento é idêntico ao anterior. Quando vem, os campos
+    público/antecedência/mensagem são PERSISTIDOS no evento — EVT-8a só grava a
+    intenção; não envia nem agenda nada. A validação do 409 acontece antes de
+    qualquer persistência nova.
     """
     ensure_tenant_context(db, current_user)
     event = _get_event(db, current_user, event_id)
@@ -333,6 +401,13 @@ def confirm_event(
     event.status = STATUS_CONFIRMADO
     event.confirmado_em = dt.datetime.now(dt.timezone.utc)
     event.confirmado_por = uuid.UUID(current_user.app_user_id)
+
+    # EVT-8a — persiste a intenção de comunicação, se veio no body. Sem body
+    # preserva o comportamento anterior (não toca essas colunas). Só grava.
+    if payload is not None:
+        event.publico_alvo = payload.publicoAlvo
+        event.antecedencia_horas = payload.antecedenciaHoras
+        event.mensagem_confirmacao = payload.mensagemConfirmacao
 
     db.flush()
     db.refresh(event)

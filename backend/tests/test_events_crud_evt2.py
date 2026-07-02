@@ -100,6 +100,9 @@ def make_event(
     hora="19:30",
     descricao="Domingo",
     tipo=None,
+    publico_alvo=None,
+    antecedencia_horas=None,
+    mensagem_confirmacao=None,
 ):
     return SimpleNamespace(
         id=_EID,
@@ -115,6 +118,10 @@ def make_event(
         recorrencia="pontual",
         confirmado_em=confirmado_em,
         confirmado_por=confirmado_por,
+        # EVT-8a — colunas de comunicação (nullable desde o EVT-1).
+        publico_alvo=publico_alvo,
+        antecedencia_horas=antecedencia_horas,
+        mensagem_confirmacao=mensagem_confirmacao,
     )
 
 
@@ -422,3 +429,204 @@ def test_get_old_event_null_tipo_serializes(app) -> None:
     resp = _wire(app, session=session).get(f"/events/{_EID}", headers=_AUTH)
     assert resp.status_code == 200
     assert resp.json()["tipo"] is None
+
+
+# ---- EVT-8a: confirm com corpo opcional de comunicação ----------------------
+def test_confirm_no_body_still_confirms(app) -> None:
+    # sem body continua confirmando E não toca as colunas de comunicação.
+    event = make_event(status="a_confirmar")
+    session = _session(roles=["pastor"], event=event)
+    resp = _wire(app, session=session).post(f"/events/{_EID}/confirm", headers=_AUTH)
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "confirmado"
+    assert event.publico_alvo is None
+    assert event.antecedencia_horas is None
+    assert event.mensagem_confirmacao is None
+
+
+def test_confirm_empty_body_still_confirms(app) -> None:
+    event = make_event(status="a_confirmar")
+    session = _session(roles=["pastor"], event=event)
+    resp = _wire(app, session=session).post(
+        f"/events/{_EID}/confirm", headers=_AUTH, json={}
+    )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "confirmado"
+    body = resp.json()
+    assert body["publicoAlvo"] is None
+    assert body["antecedenciaHoras"] is None
+    assert body["mensagemConfirmacao"] is None
+
+
+def test_confirm_persists_communication_fields(app) -> None:
+    event = make_event(status="a_confirmar")
+    session = _session(roles=["pastor"], event=event)
+    resp = _wire(app, session=session).post(
+        f"/events/{_EID}/confirm",
+        headers=_AUTH,
+        json={
+            "publicoAlvo": ["lideres", "jovens"],
+            "antecedenciaHoras": 24,
+            "mensagemConfirmacao": "  Vem participar!  ",
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "confirmado"
+    assert body["publicoAlvo"] == ["lideres", "jovens"]
+    assert body["antecedenciaHoras"] == 24
+    assert body["mensagemConfirmacao"] == "Vem participar!"  # trim aplicado
+    assert event.publico_alvo == ["lideres", "jovens"]
+    assert event.antecedencia_horas == 24
+    assert event.mensagem_confirmacao == "Vem participar!"
+
+
+def test_confirm_publico_alvo_dedup_preserves_order(app) -> None:
+    event = make_event(status="a_confirmar")
+    session = _session(roles=["pastor"], event=event)
+    resp = _wire(app, session=session).post(
+        f"/events/{_EID}/confirm",
+        headers=_AUTH,
+        json={"publicoAlvo": ["jovens", "jovens", "lideres", "jovens"]},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["publicoAlvo"] == ["jovens", "lideres"]
+    assert event.publico_alvo == ["jovens", "lideres"]
+
+
+def test_confirm_rejects_invalid_publico(app) -> None:
+    session = _session(roles=["pastor"], event=make_event(status="a_confirmar"))
+    resp = _wire(app, session=session).post(
+        f"/events/{_EID}/confirm", headers=_AUTH, json={"publicoAlvo": ["banda"]}
+    )
+    assert resp.status_code == 422
+
+
+def test_confirm_rejects_publico_over_seven(app) -> None:
+    # 8 itens (7 distintos + 1 repetido) => estoura o teto de 7 (checado no bruto).
+    session = _session(roles=["pastor"], event=make_event(status="a_confirmar"))
+    resp = _wire(app, session=session).post(
+        f"/events/{_EID}/confirm",
+        headers=_AUTH,
+        json={
+            "publicoAlvo": [
+                "toda_igreja",
+                "lideres",
+                "discipulos",
+                "visitantes",
+                "casais",
+                "jovens",
+                "criancas",
+                "jovens",
+            ]
+        },
+    )
+    assert resp.status_code == 422
+
+
+def test_confirm_rejects_negative_antecedencia(app) -> None:
+    session = _session(roles=["pastor"], event=make_event(status="a_confirmar"))
+    resp = _wire(app, session=session).post(
+        f"/events/{_EID}/confirm", headers=_AUTH, json={"antecedenciaHoras": -1}
+    )
+    assert resp.status_code == 422
+
+
+def test_confirm_blank_mensagem_becomes_null(app) -> None:
+    event = make_event(status="a_confirmar")
+    session = _session(roles=["pastor"], event=event)
+    resp = _wire(app, session=session).post(
+        f"/events/{_EID}/confirm",
+        headers=_AUTH,
+        json={"mensagemConfirmacao": "   \n\t  "},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["mensagemConfirmacao"] is None
+    assert event.mensagem_confirmacao is None
+
+
+def test_confirm_rejects_mensagem_over_2000(app) -> None:
+    session = _session(roles=["pastor"], event=make_event(status="a_confirmar"))
+    resp = _wire(app, session=session).post(
+        f"/events/{_EID}/confirm",
+        headers=_AUTH,
+        json={"mensagemConfirmacao": "a" * 2001},
+    )
+    assert resp.status_code == 422
+
+
+def test_confirm_already_confirmed_ignores_communication_body(app) -> None:
+    # 409 acontece ANTES de qualquer persistência nova: os 3 campos ficam intactos.
+    event = make_event(
+        status="confirmado",
+        publico_alvo=["jovens"],
+        antecedencia_horas=12,
+        mensagem_confirmacao="original",
+    )
+    session = _session(roles=["pastor"], event=event)
+    resp = _wire(app, session=session).post(
+        f"/events/{_EID}/confirm",
+        headers=_AUTH,
+        json={
+            "publicoAlvo": ["lideres"],
+            "antecedenciaHoras": 48,
+            "mensagemConfirmacao": "nova",
+        },
+    )
+    assert resp.status_code == 409
+    assert event.publico_alvo == ["jovens"]
+    assert event.antecedencia_horas == 12
+    assert event.mensagem_confirmacao == "original"
+
+
+def test_get_legacy_event_null_communication_serializes(app) -> None:
+    # evento legado (colunas de comunicação null) serializa sem quebrar.
+    session = _session(roles=["admin"], event=make_event())
+    resp = _wire(app, session=session).get(f"/events/{_EID}", headers=_AUTH)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["publicoAlvo"] is None
+    assert body["antecedenciaHoras"] is None
+    assert body["mensagemConfirmacao"] is None
+
+
+def test_confirm_with_body_makes_no_google_or_whatsapp_call(app, monkeypatch) -> None:
+    """Confirmar com body de comunicação NÃO introduz push Google/WhatsApp.
+
+    EVT-8a só persiste a intenção. O único caminho de comunicação segue sendo o
+    `notify_event_confirmed` (EVT-7, best-effort atrás de flag) — aqui espionado
+    para provar que continua sendo chamado exatamente uma vez e nada além dele.
+    Se alguém plugar um envio Google/WhatsApp no confirm, `google_calls` deixa de
+    ser vazio e o teste falha.
+    """
+    google_calls: list = []
+    notify_calls: list = []
+
+    def _record_google(self, **kwargs):  # pragma: no cover - não deve ser chamado
+        google_calls.append(kwargs)
+        return "should-not-be-used"
+
+    def _spy_notify(db, event):
+        notify_calls.append(event)
+
+    monkeypatch.setattr(
+        "app.services.google_calendar.GoogleCalendarClient.create_event",
+        _record_google,
+    )
+    monkeypatch.setattr("app.routers.events.notify_event_confirmed", _spy_notify)
+
+    event = make_event(status="a_confirmar")
+    session = _session(roles=["pastor"], event=event)
+    resp = _wire(app, session=session).post(
+        f"/events/{_EID}/confirm",
+        headers=_AUTH,
+        json={
+            "publicoAlvo": ["toda_igreja"],
+            "antecedenciaHoras": 2,
+            "mensagemConfirmacao": "Lembrete",
+        },
+    )
+
+    assert resp.status_code == 200
+    assert google_calls == []  # nenhum push Google novo
+    assert len(notify_calls) == 1  # caminho de aviso EVT-7 inalterado
