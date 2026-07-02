@@ -687,6 +687,37 @@ class CalendarSync(Base):
     )
 
 
+class AgendaAlertRecipient(Base):
+    """Destinatário de avisos internos da Agenda por igreja (EVT-7 PR2).
+
+    Config explícita, opt-in, de quem recebe os avisos da Agenda por WhatsApp —
+    independente de papel e de ``AppUser.pessoa_id`` (mata a "dupla exclusão" que
+    zerava os destinatários; ver docs/design/AGENDA-EVENTOS-EVT7-destinatarios-alerta.md).
+    ``telefone`` é a chave canônica só-dígitos (normalize_phone), como em
+    ``conversations.telefone``. Só destinatários ``ativo`` recebem.
+    """
+
+    __tablename__ = "agenda_alert_recipients"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    igreja_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("igrejas.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    nome: Mapped[str] = mapped_column(Text, nullable=False)
+    telefone: Mapped[str] = mapped_column(Text, nullable=False)
+    ativo: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    updated_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
 class WhatsappConnection(Base):
     """Official WhatsApp connection per igreja (1:1, RF-07 / US-05..US-07).
 

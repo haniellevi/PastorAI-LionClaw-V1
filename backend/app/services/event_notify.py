@@ -1,13 +1,14 @@
-"""Aviso síncrono de confirmação de evento à equipe interna (EVT-7 PR1).
+"""Aviso síncrono de confirmação de evento à equipe interna (EVT-7).
 
 Quando um evento é confirmado (POST /events/{id}/confirm) e a flag
-``AGENDA_NOTIFY_ENABLED`` está ligada, a Agenda avisa a coordenação da igreja
-(papéis ``pastor`` / ``lider_g12``) pelo número oficial via Evolution.
+``AGENDA_NOTIFY_ENABLED`` está ligada, a Agenda avisa os destinatários configurados
+da igreja pelo número oficial via Evolution.
 
-Fonte do telefone (mesma do motor de SLA, `sla_engine.py`): usuários com papel de
-coordenação → ``AppUser.pessoa_id`` → ``Pessoa.telefone``. É só a EQUIPE (por
-papel); nunca membros/visitantes. Sem papéis/telefone ou sem número oficial
-conectado, ninguém é notificado (não se inventa destinatário).
+Fonte do telefone (EVT-7 PR2): a config explícita ``agenda_alert_recipients``
+(opt-in, por igreja, independente de papel e de ``AppUser.pessoa_id``). Só os
+destinatários ``ativo=true`` recebem. Sem destinatário configurado ou sem número
+oficial conectado, ninguém é notificado (não se inventa destinatário). Ver
+docs/design/AGENDA-EVENTOS-EVT7-destinatarios-alerta.md.
 
 O envio passa por ``EvolutionClient.send_text``, que já respeita o ``outbound_guard``
 (B2): fora de produção o envio é SIMULADO (retorna True sem tocar a rede). Aqui
@@ -28,38 +29,31 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import Settings, get_settings
-from app.db.models import AppUser, Event, Pessoa, UserRole, WhatsappConnection
+from app.db.models import AgendaAlertRecipient, Event, WhatsappConnection
 from app.services.evolution import EvolutionClient, EvolutionError
 
 logger = logging.getLogger("pastorai.event_notify")
 
-# Papéis que recebem o aviso interno — mesma coordenação do motor de SLA.
-NOTIFY_ROLES: frozenset[str] = frozenset({"pastor", "lider_g12"})
-
 STATUS_CONFIRMADO = "confirmado"
 
 
-def _team_phones(db: Session, igreja_id: uuid.UUID) -> list[str]:
-    """Telefones da equipe interna (coordenação) da igreja.
+def _alert_phones(db: Session, igreja_id: uuid.UUID) -> list[str]:
+    """Telefones dos destinatários de alerta ATIVOS da igreja (EVT-7 PR2).
 
-    Usuários com papel em ``NOTIFY_ROLES`` → ``AppUser.pessoa_id`` →
-    ``Pessoa.telefone``. Só equipe, nunca membros/visitantes. Sem papéis ou sem
-    telefone conhecido → lista vazia (não inventa destinatário).
+    Lê ``agenda_alert_recipients`` (config explícita, opt-in) filtrando
+    ``ativo=true``. Sem destinatário ativo → lista vazia (não inventa
+    destinatário). Deduplica preservando a ordem; ignora vazios.
     """
-    user_ids = db.execute(
-        select(UserRole.user_id).where(
-            UserRole.igreja_id == igreja_id,
-            UserRole.papel.in_(NOTIFY_ROLES),
+    rows = db.execute(
+        select(AgendaAlertRecipient.telefone).where(
+            AgendaAlertRecipient.igreja_id == igreja_id,
+            AgendaAlertRecipient.ativo.is_(True),
         )
     ).scalars().all()
     phones: list[str] = []
-    for uid in set(user_ids):
-        app_user = db.get(AppUser, uid)
-        if app_user is None or app_user.pessoa_id is None:
-            continue
-        pessoa = db.get(Pessoa, app_user.pessoa_id)
-        if pessoa and pessoa.telefone:
-            phones.append(pessoa.telefone)
+    for telefone in rows:
+        if telefone and telefone not in phones:
+            phones.append(telefone)
     return phones
 
 
@@ -111,7 +105,7 @@ def notify_event_confirmed(
         igreja_id = uuid.UUID(str(igreja_id))
 
     instance = _instance(db, igreja_id)
-    phones = _team_phones(db, igreja_id)
+    phones = _alert_phones(db, igreja_id)
     if not instance or not phones:
         logger.info("Agenda notify: sem instância/destinatário; nada enviado")
         return False
