@@ -5,11 +5,9 @@
  *   GET  /events                          -> Page<EventItem>  (RNF-09)
  *   POST /events {titulo,data,hora,descricao} -> EventItem     (api-events)
  *
- * Sync com o Google Calendar é best-effort: o evento é sempre persistido. Se o
- * sync falha (token expirado/serviço fora), o evento volta com
- * `sincronizado=false` e `googleEventId=null` — a UI mantém o evento local e o
- * marca como "não sincronizado" com re-tentar. Vários eventos não sincronizados
- * sinalizam o calendário desconectado (banner com CTA reconectar).
+ * Google: desde o EVT-6 PR6.0 NÃO há push app→Google — todo evento manual nasce
+ * com `sincronizado=false` e `googleEventId=null`. É um evento local (estado
+ * normal), não um erro de sync; `sincronizado=true` só em importados do Google.
  */
 
 import { ApiError, authedFetch, readDetail, type Page } from "./dashboard-api";

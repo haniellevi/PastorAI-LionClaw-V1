@@ -5,6 +5,8 @@
  * recorrência), descrição, status/origem/recorrência e o estado de sync com o
  * Google, e oferece as ações Editar / Excluir / Confirmar.
  *
+ *  - Ações só com `canManage` (pastor/admin — espelha o gate do backend); sem
+ *    privilégio, evento 'a_confirmar' mostra aviso informativo (spec §5.3).
  *  - Editar: só para eventos com data fixa — recorrentes (data=null) não podem
  *    ser editados sem `dia_semana`, que o EventOut não expõe (EVT-1).
  *  - Excluir: confirmação em dois passos no próprio rodapé (sem prompt do browser).
@@ -52,6 +54,7 @@ function DetailRow({ icon, label, value }: { icon: IconKey; label: string; value
 
 export function EventDetailModal({
   event,
+  canManage,
   busy,
   error,
   onClose,
@@ -60,6 +63,8 @@ export function EventDetailModal({
   onConfirm,
 }: {
   event: EventItem;
+  /** P0a: pastor/admin — libera Editar/Excluir/Confirmar (gate real no backend). */
+  canManage: boolean;
   busy: boolean;
   error: string | null;
   onClose: () => void;
@@ -70,8 +75,8 @@ export function EventDetailModal({
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const status = event.status ? STATUS_LABEL[event.status] : undefined;
-  const canEdit = event.data != null;
-  const canConfirm = event.status === "a_confirmar";
+  const canEdit = canManage && event.data != null;
+  const canConfirm = canManage && event.status === "a_confirmar";
 
   const when = event.data
     ? `${formatLongDate(event.data)}${event.hora ? ` · ${event.hora}` : ""}`
@@ -129,50 +134,59 @@ export function EventDetailModal({
           <DetailRow
             icon="link"
             label="Google Calendar"
-            value={event.sincronizado ? "Sincronizado" : "Não sincronizado"}
+            value={event.sincronizado ? "Sincronizado" : "Evento local — não enviado ao Google"}
           />
+
+          {!canManage && event.status === "a_confirmar" ? (
+            <p className="sub" style={{ margin: 0 }}>
+              Este evento ainda será confirmado pela liderança. Você será avisado
+              quando estiver definido.
+            </p>
+          ) : null}
         </div>
 
-        <div className="modal-foot" style={{ flexWrap: "wrap" }}>
-          {canConfirm ? (
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={onConfirm}
-              loading={busy}
-              loadingText="Confirmando…"
-            >
-              <Icon name="check" /> Confirmar
-            </Button>
-          ) : null}
+        {canManage ? (
+          <div className="modal-foot" style={{ flexWrap: "wrap" }}>
+            {canConfirm ? (
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={onConfirm}
+                loading={busy}
+                loadingText="Confirmando…"
+              >
+                <Icon name="check" /> Confirmar
+              </Button>
+            ) : null}
 
-          {canEdit ? (
-            <button type="button" className="btn btn-sm" onClick={onEdit} disabled={busy}>
-              Editar
-            </button>
-          ) : null}
+            {canEdit ? (
+              <button type="button" className="btn btn-sm" onClick={onEdit} disabled={busy}>
+                Editar
+              </button>
+            ) : null}
 
-          {confirmingDelete ? (
-            <Button
-              variant="danger"
-              size="sm"
-              onClick={onDelete}
-              loading={busy}
-              loadingText="Excluindo…"
-            >
-              Confirmar exclusão
-            </Button>
-          ) : (
-            <button
-              type="button"
-              className="btn btn-sm btn-danger"
-              onClick={() => setConfirmingDelete(true)}
-              disabled={busy}
-            >
-              <Icon name="trash" /> Excluir
-            </button>
-          )}
-        </div>
+            {confirmingDelete ? (
+              <Button
+                variant="danger"
+                size="sm"
+                onClick={onDelete}
+                loading={busy}
+                loadingText="Excluindo…"
+              >
+                Confirmar exclusão
+              </Button>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-sm btn-danger"
+                onClick={() => setConfirmingDelete(true)}
+                disabled={busy}
+              >
+                <Icon name="trash" /> Excluir
+              </button>
+            )}
+          </div>
+        ) : null}
       </div>
     </div>
   );
