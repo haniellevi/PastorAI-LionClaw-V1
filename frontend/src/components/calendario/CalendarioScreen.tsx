@@ -13,8 +13,12 @@
  * seção "Eventos recorrentes". A navegação usa um cursor (Date) deslocado pela
  * unidade da visão atual.
  *
- * A criação manual de evento (EventFormModal) e a UX de sync com o Google
- * (banner desconectado / re-tentar) são preservadas como estavam.
+ * Ações administrativas (criar, editar, excluir, confirmar e a aba "A confirmar")
+ * são de pastor/admin — a UI esconde o que o papel não pode usar; o gate real é
+ * o require_role(["pastor"]) do backend. Eventos manuais não são enviados ao
+ * Google (o push global saiu no EVT-6 PR6.0): "não sincronizado" é o estado
+ * normal de evento local, não um erro — a seção "Eventos locais" informa isso e
+ * dá acesso ao detalhe (editar/excluir).
  *
  * Estados: loading (skeleton) · empty (sem eventos na visão) · populated.
  */
@@ -91,8 +95,11 @@ const NEXT_LABEL: Record<EventView, string> = {
 };
 
 export function CalendarioScreen() {
-  const { token, expireSession } = useAuth();
+  const { token, expireSession, user } = useAuth();
   const today = useMemo(() => new Date(), []);
+
+  // P0a: espelha o gate do backend (require_role(["pastor"]) — admin implícito).
+  const canManage = user?.roles.some((r) => r === "admin" || r === "pastor") ?? false;
 
   const [events, setEvents] = useState<EventItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -105,7 +112,6 @@ export function CalendarioScreen() {
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-  const [reconnecting, setReconnecting] = useState(false);
   const [toast, setToast] = useState<Toast | null>(null);
 
   // EVT-4: detalhe / edição / exclusão. `selected` abre o detalhe; `editing`
@@ -203,7 +209,6 @@ export function CalendarioScreen() {
     (view === "ano" && yearMonths.every((m) => m.count === 0));
 
   const unsynced = useMemo(() => dated.filter((e) => !e.sincronizado), [dated]);
-  const disconnected = unsynced.length > 0;
 
   const goPrev = useCallback(
     () => setCursor((c) => shiftCursor(c, calendarView ?? "mes", -1)),
@@ -229,12 +234,8 @@ export function CalendarioScreen() {
           setCursor(dateFromIso(created.data));
           setView("mes");
         }
-        flashToast({
-          kind: created.sincronizado ? "ok" : "err",
-          text: created.sincronizado
-            ? `Evento "${created.titulo}" criado e sincronizado.`
-            : `Evento "${created.titulo}" salvo localmente, mas não sincronizado com o Google.`,
-        });
+        // PR6.0: não há push app→Google — todo evento manual é local; isso não é erro.
+        flashToast({ kind: "ok", text: `Evento "${created.titulo}" criado.` });
       } catch (err) {
         if (handleSessionError(err)) return;
         setFormError(err instanceof ApiError ? err.message : "Não foi possível salvar o evento.");
@@ -351,16 +352,6 @@ export function CalendarioScreen() {
     [token, replaceEvent, flashToast, handleSessionError],
   );
 
-  const handleReconnect = useCallback(async () => {
-    setReconnecting(true);
-    try {
-      await load("retry");
-      flashToast({ kind: "ok", text: "Tentando reconectar com o Google Calendar…" });
-    } finally {
-      setReconnecting(false);
-    }
-  }, [load, flashToast]);
-
   // EVT-6 PR6.4: import concluído no CalendarConnectCard. Recarrega os eventos e
   // leva à fila "A confirmar", onde os importados (status='a_confirmar') caem.
   const handleImported = useCallback(
@@ -413,15 +404,17 @@ export function CalendarioScreen() {
               </button>
             </>
           ) : null}
-          <button type="button" className="btn btn-primary" onClick={() => { setFormError(null); setShowForm(true); }}>
-            <Icon name="plus" />
-            <span>Novo evento</span>
-          </button>
+          {canManage ? (
+            <button type="button" className="btn btn-primary" onClick={() => { setFormError(null); setShowForm(true); }}>
+              <Icon name="plus" />
+              <span>Novo evento</span>
+            </button>
+          ) : null}
         </div>
       </div>
 
       <div className="tabs agenda-tabs" role="tablist" aria-label="Visualização da agenda">
-        {VIEWS.map((v) => (
+        {VIEWS.filter((v) => v.id !== "confirmar" || canManage).map((v) => (
           <button
             key={v.id}
             type="button"
@@ -449,25 +442,6 @@ export function CalendarioScreen() {
         </div>
       ) : null}
 
-      {disconnected ? (
-        <div className="degraded-banner" role="alert" style={{ borderRadius: "var(--r-md)", marginBottom: "var(--s3)" }}>
-          <Icon name="alert" />
-          <span>
-            Calendário desconectado: {unsynced.length} evento(s) não sincronizado(s)
-            com o Google. Os eventos locais foram preservados.
-          </span>
-          <button
-            type="button"
-            className="btn btn-sm btn-primary"
-            onClick={() => void handleReconnect()}
-            disabled={reconnecting}
-            style={{ marginLeft: "auto" }}
-          >
-            {reconnecting ? "Reconectando…" : "Reconectar"}
-          </button>
-        </div>
-      ) : null}
-
       {showSkeleton ? (
         <div className="card card-pad">
           <div className="sk-line sk-lg" />
@@ -491,12 +465,7 @@ export function CalendarioScreen() {
                   >
                     {cell.day != null ? <div className="d num">{cell.day}</div> : null}
                     {cell.events.map((ev) => (
-                      <div
-                        key={ev.id}
-                        className={`cal-ev${ev.sincronizado ? "" : " warn"}`}
-                        title={ev.sincronizado ? ev.titulo : `${ev.titulo} · não sincronizado`}
-                        {...eventActivation(ev)}
-                      >
+                      <div key={ev.id} className="cal-ev" title={ev.titulo} {...eventActivation(ev)}>
                         {ev.hora ? `${ev.hora} ` : ""}
                         {ev.titulo}
                       </div>
@@ -518,12 +487,7 @@ export function CalendarioScreen() {
                   {d.events.length ? (
                     <div className="agenda-day-evs">
                       {d.events.map((ev) => (
-                        <div
-                          key={ev.id}
-                          className={`cal-ev${ev.sincronizado ? "" : " warn"}`}
-                          title={ev.sincronizado ? ev.titulo : `${ev.titulo} · não sincronizado`}
-                          {...eventActivation(ev)}
-                        >
+                        <div key={ev.id} className="cal-ev" title={ev.titulo} {...eventActivation(ev)}>
                           {ev.hora ? `${ev.hora} · ` : ""}
                           {ev.titulo}
                         </div>
@@ -605,25 +569,21 @@ export function CalendarioScreen() {
 
           {unsynced.length > 0 ? (
             <div className="card" style={{ marginTop: "var(--s4)" }}>
-              <div className="panel-title" style={{ color: "var(--warn)" }}>
-                <Icon name="alert" /> Eventos não sincronizados
+              <div className="panel-title">
+                <Icon name="calendar" /> Eventos locais
                 <span className="count">· {unsynced.length}</span>
               </div>
+              <p className="sub" style={{ margin: "0 0 var(--s2)" }}>
+                Criados no Igreja 12 e não enviados ao Google Calendar. Clique num
+                evento para abrir o detalhe{canManage ? ", editar ou excluir" : ""}.
+              </p>
               {unsynced.map((ev) => (
-                <div className="list-row" key={ev.id}>
+                <div className="list-row" key={ev.id} {...eventActivation(ev)}>
                   <div style={{ flex: 1 }}>
                     <div className="nm">{ev.titulo}</div>
-                    <div className="sub">{ev.data}{ev.hora ? ` · ${ev.hora}` : ""}</div>
+                    <div className="sub">{ev.data ? formatLongDate(ev.data) : ""}{ev.hora ? ` · ${ev.hora}` : ""}</div>
                   </div>
-                  <span className="pill warn">Não sincronizado</span>
-                  <button
-                    type="button"
-                    className="btn btn-sm"
-                    onClick={() => void load("retry")}
-                    disabled={loading}
-                  >
-                    Re-tentar
-                  </button>
+                  <span className="pill muted">Local</span>
                 </div>
               ))}
             </div>
@@ -662,16 +622,18 @@ export function CalendarioScreen() {
                     </div>
                   ) : null}
                 </div>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  loading={confirmingId === ev.id}
-                  loadingText="Confirmando…"
-                  disabled={confirmingId != null}
-                  onClick={() => void handleConfirmQueue(ev)}
-                >
-                  <Icon name="check" /> Confirmar
-                </Button>
+                {canManage ? (
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    loading={confirmingId === ev.id}
+                    loadingText="Confirmando…"
+                    disabled={confirmingId != null}
+                    onClick={() => void handleConfirmQueue(ev)}
+                  >
+                    <Icon name="check" /> Confirmar
+                  </Button>
+                ) : null}
               </div>
             );
           })}
@@ -691,6 +653,7 @@ export function CalendarioScreen() {
       {selected && !editing ? (
         <EventDetailModal
           event={selected}
+          canManage={canManage}
           busy={mutBusy}
           error={mutError}
           onClose={() => {
