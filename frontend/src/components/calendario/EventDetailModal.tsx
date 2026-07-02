@@ -24,7 +24,9 @@ import { Icon, type IconKey } from "@/lib/icons";
 /** status do evento -> rótulo + variante de .pill. */
 const STATUS_LABEL: Record<string, { text: string; cls: string }> = {
   confirmado: { text: "Confirmado", cls: "ok" },
-  a_confirmar: { text: "A confirmar", cls: "warn" },
+  // P0b-1: vermelho (spec) — antes "warn" (âmbar), que fica reservado ao estado
+  // não-sincronizado (ortogonal, ver EventItem.sincronizado abaixo).
+  a_confirmar: { text: "A confirmar", cls: "danger" },
   cancelado: { text: "Cancelado", cls: "danger" },
 };
 
