@@ -58,6 +58,26 @@ export interface CreateEventInput {
   tipo?: EventTipo | null; // P0b-3
 }
 
+// EVT-8b: público-alvo do aviso de confirmação (§5.4). Allowlist fechada que
+// espelha o backend (EVT-8a); um valor fora desta lista é rejeitado (422).
+export type PublicoAlvo =
+  | "toda_igreja"
+  | "lideres"
+  | "discipulos"
+  | "visitantes"
+  | "casais"
+  | "jovens"
+  | "criancas";
+
+// EVT-8b: body opcional do confirm (§5.4). Todos os campos são opcionais — o
+// backend (EVT-8a) só PERSISTE a intenção (público/antecedência/mensagem); o
+// envio real vem no EVT-9. Campos ausentes viram null no backend.
+export interface ConfirmEventInput {
+  publicoAlvo?: PublicoAlvo[];
+  antecedenciaHoras?: number;
+  mensagemConfirmacao?: string;
+}
+
 // EVT-4: edição parcial. O backend (PUT /events/{id}) trata campos None como
 // "inalterados" — não dá pra zerar hora/descrição por aqui (limitação aceita;
 // sem mudança de backend nesta fase). P0b-3: `tipo` é apagável na edição via
@@ -145,9 +165,21 @@ export async function deleteEvent(token: string, id: string): Promise<void> {
   }
 }
 
-/** EVT-4: confirmação manual de um evento 'a_confirmar' (POST /events/{id}/confirm). */
-export async function confirmEvent(token: string, id: string): Promise<EventItem> {
-  const res = await authedFetch(token, `/events/${id}/confirm`, { method: "POST" });
+/**
+ * EVT-4/EVT-8b: confirmação manual de um evento 'a_confirmar'
+ * (POST /events/{id}/confirm). `body` é opcional (§5.4): quando presente, envia
+ * a intenção de comunicação (público/antecedência/mensagem) que o backend
+ * persiste — sem body, comporta-se como o confirm simples de antes.
+ */
+export async function confirmEvent(
+  token: string,
+  id: string,
+  body?: ConfirmEventInput,
+): Promise<EventItem> {
+  const res = await authedFetch(token, `/events/${id}/confirm`, {
+    method: "POST",
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
   if (res.status === 403) {
     throw new ApiError(403, "Acesso restrito à agenda da igreja.");
   }

@@ -35,6 +35,7 @@ import {
 import { AlertRecipientsCard } from "@/components/calendario/AlertRecipientsCard";
 import { CalendarConnectCard } from "@/components/calendario/CalendarConnectCard";
 import type { ImportResult } from "@/lib/calendar-api";
+import { ConfirmEventModal } from "@/components/calendario/ConfirmEventModal";
 import { EventDetailModal } from "@/components/calendario/EventDetailModal";
 import { EventFormModal } from "@/components/calendario/EventFormModal";
 import { Button } from "@/components/ui/Button";
@@ -56,6 +57,7 @@ import {
   shiftCursor,
   updateEvent,
   viewLabel,
+  type ConfirmEventInput,
   type CreateEventInput,
   type EventItem,
   type EventView,
@@ -143,8 +145,12 @@ export function CalendarioScreen() {
   const [mutBusy, setMutBusy] = useState(false);
   const [mutError, setMutError] = useState<string | null>(null);
 
-  // EVT-5: id do evento sendo confirmado pela fila (loading por linha).
-  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  // EVT-8b (§5.4): confirmação passa por um modal (público/antecedência/mensagem)
+  // antes do POST. `confirmTarget` é o evento em confirmação; busy/error são do
+  // próprio modal. Substitui o confirm inline direto (EVT-4/EVT-5).
+  const [confirmTarget, setConfirmTarget] = useState<EventItem | null>(null);
+  const [confirmBusy, setConfirmBusy] = useState(false);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
 
   const handleSessionError = useCallback(
     (err: unknown): boolean => {
@@ -355,46 +361,37 @@ export function CalendarioScreen() {
     }
   }, [token, selected, flashToast, handleSessionError]);
 
-  const handleConfirm = useCallback(async () => {
-    if (!token || !selected) return;
-    setMutBusy(true);
-    setMutError(null);
-    try {
-      const updated = await confirmEvent(token, selected.id);
-      replaceEvent(updated);
-      setSelected(updated);
-      flashToast({ kind: "ok", text: `Evento "${updated.titulo}" confirmado.` });
-    } catch (err) {
-      if (handleSessionError(err)) return;
-      setMutError(err instanceof ApiError ? err.message : "Não foi possível confirmar o evento.");
-    } finally {
-      setMutBusy(false);
-    }
-  }, [token, selected, replaceEvent, flashToast, handleSessionError]);
+  // EVT-8b (§5.4): abre o modal de confirmação para um evento. Único ponto de
+  // entrada — usado tanto pela fila "A confirmar" quanto pelo detalhe (EVT-4).
+  const openConfirm = useCallback((ev: EventItem) => {
+    setConfirmError(null);
+    setConfirmTarget(ev);
+  }, []);
 
-  // EVT-5: confirmação direto da fila "A confirmar" (sem abrir o detalhe). Em
-  // sucesso, `replaceEvent` muda o status para 'confirmado' e o item sai da fila
-  // (filtro por status). 409 e demais erros viram toast. O detalhe (EVT-4)
-  // continua sendo um caminho alternativo de confirmação.
-  const handleConfirmQueue = useCallback(
-    async (ev: EventItem) => {
-      if (!token) return;
-      setConfirmingId(ev.id);
+  // EVT-8b: submit do modal — chama POST /events/{id}/confirm com o body de
+  // comunicação. Em sucesso, `replaceEvent` muda o status para 'confirmado' e o
+  // item sai da fila (filtro por status); erro fica no modal (não confirma
+  // visualmente); 409 e demais erros viram mensagem no próprio modal.
+  const handleConfirmSubmit = useCallback(
+    async (input: ConfirmEventInput) => {
+      if (!token || !confirmTarget) return;
+      setConfirmBusy(true);
+      setConfirmError(null);
       try {
-        const updated = await confirmEvent(token, ev.id);
+        const updated = await confirmEvent(token, confirmTarget.id, input);
         replaceEvent(updated);
         flashToast({ kind: "ok", text: `Evento "${updated.titulo}" confirmado.` });
+        setConfirmTarget(null);
       } catch (err) {
         if (handleSessionError(err)) return;
-        flashToast({
-          kind: "err",
-          text: err instanceof ApiError ? err.message : "Não foi possível confirmar o evento.",
-        });
+        setConfirmError(
+          err instanceof ApiError ? err.message : "Não foi possível confirmar o evento.",
+        );
       } finally {
-        setConfirmingId(null);
+        setConfirmBusy(false);
       }
     },
-    [token, replaceEvent, flashToast, handleSessionError],
+    [token, confirmTarget, replaceEvent, flashToast, handleSessionError],
   );
 
   // EVT-6 PR6.4: import concluído no CalendarConnectCard. Recarrega os eventos e
@@ -699,10 +696,8 @@ export function CalendarioScreen() {
                   <Button
                     variant="primary"
                     size="sm"
-                    loading={confirmingId === ev.id}
-                    loadingText="Confirmando…"
-                    disabled={confirmingId != null}
-                    onClick={() => void handleConfirmQueue(ev)}
+                    disabled={confirmBusy}
+                    onClick={() => openConfirm(ev)}
                   >
                     <Icon name="check" /> Confirmar
                   </Button>
@@ -739,7 +734,26 @@ export function CalendarioScreen() {
             setSelected(null);
           }}
           onDelete={() => void handleDelete()}
-          onConfirm={() => void handleConfirm()}
+          onConfirm={() => {
+            // EVT-8b: confirmar pelo detalhe abre o modal §5.4 (fecha o detalhe).
+            if (!selected) return;
+            const ev = selected;
+            setSelected(null);
+            openConfirm(ev);
+          }}
+        />
+      ) : null}
+
+      {confirmTarget ? (
+        <ConfirmEventModal
+          event={confirmTarget}
+          busy={confirmBusy}
+          error={confirmError}
+          onClose={() => {
+            setConfirmTarget(null);
+            setConfirmError(null);
+          }}
+          onSubmit={(input) => void handleConfirmSubmit(input)}
         />
       ) : null}
 
