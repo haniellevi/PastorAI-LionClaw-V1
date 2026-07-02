@@ -60,8 +60,9 @@ export interface CreateEventInput {
 
 // EVT-4: edição parcial. O backend (PUT /events/{id}) trata campos None como
 // "inalterados" — não dá pra zerar hora/descrição por aqui (limitação aceita;
-// sem mudança de backend nesta fase). P0b-3: o mesmo vale para `tipo` — enviar
-// null na edição mantém a categoria atual; só a criação nasce com null real.
+// sem mudança de backend nesta fase). P0b-3: `tipo` é apagável na edição via
+// `null` explícito — o backend usa `model_fields_set`, então null limpa a
+// categoria; difere de campos legados como hora/descrição, onde null não limpa.
 export interface UpdateEventInput {
   titulo?: string;
   data?: string; // YYYY-MM-DD
