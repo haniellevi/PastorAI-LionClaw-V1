@@ -99,6 +99,7 @@ def make_event(
     data=dt.date(2026, 1, 1),
     hora="19:30",
     descricao="Domingo",
+    tipo=None,
 ):
     return SimpleNamespace(
         id=_EID,
@@ -109,6 +110,7 @@ def make_event(
         descricao=descricao,
         google_event_id=None,
         status=status,
+        tipo=tipo,
         origem="manual",
         recorrencia="pontual",
         confirmado_em=confirmado_em,
@@ -337,3 +339,86 @@ def test_create_does_not_call_legacy_google_push(app, monkeypatch) -> None:
     # contrato preservado: sem google_event_id => não sincronizado.
     assert body["sincronizado"] is False
     assert body.get("googleEventId") is None
+
+
+# ---- P0b-2: tipo do evento na API (create/update/serialização/validação) ----
+def test_create_persists_and_returns_tipo(app) -> None:
+    session = _session(roles=["pastor"])
+    resp = _wire(app, session=session).post(
+        "/events",
+        headers=_AUTH,
+        json={"titulo": "Culto", "data": "2026-01-01", "hora": "19:30", "tipo": "culto"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["tipo"] == "culto"
+    assert session.added.tipo == "culto"
+
+
+def test_create_without_tipo_defaults_none(app) -> None:
+    session = _session(roles=["pastor"])
+    resp = _wire(app, session=session).post(
+        "/events",
+        headers=_AUTH,
+        json={"titulo": "Culto", "data": "2026-01-01", "hora": "19:30"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["tipo"] is None
+    assert session.added.tipo is None
+
+
+def test_create_rejects_invalid_tipo(app) -> None:
+    session = _session(roles=["pastor"])
+    resp = _wire(app, session=session).post(
+        "/events",
+        headers=_AUTH,
+        json={"titulo": "Culto", "data": "2026-01-01", "tipo": "banquete"},
+    )
+    assert resp.status_code == 422
+
+
+def test_put_changes_tipo(app) -> None:
+    event = make_event(tipo=None)
+    session = _session(roles=["pastor"], event=event)
+    resp = _wire(app, session=session).put(
+        f"/events/{_EID}", headers=_AUTH, json={"tipo": "reuniao"}
+    )
+    assert resp.status_code == 200
+    assert resp.json()["tipo"] == "reuniao"
+    assert event.tipo == "reuniao"
+
+
+def test_put_clears_tipo_with_explicit_null(app) -> None:
+    event = make_event(tipo="culto")
+    session = _session(roles=["pastor"], event=event)
+    resp = _wire(app, session=session).put(
+        f"/events/{_EID}", headers=_AUTH, json={"tipo": None}
+    )
+    assert resp.status_code == 200
+    assert resp.json()["tipo"] is None
+    assert event.tipo is None
+
+
+def test_put_omitted_tipo_unchanged(app) -> None:
+    event = make_event(tipo="celula")
+    session = _session(roles=["pastor"], event=event)
+    resp = _wire(app, session=session).put(
+        f"/events/{_EID}", headers=_AUTH, json={"descricao": "só isso"}
+    )
+    assert resp.status_code == 200
+    assert event.tipo == "celula"
+
+
+def test_put_rejects_invalid_tipo(app) -> None:
+    session = _session(roles=["pastor"], event=make_event())
+    resp = _wire(app, session=session).put(
+        f"/events/{_EID}", headers=_AUTH, json={"tipo": "banquete"}
+    )
+    assert resp.status_code == 422
+
+
+def test_get_old_event_null_tipo_serializes(app) -> None:
+    # evento legado sem categoria (tipo=None) não quebra a serialização.
+    session = _session(roles=["admin"], event=make_event(tipo=None))
+    resp = _wire(app, session=session).get(f"/events/{_EID}", headers=_AUTH)
+    assert resp.status_code == 200
+    assert resp.json()["tipo"] is None

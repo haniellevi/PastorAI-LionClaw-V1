@@ -29,6 +29,7 @@ import datetime as dt
 import logging
 import re
 import uuid
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field, field_validator
@@ -50,6 +51,11 @@ _HORA_RE = re.compile(r"^([01][0-9]|2[0-3]):[0-5][0-9]$")
 # EVT-2 — valores do enum event_status usados na confirmação manual.
 STATUS_CONFIRMADO = "confirmado"
 STATUS_A_CONFIRMAR = "a_confirmar"
+
+# P0b-2 — valores do enum event_tipo (DB, criado no EVT-1). Literal dá validação
+# 422 no payload e serializa como string simples; None = evento sem categoria
+# (legado/opcional, coluna events.tipo é nullable).
+EventTipo = Literal["culto", "reuniao", "celula", "especial", "conferencia"]
 
 
 def _normalize_hora(value: str | None) -> str | None:
@@ -80,6 +86,7 @@ class EventOut(BaseModel):
     # EVT-2: expõe estado da Agenda (aditivo). Optional porque instâncias
     # transientes (server_default só vale no DB) podem ter status=None até o flush.
     status: str | None = None
+    tipo: EventTipo | None = None
     origem: str | None = None
     recorrencia: str | None = None
     confirmadoEm: dt.datetime | None = None  # noqa: N815
@@ -96,6 +103,7 @@ class EventOut(BaseModel):
             googleEventId=e.google_event_id,
             sincronizado=e.google_event_id is not None,
             status=e.status,
+            tipo=e.tipo,
             origem=e.origem,
             recorrencia=e.recorrencia,
             confirmadoEm=e.confirmado_em,
@@ -108,6 +116,7 @@ class CreateEventRequest(BaseModel):
     data: dt.date
     hora: str | None = Field(default=None, max_length=10)
     descricao: str | None = Field(default=None, max_length=2000)
+    tipo: EventTipo | None = None
 
     @field_validator("titulo")
     @classmethod
@@ -130,6 +139,7 @@ class UpdateEventRequest(BaseModel):
     data: dt.date | None = None
     hora: str | None = Field(default=None, max_length=10)
     descricao: str | None = Field(default=None, max_length=2000)
+    tipo: EventTipo | None = None
 
     @field_validator("titulo")
     @classmethod
@@ -219,6 +229,7 @@ def create_event(
         data=payload.data,
         hora=payload.hora,
         descricao=payload.descricao,
+        tipo=payload.tipo,
         google_event_id=None,
     )
     db.add(event)
@@ -267,6 +278,11 @@ def update_event(
         event.hora = payload.hora
     if payload.descricao is not None:
         event.descricao = payload.descricao
+    # tipo é opcional/nullable: `null` explícito limpa a categoria, omissão
+    # preserva. Por isso testa presença no payload (model_fields_set), não `is
+    # not None` como os demais campos — que não são apagáveis por design.
+    if "tipo" in payload.model_fields_set:
+        event.tipo = payload.tipo
 
     db.flush()
     db.refresh(event)
