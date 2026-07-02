@@ -91,6 +91,18 @@ function origemLabel(o: string | null | undefined): string | null {
   if (o === "manual") return "Manual";
   return null;
 }
+
+// P0b-3: cor do evento nas visões. 'a_confirmar' (vermelho/alerta) tem
+// precedência sobre a cor por tipo; sem tipo/null mantém o accent neutro atual.
+function evClass(ev: EventItem): string {
+  if (ev.status === "a_confirmar") return "cal-ev danger";
+  return ev.tipo ? `cal-ev tipo-${ev.tipo}` : "cal-ev";
+}
+/** P0b-3: ponto colorido da visão Ano — mesma precedência do chip de evento. */
+function dotClass(ev: EventItem): string {
+  if (ev.status === "a_confirmar") return "dot danger";
+  return ev.tipo ? `dot tipo-${ev.tipo}` : "dot";
+}
 const PREV_LABEL: Record<EventView, string> = {
   semana: "Semana anterior",
   mes: "Mês anterior",
@@ -510,7 +522,7 @@ export function CalendarioScreen() {
                     {cell.events.map((ev) => (
                       <div
                         key={ev.id}
-                        className={`cal-ev${ev.status === "a_confirmar" ? " danger" : ""}`}
+                        className={evClass(ev)}
                         title={ev.titulo}
                         {...eventActivation(ev)}
                       >
@@ -542,7 +554,7 @@ export function CalendarioScreen() {
                       {d.events.map((ev) => (
                         <div
                           key={ev.id}
-                          className={`cal-ev${ev.status === "a_confirmar" ? " danger" : ""}`}
+                          className={evClass(ev)}
                           title={ev.titulo}
                           {...eventActivation(ev)}
                         >
@@ -577,7 +589,7 @@ export function CalendarioScreen() {
                     <ul className="agenda-month-list">
                       {mo.events.slice(0, 3).map((ev) => (
                         <li key={ev.id} className={ev.status === "a_confirmar" ? "danger" : undefined}>
-                          <span className={`dot${ev.status === "a_confirmar" ? " danger" : ""}`} />
+                          <span className={dotClass(ev)} />
                           {ev.data ? `${Number(ev.data.slice(8, 10))} ` : ""}
                           {ev.titulo}
                         </li>

@@ -18,7 +18,7 @@
 import { useState } from "react";
 
 import { Button } from "@/components/ui/Button";
-import { formatLongDate, type EventItem } from "@/lib/events-api";
+import { formatLongDate, TIPO_LABEL, type EventItem } from "@/lib/events-api";
 import { Icon, type IconKey } from "@/lib/icons";
 
 /** status do evento -> rótulo + variante de .pill. */
@@ -86,7 +86,7 @@ export function EventDetailModal({
         event.hora ? ` · ${event.hora}` : ""
       }`;
 
-  const showPills = Boolean(status || event.origem || event.recorrencia);
+  const showPills = Boolean(status || event.tipo || event.origem || event.recorrencia);
 
   return (
     <div className="modal-overlay" onClick={onClose} role="presentation">
@@ -120,6 +120,9 @@ export function EventDetailModal({
           {showPills ? (
             <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
               {status ? <span className={`pill ${status.cls}`}>{status.text}</span> : null}
+              {event.tipo ? (
+                <span className={`pill tipo-${event.tipo}`}>{TIPO_LABEL[event.tipo]}</span>
+              ) : null}
               {event.origem ? (
                 <span className="pill muted">
                   {event.origem === "google" ? "Importado do Google" : "Manual"}
