@@ -11,7 +11,7 @@ import { useState } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
-import type { CreateEventInput, EventItem } from "@/lib/events-api";
+import { TIPO_LABEL, type CreateEventInput, type EventItem, type EventTipo } from "@/lib/events-api";
 
 export function EventFormModal({
   event,
@@ -34,6 +34,8 @@ export function EventFormModal({
   const [data, setData] = useState(event?.data ?? defaultDate ?? "");
   const [hora, setHora] = useState(event?.hora ?? "");
   const [descricao, setDescricao] = useState(event?.descricao ?? "");
+  // P0b-3: categoria. "" = sem categoria (envia tipo:null); edição carrega o atual.
+  const [tipo, setTipo] = useState<EventTipo | "">(event?.tipo ?? "");
   const [touched, setTouched] = useState(false);
 
   const tituloError = touched && !titulo.trim() ? "Informe o título." : undefined;
@@ -47,6 +49,7 @@ export function EventFormModal({
       data,
       hora: hora || null,
       descricao: descricao.trim() || null,
+      tipo: tipo || null, // P0b-3: "" → null; literal → categoria
     });
   };
 
@@ -105,6 +108,22 @@ export function EventFormModal({
               onChange={(e) => setHora(e.target.value)}
               helper="Opcional"
             />
+          </div>
+
+          <div className="field">
+            <label htmlFor="ev-tipo">Categoria</label>
+            <select
+              id="ev-tipo"
+              value={tipo}
+              onChange={(e) => setTipo(e.target.value as EventTipo | "")}
+            >
+              <option value="">Sem categoria</option>
+              {(Object.keys(TIPO_LABEL) as EventTipo[]).map((t) => (
+                <option key={t} value={t}>
+                  {TIPO_LABEL[t]}
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className="field" style={{ marginBottom: 0 }}>

@@ -3978,6 +3978,36 @@ table.data-table {
   background: var(--danger-soft);
   color: oklch(46% 0.13 25);
 }
+/* P0b-3: cor por categoria (tipo). Só vale para eventos confirmados/neutros —
+   'a_confirmar' (.danger acima) tem precedência e não recebe cor de tipo. Texto
+   escurecido (L 44–48%) sobre fundo suave p/ AA, mesmo padrão de .cal-ev.danger.
+   O par bg/texto é compartilhado pelo chip do calendário e pela pílula do
+   detalhe (.pill.tipo-*), que exibe o rótulo textual (não só cor). */
+.cal-ev.tipo-culto,
+.pill.tipo-culto {
+  background: oklch(96% 0.035 27);
+  color: oklch(48% 0.15 27);
+}
+.cal-ev.tipo-reuniao,
+.pill.tipo-reuniao {
+  background: oklch(95.5% 0.03 195);
+  color: oklch(44% 0.08 195);
+}
+.cal-ev.tipo-celula,
+.pill.tipo-celula {
+  background: oklch(96% 0.045 150);
+  color: oklch(45% 0.13 150);
+}
+.cal-ev.tipo-especial,
+.pill.tipo-especial {
+  background: oklch(96% 0.03 295);
+  color: oklch(48% 0.15 295);
+}
+.cal-ev.tipo-conferencia,
+.pill.tipo-conferencia {
+  background: oklch(96% 0.055 80);
+  color: oklch(47% 0.11 70);
+}
 
 @media (max-width: 720px) {
   .cal-cell {
@@ -4113,6 +4143,22 @@ table.data-table {
 }
 .agenda-month-list .dot.danger {
   background: var(--danger);
+}
+/* P0b-3: ponto colorido por categoria na visão Ano ('a_confirmar' precede). */
+.agenda-month-list .dot.tipo-culto {
+  background: oklch(62% 0.19 27);
+}
+.agenda-month-list .dot.tipo-reuniao {
+  background: oklch(56% 0.09 195);
+}
+.agenda-month-list .dot.tipo-celula {
+  background: oklch(60% 0.15 150);
+}
+.agenda-month-list .dot.tipo-especial {
+  background: oklch(56% 0.16 295);
+}
+.agenda-month-list .dot.tipo-conferencia {
+  background: oklch(68% 0.14 75);
 }
 .agenda-month-list .more {
   color: var(--muted);

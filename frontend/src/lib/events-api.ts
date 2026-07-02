@@ -14,6 +14,20 @@ import { ApiError, authedFetch, readDetail, type Page } from "./dashboard-api";
 
 export type { Page } from "./dashboard-api";
 
+// P0b-3: categoria do evento (backend `tipo`, deploy P0b-2). null = sem
+// categoria. Os literais espelham os aceitos pelo backend; um valor fora dessa
+// lista (ou ausente) é tratado como null pela UI.
+export type EventTipo = "culto" | "reuniao" | "celula" | "especial" | "conferencia";
+
+/** Rótulos PT-BR das categorias (usados no form e no detalhe). */
+export const TIPO_LABEL: Record<EventTipo, string> = {
+  culto: "Culto",
+  reuniao: "Reunião",
+  celula: "Célula",
+  especial: "Especial",
+  conferencia: "Conferência",
+};
+
 /** Evento da igreja (EventOut). */
 export interface EventItem {
   id: string;
@@ -32,6 +46,8 @@ export interface EventItem {
   recorrencia?: string | null;
   confirmadoEm?: string | null;
   confirmadoPor?: string | null;
+  // P0b-3: categoria (EventOut.tipo). Opcional/nullable — eventos antigos omitem.
+  tipo?: EventTipo | null;
 }
 
 export interface CreateEventInput {
@@ -39,16 +55,19 @@ export interface CreateEventInput {
   data: string; // YYYY-MM-DD
   hora?: string | null;
   descricao?: string | null;
+  tipo?: EventTipo | null; // P0b-3
 }
 
 // EVT-4: edição parcial. O backend (PUT /events/{id}) trata campos None como
 // "inalterados" — não dá pra zerar hora/descrição por aqui (limitação aceita;
-// sem mudança de backend nesta fase).
+// sem mudança de backend nesta fase). P0b-3: o mesmo vale para `tipo` — enviar
+// null na edição mantém a categoria atual; só a criação nasce com null real.
 export interface UpdateEventInput {
   titulo?: string;
   data?: string; // YYYY-MM-DD
   hora?: string | null;
   descricao?: string | null;
+  tipo?: EventTipo | null; // P0b-3
 }
 
 // ---------------------------------------------------------------------------
@@ -76,6 +95,7 @@ export async function createEvent(
       data: input.data,
       hora: input.hora ?? null,
       descricao: input.descricao ?? null,
+      tipo: input.tipo ?? null, // P0b-3
     }),
   });
   if (res.status === 403) {
