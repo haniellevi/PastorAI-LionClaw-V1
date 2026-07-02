@@ -128,6 +128,27 @@ def test_eventout_from_model_handles_null_data() -> None:
     out = EventOut.from_model(ev)
     assert out.data is None
     assert out.titulo == "Culto de quarta"
+    # EVT-8a — evento legado sem comunicação: os 3 campos aditivos são None.
+    assert out.publicoAlvo is None
+    assert out.antecedenciaHoras is None
+    assert out.mensagemConfirmacao is None
+
+
+def test_eventout_from_model_maps_communication_fields() -> None:
+    """EVT-8a — EventOut expõe publico_alvo/antecedencia_horas/mensagem_confirmacao
+    em camelCase a partir do modelo."""
+    ev = Event(
+        id=uuid.uuid4(),
+        titulo="Conferência",
+        data=dt.date(2026, 3, 1),
+        publico_alvo=["lideres", "jovens"],
+        antecedencia_horas=48,
+        mensagem_confirmacao="Confirme presença",
+    )
+    out = EventOut.from_model(ev)
+    assert out.publicoAlvo == ["lideres", "jovens"]
+    assert out.antecedenciaHoras == 48
+    assert out.mensagemConfirmacao == "Confirme presença"
 
 
 # ---- HTTP: contrato 422 (espelha test_event_requires_data) -----------------
