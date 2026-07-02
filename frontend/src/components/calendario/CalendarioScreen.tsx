@@ -22,7 +22,15 @@
  *
  * Estados: loading (skeleton) · empty (sem eventos na visão) · populated.
  */
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type MouseEvent,
+} from "react";
 
 import { AlertRecipientsCard } from "@/components/calendario/AlertRecipientsCard";
 import { CalendarConnectCard } from "@/components/calendario/CalendarConnectCard";
@@ -113,6 +121,8 @@ export function CalendarioScreen() {
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
+  // P0b-1: data pré-preenchida ao abrir a criação a partir do clique num dia.
+  const [formDefaultDate, setFormDefaultDate] = useState<string | undefined>(undefined);
 
   // EVT-4: detalhe / edição / exclusão. `selected` abre o detalhe; `editing`
   // abre o form em modo edição. `mut*` cobrem excluir/confirmar (ações do detalhe).
@@ -229,6 +239,7 @@ export function CalendarioScreen() {
         const created = await createEvent(token, input);
         setEvents((prev) => [...prev, created]);
         setShowForm(false);
+        setFormDefaultDate(undefined);
         // Pula para o mês do evento criado para que apareça no grid.
         if (created.data) {
           setCursor(dateFromIso(created.data));
@@ -256,21 +267,43 @@ export function CalendarioScreen() {
     setSelected(ev);
   }, []);
 
-  /** Props para tornar um item de evento clicável/acessível (abre o detalhe). */
+  /**
+   * Props para tornar um item de evento clicável/acessível (abre o detalhe).
+   * P0b-1: para de propagar o clique — a célula/dia por baixo também abre
+   * criação contextualizada (`openCreateForDate`), e clicar num evento não
+   * pode disparar as duas ações.
+   */
   const eventActivation = useCallback(
     (ev: EventItem) => ({
       role: "button" as const,
       tabIndex: 0,
       style: { cursor: "pointer" as const },
-      onClick: () => openDetail(ev),
+      onClick: (e: MouseEvent) => {
+        e.stopPropagation();
+        openDetail(ev);
+      },
       onKeyDown: (e: KeyboardEvent) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
+          e.stopPropagation();
           openDetail(ev);
         }
       },
     }),
     [openDetail],
+  );
+
+  // P0b-1: clicar num dia/célula do calendário (fora de um evento) abre a
+  // criação já com a data preenchida. Só pastor/admin (espelha "Novo evento");
+  // sem privilégio o clique não faz nada (sem affordance/cursor tampouco).
+  const openCreateForDate = useCallback(
+    (iso: string | null) => {
+      if (!canManage || !iso) return;
+      setFormError(null);
+      setFormDefaultDate(iso);
+      setShowForm(true);
+    },
+    [canManage],
   );
 
   const handleEdit = useCallback(
@@ -405,7 +438,15 @@ export function CalendarioScreen() {
             </>
           ) : null}
           {canManage ? (
-            <button type="button" className="btn btn-primary" onClick={() => { setFormError(null); setShowForm(true); }}>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => {
+                setFormError(null);
+                setFormDefaultDate(undefined);
+                setShowForm(true);
+              }}
+            >
               <Icon name="plus" />
               <span>Novo evento</span>
             </button>
@@ -462,10 +503,17 @@ export function CalendarioScreen() {
                   <div
                     key={cell.iso ?? `pad-${i}`}
                     className={`cal-cell${cell.day == null ? " off" : ""}${cell.today ? " today" : ""}`}
+                    onClick={() => openCreateForDate(cell.iso)}
+                    style={cell.iso != null && canManage ? { cursor: "pointer" } : undefined}
                   >
                     {cell.day != null ? <div className="d num">{cell.day}</div> : null}
                     {cell.events.map((ev) => (
-                      <div key={ev.id} className="cal-ev" title={ev.titulo} {...eventActivation(ev)}>
+                      <div
+                        key={ev.id}
+                        className={`cal-ev${ev.status === "a_confirmar" ? " danger" : ""}`}
+                        title={ev.titulo}
+                        {...eventActivation(ev)}
+                      >
                         {ev.hora ? `${ev.hora} ` : ""}
                         {ev.titulo}
                       </div>
@@ -479,7 +527,12 @@ export function CalendarioScreen() {
           {view === "semana" ? (
             <div className="agenda-week">
               {weekDays.map((d) => (
-                <div key={d.iso} className={`agenda-day${d.today ? " today" : ""}`}>
+                <div
+                  key={d.iso}
+                  className={`agenda-day${d.today ? " today" : ""}`}
+                  onClick={() => openCreateForDate(d.iso)}
+                  style={canManage ? { cursor: "pointer" } : undefined}
+                >
                   <div className="agenda-day-head">
                     <span className="wd">{WEEKDAYS[d.weekday]}</span>
                     <span className="dt">{d.day} {d.monthShort}{d.today ? " · hoje" : ""}</span>
@@ -487,7 +540,12 @@ export function CalendarioScreen() {
                   {d.events.length ? (
                     <div className="agenda-day-evs">
                       {d.events.map((ev) => (
-                        <div key={ev.id} className="cal-ev" title={ev.titulo} {...eventActivation(ev)}>
+                        <div
+                          key={ev.id}
+                          className={`cal-ev${ev.status === "a_confirmar" ? " danger" : ""}`}
+                          title={ev.titulo}
+                          {...eventActivation(ev)}
+                        >
                           {ev.hora ? `${ev.hora} · ` : ""}
                           {ev.titulo}
                         </div>
@@ -518,8 +576,8 @@ export function CalendarioScreen() {
                   {mo.count ? (
                     <ul className="agenda-month-list">
                       {mo.events.slice(0, 3).map((ev) => (
-                        <li key={ev.id}>
-                          <span className="dot" />
+                        <li key={ev.id} className={ev.status === "a_confirmar" ? "danger" : undefined}>
+                          <span className={`dot${ev.status === "a_confirmar" ? " danger" : ""}`} />
                           {ev.data ? `${Number(ev.data.slice(8, 10))} ` : ""}
                           {ev.titulo}
                         </li>
@@ -611,7 +669,10 @@ export function CalendarioScreen() {
                   }}
                   style={{ flex: 1, minWidth: 0, cursor: "pointer" }}
                 >
-                  <div className="nm">{ev.titulo}</div>
+                  <div className="nm" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <Icon name="alert" size={14} className="icon-danger" />
+                    {ev.titulo}
+                  </div>
                   <div className="sub">{meta}</div>
                   {ev.descricao ? (
                     <div
@@ -673,12 +734,16 @@ export function CalendarioScreen() {
       {showForm || editing ? (
         <EventFormModal
           event={editing ?? undefined}
+          // P0b-1: só na criação — editar sempre usa a data do próprio evento
+          // (recorrentes têm data=null; um defaultDate remanescente não deve vazar).
+          defaultDate={editing ? undefined : formDefaultDate}
           busy={saving}
           error={formError}
           onClose={() => {
             setShowForm(false);
             setEditing(null);
             setFormError(null);
+            setFormDefaultDate(undefined);
           }}
           onSubmit={(input) => void (editing ? handleEdit(input) : handleCreate(input))}
         />

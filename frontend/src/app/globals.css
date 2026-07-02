@@ -2206,6 +2206,10 @@ table.data-table {
   background: var(--danger-soft);
   color: oklch(46% 0.13 25);
 }
+/* P0b-1: ícone vermelho isolado (fora de .pill), reusa o token --danger. */
+.icon-danger {
+  color: var(--danger);
+}
 
 /* filtros em pílula (filter-tabs) com quebra de linha e contadores */
 .filter-tabs {
@@ -3968,6 +3972,12 @@ table.data-table {
   background: var(--warn-soft);
   color: oklch(46% 0.11 70);
 }
+/* P0b-1: evento 'a_confirmar' — vermelho (spec), distinto de sincronizado=false
+   (que não recebe cor de alerta — permanece --accent, estado normal). */
+.cal-ev.danger {
+  background: var(--danger-soft);
+  color: oklch(46% 0.13 25);
+}
 
 @media (max-width: 720px) {
   .cal-cell {
@@ -4096,6 +4106,13 @@ table.data-table {
   border-radius: 999px;
   background: var(--accent);
   flex: 0 0 auto;
+}
+/* P0b-1: item 'a_confirmar' na visão Ano — vermelho (spec). */
+.agenda-month-list li.danger {
+  color: var(--danger);
+}
+.agenda-month-list .dot.danger {
+  background: var(--danger);
 }
 .agenda-month-list .more {
   color: var(--muted);
