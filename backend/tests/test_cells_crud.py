@@ -292,6 +292,33 @@ def test_create_cell_forbidden_for_member(app) -> None:
     assert resp.status_code == 403
 
 
+def test_create_cell_with_sensitive_forbidden_for_non_central(app) -> None:
+    # F3 (fechado): lider_g12 pode criar, mas NÃO com campos sensíveis.
+    session = CellSession(app_user=make_app_user(), roles=["lider_g12"])
+    resp = _wire(app, session=session).post(
+        "/cells",
+        headers=_AUTH,
+        json=_full_payload(nome="Tentativa", horario="20:00"),
+    )
+    assert resp.status_code == 403
+    assert session.committed is False
+
+
+def test_create_cell_leve_only_allowed_for_non_central(app) -> None:
+    # Sem sensível, o lider_g12 mantém a permissão pré-existente de criar célula.
+    session = CellSession(app_user=make_app_user(), roles=["lider_g12"])
+    resp = _wire(app, session=session).post(
+        "/cells",
+        headers=_AUTH,
+        json=_full_payload(
+            nome="Célula do Líder", linkGrupo="https://chat.whatsapp.com/z"
+        ),
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["nome"] == "Célula do Líder"
+    assert session.committed is True
+
+
 def test_create_cell_rejects_bad_horario(app) -> None:
     session = CellSession(app_user=make_app_user(), roles=["pastor"])
     resp = _wire(app, session=session).post(

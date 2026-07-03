@@ -304,6 +304,11 @@ def _sensitive_changed(payload: UpsertCellRequest, cell: Celula) -> bool:
     )
 
 
+def _has_sensitive(payload: UpsertCellRequest) -> bool:
+    """True se o payload traz QUALQUER campo sensível preenchido (não-None)."""
+    return any(value is not None for value in _sensitive_payload(payload).values())
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -370,6 +375,17 @@ def upsert_cell(
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Você não tem permissão para criar células",
+            )
+        # Decisão 3.2 (fechada pelo dono): campos sensíveis são da Central. Um
+        # criador não-Central (ex.: lider_g12) só cria com dados leves; enviar
+        # sensível na criação = 403 (não pode burlar o guard pela criação).
+        if not current_user.has_any_role(CENTRAL_ROLES) and _has_sensitive(payload):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=(
+                    "Apenas a Central de Células pode definir campos sensíveis "
+                    "(dia, horário, endereço, anfitrião, auxiliar) ao criar a célula."
+                ),
             )
         _validate_pessoa_refs(db, payload)
         cell = Celula(
