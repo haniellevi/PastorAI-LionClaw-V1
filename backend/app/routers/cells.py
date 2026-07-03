@@ -14,14 +14,16 @@ that leader in the pessoas.lider_id chain, or a pastor/admin.
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.db.models import AppUser, Celula, CellAlert, Pessoa
+from app.db.models import AppUser, Celula, CelulaMembro, CellAlert, Pessoa
 from app.db.session import get_db
 from app.deps import CurrentUser, get_current_user
 from app.domain.hierarchy import is_leader_or_superior
@@ -35,6 +37,13 @@ router = APIRouter(tags=["cells"])
 CELL_CREATE_ROLES = ["pastor", "lider_g12"]
 # Roles treated as superior to any cell leader for edit authorization.
 CELL_EDIT_SUPERIOR_ROLES = ["pastor"]
+# Central de Células (decisão 3.1): pastor + admin (implícito) aprovam e alteram
+# campos sensíveis. `lider_central` dedicado fica para o futuro (fora do MVP).
+CENTRAL_ROLES = ["pastor"]
+# Papéis válidos de vínculo em celula_membro (enum celula_membro_papel).
+CELL_MEMBER_ROLES = ("membro", "auxiliar", "anfitriao")
+# Horário no formato HH:MM (24h) — espelha o CHECK da migration.
+_HORARIO_RE = re.compile(r"^([01][0-9]|2[0-3]):[0-5][0-9]$")
 
 
 # ---------------------------------------------------------------------------
@@ -64,6 +73,15 @@ class CellOut(BaseModel):
     liderId: str | None = None  # noqa: N815
     diaReuniao: str | None = None  # noqa: N815
     coberturaEspiritual: str  # noqa: N815
+    # Sensíveis (3.2): só a Central altera direto.
+    anfitriaoId: str | None = None  # noqa: N815
+    auxiliarId: str | None = None  # noqa: N815
+    endereco: str | None = None
+    horario: str | None = None
+    # Leves: o líder edita direto.
+    linkGrupo: str | None = None  # noqa: N815
+    linkLocalizacao: str | None = None  # noqa: N815
+    mensagemConvite: str | None = None  # noqa: N815
     ativo: bool
 
     @classmethod
@@ -74,6 +92,13 @@ class CellOut(BaseModel):
             liderId=str(c.lider_id) if c.lider_id else None,
             diaReuniao=c.dia_reuniao,
             coberturaEspiritual=c.cobertura_espiritual,
+            anfitriaoId=str(c.anfitriao_id) if c.anfitriao_id else None,
+            auxiliarId=str(c.auxiliar_id) if c.auxiliar_id else None,
+            endereco=c.endereco,
+            horario=c.horario,
+            linkGrupo=c.link_grupo,
+            linkLocalizacao=c.link_localizacao,
+            mensagemConvite=c.mensagem_convite,
             ativo=c.ativo,
         )
 
@@ -82,14 +107,68 @@ class CellDetailOut(CellOut):
     alerts: list[AlertOut] = []
 
 
+class MemberOut(BaseModel):
+    id: str
+    pessoaId: str  # noqa: N815
+    papel: str
+    ativo: bool
+
+    @classmethod
+    def from_model(cls, m: CelulaMembro) -> "MemberOut":
+        return cls(
+            id=str(m.id),
+            pessoaId=str(m.pessoa_id),
+            papel=m.papel,
+            ativo=m.ativo,
+        )
+
+
+class AddMemberRequest(BaseModel):
+    """Entrada direta de membro na célula (decisão 3.2 — sem Solicitação)."""
+
+    pessoaId: str  # noqa: N815
+    papel: str = "membro"
+
+    @field_validator("pessoaId")
+    @classmethod
+    def _pessoa_uuid(cls, value: str) -> str:
+        try:
+            uuid.UUID(value)
+        except (ValueError, AttributeError) as exc:
+            raise ValueError("pessoaId inválido") from exc
+        return value
+
+    @field_validator("papel")
+    @classmethod
+    def _papel_valido(cls, value: str) -> str:
+        value = value.strip().lower()
+        if value not in CELL_MEMBER_ROLES:
+            raise ValueError(f"papel inválido: {value}")
+        return value
+
+
 class UpsertCellRequest(BaseModel):
-    """Create (no id) or edit (with id) a cell. cobertura is mandatory."""
+    """Create (no id) or edit (with id) a cell. cobertura is mandatory.
+
+    Campos sensíveis (diaReuniao, horario, endereco, anfitriaoId, auxiliarId) só
+    são aplicáveis pela Central; um líder que não é Central e tenta alterá-los
+    recebe 403 (decisão 3.2 — a alteração vira Solicitação no PR5).
+    """
 
     id: str | None = None
     nome: str = Field(min_length=1, max_length=200)
     liderId: str | None = None  # noqa: N815
-    diaReuniao: str | None = Field(default=None, max_length=40)  # noqa: N815
     coberturaEspiritual: str = Field(min_length=1, max_length=200)  # noqa: N815
+    # Sensíveis.
+    diaReuniao: str | None = Field(default=None, max_length=40)  # noqa: N815
+    horario: str | None = Field(default=None, max_length=5)
+    endereco: str | None = Field(default=None, max_length=400)
+    anfitriaoId: str | None = None  # noqa: N815
+    auxiliarId: str | None = None  # noqa: N815
+    # Leves.
+    linkGrupo: str | None = Field(default=None, max_length=500)  # noqa: N815
+    linkLocalizacao: str | None = Field(default=None, max_length=500)  # noqa: N815
+    mensagemConvite: str | None = Field(default=None, max_length=2000)  # noqa: N815
     ativo: bool = True
 
     @field_validator("nome", "coberturaEspiritual")
@@ -100,7 +179,7 @@ class UpsertCellRequest(BaseModel):
             raise ValueError("Campo obrigatório")
         return value
 
-    @field_validator("id", "liderId")
+    @field_validator("id", "liderId", "anfitriaoId", "auxiliarId")
     @classmethod
     def _uuid_opt(cls, value: str | None) -> str | None:
         if value is None:
@@ -110,6 +189,28 @@ class UpsertCellRequest(BaseModel):
         except (ValueError, AttributeError) as exc:
             raise ValueError("UUID inválido") from exc
         return value
+
+    @field_validator("horario")
+    @classmethod
+    def _horario_fmt(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            return None
+        if not _HORARIO_RE.match(value):
+            raise ValueError("horário deve estar no formato HH:MM")
+        return value
+
+    @field_validator("diaReuniao", "endereco")
+    @classmethod
+    def _blank_to_none(cls, value: str | None) -> str | None:
+        # Normaliza vazio→None: evita 403 falso-positivo no guard de sensível
+        # ("" vs None) e não persiste string vazia.
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
 
 
 class TreeNode(BaseModel):
@@ -149,6 +250,57 @@ def _can_edit_cell(
         actor_pessoa_id=actor,
         cell_leader_id=str(cell.lider_id) if cell.lider_id else None,
         lider_of=_lider_of_map(db),
+    )
+
+
+def _to_uuid(value: str | None) -> uuid.UUID | None:
+    return uuid.UUID(value) if value else None
+
+
+def _assert_pessoa_tenant(
+    db: Session, pessoa_uuid: uuid.UUID | None, campo: str
+) -> None:
+    """Garante que a pessoa referenciada existe NO TENANT atual (via RLS).
+
+    A FK do Postgres não é RLS-scoped, então um UUID de pessoa de outra igreja
+    passaria pela integridade referencial. Carregar sob RLS (a sessão já está no
+    contexto do tenant) e rejeitar 422 fecha esse vazamento cross-tenant.
+    """
+    if pessoa_uuid is None:
+        return
+    found = db.execute(
+        select(Pessoa.id).where(Pessoa.id == pessoa_uuid)
+    ).scalar_one_or_none()
+    if found is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"{campo}: pessoa não encontrada nesta igreja",
+        )
+
+
+def _validate_pessoa_refs(db: Session, payload: UpsertCellRequest) -> None:
+    """Valida o tenant de todas as pessoas referenciadas pela célula."""
+    _assert_pessoa_tenant(db, _to_uuid(payload.liderId), "liderId")
+    _assert_pessoa_tenant(db, _to_uuid(payload.anfitriaoId), "anfitriaoId")
+    _assert_pessoa_tenant(db, _to_uuid(payload.auxiliarId), "auxiliarId")
+
+
+def _sensitive_payload(payload: UpsertCellRequest) -> dict[str, object | None]:
+    """Campos sensíveis (3.2) do payload, mapeados para os atributos do modelo."""
+    return {
+        "dia_reuniao": payload.diaReuniao,
+        "horario": payload.horario,
+        "endereco": payload.endereco,
+        "anfitriao_id": _to_uuid(payload.anfitriaoId),
+        "auxiliar_id": _to_uuid(payload.auxiliarId),
+    }
+
+
+def _sensitive_changed(payload: UpsertCellRequest, cell: Celula) -> bool:
+    """True se o payload muda algum campo sensível em relação ao valor atual."""
+    return any(
+        getattr(cell, attr) != value
+        for attr, value in _sensitive_payload(payload).items()
     )
 
 
@@ -219,12 +371,20 @@ def upsert_cell(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Você não tem permissão para criar células",
             )
+        _validate_pessoa_refs(db, payload)
         cell = Celula(
             igreja_id=uuid.UUID(current_user.igreja_id),
             nome=payload.nome,
-            lider_id=uuid.UUID(payload.liderId) if payload.liderId else None,
-            dia_reuniao=payload.diaReuniao,
+            lider_id=_to_uuid(payload.liderId),
             cobertura_espiritual=payload.coberturaEspiritual,
+            dia_reuniao=payload.diaReuniao,
+            horario=payload.horario,
+            endereco=payload.endereco,
+            anfitriao_id=_to_uuid(payload.anfitriaoId),
+            auxiliar_id=_to_uuid(payload.auxiliarId),
+            link_grupo=payload.linkGrupo,
+            link_localizacao=payload.linkLocalizacao,
+            mensagem_convite=payload.mensagemConvite,
             ativo=payload.ativo,
         )
         db.add(cell)
@@ -240,11 +400,35 @@ def upsert_cell(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Apenas o líder da célula ou um superior pode editá-la",
         )
+    _validate_pessoa_refs(db, payload)
+    # Decisão 3.2: campos sensíveis só a Central altera direto; o líder solicita
+    # (Solicitação chega no PR5). Um editor não-Central que tenta mudar sensível
+    # é barrado (403); reenviar os mesmos valores (edição só de leves) passa.
+    if not current_user.has_any_role(CENTRAL_ROLES) and _sensitive_changed(
+        payload, cell
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                "Campos sensíveis (dia, horário, endereço, anfitrião, auxiliar) "
+                "só a Central de Células altera. Solicite a alteração."
+            ),
+        )
+    # Leves — sempre aplicados por quem pode editar.
     cell.nome = payload.nome
-    cell.lider_id = uuid.UUID(payload.liderId) if payload.liderId else None
-    cell.dia_reuniao = payload.diaReuniao
+    cell.lider_id = _to_uuid(payload.liderId)
     cell.cobertura_espiritual = payload.coberturaEspiritual
+    cell.link_grupo = payload.linkGrupo
+    cell.link_localizacao = payload.linkLocalizacao
+    cell.mensagem_convite = payload.mensagemConvite
     cell.ativo = payload.ativo
+    # Sensíveis — aplicação incondicional: um não-Central só chegou aqui se os
+    # valores são idênticos aos atuais (no-op); a Central aplica a mudança.
+    cell.dia_reuniao = payload.diaReuniao
+    cell.horario = payload.horario
+    cell.endereco = payload.endereco
+    cell.anfitriao_id = _to_uuid(payload.anfitriaoId)
+    cell.auxiliar_id = _to_uuid(payload.auxiliarId)
     db.flush()
     db.refresh(cell)
     db.commit()
@@ -289,6 +473,109 @@ def baixar_alert(
     db.refresh(alert)
     db.commit()
     return AlertOut.from_model(alert)
+
+
+@router.get("/cells/{cell_id}/membros", response_model=list[MemberOut])
+def list_cell_members(
+    cell_id: str,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> list[MemberOut]:
+    """Membros ativos da célula (vínculo canônico `celula_membro`, Q1)."""
+    ensure_tenant_context(db, current_user)
+    cell = _get_cell_or_404(db, cell_id)
+    # igreja_id explícito (defesa em profundidade além da RLS; e torna o
+    # isolamento por tenant testável no harness fake).
+    rows = db.execute(
+        select(CelulaMembro)
+        .where(
+            CelulaMembro.celula_id == cell.id,
+            CelulaMembro.igreja_id == uuid.UUID(current_user.igreja_id),
+            CelulaMembro.ativo.is_(True),
+        )
+        .order_by(CelulaMembro.created_at.asc())
+    ).scalars().all()
+    return [MemberOut.from_model(m) for m in rows]
+
+
+@router.post(
+    "/cells/{cell_id}/membros",
+    response_model=MemberOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def add_cell_member(
+    cell_id: str,
+    payload: AddMemberRequest,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+) -> MemberOut:
+    """Entrada direta de membro (decisão 3.2 — sem Solicitação).
+
+    Autorização = poder editar a célula (líder-ou-superior/pastor/admin). Regra
+    "1 pessoa → 1 célula ativa": 409 se a pessoa já tem vínculo ativo. Mantém
+    `pessoas.celula_id` como espelho legado (Q1); a saída de membro é PR5.
+    """
+    ensure_tenant_context(db, current_user)
+    cell = _get_cell_or_404(db, cell_id)
+    if not _can_edit_cell(db, current_user, cell):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Sem permissão para adicionar membros a esta célula",
+        )
+
+    pessoa_uuid = uuid.UUID(payload.pessoaId)
+    pessoa = db.execute(
+        select(Pessoa).where(Pessoa.id == pessoa_uuid)
+    ).scalar_one_or_none()
+    if pessoa is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Pessoa não encontrada"
+        )
+
+    # Regra "1 pessoa → 1 célula ativa" escopada por igreja (igual ao índice
+    # único parcial da migration). igreja_id explícito também torna testável.
+    existing = db.execute(
+        select(CelulaMembro).where(
+            CelulaMembro.pessoa_id == pessoa_uuid,
+            CelulaMembro.igreja_id == uuid.UUID(current_user.igreja_id),
+            CelulaMembro.ativo.is_(True),
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": "member_already_active",
+                "message": "Pessoa já está em uma célula ativa",
+            },
+        )
+
+    membro = CelulaMembro(
+        igreja_id=uuid.UUID(current_user.igreja_id),
+        celula_id=cell.id,
+        pessoa_id=pessoa_uuid,
+        papel=payload.papel,
+        ativo=True,
+    )
+    db.add(membro)
+    pessoa.celula_id = cell.id  # espelho legado (Q1)
+    try:
+        db.flush()
+        db.refresh(membro)
+        db.commit()
+    except IntegrityError as exc:
+        # Corrida com o índice único parcial (igreja_id, pessoa_id) WHERE ativo:
+        # o pré-check passou, mas outra requisição inseriu antes. Mapeia para o
+        # mesmo 409 em vez de vazar 500.
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": "member_already_active",
+                "message": "Pessoa já está em uma célula ativa",
+            },
+        ) from exc
+    return MemberOut.from_model(membro)
 
 
 @router.get("/descendencias", response_model=list[TreeNode])

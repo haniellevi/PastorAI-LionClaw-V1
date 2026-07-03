@@ -221,11 +221,66 @@ class Celula(Base):
     )
     dia_reuniao: Mapped[str | None] = mapped_column(Text, nullable=True)
     cobertura_espiritual: Mapped[str] = mapped_column(Text, nullable=False)
+    # Sensíveis (Células PR1, decisão 3.2): só a Central (pastor/admin) altera;
+    # o líder solicita alteração (fluxo de Solicitação chega no PR5). dia_reuniao
+    # e horario também são sensíveis.
+    anfitriao_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("pessoas.id", ondelete="SET NULL"), nullable=True
+    )
+    auxiliar_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("pessoas.id", ondelete="SET NULL"), nullable=True
+    )
+    endereco: Mapped[str | None] = mapped_column(Text, nullable=True)
+    horario: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Leves: o líder edita direto.
+    link_grupo: Mapped[str | None] = mapped_column(Text, nullable=True)
+    link_localizacao: Mapped[str | None] = mapped_column(Text, nullable=True)
+    mensagem_convite: Mapped[str | None] = mapped_column(Text, nullable=True)
     ativo: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("true")
     )
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+
+class CelulaMembro(Base):
+    """Vínculo canônico pessoa<->célula (Células PR1).
+
+    Fonte de verdade da participação (Q1); `pessoas.celula_id` fica como espelho
+    legado. `papel` é o rótulo do vínculo — anfitrião/auxiliar "de verdade" da
+    célula são as FKs sensíveis em `Celula` (Q2).
+    """
+
+    __tablename__ = "celula_membro"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    igreja_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("igrejas.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    celula_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("celulas.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    pessoa_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("pessoas.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    papel: Mapped[str] = mapped_column(
+        String, nullable=False, server_default=text("'membro'")
+    )
+    ativo: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    updated_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
 
 
@@ -1008,6 +1063,7 @@ __all__ = [
     "UserRole",
     "RolePermission",
     "Celula",
+    "CelulaMembro",
     "CellAlert",
     "Conversation",
     "Message",
