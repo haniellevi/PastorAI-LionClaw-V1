@@ -1,7 +1,7 @@
 # SPEC_PROGRESS - PastorAi-1.0
 
-## Status: 16/16 sprints concluidas
-Ultima atualizacao: 2026-06-13T22:14:07.937Z
+## Status: 4/4 sprints concluidas
+Ultima atualizacao: 2026-07-04T23:33:45.382Z
 
 ---
 
@@ -86,3 +86,26 @@ Ultima atualizacao: 2026-06-13T22:14:07.937Z
 - Equipe, Permissoes e Gerentes: Telas #equipe (list/invite/edit-roles), #permissoes (matrix/saved) e #gerentes (list/invite) consumindo api-team-*, api-role-perms e api-system-managers.
 - Assinatura: Tela #assinatura com stat-card, tabs, status-pill nos estados active/past-due/plans, consumindo api-subscription.
 - Agente IA: Tela #agente com tabs behavior/credential/crons, toggle-switch e form-field, consumindo api-llm-credential, api-agent-config e api-crons.
+
+## Sprint 001 - Schema, Migration e Modelos SQLAlchemy (fundacao) [CONCLUIDA]
+- Migration aditiva com 3 tabelas, FKs CASCADE, indexes e constraints: Novo arquivo SQL em backend/migrations/ com timestamp AAAAMMDD_HHMMSS_celula_pr2_reuniao_presenca_expectativa.sql que cria as 3 tabelas conforme a secao 2.1 da SPEC, sem tocar em tabelas existentes do PR1.
+- RLS enable + policy tenant_isolation nas 3 tabelas: Na mesma migration, habilitar RLS e criar a policy tenant_isolation em cada uma das 3 tabelas novas, no padrao identico ao PR1 (20260703_123803_celula_schema_base_pr1.sql) e ao agenda_alert_recipients.
+- Modelos SQLAlchemy CelulaReuniao, CelulaPresenca, CelulaExpectativaVisitante: Adicionar em backend/app/db/models.py os 3 modelos correspondentes, no estilo de Celula/CelulaMembro (mapped_column, server_default, timestamps).
+- Testes de modelo/schema (test_celulas_pr2_models.py): Novo arquivo backend/tests/test_celulas_pr2_models.py cobrindo a estrutura dos modelos e da migration (colunas, unicidades, indexes, CHECKs, policies), no estilo dos testes existentes.
+
+## Sprint 002 - Servico de calculo da proxima reuniao + endpoints de Reuniao [CONCLUIDA]
+- Servico de calculo da proxima reuniao (domain/cell_meetings_schedule.py): Novo modulo backend/app/domain/cell_meetings_schedule.py com o parser PT-BR de dia_reuniao e o calculo da proxima data, com helper de relogio/data-base injetavel para testes deterministicos.
+- Router cell_meetings.py + constantes + registro em main.py: Novo router backend/app/routers/cell_meetings.py que importa e reusa helpers de cells.py, define as constantes string de status/estado/origem e e incluido em main.py via include_router.
+- GET /cells/{cellId}/reunioes (listar reunioes): Endpoint que lista as reunioes de uma celula escopadas ao tenant, sem paginacao, com ordenacao determinista.
+- POST /cells/{cellId}/reunioes/next (materializar proxima reuniao, idempotente): Endpoint que materializa a proxima reuniao a partir de celulas.dia_reuniao/horario, criando em status planejada se nao existir ou retornando a existente, sempre 200.
+- Testes dos endpoints de reuniao e do servico de calculo (US-01..US-04): Novo arquivo backend/tests/test_cell_meetings.py cobrindo o servico de calculo e os dois endpoints de reuniao.
+
+## Sprint 003 - Endpoint de Presenca idempotente (propria e por lider) [CONCLUIDA]
+- Helper _get_reuniao_or_404 + schema PresencaOut: Novo helper em cell_meetings.py que resolve a reuniao por id escopada ao tenant (nao exige cellId no path) e schema Pydantic PresencaOut em camelCase.
+- POST /cell-reunioes/{reuniaoId}/presenca (auto + terceiro, upsert idempotente): Endpoint que confirma a propria presenca (sem pessoaId) ou marca terceiro (com pessoaId, exige lideranca), com upsert idempotente e checagem de vinculo ativo na celula da reuniao.
+- Testes de presenca (US-05..US-08): Amplia backend/tests/test_cell_meetings.py com os cenarios de presenca.
+
+## Sprint 004 - Endpoint de Expectativa de Visitante (nominal) [CONCLUIDA]
+- Schemas Pydantic de expectativa (in/out) com validacao de borda: Schema de entrada com validacao de nomeVisitante/observacaoOracao e schema de saida ExpectativaVisitanteOut em camelCase.
+- POST /cell-reunioes/{reuniaoId}/expectativas-visitantes (201 CREATED): Endpoint que registra a expectativa sempre da propria pessoa, permitindo N registros por membro/reuniao, sem efeitos externos.
+- Testes de expectativa (US-09, US-10): Amplia backend/tests/test_cell_meetings.py com os cenarios de expectativa.

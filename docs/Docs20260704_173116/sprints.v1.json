@@ -1,0 +1,338 @@
+{
+  "project": {
+    "id": "49589e8190426c913d5613e1840bef6d",
+    "name": "PR2 Celulas",
+    "description": "PR2 do modulo Celulas (backend-only, Python/FastAPI/SQLAlchemy/pytest, PostgreSQL multi-tenant com RLS por igreja_id). 3 tabelas novas: celula_reuniao (materializacao de reuniao, unique celula_id+data), celula_presenca (presenca idempotente, unique reuniao_id+pessoa_id), celula_expectativa_visitante (quantidade CHECK>=0). Migration aditiva (nao toca PR1: celulas/pessoas), RLS enable + policy tenant_isolation via current_igreja_id() nas 3. Endpoints CRUD de reuniao/presenca/expectativa. SPEC completa em: workspace/Planejamento Pastor AI/LIONCLAW-WORKFLOW-SPEC-PR2-CELULAS.md. Base commit 7b31d4c (PR1 presente). Regra fixa: NUNCA alterar fonte do LionClaw.",
+    "path": "C:\\Users\\hanie\\Searches\\OneDrive\\Documentos\\workspace\\PastorAi-1.0-pr2-celulas",
+    "stack": [],
+    "config": {
+      "max_rounds_per_sprint": 3,
+      "use_playwright": false,
+      "evaluator_agent_id": "harness-evaluator",
+      "planner_agent_id": "harness-planner"
+    }
+  },
+  "sprints": [
+    {
+      "id": "sprint-001",
+      "index": 0,
+      "name": "Schema, Migration e Modelos SQLAlchemy (fundacao)",
+      "description": "Cria a fundacao de dados do PR2: uma migration aditiva com as 3 novas tabelas (celula_reuniao, celula_presenca, celula_expectativa_visitante) incluindo FKs ON DELETE CASCADE, indexes, constraints UNIQUE, CHECKs e RLS por tenant; os modelos SQLAlchemy correspondentes; e os testes de modelo/schema. NAO altera nenhuma tabela ou modelo do PR1 (celulas, pessoas, celula_membro, multiplicacoes). Backend-only.",
+      "coder_agent_id": "backend-developer",
+      "stack": [
+        "python",
+        "sqlalchemy",
+        "postgresql",
+        "pytest"
+      ],
+      "features": [
+        {
+          "id": "feat-001",
+          "name": "Migration aditiva com 3 tabelas, FKs CASCADE, indexes e constraints",
+          "description": "Novo arquivo SQL em backend/migrations/ com timestamp AAAAMMDD_HHMMSS_celula_pr2_reuniao_presenca_expectativa.sql que cria as 3 tabelas conforme a secao 2.1 da SPEC, sem tocar em tabelas existentes do PR1.",
+          "acceptance_criteria": [
+            "Cria tabela celula_reuniao com colunas: id (uuid PK, default gen_random_uuid()), igreja_id (uuid NOT NULL FK igrejas(id) ON DELETE CASCADE), celula_id (uuid NOT NULL FK celulas(id) ON DELETE CASCADE), data (date NOT NULL), hora (text nullable com CHECK opcional formato HH:MM NOT VALID), tema (text nullable), status (text NOT NULL default 'planejada' com CHECK status in ('planejada','confirmada','realizada','cancelada')), created_at (timestamptz NOT NULL default now()), updated_at (timestamptz nullable)",
+            "celula_reuniao tem UNIQUE (igreja_id, celula_id, data, coalesce(hora,'')) e indexes (igreja_id), (igreja_id, celula_id), (igreja_id, celula_id, data)",
+            "Cria tabela celula_presenca com colunas: id, igreja_id (FK igrejas CASCADE), reuniao_id (uuid NOT NULL FK celula_reuniao(id) ON DELETE CASCADE), pessoa_id (uuid NOT NULL FK pessoas(id) ON DELETE CASCADE), estado (text NOT NULL CHECK in ('confirmada','compareceu','ausente')), origem (text nullable), created_at, updated_at; com UNIQUE (igreja_id, reuniao_id, pessoa_id) e indexes (igreja_id) e (igreja_id, reuniao_id)",
+            "Cria tabela celula_expectativa_visitante com colunas: id, igreja_id (FK igrejas CASCADE), reuniao_id (FK celula_reuniao CASCADE), pessoa_id (FK pessoas CASCADE), nome_visitante (text NOT NULL), observacao_oracao (text nullable), created_at, updated_at; SEM UNIQUE; indexes (igreja_id), (igreja_id, reuniao_id), (igreja_id, pessoa_id)",
+            "A migration NAO contem ALTER/DROP em celulas, pessoas, celula_membro ou multiplicacoes; e transacional/idempotente no estilo da migration do PR1"
+          ]
+        },
+        {
+          "id": "feat-002",
+          "name": "RLS enable + policy tenant_isolation nas 3 tabelas",
+          "description": "Na mesma migration, habilitar RLS e criar a policy tenant_isolation em cada uma das 3 tabelas novas, no padrao identico ao PR1 (20260703_123803_celula_schema_base_pr1.sql) e ao agenda_alert_recipients.",
+          "acceptance_criteria": [
+            "Cada uma das 3 tabelas tem 'enable row level security'",
+            "Cada tabela recebe policy tenant_isolation cobrindo ALL com USING (igreja_id = current_igreja_id()) e WITH CHECK (igreja_id = current_igreja_id())",
+            "NAO remove nem altera set_tenant_context / SET LOCAL ROLE authenticated; o padrao de RLS e igual ao do PR1"
+          ]
+        },
+        {
+          "id": "feat-003",
+          "name": "Modelos SQLAlchemy CelulaReuniao, CelulaPresenca, CelulaExpectativaVisitante",
+          "description": "Adicionar em backend/app/db/models.py os 3 modelos correspondentes, no estilo de Celula/CelulaMembro (mapped_column, server_default, timestamps).",
+          "acceptance_criteria": [
+            "models.py define CelulaReuniao, CelulaPresenca e CelulaExpectativaVisitante com todas as colunas da migration, tipos e nullability coerentes, created_at com server_default now() e updated_at gerenciado pela aplicacao",
+            "CelulaReuniao inclui comentario (docstring/comment) alertando que celula_id ON DELETE CASCADE (DB-DEC-04) apagaria em cadeia reuniao/presenca/expectativa caso um DELETE /cells venha a existir (hoje inexistente)",
+            "Os modelos seguem o mesmo estilo (mapped_column, tipos, __tablename__) dos modelos existentes Celula e CelulaMembro no mesmo arquivo",
+            "Nenhum modelo existente do PR1 e alterado"
+          ]
+        },
+        {
+          "id": "feat-004",
+          "name": "Testes de modelo/schema (test_celulas_pr2_models.py)",
+          "description": "Novo arquivo backend/tests/test_celulas_pr2_models.py cobrindo a estrutura dos modelos e da migration (colunas, unicidades, indexes, CHECKs, policies), no estilo dos testes existentes.",
+          "acceptance_criteria": [
+            "Os testes verificam presenca das colunas esperadas, defaults e nullability dos 3 modelos",
+            "Os testes afirmam as constraints UNIQUE de celula_reuniao e celula_presenca e a ausencia de UNIQUE em celula_expectativa_visitante",
+            "Os testes verificam os valores permitidos dos CHECKs de status (celula_reuniao) e estado (celula_presenca)",
+            "pytest roda verde para os novos testes sem quebrar a suite existente"
+          ]
+        }
+      ],
+      "hints": {
+        "existing_files": [
+          "backend/migrations/20260703_123803_celula_schema_base_pr1.sql (referencia OBRIGATORIA do padrao de RLS/policy/enable + CASCADE + CHECK NOT VALID)",
+          "backend/app/db/models.py (modelos Celula e CelulaMembro como estilo a seguir)",
+          "backend/app/db/rls.py (current_igreja_id(), set_tenant_context)",
+          "backend/tests/test_cells_crud.py (referencia de fake-session e estilo de teste)"
+        ],
+        "key_interfaces": [
+          "Celula, CelulaMembro (modelos SQLAlchemy existentes a espelhar)",
+          "current_igreja_id() usada nas policies tenant_isolation",
+          "celulas_horario_chk (CHECK HH:MM NOT VALID) como modelo para o CHECK de celula_reuniao.hora"
+        ],
+        "architecture_notes": "PR2 e 100% aditivo sobre o PR1: NAO alterar celulas/pessoas/celula_membro/multiplicacoes. Cada tabela carrega igreja_id proprio (RLS nao herda por FK) e tem sua propria policy tenant_isolation cobrindo ALL. Todas as FKs novas sao ON DELETE CASCADE (DB-DEC-04). UNIQUE de celula_reuniao usa coalesce(hora,'') para evitar colisao errada com hora NULL de legado. Sem triggers novos: updated_at e gerenciado pela aplicacao. Sem seed data. Timestamp da migration deve ser posterior ao do PR1."
+      },
+      "dependencies": [],
+      "complexity": "medium",
+      "estimated_rounds": 2
+    },
+    {
+      "id": "sprint-002",
+      "index": 1,
+      "name": "Servico de calculo da proxima reuniao + endpoints de Reuniao",
+      "description": "Cria o router proprio cell_meetings.py (BK-DEC-01, reusando helpers de cells.py) com os dois endpoints do Dominio A: listar reunioes (GET) e materializar a proxima reuniao (POST .../reunioes/next), alem do servico determinista de calculo da proxima data (parser PT-BR com allowlist fechada + timezone America/Sao_Paulo + relogio injetavel). Registra o router em main.py. Backend-only.",
+      "coder_agent_id": "backend-developer",
+      "stack": [
+        "python",
+        "fastapi",
+        "sqlalchemy",
+        "pytest"
+      ],
+      "features": [
+        {
+          "id": "feat-005",
+          "name": "Servico de calculo da proxima reuniao (domain/cell_meetings_schedule.py)",
+          "description": "Novo modulo backend/app/domain/cell_meetings_schedule.py com o parser PT-BR de dia_reuniao e o calculo da proxima data, com helper de relogio/data-base injetavel para testes deterministicos.",
+          "acceptance_criteria": [
+            "Parser normaliza dia_reuniao (minusculo, remove acentos, trim, remove sufixo '-feira') e casa contra allowlist FECHADA: nomes completos segunda|terca|quarta|quinta|sexta|sabado|domingo E abreviacoes de 3 letras seg|ter|qua|qui|sex|sab|dom",
+            "Qualquer valor fora da allowlist (ausente/vazio, digitos como '2', ruido como 'toda quinta' ou 'quinta a noite', abreviacoes invalidas) resulta em erro sinalizavel para 422; NAO ha match por substring",
+            "Calculo retorna a proxima ocorrencia do dia igual ou posterior a hoje em America/Sao_Paulo; se hoje e o dia mas o horario ja passou (comparado no mesmo fuso) avanca para a proxima semana",
+            "O relogio/data-base e injetavel (parametro) permitindo testes deterministicos sem depender do relogio real; sem config global nova"
+          ]
+        },
+        {
+          "id": "feat-006",
+          "name": "Router cell_meetings.py + constantes + registro em main.py",
+          "description": "Novo router backend/app/routers/cell_meetings.py que importa e reusa helpers de cells.py, define as constantes string de status/estado/origem e e incluido em main.py via include_router.",
+          "acceptance_criteria": [
+            "cell_meetings.py importa e reusa de cells.py: _get_cell_or_404, _assert_pessoa_tenant, _actor_pessoa_id, _lider_of_map, CENTRAL_ROLES e is_leader_or_superior (de domain/hierarchy.py); NAO duplica essa logica nem engorda cells.py",
+            "Define constantes STATUS_PLANEJADA='planejada', ESTADO_CONFIRMADA='confirmada', ORIGEM_AUTO='auto', ORIGEM_LIDER='lider' no estilo de events.py",
+            "app/main.py inclui app.include_router(cell_meetings.router) e nenhuma outra alteracao alem do include_router",
+            "Schema Pydantic ReuniaoOut com contrato camelCase { id, celulaId, data (YYYY-MM-DD), hora (HH:MM|null), tema (string|null), status } e metodo/funcao from_model"
+          ]
+        },
+        {
+          "id": "feat-007",
+          "name": "GET /cells/{cellId}/reunioes (listar reunioes)",
+          "description": "Endpoint que lista as reunioes de uma celula escopadas ao tenant, sem paginacao, com ordenacao determinista.",
+          "acceptance_criteria": [
+            "GET /cells/{cellId}/reunioes retorna list[ReuniaoOut] (sem paginacao, BK-DEC-02) e chama ensure_tenant_context no topo",
+            "Filtra por celula_id e igreja_id explicito (defesa em profundidade alem da RLS); reuniao de outra igreja nunca aparece",
+            "Ordenacao ORDER BY data DESC, hora DESC NULLS LAST, id DESC",
+            "Retorna 200 (lista possivelmente vazia); 401 sem token; 404 se celula inexistente/UUID invalido/fora do tenant via _get_cell_or_404; acessivel a qualquer autenticado do tenant (sem guard de vinculo/lideranca)"
+          ]
+        },
+        {
+          "id": "feat-008",
+          "name": "POST /cells/{cellId}/reunioes/next (materializar proxima reuniao, idempotente)",
+          "description": "Endpoint que materializa a proxima reuniao a partir de celulas.dia_reuniao/horario, criando em status planejada se nao existir ou retornando a existente, sempre 200.",
+          "acceptance_criteria": [
+            "Autorizacao: pastor/admin (has_any_role) OU Central (CENTRAL_ROLES) OU lider-da-celula-ou-superior (is_leader_or_superior + _lider_of_map + _actor_pessoa_id); membro comum recebe 403",
+            "Usa o servico de calculo; retorna 422 quando dia_reuniao ausente/vazio/nao reconhecido pelo parser OU quando celulas.horario e NULL, sem criar nenhuma linha, com mensagem indicando o campo faltante",
+            "Cria em status 'planejada' com hora preenchida; se ja existir reuniao para a data calculada retorna a existente sem duplicar (idempotente), respeitando o UNIQUE (igreja_id, celula_id, data, coalesce(hora,''))",
+            "Idempotencia sob corrida: pre-check SELECT + INSERT; colisao no UNIQUE captura IntegrityError, faz rollback, recupera a linha existente e retorna 200 (nunca 409 nem 500 nem duplicata)",
+            "Retorna 200 em todos os casos de sucesso; 401 sem token; 404 via _get_cell_or_404"
+          ]
+        },
+        {
+          "id": "feat-009",
+          "name": "Testes dos endpoints de reuniao e do servico de calculo (US-01..US-04)",
+          "description": "Novo arquivo backend/tests/test_cell_meetings.py cobrindo o servico de calculo e os dois endpoints de reuniao.",
+          "acceptance_criteria": [
+            "Testa parser: aceita nomes completos e abreviacoes validas (com acento/-feira) e rejeita valores fora da allowlist (vazio, digitos, ruido) resultando em 422 na materializacao",
+            "Testa POST .../reunioes/next: cria em planejada, retorna a existente na segunda chamada (idempotente 200), 422 sem dia/horario, 403 para membro comum",
+            "Testa GET .../reunioes: retorna lista ordenada por data DESC, 404 fora do tenant, isolamento entre igrejas",
+            "Usa relogio/data injetavel para determinismo; pytest roda verde sem quebrar a suite existente"
+          ]
+        }
+      ],
+      "hints": {
+        "existing_files": [
+          "backend/app/routers/cells.py (helpers _get_cell_or_404, _assert_pessoa_tenant, _actor_pessoa_id, _lider_of_map, CENTRAL_ROLES; padrao de router)",
+          "backend/app/routers/events.py (status como constantes string; padrao de schema Pydantic com from_model)",
+          "backend/app/routers/_common.py (ensure_tenant_context, Page[T], PaginationParams)",
+          "backend/app/domain/hierarchy.py (is_leader_or_superior)",
+          "backend/app/deps.py (CurrentUser, get_current_user, has_any_role, ADMIN_ROLE implicito)",
+          "backend/app/main.py (ponto de include_router)",
+          "backend/app/db/models.py (CelulaReuniao criado na sprint 1)"
+        ],
+        "key_interfaces": [
+          "CelulaReuniao (modelo da sprint 1)",
+          "_get_cell_or_404, _actor_pessoa_id, _lider_of_map, CENTRAL_ROLES (de cells.py)",
+          "is_leader_or_superior (de domain/hierarchy.py)",
+          "has_any_role, CurrentUser (de deps.py)",
+          "ensure_tenant_context (de _common.py)",
+          "ReuniaoOut (novo schema camelCase)"
+        ],
+        "architecture_notes": "BK-DEC-01: router PROPRIO cell_meetings.py que REUSA os helpers de cells.py (nao duplicar, nao engordar cells.py). Contrato externo em camelCase. Idempotencia sob corrida segue o mesmo padrao pre-check SELECT + INSERT + catch IntegrityError + rollback + recuperar existente => 200 (nunca 409/500). Timezone America/Sao_Paulo e relogio injetavel (RNF-07) para testes. Transacao: flush + refresh + commit unico; evitar leitura RLS-dependente apos commit. A materializacao SEMPRE nasce com hora preenchida (celula sem horario => 422). Nao ha transicao de status no PR2 (nasce e fica 'planejada'). Unica alteracao em main.py e o include_router."
+      },
+      "dependencies": [
+        "sprint-001"
+      ],
+      "complexity": "high",
+      "estimated_rounds": 3
+    },
+    {
+      "id": "sprint-003",
+      "index": 2,
+      "name": "Endpoint de Presenca idempotente (propria e por lider)",
+      "description": "Implementa o Dominio B: o helper _get_reuniao_or_404 (analogo a _get_cell_or_404, escopado por tenant) e o endpoint POST /cell-reunioes/{reuniaoId}/presenca com auto-confirmacao e marcacao de terceiro por lider/superior/pastor/admin, idempotencia via upsert last-write-wins, checagem de vinculo ativo na celula da reuniao e isolamento por tenant. Backend-only, sempre 200 no sucesso.",
+      "coder_agent_id": "backend-developer",
+      "stack": [
+        "python",
+        "fastapi",
+        "sqlalchemy",
+        "pytest"
+      ],
+      "features": [
+        {
+          "id": "feat-010",
+          "name": "Helper _get_reuniao_or_404 + schema PresencaOut",
+          "description": "Novo helper em cell_meetings.py que resolve a reuniao por id escopada ao tenant (nao exige cellId no path) e schema Pydantic PresencaOut em camelCase.",
+          "acceptance_criteria": [
+            "_get_reuniao_or_404 retorna a reuniao por id filtrando por igreja_id (RLS + filtro explicito) e levanta 404 para id malformado ou de outro tenant, analogo a _get_cell_or_404",
+            "Nao exige cellId no path: a reuniao carrega celula_id e igreja_id (RF-07b)",
+            "PresencaOut expoe { id, reuniaoId, pessoaId, estado, origem } em camelCase com from_model"
+          ]
+        },
+        {
+          "id": "feat-011",
+          "name": "POST /cell-reunioes/{reuniaoId}/presenca (auto + terceiro, upsert idempotente)",
+          "description": "Endpoint que confirma a propria presenca (sem pessoaId) ou marca terceiro (com pessoaId, exige lideranca), com upsert idempotente e checagem de vinculo ativo na celula da reuniao.",
+          "acceptance_criteria": [
+            "Sem pessoaId (ou pessoaId igual a propria pessoa): auto-confirmacao da pessoa do app_user; grava estado='confirmada' e origem='auto'; app_user sem pessoa_id => 403 (SEC-DEC-04)",
+            "Com pessoaId de outra pessoa: exige lider-ou-superior/pastor/admin/Central; valida pessoa alvo no tenant via _assert_pessoa_tenant (422 se de outra igreja); grava estado='confirmada' e origem='lider'; membro comum marcando outra pessoa => 403",
+            "Exige vinculo ativo na celula DA REUNIAO (celula_membro.ativo=true AND celula_membro.celula_id=reuniao.celula_id) para a pessoa alvo; sem vinculo valido => 403 (pessoa ativa em outra celula nao vale)",
+            "Idempotencia upsert: pre-check SELECT por (igreja_id, reuniao_id, pessoa_id); nao existe => INSERT; ja existe => UPDATE de estado/origem/updated_at (last-write-wins); corrida => catch IntegrityError + rollback + recupera existente. Todos os caminhos retornam 200, NUNCA 409/500",
+            "Status da reuniao NAO e validado (presenca permitida em qualquer status, inclusive cancelada/realizada); resolve reuniao via _get_reuniao_or_404 (404 fora do tenant)"
+          ]
+        },
+        {
+          "id": "feat-012",
+          "name": "Testes de presenca (US-05..US-08)",
+          "description": "Amplia backend/tests/test_cell_meetings.py com os cenarios de presenca.",
+          "acceptance_criteria": [
+            "Testa auto-confirmacao (origem=auto, estado=confirmada) e marcacao por lider (origem=lider) retornando 200",
+            "Testa idempotencia: segunda chamada e remarcacao retornam 200 sem duplicar; afirma explicitamente 200 (nunca 409) na presenca",
+            "Testa 403: membro comum marcando outra pessoa, app_user sem pessoa_id, pessoa sem vinculo ativo na celula da reuniao (ou ativa em outra celula)",
+            "Testa isolamento: 404 para reuniao de outro tenant, 422 para pessoaId de outra igreja; pytest verde sem quebrar a suite"
+          ]
+        }
+      ],
+      "hints": {
+        "existing_files": [
+          "backend/app/routers/cell_meetings.py (router criado na sprint 2, onde adicionar o helper e o endpoint)",
+          "backend/app/routers/cells.py (referencia de _get_cell_or_404 para espelhar _get_reuniao_or_404; _assert_pessoa_tenant, _actor_pessoa_id, _lider_of_map, CENTRAL_ROLES; add_cell_member em cells.py:520 usa 201)",
+          "backend/app/domain/hierarchy.py (is_leader_or_superior)",
+          "backend/app/db/models.py (CelulaPresenca da sprint 1, CelulaMembro do PR1 com indice unico parcial celula_membro_pessoa_ativa_uq)",
+          "backend/app/routers/_common.py (ensure_tenant_context)",
+          "backend/app/deps.py (CurrentUser, has_any_role)"
+        ],
+        "key_interfaces": [
+          "CelulaPresenca (modelo da sprint 1) com UNIQUE (igreja_id, reuniao_id, pessoa_id)",
+          "CelulaMembro.ativo e celula_id (vinculo ativo por celula)",
+          "_assert_pessoa_tenant, _actor_pessoa_id, _lider_of_map, CENTRAL_ROLES, is_leader_or_superior",
+          "_get_reuniao_or_404 (novo, nesta sprint), PresencaOut (novo)",
+          "constantes ESTADO_CONFIRMADA, ORIGEM_AUTO, ORIGEM_LIDER (definidas na sprint 2)"
+        ],
+        "architecture_notes": "BK-DEC-04 Opcao A + E10: upsert last-write-wins explicito na aplicacao (SELECT -> INSERT ou UPDATE), NAO usar ON CONFLICT DO UPDATE (foge do fake-session do repo). Corrida contra o UNIQUE => IntegrityError => rollback => recuperar existente => 200. Presenca e SEMPRE 200 (409 e reservado a add_cell_member). E11: vinculo obrigatorio na celula DA REUNIAO; como o indice unico parcial garante 1 pessoa->1 celula ativa, pessoa ativa em outra celula nao tem vinculo valido. E12: status da reuniao nunca e checado. No PR2 estado gravado e SEMPRE 'confirmada'. ensure_tenant_context no topo; commit unico."
+      },
+      "dependencies": [
+        "sprint-001",
+        "sprint-002"
+      ],
+      "complexity": "high",
+      "estimated_rounds": 3
+    },
+    {
+      "id": "sprint-004",
+      "index": 3,
+      "name": "Endpoint de Expectativa de Visitante (nominal)",
+      "description": "Implementa o Dominio C: o endpoint POST /cell-reunioes/{reuniaoId}/expectativas-visitantes que registra expectativa nominal SEMPRE da propria pessoa do app_user (nunca terceiro), com validacao de borda no Pydantic (trim/comprimento), vinculo ativo na celula da reuniao e retorno 201 CREATED. NAO cria Pessoa/contato e NAO dispara WhatsApp. Backend-only.",
+      "coder_agent_id": "backend-developer",
+      "stack": [
+        "python",
+        "fastapi",
+        "sqlalchemy",
+        "pytest"
+      ],
+      "features": [
+        {
+          "id": "feat-013",
+          "name": "Schemas Pydantic de expectativa (in/out) com validacao de borda",
+          "description": "Schema de entrada com validacao de nomeVisitante/observacaoOracao e schema de saida ExpectativaVisitanteOut em camelCase.",
+          "acceptance_criteria": [
+            "Schema de entrada valida nomeVisitante (obrigatorio; apos trim, 1..200 chars; string so com espacos rejeitada => 422) e observacaoOracao (opcional; max 500 chars)",
+            "Payload invalido resulta em 422 sem persistir nada",
+            "ExpectativaVisitanteOut expoe { id, reuniaoId, pessoaId, nomeVisitante, observacaoOracao (string|null) } em camelCase com from_model"
+          ]
+        },
+        {
+          "id": "feat-014",
+          "name": "POST /cell-reunioes/{reuniaoId}/expectativas-visitantes (201 CREATED)",
+          "description": "Endpoint que registra a expectativa sempre da propria pessoa, permitindo N registros por membro/reuniao, sem efeitos externos.",
+          "acceptance_criteria": [
+            "Registra SEMPRE da propria pessoa do app_user (nunca por terceiro no PR2); app_user sem pessoa_id => 403",
+            "Exige vinculo ativo na celula DA REUNIAO (celula_membro.ativo=true AND celula_membro.celula_id=reuniao.celula_id, E11); sem vinculo valido => 403; resolve reuniao via _get_reuniao_or_404 (404 fora do tenant)",
+            "Retorna 201 CREATED (status.HTTP_201_CREATED, como add_cell_member em cells.py:520); permite N registros por membro/reuniao (multiplas criacoes retornam 201, sem UNIQUE)",
+            "NAO cria Pessoa/contato e NAO dispara WhatsApp; status da reuniao NAO e validado (E12); nada persistido em caso de 422"
+          ]
+        },
+        {
+          "id": "feat-015",
+          "name": "Testes de expectativa (US-09, US-10)",
+          "description": "Amplia backend/tests/test_cell_meetings.py com os cenarios de expectativa.",
+          "acceptance_criteria": [
+            "Testa criacao valida retornando 201 e multiplas criacoes do mesmo membro/reuniao tambem 201 (N por membro/reuniao)",
+            "Testa 422: nomeVisitante ausente/vazio/so-espacos apos trim e > 200 chars; observacaoOracao > 500 chars; afirma que nada foi persistido",
+            "Testa 403 sem vinculo ativo / app_user sem pessoa_id e 404 para reuniao de outro tenant",
+            "pytest verde sem quebrar a suite existente"
+          ]
+        }
+      ],
+      "hints": {
+        "existing_files": [
+          "backend/app/routers/cell_meetings.py (router com _get_reuniao_or_404 da sprint 3, onde adicionar o endpoint)",
+          "backend/app/routers/cells.py (add_cell_member em cells.py:520 usa status.HTTP_201_CREATED como referencia direta)",
+          "backend/app/db/models.py (CelulaExpectativaVisitante da sprint 1, CelulaMembro do PR1)",
+          "backend/app/routers/_common.py (ensure_tenant_context)",
+          "backend/tests/test_cell_meetings.py (arquivo de testes ja iniciado nas sprints 2/3)"
+        ],
+        "key_interfaces": [
+          "CelulaExpectativaVisitante (modelo da sprint 1, sem UNIQUE, nome_visitante NOT NULL)",
+          "_get_reuniao_or_404 (criado na sprint 3)",
+          "_actor_pessoa_id (de cells.py, para resolver a propria pessoa)",
+          "CelulaMembro.ativo/celula_id (vinculo ativo por celula)",
+          "ExpectativaVisitanteOut (novo schema)"
+        ],
+        "architecture_notes": "Codigos explicitos SEM ambiguidade: expectativa e CRIACAO REAL => SEMPRE 201 CREATED (igual a add_cell_member, cells.py:520), NUNCA 200; contraste com presenca que e upsert 200. Modelo NOMINAL: nome_visitante obrigatorio + observacao_oracao opcional; NAO e por quantidade e permite N linhas por membro/reuniao (sem UNIQUE). Validacao de borda no Pydantic (RF-17/E13): trim, whitespace-only rejeitado, 1..200 chars, observacao <=500. E11: vinculo ativo na celula da reuniao. E12: status da reuniao nunca checado. Sem efeito externo (RF-16): nao cria Pessoa nem dispara WhatsApp. ensure_tenant_context no topo; commit unico."
+      },
+      "dependencies": [
+        "sprint-001",
+        "sprint-002",
+        "sprint-003"
+      ],
+      "complexity": "medium",
+      "estimated_rounds": 2
+    }
+  ],
+  "metadata": {
+    "version": 1,
+    "created_at": "2026-07-04T21:38:45.305Z",
+    "total_sprints": 4,
+    "total_features": 15
+  }
+}
