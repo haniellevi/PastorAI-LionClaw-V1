@@ -48,3 +48,7 @@ next-env.d.ts
 # ===== Artefatos gerados =====
 graphify-out/
 pastorai-deploy.tar
+
+# ===== Runtime de ferramentas (LionClaw / code-review-graph) — nao versionar =====
+.lionclaw/
+.codegraph/

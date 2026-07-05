@@ -284,6 +284,121 @@ class CelulaMembro(Base):
     )
 
 
+class CelulaReuniao(Base):
+    """Ocorrência materializada de uma célula (Células PR2).
+
+    Uma reunião = um encontro da célula numa data/hora. `igreja_id` é próprio
+    (a RLS não herda por FK) e a tabela tem policy tenant_isolation dedicada.
+    `updated_at` é gerenciado pela aplicação (sem trigger).
+
+    ⚠️ DB-DEC-04: `celula_id` é ON DELETE CASCADE — se um dia existir um
+    DELETE /cells (hoje INEXISTENTE), apagar a célula apagaria em cadeia as
+    reuniões e, por consequência, suas presenças (`celula_presenca`) e
+    expectativas de visitante (`celula_expectativa_visitante`), que também são
+    CASCADE a partir de `reuniao_id`.
+    """
+
+    __tablename__ = "celula_reuniao"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    igreja_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("igrejas.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    celula_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("celulas.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    data: Mapped[dt.date] = mapped_column(Date, nullable=False)
+    hora: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tema: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(
+        String, nullable=False, server_default=text("'planejada'")
+    )
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    updated_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+class CelulaPresenca(Base):
+    """Presença de uma pessoa numa reunião de célula (Células PR2).
+
+    `estado` ∈ {confirmada, compareceu, ausente}. UNIQUE por (igreja_id,
+    reuniao_id, pessoa_id) — uma linha por pessoa/reunião. `igreja_id` próprio +
+    RLS própria. `reuniao_id`/`pessoa_id` ON DELETE CASCADE (DB-DEC-04).
+    `updated_at` gerenciado pela aplicação.
+    """
+
+    __tablename__ = "celula_presenca"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    igreja_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("igrejas.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    reuniao_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("celula_reuniao.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    pessoa_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("pessoas.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    estado: Mapped[str] = mapped_column(String, nullable=False)
+    origem: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    updated_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+class CelulaExpectativaVisitante(Base):
+    """Visitante esperado por um membro para uma reunião de célula (Células PR2).
+
+    SEM UNIQUE: a mesma pessoa pode esperar vários visitantes na mesma reunião
+    (uma linha por visitante). `igreja_id` próprio + RLS própria.
+    `reuniao_id`/`pessoa_id` ON DELETE CASCADE (DB-DEC-04). `updated_at`
+    gerenciado pela aplicação.
+    """
+
+    __tablename__ = "celula_expectativa_visitante"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    igreja_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("igrejas.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    reuniao_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("celula_reuniao.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    pessoa_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("pessoas.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    nome_visitante: Mapped[str] = mapped_column(Text, nullable=False)
+    observacao_oracao: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    updated_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
 class CellAlert(Base):
     """Pastoral alert raised for a person within a cell."""
 
@@ -1064,6 +1179,9 @@ __all__ = [
     "RolePermission",
     "Celula",
     "CelulaMembro",
+    "CelulaReuniao",
+    "CelulaPresenca",
+    "CelulaExpectativaVisitante",
     "CellAlert",
     "Conversation",
     "Message",
