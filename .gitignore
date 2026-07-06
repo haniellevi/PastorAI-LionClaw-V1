@@ -43,6 +43,14 @@ next-env.d.ts
 .vscode/
 *.swp
 
+# ===== Estado local de agentes / IDEs =====
+.agents/
+.claude/
+.codex/
+.lionclaw/
+.mcp.json
+
 # ===== Artefatos gerados =====
 graphify-out/
 pastorai-deploy.tar
+*.bak
