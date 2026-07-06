@@ -317,6 +317,27 @@ class CelulaReuniao(Base):
     status: Mapped[str] = mapped_column(
         String, nullable=False, server_default=text("'planejada'")
     )
+    # Ciclo do relatório da reunião (Células PR3-PR9). relatorio_status nasce
+    # 'pendente' e vira 'enviado' no submit; relatorio_enviado_por é FK de autor
+    # (SET NULL). oferta/observações compõem o relatório consolidado.
+    relatorio_status: Mapped[str] = mapped_column(
+        String, nullable=False, server_default=text("'pendente'")
+    )
+    relatorio_enviado_em: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    relatorio_enviado_por: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("pessoas.id", ondelete="SET NULL"), nullable=True
+    )
+    oferta_valor: Mapped[float | None] = mapped_column(
+        Numeric(12, 2), nullable=True
+    )
+    observacoes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Congelamento E10/E11: no submit, o relatório é materializado num snapshot
+    # imutável (presenças/visitantes/registros/oferta/observações). Depois de
+    # enviado, get_report lê o snapshot — não `celula_presenca` ao vivo — de modo
+    # que o endpoint PR2 de presença (upsert sempre-200) não altere o consolidado.
+    relatorio_snapshot: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
@@ -391,6 +412,259 @@ class CelulaExpectativaVisitante(Base):
     )
     nome_visitante: Mapped[str] = mapped_column(Text, nullable=False)
     observacao_oracao: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    updated_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+class CelulaReuniaoRegistro(Base):
+    """Registro pastoral de uma reunião de célula (Células PR3-PR9).
+
+    `tipo` ∈ {decisao, oracao, observacao}; `conteudo` é o texto livre. Oculto do
+    discípulo (só líder/Central leem — regra na aplicação). `igreja_id` próprio +
+    RLS própria. `reuniao_id` ON DELETE CASCADE; `autor_id` ON DELETE SET NULL
+    (FK de autor). `updated_at` gerenciado pela aplicação.
+    """
+
+    __tablename__ = "celula_reuniao_registro"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    igreja_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("igrejas.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    reuniao_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("celula_reuniao.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    tipo: Mapped[str] = mapped_column(String, nullable=False)
+    conteudo: Mapped[str] = mapped_column(Text, nullable=False)
+    pessoa_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("pessoas.id", ondelete="SET NULL"), nullable=True
+    )
+    autor_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("pessoas.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    updated_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+class CelulaVisitante(Base):
+    """Visitante presente numa reunião de célula (Células PR3-PR9).
+
+    Pode referenciar a expectativa que o antecedeu (`expectativa_id`, opcional).
+    SEM UNIQUE. `igreja_id` próprio + RLS própria. `reuniao_id` ON DELETE CASCADE;
+    `expectativa_id` ON DELETE SET NULL (link opcional — apagar a expectativa não
+    apaga o comparecimento real). `updated_at` gerenciado pela aplicação.
+    """
+
+    __tablename__ = "celula_visitante"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    igreja_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("igrejas.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    reuniao_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("celula_reuniao.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    expectativa_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("celula_expectativa_visitante.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    nome_visitante: Mapped[str] = mapped_column(Text, nullable=False)
+    telefone: Mapped[str | None] = mapped_column(Text, nullable=True)
+    observacao: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    updated_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+class CelulaSolicitacao(Base):
+    """Solicitação de alteração sensível / multiplicação (Células PR3-PR9).
+
+    Extensível por `tipo` (alterar_dia/horario/endereco/anfitriao/auxiliar,
+    transferir_membro, remover_membro, multiplicacao), com `payload_proposto`
+    JSONB tipado validado na aplicação. `status` ∈ {aguardando, aprovada,
+    rejeitada, ajuste_solicitado, cancelada}. A Central NÃO edita o payload (3.6).
+
+    `igreja_id` próprio + RLS própria. `celula_id` ON DELETE CASCADE;
+    `solicitante_id`/`pessoa_id`/`decidido_por` ON DELETE SET NULL (FKs de
+    autor/pessoa). `updated_at` gerenciado pela aplicação.
+    """
+
+    __tablename__ = "celula_solicitacao"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    igreja_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("igrejas.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    celula_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("celulas.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    solicitante_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("pessoas.id", ondelete="SET NULL"), nullable=True
+    )
+    pessoa_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("pessoas.id", ondelete="SET NULL"), nullable=True
+    )
+    tipo: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String, nullable=False, server_default=text("'aguardando'")
+    )
+    payload_proposto: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
+    payload_atual: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    motivo: Mapped[str | None] = mapped_column(Text, nullable=True)
+    observacao_central: Mapped[str | None] = mapped_column(Text, nullable=True)
+    decidido_por: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("pessoas.id", ondelete="SET NULL"), nullable=True
+    )
+    decidido_em: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    updated_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+class CelulaSolicitacaoEvento(Base):
+    """Trilha de auditoria APPEND-ONLY das transições de uma solicitação.
+
+    Blindada no banco pelo trigger `trg_celula_solicitacao_evento_append_only`
+    (UPDATE/DELETE levantam exceção). `acao` ∈ {criada, reenviada, aprovada,
+    rejeitada, ajuste_solicitado, cancelada}. `payload_snapshot` guarda a foto do
+    payload no momento da transição. SEM `updated_at` (append-only:
+    cada transição é uma linha imutável). `igreja_id` próprio + RLS própria.
+    `solicitacao_id` ON DELETE CASCADE; `autor_id` ON DELETE SET NULL.
+    """
+
+    __tablename__ = "celula_solicitacao_evento"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    igreja_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("igrejas.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    solicitacao_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("celula_solicitacao.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    acao: Mapped[str] = mapped_column(String, nullable=False)
+    autor_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("pessoas.id", ondelete="SET NULL"), nullable=True
+    )
+    payload_snapshot: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
+    de_status: Mapped[str | None] = mapped_column(String, nullable=True)
+    para_status: Mapped[str | None] = mapped_column(String, nullable=True)
+    observacao: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+
+class CelulaAviso(Base):
+    """Aviso da célula (origem=celula) ou da Central (origem=central).
+
+    `escopo` ∈ {celula, igreja}; `celula_id` é NULL quando escopo='igreja'.
+    `ativo=false` = inativado (sem edição no MVP). `notificado_em` é o ponto de
+    extensão do disparo (cell_notify.py no-op). `igreja_id` próprio + RLS própria.
+    `celula_id` ON DELETE CASCADE; `autor_id` ON DELETE SET NULL. `updated_at`
+    gerenciado pela aplicação.
+    """
+
+    __tablename__ = "celula_aviso"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    igreja_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("igrejas.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    celula_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("celulas.id", ondelete="CASCADE"), nullable=True
+    )
+    autor_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("pessoas.id", ondelete="SET NULL"), nullable=True
+    )
+    origem: Mapped[str] = mapped_column(String, nullable=False)
+    escopo: Mapped[str] = mapped_column(String, nullable=False)
+    titulo: Mapped[str] = mapped_column(Text, nullable=False)
+    conteudo: Mapped[str] = mapped_column(Text, nullable=False)
+    ativo: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
+    publicado_em: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    notificado_em: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    updated_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+class CelulaMaterial(Base):
+    """Material de apoio publicado pela Central (Células PR3-PR9).
+
+    Link/metadados (sem upload real de arquivo); líder e discípulo veem em
+    leitura (E14). `ativo=false` = inativado. `igreja_id` próprio + RLS própria.
+    `autor_id` ON DELETE SET NULL. `updated_at` gerenciado pela aplicação.
+    """
+
+    __tablename__ = "celula_material"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    igreja_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("igrejas.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    autor_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("pessoas.id", ondelete="SET NULL"), nullable=True
+    )
+    titulo: Mapped[str] = mapped_column(Text, nullable=False)
+    descricao: Mapped[str | None] = mapped_column(Text, nullable=True)
+    url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tipo: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ativo: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true")
+    )
+    publicado_em: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
@@ -636,7 +910,15 @@ class ConsolidacaoEtapa(Base):
 
 
 class Multiplicacao(Base):
-    """Cell multiplication (enviar — delta-027). Approval gated by supervisao_ok."""
+    """Cell multiplication (enviar — delta-027). Approval gated by supervisao_ok.
+
+    Células PR3-PR9: evoluído (não recriado) para a multiplicação transacional e
+    idempotente. `celula_id` PERMANECE como a célula de ORIGEM (não renomear).
+    Colunas aditivas: `solicitacao_id` (1:1 com a solicitação aprovada, NOT NULL
+    UNIQUE, ON DELETE CASCADE), `idempotency_key` (barra reprocesso — índice único
+    parcial where not null), `celula_nova_id` (célula gerada, ON DELETE SET NULL)
+    e timestamps. `updated_at` gerenciado pela aplicação.
+    """
 
     __tablename__ = "multiplicacoes"
 
@@ -662,6 +944,23 @@ class Multiplicacao(Base):
     )
     aprovada_por: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("app_users.id", ondelete="SET NULL"), nullable=True
+    )
+    # Células PR3-PR9 — evolução aditiva (celula_id continua sendo a origem).
+    solicitacao_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("celula_solicitacao.id", ondelete="CASCADE"),
+        unique=True,
+        nullable=False,
+    )
+    idempotency_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    celula_nova_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("celulas.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    updated_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
     )
 
 

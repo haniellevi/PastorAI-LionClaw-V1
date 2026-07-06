@@ -172,3 +172,19 @@ def app():
     from app.main import create_app
 
     return create_app()
+
+
+@pytest.fixture(autouse=True)
+def _celulas_requests_enabled(monkeypatch):
+    """O fluxo de Solicitações de célula nasce atrás de flag OFF (rollout).
+
+    Sob teste a feature está SOB TESTE, então liga por padrão; o teste dedicado do
+    gate desliga explicitamente (monkeypatch para False no corpo). Afeta só o gate
+    de escrita de Células — inócuo para o resto da suíte.
+    """
+    from app.config import get_settings
+
+    monkeypatch.setattr(
+        get_settings(), "celulas_requests_enabled", True, raising=False
+    )
+    yield

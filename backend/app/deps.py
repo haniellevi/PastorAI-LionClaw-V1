@@ -12,13 +12,14 @@ trusted from the client.
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass, field
 
 from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import AppUser, PlatformAdmin, RolePermission, UserRole
+from app.db.models import AppUser, Celula, PlatformAdmin, RolePermission, UserRole
 from app.db.rls import set_tenant_context
 from app.db.session import get_db
 from app.domain.permissions import can_access_screen
@@ -26,6 +27,12 @@ from app.services.clerk import ClerkAuthError, ClerkClient, get_clerk_client
 
 # Role that is granted access implicitly to every protected resource (F4).
 ADMIN_ROLE = "admin"
+
+# Central de Células (decisão 3.1): pastor + admin (implícito via has_any_role)
+# aprovam/alteram os campos sensíveis do módulo Células. Espelha CENTRAL_ROLES de
+# routers/cells.py; mantido aqui como base de autorização reutilizável pelas
+# sprints de Células. `lider_central` dedicado fica para o futuro (fora do MVP).
+CENTRAL_ROLES = ["pastor"]
 
 # Igreja statuses that block panel access at login/auth time (US-35) + onboarding
 # (M2): uma igreja recém-provisionada nasce 'aguardando_aprovacao' e só libera o
@@ -172,6 +179,77 @@ def require_role(roles: list[str]):
         return current_user
 
     return _checker
+
+
+def require_central(
+    current_user: CurrentUser = Depends(get_current_user),
+) -> CurrentUser:
+    """Dependency: só a Central de Células (pastor + admin implícito) passa (403).
+
+    Igual em espírito a ``require_role(CENTRAL_ROLES)``, exposto com nome próprio
+    porque a Central é um conceito de domínio recorrente nas telas de Células. O
+    papel é reavaliado a cada request a partir do contexto autenticado — nunca do
+    payload do cliente.
+    """
+    if not current_user.has_any_role(CENTRAL_ROLES):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Ação restrita à Central de Células",
+        )
+    return current_user
+
+
+def resolve_actor_pessoa_id(db: Session, current_user: CurrentUser) -> str | None:
+    """Resolve a Pessoa vinculada ao app_user autenticado (ou None).
+
+    Base para as checagens de hierarquia/ownership de célula: o vínculo
+    app_user→pessoa é a ponte entre a identidade Clerk e a árvore de liderança
+    (``pessoas.lider_id`` / ``celulas.lider_id``). igreja_id/pessoa derivam sempre
+    do contexto autenticado.
+    """
+    pessoa_id = db.execute(
+        select(AppUser.pessoa_id).where(
+            AppUser.id == uuid.UUID(current_user.app_user_id)
+        )
+    ).scalar_one_or_none()
+    return str(pessoa_id) if pessoa_id else None
+
+
+def get_current_cell_for_leader(
+    db: Session, current_user: CurrentUser, cell_id: str
+) -> Celula:
+    """Resolve a célula ``cell_id`` exigindo que o usuário seja seu LÍDER.
+
+    "É líder desta célula" deriva SEMPRE de ``celulas.lider_id`` ligado à Pessoa
+    do app_user autenticado (E9/6.6) — nunca de flag do cliente nem de
+    ``celula_membro.papel``. O ``igreja_id`` vem do contexto autenticado (RLS +
+    filtro explícito de tenant, defesa em profundidade).
+
+    Um recurso de OUTRA célula/igreja, um id malformado, uma célula sem líder ou
+    liderada por outra pessoa resultam TODOS no mesmo 404 — não se distingue
+    "não existe" de "não é sua", para não vazar a existência do recurso.
+    """
+    not_found = HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND, detail="Célula não encontrada"
+    )
+    try:
+        cell_uuid = uuid.UUID(cell_id)
+    except (ValueError, AttributeError) as exc:
+        raise not_found from exc
+
+    cell = db.execute(
+        select(Celula).where(
+            Celula.id == cell_uuid,
+            Celula.igreja_id == uuid.UUID(current_user.igreja_id),
+        )
+    ).scalar_one_or_none()
+    if cell is None or cell.lider_id is None:
+        raise not_found
+
+    actor_pessoa = resolve_actor_pessoa_id(db, current_user)
+    if actor_pessoa is None or str(cell.lider_id) != actor_pessoa:
+        raise not_found
+    return cell
 
 
 def require_owner(

@@ -111,6 +111,40 @@ def _now_in_sao_paulo(now: dt.datetime | None) -> dt.datetime:
     return now.astimezone(SAO_PAULO_TZ)
 
 
+def meeting_has_passed(
+    *,
+    data: dt.date,
+    hora: str | None = None,
+    now: dt.datetime | None = None,
+) -> bool:
+    """True se a reunião (``data`` + ``hora`` HH:MM opcional) já ocorreu (E4).
+
+    A comparação "passada"/"futura" usa o fuso ``America/Sao_Paulo`` (coerente
+    com ``next_meeting_date``). ``now`` é injetável para determinismo nos testes;
+    ``None`` usa o relógio real.
+
+    - ``data`` no passado → já ocorreu (True);
+    - ``data`` no futuro → ainda não ocorreu (False);
+    - ``data`` é hoje: compara pela ``hora`` quando houver — só é "passada" se o
+      horário já passou no fuso. SEM ``hora`` (ou malformada), a reunião conta
+      como futura durante todo o dia (nunca infere ocorrência sem horário).
+    """
+    now_local = _now_in_sao_paulo(now)
+    today = now_local.date()
+    if data < today:
+        return True
+    if data > today:
+        return False
+    parsed = _parse_hora(hora)
+    if parsed is None:
+        return False
+    hour, minute = parsed
+    meeting_dt = now_local.replace(
+        hour=hour, minute=minute, second=0, microsecond=0
+    )
+    return now_local > meeting_dt
+
+
 def next_meeting_date(
     *,
     dia_reuniao: str | None,

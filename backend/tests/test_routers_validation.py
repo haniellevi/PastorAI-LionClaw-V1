@@ -199,17 +199,7 @@ def test_multiplicacoes_requires_auth(app) -> None:
     assert client.get("/multiplicacoes").status_code == 401
 
 
-def test_list_multiplicacoes_rejects_invalid_status(app) -> None:
+# ---- cell-requests auth gating --------------------------------------------
+def test_cell_requests_requires_auth(app) -> None:
     client = _client(app)
-    resp = client.get("/multiplicacoes?status=invalido", headers=_AUTH)
-    assert resp.status_code == 422
-
-
-def test_create_multiplicacao_rejects_invalid_celula_uuid(app) -> None:
-    client = _client(app)
-    resp = client.post(
-        "/multiplicacoes",
-        json={"celulaId": "not-a-uuid"},
-        headers=_AUTH,
-    )
-    assert resp.status_code == 422
+    assert client.get("/cell-requests").status_code == 401

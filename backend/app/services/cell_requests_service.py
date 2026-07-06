@@ -1,0 +1,410 @@
+"""Ciclo de decisão das Solicitações de célula (Células PR3-PR9).
+
+Concentra as transições de estado da `celula_solicitacao` (aprovar, rejeitar,
+pedir ajuste, reenviar, cancelar) SEMPRE com a trilha de auditoria gravada na
+MESMA transação SQLAlchemy (RNF-07). Falha parcial → rollback total (nada é
+aplicado, nenhum evento fica). A trilha `celula_solicitacao_evento` é append-only:
+o código NUNCA faz UPDATE/DELETE nela (o trigger do banco blinda também).
+
+A Central NUNCA edita o payload (SPEC §3.6): aprova como está, rejeita ou pede
+ajuste. `tipo` roteia a rotina de aplicação da aprovação:
+  - campos sensíveis: escreve o campo em `celulas`;
+  - transferir/remover membro: mexe em `celula_membro` + espelho `pessoas.celula_id`;
+  - multiplicacao: delega ao `cell_multiplication_service` (transacional/idempotente).
+"""
+
+from __future__ import annotations
+
+import copy
+import datetime as dt
+import uuid
+
+from fastapi import HTTPException, status
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.db.models import (
+    Celula,
+    CelulaMembro,
+    CelulaSolicitacao,
+    CelulaSolicitacaoEvento,
+    Pessoa,
+)
+from app.domain.cell_requests import (
+    ACAO_AJUSTE_SOLICITADO,
+    ACAO_APROVADA,
+    ACAO_CANCELADA,
+    ACAO_REENVIADA,
+    ACAO_REJEITADA,
+    OPEN_STATUSES,
+    STATUS_AGUARDANDO,
+    STATUS_AJUSTE_SOLICITADO,
+    STATUS_APROVADA,
+    STATUS_CANCELADA,
+    STATUS_REJEITADA,
+    TIPO_ALTERAR_ANFITRIAO,
+    TIPO_ALTERAR_AUXILIAR,
+    TIPO_ALTERAR_DIA,
+    TIPO_ALTERAR_ENDERECO,
+    TIPO_ALTERAR_HORARIO,
+    TIPO_MULTIPLICACAO,
+    TIPO_REMOVER_MEMBRO,
+    TIPO_TRANSFERIR_MEMBRO,
+)
+from app.services.cell_multiplication_service import execute_multiplication
+
+
+def _now() -> dt.datetime:
+    return dt.datetime.now(dt.timezone.utc)
+
+
+# ---------------------------------------------------------------------------
+# Auditoria append-only
+# ---------------------------------------------------------------------------
+def _append_event(
+    db: Session,
+    *,
+    solicitacao: CelulaSolicitacao,
+    acao: str,
+    autor_id: uuid.UUID | None,
+    de_status: str | None,
+    para_status: str | None,
+    observacao: str | None = None,
+    payload_snapshot: dict | None = None,
+) -> None:
+    """Adiciona uma linha imutável na trilha (na transação corrente, sem commit)."""
+    snapshot = copy.deepcopy(
+        payload_snapshot
+        if payload_snapshot is not None
+        else (solicitacao.payload_proposto or {})
+    )
+    db.add(
+        CelulaSolicitacaoEvento(
+            igreja_id=solicitacao.igreja_id,
+            solicitacao_id=solicitacao.id,
+            acao=acao,
+            autor_id=autor_id,
+            payload_snapshot=snapshot,
+            de_status=de_status,
+            para_status=para_status,
+            observacao=observacao,
+        )
+    )
+
+
+# ---------------------------------------------------------------------------
+# Rotinas de aplicação por tipo (aprovação)
+# ---------------------------------------------------------------------------
+def _assert_pessoa_in_tenant(
+    db: Session, igreja_id: uuid.UUID, pessoa_id: uuid.UUID, campo: str
+) -> None:
+    found = db.execute(
+        select(Pessoa.id).where(
+            Pessoa.id == pessoa_id, Pessoa.igreja_id == igreja_id
+        )
+    ).scalar_one_or_none()
+    if found is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"{campo}: pessoa não encontrada nesta igreja",
+        )
+
+
+def _deactivate_active_membership(
+    db: Session, igreja_id: uuid.UUID, pessoa_id: uuid.UUID
+) -> None:
+    membro = db.execute(
+        select(CelulaMembro).where(
+            CelulaMembro.igreja_id == igreja_id,
+            CelulaMembro.pessoa_id == pessoa_id,
+            CelulaMembro.ativo.is_(True),
+        )
+    ).scalar_one_or_none()
+    if membro is not None:
+        membro.ativo = False
+        membro.updated_at = _now()
+
+
+def _apply_payload(
+    db: Session, *, solicitacao: CelulaSolicitacao, cell: Celula
+) -> None:
+    """Aplica `payload_proposto` ao dado real, roteado por `tipo`.
+
+    Multiplicação NÃO passa por aqui: é tratada diretamente em `approve`
+    (delega ao serviço transacional dedicado).
+    """
+    tipo = solicitacao.tipo
+    payload = solicitacao.payload_proposto or {}
+    igreja_id = solicitacao.igreja_id
+
+    if tipo == TIPO_ALTERAR_DIA:
+        cell.dia_reuniao = payload["dia_reuniao"]
+    elif tipo == TIPO_ALTERAR_HORARIO:
+        cell.horario = payload["horario"]
+    elif tipo == TIPO_ALTERAR_ENDERECO:
+        cell.endereco = payload["endereco"]
+    elif tipo == TIPO_ALTERAR_ANFITRIAO:
+        anfitriao_id = uuid.UUID(str(payload["anfitriao_id"]))
+        _assert_pessoa_in_tenant(db, igreja_id, anfitriao_id, "anfitriao_id")
+        cell.anfitriao_id = anfitriao_id
+    elif tipo == TIPO_ALTERAR_AUXILIAR:
+        auxiliar_id = uuid.UUID(str(payload["auxiliar_id"]))
+        _assert_pessoa_in_tenant(db, igreja_id, auxiliar_id, "auxiliar_id")
+        cell.auxiliar_id = auxiliar_id
+    elif tipo == TIPO_TRANSFERIR_MEMBRO:
+        pessoa_id = uuid.UUID(str(payload["pessoa_id"]))
+        destino_id = uuid.UUID(str(payload["celula_destino_id"]))
+        _assert_pessoa_in_tenant(db, igreja_id, pessoa_id, "pessoa_id")
+        destino = db.execute(
+            select(Celula).where(
+                Celula.id == destino_id, Celula.igreja_id == igreja_id
+            )
+        ).scalar_one_or_none()
+        if destino is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="celula_destino_id: célula não encontrada nesta igreja",
+            )
+        _deactivate_active_membership(db, igreja_id, pessoa_id)
+        db.add(
+            CelulaMembro(
+                igreja_id=igreja_id,
+                celula_id=destino_id,
+                pessoa_id=pessoa_id,
+                papel="membro",
+                ativo=True,
+            )
+        )
+        pessoa = db.execute(
+            select(Pessoa).where(Pessoa.id == pessoa_id)
+        ).scalar_one_or_none()
+        if pessoa is not None:
+            pessoa.celula_id = destino_id
+    elif tipo == TIPO_REMOVER_MEMBRO:
+        pessoa_id = uuid.UUID(str(payload["pessoa_id"]))
+        _assert_pessoa_in_tenant(db, igreja_id, pessoa_id, "pessoa_id")
+        _deactivate_active_membership(db, igreja_id, pessoa_id)
+        pessoa = db.execute(
+            select(Pessoa).where(Pessoa.id == pessoa_id)
+        ).scalar_one_or_none()
+        if pessoa is not None:
+            pessoa.celula_id = None
+    else:  # pragma: no cover - tipos válidos cobertos acima / multiplicacao à parte
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"tipo não aplicável: {tipo}",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Transições de estado (cada uma commita ou rollbacka uma única vez)
+# ---------------------------------------------------------------------------
+def approve(
+    db: Session,
+    *,
+    solicitacao: CelulaSolicitacao,
+    cell: Celula,
+    actor_pessoa_id: uuid.UUID | None,
+    approver_app_user_id: uuid.UUID | None,
+    idempotency_key: str | None,
+) -> CelulaSolicitacao:
+    """Aprova a solicitação e aplica o payload em transação única + auditoria.
+
+    Idempotência de estado: se já está `aprovada`, retorna o mesmo resultado sem
+    reprocessar (multiplicação reaproveita a linha existente). Estados terminais
+    diferentes → 409.
+    """
+    if solicitacao.status == STATUS_APROVADA:
+        # Reprocesso idempotente: nada muda, nenhum novo evento (SPEC §643).
+        return solicitacao
+    if solicitacao.status != STATUS_AGUARDANDO:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Solicitação não está aguardando aprovação",
+        )
+
+    if solicitacao.tipo == TIPO_MULTIPLICACAO:
+        key = (idempotency_key or "").strip()
+        if not key:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="idempotency_key é obrigatório para multiplicação",
+            )
+
+    try:
+        if solicitacao.tipo == TIPO_MULTIPLICACAO:
+            execute_multiplication(
+                db,
+                igreja_id=solicitacao.igreja_id,
+                cell_origin=cell,
+                payload=solicitacao.payload_proposto or {},
+                solicitacao_id=solicitacao.id,
+                idempotency_key=(idempotency_key or "").strip(),
+                approver_app_user_id=approver_app_user_id,
+            )
+        else:
+            _apply_payload(db, solicitacao=solicitacao, cell=cell)
+
+        de = solicitacao.status
+        solicitacao.status = STATUS_APROVADA
+        solicitacao.decidido_por = actor_pessoa_id
+        solicitacao.decidido_em = _now()
+        solicitacao.updated_at = _now()
+        _append_event(
+            db,
+            solicitacao=solicitacao,
+            acao=ACAO_APROVADA,
+            autor_id=actor_pessoa_id,
+            de_status=de,
+            para_status=STATUS_APROVADA,
+        )
+        db.flush()
+        db.commit()
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception:
+        db.rollback()
+        raise
+    return solicitacao
+
+
+def reject(
+    db: Session,
+    *,
+    solicitacao: CelulaSolicitacao,
+    actor_pessoa_id: uuid.UUID | None,
+    observacao_central: str,
+) -> CelulaSolicitacao:
+    """Rejeita a solicitação (não altera dado real). `observacao_central` obrigatória."""
+    if solicitacao.status not in OPEN_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Solicitação já foi decidida",
+        )
+    try:
+        de = solicitacao.status
+        solicitacao.status = STATUS_REJEITADA
+        solicitacao.observacao_central = observacao_central
+        solicitacao.decidido_por = actor_pessoa_id
+        solicitacao.decidido_em = _now()
+        solicitacao.updated_at = _now()
+        _append_event(
+            db,
+            solicitacao=solicitacao,
+            acao=ACAO_REJEITADA,
+            autor_id=actor_pessoa_id,
+            de_status=de,
+            para_status=STATUS_REJEITADA,
+            observacao=observacao_central,
+        )
+        db.flush()
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return solicitacao
+
+
+def request_adjustment(
+    db: Session,
+    *,
+    solicitacao: CelulaSolicitacao,
+    actor_pessoa_id: uuid.UUID | None,
+    observacao_central: str,
+) -> CelulaSolicitacao:
+    """Devolve ao líder em `ajuste_solicitado` (não altera dado real)."""
+    if solicitacao.status != STATUS_AGUARDANDO:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Solicitação não está aguardando decisão",
+        )
+    try:
+        de = solicitacao.status
+        solicitacao.status = STATUS_AJUSTE_SOLICITADO
+        solicitacao.observacao_central = observacao_central
+        solicitacao.decidido_por = actor_pessoa_id
+        solicitacao.decidido_em = _now()
+        solicitacao.updated_at = _now()
+        _append_event(
+            db,
+            solicitacao=solicitacao,
+            acao=ACAO_AJUSTE_SOLICITADO,
+            autor_id=actor_pessoa_id,
+            de_status=de,
+            para_status=STATUS_AJUSTE_SOLICITADO,
+            observacao=observacao_central,
+        )
+        db.flush()
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return solicitacao
+
+
+def resubmit(
+    db: Session,
+    *,
+    solicitacao: CelulaSolicitacao,
+    actor_pessoa_id: uuid.UUID | None,
+    new_payload: dict,
+) -> CelulaSolicitacao:
+    """Líder autor edita o payload e reenvia (só em `ajuste_solicitado`)."""
+    if solicitacao.status != STATUS_AJUSTE_SOLICITADO:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Só é possível reenviar solicitação em ajuste_solicitado",
+        )
+    try:
+        de = solicitacao.status
+        solicitacao.payload_proposto = new_payload
+        solicitacao.status = STATUS_AGUARDANDO
+        solicitacao.updated_at = _now()
+        _append_event(
+            db,
+            solicitacao=solicitacao,
+            acao=ACAO_REENVIADA,
+            autor_id=actor_pessoa_id,
+            de_status=de,
+            para_status=STATUS_AGUARDANDO,
+            payload_snapshot=new_payload,
+        )
+        db.flush()
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return solicitacao
+
+
+def cancel(
+    db: Session,
+    *,
+    solicitacao: CelulaSolicitacao,
+    actor_pessoa_id: uuid.UUID | None,
+) -> CelulaSolicitacao:
+    """Líder autor cancela a própria solicitação (só em aguardando/ajuste — E12)."""
+    if solicitacao.status not in OPEN_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Solicitação já decidida/cancelada não pode ser cancelada",
+        )
+    try:
+        de = solicitacao.status
+        solicitacao.status = STATUS_CANCELADA
+        solicitacao.updated_at = _now()
+        _append_event(
+            db,
+            solicitacao=solicitacao,
+            acao=ACAO_CANCELADA,
+            autor_id=actor_pessoa_id,
+            de_status=de,
+            para_status=STATUS_CANCELADA,
+        )
+        db.flush()
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    return solicitacao

@@ -127,3 +127,169 @@ export async function baixarAlert(
   }
   return (await res.json()) as CellAlert;
 }
+
+// ===========================================================================
+// Minha Célula — domínio Discípulo (Células PR3)
+// Contrato snake_case, espelhando exatamente os schemas do backend
+// (app/routers/cell_discipulo.py e cell_meetings.py::MembersOut).
+// ===========================================================================
+
+/** Corpo da próxima reunião futura (NextMeetingBody). */
+export interface NextMeetingBody {
+  id: string;
+  celula_id: string;
+  /** ISO date (YYYY-MM-DD). */
+  data: string;
+  /** HH:MM ou null. */
+  hora: string | null;
+  /** Endereço da célula (leitura permitida ao discípulo), ou null. */
+  local: string | null;
+  tema: string | null;
+  /** Presença do próprio membro (E5): confirmou|participou|faltou|nao_confirmou.
+   *  Inicializa o botão de confirmação sem um 2º request. */
+  minha_presenca: string;
+}
+
+/** Envelope da próxima reunião: `meeting` é null quando não houver. */
+export interface NextMeetingResponse {
+  meeting: NextMeetingBody | null;
+}
+
+/**
+ * Rótulo da própria presença numa reunião passada (E5):
+ * `participou` | `faltou` | `confirmou` | `nao_confirmou`.
+ */
+export type MinhaPresenca =
+  | "participou"
+  | "faltou"
+  | "confirmou"
+  | "nao_confirmou";
+
+/** Item MINIMIZADO do histórico (só dados do próprio membro). */
+export interface HistoryItem {
+  /** ISO date (YYYY-MM-DD). */
+  data: string;
+  tema: string | null;
+  minha_presenca: string;
+  meus_visitantes_indicados: string[];
+}
+
+/** Página do histórico de reuniões passadas do discípulo (snake_case). */
+export interface HistoryPage {
+  items: HistoryItem[];
+  page: number;
+  page_size: number;
+  total: number;
+}
+
+/** Membro de uma célula (MemberItem). */
+export interface CellMember {
+  pessoa_id: string;
+  nome: string;
+  ativo: boolean;
+}
+
+/** Lista de membros de uma célula (MembersOut). */
+export interface CellMembersOut {
+  members: CellMember[];
+}
+
+/**
+ * Próxima reunião FUTURA da célula do discípulo. "Sem célula" ou "sem ocorrência
+ * futura" são estados válidos e retornam `{ meeting: null }` (não erro).
+ */
+export async function getNextMeeting(
+  token: string,
+): Promise<NextMeetingResponse> {
+  const res = await authedFetch(token, `/cells/me/next-meeting`);
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível carregar a próxima reunião.");
+  }
+  return (await res.json()) as NextMeetingResponse;
+}
+
+/** Célula que o usuário LIDERA (via celulas.lider_id). */
+export interface LedCell {
+  id: string;
+  nome: string;
+}
+
+/**
+ * Células cujo líder é a Pessoa do usuário autenticado (fonte autoritativa da
+ * célula LIDERADA — distinta da célula onde ele é MEMBRO). Lista vazia quando
+ * não lidera nenhuma.
+ */
+export async function getMyLedCells(token: string): Promise<LedCell[]> {
+  const res = await authedFetch(token, `/cells/me/leading`);
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível resolver sua célula.");
+  }
+  return (await res.json()) as LedCell[];
+}
+
+/**
+ * Histórico paginado das reuniões PASSADAS do membro (projeção mínima).
+ * Mais recentes primeiro. Sem célula → página vazia (não erro).
+ */
+export async function getMyHistory(
+  token: string,
+  page = 1,
+  pageSize = 20,
+): Promise<HistoryPage> {
+  const query = new URLSearchParams({
+    page: String(page),
+    page_size: String(pageSize),
+  });
+  const res = await authedFetch(token, `/cells/me/history?${query.toString()}`);
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível carregar o histórico.");
+  }
+  return (await res.json()) as HistoryPage;
+}
+
+/** Lista os membros de uma célula (reuso do endpoint do líder — leitura). */
+export async function getCellMembers(
+  token: string,
+  cellId: string,
+): Promise<CellMembersOut> {
+  const res = await authedFetch(token, `/cells/${cellId}/members`);
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível carregar os membros.");
+  }
+  return (await res.json()) as CellMembersOut;
+}
+
+/**
+ * Reunião de uma célula (ReuniaoOut, camelCase). Contrato do endpoint
+ * `GET /cells/{cellId}/reunioes` (cell_meetings.py), aberto a qualquer
+ * autenticado do tenant. Ordenado do mais recente para o mais antigo.
+ */
+export interface Reuniao {
+  id: string;
+  celulaId: string;
+  /** ISO date (YYYY-MM-DD). */
+  data: string;
+  hora: string | null;
+  tema: string | null;
+  status: string;
+}
+
+/**
+ * Lista TODAS as reuniões (passadas e futuras) de uma célula — base do painel
+ * do líder para escolher a reunião a relatar. Sem paginação (BK-DEC-02).
+ */
+export async function listReunioes(
+  token: string,
+  cellId: string,
+): Promise<Reuniao[]> {
+  const res = await authedFetch(token, `/cells/${cellId}/reunioes`);
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível carregar as reuniões.");
+  }
+  return (await res.json()) as Reuniao[];
+}
