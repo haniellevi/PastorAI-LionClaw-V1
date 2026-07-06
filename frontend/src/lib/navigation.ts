@@ -105,16 +105,34 @@ export const NAV_SECTIONS: NavSection[] = [
       { target: "comunicados", label: "Comunicação", icon: "broadcast" },
     ],
   },
+];
+
+/**
+ * Seções da superfície administrativa da igreja (admin.<domínio> → /gestao).
+ * Reúne as telas que SÓ o admin opera — antes na seção "Configuração" do menu
+ * operacional. O painel operacional (app.) não as expõe mais; o admin chega
+ * aqui pelo botão "Admin". 'assinatura' segue owner-only (gate isOwner
+ * preservado no AdminAppShell e no Sidebar).
+ */
+export const ADMIN_NAV_SECTIONS: NavSection[] = [
   {
     id: "config",
-    label: "Configuração",
-    adminOnly: true,
+    label: "Configuração da Igreja",
     items: [
       { target: "whatsapp", label: "Conexão WhatsApp", icon: "whatsapp", accent: "whats" },
       { target: "agente", label: "Agente IA", icon: "agent" },
       { target: "assinatura", label: "Assinatura", icon: "card" },
       { target: "permissoes", label: "Permissões", icon: "lock" },
       { target: "equipe", label: "Usuários do Sistema", icon: "team" },
+    ],
+  },
+  {
+    id: "integracoes",
+    label: "Integrações",
+    items: [
+      // Config admin da Agenda (Google + destinatários), antes embutida em
+      // #calendario. A operação de eventos (criar/confirmar) segue no app.
+      { target: "integracoes", label: "Google Agenda", icon: "calendar" },
     ],
   },
 ];
@@ -246,6 +264,11 @@ export const SCREEN_META: Record<
     title: "Agente IA",
     crumb: "Configuração",
     info: "Configuração do agente de IA: comportamento e credencial do modelo (BYO).",
+  },
+  integracoes: {
+    title: "Integrações",
+    crumb: "Google Agenda e avisos",
+    info: "Conexão com o Google Agenda e destinatários dos avisos da Agenda.",
   },
   assinatura: {
     title: "Assinatura",

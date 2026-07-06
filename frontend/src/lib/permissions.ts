@@ -29,13 +29,14 @@ export const MENU_SCREENS = [
   "contatos",
 ] as const;
 
-/** Telas exclusivas de admin (grupo Configuração). */
+/** Telas exclusivas de admin (superfície administrativa — /gestao). */
 export const ADMIN_ONLY = [
   "agente",
   "whatsapp",
   "assinatura",
   "permissoes",
   "equipe",
+  "integracoes",
 ] as const;
 
 /** Telas legadas: deep-link válido, fora do menu (delta-012). */

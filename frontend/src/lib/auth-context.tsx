@@ -66,7 +66,33 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+// O token de sessão também vai para um cookie no domínio-pai (.igreja12.com.br)
+// para ser COMPARTILHADO entre as superfícies app./admin. (sessão seamless ao
+// trocar de host pelo botão "Admin"). Não é HttpOnly porque o cliente lê o
+// token para o header Authorization; a API usa Bearer e ignora cookies.
+// localStorage é mantido como fallback e para compatibilidade com sessões já
+// abertas antes desta mudança.
+const COOKIE_NAME = "pastorai_token";
+
+function cookieAttrs(): string {
+  let attrs = "; path=/; SameSite=Lax";
+  try {
+    const { hostname, protocol } = window.location;
+    if (hostname.endsWith("igreja12.com.br")) attrs += "; domain=.igreja12.com.br";
+    if (protocol === "https:") attrs += "; Secure";
+  } catch {
+    /* sem window: usa atributos padrão */
+  }
+  return attrs;
+}
+
 function readToken(): string | null {
+  try {
+    const match = document.cookie.match(/(?:^|;\s*)pastorai_token=([^;]+)/);
+    if (match?.[1]) return decodeURIComponent(match[1]);
+  } catch {
+    /* cookie indisponível: tenta localStorage */
+  }
   try {
     return window.localStorage.getItem(TOKEN_KEY);
   } catch {
@@ -75,6 +101,15 @@ function readToken(): string | null {
 }
 
 function writeToken(token: string | null) {
+  try {
+    if (token) {
+      document.cookie = `${COOKIE_NAME}=${encodeURIComponent(token)}; max-age=28800${cookieAttrs()}`;
+    } else {
+      document.cookie = `${COOKIE_NAME}=; max-age=0${cookieAttrs()}`;
+    }
+  } catch {
+    /* cookie indisponível */
+  }
   try {
     if (token) window.localStorage.setItem(TOKEN_KEY, token);
     else window.localStorage.removeItem(TOKEN_KEY);

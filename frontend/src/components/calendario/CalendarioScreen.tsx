@@ -32,9 +32,6 @@ import {
   type MouseEvent,
 } from "react";
 
-import { AlertRecipientsCard } from "@/components/calendario/AlertRecipientsCard";
-import { CalendarConnectCard } from "@/components/calendario/CalendarConnectCard";
-import type { ImportResult } from "@/lib/calendar-api";
 import { EventDetailModal } from "@/components/calendario/EventDetailModal";
 import { EventFormModal } from "@/components/calendario/EventFormModal";
 import { Button } from "@/components/ui/Button";
@@ -397,25 +394,6 @@ export function CalendarioScreen() {
     [token, replaceEvent, flashToast, handleSessionError],
   );
 
-  // EVT-6 PR6.4: import concluído no CalendarConnectCard. Recarrega os eventos e
-  // leva à fila "A confirmar", onde os importados (status='a_confirmar') caem.
-  const handleImported = useCallback(
-    async (r: ImportResult) => {
-      await load("retry");
-      setView("confirmar");
-      flashToast({
-        kind: "ok",
-        text:
-          r.created > 0
-            ? `${r.created} evento(s) importado(s)${r.skipped ? ` · ${r.skipped} ignorado(s)` : ""}. Confirme na fila.`
-            : r.skipped
-              ? `Nada novo: ${r.skipped} evento(s) já existentes ou sem data.`
-              : "Nenhum evento novo no Google.",
-      });
-    },
-    [load, flashToast],
-  );
-
   const showSkeleton = loading && !loaded;
   const periodLabel = calendarView ? viewLabel(cursor, calendarView) : "A confirmar";
 
@@ -481,9 +459,6 @@ export function CalendarioScreen() {
           </button>
         ))}
       </div>
-
-      <CalendarConnectCard onImported={handleImported} />
-      <AlertRecipientsCard />
 
       {error ? (
         <div className="error-banner" role="alert">

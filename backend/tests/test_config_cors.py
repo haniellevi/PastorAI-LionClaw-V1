@@ -36,9 +36,10 @@ def test_cors_origins_without_slash_unchanged() -> None:
 
 
 def test_cors_origins_adds_admin_subdomain() -> None:
-    # O console master roda em admin.<dominio> (mesma app na Vercel). Deve ser
-    # liberado automaticamente junto do app.<dominio>, senão o login do console
-    # a partir de admin.igreja12.com.br cai em CORS.
+    # As superfícies admin.<dominio> (admin da igreja) e painel.<dominio>
+    # (console master) rodam na MESMA app (Vercel) a partir do app.<dominio>.
+    # Devem ser liberadas automaticamente, senão o login a partir desses hosts
+    # cai em CORS.
     settings = Settings(
         frontend_url="https://app.igreja12.com.br",
         app_base_url="https://api.igreja12.com.br",
@@ -46,3 +47,4 @@ def test_cors_origins_adds_admin_subdomain() -> None:
     origins = settings.cors_origins
     assert "https://app.igreja12.com.br" in origins
     assert "https://admin.igreja12.com.br" in origins
+    assert "https://painel.igreja12.com.br" in origins
