@@ -285,6 +285,61 @@ def _validate_pessoa_refs(db: Session, payload: UpsertCellRequest) -> None:
     _assert_pessoa_tenant(db, _to_uuid(payload.auxiliarId), "auxiliarId")
 
 
+def _validate_lider_elegivel(
+    db: Session,
+    lider_id: uuid.UUID | None,
+    *,
+    exclude_celula_id: uuid.UUID | str | None = None,
+    celula_ativa: bool = True,
+) -> None:
+    """Guards de elegibilidade do líder (regra 2026-07-06).
+
+    Para ASSUMIR uma célula a pessoa precisa ser apta (Reencontro), não-CSIM e
+    não liderar OUTRA célula ativa (a própria célula, em edição, é excluída).
+    Editar mantendo o mesmo líder NÃO passa por aqui (grandfather — o call-site
+    só valida troca/atribuição). Tenant já garantido por _assert_pessoa_tenant.
+    """
+    if lider_id is None:
+        return
+    pessoa = db.execute(
+        select(Pessoa).where(Pessoa.id == lider_id)
+    ).scalar_one_or_none()
+    if pessoa is None:  # fail-closed (RLS já barrou outro tenant)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="liderId: pessoa não encontrada nesta igreja",
+        )
+    if bool(pessoa.sem_interesse):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="liderId: pessoa sem interesse (CSIM) não pode liderar célula",
+        )
+    if not bool(pessoa.apto_lider):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="liderId: pessoa ainda não fez o Reencontro (não apta a liderar)",
+        )
+    if not celula_ativa:
+        # Célula inativa não torna ninguém "líder de célula" — sem conflito.
+        return
+    lideradas = db.execute(
+        select(Celula).where(
+            Celula.lider_id == lider_id, Celula.ativo.is_(True)
+        )
+    ).scalars().all()
+    # Exclusão da própria célula em Python (não no SQL) — comparação por str
+    # cobre UUID×str e mantém os fakes de teste (predicados eq) fiéis.
+    conflito = any(
+        exclude_celula_id is None or str(c.id) != str(exclude_celula_id)
+        for c in lideradas
+    )
+    if conflito:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="liderId: pessoa já lidera uma célula ativa",
+        )
+
+
 def _sensitive_payload(payload: UpsertCellRequest) -> dict[str, object | None]:
     """Campos sensíveis (3.2) do payload, mapeados para os atributos do modelo."""
     return {
@@ -388,6 +443,9 @@ def upsert_cell(
                 ),
             )
         _validate_pessoa_refs(db, payload)
+        _validate_lider_elegivel(
+            db, _to_uuid(payload.liderId), celula_ativa=payload.ativo
+        )
         cell = Celula(
             igreja_id=uuid.UUID(current_user.igreja_id),
             nome=payload.nome,
@@ -417,6 +475,13 @@ def upsert_cell(
             detail="Apenas o líder da célula ou um superior pode editá-la",
         )
     _validate_pessoa_refs(db, payload)
+    # Elegibilidade (2026-07-06) só na TROCA/atribuição de líder: reenviar o
+    # mesmo líder passa (grandfather); remover líder (None) também.
+    novo_lider = _to_uuid(payload.liderId)
+    if novo_lider is not None and str(novo_lider) != str(cell.lider_id):
+        _validate_lider_elegivel(
+            db, novo_lider, exclude_celula_id=cell.id, celula_ativa=payload.ativo
+        )
     # Decisão 3.2: campos sensíveis só a Central altera direto; o líder solicita
     # (Solicitação chega no PR5). Um editor não-Central que tenta mudar sensível
     # é barrado (403); reenviar os mesmos valores (edição só de leves) passa.
