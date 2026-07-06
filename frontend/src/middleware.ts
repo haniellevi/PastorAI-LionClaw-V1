@@ -1,35 +1,43 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 /**
- * Roteia o subdomínio dedicado do console master (superfície separada do painel
- * da igreja). O console tem UM endereço canônico: `admin.<dominio>`.
+ * Roteia as três superfícies por subdomínio (mesmo deployment):
  *
- * - `admin.igreja12.com.br/…`     → serve o console (`/admin/…`) na raiz, sem o
- *   usuário precisar digitar `/admin` (reescrita interna; a URL no navegador
- *   continua `admin.igreja12.com.br/…`).
- * - `app.igreja12.com.br/admin…`  → REDIRECIONA para `admin.<dominio>` (o painel
- *   da igreja não expõe a tela do master; links antigos continuam levando ao
- *   lugar certo).
- * - `app.igreja12.com.br/…`       → inalterado (painel da igreja em `/`).
+ * - `painel.igreja12.com.br/…` → console master (dono do sistema). Reescreve
+ *   internamente para `/admin/…` (rota Next do console), sem o usuário digitar
+ *   `/admin`. A URL no navegador continua `painel.<dominio>/…`.
+ * - `admin.igreja12.com.br/…`  → painel do ADMIN da igreja. Reescreve para
+ *   `/gestao/…` (superfície administrativa da igreja).
+ * - `app.igreja12.com.br/admin…` → link legado do console (que morava em
+ *   `admin.`): REDIRECIONA para `painel.<dominio>`.
+ * - `app.igreja12.com.br/…`    → inalterado (painel operacional em `/`).
  *
- * As chamadas de API vão para `NEXT_PUBLIC_API_URL` (independe do host).
+ * O path interno (`/admin`, `/gestao`) é ortogonal ao host. As chamadas de API
+ * vão para `NEXT_PUBLIC_API_URL` (independe do host).
  */
 export function middleware(req: NextRequest) {
   const rawHost = req.headers.get("host") ?? "";
   const host = (rawHost.split(":")[0] ?? "").toLowerCase();
   const { pathname } = req.nextUrl;
 
-  // admin.<dominio>/… → serve o console na raiz.
-  if (host.startsWith("admin.") && !pathname.startsWith("/admin")) {
+  // painel.<dominio>/… → serve o console master (rota interna /admin) na raiz.
+  if (host.startsWith("painel.") && !pathname.startsWith("/admin")) {
     const url = req.nextUrl.clone();
     url.pathname = pathname === "/" ? "/admin" : `/admin${pathname}`;
     return NextResponse.rewrite(url);
   }
 
-  // app.<dominio>/admin… → redireciona para o subdomínio dedicado.
+  // admin.<dominio>/… → serve o painel do admin da igreja (rota interna /gestao).
+  if (host.startsWith("admin.") && !pathname.startsWith("/gestao")) {
+    const url = req.nextUrl.clone();
+    url.pathname = pathname === "/" ? "/gestao" : `/gestao${pathname}`;
+    return NextResponse.rewrite(url);
+  }
+
+  // app.<dominio>/admin… → link legado do console master, agora em painel.
   if (host.startsWith("app.") && pathname.startsWith("/admin")) {
     const target = new URL(req.nextUrl.toString());
-    target.host = host.replace(/^app\./, "admin.");
+    target.host = host.replace(/^app\./, "painel.");
     target.pathname = pathname.replace(/^\/admin/, "") || "/";
     return NextResponse.redirect(target);
   }

@@ -105,10 +105,19 @@ export const NAV_SECTIONS: NavSection[] = [
       { target: "comunicados", label: "Comunicação", icon: "broadcast" },
     ],
   },
+];
+
+/**
+ * Seções da superfície administrativa da igreja (admin.<domínio> → /gestao).
+ * Reúne as telas que SÓ o admin opera — antes na seção "Configuração" do menu
+ * operacional. O painel operacional (app.) não as expõe mais; o admin chega
+ * aqui pelo botão "Admin". 'assinatura' segue owner-only (gate isOwner
+ * preservado no AdminAppShell e no Sidebar).
+ */
+export const ADMIN_NAV_SECTIONS: NavSection[] = [
   {
     id: "config",
-    label: "Configuração",
-    adminOnly: true,
+    label: "Configuração da Igreja",
     items: [
       { target: "whatsapp", label: "Conexão WhatsApp", icon: "whatsapp", accent: "whats" },
       { target: "agente", label: "Agente IA", icon: "agent" },

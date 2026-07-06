@@ -159,13 +159,14 @@ class Settings(BaseSettings):
         cross-origin auth call (login, forgot-password) would be rejected.
         """
         origins = {self.frontend_url.rstrip("/"), self.app_base_url.rstrip("/")}
-        # O console master tem subdomínio dedicado (admin.<dominio>), servido
-        # pela MESMA app na Vercel. Libera-o automaticamente junto do
-        # app.<dominio>, senão o login do console (POST /admin/login) feito a
-        # partir de admin.igreja12.com.br cai em CORS (origem diferente).
+        # As superfícies painel.<dominio> (console master) e admin.<dominio>
+        # (admin da igreja) são servidas pela MESMA app na Vercel a partir do
+        # app.<dominio>. Libera-as automaticamente, senão o login feito a partir
+        # desses hosts (ex.: POST /admin/login, POST /auth/login) cai em CORS.
         for origin in list(origins):
             if "://app." in origin:
                 origins.add(origin.replace("://app.", "://admin.", 1))
+                origins.add(origin.replace("://app.", "://painel.", 1))
         return [o for o in origins if o]
 
     @property

@@ -9,8 +9,10 @@ import { useEffect, useState } from "react";
 
 import { useAuth } from "@/lib/auth-context";
 import { SCREEN_META } from "@/lib/navigation";
-import { canSee } from "@/lib/permissions";
+import { ADMIN_ONLY, canSee } from "@/lib/permissions";
 import { usePermissions } from "@/lib/permissions-context";
+import { isAdmin } from "@/lib/roles";
+import { adminSurfaceHref } from "@/lib/surface";
 import { useHashRoute } from "@/lib/use-hash-route";
 
 import { BottomNav } from "./BottomNav";
@@ -29,12 +31,22 @@ const ALWAYS_ALLOWED = new Set(["perfil"]);
 /** Telas restritas ao DONO (admin principal) da igreja — admin não basta (#4). */
 const OWNER_ONLY = new Set(["assinatura"]);
 
+/** Telas administrativas — vivem na superfície admin (admin.<domínio> → /gestao),
+ *  fora do painel operacional. Bloqueadas por URL aqui, inclusive para admin. */
+const ADMIN_ONLY_SET = new Set<string>(ADMIN_ONLY);
+
 export function AppShell() {
   const { user, logout } = useAuth();
   const { matrix } = usePermissions();
   const [route, navigate] = useHashRoute();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [adminHref, setAdminHref] = useState<string | null>(null);
+
+  // Botão "Admin" (troca para a superfície admin.) só para o papel admin.
+  useEffect(() => {
+    setAdminHref(user && isAdmin(user.roles) ? adminSurfaceHref() : null);
+  }, [user]);
 
   // Deep-link: a rota pode carregar um parâmetro (ex.: "contatos/<id>").
   const slash = route.indexOf("/");
@@ -47,6 +59,7 @@ export function AppShell() {
   const ownerOk = !OWNER_ONLY.has(base) || (user?.isOwner ?? false);
   const permitted =
     ownerOk &&
+    !ADMIN_ONLY_SET.has(base) &&
     (ALWAYS_ALLOWED.has(base) || (user ? canSee(base, user.roles, matrix) : false));
   const allowed = known && permitted && !LOCKED_SCREENS.has(base);
   const resolvedBase = allowed ? base : "dashboard";
@@ -72,6 +85,7 @@ export function AppShell() {
       <Sidebar
         user={user}
         route={resolvedBase}
+        crossSurface={adminHref ? { href: adminHref, label: "Admin" } : null}
         collapsed={collapsed}
         mobileOpen={mobileOpen}
         onNavigate={navigate}

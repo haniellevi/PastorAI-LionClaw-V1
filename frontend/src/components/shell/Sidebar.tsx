@@ -25,6 +25,11 @@ import { isAdmin } from "@/lib/roles";
 interface SidebarProps {
   user: SessionUser;
   route: string;
+  /** Fonte das seções de navegação. Default = NAV_SECTIONS (painel operacional);
+   *  a superfície admin passa ADMIN_NAV_SECTIONS. */
+  sections?: NavSection[];
+  /** Link para trocar de superfície (app↔admin). null oculta o item. */
+  crossSurface?: { href: string; label: string } | null;
   collapsed: boolean;
   mobileOpen: boolean;
   onNavigate: (target: string) => void;
@@ -42,6 +47,8 @@ function initials(name: string): string {
 export function Sidebar({
   user,
   route,
+  sections = NAV_SECTIONS,
+  crossSurface = null,
   collapsed,
   mobileOpen,
   onNavigate,
@@ -60,10 +67,10 @@ export function Sidebar({
   }, [user.roles, user.isOwner, matrix]);
   const visible = (target: string) => allowed.has(target);
 
-  // Seções visíveis (Configuração apenas para admin).
-  const sections = useMemo(
-    () => NAV_SECTIONS.filter((s) => (s.adminOnly ? admin : true)),
-    [admin],
+  // Seções visíveis (grupos adminOnly só para admin).
+  const visibleSections = useMemo(
+    () => sections.filter((s) => (s.adminOnly ? admin : true)),
+    [sections, admin],
   );
 
   function renderItem(item: NavItem, accent?: NavItem["accent"]) {
@@ -158,7 +165,24 @@ export function Sidebar({
         </span>
       </div>
 
-      <div className="nav-scroll">{sections.map(renderSection)}</div>
+      <div className="nav-scroll">
+        {crossSurface ? (
+          <div className="nav-group">
+            <a
+              className="nav-item"
+              href={crossSurface.href}
+              data-tip={crossSurface.label}
+              data-accent="whats"
+            >
+              <span className="nav-ic" aria-hidden="true">
+                <Icon name="lock" />
+              </span>
+              <span className="lbl">{crossSurface.label}</span>
+            </a>
+          </div>
+        ) : null}
+        {visibleSections.map(renderSection)}
+      </div>
 
       <div className="side-foot">
         <div className="side-user">
