@@ -20,7 +20,27 @@ strings, tokens ou chaves; só refs de projeto, hosts e domínios públicos).
 | **Conexão DB** | Pooler Supavisor `…pooler.supabase.com:6543` (host direto `db.<ref>` é **IPv6-only**, não conecta local) | idem (pooler) |
 | **Clerk** | instância **dev/test** `lenient-bat-59.clerk.accounts.dev` (`pk_test`/`sk_test`) | instância de **produção** (≠ dev — chaves `pk_live`/`sk_live`) |
 | **Backend** | local `127.0.0.1:8001` (`APP_ENV=staging`, `ALLOW_REAL_SENDS=false`) | `https://api.igreja12.com.br` (VPS, `APP_ENV=production`) |
-| **Frontend** | local `127.0.0.1:3001` (Next dev) | Vercel projeto **pastorai-frontend** → `https://app.igreja12.com.br` |
+| **Frontend** | local `127.0.0.1:3001` (Next dev) | Vercel projeto **pastorai-frontend** → 3 domínios (ver §1b) |
+
+### 1b. Domínios do frontend — 3 superfícies (desde 2026-07-06, PR #101)
+
+O MESMO deployment Vercel serve **três subdomínios**, roteados por Host no
+`frontend/src/middleware.ts`:
+
+| Domínio | Superfície | Rota interna |
+|---|---|---|
+| `painel.igreja12.com.br` | **Console master** (dono do sistema) — login próprio `/admin/login`, allowlist `platform_admins` | `/admin` |
+| `admin.igreja12.com.br` | **Admin da igreja** — menu administrativo (Configuração + Integrações: Google Agenda/destinatários) | `/gestao` |
+| `app.igreja12.com.br` | **Uso diário** (todos os papéis; sem telas/cards admin) | `/` |
+
+- `app.igreja12.com.br/admin…` → redirect 307 para `painel.` (link legado do console).
+- Sessão da igreja é compartilhada entre `app.` e `admin.` via cookie
+  `pastorai_token` com `domain=.igreja12.com.br` (localStorage é fallback);
+  o console master usa token separado (`pastorai:admin-token`).
+- DNS: os três subdomínios são CNAME → `cname.vercel-dns.com` (Hostinger) e
+  domínios do projeto Vercel (o `vercel --prod` re-aliasa todos).
+- CORS do backend deriva `admin.` e `painel.` de `app.` automaticamente
+  (`config.py::cors_origins`).
 
 ⚠️ **Envios externos em produção:** como `external_sends_enabled = is_production OR
 allow_real_sends`, em prod (`is_production=true`) **os envios reais estão ligados**
