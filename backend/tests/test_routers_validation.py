@@ -67,6 +67,17 @@ def test_create_contact_rejects_invalid_tipo(app) -> None:
     assert resp.status_code == 422
 
 
+def test_create_contact_rejects_tipo_lider(app) -> None:
+    # "lider" não é atribuível manualmente: liderança deriva da célula ativa.
+    client = _client(app)
+    resp = client.post(
+        "/contacts",
+        json={"nome": "Maria", "telefone": "11999990000", "tipo": "lider"},
+        headers=_AUTH,
+    )
+    assert resp.status_code == 422
+
+
 # ---- cell upsert validation -----------------------------------------------
 def test_upsert_cell_requires_cobertura(app) -> None:
     client = _client(app)

@@ -9,8 +9,11 @@ A person is a valid recipient only when they:
   - have granted consent (`consentimento=true`).
 
 The "todos" segment matches everyone in the tenant. Other segments match the
-person's `tipo` (e.g. "membro", "lider", "visitante"). Unknown segments simply
-match nobody, so a typo never silently broadcasts to the whole church.
+person's `tipo` (e.g. "membro", "visitante"). The "lider" segment is special:
+it matches who LEADS an active cell (`lidera_celula`, derived from
+celulas.lider_id) — "lider" is no longer a manual tipo (regra 2026-07-06).
+Unknown segments simply match nobody, so a typo never silently broadcasts to
+the whole church.
 """
 
 from __future__ import annotations
@@ -34,6 +37,9 @@ class RecipientCandidate:
     tipo: str | None
     optout: bool
     consentimento: bool
+    # Derivado: lidera célula ATIVA (celulas.lider_id). Alimenta o segmento
+    # "lider" sem depender do tipo manual (que não existe mais para líder).
+    lidera_celula: bool = False
 
 
 @dataclass(frozen=True)
@@ -64,8 +70,12 @@ def matches_segments(candidate: RecipientCandidate, segments: list[str]) -> bool
     """True if the candidate belongs to any of the requested segments."""
     if SEGMENT_ALL in segments:
         return True
+    known = {s for s in segments if s in KNOWN_TIPO_SEGMENTS}
+    # "lider" casa pelo vínculo real com célula ativa (derivado), não pelo tipo.
+    if "lider" in known and candidate.lidera_celula:
+        return True
     tipo = (candidate.tipo or "").strip().lower()
-    return tipo in {s for s in segments if s in KNOWN_TIPO_SEGMENTS} and bool(tipo)
+    return tipo in known and bool(tipo)
 
 
 def resolve_audience(

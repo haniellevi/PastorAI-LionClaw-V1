@@ -30,6 +30,47 @@ logger = logging.getLogger("pastorai.contacts")
 
 router = APIRouter(prefix="/contacts", tags=["contacts"])
 
+# Tipos atribuíveis manualmente. "lider" saiu de propósito: líder de célula é
+# DERIVADO (celulas.lider_id em célula ativa), nunca um rótulo manual — a
+# aptidão (Reencontro) é a flag apto_lider (decisão do dono 2026-07-06).
+_TIPOS_PERMITIDOS = {"contato", "visitante", "membro", "pastor", "discipulo"}
+
+
+def _validate_tipo(value: str | None) -> str | None:
+    if value is None:
+        return None
+    value = value.strip().lower()
+    if value == "lider":
+        raise ValueError(
+            "tipo 'lider' não é atribuível manualmente — "
+            "liderança deriva do vínculo com célula ativa"
+        )
+    if value not in _TIPOS_PERMITIDOS:
+        raise ValueError(f"tipo inválido: {value}")
+    return value
+
+
+def _leads_active_cell(db: Session, pessoa_id) -> bool:
+    """True se a pessoa lidera alguma célula ATIVA (líder de célula derivado)."""
+    return (
+        db.execute(
+            select(Celula.id)
+            .where(Celula.lider_id == pessoa_id, Celula.ativo.is_(True))
+            .limit(1)
+        ).scalar_one_or_none()
+        is not None
+    )
+
+
+def _active_leader_ids(db: Session) -> set[str]:
+    """IDs (str) das pessoas que lideram célula ativa no tenant (RLS)."""
+    rows = db.execute(
+        select(Celula.lider_id).where(
+            Celula.ativo.is_(True), Celula.lider_id.is_not(None)
+        )
+    ).scalars().all()
+    return {str(r) for r in rows}
+
 
 # ---------------------------------------------------------------------------
 # Schemas
@@ -52,9 +93,11 @@ class ContactOut(BaseModel):
     aceitouJesus: bool  # noqa: N815
     celulaId: str | None = None  # noqa: N815
     liderId: str | None = None  # noqa: N815
+    aptoLider: bool = False  # noqa: N815 - realizou o Reencontro
+    liderDeCelula: bool = False  # noqa: N815 - derivado: lidera célula ativa
 
     @classmethod
-    def from_model(cls, p: Pessoa) -> "ContactOut":
+    def from_model(cls, p: Pessoa, *, lider_de_celula: bool = False) -> "ContactOut":
         return cls(
             id=str(p.id),
             nome=p.nome,
@@ -71,6 +114,8 @@ class ContactOut(BaseModel):
             aceitouJesus=p.aceitou_jesus,
             celulaId=str(p.celula_id) if p.celula_id else None,
             liderId=str(p.lider_id) if p.lider_id else None,
+            aptoLider=bool(p.apto_lider),
+            liderDeCelula=lider_de_celula,
         )
 
 
@@ -101,6 +146,8 @@ class ContactDetailOut(BaseModel):
     celulaNome: str | None = None  # noqa: N815
     liderId: str | None = None  # noqa: N815
     liderNome: str | None = None  # noqa: N815
+    aptoLider: bool = False  # noqa: N815 - realizou o Reencontro
+    liderDeCelula: bool = False  # noqa: N815 - derivado: lidera célula ativa
     consentimento: bool
     optout: bool
     origem: str | None = None
@@ -114,6 +161,7 @@ class ContactDetailOut(BaseModel):
         *,
         celula_nome: str | None = None,
         lider_nome: str | None = None,
+        lider_de_celula: bool = False,
     ) -> "ContactDetailOut":
         return cls(
             id=str(p.id),
@@ -135,6 +183,8 @@ class ContactDetailOut(BaseModel):
             celulaNome=celula_nome,
             liderId=str(p.lider_id) if p.lider_id else None,
             liderNome=lider_nome,
+            aptoLider=bool(p.apto_lider),
+            liderDeCelula=lider_de_celula,
             consentimento=p.consentimento,
             optout=p.optout,
             origem=p.origem,
@@ -178,13 +228,7 @@ class CreateContactRequest(BaseModel):
     @field_validator("tipo")
     @classmethod
     def _tipo(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        value = value.strip().lower()
-        allowed = {"contato", "visitante", "membro", "lider", "pastor", "discipulo"}
-        if value not in allowed:
-            raise ValueError(f"tipo inválido: {value}")
-        return value
+        return _validate_tipo(value)
 
 
 class CreateContactResponse(BaseModel):
@@ -206,6 +250,7 @@ class UpdateContactRequest(BaseModel):
     tipo: str | None = Field(default=None)
     semInteresse: bool | None = Field(default=None)  # noqa: N815 - CSIM (#1)
     semInteresseMotivo: str | None = Field(default=None, max_length=200)  # noqa: N815
+    aptoLider: bool | None = Field(default=None)  # noqa: N815 - Reencontro
 
     @field_validator("nome", "telefone")
     @classmethod
@@ -230,13 +275,7 @@ class UpdateContactRequest(BaseModel):
     @field_validator("tipo")
     @classmethod
     def _tipo(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        value = value.strip().lower()
-        allowed = {"contato", "visitante", "membro", "lider", "pastor", "discipulo"}
-        if value not in allowed:
-            raise ValueError(f"tipo inválido: {value}")
-        return value
+        return _validate_tipo(value)
 
 
 class LinkCellRequest(BaseModel):
@@ -275,8 +314,12 @@ def list_contacts(
         .limit(pagination.limit)
     ).scalars().all()
 
+    leader_ids = _active_leader_ids(db)
     return Page[ContactOut](
-        items=[ContactOut.from_model(p) for p in rows],
+        items=[
+            ContactOut.from_model(p, lider_de_celula=str(p.id) in leader_ids)
+            for p in rows
+        ],
         page=pagination.page,
         pageSize=pagination.page_size,
         total=int(total),
@@ -318,7 +361,10 @@ def create_contact(
     if existing is not None:
         logger.info("create_contact deduped to existing pessoa")
         return CreateContactResponse(
-            contact=ContactOut.from_model(existing), deduped=True
+            contact=ContactOut.from_model(
+                existing, lider_de_celula=_leads_active_cell(db, existing.id)
+            ),
+            deduped=True,
         )
 
     pessoa = Pessoa(
@@ -387,7 +433,10 @@ def get_contact(
         ).scalar_one_or_none()
 
     return ContactDetailOut.from_model(
-        pessoa, celula_nome=celula_nome, lider_nome=lider_nome
+        pessoa,
+        celula_nome=celula_nome,
+        lider_nome=lider_nome,
+        lider_de_celula=_leads_active_cell(db, pessoa.id),
     )
 
 
@@ -455,19 +504,43 @@ def update_contact(
         pessoa.endereco = payload.endereco
     if payload.tipo is not None:
         pessoa.tipo = payload.tipo
-    # CSIM (#1): admin marca/desmarca; ao desmarcar, limpa o motivo.
+    # CSIM (#1): admin marca/desmarcar; ao desmarcar, limpa o motivo. Marcar
+    # CSIM zera a aptidão — CSIM está fora da visão, nunca apto/líder. Quem
+    # LIDERA célula ativa não pode virar CSIM sem antes trocar o líder (409).
     if payload.semInteresse is not None:
+        if payload.semInteresse and _leads_active_cell(db, pessoa.id):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Pessoa lidera uma célula ativa — troque o líder da célula "
+                    "antes de marcar sem interesse"
+                ),
+            )
         pessoa.sem_interesse = payload.semInteresse
         if not payload.semInteresse:
             pessoa.sem_interesse_motivo = None
-        elif payload.semInteresseMotivo is not None:
-            pessoa.sem_interesse_motivo = payload.semInteresseMotivo
+        else:
+            pessoa.apto_lider = False
+            if payload.semInteresseMotivo is not None:
+                pessoa.sem_interesse_motivo = payload.semInteresseMotivo
+
+    # Aptidão (Reencontro): flag administrativa; CSIM não pode ser apto.
+    if payload.aptoLider is not None:
+        if payload.aptoLider and pessoa.sem_interesse:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Pessoa sem interesse (CSIM) não pode ser apta a liderar",
+            )
+        pessoa.apto_lider = payload.aptoLider
 
     db.flush()
     db.refresh(pessoa)
+    # Deriva ANTES do commit: o SET LOCAL da RLS reverte no commit e a query
+    # passaria a rodar fora do contexto de tenant (role com BYPASSRLS).
+    lider_de_celula = _leads_active_cell(db, pessoa.id)
     db.commit()
 
-    return ContactOut.from_model(pessoa)
+    return ContactOut.from_model(pessoa, lider_de_celula=lider_de_celula)
 
 
 @router.post("/{contact_id}/cell", response_model=ContactOut)
@@ -537,6 +610,8 @@ def link_cell(
     pessoa.celula_id = celula.id
     db.flush()  # fires trg_link_cell_promote (acompanhamento -> consolidado)
     db.refresh(pessoa)
+    # Deriva ANTES do commit (RLS: SET LOCAL reverte no commit).
+    lider_de_celula = _leads_active_cell(db, pessoa.id)
     db.commit()
 
-    return ContactOut.from_model(pessoa)
+    return ContactOut.from_model(pessoa, lider_de_celula=lider_de_celula)

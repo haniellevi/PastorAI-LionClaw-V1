@@ -38,18 +38,25 @@ class _R:
 class DetailSession:
     """Routes auth (AppUser/UserRole) + the Pessoa/Celula lookups."""
 
-    def __init__(self, *, app_user, roles, pessoa, celula_nome=None) -> None:
+    def __init__(
+        self, *, app_user, roles, pessoa, celula_nome=None, led_cell_id=None
+    ) -> None:
         self.app_user = app_user
         self.roles = roles
         self.pessoa = pessoa
         self.celula_nome = celula_nome
+        self.led_cell_id = led_cell_id  # célula ativa liderada (liderDeCelula)
 
     def execute(self, statement, params=None) -> _R:
         descs = list(getattr(statement, "column_descriptions", []) or [])
-        ent = descs[0].get("entity") if descs else None
+        d0 = descs[0] if descs else {}
+        ent = d0.get("entity")
         if ent is AppUser:
             return _R(scalar=self.app_user)
         if ent is Celula:
+            # select(Celula.nome) (rótulo) vs select(Celula.id) (liderDeCelula).
+            if d0.get("name") == "id":
+                return _R(scalar=self.led_cell_id)
             return _R(scalar=self.celula_nome)
         if ent is Pessoa:
             return _R(scalar=self.pessoa)
@@ -78,6 +85,7 @@ def make_pessoa(*, celula_id=None):
         aceitou_jesus=False,
         celula_id=celula_id,
         lider_id=None,
+        apto_lider=False,
         consentimento=True,
         optout=False,
         origem="whatsapp",
@@ -126,6 +134,26 @@ def test_detail_returns_full_shape(app) -> None:
     assert body["celulaNome"] == "Célula Alfa"
     assert body["consentimento"] is True
     assert body["origem"] == "whatsapp"
+    assert body["aptoLider"] is False
+    assert body["liderDeCelula"] is False
+
+
+def test_detail_derives_lider_de_celula(app) -> None:
+    # liderDeCelula = vínculo real (celulas.lider_id em célula ativa), não tipo.
+    pessoa = make_pessoa()
+    pessoa.apto_lider = True
+    session = DetailSession(
+        app_user=make_app_user(),
+        roles=["pastor"],
+        pessoa=pessoa,
+        led_cell_id="00000000-0000-0000-0000-0000000000c9",
+    )
+    client = _wire(app, session=session)
+    resp = client.get(f"/contacts/{_PID}", headers=_AUTH)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["aptoLider"] is True
+    assert body["liderDeCelula"] is True
 
 
 def test_detail_invalid_uuid_is_404(app) -> None:

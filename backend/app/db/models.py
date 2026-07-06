@@ -111,6 +111,11 @@ class Pessoa(Base):
     apto_proxima_cd: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false")
     )
+    # Apto a liderar célula (realizou o Reencontro). Liderança efetiva é
+    # DERIVADA de celulas.lider_id em célula ativa — nunca de pessoas.tipo.
+    apto_lider: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
     # CSIM (#1): contato sem interesse ministerial — fica fora do funil pastoral.
     sem_interesse: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false")

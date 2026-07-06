@@ -36,6 +36,9 @@ class OverviewOut(BaseModel):
     total: int
     decisoesJesus: int  # noqa: N815
     celulasAtivas: int  # noqa: N815
+    # Líderes de célula DERIVADOS (pessoas distintas em celulas.lider_id de
+    # célula ativa) — nunca de pessoas.tipo (regra 2026-07-06).
+    lideresCelula: int  # noqa: N815
     semInteresse: int  # noqa: N815 - CSIM
     porTipo: dict[str, int]  # noqa: N815
     porEtapa: dict[str, int]  # noqa: N815
@@ -47,6 +50,7 @@ class OverviewOut(BaseModel):
             total=0,
             decisoesJesus=0,
             celulasAtivas=0,
+            lideresCelula=0,
             semInteresse=0,
             porTipo=normalize_counts({}, TIPO_BUCKETS),
             porEtapa=normalize_counts({}, ETAPA_BUCKETS),
@@ -134,11 +138,19 @@ def overview(
         cells_q = cells_q.where(cell_filter)
     celulas_ativas = int(db.execute(cells_q).scalar_one())
 
+    leaders_q = select(func.count(func.distinct(Celula.lider_id))).where(
+        Celula.ativo.is_(True), Celula.lider_id.is_not(None)
+    )
+    if cell_filter is not None:
+        leaders_q = leaders_q.where(cell_filter)
+    lideres_celula = int(db.execute(leaders_q).scalar_one() or 0)
+
     return OverviewOut(
         scope=scope,
         total=total,
         decisoesJesus=decisoes,
         celulasAtivas=celulas_ativas,
+        lideresCelula=lideres_celula,
         semInteresse=sem_interesse,
         porTipo=por_tipo,
         porEtapa=por_etapa,

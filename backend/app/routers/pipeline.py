@@ -41,7 +41,7 @@ from app.domain.consolidation import (
 )
 from app.domain.pipeline import VALID_ETAPAS, validate_transition
 from app.routers._common import Page, PaginationParams, ensure_tenant_context
-from app.routers.contacts import ContactOut
+from app.routers.contacts import ContactOut, _active_leader_ids
 
 logger = logging.getLogger("pastorai.pipeline")
 
@@ -199,8 +199,12 @@ def list_pipeline(
         .limit(pagination.limit)
     ).scalars().all()
 
+    leader_ids = _active_leader_ids(db)
     return Page[ContactOut](
-        items=[ContactOut.from_model(p) for p in rows],
+        items=[
+            ContactOut.from_model(p, lider_de_celula=str(p.id) in leader_ids)
+            for p in rows
+        ],
         page=pagination.page,
         pageSize=pagination.page_size,
         total=int(total),
