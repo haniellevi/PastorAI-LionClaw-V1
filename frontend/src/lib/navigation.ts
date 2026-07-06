@@ -126,6 +126,15 @@ export const ADMIN_NAV_SECTIONS: NavSection[] = [
       { target: "equipe", label: "Usuários do Sistema", icon: "team" },
     ],
   },
+  {
+    id: "integracoes",
+    label: "Integrações",
+    items: [
+      // Config admin da Agenda (Google + destinatários), antes embutida em
+      // #calendario. A operação de eventos (criar/confirmar) segue no app.
+      { target: "integracoes", label: "Google Agenda", icon: "calendar" },
+    ],
+  },
 ];
 
 /** Cor do bloco de ícone por estágio da Jornada (protótipo). */
@@ -255,6 +264,11 @@ export const SCREEN_META: Record<
     title: "Agente IA",
     crumb: "Configuração",
     info: "Configuração do agente de IA: comportamento e credencial do modelo (BYO).",
+  },
+  integracoes: {
+    title: "Integrações",
+    crumb: "Google Agenda e avisos",
+    info: "Conexão com o Google Agenda e destinatários dos avisos da Agenda.",
   },
   assinatura: {
     title: "Assinatura",
