@@ -7,7 +7,7 @@
  * (backend, extra="forbid"): nome_nova_celula + novo_lider_id + N membros
  * transferidos (o novo líder é sempre incluído) + descendência (opcional).
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
@@ -17,6 +17,7 @@ import {
   createRequest,
   CellRequestConflictError,
 } from "@/lib/cell-requests-api";
+import { fetchContacts, type Contact } from "@/lib/contacts-api";
 import type { CellMember } from "@/lib/cells-api";
 import type { FlashToast } from "./types";
 
@@ -42,6 +43,33 @@ export function MultiplicationRequestModal({
   const [descendencia, setDescendencia] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Aptidão por pessoa (regra 2026-07-06): novo líder precisa ter feito o
+  // Reencontro, não ser CSIM e não liderar célula ativa. Vem de api-contacts;
+  // se a carga falhar, mantém tudo habilitado (o backend valida na aprovação).
+  const [contactById, setContactById] = useState<Map<string, Contact> | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetchContacts(token)
+      .then((page) => {
+        if (alive) setContactById(new Map(page.items.map((c) => [c.id, c])));
+      })
+      .catch(() => {
+        /* sem dados de aptidão — degrade: backend bloqueia na aprovação */
+      });
+    return () => {
+      alive = false;
+    };
+  }, [token]);
+
+  function leaderBlockReason(pessoaId: string): string | null {
+    const c = contactById?.get(pessoaId);
+    if (!c) return null;
+    if (c.semInteresse) return "sem interesse (CSIM)";
+    if (!c.aptoLider) return "ainda não fez o Reencontro";
+    if (c.liderDeCelula) return "já lidera célula ativa";
+    return null;
+  }
 
   // O novo líder é sempre um dos transferidos (invariante do backend).
   const membroIds = useMemo(() => {
@@ -155,11 +183,19 @@ export function MultiplicationRequestModal({
               disabled={busy}
             >
               <option value="">Selecione…</option>
-              {members.map((m) => (
-                <option key={m.pessoa_id} value={m.pessoa_id}>
-                  {m.nome}
-                </option>
-              ))}
+              {members.map((m) => {
+                const reason = leaderBlockReason(m.pessoa_id);
+                return (
+                  <option
+                    key={m.pessoa_id}
+                    value={m.pessoa_id}
+                    disabled={reason !== null}
+                  >
+                    {m.nome}
+                    {reason ? ` — ${reason}` : ""}
+                  </option>
+                );
+              })}
             </select>
           </div>
 

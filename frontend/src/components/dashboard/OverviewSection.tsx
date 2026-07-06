@@ -9,12 +9,13 @@ import { StatCard, type StatCardData } from "./StatCard";
 import type { OverviewStats } from "@/lib/dashboard-api";
 import type { IconKey } from "@/lib/icons";
 
+// "lider" saiu de porTipo: líder de célula é DERIVADO (lideresCelula, do
+// vínculo celulas.lider_id em célula ativa) — regra 2026-07-06.
 const TIPO_ORDER: Array<[string, string]> = [
   ["contato", "Contatos"],
   ["visitante", "Visitantes"],
   ["discipulo", "Discípulos"],
   ["membro", "Membros"],
-  ["lider", "Líderes"],
   ["pastor", "Pastores"],
   ["sem_interesse", "Sem interesse"],
 ];
@@ -27,6 +28,25 @@ const ETAPA_ORDER: Array<[string, string, IconKey]> = [
 ];
 
 export function OverviewSection({ stats }: { stats: OverviewStats }) {
+  // Pills "Por tipo" + o contador derivado de líderes (após Membros).
+  const tipoPills: Array<{ key: string; label: string; value: number }> = [
+    ...TIPO_ORDER.slice(0, 4).map(([key, label]) => ({
+      key,
+      label,
+      value: stats.porTipo[key] ?? 0,
+    })),
+    {
+      key: "lideres_celula",
+      label: "Líderes de célula",
+      value: stats.lideresCelula ?? 0,
+    },
+    ...TIPO_ORDER.slice(4).map(([key, label]) => ({
+      key,
+      label,
+      value: stats.porTipo[key] ?? 0,
+    })),
+  ];
+
   const kpis: StatCardData[] = [
     { icon: "team", label: "Pessoas", value: stats.total, delta: "no total" },
     {
@@ -68,10 +88,10 @@ export function OverviewSection({ stats }: { stats: OverviewStats }) {
         <div className="card card-pad">
           <h4 className="ov-title">Por tipo</h4>
           <div className="ov-pills">
-            {TIPO_ORDER.map(([key, label]) => (
-              <span className="ov-pill" key={key}>
-                <span className="ov-pill-label">{label}</span>
-                <span className="ov-pill-val num">{stats.porTipo[key] ?? 0}</span>
+            {tipoPills.map((p) => (
+              <span className="ov-pill" key={p.key}>
+                <span className="ov-pill-label">{p.label}</span>
+                <span className="ov-pill-val num">{p.value}</span>
               </span>
             ))}
           </div>

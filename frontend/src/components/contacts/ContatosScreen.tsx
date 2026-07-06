@@ -40,7 +40,8 @@ type Filter =
   | "contato"
   | "visitante"
   | "discipulo"
-  | "lider"
+  | "lideres_celula"
+  | "aptos"
   | "pastor"
   | "csim";
 
@@ -49,13 +50,16 @@ interface Toast {
   text: string;
 }
 
+// "Líderes de célula" é DERIVADO do vínculo real (liderDeCelula), não do tipo;
+// "Aptos sem célula" = fez o Reencontro e ainda não lidera (regra 2026-07-06).
 const FILTERS: Array<{ id: Filter; label: string; warn?: boolean }> = [
   { id: "all", label: "Todos" },
   { id: "pending", label: "Sem acompanhamento", warn: true },
   { id: "contato", label: "Contatos" },
   { id: "visitante", label: "Visitantes" },
   { id: "discipulo", label: "Discípulos" },
-  { id: "lider", label: "Líderes" },
+  { id: "lideres_celula", label: "Líderes de célula" },
+  { id: "aptos", label: "Aptos sem célula" },
   { id: "pastor", label: "Pastores" },
   { id: "csim", label: "Sem interesse (CSIM)", warn: true },
 ];
@@ -100,6 +104,9 @@ function matchesFilter(c: Contact, f: Filter): boolean {
   if (f === "all") return true;
   if (f === "pending") return followStatus(c).label === "Sem acompanhamento";
   if (f === "csim") return c.semInteresse === true;
+  // CSIM fica fora da visão: nunca aparece como líder/apto.
+  if (f === "lideres_celula") return c.liderDeCelula && !c.semInteresse;
+  if (f === "aptos") return c.aptoLider && !c.liderDeCelula && !c.semInteresse;
   return c.tipo === f;
 }
 
@@ -301,7 +308,14 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
           c.semInteresse ? (
             <StatusPill tone="danger">Sem interesse</StatusPill>
           ) : (
-            <StatusPill tone={tipoTone(c.tipo)}>{tipoLabel(c.tipo)}</StatusPill>
+            <>
+              <StatusPill tone={tipoTone(c.tipo)}>{tipoLabel(c.tipo)}</StatusPill>
+              {c.liderDeCelula ? (
+                <StatusPill tone="ok">Líder de célula</StatusPill>
+              ) : c.aptoLider ? (
+                <StatusPill tone="accent">Apto</StatusPill>
+              ) : null}
+            </>
           ),
       },
       {
@@ -548,6 +562,18 @@ function ContactDetail({
             <StatusPill tone={status.tone}>{status.label}</StatusPill>
           </dd>
         </div>
+        {!contact.semInteresse ? (
+          <div>
+            <dt>Liderança</dt>
+            <dd>
+              {contact.liderDeCelula
+                ? "Líder de célula"
+                : contact.aptoLider
+                  ? "Apto a liderar (sem célula)"
+                  : "—"}
+            </dd>
+          </div>
+        ) : null}
         <div>
           <dt>Célula</dt>
           <dd>{cellName}</dd>

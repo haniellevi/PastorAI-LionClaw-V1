@@ -70,6 +70,8 @@ export interface OverviewStats {
   total: number;
   decisoesJesus: number;
   celulasAtivas: number;
+  /** Líderes de célula DERIVADOS (celulas.lider_id em célula ativa). */
+  lideresCelula: number;
   semInteresse: number;
   porTipo: Record<string, number>;
   porEtapa: Record<string, number>;

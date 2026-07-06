@@ -95,6 +95,8 @@ function toContact(d: ContactDetail): Contact {
     aceitouJesus: d.aceitouJesus,
     celulaId: d.celulaId,
     liderId: d.liderId,
+    aptoLider: d.aptoLider,
+    liderDeCelula: d.liderDeCelula,
   };
 }
 

@@ -40,6 +40,10 @@ export interface Contact {
   aceitouJesus: boolean;
   celulaId: string | null;
   liderId: string | null;
+  /** Realizou o Reencontro — apto a liderar célula (regra 2026-07-06). */
+  aptoLider: boolean;
+  /** Derivado no backend: lidera célula ATIVA (celulas.lider_id). */
+  liderDeCelula: boolean;
 }
 
 /**
@@ -67,6 +71,8 @@ export interface ContactDetail {
   celulaNome: string | null;
   liderId: string | null;
   liderNome: string | null;
+  aptoLider: boolean;
+  liderDeCelula: boolean;
   consentimento: boolean;
   optout: boolean;
   origem: string | null;
@@ -163,6 +169,8 @@ export interface UpdateContactInput {
   tipo?: string | null;
   semInteresse?: boolean;
   semInteresseMotivo?: string | null;
+  /** Apto a liderar (Reencontro) — só admin; CSIM não pode ser apto (422). */
+  aptoLider?: boolean;
 }
 
 /**
@@ -308,7 +316,8 @@ export function followStatus(c: Contact): StatusInfo {
   if (acomp === "em_consolidacao" || acomp === "em_andamento" || c.celulaId) {
     return { tone: "accent", label: "Em acompanhamento" };
   }
-  if (c.tipo === "lider" || c.tipo === "pastor") {
+  // Líder de célula é derivado do vínculo real (não do tipo — regra 2026-07-06).
+  if (c.liderDeCelula || c.tipo === "pastor") {
     return { tone: "muted", label: "—" };
   }
   return { tone: "warn", label: "Sem acompanhamento" };

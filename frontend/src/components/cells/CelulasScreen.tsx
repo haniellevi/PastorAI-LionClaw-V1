@@ -163,7 +163,14 @@ export function CelulasScreen() {
         if (selectedId === saved.id) void openDetail(saved.id);
       } catch (err) {
         if (handleSessionError(err)) return;
-        setFormError(err instanceof ApiError ? err.message : "Não foi possível salvar a célula.");
+        // 409/422 dos guards de elegibilidade chegam como detail legível do
+        // backend ("já lidera uma célula ativa", "ainda não fez o Reencontro",
+        // "sem interesse (CSIM)…"); só tira o prefixo técnico "liderId: ".
+        setFormError(
+          err instanceof ApiError
+            ? err.message.replace(/^liderId:\s*/, "")
+            : "Não foi possível salvar a célula.",
+        );
       } finally {
         setSaving(false);
       }
@@ -238,6 +245,21 @@ export function CelulasScreen() {
     (id: string | null) => (id ? contacts.find((c) => c.id === id)?.nome ?? "—" : "—"),
     [contacts],
   );
+
+  // Elegíveis a líder (regra 2026-07-06): apto (Reencontro) + sem célula própria
+  // + fora do CSIM. Ao editar, o líder ATUAL entra mesmo fora do filtro
+  // (grandfather — o backend aceita reenviar o mesmo líder).
+  const leaderOptions = useMemo(() => {
+    const eligible = contacts.filter(
+      (c) => c.aptoLider && !c.liderDeCelula && !c.semInteresse,
+    );
+    const currentId = editing?.liderId;
+    if (currentId && !eligible.some((c) => c.id === currentId)) {
+      const current = contacts.find((c) => c.id === currentId);
+      if (current) return [current, ...eligible];
+    }
+    return eligible;
+  }, [contacts, editing]);
 
   const showSkeleton = loading && !loaded;
 
@@ -394,7 +416,7 @@ export function CelulasScreen() {
       {showForm ? (
         <CellFormModal
           cell={editing}
-          leaders={contacts}
+          leaders={leaderOptions}
           busy={saving}
           error={formError}
           onClose={() => {
