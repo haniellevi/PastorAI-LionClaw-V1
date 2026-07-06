@@ -246,7 +246,8 @@ export function ContactPanel({
             </dl>
           </section>
 
-          {hasJornadaData(detail) ? (
+          {/* CSIM está fora da Visão G12 — esconde a seção de jornada inteira. */}
+          {!detail.semInteresse && hasJornadaData(detail) ? (
             <section className="panel-section">
               <h4>Jornada G12</h4>
               <dl>
