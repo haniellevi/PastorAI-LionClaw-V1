@@ -311,7 +311,10 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
       {
         header: "Estágio na Visão",
         cell: (c) =>
-          c.etapa ? (
+          c.semInteresse ? (
+            // CSIM está fora da Visão G12 — sem chip de etapa.
+            <span className="sub">Fora da visão</span>
+          ) : c.etapa ? (
             <StatusPill tone={etapaTone(c.etapa)}>
               {ETAPA_LABEL[c.etapa] ?? c.etapa}
             </StatusPill>

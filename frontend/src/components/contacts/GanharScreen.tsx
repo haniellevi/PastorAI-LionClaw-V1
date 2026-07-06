@@ -86,7 +86,8 @@ export function GanharScreen() {
           fetchPipeline(token, "ganhar"),
           fetchCells(token),
         ]);
-        setContacts(page.items);
+        // CSIM (sem interesse) está fora da Visão G12 — não entra na base de "Ganhar".
+        setContacts(page.items.filter((c) => !c.semInteresse));
         setCells(cellPage.items);
         setLoaded(true);
       } catch (err) {
