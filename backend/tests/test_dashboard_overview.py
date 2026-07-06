@@ -122,6 +122,7 @@ def _assert_empty(body: dict) -> None:
     assert body["total"] == 0
     assert body["decisoesJesus"] == 0
     assert body["celulasAtivas"] == 0
+    assert body["lideresCelula"] == 0
     assert body["semInteresse"] == 0
     assert set(body["porTipo"]) == set(TIPO_BUCKETS)
     assert all(v == 0 for v in body["porTipo"].values())

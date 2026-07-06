@@ -10,9 +10,19 @@ from app.domain.broadcast import (
 )
 
 
-def _c(telefone="11999990000", tipo="membro", optout=False, consent=True):
+def _c(
+    telefone="11999990000",
+    tipo="membro",
+    optout=False,
+    consent=True,
+    lidera_celula=False,
+):
     return RecipientCandidate(
-        telefone=telefone, tipo=tipo, optout=optout, consentimento=consent
+        telefone=telefone,
+        tipo=tipo,
+        optout=optout,
+        consentimento=consent,
+        lidera_celula=lidera_celula,
     )
 
 
@@ -25,8 +35,21 @@ def test_segment_todos_matches_everyone() -> None:
 
 
 def test_segment_matches_by_tipo() -> None:
+    # tipo legado 'lider' ainda casa (dados pré-migração não somem do alcance)…
     assert matches_segments(_c(tipo="lider"), ["lider"]) is True
     assert matches_segments(_c(tipo="membro"), ["lider"]) is False
+
+
+def test_segment_lider_derives_from_active_cell_leadership() -> None:
+    # …mas o caminho canônico é o vínculo real: lidera célula ativa (2026-07-06).
+    assert matches_segments(_c(tipo="membro", lidera_celula=True), ["lider"]) is True
+    assert matches_segments(_c(tipo="membro", lidera_celula=False), ["lider"]) is False
+    # Pastor que lidera célula casa nos DOIS segmentos (derivação não apaga o tipo).
+    pastor = _c(tipo="pastor", lidera_celula=True)
+    assert matches_segments(pastor, ["lider"]) is True
+    assert matches_segments(pastor, ["pastor"]) is True
+    # lidera_celula não vaza para outros segmentos.
+    assert matches_segments(_c(tipo="membro", lidera_celula=True), ["pastor"]) is False
 
 
 def test_unknown_segment_matches_nobody() -> None:

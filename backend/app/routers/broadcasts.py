@@ -25,7 +25,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import Broadcast, Pessoa, WhatsappConnection
+from app.db.models import Broadcast, Celula, Pessoa, WhatsappConnection
 from app.db.session import get_db
 from app.deps import CurrentUser, require_screen
 from app.domain.broadcast import RecipientCandidate, resolve_audience
@@ -169,12 +169,23 @@ def create_broadcast(
     igreja_uuid = uuid.UUID(current_user.igreja_id)
 
     people = db.execute(select(Pessoa)).scalars().all()
+    # Segmento "lider" é derivado: quem lidera célula ATIVA (celulas.lider_id),
+    # não o tipo manual (regra 2026-07-06).
+    leader_ids = {
+        str(r)
+        for r in db.execute(
+            select(Celula.lider_id).where(
+                Celula.ativo.is_(True), Celula.lider_id.is_not(None)
+            )
+        ).scalars().all()
+    }
     candidates = [
         RecipientCandidate(
             telefone=p.telefone,
             tipo=p.tipo,
             optout=p.optout,
             consentimento=p.consentimento,
+            lidera_celula=str(p.id) in leader_ids,
         )
         for p in people
     ]
