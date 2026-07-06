@@ -2531,6 +2531,44 @@ table.data-table {
   height: 16px;
   accent-color: var(--accent);
 }
+/* container rolável de check-rows (ex.: membros da multiplicação) */
+.check-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  max-height: 220px;
+  overflow-y: auto;
+  padding: var(--s2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface);
+}
+
+/* banner informativo (tom neutro; espelha .error-banner) */
+.info-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px var(--s4);
+  margin-bottom: var(--s4);
+  border-radius: var(--r-md);
+  background: var(--muted-soft, oklch(95% 0.01 250));
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 13px;
+}
+.info-banner svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+/* nota auxiliar discreta (usada nas telas de célula) */
+.muted-note {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 0;
+}
 
 /* ---------- RESPONSIVE ---------- */
 @media (max-width: 980px) {
