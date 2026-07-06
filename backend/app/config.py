@@ -45,6 +45,14 @@ class Settings(BaseSettings):
     # sai se external_sends_enabled também permitir (send_text respeita o guard).
     agenda_notify_enabled: bool = Field(default=False)
 
+    # ---- Células: escrita sensível (Solicitações/Multiplicação, PR3-PR9) -----
+    # Gate de rollout do fluxo Solicitação→Aprovação (criação/decisão/reenvio/
+    # cancelamento/multiplicação). Default OFF, inclusive em produção, até o fluxo
+    # estar validado ponta-a-ponta; liga por env explícita e, depois, gradual por
+    # igreja. As LEITURAS de célula (reuniões, presença, materiais, avisos) NÃO
+    # dependem deste flag. Espelha a disciplina do PLANO-IMPLEMENTACAO-CELULAS.
+    celulas_requests_enabled: bool = Field(default=False)
+
     # ---- Clerk (Auth - US-01 / RNF-01) --------------------------------------
     clerk_publishable_key: str = Field(default="")
     clerk_secret_key: str = Field(default="")

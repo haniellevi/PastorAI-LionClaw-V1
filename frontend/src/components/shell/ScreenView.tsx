@@ -12,6 +12,7 @@ import { AssinaturaScreen } from "@/components/config/AssinaturaScreen";
 import { EquipeScreen } from "@/components/config/EquipeScreen";
 import { PermissoesScreen } from "@/components/config/PermissoesScreen";
 import { CentralCelulaScreen } from "@/components/central-celula/CentralCelulaScreen";
+import { MinhaCelulaEntry } from "@/components/minha-celula/MinhaCelulaEntry";
 import { ComunicadosScreen } from "@/components/comunicados/ComunicadosScreen";
 import { ConsolIndividualScreen } from "@/components/consolidacao/ConsolIndividualScreen";
 import { ConsolidarScreen } from "@/components/consolidacao/ConsolidarScreen";
@@ -88,6 +89,9 @@ export function ScreenView({ route, param }: { route: string; param?: string | n
         <CentralCelulaScreen />
       </>
     );
+  }
+  if (route === "minha-celula") {
+    return <MinhaCelulaEntry />;
   }
   if (route === "comunicados") {
     return <ComunicadosScreen />;

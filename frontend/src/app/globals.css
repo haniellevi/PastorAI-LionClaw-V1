@@ -4599,3 +4599,278 @@ table.data-table {
     max-width: 85%;
   }
 }
+
+/* ===========================================================================
+   Minha Célula — visão Discípulo (Células PR3)
+   Reaproveita .card / .panel-title / .empty-state / .pill / .btn; abaixo só o
+   que é específico da tela (cartão da reunião, feeds de aviso/material/histórico).
+   =========================================================================== */
+.mc-stack {
+  display: grid;
+  gap: var(--s4);
+}
+
+/* Cartão da próxima reunião */
+.meeting-date {
+  font-size: 18px;
+  font-weight: 640;
+  letter-spacing: -0.01em;
+  text-transform: capitalize;
+}
+.meeting-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s3);
+  margin-top: var(--s2);
+  color: var(--muted);
+  font-size: 13px;
+}
+.meeting-meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.meeting-tema {
+  margin-top: var(--s3);
+  font-size: 13.5px;
+}
+.meeting-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s3);
+  margin-top: var(--s4);
+}
+
+/* Feed de avisos — cor por origem (célula=azul, central/igreja=vermelho) */
+.notice-item {
+  padding: var(--s3) var(--s4);
+  border-bottom: 1px solid var(--border);
+  border-left: 3px solid transparent;
+}
+.notice-item:last-child {
+  border-bottom: none;
+}
+.notice-item.origem-celula {
+  border-left-color: var(--info);
+}
+.notice-item.origem-central {
+  border-left-color: var(--danger);
+}
+.notice-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+.notice-title {
+  font-weight: 580;
+  font-size: 14px;
+}
+.notice-body {
+  margin-top: 4px;
+  font-size: 13px;
+  white-space: pre-wrap;
+}
+.notice-time {
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+/* Feed de materiais (somente leitura) */
+.material-item {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding: var(--s3) var(--s4);
+  border-bottom: 1px solid var(--border);
+}
+.material-item:last-child {
+  border-bottom: none;
+}
+.material-item .grow {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Histórico de reuniões (projeção do próprio membro) */
+.hist-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s3);
+  padding: var(--s3) var(--s4);
+  border-bottom: 1px solid var(--border);
+}
+.hist-item:last-child {
+  border-bottom: none;
+}
+.hist-visitors {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* ===========================================================================
+   Central de Célula (Jornada G12 > Discipular) — shell de 5 abas, dashboard,
+   saúde (10 bolinhas), master-detail de solicitações. Reusa .card/.pill/.tabs.
+   =========================================================================== */
+/* Strip de abas rolável na horizontal (não vaza a página em 360px) */
+.central-tabs {
+  align-self: stretch;
+  margin: 0 0 var(--s4);
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+.central-tabs .tabs {
+  min-width: max-content;
+}
+
+/* Cards do painel (WorkQueuePanel) */
+.central-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--s4);
+}
+.central-card {
+  text-align: left;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: var(--r-md);
+  padding: var(--s4);
+  transition: border-color 0.15s ease;
+}
+.central-card:hover {
+  border-color: var(--accent);
+}
+.central-card.alert {
+  border-left: 3px solid var(--warn);
+}
+.central-card .cc-val {
+  font-size: 26px;
+  font-weight: 660;
+  letter-spacing: -0.02em;
+}
+.central-card .cc-lbl {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12.5px;
+  margin-bottom: 4px;
+}
+.central-card .cc-delta {
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+/* Master-detail: 2 colunas no desktop, empilhado no mobile (mesmo código-base) */
+.central-md {
+  display: grid;
+  grid-template-columns: minmax(0, 360px) minmax(0, 1fr);
+  gap: var(--s4);
+  align-items: start;
+}
+@media (max-width: 860px) {
+  .central-md {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Saúde da célula — até 10 bolinhas (menos saudáveis primeiro) */
+.health-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  padding: var(--s3) var(--s4);
+  border-bottom: 1px solid var(--border);
+}
+.health-row:last-child {
+  border-bottom: none;
+}
+.health-dots {
+  display: inline-flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.hd {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  display: inline-block;
+}
+.hd.verde {
+  background: var(--ok);
+  border-color: var(--ok);
+}
+.hd.alerta {
+  background: var(--warn);
+  border-color: var(--warn);
+}
+.hd.vermelho {
+  background: var(--danger);
+  border-color: var(--danger);
+}
+
+/* Fila de solicitações — item selecionável (master) */
+.req-row {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  padding: var(--s3) var(--s4);
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  cursor: pointer;
+}
+.req-row:last-child {
+  border-bottom: none;
+}
+.req-row:hover {
+  background: var(--surface-2);
+}
+.req-row.active {
+  background: var(--surface-2);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.req-row .nm {
+  font-weight: 560;
+  font-size: 13.5px;
+}
+.req-row .sub {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+/* Detalhe da solicitação — payload proposto em leitura (Central não edita) */
+.payload-view {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: var(--s3);
+  font-size: 12.5px;
+  margin: var(--s3) 0;
+}
+.payload-view dt {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.payload-view dd {
+  margin: 0 0 var(--s2);
+  font-weight: 540;
+  word-break: break-word;
+}
+.payload-view dd:last-child {
+  margin-bottom: 0;
+}
+.central-stack {
+  display: grid;
+  gap: var(--s4);
+}

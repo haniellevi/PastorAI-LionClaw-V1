@@ -1,13 +1,14 @@
-"""Multiplications router — schedule and approve cell multiplications (enviar).
+"""Multiplicações — visão consolidada da Central (Células PR3-PR9).
 
-Endpoints:
-  - GET  /multiplicacoes              list multiplications, optionally by status
-  - POST /multiplicacoes              schedule a multiplication
-  - POST /multiplicacoes/{id}/aprovar approve (gated by supervisao_ok)
+`GET /multiplicacoes` devolve duas listas em snake_case:
+  - `pendentes`: solicitações `tipo='multiplicacao'` ainda `aguardando` decisão
+    (a criação/decisão passa por `/cell-requests`);
+  - `registradas`: multiplicações já efetivadas (`multiplicacoes`), com a célula
+    de ORIGEM (`celula_id`) e a célula gerada (`celula_nova_id`).
 
-delta-027: approval is disabled while supervision has not signed off
-(`supervisao_ok=false`); approving records the approver (`aprovada_por`).
-Access is restricted to lider_g12/pastor (admin passes implicitly).
+A execução transacional/idempotente da multiplicação acontece na aprovação da
+solicitação (`POST /cell-requests/{id}/approve` → `cell_multiplication_service`),
+não mais por um POST direto aqui. Este router é somente leitura.
 """
 
 from __future__ import annotations
@@ -16,22 +17,16 @@ import datetime as dt
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import func, select
+from fastapi import APIRouter, Depends
+from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import Celula, Multiplicacao, Pessoa
+from app.db.models import CelulaSolicitacao, Multiplicacao
 from app.db.session import get_db
-from app.deps import CurrentUser, get_current_user
-from app.domain.multiplication import (
-    MULTIPLICATION_ROLES,
-    STATUS_APROVADA,
-    VALID_STATUS,
-    can_approve,
-    schedule_status,
-)
-from app.routers._common import Page, PaginationParams, ensure_tenant_context
+from app.deps import CurrentUser, require_central
+from app.domain.cell_requests import STATUS_AGUARDANDO, TIPO_MULTIPLICACAO
+from app.routers._common import ensure_tenant_context
 
 logger = logging.getLogger("pastorai.multiplicacoes")
 
@@ -39,214 +34,98 @@ router = APIRouter(prefix="/multiplicacoes", tags=["multiplicacoes"])
 
 
 # ---------------------------------------------------------------------------
-# Schemas
+# Schemas (snake_case)
 # ---------------------------------------------------------------------------
-class MultiplicacaoOut(BaseModel):
+class MultiplicacaoPendenteOut(BaseModel):
     id: str
-    celulaId: str  # noqa: N815
-    status: str | None = None
-    dataPrevista: dt.date | None = None  # noqa: N815
-    descendencia: str | None = None
-    novoLiderId: str | None = None  # noqa: N815
-    supervisaoOk: bool  # noqa: N815
-    aprovadaPor: str | None = None  # noqa: N815
+    celula_id: str
+    solicitante_id: str | None = None
+    tipo: str
+    status: str
+    payload_proposto: dict
+    created_at: dt.datetime | None = None
 
     @classmethod
-    def from_model(cls, m: Multiplicacao) -> "MultiplicacaoOut":
+    def from_model(cls, s: CelulaSolicitacao) -> "MultiplicacaoPendenteOut":
+        return cls(
+            id=str(s.id),
+            celula_id=str(s.celula_id),
+            solicitante_id=str(s.solicitante_id) if s.solicitante_id else None,
+            tipo=s.tipo,
+            status=s.status,
+            payload_proposto=s.payload_proposto or {},
+            created_at=s.created_at,
+        )
+
+
+class MultiplicacaoRegistradaOut(BaseModel):
+    id: str
+    celula_id: str
+    celula_nova_id: str | None = None
+    solicitacao_id: str | None = None
+    novo_lider_id: str | None = None
+    status: str | None = None
+    data_prevista: dt.date | None = None
+    descendencia: str | None = None
+    idempotency_key: str | None = None
+    created_at: dt.datetime | None = None
+
+    @classmethod
+    def from_model(cls, m: Multiplicacao) -> "MultiplicacaoRegistradaOut":
         return cls(
             id=str(m.id),
-            celulaId=str(m.celula_id),
+            celula_id=str(m.celula_id),
+            celula_nova_id=str(m.celula_nova_id) if m.celula_nova_id else None,
+            solicitacao_id=str(m.solicitacao_id) if m.solicitacao_id else None,
+            novo_lider_id=str(m.novo_lider_id) if m.novo_lider_id else None,
             status=m.status,
-            dataPrevista=m.data_prevista,
+            data_prevista=m.data_prevista,
             descendencia=m.descendencia,
-            novoLiderId=str(m.novo_lider_id) if m.novo_lider_id else None,
-            supervisaoOk=m.supervisao_ok,
-            aprovadaPor=str(m.aprovada_por) if m.aprovada_por else None,
+            idempotency_key=m.idempotency_key,
+            created_at=m.created_at,
         )
 
 
-class CreateMultiplicacaoRequest(BaseModel):
-    celulaId: str = Field(min_length=1)  # noqa: N815
-    dataPrevista: dt.date | None = None  # noqa: N815
-    novoLiderId: str | None = None  # noqa: N815
-    descendencia: str | None = Field(default=None, max_length=400)
-
-    @field_validator("celulaId")
-    @classmethod
-    def _celula_uuid(cls, value: str) -> str:
-        try:
-            uuid.UUID(value)
-        except (ValueError, AttributeError) as exc:
-            raise ValueError("celulaId inválido") from exc
-        return value
-
-    @field_validator("novoLiderId")
-    @classmethod
-    def _lider_uuid(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        try:
-            uuid.UUID(value)
-        except (ValueError, AttributeError) as exc:
-            raise ValueError("novoLiderId inválido") from exc
-        return value
-
-
-class ApproveResponse(BaseModel):
-    status: str
-    multiplicacaoId: str  # noqa: N815
-    aprovadaPor: str  # noqa: N815
+class MultiplicacoesListOut(BaseModel):
+    pendentes: list[MultiplicacaoPendenteOut]
+    registradas: list[MultiplicacaoRegistradaOut]
 
 
 # ---------------------------------------------------------------------------
-# Endpoints
+# Endpoint
 # ---------------------------------------------------------------------------
-@router.get("", response_model=Page[MultiplicacaoOut])
+@router.get("", response_model=MultiplicacoesListOut)
 def list_multiplicacoes(
-    pagination: PaginationParams = Depends(),
-    status_filter: str | None = Query(default=None, alias="status"),
     db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(get_current_user),
-) -> Page[MultiplicacaoOut]:
-    """List multiplications, optionally filtered by status."""
+    current_user: CurrentUser = Depends(require_central),
+) -> MultiplicacoesListOut:
+    """Lista multiplicações pendentes (solicitações) e registradas do tenant.
+
+    Visão consolidada = superfície da Central (pastor/admin, PRD-CENTRAL). O
+    guard `require_central` impede que líder/discípulo leiam `payload_proposto`
+    de todas as solicitações driblando o escopo por autor de `/cell-requests`.
+    Filtro `igreja_id` explícito além da RLS (defesa em profundidade).
+    """
     ensure_tenant_context(db, current_user)
+    igreja_id = uuid.UUID(current_user.igreja_id)
 
-    filters = []
-    if status_filter is not None:
-        normalized = status_filter.strip().lower()
-        if normalized not in VALID_STATUS:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"status inválido: {status_filter}",
-            )
-        filters.append(Multiplicacao.status == normalized)
-
-    total = db.execute(
-        select(func.count()).select_from(Multiplicacao).where(*filters)
-    ).scalar_one()
-    rows = db.execute(
-        select(Multiplicacao)
-        .where(*filters)
-        .order_by(Multiplicacao.data_prevista.asc().nulls_last())
-        .offset(pagination.offset)
-        .limit(pagination.limit)
+    pendentes = db.execute(
+        select(CelulaSolicitacao)
+        .where(
+            CelulaSolicitacao.igreja_id == igreja_id,
+            CelulaSolicitacao.tipo == TIPO_MULTIPLICACAO,
+            CelulaSolicitacao.status == STATUS_AGUARDANDO,
+        )
+        .order_by(CelulaSolicitacao.created_at.desc())
     ).scalars().all()
 
-    return Page[MultiplicacaoOut](
-        items=[MultiplicacaoOut.from_model(m) for m in rows],
-        page=pagination.page,
-        pageSize=pagination.page_size,
-        total=int(total),
-    )
-
-
-@router.post("", response_model=MultiplicacaoOut, status_code=status.HTTP_201_CREATED)
-def schedule_multiplicacao(
-    payload: CreateMultiplicacaoRequest,
-    db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(get_current_user),
-) -> MultiplicacaoOut:
-    """Schedule a multiplication (agendada with a date, else sem_agendamento)."""
-    ensure_tenant_context(db, current_user)
-
-    if not current_user.has_any_role(MULTIPLICATION_ROLES):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Você não tem permissão para agendar multiplicações",
-        )
-
-    celula = db.execute(
-        select(Celula).where(Celula.id == uuid.UUID(payload.celulaId))
-    ).scalar_one_or_none()
-    if celula is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Célula não encontrada"
-        )
-
-    novo_lider_uuid: uuid.UUID | None = None
-    if payload.novoLiderId is not None:
-        novo_lider_uuid = uuid.UUID(payload.novoLiderId)
-        novo_lider = db.execute(
-            select(Pessoa).where(Pessoa.id == novo_lider_uuid)
-        ).scalar_one_or_none()
-        if novo_lider is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Novo líder não encontrado",
-            )
-
-    multiplicacao = Multiplicacao(
-        igreja_id=uuid.UUID(current_user.igreja_id),
-        celula_id=celula.id,
-        status=schedule_status(payload.dataPrevista is not None),
-        data_prevista=payload.dataPrevista,
-        descendencia=payload.descendencia,
-        novo_lider_id=novo_lider_uuid,
-    )
-    db.add(multiplicacao)
-    db.flush()
-    db.refresh(multiplicacao)
-    db.commit()
-
-    return MultiplicacaoOut.from_model(multiplicacao)
-
-
-@router.post("/{multiplicacao_id}/aprovar", response_model=ApproveResponse)
-def approve_multiplicacao(
-    multiplicacao_id: str,
-    db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(get_current_user),
-) -> ApproveResponse:
-    """Approve a multiplication; blocked while supervisao_ok=false (delta-027)."""
-    ensure_tenant_context(db, current_user)
-
-    if not current_user.has_any_role(MULTIPLICATION_ROLES):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Você não tem permissão para aprovar multiplicações",
-        )
-
-    multiplicacao = db.execute(
+    registradas = db.execute(
         select(Multiplicacao)
-        .where(Multiplicacao.id == _parse_uuid(multiplicacao_id))
-        .with_for_update()
-    ).scalar_one_or_none()
-    if multiplicacao is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Multiplicação não encontrada",
-        )
+        .where(Multiplicacao.igreja_id == igreja_id)
+        .order_by(Multiplicacao.created_at.desc())
+    ).scalars().all()
 
-    if not can_approve(multiplicacao.supervisao_ok):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "error": "supervision_pending",
-                "message": "Aprovação bloqueada: supervisão pendente",
-            },
-        )
-
-    multiplicacao.status = STATUS_APROVADA
-    multiplicacao.aprovada_por = uuid.UUID(current_user.app_user_id)
-    db.flush()
-    db.refresh(multiplicacao)
-    db.commit()
-
-    return ApproveResponse(
-        status=STATUS_APROVADA,
-        multiplicacaoId=str(multiplicacao.id),
-        aprovadaPor=str(multiplicacao.aprovada_por),
+    return MultiplicacoesListOut(
+        pendentes=[MultiplicacaoPendenteOut.from_model(s) for s in pendentes],
+        registradas=[MultiplicacaoRegistradaOut.from_model(m) for m in registradas],
     )
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-def _parse_uuid(value: str) -> uuid.UUID:
-    try:
-        return uuid.UUID(value)
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Multiplicação não encontrada",
-        ) from exc

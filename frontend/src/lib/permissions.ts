@@ -22,6 +22,7 @@ export const MENU_SCREENS = [
   "capacitacao",
   "g12",
   "central-celula",
+  "minha-celula",
   "enviar",
   "calendario",
   "comunicados",
@@ -58,9 +59,12 @@ export const DEFAULT_PERMISSIONS: Record<Exclude<Role, "admin">, readonly string
     "universidade-vida", "capacitacao", "g12", "central-celula", "enviar",
     "calendario", "comunicados", "contatos", "celulas", "relatorios",
   ],
+  // Central de Célula = pastor/admin no MVP (decisão 3.1 / contrato UX §4).
+  // Os papéis de líder NÃO veem 'central-celula' (o menu abriria uma tela de
+  // "Acesso restrito"); o líder gere sua célula por 'minha-celula'.
   lider_g12: [
     "dashboard", "inbox", "ganhar", "consolidar", "consol-individual",
-    "universidade-vida", "capacitacao", "g12", "central-celula", "enviar",
+    "universidade-vida", "capacitacao", "g12", "minha-celula", "enviar",
     "calendario", "comunicados", "contatos", "celulas", "relatorios",
   ],
   lider_consol: [
@@ -68,17 +72,17 @@ export const DEFAULT_PERMISSIONS: Record<Exclude<Role, "admin">, readonly string
     "universidade-vida", "calendario", "comunicados", "contatos",
   ],
   lider_celula: [
-    "dashboard", "inbox", "ganhar", "central-celula", "capacitacao",
-    "calendario", "celulas", "relatorios",
+    "dashboard", "inbox", "ganhar", "minha-celula",
+    "capacitacao", "calendario", "celulas", "relatorios",
   ],
   lider_mult: [
-    "dashboard", "g12", "central-celula", "enviar", "calendario", "celulas",
+    "dashboard", "g12", "minha-celula", "enviar", "calendario", "celulas",
     "relatorios",
   ],
   operador: [
     "dashboard", "inbox", "contatos", "ganhar", "celulas", "relatorios",
   ],
-  membro: ["dashboard", "calendario"],
+  membro: ["dashboard", "minha-celula", "calendario"],
 };
 
 export type PermissionMatrix = Partial<Record<Exclude<Role, "admin">, readonly string[]>>;

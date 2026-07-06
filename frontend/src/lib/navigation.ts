@@ -47,6 +47,7 @@ export const NAV_SECTIONS: NavSection[] = [
     label: "Igreja",
     items: [
       { target: "dashboard", label: "Painel de Hoje", icon: "dashboard" },
+      { target: "minha-celula", label: "Minha Célula", icon: "central-celula" },
       { target: "calendario", label: "Agenda", icon: "calendar" },
       { target: "inbox", label: "Conversas", icon: "chat" },
     ],
@@ -225,6 +226,11 @@ export const SCREEN_META: Record<
     title: "Central de Célula",
     crumb: "Líderes e relatórios",
     info: "Central de células: líderes, relatórios semanais e supervisão.",
+  },
+  "minha-celula": {
+    title: "Minha Célula",
+    crumb: "Reunião, avisos e histórico",
+    info: "Sua célula: próxima reunião, confirmação de presença, indicação de visitantes, avisos, materiais e seu histórico.",
   },
   enviar: {
     title: "Enviar",
