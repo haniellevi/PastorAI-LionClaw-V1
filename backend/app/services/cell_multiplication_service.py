@@ -8,13 +8,18 @@ Em uma passada, para a solicitação aprovada:
   1. Idempotência: se já existe `multiplicacoes` para esta `solicitacao_id` ou para
      este `idempotency_key` (por tenant), devolve a linha existente sem duplicar
      nada (RNF-06/07).
-  2. Valida o payload contra o banco: `novo_lider_id` precisa ser membro ATIVO da
-     célula de ORIGEM (422 caso contrário). As demais validações estruturais já
-     foram feitas no schema (mín. 1 membro, líder na lista).
+  2. Valida o payload contra o banco (regra 2026-07-06): `novo_lider_id` precisa
+     ser pessoa do tenant, `apto_lider=true` (Reencontro), não-CSIM e não pode
+     já liderar célula ATIVA. NÃO precisa ser membro da célula de origem — a
+     Central/Admin pode escolher qualquer apto sem célula.
   3. Cria a nova `celulas` (`lider_id=novo_lider_id`, herda a cobertura da origem
-     e aplica os campos sensíveis do payload).
+     e aplica os campos sensíveis do payload). A liderança é SEMPRE
+     `celulas.lider_id` — nunca papel em `celula_membro`.
   4. Move os membros transferidos: desativa o vínculo ativo na origem e cria
-     vínculo ATIVO na nova célula; sincroniza `pessoas.celula_id` (espelho legado).
+     vínculo ATIVO na nova célula (papel 'membro'); sincroniza `pessoas.celula_id`
+     (espelho legado). Novo líder EXTERNO à origem não ganha vínculo em
+     `celula_membro` (o enum de papel não tem 'lider' de propósito) e o
+     `pessoas.celula_id` dele não muda.
   5. Grava `multiplicacoes` com `celula_id`=origem, `celula_nova_id`=nova,
      `solicitacao_id` (UNIQUE) e `idempotency_key`.
 
@@ -33,7 +38,8 @@ from sqlalchemy.orm import Session
 from app.db.models import Celula, CelulaMembro, Multiplicacao, Pessoa
 from app.domain.multiplication import STATUS_CONCLUIDA
 
-_PAPEL_LIDER = "lider"
+# Papel do vínculo em celula_membro — o enum celula_membro_papel só aceita
+# membro/auxiliar/anfitriao ('lider' NÃO existe: liderança é celulas.lider_id).
 _PAPEL_MEMBRO = "membro"
 
 
@@ -94,7 +100,8 @@ def execute_multiplication(
 ) -> Multiplicacao:
     """Executa (ou reaproveita) a multiplicação. Sem commit — ver docstring.
 
-    Levanta 422 quando `novo_lider_id` não é membro ativo da origem.
+    Levanta 422 quando o novo líder não é apto/é CSIM/não existe no tenant e
+    409 quando já lidera uma célula ativa (regra 2026-07-06).
     """
     # 1. Idempotência: reprocesso devolve a mesma linha, sem criar 2ª célula.
     existing = find_existing_multiplication(
@@ -109,19 +116,47 @@ def execute_multiplication(
     novo_lider_id = uuid.UUID(str(payload["novo_lider_id"]))
     membros_ids = [uuid.UUID(str(m)) for m in payload["membros_transferidos_ids"]]
 
-    # 2. Validação com o banco: novo líder é membro ATIVO da célula origem.
-    lider_membro = db.execute(
-        select(CelulaMembro).where(
-            CelulaMembro.igreja_id == igreja_id,
-            CelulaMembro.celula_id == cell_origin.id,
-            CelulaMembro.pessoa_id == novo_lider_id,
-            CelulaMembro.ativo.is_(True),
+    # 2. Validação com o banco (regra 2026-07-06): apto + não-CSIM + não lidera
+    #    célula ativa. Membership na origem NÃO é exigida — a Central pode
+    #    escolher qualquer apto sem célula do tenant.
+    novo_lider = db.execute(
+        select(Pessoa).where(
+            Pessoa.id == novo_lider_id, Pessoa.igreja_id == igreja_id
         )
     ).scalar_one_or_none()
-    if lider_membro is None:
+    if novo_lider is None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="novo_lider_id deve ser membro ativo da célula de origem",
+            detail="novo_lider_id: pessoa não encontrada nesta igreja",
+        )
+    if bool(novo_lider.sem_interesse):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "novo_lider_id: pessoa sem interesse (CSIM) não pode liderar célula"
+            ),
+        )
+    if not bool(novo_lider.apto_lider):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "novo_lider_id: pessoa ainda não fez o Reencontro "
+                "(não apta a liderar)"
+            ),
+        )
+    ja_lidera = db.execute(
+        select(Celula.id)
+        .where(
+            Celula.igreja_id == igreja_id,
+            Celula.lider_id == novo_lider_id,
+            Celula.ativo.is_(True),
+        )
+        .limit(1)
+    ).scalar_one_or_none()
+    if ja_lidera is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="novo_lider_id: pessoa já lidera uma célula ativa",
         )
 
     # 2b. FKs de pessoa da NOVA célula (anfitrião/auxiliar) validadas no tenant
@@ -179,7 +214,7 @@ def execute_multiplication(
                 igreja_id=igreja_id,
                 celula_id=nova_celula.id,
                 pessoa_id=pessoa_id,
-                papel=_PAPEL_LIDER if pessoa_id == novo_lider_id else _PAPEL_MEMBRO,
+                papel=_PAPEL_MEMBRO,
                 ativo=True,
             )
         )

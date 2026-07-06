@@ -21,7 +21,7 @@ import datetime as dt
 import re
 import uuid
 
-from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, field_validator
 
 # ---------------------------------------------------------------------------
 # Constantes de tipo / status / ação
@@ -180,8 +180,10 @@ class MultiplicacaoPayload(_StrictModel):
     """Payload de `tipo='multiplicacao'` (SPEC §6.3, E7).
 
     Validações estruturais (aqui, 422 na criação/reenvio): `membros_transferidos_ids`
-    mínimo 1 e `novo_lider_id` presente na lista. A validação de "membro ATIVO da
-    célula origem" depende do banco e roda no serviço transacional (aprovação).
+    mínimo 1. `novo_lider_id` PODE estar fora da lista (regra 2026-07-06: a
+    Central pode escolher um apto sem célula, externo à origem). As validações
+    de elegibilidade do novo líder (apto/não-CSIM/não lidera célula ativa)
+    dependem do banco e rodam no serviço transacional (aprovação).
     """
 
     idempotency_key: str | None = None
@@ -244,15 +246,6 @@ class MultiplicacaoPayload(_StrictModel):
                 seen.add(m)
                 unique.append(m)
         return unique
-
-    @model_validator(mode="after")
-    def _lider_na_lista(self) -> "MultiplicacaoPayload":
-        if self.novo_lider_id not in self.membros_transferidos_ids:
-            raise ValueError(
-                "novo_lider_id deve constar em membros_transferidos_ids"
-            )
-        return self
-
 
 _PAYLOAD_MODELS: dict[str, type[_StrictModel]] = {
     TIPO_ALTERAR_DIA: AlterarDiaPayload,

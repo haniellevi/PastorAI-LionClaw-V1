@@ -284,9 +284,22 @@ def make_membro(
     )
 
 
-def make_pessoa(pessoa_id: str, nome: str = "Pessoa", celula_id: str | None = _CELL):
+def make_pessoa(
+    pessoa_id: str,
+    nome: str = "Pessoa",
+    celula_id: str | None = _CELL,
+    *,
+    apto_lider: bool = True,
+    sem_interesse: bool = False,
+):
     return SimpleNamespace(
-        id=pessoa_id, nome=nome, igreja_id=_TENANT, celula_id=celula_id, lider_id=None
+        id=pessoa_id,
+        nome=nome,
+        igreja_id=_TENANT,
+        celula_id=celula_id,
+        lider_id=None,
+        apto_lider=apto_lider,
+        sem_interesse=sem_interesse,
     )
 
 
@@ -811,6 +824,92 @@ def test_approve_multiplication_state_idempotent(app) -> None:
     assert len(session.cells) == 1
     assert session.multiplicacoes == []
     assert session.eventos == []
+
+
+# ---- elegibilidade do novo líder (regra 2026-07-06) ------------------------
+def _approve(app, session):
+    session.solicitacoes = [
+        make_solicitacao(
+            tipo="multiplicacao", status="aguardando",
+            payload_proposto=_multiplication_payload(with_key=True),
+        )
+    ]
+    return _wire(app, session=session).post(
+        f"/cell-requests/{_SOLIC}/approve",
+        headers=_AUTH,
+        json={"idempotency_key": "mult-key-1"},
+    )
+
+
+def test_approve_multiplication_rejects_nao_apto_422(app) -> None:
+    session = _multiplication_session()
+    for p in session.pessoas:
+        if str(p.id) == _MEMBER:
+            p.apto_lider = False
+    resp = _approve(app, session)
+    assert resp.status_code == 422
+    assert "Reencontro" in resp.json()["detail"]
+    assert len(session.cells) == 1  # nada criado
+
+
+def test_approve_multiplication_rejects_csim_422(app) -> None:
+    session = _multiplication_session()
+    for p in session.pessoas:
+        if str(p.id) == _MEMBER:
+            p.sem_interesse = True
+    resp = _approve(app, session)
+    assert resp.status_code == 422
+    assert "CSIM" in resp.json()["detail"]
+
+
+def test_approve_multiplication_rejects_ja_lidera_409(app) -> None:
+    # Novo líder já lidera OUTRA célula ativa → conflito.
+    session = _multiplication_session()
+    session.cells.append(make_cell(cell_id=_DEST_CELL, lider_id=_MEMBER))
+    resp = _approve(app, session)
+    assert resp.status_code == 409
+    assert "já lidera" in resp.json()["detail"]
+
+
+def test_approve_multiplication_accepts_external_leader(app) -> None:
+    # Apto sem célula, EXTERNO à origem: vira lider_id da nova célula SEM ganhar
+    # vínculo em celula_membro (liderança é celulas.lider_id; enum não tem 'lider').
+    session = _multiplication_session()
+    externo = make_pessoa(_OUTSIDER, "Apto Sem Célula", celula_id=None)
+    session.pessoas.append(externo)
+    payload = _multiplication_payload(with_key=True)
+    payload["novo_lider_id"] = _OUTSIDER
+    payload["membros_transferidos_ids"] = [_MEMBER, _MEMBER2]
+    session.solicitacoes = [
+        make_solicitacao(
+            tipo="multiplicacao", status="aguardando", payload_proposto=payload
+        )
+    ]
+    resp = _wire(app, session=session).post(
+        f"/cell-requests/{_SOLIC}/approve",
+        headers=_AUTH,
+        json={"idempotency_key": "mult-key-1"},
+    )
+    assert resp.status_code == 200, resp.text
+    nova = [c for c in session.cells if str(c.id) != _CELL]
+    assert len(nova) == 1
+    assert str(nova[0].lider_id) == _OUTSIDER
+    vinculos = [o for o in session.added if isinstance(o, CelulaMembro)]
+    assert {str(v.pessoa_id) for v in vinculos} == {_MEMBER, _MEMBER2}
+    assert all(v.papel == "membro" for v in vinculos)  # nunca 'lider' (bug fix)
+    assert externo.celula_id is None  # espelho do externo não muda
+
+
+def test_multiplicacao_payload_allows_external_leader() -> None:
+    # Validador estrutural não exige mais novo_lider_id ∈ membros_transferidos.
+    from app.domain.cell_requests import MultiplicacaoPayload
+
+    p = MultiplicacaoPayload(
+        nome_nova_celula="Célula Filha",
+        novo_lider_id=uuid.UUID(_OUTSIDER),
+        membros_transferidos_ids=[uuid.UUID(_MEMBER)],
+    )
+    assert p.novo_lider_id not in p.membros_transferidos_ids
 
 
 # ===========================================================================

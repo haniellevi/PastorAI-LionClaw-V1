@@ -212,7 +212,8 @@ def make_cell(
 
 def make_pessoa(
     *, pessoa_id: str = _P1, igreja_id: str = _TENANT, lider_id: str | None = None,
-    celula_id: str | None = None,
+    celula_id: str | None = None, apto_lider: bool = True,
+    sem_interesse: bool = False,
 ):
     return SimpleNamespace(
         id=pessoa_id,
@@ -221,6 +222,8 @@ def make_pessoa(
         lider_id=lider_id,
         celula_id=celula_id,
         tipo="membro",
+        apto_lider=apto_lider,
+        sem_interesse=sem_interesse,
     )
 
 
@@ -325,6 +328,114 @@ def test_create_cell_rejects_bad_horario(app) -> None:
         "/cells", headers=_AUTH, json=_full_payload(horario="25:61")
     )
     assert resp.status_code == 422
+
+
+# ---- elegibilidade do líder (regra 2026-07-06) -----------------------------
+_CELL2 = "00000000-0000-0000-0000-0000000000e9"
+
+
+def test_create_cell_rejects_lider_nao_apto(app) -> None:
+    session = CellSession(
+        app_user=make_app_user(),
+        roles=["pastor"],
+        pessoas=[make_pessoa(pessoa_id=_P1, apto_lider=False)],
+    )
+    resp = _wire(app, session=session).post(
+        "/cells", headers=_AUTH, json=_full_payload(liderId=_P1)
+    )
+    assert resp.status_code == 422
+    assert "Reencontro" in resp.json()["detail"]
+    assert session.committed is False
+
+
+def test_create_cell_rejects_lider_csim(app) -> None:
+    session = CellSession(
+        app_user=make_app_user(),
+        roles=["pastor"],
+        pessoas=[make_pessoa(pessoa_id=_P1, apto_lider=True, sem_interesse=True)],
+    )
+    resp = _wire(app, session=session).post(
+        "/cells", headers=_AUTH, json=_full_payload(liderId=_P1)
+    )
+    assert resp.status_code == 422
+    assert "CSIM" in resp.json()["detail"]
+
+
+def test_create_cell_rejects_lider_que_ja_lidera_ativa(app) -> None:
+    session = CellSession(
+        app_user=make_app_user(),
+        roles=["pastor"],
+        cells=[make_cell(cell_id=_CELL2, lider_id=_P1, ativo=True)],
+        pessoas=[make_pessoa(pessoa_id=_P1)],
+    )
+    resp = _wire(app, session=session).post(
+        "/cells", headers=_AUTH, json=_full_payload(liderId=_P1)
+    )
+    assert resp.status_code == 409
+    assert "já lidera" in resp.json()["detail"]
+
+
+def test_create_cell_accepts_apto_sem_celula(app) -> None:
+    session = CellSession(
+        app_user=make_app_user(),
+        roles=["pastor"],
+        pessoas=[make_pessoa(pessoa_id=_P1, apto_lider=True)],
+    )
+    resp = _wire(app, session=session).post(
+        "/cells", headers=_AUTH, json=_full_payload(liderId=_P1)
+    )
+    assert resp.status_code == 200, resp.text
+    assert session.committed is True
+
+
+def test_edit_cell_keeping_same_leader_passes(app) -> None:
+    # Grandfather: reenviar o MESMO líder não valida elegibilidade (líder legado
+    # não-apto não trava a edição da própria célula).
+    cell = make_cell(lider_id=_P1)
+    session = CellSession(
+        app_user=make_app_user(),
+        roles=["pastor"],
+        cells=[cell],
+        pessoas=[make_pessoa(pessoa_id=_P1, apto_lider=False)],
+    )
+    resp = _wire(app, session=session).post(
+        "/cells", headers=_AUTH, json=_full_payload(id=_CELL, liderId=_P1)
+    )
+    assert resp.status_code == 200, resp.text
+    assert str(cell.lider_id) == _P1
+
+
+def test_edit_cell_changing_leader_validates(app) -> None:
+    cell = make_cell(lider_id=_P1)
+    session = CellSession(
+        app_user=make_app_user(),
+        roles=["pastor"],
+        cells=[cell],
+        pessoas=[
+            make_pessoa(pessoa_id=_P1),
+            make_pessoa(pessoa_id=_P2, apto_lider=False),
+        ],
+    )
+    resp = _wire(app, session=session).post(
+        "/cells", headers=_AUTH, json=_full_payload(id=_CELL, liderId=_P2)
+    )
+    assert resp.status_code == 422
+    assert "Reencontro" in resp.json()["detail"]
+
+
+def test_edit_cell_changing_to_apto_leader_passes(app) -> None:
+    cell = make_cell(lider_id=_P1)
+    session = CellSession(
+        app_user=make_app_user(),
+        roles=["pastor"],
+        cells=[cell],
+        pessoas=[make_pessoa(pessoa_id=_P1), make_pessoa(pessoa_id=_P2)],
+    )
+    resp = _wire(app, session=session).post(
+        "/cells", headers=_AUTH, json=_full_payload(id=_CELL, liderId=_P2)
+    )
+    assert resp.status_code == 200, resp.text
+    assert str(cell.lider_id) == _P2
 
 
 # ---- sensitive-field guard (decisão 3.2) ----------------------------------
