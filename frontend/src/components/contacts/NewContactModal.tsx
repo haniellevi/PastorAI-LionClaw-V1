@@ -113,11 +113,12 @@ export function NewContactModal({ busy, error, onClose, onSubmit }: NewContactMo
             <div className="field">
               <label htmlFor="nc-tipo">Tipo</label>
               <select id="nc-tipo" value={tipo} onChange={(e) => setTipo(e.target.value)}>
+                {/* "Líder" saiu: líder de célula é derivado do vínculo com
+                    célula ativa, não um tipo manual (regra 2026-07-06). */}
                 <option value="contato">Contato</option>
                 <option value="visitante">Visitante</option>
                 <option value="membro">Membro</option>
                 <option value="discipulo">Discípulo</option>
-                <option value="lider">Líder</option>
                 <option value="pastor">Pastor</option>
               </select>
             </div>

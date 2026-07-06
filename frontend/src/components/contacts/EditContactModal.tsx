@@ -11,12 +11,13 @@ import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
 import type { Contact, UpdateContactInput } from "@/lib/contacts-api";
 
+// "Líder" saiu dos tipos manuais: líder de célula é derivado do vínculo com
+// célula ativa (regra 2026-07-06); a aptidão (Reencontro) é o toggle abaixo.
 const TIPOS = [
   { value: "contato", label: "Contato" },
   { value: "visitante", label: "Visitante" },
   { value: "discipulo", label: "Discípulo" },
   { value: "membro", label: "Membro" },
-  { value: "lider", label: "Líder" },
   { value: "pastor", label: "Pastor" },
 ];
 
@@ -38,6 +39,7 @@ export function EditContactModal({ contact, busy, error, onClose, onSubmit }: Ed
   const [tipo, setTipo] = useState(contact.tipo ?? "");
   const [semInteresse, setSemInteresse] = useState(contact.semInteresse);
   const [csimMotivo, setCsimMotivo] = useState(contact.semInteresseMotivo ?? "");
+  const [aptoLider, setAptoLider] = useState(contact.aptoLider);
   const [touched, setTouched] = useState(false);
 
   const nomeError = touched && !nome.trim() ? "Informe o nome." : undefined;
@@ -62,6 +64,9 @@ export function EditContactModal({ contact, busy, error, onClose, onSubmit }: Ed
     if (semInteresse && motivoNorm !== (contact.semInteresseMotivo ?? null)) {
       input.semInteresseMotivo = motivoNorm;
     }
+    // Aptidão (Reencontro): CSIM nunca é apto — força false ao marcar CSIM.
+    const aptoFinal = semInteresse ? false : aptoLider;
+    if (aptoFinal !== contact.aptoLider) input.aptoLider = aptoFinal;
     if (Object.keys(input).length === 0) {
       onClose();
       return;
@@ -145,6 +150,7 @@ export function EditContactModal({ contact, busy, error, onClose, onSubmit }: Ed
                   // sem_interesse e mantém o tipo real por baixo.
                   if (v === "csim") {
                     setSemInteresse(true);
+                    setAptoLider(false); // CSIM fica fora da visão: nunca apto
                   } else {
                     setSemInteresse(false);
                     setTipo(v);
@@ -170,6 +176,19 @@ export function EditContactModal({ contact, busy, error, onClose, onSubmit }: Ed
               placeholder="ex.: empresa, outra cidade"
             />
           ) : null}
+
+          {/* Aptidão (Reencontro) — modal já é admin-only; CSIM não pode ser apto. */}
+          <div className="field">
+            <label className="check-row">
+              <input
+                type="checkbox"
+                checked={aptoLider && !semInteresse}
+                disabled={busy || semInteresse}
+                onChange={(e) => setAptoLider(e.target.checked)}
+              />
+              <span>Apto a liderar (Reencontro)</span>
+            </label>
+          </div>
 
           <div className="modal-foot">
             <button type="button" className="btn btn-sm" onClick={onClose} disabled={busy}>
