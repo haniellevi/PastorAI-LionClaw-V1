@@ -7,9 +7,10 @@
  * mantém o formulário preenchido com erro inline (ex.: 403 sem permissão).
  *
  * Cobertura espiritual ≠ líder disponível: é texto livre com SUGESTÕES
- * (datalist) da liderança pastoral (coverageOptions) — quem já tem célula,
- * ativa ou não, continua aparecendo como cobertura. Dia/horário viajam
- * separados (diaReuniao + horario HH:MM, campos que o backend já possui).
+ * (datalist, coverageOptions = pastores; G12 pastoral formal fica para
+ * modelagem futura) — quem já tem célula, ativa ou não, continua aparecendo
+ * como cobertura. Dia/horário viajam separados (diaReuniao + horario HH:MM,
+ * campos que o backend já possui).
  */
 import { useState } from "react";
 
@@ -34,7 +35,7 @@ export interface CellFormModalProps {
   cell?: CellSummary | null;
   /** Pessoas elegíveis como líder da célula (aptas, sem célula ativa). */
   leaders: Contact[];
-  /** Sugestões para a cobertura espiritual (liderança pastoral; não exclui quem já tem célula). */
+  /** Sugestões para a cobertura espiritual (pastores; não exclui quem já tem célula). */
   coverageOptions: Contact[];
   busy: boolean;
   error: string | null;
@@ -131,7 +132,7 @@ export function CellFormModal({
             value={cobertura}
             onChange={(e) => setCobertura(e.target.value)}
             placeholder="Quem cobre espiritualmente esta célula"
-            helper="Obrigatória. Sugestões: liderança pastoral — ter célula não impede de cobrir."
+            helper="Obrigatória. Sugestões: pastores — ter célula não impede de cobrir."
             error={coberturaError}
             list="cf-cobertura-sugestoes"
           />

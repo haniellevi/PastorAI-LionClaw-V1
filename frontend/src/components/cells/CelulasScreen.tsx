@@ -261,13 +261,11 @@ export function CelulasScreen() {
     return eligible;
   }, [contacts, editing]);
 
-  // Sugestões de cobertura espiritual: liderança pastoral (tipo pastor/líder).
-  // Ter célula — ativa ou não — NÃO exclui da cobertura (regra do dono).
+  // Sugestões de cobertura espiritual: só tipo='pastor' (decisão do dono:
+  // 'lider' é legado e não volta como semântica; G12 pastoral formal fica para
+  // modelagem futura). Ter célula — ativa ou não — NÃO exclui da cobertura.
   const coverageOptions = useMemo(
-    () =>
-      contacts.filter(
-        (c) => (c.tipo === "pastor" || c.tipo === "lider") && !c.semInteresse,
-      ),
+    () => contacts.filter((c) => c.tipo === "pastor" && !c.semInteresse),
     [contacts],
   );
 
