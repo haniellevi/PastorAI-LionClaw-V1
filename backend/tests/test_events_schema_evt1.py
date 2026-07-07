@@ -135,20 +135,49 @@ def test_eventout_from_model_handles_null_data() -> None:
 
 
 def test_eventout_from_model_maps_communication_fields() -> None:
-    """EVT-8a — EventOut expõe publico_alvo/antecedencia_horas/mensagem_confirmacao
-    em camelCase a partir do modelo."""
+    """EVT-8a/PR1 — EventOut expõe os campos de comunicação/notificação em
+    camelCase a partir do modelo (taxonomia coletiva nova, D1)."""
     ev = Event(
         id=uuid.uuid4(),
         titulo="Conferência",
         data=dt.date(2026, 3, 1),
-        publico_alvo=["lideres", "jovens"],
+        publico_alvo=["pastores", "g12_pastoral"],
         antecedencia_horas=48,
         mensagem_confirmacao="Confirme presença",
+        notificar_em=dt.datetime(2026, 2, 28, 10, 0, tzinfo=dt.timezone.utc),
+        canal="whatsapp",
     )
     out = EventOut.from_model(ev)
-    assert out.publicoAlvo == ["lideres", "jovens"]
+    assert out.publicoAlvo == ["pastores", "g12_pastoral"]
     assert out.antecedenciaHoras == 48
     assert out.mensagemConfirmacao == "Confirme presença"
+    assert out.canal == "whatsapp"
+    assert out.notificarEm == dt.datetime(2026, 2, 28, 10, 0, tzinfo=dt.timezone.utc)
+    assert out.contatos is None  # só volta na resposta do confirm
+
+
+# ---- EVT-8 PR1 — colunas de notificação + tabela de contatos individuais ----
+def test_event_model_has_evt8_pr1_columns() -> None:
+    cols = Event.__table__.columns
+    for name in ("notificar_em", "notificacao_enviada_em", "canal"):
+        assert name in cols, f"coluna {name} faltando no modelo Event (EVT-8 PR1)"
+        assert cols[name].nullable is True, f"{name} deveria ser nullable"
+
+
+def test_event_notify_target_model_shape() -> None:
+    from app.db.models import EventNotifyTarget
+
+    cols = EventNotifyTarget.__table__.columns
+    assert EventNotifyTarget.__tablename__ == "event_notify_targets"
+    for name in ("event_id", "igreja_id", "pessoa_id", "telefone"):
+        assert name in cols
+    # pessoa_id/telefone nullable (a CHECK do banco exige ao menos um).
+    assert cols["pessoa_id"].nullable is True
+    assert cols["telefone"].nullable is True
+    event_fk = next(iter(EventNotifyTarget.__table__.c.event_id.foreign_keys))
+    assert event_fk.column.table.name == "events"
+    igreja_fk = next(iter(EventNotifyTarget.__table__.c.igreja_id.foreign_keys))
+    assert igreja_fk.column.table.name == "igrejas"
 
 
 # ---- HTTP: contrato 422 (espelha test_event_requires_data) -----------------

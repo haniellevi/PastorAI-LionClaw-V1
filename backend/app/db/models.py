@@ -1112,6 +1112,20 @@ class Event(Base):
     publico_alvo: Mapped[list[str] | None] = mapped_column(ARRAY(Text), nullable=True)
     antecedencia_horas: Mapped[int | None] = mapped_column(Integer, nullable=True)
     mensagem_confirmacao: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # EVT-8 PR1 — configuração de notificação do PRÓPRIO evento (captura da
+    # intenção; o envio real é EVT-9, atrás de flag). `notificar_em`: instante
+    # normalizado do disparo (D4) — derivado de `antecedencia_horas` + hora do
+    # evento OU de uma data/hora específica; fonte única do futuro cron.
+    # `notificacao_enviada_em`: idempotência do envio agendado — NULL com
+    # `notificar_em` preenchido = pendente/futuro; NADA é enviado neste PR.
+    # `canal`: WhatsApp no MVP (D6). Ver AGENDA-EVENTOS-EVT8-notificacao-evento.md.
+    notificar_em: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    notificacao_enviada_em: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    canal: Mapped[str | None] = mapped_column(String, nullable=True)
     confirmado_em: Mapped[dt.datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -1126,6 +1140,39 @@ class Event(Base):
     notificado_em: Mapped[dt.datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+
+class EventNotifyTarget(Base):
+    """Contato individual a notificar de um evento (EVT-8 PR1, D3).
+
+    A seleção individual da notificação do próprio evento vem de contatos que já
+    conversaram no WhatsApp da igreja (``conversations``) — nunca digitação livre
+    de telefone. Preferimos ``pessoa_id`` quando a conversa tem pessoa vinculada;
+    sem pessoa, guardamos o ``telefone`` (chave canônica só-dígitos, normalize_phone).
+    ``igreja_id`` replica o tenant para a RLS. O envio real é EVT-9; aqui só se
+    persiste a intenção. Ver docs/design/AGENDA-EVENTOS-EVT8-notificacao-evento.md.
+    """
+
+    __tablename__ = "event_notify_targets"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("events.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    igreja_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("igrejas.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    pessoa_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("pessoas.id", ondelete="SET NULL"), nullable=True
+    )
+    telefone: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
