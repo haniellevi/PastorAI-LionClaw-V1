@@ -644,23 +644,31 @@ input[type="checkbox"] {
   align-items: center;
   gap: 10px;
 }
-.church-avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  background: var(--accent);
-  color: var(--accent-fg);
-  display: grid;
-  place-items: center;
-  font-weight: 640;
-  font-size: 13px;
-  flex: none;
+/* Card da igreja com logo customizada: slot horizontal (recomendada 512x160).
+   A logo aparece sobre o fundo escuro do card (deixa logo branca visível). */
+.side-church.has-logo {
+  justify-content: center;
+  padding: 8px 10px;
 }
-.church-meta {
+.church-logo {
+  flex: 1;
   min-width: 0;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
-.church-meta strong {
-  display: block;
+.church-logo img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+/* Fallback sem logo: nome da igreja (iniciais só no menu colapsado). */
+.church-name {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   color: #fff;
   font-size: 13px;
   font-weight: 580;
@@ -668,9 +676,20 @@ input[type="checkbox"] {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.church-meta span {
-  font-size: 11.5px;
-  color: var(--sidebar-muted);
+.church-initials {
+  display: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  place-items: center;
+  font-weight: 640;
+  font-size: 13px;
+  flex: none;
+}
+.sidebar.collapsed .church-initials {
+  display: grid;
 }
 
 /* grupos planos (paridade protótipo Igreja 12 — F2 flat) */

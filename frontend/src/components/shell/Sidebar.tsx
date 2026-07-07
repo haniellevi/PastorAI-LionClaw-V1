@@ -158,34 +158,36 @@ export function Sidebar({
         </button>
       </div>
 
-      <div className="side-church" data-tip={igrejaNome}>
-        <span
-          className="church-avatar"
-          style={showLogo ? { background: "#fff", overflow: "hidden" } : undefined}
-        >
-          {showLogo ? (
-            // eslint-disable-next-line @next/next/no-img-element
+      <div
+        className={`side-church${showLogo ? " has-logo" : ""}`}
+        data-tip={igrejaNome}
+      >
+        {showLogo ? (
+          // Com logo: só a logo horizontal da igreja, sem nome e sem subtítulo.
+          <span className="church-logo">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={igrejaLogo!}
               alt={`Logo de ${igrejaNome}`}
               onError={() => setLogoFailed(true)}
-              style={{ width: "100%", height: "100%", objectFit: "contain" }}
             />
-          ) : (
-            initials(igrejaNome)
-          )}
-        </span>
-        <span className="church-meta lbl">
-          <strong title={igrejaNome}>
-            {igrejaNome}
-            {user.isOwner ? (
-              <span className="owner-seal" title="Dono da conta (admin principal)">
-                Dono
-              </span>
-            ) : null}
-          </strong>
-          <span>Visão G12</span>
-        </span>
+          </span>
+        ) : (
+          // Sem logo (ou falhou): nome da igreja. Iniciais só no menu colapsado.
+          <>
+            <span className="church-initials" aria-hidden="true">
+              {initials(igrejaNome)}
+            </span>
+            <span className="church-name lbl" title={igrejaNome}>
+              {igrejaNome}
+              {user.isOwner ? (
+                <span className="owner-seal" title="Dono da conta (admin principal)">
+                  Dono
+                </span>
+              ) : null}
+            </span>
+          </>
+        )}
       </div>
 
       <div className="nav-scroll">
