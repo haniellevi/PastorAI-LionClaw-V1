@@ -175,10 +175,15 @@ def list_pipeline(
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> Page[ContactOut]:
-    """Return people with their stage, optionally filtered by etapa."""
+    """Return people with their stage, optionally filtered by etapa.
+
+    CSIM (``sem_interesse=True``) está FORA da Visão/Jornada G12: nunca aparece
+    no pipeline, espelhando ``dashboard.overview`` (porEtapa). Fecha a dívida do
+    PR #103 — a regra passa a valer no backend, não só no filtro client-side.
+    """
     ensure_tenant_context(db, current_user)
 
-    filters = []
+    filters = [Pessoa.sem_interesse.is_(False)]
     if etapa is not None:
         normalized = etapa.strip().lower()
         if normalized not in VALID_ETAPAS:
