@@ -30,15 +30,17 @@ import logging
 import re
 import uuid
 from typing import Literal
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import Event
+from app.db.models import Conversation, Event, EventNotifyTarget
 from app.db.session import get_db
 from app.deps import CurrentUser, get_current_user, require_role
+from app.domain.phone import normalize_phone
 from app.routers._common import Page, PaginationParams, ensure_tenant_context
 from app.services.event_notify import notify_event_confirmed
 
@@ -57,19 +59,26 @@ STATUS_A_CONFIRMAR = "a_confirmar"
 # (legado/opcional, coluna events.tipo é nullable).
 EventTipo = Literal["culto", "reuniao", "celula", "especial", "conferencia"]
 
-# EVT-8a — allowlist fechada de públicos-alvo do aviso de confirmação. Literal dá
-# 422 no payload para valores fora da lista. Importante: EVT-8a só PERSISTE a
-# intenção (colunas publico_alvo/antecedencia_horas/mensagem_confirmacao); não
-# envia nem agenda comunicação alguma.
+# EVT-8 PR1 (D1) — allowlist COLETIVA reestruturada. Literal dá 422 no payload
+# para valores fora da lista. Os 5 valores antigos do EVT-8a
+# (discipulos/visitantes/casais/jovens/criancas) SAÍRAM do MVP (podem voltar como
+# segmentações futuras); a seleção INDIVIDUAL virou `contatos`
+# (event_notify_targets), fora deste enum. A resolução de cada público em
+# telefones é o PR2 (resolver); aqui só se valida e persiste a intenção.
 PublicoAlvo = Literal[
     "toda_igreja",
-    "lideres",
-    "discipulos",
-    "visitantes",
-    "casais",
-    "jovens",
-    "criancas",
+    "pastores",
+    "g12_pastoral",
+    "lideres_celula",
 ]
+_PUBLICO_ALVO_MAX = 4
+
+# EVT-8 PR1 (D6) — canal padrão do MVP; envio real (WhatsApp) é EVT-9.
+CANAL_PADRAO = "whatsapp"
+
+# EVT-8 PR1 (D4) — a hora do evento é local (texto HH:MM sem fuso). Normalizamos
+# `notificar_em` no fuso da igreja (mesmo de app/domain/cell_meetings_schedule).
+_SAO_PAULO_TZ = ZoneInfo("America/Sao_Paulo")
 
 
 def _normalize_hora(value: str | None) -> str | None:
@@ -85,6 +94,13 @@ def _normalize_hora(value: str | None) -> str | None:
 
 
 router = APIRouter(prefix="/events", tags=["events"])
+
+
+class IndividualTargetOut(BaseModel):
+    """Um contato individual da notificação, como persistido (EVT-8 PR1)."""
+
+    pessoaId: str | None = None  # noqa: N815
+    telefone: str | None = None
 
 
 class EventOut(BaseModel):
@@ -110,9 +126,20 @@ class EventOut(BaseModel):
     publicoAlvo: list[str] | None = None  # noqa: N815
     antecedenciaHoras: int | None = None  # noqa: N815
     mensagemConfirmacao: str | None = None  # noqa: N815
+    # EVT-8 PR1 — configuração de notificação do evento (aditivo). `notificarEm`:
+    # quando disparar (normalizado, D4). `notificacaoEnviadaEm`: NULL = pendente/
+    # futuro — NADA é enviado neste PR. `canal`: whatsapp no MVP (D6). `contatos`:
+    # seleção individual — só volta na resposta do confirm (não carregada na
+    # listagem, para não fazer um SELECT por evento).
+    notificarEm: dt.datetime | None = None  # noqa: N815
+    notificacaoEnviadaEm: dt.datetime | None = None  # noqa: N815
+    canal: str | None = None
+    contatos: list[IndividualTargetOut] | None = None
 
     @classmethod
-    def from_model(cls, e: Event) -> "EventOut":
+    def from_model(
+        cls, e: Event, *, contatos: list[IndividualTargetOut] | None = None
+    ) -> "EventOut":
         return cls(
             id=str(e.id),
             titulo=e.titulo,
@@ -130,6 +157,10 @@ class EventOut(BaseModel):
             publicoAlvo=e.publico_alvo,
             antecedenciaHoras=e.antecedencia_horas,
             mensagemConfirmacao=e.mensagem_confirmacao,
+            notificarEm=e.notificar_em,
+            notificacaoEnviadaEm=e.notificacao_enviada_em,
+            canal=e.canal,
+            contatos=contatos,
         )
 
 
@@ -179,16 +210,40 @@ class UpdateEventRequest(BaseModel):
         return _normalize_hora(value)
 
 
+class IndividualTargetInput(BaseModel):
+    """Um contato individual selecionado para a notificação (EVT-8 PR1, D3).
+
+    A seleção vem de contatos que já conversaram no WhatsApp da igreja (o front
+    manda `pessoaId` quando a conversa tem pessoa vinculada, senão o `telefone`).
+    O backend valida cada item contra `conversations` do tenant — sem digitação
+    livre de telefone. Cada item precisa de pessoaId OU telefone.
+    """
+
+    pessoaId: str | None = None  # noqa: N815
+    telefone: str | None = None
+
+    @model_validator(mode="after")
+    def _requires_identity(self) -> "IndividualTargetInput":
+        tem_tel = bool(self.telefone and self.telefone.strip())
+        if not self.pessoaId and not tem_tel:
+            raise ValueError("cada contato precisa de pessoaId ou telefone")
+        return self
+
+
 class ConfirmEventRequest(BaseModel):
-    """Dados opcionais de comunicação enviados na confirmação (EVT-8a).
+    """Configuração de notificação enviada na confirmação (EVT-8 PR1).
 
     Tudo opcional: confirmar sem body (ou com `{}`) mantém o comportamento
-    anterior. EVT-8a apenas PERSISTE a intenção (público/antecedência/mensagem)
-    nas colunas do evento — não envia nem agenda comunicação alguma.
+    anterior (confirma sem notificação). Este PR apenas PERSISTE a intenção
+    (público coletivo, contatos individuais, quando, canal, mensagem) — NÃO envia
+    nem dispara comunicação alguma (o envio real é EVT-9).
     """
 
     publicoAlvo: list[PublicoAlvo] | None = None  # noqa: N815
+    contatos: list[IndividualTargetInput] | None = None
     antecedenciaHoras: int | None = Field(default=None, ge=0)  # noqa: N815
+    notificarEm: dt.datetime | None = None  # noqa: N815
+    canal: Literal["whatsapp"] | None = None
     mensagemConfirmacao: str | None = None  # noqa: N815
 
     @field_validator("publicoAlvo")
@@ -196,14 +251,28 @@ class ConfirmEventRequest(BaseModel):
     def _publico(cls, value: list[str] | None) -> list[str] | None:
         if value is None:
             return None
-        if len(value) > 7:
-            raise ValueError("publicoAlvo aceita no máximo 7 itens")
+        # teto checado no BRUTO (antes do dedup), como no EVT-8a.
+        if len(value) > _PUBLICO_ALVO_MAX:
+            raise ValueError(f"publicoAlvo aceita no máximo {_PUBLICO_ALVO_MAX} itens")
         # dedup preservando a ordem; lista vazia normaliza para None.
         deduped: list[str] = []
         for item in value:
             if item not in deduped:
                 deduped.append(item)
         return deduped or None
+
+    @field_validator("contatos")
+    @classmethod
+    def _contatos(
+        cls, value: list[IndividualTargetInput] | None
+    ) -> list[IndividualTargetInput] | None:
+        if value is None:
+            return None
+        # Teto defensivo; a resolução real e o dedup por identidade acontecem no
+        # handler, contra `conversations`. Lista vazia normaliza para None.
+        if len(value) > 500:
+            raise ValueError("contatos aceita no máximo 500 itens")
+        return value or None
 
     @field_validator("mensagemConfirmacao")
     @classmethod
@@ -368,6 +437,107 @@ def delete_event(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+def _event_start_dt(event: Event) -> dt.datetime | None:
+    """Início do evento no fuso America/Sao_Paulo, ou None se não tem data.
+
+    A hora é texto HH:MM (validado no create/edit); sem hora assume 00:00.
+    """
+    if event.data is None:
+        return None
+    hora = event.hora or "00:00"
+    try:
+        h, m = (int(x) for x in hora.split(":", 1))
+    except (ValueError, AttributeError):
+        h, m = 0, 0
+    return dt.datetime(
+        event.data.year, event.data.month, event.data.day, h, m, tzinfo=_SAO_PAULO_TZ
+    )
+
+
+def _derive_notificar_em(
+    event: Event, payload: ConfirmEventRequest
+) -> dt.datetime | None:
+    """Normaliza o "quando" (D4) para um único timestamptz.
+
+    Precedência: `notificarEm` explícito (data/hora específica) sobre
+    `antecedenciaHoras` (X antes do evento). Um `notificarEm` naive é interpretado
+    no fuso da igreja. Retorna None quando não há como derivar (ex.: antecedência
+    informada mas o evento não tem data — recorrente semanal).
+    """
+    if payload.notificarEm is not None:
+        alvo = payload.notificarEm
+        if alvo.tzinfo is None:
+            alvo = alvo.replace(tzinfo=_SAO_PAULO_TZ)
+        return alvo
+    if payload.antecedenciaHoras is not None:
+        inicio = _event_start_dt(event)
+        if inicio is None:
+            return None
+        return inicio - dt.timedelta(hours=payload.antecedenciaHoras)
+    return None
+
+
+def _resolve_contatos(
+    db: Session,
+    igreja_id: uuid.UUID,
+    contatos: list[IndividualTargetInput],
+) -> list[tuple[uuid.UUID | None, str | None]]:
+    """Valida cada contato individual contra `conversations` do tenant (D3).
+
+    Cada item precisa corresponder a uma conversa EXISTENTE da própria igreja
+    (quem já falou no WhatsApp) — senão 422: isso bloqueia telefone digitado à
+    mão e contato de outro tenant (o predicado `igreja_id` fica no WHERE, defesa
+    em profundidade além da RLS). Preferimos o `pessoa_id` da conversa; sem pessoa
+    vinculada, guardamos o telefone canônico. Dedup por identidade, preservando a
+    ordem. NÃO envia nada — só resolve a intenção.
+    """
+    resolvidos: list[tuple[uuid.UUID | None, str | None]] = []
+    vistos: set[tuple[str | None, str | None]] = set()
+    for c in contatos:
+        if c.pessoaId:
+            try:
+                pessoa_uuid = uuid.UUID(c.pessoaId)
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="pessoaId inválido",
+                ) from exc
+            conv = db.execute(
+                select(Conversation).where(
+                    Conversation.pessoa_id == pessoa_uuid,
+                    Conversation.igreja_id == igreja_id,
+                )
+            ).scalar_one_or_none()
+        else:
+            try:
+                telefone = normalize_phone(c.telefone or "")
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="telefone inválido",
+                ) from exc
+            conv = db.execute(
+                select(Conversation).where(
+                    Conversation.telefone == telefone,
+                    Conversation.igreja_id == igreja_id,
+                )
+            ).scalar_one_or_none()
+        if conv is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Contato não encontrado nas conversas do WhatsApp da igreja",
+            )
+        # D3 — prefere pessoa_id quando a conversa tem pessoa vinculada.
+        pessoa_id = conv.pessoa_id
+        tel_final = None if pessoa_id is not None else conv.telefone
+        chave = (str(pessoa_id) if pessoa_id is not None else None, tel_final)
+        if chave in vistos:
+            continue
+        vistos.add(chave)
+        resolvidos.append((pessoa_id, tel_final))
+    return resolvidos
+
+
 @router.post("/{event_id}/confirm", response_model=EventOut)
 def confirm_event(
     event_id: str,
@@ -378,16 +548,17 @@ def confirm_event(
     """Confirmação manual de um evento 'a_confirmar' (pastor/admin).
 
     Só transita a partir de 'a_confirmar' (estado dos eventos importados do
-    Google, EVT-6). Confirmar um evento que não está 'a_confirmar' (já confirmado,
-    etc.) retorna 409 — regra explícita e consistente com o uso de 409 para
-    conflito de estado no projeto. Em sucesso: status='confirmado', grava
-    confirmado_em (UTC) e confirmado_por (app_user atual). Tenant-scoped.
+    Google, EVT-6). Confirmar um evento que não está 'a_confirmar' retorna 409.
+    Em sucesso: status='confirmado', grava confirmado_em (UTC) e confirmado_por
+    (app_user atual). Tenant-scoped.
 
-    EVT-8a: aceita body OPCIONAL de comunicação (`ConfirmEventRequest`). Sem body
-    (ou `{}`) o comportamento é idêntico ao anterior. Quando vem, os campos
-    público/antecedência/mensagem são PERSISTIDOS no evento — EVT-8a só grava a
-    intenção; não envia nem agenda nada. A validação do 409 acontece antes de
-    qualquer persistência nova.
+    EVT-8 PR1: aceita body OPCIONAL de configuração de notificação
+    (`ConfirmEventRequest`). Sem body (ou `{}`) o comportamento é idêntico ao
+    anterior (confirma sem notificação). Quando vem, PERSISTE a intenção — público
+    coletivo, contatos individuais (validados contra as conversas do WhatsApp do
+    tenant), `notificar_em` normalizado, canal e mensagem. NÃO envia nem agenda
+    comunicação: o disparo real é EVT-9. A validação (409 de estado e 422 do
+    payload) acontece ANTES de qualquer persistência.
     """
     ensure_tenant_context(db, current_user)
     event = _get_event(db, current_user, event_id)
@@ -398,16 +569,60 @@ def confirm_event(
             detail="Evento não está aguardando confirmação",
         )
 
+    igreja_id = uuid.UUID(current_user.igreja_id)
+
+    # EVT-8 PR1 — valida a intenção ANTES de confirmar: payload inválido (contato
+    # de outro tenant, telefone livre, notificar_em depois do evento) não confirma
+    # nem persiste nada.
+    contatos_resolvidos: list[tuple[uuid.UUID | None, str | None]] = []
+    notificar_em: dt.datetime | None = None
+    if payload is not None:
+        notificar_em = _derive_notificar_em(event, payload)
+        inicio = _event_start_dt(event)
+        if notificar_em is not None and inicio is not None and notificar_em >= inicio:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="notificarEm deve ser anterior ao início do evento",
+            )
+        if payload.contatos:
+            contatos_resolvidos = _resolve_contatos(db, igreja_id, payload.contatos)
+
     event.status = STATUS_CONFIRMADO
     event.confirmado_em = dt.datetime.now(dt.timezone.utc)
     event.confirmado_por = uuid.UUID(current_user.app_user_id)
 
-    # EVT-8a — persiste a intenção de comunicação, se veio no body. Sem body
-    # preserva o comportamento anterior (não toca essas colunas). Só grava.
+    contatos_out: list[IndividualTargetOut] | None = None
     if payload is not None:
         event.publico_alvo = payload.publicoAlvo
         event.antecedencia_horas = payload.antecedenciaHoras
         event.mensagem_confirmacao = payload.mensagemConfirmacao
+        event.notificar_em = notificar_em
+        # Só define canal quando há alguma intenção de notificação; um confirm
+        # "seco" (body vazio) não passa a fingir que há WhatsApp configurado.
+        tem_notificacao = bool(
+            payload.publicoAlvo
+            or payload.contatos
+            or payload.antecedenciaHoras is not None
+            or payload.notificarEm is not None
+        )
+        if tem_notificacao:
+            event.canal = payload.canal or CANAL_PADRAO
+        for pessoa_id, telefone in contatos_resolvidos:
+            db.add(
+                EventNotifyTarget(
+                    event_id=event.id,
+                    igreja_id=igreja_id,
+                    pessoa_id=pessoa_id,
+                    telefone=telefone,
+                )
+            )
+        if contatos_resolvidos:
+            contatos_out = [
+                IndividualTargetOut(
+                    pessoaId=str(p) if p is not None else None, telefone=t
+                )
+                for p, t in contatos_resolvidos
+            ]
 
     db.flush()
     db.refresh(event)
@@ -415,10 +630,12 @@ def confirm_event(
 
     # EVT-7 PR1: aviso interno best-effort, atrás da flag AGENDA_NOTIFY_ENABLED.
     # A confirmação já foi commitada acima; o aviso nunca pode 500 o confirm, então
-    # engolimos qualquer erro (o próprio notify já trata falha de envio).
+    # engolimos qualquer erro (o próprio notify já trata falha de envio). É outro
+    # fluxo (equipe interna via agenda_alert_recipients), não a notificação do
+    # evento do EVT-8.
     try:
         notify_event_confirmed(db, event)
     except Exception:  # noqa: BLE001 - aviso é best-effort, não derruba a confirmação
         logger.exception("Falha inesperada ao avisar confirmação de evento")
 
-    return EventOut.from_model(event)
+    return EventOut.from_model(event, contatos=contatos_out)
