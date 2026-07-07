@@ -32,6 +32,7 @@ import {
   type MouseEvent,
 } from "react";
 
+import { ConfirmEventModal } from "@/components/calendario/ConfirmEventModal";
 import { EventDetailModal } from "@/components/calendario/EventDetailModal";
 import { EventFormModal } from "@/components/calendario/EventFormModal";
 import { Button } from "@/components/ui/Button";
@@ -53,6 +54,7 @@ import {
   shiftCursor,
   updateEvent,
   viewLabel,
+  type ConfirmEventInput,
   type CreateEventInput,
   type EventItem,
   type EventView,
@@ -141,7 +143,10 @@ export function CalendarioScreen() {
   const [mutError, setMutError] = useState<string | null>(null);
 
   // EVT-5: id do evento sendo confirmado pela fila (loading por linha).
-  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  // EVT-8 PR3: evento sendo confirmado/configurado no modal (fila ou detalhe).
+  const [confirming, setConfirming] = useState<EventItem | null>(null);
+  const [confirmBusy, setConfirmBusy] = useState(false);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
 
   const handleSessionError = useCallback(
     (err: unknown): boolean => {
@@ -352,46 +357,31 @@ export function CalendarioScreen() {
     }
   }, [token, selected, flashToast, handleSessionError]);
 
-  const handleConfirm = useCallback(async () => {
-    if (!token || !selected) return;
-    setMutBusy(true);
-    setMutError(null);
-    try {
-      const updated = await confirmEvent(token, selected.id);
-      replaceEvent(updated);
-      setSelected(updated);
-      flashToast({ kind: "ok", text: `Evento "${updated.titulo}" confirmado.` });
-    } catch (err) {
-      if (handleSessionError(err)) return;
-      setMutError(err instanceof ApiError ? err.message : "Não foi possível confirmar o evento.");
-    } finally {
-      setMutBusy(false);
-    }
-  }, [token, selected, replaceEvent, flashToast, handleSessionError]);
-
-  // EVT-5: confirmação direto da fila "A confirmar" (sem abrir o detalhe). Em
-  // sucesso, `replaceEvent` muda o status para 'confirmado' e o item sai da fila
-  // (filtro por status). 409 e demais erros viram toast. O detalhe (EVT-4)
-  // continua sendo um caminho alternativo de confirmação.
-  const handleConfirmQueue = useCallback(
-    async (ev: EventItem) => {
-      if (!token) return;
-      setConfirmingId(ev.id);
+  // EVT-8 PR3: a confirmação (fila "A confirmar" ou detalhe EVT-4) abre o
+  // ConfirmEventModal; o submit do modal chega aqui. `input` undefined = confirmar
+  // sem notificação (fluxo antigo, EVT-5). Em sucesso, `replaceEvent` muda o
+  // status para 'confirmado' e o item sai da fila (filtro por status); o modal
+  // fecha. Erros (409/422/…) ficam no próprio modal.
+  const handleConfirmSubmit = useCallback(
+    async (input?: ConfirmEventInput) => {
+      if (!token || !confirming) return;
+      setConfirmBusy(true);
+      setConfirmError(null);
       try {
-        const updated = await confirmEvent(token, ev.id);
+        const updated = await confirmEvent(token, confirming.id, input);
         replaceEvent(updated);
+        setConfirming(null);
         flashToast({ kind: "ok", text: `Evento "${updated.titulo}" confirmado.` });
       } catch (err) {
         if (handleSessionError(err)) return;
-        flashToast({
-          kind: "err",
-          text: err instanceof ApiError ? err.message : "Não foi possível confirmar o evento.",
-        });
+        setConfirmError(
+          err instanceof ApiError ? err.message : "Não foi possível confirmar o evento.",
+        );
       } finally {
-        setConfirmingId(null);
+        setConfirmBusy(false);
       }
     },
-    [token, replaceEvent, flashToast, handleSessionError],
+    [token, confirming, replaceEvent, flashToast, handleSessionError],
   );
 
   const showSkeleton = loading && !loaded;
@@ -674,10 +664,11 @@ export function CalendarioScreen() {
                   <Button
                     variant="primary"
                     size="sm"
-                    loading={confirmingId === ev.id}
-                    loadingText="Confirmando…"
-                    disabled={confirmingId != null}
-                    onClick={() => void handleConfirmQueue(ev)}
+                    disabled={confirming != null}
+                    onClick={() => {
+                      setConfirmError(null);
+                      setConfirming(ev);
+                    }}
                   >
                     <Icon name="check" /> Confirmar
                   </Button>
@@ -714,7 +705,25 @@ export function CalendarioScreen() {
             setSelected(null);
           }}
           onDelete={() => void handleDelete()}
-          onConfirm={() => void handleConfirm()}
+          onConfirm={() => {
+            setConfirmError(null);
+            setConfirming(selected);
+            setSelected(null);
+          }}
+        />
+      ) : null}
+
+      {confirming && token ? (
+        <ConfirmEventModal
+          event={confirming}
+          token={token}
+          busy={confirmBusy}
+          error={confirmError}
+          onClose={() => {
+            setConfirming(null);
+            setConfirmError(null);
+          }}
+          onSubmit={(input) => void handleConfirmSubmit(input)}
         />
       ) : null}
 

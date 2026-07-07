@@ -28,6 +28,38 @@ export const TIPO_LABEL: Record<EventTipo, string> = {
   conferencia: "Conferência",
 };
 
+// EVT-8 (PR1/PR3): configuração de notificação do PRÓPRIO evento no confirm.
+// Públicos coletivos — allowlist fechada do backend (D1). O envio real é EVT-9.
+export type PublicoAlvo = "toda_igreja" | "pastores" | "g12_pastoral" | "lideres_celula";
+
+/** Rótulos PT-BR dos públicos coletivos (usados no modal de confirmação). */
+export const PUBLICO_ALVO_LABEL: Record<PublicoAlvo, string> = {
+  toda_igreja: "Toda a igreja",
+  pastores: "Pastores",
+  g12_pastoral: "G12 pastoral",
+  lideres_celula: "Líderes de célula",
+};
+
+// Contato individual da notificação: vem de uma conversa existente (pessoaId
+// preferido; senão o telefone da conversa). NUNCA telefone digitado à mão — o
+// backend valida cada item contra as conversas do tenant (EVT-8 PR1, D3).
+export interface IndividualTarget {
+  pessoaId?: string;
+  telefone?: string;
+}
+
+// Corpo OPCIONAL do confirm (ConfirmEventRequest, EVT-8 PR1). Sem body = confirma
+// sem notificação. Use `notificarEm` (ISO) OU `antecedenciaHoras`. `canal` MVP =
+// "whatsapp". Nada é enviado agora — só persiste a intenção (EVT-9 dispara).
+export interface ConfirmEventInput {
+  publicoAlvo?: PublicoAlvo[];
+  contatos?: IndividualTarget[];
+  antecedenciaHoras?: number;
+  notificarEm?: string; // ISO 8601
+  canal?: "whatsapp";
+  mensagemConfirmacao?: string;
+}
+
 /** Evento da igreja (EventOut). */
 export interface EventItem {
   id: string;
@@ -48,6 +80,14 @@ export interface EventItem {
   confirmadoPor?: string | null;
   // P0b-3: categoria (EventOut.tipo). Opcional/nullable — eventos antigos omitem.
   tipo?: EventTipo | null;
+  // EVT-8 (aditivo): configuração de notificação do evento persistida no confirm.
+  // Opcionais — eventos sem config omitem. `notificacaoEnviadaEm` null = pendente/
+  // não enviado (o disparo real é EVT-9).
+  publicoAlvo?: string[] | null;
+  antecedenciaHoras?: number | null;
+  notificarEm?: string | null;
+  notificacaoEnviadaEm?: string | null;
+  canal?: string | null;
 }
 
 export interface CreateEventInput {
@@ -145,9 +185,24 @@ export async function deleteEvent(token: string, id: string): Promise<void> {
   }
 }
 
-/** EVT-4: confirmação manual de um evento 'a_confirmar' (POST /events/{id}/confirm). */
-export async function confirmEvent(token: string, id: string): Promise<EventItem> {
-  const res = await authedFetch(token, `/events/${id}/confirm`, { method: "POST" });
+/**
+ * Confirmação manual de um evento 'a_confirmar' (POST /events/{id}/confirm).
+ *
+ * EVT-8 (PR1/PR3): aceita um `body` OPCIONAL de configuração de notificação. Sem
+ * `body`, o comportamento é idêntico ao anterior (confirma sem notificação). Com
+ * `body`, o backend PERSISTE a intenção (público/contatos/quando/mensagem) — nada
+ * é enviado (o disparo real é EVT-9). Um 422 (payload inválido, ex.: contato fora
+ * das conversas, notificarEm depois do evento) volta a mensagem do backend.
+ */
+export async function confirmEvent(
+  token: string,
+  id: string,
+  body?: ConfirmEventInput,
+): Promise<EventItem> {
+  const res = await authedFetch(token, `/events/${id}/confirm`, {
+    method: "POST",
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
   if (res.status === 403) {
     throw new ApiError(403, "Acesso restrito à agenda da igreja.");
   }
