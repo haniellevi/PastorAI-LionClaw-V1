@@ -34,6 +34,14 @@ SIGNED_URL_TTL = 60 * 60  # 1 hour
 # is ~16 MB; documents can be larger but we cap to keep base64 bodies sane.
 MAX_MEDIA_BYTES = 16 * 1024 * 1024
 
+# Missão 4 (branding): bucket PÚBLICO das logos das igrejas — URL estável, sem
+# TTL (o shell exibe a logo em todo pageload). Criado manualmente em DEV/PROD
+# (runbook na spec docs/design/BRANDING-IDENTIDADE-VISUAL-IGREJA.md §6).
+LOGO_BUCKET = "church-logos"
+
+# Teto próprio da logo (D5): uma logo tem poucos KB; 1 MB já é generoso.
+MAX_LOGO_BYTES = 1 * 1024 * 1024
+
 # MIME -> file extension for the stored object name (best-effort; falls back to
 # the original filename's extension, then to "bin").
 _EXT_BY_MIME = {
@@ -236,6 +244,82 @@ class SupabaseStorage:
                 resp.raise_for_status()
         except httpx.HTTPError as exc:
             logger.warning("Supabase Storage remove failed: %s", type(exc).__name__)
+
+
+    # ---- Logo da igreja (Missão 4) — bucket público church-logos ------------
+    def upload_logo(self, path: str, data: bytes, content_type: str) -> None:
+        """Upload da logo para o bucket público, no path tenant-scoped dado.
+
+        O chamador (router) valida conteúdo/tamanho e deriva o path do
+        igreja_id AUTENTICADO — a service-role key bypassa a RLS do Storage,
+        então o isolamento entre igrejas é exatamente esta disciplina.
+        """
+        if not data:
+            raise StorageError("Logo vazia")
+        if len(data) > MAX_LOGO_BYTES:
+            raise StorageError("A logo excede o limite de 1 MB")
+
+        url, key = self._require()
+        endpoint = f"{url}/storage/v1/object/{LOGO_BUCKET}/{path}"
+        try:
+            with httpx.Client(timeout=30.0) as client:
+                resp = client.post(
+                    endpoint,
+                    headers={
+                        "Authorization": f"Bearer {key}",
+                        "Content-Type": content_type,
+                        "x-upsert": "true",
+                    },
+                    content=data,
+                )
+                resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            logger.warning("Supabase Storage logo upload failed: %s", type(exc).__name__)
+            raise StorageError("Falha ao enviar a logo ao armazenamento") from exc
+
+    def remove_logo(self, paths: list[str]) -> None:
+        """Best-effort delete de logos antigas no bucket público.
+
+        Silencioso em falha (mesma filosofia de ``remove``): o ponteiro no DB é
+        a fonte de verdade; um objeto órfão no bucket é custo menor do que
+        quebrar a troca/remoção da logo.
+        """
+        clean = [p for p in dict.fromkeys(paths) if p]
+        if not clean:
+            return
+        try:
+            url, key = self._require()
+        except StorageError:
+            return
+        endpoint = f"{url}/storage/v1/object/{LOGO_BUCKET}"
+        try:
+            with httpx.Client(timeout=15.0) as client:
+                resp = client.request(
+                    "DELETE",
+                    endpoint,
+                    headers={
+                        "Authorization": f"Bearer {key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={"prefixes": clean},
+                )
+                resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            logger.warning("Supabase Storage logo remove failed: %s", type(exc).__name__)
+
+
+def logo_public_url(path: str | None) -> str | None:
+    """URL pública e estável da logo (bucket público — sem assinatura/TTL).
+
+    None quando não há logo ou o Storage não está configurado (o frontend cai
+    no fallback pelo nome da igreja).
+    """
+    if not path:
+        return None
+    url = (get_settings().supabase_url or "").rstrip("/")
+    if not url:
+        return None
+    return f"{url}/storage/v1/object/public/{LOGO_BUCKET}/{path}"
 
 
 def get_storage() -> SupabaseStorage:

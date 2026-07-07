@@ -60,6 +60,9 @@ class Igreja(Base):
         ForeignKey("app_users.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # Missão 4 (branding): path da logo no bucket público church-logos.
+    # NULL = sem logo (a UI mostra o nome da igreja como fallback).
+    logo_path: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
