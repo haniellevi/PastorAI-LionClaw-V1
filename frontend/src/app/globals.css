@@ -4912,3 +4912,10 @@ table.data-table {
   display: grid;
   gap: var(--s4);
 }
+/* Corpo dos cards de seção (Central/Minha Célula: publicar aviso/material,
+   listas, decisões). O .card é padding-0 e só o .panel-title tem padding —
+   sem esta regra, campos/botões/skeletons encostam nas bordas e no título.
+   Mesmo respiro do .card-pad. */
+.section-body {
+  padding: var(--s4);
+}
