@@ -122,6 +122,7 @@ export const ADMIN_NAV_SECTIONS: NavSection[] = [
       { target: "whatsapp", label: "Conexão WhatsApp", icon: "whatsapp", accent: "whats" },
       { target: "agente", label: "Agente IA", icon: "agent" },
       { target: "assinatura", label: "Assinatura", icon: "card" },
+      { target: "identidade", label: "Identidade Visual", icon: "image" },
       { target: "permissoes", label: "Permissões", icon: "lock" },
       { target: "equipe", label: "Usuários do Sistema", icon: "team" },
     ],
@@ -264,6 +265,11 @@ export const SCREEN_META: Record<
     title: "Agente IA",
     crumb: "Configuração",
     info: "Configuração do agente de IA: comportamento e credencial do modelo (BYO).",
+  },
+  identidade: {
+    title: "Identidade Visual",
+    crumb: "Configuração",
+    info: "Logo da igreja exibida no sistema. Opcional: sem logo, mostramos o nome da igreja.",
   },
   integracoes: {
     title: "Integrações",
