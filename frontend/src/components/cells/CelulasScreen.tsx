@@ -261,6 +261,14 @@ export function CelulasScreen() {
     return eligible;
   }, [contacts, editing]);
 
+  // Sugestões de cobertura espiritual: só tipo='pastor' (decisão do dono:
+  // 'lider' é legado e não volta como semântica; G12 pastoral formal fica para
+  // modelagem futura). Ter célula — ativa ou não — NÃO exclui da cobertura.
+  const coverageOptions = useMemo(
+    () => contacts.filter((c) => c.tipo === "pastor" && !c.semInteresse),
+    [contacts],
+  );
+
   const showSkeleton = loading && !loaded;
 
   return (
@@ -417,6 +425,7 @@ export function CelulasScreen() {
         <CellFormModal
           cell={editing}
           leaders={leaderOptions}
+          coverageOptions={coverageOptions}
           busy={saving}
           error={formError}
           onClose={() => {

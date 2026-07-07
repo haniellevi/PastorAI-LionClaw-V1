@@ -5,6 +5,12 @@
  * cobertura_espiritual é OBRIGATÓRIA: o submit fica bloqueado enquanto o campo
  * estiver vazio (espelha a validação de borda do backend). Falha ao salvar
  * mantém o formulário preenchido com erro inline (ex.: 403 sem permissão).
+ *
+ * Cobertura espiritual ≠ líder disponível: é texto livre com SUGESTÕES
+ * (datalist, coverageOptions = pastores; G12 pastoral formal fica para
+ * modelagem futura) — quem já tem célula, ativa ou não, continua aparecendo
+ * como cobertura. Dia/horário viajam separados (diaReuniao + horario HH:MM,
+ * campos que o backend já possui).
  */
 import { useState } from "react";
 
@@ -14,11 +20,23 @@ import type { CellSummary, UpsertCellInput } from "@/lib/cells-api";
 import type { Contact } from "@/lib/contacts-api";
 import { Icon } from "@/lib/icons";
 
+const DIAS_SEMANA = [
+  "Domingo",
+  "Segunda-feira",
+  "Terça-feira",
+  "Quarta-feira",
+  "Quinta-feira",
+  "Sexta-feira",
+  "Sábado",
+] as const;
+
 export interface CellFormModalProps {
   /** Célula em edição; ausente = criação. */
   cell?: CellSummary | null;
-  /** Pessoas elegíveis como líder da célula. */
+  /** Pessoas elegíveis como líder da célula (aptas, sem célula ativa). */
   leaders: Contact[];
+  /** Sugestões para a cobertura espiritual (pastores; não exclui quem já tem célula). */
+  coverageOptions: Contact[];
   busy: boolean;
   error: string | null;
   onClose: () => void;
@@ -28,6 +46,7 @@ export interface CellFormModalProps {
 export function CellFormModal({
   cell,
   leaders,
+  coverageOptions,
   busy,
   error,
   onClose,
@@ -37,9 +56,17 @@ export function CellFormModal({
   const [nome, setNome] = useState(cell?.nome ?? "");
   const [liderId, setLiderId] = useState(cell?.liderId ?? "");
   const [diaReuniao, setDiaReuniao] = useState(cell?.diaReuniao ?? "");
+  const [horario, setHorario] = useState(cell?.horario ?? "");
   const [cobertura, setCobertura] = useState(cell?.coberturaEspiritual ?? "");
   const [ativo, setAtivo] = useState(cell?.ativo ?? true);
   const [touched, setTouched] = useState(false);
+
+  // Valor legado de dia ("Quinta 20h") vira opção extra do select: editar sem
+  // mexer no campo preserva a string antiga em vez de apagá-la.
+  const legacyDia =
+    diaReuniao && !(DIAS_SEMANA as readonly string[]).includes(diaReuniao)
+      ? diaReuniao
+      : null;
 
   const nomeError = touched && !nome.trim() ? "Informe o nome da célula." : undefined;
   const coberturaError =
@@ -52,7 +79,8 @@ export function CellFormModal({
       id: cell?.id ?? null,
       nome: nome.trim(),
       liderId: liderId || null,
-      diaReuniao: diaReuniao.trim() || null,
+      diaReuniao: diaReuniao || null,
+      horario: horario || null,
       coberturaEspiritual: cobertura.trim(),
       ativo,
     });
@@ -103,10 +131,16 @@ export function CellFormModal({
             label="Cobertura espiritual"
             value={cobertura}
             onChange={(e) => setCobertura(e.target.value)}
-            placeholder="Líder que cobre esta célula"
-            helper="Obrigatória: define quem cobre espiritualmente a célula."
+            placeholder="Quem cobre espiritualmente esta célula"
+            helper="Obrigatória. Sugestões: pastores — ter célula não impede de cobrir."
             error={coberturaError}
+            list="cf-cobertura-sugestoes"
           />
+          <datalist id="cf-cobertura-sugestoes">
+            {coverageOptions.map((p) => (
+              <option key={p.id} value={p.nome} />
+            ))}
+          </datalist>
 
           <div className="row">
             <div className="field">
@@ -124,11 +158,30 @@ export function CellFormModal({
                 ))}
               </select>
             </div>
+          </div>
+
+          <div className="row">
+            <div className="field">
+              <label htmlFor="cf-dia">Dia de reunião</label>
+              <select
+                id="cf-dia"
+                value={diaReuniao}
+                onChange={(e) => setDiaReuniao(e.target.value)}
+              >
+                <option value="">Sem dia definido</option>
+                {legacyDia ? <option value={legacyDia}>{legacyDia} (atual)</option> : null}
+                {DIAS_SEMANA.map((d) => (
+                  <option key={d} value={d}>
+                    {d}
+                  </option>
+                ))}
+              </select>
+            </div>
             <Field
-              label="Dia de reunião"
-              value={diaReuniao}
-              onChange={(e) => setDiaReuniao(e.target.value)}
-              placeholder="Ex.: Quinta 20h"
+              label="Horário"
+              type="time"
+              value={horario}
+              onChange={(e) => setHorario(e.target.value)}
             />
           </div>
 

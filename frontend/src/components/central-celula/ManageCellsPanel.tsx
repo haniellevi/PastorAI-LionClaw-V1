@@ -81,6 +81,14 @@ export function ManageCellsPanel({
     [contacts],
   );
 
+  // Sugestões de cobertura espiritual: só tipo='pastor' (decisão do dono:
+  // 'lider' é legado e não volta como semântica; G12 pastoral formal fica para
+  // modelagem futura). Ter célula — ativa ou não — NÃO exclui da cobertura.
+  const coverageOptions = useMemo(
+    () => contacts.filter((c) => c.tipo === "pastor" && !c.semInteresse),
+    [contacts],
+  );
+
   const openForm = useCallback(() => {
     setFormError(null);
     setShowForm(true);
@@ -160,6 +168,7 @@ export function ManageCellsPanel({
       {showForm ? (
         <CellFormModal
           leaders={leaderOptions}
+          coverageOptions={coverageOptions}
           busy={saving}
           error={formError}
           onClose={() => {
