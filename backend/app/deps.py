@@ -59,6 +59,10 @@ class CurrentUser:
     roles: frozenset[str] = field(default_factory=frozenset)
     # #4: é o DONO (admin principal) da igreja? Só o dono gerencia a Assinatura.
     is_owner: bool = False
+    # Missão 4 (branding): nome + logo da igreja para o bootstrap do shell
+    # (/auth/me). O nome é o fallback textual quando não há logo.
+    igreja_nome: str | None = None
+    igreja_logo_path: str | None = None
 
     def has_role(self, role: str) -> bool:
         """True if the user holds `role` or is an admin (implicit access)."""
@@ -159,6 +163,8 @@ def get_current_user(
         chat_nome=app_user.chat_nome,
         roles=frozenset(roles),
         is_owner=is_owner,
+        igreja_nome=app_user.igreja.nome if app_user.igreja else None,
+        igreja_logo_path=app_user.igreja.logo_path if app_user.igreja else None,
     )
 
 

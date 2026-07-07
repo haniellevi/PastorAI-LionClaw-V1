@@ -34,6 +34,7 @@ from app.domain.phone import normalize_phone, phone_suffix
 from app.routers._common import ensure_tenant_context
 from app.services.brevo import BrevoClient, BrevoError, get_brevo_client
 from app.services.clerk import ClerkAuthError, ClerkClient, get_clerk_client
+from app.services.storage import logo_public_url
 
 logger = logging.getLogger("pastorai.auth")
 
@@ -115,6 +116,9 @@ class MeResponse(BaseModel):
     chatNome: str | None = None  # noqa: N815 - nome de exibição no chat (assinatura)
     roles: list[str]
     isOwner: bool = False  # noqa: N815 - dono (admin principal) da igreja (#4)
+    # Missão 4 (branding): nome da igreja (fallback textual) + logo customizada.
+    igrejaNome: str | None = None  # noqa: N815
+    igrejaLogoUrl: str | None = None  # noqa: N815
 
 
 class UpdateMeRequest(BaseModel):
@@ -409,6 +413,8 @@ def me(current_user: CurrentUser = Depends(get_current_user)) -> MeResponse:
         chatNome=current_user.chat_nome,
         roles=sorted(current_user.roles),
         isOwner=current_user.is_owner,
+        igrejaNome=current_user.igreja_nome,
+        igrejaLogoUrl=logo_public_url(current_user.igreja_logo_path),
     )
 
 
@@ -447,6 +453,8 @@ def update_me(
         chatNome=chat_nome,
         roles=sorted(current_user.roles),
         isOwner=current_user.is_owner,
+        igrejaNome=current_user.igreja_nome,
+        igrejaLogoUrl=logo_public_url(current_user.igreja_logo_path),
     )
 
 

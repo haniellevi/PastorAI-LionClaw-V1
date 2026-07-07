@@ -152,8 +152,10 @@ def make_app_user(
     """
     igreja = SimpleNamespace(
         id="00000000-0000-0000-0000-000000000001",
+        nome="Igreja Piloto",
         status=igreja_status,
         dono_id=dono_id,
+        logo_path=None,
     )
     return SimpleNamespace(
         id="00000000-0000-0000-0000-0000000000a1",

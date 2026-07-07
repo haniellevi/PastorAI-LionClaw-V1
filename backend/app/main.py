@@ -28,6 +28,7 @@ from app.routers import (
     cell_notices,
     cell_requests,
     cells,
+    church,
     consolidacao,
     contacts,
     conversations,
@@ -84,6 +85,7 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(auth.router)
+    app.include_router(church.router)
     app.include_router(contacts.router)
     app.include_router(cells.router)
     app.include_router(cell_meetings.router)
