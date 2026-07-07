@@ -120,7 +120,9 @@ export function CentralCelulaScreen() {
         />
       ) : null}
 
-      {tab === "cells" && token ? <ManageCellsPanel token={token} /> : null}
+      {tab === "cells" && token ? (
+        <ManageCellsPanel token={token} onToast={flashToast} onChanged={refreshDashboard} />
+      ) : null}
 
       {tab === "requests" && token ? (
         <RequestsPanel token={token} onToast={flashToast} onChanged={refreshDashboard} />
