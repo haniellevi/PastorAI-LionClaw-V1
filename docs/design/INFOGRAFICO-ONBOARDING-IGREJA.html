@@ -1,0 +1,586 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Infográfico — Onboarding completo · Igreja 12 / PastorAI</title>
+<style>
+:root {
+  --ivory:    #FAF9F5;
+  --slate:    #141413;
+  --clay:     #D97757;
+  --oat:      #E3DACC;
+  --olive:    #788C5D;
+  --gray-150: #F0EEE6;
+  --gray-300: #D1CFC5;
+  --gray-500: #87867F;
+  --gray-700: #3D3D3A;
+  --white:    #FFFFFF;
+  --serif: ui-serif, Georgia, 'Times New Roman', serif;
+  --sans:  system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --mono:  ui-monospace, 'SF Mono', Menlo, Monaco, monospace;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: var(--sans); background: var(--ivory); color: var(--gray-700); line-height: 1.55; padding: 56px 32px 96px; -webkit-font-smoothing: antialiased; }
+.page { max-width: 1200px; margin: 0 auto; }
+header.page-head { margin-bottom: 48px; max-width: 900px; }
+.eyebrow { font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--gray-500); margin-bottom: 12px; }
+h1 { font-family: var(--serif); font-weight: 500; font-size: 38px; line-height: 1.15; color: var(--slate); margin-bottom: 18px; letter-spacing: -0.01em; }
+.prompt-box { background: var(--gray-150); border: 1.5px solid var(--gray-300); border-radius: 12px; padding: 16px 20px; font-size: 14.5px; color: var(--gray-700); }
+.prompt-box .label { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--gray-500); display: block; margin-bottom: 6px; }
+
+.deeplink { font-family: var(--mono); font-size: 0.9em; color: var(--clay); text-decoration: none; border-bottom: 1px dashed var(--clay); padding: 0 2px; border-radius: 3px; }
+.deeplink:hover { background: var(--oat); }
+a.anchor { color: var(--clay); text-decoration: none; border-bottom: 1px dashed var(--clay); }
+
+.summary { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 64px; }
+@media (max-width: 900px) { .summary { grid-template-columns: repeat(2, 1fr); } }
+.summary .cell { background: var(--white); border: 1.5px solid var(--gray-300); border-radius: 12px; padding: 18px 20px; }
+.summary .k { font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--gray-500); margin-bottom: 6px; }
+.summary .v { font-size: 17px; color: var(--slate); font-weight: 600; }
+.summary .v.accent { color: var(--clay); }
+
+section { margin-bottom: 64px; }
+.sec-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 8px; }
+.sec-head .num { font-family: var(--mono); font-size: 12px; background: var(--oat); color: var(--slate); padding: 3px 9px; border-radius: 8px; }
+.sec-head h2 { font-family: var(--serif); font-weight: 500; font-size: 26px; color: var(--slate); }
+.sec-intro { font-size: 14.5px; color: var(--gray-500); max-width: 780px; margin-bottom: 28px; }
+h3.sub { font-family: var(--serif); font-weight: 500; font-size: 19px; color: var(--slate); margin: 28px 0 12px; }
+
+.diagram { background: var(--white); border: 1.5px solid var(--gray-300); border-radius: 12px; padding: 28px; overflow-x: auto; }
+.diagram svg { display: block; min-width: 760px; font-family: var(--mono); }
+.caption { font-size: 13px; color: var(--gray-500); margin-top: 12px; }
+
+.badge { display: inline-block; font-family: var(--mono); font-size: 10.5px; padding: 2px 8px; border-radius: 6px; font-weight: 600; letter-spacing: 0.03em; vertical-align: 2px; }
+.badge.hoje   { background: #E4E9DC; color: #4B5C39; }
+.badge.spec   { background: var(--oat); color: var(--slate); }
+.badge.futuro { background: var(--gray-150); color: var(--gray-500); border: 1px solid var(--gray-300); }
+.badge.confirmar { background: #F3D9CC; color: #8A3B1E; }
+
+.cards3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+@media (max-width: 960px) { .cards3 { grid-template-columns: 1fr; } }
+.scard { background: var(--white); border: 1.5px solid var(--gray-300); border-radius: 12px; padding: 20px 22px; }
+.scard h3 { font-family: var(--serif); font-weight: 500; font-size: 19px; color: var(--slate); margin-bottom: 2px; }
+.scard .who { font-family: var(--mono); font-size: 11.5px; color: var(--gray-500); margin-bottom: 12px; }
+.scard ul { list-style: none; font-size: 13.5px; }
+.scard li { padding: 5px 0 5px 16px; position: relative; }
+.scard li::before { content: ''; position: absolute; left: 0; top: 12px; width: 6px; height: 6px; border-radius: 50%; background: var(--olive); }
+.scard li.off::before { background: var(--gray-300); }
+.scard.painel { border-top: 4px solid var(--slate); }
+.scard.admin  { border-top: 4px solid var(--clay); }
+.scard.app    { border-top: 4px solid var(--olive); }
+
+.milestones { display: flex; flex-direction: column; }
+.milestone { display: grid; grid-template-columns: 92px 28px 1fr; gap: 0 18px; }
+.milestone .when { text-align: right; font-family: var(--mono); font-size: 12px; color: var(--gray-500); padding-top: 4px; }
+.milestone .dot-col { display: flex; flex-direction: column; align-items: center; }
+.milestone .dot { width: 14px; height: 14px; border-radius: 50%; background: var(--white); border: 3px solid var(--clay); margin-top: 4px; flex-shrink: 0; }
+.milestone .dot.done { background: var(--olive); border-color: var(--olive); }
+.milestone .line { width: 2px; flex: 1; background: var(--gray-300); margin: 4px 0; }
+.milestone:last-child .line { display: none; }
+.milestone .body { padding-bottom: 30px; }
+.milestone .body h3 { font-family: var(--serif); font-weight: 500; font-size: 18px; color: var(--slate); margin-bottom: 4px; }
+.milestone .body p { font-size: 14px; color: var(--gray-500); margin-bottom: 8px; max-width: 720px; }
+.milestone .tags { display: flex; gap: 8px; flex-wrap: wrap; }
+.milestone .tag { font-family: var(--mono); font-size: 11.5px; background: var(--gray-150); border: 1px solid var(--gray-300); border-radius: 6px; padding: 3px 8px; color: var(--gray-700); }
+.milestone .tag.surf-painel { background: var(--slate); color: var(--ivory); border-color: var(--slate); }
+.milestone .tag.surf-admin  { background: #F3D9CC; color: #8A3B1E; border-color: #E5BDA9; }
+.milestone .tag.surf-app    { background: #E4E9DC; color: #4B5C39; border-color: #C9D4BC; }
+
+.risks { border: 1.5px solid var(--gray-300); border-radius: 12px; overflow: hidden; background: var(--white); }
+.risks .row { display: grid; grid-template-columns: 1.7fr 130px 1.9fr; }
+@media (max-width: 780px) { .risks .row { grid-template-columns: 1fr; } }
+.risks .row + .row { border-top: 1.5px solid var(--gray-300); }
+.risks .cell { padding: 14px 18px; font-size: 13.5px; }
+.risks .cell + .cell { border-left: 1.5px solid var(--gray-300); }
+.risks .head { background: var(--gray-150); font-weight: 600; color: var(--slate); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+.sev { display: inline-block; font-family: var(--mono); font-size: 11px; padding: 2px 8px; border-radius: 6px; font-weight: 600; }
+.sev.bug     { background: #F3D9CC; color: #8A3B1E; }
+.sev.ux      { background: var(--oat); color: var(--slate); }
+.sev.proc    { background: #E7E3F0; color: #4E4370; }
+.sev.futuro  { background: var(--gray-150); color: var(--gray-500); border: 1px solid var(--gray-300); }
+.sev.ok      { background: #E4E9DC; color: #4B5C39; }
+
+table.plain { width: 100%; border-collapse: collapse; background: var(--white); border: 1.5px solid var(--gray-300); border-radius: 12px; overflow: hidden; font-size: 13.5px; }
+table.plain th, table.plain td { padding: 12px 16px; border-bottom: 1.5px solid var(--gray-300); text-align: left; vertical-align: top; }
+table.plain th { background: var(--gray-150); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--slate); }
+table.plain tr:last-child td { border-bottom: none; }
+
+.open-q { display: flex; flex-direction: column; gap: 14px; max-width: 900px; }
+.q { background: var(--white); border: 1.5px solid var(--gray-300); border-left: 4px solid var(--clay); border-radius: 10px; padding: 16px 20px; }
+.q .qt { font-weight: 600; font-size: 15px; color: var(--slate); margin-bottom: 4px; }
+.q .qd { font-size: 13.5px; color: var(--gray-500); }
+.q .owner { font-family: var(--mono); font-size: 11.5px; color: var(--gray-500); margin-top: 8px; }
+
+.reco { border-left: 4px solid var(--clay); background: var(--white); border-radius: 0 12px 12px 0; padding: 24px 28px; max-width: 920px; margin-bottom: 18px; }
+.reco h3 { font-family: var(--serif); font-weight: 500; font-size: 19px; color: var(--slate); margin-bottom: 8px; }
+.reco p, .reco li { font-size: 14.5px; margin-bottom: 6px; }
+.reco ol { padding-left: 22px; }
+.reco code { font-family: var(--mono); font-size: 0.92em; background: var(--gray-150); padding: 1px 6px; border-radius: 4px; }
+
+.note { background: var(--gray-150); border: 1.5px solid var(--gray-300); border-radius: 10px; padding: 14px 18px; font-size: 13.5px; max-width: 920px; margin-top: 16px; }
+.note strong { color: var(--slate); }
+
+.paths { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+@media (max-width: 900px) { .paths { grid-template-columns: 1fr; } }
+.path { background: var(--white); border: 1.5px solid var(--gray-300); border-radius: 12px; padding: 20px 22px; }
+.path h4 { font-family: var(--serif); font-weight: 500; font-size: 17px; color: var(--slate); margin-bottom: 10px; }
+.path ol { padding-left: 20px; font-size: 13.5px; }
+.path li { margin-bottom: 6px; }
+.path.recomendado { border-top: 4px solid var(--olive); }
+.path.atalho { border-top: 4px solid var(--oat); }
+</style>
+</head>
+<body>
+<div class="page">
+
+<header class="page-head">
+  <div class="eyebrow">Infográfico · PastorAI / Igreja 12 · 2026-07-07</div>
+  <h1>Onboarding completo: da criação da igreja à primeira célula operacional</h1>
+  <div class="prompt-box">
+    <span class="label">Missão</span>
+    Mapear o fluxo <strong>real atual</strong> (não o ideal inventado) do nascimento de uma igreja no sistema até a primeira célula cadastrada e operacional — com gargalos classificados, decisões pendentes e recomendações. Todos os fatos marcados <span class="badge hoje">HOJE</span> foram verificados no código da <code>main</code> (<code>68f725f</code>); <span class="badge spec">SPEC</span> = o que os PRDs dizem; <span class="badge confirmar">A CONFIRMAR</span> = não verificado.
+  </div>
+</header>
+
+<div class="summary">
+  <div class="cell"><div class="k">Superfícies</div><div class="v">3 — painel · admin · app</div></div>
+  <div class="cell"><div class="k">Passos do 1º dia</div><div class="v">P0 → P10</div></div>
+  <div class="cell"><div class="k">Bugs bloqueantes</div><div class="v accent">0 (círculo é quebrável)</div></div>
+  <div class="cell"><div class="k">Decisões pendentes</div><div class="v">6</div></div>
+</div>
+
+<!-- ============================================================ -->
+<section id="sec-01">
+  <div class="sec-head"><span class="num">01</span><h2>As 3 superfícies</h2></div>
+  <p class="sec-intro">Mesmo deployment Vercel, roteado por host em <a class="deeplink" href="vscode://file/C:/Users/hanie/Searches/OneDrive/Documentos/workspace/PastorAi-1.0/frontend/src/middleware.ts">middleware.ts</a>. Sessão da igreja compartilhada entre app. ↔ admin. (cookie <code>pastorai_token</code>); o console master usa token separado e allowlist própria (<code>platform_admins</code>).</p>
+
+  <div class="diagram">
+    <svg viewBox="0 0 980 330" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#87867F"/>
+        </marker>
+      </defs>
+      <!-- painel -->
+      <rect x="20" y="30" width="280" height="250" rx="12" fill="#FAF9F5" stroke="#141413" stroke-width="2"/>
+      <rect x="20" y="30" width="280" height="44" rx="12" fill="#141413"/>
+      <text x="36" y="58" font-size="14" fill="#FAF9F5" font-weight="bold">painel.igreja12.com.br</text>
+      <text x="36" y="96" font-size="12" fill="#3D3D3A" font-weight="bold">Dono do sistema (master)</text>
+      <text x="36" y="122" font-size="11.5" fill="#3D3D3A">• Provisiona a igreja</text>
+      <text x="36" y="142" font-size="11.5" fill="#3D3D3A">• Convida o 1º admin (Brevo)</text>
+      <text x="36" y="162" font-size="11.5" fill="#3D3D3A">• Aprova a igreja → ativa</text>
+      <text x="36" y="182" font-size="11.5" fill="#3D3D3A">• Plano / cobrança / bloqueio</text>
+      <text x="36" y="202" font-size="11.5" fill="#3D3D3A">• Edita nome da igreja</text>
+      <text x="36" y="222" font-size="11.5" fill="#3D3D3A">• Agente-template + toggle</text>
+      <text x="36" y="252" font-size="10.5" fill="#87867F">login próprio · allowlist platform_admins</text>
+      <!-- admin -->
+      <rect x="350" y="30" width="280" height="250" rx="12" fill="#FAF9F5" stroke="#D97757" stroke-width="2"/>
+      <rect x="350" y="30" width="280" height="44" rx="12" fill="#D97757"/>
+      <text x="366" y="58" font-size="14" fill="#FFFFFF" font-weight="bold">admin.igreja12.com.br</text>
+      <text x="366" y="96" font-size="12" fill="#3D3D3A" font-weight="bold">Admin da igreja (/gestao)</text>
+      <text x="366" y="122" font-size="11.5" fill="#3D3D3A">• Identidade Visual (logo)</text>
+      <text x="366" y="142" font-size="11.5" fill="#3D3D3A">• Usuários do Sistema (convites)</text>
+      <text x="366" y="162" font-size="11.5" fill="#3D3D3A">• Permissões (matriz papel×tela)</text>
+      <text x="366" y="182" font-size="11.5" fill="#3D3D3A">• Calendário (Google + avisos)</text>
+      <text x="366" y="202" font-size="11.5" fill="#3D3D3A">• Conexão WhatsApp · Agente IA</text>
+      <text x="366" y="222" font-size="11.5" fill="#3D3D3A">• Minha Assinatura (só dono)</text>
+      <text x="366" y="252" font-size="10.5" fill="#87867F">configuração — não é operação diária</text>
+      <!-- app -->
+      <rect x="680" y="30" width="280" height="250" rx="12" fill="#FAF9F5" stroke="#788C5D" stroke-width="2"/>
+      <rect x="680" y="30" width="280" height="44" rx="12" fill="#788C5D"/>
+      <text x="696" y="58" font-size="14" fill="#FFFFFF" font-weight="bold">app.igreja12.com.br</text>
+      <text x="696" y="96" font-size="12" fill="#3D3D3A" font-weight="bold">Todos os papéis (operação)</text>
+      <text x="696" y="122" font-size="11.5" fill="#3D3D3A">• Pessoas (cadastro, apto)</text>
+      <text x="696" y="142" font-size="11.5" fill="#3D3D3A">• Jornada G12 → Discipular →</text>
+      <text x="708" y="160" font-size="11.5" fill="#3D3D3A">Central de Célula (pastor/admin)</text>
+      <text x="696" y="182" font-size="11.5" fill="#3D3D3A">• Minha Célula (líder/discípulo)</text>
+      <text x="696" y="202" font-size="11.5" fill="#3D3D3A">• Agenda · Conversas · Painel</text>
+      <text x="696" y="222" font-size="11.5" fill="#3D3D3A">• Comunicação</text>
+      <text x="696" y="252" font-size="10.5" fill="#87867F">todo cadastro operacional vive aqui</text>
+      <!-- setas -->
+      <line x1="300" y1="155" x2="348" y2="155" stroke="#87867F" stroke-width="2" marker-end="url(#arr)"/>
+      <text x="304" y="145" font-size="10" fill="#87867F">cria/aprova</text>
+      <line x1="630" y1="155" x2="678" y2="155" stroke="#87867F" stroke-width="2" marker-end="url(#arr)"/>
+      <line x1="678" y1="175" x2="630" y2="175" stroke="#87867F" stroke-width="2" marker-end="url(#arr)"/>
+      <text x="634" y="145" font-size="10" fill="#87867F">botão "Admin"</text>
+      <text x="626" y="196" font-size="10" fill="#87867F">"Voltar ao app"</text>
+      <!-- cookie -->
+      <path d="M 490 285 Q 655 320 820 285" stroke="#D1CFC5" stroke-width="2" fill="none" stroke-dasharray="6 4"/>
+      <text x="560" y="316" font-size="10.5" fill="#87867F">sessão compartilhada — cookie pastorai_token (.igreja12.com.br)</text>
+    </svg>
+  </div>
+  <p class="caption">Diagrama 1 — painel. cria e governa a igreja; admin. configura; app. opera. O primeiro dia do admin transita obrigatoriamente pelas duas superfícies dele: a ponte é o botão "Admin" na sidebar do app (<a class="deeplink" href="vscode://file/C:/Users/hanie/Searches/OneDrive/Documentos/workspace/PastorAi-1.0/frontend/src/components/shell/AppShell.tsx:47">AppShell.tsx:47</a>, só papel admin vê) e "Voltar ao app" no admin (<a class="deeplink" href="vscode://file/C:/Users/hanie/Searches/OneDrive/Documentos/workspace/PastorAi-1.0/frontend/src/components/shell/AdminAppShell.tsx:65">AdminAppShell.tsx:65</a>).</p>
+</section>
+
+<!-- ============================================================ -->
+<section id="sec-02">
+  <div class="sec-head"><span class="num">02</span><h2>Como nasce uma igreja <span class="badge hoje">HOJE</span></h2></div>
+  <p class="sec-intro">Tudo manual via console master — não há self-service, webhook Clerk nem seed. Verificado em <a class="deeplink" href="vscode://file/C:/Users/hanie/Searches/OneDrive/Documentos/workspace/PastorAi-1.0/backend/app/routers/platform_admin.py:380">platform_admin.py:380</a>.</p>
+
+  <div class="milestones">
+    <div class="milestone">
+      <span class="when">Passo 1</span>
+      <div class="dot-col"><div class="dot done"></div><div class="line"></div></div>
+      <div class="body">
+        <h3>Master provisiona — <code>POST /admin/igrejas</code></h3>
+        <p><strong>Dados mínimos:</strong> nome da igreja + admin{nome, email}. Plano é opcional. Cria <code>Igreja(status='aguardando_aprovacao')</code> + <code>AppUser</code> <em>convidado</em> com papel <code>admin</code>, que vira o <strong>dono</strong> (<code>igreja.dono_id</code>). Envia convite Brevo (best-effort — se o e-mail falhar, a igreja é criada mesmo assim, <code>emailEnviado=false</code>) com link de ativação e token de ~7 dias.</p>
+        <div class="tags"><span class="tag surf-painel">painel.</span><span class="tag">platform_admin.py:380-446</span></div>
+      </div>
+    </div>
+    <div class="milestone">
+      <span class="when">Passo 2</span>
+      <div class="dot-col"><div class="dot done"></div><div class="line"></div></div>
+      <div class="body">
+        <h3>Master aprova — <code>POST /admin/igrejas/{id}/aprovar</code></h3>
+        <p>Status → <code>ativa</code> (destrava o login: <code>aguardando_aprovacao</code> está em <code>BLOCKING_IGREJA_STATUSES</code>, <a class="deeplink" href="vscode://file/C:/Users/hanie/Searches/OneDrive/Documentos/workspace/PastorAi-1.0/backend/app/deps.py:40">deps.py:40</a>). Semeia a matriz <code>role_permissions</code> e copia o agente-template do master para o <code>AgentConfig</code> da igreja (nasce <code>ativo=False</code>). ⚠️ Se o template do master estiver vazio, a igreja nasce <strong>sem AgentConfig algum</strong>.</p>
+        <div class="tags"><span class="tag surf-painel">painel.</span><span class="tag">platform_admin.py:588-653</span></div>
+      </div>
+    </div>
+    <div class="milestone">
+      <span class="when">Passo 3</span>
+      <div class="dot-col"><div class="dot done"></div></div>
+      <div class="body">
+        <h3>Dono ativa o convite — <code>POST /auth/activate</code></h3>
+        <p>Link <code>/#ativar/{token}</code>: exige senha (mín. 8) e <strong>telefone obrigatório</strong> quando ainda não há Pessoa vinculada — cria a Pessoa do dono com <code>tipo='membro'</code> (dedup por telefone). Cria a conta no Clerk e ativa o AppUser. O dono nasce <strong>admin comum, não pastor</strong> — ninguém o marca como pastor automaticamente.</p>
+        <div class="tags"><span class="tag surf-app">link do e-mail → app.</span><span class="tag">auth.py:317-402</span></div>
+      </div>
+    </div>
+  </div>
+
+  <h3 class="sub">O que a igreja tem — e não tem — ao nascer</h3>
+  <div class="paths">
+    <div class="path recomendado">
+      <h4>✅ Já tem</h4>
+      <ol>
+        <li>Dono-admin ativo, com Pessoa vinculada (tipo <code>membro</code>)</li>
+        <li>Matriz de permissões default semeada</li>
+        <li>AgentConfig copiado do template (inativo)</li>
+        <li>Plano escolhido pelo master (se enviado)</li>
+      </ol>
+    </div>
+    <div class="path atalho">
+      <h4>❌ Não tem</h4>
+      <ol>
+        <li>Pessoas além do dono · pastores · aptos · células · eventos</li>
+        <li>WhatsApp conectado · credencial LLM · Google conectado</li>
+        <li>Destinatários de avisos · assinatura configurada no Asaas</li>
+        <li><strong>Nenhuma tela lista o que falta</strong> — o admin cai no dashboard genérico sem guia</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="sec-03">
+  <div class="sec-head"><span class="num">03</span><h2>Fluxo de onboarding — o primeiro dia do admin</h2></div>
+  <p class="sec-intro">Sequência recomendada com superfície e permissão de cada passo. A ordem Pessoas → aptos → célula → convites é a <strong>trilha guiada</strong>; a seção <a class="anchor" href="#sec-04">04</a> mostra o atalho que quebra o círculo.</p>
+
+  <div class="diagram">
+    <svg viewBox="0 0 1180 200" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="arr2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#87867F"/>
+        </marker>
+      </defs>
+      <!-- linha 1 -->
+      <g font-size="11">
+        <rect x="10"  y="30" width="120" height="54" rx="10" fill="#141413"/>
+        <text x="70" y="52" fill="#FAF9F5" text-anchor="middle">Criar igreja</text>
+        <text x="70" y="70" fill="#87867F" text-anchor="middle">painel. (master)</text>
+        <rect x="160" y="30" width="120" height="54" rx="10" fill="#141413"/>
+        <text x="220" y="52" fill="#FAF9F5" text-anchor="middle">Aprovar +</text>
+        <text x="220" y="70" fill="#FAF9F5" text-anchor="middle">ativar dono</text>
+        <rect x="310" y="30" width="130" height="54" rx="10" fill="#FFFFFF" stroke="#D97757" stroke-width="2"/>
+        <text x="375" y="52" fill="#3D3D3A" text-anchor="middle">Configurar admin.</text>
+        <text x="375" y="70" fill="#87867F" text-anchor="middle">WhatsApp · LLM · logo</text>
+        <rect x="470" y="30" width="130" height="54" rx="10" fill="#FFFFFF" stroke="#788C5D" stroke-width="2"/>
+        <text x="535" y="52" fill="#3D3D3A" text-anchor="middle">Cadastrar pastor</text>
+        <text x="535" y="70" fill="#87867F" text-anchor="middle">app. → Pessoas</text>
+        <rect x="630" y="30" width="130" height="54" rx="10" fill="#FFFFFF" stroke="#788C5D" stroke-width="2"/>
+        <text x="695" y="52" fill="#3D3D3A" text-anchor="middle">Cadastrar pessoas</text>
+        <text x="695" y="70" fill="#87867F" text-anchor="middle">futuros líderes</text>
+        <rect x="790" y="30" width="120" height="54" rx="10" fill="#FFFFFF" stroke="#788C5D" stroke-width="2"/>
+        <text x="850" y="52" fill="#3D3D3A" text-anchor="middle">Marcar aptos</text>
+        <text x="850" y="70" fill="#87867F" text-anchor="middle">só admin (hoje)</text>
+        <rect x="940" y="30" width="130" height="54" rx="10" fill="#FFFFFF" stroke="#788C5D" stroke-width="2"/>
+        <text x="1005" y="52" fill="#3D3D3A" text-anchor="middle">Criar 1ª célula</text>
+        <text x="1005" y="70" fill="#87867F" text-anchor="middle">Central → Nova célula</text>
+        <line x1="130" y1="57" x2="158" y2="57" stroke="#87867F" stroke-width="2" marker-end="url(#arr2)"/>
+        <line x1="280" y1="57" x2="308" y2="57" stroke="#87867F" stroke-width="2" marker-end="url(#arr2)"/>
+        <line x1="440" y1="57" x2="468" y2="57" stroke="#87867F" stroke-width="2" marker-end="url(#arr2)"/>
+        <line x1="600" y1="57" x2="628" y2="57" stroke="#87867F" stroke-width="2" marker-end="url(#arr2)"/>
+        <line x1="760" y1="57" x2="788" y2="57" stroke="#87867F" stroke-width="2" marker-end="url(#arr2)"/>
+        <line x1="910" y1="57" x2="938" y2="57" stroke="#87867F" stroke-width="2" marker-end="url(#arr2)"/>
+        <!-- linha 2 -->
+        <rect x="470" y="120" width="150" height="54" rx="10" fill="#FFFFFF" stroke="#788C5D" stroke-width="2"/>
+        <text x="545" y="142" fill="#3D3D3A" text-anchor="middle">Vincular líder apto</text>
+        <text x="545" y="160" fill="#87867F" text-anchor="middle">célula operacional</text>
+        <rect x="650" y="120" width="150" height="54" rx="10" fill="#FFFFFF" stroke="#D97757" stroke-width="2"/>
+        <text x="725" y="142" fill="#3D3D3A" text-anchor="middle">Convidar equipe</text>
+        <text x="725" y="160" fill="#87867F" text-anchor="middle">admin. (exige célula)</text>
+        <rect x="830" y="120" width="150" height="54" rx="10" fill="#E4E9DC" stroke="#788C5D" stroke-width="2"/>
+        <text x="905" y="142" fill="#4B5C39" text-anchor="middle">Promover papéis</text>
+        <text x="905" y="160" fill="#4B5C39" text-anchor="middle">pastor · líderes · operador</text>
+        <path d="M 1005 84 Q 1005 147 622 147" stroke="#87867F" stroke-width="2" fill="none" marker-end="url(#arr2)"/>
+        <line x1="620" y1="147" x2="648" y2="147" stroke="#87867F" stroke-width="2" marker-end="url(#arr2)"/>
+        <line x1="800" y1="147" x2="828" y2="147" stroke="#87867F" stroke-width="2" marker-end="url(#arr2)"/>
+      </g>
+    </svg>
+  </div>
+  <p class="caption">Diagrama 2 — fluxo do onboarding. Preto = painel/master; borda laranja = superfície admin.; borda verde = superfície app.</p>
+
+  <h3 class="sub">Checklist detalhado (P0–P10)</h3>
+  <table class="plain">
+    <tr><th>#</th><th>Passo</th><th>Superfície / tela</th><th>Quem pode</th></tr>
+    <tr><td>P0</td><td>Provisionar + aprovar igreja, convite do dono</td><td>painel. → Console master</td><td>master</td></tr>
+    <tr><td>P1</td><td>Ativar convite (telefone → vira Pessoa)</td><td>link do e-mail → <code>/#ativar/{token}</code></td><td>dono</td></tr>
+    <tr><td>P2</td><td>Conectar WhatsApp (QR)</td><td>admin. → Conexão WhatsApp</td><td>admin</td></tr>
+    <tr><td>P3</td><td>Cadastrar chave LLM do agente (BYO)</td><td>admin. → Agente IA</td><td>admin</td></tr>
+    <tr><td>P4</td><td>Cadastrar primeiras Pessoas — <strong>pastores entram como Pessoas <code>tipo='pastor'</code> primeiro</strong> (alimenta a datalist de cobertura)</td><td>app. → Pessoas → Novo contato</td><td>qualquer autenticado (<a class="deeplink" href="vscode://file/C:/Users/hanie/Searches/OneDrive/Documentos/workspace/PastorAi-1.0/backend/app/routers/contacts.py:333">contacts.py:333</a>, sem gate)</td></tr>
+    <tr><td>P5</td><td>Marcar aptos a liderar (= fez o Reencontro)</td><td>app. → Pessoas → editar → toggle "Apto a liderar"</td><td><strong>só admin</strong> (<a class="deeplink" href="vscode://file/C:/Users/hanie/Searches/OneDrive/Documentos/workspace/PastorAi-1.0/backend/app/routers/contacts.py:448">contacts.py:448</a>)</td></tr>
+    <tr><td>P6</td><td>Criar a 1ª célula (líder = pessoa apta)</td><td>app. → Jornada G12 → Discipular → <strong>Central de Célula → Gerenciar células → "Nova célula"</strong> ✅ CTA existe desde PR-O1 (#112)</td><td>pastor, lider_g12 + admin implícito (<a class="deeplink" href="vscode://file/C:/Users/hanie/Searches/OneDrive/Documentos/workspace/PastorAi-1.0/backend/app/routers/cells.py:37">cells.py:37</a>)</td></tr>
+    <tr><td>P7</td><td>Convidar equipe (entra sempre como <code>membro</code>, célula obrigatória) → promover papéis depois</td><td>admin. → Usuários do Sistema</td><td>admin/pastor/lider_celula convidam; só admin promove (<a class="deeplink" href="vscode://file/C:/Users/hanie/Searches/OneDrive/Documentos/workspace/PastorAi-1.0/backend/app/routers/team.py:481">team.py:481</a>)</td></tr>
+    <tr><td>P8</td><td>Google Agenda (OAuth) + destinatários de avisos</td><td>admin. → Calendário</td><td>admin</td></tr>
+    <tr><td>P9</td><td>Agenda: criar/importar eventos</td><td>app. → Agenda</td><td>pastor + admin</td></tr>
+    <tr><td>P10</td><td>Conferir Assinatura</td><td>admin. → Minha Assinatura</td><td><strong>só dono</strong> (<code>require_owner</code>)</td></tr>
+  </table>
+
+  <div class="note"><strong>Quem deve ser a primeira pessoa cadastrada depois do admin? O pastor.</strong> Cadastrá-lo como Pessoa <code>tipo='pastor'</code> alimenta a datalist de sugestões do campo "cobertura espiritual" do modal de célula (<a class="deeplink" href="vscode://file/C:/Users/hanie/Searches/OneDrive/Documentos/workspace/PastorAi-1.0/frontend/src/components/central-celula/ManageCellsPanel.tsx:87">ManageCellsPanel.tsx:87</a> filtra <code>tipo==='pastor' && !semInteresse</code>). Depois dele: os futuros líderes (que serão marcados aptos). O pastor-Pessoa e o pastor-usuário são coisas distintas: para o pastor <em>logar</em>, ainda é preciso convidá-lo (P7) e promover o papel <code>pastor</code>.</div>
+</section>
+
+<!-- ============================================================ -->
+<section id="sec-04">
+  <div class="sec-head"><span class="num">04</span><h2>A primeira célula <span class="badge hoje">HOJE</span></h2></div>
+  <p class="sec-intro">Quem cria, o que o formulário exige, quem pode ser líder e onde mora o (falso) círculo. <strong>Achado central desta análise:</strong> o doc de onboarding de 2026-07-06 afirma que criar célula exige líder apto — <em>o código atual refuta</em>: <code>liderId</code> é anulável (<a class="deeplink" href="vscode://file/C:/Users/hanie/Searches/OneDrive/Documentos/workspace/PastorAi-1.0/backend/app/routers/cells.py:160">cells.py:160</a>) e a validação só roda quando um líder é informado (<a class="deeplink" href="vscode://file/C:/Users/hanie/Searches/OneDrive/Documentos/workspace/PastorAi-1.0/backend/app/routers/cells.py:302">cells.py:302</a>).</p>
+
+  <div class="diagram">
+    <svg viewBox="0 0 1120 430" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="arr3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#87867F"/>
+        </marker>
+      </defs>
+      <g font-size="11">
+        <!-- quem cria -->
+        <rect x="10" y="20" width="200" height="70" rx="10" fill="#FFFFFF" stroke="#788C5D" stroke-width="2"/>
+        <text x="110" y="45" fill="#3D3D3A" text-anchor="middle" font-weight="bold">Quem cria</text>
+        <text x="110" y="63" fill="#87867F" text-anchor="middle">admin · pastor · lider_g12</text>
+        <text x="110" y="79" fill="#87867F" text-anchor="middle">Central → "Nova célula"</text>
+        <!-- form -->
+        <rect x="260" y="10" width="260" height="180" rx="10" fill="#FFFFFF" stroke="#D1CFC5" stroke-width="2"/>
+        <text x="390" y="34" fill="#141413" text-anchor="middle" font-weight="bold">CellFormModal</text>
+        <text x="276" y="58" fill="#3D3D3A">Nome *</text>
+        <text x="276" y="78" fill="#3D3D3A">Cobertura espiritual * (texto livre</text>
+        <text x="292" y="94" fill="#87867F">+ datalist: pastores não-CSIM)</text>
+        <text x="276" y="114" fill="#3D3D3A">Líder (opcional — "Sem líder definido")</text>
+        <text x="276" y="134" fill="#3D3D3A">Dia (select) · Horário (time) — opcionais</text>
+        <text x="276" y="154" fill="#3D3D3A">Célula ativa ☑</text>
+        <text x="276" y="176" fill="#87867F">sem campo de endereço no modal</text>
+        <line x1="210" y1="55" x2="258" y2="55" stroke="#87867F" stroke-width="2" marker-end="url(#arr3)"/>
+        <!-- decisão líder -->
+        <rect x="580" y="30" width="180" height="60" rx="10" fill="#F0EEE6" stroke="#D1CFC5" stroke-width="2"/>
+        <text x="670" y="55" fill="#3D3D3A" text-anchor="middle" font-weight="bold">liderId enviado?</text>
+        <line x1="520" y1="60" x2="578" y2="60" stroke="#87867F" stroke-width="2" marker-end="url(#arr3)"/>
+        <!-- sem líder -->
+        <rect x="820" y="10" width="280" height="86" rx="10" fill="#FFFFFF" stroke="#E3DACC" stroke-width="2"/>
+        <text x="960" y="34" fill="#3D3D3A" text-anchor="middle" font-weight="bold">NÃO → célula nasce sem líder</text>
+        <text x="960" y="54" fill="#87867F" text-anchor="middle">válido; serve p/ destravar convites,</text>
+        <text x="960" y="70" fill="#87867F" text-anchor="middle">mas NÃO recebe contatos (409)</text>
+        <text x="960" y="88" fill="#87867F" text-anchor="middle">contacts.py:592-596</text>
+        <line x1="760" y1="45" x2="818" y2="45" stroke="#87867F" stroke-width="2" marker-end="url(#arr3)"/>
+        <!-- com líder: validações -->
+        <rect x="820" y="120" width="280" height="120" rx="10" fill="#FFFFFF" stroke="#D97757" stroke-width="2"/>
+        <text x="960" y="144" fill="#3D3D3A" text-anchor="middle" font-weight="bold">SIM → validações (cells.py:288-340)</text>
+        <text x="836" y="168" fill="#3D3D3A">✗ pessoa não achada → 422</text>
+        <text x="836" y="186" fill="#3D3D3A">✗ CSIM (sem interesse) → 422</text>
+        <text x="836" y="204" fill="#3D3D3A">✗ não apta (sem Reencontro) → 422</text>
+        <text x="836" y="222" fill="#3D3D3A">✗ já lidera outra célula ativa → 409</text>
+        <line x1="760" y1="75" x2="818" y2="160" stroke="#87867F" stroke-width="2" marker-end="url(#arr3)"/>
+        <!-- resultado -->
+        <rect x="820" y="270" width="280" height="66" rx="10" fill="#E4E9DC" stroke="#788C5D" stroke-width="2"/>
+        <text x="960" y="296" fill="#4B5C39" text-anchor="middle" font-weight="bold">✓ passou → líder REAL derivado</text>
+        <text x="960" y="316" fill="#4B5C39" text-anchor="middle">celulas.lider_id + célula ativa</text>
+        <line x1="960" y1="240" x2="960" y2="268" stroke="#87867F" stroke-width="2" marker-end="url(#arr3)"/>
+        <!-- cobertura vs lider vs membro -->
+        <rect x="10" y="270" width="740" height="140" rx="10" fill="#FFFFFF" stroke="#D1CFC5" stroke-width="2"/>
+        <text x="30" y="296" fill="#141413" font-weight="bold" font-size="12">Três papéis distintos na célula</text>
+        <text x="30" y="322" fill="#3D3D3A">COBERTURA ESPIRITUAL — liderança pastoral ACIMA da célula. Hoje: texto livre (backend não valida conteúdo).</text>
+        <text x="30" y="342" fill="#3D3D3A">LÍDER — opera o dia a dia. Derivado de celulas.lider_id em célula ativa. Exige apto (Reencontro), nunca CSIM.</text>
+        <text x="30" y="362" fill="#3D3D3A">MEMBRO — vínculo pessoa↔célula (papel membro/auxiliar/anfitrião). 1 pessoa → 1 célula ativa.</text>
+        <text x="30" y="392" fill="#87867F" font-size="10.5">Spec: cobertura seria FK p/ pessoa (PLANO-IMPLEMENTACAO:94) — hoje é string. G12 pastoral formal = modelagem futura (decisão do dono 2026-07-07).</text>
+      </g>
+    </svg>
+  </div>
+  <p class="caption">Diagrama 3 — fluxo da primeira célula: quem cria, o que o formulário exige e o destino de cada escolha de líder.</p>
+
+  <h3 class="sub">Os dois caminhos possíveis hoje</h3>
+  <div class="paths">
+    <div class="path recomendado">
+      <h4>Caminho guiado (recomendado)</h4>
+      <ol>
+        <li>Cadastrar pastor + futuros líderes em Pessoas (app.)</li>
+        <li>Admin marca "Apto a liderar" no editar da Pessoa</li>
+        <li>Central → Gerenciar células → "Nova célula" com líder apto</li>
+        <li>Célula operacional: recebe contatos, aparece na Minha Célula do líder</li>
+        <li>Convidar equipe (admin.) apontando para a célula</li>
+      </ol>
+    </div>
+    <div class="path atalho">
+      <h4>Atalho válido (não documentado na UI)</h4>
+      <ol>
+        <li>Central → "Nova célula" só com nome + cobertura (texto), <strong>sem líder</strong></li>
+        <li>Convidar equipe imediatamente — o convite aceita célula sem líder (verificado: nem <a class="deeplink" href="vscode://file/C:/Users/hanie/Searches/OneDrive/Documentos/workspace/PastorAi-1.0/backend/app/routers/team.py:298">team.py</a> nem a ativação checam líder)</li>
+        <li>Depois: marcar apto e editar a célula vinculando o líder</li>
+        <li>⚠️ Até lá, a célula não recebe contatos (409) e o convidado ativado entra nela mesmo sem líder</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="note"><strong>E se só existe o admin e ninguém mais?</strong> A célula pode ser criada mesmo assim (nome + cobertura em texto — a datalist de pastores fica vazia, mas o campo aceita qualquer string). O que NÃO dá: vincular líder (não há pessoa apta) nem povoar a célula. <strong>Minha Célula nunca administra a primeira célula</strong> — é superfície de líder/discípulo; líder sem célula vê "Nenhuma célula vinculada… a Central vincula" (<a class="deeplink" href="vscode://file/C:/Users/hanie/Searches/OneDrive/Documentos/workspace/PastorAi-1.0/frontend/src/components/minha-celula/MinhaCelulaLider.tsx:244">MinhaCelulaLider.tsx:244</a>), sem CTA de criação — invariante do Contrato UX preservado.</div>
+</section>
+
+<!-- ============================================================ -->
+<section id="sec-05">
+  <div class="sec-head"><span class="num">05</span><h2>Líder derivado · CSIM fora da visão <span class="badge hoje">HOJE</span></h2></div>
+  <p class="sec-intro">Regra de domínio em produção desde 2026-07-07: "líder de célula" nunca é um <code>tipo</code> de pessoa — é derivado do vínculo real.</p>
+
+  <table class="plain">
+    <tr><th>Estado</th><th>O que significa</th><th>Como entra / sai</th></tr>
+    <tr><td><code>contato / visitante / membro</code></td><td>Pessoa comum na jornada</td><td>Cadastro em Pessoas; <code>tipo='lider'</code> é <strong>rejeitado</strong> no create/update (<a class="deeplink" href="vscode://file/C:/Users/hanie/Searches/OneDrive/Documentos/workspace/PastorAi-1.0/backend/app/routers/contacts.py:43">contacts.py:43</a>)</td></tr>
+    <tr><td><strong>Apto a liderar</strong> (<code>apto_lider</code>)</td><td>Fez o Reencontro — formação, não função. Aparece na aba "Aptos sem célula"</td><td>Toggle no editar da Pessoa — só admin. CSIM nunca é apto (422)</td></tr>
+    <tr><td><strong>Líder de célula</strong> (derivado)</td><td>Apto + vinculado como <code>celulas.lider_id</code> de célula <code>ativa</code></td><td>Vínculo pela Central (cadastro/edição/multiplicação); remover liderança volta a "apto sem célula", não perde aptidão</td></tr>
+    <tr><td><strong>CSIM</strong> (<code>sem_interesse</code>)</td><td>Fora da visão — não é etapa da Jornada, não conta em Ganhar, mostra "Fora da visão" sem chip de etapa (<a class="deeplink" href="vscode://file/C:/Users/hanie/Searches/OneDrive/Documentos/workspace/PastorAi-1.0/frontend/src/components/contacts/ContatosScreen.tsx:328">ContatosScreen.tsx:328</a>)</td><td>Marcar CSIM <strong>zera</strong> apto; não pode liderar (422); marcar CSIM em quem lidera célula ativa → 409 "troque o líder antes"; defesa-dupla no backend (<a class="deeplink" href="vscode://file/C:/Users/hanie/Searches/OneDrive/Documentos/workspace/PastorAi-1.0/backend/app/routers/pipeline.py:186">pipeline.py:186</a>)</td></tr>
+  </table>
+</section>
+
+<!-- ============================================================ -->
+<section id="sec-06">
+  <div class="sec-head"><span class="num">06</span><h2>O que o admin configura antes de operar <span class="badge hoje">HOJE</span></h2></div>
+  <p class="sec-intro">Menu da superfície admin. (<code>/gestao</code>) pós-reorg PR #119 (<a class="deeplink" href="vscode://file/C:/Users/hanie/Searches/OneDrive/Documentos/workspace/PastorAi-1.0/frontend/src/lib/navigation.ts:117">navigation.ts:117-148</a>). A landing default do /gestao hoje é <strong>Identidade Visual</strong> (primeiro item do primeiro grupo — <a class="deeplink" href="vscode://file/C:/Users/hanie/Searches/OneDrive/Documentos/workspace/PastorAi-1.0/frontend/src/components/shell/AdminAppShell.tsx:34">AdminAppShell.tsx:34</a>).</p>
+
+  <div class="cards3">
+    <div class="scard admin">
+      <h3>Gestão</h3>
+      <div class="who">grupo 1 · admin-only</div>
+      <ul>
+        <li><strong>Identidade Visual</strong> — logo da igreja (PNG/JPG/WebP ≤1MB, bucket <code>church-logos</code>); nome é read-only (só master edita)</li>
+        <li><strong>Usuários do Sistema</strong> — convites (sempre <code>membro</code> + célula) e promoção de papéis</li>
+        <li><strong>Permissões</strong> — matriz papel×tela editável em runtime</li>
+        <li><strong>Calendário</strong> — OAuth Google + destinatários de avisos internos (rota <code>integracoes</code>)</li>
+      </ul>
+    </div>
+    <div class="scard admin">
+      <h3>Sistema</h3>
+      <div class="who">grupo 2 · admin-only</div>
+      <ul>
+        <li><strong>Conexão WhatsApp</strong> — instância Evolution (QR). Conectado sem chave LLM = inbox recebe, ninguém responde (comportamento correto, mas não avisado)</li>
+        <li><strong>Agente IA</strong> — chave LLM BYO; mudanças de comportamento vão por fila de solicitações ao master. ⚠️ contradição 8.5: o runtime não lê o toggle do master (ver <a class="anchor" href="#sec-09">decisões</a>)</li>
+      </ul>
+    </div>
+    <div class="scard admin">
+      <h3>Finanças</h3>
+      <div class="who">grupo 3 · só o dono vê</div>
+      <ul>
+        <li><strong>Minha Assinatura</strong> — status do plano + checkout Asaas (<code>require_owner</code>: admin comum não passa)</li>
+        <li class="off">Billing técnico é responsabilidade do master (decisão provisória 2026-07-06); checklist do admin pode mostrar status, mas nada bloqueia cadastros</li>
+        <li class="off">Risco operacional: <code>inadimplente</code> bloqueia o login da igreja inteira (<a class="deeplink" href="vscode://file/C:/Users/hanie/Searches/OneDrive/Documentos/workspace/PastorAi-1.0/backend/app/deps.py:40">deps.py:40</a>)</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="sec-07">
+  <div class="sec-head"><span class="num">07</span><h2>Onde entram Agenda e Células</h2></div>
+  <div class="paths">
+    <div class="path recomendado">
+      <h4>Agenda</h4>
+      <ol>
+        <li><strong>Configuração</strong> (admin.): Calendário — OAuth Google por igreja + destinatários de avisos internos (EVT-7)</li>
+        <li><strong>Operação</strong> (app.): tela Agenda — criar/editar/confirmar eventos (pastor+admin); import do Google (botão admin-only); eventos visíveis aos usuários</li>
+        <li><strong>EVT-8</strong> <span class="badge hoje">HOJE</span>: ConfirmEventModal captura a intenção de notificar (quando, públicos <code>toda_igreja/pastores/g12_pastoral/lideres_celula</code>, contatos individuais sem telefone livre) — <strong>nada é enviado</strong>: flag <code>AGENDA_NOTIFY_ENABLED</code> default OFF (<a class="deeplink" href="vscode://file/C:/Users/hanie/Searches/OneDrive/Documentos/workspace/PastorAi-1.0/backend/app/config.py:46">config.py:46</a>)</li>
+        <li><strong>EVT-9</strong> <span class="badge futuro">FUTURO</span>: cron + envio real via Evolution, atrás da flag; filtrar <code>Pessoa.optout</code> (LGPD)</li>
+      </ol>
+    </div>
+    <div class="path recomendado">
+      <h4>Células</h4>
+      <ol>
+        <li><strong>Central de Células</strong> — Jornada G12 → Discipular → Central de Célula (pastor+admin no MVP; papel <code>lider_central</code> é futuro). Abas: Dashboard · Gerenciar células · Solicitações · Avisos · Materiais</li>
+        <li><strong>Minha Célula</strong> — líder/discípulo; nunca administra a primeira célula (invariante do Contrato UX §15.1)</li>
+        <li><strong>Solicitação→Aprovação</strong>: mudanças sensíveis (dia/horário/endereço/anfitrião/auxiliar/multiplicação) o líder propõe e a Central decide — <strong>flag <code>CELULAS_REQUESTS_ENABLED</code> OFF</strong>: toda escrita do fluxo retorna 503 hoje; criação direta pela Central não é afetada</li>
+        <li>Tela legada <code>#celulas</code> segue viva como deep-link fora do menu, com CTA duplicado de "Nova célula" (destino pendente de decisão)</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="sec-08">
+  <div class="sec-head"><span class="num">08</span><h2>Gargalos atuais — respostas objetivas</h2></div>
+  <p class="sec-intro">Classificação: <span class="sev bug">BUG</span> impede o que deveria funcionar · <span class="sev ux">UX</span> funciona mas confunde · <span class="sev proc">PROCESSO</span> precisa orientação/doc · <span class="sev futuro">PRODUTO FUTURO</span> exige feature nova · <span class="sev ok">OK</span> comportamento correto.</p>
+
+  <table class="plain">
+    <tr><th>Pergunta</th><th>Resposta verificada</th></tr>
+    <tr><td>Admin cria a 1ª célula sem já existir pastor?</td><td><strong>SIM.</strong> Cobertura é texto livre (aceita qualquer string); a datalist de pastores só fica vazia. <a class="deeplink" href="vscode://file/C:/Users/hanie/Searches/OneDrive/Documentos/workspace/PastorAi-1.0/backend/app/routers/cells.py:161">cells.py:161</a></td></tr>
+    <tr><td>Admin cria a 1ª célula sem líder apto?</td><td><strong>SIM — sem líder nenhum.</strong> <code>liderId</code> anulável; validação de apto só roda se um líder for informado. Célula sem líder não recebe contatos (409). <a class="deeplink" href="vscode://file/C:/Users/hanie/Searches/OneDrive/Documentos/workspace/PastorAi-1.0/backend/app/routers/cells.py:160">cells.py:160</a>, <a class="deeplink" href="vscode://file/C:/Users/hanie/Searches/OneDrive/Documentos/workspace/PastorAi-1.0/backend/app/routers/contacts.py:592">contacts.py:592</a></td></tr>
+    <tr><td>Primeira pessoa a cadastrar depois do admin?</td><td><strong>O pastor</strong> (Pessoa <code>tipo='pastor'</code>) — alimenta a datalist de cobertura; depois os futuros líderes, que o admin marca aptos.</td></tr>
+    <tr><td>O fluxo obriga cadastrar pessoas antes de célula?</td><td><strong>NÃO</strong> para criar (célula placeholder sem líder é válida). <strong>SIM</strong> para célula <em>operacional</em> (líder apto necessário para receber contatos e aparecer na Minha Célula).</td></tr>
+    <tr><td>Existe gargalo circular?</td><td><strong>Não no código; sim na percepção.</strong> Convite exige célula (<a class="deeplink" href="vscode://file/C:/Users/hanie/Searches/OneDrive/Documentos/workspace/PastorAi-1.0/backend/app/routers/team.py:332">team.py:332</a> — 422) e o círculo se quebra criando célula sem líder — mas <strong>nenhuma tela explica isso</strong>. O admin que tentar convidar primeiro leva 422 sem orientação. O doc de onboarding de 2026-07-06 descreve o círculo como estrito (célula exigiria líder apto) — <strong>desatualizado</strong>.</td></tr>
+  </table>
+
+  <h3 class="sub">Inventário classificado</h3>
+  <div class="risks">
+    <div class="row head"><div class="cell">Gargalo</div><div class="cell">Classe</div><div class="cell">Detalhe / mitigação</div></div>
+    <div class="row"><div class="cell">Convite de equipe exige célula e falha com 422 seco ("Selecione a célula do convidado") sem explicar o caminho</div><div class="cell"><span class="sev ux">UX</span></div><div class="cell">Funciona (e a exigência é defensável), mas o admin de igreja vazia não é guiado. PR-O2 decide se a exigência fica; curto prazo: mensagem do 422 apontar "crie uma célula primeiro na Central".</div></div>
+    <div class="row"><div class="cell">Ordem obrigatória do primeiro dia não é apresentada em lugar nenhum (dashboard genérico, sem checklist)</div><div class="cell"><span class="sev ux">UX</span></div><div class="cell">Núcleo do problema de onboarding. PR-O4: card "Primeiros passos" read-only no /gestao com status por passo (WhatsApp? LLM? pessoas&gt;0? aptos&gt;0? célula&gt;0?).</div></div>
+    <div class="row"><div class="cell">Atalho "célula sem líder" existe mas é invisível (select diz "Sem líder definido" sem explicar consequências)</div><div class="cell"><span class="sev proc">PROCESSO</span></div><div class="cell">Documentar no runbook/checklist: célula sem líder destrava convites, mas não recebe contatos (409) até vincular líder apto.</div></div>
+    <div class="row"><div class="cell">Marcar "apto a liderar" é admin-only — pastor/Central não conseguem</div><div class="cell"><span class="sev futuro">PRODUTO FUTURO</span></div><div class="cell">Dívida registrada (PR-O3): pastor/Central marcarem apto a partir da Central. Hoje: <a class="deeplink" href="vscode://file/C:/Users/hanie/Searches/OneDrive/Documentos/workspace/PastorAi-1.0/backend/app/routers/contacts.py:448">contacts.py:448</a>.</div></div>
+    <div class="row"><div class="cell">Sem import em massa de Pessoas (CSV) — cadastro manual um-a-um</div><div class="cell"><span class="sev futuro">PRODUTO FUTURO</span></div><div class="cell">Verificado: zero rotas bulk/CSV no backend e zero telas no front. Backlog assumido do MVP.</div></div>
+    <div class="row"><div class="cell">Cobertura espiritual como texto livre</div><div class="cell"><span class="sev ok">OK</span> <span class="sev futuro">+ FUTURO</span></div><div class="cell"><strong>Não gera gargalo</strong> (nunca bloqueia; datalist sugere pastores). Custo: dado não-estruturado — organograma/descendência não deriva dele. Vira FK quando o G12 pastoral formal for modelado (decisão do dono 2026-07-07: futuro).</div></div>
+    <div class="row"><div class="cell">Convite entra sempre como <code>membro</code>; papel só depois (promover) — US-03 previa convite com papel</div><div class="cell"><span class="sev proc">PROCESSO</span></div><div class="cell">Drift doc↔código. PR-O2: implementar papel no convite OU oficializar convidar→promover e corrigir a US-03.</div></div>
+    <div class="row"><div class="cell">WhatsApp conectado + sem chave LLM = mensagens entram, ninguém responde</div><div class="cell"><span class="sev ok">OK</span> <span class="sev proc">+ PROCESSO</span></div><div class="cell">Comportamento correto (ingestão nunca perde mensagem; <code>agent_skipped_no_credential</code>) — mas precisa ser dito ao admin entre P2 e P3.</div></div>
+    <div class="row"><div class="cell">Agente responde assim que a chave LLM válida é cadastrada, ignorando o toggle do master (<code>AgentConfig.ativo</code> é campo inerte no fluxo inbound)</div><div class="cell"><span class="sev confirmar" style="font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:6px;font-weight:600;">DECISÃO</span></div><div class="cell">Contradição 8.5 verificada por leitura de código (runtime.py:68 é o único gate). Se o dono confirmar que o toggle deve valer → PR-O6 (runtime lê <code>ativo</code>). Até lá, não é bug declarado.</div></div>
+    <div class="row"><div class="cell">Landing do /gestao é "Identidade Visual" (primeiro item do menu), não o passo mais crítico</div><div class="cell"><span class="sev ux">UX</span></div><div class="cell">Menor. Se PR-O4 nascer, o card "Primeiros passos" é a landing natural.</div></div>
+    <div class="row"><div class="cell">CTA "Nova célula" duplicado: Central (novo) + tela legada <code>#celulas</code> (deep-link fora do menu)</div><div class="cell"><span class="sev proc">PROCESSO</span></div><div class="cell">Decisão pendente: destino da legada (matar CTA? redirect?) e alinhar <code>CELL_CREATE_ROLES</code> (inclui <code>lider_g12</code>; spec diz só Central).</div></div>
+    <div class="row"><div class="cell">Nome da igreja read-only para o admin — typo no provisionamento exige chamado ao master</div><div class="cell"><span class="sev ok">OK</span></div><div class="cell">Decisão D3 do branding (2026-07-06). Registrar no runbook do master: conferir grafia antes de aprovar.</div></div>
+  </div>
+
+  <h3 class="sub">O que já está claro / resolvido</h3>
+  <div class="note" style="margin-top:0">
+    ✅ CTA "Nova célula" + empty state "Criar primeira célula" na Central (PR-O1 #112, verificado em <a class="deeplink" href="vscode://file/C:/Users/hanie/Searches/OneDrive/Documentos/workspace/PastorAi-1.0/frontend/src/components/central-celula/ManageCellsPanel.tsx:131">ManageCellsPanel.tsx:131</a>) · ✅ Modal de célula com cobertura + datalist de pastores, dia em select e horário em input time (#116) · ✅ Menu admin reorganizado Gestão/Sistema/Finanças (#119) · ✅ Logo por tenant na sidebar (#114/#117/#120/#121) · ✅ Regra líder-derivado + CSIM fora da visão em produção (#105–#108, #103/#111) · ✅ Ativação do dono cria a Pessoa (o gap "C2" do doc EVT-7 está corrigido para igrejas novas).
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="sec-09">
+  <div class="sec-head"><span class="num">09</span><h2>Decisões pendentes (do dono)</h2></div>
+  <div class="open-q">
+    <div class="q"><div class="qt">1 · Convite com papel ou convidar→promover?</div><div class="qd">US-03 diz "convida informando e-mail e papel"; o código entra sempre <code>membro</code> + célula obrigatória. Decidir também se o convite deve continuar exigindo célula (raiz do 422).</div><div class="owner">PR-O2 · backend+frontend</div></div>
+    <div class="q"><div class="qt">2 · Pastor/Central podem marcar "apto a liderar"?</div><div class="qd">Hoje só admin. Dívida registrada na missão líder-derivado; candidato a CTA de aptidão na própria Central.</div><div class="owner">PR-O3 · backend+frontend</div></div>
+    <div class="q"><div class="qt">3 · O toggle do agente (master) deve valer?</div><div class="qd">Runtime não lê <code>AgentConfig.ativo</code>; credencial válida já nasce ativa. Se sim → PR-O6 com cuidado para não silenciar igrejas já ativas.</div><div class="owner">PR-O6 · backend</div></div>
+    <div class="q"><div class="qt">4 · Destino da tela legada <code>#celulas</code></div><div class="qd">CTA duplicado com a Central; <code>CELL_CREATE_ROLES</code> inclui <code>lider_g12</code>, divergindo da spec (só Central). Matar CTA, redirect ou manter?</div><div class="owner">decisão + PR pequeno</div></div>
+    <div class="q"><div class="qt">5 · Cobertura da célula multiplicada</div><div class="qd">Herdada da célula-mãe ou redefinida pela Central na aprovação? Pergunta aberta do PRD de Solicitações (§16).</div><div class="owner">PRD-CELULAS-SOLICITACOES §149</div></div>
+    <div class="q"><div class="qt">6 · G12 pastoral formal (modelagem)</div><div class="qd">Cobertura hoje é string; a decisão de 2026-07-07 confirmou que 'lider' é legado e a modelagem formal do G12 pastoral (FK, organograma derivado) fica para o futuro. Quando vier, migrar cobertura texto → referência.</div><div class="owner">produto futuro</div></div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section id="sec-10">
+  <div class="sec-head"><span class="num">10</span><h2>Recomendações</h2></div>
+  <div class="reco">
+    <h3>Próxima missão sugerida: PR-O4 — card "Primeiros passos" no /gestao</h3>
+    <p>É o que ataca o maior gargalo real (a ordem invisível) sem depender de nenhuma decisão pendente: endpoint read-only agregado (WhatsApp conectado? chave LLM? Google? pessoas&gt;0? aptos&gt;0? célula&gt;0? assinatura ok?) + card com link direto por passo. Zero escrita, informativo, não bloqueia nada (conforme decisão de billing). Candidato natural a nova landing do /gestao.</p>
+    <ol>
+      <li><strong>Imediato (docs):</strong> corrigir o §9.1 do <a class="deeplink" href="vscode://file/C:/Users/hanie/Searches/OneDrive/Documentos/workspace/PastorAi-1.0/docs/design/ONBOARDING-IGREJA-PRIMEIROS-PASSOS.md">ONBOARDING-IGREJA-PRIMEIROS-PASSOS.md</a> — o círculo não é estrito: célula sem líder é válida e destrava convites (este infográfico já registra o fluxo correto).</li>
+      <li><strong>Barato (UX):</strong> mensagem do 422 do convite apontar o caminho ("crie uma célula na Central primeiro"); microcopy no select "Sem líder definido" explicando a consequência (não recebe contatos até ter líder).</li>
+      <li><strong>Médio:</strong> PR-O2 (decisão 1) e PR-O3 (decisão 2) destravam o fluxo de equipe e tiram o admin do caminho crítico da aptidão.</li>
+      <li><strong>Manutenção:</strong> PR-O5 (drifts de docs: PRD linha 122 console=painel., US-03, adendo 3-superfícies no Contrato UX).</li>
+    </ol>
+  </div>
+  <div class="note"><strong>Fontes lidas nesta análise</strong> — docs: ONBOARDING-IGREJA-PRIMEIROS-PASSOS · PLANO-IMPLEMENTACAO-CELULAS · CELULAS-DECISOES-FINAIS · PRD-CENTRAL-DE-CELULAS · PRD-CELULAS-SOLICITACOES-APROVACAO · CONTRATO-UX-CELULAS-CENTRAL · BRANDING-IDENTIDADE-VISUAL-IGREJA · AGENDA-EVENTOS-EVT8 · RECONCILIACAO-igreja12. Código (main <code>68f725f</code>): platform_admin.py · auth.py · deps.py · contacts.py · cells.py · team.py · subscription.py · config.py · navigation.ts · permissions.ts · AppShell/AdminAppShell · ManageCellsPanel · CellFormModal · CelulasScreen · MinhaCelulaLider/Entry · ContatosScreen · ConfirmEventModal. Claims de gargalo passaram por verificação adversarial independente (7 claims; 1 refutado — o círculo estrito).</div>
+</section>
+
+</div>
+</body>
+</html>
