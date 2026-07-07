@@ -261,6 +261,16 @@ export function CelulasScreen() {
     return eligible;
   }, [contacts, editing]);
 
+  // Sugestões de cobertura espiritual: liderança pastoral (tipo pastor/líder).
+  // Ter célula — ativa ou não — NÃO exclui da cobertura (regra do dono).
+  const coverageOptions = useMemo(
+    () =>
+      contacts.filter(
+        (c) => (c.tipo === "pastor" || c.tipo === "lider") && !c.semInteresse,
+      ),
+    [contacts],
+  );
+
   const showSkeleton = loading && !loaded;
 
   return (
@@ -417,6 +427,7 @@ export function CelulasScreen() {
         <CellFormModal
           cell={editing}
           leaders={leaderOptions}
+          coverageOptions={coverageOptions}
           busy={saving}
           error={formError}
           onClose={() => {

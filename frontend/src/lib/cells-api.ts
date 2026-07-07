@@ -27,6 +27,8 @@ export interface CellSummary {
   nome: string;
   liderId: string | null;
   diaReuniao: string | null;
+  /** HH:MM (o backend valida o formato). */
+  horario: string | null;
   coberturaEspiritual: string;
   ativo: boolean;
 }
@@ -51,6 +53,8 @@ export interface UpsertCellInput {
   nome: string;
   liderId?: string | null;
   diaReuniao?: string | null;
+  /** HH:MM. Sensível (3.2): junto com diaReuniao, só a Central altera. */
+  horario?: string | null;
   coberturaEspiritual: string;
   ativo?: boolean;
 }
@@ -99,6 +103,7 @@ export async function upsertCell(
       nome: input.nome,
       liderId: input.liderId ?? null,
       diaReuniao: input.diaReuniao ?? null,
+      horario: input.horario ?? null,
       coberturaEspiritual: input.coberturaEspiritual,
       ativo: input.ativo ?? true,
     }),
