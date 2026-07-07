@@ -116,24 +116,33 @@ export const NAV_SECTIONS: NavSection[] = [
  */
 export const ADMIN_NAV_SECTIONS: NavSection[] = [
   {
-    id: "config",
-    label: "Configuração da Igreja",
+    id: "gestao",
+    label: "Gestão",
     items: [
-      { target: "whatsapp", label: "Conexão WhatsApp", icon: "whatsapp", accent: "whats" },
-      { target: "agente", label: "Agente IA", icon: "agent" },
-      { target: "assinatura", label: "Assinatura", icon: "card" },
       { target: "identidade", label: "Identidade Visual", icon: "image" },
-      { target: "permissoes", label: "Permissões", icon: "lock" },
       { target: "equipe", label: "Usuários do Sistema", icon: "team" },
+      { target: "permissoes", label: "Permissões", icon: "lock" },
+      // Config admin da Agenda (Google + destinatários), antes embutida em
+      // #calendario. A operação de eventos (criar/confirmar) segue no app.
+      // Rota preservada (`integracoes`); só o rótulo virou "Calendário".
+      { target: "integracoes", label: "Calendário", icon: "calendar" },
     ],
   },
   {
-    id: "integracoes",
-    label: "Integrações",
+    id: "sistema",
+    label: "Sistema",
     items: [
-      // Config admin da Agenda (Google + destinatários), antes embutida em
-      // #calendario. A operação de eventos (criar/confirmar) segue no app.
-      { target: "integracoes", label: "Google Agenda", icon: "calendar" },
+      { target: "whatsapp", label: "Conexão WhatsApp", icon: "whatsapp", accent: "whats" },
+      { target: "agente", label: "Agente IA", icon: "agent" },
+    ],
+  },
+  {
+    id: "financas",
+    label: "Finanças",
+    // 'assinatura' segue owner-only (o Sidebar remove p/ não-dono); o grupo
+    // some inteiro para admin que não é o dono.
+    items: [
+      { target: "assinatura", label: "Minha Assinatura", icon: "card" },
     ],
   },
 ];
@@ -268,17 +277,17 @@ export const SCREEN_META: Record<
   },
   identidade: {
     title: "Identidade Visual",
-    crumb: "Configuração",
-    info: "Logo da igreja exibida no sistema. Opcional: sem logo, mostramos o nome da igreja.",
+    crumb: "Gestão",
+    info: "Logo e aparência da igreja no sistema. Opcional: sem logo, mostramos o nome da igreja.",
   },
   integracoes: {
-    title: "Integrações",
+    title: "Calendário",
     crumb: "Google Agenda e avisos",
     info: "Conexão com o Google Agenda e destinatários dos avisos da Agenda.",
   },
   assinatura: {
-    title: "Assinatura",
-    crumb: "Configuração",
+    title: "Minha Assinatura",
+    crumb: "Finanças",
     info: "Plano e assinatura da igreja.",
   },
   permissoes: {

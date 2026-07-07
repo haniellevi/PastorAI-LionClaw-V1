@@ -37,6 +37,7 @@ export const ADMIN_ONLY = [
   "permissoes",
   "equipe",
   "integracoes",
+  "identidade",
 ] as const;
 
 /** Telas legadas: deep-link válido, fora do menu (delta-012). */
