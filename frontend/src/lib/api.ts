@@ -27,6 +27,10 @@ export interface MeResult {
   roles: string[];
   /** Dono (admin principal) da igreja — só o dono gerencia a Assinatura (#4). */
   isOwner?: boolean;
+  /** Nome da igreja (Missão 4 branding) — fallback textual quando não há logo. */
+  igrejaNome?: string | null;
+  /** URL pública da logo customizada da igreja (Missão 4); null = sem logo. */
+  igrejaLogoUrl?: string | null;
 }
 
 export type LoginErrorKind =

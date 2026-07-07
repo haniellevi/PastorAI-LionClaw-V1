@@ -8,7 +8,7 @@
  * dos papéis acumulados (role_permissions). Configuração só para admin.
  * Navegação por hash, sem reload. canSee/locked/deep-link preservados.
  */
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import type { SessionUser } from "@/lib/auth-context";
 import { Icon } from "@/lib/icons";
@@ -56,6 +56,14 @@ export function Sidebar({
   onLogout,
 }: SidebarProps) {
   const admin = isAdmin(user.roles);
+  // Branding do tenant (Missão 4): nome + logo da igreja no card "Sua igreja".
+  // A marca do produto "Igreja 12" (topo) é outra coisa e não muda.
+  const igrejaNome = user.igrejaNome?.trim() || "Igreja";
+  const igrejaLogo = user.igrejaLogoUrl ?? null;
+  const [logoFailed, setLogoFailed] = useState(false);
+  // Se a igreja trocar/limpar a logo, re-tenta carregar (reseta o onError).
+  useEffect(() => setLogoFailed(false), [igrejaLogo]);
+  const showLogo = Boolean(igrejaLogo) && !logoFailed;
   const { matrix } = usePermissions();
   // O menu reage à matriz de permissões vigente (delta-010): editar em
   // #permissoes reflete aqui em tempo real, sem reload.
@@ -150,11 +158,26 @@ export function Sidebar({
         </button>
       </div>
 
-      <div className="side-church" data-tip="Sua igreja">
-        <span className="church-avatar">{initials(user.nome)}</span>
+      <div className="side-church" data-tip={igrejaNome}>
+        <span
+          className="church-avatar"
+          style={showLogo ? { background: "#fff", overflow: "hidden" } : undefined}
+        >
+          {showLogo ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={igrejaLogo!}
+              alt={`Logo de ${igrejaNome}`}
+              onError={() => setLogoFailed(true)}
+              style={{ width: "100%", height: "100%", objectFit: "contain" }}
+            />
+          ) : (
+            initials(igrejaNome)
+          )}
+        </span>
         <span className="church-meta lbl">
-          <strong>
-            Painel da Igreja
+          <strong title={igrejaNome}>
+            {igrejaNome}
             {user.isOwner ? (
               <span className="owner-seal" title="Dono da conta (admin principal)">
                 Dono

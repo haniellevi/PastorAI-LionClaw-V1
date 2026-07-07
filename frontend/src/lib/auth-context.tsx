@@ -43,6 +43,10 @@ export interface SessionUser {
   roles: Role[];
   /** É o dono (admin principal) da igreja? Só o dono gerencia a Assinatura (#4). */
   isOwner: boolean;
+  /** Nome da igreja (Missão 4 branding); null quando o back não envia. */
+  igrejaNome: string | null;
+  /** URL pública da logo da igreja (Missão 4); null = sem logo customizada. */
+  igrejaLogoUrl: string | null;
 }
 
 export type AuthStatus = "loading" | "unauthenticated" | "authenticated";
@@ -127,6 +131,8 @@ function toSessionUser(me: MeResult): SessionUser {
     chatNome: me.chatNome,
     roles: normalizeRoles(me.roles),
     isOwner: me.isOwner === true,
+    igrejaNome: me.igrejaNome ?? null,
+    igrejaLogoUrl: me.igrejaLogoUrl ?? null,
   };
 }
 
