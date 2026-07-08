@@ -336,6 +336,7 @@ def reset_password(
     now = datetime.now(timezone.utc)
     if token_row is None or token_row.used_at is not None or token_row.expires_at <= now:
         raise invalid
+    # Security trade-off: claim before Clerk call prevents replay; a downstream Clerk failure burns the link and user must request a new one.
     token_row.used_at = now
     db.commit()
 

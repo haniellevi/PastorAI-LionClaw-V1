@@ -20,6 +20,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
+import jwt
 from fastapi.testclient import TestClient
 
 from app.config import Settings
@@ -190,6 +191,45 @@ def test_invalid_jwt_signature_is_also_generic_400(app) -> None:
 
     assert resp.status_code == 400
     assert resp.json()["detail"] == "Link inválido ou expirado. Peça um novo."
+
+
+class _RealClerkWithSpy(ClerkClient):
+    """ClerkClient real (verify_reset_token de verdade) + espião no set_password."""
+
+    def __init__(self, *, settings: Settings) -> None:
+        super().__init__(settings=settings)
+        self.set_password_calls = 0
+
+    def set_user_password(self, clerk_user_id: str, password: str) -> None:
+        self.set_password_calls += 1
+
+
+def test_reset_token_without_jti_claim_is_rejected(app) -> None:
+    """Token no formato antigo (pré-SEC-3B, sem `jti`) precisa falhar — exercita
+    a exigência real de `jti` em `ClerkClient.verify_reset_token`, não um stub."""
+    old_style_payload = {
+        "sub": "clerk_user_1",
+        "iss": "pastorai-reset",
+        "iat": datetime.now(timezone.utc),
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=10),
+    }
+    old_token = jwt.encode(
+        old_style_payload, _SETTINGS.effective_session_secret, algorithm="HS256"
+    )
+    row = _row()  # linha válida e não usada — não deve ser tocada
+    clerk = _RealClerkWithSpy(settings=_SETTINGS)
+    client = _wire(
+        app, session=FakeSession(app_user=make_app_user(), reset_token=row), clerk=clerk
+    )
+
+    resp = client.post(
+        "/auth/reset-password", json={"token": old_token, "password": "novaSenha123"}
+    )
+
+    assert resp.status_code == 400
+    assert resp.json()["detail"] == "Link inválido ou expirado. Peça um novo."
+    assert clerk.set_password_calls == 0
+    assert row.used_at is None
 
 
 # ---- Endpoint: /auth/forgot-password persiste (jti, expires_at) --------------
