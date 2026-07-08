@@ -16,6 +16,7 @@ generic message that never reveals whether an email exists (US-01).
 from __future__ import annotations
 
 import logging
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -174,22 +175,33 @@ class ClerkClient:
         return token, clerk_user_id
 
     # ---- Password reset (forgot-password flow) ------------------------------
-    def mint_reset_token(self, clerk_user_id: str) -> str:
-        """Mint a short-lived password-reset JWT (HS256, distinct issuer)."""
+    def mint_reset_token(self, clerk_user_id: str) -> tuple[str, str, datetime]:
+        """Mint a short-lived password-reset JWT (HS256, distinct issuer).
+
+        Returns ``(token, jti, expires_at)``. The caller persists ``(jti,
+        expires_at)`` in ``password_reset_tokens`` so the link can be redeemed
+        exactly once (SEC-3B / MEDIO-003) — the signature alone only proves the
+        token was minted by us and hasn't expired, not that it wasn't already
+        used.
+        """
         secret = self._settings.effective_session_secret
         if not secret:
             raise ClerkAuthError("Session secret is not configured")
         now = datetime.now(timezone.utc)
+        expires_at = now + timedelta(minutes=self._settings.password_reset_ttl_minutes)
+        jti = str(uuid.uuid4())
         payload = {
             "sub": clerk_user_id,
             "iss": _RESET_ISSUER,
             "iat": now,
-            "exp": now + timedelta(minutes=self._settings.password_reset_ttl_minutes),
+            "exp": expires_at,
+            "jti": jti,
         }
-        return jwt.encode(payload, secret, algorithm=_SESSION_ALG)
+        token = jwt.encode(payload, secret, algorithm=_SESSION_ALG)
+        return token, jti, expires_at
 
-    def verify_reset_token(self, token: str) -> str:
-        """Verify a password-reset JWT and return the clerk_user_id (sub)."""
+    def verify_reset_token(self, token: str) -> tuple[str, str]:
+        """Verify a password-reset JWT and return ``(clerk_user_id, jti)``."""
         if not token:
             raise ClerkAuthError("Empty token")
         secret = self._settings.effective_session_secret
@@ -201,15 +213,16 @@ class ClerkClient:
                 secret,
                 algorithms=[_SESSION_ALG],
                 issuer=_RESET_ISSUER,
-                options={"require": ["exp", "sub", "iss"], "verify_aud": False},
+                options={"require": ["exp", "sub", "iss", "jti"], "verify_aud": False},
             )
         except Exception as exc:  # noqa: BLE001 - normalize to one error type
             logger.warning("Reset token verification failed: %s", type(exc).__name__)
             raise ClerkAuthError("Invalid or expired reset token") from exc
         subject = claims.get("sub")
-        if not subject:
-            raise ClerkAuthError("Token missing subject")
-        return str(subject)
+        jti = claims.get("jti")
+        if not subject or not jti:
+            raise ClerkAuthError("Token missing subject or jti")
+        return str(subject), str(jti)
 
     # ---- Invite / activation token (convite ponta a ponta) ------------------
     def mint_invite_token(self, app_user_id: str) -> str:
