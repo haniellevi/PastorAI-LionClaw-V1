@@ -239,6 +239,18 @@ def _lider_of_map(db: Session) -> dict[str, str | None]:
     return {str(pid): (str(lid) if lid else None) for pid, lid in rows}
 
 
+def _leads_active_cell(db: Session, pessoa_id: uuid.UUID) -> bool:
+    """True se a pessoa lidera alguma célula ATIVA (espelha ``contacts.py``)."""
+    return (
+        db.execute(
+            select(Celula.id)
+            .where(Celula.lider_id == pessoa_id, Celula.ativo.is_(True))
+            .limit(1)
+        ).scalar_one_or_none()
+        is not None
+    )
+
+
 def _can_edit_cell(
     db: Session, current_user: CurrentUser, cell: Celula
 ) -> bool:
@@ -592,6 +604,18 @@ def add_cell_member(
     `pessoas.celula_id` como espelho legado (Q1); a saída de membro é PR5.
     """
     cell = _get_cell_or_404(db, cell_id)
+    # Paridade com POST /contacts/{id}/cell: célula precisa estar ativa e ter
+    # líder (achado C-03), verificado antes da permissão de edição.
+    if not cell.ativo:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Célula inativa não pode receber membros",
+        )
+    if cell.lider_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Célula sem líder não pode receber membros",
+        )
     if not _can_edit_cell(db, current_user, cell):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -605,6 +629,16 @@ def add_cell_member(
     if pessoa is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Pessoa não encontrada"
+        )
+
+    # Líder de célula ativa não é candidato a MEMBRO (achado C-01).
+    if _leads_active_cell(db, pessoa_uuid):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Esta pessoa já lidera uma célula ativa e não pode ser "
+                "adicionada como membro."
+            ),
         )
 
     # Regra "1 pessoa → 1 célula ativa" escopada por igreja (igual ao índice

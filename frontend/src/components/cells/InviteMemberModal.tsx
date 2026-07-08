@@ -40,10 +40,12 @@ export function InviteMemberModal({ celulaId, celulaNome, contacts, onClose, onI
   const [sending, setSending] = useState(false);
 
   // Candidatos: pessoas que ainda não estão em nenhuma célula (regra de célula
-  // única — quem já tem célula só pode ser transferido por um admin, à parte).
+  // única — quem já tem célula só pode ser transferido por um admin, à parte)
+  // e que não lideram célula ativa (liderar já é o vínculo de acesso; convidar
+  // duplicaria/confundiria o papel — achado C-01).
   const candidatos = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const semCelula = contacts.filter((c) => !c.celulaId);
+    const semCelula = contacts.filter((c) => !c.celulaId && !c.liderDeCelula);
     const base = q
       ? semCelula.filter((c) =>
           `${c.nome} ${c.telefone} ${c.email ?? ""}`.toLowerCase().includes(q),

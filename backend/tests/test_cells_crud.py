@@ -517,7 +517,7 @@ def test_non_central_leader_resending_same_sensitive_is_noop(app) -> None:
 
 # ---- member entry ---------------------------------------------------------
 def test_add_member_creates_link_and_mirror(app) -> None:
-    cell = make_cell()
+    cell = make_cell(lider_id=_LP)  # ativa+com líder (C-03): não é o que este teste cobre
     pessoa = make_pessoa(pessoa_id=_P1, celula_id=None)
     session = CellSession(
         app_user=make_app_user(), roles=["pastor"], cells=[cell], pessoas=[pessoa]
@@ -535,7 +535,7 @@ def test_add_member_creates_link_and_mirror(app) -> None:
 
 
 def test_add_member_conflicts_when_already_active(app) -> None:
-    cell = make_cell()
+    cell = make_cell(lider_id=_LP)  # ativa+com líder (C-03): não é o que este teste cobre
     pessoa = make_pessoa(pessoa_id=_P1)
     existing = make_member(pessoa_id=_P1)
     session = CellSession(
@@ -549,6 +549,7 @@ def test_add_member_conflicts_when_already_active(app) -> None:
         f"/cells/{_CELL}/membros", headers=_AUTH, json={"pessoaId": _P1}
     )
     assert resp.status_code == 409
+    assert resp.json()["detail"]["error"] == "member_already_active"
     assert session.committed is False
 
 
@@ -556,7 +557,7 @@ def test_add_member_active_rule_is_tenant_scoped(app) -> None:
     # Pessoa ativa em OUTRA igreja não bloqueia a entrada nesta (o predicado
     # igreja_id do check de unicidade é o que garante isso — removê-lo faria
     # este teste 409 indevidamente).
-    cell = make_cell()
+    cell = make_cell(lider_id=_LP)  # ativa+com líder (C-03): não é o que este teste cobre
     pessoa = make_pessoa(pessoa_id=_P1)
     other_active = make_member(
         member_id="00000000-0000-0000-0000-0000000000d9",
@@ -579,7 +580,7 @@ def test_add_member_active_rule_is_tenant_scoped(app) -> None:
 def test_add_member_inactive_membership_does_not_conflict(app) -> None:
     # Vínculo INATIVO da mesma pessoa não bloqueia nova entrada (a query de
     # conflito filtra ativo.is_(True) — o índice único é parcial WHERE ativo).
-    cell = make_cell()
+    cell = make_cell(lider_id=_LP)  # ativa+com líder (C-03): não é o que este teste cobre
     pessoa = make_pessoa(pessoa_id=_P1)
     inactive = make_member(pessoa_id=_P1, ativo=False)
     session = CellSession(
@@ -596,7 +597,7 @@ def test_add_member_inactive_membership_does_not_conflict(app) -> None:
 
 
 def test_add_member_pessoa_not_found(app) -> None:
-    cell = make_cell()
+    cell = make_cell(lider_id=_LP)  # ativa+com líder (C-03): não é o que este teste cobre
     session = CellSession(
         app_user=make_app_user(), roles=["pastor"], cells=[cell], pessoas=[]
     )
