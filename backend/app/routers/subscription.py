@@ -32,10 +32,10 @@ from app.db.models import (
     UserRole,
     WhatsappConnection,
 )
+from app.db.rls_observability import log_if_not_scoped
 from app.db.session import get_db
 from app.deps import ADMIN_ROLE, CurrentUser, require_owner
 from app.domain.billing import plan_limit, plan_price
-from app.routers._common import ensure_tenant_context
 from app.services.asaas import (
     AsaasClient,
     AsaasError,
@@ -176,7 +176,12 @@ def get_subscription(
     evolution: EvolutionClient = Depends(get_evolution_client),
 ) -> SubscriptionOut:
     """Return the tenant's subscription, notifying any pending autoupgrade."""
-    ensure_tenant_context(db, current_user)
+    # Sinal de observabilidade (PR1 / feat-004) ligado a este caminho HTTP de
+    # amostra do seam: se a sessão marcada por get_current_user NÃO estiver
+    # tenant-scoped (perda de contexto / BYPASSRLS inesperado / fallback), emite
+    # log estruturado sem PII (só source/role/igreja_id). É a fonte do gatilho de
+    # rollback da SPEC §9/10 (evidência de leitura cross-tenant nos logs).
+    log_if_not_scoped(db, source="http")
     igreja_uuid = uuid.UUID(current_user.igreja_id)
 
     sub = db.execute(
@@ -189,8 +194,13 @@ def get_subscription(
         )
 
     # Surface the trigger-driven autoupgrade to the admin (idempotent).
+    # notify_autoupgrade comita internamente; a re-asserção manual do contexto
+    # pós-commit foi REMOVIDA (PR3-A, caso âncora): o listener after_begin (D2)
+    # reabre a transação já escopada assim que db.refresh() emite o próximo BEGIN,
+    # pois a sessão está marcada por get_current_user. expire_on_commit=False
+    # (session.py) garante que só o refresh reabre a transação — objetos já
+    # carregados não expiram no commit. A estrutura (seam) substitui a convenção.
     notify_autoupgrade(db, igreja_uuid, evolution)
-    ensure_tenant_context(db, current_user)
     db.refresh(sub)
     return SubscriptionOut.from_model(sub)
 
@@ -203,7 +213,6 @@ def create_checkout(
     asaas: AsaasClient = Depends(get_asaas_client),
 ) -> CheckoutResponse:
     """Create an Asaas checkout (subscription + one-time setup fee)."""
-    ensure_tenant_context(db, current_user)
     igreja_uuid = uuid.UUID(current_user.igreja_id)
 
     sub = db.execute(
