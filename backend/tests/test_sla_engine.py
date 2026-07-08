@@ -20,8 +20,9 @@ from app.db.models import (
     WhatsappConnection,
     WorkQueueItem,
 )
+from app.db.tenant_session import TENANT_IGREJA_KEY, TENANT_META_KEY
 from app.domain.sla import SlaStatus
-from app.services.sla_engine import SlaEngine, scan_breaches
+from app.services.sla_engine import SlaEngine, run_all_igrejas, scan_breaches
 
 _IGREJA = uuid.UUID("00000000-0000-0000-0000-000000000001")
 _T0 = dt.datetime(2026, 6, 13, 12, 0, tzinfo=dt.timezone.utc)
@@ -267,3 +268,126 @@ def test_no_instance_logs_without_sending() -> None:
     assert len(handled) == 1
     assert evo.sent == []
     assert any(isinstance(o, AgentConversationLog) for o in session.added)
+
+
+# ---------------------------------------------------------------------------
+# run_all_igrejas — sweep com sessão tenant-scoped por igreja (PR3-B / D3)
+# ---------------------------------------------------------------------------
+class _DiscoverySession:
+    """Sessão compartilhada usada SÓ para a descoberta cross-tenant dos ids.
+
+    Roteia os dois selects de coluna (WorkQueueItem.igreja_id /
+    Consolidacao.igreja_id) pela entidade-mãe, devolvendo os UUIDs semeados.
+    """
+
+    def __init__(self, *, work_igrejas=None, cons_igrejas=None) -> None:
+        self._work = work_igrejas or []
+        self._cons = cons_igrejas or []
+
+    def execute(self, statement, params=None) -> _FakeResult:
+        entity = statement.column_descriptions[0].get("entity")
+        if entity is WorkQueueItem:
+            return _FakeResult(self._work)
+        if entity is Consolidacao:
+            return _FakeResult(self._cons)
+        return _FakeResult([])
+
+
+class _TenantSession:
+    """Sessão por-igreja: registra o seam (info) e a marca de fechamento."""
+
+    def __init__(self) -> None:
+        self.info: dict = {}
+        self.closed = False
+        self.rolled_back = False
+        self.tenant_calls: list[tuple[str, dict | None]] = []
+
+    def execute(self, statement, params=None) -> _FakeResult:
+        # Só o seam (set_tenant_context_for_igreja) emite text() aqui.
+        self.tenant_calls.append((str(statement), params))
+        return _FakeResult([])
+
+    def rollback(self) -> None:
+        self.rolled_back = True
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class _RecordingEngine:
+    """Exige que a sessão recebida já esteja pinada no igreja_id (seam antes)."""
+
+    def __init__(self, *, boom_on=None) -> None:
+        self.calls: list = []
+        self._boom_on = boom_on
+
+    def run_for_igreja(self, session, igreja_id, now=None) -> list:
+        # Prova do pinning: o seam marcou a sessão ANTES de o engine rodar.
+        assert session.info.get(TENANT_IGREJA_KEY) == str(igreja_id)
+        assert session.info[TENANT_META_KEY]["source"] == "cron_sla"
+        self.calls.append((session, igreja_id))
+        if self._boom_on is not None and igreja_id == self._boom_on:
+            raise RuntimeError("engine boom")
+        return [object()]
+
+
+def test_run_all_igrejas_scopes_a_new_session_per_igreja() -> None:
+    ig_a = uuid.uuid4()
+    ig_b = uuid.uuid4()
+    # Descoberta: A vem da work_queue; B aparece nas duas fontes (set dedupa).
+    discovery = _DiscoverySession(work_igrejas=[ig_a, ig_b], cons_igrejas=[ig_b])
+
+    created: list[_TenantSession] = []
+
+    def factory() -> _TenantSession:
+        s = _TenantSession()
+        created.append(s)
+        return s
+
+    engine = _RecordingEngine()
+    total = run_all_igrejas(discovery, engine, _T0, session_factory=factory)
+
+    # Uma nova sessão tenant-scoped por igreja distinta (A e B).
+    assert len(created) == 2
+    assert {ig for _, ig in engine.calls} == {ig_a, ig_b}
+    # Cada sessão foi fechada ao fim da iteração (sem vazar role/GUC ao pool).
+    assert all(s.closed for s in created)
+    # Cada engine.run_for_igreja recebeu a sessão criada NAQUELA iteração — logo
+    # nenhuma sessão foi remarcada para outra igreja (respeita o pinning de D3).
+    assert {id(s) for s in created} == {id(s) for s, _ in engine.calls}
+    # O seam emitiu o SQL de escopo (set_config app.tenant_igreja_id) por sessão.
+    for s in created:
+        joined = " ".join(sql for sql, _ in s.tenant_calls)
+        assert "app.tenant_igreja_id" in joined
+        assert "set local role authenticated" in joined
+    assert total == 2
+
+
+def test_run_all_igrejas_closes_session_even_when_engine_raises() -> None:
+    ig_a = uuid.uuid4()
+    ig_b = uuid.uuid4()
+    discovery = _DiscoverySession(work_igrejas=[ig_a, ig_b])
+
+    created: list[_TenantSession] = []
+
+    def factory() -> _TenantSession:
+        s = _TenantSession()
+        created.append(s)
+        return s
+
+    engine = _RecordingEngine(boom_on=ig_a)
+    total = run_all_igrejas(discovery, engine, _T0, session_factory=factory)
+
+    # A falha de um tenant não derruba os demais; a sessão que falhou foi
+    # revertida e fechada, sem devolver a conexão ao pool em role authenticated.
+    assert len(created) == 2
+    assert all(s.closed for s in created)
+    failed = next(s for s, ig in _pairs(engine, ig_a))
+    assert failed.rolled_back is True
+    # Só o tenant saudável contribuiu para o total.
+    assert total == 1
+
+
+def _pairs(engine: _RecordingEngine, igreja_id):
+    """Pares (sessão, igreja) do engine para uma igreja específica."""
+    return [(s, ig) for s, ig in engine.calls if ig == igreja_id]

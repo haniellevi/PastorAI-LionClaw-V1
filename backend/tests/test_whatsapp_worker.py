@@ -80,6 +80,10 @@ class FakeIngestSession:
         self.committed = False
         # Records text() clauses (RLS set_config / set role) for assertions.
         self.tenant_calls: list[tuple[str, dict | None]] = []
+        # O seam de tenant grava sua marca em session.info (mark_cross_tenant /
+        # promote_to_tenant). Uma Session real sempre expõe .info; a fake precisa
+        # provê-lo para atravessar o seam do worker (PR3-B).
+        self.info: dict = {}
 
     def execute(self, statement, params=None) -> _Scalar:
         descriptions = getattr(statement, "column_descriptions", None)

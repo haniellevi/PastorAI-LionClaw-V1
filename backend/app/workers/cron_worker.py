@@ -170,7 +170,15 @@ class CronWorker:
         now = now or _now()
         session: Session = self._session_factory()
         try:
-            sla_handled = run_all_igrejas(session, self._engine, now)
+            # A `session` compartilhada só faz a DESCOBERTA cross-tenant do sweep
+            # (e serve o run_due_crons legado). O processamento por igreja abre
+            # uma nova sessão tenant-scoped via `session_factory` (D3, pinning).
+            sla_handled = run_all_igrejas(
+                session,
+                self._engine,
+                now,
+                session_factory=self._session_factory,
+            )
             crons_run = run_due_crons(
                 session, engine=self._engine, now=now, last_run=self._last_run
             )
