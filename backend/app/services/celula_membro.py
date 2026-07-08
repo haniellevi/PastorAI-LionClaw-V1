@@ -15,7 +15,7 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import CelulaMembro
+from app.db.models import Celula, CelulaMembro
 
 
 def ensure_active_membro(
@@ -32,14 +32,36 @@ def ensure_active_membro(
     vínculos da pessoa em OUTRAS células — para transferência, chame
     ``deactivate_other_active_membro`` antes (o índice único parcial só
     permite 1 vínculo ativo por pessoa).
+
+    Recusa (``ValueError``) se ``celula_id`` não pertencer a ``igreja_id`` —
+    o service é o ponto canônico de escrita e não deve confiar cegamente nos
+    IDs recebidos, mesmo que os 4 callers atuais já validem isso antes de
+    chamar (achado de revisão externa do PR #134).
     """
-    existing = db.execute(
-        select(CelulaMembro).where(
+    celula = db.execute(
+        select(Celula).where(Celula.id == celula_id, Celula.igreja_id == igreja_id)
+    ).scalar_one_or_none()
+    if celula is None:
+        raise ValueError("Célula fora do escopo da igreja — vínculo recusado")
+
+    # Histórico anterior a este PR pode ter deixado mais de uma linha inativa
+    # pra (pessoa, célula) — a migration de backfill reativa só a mais
+    # recente e preserva as demais. scalar_one_or_none() estouraria
+    # MultipleResultsFound nesse caso; pega a mais recente deterministicamente
+    # (mesmo critério de desempate da migration).
+    historico = db.execute(
+        select(CelulaMembro)
+        .where(
             CelulaMembro.pessoa_id == pessoa_id,
             CelulaMembro.celula_id == celula_id,
             CelulaMembro.igreja_id == igreja_id,
         )
-    ).scalar_one_or_none()
+        .order_by(
+            CelulaMembro.updated_at.desc().nullslast(),
+            CelulaMembro.created_at.desc(),
+        )
+    ).scalars().all()
+    existing = historico[0] if historico else None
     if existing is not None:
         existing.ativo = True
     else:

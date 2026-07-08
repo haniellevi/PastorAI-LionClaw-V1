@@ -64,11 +64,16 @@ def _filter(rows, statement):
 
 
 class _Result:
-    def __init__(self, *, scalar=None) -> None:
+    def __init__(self, *, scalar=None, scalars_list=None) -> None:
         self._scalar = scalar
+        self._scalars_list = list(scalars_list or [])
 
     def scalar_one_or_none(self):
         return self._scalar
+
+    def scalars(self):
+        items = self._scalars_list
+        return SimpleNamespace(all=lambda: list(items), first=lambda: (items[0] if items else None))
 
 
 class _ToolSession:
@@ -89,7 +94,7 @@ class _ToolSession:
             return _Result(scalar=(rows[0] if rows else None))
         if ent is CelulaMembro:
             rows = _filter(self.membros, statement)
-            return _Result(scalar=(rows[0] if rows else None))
+            return _Result(scalar=(rows[0] if rows else None), scalars_list=rows)
         return _Result()
 
     def add(self, obj) -> None:

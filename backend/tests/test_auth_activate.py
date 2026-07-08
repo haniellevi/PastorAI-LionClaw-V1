@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
-from app.db.models import AppUser, CelulaMembro, Pessoa
+from app.db.models import AppUser, Celula, CelulaMembro, Pessoa
 from app.db.session import get_db
 from app.services.clerk import get_clerk_client
 from tests.conftest import FakeClerk
@@ -46,9 +46,10 @@ class InviteSession:
     """Minimal session: returns the invited app_user, records commit, and
     supports the Parte B path (Pessoa dedup lookup + insert)."""
 
-    def __init__(self, app_user=None, pessoas=None) -> None:
+    def __init__(self, app_user=None, pessoas=None, celula=None) -> None:
         self.app_user = app_user
         self.pessoas = pessoas or []  # dedup candidates for Parte B
+        self.celula = celula  # célula pendente (ensure_active_membro valida igreja_id)
         self.added: list = []
         self.committed = False
 
@@ -59,6 +60,8 @@ class InviteSession:
             return _Result(scalar=self.app_user)
         if ent is Pessoa:
             return _Result(items=self.pessoas)
+        if ent is Celula:
+            return _Result(scalar=self.celula)
         return _Result()
 
     def add(self, obj) -> None:
@@ -206,7 +209,8 @@ def test_activate_parte_b_requires_phone(app) -> None:
 
 def test_activate_parte_b_creates_member(app) -> None:
     invited = make_invited(pessoa_id=None, celula_pendente_id=_CELULA_ID)
-    session = InviteSession(invited)  # sem candidatos de dedup -> cria nova
+    celula = SimpleNamespace(id=_CELULA_ID, igreja_id=invited.igreja_id)
+    session = InviteSession(invited, celula=celula)  # sem candidatos de dedup -> cria nova
     client = _wire(
         app,
         session=session,
@@ -242,7 +246,8 @@ def test_activate_parte_b_dedup_adopts_pending_cell_creates_membro(app) -> None:
         celula_id=None,
     )
     invited = make_invited(pessoa_id=None, celula_pendente_id=_CELULA_ID)
-    session = InviteSession(invited, pessoas=[existing])
+    celula = SimpleNamespace(id=_CELULA_ID, igreja_id=invited.igreja_id)
+    session = InviteSession(invited, pessoas=[existing], celula=celula)
     client = _wire(
         app,
         session=session,
