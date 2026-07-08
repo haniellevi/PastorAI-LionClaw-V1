@@ -275,6 +275,30 @@ def _actor_pessoa_id(db: Session, current_user: CurrentUser) -> uuid.UUID | None
     ).scalar_one_or_none()
 
 
+def _leads_active_cell(
+    db: Session, pessoa_id: uuid.UUID, igreja_id: uuid.UUID
+) -> bool:
+    """True se a pessoa lidera alguma célula ATIVA do tenant (espelha ``contacts.py``).
+
+    Liderar já é o vínculo de acesso à célula; convidá-la como MEMBRO (aqui ou
+    de outra célula) duplicaria/confundiria esse vínculo (achado C-01). igreja_id
+    explícito = defesa em profundidade além da RLS, torna o isolamento testável
+    no harness fake (igual list_cell_members).
+    """
+    return (
+        db.execute(
+            select(Celula.id)
+            .where(
+                Celula.lider_id == pessoa_id,
+                Celula.ativo.is_(True),
+                Celula.igreja_id == igreja_id,
+            )
+            .limit(1)
+        ).scalar_one_or_none()
+        is not None
+    )
+
+
 def _get_cell_in_tenant(db: Session, cell_id: str) -> Celula:
     """Load a cell by id within the tenant (RLS-scoped) or raise 404."""
     try:
@@ -309,6 +333,18 @@ def _resolve_invite_cell(
 
     if celula_id:
         cell = _get_cell_in_tenant(db, celula_id)
+        # Paridade com POST /contacts/{id}/cell: célula precisa estar ativa e
+        # ter líder antes de qualquer checagem de autoria (achado C-03).
+        if not cell.ativo:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Célula inativa não pode receber convidados",
+            )
+        if cell.lider_id is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Célula sem líder não pode receber convidados",
+            )
         # Admin/pastor escolhem qualquer célula; um líder só a que ele lidera.
         if marks_cell or (actor is not None and cell.lider_id == actor):
             return cell
@@ -395,6 +431,17 @@ def invite_member(
         if pessoa is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Pessoa não encontrada"
+            )
+
+        # Líder de célula ativa não é candidato a MEMBRO (achado C-01): liderar
+        # já é o vínculo de acesso; convidá-la duplicaria/confundiria o papel.
+        if _leads_active_cell(db, pessoa_uuid, igreja_uuid):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Esta pessoa já lidera uma célula ativa e não pode ser "
+                    "convidada como membro."
+                ),
             )
 
         # Uma pessoa não pode ter dois logins.
