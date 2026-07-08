@@ -22,7 +22,6 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.deps import CurrentUser, get_current_user
-from app.routers._common import ensure_tenant_context
 from app.services.assistant import answer_panel_message
 
 logger = logging.getLogger("pastorai.assistant")
@@ -80,7 +79,6 @@ def assistant_message(
             detail="tenant não corresponde ao usuário autenticado",
         )
 
-    ensure_tenant_context(db, current_user)
 
     effective_roles = list(current_user.roles)
     if payload.papeis:

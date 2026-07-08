@@ -35,7 +35,6 @@ from app.deps import (
     get_current_user,
     resolve_actor_pessoa_id,
 )
-from app.routers._common import ensure_tenant_context
 from app.services import cell_notify
 
 router = APIRouter(prefix="/cell-notices", tags=["cell-notices"])
@@ -188,7 +187,6 @@ def publish_notice(
     A publicação registra a intenção de notificar (``cell_notify``, NO-OP) na
     MESMA transação — sem envio real de WhatsApp/Evolution (RNF-09/20).
     """
-    ensure_tenant_context(db, current_user)
     igreja_id = uuid.UUID(current_user.igreja_id)
     is_central = current_user.has_any_role(CENTRAL_ROLES)
 
@@ -282,7 +280,6 @@ def list_notices(
     Escopo 'igreja' é visível a todos na igreja; escopo 'celula' só a membros
     ativos/líder daquela célula e à Central. Apenas ``ativo=true``. Paginado.
     """
-    ensure_tenant_context(db, current_user)
     igreja_id = uuid.UUID(current_user.igreja_id)
     is_central = current_user.has_any_role(CENTRAL_ROLES)
 
@@ -344,7 +341,6 @@ def remove_notice(
     Sem edição no MVP. Idempotente em ``ativo=false``. Aciona o ponto de
     extensão de remoção (``cell_notify``, NO-OP — nada é entregue).
     """
-    ensure_tenant_context(db, current_user)
     igreja_id = uuid.UUID(current_user.igreja_id)
     is_central = current_user.has_any_role(CENTRAL_ROLES)
 

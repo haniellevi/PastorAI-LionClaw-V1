@@ -2,8 +2,9 @@
 
 Escopo por papel: admin/pastor e líderes sênior (G12/consolidação) veem a
 IGREJA INTEIRA; líder de célula vê só as pessoas das células que ele lidera (via
-AppUser.pessoa_id → celulas.lider_id). Tenant-scoped por RLS
-(ensure_tenant_context). Sem agregação cross-tenant.
+AppUser.pessoa_id → celulas.lider_id). Tenant-scoped por RLS: a sessão já vem
+marcada por ``get_current_user`` (seam ``mark_tenant_scoped`` + listener
+``after_begin``). Sem agregação cross-tenant.
 """
 
 from __future__ import annotations
@@ -24,7 +25,6 @@ from app.domain.dashboard_overview import (
     has_full_overview,
     normalize_counts,
 )
-from app.routers._common import ensure_tenant_context
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
@@ -67,7 +67,6 @@ def overview(
     admin/pastor/líderes sênior → igreja inteira; líder de célula → só as suas
     células. Quem não tem visão completa nem lidera células recebe zeros.
     """
-    ensure_tenant_context(db, current_user)
 
     full = has_full_overview(current_user.roles)
     person_filter = None

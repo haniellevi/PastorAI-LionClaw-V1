@@ -1,7 +1,8 @@
 """Identidade visual da igreja (Missão 4 PR1) — branding tenant-scoped.
 
 Spec: docs/design/BRANDING-IDENTIDADE-VISUAL-IGREJA.md. Endpoints admin-only
-(gate padrão ``require_role(["admin"])`` + ``ensure_tenant_context``). A logo
+(gate padrão ``require_role(["admin"])``; a sessão já vem tenant-scoped de
+``get_current_user`` via o seam ``mark_tenant_scoped``). A logo
 vive no bucket PÚBLICO ``church-logos`` (criado manualmente em DEV/PROD — ver
 runbook na spec §6); o Postgres guarda só o ponteiro ``igrejas.logo_path``.
 
@@ -30,7 +31,6 @@ from sqlalchemy.orm import Session
 from app.db.models import Igreja
 from app.db.session import get_db
 from app.deps import CurrentUser, require_role
-from app.routers._common import ensure_tenant_context
 from app.services.storage import (
     MAX_LOGO_BYTES,
     StorageError,
@@ -147,7 +147,6 @@ def get_branding(
     current_user: CurrentUser = Depends(require_role(["admin"])),
 ) -> BrandingOut:
     """Branding atual da igreja do token (tela Identidade Visual do admin)."""
-    ensure_tenant_context(db, current_user)
     igreja = _own_igreja(db, current_user)
     return BrandingOut(nome=igreja.nome, logoUrl=logo_public_url(igreja.logo_path))
 
@@ -160,7 +159,6 @@ def upload_logo(
     current_user: CurrentUser = Depends(require_role(["admin"])),
 ) -> BrandingOut:
     """Envia/troca a logo da igreja do token. Valida antes de tocar o Storage."""
-    ensure_tenant_context(db, current_user)
     data, mime, ext = _decode_and_validate(payload)
     igreja = _own_igreja(db, current_user)
     old_path = igreja.logo_path
@@ -201,7 +199,6 @@ def remove_logo(
     current_user: CurrentUser = Depends(require_role(["admin"])),
 ) -> BrandingOut:
     """Remove a logo customizada (volta ao fallback pelo nome). Idempotente."""
-    ensure_tenant_context(db, current_user)
     igreja = _own_igreja(db, current_user)
     old_path = igreja.logo_path
     if old_path is not None:

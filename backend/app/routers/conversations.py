@@ -45,7 +45,7 @@ from app.domain.conversations import (
     media_snippet,
     resolve_handoff,
 )
-from app.routers._common import Page, PaginationParams, ensure_tenant_context
+from app.routers._common import Page, PaginationParams
 from app.services.evolution import (
     EvolutionClient,
     EvolutionError,
@@ -224,7 +224,6 @@ def list_conversations(
     Visibilidade (#5): admin/pastor veem TODAS as conversas do tenant; os demais
     papéis com acesso ("responsáveis") veem só as atribuídas a si (assumido_por).
     """
-    ensure_tenant_context(db, current_user)
 
     # Filtro de visibilidade: responsável só enxerga as suas (assumido_por = ele).
     restrict = None
@@ -290,7 +289,6 @@ def handoff(
     current_user: CurrentUser = Depends(require_screen("inbox")),
 ) -> HandoffResponse:
     """Switch a conversation between IA and human control (US-12/US-13)."""
-    ensure_tenant_context(db, current_user)
 
     target = resolve_handoff(payload.to)
     conv = _get_conversation_for_update(db, conversation_id)
@@ -333,7 +331,6 @@ def mark_read(
     current_user: CurrentUser = Depends(require_screen("inbox")),
 ) -> Response:
     """Zera o contador de não lidas quando o atendente abre a conversa (US-13)."""
-    ensure_tenant_context(db, current_user)
     conv = _get_conversation(db, conversation_id)
     _authorize_conversation_view(conv, current_user)
     if conv.nao_lidas:
@@ -358,7 +355,6 @@ def transfer_conversation(
     G12/consolidação/célula/operador) — caso contrário 422. A conversa passa ao
     controle humano do destino (sai da fila de espera).
     """
-    ensure_tenant_context(db, current_user)
     conv = _get_conversation_for_update(db, conversation_id)
     _authorize_conversation_view(conv, current_user)
 
@@ -416,7 +412,6 @@ def conversation_photo(
     quando o contato não tem foto / a oculta por privacidade, retorna ``url=None``
     e a UI cai nas iniciais. O avatar nunca quebra o inbox.
     """
-    ensure_tenant_context(db, current_user)
     conv = _get_conversation(db, conversation_id)
     _authorize_conversation_view(conv, current_user)
 
@@ -449,7 +444,6 @@ def list_messages(
     can render images/download files without the bucket ever being public. URLs
     are batch-signed in one call; a signing failure degrades to a placeholder.
     """
-    ensure_tenant_context(db, current_user)
     conv = _get_conversation(db, conversation_id)
     _authorize_conversation_view(conv, current_user)
 
@@ -497,7 +491,6 @@ def send_message(
     dispatched via Evolution *before* being persisted, so a failed send (502)
     never leaves a phantom "sent" row in the thread.
     """
-    ensure_tenant_context(db, current_user)
     conv = _get_conversation_for_update(db, conversation_id)
     _authorize_conversation_view(conv, current_user)
 
@@ -569,7 +562,6 @@ def send_media_message(
     Storage and are dispatched via Evolution as base64; the row is persisted
     only after a successful send (no phantom "sent" media in the thread).
     """
-    ensure_tenant_context(db, current_user)
     conv = _get_conversation_for_update(db, conversation_id)
     _authorize_conversation_view(conv, current_user)
 
@@ -670,7 +662,6 @@ def delete_conversation(
     Restrita ao admin — o inbox é acessível a outros papéis, mas a exclusão não.
     Tenant-scoped (RLS): só apaga conversas da própria igreja.
     """
-    ensure_tenant_context(db, current_user)
     conv = _get_conversation(db, conversation_id)
 
     # Coleta os ponteiros de mídia ANTES de apagar (a cascata leva as mensagens

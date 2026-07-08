@@ -27,7 +27,7 @@ from app.db.models import AppUser, Celula, CelulaMembro, CellAlert, Pessoa
 from app.db.session import get_db
 from app.deps import CurrentUser, get_current_user
 from app.domain.hierarchy import is_leader_or_superior
-from app.routers._common import Page, PaginationParams, ensure_tenant_context
+from app.routers._common import Page, PaginationParams
 
 logger = logging.getLogger("pastorai.cells")
 
@@ -374,7 +374,6 @@ def list_cells(
     current_user: CurrentUser = Depends(get_current_user),
 ) -> Page[CellOut]:
     """List the tenant's cells, paginated."""
-    ensure_tenant_context(db, current_user)
     total = db.execute(select(func.count()).select_from(Celula)).scalar_one()
     rows = db.execute(
         select(Celula)
@@ -397,7 +396,6 @@ def get_cell(
     current_user: CurrentUser = Depends(get_current_user),
 ) -> CellDetailOut:
     """Return a cell with its open alerts."""
-    ensure_tenant_context(db, current_user)
     cell = _get_cell_or_404(db, cell_id)
 
     alerts = db.execute(
@@ -423,7 +421,6 @@ def upsert_cell(
     leader-or-superior authorization (delta-007); creating requires a pastoral
     leadership role.
     """
-    ensure_tenant_context(db, current_user)
 
     if payload.id is None:
         if not current_user.has_any_role(CELL_CREATE_ROLES):
@@ -524,7 +521,6 @@ def baixar_alert(
     current_user: CurrentUser = Depends(get_current_user),
 ) -> AlertOut:
     """Mark a cell alert as handled (tratado=true)."""
-    ensure_tenant_context(db, current_user)
     cell = _get_cell_or_404(db, cell_id)
     if not _can_edit_cell(db, current_user, cell):
         raise HTTPException(
@@ -563,7 +559,6 @@ def list_cell_members(
     current_user: CurrentUser = Depends(get_current_user),
 ) -> list[MemberOut]:
     """Membros ativos da célula (vínculo canônico `celula_membro`, Q1)."""
-    ensure_tenant_context(db, current_user)
     cell = _get_cell_or_404(db, cell_id)
     # igreja_id explícito (defesa em profundidade além da RLS; e torna o
     # isolamento por tenant testável no harness fake).
@@ -596,7 +591,6 @@ def add_cell_member(
     "1 pessoa → 1 célula ativa": 409 se a pessoa já tem vínculo ativo. Mantém
     `pessoas.celula_id` como espelho legado (Q1); a saída de membro é PR5.
     """
-    ensure_tenant_context(db, current_user)
     cell = _get_cell_or_404(db, cell_id)
     if not _can_edit_cell(db, current_user, cell):
         raise HTTPException(
@@ -671,7 +665,6 @@ def descendencias(
     downline). An explicit ?rootId= overrides it. When no root can be resolved,
     the full forest (people with no leader) is returned.
     """
-    ensure_tenant_context(db, current_user)
 
     rows = db.execute(
         select(Pessoa.id, Pessoa.nome, Pessoa.tipo, Pessoa.lider_id)

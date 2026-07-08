@@ -45,7 +45,7 @@ from app.domain.cell_requests import (
     conflict_pessoa_id,
     validate_payload,
 )
-from app.routers._common import Page, PaginationParams, ensure_tenant_context
+from app.routers._common import Page, PaginationParams
 from app.services import cell_requests_service
 
 router = APIRouter(prefix="/cell-requests", tags=["cell-requests"])
@@ -290,7 +290,6 @@ def create_cell_request(
     e grava o evento `criada` na mesma transação. `celula_id` é sempre a ORIGEM,
     derivada da propriedade do líder (nunca do payload).
     """
-    ensure_tenant_context(db, current_user)
 
     # Ownership: só o líder da célula de origem abre a solicitação (404 senão).
     cell = get_current_cell_for_leader(db, current_user, body.celula_id)
@@ -362,7 +361,6 @@ def list_cell_requests(
     A distinção é derivada do papel autenticado — a Central (pastor/admin) enxerga
     toda a igreja; os demais são escopados por `solicitante_id`. `?status` filtra.
     """
-    ensure_tenant_context(db, current_user)
     igreja_id = uuid.UUID(current_user.igreja_id)
 
     filters = [CelulaSolicitacao.igreja_id == igreja_id]
@@ -410,7 +408,6 @@ def get_cell_request(
 
     A Central vê qualquer solicitação da igreja; o líder só as suas (404 senão).
     """
-    ensure_tenant_context(db, current_user)
     igreja_id = uuid.UUID(current_user.igreja_id)
 
     solicitacao = _load_solicitacao(db, igreja_id, request_id)
@@ -445,7 +442,6 @@ def resubmit_cell_request(
     current_user: CurrentUser = Depends(get_current_user),
 ) -> CellRequestOut:
     """Líder autor edita o payload e reenvia (só em `ajuste_solicitado` → 409)."""
-    ensure_tenant_context(db, current_user)
     igreja_id = uuid.UUID(current_user.igreja_id)
 
     solicitacao = _load_solicitacao(db, igreja_id, request_id)
@@ -478,7 +474,6 @@ def cancel_cell_request(
     current_user: CurrentUser = Depends(get_current_user),
 ) -> CellRequestOut:
     """Líder autor cancela a própria solicitação (só enquanto aberta — E12)."""
-    ensure_tenant_context(db, current_user)
     igreja_id = uuid.UUID(current_user.igreja_id)
 
     solicitacao = _load_solicitacao(db, igreja_id, request_id)
@@ -510,7 +505,6 @@ def approve_cell_request(
     (reprocesso não duplica). Falha parcial → rollback total. Segregação 3.1: quem
     originou a solicitação não pode aprová-la.
     """
-    ensure_tenant_context(db, current_user)
     igreja_id = uuid.UUID(current_user.igreja_id)
 
     solicitacao = _load_solicitacao(db, igreja_id, request_id)
@@ -548,7 +542,6 @@ def reject_cell_request(
 
     Segregação 3.1: quem originou a solicitação não pode decidi-la.
     """
-    ensure_tenant_context(db, current_user)
     igreja_id = uuid.UUID(current_user.igreja_id)
 
     observacao = _require_observacao(body)
@@ -580,7 +573,6 @@ def request_adjustment_cell_request(
 
     Segregação 3.1: quem originou a solicitação não pode decidi-la.
     """
-    ensure_tenant_context(db, current_user)
     igreja_id = uuid.UUID(current_user.igreja_id)
 
     observacao = _require_observacao(body)

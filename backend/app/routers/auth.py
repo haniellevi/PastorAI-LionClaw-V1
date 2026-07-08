@@ -31,7 +31,6 @@ from app.deps import (
     get_current_user,
 )
 from app.domain.phone import normalize_phone, phone_suffix
-from app.routers._common import ensure_tenant_context
 from app.services.brevo import BrevoClient, BrevoError, get_brevo_client
 from app.services.clerk import ClerkAuthError, ClerkClient, get_clerk_client
 from app.services.storage import logo_public_url
@@ -429,7 +428,6 @@ def update_me(
     Tenant-scoped via RLS; cada usuário só edita o próprio app_user. Semântica
     PATCH: só os campos enviados mudam. `chatNome` vazio limpa a assinatura.
     """
-    ensure_tenant_context(db, current_user)
     app_user = db.execute(
         select(AppUser).where(AppUser.id == uuid.UUID(current_user.app_user_id))
     ).scalar_one_or_none()

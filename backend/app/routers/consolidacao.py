@@ -33,7 +33,6 @@ from app.domain.consolidation import (
     VALID_VINCULOS,
     VINCULO_VISITANTE,
 )
-from app.routers._common import ensure_tenant_context
 
 logger = logging.getLogger("pastorai.consolidacao")
 
@@ -103,7 +102,6 @@ def launch_decision(
       enqueues a `conectar_celula` item due in 24h.
     - celula flow (fluxo A): links the cell, no 24h deadline.
     """
-    ensure_tenant_context(db, current_user)
 
     if not current_user.has_any_role(CONSOLIDATION_ROLES):
         raise HTTPException(

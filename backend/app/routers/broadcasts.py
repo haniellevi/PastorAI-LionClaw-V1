@@ -29,7 +29,7 @@ from app.db.models import Broadcast, Celula, Pessoa, WhatsappConnection
 from app.db.session import get_db
 from app.deps import CurrentUser, require_screen
 from app.domain.broadcast import RecipientCandidate, resolve_audience
-from app.routers._common import Page, PaginationParams, ensure_tenant_context
+from app.routers._common import Page, PaginationParams
 from app.services.evolution import EvolutionClient, EvolutionError, get_evolution_client
 
 logger = logging.getLogger("pastorai.broadcasts")
@@ -134,7 +134,6 @@ def list_broadcasts(
     current_user: CurrentUser = Depends(require_screen("comunicados")),
 ) -> Page[BroadcastOut]:
     """Return the tenant's broadcasts, newest first (RNF-09)."""
-    ensure_tenant_context(db, current_user)
     rows = db.execute(
         select(Broadcast)
         .order_by(Broadcast.created_at.desc())
@@ -165,7 +164,6 @@ def create_broadcast(
     - Zero cleared reach blocks the send (recorded as rascunho, enviados=0).
     - modo=agora sends now; modo=agendado stores the schedule (agendadoPara).
     """
-    ensure_tenant_context(db, current_user)
     igreja_uuid = uuid.UUID(current_user.igreja_id)
 
     people = db.execute(select(Pessoa)).scalars().all()

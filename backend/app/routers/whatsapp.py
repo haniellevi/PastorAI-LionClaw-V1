@@ -30,7 +30,6 @@ from app.config import get_settings
 from app.db.models import WhatsappConnection
 from app.db.session import get_db
 from app.deps import CurrentUser, require_role
-from app.routers._common import ensure_tenant_context
 from app.services.evolution import (
     EvolutionClient,
     EvolutionError,
@@ -109,7 +108,6 @@ def get_connection(
     stored values are returned. Values are captured into locals before any
     commit so no attribute reload runs outside the tenant context.
     """
-    ensure_tenant_context(db, current_user)
 
     conn = db.execute(
         select(WhatsappConnection).where(
@@ -166,7 +164,6 @@ def post_connection(
             detail="action deve ser 'connect', 'reconnect' ou 'disconnect'",
         )
 
-    ensure_tenant_context(db, current_user)
     igreja_uuid = uuid.UUID(current_user.igreja_id)
 
     conn = db.execute(

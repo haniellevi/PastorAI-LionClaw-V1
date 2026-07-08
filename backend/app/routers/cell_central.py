@@ -34,7 +34,6 @@ from app.db.session import get_db
 from app.deps import CurrentUser, require_central
 from app.domain.cell_meetings_schedule import meeting_has_passed
 from app.domain.cell_requests import STATUS_AGUARDANDO, TIPO_MULTIPLICACAO
-from app.routers._common import ensure_tenant_context
 from app.services import cell_health_service
 from app.services.cell_health_service import (
     RELATORIO_ENVIADO,
@@ -107,7 +106,6 @@ def get_dashboard(
     current_user: CurrentUser = Depends(require_central),
 ) -> DashboardOut:
     """Contadores operacionais da própria igreja (E16). Não paginado (resumo)."""
-    ensure_tenant_context(db, current_user)
     igreja_id = uuid.UUID(current_user.igreja_id)
     now = dt.datetime.now(dt.timezone.utc)
     recent_cutoff = now - dt.timedelta(days=RECENT_DAYS)
@@ -195,7 +193,6 @@ def get_pending_reports(
     Identifica célula e líder (``lider_nome`` deriva de ``celulas.lider_id``,
     §6.6). Mais antigas primeiro (as mais atrasadas no topo). Paginado.
     """
-    ensure_tenant_context(db, current_user)
     igreja_id = uuid.UUID(current_user.igreja_id)
 
     reunioes = db.execute(
@@ -259,7 +256,6 @@ def get_health(
     Delega o cálculo a ``cell_health_service`` (últimas 10 reuniões, 3 sinais).
     Paginação opcional; por padrão devolve o conjunto completo (até 100).
     """
-    ensure_tenant_context(db, current_user)
     igreja_id = uuid.UUID(current_user.igreja_id)
 
     healths = cell_health_service.compute_cells_health(db, igreja_id)

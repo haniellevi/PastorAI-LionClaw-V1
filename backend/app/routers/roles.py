@@ -23,7 +23,6 @@ from sqlalchemy.orm import Session
 from app.db.models import RolePermission
 from app.db.session import get_db
 from app.deps import CurrentUser, require_role
-from app.routers._common import ensure_tenant_context
 
 logger = logging.getLogger("pastorai.roles")
 
@@ -72,7 +71,6 @@ def get_permissions(
     current_user: CurrentUser = Depends(require_role(["admin"])),
 ) -> PermissionsMatrix:
     """Return the tenant's role x screen matrix."""
-    ensure_tenant_context(db, current_user)
     rows = db.execute(select(RolePermission)).scalars().all()
     matriz: dict[str, list[str]] = {role: [] for role in MATRIX_ROLES}
     for row in rows:
@@ -93,7 +91,6 @@ def update_permissions(
     `dashboard` is force-included for each matrix role even if the client omits
     it (delta-010), so the menu always has a landing screen.
     """
-    ensure_tenant_context(db, current_user)
     igreja_uuid = uuid.UUID(current_user.igreja_id)
 
     # Force dashboard for every role in the matrix.

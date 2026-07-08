@@ -30,7 +30,7 @@ from app.domain.work_queue import (
     format_internal_message,
     resolvable_tipos,
 )
-from app.routers._common import Page, PaginationParams, ensure_tenant_context
+from app.routers._common import Page, PaginationParams
 
 logger = logging.getLogger("pastorai.work_queue")
 
@@ -117,7 +117,6 @@ def list_items(
     current_user: CurrentUser = Depends(get_current_user),
 ) -> Page[WorkItemOut]:
     """List queue items the caller is allowed to resolve (delta-006)."""
-    ensure_tenant_context(db, current_user)
 
     tipos = list(resolvable_tipos(current_user.roles))
     if not tipos:
@@ -158,7 +157,6 @@ def act_on_item(
     The row is locked FOR UPDATE; if it is already taken (assumido/resolvido)
     by someone else, a 409 is returned with the real current state.
     """
-    ensure_tenant_context(db, current_user)
 
     item = _get_item_for_update(db, item_id)
 
@@ -216,7 +214,6 @@ def send_internal_message(
     current_user: CurrentUser = Depends(get_current_user),
 ) -> MessageResponse:
     """Post an internal note ('Nome [papel]: mensagem') to the item's contact."""
-    ensure_tenant_context(db, current_user)
 
     item = db.execute(
         select(WorkQueueItem).where(WorkQueueItem.id == _parse_uuid(item_id))

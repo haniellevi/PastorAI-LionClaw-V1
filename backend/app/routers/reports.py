@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 from app.db.models import Celula, Report
 from app.db.session import get_db
 from app.deps import CurrentUser, get_current_user
-from app.routers._common import Page, PaginationParams, ensure_tenant_context
+from app.routers._common import Page, PaginationParams
 
 logger = logging.getLogger("pastorai.reports")
 
@@ -83,7 +83,6 @@ def list_reports(
     Received reports come from the `reports` table; pending entries are
     synthesized for active, led cells with no report that week.
     """
-    ensure_tenant_context(db, current_user)
     target_week = (semana or "").strip() or current_iso_week()
 
     received = db.execute(
