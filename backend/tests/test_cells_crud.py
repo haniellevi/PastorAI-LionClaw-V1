@@ -136,6 +136,8 @@ class CellSession:
             return _R(scalar=self.app_user)
         if ent is Celula:
             rows = self._filter(self.cells, statement)
+            if self._wants_active(statement):
+                rows = [r for r in rows if getattr(r, "ativo", True) is True]
             return _R(scalar=(rows[0] if rows else None), scalars=rows)
         if ent is CelulaMembro:
             rows = self._filter(self.members, statement)
@@ -621,6 +623,50 @@ def test_add_member_forbidden_for_non_editor(app) -> None:
         f"/cells/{_CELL}/membros", headers=_AUTH, json={"pessoaId": _P1}
     )
     assert resp.status_code == 403
+
+
+# ---- member entry: guards C-01/C-03 (paridade com POST /team/invite) ------
+def test_add_member_rejects_person_who_leads_an_active_cell(app) -> None:
+    # Alvo: célula ativa+com líder (não é o que este teste cobre). Candidato
+    # (_P1) já lidera OUTRA célula ativa → não pode virar membro (achado C-01).
+    target = make_cell(lider_id=_LP)
+    led_cell = make_cell(
+        cell_id="00000000-0000-0000-0000-0000000000e4", lider_id=_P1, ativo=True
+    )
+    session = CellSession(
+        app_user=make_app_user(),
+        roles=["pastor"],
+        cells=[target, led_cell],
+        pessoas=[make_pessoa(pessoa_id=_P1, celula_id=None)],
+    )
+    resp = _wire(app, session=session).post(
+        f"/cells/{_CELL}/membros", headers=_AUTH, json={"pessoaId": _P1}
+    )
+    assert resp.status_code == 409
+    assert "lidera uma célula ativa" in resp.json()["detail"]
+    assert session.committed is False
+
+
+def test_add_member_rejects_inactive_cell(app) -> None:
+    cell = make_cell(lider_id=_LP, ativo=False)
+    session = CellSession(app_user=make_app_user(), roles=["pastor"], cells=[cell])
+    resp = _wire(app, session=session).post(
+        f"/cells/{_CELL}/membros", headers=_AUTH, json={"pessoaId": _P1}
+    )
+    assert resp.status_code == 409
+    assert "inativa" in resp.json()["detail"]
+    assert session.committed is False
+
+
+def test_add_member_rejects_leaderless_cell(app) -> None:
+    cell = make_cell()  # default: ativo=True, lider_id=None
+    session = CellSession(app_user=make_app_user(), roles=["pastor"], cells=[cell])
+    resp = _wire(app, session=session).post(
+        f"/cells/{_CELL}/membros", headers=_AUTH, json={"pessoaId": _P1}
+    )
+    assert resp.status_code == 409
+    assert "sem líder" in resp.json()["detail"]
+    assert session.committed is False
 
 
 def test_add_member_rejects_invalid_papel(app) -> None:

@@ -239,12 +239,22 @@ def _lider_of_map(db: Session) -> dict[str, str | None]:
     return {str(pid): (str(lid) if lid else None) for pid, lid in rows}
 
 
-def _leads_active_cell(db: Session, pessoa_id: uuid.UUID) -> bool:
-    """True se a pessoa lidera alguma célula ATIVA (espelha ``contacts.py``)."""
+def _leads_active_cell(
+    db: Session, pessoa_id: uuid.UUID, igreja_id: uuid.UUID
+) -> bool:
+    """True se a pessoa lidera alguma célula ATIVA do tenant (espelha ``contacts.py``).
+
+    igreja_id explícito = defesa em profundidade além da RLS, torna o
+    isolamento testável no harness fake (igual list_cell_members).
+    """
     return (
         db.execute(
             select(Celula.id)
-            .where(Celula.lider_id == pessoa_id, Celula.ativo.is_(True))
+            .where(
+                Celula.lider_id == pessoa_id,
+                Celula.ativo.is_(True),
+                Celula.igreja_id == igreja_id,
+            )
             .limit(1)
         ).scalar_one_or_none()
         is not None
@@ -632,7 +642,7 @@ def add_cell_member(
         )
 
     # Líder de célula ativa não é candidato a MEMBRO (achado C-01).
-    if _leads_active_cell(db, pessoa_uuid):
+    if _leads_active_cell(db, pessoa_uuid, uuid.UUID(current_user.igreja_id)):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=(

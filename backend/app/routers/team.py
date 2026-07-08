@@ -275,16 +275,24 @@ def _actor_pessoa_id(db: Session, current_user: CurrentUser) -> uuid.UUID | None
     ).scalar_one_or_none()
 
 
-def _leads_active_cell(db: Session, pessoa_id: uuid.UUID) -> bool:
-    """True se a pessoa lidera alguma célula ATIVA (espelha ``contacts.py``).
+def _leads_active_cell(
+    db: Session, pessoa_id: uuid.UUID, igreja_id: uuid.UUID
+) -> bool:
+    """True se a pessoa lidera alguma célula ATIVA do tenant (espelha ``contacts.py``).
 
     Liderar já é o vínculo de acesso à célula; convidá-la como MEMBRO (aqui ou
-    de outra célula) duplicaria/confundiria esse vínculo (achado C-01).
+    de outra célula) duplicaria/confundiria esse vínculo (achado C-01). igreja_id
+    explícito = defesa em profundidade além da RLS, torna o isolamento testável
+    no harness fake (igual list_cell_members).
     """
     return (
         db.execute(
             select(Celula.id)
-            .where(Celula.lider_id == pessoa_id, Celula.ativo.is_(True))
+            .where(
+                Celula.lider_id == pessoa_id,
+                Celula.ativo.is_(True),
+                Celula.igreja_id == igreja_id,
+            )
             .limit(1)
         ).scalar_one_or_none()
         is not None
@@ -427,7 +435,7 @@ def invite_member(
 
         # Líder de célula ativa não é candidato a MEMBRO (achado C-01): liderar
         # já é o vínculo de acesso; convidá-la duplicaria/confundiria o papel.
-        if _leads_active_cell(db, pessoa_uuid):
+        if _leads_active_cell(db, pessoa_uuid, igreja_uuid):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=(
