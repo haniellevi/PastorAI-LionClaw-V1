@@ -12,6 +12,7 @@ relação com troca de senha) continua 401 como antes.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
@@ -55,13 +56,22 @@ class _ClerkWithIat(FakeClerk):
 
 
 class _ResetTokenClerk:
-    """Stub mínimo: token de reset sempre válido pro clerk_user_id dado."""
+    """Stub mínimo: token de reset sempre válido pro clerk_user_id dado.
 
-    def __init__(self, clerk_user_id: str = "clerk_user_1") -> None:
+    `jti` fixo (não é o foco deste arquivo — o teste dedicado ao uso único do
+    token de reset, SEC-3B/MEDIO-003, fica em test_password_reset_single_use.py).
+    """
+
+    def __init__(
+        self,
+        clerk_user_id: str = "clerk_user_1",
+        jti: str = "11111111-1111-1111-1111-111111111111",
+    ) -> None:
         self._clerk_user_id = clerk_user_id
+        self._jti = jti
 
-    def verify_reset_token(self, token: str) -> str:
-        return self._clerk_user_id
+    def verify_reset_token(self, token: str) -> tuple[str, str]:
+        return self._clerk_user_id, self._jti
 
     def set_user_password(self, clerk_user_id: str, password: str) -> None:
         pass
@@ -175,13 +185,21 @@ def test_change_password_sets_password_changed_at(app) -> None:
 def test_reset_password_sets_password_changed_at(app) -> None:
     user = make_app_user()
     assert user.password_changed_at is None
-    client = _wire(app, session=FakeSession(app_user=user), clerk=_ResetTokenClerk())
+    reset_token = SimpleNamespace(
+        used_at=None, expires_at=datetime.now(timezone.utc) + timedelta(minutes=10)
+    )
+    client = _wire(
+        app,
+        session=FakeSession(app_user=user, reset_token=reset_token),
+        clerk=_ResetTokenClerk(),
+    )
     resp = client.post(
         "/auth/reset-password",
         json={"token": "tok-valido", "password": "novaSenha123"},
     )
     assert resp.status_code == 200
     assert user.password_changed_at is not None
+    assert reset_token.used_at is not None
 
 
 def test_mark_password_changed_noop_when_account_not_linked() -> None:

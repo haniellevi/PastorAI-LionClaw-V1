@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.db.models import AppUser, RolePermission
+from app.db.models import AppUser, PasswordResetToken, RolePermission
 from app.services.clerk import ClerkAuthError, ClerkIdentity
 
 
@@ -55,11 +55,14 @@ class FakeSession:
         app_user=None,
         roles: list[str] | None = None,
         role_permissions: list[tuple[str, str]] | None = None,
+        reset_token=None,
     ) -> None:
         self.app_user = app_user
         self.roles = roles or []
         # Linhas (papel, tela) da matriz do tenant, p/ testar require_screen.
         self.role_permissions = role_permissions or []
+        # SEC-3B/MEDIO-003: linha de password_reset_tokens pro fluxo de reset.
+        self.reset_token = reset_token
 
     def execute(self, statement, params=None) -> _FakeResult:
         descriptions = getattr(statement, "column_descriptions", None)
@@ -84,6 +87,8 @@ class FakeSession:
             return _FakeResult(scalar=self.app_user)
         if entity is RolePermission:
             return _FakeResult(rows=self.role_permissions)
+        if entity is PasswordResetToken:
+            return _FakeResult(scalar=self.reset_token)
         # Anything else here is the UserRole.papel projection.
         return _FakeResult(scalars_list=self.roles)
 

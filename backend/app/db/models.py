@@ -176,6 +176,29 @@ class AppUser(Base):
     )
 
 
+class PasswordResetToken(Base):
+    """Um registro por link de "esqueci a senha" emitido (SEC-3B / MEDIO-003).
+
+    Guarda o `jti` (não o token/JWT em si) + prazo + carimbo de uso, pra
+    impedir que o mesmo link seja resgatado duas vezes — ver
+    app/routers/auth.py::reset_password. Sem igreja_id: artefato de auth
+    pré-login, não dado de tenant.
+    """
+
+    __tablename__ = "password_reset_tokens"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    jti: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), unique=True, nullable=False)
+    clerk_user_id: Mapped[str] = mapped_column(Text, nullable=False)
+    expires_at: Mapped[dt.datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    used_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+
 class UserRole(Base):
     """Accumulated roles per user (F3). A user may hold many roles."""
 

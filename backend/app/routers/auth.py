@@ -23,7 +23,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.db.models import AppUser, Pessoa
+from app.db.models import AppUser, PasswordResetToken, Pessoa
 from app.db.session import get_db
 from app.deps import (
     BLOCKING_IGREJA_STATUSES,
@@ -248,6 +248,7 @@ def login(
 def forgot_password(
     request: Request,
     payload: ForgotPasswordRequest,
+    db: Session = Depends(get_db),
     clerk: ClerkClient = Depends(get_clerk_client),
     mailer: BrevoClient = Depends(get_brevo_client),
     limiter: RateLimiter = Depends(get_rate_limiter),
@@ -257,7 +258,8 @@ def forgot_password(
     Never reveals whether the e-mail is registered (US-01): the response is the
     same with or without a matching user. The send is best-effort. Rate-limited
     by IP and by account (ALTO-002) — the 429, when it happens, is identical
-    regardless of whether the account exists.
+    regardless of whether the account exists. Records the token's `jti` +
+    expiry (SEC-3B/MEDIO-003) so it can be redeemed at most once.
     """
     settings = get_settings()
     limiter.enforce_ip(
@@ -274,7 +276,15 @@ def forgot_password(
         clerk_user_id = None
 
     if clerk_user_id:
-        token = clerk.mint_reset_token(clerk_user_id)
+        token, jti, expires_at = clerk.mint_reset_token(clerk_user_id)
+        db.add(
+            PasswordResetToken(
+                jti=uuid.UUID(jti),
+                clerk_user_id=clerk_user_id,
+                expires_at=expires_at,
+            )
+        )
+        db.commit()
         base = get_settings().frontend_url.rstrip("/")
         link = f"{base}/#redefinir-senha/{token}"
         try:
@@ -297,20 +307,38 @@ def reset_password(
 
     Rate-limited by IP (ALTO-002) — there is no e-mail in this payload, only
     the opaque reset token, so an account-scoped limit does not apply here.
-    Marks `password_changed_at` (SEC-3A/MEDIO-002) so any session issued
-    before this reset stops being accepted.
+    The JWT signature/expiry only proves the link was minted by us and hasn't
+    expired; single-use (SEC-3B/MEDIO-003) is enforced by claiming the token's
+    `password_reset_tokens` row (`SELECT ... FOR UPDATE` then `used_at = now()`)
+    BEFORE calling Clerk, so two concurrent requests with the same link can't
+    both succeed and a previously-redeemed link can't be replayed. Marks
+    `password_changed_at` (SEC-3A/MEDIO-002) so any session issued before this
+    reset stops being accepted.
     """
     settings = get_settings()
     limiter.enforce_ip(
         request, "reset-password", settings.rate_limit_reset_password_ip_limit
     )
+    invalid = HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Link inválido ou expirado. Peça um novo.",
+    )
     try:
-        clerk_user_id = clerk.verify_reset_token(payload.token)
+        clerk_user_id, jti = clerk.verify_reset_token(payload.token)
     except ClerkAuthError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Link inválido ou expirado. Peça um novo.",
-        ) from None
+        raise invalid from None
+
+    token_row = db.execute(
+        select(PasswordResetToken)
+        .where(PasswordResetToken.jti == uuid.UUID(jti))
+        .with_for_update()
+    ).scalar_one_or_none()
+    now = datetime.now(timezone.utc)
+    if token_row is None or token_row.used_at is not None or token_row.expires_at <= now:
+        raise invalid
+    token_row.used_at = now
+    db.commit()
+
     try:
         clerk.set_user_password(clerk_user_id, payload.password)
     except ClerkAuthError as exc:
