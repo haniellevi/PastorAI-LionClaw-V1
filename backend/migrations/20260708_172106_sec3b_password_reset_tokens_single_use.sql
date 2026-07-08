@@ -38,4 +38,9 @@ create table if not exists password_reset_tokens (
 create index if not exists idx_password_reset_tokens_clerk_user_id
     on password_reset_tokens (clerk_user_id);
 
+-- Suporte a cleanup/consulta por expiração (ex.: job futuro de purge de linhas
+-- vencidas). Já existe em DEV — alinhando o arquivo versionado.
+create index if not exists idx_password_reset_tokens_expires_at
+    on password_reset_tokens (expires_at);
+
 commit;
