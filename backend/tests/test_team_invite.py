@@ -24,7 +24,7 @@ from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
-from app.db.models import AppUser, Celula, Pessoa
+from app.db.models import AppUser, Celula, CelulaMembro, Pessoa
 from app.db.session import get_db
 from app.deps import CurrentUser, get_current_user
 from app.services.brevo import get_brevo_client
@@ -317,6 +317,11 @@ def test_invite_happy_path_still_works(app) -> None:
     body = resp.json()
     assert body["status"] == "convidado"
     assert session.committed is True
-    # app_user + UserRole('membro') foram adicionados.
-    assert len(session.added) == 2
+    # app_user + UserRole('membro') + CelulaMembro (achado C-02: vínculo
+    # canônico, não só o espelho legado pessoas.celula_id).
+    assert len(session.added) == 3
     assert candidato.celula_id == _TARGET_CELL
+    membro = next(o for o in session.added if isinstance(o, CelulaMembro))
+    assert membro.pessoa_id == _NORMAL_PESSOA
+    assert membro.celula_id == _TARGET_CELL
+    assert membro.ativo is True
