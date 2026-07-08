@@ -66,3 +66,13 @@ def get_db() -> Iterator[Session]:
         yield session
     finally:
         session.close()
+
+
+# Registra (uma única vez) o listener after_begin do seam profundo de tenant
+# (PR2 / D2). É um efeito do import de session.py de propósito: assim que o
+# módulo do pool de sessões existe, o seam já reaplica o escopo em toda sessão
+# MARCADA (session.info). Para sessões não-marcadas o listener é no-op, então
+# este registro NÃO altera o comportamento dos caminhos legados.
+from app.db.tenant_session import register_after_begin_listener  # noqa: E402
+
+register_after_begin_listener()

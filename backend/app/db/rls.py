@@ -66,7 +66,17 @@ def set_tenant_context_for_igreja(session: Session, igreja_id: str) -> None:
 
 
 def clear_tenant_context(session: Session) -> None:
-    """Reset the tenant claim for the current transaction."""
+    """Reset the tenant claim for the current transaction.
+
+    Auditoria OQ#3 (PR4+): esta função NÃO tem chamadores no código de produção
+    (grep em ``backend/``). É intencionalmente mantida como primitivo, mas o
+    novo modelo de escopo torna-a INÓCUA: ela apenas limpa
+    ``request.jwt.claims`` e NÃO reverte o GUC ``app.tenant_igreja_id`` nem o
+    ``SET LOCAL ROLE authenticated`` — que é o que de fato governa a RLS. Um
+    caminho que queira DELIBERADAMENTE sair do escopo (rodar cross-tenant) deve
+    usar ``app.db.tenant_session.mark_cross_tenant`` (saída nomeada/auditável,
+    D4), nunca esta função — que não conseguiria "sair da RLS" de qualquer forma.
+    """
     session.execute(
         text("select set_config('request.jwt.claims', '', true)"),
     )
