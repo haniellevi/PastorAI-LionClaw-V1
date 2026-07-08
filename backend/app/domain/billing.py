@@ -10,6 +10,16 @@ Price and people-limit per plan are NOT hardcoded here — they live in the
 and read directly by the routers (subscription.py checkout + catalog,
 platform_admin.py MRR/validation) so an edited price/limit takes effect
 immediately without a code change.
+
+KNOWN LIMITATION: the dynamic `planos` catalog is NOT the same thing as
+PLAN_ORDER above. A plan the master creates outside {ate_100, 101_200,
+acima_201} (e.g. a 4th tier) is fully usable for checkout and shows up in the
+tenant catalog, but `plan_rank`/`is_upgrade` return -1/False for it and the
+SQL trigger `fn_subscription_autoupgrade` (migration 0004) has the 3 codes
+and their thresholds hardcoded — it will never promote a subscription onto (or
+off of) a plan outside this ladder. Making autoupgrade ladder-agnostic
+requires rewriting that trigger against `planos.ordem`/`limite_pessoas`, which
+is its own migration — out of scope here.
 """
 
 from __future__ import annotations

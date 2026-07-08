@@ -7,12 +7,29 @@ This keeps the auth/RBAC logic under test deterministic and offline.
 
 from __future__ import annotations
 
+import re
 from types import SimpleNamespace
 
 import pytest
 
 from app.db.models import AppUser, PasswordResetToken, Plano, RolePermission
 from app.services.clerk import ClerkAuthError, ClerkIdentity
+
+
+def _plano_query_filters(statement) -> tuple[str | None, bool]:
+    """Extrai os filtros (codigo, ativo) do WHERE compilado de uma query em `Plano`.
+
+    Em vez de o fake ADIVINHAR o que a query filtra, compila o `Select` real
+    (`literal_binds=True`) e lê o SQL — assim uma regressão que removesse
+    `Plano.codigo == ...` do código de produção faria este helper devolver
+    `codigo=None` (sem filtro), e o teste que pede um código errado com OUTRO
+    plano ativo no catálogo pegaria a diferença (ver test_subscription_billing).
+    """
+    sql = str(statement.compile(compile_kwargs={"literal_binds": True}))
+    codigo_match = re.search(r"planos\.codigo = '([^']*)'", sql)
+    codigo = codigo_match.group(1) if codigo_match else None
+    ativo_required = "planos.ativo IS true" in sql
+    return codigo, ativo_required
 
 
 # ---------------------------------------------------------------------------
@@ -65,9 +82,13 @@ class FakeSession:
         # SEC-3B/MEDIO-003: linha de password_reset_tokens pro fluxo de reset.
         self.reset_token = reset_token
         # Catálogo `planos` (migration 0012) p/ testar checkout/catálogo de
-        # subscription.py — só os ATIVOS "existem" p/ as queries do router
-        # (que sempre filtram `ativo=True`), como no banco real.
+        # subscription.py — o dispatch abaixo filtra por codigo/ativo lendo o
+        # WHERE compilado de verdade (ver _plano_query_filters), não confia
+        # cegamente no shape da query.
         self.planos = planos or []
+        # Objetos passados a .add() (ex.: Subscription novo no checkout) —
+        # permite o teste inspecionar o que o handler gravou (ex.: sub.limite).
+        self.added: list = []
 
     def execute(self, statement, params=None) -> _FakeResult:
         descriptions = getattr(statement, "column_descriptions", None)
@@ -95,15 +116,20 @@ class FakeSession:
         if entity is PasswordResetToken:
             return _FakeResult(scalar=self.reset_token)
         if entity is Plano:
-            ativos = [p for p in self.planos if getattr(p, "ativo", True)]
+            codigo, ativo_required = _plano_query_filters(statement)
+            candidatos = self.planos
+            if codigo is not None:
+                candidatos = [p for p in candidatos if getattr(p, "codigo", None) == codigo]
+            if ativo_required:
+                candidatos = [p for p in candidatos if getattr(p, "ativo", True)]
             return _FakeResult(
-                scalar=ativos[0] if ativos else None, scalars_list=ativos
+                scalar=candidatos[0] if candidatos else None, scalars_list=candidatos
             )
         # Anything else here is the UserRole.papel projection.
         return _FakeResult(scalars_list=self.roles)
 
-    def add(self, obj) -> None:  # pragma: no cover - in-memory, nothing to persist
-        pass
+    def add(self, obj) -> None:
+        self.added.append(obj)
 
     def refresh(self, obj) -> None:  # pragma: no cover - object is already "live"
         pass

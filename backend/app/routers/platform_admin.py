@@ -1617,6 +1617,13 @@ def create_plano(
 
     O ``codigo`` é a chave estável referenciada por ``igrejas.plano`` e é
     imutável depois de criado (409 se já existir).
+
+    ⚠️ Um plano fora da escada {ate_100, 101_200, acima_201} é contratável
+    normalmente (checkout + catálogo da igreja leem esta tabela), mas o
+    upgrade AUTOMÁTICO por porte (trigger SQL `fn_subscription_autoupgrade`,
+    migration 0004) não o conhece — só promove entre os 3 códigos hardcoded.
+    Uma igreja num plano novo nunca sobe/desce de porte sozinha; precisaria de
+    upgrade manual via PATCH /admin/igrejas/{id}. Ver app/domain/billing.py.
     """
     existe = db.execute(
         select(Plano.id).where(Plano.codigo == payload.codigo)
