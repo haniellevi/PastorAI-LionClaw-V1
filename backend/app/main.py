@@ -78,7 +78,10 @@ def create_app() -> FastAPI:
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.cors_origins or ["*"],
+        # Explicit origins only — never a wildcard together with credentials
+        # (MEDIO-001). In production assert_production_ready guarantees these
+        # are real https hosts; a bad config fails fast at startup.
+        allow_origins=settings.cors_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

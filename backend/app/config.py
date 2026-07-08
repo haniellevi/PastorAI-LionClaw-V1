@@ -11,6 +11,9 @@ from functools import lru_cache
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Minimum length (chars) for a dedicated production session secret (BAIXO-001).
+MIN_SESSION_SECRET_LEN = 32
+
 
 class Settings(BaseSettings):
     """Typed application settings.
@@ -195,7 +198,15 @@ class Settings(BaseSettings):
 
     @property
     def effective_session_secret(self) -> str:
-        """Secret used to sign/verify PastorAI's own session JWTs."""
+        """Secret used to sign/verify PastorAI's own session JWTs.
+
+        Production requires a dedicated ``SESSION_JWT_SECRET`` (enforced by
+        ``assert_production_ready``), so it never falls back to the Clerk secret
+        there (BAIXO-001). Dev/test keep the fallback so they boot without an
+        extra env var.
+        """
+        if self.is_production:
+            return self.session_jwt_secret
         return self.session_jwt_secret or self.clerk_secret_key
 
     @field_validator("database_url")
@@ -207,14 +218,18 @@ class Settings(BaseSettings):
         return value
 
     def assert_production_ready(self) -> None:
-        """Validate that critical secrets are present in production.
+        """Validate that critical secrets/config are present in production.
 
         Called at startup. In non-production environments we tolerate missing
-        values so the app and tests can boot, but in production a missing secret
-        is a hard failure (explicit, fail-fast).
+        values so the app and tests can boot, but in production a missing or
+        insecure value is a hard failure (explicit, fail-fast). Covers the
+        dedicated session secret (BAIXO-001) and explicit CORS origins
+        (MEDIO-001) in addition to the base required secrets.
         """
         if not self.is_production:
             return
+
+        problems: list[str] = []
 
         required = {
             "CLERK_SECRET_KEY": self.clerk_secret_key,
@@ -227,12 +242,38 @@ class Settings(BaseSettings):
             "EVOLUTION_API_KEY": self.evolution_api_key,
             "EVOLUTION_WEBHOOK_SECRET": self.evolution_webhook_secret,
             "REDIS_URL": self.redis_url,
+            # Dedicated backend session-signing secret (BAIXO-001).
+            "SESSION_JWT_SECRET": self.session_jwt_secret,
         }
-        missing = [name for name, val in required.items() if not val]
-        if missing:
+        problems += [f"missing {name}" for name, val in required.items() if not val]
+
+        # SESSION_JWT_SECRET must be strong and must NOT reuse the Clerk secret
+        # (BAIXO-001). Only checked when present; absence is already reported above.
+        if self.session_jwt_secret:
+            if len(self.session_jwt_secret) < MIN_SESSION_SECRET_LEN:
+                problems.append(
+                    f"SESSION_JWT_SECRET too short (min {MIN_SESSION_SECRET_LEN} chars)"
+                )
+            if self.session_jwt_secret == self.clerk_secret_key:
+                problems.append("SESSION_JWT_SECRET must differ from CLERK_SECRET_KEY")
+
+        # CORS origins must be explicit https hosts in production — never the
+        # localhost defaults and never a wildcard with credentials (MEDIO-001).
+        for name, url in (
+            ("FRONTEND_URL", self.frontend_url),
+            ("APP_BASE_URL", self.app_base_url),
+        ):
+            if (
+                not url
+                or not url.startswith("https://")
+                or "localhost" in url
+                or "127.0.0.1" in url
+            ):
+                problems.append(f"{name} must be an explicit https URL")
+
+        if problems:
             raise RuntimeError(
-                "Missing required environment variables for production: "
-                + ", ".join(sorted(missing))
+                "Invalid production configuration: " + "; ".join(sorted(problems))
             )
 
 
