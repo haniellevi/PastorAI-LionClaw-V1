@@ -47,8 +47,17 @@ def ensure_active_membro(
     # Histórico anterior a este PR pode ter deixado mais de uma linha inativa
     # pra (pessoa, célula) — a migration de backfill reativa só a mais
     # recente e preserva as demais. scalar_one_or_none() estouraria
-    # MultipleResultsFound nesse caso; pega a mais recente deterministicamente
-    # (mesmo critério de desempate da migration).
+    # MultipleResultsFound nesse caso; pega a linha certa deterministicamente.
+    #
+    # Prioriza `ativo` PRIMEIRO no ORDER BY (não só updated_at): uma linha já
+    # ATIVA nunca tem updated_at tocado (fica NULL pra sempre — coluna sem
+    # default), enquanto toda linha DESATIVADA sempre ganha `updated_at =
+    # now()` no momento da transferência (cell_requests_service.py,
+    # cell_multiplication_service.py). Sem isso, uma chamada idempotente
+    # pra um par (pessoa, célula) JÁ ativo escolheria por engano uma
+    # duplicata histórica inativa (que tem updated_at populado) em vez da
+    # linha ativa (updated_at NULL) e tentaria reativá-la também — violando
+    # o índice único parcial (achado da 3a revisão externa do PR #134).
     historico = db.execute(
         select(CelulaMembro)
         .where(
@@ -57,6 +66,7 @@ def ensure_active_membro(
             CelulaMembro.igreja_id == igreja_id,
         )
         .order_by(
+            CelulaMembro.ativo.desc(),
             CelulaMembro.updated_at.desc().nullslast(),
             CelulaMembro.created_at.desc(),
         )

@@ -66,6 +66,73 @@ def _filter(rows, statement):
     return [r for r in rows if _row_matches(r, clause)]
 
 
+class _Rev:
+    """Inverte a comparação — usado pra simular DESC num sort ascendente."""
+
+    __slots__ = ("value",)
+
+    def __init__(self, value) -> None:
+        self.value = value
+
+    def __lt__(self, other: "_Rev") -> bool:
+        return other.value < self.value
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, _Rev) and self.value == other.value
+
+
+def _order_by_specs(statement) -> list[tuple[str, bool, bool]]:
+    """Extrai (coluna, desc, nulls_last) de cada clause do ORDER BY real —
+    não hardcoda a ordem esperada, lê a query de verdade (senão o teste só
+    provaria que o fake devolve o que foi semeado, não que o código ordena
+    certo)."""
+    specs = []
+    for clause in getattr(statement, "_order_by_clauses", ()):
+        node = clause
+        desc = False
+        nulls_last = False
+        key = None
+        for _ in range(6):
+            mod_name = getattr(getattr(node, "modifier", None), "__name__", "")
+            if mod_name == "desc_op":
+                desc = True
+            elif mod_name == "asc_op":
+                desc = False
+            elif mod_name == "nulls_last_op":
+                nulls_last = True
+            elif mod_name == "nulls_first_op":
+                nulls_last = False
+            element = getattr(node, "element", None)
+            candidate_key = getattr(node, "key", None) or getattr(element, "key", None)
+            if candidate_key:
+                key = candidate_key
+                break
+            if element is None:
+                break
+            node = element
+        if key is not None:
+            specs.append((key, desc, nulls_last))
+    return specs
+
+
+def _sort_by_real_order_by(rows, statement):
+    specs = _order_by_specs(statement)
+    if not specs:
+        return list(rows)
+
+    def sort_key(row):
+        parts = []
+        for attr, desc, nulls_last in specs:
+            value = getattr(row, attr, None)
+            if value is None:
+                parts.append((1 if nulls_last else 0, 0))
+            else:
+                parts.append((0 if nulls_last else 1, _Rev(value) if desc else value))
+        return tuple(parts)
+
+    return sorted(rows, key=sort_key)
+
+
 class _Result:
     def __init__(self, *, scalar=None, scalars_list=None) -> None:
         self._scalar = scalar
@@ -92,7 +159,7 @@ class _Session:
             rows = _filter(self.cells, statement)
             return _Result(scalar=(rows[0] if rows else None))
         if ent is CelulaMembro:
-            rows = _filter(self.membros, statement)
+            rows = _sort_by_real_order_by(_filter(self.membros, statement), statement)
             return _Result(scalar=(rows[0] if rows else None), scalars_list=rows)
         return _Result()
 
@@ -128,11 +195,9 @@ def test_ensure_active_membro_reativa_linha_mais_recente_entre_duplicatas() -> N
         updated_at="2026-07-01", created_at="2026-07-01",
     )
     cell = _cell(_CELULA_ID, igreja_id=_IGREJA_A)
-    # Fake não simula ORDER BY do SQL real — semeia já na ordem que o
-    # `ORDER BY updated_at DESC` produziria (mais recente primeiro); a ordem
-    # real do banco é coberta pela prova via Postgres real da migration
-    # (mesmo critério de desempate, mesmo ORDER BY).
-    session = _Session(cells=[cell], membros=[recente, antiga])
+    # Ordem de seed embaralhada de propósito — o fake aplica o ORDER BY real
+    # da query (ver _sort_by_real_order_by), não confia na ordem de inserção.
+    session = _Session(cells=[cell], membros=[antiga, recente])
 
     ensure_active_membro(
         session, igreja_id=_IGREJA_A, celula_id=_CELULA_ID, pessoa_id=_PESSOA_ID
@@ -141,6 +206,35 @@ def test_ensure_active_membro_reativa_linha_mais_recente_entre_duplicatas() -> N
     assert recente.ativo is True
     assert antiga.ativo is False  # a duplicata mais antiga fica intocada
     assert session.added == []  # não criou linha nova
+
+
+def test_ensure_active_membro_prioriza_linha_ja_ativa_sobre_duplicata_inativa_mais_recente() -> None:
+    # Achado da 3a revisão externa: uma linha ATIVA nunca tem `updated_at`
+    # tocado (fica NULL pra sempre), enquanto toda linha DESATIVADA sempre
+    # ganha `updated_at = now()` no momento da transferência
+    # (cell_requests_service.py/cell_multiplication_service.py). Se o ORDER
+    # BY só olhasse updated_at, uma chamada idempotente pra um par JÁ ativo
+    # escolheria por engano a duplicata inativa (updated_at populado) em vez
+    # da linha ativa (updated_at NULL) — e tentaria reativá-la também,
+    # violando o índice único parcial. `ativo DESC` tem que vir primeiro.
+    ja_ativa = _membro(
+        pessoa_id=_PESSOA_ID, celula_id=_CELULA_ID, igreja_id=_IGREJA_A, ativo=True,
+        updated_at=None, created_at="2026-01-01",  # nunca tocada desde a criação
+    )
+    duplicata_inativa_mais_recente = _membro(
+        pessoa_id=_PESSOA_ID, celula_id=_CELULA_ID, igreja_id=_IGREJA_A, ativo=False,
+        updated_at="2026-07-08", created_at="2026-01-01",  # desativada recentemente
+    )
+    cell = _cell(_CELULA_ID, igreja_id=_IGREJA_A)
+    session = _Session(cells=[cell], membros=[duplicata_inativa_mais_recente, ja_ativa])
+
+    ensure_active_membro(
+        session, igreja_id=_IGREJA_A, celula_id=_CELULA_ID, pessoa_id=_PESSOA_ID
+    )
+
+    assert ja_ativa.ativo is True  # continua a única ativa (idempotente, no-op)
+    assert duplicata_inativa_mais_recente.ativo is False  # NUNCA reativada por engano
+    assert session.added == []
 
 
 def test_ensure_active_membro_recusa_celula_de_outro_tenant() -> None:
