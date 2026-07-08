@@ -97,14 +97,6 @@ export const NAV_SECTIONS: NavSection[] = [
       },
     ],
   },
-  {
-    id: "igreja",
-    label: "Gestão",
-    items: [
-      { target: "contatos", label: "Pessoas", icon: "team" },
-      { target: "comunicados", label: "Comunicação", icon: "broadcast" },
-    ],
-  },
 ];
 
 /**
@@ -119,6 +111,8 @@ export const ADMIN_NAV_SECTIONS: NavSection[] = [
     id: "gestao",
     label: "Gestão",
     items: [
+      { target: "contatos", label: "Pessoas", icon: "team" },
+      { target: "comunicados", label: "Comunicação", icon: "broadcast" },
       { target: "identidade", label: "Identidade Visual", icon: "image" },
       { target: "equipe", label: "Usuários do Sistema", icon: "team" },
       { target: "permissoes", label: "Permissões", icon: "lock" },
