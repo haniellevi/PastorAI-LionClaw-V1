@@ -40,6 +40,7 @@ from app.routers import (
     platform_admin,
     reports,
     roles,
+    setup,
     subscription,
     team,
     whatsapp,
@@ -126,6 +127,7 @@ def create_app() -> FastAPI:
     app.include_router(calendar.router)
     app.include_router(team.router)
     app.include_router(roles.router)
+    app.include_router(setup.router)
     app.include_router(subscription.router)
     # Plano de plataforma (Super-Admin, cross-tenant). Gated por
     # get_platform_admin — fora do RLS por tenant. Ver routers/platform_admin.py.

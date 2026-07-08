@@ -13,6 +13,7 @@ import { EquipeScreen } from "@/components/config/EquipeScreen";
 import { IdentidadeVisualScreen } from "@/components/config/IdentidadeVisualScreen";
 import { IntegracoesScreen } from "@/components/config/IntegracoesScreen";
 import { PermissoesScreen } from "@/components/config/PermissoesScreen";
+import { SetupChecklistScreen } from "@/components/config/SetupChecklistScreen";
 import { CentralCelulaScreen } from "@/components/central-celula/CentralCelulaScreen";
 import { MinhaCelulaEntry } from "@/components/minha-celula/MinhaCelulaEntry";
 import { ComunicadosScreen } from "@/components/comunicados/ComunicadosScreen";
@@ -115,6 +116,9 @@ export function ScreenView({ route, param }: { route: string; param?: string | n
   }
   if (route === "identidade") {
     return <IdentidadeVisualScreen />;
+  }
+  if (route === "setup") {
+    return <SetupChecklistScreen />;
   }
   if (route === "integracoes") {
     return <IntegracoesScreen />;

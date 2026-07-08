@@ -31,6 +31,7 @@ export const MENU_SCREENS = [
 
 /** Telas exclusivas de admin (superfície administrativa — /gestao). */
 export const ADMIN_ONLY = [
+  "setup",
   "agente",
   "whatsapp",
   "assinatura",
