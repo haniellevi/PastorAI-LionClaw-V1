@@ -16,7 +16,7 @@ import logging
 import re
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -33,6 +33,7 @@ from app.deps import (
 from app.domain.phone import normalize_phone, phone_suffix
 from app.services.brevo import BrevoClient, BrevoError, get_brevo_client
 from app.services.clerk import ClerkAuthError, ClerkClient, get_clerk_client
+from app.services.rate_limit import RateLimiter, get_rate_limiter
 from app.services.storage import logo_public_url
 
 logger = logging.getLogger("pastorai.auth")
@@ -163,15 +164,23 @@ def _unauthorized() -> HTTPException:
 
 @router.post("/login", response_model=LoginResponse)
 def login(
+    request: Request,
     payload: LoginRequest,
     db: Session = Depends(get_db),
     clerk: ClerkClient = Depends(get_clerk_client),
+    limiter: RateLimiter = Depends(get_rate_limiter),
 ) -> LoginResponse:
     """Authenticate and return {token, churchId}.
 
     Failure modes return the same generic 401 to avoid leaking which emails
     exist; billing blocks return a distinct 403 with billing context.
+    Rate-limited by IP and by account (ALTO-002) before any Clerk call.
     """
+    settings = get_settings()
+    limiter.enforce_ip(request, "login", settings.rate_limit_login_ip_limit)
+    limiter.enforce_account(
+        payload.email, "login", settings.rate_limit_login_account_limit
+    )
     try:
         token, clerk_user_id = clerk.authenticate_password(
             payload.email, payload.password
@@ -219,15 +228,28 @@ def login(
 
 @router.post("/forgot-password")
 def forgot_password(
+    request: Request,
     payload: ForgotPasswordRequest,
     clerk: ClerkClient = Depends(get_clerk_client),
     mailer: BrevoClient = Depends(get_brevo_client),
+    limiter: RateLimiter = Depends(get_rate_limiter),
 ) -> dict[str, str]:
     """Send a password-reset link if the e-mail exists — always returns 200.
 
     Never reveals whether the e-mail is registered (US-01): the response is the
-    same with or without a matching user. The send is best-effort.
+    same with or without a matching user. The send is best-effort. Rate-limited
+    by IP and by account (ALTO-002) — the 429, when it happens, is identical
+    regardless of whether the account exists.
     """
+    settings = get_settings()
+    limiter.enforce_ip(
+        request, "forgot-password", settings.rate_limit_forgot_password_ip_limit
+    )
+    limiter.enforce_account(
+        payload.email,
+        "forgot-password",
+        settings.rate_limit_forgot_password_account_limit,
+    )
     try:
         clerk_user_id = clerk.find_user_id_by_email(payload.email)
     except ClerkAuthError:
@@ -247,10 +269,20 @@ def forgot_password(
 
 @router.post("/reset-password")
 def reset_password(
+    request: Request,
     payload: ResetPasswordRequest,
     clerk: ClerkClient = Depends(get_clerk_client),
+    limiter: RateLimiter = Depends(get_rate_limiter),
 ) -> dict[str, str]:
-    """Set a new password from a valid reset token."""
+    """Set a new password from a valid reset token.
+
+    Rate-limited by IP (ALTO-002) — there is no e-mail in this payload, only
+    the opaque reset token, so an account-scoped limit does not apply here.
+    """
+    settings = get_settings()
+    limiter.enforce_ip(
+        request, "reset-password", settings.rate_limit_reset_password_ip_limit
+    )
     try:
         clerk_user_id = clerk.verify_reset_token(payload.token)
     except ClerkAuthError:
@@ -361,16 +393,22 @@ def _complete_cadastro_pessoa(
 
 @router.post("/activate")
 def activate(
+    request: Request,
     payload: ActivateRequest,
     db: Session = Depends(get_db),
     clerk: ClerkClient = Depends(get_clerk_client),
+    limiter: RateLimiter = Depends(get_rate_limiter),
 ) -> dict[str, str]:
     """Ativa o convite: cria o acesso no Clerk + define a senha + vincula.
 
     Parte B (delta-049): quando o convidado ainda não é Pessoa, o telefone é
     obrigatório e a ativação cria/vincula a Pessoa-membro na célula pendente.
     Idempotência: um convite já ativado (app_user com clerk_user_id) → 409.
+    Rate-limitada por IP (ALTO-002) — o token do convite já é o segredo
+    validado abaixo; o limite aqui é só contra brute-force de tokens.
     """
+    settings = get_settings()
+    limiter.enforce_ip(request, "activate", settings.rate_limit_activate_ip_limit)
     app_user = _resolve_invite(payload.token, db, clerk)
     needs_cadastro = app_user.pessoa_id is None
 
@@ -458,11 +496,27 @@ def update_me(
 
 @router.post("/change-password")
 def change_password(
+    request: Request,
     payload: ChangePasswordRequest,
     clerk: ClerkClient = Depends(get_clerk_client),
     current_user: CurrentUser = Depends(get_current_user),
+    limiter: RateLimiter = Depends(get_rate_limiter),
 ) -> dict[str, str]:
-    """Troca a própria senha. Exige a senha atual, verificada no Clerk."""
+    """Troca a própria senha. Exige a senha atual, verificada no Clerk.
+
+    Rate-limitada por IP e por conta (ALTO-002) — mesmo autenticada, essa rota
+    aceita uma senha atual incorreta repetidamente e não pode virar um oráculo
+    de brute-force contra a senha real.
+    """
+    settings = get_settings()
+    limiter.enforce_ip(
+        request, "change-password", settings.rate_limit_change_password_ip_limit
+    )
+    limiter.enforce_account(
+        current_user.email,
+        "change-password",
+        settings.rate_limit_change_password_account_limit,
+    )
     try:
         clerk.authenticate_password(current_user.email, payload.currentPassword)
     except ClerkAuthError:
