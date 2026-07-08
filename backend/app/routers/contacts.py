@@ -24,6 +24,7 @@ from app.db.models import Celula, Pessoa
 from app.db.session import get_db
 from app.deps import CurrentUser, get_current_user, require_role
 from app.domain.phone import normalize_phone, phone_suffix
+from app.services.celula_membro import deactivate_other_active_membro, ensure_active_membro
 from app.routers._common import Page, PaginationParams
 
 logger = logging.getLogger("pastorai.contacts")
@@ -602,7 +603,19 @@ def link_cell(
             detail="Apenas um administrador pode transferir alguém de célula",
         )
 
+    # Vínculo canônico (achado C-02): se é transferência de OUTRA célula,
+    # desativa o vínculo antigo primeiro (índice único parcial só permite 1
+    # ativo por pessoa) antes de ativar o novo.
+    igreja_uuid = uuid.UUID(current_user.igreja_id)
+    if pessoa.celula_id is not None and pessoa.celula_id != celula.id:
+        deactivate_other_active_membro(
+            db, igreja_id=igreja_uuid, pessoa_id=pessoa.id, keep_celula_id=celula.id
+        )
+
     pessoa.celula_id = celula.id
+    ensure_active_membro(
+        db, igreja_id=igreja_uuid, celula_id=celula.id, pessoa_id=pessoa.id
+    )
     db.flush()  # fires trg_link_cell_promote (acompanhamento -> consolidado)
     db.refresh(pessoa)
     # Deriva ANTES do commit (RLS: SET LOCAL reverte no commit).

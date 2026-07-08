@@ -32,6 +32,7 @@ from app.deps import (
 )
 from app.domain.phone import normalize_phone, phone_suffix
 from app.services.brevo import BrevoClient, BrevoError, get_brevo_client
+from app.services.celula_membro import ensure_active_membro
 from app.services.clerk import ClerkAuthError, ClerkClient, get_clerk_client
 from app.services.rate_limit import RateLimiter, get_rate_limiter
 from app.services.storage import logo_public_url
@@ -375,6 +376,11 @@ def _complete_cadastro_pessoa(
         app_user.pessoa_id = existing.id
         if existing.celula_id is None and celula_id is not None:
             existing.celula_id = celula_id
+            # Vínculo canônico (achado C-02) — mesma regra: só quando a
+            # célula pendente é de fato adotada (pessoa ainda sem célula).
+            ensure_active_membro(
+                db, igreja_id=igreja_uuid, celula_id=celula_id, pessoa_id=existing.id
+            )
     else:
         pessoa = Pessoa(
             igreja_id=igreja_uuid,
@@ -387,6 +393,12 @@ def _complete_cadastro_pessoa(
         db.add(pessoa)
         db.flush()  # fires person/cell triggers; assigns id
         app_user.pessoa_id = pessoa.id
+        if celula_id is not None:
+            # Vínculo canônico (achado C-02): Pessoa recém-criada na célula
+            # pendente também precisa da linha em celula_membro.
+            ensure_active_membro(
+                db, igreja_id=igreja_uuid, celula_id=celula_id, pessoa_id=pessoa.id
+            )
 
     app_user.celula_pendente_id = None
 

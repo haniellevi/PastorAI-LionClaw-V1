@@ -33,6 +33,7 @@ from app.deps import (
 )
 from app.routers._common import Page, PaginationParams
 from app.services.brevo import BrevoClient, BrevoError, get_brevo_client
+from app.services.celula_membro import ensure_active_membro
 from app.services.clerk import ClerkClient, get_clerk_client
 
 logger = logging.getLogger("pastorai.team")
@@ -466,6 +467,12 @@ def invite_member(
             )
 
         pessoa.celula_id = celula.id
+        # Vínculo canônico (achado C-02): a mesma escrita que atualiza o
+        # espelho legado garante a linha em celula_membro — sem ela, a visão
+        # do líder/discípulo (que lê celula_membro) não mostra a pessoa.
+        ensure_active_membro(
+            db, igreja_id=igreja_uuid, celula_id=celula.id, pessoa_id=pessoa_uuid
+        )
         # A Pessoa é a fonte de verdade: se ainda não tinha e-mail, guarda o do
         # convite para o cadastro não divergir do login.
         if not (pessoa.email or "").strip():
