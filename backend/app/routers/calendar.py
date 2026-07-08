@@ -26,7 +26,6 @@ from app.db.models import AgendaAlertRecipient, CalendarSync, Event
 from app.db.session import get_db
 from app.deps import CurrentUser, require_role
 from app.domain.phone import normalize_phone
-from app.routers._common import ensure_tenant_context
 from app.services.crypto import SecretDecryptionError, decrypt_secret, encrypt_secret
 from app.services.google_oauth import (
     GoogleOAuthClient,
@@ -219,7 +218,6 @@ def get_status(
     current_user: CurrentUser = Depends(require_role(["admin"])),
 ) -> StatusOut:
     """Whether the igreja has a connected calendar (no secret echoed)."""
-    ensure_tenant_context(db, current_user)
     sync = _sync_for(db, uuid.UUID(current_user.igreja_id))
     if not _connected(sync):
         return StatusOut(connected=False)
@@ -233,7 +231,6 @@ def list_calendars(
     oauth: GoogleOAuthClient = Depends(get_google_oauth_client),
 ) -> CalendarListOut:
     """List the connected account's calendars so the admin can pick one."""
-    ensure_tenant_context(db, current_user)
     sync = _sync_for(db, uuid.UUID(current_user.igreja_id))
     if not _connected(sync):
         raise HTTPException(
@@ -263,7 +260,6 @@ def import_preview(
     written to ``events``. Defaults to a safe forward window (now → +90d) when
     the range is omitted. 409 when the igreja has no calendar connected.
     """
-    ensure_tenant_context(db, current_user)
     sync = _sync_for(db, uuid.UUID(current_user.igreja_id))
     if not _connected(sync):
         raise HTTPException(
@@ -305,7 +301,6 @@ def import_events(
     Não escreve no Google (só ``events.list``). 409 quando a igreja não está
     conectada; 502 em falha do Google.
     """
-    ensure_tenant_context(db, current_user)
     igreja_uuid = uuid.UUID(current_user.igreja_id)
     sync = _sync_for(db, igreja_uuid)
     if not _connected(sync):
@@ -392,7 +387,6 @@ def select_calendar(
     current_user: CurrentUser = Depends(require_role(["admin"])),
 ) -> StatusOut:
     """Set which calendar (id) this igreja syncs with."""
-    ensure_tenant_context(db, current_user)
     sync = _sync_for(db, uuid.UUID(current_user.igreja_id))
     if not _connected(sync):
         raise HTTPException(
@@ -410,7 +404,6 @@ def disconnect(
     current_user: CurrentUser = Depends(require_role(["admin"])),
 ) -> None:
     """Disconnect the igreja's Google Calendar (drops stored tokens)."""
-    ensure_tenant_context(db, current_user)
     sync = _sync_for(db, uuid.UUID(current_user.igreja_id))
     if sync is not None:
         db.delete(sync)
@@ -538,7 +531,6 @@ def list_recipients(
     current_user: CurrentUser = Depends(require_role(["admin"])),
 ) -> RecipientListOut:
     """Lista os destinatários de alerta da igreja (ativos e inativos)."""
-    ensure_tenant_context(db, current_user)
     rows = db.execute(
         select(AgendaAlertRecipient)
         .where(AgendaAlertRecipient.igreja_id == uuid.UUID(current_user.igreja_id))
@@ -554,7 +546,6 @@ def create_recipient(
     current_user: CurrentUser = Depends(require_role(["admin"])),
 ) -> RecipientOut:
     """Cadastra um destinatário de alerta (opt-in). Nada é enviado aqui."""
-    ensure_tenant_context(db, current_user)
     igreja_uuid = uuid.UUID(current_user.igreja_id)
     if _active_dup_exists(db, igreja_uuid, payload.telefone, exclude_id=None):
         raise HTTPException(
@@ -581,7 +572,6 @@ def update_recipient(
     current_user: CurrentUser = Depends(require_role(["admin"])),
 ) -> RecipientOut:
     """Edita/desativa um destinatário (parcial). Campos None ficam inalterados."""
-    ensure_tenant_context(db, current_user)
     recipient = _recipient_for(db, current_user, recipient_id)
 
     novo_telefone = payload.telefone if payload.telefone is not None else recipient.telefone
@@ -615,7 +605,6 @@ def delete_recipient(
     current_user: CurrentUser = Depends(require_role(["admin"])),
 ) -> Response:
     """Remove um destinatário de alerta do tenant (RLS + igreja_id)."""
-    ensure_tenant_context(db, current_user)
     recipient = _recipient_for(db, current_user, recipient_id)
     db.delete(recipient)
     db.commit()

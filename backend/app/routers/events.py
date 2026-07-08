@@ -41,7 +41,7 @@ from app.db.models import Conversation, Event, EventNotifyTarget
 from app.db.session import get_db
 from app.deps import CurrentUser, get_current_user, require_role
 from app.domain.phone import normalize_phone
-from app.routers._common import Page, PaginationParams, ensure_tenant_context
+from app.routers._common import Page, PaginationParams
 from app.services.event_notify import notify_event_confirmed
 
 logger = logging.getLogger("pastorai.events")
@@ -322,7 +322,6 @@ def list_events(
     current_user: CurrentUser = Depends(get_current_user),
 ) -> Page[EventOut]:
     """Return the tenant's events, soonest first (RNF-09)."""
-    ensure_tenant_context(db, current_user)
     rows = db.execute(
         select(Event)
         .order_by(Event.data.asc())
@@ -351,7 +350,6 @@ def create_event(
     `google_event_id=null` → `sincronizado=false`. A sincronização com o Google
     volta como push POR IGREJA (via calendar_sync) numa fase futura.
     """
-    ensure_tenant_context(db, current_user)
 
     event = Event(
         igreja_id=uuid.UUID(current_user.igreja_id),
@@ -380,7 +378,6 @@ def get_event(
 
     Leitura aberta a qualquer usuário autenticado do tenant (como GET /events).
     """
-    ensure_tenant_context(db, current_user)
     return EventOut.from_model(_get_event(db, current_user, event_id))
 
 
@@ -397,7 +394,6 @@ def update_event(
     PATCH /contacts). NÃO re-sincroniza com o Google Calendar — sync na edição é
     escopo de fase posterior (EVT-6+).
     """
-    ensure_tenant_context(db, current_user)
     event = _get_event(db, current_user, event_id)
 
     if payload.titulo is not None:
@@ -430,7 +426,6 @@ def delete_event(
 
     NÃO remove o evento espelhado no Google Calendar — fora do escopo (EVT-6+).
     """
-    ensure_tenant_context(db, current_user)
     event = _get_event(db, current_user, event_id)
     db.delete(event)
     db.commit()
@@ -560,7 +555,6 @@ def confirm_event(
     comunicação: o disparo real é EVT-9. A validação (409 de estado e 422 do
     payload) acontece ANTES de qualquer persistência.
     """
-    ensure_tenant_context(db, current_user)
     event = _get_event(db, current_user, event_id)
 
     if event.status != STATUS_A_CONFIRMAR:

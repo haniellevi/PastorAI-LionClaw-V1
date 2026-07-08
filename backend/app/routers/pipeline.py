@@ -40,7 +40,7 @@ from app.domain.consolidation import (
     pending_mandatory,
 )
 from app.domain.pipeline import VALID_ETAPAS, validate_transition
-from app.routers._common import Page, PaginationParams, ensure_tenant_context
+from app.routers._common import Page, PaginationParams
 from app.routers.contacts import ContactOut, _active_leader_ids
 
 logger = logging.getLogger("pastorai.pipeline")
@@ -181,7 +181,6 @@ def list_pipeline(
     no pipeline, espelhando ``dashboard.overview`` (porEtapa). Fecha a dívida do
     PR #103 — a regra passa a valer no backend, não só no filtro client-side.
     """
-    ensure_tenant_context(db, current_user)
 
     filters = [Pessoa.sem_interesse.is_(False)]
     if etapa is not None:
@@ -223,7 +222,6 @@ def update_pipeline(
     current_user: CurrentUser = Depends(get_current_user),
 ) -> PipelineUpdateResponse:
     """Move a person along the pipeline, enforcing F2 promotion rules."""
-    ensure_tenant_context(db, current_user)
 
     if not current_user.has_any_role(PIPELINE_WRITE_ROLES):
         raise HTTPException(
@@ -279,7 +277,6 @@ def queue_fonovisita(
     Idempotent per person: an already-open fonovisita item is reused and its
     context updated instead of creating a duplicate.
     """
-    ensure_tenant_context(db, current_user)
 
     if not current_user.has_any_role(PIPELINE_WRITE_ROLES):
         raise HTTPException(
@@ -340,7 +337,6 @@ def assign_consolidador(
     Setting `responsavel_id` is what later enables that user (and only that
     user) to confirm stages via /pipeline/advance-stage.
     """
-    ensure_tenant_context(db, current_user)
 
     if not current_user.has_any_role(CONSOLIDATION_ROLES):
         raise HTTPException(
@@ -393,7 +389,6 @@ def advance_stage(
     (409) while any mandatory stage is still pending. Progress reflects the
     confirmed mandatory stages.
     """
-    ensure_tenant_context(db, current_user)
 
     if payload.etapa is None and not payload.concluir:
         raise HTTPException(

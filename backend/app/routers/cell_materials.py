@@ -29,7 +29,6 @@ from app.deps import (
     require_central,
     resolve_actor_pessoa_id,
 )
-from app.routers._common import ensure_tenant_context
 
 router = APIRouter(prefix="/cell-materials", tags=["cell-materials"])
 
@@ -147,7 +146,6 @@ def publish_material(
     ``url`` obrigatória (http(s)://, ≤ 2048); ``titulo`` ≤ 120; ``descricao`` ≤
     2000. Sem upload real de arquivo. ``autor_id`` deriva da Pessoa do usuário.
     """
-    ensure_tenant_context(db, current_user)
     igreja_id = uuid.UUID(current_user.igreja_id)
 
     titulo = payload.titulo.strip()
@@ -199,7 +197,6 @@ def list_materials(
 
     Mais recentes primeiro (``publicado_em`` desc). Apenas ``ativo=true``. Paginado.
     """
-    ensure_tenant_context(db, current_user)
     igreja_id = uuid.UUID(current_user.igreja_id)
 
     rows = db.execute(
@@ -235,7 +232,6 @@ def remove_material(
 
     Sem exclusão física nem edição no MVP. Idempotente em ``ativo=false``.
     """
-    ensure_tenant_context(db, current_user)
     igreja_id = uuid.UUID(current_user.igreja_id)
 
     material = _load_material(db, igreja_id, material_id)

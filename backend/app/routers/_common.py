@@ -4,11 +4,11 @@ RNF-09 requires list endpoints to paginate. `PaginationParams` provides a
 single, validated page/page_size contract reused across routers, and
 `Page` is the standard envelope returned to clients.
 
-`ensure_tenant_context` re-asserts the Postgres RLS GUC on the request session.
-The GUC is transaction-local (set_config is_local=true): once a router commits,
-the claim is cleared, so any read performed *after* a commit would lose tenant
-scoping. Routers therefore call this at the top and avoid RLS-dependent reads
-after committing (preferring flush + refresh before a single final commit).
+`ensure_tenant_context` era historicamente chamado no topo de cada router para
+re-asserir o GUC de RLS. Após o seam profundo por tenant (app/db/tenant_session),
+essa re-asserção manual virou redundante — ver a docstring da própria função para
+a decisão OQ#3 (PR4+): ela foi convertida num SHIM DE ASSERT fail-closed e as
+chamadas foram removidas dos 26 routers.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from fastapi import Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from app.db.rls import set_tenant_context
+from app.db.tenant_session import TENANT_IGREJA_KEY, TenantScopeError
 from app.deps import CurrentUser
 
 T = TypeVar("T")
@@ -68,5 +68,33 @@ class Page(BaseModel, Generic[T]):
 
 
 def ensure_tenant_context(db: Session, current_user: CurrentUser) -> None:
-    """Re-assert the RLS tenant claim for the current transaction."""
-    set_tenant_context(db, current_user.clerk_user_id)
+    """Shim de observabilidade fail-closed do escopo por tenant (decisão OQ#3).
+
+    Historicamente esta função RE-SETAVA o GUC de RLS a cada chamada de router.
+    Isso virou redundante: ``get_current_user`` (deps.py) marca a sessão com
+    ``mark_tenant_scoped`` e o listener ``after_begin``
+    (app/db/tenant_session.py) reaplica o escopo em TODA transação da sessão —
+    inclusive nas leituras pós-commit. As chamadas nos 26 routers foram
+    removidas no PR4+.
+
+    Decisão OQ#3 (documentada aqui, no lugar canônico): em vez de REMOVER o
+    símbolo, ele é MANTIDO como um SHIM DE ASSERT fail-closed. Se algum caminho
+    (existente esquecido ou código futuro) o invocar, ele NÃO re-seta o escopo às
+    cegas nem degrada para "seguir sem escopo": ele FALHA (``TenantScopeError``)
+    caso a sessão não esteja marcada como tenant-scoped no MESMO igreja do usuário
+    autenticado. É um sinal de regressão barulhento — nunca deixa uma sessão em
+    BYPASSRLS passar por engano. Preferimos o shim à remoção justamente pela
+    observabilidade contínua (fail-closed) que ele oferece a chamadores futuros.
+
+    Raises:
+        TenantScopeError: se a sessão não estiver marcada (seam não ativado) ou
+            estiver pinada num igreja diferente do usuário autenticado.
+    """
+    igreja_id = db.info.get(TENANT_IGREJA_KEY)
+    if not igreja_id or str(igreja_id) != str(current_user.igreja_id):
+        raise TenantScopeError(
+            "sessão não está marcada como tenant-scoped no igreja do usuário "
+            "autenticado: get_current_user deveria tê-la marcado via "
+            f"mark_tenant_scoped (esperado {current_user.igreja_id!r}, "
+            f"marcado {igreja_id!r})"
+        )

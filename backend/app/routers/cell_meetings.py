@@ -47,7 +47,6 @@ from app.deps import (
 )
 from app.domain.cell_meetings_schedule import InvalidDiaReuniao, next_meeting_date
 from app.domain.hierarchy import is_leader_or_superior
-from app.routers._common import ensure_tenant_context
 
 # Reuso dos helpers de cells.py (BK-DEC-01) — não reimplementar aqui.
 from app.routers.cells import (
@@ -367,7 +366,6 @@ def list_reunioes(
     Aberto a qualquer autenticado do tenant (sem guard de vínculo/liderança).
     Filtro por `igreja_id` explícito além da RLS (defesa em profundidade).
     """
-    ensure_tenant_context(db, current_user)
     cell = _get_cell_or_404(db, cell_id)
     rows = db.execute(
         select(CelulaReuniao)
@@ -398,7 +396,6 @@ def materialize_next_reuniao(
     `dia_reuniao` faltar/for irreconhecível ou se `horario` for NULL, sem criar
     nenhuma linha.
     """
-    ensure_tenant_context(db, current_user)
     cell = _get_cell_or_404(db, cell_id)
 
     if not _can_materialize(db, current_user, cell):
@@ -448,7 +445,6 @@ def materialize_next_reuniao(
         # requisição materializou o mesmo slot entre o pré-check e o INSERT.
         # Recupera a linha existente e devolve 200 — nunca 409/500 nem duplicata.
         db.rollback()
-        ensure_tenant_context(db, current_user)
         recovered = _find_slot(db, igreja_id, cell.id, data, hora)
         if recovered is None:
             logger.error(
@@ -489,7 +485,6 @@ def mark_presenca(
         INSERT ou UPDATE; corrida contra o UNIQUE → IntegrityError → rollback →
         recupera. SEMPRE 200 (nunca 409/500).
     """
-    ensure_tenant_context(db, current_user)
     igreja_id = uuid.UUID(current_user.igreja_id)
     reuniao = _get_reuniao_or_404(db, reuniao_id, igreja_id)
 
@@ -557,7 +552,6 @@ def mark_presenca(
         # gravou entre o pré-check e o INSERT. Recupera e aplica last-write-wins;
         # devolve 200 — NUNCA 409/500 (409 é reservado a add_cell_member).
         db.rollback()
-        ensure_tenant_context(db, current_user)
         recovered = _find_presenca(db, igreja_id, reuniao.id, target_uuid)
         if recovered is None:
             logger.error(
@@ -604,7 +598,6 @@ def register_expectativa_visitante(
       - Sem efeito externo: NÃO cria Pessoa/contato e NÃO dispara WhatsApp. O
         status da reunião NÃO é validado (E12).
     """
-    ensure_tenant_context(db, current_user)
     igreja_id = uuid.UUID(current_user.igreja_id)
     reuniao = _get_reuniao_or_404(db, reuniao_id, igreja_id)
 
@@ -1020,7 +1013,6 @@ def plan_meeting(
     não é do tenant. 409 se já existir reunião no mesmo slot (idempotência de slot,
     UNIQUE igreja_id/celula_id/data/hora).
     """
-    ensure_tenant_context(db, current_user)
     cell = _cell_led_by_or_403(db, current_user, payload.celula_id)
     igreja_id = uuid.UUID(current_user.igreja_id)
 
@@ -1073,7 +1065,6 @@ def edit_meeting(
     campo sensível enviado é ignorado (RF-14). 404 se a reunião não é do
     líder/tenant. 409 se o novo slot colidir com outra reunião.
     """
-    ensure_tenant_context(db, current_user)
     reuniao = _leader_meeting_or_404(db, current_user, reuniao_id)
     # E10/E11: após o relatório enviado, data/hora/tema da reunião ficam
     # congelados (editar aqui alteraria o relatório já consolidado — get_report
@@ -1116,7 +1107,6 @@ def set_real_attendance(
     tenant (422) e ter vínculo ATIVO na célula da reunião (422, E11). Bloqueado
     após o relatório enviado (409, E10/E11). 404 se a reunião não é do líder/tenant.
     """
-    ensure_tenant_context(db, current_user)
     reuniao = _leader_meeting_or_404(db, current_user, reuniao_id)
     _assert_report_open(reuniao)
     igreja_id = uuid.UUID(current_user.igreja_id)
@@ -1183,7 +1173,6 @@ def register_visitor(
     A expectativa vinculada precisa ser da MESMA reunião no tenant (422 caso
     contrário). Bloqueado após o relatório enviado (409). 404 fora do líder/tenant.
     """
-    ensure_tenant_context(db, current_user)
     reuniao = _leader_meeting_or_404(db, current_user, reuniao_id)
     _assert_report_open(reuniao)
     igreja_id = uuid.UUID(current_user.igreja_id)
@@ -1242,7 +1231,6 @@ def list_visitor_expectations(
     `compareceu` deriva da existência de um `celula_visitante` vinculado àquela
     expectativa (o líder confirmou o comparecimento). 404 fora do líder/tenant.
     """
-    ensure_tenant_context(db, current_user)
     reuniao = _leader_meeting_or_404(db, current_user, reuniao_id)
     igreja_id = uuid.UUID(current_user.igreja_id)
 
@@ -1298,7 +1286,6 @@ def add_record(
     `pessoa_id` (alvo) é opcional e, se presente, precisa existir no tenant (422).
     Só o líder da célula escreve (404 caso contrário). Bloqueado após enviado (409).
     """
-    ensure_tenant_context(db, current_user)
     reuniao = _leader_meeting_or_404(db, current_user, reuniao_id)
     _assert_report_open(reuniao)
     igreja_id = uuid.UUID(current_user.igreja_id)
@@ -1348,7 +1335,6 @@ def list_records(
     passa pela autorização (404). A Central (pastor/admin) lê qualquer célula do
     tenant.
     """
-    ensure_tenant_context(db, current_user)
     reuniao = _reader_meeting_or_404(db, current_user, reuniao_id)
     igreja_id = uuid.UUID(current_user.igreja_id)
 
@@ -1390,7 +1376,6 @@ def save_report(
     2000 (422 fora do intervalo). Bloqueado após enviado (409, E10/E11). 404 fora
     do líder/tenant.
     """
-    ensure_tenant_context(db, current_user)
     reuniao = _leader_meeting_or_404(db, current_user, reuniao_id)
     _assert_report_open(reuniao)
 
@@ -1492,7 +1477,6 @@ def submit_report(
     Grava relatorio_enviado_em (UTC) e relatorio_enviado_por (Pessoa do líder).
     409 se já enviado (sem reabertura no MVP). 404 fora do líder/tenant.
     """
-    ensure_tenant_context(db, current_user)
     reuniao = _leader_meeting_or_404(db, current_user, reuniao_id)
     if reuniao.relatorio_status == RELATORIO_ENVIADO:
         raise HTTPException(
@@ -1543,7 +1527,6 @@ def get_report(
 ) -> ReportOut:
     """Relatório consolidado: presenças, visitantes, registros, oferta, observações
     e status. Visível a líder/Central (404 caso contrário)."""
-    ensure_tenant_context(db, current_user)
     reuniao = _reader_meeting_or_404(db, current_user, reuniao_id)
     igreja_id = uuid.UUID(current_user.igreja_id)
 
@@ -1576,7 +1559,6 @@ def list_my_led_cells(
     seu próprio líder resolveria a célula errada. igreja_id/pessoa do contexto
     autenticado; lista vazia se o app_user não tem Pessoa.
     """
-    ensure_tenant_context(db, current_user)
     igreja_id = uuid.UUID(current_user.igreja_id)
     actor = _actor_pessoa_id(db, current_user)
     if actor is None:
@@ -1606,7 +1588,6 @@ def list_leader_cell_members(
     Restrito à própria célula: 404 se a célula é de outro líder/tenant (ownership
     por celulas.lider_id, E9). `nome` deriva de `pessoas.nome`.
     """
-    ensure_tenant_context(db, current_user)
     cell = get_current_cell_for_leader(db, current_user, cell_id)
     igreja_id = uuid.UUID(current_user.igreja_id)
 

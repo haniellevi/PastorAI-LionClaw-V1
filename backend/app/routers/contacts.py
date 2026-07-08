@@ -24,7 +24,7 @@ from app.db.models import Celula, Pessoa
 from app.db.session import get_db
 from app.deps import CurrentUser, get_current_user, require_role
 from app.domain.phone import normalize_phone, phone_suffix
-from app.routers._common import Page, PaginationParams, ensure_tenant_context
+from app.routers._common import Page, PaginationParams
 
 logger = logging.getLogger("pastorai.contacts")
 
@@ -301,7 +301,6 @@ def list_contacts(
     current_user: CurrentUser = Depends(get_current_user),
 ) -> Page[ContactOut]:
     """Return the tenant's contacts, newest first, paginated (RNF-09)."""
-    ensure_tenant_context(db, current_user)
 
     total = db.execute(
         select(func.count()).select_from(Pessoa)
@@ -337,7 +336,6 @@ def create_contact(
     When a contact with the same normalized phone already exists in the tenant,
     no duplicate is created: the existing record is returned with deduped=true.
     """
-    ensure_tenant_context(db, current_user)
 
     normalized = normalize_phone(payload.telefone)
     if not normalized:
@@ -401,7 +399,6 @@ def get_contact(
     Leitura aberta a qualquer usuário autenticado do tenant (como GET /contacts);
     a edição segue restrita ao admin (PATCH /contacts/{id}).
     """
-    ensure_tenant_context(db, current_user)
 
     try:
         pessoa_uuid = uuid.UUID(contact_id)
@@ -453,7 +450,6 @@ def update_contact(
     re-checa o dedup canônico por igreja: não pode colidir com OUTRA pessoa
     (409). Os gatilhos de estado da pessoa não são reimplementados aqui.
     """
-    ensure_tenant_context(db, current_user)
 
     try:
         pessoa_uuid = uuid.UUID(contact_id)
@@ -559,7 +555,6 @@ def link_cell(
     A person belongs to a single cell (delta-049): the first link is open to the
     normal flow, but MOVING someone from one cell to another is admin-only.
     """
-    ensure_tenant_context(db, current_user)
 
     try:
         pessoa_uuid = uuid.UUID(contact_id)

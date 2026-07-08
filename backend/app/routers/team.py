@@ -31,7 +31,7 @@ from app.deps import (
     get_current_user,
     require_role,
 )
-from app.routers._common import Page, PaginationParams, ensure_tenant_context
+from app.routers._common import Page, PaginationParams
 from app.services.brevo import BrevoClient, BrevoError, get_brevo_client
 from app.services.clerk import ClerkClient, get_clerk_client
 
@@ -183,7 +183,6 @@ def list_members(
     expõe e-mail (PII) e o mapa de papéis. O painel usa GET /team/lookup (enxuto,
     sem e-mail) para resolver nomes — não este endpoint. Paginado (RNF-09).
     """
-    ensure_tenant_context(db, current_user)
 
     total = db.execute(
         select(func.count()).select_from(AppUser)
@@ -233,7 +232,6 @@ def list_members_lookup(
     os papéis. O e-mail (PII) é OMITIDO de propósito; a lista completa com e-mail
     vive em GET /team, restrita a admin/pastor/lider_g12.
     """
-    ensure_tenant_context(db, current_user)
 
     total = db.execute(
         select(func.count()).select_from(AppUser)
@@ -366,7 +364,6 @@ def invite_member(
     Duplicate tenant e-mail is rejected (409). The e-mail send is best-effort
     (emailEnviado=false on failure), so an invite can be re-sent.
     """
-    ensure_tenant_context(db, current_user)
     igreja_uuid = uuid.UUID(current_user.igreja_id)
     email = str(payload.email).strip().lower()
 
@@ -486,7 +483,6 @@ def update_roles(
     church is never left without an administrator; revoked admins don't count
     toward that floor (mirrors the revoke guard).
     """
-    ensure_tenant_context(db, current_user)
     igreja_uuid = uuid.UUID(current_user.igreja_id)
 
     try:
@@ -561,7 +557,6 @@ def resend_invite(
     send is best-effort: emailEnviado=false when the provider fails, so the
     invite can be re-sent again without side effects.
     """
-    ensure_tenant_context(db, current_user)
 
     try:
         user_uuid = uuid.UUID(usuario_id)
@@ -612,7 +607,6 @@ def revoke_member(
     never left without an administrator. A cross-tenant id is invisible under RLS
     and returns 404 (S4: never reveal existence). Already-revoked is idempotent.
     """
-    ensure_tenant_context(db, current_user)
     igreja_uuid = uuid.UUID(current_user.igreja_id)
 
     try:

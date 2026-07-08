@@ -26,7 +26,6 @@ from app.db.models import CelulaSolicitacao, Multiplicacao
 from app.db.session import get_db
 from app.deps import CurrentUser, require_central
 from app.domain.cell_requests import STATUS_AGUARDANDO, TIPO_MULTIPLICACAO
-from app.routers._common import ensure_tenant_context
 
 logger = logging.getLogger("pastorai.multiplicacoes")
 
@@ -106,7 +105,6 @@ def list_multiplicacoes(
     de todas as solicitações driblando o escopo por autor de `/cell-requests`.
     Filtro `igreja_id` explícito além da RLS (defesa em profundidade).
     """
-    ensure_tenant_context(db, current_user)
     igreja_id = uuid.UUID(current_user.igreja_id)
 
     pendentes = db.execute(

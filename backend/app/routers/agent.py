@@ -28,7 +28,6 @@ from sqlalchemy.orm import Session
 from app.db.models import AgentConfig, AgentConfigRequest, Cron, LlmCredential
 from app.db.session import get_db
 from app.deps import CurrentUser, require_role
-from app.routers._common import ensure_tenant_context
 from app.services.crypto import encrypt_secret
 from app.services.llm import (
     SUPPORTED_PROVIDERS,
@@ -86,7 +85,6 @@ def save_credential(
       agent will not operate until a valid key is provided.
     - Provider/network error -> 502 (the credential is not falsely deactivated).
     """
-    ensure_tenant_context(db, current_user)
     igreja_uuid = uuid.UUID(current_user.igreja_id)
 
     try:
@@ -148,7 +146,6 @@ def get_credential(
     Lets the screen show "key configured" on open instead of looking empty. The
     key is never returned — only the status and provider.
     """
-    ensure_tenant_context(db, current_user)
     igreja_uuid = uuid.UUID(current_user.igreja_id)
 
     cred = db.execute(
@@ -202,7 +199,6 @@ def get_agent_config(
     current_user: CurrentUser = Depends(require_role(["admin"])),
 ) -> AgentConfigStatusResponse:
     """Return the saved agent config so the screen reflects it on open."""
-    ensure_tenant_context(db, current_user)
     igreja_uuid = uuid.UUID(current_user.igreja_id)
 
     cfg = db.execute(
@@ -273,7 +269,6 @@ def create_config_request(
     A config segue exclusiva do master (delta-043); esta é a via oficial do admin
     pedir ajustes. Escopada à igreja do solicitante (RLS + igreja_id explícito).
     """
-    ensure_tenant_context(db, current_user)
     igreja_uuid = uuid.UUID(current_user.igreja_id)
 
     req = AgentConfigRequest(
@@ -294,7 +289,6 @@ def list_config_requests(
     current_user: CurrentUser = Depends(require_role(["admin"])),
 ) -> list[AgentConfigRequestResponse]:
     """Lista as requisições da própria igreja (histórico + status) para o admin."""
-    ensure_tenant_context(db, current_user)
     igreja_uuid = uuid.UUID(current_user.igreja_id)
 
     rows = (
@@ -373,7 +367,6 @@ def create_cron(
     The state trigger (`gatilhoEstado`) is validated against the known set before
     persisting, so an invalid trigger never reaches the cron_worker.
     """
-    ensure_tenant_context(db, current_user)
     igreja_uuid = uuid.UUID(current_user.igreja_id)
 
     cron = Cron(
@@ -405,7 +398,6 @@ def list_crons(
     current_user: CurrentUser = Depends(require_role(["admin"])),
 ) -> list[CronResponse]:
     """List the igreja's crons for the Agendamentos tab (scoped by igreja_id)."""
-    ensure_tenant_context(db, current_user)
     igreja_uuid = uuid.UUID(current_user.igreja_id)
 
     rows = (
@@ -450,7 +442,6 @@ def update_cron(
     another tenant is never found and the request 404s (no cross-tenant edit).
     Disabling is done by toggling `ativo` (soft-disable); rows are not deleted.
     """
-    ensure_tenant_context(db, current_user)
     igreja_uuid = uuid.UUID(current_user.igreja_id)
 
     cron = db.execute(

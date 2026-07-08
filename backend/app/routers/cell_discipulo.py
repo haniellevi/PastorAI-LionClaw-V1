@@ -44,7 +44,6 @@ from app.db.models import (
 from app.db.session import get_db
 from app.deps import CurrentUser, get_current_user, resolve_actor_pessoa_id
 from app.domain.cell_meetings_schedule import meeting_has_passed
-from app.routers._common import ensure_tenant_context
 
 # Reuso dos helpers/constantes de cell_meetings.py (PR2) — não reimplementar.
 from app.routers.cell_meetings import (
@@ -200,7 +199,6 @@ def get_my_next_meeting(
     (4.1/4.3b) e retornam ``meeting: null`` (não erro). "Futura" segue E4
     (``America/Sao_Paulo``): a mais próxima ocorrência ainda não ocorrida.
     """
-    ensure_tenant_context(db, current_user)
     igreja_id = uuid.UUID(current_user.igreja_id)
 
     pessoa_id = _require_pessoa(db, current_user)
@@ -269,7 +267,6 @@ def get_my_notices(
     Escopo 'igreja' (broadcast) sempre; escopo 'celula' só da célula ativa do
     membro. Apenas ``ativo=true``. Sem dados de gestão/terceiros.
     """
-    ensure_tenant_context(db, current_user)
     igreja_id = uuid.UUID(current_user.igreja_id)
 
     cell_id: uuid.UUID | None = None
@@ -329,7 +326,6 @@ def get_my_history(
     ``meus_visitantes_indicados`` (só os do próprio membro). NUNCA expõe
     decisões/oração/relatório da reunião nem presença de terceiros (RF-05/RF-30).
     """
-    ensure_tenant_context(db, current_user)
     igreja_id = uuid.UUID(current_user.igreja_id)
 
     empty = HistoryPage(items=[], page=page, page_size=page_size, total=0)
@@ -391,7 +387,6 @@ def confirm_my_attendance(
     - 409 se a reunião JÁ ocorreu no fuso America/Sao_Paulo (E4);
     - senão grava ``estado='confirmada'``/``origem='auto'`` (upsert) e responde 200.
     """
-    ensure_tenant_context(db, current_user)
     igreja_id = uuid.UUID(current_user.igreja_id)
     reuniao = _get_reuniao_or_404(db, reuniao_id, igreja_id)
 
@@ -441,7 +436,6 @@ def confirm_my_attendance(
         # Corrida no UNIQUE (igreja_id, reuniao_id, pessoa_id): recupera e aplica
         # last-write-wins; presença é SEMPRE 200 (nunca 409 por duplicidade).
         db.rollback()
-        ensure_tenant_context(db, current_user)
         recovered = _find_presenca(db, igreja_id, reuniao.id, pessoa_id)
         if recovered is None:
             logger.error(
@@ -488,7 +482,6 @@ def revert_my_attendance(
     - senão remove a linha de presença do membro (idempotente) e responde 200 com
       ``minha_presenca='nao_confirmou'``.
     """
-    ensure_tenant_context(db, current_user)
     igreja_id = uuid.UUID(current_user.igreja_id)
     reuniao = _get_reuniao_or_404(db, reuniao_id, igreja_id)
 
@@ -539,7 +532,6 @@ def indicate_my_visitor(
     - 422 para nome inválido (validação de borda no Pydantic);
     - 403 sem Pessoa vinculada ou sem vínculo ativo na célula da reunião (E11).
     """
-    ensure_tenant_context(db, current_user)
     igreja_id = uuid.UUID(current_user.igreja_id)
     reuniao = _get_reuniao_or_404(db, reuniao_id, igreja_id)
 
