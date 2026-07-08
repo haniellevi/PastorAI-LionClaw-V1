@@ -33,8 +33,13 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db.models import Conversation, Message, Pessoa, WhatsappConnection
-from app.db.rls import set_tenant_context_for_igreja
+from app.db.rls_observability import log_if_not_scoped
 from app.db.session import get_session_factory
+from app.db.tenant_session import (
+    mark_cross_tenant,
+    mark_tenant_scoped,
+    promote_to_tenant,
+)
 from app.domain.conversations import (
     ParsedMessage,
     media_snippet,
@@ -108,6 +113,12 @@ def ingest_message_event_ex(
     a resolver failure degrades gracefully (the row keeps its media `tipo` so
     the panel shows a placeholder, instead of losing the message).
     """
+    # Fase 1 (D4) — saída cross-tenant NOMEADA: o lookup por `instance` descobre
+    # a igreja e por isso PRECISA rodar sem escopo (no papel de conexão). Marcar
+    # explicitamente torna a ordem "lookup-antes-de-promoção" uma invariante
+    # executável: promote_to_tenant abaixo FALHA (TenantPromotionError) se esta
+    # fase não a preceder — a ordem virou estrutura, não comentário.
+    mark_cross_tenant(db, source="worker_ingest")
     connection = db.execute(
         select(WhatsappConnection).where(
             WhatsappConnection.instance == parsed.instance
@@ -120,12 +131,12 @@ def ingest_message_event_ex(
         return IngestionOutcome(result=IngestionResult.SKIPPED_NOT_OFFICIAL)
 
     igreja_id = connection.igreja_id
-    # Fase 0 (#10b): a partir daqui o processamento é escopado à igreja. Ativa o
-    # tenant-context por igreja_id (o contato do WhatsApp não tem JWT do Clerk) e
-    # cai no papel `authenticated` para a RLS valer no caminho assíncrono. O
-    # lookup de whatsapp_connections acima é deliberadamente cross-tenant
-    # (descobre a igreja pelo `instance`) e por isso roda ANTES desta linha.
-    set_tenant_context_for_igreja(db, igreja_id)
+    # Fase 2 (D4/#10b): promoção explícita para tenant-scoped. A partir daqui o
+    # processamento é escopado à igreja (GUC app.tenant_igreja_id + papel
+    # `authenticated`, pois o contato do WhatsApp não tem JWT do Clerk). O
+    # listener after_begin (D2) reaplica o escopo em toda transação futura desta
+    # sessão marcada — inclusive após o commit da ingestão.
+    promote_to_tenant(db, igreja_id, source="worker_ingest")
     inbound = not parsed.from_me
 
     # Data integrity (regra do usuário + US-07): só uma mensagem RECEBIDA de um
@@ -428,9 +439,17 @@ def run_agent_for_message(session_factory: Any, outcome: IngestionOutcome) -> No
     session: Session = session_factory()
     try:
         # Fase 0 (#10b): RLS por igreja também no caminho do agente — é aqui que
-        # tools, retrieval da KB e memória vão ler/escrever dados do tenant.
+        # tools, retrieval da KB e memória vão ler/escrever dados do tenant. A
+        # sessão reaberta é marcada pelo seam (D3): mark_tenant_scoped pina o
+        # tenant e o listener after_begin reaplica o escopo em cada transação.
         if outcome.igreja_id is not None:
-            set_tenant_context_for_igreja(session, outcome.igreja_id)
+            mark_tenant_scoped(session, outcome.igreja_id, source="worker_agent")
+            # Sinal de observabilidade (PR1/feat-004) no ponto de amostra do
+            # seam no worker: se a sessão reaberta NÃO ficou tenant-scoped
+            # (perda de contexto / BYPASSRLS inesperado / fallback), emite log
+            # estruturado sem PII (só source/role/igreja_id). É a fonte do
+            # gatilho de rollback da SPEC §9/10.
+            log_if_not_scoped(session, source="worker_agent")
         result = process_inbound_message(
             session, conversation_id=outcome.conversation_id, texto=outcome.texto
         )
@@ -453,7 +472,7 @@ def run_agent_for_message(session_factory: Any, outcome: IngestionOutcome) -> No
     session = session_factory()
     try:
         if outcome.igreja_id is not None:
-            set_tenant_context_for_igreja(session, outcome.igreja_id)
+            mark_tenant_scoped(session, outcome.igreja_id, source="worker_agent")
         conv = session.get(Conversation, outcome.conversation_id)
         if conv is not None:
             session.add(

@@ -25,10 +25,14 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
+
+from app.db.session import get_session_factory
+from app.db.tenant_session import mark_tenant_scoped
 
 from app.db.models import (
     AgentConversationLog,
@@ -340,17 +344,34 @@ class SlaEngine:
 
 
 def run_all_igrejas(
-    session: Session, engine: SlaEngine | None = None, now: dt.datetime | None = None
+    session: Session,
+    engine: SlaEngine | None = None,
+    now: dt.datetime | None = None,
+    *,
+    session_factory: Callable[[], Session] | None = None,
 ) -> int:
     """Run the SLA engine for every igreja with an SLA-relevant open item.
 
     Returns the number of breaches handled across all tenants. Tenant set is
     derived from open work_queue items and open consolidacoes so we do not scan
     igrejas with nothing pending.
+
+    Pinning (D3): uma sessão tenant-scoped NÃO pode ser re-fixada em outra
+    igreja. Por isso o sweep NÃO reutiliza uma única sessão iterando tenants
+    (estratégia (a) do SPEC): a DESCOBERTA do conjunto de igrejas roda na
+    `session` compartilhada (papel de conexão / BYPASSRLS — deliberadamente
+    cross-tenant), mas CADA igreja é processada numa NOVA sessão
+    `mark_tenant_scoped`, fechada ao fim da iteração. Assim nenhuma sessão é
+    remarcada (sem TenantPinConflictError) e o role/GUC nunca vaza ao pool.
     """
     engine = engine or SlaEngine()
     now = now or _now()
+    if session_factory is None:
+        session_factory = get_session_factory()
 
+    # Descoberta cross-tenant: a `session` compartilhada roda no papel de conexão
+    # (BYPASSRLS), então enxerga todas as igrejas com pendências. Nenhuma escrita
+    # acontece aqui — só a coleta do conjunto de tenants a varrer.
     igreja_ids: set[uuid.UUID] = set()
     igreja_ids.update(
         session.execute(select(WorkQueueItem.igreja_id).distinct()).scalars().all()
@@ -365,9 +386,17 @@ def run_all_igrejas(
 
     total = 0
     for igreja_id in igreja_ids:
+        # Uma NOVA sessão tenant-scoped por igreja (D3). Fresh a cada iteração:
+        # mark_tenant_scoped a pina no tenant sem risco de re-fixação.
+        tenant_session = session_factory()
         try:
-            total += len(engine.run_for_igreja(session, igreja_id, now))
+            mark_tenant_scoped(tenant_session, igreja_id, source="cron_sla")
+            total += len(engine.run_for_igreja(tenant_session, igreja_id, now))
         except Exception:  # noqa: BLE001 - one tenant must not break the others
             logger.exception("SLA engine failed for igreja %s", igreja_id)
-            session.rollback()
+            tenant_session.rollback()
+        finally:
+            # Fecha SEMPRE (inclusive na exceção): sem isso a conexão voltaria ao
+            # pool no papel `authenticated` com o GUC do tenant (§5.7).
+            tenant_session.close()
     return total

@@ -196,7 +196,9 @@ def test_tick_runs_sla_sweep_and_due_crons(monkeypatch) -> None:
     import app.workers.cron_worker as worker_module
 
     monkeypatch.setattr(
-        worker_module, "run_all_igrejas", lambda s, e, now: 3
+        worker_module,
+        "run_all_igrejas",
+        lambda s, e, now, session_factory=None: 3,
     )
 
     worker = CronWorker(
