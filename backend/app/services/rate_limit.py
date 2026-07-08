@@ -49,14 +49,19 @@ def client_ip(request: Request) -> str:
     """Deriva o IP do cliente respeitando o proxy reverso (X-Forwarded-For).
 
     O backend roda atrás de proxy (VPS/Vercel), então ``request.client.host``
-    seria o IP do proxy. Usa o primeiro hop de ``X-Forwarded-For`` quando
-    presente; senão cai no peer direto.
+    seria o IP do proxy. Cada proxy no caminho ACRESCENTA o peer que observou
+    ao final da lista de ``X-Forwarded-For`` (convenção padrão do Caddy/nginx)
+    — o último hop não vazio é o mais próximo do nosso proxy e, portanto, o
+    confiável; o primeiro valor é o que o cliente original mandou e pode ser
+    forjado livremente (ex.: ``curl -H "X-Forwarded-For: 1.2.3.4"``), o que
+    bypassaria o rate limit por IP se fosse usado. Cai em ``X-Real-IP`` e
+    depois no peer direto quando não há um hop válido.
     """
     forwarded = request.headers.get("x-forwarded-for")
     if forwarded:
-        first = forwarded.split(",", 1)[0].strip()
-        if first:
-            return first
+        hops = [hop.strip() for hop in forwarded.split(",") if hop.strip()]
+        if hops:
+            return hops[-1]
     real_ip = request.headers.get("x-real-ip")
     if real_ip:
         return real_ip.strip()

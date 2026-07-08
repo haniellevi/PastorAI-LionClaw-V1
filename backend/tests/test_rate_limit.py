@@ -17,7 +17,12 @@ from fastapi.testclient import TestClient
 from app.config import get_settings
 from app.db.session import get_db
 from app.services.clerk import get_clerk_client
-from app.services.rate_limit import RateLimiter, RateLimitExceeded, get_rate_limiter
+from app.services.rate_limit import (
+    RateLimiter,
+    RateLimitExceeded,
+    client_ip,
+    get_rate_limiter,
+)
 from tests.conftest import FakeClerk, FakeSession, make_app_user
 
 
@@ -76,6 +81,16 @@ def _enable(monkeypatch, **overrides) -> None:
     monkeypatch.setattr(settings, "rate_limit_auth_enabled", True, raising=False)
     for name, value in overrides.items():
         monkeypatch.setattr(settings, name, value, raising=False)
+
+
+# ---- Unit: client_ip ---------------------------------------------------------
+
+
+def test_client_ip_uses_last_hop_not_client_supplied_first_hop() -> None:
+    # O primeiro valor (1.2.3.4) é o que o cliente mandou — forjável. O nosso
+    # proxy acrescenta o peer real ao final; é esse o valor confiável.
+    request = _fake_request(ip="1.2.3.4, 10.0.0.9, 203.0.113.7")
+    assert client_ip(request) == "203.0.113.7"
 
 
 # ---- Unit: RateLimiter ------------------------------------------------------
