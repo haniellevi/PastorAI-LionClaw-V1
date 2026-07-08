@@ -370,6 +370,27 @@ def process_inbound_message(
             handled=True, route=None, response=None, suppressed=True, reason="optout"
         )
 
+    # CSIM/Fora da igreja (Missão 7B-3): uma vez classificado sem_interesse, o
+    # agente nunca mais auto-engaja — mesma forma do opt-out. A classificação em
+    # si (1ª vez) ainda roda pelo grafo: aqui `pessoa.sem_interesse` só é True
+    # depois que um turno anterior já persistiu o flag.
+    if pessoa.sem_interesse:
+        log_agent_event(
+            session,
+            igreja_id=igreja_id,
+            evento="agent_suppressed_csim",
+            payload={"conversationId": str(conv_uuid), "pessoaId": str(pessoa.id)},
+            conversation_id=conv_uuid,
+        )
+        session.commit()
+        return AgentTurnResult(
+            handled=True,
+            route=None,
+            response=None,
+            suppressed=True,
+            reason="sem_interesse",
+        )
+
     # US-27: the agent does not operate without a validated, active credential.
     cred = _active_credential(session, igreja_id)
     if cred is None:
@@ -389,6 +410,19 @@ def process_inbound_message(
     config = session.execute(
         select(AgentConfig).where(AgentConfig.igreja_id == igreja_id)
     ).scalar_one_or_none()
+
+    # Missão 7B-3: o master pode pausar o agente por igreja (AgentConfig.ativo)
+    # mesmo com credencial BYO válida — o toggle é o desligamento explícito.
+    if config is not None and not config.ativo:
+        log_agent_event(
+            session,
+            igreja_id=igreja_id,
+            evento="agent_skipped_config_inativo",
+            payload={"conversationId": str(conv_uuid)},
+            conversation_id=conv_uuid,
+        )
+        session.commit()
+        return AgentTurnResult(handled=False, reason="config_inativo")
 
     accepted_version = _latest_consent_version(session, igreja_id, pessoa.id)
     privilege = _resolve_privilege(session, igreja_id, pessoa)

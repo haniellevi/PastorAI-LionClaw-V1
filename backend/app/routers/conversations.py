@@ -255,8 +255,11 @@ def list_conversations(
         rows_q = rows_q.where(restrict)
     rows = db.execute(
         rows_q
-        # Human-queue first (espera_desde set), then most recently updated.
+        # CSIM/Fora da igreja sempre por último (Missão 7B-3); dentro de cada
+        # grupo, fila humana primeiro (espera_desde set), depois mais recente.
+        # coalesce cobre conversa sem pessoa vinculada (NULL não é empurrado).
         .order_by(
+            func.coalesce(Pessoa.sem_interesse, False).asc(),
             Conversation.espera_desde.asc().nulls_last(),
             desc(Conversation.updated_at),
         )
