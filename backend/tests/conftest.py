@@ -11,7 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.db.models import AppUser, PasswordResetToken, RolePermission
+from app.db.models import AppUser, PasswordResetToken, Plano, RolePermission
 from app.services.clerk import ClerkAuthError, ClerkIdentity
 
 
@@ -56,6 +56,7 @@ class FakeSession:
         roles: list[str] | None = None,
         role_permissions: list[tuple[str, str]] | None = None,
         reset_token=None,
+        planos: list | None = None,
     ) -> None:
         self.app_user = app_user
         self.roles = roles or []
@@ -63,6 +64,10 @@ class FakeSession:
         self.role_permissions = role_permissions or []
         # SEC-3B/MEDIO-003: linha de password_reset_tokens pro fluxo de reset.
         self.reset_token = reset_token
+        # Catálogo `planos` (migration 0012) p/ testar checkout/catálogo de
+        # subscription.py — só os ATIVOS "existem" p/ as queries do router
+        # (que sempre filtram `ativo=True`), como no banco real.
+        self.planos = planos or []
 
     def execute(self, statement, params=None) -> _FakeResult:
         descriptions = getattr(statement, "column_descriptions", None)
@@ -89,8 +94,19 @@ class FakeSession:
             return _FakeResult(rows=self.role_permissions)
         if entity is PasswordResetToken:
             return _FakeResult(scalar=self.reset_token)
+        if entity is Plano:
+            ativos = [p for p in self.planos if getattr(p, "ativo", True)]
+            return _FakeResult(
+                scalar=ativos[0] if ativos else None, scalars_list=ativos
+            )
         # Anything else here is the UserRole.papel projection.
         return _FakeResult(scalars_list=self.roles)
+
+    def add(self, obj) -> None:  # pragma: no cover - in-memory, nothing to persist
+        pass
+
+    def refresh(self, obj) -> None:  # pragma: no cover - object is already "live"
+        pass
 
     def commit(self) -> None:  # pragma: no cover - in-memory, nothing to persist
         pass

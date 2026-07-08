@@ -2,23 +2,25 @@
  * Cliente da API de assinatura Asaas (tela #assinatura).
  * Consome o backend (sprint-009 / US-34..36):
  *
- *   GET  /subscription   -> { plano, status, pessoas, limite, proximaCobranca, setupPago }
- *   POST /subscription   -> { status, invoiceUrl, asaasSubscriptionId }   (checkout)
+ *   GET  /subscription          -> { plano, status, pessoas, limite, proximaCobranca, setupPago }
+ *   POST /subscription          -> { status, invoiceUrl, asaasSubscriptionId }   (checkout)
+ *   GET  /subscription/planos   -> { planos: PlanInfo[], setupFee }             (catálogo)
  *
  * O upgrade automático por porte é feito pelo trigger `trg_subscription_autoupgrade`
  * (refletido no GET). O acesso é admin-only (delta-005). Pagamento pendente não
  * libera acesso (status `pendente` => "aguardando confirmação"); inadimplente
  * exibe regularização.
  *
- * O catálogo de planos espelha `app/domain/billing.py` (fonte de verdade dos
- * limites/preços); os rótulos seguem o artifact travado. A taxa de setup é
- * design-locked (cobrada uma vez, refletida em `setupPago`).
+ * O catálogo de planos e a taxa de setup vêm da tabela `planos` (migration
+ * 0012, editada pelo master em /admin/planos) via GET /subscription/planos —
+ * não é mais um array fixo aqui, senão a edição do master não valia pro tenant.
  */
 
 import { ApiError, authedFetch, readDetail } from "./dashboard-api";
 
-/** Códigos de plano (subscriptions.plano) — escada de porte. */
-export type PlanCode = "ate_100" | "101_200" | "acima_201";
+/** Código de plano (subscriptions.plano / planos.codigo) — catálogo dinâmico
+ * definido pelo master, não uma escada fixa de 3 valores. */
+export type PlanCode = string;
 
 /** Status normalizado da assinatura no backend. */
 export type SubscriptionStatus = "ativa" | "pendente" | "inadimplente";
@@ -50,18 +52,44 @@ export interface PlanInfo {
   preco: number;
 }
 
-/** Taxa de implantação (setup fee) — cobrada uma vez (design-locked). */
-export const SETUP_FEE = 290;
+/** Catálogo de planos ativos + taxa de setup vigente. */
+export interface PlanCatalog {
+  planos: PlanInfo[];
+  setupFee: number;
+}
 
-/** Catálogo de planos (espelha billing.py + catálogo `planos` do PRD: 199/299/399). */
-export const PLAN_CATALOG: PlanInfo[] = [
-  { code: "ate_100", label: "Célula", limite: 100, preco: 199 },
-  { code: "101_200", label: "Comunidade", limite: 200, preco: 299 },
-  { code: "acima_201", label: "Rede", limite: null, preco: 399 },
-];
+interface RawPlanoOut {
+  codigo: string;
+  nome: string;
+  limitePessoas: number | null;
+  precoMensal: number;
+}
 
-export function planInfo(code: PlanCode): PlanInfo {
-  return PLAN_CATALOG.find((p) => p.code === code) ?? PLAN_CATALOG[0]!;
+interface RawPlanCatalogOut {
+  planos: RawPlanoOut[];
+  setupFee: number;
+}
+
+export function planInfo(catalog: PlanInfo[], code: PlanCode): PlanInfo | undefined {
+  return catalog.find((p) => p.code === code);
+}
+
+/** Catálogo de planos ATIVOS (tabela `planos`, editada pelo master) + taxa de setup. */
+export async function fetchPlanCatalog(token: string): Promise<PlanCatalog> {
+  const res = await authedFetch(token, "/subscription/planos");
+  if (!res.ok) {
+    throw new ApiError(res.status, "Não foi possível carregar o catálogo de planos.");
+  }
+  const data = (await res.json()) as RawPlanCatalogOut;
+  return {
+    setupFee: data.setupFee,
+    planos: data.planos.map((p) => ({
+      code: p.codigo,
+      label: p.nome,
+      limite: p.limitePessoas,
+      preco: p.precoMensal,
+    })),
+  };
 }
 
 /** Indica o estado de UI a partir do status da assinatura. */
