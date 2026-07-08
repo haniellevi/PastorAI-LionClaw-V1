@@ -104,6 +104,27 @@ def test_prod_fails_without_explicit_origins() -> None:
         ).assert_production_ready()
 
 
+@pytest.mark.parametrize(
+    "bad_origin",
+    [
+        "https://",  # no host
+        "https://*",  # wildcard host
+        "https://LOCALHOST:3000",  # loopback, case-insensitive
+        "https://[::1]",  # IPv6 loopback
+        "https://app.igreja12.com.br/callback?x=1",  # path + query
+    ],
+)
+def test_prod_fails_with_invalid_origin_shapes(bad_origin: str) -> None:
+    with pytest.raises(RuntimeError, match="FRONTEND_URL|APP_BASE_URL"):
+        _prod(frontend_url=bad_origin).assert_production_ready()
+
+
+def test_prod_accepts_origin_with_trailing_slash() -> None:
+    # A bare trailing slash is tolerated: cors_origins strips it before
+    # matching the browser-sent Origin header (see test_config_cors.py).
+    _prod(frontend_url="https://app.igreja12.com.br/").assert_production_ready()
+
+
 def test_cors_origins_never_wildcard() -> None:
     assert "*" not in _prod().cors_origins
     assert "*" not in Settings(_env_file=None, app_env="development").cors_origins

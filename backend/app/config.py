@@ -7,12 +7,42 @@ Centralizes configuration and validates required variables at startup
 from __future__ import annotations
 
 from functools import lru_cache
+from urllib.parse import urlparse
 
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Minimum length (chars) for a dedicated production session secret (BAIXO-001).
 MIN_SESSION_SECRET_LEN = 32
+
+# Hostnames that are never acceptable as a production CORS origin (MEDIO-001).
+_LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
+
+def _is_valid_production_origin(url: str) -> bool:
+    """True if ``url`` is usable as an explicit-https CORS origin in production.
+
+    Rejects missing values, non-https schemes, missing/wildcard host, and
+    loopback/localhost hosts (case-insensitive, incl. the 127.0.0.0/8 range and
+    IPv6 ``::1``). A trailing slash alone is tolerated — browsers send the
+    ``Origin`` header as scheme+host+port with no path, and ``cors_origins``
+    already strips it (see test_config_cors.py: a stored trailing slash once
+    broke every cross-origin auth call in production). Any other path, a
+    query string or a fragment is rejected.
+    """
+    if not url:
+        return False
+    parsed = urlparse(url)
+    if parsed.scheme != "https":
+        return False
+    host = parsed.hostname
+    if not host or host == "*":
+        return False
+    if host in _LOOPBACK_HOSTS or host.startswith("127."):
+        return False
+    if parsed.path not in ("", "/"):
+        return False
+    return not (parsed.query or parsed.fragment)
 
 
 class Settings(BaseSettings):
@@ -263,13 +293,11 @@ class Settings(BaseSettings):
             ("FRONTEND_URL", self.frontend_url),
             ("APP_BASE_URL", self.app_base_url),
         ):
-            if (
-                not url
-                or not url.startswith("https://")
-                or "localhost" in url
-                or "127.0.0.1" in url
-            ):
-                problems.append(f"{name} must be an explicit https URL")
+            if not _is_valid_production_origin(url):
+                problems.append(
+                    f"{name} must be an explicit https URL "
+                    "(no wildcard/localhost/loopback/path/query)"
+                )
 
         if problems:
             raise RuntimeError(
