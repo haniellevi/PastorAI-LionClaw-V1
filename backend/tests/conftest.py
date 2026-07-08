@@ -27,10 +27,11 @@ class _FakeScalars:
 
 
 class _FakeResult:
-    def __init__(self, scalar=None, scalars_list=None, rows=None) -> None:
+    def __init__(self, scalar=None, scalars_list=None, rows=None, one_row=None) -> None:
         self._scalar = scalar
         self._scalars_list = scalars_list or []
         self._rows = rows or []
+        self._one_row = one_row
 
     def scalar_one_or_none(self):
         return self._scalar
@@ -40,6 +41,10 @@ class _FakeResult:
 
     def all(self) -> list:
         return list(self._rows)
+
+    def one(self):
+        # Usado pelo probe read-only de observabilidade (rls_observability).
+        return self._one_row
 
 
 class FakeSession:
@@ -59,7 +64,20 @@ class FakeSession:
     def execute(self, statement, params=None) -> _FakeResult:
         descriptions = getattr(statement, "column_descriptions", None)
         if not descriptions:
-            # e.g. select set_config(...) text clause for RLS context.
+            # Cláusula text(): set_config(...) da RLS OU o probe read-only de
+            # observabilidade do seam (select current_setting/current_igreja_id).
+            sql = str(getattr(statement, "text", statement))
+            if "current_igreja_id" in sql:
+                igreja_id = (
+                    getattr(self.app_user, "igreja_id", None)
+                    if self.app_user
+                    else None
+                )
+                return _FakeResult(
+                    one_row=SimpleNamespace(
+                        role="authenticated", igreja_id=igreja_id
+                    )
+                )
             return _FakeResult()
         entity = descriptions[0].get("entity")
         if entity is AppUser:
@@ -189,4 +207,42 @@ def _celulas_requests_enabled(monkeypatch):
     monkeypatch.setattr(
         get_settings(), "celulas_requests_enabled", True, raising=False
     )
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _seam_fake_session_info(monkeypatch):
+    """Garante `session.info` nas fake sessions ao atravessar o seam (PR3-A).
+
+    O seam de tenant grava sua marca em ``session.info`` (mark_tenant_scoped /
+    mark_cross_tenant, chamados por deps.get_current_user / get_platform_admin).
+    Uma ``Session`` real do SQLAlchemy sempre expõe ``.info``; as fake sessions
+    espalhadas pela suíte (duck-types) não. Em vez de editar cada uma das ~25
+    classes-fake, envolvemos os pontos de entrada do seam usados por ``deps`` num
+    único lugar: se o objeto não tiver ``.info``, injetamos um dict e seguimos
+    para a função REAL (a lógica de marcação/pinning continua sendo exercitada).
+    O código de produção fica intocado — uma Session real nunca cai neste ramo.
+    """
+    import app.deps as deps
+
+    def _ensure_info(session) -> None:
+        if not hasattr(session, "info"):
+            try:
+                session.info = {}
+            except (AttributeError, TypeError):  # pragma: no cover - Session real
+                pass
+
+    real_scoped = deps.mark_tenant_scoped
+    real_cross = deps.mark_cross_tenant
+
+    def _scoped(session, *args, **kwargs):
+        _ensure_info(session)
+        return real_scoped(session, *args, **kwargs)
+
+    def _cross(session, *args, **kwargs):
+        _ensure_info(session)
+        return real_cross(session, *args, **kwargs)
+
+    monkeypatch.setattr(deps, "mark_tenant_scoped", _scoped)
+    monkeypatch.setattr(deps, "mark_cross_tenant", _cross)
     yield

@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from app.db.models import AppUser, Celula, PlatformAdmin, RolePermission, UserRole
 from app.db.rls import set_tenant_context
 from app.db.session import get_db
+from app.db.tenant_session import mark_cross_tenant, mark_tenant_scoped
 from app.domain.permissions import can_access_screen
 from app.services.clerk import ClerkAuthError, ClerkClient, get_clerk_client
 
@@ -114,7 +115,12 @@ def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         ) from exc
 
-    # Inject tenant claim so RLS-backed queries are scoped automatically.
+    # Ovo-e-galinha (OQ#1, opção A documentada): a resolução do app_user precisa
+    # de uma sessão escopada, mas o igreja_id só é conhecido DEPOIS de resolvê-lo.
+    # Semeamos o escopo via o `sub` do Clerk APENAS para esta query de resolução
+    # (current_igreja_id() deriva o tenant do claim). Assim que o igreja_id for
+    # conhecido, promovemos a sessão ao seam com mark_tenant_scoped e o GUC passa
+    # a governar — a sessão final nunca fica não-escopada.
     set_tenant_context(db, identity.clerk_user_id)
 
     app_user = db.execute(
@@ -154,10 +160,27 @@ def get_current_user(
     dono_id = app_user.igreja.dono_id if app_user.igreja else None
     is_owner = dono_id is not None and dono_id == app_user.id
 
+    igreja_id = str(app_user.igreja_id)
+
+    # Seam profundo de tenant (PR2 D2/D3 → PR3-A): a partir daqui a sessão é
+    # OFICIALMENTE tenant-scoped no igreja_id resolvido. mark_tenant_scoped grava
+    # o pin em session.info — o listener after_begin (D2) reaplica o escopo em
+    # TODA transação futura desta sessão, inclusive leituras pós-commit — e
+    # reafirma o escopo agora. current_igreja_id() prioriza o GUC, então daqui em
+    # diante o GUC (não mais a semente via `sub`) governa o tenant efetivo, que
+    # permanece o MESMO. actor_sub/actor_role viajam só como metadado de auditoria.
+    mark_tenant_scoped(
+        db,
+        igreja_id,
+        actor_sub=identity.clerk_user_id,
+        actor_role=(",".join(sorted(roles)) or None),
+        source="http",
+    )
+
     return CurrentUser(
         app_user_id=str(app_user.id),
         clerk_user_id=identity.clerk_user_id,
-        igreja_id=str(app_user.igreja_id),
+        igreja_id=igreja_id,
         email=app_user.email,
         nome=app_user.nome,
         chat_nome=app_user.chat_nome,
@@ -338,10 +361,12 @@ def get_platform_admin(
     A deliberately PARALLEL pipeline to ``get_current_user``, with two crucial
     differences:
 
-      1. It does NOT call ``set_tenant_context``. The session therefore keeps
-         the connection role (BYPASSRLS), so the platform admin can see and
-         manage every igreja. Calling it would scope every query to a single
-         tenant and defeat the purpose of the console.
+      1. It does NOT scope the session to a tenant; instead it marks the
+         session cross-tenant EXPLICITLY (``mark_cross_tenant``, D4). The
+         session therefore keeps the connection role (BYPASSRLS), so the
+         platform admin can see and manage every igreja, and the ``after_begin``
+         listener never re-scopes it. Scoping it would defeat the console; the
+         explicit mark makes the cross-tenant access greppable and auditable.
       2. It is NOT subject to the per-tenant billing gate (a suspended home
          church must not lock the provider out of the platform console).
 
@@ -360,9 +385,14 @@ def get_platform_admin(
             headers={"WWW-Authenticate": "Bearer"},
         ) from exc
 
-    # NOTE: intentionally no set_tenant_context — see docstring. Running as the
-    # BYPASSRLS connection role is what makes the lookups (and the console)
-    # cross-tenant.
+    # Saída cross-tenant EXPLÍCITA e nomeada (D4): sem escopo de tenant, o
+    # listener after_begin (D2) NÃO reaplica escopo algum e a sessão segue no
+    # papel de conexão (BYPASSRLS) — é o que torna o console cross-tenant. Sem
+    # mudança de comportamento em relação ao "simplesmente não chamar
+    # set_tenant_context": marcar apenas torna o acesso cross-tenant greppável
+    # pela API nomeada e provável pelo listener (que respeita a flag cross_tenant).
+    mark_cross_tenant(db, actor_sub=identity.clerk_user_id, source="platform_admin")
+
     app_user = db.execute(
         select(AppUser).where(AppUser.clerk_user_id == identity.clerk_user_id)
     ).scalar_one_or_none()
