@@ -161,12 +161,16 @@ def make_app_user(
     status: str = "ativo",
     chat_nome: str | None = None,
     dono_id: str | None = "00000000-0000-0000-0000-0000000000a1",
+    password_changed_at=None,
 ):
     """Build an app_user stand-in compatible with the deps/router access.
 
     Por padrão o usuário É o dono da igreja (dono_id == seu id, #4), para que os
     testes de telas admin que viraram owner-gated (Assinatura) sigam passando.
     Passe ``dono_id=None`` (ou outro id) para simular um admin que NÃO é o dono.
+    ``password_changed_at`` (SEC-3A/MEDIO-002) default None = comportamento
+    legado (nenhuma sessão é invalidada); os testes dedicados de invalidação
+    passam um datetime explícito.
     """
     igreja = SimpleNamespace(
         id="00000000-0000-0000-0000-000000000001",
@@ -184,6 +188,7 @@ def make_app_user(
         status=status,
         chat_nome=chat_nome,
         igreja=igreja,
+        password_changed_at=password_changed_at,
     )
 
 

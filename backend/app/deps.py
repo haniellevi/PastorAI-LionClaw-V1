@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 
 from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy import select
@@ -24,7 +25,7 @@ from app.db.rls import set_tenant_context
 from app.db.session import get_db
 from app.db.tenant_session import mark_cross_tenant, mark_tenant_scoped
 from app.domain.permissions import can_access_screen
-from app.services.clerk import ClerkAuthError, ClerkClient, get_clerk_client
+from app.services.clerk import ClerkAuthError, ClerkClient, ClerkIdentity, get_clerk_client
 
 # Role that is granted access implicitly to every protected resource (F4).
 ADMIN_ROLE = "admin"
@@ -44,6 +45,16 @@ BLOCKING_IGREJA_STATUSES = {"suspensa", "inadimplente", "aguardando_aprovacao"}
 # panel access on every request even while a previously issued session JWT is
 # still unexpired. Single source of truth, reused by the team and auth routers.
 REVOKED_USER_STATUS = "revogado"
+
+# SEC-3A / MEDIO-002: small tolerance for clock drift between whichever process
+# minted the session JWT and whichever process recorded the password change —
+# a token issued within this window just before `password_changed_at` is still
+# accepted, so ordinary clock skew never flakes a legitimate fresh login.
+_PASSWORD_CHANGE_CLOCK_SKEW = timedelta(seconds=5)
+
+# Same generic message as an invalid/expired token — a session invalidated by
+# a password change must not be distinguishable from any other bad session.
+_STALE_SESSION_DETAIL = "Sessão inválida ou expirada"
 
 
 @dataclass(frozen=True)
@@ -93,6 +104,40 @@ def _extract_bearer_token(authorization: str | None) -> str:
     return parts[1].strip()
 
 
+def _reject_session_predating_password_change(
+    app_user: AppUser, identity: ClerkIdentity
+) -> None:
+    """401 if this session JWT was issued before the account's last password
+    change/reset (SEC-3A / MEDIO-002).
+
+    `password_changed_at` NULL means the account has never gone through
+    change-password/reset-password since this field shipped — every existing
+    session stays valid, so the fix does not log out the whole user base on
+    deploy. Once set, any token whose `iat` is more than
+    `_PASSWORD_CHANGE_CLOCK_SKEW` earlier is rejected with the same generic
+    401 as any other invalid session (never reveals *why* it was rejected).
+    """
+    changed_at = app_user.password_changed_at
+    if changed_at is None:
+        return
+    issued_at_raw = identity.claims.get("iat")
+    if issued_at_raw is None:
+        # A PastorAI-minted token always carries iat; its absence means the
+        # token is malformed/foreign — fail closed like any other bad session.
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=_STALE_SESSION_DETAIL,
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    issued_at = datetime.fromtimestamp(float(issued_at_raw), tz=timezone.utc)
+    if issued_at < changed_at - _PASSWORD_CHANGE_CLOCK_SKEW:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=_STALE_SESSION_DETAIL,
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
 def get_current_user(
     authorization: str | None = Header(default=None),
     db: Session = Depends(get_db),
@@ -140,6 +185,10 @@ def get_current_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Seu acesso foi revogado. Contate o administrador da igreja.",
         )
+
+    # SEC-3A / MEDIO-002: a session minted before the last password change is
+    # a stale credential — reject it like any other invalid session.
+    _reject_session_predating_password_change(app_user, identity)
 
     igreja_status = app_user.igreja.status if app_user.igreja else None
     if igreja_status in BLOCKING_IGREJA_STATUSES:
@@ -400,6 +449,9 @@ def get_platform_admin(
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail=_PLATFORM_DENIED
         )
+
+    # SEC-3A / MEDIO-002: same stale-session rejection as the tenant plane.
+    _reject_session_predating_password_change(app_user, identity)
 
     is_platform_admin = db.execute(
         select(PlatformAdmin.id).where(PlatformAdmin.app_user_id == app_user.id)

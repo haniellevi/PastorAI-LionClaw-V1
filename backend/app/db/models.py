@@ -159,6 +159,12 @@ class AppUser(Base):
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
+    # SEC-3A / MEDIO-002: carimbo da última troca/reset de senha. NULL = nunca
+    # marcado (sessões antigas seguem válidas — sem logout em massa no deploy).
+    # Preenchido, invalida todo JWT de sessão com `iat` anterior a este valor.
+    password_changed_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     roles: Mapped[list["UserRole"]] = relationship(
         back_populates="user", cascade="all, delete-orphan", lazy="selectin"

@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import re
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field, field_validator
@@ -162,6 +163,23 @@ def _unauthorized() -> HTTPException:
     )
 
 
+def _mark_password_changed(db: Session, clerk_user_id: str) -> None:
+    """Registra `password_changed_at` (SEC-3A/MEDIO-002).
+
+    Invalida sessões (JWT próprio) emitidas antes deste instante — ver o check
+    em `app/deps.py`. Sem app_user vinculado a esse clerk_user_id (ex.: conta
+    Clerk ainda não linkada a nenhuma igreja) não há sessão pra invalidar;
+    segue silencioso, sem revelar o estado da conta.
+    """
+    app_user = db.execute(
+        select(AppUser).where(AppUser.clerk_user_id == clerk_user_id)
+    ).scalar_one_or_none()
+    if app_user is None:
+        return
+    app_user.password_changed_at = datetime.now(timezone.utc)
+    db.commit()
+
+
 @router.post("/login", response_model=LoginResponse)
 def login(
     request: Request,
@@ -271,6 +289,7 @@ def forgot_password(
 def reset_password(
     request: Request,
     payload: ResetPasswordRequest,
+    db: Session = Depends(get_db),
     clerk: ClerkClient = Depends(get_clerk_client),
     limiter: RateLimiter = Depends(get_rate_limiter),
 ) -> dict[str, str]:
@@ -278,6 +297,8 @@ def reset_password(
 
     Rate-limited by IP (ALTO-002) — there is no e-mail in this payload, only
     the opaque reset token, so an account-scoped limit does not apply here.
+    Marks `password_changed_at` (SEC-3A/MEDIO-002) so any session issued
+    before this reset stops being accepted.
     """
     settings = get_settings()
     limiter.enforce_ip(
@@ -297,6 +318,7 @@ def reset_password(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Não foi possível redefinir a senha. Tente novamente.",
         ) from exc
+    _mark_password_changed(db, clerk_user_id)
     return {"status": "ok"}
 
 
@@ -498,6 +520,7 @@ def update_me(
 def change_password(
     request: Request,
     payload: ChangePasswordRequest,
+    db: Session = Depends(get_db),
     clerk: ClerkClient = Depends(get_clerk_client),
     current_user: CurrentUser = Depends(get_current_user),
     limiter: RateLimiter = Depends(get_rate_limiter),
@@ -506,7 +529,9 @@ def change_password(
 
     Rate-limitada por IP e por conta (ALTO-002) — mesmo autenticada, essa rota
     aceita uma senha atual incorreta repetidamente e não pode virar um oráculo
-    de brute-force contra a senha real.
+    de brute-force contra a senha real. Marca `password_changed_at`
+    (SEC-3A/MEDIO-002): a PRÓPRIA sessão usada nesta chamada também deixa de
+    ser aceita a partir de agora — força um novo login após a troca.
     """
     settings = get_settings()
     limiter.enforce_ip(
@@ -531,4 +556,5 @@ def change_password(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Não foi possível alterar a senha. Tente novamente.",
         ) from exc
+    _mark_password_changed(db, current_user.clerk_user_id)
     return {"status": "ok"}
