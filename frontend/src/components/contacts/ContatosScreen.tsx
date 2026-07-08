@@ -192,10 +192,12 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
     [],
   );
 
-  const filtered = useMemo(
-    () => contacts.filter((c) => matchesFilter(c, filter)),
-    [contacts, filter],
-  );
+  const filtered = useMemo(() => {
+    const list = contacts.filter((c) => matchesFilter(c, filter));
+    if (filter !== "all") return list;
+    // Sem interesse (CSIM) fica por último na aba Todos (sort estável).
+    return [...list].sort((a, b) => Number(a.semInteresse) - Number(b.semInteresse));
+  }, [contacts, filter]);
 
   const selectedContact = useMemo(
     () => contacts.find((c) => c.id === selected) ?? null,
@@ -306,7 +308,7 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
         header: "Tipo",
         cell: (c) =>
           c.semInteresse ? (
-            <StatusPill tone="danger">Sem interesse</StatusPill>
+            <StatusPill tone="danger">Sem interesse (CSIM)</StatusPill>
           ) : (
             <>
               <StatusPill tone={tipoTone(c.tipo)}>{tipoLabel(c.tipo)}</StatusPill>
@@ -425,15 +427,7 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
                     ? "Crie um contato ou aguarde o agente registrar as conversas."
                     : undefined,
               }}
-              onRowClick={(c) => {
-                setSelected(c.id);
-                // Admin: clicar na linha já abre a edição. Demais papéis só
-                // selecionam (painel lateral à direita).
-                if (canEdit) {
-                  setEditError(null);
-                  setEditTarget(c);
-                }
-              }}
+              onRowClick={(c) => setSelected(c.id)}
             />
           )}
         </div>
@@ -546,7 +540,7 @@ function ContactDetail({
           <div className="sub mono">{contact.telefone}</div>
         </div>
         {contact.semInteresse ? (
-          <StatusPill tone="danger">Sem interesse</StatusPill>
+          <StatusPill tone="danger">Sem interesse (CSIM)</StatusPill>
         ) : (
           <StatusPill tone={tipoTone(contact.tipo)}>{tipoLabel(contact.tipo)}</StatusPill>
         )}
