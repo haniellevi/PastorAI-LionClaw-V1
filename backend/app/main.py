@@ -10,8 +10,9 @@ import logging
 from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from app.config import get_settings
 from app.db.session import get_engine
@@ -44,6 +45,7 @@ from app.routers import (
     whatsapp,
     work_queue,
 )
+from app.services.rate_limit import RateLimitExceeded
 
 logging.basicConfig(
     level=logging.INFO,
@@ -86,6 +88,18 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.exception_handler(RateLimitExceeded)
+    async def _rate_limit_exceeded_handler(
+        _: Request, exc: RateLimitExceeded
+    ) -> JSONResponse:
+        # Corpo genérico e idêntico em toda rota (ALTO-002) — não deve dar
+        # nenhuma pista adicional sobre qual limite/conta foi atingido.
+        return JSONResponse(
+            status_code=429,
+            content={"detail": "Muitas tentativas. Tente novamente mais tarde."},
+            headers={"Retry-After": str(exc.retry_after)},
+        )
 
     app.include_router(auth.router)
     app.include_router(church.router)

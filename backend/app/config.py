@@ -182,6 +182,24 @@ class Settings(BaseSettings):
     # WhatsApp orchestrator but reuses the igreja's BYO LLM credential.
     assistant_default_model: str = Field(default="gpt-4o-mini")
 
+    # ---- Rate limiting nos endpoints de autenticação (ALTO-002) -------------
+    # Kill switch de emergência: desliga todo o rate limiting de auth sem
+    # precisar reverter deploy. Contadores de janela fixa no Redis já usado
+    # pelo worker (REDIS_URL) — ver app/services/rate_limit.py.
+    rate_limit_auth_enabled: bool = Field(default=True)
+    rate_limit_window_seconds: int = Field(default=60, ge=1)
+    # Bloqueio temporário aplicado à CONTA (não ao IP) ao estourar o limite —
+    # encarece brute-force/credential-stuffing sem depender só da janela.
+    rate_limit_block_seconds: int = Field(default=300, ge=1)
+    rate_limit_login_ip_limit: int = Field(default=10, ge=1)
+    rate_limit_login_account_limit: int = Field(default=5, ge=1)
+    rate_limit_forgot_password_ip_limit: int = Field(default=5, ge=1)
+    rate_limit_forgot_password_account_limit: int = Field(default=3, ge=1)
+    rate_limit_reset_password_ip_limit: int = Field(default=10, ge=1)
+    rate_limit_activate_ip_limit: int = Field(default=10, ge=1)
+    rate_limit_change_password_ip_limit: int = Field(default=10, ge=1)
+    rate_limit_change_password_account_limit: int = Field(default=5, ge=1)
+
     @property
     def cors_origins(self) -> list[str]:
         """Allowed CORS origins. Frontend URL plus base URL in dev.

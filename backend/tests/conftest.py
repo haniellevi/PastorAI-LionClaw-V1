@@ -195,6 +195,21 @@ def app():
 
 
 @pytest.fixture(autouse=True)
+def _rate_limit_auth_disabled(monkeypatch):
+    """Rate limiting de auth (ALTO-002) fica OFF por padrão na suíte.
+
+    Sem isso, todo teste que bate em /auth/login etc. tentaria falar com um
+    Redis real (pode nem existir na máquina, e se existir acumularia contador
+    entre execuções da suíte). Os testes dedicados de rate limit ligam a flag
+    e injetam um Redis fake via dependency override — ver test_rate_limit.py.
+    """
+    from app.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "rate_limit_auth_enabled", False, raising=False)
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _celulas_requests_enabled(monkeypatch):
     """O fluxo de Solicitações de célula nasce atrás de flag OFF (rollout).
 
