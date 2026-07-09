@@ -68,14 +68,21 @@ e) **Tarballs soltos** — `.deploy-artifacts/pastorai-backend-ac14850.tar`, `pa
 
 ## 5. Depende de ação humana
 
-- **SEC-0** — rotação de senha/credencial Clerk. Fora do alcance de automação, pendência antiga.
-- Autorização explícita do responsável pra qualquer escrita em `pffafnchtxbimpwyaczq` (regra de ouro do
-  runbook — nunca automático).
+- **SEC-0** — rotação de senha/credencial Clerk. Fora do alcance de automação, pendência antiga. **Único
+  item humano ainda em aberto.**
 - Decisão sobre o conteúdo preservado em `backup/raiz-suja-2026-07-09` (`d0b5053`, item 2): descartar,
   ou formalizar partes dele em branch/PR.
-- **Próximo gate real: smoke funcional autenticado em produção** (admin + líder de célula) — ainda **não
-  feito**. Deploy validado (backend + queue-worker, pós-deploy monitorado PASS) e limpeza local concluída,
-  mas smoke autenticado segue pendente antes de considerar o ciclo PR-A2/SEC-1..3B encerrado ponta-a-ponta.
+- Decisão futura (não urgente): recriar `cron-worker` ou manter como está.
+
+## 7. Smoke funcional autenticado em produção — ✅ **PASS 2026-07-09** (`SMOKE_PROD_READ_ONLY_PASS`)
+
+Executado Bloco A (admin) + Bloco C (líder), só read-only, sessão PROD ativa no browser conectado
+(nunca digitei credencial). Ver `docs/sprints/SMOKE-PROD-PLAN-2026-07-09.md` e
+`docs/sprints/DEPLOY-HANDOFF-2026-07-09.md` pra evidência completa. Resumo: prova cruzada confirma
+PR-A2 funcionando ponta-a-ponta em produção (admin vê 4 pessoas com `célula = Celula 1`; líder vê as
+mesmas 4 como discípulos ativos via `celula_membro`). Zero escrita, zero efeito externo disparado, Bloco
+B (criar dado de teste) não precisou ser executado. **Ciclo PR-A2/SEC-1..3B encerrado
+ponta-a-ponta** — único item pendente é SEC-0 (ação humana, seção 5).
 
 ## 6a. Validação local — tentativa 1, 2026-07-09 (main-clean sem ambiente) — BLOCKED
 
@@ -116,7 +123,7 @@ working tree limpo.
 **Status final: PASS.** Nenhum arquivo de código alterado, nada commitado, nenhuma migration/deploy.
 `.venv` e `node_modules` agora existem no worktree `main-clean` (efeito esperado do provisionamento).
 
-## 6. Validações antes de qualquer deploy
+## 8. Validações antes de qualquer deploy (histórico, pré-execução)
 
 - `pytest` completo no `main-clean` (passo 4 deste plano).
 - `typecheck` + `lint` + `build` do frontend (idem).

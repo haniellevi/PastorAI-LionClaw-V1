@@ -118,7 +118,43 @@ nenhum desses 5 — é escrita SQL pura + `session.flush()`. Confirmado lendo
 - Blocos D e E não entram no critério de PASS/FAIL do smoke principal — são extensões opcionais,
   avaliadas à parte se rodadas.
 
-## Status
+## Execução — Bloco A + Bloco C, 2026-07-09 — **SMOKE_PROD_READ_ONLY_PASS**
 
-**Plano criado, nada executado.** Aguardando autorização pra rodar Bloco A → C → B → C (reexecução) —
-essa sequência mínima já prova o PR-A2 ponta-a-ponta com risco de efeito externo **zero**.
+Bloco A (admin) e Bloco C (líder) executados, só read-only, via browser conectado com sessão PROD ativa
+(nunca digitei credencial). Bloco B **não executado** — decisão explícita: a prova cruzada A×C já bastou
+sem precisar criar dado novo em produção.
+
+### Bloco A — admin, read-only — PASS
+| Item | Resultado |
+|---|---|
+| Login/acesso (`admin.igreja12.com.br`) | PASS — sessão admin ativa |
+| Dashboard | PASS — carregou sem erro |
+| Pessoas | PASS — 10 pessoas, filtros funcionando |
+| Central de Célula | PASS — 1 célula ativa/saudável, líder "Raniel Lider Celula" |
+| Equipe (Usuários do Sistema) | PASS — 5 usuários |
+| Assinatura | PASS — Plano Célula ativo, R$199/mês |
+| Agenda | PASS — eventos reais de julho/2026 carregaram |
+| Erros | zero 4xx/5xx, zero erro de console |
+| Escrita | zero |
+
+### Bloco C — líder de célula, read-only — PASS
+| Item | Resultado |
+|---|---|
+| Badge | "Líder G12" + "Líder de Célula" |
+| Usuário | "Raniel Lider Celula" |
+| Minha Célula | abriu sem erro |
+| Lista de discípulos | **4 ativos**: Raniel Lider Celula, Whatsapp Filadelfia Corrente, Pastor Raniel, Raniel Levi – Mkt Digital |
+| Próxima reunião / avisos / materiais / solicitações | vazios de forma limpa (estado esperado, não erro) |
+| Erros | zero 4xx/5xx, zero erro de console |
+| Escrita | zero |
+
+### Conclusão — prova cruzada do PR-A2
+
+Os mesmos 4 nomes que o Bloco A mostrou com `célula = Celula 1` na lista de Pessoas (admin) são
+exatamente os 4 que o Bloco C mostrou como discípulos ativos em "Minha Célula" (líder, via
+`celula_membro`). **PR-A2 confirmado funcionando ponta-a-ponta em produção** sem precisar criar dado
+novo — Bloco B (criar/vincular pessoa de teste) tornou-se desnecessário pra essa validação.
+
+**Status final: `SMOKE_PROD_READ_ONLY_PASS`.** Blocos D e E seguem fora deste smoke —
+`DO_NOT_RUN_WITHOUT_APPROVAL` continua valendo pra qualquer ação com efeito externo (WhatsApp, e-mail,
+Google Calendar, cobrança, LLM). Nenhum efeito externo disparado nesta execução.

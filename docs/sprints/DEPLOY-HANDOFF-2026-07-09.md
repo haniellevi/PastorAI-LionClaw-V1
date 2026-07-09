@@ -338,23 +338,41 @@ Produção saudável — health público `{"status":"ok"}` antes e depois do res
 no pós-deploy monitorado. Worktrees órfãos limpos, raiz local de volta a `main` limpo, estado sujo
 anterior preservado em branch de backup.
 
-## Próximo gate real
+## Smoke funcional autenticado em PROD — **SMOKE_PROD_READ_ONLY_PASS**
 
-**Smoke funcional autenticado em produção** (papéis admin + líder de célula) — ainda não feito, é o
-próximo passo real antes de considerar o ciclo PR-A2/SEC-1..3B encerrado ponta-a-ponta.
+Executado (ver `docs/sprints/SMOKE-PROD-PLAN-2026-07-09.md` pra detalhe completo). Bloco A (admin) e
+Bloco C (líder), ambos só read-only, via sessão PROD ativa no browser conectado — nunca digitei
+credencial. Zero escrita, zero efeito externo disparado.
 
-## Pendência humana
+- **Bloco A (admin)**: login, dashboard, Pessoas (10), Central de Célula (1 ativa/saudável), Equipe (5
+  usuários), Assinatura (Plano Célula R$199/mês), Agenda (eventos reais) — tudo PASS, zero 4xx/5xx, zero
+  erro de console.
+- **Bloco C (líder)**: badge "Líder G12"/"Líder de Célula", "Minha Célula" abriu, **4 discípulos ativos**
+  (Raniel Lider Celula, Whatsapp Filadelfia Corrente, Pastor Raniel, Raniel Levi – Mkt Digital) — tudo
+  PASS, zero 4xx/5xx, zero erro de console.
+- **Prova cruzada do PR-A2**: os mesmos 4 nomes que o admin viu com `célula = Celula 1` na lista de
+  Pessoas são os mesmos 4 que o líder viu como discípulos ativos em "Minha Célula" (leitura via
+  `celula_membro`) — confirma o fix ponta-a-ponta em produção sem precisar criar dado novo.
+- **Bloco B não executado**: decisão explícita — a prova cruzada A×C já bastou.
+- Blocos com efeito externo (D parcialmente, E integralmente) seguem `DO_NOT_RUN_WITHOUT_APPROVAL`.
 
-**SEC-0** — rotação de senha/credencial Clerk. Fora do alcance de automação, ação exclusiva do
-responsável.
+## Próximos itens pendentes
+
+1. **SEC-0** — rotação manual da credencial/senha Clerk. Fora do alcance de automação, ação exclusiva do
+   responsável.
+2. Decidir futuramente se vale recriar `cron-worker` (hoje preservado, código anterior).
+3. Decidir destino da branch local `backup/raiz-suja-2026-07-09` (`d0b5053`) — descartar ou formalizar
+   parte em PR.
+4. Encerrar deploy/smoke como PASS operacional (este documento é o fechamento).
 
 ## Status final
 
-**`DEPLOY_PROD_BACKEND_AND_QUEUE_WORKER_PASS`** — tarball `a7a04c8` (sha256 conferido na VPS) deployado
-em `backend` + `queue-worker` de forma controlada, com backup prévio, `Dockerfile`/`.dockerignore`
-remotos preservados, health público confirmado antes e depois, pós-deploy monitorado PASS. `cron-worker`
-preservado deliberadamente. Limpeza de worktrees/branches locais concluída, raiz de volta a `main` limpo,
-estado sujo anterior preservado em `backup/raiz-suja-2026-07-09` (`d0b5053`, não deletar). Nenhuma
-migration nova ou commit feitos nesta rodada. Próximo gate real: smoke funcional autenticado em produção.
-Pendência humana separada: SEC-0 (rotação Clerk). Tudo executado pelo responsável — eu só registrei o
-resultado relatado.
+**`SMOKE_PROD_READ_ONLY_PASS`** (sobre `DEPLOY_PROD_BACKEND_AND_QUEUE_WORKER_PASS`) — tarball `a7a04c8`
+(sha256 conferido na VPS) deployado em `backend` + `queue-worker` de forma controlada, com backup prévio,
+`Dockerfile`/`.dockerignore` remotos preservados, health público confirmado antes e depois, pós-deploy
+monitorado PASS, limpeza de worktrees/branches concluída, estado sujo preservado em
+`backup/raiz-suja-2026-07-09` (não deletar). **Smoke funcional autenticado em PROD executado e PASS**
+(admin + líder, só read-only, prova cruzada confirma PR-A2 funcionando ponta-a-ponta). `cron-worker`
+preservado deliberadamente. Nenhuma migration nova, commit, ou efeito externo disparados em nenhuma etapa
+desta rodada. Pendência humana separada: SEC-0 (rotação Clerk). Tudo executado pelo responsável (deploy)
+ou por mim via browser já autenticado (smoke) — nunca toquei credencial/senha.
