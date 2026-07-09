@@ -110,11 +110,23 @@ export async function fetchContacts(
   token: string,
   pageSize = 200,
 ): Promise<Page<Contact>> {
-  const res = await authedFetch(token, `/contacts?page=1&pageSize=${pageSize}`);
-  if (!res.ok) {
-    throw new ApiError(res.status, "Não foi possível carregar os contatos.");
+  // Backend limita pageSize a 200 (MAX_PAGE_SIZE); igrejas no plano acima_201
+  // passam disso, então busca todas as páginas para não truncar a lista.
+  const items: Contact[] = [];
+  let page = 1;
+  let total = 0;
+  for (;;) {
+    const res = await authedFetch(token, `/contacts?page=${page}&pageSize=${pageSize}`);
+    if (!res.ok) {
+      throw new ApiError(res.status, "Não foi possível carregar os contatos.");
+    }
+    const batch = (await res.json()) as Page<Contact>;
+    items.push(...batch.items);
+    total = batch.total;
+    if (batch.items.length === 0 || items.length >= total) break;
+    page += 1;
   }
-  return (await res.json()) as Page<Contact>;
+  return { items, page: 1, pageSize, total };
 }
 
 /** Detalhe completo de uma pessoa para o painel do chat (404 → erro). */

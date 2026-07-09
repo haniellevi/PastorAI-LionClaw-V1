@@ -25,8 +25,6 @@ export const MENU_SCREENS = [
   "minha-celula",
   "enviar",
   "calendario",
-  "comunicados",
-  "contatos",
 ] as const;
 
 /** Telas exclusivas de admin (superfície administrativa — /gestao). */
@@ -39,6 +37,8 @@ export const ADMIN_ONLY = [
   "equipe",
   "integracoes",
   "identidade",
+  "comunicados",
+  "contatos",
 ] as const;
 
 /** Telas legadas: deep-link válido, fora do menu (delta-012). */
@@ -60,7 +60,7 @@ export const DEFAULT_PERMISSIONS: Record<Exclude<Role, "admin">, readonly string
   pastor: [
     "dashboard", "inbox", "ganhar", "consolidar", "consol-individual",
     "universidade-vida", "capacitacao", "g12", "central-celula", "enviar",
-    "calendario", "comunicados", "contatos", "celulas", "relatorios",
+    "calendario", "celulas", "relatorios",
   ],
   // Central de Célula = pastor/admin no MVP (decisão 3.1 / contrato UX §4).
   // Os papéis de líder NÃO veem 'central-celula' (o menu abriria uma tela de
@@ -68,11 +68,11 @@ export const DEFAULT_PERMISSIONS: Record<Exclude<Role, "admin">, readonly string
   lider_g12: [
     "dashboard", "inbox", "ganhar", "consolidar", "consol-individual",
     "universidade-vida", "capacitacao", "g12", "minha-celula", "enviar",
-    "calendario", "comunicados", "contatos", "celulas", "relatorios",
+    "calendario", "celulas", "relatorios",
   ],
   lider_consol: [
     "dashboard", "inbox", "ganhar", "consolidar", "consol-individual",
-    "universidade-vida", "calendario", "comunicados", "contatos",
+    "universidade-vida", "calendario",
   ],
   lider_celula: [
     "dashboard", "inbox", "ganhar", "minha-celula",
@@ -83,7 +83,7 @@ export const DEFAULT_PERMISSIONS: Record<Exclude<Role, "admin">, readonly string
     "relatorios",
   ],
   operador: [
-    "dashboard", "inbox", "contatos", "ganhar", "celulas", "relatorios",
+    "dashboard", "inbox", "ganhar", "celulas", "relatorios",
   ],
   membro: ["dashboard", "minha-celula", "calendario"],
 };

@@ -2,13 +2,7 @@
 
 from __future__ import annotations
 
-from app.domain.billing import (
-    PLAN_ORDER,
-    is_upgrade,
-    plan_limit,
-    plan_price,
-    plan_rank,
-)
+from app.domain.billing import PLAN_ORDER, is_upgrade, plan_rank
 
 
 def test_plan_rank_orders_tiers() -> None:
@@ -25,18 +19,6 @@ def test_is_upgrade_detects_promotion() -> None:
 def test_is_upgrade_false_for_same_or_downgrade() -> None:
     assert is_upgrade("101_200", "101_200") is False
     assert is_upgrade("acima_201", "ate_100") is False
-
-
-def test_plan_limit_matches_ladder() -> None:
-    assert plan_limit("ate_100") == 100
-    assert plan_limit("101_200") == 200
-    assert plan_limit("acima_201") == 999999
-    assert plan_limit("nope") is None
-
-
-def test_plan_price_known_and_unknown() -> None:
-    assert plan_price("ate_100") > 0
-    assert plan_price("nope") == 0.0
 
 
 def test_plan_order_is_ascending() -> None:

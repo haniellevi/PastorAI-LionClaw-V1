@@ -16,6 +16,7 @@ missing 409.
 
 from __future__ import annotations
 
+import pathlib
 import uuid
 from types import SimpleNamespace
 
@@ -186,3 +187,21 @@ def test_demote_dono_clears_church_dono_id(app) -> None:
     assert resp.status_code == 200
     assert igreja.dono_id is None  # cobre a limpeza do dono ao rebaixar
     assert session.committed is True
+
+
+def test_migration_grants_update_on_dono_id() -> None:
+    """A migration 20260707_011455 (Branding) revogou o UPDATE table-wide de
+    `igrejas` e só devolveu grant para `logo_path` — `dono_id` ficou de fora, e
+    `igreja.dono_id = None` (linha 593, acima) roda sob `SET LOCAL ROLE
+    authenticated` igual ao UPDATE de logo. Confirmado contra o DEV real
+    (has_column_privilege('authenticated','public.igrejas','dono_id','UPDATE')
+    = false antes desta migration). Sem grant por coluna, o UPDATE falha com
+    42501 e aborta a transação inteira do PUT /team/{id}/roles (não só a
+    limpeza de dono_id — as trocas de papel também não commitam)."""
+    path = (
+        pathlib.Path(__file__).resolve().parents[1]
+        / "migrations"
+        / "20260708_221808_igreja_dono_id_grant_update.sql"
+    )
+    sql = path.read_text(encoding="utf-8").lower()
+    assert "grant update (dono_id) on igrejas to authenticated" in sql

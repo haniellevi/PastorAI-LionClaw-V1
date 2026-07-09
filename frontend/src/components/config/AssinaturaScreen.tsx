@@ -10,7 +10,7 @@
  *  - estado `inadimplente` => CTA de regularização;
  *  - sem assinatura (404) => somente a tabela de planos para contratar;
  *  - o upgrade por porte é automático (trigger no backend, refletido no GET);
- *  - a contratação cobra uma taxa de setup única (SETUP_FEE) + mensalidade;
+ *  - a contratação cobra uma taxa de setup única (GET /subscription/planos) + mensalidade;
  *  - tela admin-only (gating de rota no AppShell).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -22,13 +22,13 @@ import { ApiError } from "@/lib/dashboard-api";
 import { Icon } from "@/lib/icons";
 import {
   createCheckout,
+  fetchPlanCatalog,
   fetchSubscription,
   NoSubscriptionError,
-  PLAN_CATALOG,
   planInfo,
-  SETUP_FEE,
   subscriptionUiState,
   type PlanCode,
+  type PlanInfo,
   type Subscription,
 } from "@/lib/subscription-api";
 
@@ -61,6 +61,8 @@ export function AssinaturaScreen() {
   const { token, expireSession } = useAuth();
 
   const [sub, setSub] = useState<Subscription | null>(null);
+  const [catalog, setCatalog] = useState<PlanInfo[]>([]);
+  const [setupFee, setSetupFee] = useState(0);
   const [loading, setLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -97,24 +99,40 @@ export function AssinaturaScreen() {
       if (!token) return;
       if (mode === "initial") setLoading(true);
       setError(null);
-      try {
-        const data = await fetchSubscription(token);
-        setSub(data);
-        setLoaded(true);
-      } catch (err) {
+      const [subResult, catResult] = await Promise.allSettled([
+        fetchSubscription(token),
+        fetchPlanCatalog(token),
+      ]);
+
+      let nextError: string | null = null;
+
+      if (subResult.status === "fulfilled") {
+        setSub(subResult.value);
+      } else {
+        const err = subResult.reason;
         if (handleSessionError(err)) return;
         if (err instanceof NoSubscriptionError) {
           setSub(null);
-          setLoaded(true);
           setTab("plans"); // sem assinatura: vai direto para contratação
-          return;
+        } else {
+          nextError =
+            err instanceof ApiError ? err.message : "Não foi possível carregar a assinatura.";
         }
-        setError(
-          err instanceof ApiError ? err.message : "Não foi possível carregar a assinatura.",
-        );
-      } finally {
-        setLoading(false);
       }
+
+      if (catResult.status === "fulfilled") {
+        setCatalog(catResult.value.planos);
+        setSetupFee(catResult.value.setupFee);
+      } else if (!nextError) {
+        const err = catResult.reason;
+        if (handleSessionError(err)) return;
+        nextError =
+          err instanceof ApiError ? err.message : "Não foi possível carregar o catálogo de planos.";
+      }
+
+      setError(nextError);
+      setLoaded(true);
+      setLoading(false);
     },
     [token, handleSessionError],
   );
@@ -155,14 +173,15 @@ export function AssinaturaScreen() {
   const showSkeleton = loading && !loaded;
 
   // Medidor de porte + upgrade automático (estado ativo).
-  const current = sub ? planInfo(sub.plano) : null;
+  // `current` pode ficar undefined se o master desativou o plano do assinante
+  // (grandfathering): a igreja continua com ele, só some do catálogo ativo.
+  const current = sub ? planInfo(catalog, sub.plano) : undefined;
   const pessoas = sub?.pessoas ?? 0;
   const limite = sub?.limite ?? current?.limite ?? null;
   const pct = limite ? Math.min(100, Math.round((pessoas / limite) * 100)) : 0;
   const over = limite != null && pessoas >= limite;
-  const nextPlan = current
-    ? PLAN_CATALOG[PLAN_CATALOG.findIndex((p) => p.code === current.code) + 1] ?? null
-    : null;
+  const currentIndex = current ? catalog.findIndex((p) => p.code === current.code) : -1;
+  const nextPlan = currentIndex >= 0 ? catalog[currentIndex + 1] ?? null : null;
 
   return (
     <div className="screen" key="assinatura">
@@ -245,12 +264,12 @@ export function AssinaturaScreen() {
           </div>
         </div>
       ) : tab === "overview" ? (
-        sub && current ? (
+        sub ? (
           <div className="grid-2" style={{ alignItems: "start" }}>
             <div className="card card-pad">
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div>
-                  <h4>Plano {current.label}</h4>
+                  <h4>Plano {current?.label ?? sub.plano}</h4>
                   <div className="sub" style={{ color: "var(--muted)", marginTop: 3 }}>
                     {sub.setupPago ? "Mensalidade ativa · setup quitado" : "Setup pendente"}
                   </div>
@@ -259,7 +278,7 @@ export function AssinaturaScreen() {
               </div>
               <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginTop: "var(--s4)" }}>
                 <span className="val num" style={{ fontSize: 30, fontWeight: 640 }}>
-                  {BRL.format(current.preco)}
+                  {current ? BRL.format(current.preco) : "—"}
                 </span>
                 <span style={{ color: "var(--muted)" }}>/mês</span>
               </div>
@@ -313,7 +332,7 @@ export function AssinaturaScreen() {
                 {sub.setupPago ? (
                   <StatusPill tone="ok">Pago</StatusPill>
                 ) : (
-                  <span className="mono num">{BRL.format(SETUP_FEE)}</span>
+                  <span className="mono num">{BRL.format(setupFee)}</span>
                 )}
               </div>
               <div className="config-row">
@@ -331,6 +350,11 @@ export function AssinaturaScreen() {
             </p>
           </div>
         )
+      ) : catalog.length === 0 ? (
+        <div className="empty-state" style={{ padding: "var(--s6)" }}>
+          <Icon name="card" />
+          <p>Nenhum plano disponível no momento.</p>
+        </div>
       ) : (
         <div className="card">
           <div className="panel-title">Planos por porte da igreja</div>
@@ -345,14 +369,14 @@ export function AssinaturaScreen() {
               </tr>
             </thead>
             <tbody>
-              {PLAN_CATALOG.map((plan) => {
+              {catalog.map((plan) => {
                 const isCurrent = sub?.plano === plan.code;
                 return (
                   <tr key={plan.code}>
                     <td className="nm">{plan.label}</td>
                     <td className="num">{formatLimit(plan.limite)}</td>
                     <td className="num">{BRL.format(plan.preco)}</td>
-                    <td className="num">{BRL.format(SETUP_FEE)}</td>
+                    <td className="num">{BRL.format(setupFee)}</td>
                     <td>
                       {isCurrent ? (
                         <StatusPill tone="accent">Plano atual</StatusPill>
