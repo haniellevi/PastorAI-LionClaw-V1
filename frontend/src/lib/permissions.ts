@@ -29,15 +29,16 @@ export const MENU_SCREENS = [
 
 /** Telas exclusivas de admin (superfície administrativa — /gestao). */
 export const ADMIN_ONLY = [
-  "agente",
-  "whatsapp",
-  "assinatura",
-  "permissoes",
-  "equipe",
-  "integracoes",
-  "identidade",
-  "comunicados",
+  "setup",
   "contatos",
+  "comunicados",
+  "identidade",
+  "equipe",
+  "permissoes",
+  "integracoes",
+  "whatsapp",
+  "agente",
+  "assinatura",
 ] as const;
 
 /** Telas legadas: deep-link válido, fora do menu (delta-012). */
@@ -57,32 +58,72 @@ const ADMIN_ONLY_SET = new Set<string>(ADMIN_ONLY);
  */
 export const DEFAULT_PERMISSIONS: Record<Exclude<Role, "admin">, readonly string[]> = {
   pastor: [
-    "dashboard", "inbox", "ganhar", "consolidar", "consol-individual",
-    "universidade-vida", "capacitacao", "g12", "central-celula", "enviar",
-    "calendario", "celulas", "relatorios",
+    "dashboard",
+    "inbox",
+    "ganhar",
+    "consolidar",
+    "consol-individual",
+    "universidade-vida",
+    "capacitacao",
+    "g12",
+    "central-celula",
+    "enviar",
+    "calendario",
+    "celulas",
+    "relatorios",
   ],
   // Central de Célula = pastor/admin no MVP (decisão 3.1 / contrato UX §4).
   // Os papéis de líder NÃO veem 'central-celula' (o menu abriria uma tela de
   // "Acesso restrito"); o líder gere sua célula por 'minha-celula'.
   lider_g12: [
-    "dashboard", "inbox", "ganhar", "consolidar", "consol-individual",
-    "universidade-vida", "capacitacao", "g12", "minha-celula", "enviar",
-    "calendario", "celulas", "relatorios",
+    "dashboard",
+    "inbox",
+    "ganhar",
+    "consolidar",
+    "consol-individual",
+    "universidade-vida",
+    "capacitacao",
+    "g12",
+    "minha-celula",
+    "enviar",
+    "calendario",
+    "celulas",
+    "relatorios",
   ],
   lider_consol: [
-    "dashboard", "inbox", "ganhar", "consolidar", "consol-individual",
-    "universidade-vida", "calendario",
+    "dashboard",
+    "inbox",
+    "ganhar",
+    "consolidar",
+    "consol-individual",
+    "universidade-vida",
+    "calendario",
   ],
   lider_celula: [
-    "dashboard", "inbox", "ganhar", "minha-celula",
-    "capacitacao", "calendario", "celulas", "relatorios",
+    "dashboard",
+    "inbox",
+    "ganhar",
+    "minha-celula",
+    "capacitacao",
+    "calendario",
+    "celulas",
+    "relatorios",
   ],
   lider_mult: [
-    "dashboard", "g12", "minha-celula", "enviar", "calendario", "celulas",
+    "dashboard",
+    "g12",
+    "minha-celula",
+    "enviar",
+    "calendario",
+    "celulas",
     "relatorios",
   ],
   operador: [
-    "dashboard", "inbox", "ganhar", "celulas", "relatorios",
+    "dashboard",
+    "inbox",
+    "ganhar",
+    "celulas",
+    "relatorios",
   ],
   membro: ["dashboard", "minha-celula", "calendario"],
 };
@@ -100,14 +141,18 @@ export function allowedScreens(
   if (roles.includes("admin")) {
     return [...ALL_SCREENS];
   }
+
   const set = new Set<string>(["dashboard"]);
+
   for (const role of roles) {
     if (role === "admin") continue;
+
     for (const screen of perms[role] ?? []) {
       set.add(screen);
     }
   }
-  return ALL_SCREENS.filter((s) => set.has(s) && !ADMIN_ONLY_SET.has(s));
+
+  return ALL_SCREENS.filter((screen) => set.has(screen) && !ADMIN_ONLY_SET.has(screen));
 }
 
 /** Indica se o usuário pode acessar uma tela específica (inclui legadas/admin). */
@@ -119,8 +164,10 @@ export function canSee(
   if (roles.includes("admin")) {
     return ALL_SCREENS.includes(screenId);
   }
+
   if (ADMIN_ONLY_SET.has(screenId)) {
     return false;
   }
+
   return allowedScreens(roles, perms).includes(screenId);
 }

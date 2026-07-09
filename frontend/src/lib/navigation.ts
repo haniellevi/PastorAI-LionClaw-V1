@@ -111,6 +111,7 @@ export const ADMIN_NAV_SECTIONS: NavSection[] = [
     id: "gestao",
     label: "Gestão",
     items: [
+      { target: "setup", label: "Configuração Inicial", icon: "check" },
       { target: "contatos", label: "Pessoas", icon: "team" },
       { target: "comunicados", label: "Comunicação", icon: "broadcast" },
       { target: "identidade", label: "Identidade Visual", icon: "image" },
@@ -184,6 +185,11 @@ export const SCREEN_META: Record<
   string,
   { title: string; crumb: string; info?: string }
 > = {
+  setup: {
+    title: "Configuração Inicial",
+    crumb: "Primeiros passos",
+    info: "Itens de configuração recomendados para começar a usar o sistema. Nada aqui bloqueia o uso — são só pendências reais, com atalho para a tela de cada uma.",
+  },
   dashboard: {
     title: "Painel de Hoje",
     crumb: "Pendências de hoje",
