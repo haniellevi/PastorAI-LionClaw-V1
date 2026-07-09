@@ -3,6 +3,7 @@
 Endpoints:
   - GET  /subscription          current subscription + plan/limit/usage (admin)
   - POST /subscription          create an Asaas checkout with a setup fee (admin)
+  - GET  /subscription/planos   active plan catalog + setup fee (admin)
   - POST /subscription/webhook  Asaas events -> update status (token-gated)
 
 The autoupgrade itself is performed by the DB trigger `trg_subscription_autoupgrade`
@@ -28,6 +29,7 @@ from app.db.models import (
     AgentConversationLog,
     AppUser,
     Igreja,
+    Plano,
     Subscription,
     UserRole,
     WhatsappConnection,
@@ -35,7 +37,6 @@ from app.db.models import (
 from app.db.rls_observability import log_if_not_scoped
 from app.db.session import get_db
 from app.deps import ADMIN_ROLE, CurrentUser, require_owner
-from app.domain.billing import plan_limit, plan_price
 from app.services.asaas import (
     AsaasClient,
     AsaasError,
@@ -48,8 +49,6 @@ from app.services.evolution import EvolutionClient, EvolutionError, get_evolutio
 logger = logging.getLogger("pastorai.subscription")
 
 router = APIRouter(prefix="/subscription", tags=["subscription"])
-
-VALID_PLANOS = {"ate_100", "101_200", "acima_201"}
 
 
 class SubscriptionOut(BaseModel):
@@ -81,9 +80,11 @@ class CheckoutRequest(BaseModel):
     @field_validator("plano")
     @classmethod
     def _plano(cls, value: str) -> str:
+        # Só normaliza; a existência (e se está ativo) no catálogo `planos` é
+        # checada no handler contra o banco — ver _plano_ativo_or_422.
         value = value.strip().lower()
-        if value not in VALID_PLANOS:
-            raise ValueError(f"plano inválido: {value}")
+        if not value:
+            raise ValueError("plano obrigatório")
         return value
 
 
@@ -96,6 +97,37 @@ class CheckoutResponse(BaseModel):
 class WebhookResponse(BaseModel):
     received: bool
     status: str | None = None
+
+
+class PlanoPublicOut(BaseModel):
+    """Um plano do catálogo `planos`, como visto pela igreja (só planos ativos)."""
+
+    codigo: str
+    nome: str
+    limitePessoas: int | None = None  # noqa: N815 - None = ilimitado
+    precoMensal: float  # noqa: N815
+
+
+class PlanCatalogOut(BaseModel):
+    planos: list[PlanoPublicOut]
+    setupFee: float  # noqa: N815
+
+
+def _plano_ativo_or_422(db: Session, codigo: str) -> Plano:
+    """Busca o plano ATIVO no catálogo `planos` (senão 422).
+
+    Fonte única de preço/limite do checkout (migration 0012) — edição do master
+    em /admin/planos vale na próxima contratação sem mudança de código.
+    """
+    plano = db.execute(
+        select(Plano).where(Plano.codigo == codigo, Plano.ativo.is_(True))
+    ).scalar_one_or_none()
+    if plano is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"plano inválido: {codigo}",
+        )
+    return plano
 
 
 def _admin_phones(db: Session, igreja_id: uuid.UUID) -> list[str]:
@@ -212,7 +244,12 @@ def create_checkout(
     current_user: CurrentUser = Depends(require_owner),
     asaas: AsaasClient = Depends(get_asaas_client),
 ) -> CheckoutResponse:
-    """Create an Asaas checkout (subscription + one-time setup fee)."""
+    """Create an Asaas checkout (subscription + one-time setup fee).
+
+    Preço e limite vêm do catálogo `planos` (fonte editada pelo master), não de
+    valores fixos no código — ver _plano_ativo_or_422.
+    """
+    plano_row = _plano_ativo_or_422(db, payload.plano)
     igreja_uuid = uuid.UUID(current_user.igreja_id)
 
     sub = db.execute(
@@ -229,7 +266,7 @@ def create_checkout(
             nome=current_user.nome,
             email=current_user.email,
             plano=payload.plano,
-            valor=plan_price(payload.plano),
+            valor=float(plano_row.preco_mensal),
             setup_fee=setup_fee,
             cpf_cnpj=payload.cpfCnpj,
             external_reference=str(igreja_uuid),
@@ -241,7 +278,7 @@ def create_checkout(
         ) from exc
 
     sub.plano = payload.plano
-    sub.limite = plan_limit(payload.plano)
+    sub.limite = plano_row.limite_pessoas
     sub.status = result.status
     sub.asaas_customer_id = result.customer_id
     sub.asaas_subscription_id = result.subscription_id
@@ -254,6 +291,31 @@ def create_checkout(
         invoiceUrl=result.invoice_url,
         asaasSubscriptionId=result.subscription_id,
     )
+
+
+@router.get("/planos", response_model=PlanCatalogOut)
+def list_planos_disponiveis(
+    db: Session = Depends(get_db),
+    _current_user: CurrentUser = Depends(require_owner),
+) -> PlanCatalogOut:
+    """Catálogo de planos ATIVOS (tabela `planos`, editada pelo master) + taxa de
+    setup vigente — a tela de Assinatura da igreja usa isto em vez de um
+    catálogo fixo no frontend (antes espelhava `PLAN_PRICE`/`PLAN_CATALOG`
+    hardcoded, que desalinhava do preço editado no console master).
+    """
+    rows = db.execute(
+        select(Plano).where(Plano.ativo.is_(True)).order_by(Plano.ordem, Plano.codigo)
+    ).scalars().all()
+    planos = [
+        PlanoPublicOut(
+            codigo=p.codigo,
+            nome=p.nome,
+            limitePessoas=p.limite_pessoas,
+            precoMensal=float(p.preco_mensal),
+        )
+        for p in rows
+    ]
+    return PlanCatalogOut(planos=planos, setupFee=get_settings().asaas_setup_fee)
 
 
 class AsaasWebhookEvent(BaseModel):
