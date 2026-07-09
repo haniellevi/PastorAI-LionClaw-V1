@@ -14,6 +14,12 @@ from __future__ import annotations
 # Tela sempre liberada a qualquer papel (delta-010) — não pode ser removida.
 DASHBOARD = "dashboard"
 
+# Telas que só a superfície administrativa opera (espelho de ADMIN_ONLY em
+# permissions.ts). Um papel não-admin NUNCA acessa, mesmo que uma linha
+# antiga em role_permissions (customização de tenant salva antes desta regra)
+# ainda conceda a tela — checado antes da matriz, não depois.
+ADMIN_ONLY = frozenset({"comunicados", "contatos"})
+
 # Default papel -> telas (ESPELHO de DEFAULT_PERMISSIONS em permissions.ts).
 # Vale quando o tenant NUNCA customizou a matriz (sem linhas em role_permissions);
 # ao salvar #permissoes o tenant passa a ter a própria matriz e estes defaults
@@ -23,7 +29,7 @@ DEFAULT_PERMISSIONS: dict[str, frozenset[str]] = {
         {
             "dashboard", "inbox", "ganhar", "consolidar", "consol-individual",
             "universidade-vida", "capacitacao", "g12", "central-celula", "enviar",
-            "calendario", "comunicados", "contatos", "celulas", "relatorios",
+            "calendario", "celulas", "relatorios",
         }
     ),
     # Central de Célula = pastor/admin no MVP (decisão 3.1). Os papéis de líder
@@ -32,13 +38,13 @@ DEFAULT_PERMISSIONS: dict[str, frozenset[str]] = {
         {
             "dashboard", "inbox", "ganhar", "consolidar", "consol-individual",
             "universidade-vida", "capacitacao", "g12", "minha-celula", "enviar",
-            "calendario", "comunicados", "contatos", "celulas", "relatorios",
+            "calendario", "celulas", "relatorios",
         }
     ),
     "lider_consol": frozenset(
         {
             "dashboard", "inbox", "ganhar", "consolidar", "consol-individual",
-            "universidade-vida", "calendario", "comunicados", "contatos",
+            "universidade-vida", "calendario",
         }
     ),
     "lider_celula": frozenset(
@@ -54,7 +60,7 @@ DEFAULT_PERMISSIONS: dict[str, frozenset[str]] = {
         }
     ),
     "operador": frozenset(
-        {"dashboard", "inbox", "contatos", "ganhar", "celulas", "relatorios"}
+        {"dashboard", "inbox", "ganhar", "celulas", "relatorios"}
     ),
     "membro": frozenset({"dashboard", "minha-celula", "calendario"}),
 }
@@ -77,6 +83,8 @@ def can_access_screen(
     """
     if screen == DASHBOARD:
         return True
+    if screen in ADMIN_ONLY:
+        return False
     return any(
         screen in screens_for_role(role, tenant_matrix) for role in roles
     )

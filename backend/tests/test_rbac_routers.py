@@ -83,16 +83,14 @@ def test_comunicados_forbidden_for_membro(app) -> None:
     assert resp.status_code == 403
 
 
-def test_comunicados_allowed_for_pastor_by_default(app) -> None:
-    # pastor tem 'comunicados' no default => passa o gate (o handler erra no
-    # fake, mas o ponto é que NÃO é 403).
+def test_comunicados_forbidden_for_pastor_by_default(app) -> None:
+    # 'comunicados' é ADMIN_ONLY (Missão 7B-2): pastor sem o papel admin não
+    # passa o gate, mesmo sendo pastor.
     resp = _client(app, ["pastor"]).get("/broadcasts", headers=_AUTH)
-    assert resp.status_code not in (401, 403)
+    assert resp.status_code == 403
 
 
 def test_matrix_restricts_pastor_when_screen_removed(app) -> None:
-    # O PONTO do M0c (restringir): o admin remove 'comunicados' do pastor na
-    # matriz do tenant => pastor recebe 403 NA ROTA, não só some o menu.
     matrix = [("pastor", "dashboard")]  # pastor ficou só com dashboard
     resp = _client(app, ["pastor"], role_permissions=matrix).get(
         "/broadcasts", headers=_AUTH
@@ -106,14 +104,16 @@ def test_comunicados_forbidden_for_lider_celula_by_default(app) -> None:
     assert resp.status_code == 403
 
 
-def test_matrix_grants_lider_celula_when_screen_added(app) -> None:
-    # O PONTO do M0c (conceder): dar 'comunicados' ao lider_celula na matriz
-    # abre a rota que o default negava.
+def test_matrix_cannot_grant_comunicados_to_non_admin(app) -> None:
+    # Missão 7B-2: 'comunicados' é ADMIN_ONLY — mesmo uma linha explícita na
+    # matriz do tenant (customização legada ou deliberada) concedendo a tela a
+    # um papel não-admin não abre a rota. Fecha o caso de resquício em
+    # role_permissions sobrevivendo à mudança de default.
     matrix = [("lider_celula", "dashboard"), ("lider_celula", "comunicados")]
     resp = _client(app, ["lider_celula"], role_permissions=matrix).get(
         "/broadcasts", headers=_AUTH
     )
-    assert resp.status_code not in (401, 403)
+    assert resp.status_code == 403
 
 
 def test_admin_passes_screen_gate(app) -> None:
