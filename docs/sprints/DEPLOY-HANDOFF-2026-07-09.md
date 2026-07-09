@@ -356,23 +356,56 @@ credencial. Zero escrita, zero efeito externo disparado.
 - **Bloco B não executado**: decisão explícita — a prova cruzada A×C já bastou.
 - Blocos com efeito externo (D parcialmente, E integralmente) seguem `DO_NOT_RUN_WITHOUT_APPROVAL`.
 
-## Próximos itens pendentes
+## SEC-0 — **CONCLUÍDO** (ação humana, fora do meu escopo)
 
-1. **SEC-0** — rotação manual da credencial/senha Clerk. Fora do alcance de automação, ação exclusiva do
-   responsável.
-2. Decidir futuramente se vale recriar `cron-worker` (hoje preservado, código anterior).
-3. Decidir destino da branch local `backup/raiz-suja-2026-07-09` (`d0b5053`) — descartar ou formalizar
-   parte em PR.
-4. Encerrar deploy/smoke como PASS operacional (este documento é o fechamento).
+Credencial/senha do Clerk rotacionada pelo responsável, manualmente. Confirmado como concluído. **Nenhum
+valor, antigo ou novo, é registrado aqui** — só o status. Nenhuma ação minha nesta etapa (não tenho
+acesso, não é automatizável).
+
+## Auditoria read-only — cron-worker vs backend/queue-worker — **KEEP_CURRENT**
+
+Feita depois do fechamento do ciclo, pra decidir se `cron-worker` precisa ser recriado. Comandos
+read-only rodados pelo responsável na VPS (`docker compose ps`, `docker inspect --format '{{.Image}}'`
+nos 3 serviços, `docker compose logs --tail=100` nos 3) — não executei nada, sem SSH/acesso a PROD.
+
+- **Imagem**: `cron-worker` roda `sha256:8af6669c67923e9d9143d929123b853fa7d76a797bf5babc1a024a4fce3a96f5`
+  (Up 23h). `backend` e `queue-worker` rodam a mesma imagem nova,
+  `sha256:68c85922a1f03888c9e8143e07bac21710a86875eb98b3776ff81a985994173b` (Up 4h) — confirma que os
+  dois foram recriados juntos neste ciclo e `cron-worker` ficou de fora, como já documentado.
+- **Saúde**: `cron-worker` com ticks limpos a cada ~5min (`Cron tick done (sla=0, crons=0)`), zero
+  exception em 23h de log. `backend` só healthcheck `200 OK`. `queue-worker` consumindo a fila
+  normalmente. Nenhum erro em nenhum dos três.
+- **Análise de código** (`backend/app/workers/cron_worker.py` + `services/sla_engine.py`): nenhuma
+  mudança de PR-A2 (`celula_membro`), SEC-2 (rate limit, só endpoints HTTP de auth), SEC-3A
+  (`password_changed_at`, só `deps.py`/`auth.py`) ou SEC-3B (`password_reset_tokens`, só
+  `auth.py::reset_password`) está em caminho que o cron executa. SEC-1 (`assert_production_ready`,
+  fail-fast de `SESSION_JWT_SECRET`/CORS) só é chamado em `main.py:62` (startup do FastAPI HTTP) —
+  `cron_worker.py` nunca chama isso, então recriar não tem risco de falha de boot vindo daí.
+- **Decisão: `KEEP_CURRENT`.** Nada quebrado, nenhuma mudança deste ciclo afeta o caminho do cron, sem
+  necessidade funcional de recriar agora. Recriação futura é **opcional e não urgente** — baixo custo
+  quando quiserem (mesmo compose, mesmo `.env`, já provado seguro pelo boot de `backend`/`queue-worker`
+  com a imagem nova).
+
+## Itens não executados / decisões futuras não bloqueantes (separado do que foi concluído)
+
+- `pastorai_cron_worker` não recriado — auditado, decisão `KEEP_CURRENT`, não bloqueia fechamento do
+  ciclo. Recriação futura opcional, sem prazo.
+- Destino da branch local `backup/raiz-suja-2026-07-09` (`d0b5053`) — descartar ou formalizar parte em
+  PR, sem prazo definido.
+- Frontend não redeployado nesta rodada (fora de escopo do ciclo PR-A2/SEC-1..3B).
 
 ## Status final
 
-**`SMOKE_PROD_READ_ONLY_PASS`** (sobre `DEPLOY_PROD_BACKEND_AND_QUEUE_WORKER_PASS`) — tarball `a7a04c8`
-(sha256 conferido na VPS) deployado em `backend` + `queue-worker` de forma controlada, com backup prévio,
-`Dockerfile`/`.dockerignore` remotos preservados, health público confirmado antes e depois, pós-deploy
-monitorado PASS, limpeza de worktrees/branches concluída, estado sujo preservado em
-`backup/raiz-suja-2026-07-09` (não deletar). **Smoke funcional autenticado em PROD executado e PASS**
-(admin + líder, só read-only, prova cruzada confirma PR-A2 funcionando ponta-a-ponta). `cron-worker`
-preservado deliberadamente. Nenhuma migration nova, commit, ou efeito externo disparados em nenhuma etapa
-desta rodada. Pendência humana separada: SEC-0 (rotação Clerk). Tudo executado pelo responsável (deploy)
-ou por mim via browser já autenticado (smoke) — nunca toquei credencial/senha.
+**Ciclo de produção concluído.** `SMOKE_PROD_READ_ONLY_PASS` (sobre
+`DEPLOY_PROD_BACKEND_AND_QUEUE_WORKER_PASS`) — tarball `a7a04c8` (sha256 conferido na VPS) deployado em
+`backend` + `queue-worker` de forma controlada, com backup prévio, `Dockerfile`/`.dockerignore` remotos
+preservados, health público confirmado antes e depois, pós-deploy monitorado PASS, limpeza de
+worktrees/branches concluída, estado sujo preservado em `backup/raiz-suja-2026-07-09` (não deletar).
+**Smoke funcional autenticado em PROD executado e PASS** (admin + líder, só read-only, prova cruzada
+confirma PR-A2 funcionando ponta-a-ponta). **SEC-0 concluído** (rotação Clerk, ação humana).
+**Auditoria do cron-worker concluída: `KEEP_CURRENT`** — imagem antiga confirmada por hash, saudável,
+sem exposição a nenhuma mudança deste ciclo, recriação futura opcional e não urgente. Nenhuma migration
+nova, commit, ou efeito externo disparados em nenhuma etapa desta rodada. Único item aberto: decisões
+não bloqueantes listadas acima (branch de backup, cron-worker), sem prazo. Tudo executado pelo
+responsável (deploy, SEC-0, comandos VPS da auditoria) ou por mim via browser já autenticado (smoke) —
+nunca toquei credencial/senha, nunca SSH.

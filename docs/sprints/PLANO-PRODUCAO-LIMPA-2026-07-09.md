@@ -63,16 +63,17 @@ e) **Tarballs soltos** — `.deploy-artifacts/pastorai-backend-ac14850.tar`, `pa
   (`vincular_celula`, 4º write-site) deployados de forma controlada. Ver
   `docs/sprints/DEPLOY-HANDOFF-2026-07-09.md` pra evidências completas (hash conferido na VPS, backup,
   health público antes/depois, fila Redis vazia checada antes do restart do worker).
-- `pastorai_cron_worker` **deliberadamente não reiniciado** (não importa `agent/tools.py`) — fica pra um
-  gate futuro se necessário.
+- `pastorai_cron_worker` **deliberadamente não reiniciado** — auditado depois (seção 7b), decisão
+  `KEEP_CURRENT`, recriação futura opcional se necessário.
 
 ## 5. Depende de ação humana
 
-- **SEC-0** — rotação de senha/credencial Clerk. Fora do alcance de automação, pendência antiga. **Único
-  item humano ainda em aberto.**
-- Decisão sobre o conteúdo preservado em `backup/raiz-suja-2026-07-09` (`d0b5053`, item 2): descartar,
-  ou formalizar partes dele em branch/PR.
-- Decisão futura (não urgente): recriar `cron-worker` ou manter como está.
+- **SEC-0** — rotação de senha/credencial Clerk. ✅ **CONCLUÍDO** — responsável rotacionou manualmente.
+  Nenhum valor (antigo ou novo) registrado aqui. Nenhum item humano bloqueante restante.
+- Decisão futura não bloqueante (sem prazo, não impede fechamento do ciclo): destino do conteúdo
+  preservado em `backup/raiz-suja-2026-07-09` (`d0b5053`, item 2) — descartar, ou formalizar partes
+  dele em branch/PR.
+- ~~Recriar `cron-worker` ou manter como está~~ — **decidido, seção 7b: `KEEP_CURRENT`.**
 
 ## 7. Smoke funcional autenticado em produção — ✅ **PASS 2026-07-09** (`SMOKE_PROD_READ_ONLY_PASS`)
 
@@ -81,8 +82,24 @@ Executado Bloco A (admin) + Bloco C (líder), só read-only, sessão PROD ativa 
 `docs/sprints/DEPLOY-HANDOFF-2026-07-09.md` pra evidência completa. Resumo: prova cruzada confirma
 PR-A2 funcionando ponta-a-ponta em produção (admin vê 4 pessoas com `célula = Celula 1`; líder vê as
 mesmas 4 como discípulos ativos via `celula_membro`). Zero escrita, zero efeito externo disparado, Bloco
-B (criar dado de teste) não precisou ser executado. **Ciclo PR-A2/SEC-1..3B encerrado
-ponta-a-ponta** — único item pendente é SEC-0 (ação humana, seção 5).
+B (criar dado de teste) não precisou ser executado.
+
+## 7a. SEC-0 concluído — ciclo encerrado
+
+SEC-0 (rotação de senha/credencial Clerk) ✅ **CONCLUÍDO** pelo responsável, ação manual, fora do meu
+escopo. Nenhum valor registrado nesta documentação. Com isso, **ciclo PR-A2/SEC-1..3B encerrado
+ponta-a-ponta — zero item humano bloqueante restante.** Única pendência é decisão futura não bloqueante
+(seção 5: destino da branch `backup/raiz-suja-2026-07-09`), sem prazo definido.
+
+## 7b. Auditoria cron-worker — ✅ **KEEP_CURRENT**
+
+Ver `docs/sprints/DEPLOY-HANDOFF-2026-07-09.md` pra evidência completa (hashes de imagem, logs,
+cruzamento com código). Resumo: `cron-worker` roda imagem antiga (`sha256:8af6669c...`, Up 23h) vs.
+`backend`/`queue-worker` na imagem nova (`sha256:68c85922...`, Up 4h) — drift confirmado por hash.
+`cron-worker` saudável, ticks limpos, zero exception. Nenhuma mudança de PR-A2/SEC-1/2/3A/3B está em
+caminho que o cron executa (`sla_engine.py` não toca `celula_membro`; `assert_production_ready` do SEC-1
+só roda em `main.py`, nunca em `cron_worker.py`). **Decisão: manter como está, recriação futura opcional
+e não urgente.**
 
 ## 6a. Validação local — tentativa 1, 2026-07-09 (main-clean sem ambiente) — BLOCKED
 
