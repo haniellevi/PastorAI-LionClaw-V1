@@ -16,6 +16,7 @@ import { useAuth } from "@/lib/auth-context";
 import { ApiError } from "@/lib/dashboard-api";
 import { Icon, type IconKey } from "@/lib/icons";
 import { fetchSetupChecklist, type SetupItem, type SetupItemId } from "@/lib/setup-api";
+import { resolveSetupNavAction } from "@/lib/setup-nav";
 import { useHashRoute } from "@/lib/use-hash-route";
 
 const ITEM_COPY: Record<
@@ -160,7 +161,14 @@ export function SetupChecklistScreen() {
                     <button
                       type="button"
                       className={`btn btn-sm${item.done ? "" : " btn-primary"}`}
-                      onClick={() => navigate(item.screen)}
+                      onClick={() => {
+                        const action = resolveSetupNavAction(item);
+                        if (action.kind === "external") {
+                          window.location.href = action.href;
+                        } else {
+                          navigate(action.screen);
+                        }
+                      }}
                     >
                       {item.done ? "Ver" : copy.cta}
                     </button>
