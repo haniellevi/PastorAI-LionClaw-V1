@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
+from app.domain.permissions import ADMIN_ONLY
+
 # admin holds implicit access to every screen (mirrors deps.require_role).
 ADMIN_ROLE = "admin"
 
@@ -80,7 +82,10 @@ def allowed_screens_for_roles(
 
     `role_to_screens` is the igreja's role_permissions projection
     (papel -> telas). An `admin` role grants every known, non-locked screen
-    (implicit access). The result excludes locked screens.
+    (implicit access). The result excludes locked screens and, for non-admin
+    roles, `ADMIN_ONLY` screens (`app.domain.permissions`) — fail-closed even
+    if a legacy `role_permissions` row still grants one (mirrors
+    `can_access_screen`, checked before the matrix, not after).
     """
     role_set = set(roles)
     if ADMIN_ROLE in role_set:
@@ -93,7 +98,7 @@ def allowed_screens_for_roles(
                 allowed.add(tela)
     # dashboard is available to any authenticated panel user (delta-010).
     allowed.add("dashboard")
-    return allowed - LOCKED_SCREENS
+    return allowed - LOCKED_SCREENS - ADMIN_ONLY
 
 
 def suggest_screens(texto: str, allowed: Iterable[str]) -> list[str]:
