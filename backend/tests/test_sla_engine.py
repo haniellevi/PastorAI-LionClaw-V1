@@ -11,6 +11,8 @@ import datetime as dt
 import uuid
 from types import SimpleNamespace
 
+from sqlalchemy.exc import IntegrityError
+
 from app.db.models import (
     AgentConversationLog,
     AppUser,
@@ -22,7 +24,15 @@ from app.db.models import (
 )
 from app.db.tenant_session import TENANT_IGREJA_KEY, TENANT_META_KEY
 from app.domain.sla import SlaStatus
-from app.services.sla_engine import SlaEngine, run_all_igrejas, scan_breaches
+from app.services.evolution import EvolutionError
+from app.services.sla_engine import (
+    SlaBreach,
+    SlaEngine,
+    _coordination_item_event_name,
+    _dispatch_event_name,
+    run_all_igrejas,
+    scan_breaches,
+)
 
 _IGREJA = uuid.UUID("00000000-0000-0000-0000-000000000001")
 _T0 = dt.datetime(2026, 6, 13, 12, 0, tzinfo=dt.timezone.utc)
@@ -73,6 +83,7 @@ class FakeSlaSession:
         users=None,
         pessoas=None,
         existing_dispatch=False,
+        preexisting_markers=None,
     ) -> None:
         self.work_items = work_items or []
         self.consolidacoes = consolidacoes or []
@@ -82,8 +93,17 @@ class FakeSlaSession:
         self.pessoas = pessoas or {}
         self.existing_dispatch = existing_dispatch
         self.added: list = []
+        self.deleted: list = []
         self.committed = False
         self.rolled_back = False
+        # SEC-4: simula o índice único parcial pra provar a corrida de reserva
+        # sem precisar de Postgres real (Postgres real é coberto à parte em
+        # tests/test_agent_event_idempotency_index.py). Chave: (igreja_id, evento).
+        # `preexisting_markers`: marcadores já "commitados por outro processo"
+        # ANTES desta chamada — simula a corrida perdida.
+        self.reserved_markers: set[tuple] = set(preexisting_markers or ())
+        self._pending_markers: list = []
+        self._pending_all: list = []
 
     def execute(self, statement, params=None) -> _FakeResult:
         descriptions = getattr(statement, "column_descriptions", None)
@@ -111,24 +131,58 @@ class FakeSlaSession:
 
     def add(self, obj) -> None:
         self.added.append(obj)
+        self._pending_all.append(obj)
+        if isinstance(obj, AgentConversationLog):
+            self._pending_markers.append(obj)
 
     def flush(self) -> None:
-        pass
+        # SEC-4: simula a constraint única parcial (igreja_id, evento) —
+        # dispara aqui, igual o INSERT real dispararia no banco.
+        for row in self._pending_markers:
+            key = (row.igreja_id, row.evento)
+            if key in self.reserved_markers:
+                raise IntegrityError(
+                    "insert", {}, Exception("duplicate key value violates "
+                    "unique constraint agent_conversation_logs_idem_marker_uidx")
+                )
+            self.reserved_markers.add(key)
+        self._pending_markers.clear()
 
     def commit(self) -> None:
         self.committed = True
+        self._pending_all.clear()
 
     def rollback(self) -> None:
         self.rolled_back = True
+        # Desfaz TUDO que foi adicionado desde o último commit (mesma semântica
+        # de um ROLLBACK real descartar as mudanças não commitadas da sessão —
+        # inclusive o item de coordenação criado junto com a reserva perdida).
+        for obj in self._pending_all:
+            if obj in self.added:
+                self.added.remove(obj)
+            if isinstance(obj, AgentConversationLog):
+                self.reserved_markers.discard((obj.igreja_id, obj.evento))
+        self._pending_all.clear()
+        self._pending_markers.clear()
+
+    def delete(self, obj) -> None:
+        self.deleted.append(obj)
+        if obj in self.added:
+            self.added.remove(obj)
+        if isinstance(obj, AgentConversationLog):
+            self.reserved_markers.discard((obj.igreja_id, obj.evento))
 
 
 class FakeEvolution:
     """Records send_text calls instead of hitting the network."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, fail: bool = False) -> None:
         self.sent: list[tuple[str, str, str]] = []
+        self._fail = fail
 
     def send_text(self, instance: str, telefone: str, texto: str) -> bool:
+        if self._fail:
+            raise EvolutionError("simulated send failure — no WhatsApp real")
         self.sent.append((instance, telefone, texto))
         return True
 
@@ -255,6 +309,178 @@ def test_dispatch_is_idempotent_when_already_logged() -> None:
 
     assert handled == []
     assert evo.sent == []
+
+
+def test_dispatch_loses_concurrent_reservation_race_never_sends() -> None:
+    """SEC-4: duas tentativas concorrentes pro MESMO marcador — a que perde a
+    reserva (índice único já ocupado por outro processo) nunca chega a enviar.
+
+    `_already_dispatched` (SELECT barato) não vê a corrida — é exatamente o
+    gap que a reserva atômica fecha. Por isso o teste pré-semeia
+    `reserved_markers` (simulando outro processo que já reservou e commitou
+    ANTES desta chamada) sem marcar `existing_dispatch`, pra provar que a
+    proteção real vem da reserva, não do SELECT."""
+    item = _work_item(tipo="relatorio", prazo=_T0)
+    breach_evento = _dispatch_event_name(
+        SlaBreach(
+            igreja_id=_IGREJA, source="work_queue", item_id=item.id,
+            kind="relatorio", status=SlaStatus.COBRANCA, titulo="x",
+        )
+    )
+    session = FakeSlaSession(
+        work_items=[item],
+        connection=SimpleNamespace(instance="igreja-1"),
+        preexisting_markers={(_IGREJA, breach_evento)},  # outro processo já reservou
+    )
+    evo = FakeEvolution()
+    engine = SlaEngine(evolution=evo)
+    handled = engine.run_for_igreja(session, _IGREJA, now=_T0 + _hours(1))
+
+    assert handled == []
+    assert evo.sent == []  # nunca envia — perdeu a corrida antes de qualquer send
+
+
+def test_dispatch_releases_marker_on_total_send_failure() -> None:
+    """SEC-4 (at-least-once): envio falhou pra todo destinatário tentado —
+    libera a reserva, pra próxima varredura tentar de novo (não perde a
+    cobrança silenciosamente)."""
+    leader_user = uuid.uuid4()
+    leader_pessoa = uuid.uuid4()
+    item = _work_item(tipo="relatorio", prazo=_T0, responsavel_id=leader_user)
+    session = FakeSlaSession(
+        work_items=[item],
+        connection=SimpleNamespace(instance="igreja-1"),
+        users={leader_user: AppUser(
+            igreja_id=_IGREJA, nome="Líder", email="l@x.com", pessoa_id=leader_pessoa
+        )},
+        pessoas={leader_pessoa: Pessoa(
+            igreja_id=_IGREJA, nome="Líder", telefone="+5511999990001"
+        )},
+    )
+    evo = FakeEvolution(fail=True)
+    engine = SlaEngine(evolution=evo)
+    handled = engine.run_for_igreja(session, _IGREJA, now=_T0 + _hours(1))
+
+    assert handled == []  # não conta como despachado — falhou de verdade
+    assert evo.sent == []
+    # A reserva foi liberada: nenhum marcador AgentConversationLog sobrevive.
+    assert not any(isinstance(o, AgentConversationLog) for o in session.added)
+    assert session.reserved_markers == set()
+
+
+def test_dispatch_same_item_different_igreja_both_send() -> None:
+    """A chave de dedupe é (igreja_id, evento) — o mesmo item_id em igrejas
+    diferentes não colide (multi-tenant, espelha
+    test_agent_event_idempotency_index.py::test_same_marker_different_igreja_does_not_conflict
+    contra Postgres real)."""
+    other_igreja = uuid.UUID("00000000-0000-0000-0000-000000000002")
+    shared_item_id = uuid.uuid4()
+
+    def _breach(igreja):
+        return SlaBreach(
+            igreja_id=igreja, source="work_queue", item_id=shared_item_id,
+            kind="relatorio", status=SlaStatus.COBRANCA, titulo="x",
+        )
+
+    session = FakeSlaSession(connection=SimpleNamespace(instance="igreja-1"))
+    evo = FakeEvolution()
+    engine = SlaEngine(evolution=evo)
+
+    assert engine._dispatch(session, _breach(_IGREJA), "igreja-1") is True
+    assert engine._dispatch(session, _breach(other_igreja), "igreja-1") is True
+    assert len(evo.sent) == 0  # sem destinatário resolvível, mas ambos "despacham" (log-only)
+    assert session.reserved_markers == {
+        (_IGREJA, _dispatch_event_name(_breach(_IGREJA))),
+        (other_igreja, _dispatch_event_name(_breach(other_igreja))),
+    }
+
+
+def test_dispatch_event_name_matches_idempotency_marker_pattern() -> None:
+    """SEC-4: o marcador tem que bater com o predicado `sla\\_%` do índice único
+    parcial (agent_conversation_logs_idem_marker_uidx) — senão o INSERT do
+    marcador não fica protegido pela constraint de banco."""
+    for status in SlaStatus:
+        breach = SlaBreach(
+            igreja_id=_IGREJA,
+            source="work_queue",
+            item_id=uuid.uuid4(),
+            kind="relatorio",
+            status=status,
+            titulo="x",
+        )
+        assert _dispatch_event_name(breach).startswith("sla_")
+
+
+def test_dispatch_escalation_failure_then_retry_creates_only_one_workqueueitem() -> None:
+    """SEC-4 gap-2: a 1ª tentativa falha no envio (reserva de envio liberada,
+    retry permitido) — a 2ª tentativa (mesma breach) reenvia com sucesso, mas
+    NÃO recria o WorkQueueItem de coordenação já commitado na 1ª."""
+    coord_user = uuid.uuid4()
+    coord_pessoa = uuid.uuid4()
+    item = _work_item(tipo="relatorio", prazo=_T0)
+    session = FakeSlaSession(
+        work_items=[item],
+        connection=SimpleNamespace(instance="igreja-1"),
+        coordination_user_ids=[coord_user],
+        users={coord_user: AppUser(
+            igreja_id=_IGREJA, nome="Pastor", email="p@x.com", pessoa_id=coord_pessoa
+        )},
+        pessoas={coord_pessoa: Pessoa(
+            igreja_id=_IGREJA, nome="Pastor", telefone="+5511999990009"
+        )},
+    )
+    breach = SlaBreach(
+        igreja_id=_IGREJA, source="work_queue", item_id=item.id,
+        kind="relatorio", status=SlaStatus.ESCALONAMENTO, titulo="x",
+    )
+
+    result1 = SlaEngine(evolution=FakeEvolution(fail=True))._dispatch(
+        session, breach, "igreja-1"
+    )
+    assert result1 is False  # falha total -> reserva de ENVIO liberada
+    assert sum(1 for o in session.added if isinstance(o, WorkQueueItem)) == 1
+
+    evo_retry = FakeEvolution()
+    result2 = SlaEngine(evolution=evo_retry)._dispatch(session, breach, "igreja-1")
+
+    assert result2 is True  # retry reenvia com sucesso (não perde o aviso)
+    assert evo_retry.sent and evo_retry.sent[0][1] == "+5511999990009"
+    # O item de coordenação NÃO duplicou no retry.
+    assert sum(1 for o in session.added if isinstance(o, WorkQueueItem)) == 1
+
+
+def test_dispatch_escalation_concurrent_reservation_never_duplicates_workqueueitem() -> None:
+    """SEC-4 gap-2: outro processo já venceu a reserva PERMANENTE do item de
+    coordenação (marcador pré-existente, simulando uma varredura concorrente
+    ou uma tentativa anterior) — esta chamada não cria um segundo
+    WorkQueueItem, mas segue enviando o WhatsApp normalmente (a duplicação do
+    ITEM não deve bloquear o ENVIO, que tem seu próprio marcador)."""
+    coord_user = uuid.uuid4()
+    coord_pessoa = uuid.uuid4()
+    item = _work_item(tipo="relatorio", prazo=_T0)
+    breach = SlaBreach(
+        igreja_id=_IGREJA, source="work_queue", item_id=item.id,
+        kind="relatorio", status=SlaStatus.ESCALONAMENTO, titulo="x",
+    )
+    session = FakeSlaSession(
+        work_items=[item],
+        connection=SimpleNamespace(instance="igreja-1"),
+        coordination_user_ids=[coord_user],
+        users={coord_user: AppUser(
+            igreja_id=_IGREJA, nome="Pastor", email="p@x.com", pessoa_id=coord_pessoa
+        )},
+        pessoas={coord_pessoa: Pessoa(
+            igreja_id=_IGREJA, nome="Pastor", telefone="+5511999990009"
+        )},
+        preexisting_markers={(_IGREJA, _coordination_item_event_name(breach))},
+    )
+    evo = FakeEvolution()
+
+    result = SlaEngine(evolution=evo)._dispatch(session, breach, "igreja-1")
+
+    assert result is True
+    assert evo.sent and evo.sent[0][1] == "+5511999990009"
+    assert not any(isinstance(o, WorkQueueItem) for o in session.added)
 
 
 def test_no_instance_logs_without_sending() -> None:
