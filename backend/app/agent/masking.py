@@ -19,6 +19,7 @@ import re
 import uuid
 from typing import Any
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.models import AgentConversationLog, AiUsageLog
@@ -107,3 +108,55 @@ def log_agent_event(
     session.add(row)
     session.flush()
     return row
+
+
+def reserve_agent_event(
+    session: Session,
+    *,
+    igreja_id: str | uuid.UUID,
+    evento: str,
+    payload: dict[str, Any] | None = None,
+) -> AgentConversationLog | None:
+    """Atomically reserve a dedupe marker in agent_conversation_logs (SEC-4).
+
+    Unlike `log_agent_event` (caller owns the commit — logging shares the
+    caller's transaction), this function COMMITS immediately. It exists
+    specifically for the SLA-charge / autoupgrade-notice dedupe markers
+    (`sla_%` / `subscription_upgrade:%`, see migration
+    `20260709_204500_sec4_agent_event_idempotency_marker_uidx.sql`): the
+    reservation must be durable and visible to a concurrent process BEFORE
+    any outbound send is attempted, and no transaction may stay open while an
+    external call (WhatsApp/Evolution) is in flight.
+
+    Returns the created row if this call won the reservation — the caller
+    should proceed to send, and may call `release_agent_event` if the send
+    fails (at-least-once retry). Returns None if another process already
+    holds the marker — the caller MUST NOT send (someone else already is, or
+    already did).
+    """
+    row = AgentConversationLog(
+        igreja_id=_as_uuid(igreja_id),
+        evento=evento,
+        payload=mask_payload(payload) if payload else None,
+    )
+    session.add(row)
+    try:
+        session.flush()
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        return None
+    return row
+
+
+def release_agent_event(session: Session, row: AgentConversationLog) -> None:
+    """Undo a reservation after a failed send (SEC-4, at-least-once retry).
+
+    Deletes the marker so the next sweep/call retries the send. Only call
+    this after a genuine send failure to every attempted recipient — never
+    after a successful send, and never for the "no recipient/no instance"
+    case (that stays logged, matching the pre-existing behavior of not
+    re-attempting items with no resolvable contact on every tick).
+    """
+    session.delete(row)
+    session.commit()

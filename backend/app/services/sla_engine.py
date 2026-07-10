@@ -158,6 +158,21 @@ def _dispatch_event_name(breach: SlaBreach) -> str:
     return f"sla_{breach.status.value}:{breach.source}:{breach.item_id}"
 
 
+def _coordination_item_event_name(breach: SlaBreach) -> str:
+    """Chave de dedupe PERMANENTE (nunca liberada) do WorkQueueItem de
+    coordenação de uma escalação — SEC-4 gap-2.
+
+    Separada de `_dispatch_event_name` de propósito: aquele marcador É
+    liberado em falha total de envio (at-least-once, permite retry do
+    WhatsApp); este NUNCA é liberado, porque criar o item de coordenação é
+    uma ação "no máximo uma vez pra sempre" — diferente de "reenviar até dar
+    certo". Cobre o mesmo predicado `sla\\_%` do índice único parcial
+    `agent_conversation_logs_idem_marker_uidx`, sem precisar de migration
+    nova.
+    """
+    return f"sla_coordenacao_item:{breach.source}:{breach.item_id}"
+
+
 def _already_dispatched(session: Session, igreja_id: uuid.UUID, evento: str) -> bool:
     existing = session.execute(
         select(AgentConversationLog.id).where(
@@ -261,15 +276,57 @@ class SlaEngine:
     def _dispatch(
         self, session: Session, breach: SlaBreach, instance: str | None
     ) -> bool:
-        """Charge or escalate one breach exactly once (idempotent)."""
+        """Charge or escalate one breach exactly once (idempotent, SEC-4).
+
+        Ordem (evita o duplo-envio sob corrida — achado da revisão do índice
+        `agent_conversation_logs_idem_marker_uidx`): RESERVA o marcador
+        (INSERT + commit imediato, via `reserve_agent_event`) ANTES de
+        qualquer `send_text`. Se a reserva perder a corrida (outro processo
+        já reservou o MESMO marcador), retorna sem enviar — nenhum envio
+        duplicado é possível, porque nenhum envio acontece sem reserva
+        vencida antes. Nenhuma transação fica aberta durante a chamada
+        externa: a reserva já commitou antes do primeiro `send_text`.
+
+        At-least-once: se o envio falhar pra TODOS os destinatários
+        tentados, a reserva é liberada (`release_agent_event`) e a próxima
+        varredura tenta de novo — perder uma cobrança/aviso é pior, neste
+        domínio, do que ocasionalmente duplicar um WhatsApp (ver decisão no
+        PR). "Sem destinatário/instância" continua só logado (comportamento
+        preexistente — evita loop de reprocessamento apertado pra item sem
+        contato resolvível).
+
+        Gap-2 (revisão SEC-4): o `WorkQueueItem` de coordenação de uma
+        escalação é gate-ado por um marcador PERMANENTE separado
+        (`_coordination_item_event_name`, nunca liberado) — resolve o
+        cenário em que a reserva de ENVIO é liberada (falha total) e a
+        varredura seguinte reprocessa a mesma breach: sem o gate, isso
+        recriava o item de coordenação a cada retry.
+        """
         evento = _dispatch_event_name(breach)
         if _already_dispatched(session, breach.igreja_id, evento):
-            return False
+            return False  # saída antecipada barata, antes de montar destinatários/texto
+
+        from app.agent.masking import (  # noqa: PLC0415
+            release_agent_event,
+            reserve_agent_event,
+        )
 
         if breach.status is SlaStatus.ESCALONAMENTO:
             recipients = _coordination_phones(session, breach.igreja_id)
             texto = _escalation_text(breach)
+            # session.add() pendente — commita JUNTO com a reserva do
+            # marcador PERMANENTE abaixo (mesma transação): se essa reserva
+            # perder a corrida (sequencial, num retry, ou concorrente, numa
+            # segunda varredura), o rollback do reserve_agent_event desfaz
+            # o item pendente também — no máximo 1 WorkQueueItem por breach.
             self._open_coordination_item(session, breach)
+            # Resultado não importa aqui: o destino do WorkQueueItem pendente
+            # já foi decidido pelo commit/rollback desta chamada.
+            reserve_agent_event(
+                session,
+                igreja_id=breach.igreja_id,
+                evento=_coordination_item_event_name(breach),
+            )
         else:
             phone = _user_phone(session, breach.responsavel_user_id) or _pessoa_phone(
                 session, breach.pessoa_id
@@ -277,9 +334,27 @@ class SlaEngine:
             recipients = [phone] if phone else []
             texto = _charge_text(breach)
 
+        marker = reserve_agent_event(
+            session,
+            igreja_id=breach.igreja_id,
+            evento=evento,
+            payload={
+                "kind": breach.kind,
+                "source": breach.source,
+                "itemId": str(breach.item_id),
+                "status": breach.status.value,
+            },
+        )
+        if marker is None:
+            # Perdeu a corrida: outro processo já reserva este marcador —
+            # nunca envia aqui também (SEC-4).
+            return False
+
         sent_to: list[str] = []
+        attempted = False
         if instance:
             for phone in recipients:
+                attempted = True
                 try:
                     self._evolution.send_text(instance, phone, texto)
                     sent_to.append(phone)
@@ -295,10 +370,12 @@ class SlaEngine:
                 breach.igreja_id,
             )
 
-        # Record the dispatch so it is not repeated on the next tick. Logged even
-        # when no recipient/instance was available, to avoid tight re-detection
-        # loops; the payload keeps an audit of what happened.
-        self._log_dispatch(session, breach, evento, recipients_count=len(sent_to))
+        if attempted and not sent_to:
+            # Falha total do envio (todo destinatário tentado falhou):
+            # libera a reserva pra próxima varredura tentar de novo.
+            release_agent_event(session, marker)
+            return False
+
         return True
 
     def _open_coordination_item(self, session: Session, breach: SlaBreach) -> None:
@@ -317,31 +394,6 @@ class SlaEngine:
                 prioridade=1,
             )
         )
-
-    def _log_dispatch(
-        self,
-        session: Session,
-        breach: SlaBreach,
-        evento: str,
-        *,
-        recipients_count: int,
-    ) -> None:
-        # Imported here to avoid a hard dependency for callers that only scan.
-        from app.agent.masking import log_agent_event  # noqa: PLC0415
-
-        log_agent_event(
-            session,
-            igreja_id=breach.igreja_id,
-            evento=evento,
-            payload={
-                "kind": breach.kind,
-                "source": breach.source,
-                "itemId": str(breach.item_id),
-                "status": breach.status.value,
-                "recipients": recipients_count,
-            },
-        )
-
 
 def run_all_igrejas(
     session: Session,

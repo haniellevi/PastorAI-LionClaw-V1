@@ -23,7 +23,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.agent.masking import log_agent_event
+from app.agent.masking import release_agent_event, reserve_agent_event
 from app.config import get_settings
 from app.db.models import (
     AgentConversationLog,
@@ -149,6 +149,15 @@ def _admin_phones(db: Session, igreja_id: uuid.UUID) -> list[str]:
     return phones
 
 
+def _autoupgrade_event_name(plano: str) -> str:
+    """Stable dedupe key for one autoupgrade notification (SEC-4).
+
+    Must match the `subscription\\_upgrade:%` predicate of the partial unique
+    index `agent_conversation_logs_idem_marker_uidx`.
+    """
+    return f"subscription_upgrade:{plano}"
+
+
 def notify_autoupgrade(
     db: Session, igreja_id: uuid.UUID, evolution: EvolutionClient
 ) -> bool:
@@ -157,6 +166,22 @@ def notify_autoupgrade(
     Idempotent: a `subscription_upgrade:<plano>` event in agent_conversation_logs
     marks a plan as already announced, so repeated calls do not re-notify.
     Returns True when a new notification was emitted.
+
+    SEC-4: a reserva do marcador (`reserve_agent_event`, INSERT + commit
+    imediato) acontece ANTES do `send_text` — nunca depois. Se a reserva
+    perder a corrida (outro processo já reservou o MESMO marcador), retorna
+    sem enviar; nenhuma transação fica aberta durante a chamada externa. Se o
+    envio falhar pra todo destinatário tentado, a reserva é liberada
+    (`release_agent_event`) pra próxima chamada tentar de novo
+    (at-least-once — ver decisão no PR).
+
+    Gap-2 (revisão SEC-4): TODAS as leituras (conexão WhatsApp, telefones de
+    admin) acontecem ANTES da reserva — não depois. `db.execute`/`db.get`
+    após um `commit()` reabre implicitamente uma transação (autobegin do
+    SQLAlchemy); fazer essas leituras depois da reserva deixaria essa
+    transação aberta durante o `send_text` (chamada externa). Lendo antes e
+    guardando só valores simples (str), nenhuma query roda entre a reserva e
+    o envio.
     """
     sub = db.execute(
         select(Subscription).where(Subscription.igreja_id == igreja_id)
@@ -164,7 +189,7 @@ def notify_autoupgrade(
     if sub is None:
         return False
 
-    evento = f"subscription_upgrade:{sub.plano}"
+    evento = _autoupgrade_event_name(sub.plano)
     already = db.execute(
         select(AgentConversationLog.id).where(
             AgentConversationLog.igreja_id == igreja_id,
@@ -172,32 +197,47 @@ def notify_autoupgrade(
         )
     ).first()
     if already is not None:
-        return False
+        return False  # saída antecipada barata
 
     # Only notify when there is an upgrade marker to record beyond the base tier.
     if sub.plano == "ate_100":
         return False
 
+    # Lidas ANTES da reserva (gap-2): só valores simples sobrevivem até o
+    # send, nenhuma query fica pendurada numa transação aberta pelo envio.
     conn = db.execute(
         select(WhatsappConnection).where(WhatsappConnection.igreja_id == igreja_id)
     ).scalar_one_or_none()
     instance = conn.instance if conn else None
+    phones = _admin_phones(db, igreja_id)
+
+    marker = reserve_agent_event(
+        db, igreja_id=igreja_id, evento=evento, payload={"plano": sub.plano}
+    )
+    if marker is None:
+        # Perdeu a corrida: outro processo já reserva este marcador.
+        return False
 
     texto = (
         "Aviso de assinatura: seu plano foi atualizado automaticamente para "
         f"'{sub.plano}' por aumento do número de pessoas. 🙏"
     )
+    attempted = False
+    sent_any = False
     if instance:
-        for phone in _admin_phones(db, igreja_id):
+        for phone in phones:
+            attempted = True
             try:
                 evolution.send_text(instance, phone, texto)
+                sent_any = True
             except EvolutionError:
                 logger.warning("Autoupgrade notification failed to an admin")
 
-    log_agent_event(
-        db, igreja_id=igreja_id, evento=evento, payload={"plano": sub.plano}
-    )
-    db.commit()
+    if attempted and not sent_any:
+        # Falha total do envio: libera a reserva pra próxima chamada tentar.
+        release_agent_event(db, marker)
+        return False
+
     return True
 
 
