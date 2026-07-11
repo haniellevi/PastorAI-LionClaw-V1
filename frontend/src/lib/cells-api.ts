@@ -85,6 +85,32 @@ export async function fetchCellDetail(
   return (await res.json()) as CellDetail;
 }
 
+/** Vínculo ativo em celula_membro — projeção do MemberOut do backend (camelCase). */
+export interface CellMembro {
+  id: string;
+  pessoaId: string;
+  papel: string;
+  ativo: boolean;
+}
+
+/**
+ * Vínculos ATIVOS da célula pela fonte canônica `celula_membro`
+ * (GET /cells/{id}/membros). É a leitura da Central — distinta de
+ * getCellMembers (/members), exclusiva do líder da própria célula. Não traz o
+ * nome; resolva o pessoaId contra os contatos já carregados.
+ */
+export async function fetchCellMembros(
+  token: string,
+  cellId: string,
+): Promise<CellMembro[]> {
+  const res = await authedFetch(token, `/cells/${cellId}/membros`);
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível carregar os discípulos.");
+  }
+  return (await res.json()) as CellMembro[];
+}
+
 // ---------------------------------------------------------------------------
 // Escrita
 // ---------------------------------------------------------------------------
