@@ -28,7 +28,7 @@ from app.db.session import get_db
 from app.deps import CurrentUser, get_current_user
 from app.domain.hierarchy import is_leader_or_superior
 from app.routers._common import Page, PaginationParams
-from app.services.celula_membro import assert_membro_elegivel
+from app.services.celula_membro import assert_membro_elegivel, promote_tipo_para_membro
 
 logger = logging.getLogger("pastorai.cells")
 
@@ -691,6 +691,7 @@ def add_cell_member(
     )
     db.add(membro)
     pessoa.celula_id = cell.id  # espelho legado (Q1)
+    promote_tipo_para_membro(pessoa)  # invariante: vínculo ativo ⇒ tipo ≥ membro
     try:
         db.flush()
         db.refresh(membro)

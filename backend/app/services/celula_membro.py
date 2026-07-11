@@ -182,13 +182,22 @@ def ensure_active_membro(
             )
         )
 
-    # Vínculo ativo ⇒ a pessoa é, no mínimo, membro. Concentrado aqui (seam
-    # canônico) pra cobrir TODOS os callers — convite, ativação, link_cell pela
-    # tela Pessoas e a tool do agente — sem duplicar a regra nos routers.
-    # Reusa a `pessoa` já carregada acima (era uma 2ª query separada antes).
-    # Idempotente: só promove tipo ausente/"contato"/"visitante"; PRESERVA
-    # membro/discipulo/lider/pastor (sem downgrade). Fora do tenant → no-op.
-    if pessoa is not None and getattr(pessoa, "tipo", None) in _TIPOS_PROMOVIVEIS_A_MEMBRO:
+    # Vínculo ativo ⇒ a pessoa é, no mínimo, membro. Reusa a `pessoa` já carregada
+    # acima (era uma 2ª query separada antes). Fora do tenant → no-op.
+    if pessoa is not None:
+        promote_tipo_para_membro(pessoa)
+
+
+def promote_tipo_para_membro(pessoa: Pessoa) -> None:
+    """Vínculo canônico ATIVO ⇒ a pessoa é, no mínimo, "membro".
+
+    Idempotente: só promove tipo ausente/"contato"/"visitante"; PRESERVA
+    membro/discipulo/lider/pastor (sem downgrade). Concentrada aqui para valer em
+    TODOS os pontos de escrita de celula_membro — o seam ensure_active_membro E os
+    inserts diretos (add_cell_member, aprovação transferir_membro, multiplicação),
+    sem duplicar a regra. Mantém o invariante "vínculo ativo ⇒ tipo ≥ membro".
+    """
+    if getattr(pessoa, "tipo", None) in _TIPOS_PROMOVIVEIS_A_MEMBRO:
         pessoa.tipo = "membro"
 
 

@@ -52,7 +52,7 @@ from app.domain.cell_requests import (
     TIPO_TRANSFERIR_MEMBRO,
 )
 from app.services.cell_multiplication_service import execute_multiplication
-from app.services.celula_membro import assert_membro_elegivel
+from app.services.celula_membro import assert_membro_elegivel, promote_tipo_para_membro
 
 
 def _now() -> dt.datetime:
@@ -189,6 +189,7 @@ def _apply_payload(
         )
         if pessoa is not None:
             pessoa.celula_id = destino_id
+            promote_tipo_para_membro(pessoa)  # vínculo ativo ⇒ tipo ≥ membro
     elif tipo == TIPO_REMOVER_MEMBRO:
         pessoa_id = uuid.UUID(str(payload["pessoa_id"]))
         _assert_pessoa_in_tenant(db, igreja_id, pessoa_id, "pessoa_id")

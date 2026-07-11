@@ -537,6 +537,22 @@ def test_add_member_creates_link_and_mirror(app) -> None:
     assert session.committed is True
 
 
+def test_add_member_promotes_tipo_to_membro(app) -> None:
+    # M7B-W1.2: vínculo ativo ⇒ tipo ≥ membro, também na entrada direta (não só
+    # no seam). Um 'contato' adicionado como membro é promovido.
+    cell = make_cell(lider_id=_LP)
+    pessoa = make_pessoa(pessoa_id=_P1, tipo="contato", celula_id=None)
+    session = CellSession(
+        app_user=make_app_user(), roles=["pastor"], cells=[cell], pessoas=[pessoa]
+    )
+    resp = _wire(app, session=session).post(
+        f"/cells/{_CELL}/membros", headers=_AUTH, json={"pessoaId": _P1}
+    )
+    assert resp.status_code == 201, resp.text
+    assert pessoa.tipo == "membro"  # promovido
+    assert pessoa.celula_id == cell.id
+
+
 def test_add_member_conflicts_when_already_active(app) -> None:
     cell = make_cell(lider_id=_LP)  # ativa+com líder (C-03): não é o que este teste cobre
     pessoa = make_pessoa(pessoa_id=_P1)

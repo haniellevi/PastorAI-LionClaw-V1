@@ -108,6 +108,11 @@ def get_connection(
     no number). Best-effort: when Evolution is unreachable or unconfigured the
     stored values are returned. Values are captured into locals before any
     commit so no attribute reload runs outside the tenant context.
+
+    M7B-W1.2: se o número pareado (só conhecido aqui, no fluxo QR) pertence a uma
+    pessoa com vínculo ministerial, FALHA FECHADO — desconecta a instância, não
+    persiste o número e devolve 409 acionável (o número oficial não pode
+    permanecer conectado se é de pastor/líder/membro).
     """
 
     conn = db.execute(
@@ -130,37 +135,61 @@ def get_connection(
             live = None
         if live is not None:
             changed = False
-            numero_novo = False
             if live.status and live.status != conn.status:
                 conn.status = status_val = live.status
                 changed = True
             if live.numero and live.numero != conn.numero:
+                # M7B-W1.2: no fluxo QR o número só é conhecido AQUI (após o
+                # pareamento), tarde demais para o guard pré-autorização de
+                # post_connection. Checa o conflito ANTES de persistir o número
+                # (o SET LOCAL da RLS reverte no commit).
+                conflitos = find_ministerial_conflicts(
+                    db,
+                    igreja_id=uuid.UUID(current_user.igreja_id),
+                    numero=live.numero,
+                )
+                if conflitos:
+                    # FALHA FECHADO: o número oficial não pode PERMANECER conectado
+                    # se pertence a pastor/líder/membro. Desconecta a instância, NÃO
+                    # persiste o número conflitante, deixa o estado local offline e
+                    # devolve 409 acionável (não só log) — a UI/admin resolve os
+                    # vínculos e reconecta. disconnect() é best-effort: mesmo que a
+                    # Evolution falhe, o estado local já fica coerente/offline.
+                    try:
+                        evolution.disconnect(conn.instance)
+                    except EvolutionError:
+                        logger.warning(
+                            "Falha ao desconectar instância conflitante (%s); "
+                            "estado local marcado offline mesmo assim",
+                            conn.instance,
+                        )
+                    conn.numero = None
+                    conn.status = "offline"
+                    conn.ultima_sync = dt.datetime.now(dt.timezone.utc)
+                    db.commit()
+                    logger.warning(
+                        "Número WhatsApp pareado tem vínculo ministerial (%s) — "
+                        "instância desconectada, número não persistido.",
+                        [c.get("vinculos") for c in conflitos],
+                    )
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail={
+                            "error": "whatsapp_conflito_ministerial",
+                            "message": (
+                                "O número pareado pertence a uma pessoa com vínculo "
+                                "ministerial (pastor, líder ou membro de célula) e foi "
+                                "desconectado. Resolva os vínculos antes de conectar o "
+                                "WhatsApp oficial."
+                            ),
+                            "conflitos": conflitos,
+                        },
+                    )
                 conn.numero = numero = live.numero
                 changed = True
-                numero_novo = True
-            # M7B-W1.2: no fluxo QR o número só é conhecido AQUI (após o pareamento),
-            # tarde demais para o guard pré-autorização de post_connection. Detecta o
-            # conflito ministerial ANTES do commit (o SET LOCAL da RLS reverte no
-            # commit) e sem mutar/desconectar (R5: nunca alterar silenciosamente) —
-            # só registra um aviso para a operação resolver os vínculos.
-            conflitos = (
-                find_ministerial_conflicts(
-                    db, igreja_id=uuid.UUID(current_user.igreja_id), numero=numero
-                )
-                if numero_novo
-                else []
-            )
             if changed:
                 ultima = conn.ultima_sync = dt.datetime.now(dt.timezone.utc)
                 db.commit()
-            if conflitos:
-                logger.warning(
-                    "Número WhatsApp pareado (%s) tem vínculo ministerial em %s "
-                    "pessoa(s): %s — resolver os vínculos.",
-                    numero,
-                    len(conflitos),
-                    [c.get("vinculos") for c in conflitos],
-                )
 
     return ConnectionStatusOut(
         numero=numero,

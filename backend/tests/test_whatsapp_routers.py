@@ -715,6 +715,85 @@ def test_get_connection_captures_paired_number(app) -> None:
     assert evo.asked == ["igreja-x"]
 
 
+class _FakeEvoStatusDisconnect:
+    """fetch_status devolve um resultado fixo e disconnect é registrado."""
+
+    def __init__(self, result) -> None:
+        self.result = result
+        self.disconnected: list[str] = []
+
+    def fetch_status(self, instance):
+        return self.result
+
+    def disconnect(self, instance):
+        from app.services.evolution import ConnectionResult
+
+        self.disconnected.append(instance)
+        return ConnectionResult(status="offline")
+
+
+def test_get_connection_fails_closed_on_ministerial_conflict(app) -> None:
+    # M7B-W1.2 (fluxo QR): o número pareado só é conhecido no GET; se pertence a
+    # pastor/líder/membro, FALHA FECHADO — disconnect() é chamado, o número NÃO é
+    # persistido, o estado fica offline e o admin recebe 409 acionável.
+    from app.services.evolution import ConnectionResult
+
+    conn = SimpleNamespace(
+        instance="igreja-x", numero=None, status="reconectando", ultima_sync=None
+    )
+    pastor = SimpleNamespace(
+        id="00000000-0000-0000-0000-0000000000d1",
+        igreja_id="00000000-0000-0000-0000-000000000001",
+        nome="Pastor Raniel",
+        tipo="pastor",
+        telefone="+55 (89) 99431-5927",
+    )
+    session = _ConnSession(
+        app_user=make_app_user(), roles=["admin"], conn=conn, pessoas=[pastor]
+    )
+    evo = _FakeEvoStatusDisconnect(
+        ConnectionResult(status="online", numero="558994315927")
+    )
+    app.dependency_overrides[get_db] = lambda: session
+    app.dependency_overrides[get_clerk_client] = lambda: FakeClerk()
+    app.dependency_overrides[get_evolution_client] = lambda: evo
+    client = TestClient(app)
+
+    resp = client.get("/whatsapp/connection", headers=_AUTH)
+    assert resp.status_code == 409
+    detail = resp.json()["detail"]
+    assert detail["error"] == "whatsapp_conflito_ministerial"
+    assert detail["conflitos"][0]["vinculos"] == ["pastor"]
+    assert evo.disconnected == ["igreja-x"]  # falhou fechado: desconectou
+    assert conn.numero is None  # número conflitante NÃO persistido
+    assert conn.status == "offline"  # estado local coerente
+    assert session.committed is True
+
+
+def test_get_connection_no_conflict_keeps_normal_qr_flow(app) -> None:
+    # Sem conflito, o QR segue normal: número pareado é persistido, sem disconnect.
+    from app.services.evolution import ConnectionResult
+
+    conn = SimpleNamespace(
+        instance="igreja-x", numero=None, status="reconectando", ultima_sync=None
+    )
+    session = _ConnSession(
+        app_user=make_app_user(), roles=["admin"], conn=conn, pessoas=[]
+    )
+    evo = _FakeEvoStatusDisconnect(
+        ConnectionResult(status="online", numero="558994315927")
+    )
+    app.dependency_overrides[get_db] = lambda: session
+    app.dependency_overrides[get_clerk_client] = lambda: FakeClerk()
+    app.dependency_overrides[get_evolution_client] = lambda: evo
+    client = TestClient(app)
+
+    resp = client.get("/whatsapp/connection", headers=_AUTH)
+    assert resp.status_code == 200
+    assert conn.numero == "558994315927"  # persistido
+    assert evo.disconnected == []  # nada desconectado
+
+
 class _FakeEvoConnect:
     """Captura os argumentos de connect/reconnect e devolve um resultado fixo."""
 
