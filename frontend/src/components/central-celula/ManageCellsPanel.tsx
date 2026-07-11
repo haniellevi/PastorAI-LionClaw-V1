@@ -23,8 +23,10 @@ import { InviteMemberModal } from "@/components/cells/InviteMemberModal";
 import { SessionExpiredError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import {
+  fetchCellMembros,
   fetchCellsFull,
   upsertCell,
+  type CellMembro,
   type CellSummary,
   type UpsertCellInput,
 } from "@/lib/cells-api";
@@ -60,6 +62,13 @@ export function ManageCellsPanel({
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [showInvite, setShowInvite] = useState(false);
+
+  // Discípulos vinculados (celula_membro) da célula selecionada — leitura.
+  const [membros, setMembros] = useState<CellMembro[]>([]);
+  const [membrosLoading, setMembrosLoading] = useState(false);
+  const [membrosError, setMembrosError] = useState<string | null>(null);
+  // Bump para reexecutar o fetch dos membros (retry manual e após convite).
+  const [membrosNonce, setMembrosNonce] = useState(0);
 
   const load = useCallback(async () => {
     setLoadError(null);
@@ -110,6 +119,46 @@ export function ManageCellsPanel({
     () => cells.find((c) => c.id === selectedId) ?? null,
     [cells, selectedId],
   );
+
+  // Nome do vínculo resolvido pelos contatos já carregados (membros só têm id).
+  const membroNome = useCallback(
+    (pessoaId: string) => contacts.find((c) => c.id === pessoaId)?.nome ?? "—",
+    [contacts],
+  );
+
+  // Carrega os discípulos vinculados ao selecionar a célula. O flag `cancelled`
+  // descarta resposta de uma seleção anterior (trocar célula não mistura listas).
+  useEffect(() => {
+    if (!selectedId) {
+      setMembros([]);
+      setMembrosError(null);
+      setMembrosLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setMembrosLoading(true);
+    setMembrosError(null);
+    fetchCellMembros(token, selectedId)
+      .then((rows) => {
+        if (!cancelled) setMembros(rows);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        if (err instanceof SessionExpiredError) {
+          expireSession();
+          return;
+        }
+        setMembrosError(
+          err instanceof ApiError ? err.message : "Não foi possível carregar os discípulos.",
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setMembrosLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedId, token, expireSession, membrosNonce]);
 
   // Sugestões de cobertura espiritual: só tipo='pastor' (decisão do dono:
   // 'lider' é legado e não volta como semântica; G12 pastoral formal fica para
@@ -173,6 +222,7 @@ export function ManageCellsPanel({
       onToast({ kind: "ok", text });
       // O convite vinculou a pessoa à célula: recarrega para refletir o membro.
       void load();
+      setMembrosNonce((n) => n + 1);
       onChanged();
     },
     [onToast, onChanged, load],
@@ -255,26 +305,76 @@ export function ManageCellsPanel({
           </div>
 
           {selectedCell ? (
-            <div style={{ display: "flex", gap: "var(--s2)", padding: "var(--s3) var(--s4)" }}>
-              <button
-                type="button"
-                className="btn"
-                onClick={() => openEdit(selectedCell)}
-                style={{ flex: 1 }}
-              >
-                <Icon name="document" />
-                <span>Editar célula</span>
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={() => setShowInvite(true)}
-                style={{ flex: 1 }}
-              >
-                <Icon name="plus" />
-                <span>Convidar membro</span>
-              </button>
-            </div>
+            <>
+              <div style={{ display: "flex", gap: "var(--s2)", padding: "var(--s3) var(--s4)" }}>
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={() => openEdit(selectedCell)}
+                  style={{ flex: 1 }}
+                >
+                  <Icon name="document" />
+                  <span>Editar célula</span>
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => setShowInvite(true)}
+                  style={{ flex: 1 }}
+                >
+                  <Icon name="plus" />
+                  <span>Convidar membro</span>
+                </button>
+              </div>
+
+              <div style={{ borderTop: "1px solid var(--border)" }}>
+                <div className="panel-title" style={{ padding: "var(--s3) var(--s4)" }}>
+                  Discípulos vinculados
+                  {membros.length ? <span className="count">· {membros.length}</span> : null}
+                </div>
+
+                {membrosLoading ? (
+                  <div className="sub" style={{ padding: "0 var(--s4) var(--s3)" }}>
+                    Carregando…
+                  </div>
+                ) : membrosError ? (
+                  <div
+                    className="error-banner"
+                    role="alert"
+                    style={{ margin: "0 var(--s4) var(--s3)" }}
+                  >
+                    <Icon name="alert" />
+                    <span>{membrosError}</span>
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      onClick={() => setMembrosNonce((n) => n + 1)}
+                    >
+                      Tentar novamente
+                    </button>
+                  </div>
+                ) : membros.length === 0 ? (
+                  <div className="sub" style={{ padding: "0 var(--s4) var(--s3)" }}>
+                    Nenhum discípulo vinculado a esta célula ainda.
+                  </div>
+                ) : (
+                  <div>
+                    {membros.map((m) => (
+                      <div
+                        key={m.id}
+                        className="list-row"
+                        style={{ borderTop: "1px solid var(--border)" }}
+                      >
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div className="nm">{membroNome(m.pessoaId)}</div>
+                        </div>
+                        <StatusPill tone="ok">Ativo</StatusPill>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
           ) : null}
         </section>
       ) : null}
