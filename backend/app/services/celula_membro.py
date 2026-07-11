@@ -15,7 +15,8 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import Celula, CelulaMembro, Pessoa
+from app.db.models import Celula, CelulaMembro, Pessoa, WhatsappConnection
+from app.domain.phone import normalize_phone
 
 # Missão M7B-W1: tipos de ENTRADA (ou tipo ausente) que um vínculo ativo de
 # célula promove a "membro". Um vínculo canônico ativo implica que a pessoa é,
@@ -24,6 +25,84 @@ from app.db.models import Celula, CelulaMembro, Pessoa
 _TIPOS_PROMOVIVEIS_A_MEMBRO: frozenset[str | None] = frozenset(
     {None, "contato", "visitante"}
 )
+
+
+class MembroInelegivelError(ValueError):
+    """Missão M7B-W1.2: a pessoa não pode ter vínculo ATIVO de célula.
+
+    Regras ministeriais (fonte: célula = discípulos daquela célula):
+      * ``pastor`` nunca é membro de célula;
+      * o líder indicado em ``celulas.lider_id`` nunca é membro da PRÓPRIA célula;
+      * o número conectado ao WhatsApp/Evolution da igreja não participa de célula.
+
+    Levantada no seam canônico (``ensure_active_membro``) e no único caller que
+    escreve fora dele (``cells.add_cell_member``). ``code`` é o rótulo estável
+    para o cliente; o handler global em ``app.main`` mapeia para HTTP 409.
+    """
+
+    def __init__(self, code: str, message: str) -> None:
+        self.code = code
+        self.message = message
+        super().__init__(message)
+
+
+def assert_membro_elegivel(
+    db: Session,
+    *,
+    igreja_id: uuid.UUID,
+    celula: Celula,
+    pessoa: Pessoa,
+) -> None:
+    """Recusa (``MembroInelegivelError``) uma pessoa inelegível a membro de célula.
+
+    Guarda COMPARTILHADA: concentrada aqui para valer em TODOS os pontos de
+    escrita (o seam ``ensure_active_membro`` — convite/ativação/link_cell/tool do
+    agente — e a entrada direta ``cells.add_cell_member``), sem duplicar a regra.
+    Usa ``getattr`` porque os fakes de teste modelam a pessoa/célula como
+    ``SimpleNamespace`` parcial; em produção os atributos são colunas reais.
+    """
+    if (getattr(pessoa, "tipo", None) or "").lower() == "pastor":
+        raise MembroInelegivelError(
+            "pastor_nao_pode_ser_membro",
+            "Pastor não pode ser membro de célula.",
+        )
+
+    lider_id = getattr(celula, "lider_id", None)
+    if lider_id is not None and str(lider_id) == str(pessoa.id):
+        raise MembroInelegivelError(
+            "lider_nao_membro_propria_celula",
+            "O líder da célula não pode ser membro da própria célula.",
+        )
+
+    if _phone_matches_active_whatsapp(
+        db, igreja_id=igreja_id, telefone=getattr(pessoa, "telefone", None)
+    ):
+        raise MembroInelegivelError(
+            "numero_whatsapp_nao_participa",
+            "O número conectado ao WhatsApp da igreja não pode participar de célula.",
+        )
+
+
+def _phone_matches_active_whatsapp(
+    db: Session, *, igreja_id: uuid.UUID, telefone: str | None
+) -> bool:
+    """True se ``telefone`` (normalizado) é o número conectado ao WhatsApp do tenant.
+
+    Uma conexão por igreja (UNIQUE igreja_id). Compara pela chave canônica
+    ``normalize_phone`` (mesmo normalizador do dedupe de contatos), de modo que
+    ``+55`` e o 9º dígito não escondam a correspondência.
+    """
+    normalized = normalize_phone(telefone or "")
+    if not normalized:
+        return False
+    conn = db.execute(
+        select(WhatsappConnection).where(
+            WhatsappConnection.igreja_id == igreja_id
+        )
+    ).scalar_one_or_none()
+    if conn is None or not conn.numero:
+        return False
+    return normalize_phone(conn.numero) == normalized
 
 
 def ensure_active_membro(
@@ -51,6 +130,16 @@ def ensure_active_membro(
     ).scalar_one_or_none()
     if celula is None:
         raise ValueError("Célula fora do escopo da igreja — vínculo recusado")
+
+    # Missão M7B-W1.2: guarda de elegibilidade no seam canônico. Carrega a pessoa
+    # UMA vez (reusada na promoção adiante) e recusa pastor / líder da própria
+    # célula / número do WhatsApp ANTES de qualquer escrita. Pessoa fora do
+    # escopo do tenant (None) não é avaliável aqui — a FK barra o vínculo órfão.
+    pessoa = db.execute(
+        select(Pessoa).where(Pessoa.id == pessoa_id, Pessoa.igreja_id == igreja_id)
+    ).scalar_one_or_none()
+    if pessoa is not None:
+        assert_membro_elegivel(db, igreja_id=igreja_id, celula=celula, pessoa=pessoa)
 
     # Histórico anterior a este PR pode ter deixado mais de uma linha inativa
     # pra (pessoa, célula) — a migration de backfill reativa só a mais
@@ -96,21 +185,9 @@ def ensure_active_membro(
     # Vínculo ativo ⇒ a pessoa é, no mínimo, membro. Concentrado aqui (seam
     # canônico) pra cobrir TODOS os callers — convite, ativação, link_cell pela
     # tela Pessoas e a tool do agente — sem duplicar a regra nos routers.
-    _promote_tipo_para_membro(db, igreja_id=igreja_id, pessoa_id=pessoa_id)
-
-
-def _promote_tipo_para_membro(
-    db: Session, *, igreja_id: uuid.UUID, pessoa_id: uuid.UUID
-) -> None:
-    """Promove a Pessoa a "membro" quando ganha um vínculo canônico ativo.
-
-    Idempotente e tenant-scoped (filtra por igreja_id): só promove tipo ausente,
-    "contato" ou "visitante"; PRESERVA membro/discipulo/lider/pastor (sem
-    downgrade). Se a pessoa não estiver no escopo da igreja, é no-op.
-    """
-    pessoa = db.execute(
-        select(Pessoa).where(Pessoa.id == pessoa_id, Pessoa.igreja_id == igreja_id)
-    ).scalar_one_or_none()
+    # Reusa a `pessoa` já carregada acima (era uma 2ª query separada antes).
+    # Idempotente: só promove tipo ausente/"contato"/"visitante"; PRESERVA
+    # membro/discipulo/lider/pastor (sem downgrade). Fora do tenant → no-op.
     if pessoa is not None and getattr(pessoa, "tipo", None) in _TIPOS_PROMOVIVEIS_A_MEMBRO:
         pessoa.tipo = "membro"
 

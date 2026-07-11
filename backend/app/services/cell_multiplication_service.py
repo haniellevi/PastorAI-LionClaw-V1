@@ -206,6 +206,12 @@ def execute_multiplication(
                     f"membro {pessoa_id} não é membro ativo da célula de origem"
                 ),
             )
+        # ponytail: a guarda de elegibilidade (M7B-W1.2) NÃO é aplicada aqui de
+        # propósito. A multiplicação só move membros JÁ ATIVOS da origem (validado
+        # acima) e o payload inclui o `novo_lider_id` na lista de transferidos —
+        # aplicar a guarda barraria o próprio novo líder (regra "líder da própria
+        # célula"), quebrando um fluxo válido. O tratamento do líder-como-membro na
+        # multiplicação é questão de domínio à parte, fora do escopo desta missão.
         antigo.ativo = False
         antigo.updated_at = _now()
 

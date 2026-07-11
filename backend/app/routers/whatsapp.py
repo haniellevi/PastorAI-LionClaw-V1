@@ -37,6 +37,7 @@ from app.services.evolution import (
     verify_shared_secret,
     verify_webhook_signature,
 )
+from app.services.whatsapp_identity import find_ministerial_conflicts
 from app.workers.queue_worker import WebhookQueue
 
 logger = logging.getLogger("pastorai.whatsapp")
@@ -129,15 +130,37 @@ def get_connection(
             live = None
         if live is not None:
             changed = False
+            numero_novo = False
             if live.status and live.status != conn.status:
                 conn.status = status_val = live.status
                 changed = True
             if live.numero and live.numero != conn.numero:
                 conn.numero = numero = live.numero
                 changed = True
+                numero_novo = True
+            # M7B-W1.2: no fluxo QR o número só é conhecido AQUI (após o pareamento),
+            # tarde demais para o guard pré-autorização de post_connection. Detecta o
+            # conflito ministerial ANTES do commit (o SET LOCAL da RLS reverte no
+            # commit) e sem mutar/desconectar (R5: nunca alterar silenciosamente) —
+            # só registra um aviso para a operação resolver os vínculos.
+            conflitos = (
+                find_ministerial_conflicts(
+                    db, igreja_id=uuid.UUID(current_user.igreja_id), numero=numero
+                )
+                if numero_novo
+                else []
+            )
             if changed:
                 ultima = conn.ultima_sync = dt.datetime.now(dt.timezone.utc)
                 db.commit()
+            if conflitos:
+                logger.warning(
+                    "Número WhatsApp pareado (%s) tem vínculo ministerial em %s "
+                    "pessoa(s): %s — resolver os vínculos.",
+                    numero,
+                    len(conflitos),
+                    [c.get("vinculos") for c in conflitos],
+                )
 
     return ConnectionStatusOut(
         numero=numero,
@@ -189,6 +212,32 @@ def post_connection(
         db.commit()
         return ConnectResponse(status=result.status, qr=None)
 
+    # Um número explícito no payload significa "parear por código". Missão
+    # M7B-W1.2: antes de AUTORIZAR, normaliza o número e bloqueia se ele já
+    # pertence a uma pessoa com vínculo ministerial (pastor, líder de célula ou
+    # membro de célula) — o número oficial de atendimento não participa da
+    # jornada. Só dá pra checar no fluxo de CÓDIGO (número no payload); no fluxo
+    # QR o número só aparece após o pareamento (get_connection). Sem mutação: 409
+    # acionável com a lista de vínculos que precisam ser resolvidos primeiro.
+    numero = _clean_numero(payload.numero)
+    if numero:
+        conflitos = find_ministerial_conflicts(
+            db, igreja_id=igreja_uuid, numero=numero
+        )
+        if conflitos:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "error": "whatsapp_conflito_ministerial",
+                    "message": (
+                        "Este número já pertence a uma pessoa com vínculo "
+                        "ministerial (pastor, líder ou membro de célula). "
+                        "Resolva os vínculos antes de conectar o WhatsApp oficial."
+                    ),
+                    "conflitos": conflitos,
+                },
+            )
+
     # Reuse the igreja's existing instance when present (it may have been
     # provisioned out-of-band, e.g. an already-connected number); only mint a
     # deterministic name when creating the connection for the first time.
@@ -211,14 +260,12 @@ def post_connection(
                 detail="Já existe um número conectado para esta igreja",
             ) from exc
 
-    # Um número explícito no payload significa "parear por código". Evolution
-    # v2.3.7 IGNORA o número quando a instância já está em "connecting" (devolve
-    # só o QR atual, sem pairingCode); por isso o pedido de código SEMPRE passa
-    # por reconnect — que dá um restart best-effort para resetar a sessão antes do
-    # connect com número. O caminho QR nunca envia número (nem reaproveita o
-    # salvo), senão "Gerar novo QR" viraria pedido de código sem o admin querer.
-    numero = _clean_numero(payload.numero)
-
+    # Evolution v2.3.7 IGNORA o número quando a instância já está em "connecting"
+    # (devolve só o QR atual, sem pairingCode); por isso o pedido de código SEMPRE
+    # passa por reconnect — que dá um restart best-effort para resetar a sessão
+    # antes do connect com número. O caminho QR nunca envia número (nem reaproveita
+    # o salvo), senão "Gerar novo QR" viraria pedido de código sem o admin querer.
+    # (``numero`` já normalizado acima, junto do guard de conflito ministerial.)
     try:
         if numero:
             result = evolution.reconnect(instance, numero=numero)

@@ -52,6 +52,7 @@ from app.domain.cell_requests import (
     TIPO_TRANSFERIR_MEMBRO,
 )
 from app.services.cell_multiplication_service import execute_multiplication
+from app.services.celula_membro import assert_membro_elegivel
 
 
 def _now() -> dt.datetime:
@@ -165,6 +166,17 @@ def _apply_payload(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="celula_destino_id: célula não encontrada nesta igreja",
             )
+        pessoa = db.execute(
+            select(Pessoa).where(Pessoa.id == pessoa_id)
+        ).scalar_one_or_none()
+        # M7B-W1.2: guarda compartilhada ANTES de desativar/inserir — recusa
+        # pastor / líder da célula de destino / número do WhatsApp (este é o 6º
+        # ponto de escrita de celula_membro; não passa pelo seam ensure_active_membro).
+        # MembroInelegivelError vira 409 no handler global. Guarda antes da mutação
+        # para a recusa não deixar o vínculo antigo desativado (a transação inteira
+        # é revertida no rollback do approve, mas a ordem mantém a intenção clara).
+        if pessoa is not None:
+            assert_membro_elegivel(db, igreja_id=igreja_id, celula=destino, pessoa=pessoa)
         _deactivate_active_membership(db, igreja_id, pessoa_id)
         db.add(
             CelulaMembro(
@@ -175,9 +187,6 @@ def _apply_payload(
                 ativo=True,
             )
         )
-        pessoa = db.execute(
-            select(Pessoa).where(Pessoa.id == pessoa_id)
-        ).scalar_one_or_none()
         if pessoa is not None:
             pessoa.celula_id = destino_id
     elif tipo == TIPO_REMOVER_MEMBRO:

@@ -10,7 +10,16 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 
 from app.config import get_settings
-from app.db.models import AppUser, Conversation, Message, UserRole, WhatsappConnection
+from app.db.models import (
+    AppUser,
+    Celula,
+    CelulaMembro,
+    Conversation,
+    Message,
+    Pessoa,
+    UserRole,
+    WhatsappConnection,
+)
 from app.db.session import get_db
 from app.routers.whatsapp import get_webhook_queue
 from app.services.clerk import get_clerk_client
@@ -607,13 +616,43 @@ def test_photo_none_without_connection(app) -> None:
 
 
 # ---- GET /connection captura o número pareado da Evolution (#3) ------------
-class _ConnSession:
-    """Routes auth (AppUser/UserRole) + the WhatsappConnection lookup."""
+def _conn_eq_predicates(statement) -> dict[str, str]:
+    preds: dict[str, str] = {}
+    clause = getattr(statement, "whereclause", None)
+    stack = [clause] if clause is not None else []
+    while stack:
+        node = stack.pop()
+        left = getattr(node, "left", None)
+        right = getattr(node, "right", None)
+        if left is not None and right is not None:
+            key = getattr(left, "key", None)
+            value = getattr(right, "value", None)
+            if key is not None and value is not None:
+                preds[key] = str(value)
+            continue
+        stack.extend(getattr(node, "clauses", []) or [])
+    return preds
 
-    def __init__(self, *, app_user, roles, conn) -> None:
+
+class _ConnSession:
+    """Routes auth (AppUser/UserRole) + the WhatsappConnection lookup.
+
+    Também roteia Pessoa/Celula/CelulaMembro para o guard de conflito ministerial
+    da conexão (M7B-W1.2): sem essas rotas, a query de conflito cairia no default
+    (roles) e quebraria os testes de POST /connection com número. `pessoas` são
+    os candidatos (o service confirma o telefone em Python); `leads`/`membros` são
+    conjuntos de pessoa_id com liderança / vínculo ativo.
+    """
+
+    def __init__(
+        self, *, app_user, roles, conn, pessoas=(), leads=frozenset(), membros=frozenset()
+    ) -> None:
         self.app_user = app_user
         self.roles = roles
         self.conn = conn
+        self.pessoas = list(pessoas)
+        self.leads = {str(p) for p in leads}
+        self.membros = {str(p) for p in membros}
         self.committed = False
 
     def execute(self, statement, params=None) -> _DelResult:
@@ -623,6 +662,14 @@ class _ConnSession:
             return _DelResult(scalar=self.app_user)
         if ent is WhatsappConnection:
             return _DelResult(scalar=self.conn)
+        if ent is Pessoa:
+            return _DelResult(scalars=self.pessoas)
+        if ent is Celula:
+            pid = _conn_eq_predicates(statement).get("lider_id")
+            return _DelResult(scalar=("celula" if pid in self.leads else None))
+        if ent is CelulaMembro:
+            pid = _conn_eq_predicates(statement).get("pessoa_id")
+            return _DelResult(scalar=("membro" if pid in self.membros else None))
         return _DelResult(scalars=self.roles)
 
     def commit(self) -> None:
@@ -736,6 +783,72 @@ def test_post_connection_qr_path_ignores_saved_number(app) -> None:
     assert resp.json()["qr"] == "QR"
     # número salvo NÃO é enviado no caminho QR.
     assert evo.calls == [("reconnect", "igreja-x", None)]
+
+
+def test_post_connection_blocks_ministerial_conflict(app) -> None:
+    # M7B-W1.2: conectar um número que já pertence a uma pessoa com vínculo
+    # ministerial (aqui, pastor) é 409 acionável — ANTES de qualquer chamada à
+    # Evolution e sem mutar o banco. O número casa por telefone normalizado.
+    from app.services.evolution import ConnectionResult
+
+    conn = SimpleNamespace(
+        instance="igreja-x", numero=None, status="offline", ultima_sync=None
+    )
+    pastor = SimpleNamespace(
+        id="00000000-0000-0000-0000-0000000000d1",
+        igreja_id="00000000-0000-0000-0000-000000000001",
+        nome="Pastor Raniel",
+        tipo="pastor",
+        telefone="+55 (89) 99431-5927",
+    )
+    session = _ConnSession(
+        app_user=make_app_user(), roles=["admin"], conn=conn, pessoas=[pastor]
+    )
+    evo = _FakeEvoConnect(ConnectionResult(status="reconectando", pairing_code="X"))
+    app.dependency_overrides[get_db] = lambda: session
+    app.dependency_overrides[get_clerk_client] = lambda: FakeClerk()
+    app.dependency_overrides[get_evolution_client] = lambda: evo
+    client = TestClient(app)
+
+    resp = client.post(
+        "/whatsapp/connection",
+        json={"action": "connect", "numero": "558994315927"},
+        headers=_AUTH,
+    )
+    assert resp.status_code == 409
+    detail = resp.json()["detail"]
+    assert detail["error"] == "whatsapp_conflito_ministerial"
+    assert detail["conflitos"][0]["vinculos"] == ["pastor"]
+    # Evolution NÃO foi chamada; nada persistido.
+    assert evo.calls == []
+    assert session.committed is False
+
+
+def test_post_connection_allows_when_no_conflict(app) -> None:
+    # Número sem pessoa ministerial correspondente conecta normalmente (guard não
+    # atrapalha o caminho feliz).
+    from app.services.evolution import ConnectionResult
+
+    conn = SimpleNamespace(
+        instance="igreja-x", numero=None, status="offline", ultima_sync=None
+    )
+    session = _ConnSession(
+        app_user=make_app_user(), roles=["admin"], conn=conn, pessoas=[]
+    )
+    evo = _FakeEvoConnect(ConnectionResult(status="reconectando", pairing_code="ABCD"))
+    app.dependency_overrides[get_db] = lambda: session
+    app.dependency_overrides[get_clerk_client] = lambda: FakeClerk()
+    app.dependency_overrides[get_evolution_client] = lambda: evo
+    client = TestClient(app)
+
+    resp = client.post(
+        "/whatsapp/connection",
+        json={"action": "connect", "numero": "558994315927"},
+        headers=_AUTH,
+    )
+    assert resp.status_code == 200
+    assert resp.json()["pairingCode"] == "ABCD"
+    assert evo.calls == [("reconnect", "igreja-x", "558994315927")]
 
 
 def test_get_connection_falls_back_when_evolution_down(app) -> None:

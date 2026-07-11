@@ -188,3 +188,42 @@ def test_vincular_celula_still_rejects_leaderless_cell() -> None:
             session, igreja_id=_IGREJA_ID, pessoa_id=_PESSOA_ID, celula_id=_NEW_CELL
         )
     assert session.added == []
+
+
+# ---------------------------------------------------------------------------
+# M7B-W1.2 — recusa de elegibilidade traduzida para ToolError, SEM mutação
+# parcial (o runtime engole o ToolError e comita o turno; a guarda tem de rodar
+# ANTES de tocar pessoa.celula_id / desativar vínculo antigo).
+# ---------------------------------------------------------------------------
+def test_vincular_celula_recusa_pastor_sem_mutar_espelho() -> None:
+    pessoa = _pessoa(_PESSOA_ID, celula_id=None, tipo="pastor")
+    cell = _cell(_NEW_CELL)
+    session = _ToolSession(pessoas=[pessoa], cells=[cell])
+
+    with pytest.raises(ToolError, match="[Pp]astor"):
+        vincular_celula(
+            session, igreja_id=_IGREJA_ID, pessoa_id=_PESSOA_ID, celula_id=_NEW_CELL
+        )
+    assert pessoa.celula_id is None  # espelho NÃO mutado antes da recusa
+    assert session.added == []
+
+
+def test_vincular_celula_recusa_nao_desativa_vinculo_antigo() -> None:
+    # Transferência de um pastor (dado ruim legado): a guarda roda ANTES de
+    # deactivate_other_active_membro, então o vínculo antigo permanece ATIVO e o
+    # espelho não muda — nada de mutação parcial que o commit do turno persistiria.
+    pessoa = _pessoa(_PESSOA_ID, celula_id=_OLD_CELL, tipo="pastor")
+    old_cell = _cell(_OLD_CELL)
+    new_cell = _cell(_NEW_CELL)
+    old_membro = _membro(pessoa_id=_PESSOA_ID, celula_id=_OLD_CELL, ativo=True)
+    session = _ToolSession(
+        pessoas=[pessoa], cells=[old_cell, new_cell], membros=[old_membro]
+    )
+
+    with pytest.raises(ToolError, match="[Pp]astor"):
+        vincular_celula(
+            session, igreja_id=_IGREJA_ID, pessoa_id=_PESSOA_ID, celula_id=_NEW_CELL
+        )
+    assert old_membro.ativo is True  # vínculo antigo intacto (guarda antes de mutar)
+    assert pessoa.celula_id == _OLD_CELL  # espelho inalterado
+    assert session.added == []

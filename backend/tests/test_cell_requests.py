@@ -291,6 +291,8 @@ def make_pessoa(
     *,
     apto_lider: bool = True,
     sem_interesse: bool = False,
+    tipo: str | None = None,
+    telefone: str | None = None,
 ):
     return SimpleNamespace(
         id=pessoa_id,
@@ -300,6 +302,8 @@ def make_pessoa(
         lider_id=None,
         apto_lider=apto_lider,
         sem_interesse=sem_interesse,
+        tipo=tipo,
+        telefone=telefone,
     )
 
 
@@ -869,6 +873,37 @@ def test_approve_multiplication_rejects_ja_lidera_409(app) -> None:
     resp = _approve(app, session)
     assert resp.status_code == 409
     assert "já lidera" in resp.json()["detail"]
+
+
+def test_approve_transfer_rejects_pastor_409(app) -> None:
+    # M7B-W1.2: aprovar transferência de um PASTOR cria vínculo ativo de membro
+    # (6º ponto de escrita de celula_membro, fora do seam) — agora guardado.
+    dest = make_cell(cell_id=_DEST_CELL, lider_id=_LEADER)
+    pastor = make_pessoa(_MEMBER, "Pastor", celula_id=None, tipo="pastor")
+    session = _central_session(
+        cells=[make_cell(lider_id=_LEADER), dest],
+        pessoas=[
+            make_pessoa(_LEADER, "Líder"),
+            make_pessoa(_PASTOR, "Pastor Central"),
+            pastor,
+        ],
+        solicitacoes=[
+            make_solicitacao(
+                tipo="transferir_membro",
+                status="aguardando",
+                payload_proposto={
+                    "pessoa_id": _MEMBER,
+                    "celula_destino_id": _DEST_CELL,
+                },
+            )
+        ],
+    )
+    resp = _wire(app, session=session).post(
+        f"/cell-requests/{_SOLIC}/approve", headers=_AUTH, json={}
+    )
+    assert resp.status_code == 409
+    assert resp.json()["detail"]["error"] == "pastor_nao_pode_ser_membro"
+    assert not any(isinstance(o, CelulaMembro) for o in session.added)
 
 
 def test_approve_multiplication_accepts_external_leader(app) -> None:
