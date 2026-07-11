@@ -210,3 +210,34 @@ def test_backfill_leaves_no_divergences(seeded_engine: Engine) -> None:
             )
         ).scalar_one()
     assert restantes == 0
+
+
+# Query 2 da migration (contagem por tipo), COM `p.tipo::text` — sem o cast, o
+# coalesce(enum, '(null)') falha no Postgres ('(null)' não é label do enum
+# pessoa_tipo). Este teste executa a query documentada de verdade, provando que
+# ela roda e que o backfill deixou a distribuição correta.
+_COUNT_BY_TIPO_SQL = (
+    "select coalesce(p.tipo::text, '(null)') as tipo, count(*) as qtd "
+    "from pessoas p "
+    "where exists (select 1 from celula_membro cm "
+    "  where cm.pessoa_id = p.id and cm.igreja_id = p.igreja_id "
+    "  and cm.ativo = true) "
+    "group by p.tipo order by 1"
+)
+
+
+def test_backfill_count_by_tipo_query_runs_and_is_consistent(seeded_engine: Engine) -> None:
+    _apply_migration(seeded_engine)
+    with seeded_engine.begin() as conn:
+        # (1) executa sem erro no Postgres real.
+        counts = {row[0]: row[1] for row in conn.execute(text(_COUNT_BY_TIPO_SQL))}
+    # (2) nenhum null/contato/visitante com vínculo ativo após o backfill.
+    assert "(null)" not in counts
+    assert "contato" not in counts
+    assert "visitante" not in counts
+    # (3) tipos superiores aparecem corretamente na contagem.
+    #     membro = null + contato + visitante (promovidos) + membro (preservado).
+    assert counts["membro"] == 4
+    assert counts["discipulo"] == 1
+    assert counts["lider"] == 1
+    assert counts["pastor"] == 1

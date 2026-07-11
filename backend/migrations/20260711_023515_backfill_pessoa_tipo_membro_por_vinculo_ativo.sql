@@ -58,7 +58,7 @@ commit;
 -- 2) Contagem por tipo das pessoas COM vínculo ativo (visão pós-backfill).
 --    Espera-se zero em 'contato'/'visitante'/NULL.
 --
---    select coalesce(p.tipo, '(null)') as tipo, count(*) as qtd
+--    select coalesce(p.tipo::text, '(null)') as tipo, count(*) as qtd
 --    from pessoas p
 --    where exists (
 --      select 1 from celula_membro cm
