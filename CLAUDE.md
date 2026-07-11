@@ -10,6 +10,14 @@ SaaS de gestão pastoral (jornada G12: ganhar → consolidar → discipular → 
 
 ## Regras de Trabalho — SEGUIR SEMPRE
 
+### Bootstrap obrigatorio de contexto
+
+Antes de investigar ou implementar, leia
+`docs/audits/2026-07-10-project-source-of-truth.md`, confirme `origin/main` e
+compare o commit do worktree com `code-review-graph status`. Use o CRG antes de
+Grep/Read e use Graphify para arquitetura/documentacao. Se o grafo estiver em
+outro commit, trate-o como desatualizado e reconstrua antes de confiar nele.
+
 1. **Git é o seguro.** Antes de qualquer feature (manual ou pipeline), criar uma **branch nova**. Ao final, revisar `git diff` e commitar. Nunca trabalhar direto na `main` sem branch. Nada se perde, tudo é reversível.
 
 2. **PRD x código alinhados.** Mudança **estrutural** fora do PRD → anotar no PRD/SPEC (`docs/Docs<id>/`). Ajuste **pequeno** (um botão, um CRUD) → não precisa. O PRD não pode virar ficção.
