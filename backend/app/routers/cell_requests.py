@@ -1,10 +1,15 @@
 """Solicitações de célula — criação, listagem e ciclo de decisão (Células PR3-PR9).
 
-O líder de uma célula ABRE solicitações (campo sensível / transferência / remoção
-/ multiplicação); a Central de Células DECIDE (aprova como está, rejeita ou pede
-ajuste). O líder autor pode reenviar (quando em `ajuste_solicitado`) ou cancelar
-(enquanto aberta). Toda transição grava a trilha append-only na MESMA transação
-(delegado ao `cell_requests_service`).
+O líder de uma célula ABRE solicitações (campo sensível de célula / multiplicação);
+a Central de Células DECIDE (aprova como está, rejeita ou pede ajuste). O líder
+autor pode reenviar (quando em `ajuste_solicitado`) ou cancelar (enquanto aberta).
+Toda transição grava a trilha append-only na MESMA transação (delegado ao
+`cell_requests_service`).
+
+M7B-W1.3: transferência/remoção de membro NÃO nascem na tela do líder (Minha
+Célula) — a gestão de membros é atribuição da Central de Célula. A criação/reenvio
+desses tipos é barrada aqui (403), sem afetar a DECISÃO da Central sobre eventuais
+solicitações legadas nem os fluxos administrativos da Central.
 
 Contrato de saída em snake_case (espelha as colunas): `celula_id`,
 `payload_proposto`, `observacao_central`, `created_at`, `decidido_em`… A Central
@@ -270,6 +275,21 @@ def _has_open_conflict(
     return existing is not None
 
 
+def _reject_member_tipo(tipo: str) -> None:
+    """M7B-W1.3 — transferência/remoção de membro não parte da tela do líder.
+
+    A gestão de membros é atribuição da Central de Célula; o líder não abre esse
+    tipo de solicitação por aqui. Barrado no backend (403) p/ fechar o bypass de
+    chamada direta ao endpoint fora da UI. Não toca a decisão da Central sobre
+    solicitações legadas (approve/reject) nem os demais tipos permitidos.
+    """
+    if tipo in MEMBER_TIPOS:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Transferência e remoção de membro são geridas pela Central de Célula.",
+        )
+
+
 # ---------------------------------------------------------------------------
 # Criação e leitura
 # ---------------------------------------------------------------------------
@@ -294,6 +314,9 @@ def create_cell_request(
     # Ownership: só o líder da célula de origem abre a solicitação (404 senão).
     cell = get_current_cell_for_leader(db, current_user, body.celula_id)
     igreja_id = uuid.UUID(current_user.igreja_id)
+
+    # Membro (transferir/remover) é gerido pela Central, não pela tela do líder.
+    _reject_member_tipo(body.tipo)
 
     try:
         payload = validate_payload(body.tipo, body.payload_proposto)
@@ -446,6 +469,9 @@ def resubmit_cell_request(
 
     solicitacao = _load_solicitacao(db, igreja_id, request_id)
     actor_pessoa_id = _assert_author(db, solicitacao, current_user)
+
+    # Reenvio de transferir/remover membro também é barrado (legado; W1.3).
+    _reject_member_tipo(solicitacao.tipo)
 
     try:
         new_payload = validate_payload(solicitacao.tipo, body.payload_proposto)
