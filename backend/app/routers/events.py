@@ -287,13 +287,26 @@ class ConfirmEventRequest(BaseModel):
         return value
 
 
-def _get_event(db: Session, current_user: CurrentUser, event_id: str) -> Event:
+def _get_event(
+    db: Session,
+    current_user: CurrentUser,
+    event_id: str,
+    *,
+    for_update: bool = False,
+) -> Event:
     """Busca um evento do tenant por id ou levanta 404.
 
     Escopo de tenant em dois cintos: a RLS já filtra por igreja_id, e ainda
     adicionamos o predicado explícito `igreja_id` — um evento de outro tenant
     nunca é alcançável, mesmo que o GUC da RLS não estivesse em vigor. Id
     malformado também vira 404 (não vaza diferença entre inválido e inexistente).
+
+    `for_update=True` adiciona `SELECT ... FOR UPDATE`: pega o lock de linha
+    pessimista na MESMA transação de quem valida+grava (confirmação manual), pra
+    fechar a corrida check-then-act. Sob READ COMMITTED, uma segunda transação
+    concorrente bloqueia no lock e, ao ser liberada, relê a linha já atualizada —
+    a checagem de estado então enxerga o novo status. As leituras puras (GET/PUT/
+    DELETE) seguem sem lock (default False).
     """
     try:
         event_uuid = uuid.UUID(event_id)
@@ -302,12 +315,13 @@ def _get_event(db: Session, current_user: CurrentUser, event_id: str) -> Event:
             status_code=status.HTTP_404_NOT_FOUND, detail="Evento não encontrado"
         ) from exc
 
-    event = db.execute(
-        select(Event).where(
-            Event.id == event_uuid,
-            Event.igreja_id == uuid.UUID(current_user.igreja_id),
-        )
-    ).scalar_one_or_none()
+    stmt = select(Event).where(
+        Event.id == event_uuid,
+        Event.igreja_id == uuid.UUID(current_user.igreja_id),
+    )
+    if for_update:
+        stmt = stmt.with_for_update()
+    event = db.execute(stmt).scalar_one_or_none()
     if event is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Evento não encontrado"
@@ -554,8 +568,15 @@ def confirm_event(
     tenant), `notificar_em` normalizado, canal e mensagem. NÃO envia nem agenda
     comunicação: o disparo real é EVT-9. A validação (409 de estado e 422 do
     payload) acontece ANTES de qualquer persistência.
+
+    Concorrência (SEC-4B): o evento é carregado com `SELECT ... FOR UPDATE` na
+    mesma transação da validação e da gravação. Sem esse lock, duas confirmações
+    simultâneas atravessavam a checagem de estado antes de qualquer commit e
+    ambas confirmavam — dobrando efeitos (linhas em `event_notify_targets`, aviso
+    interno). Com o lock, a primeira vence; a segunda bloqueia, relê o evento já
+    `confirmado` e cai no 409 abaixo.
     """
-    event = _get_event(db, current_user, event_id)
+    event = _get_event(db, current_user, event_id, for_update=True)
 
     if event.status != STATUS_A_CONFIRMAR:
         raise HTTPException(
