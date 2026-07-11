@@ -5,6 +5,8 @@
 > **Natureza:** docs-only. Nenhum código, migration, env ou deploy nesta entrega.
 > **Escopo deste PRD:** apenas a **visão Líder** do menu **Minha Célula**. A visão Discípulo e a Central de Células têm PRDs próprios.
 
+> **Atualização (M7B-W1.3, 2026-07-11):** decisão do dono — **transferir/remover membro NÃO parte da tela do líder**, nem como solicitação. A gestão de membros (entrada/transferência/saída) é atribuição da **Central de Célula**. Isto **supera** as menções a *transferir/remover membro* / *saída de membro* em **§5 (componente 9)**, **§9** e **CA-6**: na visão Líder a lista de discípulos é **estritamente de leitura** e as solicitações permitidas ao líder passam a ser apenas **alterar dia/horário/endereço/anfitrião/auxiliar** e **multiplicação**. Alinhado ao protótipo aprovado (que nunca teve esses botões). Backend barra a criação/reenvio desses tipos por `POST /cell-requests` (403); a **decisão da Central** sobre solicitações legadas permanece intacta.
+
 ## Fontes de verdade
 
 1. **Contrato UX/UI** — [`docs/design/CONTRATO-UX-CELULAS-CENTRAL.md`](CONTRATO-UX-CELULAS-CENTRAL.md) (vinculante). Este PRD detalha a **seção 7 (Visão Líder)** e não pode contrariar os invariantes (seção 15 do contrato).

@@ -451,19 +451,46 @@ def test_create_request_no_conflict_when_existing_closed(app) -> None:
     assert resp.status_code == 201, resp.text
 
 
-def test_create_request_member_conflict_same_pessoa_409(app) -> None:
-    existing = make_solicitacao(
-        tipo="remover_membro", status="aguardando", pessoa_id=_MEMBER,
-        payload_proposto={"pessoa_id": _MEMBER},
-    )
-    session = _leader_session(solicitacoes=[existing])
+def test_create_transferir_membro_blocked_403(app) -> None:
+    # M7B-W1.3: transferência/remoção de membro não parte da tela do líder — a
+    # gestão de membros é da Central. Barrado no backend (fecha bypass direto).
+    session = _leader_session()
     resp = _wire(app, session=session).post(
         "/cell-requests",
         headers=_AUTH,
         json={"celula_id": _CELL, "tipo": "transferir_membro",
               "payload_proposto": {"pessoa_id": _MEMBER, "celula_destino_id": _DEST_CELL}},
     )
-    assert resp.status_code == 409
+    assert resp.status_code == 403, resp.text
+    assert "Central" in resp.json()["detail"]
+    assert session.solicitacoes == []  # nada criado
+
+
+def test_create_remover_membro_blocked_403(app) -> None:
+    session = _leader_session()
+    resp = _wire(app, session=session).post(
+        "/cell-requests",
+        headers=_AUTH,
+        json={"celula_id": _CELL, "tipo": "remover_membro",
+              "payload_proposto": {"pessoa_id": _MEMBER}},
+    )
+    assert resp.status_code == 403, resp.text
+    assert session.solicitacoes == []
+
+
+def test_resubmit_membro_tipo_blocked_403(app) -> None:
+    # Reenvio de solicitação de membro legada (ajuste_solicitado) também é barrado.
+    solic = make_solicitacao(
+        tipo="remover_membro", status="ajuste_solicitado", pessoa_id=_MEMBER,
+        payload_proposto={"pessoa_id": _MEMBER},
+    )
+    session = _leader_session(solicitacoes=[solic])
+    resp = _wire(app, session=session).put(
+        f"/cell-requests/{_SOLIC}/resubmit",
+        headers=_AUTH,
+        json={"payload_proposto": {"pessoa_id": _MEMBER}},
+    )
+    assert resp.status_code == 403, resp.text
 
 
 def test_create_request_404_when_not_leader(app) -> None:

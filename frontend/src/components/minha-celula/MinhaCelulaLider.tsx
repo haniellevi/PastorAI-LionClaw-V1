@@ -22,12 +22,10 @@ import {
   getNextMeeting,
   getCellMembers,
   listReunioes,
-  fetchCellsFull,
   type CellMember,
   type Reuniao,
 } from "@/lib/cells-api";
 import { listRequests } from "@/lib/cell-requests-api";
-import type { CellRequestType } from "@/lib/cell-requests-api";
 import { listNotices } from "@/lib/cell-notices-api";
 import { listMaterials, type Material } from "@/lib/cell-materials-api";
 import type { LeaderMeetingOut } from "@/lib/cell-meetings-api";
@@ -40,7 +38,7 @@ import { LeaderNoticesFeed } from "./LeaderNoticesFeed";
 import { MyRequestsList } from "./MyRequestsList";
 import {
   SensitiveFieldRequestModal,
-  type CellOption,
+  type SensitiveCellRequestType,
 } from "./SensitiveFieldRequestModal";
 import { MultiplicationRequestModal } from "./MultiplicationRequestModal";
 import { MaterialsFeed } from "./MaterialsFeed";
@@ -48,7 +46,7 @@ import { formatMeetingDate } from "./format";
 import type { CellToast } from "./types";
 
 /** Campos sensíveis da célula (viram Solicitação, RF-14). */
-const CELL_SENSITIVE: { tipo: CellRequestType; label: string }[] = [
+const CELL_SENSITIVE: { tipo: SensitiveCellRequestType; label: string }[] = [
   { tipo: "alterar_dia", label: "Alterar dia" },
   { tipo: "alterar_horario", label: "Alterar horário" },
   { tipo: "alterar_endereco", label: "Alterar endereço" },
@@ -56,18 +54,12 @@ const CELL_SENSITIVE: { tipo: CellRequestType; label: string }[] = [
   { tipo: "alterar_auxiliar", label: "Alterar auxiliar" },
 ];
 
-interface SensitiveTarget {
-  tipo: CellRequestType;
-  member: CellMember | null;
-}
-
 export function MinhaCelulaLider() {
   const { token, expireSession } = useAuth();
 
   const [cellId, setCellId] = useState<string | null>(null);
   const [members, setMembers] = useState<CellMember[]>([]);
   const [reunioes, setReunioes] = useState<Reuniao[]>([]);
-  const [otherCells, setOtherCells] = useState<CellOption[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
   const [selectedReuniaoId, setSelectedReuniaoId] = useState<string>("");
 
@@ -77,7 +69,7 @@ export function MinhaCelulaLider() {
 
   const [showPlan, setShowPlan] = useState(false);
   const [showMult, setShowMult] = useState(false);
-  const [sensitive, setSensitive] = useState<SensitiveTarget | null>(null);
+  const [sensitive, setSensitive] = useState<SensitiveCellRequestType | null>(null);
   const [requestsReload, setRequestsReload] = useState(0);
   const [noticesReload, setNoticesReload] = useState(0);
 
@@ -146,18 +138,6 @@ export function MinhaCelulaLider() {
         setMaterials(materialsRes.items);
         setSelectedReuniaoId((prev) => prev || reunioesRes[0]?.id || "");
 
-        // Destinos de transferência são best-effort (líder pode não listar células).
-        try {
-          const cells = await fetchCellsFull(token);
-          setOtherCells(
-            cells.items
-              .filter((c) => c.id !== cid)
-              .map((c) => ({ id: c.id, nome: c.nome })),
-          );
-        } catch {
-          setOtherCells([]);
-        }
-
         setLoaded(true);
       } catch (err) {
         if (handleSessionError(err)) return;
@@ -194,8 +174,8 @@ export function MinhaCelulaLider() {
     setSelectedReuniaoId(created.id);
   }
 
-  function openSensitive(tipo: CellRequestType, member: CellMember | null) {
-    setSensitive({ tipo, member });
+  function openSensitive(tipo: SensitiveCellRequestType) {
+    setSensitive(tipo);
   }
 
   const showSkeleton = loading && !loaded;
@@ -294,8 +274,8 @@ export function MinhaCelulaLider() {
             />
           ) : null}
 
-          {/* Discípulos + campos sensíveis da célula */}
-          <DisciplesList members={members} onRequestSensitive={openSensitive} />
+          {/* Discípulos (leitura) */}
+          <DisciplesList members={members} />
 
           <section className="card" aria-label="Dados sensíveis da célula">
             <div className="panel-title">
@@ -311,7 +291,7 @@ export function MinhaCelulaLider() {
                     key={f.tipo}
                     variant="default"
                     size="sm"
-                    onClick={() => openSensitive(f.tipo, null)}
+                    onClick={() => openSensitive(f.tipo)}
                   >
                     <Icon name="lock" />
                     <span>{f.label}</span>
@@ -379,10 +359,8 @@ export function MinhaCelulaLider() {
         <SensitiveFieldRequestModal
           token={token}
           cellId={cellId}
-          tipo={sensitive.tipo}
-          target={sensitive.member}
+          tipo={sensitive}
           members={activeMembers}
-          otherCells={otherCells}
           onClose={() => setSensitive(null)}
           onToast={flashToast}
           onCreated={() => setRequestsReload((n) => n + 1)}

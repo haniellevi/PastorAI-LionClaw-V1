@@ -1,26 +1,16 @@
 "use client";
 
 /**
- * US-12 — discípulos da célula (líder). Lista os membros com estado (ativo/inativo).
- * Campos SENSÍVEIS (transferir/remover membro, anfitrião/auxiliar) NÃO são editados
- * direto: abrem a Solicitação de alteração (RF-14) via onRequestSensitive. Empty:
- * "Nenhum discípulo na célula ainda.".
+ * US-12 — discípulos da célula (líder), estritamente LEITURA. Lista os membros
+ * com estado (ativo/inativo). A gestão de membros (entrada, transferência, saída)
+ * é atribuição da Central de Célula (Jornada G12 → Discipular), não desta tela
+ * (M7B-W1.3). Empty: "Nenhum discípulo na célula ainda.".
  */
-import { Button } from "@/components/ui/Button";
 import { StatusPill } from "@/components/dashboard/StatusPill";
 import { Icon } from "@/lib/icons";
 import type { CellMember } from "@/lib/cells-api";
-import type { CellRequestType } from "@/lib/cell-requests-api";
 
-export function DisciplesList({
-  members,
-  onRequestSensitive,
-}: {
-  members: CellMember[];
-  onRequestSensitive: (tipo: CellRequestType, member: CellMember) => void;
-}) {
-  const active = members.filter((m) => m.ativo);
-
+export function DisciplesList({ members }: { members: CellMember[] }) {
   return (
     <section className="card" aria-label="Discípulos">
       <div className="panel-title">
@@ -47,36 +37,14 @@ export function DisciplesList({
               ) : (
                 <StatusPill tone="muted">Inativo</StatusPill>
               )}
-              {m.ativo ? (
-                <div className="row-actions">
-                  <Button
-                    variant="default"
-                    size="sm"
-                    onClick={() => onRequestSensitive("transferir_membro", m)}
-                    title="Solicitar transferência (campo sensível)"
-                  >
-                    <Icon name="transfer" />
-                    <span>Transferir</span>
-                  </Button>
-                  <Button
-                    variant="default"
-                    size="sm"
-                    onClick={() => onRequestSensitive("remover_membro", m)}
-                    title="Solicitar remoção (campo sensível)"
-                  >
-                    <Icon name="trash" />
-                    <span>Remover</span>
-                  </Button>
-                </div>
-              ) : null}
             </div>
           ))}
         </div>
       )}
 
-      {active.length ? (
+      {members.length ? (
         <div className="section-foot muted-note">
-          Alterações de membros passam por aprovação da Central.
+          A gestão de membros é feita pela Central de Célula.
         </div>
       ) : null}
     </section>

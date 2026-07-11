@@ -1,12 +1,13 @@
 "use client";
 
 /**
- * US-13 — Solicitação de alteração de campo SENSÍVEL (líder → Central). Campos
- * sensíveis (dia, horário, endereço, anfitrião, auxiliar, transferir/remover
- * membro) NUNCA são salvos direto: viram uma Solicitação que nasce 'aguardando'
- * e não altera o dado real (RF-14). O payload por tipo espelha EXATAMENTE o
- * backend (cell_requests.py). 409 (já existe solicitação aberta conflitante) vira
- * toast explicativo. Sucesso: "Solicitação enviada para aprovação.".
+ * US-13 — Solicitação de alteração de campo SENSÍVEL da célula (líder → Central).
+ * Campos sensíveis (dia, horário, endereço, anfitrião, auxiliar) NUNCA são salvos
+ * direto: viram uma Solicitação que nasce 'aguardando' e não altera o dado real
+ * (RF-14). Transferir/remover membro NÃO parte desta tela (gestão de membros é da
+ * Central — M7B-W1.3). O payload por tipo espelha EXATAMENTE o backend
+ * (cell_requests.py). 409 (já existe solicitação aberta conflitante) vira toast
+ * explicativo. Sucesso: "Solicitação enviada para aprovação.".
  */
 import { useState } from "react";
 
@@ -14,13 +15,17 @@ import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
 import { Icon } from "@/lib/icons";
 import { ApiError } from "@/lib/dashboard-api";
-import {
-  createRequest,
-  CellRequestConflictError,
-  type CellRequestType,
-} from "@/lib/cell-requests-api";
+import { createRequest, CellRequestConflictError } from "@/lib/cell-requests-api";
 import type { CellMember } from "@/lib/cells-api";
 import type { FlashToast } from "./types";
+
+/** Tipos de campo sensível da célula que o líder pode solicitar por esta tela. */
+export type SensitiveCellRequestType =
+  | "alterar_dia"
+  | "alterar_horario"
+  | "alterar_endereco"
+  | "alterar_anfitriao"
+  | "alterar_auxiliar";
 
 const HORA_RE = /^([01][0-9]|2[0-3]):[0-5][0-9]$/;
 
@@ -34,43 +39,28 @@ const DAYS = [
   "Sábado",
 ];
 
-const TITLES: Record<CellRequestType, string> = {
+const TITLES: Record<SensitiveCellRequestType, string> = {
   alterar_dia: "Solicitar alteração — dia da reunião",
   alterar_horario: "Solicitar alteração — horário",
   alterar_endereco: "Solicitar alteração — endereço",
   alterar_anfitriao: "Solicitar alteração — anfitrião",
   alterar_auxiliar: "Solicitar alteração — auxiliar",
-  transferir_membro: "Solicitar transferência de membro",
-  remover_membro: "Solicitar remoção de membro",
-  multiplicacao: "Solicitar multiplicação",
 };
-
-/** Célula-destino mínima para a transferência de membro. */
-export interface CellOption {
-  id: string;
-  nome: string;
-}
 
 export function SensitiveFieldRequestModal({
   token,
   cellId,
   tipo,
-  target,
   members,
-  otherCells,
   onClose,
   onToast,
   onCreated,
 }: {
   token: string;
   cellId: string;
-  tipo: CellRequestType;
-  /** Membro alvo (transferir/remover). */
-  target?: CellMember | null;
+  tipo: SensitiveCellRequestType;
   /** Membros ativos (para anfitrião/auxiliar). */
   members: CellMember[];
-  /** Outras células do tenant (destino da transferência). */
-  otherCells: CellOption[];
   onClose: () => void;
   onToast: FlashToast;
   onCreated: () => void;
@@ -79,7 +69,6 @@ export function SensitiveFieldRequestModal({
   const [horario, setHorario] = useState("");
   const [endereco, setEndereco] = useState("");
   const [pessoaId, setPessoaId] = useState("");
-  const [destinoId, setDestinoId] = useState("");
   const [motivo, setMotivo] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -107,20 +96,6 @@ export function SensitiveFieldRequestModal({
       case "alterar_auxiliar":
         if (!pessoaId) return null;
         return { auxiliar_id: pessoaId };
-      case "transferir_membro": {
-        const pid = target?.pessoa_id ?? pessoaId;
-        if (!pid || !destinoId) return null;
-        return {
-          pessoa_id: pid,
-          celula_destino_id: destinoId,
-          motivo: motivo.trim() || null,
-        };
-      }
-      case "remover_membro": {
-        const pid = target?.pessoa_id ?? pessoaId;
-        if (!pid) return null;
-        return { pessoa_id: pid, motivo: motivo.trim() || null };
-      }
       default:
         return null;
     }
@@ -161,7 +136,6 @@ export function SensitiveFieldRequestModal({
   }
 
   const title = TITLES[tipo];
-  const showMotivo = tipo !== "transferir_membro" && tipo !== "remover_membro";
 
   return (
     <div className="modal-overlay" onClick={onClose} role="presentation">
@@ -266,44 +240,8 @@ export function SensitiveFieldRequestModal({
             </div>
           ) : null}
 
-          {tipo === "transferir_membro" ? (
-            <>
-              {target ? (
-                <div className="field">
-                  <label>Membro</label>
-                  <div className="static-value">{target.nome}</div>
-                </div>
-              ) : null}
-              <div className="field">
-                <label htmlFor="req-destino">Célula de destino</label>
-                <select
-                  id="req-destino"
-                  value={destinoId}
-                  onChange={(e) => setDestinoId(e.target.value)}
-                  disabled={busy}
-                >
-                  <option value="">Selecione…</option>
-                  {otherCells.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.nome}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            </>
-          ) : null}
-
-          {tipo === "remover_membro" && target ? (
-            <div className="field">
-              <label>Membro</label>
-              <div className="static-value">{target.nome}</div>
-            </div>
-          ) : null}
-
           <div className="field">
-            <label htmlFor="req-motivo">
-              {showMotivo ? "Motivo (opcional)" : "Motivo da solicitação (opcional)"}
-            </label>
+            <label htmlFor="req-motivo">Motivo (opcional)</label>
             <textarea
               id="req-motivo"
               rows={2}
