@@ -1,7 +1,7 @@
 # Igreja 12 - fonte de verdade de produto e codigo
 
-**Data-base:** 2026-07-10  
-**Commit auditado:** `ac6f706fae7297185cbf2ef4ef4e265d8cb69240` (`origin/main`)  
+**Data-base:** 2026-07-10
+**Commit auditado:** `ac6f706fae7297185cbf2ef4ef4e265d8cb69240` (`origin/main`)
 **Objetivo:** orientar as proximas missoes sem depender de chats antigos ou grafos desatualizados.
 
 ## Como usar esta fonte
@@ -128,4 +128,3 @@ reconstruido.
 - Benchmark Graphify: reducao estimada de 81x por consulta.
 - Graphify package/skills atualizados para 0.9.12 em Codex, Claude Code e
   Antigravity.
-
