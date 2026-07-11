@@ -127,7 +127,9 @@ export function WhatsappScreen() {
         const data = await fetchConnection(token);
         setInfo(data);
         setLoaded(true);
-        // Pareou com sucesso: limpa o QR/código e avisa.
+        // Pareou com sucesso: limpa o QR/código e avisa. Também limpa um eventual
+        // erro persistente (ex.: conflito ministerial de um pareamento anterior)
+        // — a conexão agora está saudável (M7B-W1.2).
         if (data.status === "online") {
           setQr((prev) => {
             if (prev) flashToast({ kind: "ok", text: "Número conectado com sucesso." });
@@ -136,9 +138,21 @@ export function WhatsappScreen() {
           setQrExpired(false);
           setPairingCode(null);
           setNotice(null);
+          setError(null);
         }
       } catch (err) {
         if (handleSessionError(err)) return;
+        // M7B-W1.2: conflito ministerial no pareamento — o backend já
+        // desconectou o número. Surfa o erro MESMO no polling (senão o admin
+        // ficaria esperando um pareamento que foi revertido) e limpa o QR/código.
+        if (err instanceof ConnectionConflictError) {
+          setQr(null);
+          setQrExpired(false);
+          setPairingCode(null);
+          setInfo({ numero: null, status: "offline", ultimaSync: null });
+          setError(err.message);
+          return;
+        }
         if (mode !== "poll") {
           setError(
             err instanceof ApiError

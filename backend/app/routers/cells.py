@@ -28,6 +28,7 @@ from app.db.session import get_db
 from app.deps import CurrentUser, get_current_user, require_central
 from app.domain.hierarchy import is_leader_or_superior
 from app.routers._common import Page, PaginationParams
+from app.services.celula_membro import assert_membro_elegivel, promote_tipo_para_membro
 
 logger = logging.getLogger("pastorai.cells")
 
@@ -657,6 +658,18 @@ def add_cell_member(
             ),
         )
 
+    # Missão M7B-W1.2: guarda COMPARTILHADA de elegibilidade — recusa pastor,
+    # líder da própria célula e o número conectado ao WhatsApp. Este endpoint
+    # escreve celula_membro direto (não pelo seam ensure_active_membro), então
+    # chama a MESMA função-guarda; MembroInelegivelError vira 409 no handler
+    # global (app.main). Concentra a regra num único ponto, não espalhada.
+    assert_membro_elegivel(
+        db,
+        igreja_id=uuid.UUID(current_user.igreja_id),
+        celula=cell,
+        pessoa=pessoa,
+    )
+
     # Regra "1 pessoa → 1 célula ativa" escopada por igreja (igual ao índice
     # único parcial da migration). igreja_id explícito também torna testável.
     existing = db.execute(
@@ -684,6 +697,7 @@ def add_cell_member(
     )
     db.add(membro)
     pessoa.celula_id = cell.id  # espelho legado (Q1)
+    promote_tipo_para_membro(pessoa)  # invariante: vínculo ativo ⇒ tipo ≥ membro
     try:
         db.flush()
         db.refresh(membro)

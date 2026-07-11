@@ -57,6 +57,17 @@ export async function fetchConnection(token: string): Promise<ConnectionInfo> {
   if (res.status === 403) {
     throw new ApiError(403, "Acesso restrito à configuração do WhatsApp.");
   }
+  // M7B-W1.2 (fluxo QR): o número pareado só é conhecido aqui; se pertence a
+  // pastor/líder/membro, o backend desconecta e devolve 409 acionável. Surfa a
+  // mensagem para o admin (não é o conflito RF-07 de POST, mas reusa o mesmo tipo).
+  if (res.status === 409) {
+    const detail = await readDetail(res);
+    throw new ConnectionConflictError(
+      detail ??
+        "O número pareado pertence a uma pessoa com vínculo ministerial e foi " +
+          "desconectado. Resolva os vínculos antes de conectar o WhatsApp oficial.",
+    );
+  }
   if (!res.ok) {
     throw new ApiError(res.status, "Não foi possível carregar a conexão do WhatsApp.");
   }

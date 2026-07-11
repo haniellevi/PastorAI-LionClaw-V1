@@ -291,6 +291,8 @@ def make_pessoa(
     *,
     apto_lider: bool = True,
     sem_interesse: bool = False,
+    tipo: str | None = None,
+    telefone: str | None = None,
 ):
     return SimpleNamespace(
         id=pessoa_id,
@@ -300,6 +302,8 @@ def make_pessoa(
         lider_id=None,
         apto_lider=apto_lider,
         sem_interesse=sem_interesse,
+        tipo=tipo,
+        telefone=telefone,
     )
 
 
@@ -768,6 +772,45 @@ def _multiplication_session() -> ReqSession:
     return _central_session(cells=[cell], membros=membros, pessoas=pessoas)
 
 
+def test_approve_multiplication_leader_is_not_a_member(app) -> None:
+    # M7B-W1.2: novo_lider_id está na lista de transferidos (interno à origem).
+    # Ele deve virar LÍDER da nova (celulas.lider_id), NUNCA membro dela — sem
+    # CelulaMembro ativo na nova; espelho de membresia limpo. Os demais viram
+    # membros ativos. A multiplicação conclui normalmente.
+    session = _multiplication_session()  # novo_lider=_MEMBER ∈ [_MEMBER, _MEMBER2]
+    session.solicitacoes = [
+        make_solicitacao(
+            tipo="multiplicacao", status="aguardando",
+            payload_proposto=_multiplication_payload(with_key=True),
+        )
+    ]
+    resp = _wire(app, session=session).post(
+        f"/cell-requests/{_SOLIC}/approve",
+        headers=_AUTH,
+        json={"idempotency_key": "mult-key-1"},
+    )
+    assert resp.status_code == 200, resp.text
+
+    nova = next(c for c in session.cells if str(c.id) != _CELL)
+    assert str(nova.lider_id) == _MEMBER  # é o LÍDER da nova
+    membros_novos = [
+        o for o in session.added
+        if isinstance(o, CelulaMembro) and str(o.celula_id) == str(nova.id)
+    ]
+    pessoas_com_vinculo = {str(m.pessoa_id) for m in membros_novos}
+    assert _MEMBER not in pessoas_com_vinculo   # líder NÃO é membro da nova
+    assert _MEMBER2 in pessoas_com_vinculo      # discípulo transferido é membro
+    # Espelho: líder sem célula (lidera, não é membro); discípulo aponta pra nova.
+    lider = next(p for p in session.pessoas if str(p.id) == _MEMBER)
+    membro2 = next(p for p in session.pessoas if str(p.id) == _MEMBER2)
+    assert lider.celula_id is None
+    assert str(membro2.celula_id) == str(nova.id)
+    # Ambos os vínculos de ORIGEM foram desativados.
+    assert all(
+        m.ativo is False for m in session.membros if str(m.celula_id) == _CELL
+    )
+
+
 def test_approve_multiplication_requires_idempotency_key_422(app) -> None:
     session = _multiplication_session()
     session.solicitacoes = [
@@ -869,6 +912,73 @@ def test_approve_multiplication_rejects_ja_lidera_409(app) -> None:
     resp = _approve(app, session)
     assert resp.status_code == 409
     assert "já lidera" in resp.json()["detail"]
+
+
+def test_approve_transfer_promotes_contato_and_creates_binding(app) -> None:
+    # M7B-W1.2: transferir_membro aprovado cria vínculo ativo na destino, sincroniza
+    # o espelho e PROMOVE tipo (contato → membro) — invariante vínculo ativo ⇒ membro.
+    dest = make_cell(cell_id=_DEST_CELL, lider_id=_LEADER)
+    pessoa = make_pessoa(_MEMBER, "Discípulo", celula_id=None, tipo="contato")
+    session = _central_session(
+        cells=[make_cell(lider_id=_LEADER), dest],
+        pessoas=[
+            make_pessoa(_LEADER, "Líder"),
+            make_pessoa(_PASTOR, "Pastor Central"),
+            pessoa,
+        ],
+        solicitacoes=[
+            make_solicitacao(
+                tipo="transferir_membro",
+                status="aguardando",
+                payload_proposto={
+                    "pessoa_id": _MEMBER,
+                    "celula_destino_id": _DEST_CELL,
+                },
+            )
+        ],
+    )
+    resp = _wire(app, session=session).post(
+        f"/cell-requests/{_SOLIC}/approve", headers=_AUTH, json={}
+    )
+    assert resp.status_code == 200, resp.text
+    assert pessoa.tipo == "membro"  # promovido
+    assert str(pessoa.celula_id) == _DEST_CELL
+    novos = [
+        o for o in session.added
+        if isinstance(o, CelulaMembro) and str(o.celula_id) == _DEST_CELL
+    ]
+    assert any(str(m.pessoa_id) == _MEMBER for m in novos)
+
+
+def test_approve_transfer_rejects_pastor_409(app) -> None:
+    # M7B-W1.2: aprovar transferência de um PASTOR cria vínculo ativo de membro
+    # (6º ponto de escrita de celula_membro, fora do seam) — agora guardado.
+    dest = make_cell(cell_id=_DEST_CELL, lider_id=_LEADER)
+    pastor = make_pessoa(_MEMBER, "Pastor", celula_id=None, tipo="pastor")
+    session = _central_session(
+        cells=[make_cell(lider_id=_LEADER), dest],
+        pessoas=[
+            make_pessoa(_LEADER, "Líder"),
+            make_pessoa(_PASTOR, "Pastor Central"),
+            pastor,
+        ],
+        solicitacoes=[
+            make_solicitacao(
+                tipo="transferir_membro",
+                status="aguardando",
+                payload_proposto={
+                    "pessoa_id": _MEMBER,
+                    "celula_destino_id": _DEST_CELL,
+                },
+            )
+        ],
+    )
+    resp = _wire(app, session=session).post(
+        f"/cell-requests/{_SOLIC}/approve", headers=_AUTH, json={}
+    )
+    assert resp.status_code == 409
+    assert resp.json()["detail"]["error"] == "pastor_nao_pode_ser_membro"
+    assert not any(isinstance(o, CelulaMembro) for o in session.added)
 
 
 def test_approve_multiplication_accepts_external_leader(app) -> None:

@@ -22,8 +22,12 @@ import sqlalchemy as sa
 import pytest
 from sqlalchemy.sql import operators as sa_operators
 
-from app.db.models import Celula, CelulaMembro, Pessoa
-from app.services.celula_membro import deactivate_other_active_membro, ensure_active_membro
+from app.db.models import Celula, CelulaMembro, Pessoa, WhatsappConnection
+from app.services.celula_membro import (
+    MembroInelegivelError,
+    deactivate_other_active_membro,
+    ensure_active_membro,
+)
 
 _IGREJA_A = uuid.UUID("00000000-0000-0000-0000-00000000a001")
 _IGREJA_B = uuid.UUID("00000000-0000-0000-0000-00000000a002")  # outro tenant
@@ -147,10 +151,11 @@ class _Result:
 
 
 class _Session:
-    def __init__(self, *, cells=(), membros=(), pessoas=()) -> None:
+    def __init__(self, *, cells=(), membros=(), pessoas=(), whatsapp_conns=()) -> None:
         self.cells = list(cells)
         self.membros = list(membros)
         self.pessoas = list(pessoas)
+        self.whatsapp_conns = list(whatsapp_conns)
         self.added: list = []
 
     def execute(self, statement, params=None) -> _Result:
@@ -165,6 +170,9 @@ class _Session:
         if ent is Pessoa:
             rows = _filter(self.pessoas, statement)
             return _Result(scalar=(rows[0] if rows else None))
+        if ent is WhatsappConnection:
+            rows = _filter(self.whatsapp_conns, statement)
+            return _Result(scalar=(rows[0] if rows else None))
         return _Result()
 
     def add(self, obj) -> None:
@@ -175,8 +183,8 @@ class _Session:
             self.membros.append(obj)
 
 
-def _cell(cell_id: uuid.UUID, *, igreja_id: uuid.UUID) -> SimpleNamespace:
-    return SimpleNamespace(id=cell_id, igreja_id=igreja_id)
+def _cell(cell_id: uuid.UUID, *, igreja_id: uuid.UUID, lider_id=None) -> SimpleNamespace:
+    return SimpleNamespace(id=cell_id, igreja_id=igreja_id, lider_id=lider_id)
 
 
 def _membro(*, pessoa_id, celula_id, igreja_id, ativo, updated_at=None, created_at=None) -> SimpleNamespace:
@@ -293,8 +301,16 @@ def test_deactivate_other_active_membro_desativa_so_a_outra_celula() -> None:
 # ---------------------------------------------------------------------------
 # Missão M7B-W1 — promoção de tipo ao ganhar vínculo canônico ativo
 # ---------------------------------------------------------------------------
-def _pessoa(*, pessoa_id=_PESSOA_ID, igreja_id=_IGREJA_A, tipo=None) -> SimpleNamespace:
-    return SimpleNamespace(id=pessoa_id, igreja_id=igreja_id, tipo=tipo)
+def _pessoa(
+    *, pessoa_id=_PESSOA_ID, igreja_id=_IGREJA_A, tipo=None, telefone=None
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        id=pessoa_id, igreja_id=igreja_id, tipo=tipo, telefone=telefone
+    )
+
+
+def _whatsapp_conn(*, igreja_id=_IGREJA_A, numero) -> SimpleNamespace:
+    return SimpleNamespace(id=uuid.uuid4(), igreja_id=igreja_id, numero=numero)
 
 
 @pytest.mark.parametrize("tipo_inicial", [None, "contato", "visitante"])
@@ -311,7 +327,9 @@ def test_ensure_active_membro_promove_tipo_de_entrada_para_membro(tipo_inicial) 
     assert pessoa.tipo == "membro"
 
 
-@pytest.mark.parametrize("tipo_superior", ["membro", "discipulo", "lider", "pastor"])
+# 'pastor' saiu daqui de propósito: M7B-W1.2 recusa pastor como membro (teste
+# dedicado abaixo). Os demais tipos superiores seguem preservados (sem downgrade).
+@pytest.mark.parametrize("tipo_superior", ["membro", "discipulo", "lider"])
 def test_ensure_active_membro_nao_rebaixa_tipo_superior(tipo_superior) -> None:
     pessoa = _pessoa(tipo=tipo_superior)
     session = _Session(
@@ -358,3 +376,113 @@ def test_ensure_active_membro_nao_promove_pessoa_de_outro_tenant() -> None:
     )
 
     assert pessoa_outro_tenant.tipo == "contato"  # intocada
+
+
+# ---------------------------------------------------------------------------
+# Missão M7B-W1.2 — guarda de elegibilidade de membro (pastor / líder da própria
+# célula / número do WhatsApp)
+# ---------------------------------------------------------------------------
+def test_ensure_active_membro_recusa_pastor() -> None:
+    pessoa = _pessoa(tipo="pastor")
+    session = _Session(
+        cells=[_cell(_CELULA_ID, igreja_id=_IGREJA_A)], pessoas=[pessoa]
+    )
+
+    with pytest.raises(MembroInelegivelError) as exc:
+        ensure_active_membro(
+            session, igreja_id=_IGREJA_A, celula_id=_CELULA_ID, pessoa_id=_PESSOA_ID
+        )
+    assert exc.value.code == "pastor_nao_pode_ser_membro"
+    assert session.added == []  # nenhum vínculo criado
+    assert pessoa.tipo == "pastor"  # nada mutado
+
+
+def test_ensure_active_membro_recusa_lider_da_propria_celula() -> None:
+    # A pessoa É o líder indicado em celulas.lider_id DESTA célula → não pode ser
+    # membro dela mesma (regra 3). Líder de OUTRA célula não é barrado aqui.
+    pessoa = _pessoa(pessoa_id=_PESSOA_ID, tipo="lider")
+    cell = _cell(_CELULA_ID, igreja_id=_IGREJA_A, lider_id=_PESSOA_ID)
+    session = _Session(cells=[cell], pessoas=[pessoa])
+
+    with pytest.raises(MembroInelegivelError) as exc:
+        ensure_active_membro(
+            session, igreja_id=_IGREJA_A, celula_id=_CELULA_ID, pessoa_id=_PESSOA_ID
+        )
+    assert exc.value.code == "lider_nao_membro_propria_celula"
+    assert session.added == []
+
+
+def test_ensure_active_membro_lider_de_outra_celula_e_aceito() -> None:
+    # Líder de OUTRA célula (lider_id != esta pessoa) pode ser membro aqui: a
+    # regra 3 é ESTRITAMENTE sobre a própria célula.
+    pessoa = _pessoa(pessoa_id=_PESSOA_ID, tipo="lider")
+    cell = _cell(_CELULA_ID, igreja_id=_IGREJA_A, lider_id=_OTHER_CELULA_ID)
+    session = _Session(cells=[cell], pessoas=[pessoa])
+
+    ensure_active_membro(
+        session, igreja_id=_IGREJA_A, celula_id=_CELULA_ID, pessoa_id=_PESSOA_ID
+    )
+
+    assert pessoa.tipo == "lider"  # preservado (não rebaixa)
+    novos = [o for o in session.added if isinstance(o, CelulaMembro)]
+    assert len(novos) == 1
+
+
+def test_ensure_active_membro_recusa_numero_conectado_ao_whatsapp() -> None:
+    # O telefone da pessoa == número conectado (mesmo com +55 / 9º dígito).
+    pessoa = _pessoa(tipo="contato", telefone="+55 (89) 99431-5927")
+    conn = _whatsapp_conn(numero="558994315927")  # mesma linha, forma WhatsApp
+    session = _Session(
+        cells=[_cell(_CELULA_ID, igreja_id=_IGREJA_A)],
+        pessoas=[pessoa],
+        whatsapp_conns=[conn],
+    )
+
+    with pytest.raises(MembroInelegivelError) as exc:
+        ensure_active_membro(
+            session, igreja_id=_IGREJA_A, celula_id=_CELULA_ID, pessoa_id=_PESSOA_ID
+        )
+    assert exc.value.code == "numero_whatsapp_nao_participa"
+    assert session.added == []
+    assert pessoa.tipo == "contato"  # não promovido
+
+
+def test_ensure_active_membro_aceita_quando_numero_whatsapp_e_diferente() -> None:
+    # Conexão existe, mas o número é de OUTRA linha → não bloqueia; discípulo
+    # normal entra e é promovido a membro.
+    pessoa = _pessoa(tipo="contato", telefone="11988887777")
+    conn = _whatsapp_conn(numero="558994315927")
+    session = _Session(
+        cells=[_cell(_CELULA_ID, igreja_id=_IGREJA_A)],
+        pessoas=[pessoa],
+        whatsapp_conns=[conn],
+    )
+
+    ensure_active_membro(
+        session, igreja_id=_IGREJA_A, celula_id=_CELULA_ID, pessoa_id=_PESSOA_ID
+    )
+
+    assert pessoa.tipo == "membro"
+    novos = [o for o in session.added if isinstance(o, CelulaMembro)]
+    assert len(novos) == 1
+
+
+def test_ensure_active_membro_conexao_whatsapp_de_outro_tenant_nao_bloqueia() -> None:
+    # A conexão com o número está numa igreja DIFERENTE (B); o vínculo é criado no
+    # escopo da igreja A. _phone_matches_active_whatsapp filtra por igreja_id, então
+    # a conexão de B não é enxergada e o discípulo de A entra normalmente.
+    pessoa = _pessoa(tipo="contato", telefone="+55 (89) 99431-5927")
+    conn_outro_tenant = _whatsapp_conn(igreja_id=_IGREJA_B, numero="558994315927")
+    session = _Session(
+        cells=[_cell(_CELULA_ID, igreja_id=_IGREJA_A)],
+        pessoas=[pessoa],
+        whatsapp_conns=[conn_outro_tenant],
+    )
+
+    ensure_active_membro(
+        session, igreja_id=_IGREJA_A, celula_id=_CELULA_ID, pessoa_id=_PESSOA_ID
+    )
+
+    assert pessoa.tipo == "membro"  # não bloqueado (conexão de outro tenant)
+    novos = [o for o in session.added if isinstance(o, CelulaMembro)]
+    assert len(novos) == 1

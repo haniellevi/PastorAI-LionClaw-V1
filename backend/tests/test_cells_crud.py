@@ -215,7 +215,7 @@ def make_cell(
 def make_pessoa(
     *, pessoa_id: str = _P1, igreja_id: str = _TENANT, lider_id: str | None = None,
     celula_id: str | None = None, apto_lider: bool = True,
-    sem_interesse: bool = False,
+    sem_interesse: bool = False, tipo: str = "membro", telefone: str | None = None,
 ):
     return SimpleNamespace(
         id=pessoa_id,
@@ -223,7 +223,8 @@ def make_pessoa(
         nome="Fulano",
         lider_id=lider_id,
         celula_id=celula_id,
-        tipo="membro",
+        tipo=tipo,
+        telefone=telefone,
         apto_lider=apto_lider,
         sem_interesse=sem_interesse,
     )
@@ -536,6 +537,22 @@ def test_add_member_creates_link_and_mirror(app) -> None:
     assert session.committed is True
 
 
+def test_add_member_promotes_tipo_to_membro(app) -> None:
+    # M7B-W1.2: vínculo ativo ⇒ tipo ≥ membro, também na entrada direta (não só
+    # no seam). Um 'contato' adicionado como membro é promovido.
+    cell = make_cell(lider_id=_LP)
+    pessoa = make_pessoa(pessoa_id=_P1, tipo="contato", celula_id=None)
+    session = CellSession(
+        app_user=make_app_user(), roles=["pastor"], cells=[cell], pessoas=[pessoa]
+    )
+    resp = _wire(app, session=session).post(
+        f"/cells/{_CELL}/membros", headers=_AUTH, json={"pessoaId": _P1}
+    )
+    assert resp.status_code == 201, resp.text
+    assert pessoa.tipo == "membro"  # promovido
+    assert pessoa.celula_id == cell.id
+
+
 def test_add_member_conflicts_when_already_active(app) -> None:
     cell = make_cell(lider_id=_LP)  # ativa+com líder (C-03): não é o que este teste cobre
     pessoa = make_pessoa(pessoa_id=_P1)
@@ -645,6 +662,23 @@ def test_add_member_rejects_person_who_leads_an_active_cell(app) -> None:
     assert resp.status_code == 409
     assert "lidera uma célula ativa" in resp.json()["detail"]
     assert session.committed is False
+
+
+def test_add_member_rejects_pastor(app) -> None:
+    # M7B-W1.2: pastor não pode ser membro de célula. Prova a fiação ponta-a-ponta
+    # do handler global (MembroInelegivelError -> 409) na entrada direta de membro.
+    cell = make_cell(lider_id=_LP)  # ativa+com líder
+    pastor = make_pessoa(pessoa_id=_P1, tipo="pastor")
+    session = CellSession(
+        app_user=make_app_user(), roles=["pastor"], cells=[cell], pessoas=[pastor]
+    )
+    resp = _wire(app, session=session).post(
+        f"/cells/{_CELL}/membros", headers=_AUTH, json={"pessoaId": _P1}
+    )
+    assert resp.status_code == 409
+    assert resp.json()["detail"]["error"] == "pastor_nao_pode_ser_membro"
+    assert session.committed is False
+    assert not any(isinstance(o, CelulaMembro) for o in session.added)
 
 
 def test_add_member_rejects_inactive_cell(app) -> None:

@@ -46,6 +46,7 @@ from app.routers import (
     whatsapp,
     work_queue,
 )
+from app.services.celula_membro import MembroInelegivelError
 from app.services.rate_limit import RateLimitExceeded
 
 logging.basicConfig(
@@ -100,6 +101,20 @@ def create_app() -> FastAPI:
             status_code=429,
             content={"detail": "Muitas tentativas. Tente novamente mais tarde."},
             headers={"Retry-After": str(exc.retry_after)},
+        )
+
+    @app.exception_handler(MembroInelegivelError)
+    async def _membro_inelegivel_handler(
+        _: Request, exc: MembroInelegivelError
+    ) -> JSONResponse:
+        # Missão M7B-W1.2: a guarda de elegibilidade de membro (seam canônico
+        # ensure_active_membro + entrada direta add_cell_member) recusa pastor /
+        # líder da própria célula / número do WhatsApp em QUALQUER rota que crie
+        # vínculo (link_cell, convite, ativação, membro direto). Um único ponto
+        # de tradução → 409 acionável, em vez de repetir o try/except em cada router.
+        return JSONResponse(
+            status_code=409,
+            content={"detail": {"error": exc.code, "message": exc.message}},
         )
 
     app.include_router(auth.router)

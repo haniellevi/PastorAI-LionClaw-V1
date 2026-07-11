@@ -28,7 +28,12 @@ from app.domain.consolidation import (
     VINCULO_VISITANTE,
 )
 from app.domain.pipeline import validate_transition
-from app.services.celula_membro import deactivate_other_active_membro, ensure_active_membro
+from app.services.celula_membro import (
+    MembroInelegivelError,
+    assert_membro_elegivel,
+    deactivate_other_active_membro,
+    ensure_active_membro,
+)
 
 
 class ToolError(Exception):
@@ -171,6 +176,19 @@ def vincular_celula(
         raise ToolError("Célula inativa não pode receber contatos")
     if celula.lider_id is None:
         raise ToolError("Célula sem líder não pode receber contatos")
+
+    # M7B-W1.2: guarda ANTES de qualquer mutação. Diferente dos caminhos HTTP (o
+    # get_db faz rollback ao fechar a sessão numa exceção não tratada), o runtime
+    # do agente ENGOLE o ToolError e mesmo assim comita a sessão no fim do turno —
+    # então se mutássemos pessoa.celula_id / desativássemos o vínculo antigo ANTES
+    # da recusa, a mutação parcial persistiria (divergência espelho↔celula_membro).
+    # Recusa traduzida para ToolError (refusal limpo, não "erro inesperado").
+    try:
+        assert_membro_elegivel(
+            session, igreja_id=igreja_uuid, celula=celula, pessoa=pessoa
+        )
+    except MembroInelegivelError as exc:
+        raise ToolError(exc.message) from exc
 
     if pessoa.celula_id is not None and pessoa.celula_id != celula.id:
         deactivate_other_active_membro(

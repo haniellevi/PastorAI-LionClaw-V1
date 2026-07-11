@@ -16,10 +16,13 @@ Em uma passada, para a solicitação aprovada:
      e aplica os campos sensíveis do payload). A liderança é SEMPRE
      `celulas.lider_id` — nunca papel em `celula_membro`.
   4. Move os membros transferidos: desativa o vínculo ativo na origem e cria
-     vínculo ATIVO na nova célula (papel 'membro'); sincroniza `pessoas.celula_id`
-     (espelho legado). Novo líder EXTERNO à origem não ganha vínculo em
-     `celula_membro` (o enum de papel não tem 'lider' de propósito) e o
-     `pessoas.celula_id` dele não muda.
+     vínculo ATIVO na nova célula (papel 'membro', com a guarda de elegibilidade
+     M7B-W1.2); sincroniza `pessoas.celula_id` (espelho legado). O NOVO LÍDER
+     nunca ganha vínculo em `celula_membro` (liderança é `celulas.lider_id`;
+     membro = discípulo, líder não é membro da própria célula): se for EXTERNO à
+     origem, o `pessoas.celula_id` dele não muda; se estiver na lista de
+     transferidos (interno), o vínculo de origem é desativado e o
+     `pessoas.celula_id` é LIMPO (ele lidera, não é mais membro).
   5. Grava `multiplicacoes` com `celula_id`=origem, `celula_nova_id`=nova,
      `solicitacao_id` (UNIQUE) e `idempotency_key`.
 
@@ -37,6 +40,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import Celula, CelulaMembro, Multiplicacao, Pessoa
 from app.domain.multiplication import STATUS_CONCLUIDA
+from app.services.celula_membro import assert_membro_elegivel, promote_tipo_para_membro
 
 # Papel do vínculo em celula_membro — o enum celula_membro_papel só aceita
 # membro/auxiliar/anfitriao ('lider' NÃO existe: liderança é celulas.lider_id).
@@ -184,8 +188,13 @@ def execute_multiplication(
     db.add(nova_celula)
     db.flush()  # popula nova_celula.id para os vínculos/sincronizações abaixo.
 
-    # 4. Move cada membro: desativa vínculo antigo, cria vínculo ativo na nova,
-    #    sincroniza pessoas.celula_id (espelho legado).
+    # 4. Move cada transferido. O NOVO LÍDER (se estiver na lista) NÃO vira membro
+    #    da nova célula: liderança é celulas.lider_id, nunca papel em celula_membro
+    #    (regra ministerial M7B-W1.2 — membro = discípulo; líder não é membro da
+    #    própria célula). Ele só tem o vínculo de ORIGEM desativado e o espelho de
+    #    membresia (pessoas.celula_id) limpo. Os demais recebem vínculo ATIVO na
+    #    nova célula, com a guarda de elegibilidade aplicada (pastor / número do
+    #    WhatsApp / líder da própria célula).
     for pessoa_id in membros_ids:
         antigo = db.execute(
             select(CelulaMembro).where(
@@ -206,9 +215,30 @@ def execute_multiplication(
                     f"membro {pessoa_id} não é membro ativo da célula de origem"
                 ),
             )
+
+        pessoa = db.execute(
+            select(Pessoa).where(
+                Pessoa.id == pessoa_id, Pessoa.igreja_id == igreja_id
+            )
+        ).scalar_one_or_none()
+
+        # Sai da origem em qualquer caso (líder ou membro comum).
         antigo.ativo = False
         antigo.updated_at = _now()
 
+        if str(pessoa_id) == str(novo_lider_id):
+            # Novo líder interno à origem: entra como LÍDER (nova_celula.lider_id,
+            # já setado na criação) — sem CelulaMembro ativo na nova. Espelho de
+            # membresia limpo: ele não é membro de nenhuma célula agora.
+            if pessoa is not None:
+                pessoa.celula_id = None
+            continue
+
+        # Demais transferidos: guarda de elegibilidade + vínculo ativo na nova.
+        if pessoa is not None:
+            assert_membro_elegivel(
+                db, igreja_id=igreja_id, celula=nova_celula, pessoa=pessoa
+            )
         db.add(
             CelulaMembro(
                 igreja_id=igreja_id,
@@ -218,14 +248,9 @@ def execute_multiplication(
                 ativo=True,
             )
         )
-
-        pessoa = db.execute(
-            select(Pessoa).where(
-                Pessoa.id == pessoa_id, Pessoa.igreja_id == igreja_id
-            )
-        ).scalar_one_or_none()
         if pessoa is not None:
             pessoa.celula_id = nova_celula.id
+            promote_tipo_para_membro(pessoa)  # vínculo ativo ⇒ tipo ≥ membro
 
     # 5. Registra a multiplicação (celula_id=origem; celula_nova_id=nova).
     data_prevista = _to_date(payload.get("data_prevista"))
