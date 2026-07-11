@@ -22,6 +22,7 @@ import {
   getNextMeeting,
   getCellMembers,
   listReunioes,
+  fetchCellDetail,
   type CellMember,
   type Reuniao,
 } from "@/lib/cells-api";
@@ -45,6 +46,16 @@ import { MaterialsFeed } from "./MaterialsFeed";
 import { formatMeetingDate } from "./format";
 import type { CellToast } from "./types";
 
+/** Contexto exibido no hero da célula (nome + dados de agenda/cobertura). Os
+ *  campos sensíveis vêm de fetchCellDetail; nome tem fallback via getMyLedCells.
+ *  Endereço e nº de visitantes ainda não existem na API do líder (lacuna). */
+type CellContext = {
+  nome: string;
+  diaReuniao: string | null;
+  horario: string | null;
+  coberturaEspiritual: string | null;
+};
+
 /** Campos sensíveis da célula (viram Solicitação, RF-14). */
 const CELL_SENSITIVE: { tipo: SensitiveCellRequestType; label: string }[] = [
   { tipo: "alterar_dia", label: "Alterar dia" },
@@ -61,6 +72,7 @@ export function MinhaCelulaLider() {
   const [members, setMembers] = useState<CellMember[]>([]);
   const [reunioes, setReunioes] = useState<Reuniao[]>([]);
   const [materials, setMaterials] = useState<Material[]>([]);
+  const [cellCtx, setCellCtx] = useState<CellContext | null>(null);
   const [selectedReuniaoId, setSelectedReuniaoId] = useState<string>("");
 
   const [loading, setLoading] = useState(true);
@@ -102,16 +114,19 @@ export function MinhaCelulaLider() {
    *  (celulas.lider_id); as demais são só fallback e derivam de MEMBRESIA, que
    *  para um líder que também é membro da célula do seu líder resolveria a célula
    *  errada. */
-  const resolveCellId = useCallback(async (): Promise<string | null> => {
+  const resolveCell = useCallback(async (): Promise<{
+    id: string;
+    nome: string | null;
+  } | null> => {
     const led = await getMyLedCells(token!);
-    if (led[0]?.id) return led[0].id;
+    if (led[0]?.id) return { id: led[0].id, nome: led[0].nome };
     const next = await getNextMeeting(token!);
-    if (next.meeting?.celula_id) return next.meeting.celula_id;
+    if (next.meeting?.celula_id) return { id: next.meeting.celula_id, nome: null };
     const reqs = await listRequests(token!);
-    if (reqs.items[0]?.celula_id) return reqs.items[0].celula_id;
+    if (reqs.items[0]?.celula_id) return { id: reqs.items[0].celula_id, nome: null };
     const notices = await listNotices(token!);
     const withCell = notices.items.find((n) => n.celula_id);
-    return withCell?.celula_id ?? null;
+    return withCell?.celula_id ? { id: withCell.celula_id, nome: null } : null;
   }, [token]);
 
   const load = useCallback(
@@ -120,22 +135,31 @@ export function MinhaCelulaLider() {
       if (mode === "initial") setLoading(true);
       setError(null);
       try {
-        const cid = await resolveCellId();
-        if (!cid) {
+        const resolved = await resolveCell();
+        if (!resolved) {
           setCellId(null);
           setLoaded(true);
           return;
         }
-        setCellId(cid);
+        setCellId(resolved.id);
 
-        const [membersRes, reunioesRes, materialsRes] = await Promise.all([
-          getCellMembers(token, cid),
-          listReunioes(token, cid),
+        // Detalhe (dia/horário/cobertura) é opcional para o hero: se a leitura
+        // falhar, o painel segue com nome + contadores (não quebra a tela).
+        const [membersRes, reunioesRes, materialsRes, detail] = await Promise.all([
+          getCellMembers(token, resolved.id),
+          listReunioes(token, resolved.id),
           listMaterials(token),
+          fetchCellDetail(token, resolved.id).catch(() => null),
         ]);
         setMembers(membersRes.members);
         setReunioes(reunioesRes);
         setMaterials(materialsRes.items);
+        setCellCtx({
+          nome: detail?.nome ?? resolved.nome ?? "Sua célula",
+          diaReuniao: detail?.diaReuniao ?? null,
+          horario: detail?.horario ?? null,
+          coberturaEspiritual: detail?.coberturaEspiritual ?? null,
+        });
         setSelectedReuniaoId((prev) => prev || reunioesRes[0]?.id || "");
 
         setLoaded(true);
@@ -148,7 +172,7 @@ export function MinhaCelulaLider() {
         setLoading(false);
       }
     },
-    [token, resolveCellId, handleSessionError],
+    [token, resolveCell, handleSessionError],
   );
 
   useEffect(() => {
@@ -160,6 +184,18 @@ export function MinhaCelulaLider() {
     () => reunioes.find((r) => r.id === selectedReuniaoId) ?? null,
     [reunioes, selectedReuniaoId],
   );
+
+  /** Linha de contexto do hero: "dia hora · cobertura: X" (só as partes que há). */
+  const heroMeta = useMemo(() => {
+    if (!cellCtx) return "";
+    const parts: string[] = [];
+    const agenda = [cellCtx.diaReuniao, cellCtx.horario].filter(Boolean).join(" ");
+    if (agenda) parts.push(agenda);
+    if (cellCtx.coberturaEspiritual) {
+      parts.push(`cobertura: ${cellCtx.coberturaEspiritual}`);
+    }
+    return parts.join(" · ");
+  }, [cellCtx]);
 
   function handlePlanned(meeting: LeaderMeetingOut) {
     const created: Reuniao = {
@@ -234,6 +270,27 @@ export function MinhaCelulaLider() {
         </div>
       ) : (
         <div className="mc-stack">
+          {/* Contexto da célula — nome, agenda, cobertura e nº de membros */}
+          {cellCtx ? (
+            <section className="mc-hero" aria-label="Contexto da célula">
+              <div className="mc-hero-ic" aria-hidden="true">
+                <Icon name="central-celula" />
+              </div>
+              <div className="mc-hero-body">
+                <div className="mc-hero-name">{cellCtx.nome}</div>
+                {heroMeta ? <div className="mc-hero-meta">{heroMeta}</div> : null}
+              </div>
+              <div className="mc-hero-stats">
+                <div className="mc-hero-stat">
+                  <div className="v">{activeMembers.length}</div>
+                  <div className="k">
+                    {activeMembers.length === 1 ? "membro" : "membros"}
+                  </div>
+                </div>
+              </div>
+            </section>
+          ) : null}
+
           {/* Reunião a relatar */}
           <section className="card" aria-label="Reunião">
             <div className="panel-title">

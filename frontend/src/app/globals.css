@@ -4768,6 +4768,104 @@ table.data-table {
 }
 
 /* ===========================================================================
+   Minha Célula — visão Líder (Células PR: Líder)
+   Reaproveita .card / .panel-title / .list-row / .avatar / .pill / .btn.
+   Abaixo: hero de contexto da célula + refino das ações sensíveis e rodapés,
+   aderindo ao protótipo aprovado (docs/design/Igreja12-Prototipo.standalone.html
+   — banner "Célula Vida · dia hora · cobertura · membros/visitantes").
+   =========================================================================== */
+/* Hero de contexto: nome da célula + dia·hora·cobertura + contadores.
+   Endereço e nº de visitantes ainda não existem na API do líder → omitidos. */
+.mc-hero {
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+  padding: var(--s5);
+  border-radius: var(--r-lg);
+  background: var(--grad-brand);
+  color: var(--accent-fg);
+}
+.mc-hero-ic {
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  background: oklch(100% 0 0 / 0.14);
+  color: var(--accent-fg);
+}
+.mc-hero-ic svg {
+  width: 26px;
+  height: 26px;
+}
+.mc-hero-body {
+  flex: 1;
+  min-width: 0;
+}
+.mc-hero-name {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 680;
+  letter-spacing: -0.02em;
+}
+.mc-hero-meta {
+  margin-top: 4px;
+  font-size: 13px;
+  color: oklch(99% 0.01 185 / 0.82);
+}
+.mc-hero-stats {
+  display: flex;
+  gap: var(--s5);
+  flex: none;
+}
+.mc-hero-stat {
+  text-align: right;
+}
+.mc-hero-stat .v {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 680;
+  line-height: 1;
+}
+.mc-hero-stat .k {
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: oklch(99% 0.01 185 / 0.82);
+}
+
+/* Ações sensíveis (dado da célula → Solicitação para a Central).
+   Escopado a .mc-stack: .chip-actions também é usada pelo RequestDecisionPanel
+   da Central (fora deste escopo) — não restilizar aquela superfície. */
+.mc-stack .chip-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s3);
+  margin-top: var(--s3);
+}
+
+/* Rodapé de leitura (ex.: "gestão de membros é feita pela Central") */
+.mc-stack .section-foot {
+  padding: var(--s3) var(--s4);
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+}
+
+@media (max-width: 560px) {
+  .mc-hero {
+    flex-wrap: wrap;
+    padding: var(--s4);
+  }
+  .mc-hero-stats {
+    width: 100%;
+    justify-content: flex-start;
+  }
+  .mc-hero-stat {
+    text-align: left;
+  }
+}
+
+/* ===========================================================================
    Central de Célula (Jornada G12 > Discipular) — shell de 5 abas, dashboard,
    saúde (10 bolinhas), master-detail de solicitações. Reusa .card/.pill/.tabs.
    =========================================================================== */

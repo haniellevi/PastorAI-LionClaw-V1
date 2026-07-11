@@ -10,6 +10,16 @@ import { StatusPill } from "@/components/dashboard/StatusPill";
 import { Icon } from "@/lib/icons";
 import type { CellMember } from "@/lib/cells-api";
 
+/** Iniciais (1–2 letras) para o avatar. Papel/curso do discípulo ainda não vêm
+ *  da API do líder (lacuna) — por isso a linha traz só nome + estado. */
+function initials(nome: string): string {
+  const parts = nome.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  const first = parts[0]?.[0] ?? "";
+  const last = parts.length > 1 ? (parts[parts.length - 1]?.[0] ?? "") : "";
+  return (first + last).toUpperCase();
+}
+
 export function DisciplesList({ members }: { members: CellMember[] }) {
   return (
     <section className="card" aria-label="Discípulos">
@@ -29,7 +39,10 @@ export function DisciplesList({ members }: { members: CellMember[] }) {
         <div>
           {members.map((m) => (
             <div className="list-row" key={m.pessoa_id}>
-              <div className="grow" style={{ minWidth: 0 }}>
+              <div className="avatar" aria-hidden="true">
+                {initials(m.nome)}
+              </div>
+              <div className="grow" style={{ flex: 1, minWidth: 0 }}>
                 <div className="nm">{m.nome}</div>
               </div>
               {m.ativo ? (
