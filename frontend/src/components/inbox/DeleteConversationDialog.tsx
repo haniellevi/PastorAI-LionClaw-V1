@@ -2,7 +2,11 @@
 
 /**
  * delete-conversation-dialog — confirmação de exclusão (hard delete, admin).
- * Ação destrutiva e irreversível: deixa claro que apaga mensagens + mídia.
+ * Ação destrutiva e irreversível: deixa claro que apaga apenas a conversa,
+ * suas mensagens e mídias — e que a Pessoa/Contato e seus vínculos ministeriais
+ * (célula, liderança, cadastro, histórico) são PRESERVADOS. O ícone de lixeira
+ * não exclui o contato; ao escrever de novo, uma nova conversa reusa a mesma
+ * Pessoa (backend: DELETE /conversations/{id} não toca em Pessoa).
  */
 import { Button } from "@/components/ui/Button";
 import type { Conversation } from "@/lib/conversations-api";
@@ -45,10 +49,20 @@ export function DeleteConversationDialog({
         </div>
 
         <p className="modal-sub">
-          Excluir a conversa com <strong>{displayName(conversation)}</strong>? Isso apaga
-          permanentemente todas as mensagens e mídias desta conversa. Esta ação não pode
-          ser desfeita.
+          Excluir a conversa com <strong>{displayName(conversation)}</strong>? Apaga
+          permanentemente as mensagens e as mídias <strong>desta conversa</strong>. Esta
+          ação não pode ser desfeita.
         </p>
+
+        <div className="preserve-note" role="note">
+          <Icon name="shield" />
+          <span>
+            O contato <strong>não é excluído</strong>. O cadastro (nome e tipo) e os
+            vínculos ministeriais — célula, liderança, consolidação e histórico — são
+            preservados. Se a pessoa escrever de novo, uma nova conversa é aberta com o
+            mesmo cadastro.
+          </span>
+        </div>
 
         {error ? (
           <div className="error-banner" role="alert">

@@ -1935,6 +1935,28 @@ button.jr-row:focus-visible {
   margin-left: auto;
 }
 
+/* preserve-note — reassegura que a exclusão da conversa NÃO apaga a Pessoa. */
+.preserve-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px var(--s4);
+  margin-bottom: var(--s3);
+  border-radius: var(--r-md);
+  background: var(--ok-soft);
+  border: 1px solid oklch(80% 0.09 155);
+  color: oklch(38% 0.09 155);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.preserve-note svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  margin-top: 1px;
+  color: var(--ok);
+}
+
 /* skeletons (estado loading) */
 .skeleton {
   pointer-events: none;
