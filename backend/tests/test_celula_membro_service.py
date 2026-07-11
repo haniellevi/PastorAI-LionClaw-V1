@@ -22,7 +22,7 @@ import sqlalchemy as sa
 import pytest
 from sqlalchemy.sql import operators as sa_operators
 
-from app.db.models import Celula, CelulaMembro
+from app.db.models import Celula, CelulaMembro, Pessoa
 from app.services.celula_membro import deactivate_other_active_membro, ensure_active_membro
 
 _IGREJA_A = uuid.UUID("00000000-0000-0000-0000-00000000a001")
@@ -147,9 +147,10 @@ class _Result:
 
 
 class _Session:
-    def __init__(self, *, cells=(), membros=()) -> None:
+    def __init__(self, *, cells=(), membros=(), pessoas=()) -> None:
         self.cells = list(cells)
         self.membros = list(membros)
+        self.pessoas = list(pessoas)
         self.added: list = []
 
     def execute(self, statement, params=None) -> _Result:
@@ -161,6 +162,9 @@ class _Session:
         if ent is CelulaMembro:
             rows = _sort_by_real_order_by(_filter(self.membros, statement), statement)
             return _Result(scalar=(rows[0] if rows else None), scalars_list=rows)
+        if ent is Pessoa:
+            rows = _filter(self.pessoas, statement)
+            return _Result(scalar=(rows[0] if rows else None))
         return _Result()
 
     def add(self, obj) -> None:
@@ -284,3 +288,73 @@ def test_deactivate_other_active_membro_desativa_so_a_outra_celula() -> None:
     )
 
     assert ativo_em_outra.ativo is False
+
+
+# ---------------------------------------------------------------------------
+# Missão M7B-W1 — promoção de tipo ao ganhar vínculo canônico ativo
+# ---------------------------------------------------------------------------
+def _pessoa(*, pessoa_id=_PESSOA_ID, igreja_id=_IGREJA_A, tipo=None) -> SimpleNamespace:
+    return SimpleNamespace(id=pessoa_id, igreja_id=igreja_id, tipo=tipo)
+
+
+@pytest.mark.parametrize("tipo_inicial", [None, "contato", "visitante"])
+def test_ensure_active_membro_promove_tipo_de_entrada_para_membro(tipo_inicial) -> None:
+    pessoa = _pessoa(tipo=tipo_inicial)
+    session = _Session(
+        cells=[_cell(_CELULA_ID, igreja_id=_IGREJA_A)], pessoas=[pessoa]
+    )
+
+    ensure_active_membro(
+        session, igreja_id=_IGREJA_A, celula_id=_CELULA_ID, pessoa_id=_PESSOA_ID
+    )
+
+    assert pessoa.tipo == "membro"
+
+
+@pytest.mark.parametrize("tipo_superior", ["membro", "discipulo", "lider", "pastor"])
+def test_ensure_active_membro_nao_rebaixa_tipo_superior(tipo_superior) -> None:
+    pessoa = _pessoa(tipo=tipo_superior)
+    session = _Session(
+        cells=[_cell(_CELULA_ID, igreja_id=_IGREJA_A)], pessoas=[pessoa]
+    )
+
+    ensure_active_membro(
+        session, igreja_id=_IGREJA_A, celula_id=_CELULA_ID, pessoa_id=_PESSOA_ID
+    )
+
+    assert pessoa.tipo == tipo_superior  # preservado, nunca rebaixado
+
+
+def test_ensure_active_membro_promocao_e_idempotente() -> None:
+    pessoa = _pessoa(tipo="contato")
+    session = _Session(
+        cells=[_cell(_CELULA_ID, igreja_id=_IGREJA_A)], pessoas=[pessoa]
+    )
+
+    ensure_active_membro(
+        session, igreja_id=_IGREJA_A, celula_id=_CELULA_ID, pessoa_id=_PESSOA_ID
+    )
+    ensure_active_membro(
+        session, igreja_id=_IGREJA_A, celula_id=_CELULA_ID, pessoa_id=_PESSOA_ID
+    )
+
+    assert pessoa.tipo == "membro"
+    # 2ª chamada reativa a MESMA linha — nunca duplica o vínculo.
+    novos = [o for o in session.added if isinstance(o, CelulaMembro)]
+    assert len(novos) == 1
+
+
+def test_ensure_active_membro_nao_promove_pessoa_de_outro_tenant() -> None:
+    # A pessoa alvo pertence à igreja B; o vínculo é criado no escopo da igreja A.
+    # A promoção é tenant-scoped (filtra por igreja_id) — não pode tocar a
+    # pessoa da igreja B.
+    pessoa_outro_tenant = _pessoa(igreja_id=_IGREJA_B, tipo="contato")
+    session = _Session(
+        cells=[_cell(_CELULA_ID, igreja_id=_IGREJA_A)], pessoas=[pessoa_outro_tenant]
+    )
+
+    ensure_active_membro(
+        session, igreja_id=_IGREJA_A, celula_id=_CELULA_ID, pessoa_id=_PESSOA_ID
+    )
+
+    assert pessoa_outro_tenant.tipo == "contato"  # intocada

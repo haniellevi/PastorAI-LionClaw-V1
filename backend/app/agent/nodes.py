@@ -284,6 +284,27 @@ def report_capture_node(state: AgentState) -> AgentState:
     }
 
 
+def first_name_for_greeting(nome: str | None) -> str | None:
+    """Primeiro nome CONFIÁVEL pra saudar, ou ``None`` pra manter a resposta
+    genérica (Missão M7B-W1).
+
+    Confiável = tem letra e não é apenas o telefone. Um contato novo nasce com
+    ``nome = push_name or telefone_raw`` (queue_worker); sem push_name, o "nome"
+    é a própria string do telefone — saudar por ele soaria como robô. O teste de
+    "tem letra" cobre tanto sequência numérica pura quanto o telefone
+    formatado (dígitos, ``+``, ``-`` e espaços não têm letra).
+    """
+    if not nome:
+        return None
+    tokens = nome.split()
+    if not tokens:
+        return None
+    first = tokens[0]
+    if not any(c.isalpha() for c in first):
+        return None
+    return first
+
+
 def onboarding_node(state: AgentState) -> AgentState:
     """onboarding (US-10/RF-13/#1): flag CSIM, then drive the turn.
 
@@ -313,11 +334,15 @@ def onboarding_node(state: AgentState) -> AgentState:
         )
     else:
         classificacao = pessoa.get("subetapa") or "novo_contato"
-        resposta = (
+        base = (
             "Que bom falar com você! Como posso te ajudar?"
             if not pessoa.get("has_endereco")
             else "Pode me contar um pouco sobre o que você está buscando?"
         )
+        # Saudação nominal quando a pessoa reconhecida tem nome confiável
+        # (usa a Pessoa já carregada — nunca o push_name — e o 1º nome).
+        primeiro_nome = first_name_for_greeting(pessoa.get("nome"))
+        resposta = f"Olá, {primeiro_nome}! {base}" if primeiro_nome else base
 
     return {
         "route": ROUTE_ONBOARDING,

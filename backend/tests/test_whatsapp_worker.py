@@ -192,6 +192,35 @@ def test_ingest_reuses_existing_contact() -> None:
     assert existing_conv.nao_lidas == 1
 
 
+def test_ingest_reuses_person_after_conversation_deleted() -> None:
+    """M7B-W1 (regressão do incidente real): apagar a conversa remove só
+    Conversation/Messages, não a Pessoa. Ao chegar nova mensagem pelo MESMO
+    telefone+igreja, o worker reusa a Pessoa (nome/tipo preservados) e cria uma
+    NOVA Conversation — nunca duplica a Pessoa nem rebaixa o tipo."""
+    connection = WhatsappConnection(igreja_id=_IGREJA, instance="igreja-1")
+    existing = Pessoa(
+        igreja_id=_IGREJA,
+        nome="Raniel Levi",  # nome confiável, cadastrado
+        telefone="5511988887777",
+        tipo="membro",  # já é membro (vínculo ativo de célula)
+    )
+    # conversation=None simula a conversa apagada — não existe mais no banco.
+    session = FakeIngestSession(
+        connection=connection, pessoa=existing, conversation=None
+    )
+    parsed = parse_message_event(_parsed_payload("AFTER_DELETE"))
+    result = ingest_message_event(session, parsed)
+
+    assert result is IngestionResult.REGISTERED
+    # Mesma Pessoa reutilizada — nenhuma nova criada.
+    assert not any(isinstance(o, Pessoa) for o in session.added)
+    # Tipo preservado: o worker nunca rebaixa (nada de voltar a "contato").
+    assert existing.tipo == "membro"
+    assert existing.nome == "Raniel Levi"
+    # Uma nova Conversation é criada no lugar da apagada.
+    assert any(isinstance(o, Conversation) for o in session.added)
+
+
 def test_ingest_sets_tenant_context_for_igreja() -> None:
     """Fase 0 (#10b): após resolver a igreja pelo instance, o worker ativa o
     tenant-context (GUC app.tenant_igreja_id + role authenticated) antes de

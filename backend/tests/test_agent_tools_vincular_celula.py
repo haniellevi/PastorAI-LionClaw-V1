@@ -108,8 +108,10 @@ class _ToolSession:
         pass
 
 
-def _pessoa(pessoa_id: uuid.UUID, *, celula_id=None) -> SimpleNamespace:
-    return SimpleNamespace(id=pessoa_id, igreja_id=_IGREJA_ID, celula_id=celula_id)
+def _pessoa(pessoa_id: uuid.UUID, *, celula_id=None, tipo="contato") -> SimpleNamespace:
+    return SimpleNamespace(
+        id=pessoa_id, igreja_id=_IGREJA_ID, celula_id=celula_id, tipo=tipo
+    )
 
 
 def _cell(cell_id: uuid.UUID, *, lider_id=_LEADER, ativo=True) -> SimpleNamespace:
@@ -134,6 +136,7 @@ def test_vincular_celula_first_link_creates_celula_membro() -> None:
 
     assert result.ok is True
     assert pessoa.celula_id == cell.id
+    assert pessoa.tipo == "membro"  # M7B-W1: contato → membro ao vincular célula
     novos = [o for o in session.added if isinstance(o, CelulaMembro)]
     assert len(novos) == 1
     assert novos[0].pessoa_id == pessoa.id
@@ -155,6 +158,7 @@ def test_vincular_celula_transfer_deactivates_old_activates_new() -> None:
     )
 
     assert pessoa.celula_id == new_cell.id
+    assert pessoa.tipo == "membro"  # M7B-W1: promovido no vínculo da nova célula
     assert old_membro.ativo is False  # nunca duas linhas ativas pra mesma pessoa
     novos = [o for o in session.added if isinstance(o, CelulaMembro)]
     assert len(novos) == 1
