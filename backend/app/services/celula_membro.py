@@ -15,7 +15,15 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.db.models import Celula, CelulaMembro
+from app.db.models import Celula, CelulaMembro, Pessoa
+
+# Missão M7B-W1: tipos de ENTRADA (ou tipo ausente) que um vínculo ativo de
+# célula promove a "membro". Um vínculo canônico ativo implica que a pessoa é,
+# no mínimo, membro — nunca pode continuar "contato"/"visitante". membro/
+# discipulo/lider/pastor são PRESERVADOS (nunca rebaixados).
+_TIPOS_PROMOVIVEIS_A_MEMBRO: frozenset[str | None] = frozenset(
+    {None, "contato", "visitante"}
+)
 
 
 def ensure_active_membro(
@@ -84,6 +92,27 @@ def ensure_active_membro(
                 ativo=True,
             )
         )
+
+    # Vínculo ativo ⇒ a pessoa é, no mínimo, membro. Concentrado aqui (seam
+    # canônico) pra cobrir TODOS os callers — convite, ativação, link_cell pela
+    # tela Pessoas e a tool do agente — sem duplicar a regra nos routers.
+    _promote_tipo_para_membro(db, igreja_id=igreja_id, pessoa_id=pessoa_id)
+
+
+def _promote_tipo_para_membro(
+    db: Session, *, igreja_id: uuid.UUID, pessoa_id: uuid.UUID
+) -> None:
+    """Promove a Pessoa a "membro" quando ganha um vínculo canônico ativo.
+
+    Idempotente e tenant-scoped (filtra por igreja_id): só promove tipo ausente,
+    "contato" ou "visitante"; PRESERVA membro/discipulo/lider/pastor (sem
+    downgrade). Se a pessoa não estiver no escopo da igreja, é no-op.
+    """
+    pessoa = db.execute(
+        select(Pessoa).where(Pessoa.id == pessoa_id, Pessoa.igreja_id == igreja_id)
+    ).scalar_one_or_none()
+    if pessoa is not None and getattr(pessoa, "tipo", None) in _TIPOS_PROMOVIVEIS_A_MEMBRO:
+        pessoa.tipo = "membro"
 
 
 def deactivate_other_active_membro(

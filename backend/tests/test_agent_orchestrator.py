@@ -16,6 +16,7 @@ from app.agent.nodes import (
     ROUTE_OPTOUT,
     ROUTE_REPORT,
     AgentState,
+    first_name_for_greeting,
     route_intent,
 )
 
@@ -173,6 +174,54 @@ def test_onboarding_does_not_promote_on_attendance_claim() -> None:
     assert final["route"] == ROUTE_ONBOARDING
     assert "subetapa" not in final["intake_update"]
     assert "sem_interesse" not in final["intake_update"]
+
+
+# ---- Saudação nominal no onboarding (M7B-W1) ------------------------------
+def test_onboarding_greets_recognized_person_by_first_name() -> None:
+    final = run_turn_direct(
+        _state(
+            texto="oi",
+            pessoa={
+                "nome": "Raniel Levi",
+                "telefone": "5511999998888",
+                "has_endereco": False,
+            },
+        )
+    )
+    assert final["route"] == ROUTE_ONBOARDING
+    assert final["response"].startswith("Olá, Raniel! ")
+    assert "Que bom falar com você!" in final["response"]
+
+
+def test_onboarding_generic_when_name_is_the_phone_number() -> None:
+    # Contato sem push_name nasce com nome = telefone_raw; não se saúda por ele.
+    final = run_turn_direct(
+        _state(
+            texto="oi",
+            pessoa={
+                "nome": "5511999998888",
+                "telefone": "5511999998888",
+                "has_endereco": False,
+            },
+        )
+    )
+    assert not final["response"].startswith("Olá")
+    assert final["response"] == "Que bom falar com você! Como posso te ajudar?"
+
+
+def test_onboarding_generic_when_no_name() -> None:
+    final = run_turn_direct(_state(texto="oi", pessoa={"has_endereco": False}))
+    assert final["response"] == "Que bom falar com você! Como posso te ajudar?"
+
+
+def test_first_name_for_greeting_edge_cases() -> None:
+    assert first_name_for_greeting("Raniel Levi") == "Raniel"
+    assert first_name_for_greeting("  Maria  ") == "Maria"
+    assert first_name_for_greeting(None) is None
+    assert first_name_for_greeting("") is None
+    assert first_name_for_greeting("   ") is None
+    assert first_name_for_greeting("5511999998888") is None
+    assert first_name_for_greeting("+55 11 99999-8888") is None
 
 
 def test_onboarding_preserves_intake_basics_when_flagging_csim() -> None:
