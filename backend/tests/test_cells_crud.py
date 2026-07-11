@@ -713,3 +713,30 @@ def test_list_members_requires_auth(app) -> None:
     assert (
         _wire(app, session=session).get(f"/cells/{_CELL}/membros").status_code == 401
     )
+
+
+def test_list_members_forbidden_for_common_member(app) -> None:
+    # Superfície da Central: um membro/discípulo comum do tenant NÃO pode
+    # enumerar os vínculos de uma célula pelo UUID (IDOR fechado — require_central).
+    session = CellSession(
+        app_user=make_app_user(),
+        roles=["membro"],
+        cells=[make_cell()],
+        members=[make_member(member_id=_MID, pessoa_id=_P1, igreja_id=_TENANT)],
+    )
+    resp = _wire(app, session=session).get(f"/cells/{_CELL}/membros", headers=_AUTH)
+    assert resp.status_code == 403, resp.text
+
+
+def test_list_members_allowed_for_admin(app) -> None:
+    # Papel correto da Central: admin (acesso implícito) enxerga os vínculos.
+    # O caso `pastor` já é coberto por test_list_members_returns_only_tenant_rows.
+    session = CellSession(
+        app_user=make_app_user(),
+        roles=["admin"],
+        cells=[make_cell()],
+        members=[make_member(member_id=_MID, pessoa_id=_P1, igreja_id=_TENANT)],
+    )
+    resp = _wire(app, session=session).get(f"/cells/{_CELL}/membros", headers=_AUTH)
+    assert resp.status_code == 200, resp.text
+    assert [m["pessoaId"] for m in resp.json()] == [_P1]

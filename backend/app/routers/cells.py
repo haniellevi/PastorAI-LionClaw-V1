@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import AppUser, Celula, CelulaMembro, CellAlert, Pessoa
 from app.db.session import get_db
-from app.deps import CurrentUser, get_current_user
+from app.deps import CurrentUser, get_current_user, require_central
 from app.domain.hierarchy import is_leader_or_superior
 from app.routers._common import Page, PaginationParams
 
@@ -578,9 +578,15 @@ def baixar_alert(
 def list_cell_members(
     cell_id: str,
     db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_central),
 ) -> list[MemberOut]:
-    """Membros ativos da célula (vínculo canônico `celula_membro`, Q1)."""
+    """Membros ativos da célula (vínculo canônico `celula_membro`, Q1).
+
+    Superfície ADMINISTRATIVA da Central: só pastor + admin (require_central).
+    Um membro/discípulo comum do mesmo tenant recebe 403 — não pode enumerar os
+    vínculos de uma célula arbitrária pelo UUID. A leitura pelo LÍDER da própria
+    célula permanece no endpoint distinto GET /cells/{id}/members (inalterado).
+    """
     cell = _get_cell_or_404(db, cell_id)
     # igreja_id explícito (defesa em profundidade além da RLS; e torna o
     # isolamento por tenant testável no harness fake).
