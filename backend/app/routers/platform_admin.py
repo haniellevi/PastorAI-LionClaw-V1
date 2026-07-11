@@ -22,7 +22,7 @@ import logging
 import re
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -50,6 +50,7 @@ from app.deps import PlatformAdminUser, get_platform_admin
 from app.domain.permissions import DEFAULT_PERMISSIONS
 from app.services.brevo import BrevoClient, BrevoError, get_brevo_client
 from app.services.clerk import ClerkAuthError, ClerkClient, get_clerk_client
+from app.services.rate_limit import RateLimiter, get_rate_limiter
 
 logger = logging.getLogger("pastorai.platform_admin")
 
@@ -167,9 +168,11 @@ class AdminLoginResponse(BaseModel):
 
 @router.post("/login", response_model=AdminLoginResponse)
 def admin_login(
+    request: Request,
     payload: AdminLoginRequest,
     db: Session = Depends(get_db),
     clerk: ClerkClient = Depends(get_clerk_client),
+    limiter: RateLimiter = Depends(get_rate_limiter),
 ) -> AdminLoginResponse:
     """Login do console master — NÃO aplica o gate de billing do tenant.
 
@@ -179,7 +182,20 @@ def admin_login(
     credencial no Clerk, resolve o app_user SEM tenant context (cross-tenant) e
     exige uma linha em ``platform_admins``. Qualquer falha — credencial inválida
     OU conta sem acesso de plataforma — retorna o MESMO 401 genérico.
+
+    Rate limited por IP e por conta (ALTO-002/SEC-2b) ANTES de qualquer chamada
+    ao Clerk. Namespace 'platform-login' separado do login do tenant, para o
+    brute-force contra o console master (maior privilégio, cross-tenant) não
+    compartilhar contador com /auth/login. Reusa os limites de login; o excedente
+    vira 429 pelo handler único de main.py, com o mesmo corpo genérico — não
+    permite enumerar contas master.
     """
+    settings = get_settings()
+    limiter.enforce_ip(request, "platform-login", settings.rate_limit_login_ip_limit)
+    limiter.enforce_account(
+        payload.email, "platform-login", settings.rate_limit_login_account_limit
+    )
+
     denied = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail=_LOGIN_DENIED,
