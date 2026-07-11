@@ -231,7 +231,9 @@ class ReqSession:
     def flush(self) -> None:
         pass
 
-    def refresh(self, obj) -> None:
+    def refresh(self, obj, **_kwargs) -> None:
+        # Aceita with_for_update=... (SEC-4B: approve() trava a linha antes de
+        # revalidar). Sem Postgres real não há lock — o objeto já está "vivo".
         pass
 
     def commit(self) -> None:

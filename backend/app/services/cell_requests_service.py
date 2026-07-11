@@ -220,14 +220,40 @@ def approve(
 ) -> CelulaSolicitacao:
     """Aprova a solicitação e aplica o payload em transação única + auditoria.
 
-    Idempotência de estado: se já está `aprovada`, retorna o mesmo resultado sem
-    reprocessar (multiplicação reaproveita a linha existente). Estados terminais
-    diferentes → 409.
+    Idempotência de estado: se JÁ estava `aprovada` quando o request começou,
+    retorna o mesmo resultado sem reprocessar (multiplicação reaproveita a linha
+    existente). Estados terminais diferentes → 409.
+
+    SEC-4B (TOCTOU): a linha é travada com ``SELECT ... FOR UPDATE`` (via
+    ``db.refresh(..., with_for_update=True)``) ANTES de revalidar o status, na
+    MESMA transação que aplica o payload, registra a decisão e commita. Duas
+    aprovações concorrentes serializam nesse lock: a segunda espera a primeira
+    commitar, relê o estado já decidido e cai no 409 abaixo — payload e efeitos
+    de domínio são aplicados uma única vez.
     """
+    # Status observado pelo caminho de leitura ANTES do lock (sem trava). Só ele
+    # distingue reprocesso idempotente (já era `aprovada`) de corrida perdida
+    # (virou `aprovada` enquanto esperávamos o lock) → 409.
+    status_antes = solicitacao.status
+
+    # Trava pessimista + releitura autoritativa da linha na transação corrente
+    # (fecha o TOCTOU check→apply). O lock é mantido até o commit/rollback abaixo.
+    db.refresh(solicitacao, with_for_update=True)
+
     if solicitacao.status == STATUS_APROVADA:
-        # Reprocesso idempotente: nada muda, nenhum novo evento (SPEC §643).
-        return solicitacao
+        if status_antes == STATUS_APROVADA:
+            # Reprocesso idempotente: nada muda, nenhum novo evento (SPEC §643).
+            db.rollback()
+            return solicitacao
+        # Outra aprovação venceu a corrida enquanto aguardávamos o lock: o estado
+        # já foi decidido por ela → conflito (fecha o TOCTOU SEC-4B).
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Solicitação já foi decidida por outra aprovação",
+        )
     if solicitacao.status != STATUS_AGUARDANDO:
+        db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Solicitação não está aguardando aprovação",
@@ -236,6 +262,7 @@ def approve(
     if solicitacao.tipo == TIPO_MULTIPLICACAO:
         key = (idempotency_key or "").strip()
         if not key:
+            db.rollback()
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="idempotency_key é obrigatório para multiplicação",

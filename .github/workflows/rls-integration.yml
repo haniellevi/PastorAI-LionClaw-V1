@@ -70,12 +70,13 @@ jobs:
           print("guard OK: alvo descartavel")
           PY
 
-      - name: Rodar suite rls_integration (T1-T6 + TOCTOU confirm SEC-4B)
+      - name: Rodar suite rls_integration (T1-T6 + TOCTOU SEC-4B confirm + approve)
         run: |
           pytest -m rls_integration -o addopts= -rA \
             --junitxml=rls-results.xml \
             tests/test_rls_invariant.py \
-            tests/test_events_confirm_toctou.py
+            tests/test_events_confirm_toctou.py \
+            tests/test_cell_requests_approve_concurrency.py
 
       - name: Falhar se T1-T6 nao executaram de fato (0 coletados / todos skip)
         run: |

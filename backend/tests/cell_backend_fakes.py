@@ -238,7 +238,8 @@ class CellSession:
     def flush(self) -> None:
         pass
 
-    def refresh(self, obj) -> None:
+    def refresh(self, obj, **_kwargs) -> None:
+        # Aceita with_for_update=... (SEC-4B): sem Postgres real não há lock.
         pass
 
     def commit(self) -> None:
