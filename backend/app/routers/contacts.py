@@ -24,7 +24,7 @@ from app.db.models import Celula, Pessoa
 from app.db.session import get_db
 from app.deps import CurrentUser, get_current_user, require_role
 from app.domain.phone import normalize_phone, phone_suffix
-from app.services.celula_membro import deactivate_other_active_membro, ensure_active_membro
+from app.services.celula_membro import ensure_active_membro
 from app.routers._common import Page, PaginationParams
 
 logger = logging.getLogger("pastorai.contacts")
@@ -591,31 +591,21 @@ def link_cell(
             detail="Célula sem líder não pode receber contatos",
         )
 
-    # Transferir alguém que já está numa célula para OUTRA é só do admin; a
-    # primeira vinculação (sem célula) segue liberada ao fluxo normal.
-    if (
-        pessoa.celula_id is not None
-        and pessoa.celula_id != celula.id
-        and not current_user.has_role("admin")
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Apenas um administrador pode transferir alguém de célula",
-        )
-
-    # Vínculo canônico (achado C-02): se é transferência de OUTRA célula,
-    # desativa o vínculo antigo primeiro (índice único parcial só permite 1
-    # ativo por pessoa) antes de ativar o novo.
+    # D2: transferir alguém que já está numa célula para OUTRA é uma CAPACIDADE
+    # decidida pelo domínio (pode_transferir); este adapter administrativo a
+    # deriva do papel admin — a primeira vinculação (sem célula) segue liberada
+    # ao fluxo normal. A recusa (403 via handler global em app.main) acontece
+    # DENTRO do ensure, antes de desativar o vínculo antigo — por isso o espelho
+    # pessoas.celula_id só é tocado depois.
     igreja_uuid = uuid.UUID(current_user.igreja_id)
-    if pessoa.celula_id is not None and pessoa.celula_id != celula.id:
-        deactivate_other_active_membro(
-            db, igreja_id=igreja_uuid, pessoa_id=pessoa.id, keep_celula_id=celula.id
-        )
-
-    pessoa.celula_id = celula.id
     ensure_active_membro(
-        db, igreja_id=igreja_uuid, celula_id=celula.id, pessoa_id=pessoa.id
+        db,
+        igreja_id=igreja_uuid,
+        celula_id=celula.id,
+        pessoa_id=pessoa.id,
+        pode_transferir=current_user.has_role("admin"),
     )
+    pessoa.celula_id = celula.id
     db.flush()  # fires trg_link_cell_promote (acompanhamento -> consolidado)
     db.refresh(pessoa)
     # Deriva ANTES do commit (RLS: SET LOCAL reverte no commit).
