@@ -46,7 +46,10 @@ from app.routers import (
     whatsapp,
     work_queue,
 )
-from app.services.celula_membro import MembroInelegivelError
+from app.services.celula_membro import (
+    MembroInelegivelError,
+    TransferenciaNaoAutorizadaError,
+)
 from app.services.rate_limit import RateLimitExceeded
 
 logging.basicConfig(
@@ -116,6 +119,15 @@ def create_app() -> FastAPI:
             status_code=409,
             content={"detail": {"error": exc.code, "message": exc.message}},
         )
+
+    @app.exception_handler(TransferenciaNaoAutorizadaError)
+    async def _transferencia_nao_autorizada_handler(
+        _: Request, exc: TransferenciaNaoAutorizadaError
+    ) -> JSONResponse:
+        # D2: o domínio (ensure_active_membro) recusa reatribuição de célula sem
+        # a capacidade pode_transferir. Mesmo 403 com detail string que o adapter
+        # administrativo (link_cell) respondia antes — contrato preservado.
+        return JSONResponse(status_code=403, content={"detail": exc.message})
 
     app.include_router(auth.router)
     app.include_router(church.router)

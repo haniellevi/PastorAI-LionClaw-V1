@@ -5,9 +5,13 @@ Achado pela revisão externa (Codex) do PR #134: esta tool do agente (docstring
 MINISTERIAL_TOOLS — alcançável em produção via WhatsApp) só escrevia
 `pessoa.celula_id`, nunca o vínculo canônico `celula_membro`. Mesmo bug do
 convite/ativação/link_cell, por um 4o caminho que não estava no escopo
-original do PR. Estes testes provam, offline, que agora ela também
-cria/reativa `celula_membro` — espelhando exatamente o comportamento de
-`contacts.py::link_cell` (transferência desativa o vínculo antigo).
+original do PR. Estes testes provam, offline, que ela cria/reativa
+`celula_membro` no primeiro vínculo.
+
+D2: o agente NÃO tem a capacidade de transferir (pode_transferir=False no
+domínio) — reatribuir quem já pertence a outra célula é recusado ANTES de
+qualquer mutação (o runtime engole o ToolError e comita o turno; mutação
+parcial persistiria).
 """
 
 from __future__ import annotations
@@ -144,7 +148,10 @@ def test_vincular_celula_first_link_creates_celula_membro() -> None:
     assert novos[0].ativo is True
 
 
-def test_vincular_celula_transfer_deactivates_old_activates_new() -> None:
+def test_vincular_celula_recusa_transferencia_sem_mutacao_parcial() -> None:
+    # D2: o agente passa pode_transferir=False — reatribuir quem já pertence a
+    # OUTRA célula é recusado PELO DOMÍNIO antes de qualquer escrita. Nada de
+    # mutação parcial que o commit do turno persistiria.
     pessoa = _pessoa(_PESSOA_ID, celula_id=_OLD_CELL)
     old_cell = _cell(_OLD_CELL)
     new_cell = _cell(_NEW_CELL)
@@ -153,17 +160,32 @@ def test_vincular_celula_transfer_deactivates_old_activates_new() -> None:
         pessoas=[pessoa], cells=[old_cell, new_cell], membros=[old_membro]
     )
 
-    vincular_celula(
-        session, igreja_id=_IGREJA_ID, pessoa_id=_PESSOA_ID, celula_id=_NEW_CELL
+    with pytest.raises(ToolError, match="administrador"):
+        vincular_celula(
+            session, igreja_id=_IGREJA_ID, pessoa_id=_PESSOA_ID, celula_id=_NEW_CELL
+        )
+
+    assert old_membro.ativo is True  # vínculo antigo intacto
+    assert pessoa.celula_id == _OLD_CELL  # espelho inalterado
+    assert pessoa.tipo == "contato"  # não promovido
+    assert session.added == []  # nenhuma linha de celula_membro criada
+
+
+def test_vincular_celula_mesma_celula_e_idempotente_nao_e_transferencia() -> None:
+    # Re-vincular à célula em que a pessoa JÁ está não é transferência —
+    # continua permitido ao agente (pode_transferir=False).
+    pessoa = _pessoa(_PESSOA_ID, celula_id=_OLD_CELL, tipo="membro")
+    old_cell = _cell(_OLD_CELL)
+    old_membro = _membro(pessoa_id=_PESSOA_ID, celula_id=_OLD_CELL, ativo=True)
+    session = _ToolSession(pessoas=[pessoa], cells=[old_cell], membros=[old_membro])
+
+    result = vincular_celula(
+        session, igreja_id=_IGREJA_ID, pessoa_id=_PESSOA_ID, celula_id=_OLD_CELL
     )
 
-    assert pessoa.celula_id == new_cell.id
-    assert pessoa.tipo == "membro"  # M7B-W1: promovido no vínculo da nova célula
-    assert old_membro.ativo is False  # nunca duas linhas ativas pra mesma pessoa
-    novos = [o for o in session.added if isinstance(o, CelulaMembro)]
-    assert len(novos) == 1
-    assert novos[0].celula_id == new_cell.id
-    assert novos[0].ativo is True
+    assert result.ok is True
+    assert old_membro.ativo is True
+    assert session.added == []  # reativa a mesma linha, não duplica
 
 
 def test_vincular_celula_still_rejects_inactive_cell() -> None:
@@ -209,8 +231,8 @@ def test_vincular_celula_recusa_pastor_sem_mutar_espelho() -> None:
 
 
 def test_vincular_celula_recusa_nao_desativa_vinculo_antigo() -> None:
-    # Transferência de um pastor (dado ruim legado): a guarda roda ANTES de
-    # deactivate_other_active_membro, então o vínculo antigo permanece ATIVO e o
+    # Transferência de um pastor (dado ruim legado): a guarda de elegibilidade
+    # roda ANTES de qualquer escrita, então o vínculo antigo permanece ATIVO e o
     # espelho não muda — nada de mutação parcial que o commit do turno persistiria.
     pessoa = _pessoa(_PESSOA_ID, celula_id=_OLD_CELL, tipo="pastor")
     old_cell = _cell(_OLD_CELL)

@@ -30,8 +30,8 @@ from app.domain.consolidation import (
 from app.domain.pipeline import validate_transition
 from app.services.celula_membro import (
     MembroInelegivelError,
+    TransferenciaNaoAutorizadaError,
     assert_membro_elegivel,
-    deactivate_other_active_membro,
     ensure_active_membro,
 )
 
@@ -190,14 +190,21 @@ def vincular_celula(
     except MembroInelegivelError as exc:
         raise ToolError(exc.message) from exc
 
-    if pessoa.celula_id is not None and pessoa.celula_id != celula.id:
-        deactivate_other_active_membro(
-            session, igreja_id=igreja_uuid, pessoa_id=pessoa.id, keep_celula_id=celula.id
+    # D2: o agente NUNCA tem a capacidade de transferir — pode_transferir=False.
+    # O primeiro vínculo (pessoa sem célula) segue liberado; reatribuir quem já
+    # pertence a outra célula é recusado PELO DOMÍNIO antes de qualquer escrita
+    # (por isso o espelho pessoa.celula_id só é tocado depois do ensure).
+    try:
+        ensure_active_membro(
+            session,
+            igreja_id=igreja_uuid,
+            celula_id=celula.id,
+            pessoa_id=pessoa.id,
+            pode_transferir=False,
         )
+    except (MembroInelegivelError, TransferenciaNaoAutorizadaError) as exc:
+        raise ToolError(exc.message) from exc
     pessoa.celula_id = celula.id
-    ensure_active_membro(
-        session, igreja_id=igreja_uuid, celula_id=celula.id, pessoa_id=pessoa.id
-    )
     session.flush()  # fires trg_link_cell_promote
 
     return ToolResult(

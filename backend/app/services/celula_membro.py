@@ -46,6 +46,22 @@ class MembroInelegivelError(ValueError):
         super().__init__(message)
 
 
+class TransferenciaNaoAutorizadaError(ValueError):
+    """D2: reatribuir pessoa que JÁ pertence a outra célula exige capacidade.
+
+    O domínio não conhece papéis — recebe apenas ``pode_transferir: bool``
+    (nunca ``actor_role``/``CurrentUser``). Cada adapter deriva a capacidade:
+    o HTTP administrativo de ``current_user.has_role("admin")``; a tool do
+    agente passa sempre ``False``. O primeiro vínculo de uma pessoa sem célula
+    não é transferência e segue liberado. O handler global em ``app.main``
+    mapeia para HTTP 403.
+    """
+
+    def __init__(self, message: str) -> None:
+        self.message = message
+        super().__init__(message)
+
+
 def assert_membro_elegivel(
     db: Session,
     *,
@@ -112,13 +128,19 @@ def ensure_active_membro(
     celula_id: uuid.UUID,
     pessoa_id: uuid.UUID,
     papel: str = "membro",
+    pode_transferir: bool = False,
 ) -> None:
     """Garante uma linha ATIVA de celula_membro para (pessoa, célula).
 
-    Idempotente: reativa a linha se já existir (não duplica). Não mexe em
-    vínculos da pessoa em OUTRAS células — para transferência, chame
-    ``deactivate_other_active_membro`` antes (o índice único parcial só
-    permite 1 vínculo ativo por pessoa).
+    Idempotente: reativa a linha se já existir (não duplica). Se a pessoa já
+    pertence a OUTRA célula (vínculo canônico ativo ou espelho
+    ``pessoas.celula_id``), é uma TRANSFERÊNCIA: exige ``pode_transferir=True``
+    (D2 — capacidade decidida pelo adapter, nunca papel aqui dentro) e então
+    desativa o vínculo antigo antes de ativar o novo (o índice único parcial
+    só permite 1 vínculo ativo por pessoa). Sem a capacidade, recusa
+    (``TransferenciaNaoAutorizadaError``) ANTES de qualquer escrita — nenhuma
+    mutação parcial escapa. O primeiro vínculo (pessoa sem célula) nunca é
+    transferência e segue liberado com o default ``False``.
 
     Recusa (``ValueError``) se ``celula_id`` não pertencer a ``igreja_id`` —
     o service é o ponto canônico de escrita e não deve confiar cegamente nos
@@ -140,6 +162,35 @@ def ensure_active_membro(
     ).scalar_one_or_none()
     if pessoa is not None:
         assert_membro_elegivel(db, igreja_id=igreja_id, celula=celula, pessoa=pessoa)
+
+    # D2: pessoa que já pertence a OUTRA célula (linha canônica ativa ou espelho
+    # legado pessoas.celula_id) só é reatribuída com a capacidade
+    # ``pode_transferir``. A recusa acontece AQUI — antes de desativar o vínculo
+    # antigo e antes de criar/reativar a linha nova — porque o runtime do agente
+    # engole o erro e ainda comita o turno: mutação parcial persistiria.
+    # Escopado por igreja_id: vínculo ativo em outro tenant não conta.
+    # ``ativo.is_(True)`` é obrigatório aqui: "pertencer a outra célula" =
+    # vínculo ATIVO. Sem o filtro, uma linha INATIVA histórica (que o backfill
+    # preserva — ver ORDER BY abaixo) recusaria o primeiro vínculo de quem já
+    # saiu de célula, e em transferência real (ativa + histórico) a query
+    # devolveria 2 linhas → MultipleResultsFound.
+    outro_ativo = db.execute(
+        select(CelulaMembro).where(
+            CelulaMembro.pessoa_id == pessoa_id,
+            CelulaMembro.igreja_id == igreja_id,
+            CelulaMembro.ativo.is_(True),
+            CelulaMembro.celula_id != celula_id,
+        )
+    ).scalar_one_or_none()
+    espelho = getattr(pessoa, "celula_id", None) if pessoa is not None else None
+    espelho_em_outra = espelho is not None and str(espelho) != str(celula_id)
+    if outro_ativo is not None or espelho_em_outra:
+        if not pode_transferir:
+            raise TransferenciaNaoAutorizadaError(
+                "Apenas um administrador pode transferir alguém de célula"
+            )
+        if outro_ativo is not None:
+            outro_ativo.ativo = False
 
     # Histórico anterior a este PR pode ter deixado mais de uma linha inativa
     # pra (pessoa, célula) — a migration de backfill reativa só a mais
@@ -201,27 +252,7 @@ def promote_tipo_para_membro(pessoa: Pessoa) -> None:
         pessoa.tipo = "membro"
 
 
-def deactivate_other_active_membro(
-    db: Session,
-    *,
-    igreja_id: uuid.UUID,
-    pessoa_id: uuid.UUID,
-    keep_celula_id: uuid.UUID,
-) -> None:
-    """Desativa o vínculo canônico ativo da pessoa em OUTRA célula.
-
-    Chame antes de ``ensure_active_membro`` numa transferência: o índice único
-    parcial ``celula_membro_pessoa_ativa_uq`` (igreja_id, pessoa_id) WHERE ativo
-    só permite uma linha ativa por pessoa — sem desativar a antiga, ativar a
-    nova colidiria.
-    """
-    other = db.execute(
-        select(CelulaMembro).where(
-            CelulaMembro.pessoa_id == pessoa_id,
-            CelulaMembro.igreja_id == igreja_id,
-            CelulaMembro.ativo.is_(True),
-            CelulaMembro.celula_id != keep_celula_id,
-        )
-    ).scalar_one_or_none()
-    if other is not None:
-        other.ativo = False
+# D2: ``deactivate_other_active_membro`` foi absorvida por
+# ``ensure_active_membro(pode_transferir=True)`` — manter um helper público que
+# desativa o vínculo antigo SEM checar a capacidade seria uma via de bypass da
+# guarda de transferência.

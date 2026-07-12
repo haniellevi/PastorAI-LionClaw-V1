@@ -13,8 +13,9 @@ criar/ativar `celula_membro` — não só o espelho legado `pessoas.celula_id`:
 
 Fake session no estilo dos demais testes (entity-routed via
 ``column_descriptions``), mas avalia cada predicado do WHERE contra o operador
-real (eq/ne/is_) em vez de um dict achatado — `deactivate_other_active_membro`
-usa `celula_id != keep_celula_id`, que um dict key->value confundiria com `==`.
+real (eq/ne/is_) em vez de um dict achatado — a detecção de transferência em
+`ensure_active_membro` usa `celula_id != <célula alvo>`, que um dict
+key->value confundiria com `==`.
 """
 
 from __future__ import annotations
@@ -151,6 +152,17 @@ def _admin() -> CurrentUser:
         email="admin@igrejapiloto.com.br",
         nome="Admin",
         roles=frozenset({"admin"}),
+    )
+
+
+def _non_admin() -> CurrentUser:
+    return CurrentUser(
+        app_user_id=str(uuid.uuid4()),
+        clerk_user_id="clerk_lider",
+        igreja_id=_IGREJA_ID,
+        email="lider@igrejapiloto.com.br",
+        nome="Líder",
+        roles=frozenset({"lider"}),
     )
 
 
@@ -293,3 +305,49 @@ def test_link_cell_still_rejects_inactive_cell(app) -> None:
 
     assert resp.status_code == 409
     assert session.added == []
+
+
+# ---------------------------------------------------------------------------
+# 5) D2 — transferência é capacidade derivada do papel admin PELO ADAPTER; o
+#    domínio (ensure_active_membro) recusa antes de qualquer mutação.
+# ---------------------------------------------------------------------------
+def test_link_cell_non_admin_cannot_transfer(app) -> None:
+    pessoa = _pessoa(_PESSOA_ID, celula_id=_OLD_CELL)
+    old_cell = _cell(_OLD_CELL)
+    new_cell = _cell(_NEW_CELL)
+    old_membro = _membro(pessoa_id=_PESSOA_ID, celula_id=_OLD_CELL, ativo=True)
+    session = _LinkCellSession(
+        pessoas=[pessoa], cells=[old_cell, new_cell], membros=[old_membro]
+    )
+    client = _client(app, session=session, current_user=_non_admin())
+
+    resp = client.post(
+        f"/contacts/{_PESSOA_ID}/cell", headers=_AUTH, json={"celulaId": str(_NEW_CELL)}
+    )
+
+    assert resp.status_code == 403, resp.text
+    assert "administrador" in resp.json()["detail"]
+    assert old_membro.ativo is True  # vínculo antigo intacto
+    assert pessoa.celula_id == _OLD_CELL  # espelho inalterado
+    assert session.added == []  # nenhuma linha criada
+    assert session.committed is False
+
+
+def test_link_cell_non_admin_first_link_still_allowed(app) -> None:
+    # Primeiro vínculo (pessoa sem célula) não é transferência — segue liberado
+    # ao fluxo normal, sem exigir admin.
+    pessoa = _pessoa(_PESSOA_ID, celula_id=None)
+    cell = _cell(_NEW_CELL)
+    session = _LinkCellSession(pessoas=[pessoa], cells=[cell])
+    client = _client(app, session=session, current_user=_non_admin())
+
+    resp = client.post(
+        f"/contacts/{_PESSOA_ID}/cell", headers=_AUTH, json={"celulaId": str(_NEW_CELL)}
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert pessoa.celula_id == cell.id
+    novos = [o for o in session.added if isinstance(o, CelulaMembro)]
+    assert len(novos) == 1
+    assert novos[0].ativo is True
+    assert session.committed is True

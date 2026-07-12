@@ -25,7 +25,7 @@ from sqlalchemy.sql import operators as sa_operators
 from app.db.models import Celula, CelulaMembro, Pessoa, WhatsappConnection
 from app.services.celula_membro import (
     MembroInelegivelError,
-    deactivate_other_active_membro,
+    TransferenciaNaoAutorizadaError,
     ensure_active_membro,
 )
 
@@ -285,27 +285,199 @@ def test_ensure_active_membro_cria_quando_nao_existe_nenhuma_linha() -> None:
     assert novos[0].pessoa_id == _PESSOA_ID
 
 
-def test_deactivate_other_active_membro_desativa_so_a_outra_celula() -> None:
+# ---------------------------------------------------------------------------
+# D2 — transferência é capacidade (pode_transferir), decidida pelo adapter.
+# ``deactivate_other_active_membro`` foi absorvida por
+# ``ensure_active_membro(pode_transferir=True)``; a recusa acontece ANTES de
+# desativar o vínculo antigo, mutar o espelho ou criar celula_membro.
+# ---------------------------------------------------------------------------
+def test_ensure_active_membro_recusa_transferencia_sem_capacidade() -> None:
+    # Pessoa já pertence a OUTRA célula (linha canônica ativa). Sem
+    # pode_transferir (default False), recusa SEM nenhuma mutação parcial.
+    pessoa = _pessoa(tipo="contato")
     ativo_em_outra = _membro(
         pessoa_id=_PESSOA_ID, celula_id=_OTHER_CELULA_ID, igreja_id=_IGREJA_A, ativo=True,
     )
-    session = _Session(membros=[ativo_em_outra])
-
-    deactivate_other_active_membro(
-        session, igreja_id=_IGREJA_A, pessoa_id=_PESSOA_ID, keep_celula_id=_CELULA_ID
+    session = _Session(
+        cells=[_cell(_CELULA_ID, igreja_id=_IGREJA_A)],
+        membros=[ativo_em_outra],
+        pessoas=[pessoa],
     )
 
-    assert ativo_em_outra.ativo is False
+    with pytest.raises(TransferenciaNaoAutorizadaError):
+        ensure_active_membro(
+            session, igreja_id=_IGREJA_A, celula_id=_CELULA_ID, pessoa_id=_PESSOA_ID
+        )
+
+    assert ativo_em_outra.ativo is True  # vínculo antigo intacto
+    assert session.added == []  # nenhuma linha nova criada
+    assert pessoa.tipo == "contato"  # não promovido
+
+
+def test_ensure_active_membro_transfere_com_capacidade() -> None:
+    # pode_transferir=True: desativa o vínculo antigo e ativa o novo.
+    pessoa = _pessoa(tipo="membro")
+    ativo_em_outra = _membro(
+        pessoa_id=_PESSOA_ID, celula_id=_OTHER_CELULA_ID, igreja_id=_IGREJA_A, ativo=True,
+    )
+    session = _Session(
+        cells=[_cell(_CELULA_ID, igreja_id=_IGREJA_A)],
+        membros=[ativo_em_outra],
+        pessoas=[pessoa],
+    )
+
+    ensure_active_membro(
+        session,
+        igreja_id=_IGREJA_A,
+        celula_id=_CELULA_ID,
+        pessoa_id=_PESSOA_ID,
+        pode_transferir=True,
+    )
+
+    assert ativo_em_outra.ativo is False  # nunca duas linhas ativas
+    novos = [o for o in session.added if isinstance(o, CelulaMembro)]
+    assert len(novos) == 1
+    assert novos[0].celula_id == _CELULA_ID
+    assert novos[0].ativo is True
+
+
+def test_ensure_active_membro_espelho_em_outra_celula_tambem_exige_capacidade() -> None:
+    # Dado legado: espelho pessoas.celula_id aponta pra outra célula SEM linha
+    # canônica ativa — reatribuir continua sendo transferência.
+    pessoa = _pessoa(tipo="membro", celula_id=_OTHER_CELULA_ID)
+    session = _Session(
+        cells=[_cell(_CELULA_ID, igreja_id=_IGREJA_A)], pessoas=[pessoa]
+    )
+
+    with pytest.raises(TransferenciaNaoAutorizadaError):
+        ensure_active_membro(
+            session, igreja_id=_IGREJA_A, celula_id=_CELULA_ID, pessoa_id=_PESSOA_ID
+        )
+    assert session.added == []
+
+
+def test_ensure_active_membro_transfere_espelho_legado_sem_linha_canonica() -> None:
+    # Dado legado pré-C-02: espelho pessoas.celula_id aponta pra outra célula
+    # SEM nenhuma linha canônica ativa (outro_ativo=None). Com capacidade,
+    # a transferência precisa funcionar — o ramo `if outro_ativo is not None`
+    # não pode explodir em None nem deixar de criar o vínculo novo.
+    pessoa = _pessoa(tipo="membro", celula_id=_OTHER_CELULA_ID)
+    session = _Session(
+        cells=[_cell(_CELULA_ID, igreja_id=_IGREJA_A)], pessoas=[pessoa]
+    )
+
+    ensure_active_membro(
+        session,
+        igreja_id=_IGREJA_A,
+        celula_id=_CELULA_ID,
+        pessoa_id=_PESSOA_ID,
+        pode_transferir=True,
+    )
+
+    novos = [o for o in session.added if isinstance(o, CelulaMembro)]
+    assert len(novos) == 1
+    assert novos[0].celula_id == _CELULA_ID
+    assert novos[0].ativo is True
+
+
+def test_ensure_active_membro_historico_inativo_em_outra_celula_nao_e_transferencia() -> None:
+    # Pessoa SEM célula hoje (espelho None, nenhum vínculo ativo), mas com
+    # linha INATIVA histórica em outra célula (ex.: já foi removida de lá).
+    # "Pertencer a outra célula" = vínculo ATIVO — o primeiro vínculo segue
+    # liberado sem capacidade.
+    pessoa = _pessoa(tipo="contato")
+    historico_inativo = _membro(
+        pessoa_id=_PESSOA_ID, celula_id=_OTHER_CELULA_ID, igreja_id=_IGREJA_A, ativo=False,
+    )
+    session = _Session(
+        cells=[_cell(_CELULA_ID, igreja_id=_IGREJA_A)],
+        membros=[historico_inativo],
+        pessoas=[pessoa],
+    )
+
+    ensure_active_membro(
+        session, igreja_id=_IGREJA_A, celula_id=_CELULA_ID, pessoa_id=_PESSOA_ID
+    )
+
+    assert historico_inativo.ativo is False  # histórico intocado
+    novos = [o for o in session.added if isinstance(o, CelulaMembro)]
+    assert len(novos) == 1
+    assert pessoa.tipo == "membro"
+
+
+def test_ensure_active_membro_transferencia_com_historico_inativo_desativa_so_a_ativa() -> None:
+    # Transferência real com histórico: 1 vínculo ATIVO na célula X + 1 linha
+    # INATIVA histórica na célula Y (cenário que o backfill preserva — ver
+    # comentário do ORDER BY em ensure_active_membro). A detecção de
+    # transferência só pode olhar a linha ATIVA; sem o filtro ativo, a query
+    # acharia 2 linhas e scalar_one_or_none() estouraria MultipleResultsFound
+    # mesmo pra quem TEM a capacidade.
+    pessoa = _pessoa(tipo="membro")
+    ativo_em_x = _membro(
+        pessoa_id=_PESSOA_ID, celula_id=_OTHER_CELULA_ID, igreja_id=_IGREJA_A, ativo=True,
+    )
+    historico_em_y = _membro(
+        pessoa_id=_PESSOA_ID,
+        celula_id=uuid.UUID("00000000-0000-0000-0000-0000000000e3"),
+        igreja_id=_IGREJA_A,
+        ativo=False,
+    )
+    # Histórico semeado PRIMEIRO de propósito: uma query sem o filtro
+    # ``ativo.is_(True)`` devolveria a linha inativa e deixaria a ativa de pé.
+    session = _Session(
+        cells=[_cell(_CELULA_ID, igreja_id=_IGREJA_A)],
+        membros=[historico_em_y, ativo_em_x],
+        pessoas=[pessoa],
+    )
+
+    ensure_active_membro(
+        session,
+        igreja_id=_IGREJA_A,
+        celula_id=_CELULA_ID,
+        pessoa_id=_PESSOA_ID,
+        pode_transferir=True,
+    )
+
+    assert ativo_em_x.ativo is False  # a ATIVA foi desativada
+    assert historico_em_y.ativo is False  # histórico intocado
+    novos = [o for o in session.added if isinstance(o, CelulaMembro)]
+    assert len(novos) == 1
+
+
+def test_ensure_active_membro_vinculo_ativo_de_outro_tenant_nao_conta_como_transferencia() -> None:
+    # Isolamento por igreja: a MESMA pessoa_id tem vínculo ativo na igreja B;
+    # o primeiro vínculo na igreja A não é transferência (a checagem é
+    # escopada por igreja_id) e a linha da igreja B fica intocada.
+    pessoa = _pessoa(tipo="contato")
+    ativo_outro_tenant = _membro(
+        pessoa_id=_PESSOA_ID, celula_id=_OTHER_CELULA_ID, igreja_id=_IGREJA_B, ativo=True,
+    )
+    session = _Session(
+        cells=[_cell(_CELULA_ID, igreja_id=_IGREJA_A)],
+        membros=[ativo_outro_tenant],
+        pessoas=[pessoa],
+    )
+
+    ensure_active_membro(
+        session, igreja_id=_IGREJA_A, celula_id=_CELULA_ID, pessoa_id=_PESSOA_ID
+    )
+
+    assert ativo_outro_tenant.ativo is True  # tenant B intocado
+    novos = [o for o in session.added if isinstance(o, CelulaMembro)]
+    assert len(novos) == 1
+    assert novos[0].igreja_id == _IGREJA_A
 
 
 # ---------------------------------------------------------------------------
 # Missão M7B-W1 — promoção de tipo ao ganhar vínculo canônico ativo
 # ---------------------------------------------------------------------------
 def _pessoa(
-    *, pessoa_id=_PESSOA_ID, igreja_id=_IGREJA_A, tipo=None, telefone=None
+    *, pessoa_id=_PESSOA_ID, igreja_id=_IGREJA_A, tipo=None, telefone=None,
+    celula_id=None,
 ) -> SimpleNamespace:
     return SimpleNamespace(
-        id=pessoa_id, igreja_id=igreja_id, tipo=tipo, telefone=telefone
+        id=pessoa_id, igreja_id=igreja_id, tipo=tipo, telefone=telefone,
+        celula_id=celula_id,
     )
 
 
