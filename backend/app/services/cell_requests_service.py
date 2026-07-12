@@ -313,8 +313,17 @@ def reject(
     actor_pessoa_id: uuid.UUID | None,
     observacao_central: str,
 ) -> CelulaSolicitacao:
-    """Rejeita a solicitação (não altera dado real). `observacao_central` obrigatória."""
+    """Rejeita a solicitação (não altera dado real). `observacao_central` obrigatória.
+
+    SEC-4B-C (TOCTOU): trava a linha e relê ANTES de revalidar o status, na MESMA
+    transação que grava a decisão + auditoria + commit (mesmo padrão de ``approve``).
+    Sem isso, dois decisores concorrentes — ou reject∥approve — passam o mesmo check
+    com o estado obsoleto e duplicam a auditoria / sobrescrevem a decisão do outro
+    (lost update). A 2ª a chegar espera o lock, relê o estado já decidido e cai no 409.
+    """
+    db.refresh(solicitacao, with_for_update=True)
     if solicitacao.status not in OPEN_STATUSES:
+        db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Solicitação já foi decidida",
@@ -350,8 +359,15 @@ def request_adjustment(
     actor_pessoa_id: uuid.UUID | None,
     observacao_central: str,
 ) -> CelulaSolicitacao:
-    """Devolve ao líder em `ajuste_solicitado` (não altera dado real)."""
+    """Devolve ao líder em `ajuste_solicitado` (não altera dado real).
+
+    SEC-4B-C (TOCTOU): trava a linha e relê ANTES de revalidar o status (ver
+    ``reject``). Fecha a corrida com approve/reject/cancel sobre a MESMA linha
+    `aguardando` — a 2ª transição relê o estado já decidido e recebe 409.
+    """
+    db.refresh(solicitacao, with_for_update=True)
     if solicitacao.status != STATUS_AGUARDANDO:
+        db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Solicitação não está aguardando decisão",
@@ -387,8 +403,15 @@ def resubmit(
     actor_pessoa_id: uuid.UUID | None,
     new_payload: dict,
 ) -> CelulaSolicitacao:
-    """Líder autor edita o payload e reenvia (só em `ajuste_solicitado`)."""
+    """Líder autor edita o payload e reenvia (só em `ajuste_solicitado`).
+
+    SEC-4B-C (TOCTOU): trava a linha e relê ANTES de revalidar o status (ver
+    ``reject``). Fecha a corrida resubmit∥resubmit (payload/evento duplicados) e
+    resubmit∥cancel (lost update) sobre a MESMA linha `ajuste_solicitado`.
+    """
+    db.refresh(solicitacao, with_for_update=True)
     if solicitacao.status != STATUS_AJUSTE_SOLICITADO:
+        db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Só é possível reenviar solicitação em ajuste_solicitado",
@@ -421,8 +444,15 @@ def cancel(
     solicitacao: CelulaSolicitacao,
     actor_pessoa_id: uuid.UUID | None,
 ) -> CelulaSolicitacao:
-    """Líder autor cancela a própria solicitação (só em aguardando/ajuste — E12)."""
+    """Líder autor cancela a própria solicitação (só em aguardando/ajuste — E12).
+
+    SEC-4B-C (TOCTOU): trava a linha e relê ANTES de revalidar o status (ver
+    ``reject``). Fecha a corrida cancel∥cancel (auditoria duplicada) e cancel∥approve
+    (payload aplicado mas status sobrescrito para `cancelada`).
+    """
+    db.refresh(solicitacao, with_for_update=True)
     if solicitacao.status not in OPEN_STATUSES:
+        db.rollback()
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Solicitação já decidida/cancelada não pode ser cancelada",
