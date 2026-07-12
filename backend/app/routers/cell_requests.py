@@ -25,6 +25,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -54,6 +55,10 @@ from app.routers._common import Page, PaginationParams
 from app.services import cell_requests_service
 
 router = APIRouter(prefix="/cell-requests", tags=["cell-requests"])
+
+# Postgres SQLSTATE de unique_violation. Só ele é traduzido para 409 na criação;
+# outras violações de integridade sobem (500) — não são conflito de estado.
+_PG_UNIQUE_VIOLATION = "23505"
 
 
 def _require_requests_enabled() -> None:
@@ -353,22 +358,37 @@ def create_cell_request(
         motivo=motivo,
     )
     db.add(solicitacao)
-    db.flush()
+    try:
+        db.flush()
 
-    db.add(
-        CelulaSolicitacaoEvento(
-            igreja_id=igreja_id,
-            solicitacao_id=solicitacao.id,
-            acao=ACAO_CRIADA,
-            autor_id=solicitante_id,
-            payload_snapshot=payload,
-            de_status=None,
-            para_status=STATUS_AGUARDANDO,
+        db.add(
+            CelulaSolicitacaoEvento(
+                igreja_id=igreja_id,
+                solicitacao_id=solicitacao.id,
+                acao=ACAO_CRIADA,
+                autor_id=solicitante_id,
+                payload_snapshot=payload,
+                de_status=None,
+                para_status=STATUS_AGUARDANDO,
+            )
         )
-    )
-    db.flush()
-    db.refresh(solicitacao)
-    db.commit()
+        db.flush()
+        db.refresh(solicitacao)
+        db.commit()
+    except IntegrityError as exc:
+        # TOCTOU (SEC-4B / E13): entre o pré-check `_has_open_conflict` acima e
+        # este INSERT, outra criação concorrente abriu a MESMA solicitação aberta
+        # conflitante. O índice único parcial `uq_celula_solicitacao_aberta_*`
+        # serializa a corrida — a 2ª a commitar recebe unique_violation. Traduz
+        # DETERMINÍSTICO para o mesmo 409 do pré-check. Qualquer outra violação de
+        # integridade (não-unique) sobe e vira 500: não é conflito de estado.
+        db.rollback()
+        if getattr(exc.orig, "pgcode", None) == _PG_UNIQUE_VIOLATION:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Já existe uma solicitação aberta conflitante para esta célula",
+            ) from exc
+        raise
     return CellRequestOut.from_model(solicitacao)
 
 
