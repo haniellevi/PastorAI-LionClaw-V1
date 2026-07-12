@@ -19,6 +19,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     String,
@@ -547,6 +548,44 @@ class CelulaSolicitacao(Base):
     """
 
     __tablename__ = "celula_solicitacao"
+
+    # SEC-4B / E13 (SPEC §6.8): no máximo UMA solicitação ABERTA conflitante por
+    # célula. Fecha o TOCTOU check→insert da criação — o pré-check em
+    # cell_requests.py é só o caminho rápido; estes índices únicos PARCIAIS são a
+    # garantia real (duas criações concorrentes serializam no índice: uma vence, a
+    # outra recebe unique_violation, que o router traduz para 409). Statuses
+    # terminais (aprovada/rejeitada/cancelada) SAEM do índice → histórico
+    # preservado e uma nova solicitação pode abrir depois da decisão.
+    #
+    # Partição por pessoa_id (invariante: pessoa_id IS NOT NULL ⟺ tipo de membro):
+    #   - NULL  → tipos sensíveis / multiplicação; a chave é (igreja, célula, tipo);
+    #   - !NULL → transferir/remover; a chave é (igreja, célula, pessoa), SEM o
+    #     tipo, pois transferir e remover a MESMA pessoa colidem entre si (E13).
+    # Escopo sempre por igreja_id ⇒ igrejas diferentes nunca colidem (multi-tenant).
+    __table_args__ = (
+        Index(
+            "uq_celula_solicitacao_aberta_tipo",
+            "igreja_id",
+            "celula_id",
+            "tipo",
+            unique=True,
+            postgresql_where=text(
+                "status IN ('aguardando', 'ajuste_solicitado') "
+                "AND pessoa_id IS NULL"
+            ),
+        ),
+        Index(
+            "uq_celula_solicitacao_aberta_membro",
+            "igreja_id",
+            "celula_id",
+            "pessoa_id",
+            unique=True,
+            postgresql_where=text(
+                "status IN ('aguardando', 'ajuste_solicitado') "
+                "AND pessoa_id IS NOT NULL"
+            ),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     igreja_id: Mapped[uuid.UUID] = mapped_column(
