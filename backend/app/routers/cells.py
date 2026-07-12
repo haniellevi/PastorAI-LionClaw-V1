@@ -670,6 +670,21 @@ def add_cell_member(
         pessoa=pessoa,
     )
 
+    # D2: espelho legado (pessoas.celula_id) apontando pra OUTRA célula = a
+    # pessoa já pertence àquela célula, mesmo sem linha canônica ativa (dado
+    # pré-C-02). A entrada direta NÃO é transferência — nem para admin, que
+    # deve usar o fluxo explícito — então recusa com o MESMO 409 antes de
+    # qualquer escrita. Espelho apontando pra ESTA célula segue adiante: o
+    # vínculo canônico ausente é reparado (201).
+    if pessoa.celula_id is not None and str(pessoa.celula_id) != str(cell.id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": "member_already_active",
+                "message": "Pessoa já está em uma célula ativa",
+            },
+        )
+
     # Regra "1 pessoa → 1 célula ativa" escopada por igreja (igual ao índice
     # único parcial da migration). igreja_id explícito também torna testável.
     existing = db.execute(

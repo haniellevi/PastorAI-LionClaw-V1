@@ -615,6 +615,48 @@ def test_add_member_inactive_membership_does_not_conflict(app) -> None:
     assert resp.status_code == 201, resp.text
 
 
+def test_add_member_rejects_mirror_pointing_to_other_cell(app) -> None:
+    # D2: espelho legado (pessoas.celula_id) aponta pra OUTRA célula SEM linha
+    # canônica ativa (dado pré-C-02). A entrada direta NÃO é transferência —
+    # nem para admin (mudança de célula passa pelo fluxo explícito) — então o
+    # endpoint recusa com o MESMO 409 member_already_active, ANTES de qualquer
+    # escrita: sem membro novo, sem sobrescrever o espelho, sem promover tipo,
+    # sem commit.
+    target = make_cell(lider_id=_LP)
+    pessoa = make_pessoa(pessoa_id=_P1, tipo="contato", celula_id=_CELL2)
+    session = CellSession(
+        app_user=make_app_user(), roles=["admin"], cells=[target], pessoas=[pessoa]
+    )
+    resp = _wire(app, session=session).post(
+        f"/cells/{_CELL}/membros", headers=_AUTH, json={"pessoaId": _P1}
+    )
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["error"] == "member_already_active"
+    assert pessoa.celula_id == _CELL2  # espelho intacto (célula anterior)
+    assert pessoa.tipo == "contato"  # não promovido
+    assert not any(isinstance(o, CelulaMembro) for o in session.added)
+    assert session.committed is False
+
+
+def test_add_member_repairs_canonical_link_when_mirror_points_here(app) -> None:
+    # Espelho já aponta pra ESTA célula, mas a linha canônica está ausente
+    # (dado pré-C-02): a entrada direta repara — cria o vínculo canônico e 201.
+    cell = make_cell(lider_id=_LP)
+    pessoa = make_pessoa(pessoa_id=_P1, celula_id=_CELL)
+    session = CellSession(
+        app_user=make_app_user(), roles=["pastor"], cells=[cell], pessoas=[pessoa]
+    )
+    resp = _wire(app, session=session).post(
+        f"/cells/{_CELL}/membros", headers=_AUTH, json={"pessoaId": _P1}
+    )
+    assert resp.status_code == 201, resp.text
+    novos = [o for o in session.added if isinstance(o, CelulaMembro)]
+    assert len(novos) == 1
+    assert novos[0].ativo is True
+    assert pessoa.celula_id == _CELL  # espelho preservado
+    assert session.committed is True
+
+
 def test_add_member_pessoa_not_found(app) -> None:
     cell = make_cell(lider_id=_LP)  # ativa+com líder (C-03): não é o que este teste cobre
     session = CellSession(
