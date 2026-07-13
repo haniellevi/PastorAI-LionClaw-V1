@@ -5279,3 +5279,516 @@ table.data-table {
 .section-body {
   padding: var(--s4);
 }
+
+/* ===========================================================================
+   GATE 7 — PAINEL DE HOJE (Onda 4A · Diamante Lapidado). Classes EXCLUSIVAS
+   da dashboard, prefixadas dh-. A fila é a protagonista: linhas contínuas
+   com borda sutil de 1px (não cards), resumo em disclosure DEPOIS da fila,
+   rail secundária. Tokens da fundação (design-tokens.css); azul mineral,
+   nunca teal. Sem transition: all; reduced-motion global cobre tudo aqui.
+   =========================================================================== */
+
+/* ---- cabeçalho curto e calmo ---- */
+.dh-hero {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s4);
+  margin-bottom: var(--s5);
+}
+.dh-date {
+  font: 650 12px/1.3 var(--font);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+.dh-title {
+  font: var(--type-h1);
+  color: var(--text-primary);
+}
+.dh-lead {
+  margin-top: 4px;
+  font: var(--type-body);
+  color: var(--text-secondary);
+}
+.dh-lead strong {
+  color: var(--text-primary);
+}
+
+/* ---- grid principal: fila dominante + rail secundária ---- */
+.dh-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--s5);
+  align-items: start;
+}
+/* Gate 7.1 (P1): a rail só entra quando a coluna da fila permanece operacional.
+   Em 1024px a sidebar expandida (248px) + rail (320px) deixavam a fila estreita
+   demais (títulos quebrando palavra a palavra) — em 1280px a fila mantém
+   ~600px+ úteis. Abaixo disso: coluna única, rail abaixo da fila. */
+@media (min-width: 1280px) {
+  .dh-grid {
+    grid-template-columns: minmax(0, 1fr) 320px;
+  }
+}
+.dh .ds-banner {
+  margin-bottom: var(--s4);
+}
+
+/* ---- fila ---- */
+.dh-queue-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s3);
+  flex-wrap: wrap;
+  padding-bottom: var(--s2);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.dh-queue-title {
+  display: inline;
+  font: var(--type-h2);
+  color: var(--text-primary);
+}
+.dh-queue-sub {
+  display: inline;
+  margin-left: var(--s2);
+  font: var(--type-meta);
+  color: var(--text-secondary);
+}
+.dh-filter {
+  display: inline-flex;
+  gap: var(--s1);
+}
+.dh-filter-btn {
+  border: 0;
+  background: transparent;
+  min-height: 36px;
+  padding: 0 var(--s3);
+  border-radius: var(--radius-control);
+  font: 650 13px/1.2 var(--font);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.dh-filter-btn:hover {
+  color: var(--text-primary);
+}
+.dh-filter-btn.active {
+  background: var(--selection-soft);
+  color: var(--action-primary);
+}
+.dh-filter-btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Linhas contínuas separadas por borda sutil de 1px — não grade de cartões. */
+.dh-item {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s3);
+  padding: var(--s3) 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.dh-item.resolving {
+  opacity: 0;
+  transition: opacity 0.2s var(--ease-out-productive);
+}
+.dh-avatar {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+}
+.dh-avatar svg {
+  width: 17px;
+  height: 17px;
+}
+.dh-avatar.v {
+  background: var(--selection-soft);
+  color: var(--action-primary);
+}
+.dh-avatar.h {
+  background: var(--state-warn-soft);
+  color: var(--state-warn);
+}
+.dh-avatar.r {
+  background: var(--state-danger-soft);
+  color: var(--state-danger);
+}
+.dh-item-body {
+  flex: 1;
+  min-width: 0;
+}
+.dh-item-title {
+  display: block;
+  font: 650 14px/1.35 var(--font);
+  color: var(--text-primary);
+}
+.dh-item-meta {
+  margin-top: 1px;
+  font: var(--type-meta);
+  color: var(--text-secondary);
+}
+.dh-item-line {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+.dh-item-resp {
+  font: var(--type-meta);
+  color: var(--text-secondary);
+}
+.dh-item-conflict {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font: 500 12px/1.3 var(--font);
+  color: var(--state-danger);
+}
+.dh-item-conflict svg {
+  width: 14px;
+  height: 14px;
+}
+.dh-item-actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+/* Ações da linha: densidade da lista no desktop (o contrato de 44px vale no
+   mobile — ver media abaixo). */
+.dh-item-actions .ds-btn {
+  min-height: 36px;
+  padding: 0 var(--s3);
+  font-size: 13px;
+}
+
+/* ---- resumo da semana (disclosure nativa DEPOIS da fila) ---- */
+.dh-summary {
+  margin-top: var(--s4);
+}
+.dh-summary-toggle {
+  cursor: pointer;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  font: 650 14px/1.2 var(--font);
+  color: var(--text-primary);
+  border-radius: var(--radius-control);
+}
+/* display:flex remove o marker nativo do <summary> — repõe a affordance de
+   disclosure com um chevron que gira quando aberto. */
+.dh-summary-toggle::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  margin-top: -4px;
+  border-right: 2px solid var(--text-secondary);
+  border-bottom: 2px solid var(--text-secondary);
+  transform: rotate(45deg);
+  transition: transform var(--motion-fast) var(--ease-out-productive);
+}
+.dh-summary[open] .dh-summary-toggle::after {
+  margin-top: 4px;
+  transform: rotate(-135deg);
+}
+.dh-summary-toggle::-webkit-details-marker {
+  display: none;
+}
+.dh-summary-toggle:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.dh-summary-body {
+  padding: var(--s2) 0 var(--s2);
+}
+.dh-summary-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  width: 100%;
+  min-height: 44px;
+  padding: var(--s1) 0;
+  border: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  background: transparent;
+  text-align: left;
+  font: var(--type-body);
+  color: var(--text-primary);
+}
+.dh-summary-row:last-child {
+  border-bottom: 0;
+}
+.dh-summary-row.is-link {
+  cursor: pointer;
+}
+.dh-summary-row.is-link:hover .dh-summary-label {
+  color: var(--action-primary);
+}
+.dh-summary-row:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.dh-summary-ic {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  background: var(--surface-panel);
+  color: var(--text-secondary);
+}
+.dh-summary-ic svg {
+  width: 15px;
+  height: 15px;
+}
+.dh-summary-label {
+  min-width: 0;
+}
+.dh-summary-val {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.dh-summary-hint {
+  font: var(--type-meta);
+  color: var(--text-secondary);
+}
+
+/* ---- rail secundária ---- */
+.dh-side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+  min-width: 0;
+}
+.dh-panel {
+  background: var(--surface-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  padding: var(--s4);
+}
+.dh-panel-title {
+  font: 650 14px/1.3 var(--font);
+  color: var(--text-primary);
+  margin-bottom: var(--s3);
+}
+.dh-panel-count {
+  font: var(--type-meta);
+  color: var(--text-secondary);
+}
+
+/* jornada: contagens reais por etapa + barra de lapidação (proporção entre
+   as contagens absolutas exibidas — sem tendência/percentual novo). */
+.dh-journey-row {
+  display: block;
+  width: 100%;
+  padding: var(--s2) 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.dh-journey-row:last-of-type {
+  border-bottom: 0;
+}
+button.dh-journey-row {
+  cursor: pointer;
+}
+button.dh-journey-row:hover .dh-journey-label {
+  color: var(--action-primary);
+}
+.dh-journey-row:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.dh-journey-line {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+.dh-journey-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+}
+.dh-journey-dot.ganhar,
+.dh-journey-fill.ganhar {
+  background: oklch(71.9% 0.169 13);
+}
+.dh-journey-dot.consolidar,
+.dh-journey-fill.consolidar {
+  background: oklch(64% 0.151 60);
+}
+.dh-journey-dot.discipular,
+.dh-journey-fill.discipular {
+  background: oklch(64% 0.13 162);
+}
+.dh-journey-dot.enviar,
+.dh-journey-fill.enviar {
+  background: oklch(58% 0.2 277);
+}
+.dh-journey-label {
+  flex: 1;
+  font: var(--type-body);
+  color: var(--text-primary);
+}
+.dh-journey-val {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.dh-journey-bar {
+  display: block;
+  height: 3px;
+  margin-top: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-panel);
+  overflow: hidden;
+}
+.dh-journey-fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-pill);
+}
+.dh-journey-foot {
+  margin-top: var(--s3);
+  font: var(--type-meta);
+  color: var(--text-secondary);
+}
+.dh-journey-cta {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font: 650 12px/1.3 var(--font);
+  color: var(--action-primary);
+  cursor: pointer;
+}
+.dh-journey-cta:hover {
+  color: var(--action-primary-hover);
+}
+.dh-journey-cta:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* próximas ações por responsável */
+.dh-person-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding: var(--s2) 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.dh-person-row:last-child {
+  border-bottom: 0;
+}
+.dh-person-av {
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: var(--selection-soft);
+  color: var(--action-primary);
+  font: 700 12px/1 var(--font);
+}
+.dh-person-id {
+  flex: 1;
+  min-width: 0;
+}
+.dh-person-nm {
+  font: 650 13px/1.3 var(--font);
+  color: var(--text-primary);
+}
+.dh-person-sub {
+  font: var(--type-meta);
+  color: var(--text-secondary);
+}
+
+/* ---- pickers do dialog de ações ---- */
+.dh-picker {
+  display: flex;
+  flex-direction: column;
+}
+.dh-picker-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  width: 100%;
+  min-height: 44px;
+  padding: var(--s2) var(--s2);
+  border: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  background: transparent;
+  text-align: left;
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+.dh-picker-row:last-child {
+  border-bottom: 0;
+}
+.dh-picker-row:hover {
+  background: var(--selection-soft);
+}
+.dh-picker-row:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+.dh-picker-nm {
+  font: 650 14px/1.3 var(--font);
+  color: var(--text-primary);
+}
+.dh-picker-sub,
+.dh-picker-empty {
+  font: var(--type-meta);
+  color: var(--text-secondary);
+}
+.dh-modal-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--s2);
+  margin-top: var(--s3);
+}
+
+/* ---- mobile: fila primeiro (a ordem do DOM já garante), alvos >=44px ---- */
+@media (max-width: 860px) {
+  .dh-hero {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--s3);
+    margin-bottom: var(--s4);
+  }
+  /* "Atualizar" segue ação quieta — não estica em full-width no mobile. */
+  .dh-hero > .ds-btn {
+    align-self: flex-start;
+    min-height: 44px;
+  }
+  .dh-item {
+    flex-wrap: wrap;
+  }
+  .dh-item-actions {
+    width: 100%;
+    justify-content: flex-start;
+    padding-left: calc(38px + var(--s3));
+  }
+  .dh-item-actions .ds-btn {
+    min-height: 44px;
+  }
+  .dh-filter-btn {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}

@@ -51,9 +51,13 @@ export function Dialog({ open, onClose, title, description, sheet = false, child
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
 
-    // Foco inicial coerente: primeiro focável do conteúdo; fallback no painel.
+    // Foco inicial coerente: um alvo MARCADO com [data-autofocus] (Gate 7.1 —
+    // ex.: o textarea do modal de mensagem) tem prioridade; sem marcação, o
+    // primeiro focável do conteúdo (comportamento original de todos os demais
+    // consumidores); fallback no painel.
+    const preferred = panel.querySelector<HTMLElement>("[data-autofocus]");
     const focusables = getFocusable(panel);
-    (focusables[0] ?? panel).focus();
+    (preferred ?? focusables[0] ?? panel).focus();
 
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") {

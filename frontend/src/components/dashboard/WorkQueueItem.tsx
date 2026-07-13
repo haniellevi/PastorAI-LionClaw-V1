@@ -3,13 +3,25 @@
  * Renderiza por tipo (visitante/atendimento/relatorio/conectar_celula/fonovisita)
  * com ações diretas: assumir, atribuir, mensagem interna, conectar à célula e
  * (re)agendar fonovisita. As ações são delegadas ao painel via callbacks.
+ *
+ * Gate 7 (Diamante Lapidado): linha contínua (não card) com avatar circular do
+ * tipo, prazo com ícone+texto (nunca só cor), ação PRINCIPAL do tipo como
+ * botão primário e secundárias como botões textuais quietos. Nenhuma ação foi
+ * removida nem mudou de callback/condição:
+ *  - visitante/conectar_celula → principal: Conectar à célula;
+ *  - fonovisita               → principal: Fonovisita (mesma semântica — não
+ *                                remove a pendência atual);
+ *  - atendimento/relatorio    → principal: Assumir;
+ *  - Assumir/Atribuir/Mensagem seguem presentes em todos os tipos, com as
+ *    mesmas regras de disabled (busy / já assumido).
  */
+import { DsButton } from "@/components/ds/Button";
 import { Icon, type IconKey } from "@/lib/icons";
 import type { WorkItem } from "@/lib/dashboard-api";
 
 import { DeadlineBadge } from "./DeadlineBadge";
 
-/** Ícone + classe de cor por tipo de item (fiel ao artifact: .qicon.v/.h/.r). */
+/** Ícone + classe de cor por tipo de item (avatar circular da linha). */
 const TYPE_VISUAL: Record<string, { icon: IconKey; cls: "v" | "h" | "r" }> = {
   visitante: { icon: "user", cls: "v" },
   conectar_celula: { icon: "user", cls: "v" },
@@ -56,88 +68,68 @@ export function WorkQueueItem({
   const isFonovisita = item.tipo === "fonovisita";
   const deadlinePrefix = isFonovisita ? "fonovisita" : "prazo";
   const assumido = item.status === "assumido";
+  // Ação principal do TIPO: Conectar à célula > Fonovisita > Assumir.
+  const assumeIsPrimary = !canLinkCell && !isFonovisita;
 
   return (
     <div
-      className={`qitem${resolving ? " resolving" : ""}`}
+      className={`dh-item${resolving ? " resolving" : ""}`}
       data-q={item.id}
       data-state={resolving ? "resolving" : "pending"}
     >
-      <span className={`qicon ${visual.cls}`}>
+      <span className={`dh-avatar ${visual.cls}`} aria-hidden="true">
         <Icon name={visual.icon} />
       </span>
 
-      <div className="qbody">
-        <strong>{item.titulo}</strong>
-        {item.contexto ? <div className="meta">{item.contexto}</div> : null}
-        <div className="meta-line">
+      <div className="dh-item-body">
+        <strong className="dh-item-title">{item.titulo}</strong>
+        {item.contexto ? <div className="dh-item-meta">{item.contexto}</div> : null}
+        <div className="dh-item-line">
           {responsibleName ? (
-            <span className="resp">
+            <span className="dh-item-resp">
               {assumido ? "Em atendimento por" : "Responsável"}: {responsibleName}
             </span>
           ) : null}
           <DeadlineBadge prazo={item.prazo} now={now} prefix={deadlinePrefix} />
         </div>
         {conflict ? (
-          <div className="qconflict" role="alert">
+          <div className="dh-item-conflict" role="alert">
             <Icon name="alert" />
             {conflict}
           </div>
         ) : null}
       </div>
 
-      <div className="qactions">
+      <div className="dh-item-actions">
         {canLinkCell ? (
-          <button
-            type="button"
-            className="btn btn-sm btn-primary"
-            disabled={busy}
-            onClick={() => onLinkCell(item)}
-          >
+          <DsButton disabled={busy} onClick={() => onLinkCell(item)}>
             <Icon name="link" />
             <span>Conectar à célula</span>
-          </button>
+          </DsButton>
         ) : null}
 
         {isFonovisita ? (
-          <button
-            type="button"
-            className="btn btn-sm"
-            disabled={busy}
-            onClick={() => onFonovisita(item)}
-          >
+          <DsButton disabled={busy} onClick={() => onFonovisita(item)}>
             <Icon name="phone" />
             <span>Fonovisita</span>
-          </button>
+          </DsButton>
         ) : null}
 
-        <button
-          type="button"
-          className={`btn btn-sm${!canLinkCell && !isFonovisita ? " btn-primary" : ""}`}
+        <DsButton
+          variant={assumeIsPrimary ? "primary" : "tertiary"}
           disabled={busy || assumido}
           onClick={() => onAssume(item)}
         >
           {assumido ? "Assumido" : "Assumir"}
-        </button>
+        </DsButton>
 
-        <button
-          type="button"
-          className="btn btn-sm"
-          disabled={busy}
-          onClick={() => onAssign(item)}
-        >
+        <DsButton variant="tertiary" disabled={busy} onClick={() => onAssign(item)}>
           Atribuir
-        </button>
+        </DsButton>
 
-        <button
-          type="button"
-          className="btn btn-sm"
-          disabled={busy}
-          onClick={() => onMessage(item)}
-        >
-          <Icon name="send" />
-          <span>Mensagem</span>
-        </button>
+        <DsButton variant="tertiary" disabled={busy} onClick={() => onMessage(item)}>
+          Mensagem
+        </DsButton>
       </div>
     </div>
   );

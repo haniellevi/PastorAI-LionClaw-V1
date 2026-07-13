@@ -68,20 +68,22 @@ export function NextActions({
   });
 
   return (
-    <div className="card">
-      <div className="panel-title">Próximas ações por responsável</div>
+    <section className="dh-panel" aria-label="Próximas ações por responsável">
+      <h3 className="dh-panel-title">Próximas ações por responsável</h3>
       {groups.length === 0 ? (
-        <div className="list-row">
-          <span className="sub">Nenhuma pendência atribuída.</span>
+        <div className="dh-person-row">
+          <span className="dh-person-sub">Nenhuma pendência atribuída.</span>
         </div>
       ) : (
         <div>
           {groups.map((g) => (
-            <div className="list-row" key={g.key}>
-              <span className="avatar">{g.key === "__unassigned__" ? "—" : initials(g.nome)}</span>
-              <div style={{ flex: 1 }}>
-                <div className="nm">{g.nome}</div>
-                <div className="sub">{g.papelLabel}</div>
+            <div className="dh-person-row" key={g.key}>
+              <span className="dh-person-av" aria-hidden="true">
+                {g.key === "__unassigned__" ? "—" : initials(g.nome)}
+              </span>
+              <div className="dh-person-id">
+                <div className="dh-person-nm">{g.nome}</div>
+                <div className="dh-person-sub">{g.papelLabel}</div>
               </div>
               <StatusPill tone={countTone(g.count)}>
                 {g.count} {g.count === 1 ? "aberta" : "abertas"}
@@ -90,6 +92,6 @@ export function NextActions({
           ))}
         </div>
       )}
-    </div>
+    </section>
   );
 }

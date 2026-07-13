@@ -3,8 +3,12 @@
 /**
  * Tela #dashboard — fila de trabalho pastoral (SPEC screen `dashboard`).
  *
- * Reúne os componentes desta sprint:
- *  - stat-cards de visão geral (normal/alert) derivados da fila;
+ * Gate 7 (Onda 4A · Diamante Lapidado): o painel opera como FILA pastoral —
+ * a fila domina a primeira dobra (desktop e mobile); resumo da semana e KPIs
+ * viram disclosure DEPOIS da fila (<details> nativo); jornada e próximas
+ * ações ficam na rail secundária. Nenhum dado, ação, callback ou regra de
+ * urgência mudou — só a hierarquia visual.
+ *
  *  - work-queue-item por tipo com ações diretas (assumir/atribuir/mensagem/
  *    conectar à célula/fonovisita), consumindo api-queue-action, api-link-cell,
  *    api-pipeline e api-send-internal-message;
@@ -17,6 +21,12 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { DsBanner } from "@/components/ds/Banner";
+import { DsButton } from "@/components/ds/Button";
+import { Dialog as DsDialog } from "@/components/ds/Dialog";
+import { DsEmptyState } from "@/components/ds/EmptyState";
+import { DsField } from "@/components/ds/Field";
+import { DsToastRegion } from "@/components/ds/Toast";
 import { SessionExpiredError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import {
@@ -61,14 +71,15 @@ interface Toast {
   text: string;
 }
 
-/** Tile principal do Painel de Hoje. `value` undefined = dado indisponível ("—"). */
-interface DashTile {
+/** Linha do resumo da semana. `value` undefined = dado indisponível ("—"). */
+interface SummaryRow {
   key: string;
   label: string;
   icon: IconKey;
   value: number | undefined;
   sub: string;
-  target: string;
+  /** Rota de destino; null = linha informativa sem navegação (KPIs). */
+  target: string | null;
 }
 
 export function DashboardScreen() {
@@ -202,13 +213,13 @@ export function DashboardScreen() {
   }, []);
   const acoesHoje = openItems.length;
 
-  // ---- tiles principais (dados reais; sem deltas inventados) --------------
+  // ---- resumo da semana (dados reais; sem deltas inventados) ---------------
   const relatoriosPendentes = useMemo(
     () => openItems.filter((i) => i.tipo === "relatorio").length,
     [openItems],
   );
   const membros = overview?.porTipo?.membro;
-  const tiles: DashTile[] = [
+  const summaryRows: SummaryRow[] = [
     {
       key: "visitantes",
       label: "Visitantes novos",
@@ -241,26 +252,21 @@ export function DashboardScreen() {
       sub: "células nesta semana",
       target: "relatorios",
     },
-  ];
-
-  // ---- KPIs secundários (dado real de overview; "—" se indisponível) ------
-  const secondaryKpis: Array<{
-    key: string;
-    label: string;
-    value: number | undefined;
-    hint: string;
-  }> = [
     {
       key: "decisoes",
       label: "Decisões por Jesus",
+      icon: "check",
       value: overview?.decisoesJesus,
-      hint: "decisões registradas",
+      sub: "decisões registradas",
+      target: null,
     },
     {
       key: "csim",
       label: "Sem interesse (CSIM)",
+      icon: "alert",
       value: overview?.semInteresse,
-      hint: "fora do funil",
+      sub: "fora do funil",
+      target: null,
     },
   ];
 
@@ -434,17 +440,19 @@ export function DashboardScreen() {
   const isEmpty = loaded && visibleItems.length === 0;
 
   return (
-    <div className="screen dashboard" key="dashboard">
-      <div className="dash-hero">
-        <div className="dash-greet">
-          <h2>
+    <div className="screen dashboard dh" key="dashboard">
+      {/* Cabeçalho curto e calmo: data · saudação · contador real · Atualizar. */}
+      <header className="dh-hero">
+        <div className="dh-greet">
+          <p className="dh-date">{todayLabel}</p>
+          <h2 className="dh-title">
             {greeting}
             {firstName ? `, ${firstName}` : ""}
           </h2>
           {showSkeleton ? (
             <div className="sk-line sk-md" />
           ) : acoesHoje > 0 ? (
-            <p className="dash-lead">
+            <p className="dh-lead">
               Você tem{" "}
               <strong>
                 {acoesHoje} {acoesHoje === 1 ? "ação" : "ações"}
@@ -452,104 +460,69 @@ export function DashboardScreen() {
               que {acoesHoje === 1 ? "precisa" : "precisam"} de atenção hoje.
             </p>
           ) : (
-            <p className="dash-lead">Nenhuma ação pastoral pendente agora.</p>
+            <p className="dh-lead">Nenhuma ação pastoral pendente agora.</p>
           )}
         </div>
-        <div className="dash-hero-side">
-          <span className="dash-today">{todayLabel}</span>
-          <button
-            type="button"
-            className="btn btn-sm"
-            onClick={() => void load("retry")}
-            disabled={loading}
-          >
-            <Icon name="refresh" />
-            <span>Atualizar</span>
-          </button>
-        </div>
-      </div>
+        <DsButton
+          variant="secondary"
+          onClick={() => void load("retry")}
+          disabled={loading}
+        >
+          Atualizar
+        </DsButton>
+      </header>
 
       {error ? (
-        <div className="error-banner" role="alert">
-          <Icon name="alert" />
-          <span>{error}</span>
-          <button
-            type="button"
-            className="btn btn-sm"
-            onClick={() => void load("retry")}
-            disabled={loading}
-          >
-            Tentar novamente
-          </button>
-        </div>
+        <DsBanner
+          kind="error"
+          action={
+            <DsButton
+              variant="secondary"
+              onClick={() => void load("retry")}
+              disabled={loading}
+            >
+              Tentar novamente
+            </DsButton>
+          }
+        >
+          {error}
+        </DsBanner>
       ) : null}
 
-      <div className="tile-grid">
-        {showSkeleton
-          ? Array.from({ length: 4 }).map((_, i) => (
-              <div className="tile skeleton" key={i}>
-                <div className="sk-line sk-sm" />
-                <div className="sk-line sk-lg" />
-              </div>
-            ))
-          : tiles.map((t) => (
-              <DashTileCard
-                key={t.key}
-                tile={t}
-                canNavigate={user ? canSee(t.target, user.roles, matrix) : false}
-                onNavigate={navigate}
-              />
-            ))}
-      </div>
-
-      <div className="kpi-strip">
-        {showSkeleton
-          ? Array.from({ length: 2 }).map((_, i) => (
-              <div className="kpi skeleton" key={i}>
-                <div className="sk-line sk-sm" />
-                <div className="sk-line sk-md" />
-              </div>
-            ))
-          : secondaryKpis.map((k) => (
-              <div className="kpi" key={k.key}>
-                <span className="kpi-label">{k.label}</span>
-                <span className="kpi-val num">{k.value == null ? "—" : k.value}</span>
-                <span className="kpi-hint">{k.hint}</span>
-              </div>
-            ))}
-      </div>
-
-      <div className="dash-grid">
-        <div className="card">
-          <div className="panel-title">
-            Fila de trabalho pastoral
-            <span className="count">· o que exige ação hoje</span>
-            <div className="right">
-              <div className="tabs">
-                <button
-                  type="button"
-                  className={`tab${tab === "todos" ? " active" : ""}`}
-                  onClick={() => setTab("todos")}
-                >
-                  Todos
-                </button>
-                <button
-                  type="button"
-                  className={`tab${tab === "meus" ? " active" : ""}`}
-                  onClick={() => setTab("meus")}
-                >
-                  Meus
-                </button>
-              </div>
+      <div className="dh-grid">
+        {/* Coluna principal: a fila domina a primeira dobra. */}
+        <section className="dh-main" aria-label="Fila de trabalho pastoral">
+          <div className="dh-queue-head">
+            <div className="dh-queue-titles">
+              <h3 className="dh-queue-title">Fila de trabalho pastoral</h3>
+              <p className="dh-queue-sub">o que exige ação hoje</p>
+            </div>
+            <div className="dh-filter" role="group" aria-label="Filtrar fila">
+              <button
+                type="button"
+                className={`dh-filter-btn${tab === "todos" ? " active" : ""}`}
+                aria-pressed={tab === "todos"}
+                onClick={() => setTab("todos")}
+              >
+                Todos
+              </button>
+              <button
+                type="button"
+                className={`dh-filter-btn${tab === "meus" ? " active" : ""}`}
+                aria-pressed={tab === "meus"}
+                onClick={() => setTab("meus")}
+              >
+                Meus
+              </button>
             </div>
           </div>
 
           {showSkeleton ? (
-            <div className="queue">
+            <div className="dh-queue">
               {Array.from({ length: 4 }).map((_, i) => (
-                <div className="qitem skeleton" key={i}>
-                  <span className="qicon sk-icon" />
-                  <div className="qbody">
+                <div className="dh-item skeleton" key={i}>
+                  <span className="dh-avatar sk-icon" />
+                  <div className="dh-item-body">
                     <div className="sk-line sk-md" />
                     <div className="sk-line sk-sm" />
                   </div>
@@ -557,14 +530,12 @@ export function DashboardScreen() {
               ))}
             </div>
           ) : isEmpty ? (
-            <div className="empty-state">
-              <Icon name="check" />
-              <p>
-                <strong>Fila zerada.</strong> Nenhuma pendência pastoral aberta agora.
-              </p>
-            </div>
+            <DsEmptyState
+              title="Fila zerada."
+              hint="Nenhuma pendência pastoral aberta agora."
+            />
           ) : (
-            <div className="queue">
+            <div className="dh-queue">
               {visibleItems.map((item) => (
                 <WorkQueueItem
                   key={item.id}
@@ -587,11 +558,34 @@ export function DashboardScreen() {
               ))}
             </div>
           )}
-        </div>
 
-        <div className="dash-side">
+          {/* Resumo da semana: DEPOIS da fila, recolhido por padrão
+              (disclosure nativa <details> — mesmos dados dos antigos tiles/KPIs). */}
+          {!showSkeleton ? (
+            <details className="dh-summary">
+              <summary className="dh-summary-toggle">Resumo da semana</summary>
+              <div className="dh-summary-body">
+                {summaryRows.map((row) => (
+                  <SummaryLine
+                    key={row.key}
+                    row={row}
+                    canNavigate={
+                      row.target != null && user
+                        ? canSee(row.target, user.roles, matrix)
+                        : false
+                    }
+                    onNavigate={navigate}
+                  />
+                ))}
+              </div>
+            </details>
+          ) : null}
+        </section>
+
+        {/* Rail secundária: jornada real da semana + próximas ações reais. */}
+        <aside className="dh-side">
           {showSkeleton ? (
-            <div className="card card-pad">
+            <div className="dh-panel">
               <div className="sk-line sk-md" />
               <div className="sk-line sk-sm" />
             </div>
@@ -606,7 +600,7 @@ export function DashboardScreen() {
               <NextActions items={openItems} members={members} />
             </>
           )}
-        </div>
+        </aside>
       </div>
 
       {modal ? (
@@ -621,12 +615,19 @@ export function DashboardScreen() {
         />
       ) : null}
 
-      {toast ? (
-        <div className={`toast ${toast.kind}`} role="status">
-          <Icon name={toast.kind === "ok" ? "check" : "alert"} />
-          <span>{toast.text}</span>
-        </div>
-      ) : null}
+      {/* Feedback: visual da fundação; COMPORTAMENTO atual preservado
+          (ok e err somem em 3200ms via flashToast — DsToast mudaria o err
+          para persistente, o que seria delta funcional). */}
+      <DsToastRegion>
+        {toast ? (
+          <div className={`ds-toast ds-toast--${toast.kind}`} role="status">
+            <span className="ds-toast-icon" aria-hidden="true">
+              <Icon name={toast.kind === "ok" ? "check" : "alert"} />
+            </span>
+            <span className="ds-toast-text">{toast.text}</span>
+          </div>
+        ) : null}
+      </DsToastRegion>
     </div>
   );
 }
@@ -653,7 +654,9 @@ function MemberWelcome() {
 }
 
 // ---------------------------------------------------------------------------
-// Modal de ações (atribuir / mensagem / conectar à célula)
+// Modal de ações (atribuir / mensagem / conectar à célula) — DsDialog da
+// fundação, substituição mecânica: mesmas opções, callbacks e estados; Esc,
+// trap de foco, backdrop e retorno de foco vêm do primitive.
 // ---------------------------------------------------------------------------
 function ActionModal({
   modal,
@@ -684,134 +687,123 @@ function ActionModal({
         : "Conectar à célula";
 
   return (
-    <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div
-        className="modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="modal-head">
-          <strong>{title}</strong>
-          <button type="button" className="btn btn-sm btn-ghost" onClick={onClose}>
-            Fechar
-          </button>
-        </div>
-        <div className="modal-sub">{item.titulo}</div>
-
-        {kind === "assign" ? (
-          <div className="picker">
-            {members.length === 0 ? (
-              <p className="sub">Nenhum membro disponível para atribuição.</p>
-            ) : (
-              members.map((m) => (
-                <button
-                  type="button"
-                  key={m.usuarioId}
-                  className="picker-row"
-                  onClick={() => onAssign(item, m.usuarioId)}
-                >
-                  <span className="nm">{m.nome}</span>
-                  <span className="sub">{m.email}</span>
-                </button>
-              ))
-            )}
-          </div>
-        ) : null}
-
-        {kind === "linkCell" ? (
-          <div className="picker">
-            {activeCells.length === 0 ? (
-              <p className="sub">Nenhuma célula ativa com líder disponível.</p>
-            ) : (
-              activeCells.map((c) => (
-                <button
-                  type="button"
-                  key={c.id}
-                  className="picker-row"
-                  onClick={() => onLinkCell(item, c.id)}
-                >
-                  <span className="nm">{c.nome}</span>
-                </button>
-              ))
-            )}
-          </div>
-        ) : null}
-
-        {kind === "message" ? (
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              const value = text.trim();
-              if (value) onMessage(item, value);
-            }}
-          >
-            <textarea
-              className="msg-input"
-              rows={4}
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              placeholder="Escreva a mensagem que será enviada pelo número oficial…"
-              autoFocus
-            />
-            <div className="modal-foot">
-              <button type="button" className="btn btn-sm" onClick={onClose}>
-                Cancelar
-              </button>
+    <DsDialog open onClose={onClose} title={title} description={item.titulo}>
+      {kind === "assign" ? (
+        <div className="dh-picker">
+          {members.length === 0 ? (
+            <p className="dh-picker-empty">Nenhum membro disponível para atribuição.</p>
+          ) : (
+            members.map((m) => (
               <button
-                type="submit"
-                className="btn btn-sm btn-primary"
-                disabled={!text.trim()}
+                type="button"
+                key={m.usuarioId}
+                className="dh-picker-row"
+                onClick={() => onAssign(item, m.usuarioId)}
               >
-                <Icon name="send" />
-                <span>Enviar</span>
+                <span className="dh-picker-nm">{m.nome}</span>
+                <span className="dh-picker-sub">{m.email}</span>
               </button>
-            </div>
-          </form>
-        ) : null}
-      </div>
-    </div>
+            ))
+          )}
+        </div>
+      ) : null}
+
+      {kind === "linkCell" ? (
+        <div className="dh-picker">
+          {activeCells.length === 0 ? (
+            <p className="dh-picker-empty">Nenhuma célula ativa com líder disponível.</p>
+          ) : (
+            activeCells.map((c) => (
+              <button
+                type="button"
+                key={c.id}
+                className="dh-picker-row"
+                onClick={() => onLinkCell(item, c.id)}
+              >
+                <span className="dh-picker-nm">{c.nome}</span>
+              </button>
+            ))
+          )}
+        </div>
+      ) : null}
+
+      {kind === "message" ? (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            const value = text.trim();
+            if (value) onMessage(item, value);
+          }}
+        >
+          <DsField
+            label="Mensagem"
+            as="textarea"
+            rows={4}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="Escreva a mensagem que será enviada pelo número oficial…"
+            helper="Enviada pelo número oficial da igreja."
+            // Gate 7.1: paridade com o autoFocus original — o DsDialog foca o
+            // alvo marcado ao abrir (fluxo direto de escrita).
+            data-autofocus=""
+          />
+          <div className="dh-modal-foot">
+            <DsButton variant="tertiary" onClick={onClose}>
+              Cancelar
+            </DsButton>
+            <DsButton type="submit" disabled={!text.trim()}>
+              <Icon name="send" />
+              <span>Enviar</span>
+            </DsButton>
+          </div>
+        </form>
+      ) : null}
+    </DsDialog>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Tile principal do Painel (clicável só quando a rota é permitida ao usuário)
+// Linha do resumo da semana (mesmos dados dos antigos tiles/KPIs; clicável só
+// quando a rota é permitida ao usuário — mesma regra canSee do tile antigo).
 // ---------------------------------------------------------------------------
-function DashTileCard({
-  tile,
+function SummaryLine({
+  row,
   canNavigate,
   onNavigate,
 }: {
-  tile: DashTile;
+  row: SummaryRow;
   canNavigate: boolean;
   onNavigate: (target: string) => void;
 }) {
-  const display = tile.value == null ? "—" : tile.value;
+  const display = row.value == null ? "—" : row.value;
   const inner = (
     <>
-      <div className="tile-head">
-        <span className="tile-label">{tile.label}</span>
-        <span className="tile-ic">
-          <Icon name={tile.icon} />
-        </span>
-      </div>
-      <div className="tile-val num">{display}</div>
-      <div className="tile-sub">{tile.sub}</div>
+      <span className="dh-summary-ic" aria-hidden="true">
+        <Icon name={row.icon} />
+      </span>
+      <span className="dh-summary-label">{row.label}</span>
+      <span className="dh-summary-val num">{display}</span>
+      <span className="dh-summary-hint">{row.sub}</span>
     </>
   );
-  if (!canNavigate) {
-    return <div className="tile">{inner}</div>;
+  if (!canNavigate || row.target == null) {
+    return <div className="dh-summary-row">{inner}</div>;
   }
   return (
-    <button type="button" className="tile is-link" onClick={() => onNavigate(tile.target)}>
+    <button
+      type="button"
+      className="dh-summary-row is-link"
+      onClick={() => onNavigate(row.target!)}
+    >
       {inner}
     </button>
   );
 }
 
 // ---------------------------------------------------------------------------
-// "A jornada esta semana" — totais por etapa G12 (dado real de overview)
+// "A jornada esta semana" — totais por etapa G12 (dado real de overview).
+// Barra de lapidação (Direção D): proporção entre as contagens ABSOLUTAS já
+// exibidas — nenhuma métrica nova, sem tendência.
 // ---------------------------------------------------------------------------
 const JOURNEY_STAGES: Array<{ key: string; label: string; route: string }> = [
   { key: "ganhar", label: "Ganhar", route: "ganhar" },
@@ -836,49 +828,63 @@ function JourneyCard({
       ? "sua célula"
       : "sua igreja"
     : null;
+  const maxStage = Math.max(
+    1,
+    ...JOURNEY_STAGES.map((s) => overview?.porEtapa?.[s.key] ?? 0),
+  );
 
   return (
-    <div className="card jornada">
-      <div className="panel-title">
+    <section className="dh-panel dh-journey" aria-label="A jornada esta semana">
+      <h3 className="dh-panel-title">
         A jornada esta semana
-        {scopeLabel ? <span className="count">· {scopeLabel}</span> : null}
-      </div>
-      <div className="jr-body">
+        {scopeLabel ? <span className="dh-panel-count"> · {scopeLabel}</span> : null}
+      </h3>
+      <div>
         {JOURNEY_STAGES.map((stage) => {
           const value = overview?.porEtapa?.[stage.key];
           const display = value == null ? "—" : value;
           const can = canNavigate(stage.route);
           const content = (
             <>
-              <span className={`jr-dot ${stage.key}`} />
-              <span className="jr-label">{stage.label}</span>
-              <span className="jr-val num">{display}</span>
+              <span className="dh-journey-line">
+                <span className={`dh-journey-dot ${stage.key}`} aria-hidden="true" />
+                <span className="dh-journey-label">{stage.label}</span>
+                <span className="dh-journey-val num">{display}</span>
+              </span>
+              {value != null ? (
+                <span className="dh-journey-bar" aria-hidden="true">
+                  <span
+                    className={`dh-journey-fill ${stage.key}`}
+                    style={{ width: `${Math.round((value / maxStage) * 100)}%` }}
+                  />
+                </span>
+              ) : null}
             </>
           );
           return can ? (
             <button
               type="button"
-              className="jr-row"
+              className="dh-journey-row"
               key={stage.key}
               onClick={() => onNavigate(stage.route)}
             >
               {content}
             </button>
           ) : (
-            <div className="jr-row" key={stage.key}>
+            <div className="dh-journey-row" key={stage.key}>
               {content}
             </div>
           );
         })}
         {canSeeAgente ? (
-          <div className="jr-foot">
+          <div className="dh-journey-foot">
             A cada estágio, o agente cobra prazos e avisa quem precisa agir.{" "}
-            <button type="button" className="jr-cta" onClick={() => onNavigate("agente")}>
+            <button type="button" className="dh-journey-cta" onClick={() => onNavigate("agente")}>
               Configurar agente →
             </button>
           </div>
         ) : null}
       </div>
-    </div>
+    </section>
   );
 }
