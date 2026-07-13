@@ -156,7 +156,7 @@
   font: var(--type-body);
   color: var(--text-primary);
   background: var(--surface-raised);
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--border-emphasis);
   border-radius: var(--radius-control);
   transition:
     border-color var(--motion-fast) var(--ease-out-productive),
@@ -221,7 +221,7 @@ textarea.ds-input {
   height: 4px;
   margin: var(--s2) auto 0;
   border-radius: var(--radius-pill);
-  background: var(--border-strong);
+  background: var(--border-emphasis);
 }
 .ds-dialog-head {
   display: flex;
@@ -305,6 +305,8 @@ textarea.ds-input {
   font: 650 14px/1.2 var(--font);
   white-space: nowrap;
   cursor: pointer;
+  /* Gate 6.1: a aba pode ser <a href="#…"> (navegação real) — sem sublinhado. */
+  text-decoration: none;
   border-radius: var(--radius-control) var(--radius-control) 0 0;
   transition: background-color var(--motion-fast) var(--ease-out-productive);
 }
@@ -337,6 +339,18 @@ textarea.ds-input {
   background: var(--selection-soft);
   color: var(--action-primary);
   font: 650 12px/1 var(--font);
+}
+/* Item bloqueado (em breve) — Gate 6, usado pelo ModuleTabs do shell: visível
+   e explicado (cadeado + title), distinto de "sem permissão" (que some). */
+.ds-tab--locked {
+  color: var(--text-secondary);
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.ds-tab--locked svg {
+  width: 13px;
+  height: 13px;
+  margin-left: 4px;
 }
 /* Chevron persistente de continuidade (par do véu). */
 .ds-tabs-chevron {

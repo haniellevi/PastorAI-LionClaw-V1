@@ -10,6 +10,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 
+import { DiamondMark } from "@/components/brand/DiamondMark";
 import type { SessionUser } from "@/lib/auth-context";
 import { Icon } from "@/lib/icons";
 import {
@@ -22,9 +23,13 @@ import { allowedScreens } from "@/lib/permissions";
 import { usePermissions } from "@/lib/permissions-context";
 import { isAdmin } from "@/lib/roles";
 
+import { SHELL_DRAWER_ID, drawerSidebarClass } from "./useDrawerA11y";
+
 interface SidebarProps {
   user: SessionUser;
   route: string;
+  /** Nome acessível do landmark <nav> (Gate 6.1). Default = painel operacional. */
+  label?: string;
   /** Fonte das seções de navegação. Default = NAV_SECTIONS (painel operacional);
    *  a superfície admin passa ADMIN_NAV_SECTIONS. */
   sections?: NavSection[];
@@ -47,6 +52,7 @@ function initials(name: string): string {
 export function Sidebar({
   user,
   route,
+  label = "Menu principal",
   sections = NAV_SECTIONS,
   crossSurface = null,
   collapsed,
@@ -110,9 +116,13 @@ export function Sidebar({
         <span className="lbl">{item.label}</span>
         {item.badge ? <span className="badge">{item.badge}</span> : null}
         {item.locked ? (
-          <span className="soon" title="Disponível em breve" aria-hidden="true">
-            <Icon name="lock" />
-          </span>
+          <>
+            <span className="soon" title="Disponível em breve" aria-hidden="true">
+              <Icon name="lock" />
+            </span>
+            {/* Gate 6.1: "em breve" comunicado a leitores de tela (title não basta). */}
+            <span className="sr-only"> — disponível em breve</span>
+          </>
         ) : null}
       </button>
     );
@@ -139,13 +149,23 @@ export function Sidebar({
   }
 
   return (
-    <nav className={`sidebar${collapsed ? " collapsed" : ""}${mobileOpen ? " open" : ""}`}>
+    // id/tabIndex: alvo do aria-controls dos gatilhos e fallback de foco do
+    // trap do drawer mobile (useDrawerA11y). aria-label nomeia o landmark.
+    // drawerSidebarClass: aberto em mobile NUNCA fica colapsado (Gate 6.2).
+    <nav
+      id={SHELL_DRAWER_ID}
+      aria-label={label}
+      tabIndex={-1}
+      className={drawerSidebarClass(collapsed, mobileOpen)}
+    >
       <div className="side-top">
+        {/* Marca do produto (assinatura canônica Diamante Lapidado — Gate 6).
+            A identidade do tenant continua separada, no bloco "Sua igreja". */}
         <div className="side-brand">
           <span className="brand-mark" aria-hidden="true">
-            12
+            <DiamondMark size={26} title="" />
           </span>
-          <span className="lbl">Igreja 12</span>
+          <span className="lbl brand-word">Igreja 12</span>
         </div>
         <button
           type="button"

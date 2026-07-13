@@ -13,7 +13,9 @@
  *  - sub-telas mapeiam para a etapa pai via journeyStageOf;
  *  - fora da Jornada (journeyStageOf=null) não renderiza nada.
  */
-import type { SessionUser } from "@/lib/auth-context";
+import { useRef } from "react";
+
+import { useTabStrip } from "@/components/ds/useTabStrip";
 import { useAuth } from "@/lib/auth-context";
 import {
   STAGE_ACCENT,
@@ -21,9 +23,10 @@ import {
   journeyStages,
   type NavStage,
 } from "@/lib/navigation";
-import { canSee, type PermissionMatrix } from "@/lib/permissions";
 import { usePermissions } from "@/lib/permissions-context";
 import { useHashRoute } from "@/lib/use-hash-route";
+
+import { firstVisibleTarget } from "./journey";
 
 interface JourneyStep {
   stage: NavStage["stage"];
@@ -32,31 +35,23 @@ interface JourneyStep {
   target: string;
 }
 
-/** Primeiro target navegável da etapa: o head se acessível, senão a primeira
- *  sub visível (pulando telas bloqueadas/sem permissão). null = etapa sem
- *  nenhuma tela acessível ao usuário. Mantém permissões: nunca devolve um
- *  target que o usuário não pode ver (e nunca uma tela locked). */
-function firstVisibleTarget(
-  stage: NavStage,
-  user: SessionUser,
-  matrix: PermissionMatrix,
-): string | null {
-  for (const item of [stage.head, ...(stage.subs ?? [])]) {
-    if (!item.locked && canSee(item.target, user.roles, matrix)) return item.target;
-  }
-  return null;
-}
-
 export function JourneyStepper() {
   const { user } = useAuth();
   const { matrix } = usePermissions();
-  const [route, navigate] = useHashRoute();
-
-  if (!user) return null;
+  const [route] = useHashRoute();
+  const listRef = useRef<HTMLOListElement | null>(null);
+  const wrapRef = useRef<HTMLElement | null>(null);
 
   // Base da rota (ignora param de deep-link, ex.: "contatos/<id>").
   const slash = route.indexOf("/");
   const base = slash === -1 ? route : route.slice(0, slash);
+
+  // Gate 6.1: mesma faixa rolável da fundação (véu de continuidade que some no
+  // fim + etapa atual revelada só com scrollLeft) — a scrollbar nativa some no
+  // mobile (CSS .journey-scroll), o scroll real por toque/teclado fica.
+  useTabStrip(listRef, wrapRef, base);
+
+  if (!user) return null;
 
   const active = journeyStageOf(base);
   if (!active) return null;
@@ -66,7 +61,7 @@ export function JourneyStepper() {
   // aparece e leva a #central-celula. Sem rota nova; permissões preservadas.
   const steps = journeyStages()
     .map((st): JourneyStep | null => {
-      const target = firstVisibleTarget(st, user, matrix);
+      const target = firstVisibleTarget(st, user.roles, matrix);
       return target ? { stage: st.stage, label: st.head.label, target } : null;
     })
     .filter((s): s is JourneyStep => s !== null);
@@ -76,28 +71,45 @@ export function JourneyStepper() {
   if (!steps.some((s) => s.stage === active)) return null;
 
   return (
-    <nav className="journey-stepper" aria-label="Etapas da Jornada G12">
-      <ol>
-        {steps.map((s, i) => {
-          const isActive = s.stage === active;
-          return (
-            <li className="journey-step" key={s.stage}>
-              <button
-                type="button"
-                className={`journey-step-btn${isActive ? " active" : ""}`}
-                data-accent={STAGE_ACCENT[s.stage]}
-                aria-current={isActive ? "step" : undefined}
-                onClick={() => navigate(s.target)}
+    <nav ref={wrapRef} className="journey-stepper" aria-label="Etapas da Jornada G12">
+      <div className="journey-scroll">
+        <ol ref={listRef}>
+          {steps.map((s, i) => {
+            const isActive = s.stage === active;
+            return (
+              <li
+                className="journey-step"
+                key={s.stage}
+                data-strip-active={isActive ? "true" : undefined}
               >
-                <span className="journey-step-num" aria-hidden="true">
-                  {i + 1}
-                </span>
-                <span className="journey-step-lbl">{s.label}</span>
-              </button>
-            </li>
-          );
-        })}
-      </ol>
+                {/* Gate 6.2: navegação por hash = LINK real (como ModuleTabs) —
+                    destino/permissões idênticos, hashchange nativo. */}
+                <a
+                  href={`#${s.target}`}
+                  className={`journey-step-btn${isActive ? " active" : ""}`}
+                  data-accent={STAGE_ACCENT[s.stage]}
+                  aria-current={isActive ? "step" : undefined}
+                >
+                  <span className="journey-step-num" aria-hidden="true">
+                    {i + 1}
+                  </span>
+                  <span className="journey-step-lbl">{s.label}</span>
+                </a>
+              </li>
+            );
+          })}
+        </ol>
+      </div>
+      {/* Affordances de continuação (par do véu): decorativas — fora da árvore
+          de acessibilidade e sem interceptar toque. A direita some no fim
+          (data-at-end); a esquerda só aparece com conteúdo cortado atrás
+          (data-at-start="false" — Gate 6.3). */}
+      <span className="journey-chevron journey-chevron--left" aria-hidden="true">
+        ‹
+      </span>
+      <span className="journey-chevron" aria-hidden="true">
+        ›
+      </span>
     </nav>
   );
 }

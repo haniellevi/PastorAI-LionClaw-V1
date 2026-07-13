@@ -18,6 +18,7 @@ import { useHashRoute } from "@/lib/use-hash-route";
 import { ScreenView } from "./ScreenView";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
+import { useDrawerA11y } from "./useDrawerA11y";
 
 /** Telas acessíveis fora do menu (o próprio perfil). */
 const ALWAYS_ALLOWED = new Set(["perfil"]);
@@ -62,6 +63,9 @@ export function AdminAppShell() {
     setMobileOpen(false);
   }, [resolvedBase]);
 
+  // Drawer mobile: Esc fecha, scroll lock, foco retorna ao gatilho (Gate 6).
+  useDrawerA11y(mobileOpen, () => setMobileOpen(false));
+
   const crossSurface = useMemo(
     () => (appHref ? { href: appHref, label: "Voltar ao app" } : null),
     [appHref],
@@ -71,9 +75,21 @@ export function AdminAppShell() {
 
   return (
     <div className="app">
+      {mobileOpen ? (
+        // Botão semântico (não div aria-hidden clicável); fora do tab order —
+        // Esc e o trap do drawer cobrem o teclado (useDrawerA11y).
+        <button
+          type="button"
+          className="drawer-backdrop"
+          aria-label="Fechar menu"
+          tabIndex={-1}
+          onClick={() => setMobileOpen(false)}
+        />
+      ) : null}
       <Sidebar
         user={user}
         route={resolvedBase}
+        label="Menu administrativo"
         sections={ADMIN_NAV_SECTIONS}
         crossSurface={crossSurface}
         collapsed={collapsed}
@@ -85,10 +101,16 @@ export function AdminAppShell() {
           navigate("login");
         }}
       />
-      <div className="main">
-        <Topbar user={user} route={resolvedBase} onMenuToggle={() => setMobileOpen((v) => !v)} />
+      <main className="main">
+        <Topbar
+          user={user}
+          route={resolvedBase}
+          menuButton
+          menuOpen={mobileOpen}
+          onMenuToggle={() => setMobileOpen((v) => !v)}
+        />
         <ScreenView route={resolvedBase} param={null} />
-      </div>
+      </main>
     </div>
   );
 }

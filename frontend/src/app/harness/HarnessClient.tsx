@@ -76,7 +76,7 @@ const TOKEN_NAMES = [
   "--text-secondary",
   "--text-on-action",
   "--border-subtle",
-  "--border-strong",
+  "--border-emphasis",
   "--focus-ring",
   "--action-primary",
   "--action-primary-hover",
@@ -225,7 +225,7 @@ table.hx-table thead, table.hx-table tbody { display: table; width: 100%; min-wi
 .hx-swatch { width: 44px; height: 28px; border-radius: var(--radius-control); border: 1px solid var(--border-subtle); }
 .hx-mono { font-family: ui-monospace, monospace; font-size: 12px; }
 /* max-width em viewport (não em %): o grid dimensiona o track pelo conteúdo, o que anularia % */
-.hx-phone { width: 390px; max-width: calc(100dvw - 2 * var(--s4) - 2px); border: 1px solid var(--border-strong); border-radius: var(--radius-panel); padding: var(--s3); background: var(--surface-raised); }
+.hx-phone { width: 390px; max-width: calc(100dvw - 2 * var(--s4) - 2px); border: 1px solid var(--border-emphasis); border-radius: var(--radius-panel); padding: var(--s3); background: var(--surface-raised); }
 .hx-dim { opacity: 0.5; }
 .hx-foot { margin-top: var(--s8); padding-top: var(--s4); border-top: 1px solid var(--border-subtle); font: var(--type-meta); color: var(--text-secondary); }
 /* Simulações de estado dos botões (só no harness) */

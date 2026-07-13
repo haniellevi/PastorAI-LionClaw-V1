@@ -14,9 +14,10 @@
  *   .ds-tabs-scroll — nunca scrollIntoView, que deslocaria a página
  *   verticalmente na montagem (scrollY precisa permanecer 0).
  */
-import { useEffect, useId, useRef, type ReactNode } from "react";
+import { useId, useRef, type ReactNode } from "react";
 
 import { rovingNextIndex, tabDomIds } from "./a11y";
+import { useTabStrip } from "./useTabStrip";
 
 export interface TabItem {
   id: string;
@@ -43,48 +44,10 @@ export function Tabs({ tabs, active, onChange, label, children }: TabsProps) {
     tabs.findIndex((t) => t.id === active),
   );
 
-  useEffect(() => {
-    // Revela a tab ativa rolando APENAS o contêiner horizontal.
-    const list = listRef.current;
-    const scroller = list?.parentElement; // .ds-tabs-scroll
-    const el = list?.querySelector<HTMLElement>('[aria-selected="true"]');
-    if (!list || !scroller || !el) return;
-    // Véu de continuidade (mask) ocupa os últimos 44px: "visível" à direita
-    // significa FORA do véu — o limite direito desconta o fade (Gate 5.2).
-    const FADE = 44;
-    const left = el.offsetLeft;
-    const right = left + el.offsetWidth;
-    const viewLeft = scroller.scrollLeft;
-    const viewRight = viewLeft + scroller.clientWidth - FADE;
-    if (left < viewLeft) scroller.scrollLeft = Math.max(0, left - 12);
-    else if (right > viewRight) scroller.scrollLeft = right - (scroller.clientWidth - FADE);
-    // Depois de garantir a ativa, revela a PRÓXIMA tab inteira quando isso não
-    // corta a ativa (correção Gate 5.1: "Solicitações 2" legível na abertura).
-    const next = el.nextElementSibling as HTMLElement | null;
-    if (next) {
-      const needed = next.offsetLeft + next.offsetWidth - (scroller.clientWidth - FADE);
-      if (needed > scroller.scrollLeft && left >= needed) scroller.scrollLeft = needed;
-    }
-  }, [active]);
-
-  useEffect(() => {
-    // Véu e chevron são indicadores de CONTINUIDADE: somem quando o scroll
-    // chega ao fim (sem eles, a última tab — "Materiais" — fica 100% legível).
-    const scroller = listRef.current?.parentElement;
-    const wrap = wrapRef.current;
-    if (!scroller || !wrap) return;
-    const update = () => {
-      const atEnd = scroller.scrollLeft + scroller.clientWidth >= scroller.scrollWidth - 1;
-      wrap.dataset.atEnd = atEnd ? "true" : "false";
-    };
-    update();
-    scroller.addEventListener("scroll", update, { passive: true });
-    window.addEventListener("resize", update);
-    return () => {
-      scroller.removeEventListener("scroll", update);
-      window.removeEventListener("resize", update);
-    };
-  }, []);
+  // Revelação do item ativo + estado at-end do véu/chevron: comportamento
+  // compartilhado da faixa (extraído p/ useTabStrip no Gate 6; regras dos
+  // Gates 4.1/5.1/5.2 preservadas — reprovadas em DOM real neste gate).
+  useTabStrip(listRef, wrapRef, active);
 
   function onKeyDown(e: React.KeyboardEvent) {
     const next = rovingNextIndex(activeIndex, tabs.length, e.key);
@@ -117,6 +80,7 @@ export function Tabs({ tabs, active, onChange, label, children }: TabsProps) {
                    demanda e toda referência ARIA deve apontar p/ nó existente */
                 aria-controls={hasPanel && selected ? ids.panel : undefined}
                 tabIndex={selected ? 0 : -1}
+                data-strip-active={selected ? "true" : undefined}
                 className={selected ? "ds-tab ds-tab--active" : "ds-tab"}
                 onClick={() => onChange(t.id)}
               >

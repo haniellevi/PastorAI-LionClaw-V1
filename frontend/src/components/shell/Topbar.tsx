@@ -10,22 +10,45 @@ import { Icon } from "@/lib/icons";
 import { SCREEN_META, groupLabelForScreen } from "@/lib/navigation";
 import { ROLE_DEFS, sortedRoles } from "@/lib/roles";
 
+import { SHELL_DRAWER_ID } from "./useDrawerA11y";
+
 interface TopbarProps {
   user: SessionUser;
   route: string;
   onMenuToggle: () => void;
+  /** Renderiza o hambúrguer (≤860px). No app o "Mais" da bottom-nav é a
+   *  entrada única do drawer (decisão F4); a superfície admin não tem
+   *  bottom-nav, então precisa deste gatilho (Gate 6). */
+  menuButton?: boolean;
+  /** Estado do drawer (aria-expanded do hambúrguer — Gate 6.1). */
+  menuOpen?: boolean;
 }
 
-export function Topbar({ user, route, onMenuToggle }: TopbarProps) {
+export function Topbar({
+  user,
+  route,
+  onMenuToggle,
+  menuButton = false,
+  menuOpen = false,
+}: TopbarProps) {
   const meta = SCREEN_META[route] ?? { title: "Igreja 12", crumb: "" };
   const group = groupLabelForScreen(route);
   const roles = sortedRoles(user.roles);
 
   return (
     <header className="topbar">
-      <button type="button" className="menu-toggle" aria-label="Abrir menu" onClick={onMenuToggle}>
-        <Icon name="menu" />
-      </button>
+      {menuButton ? (
+        <button
+          type="button"
+          className="menu-toggle"
+          aria-label="Abrir menu"
+          aria-expanded={menuOpen}
+          aria-controls={SHELL_DRAWER_ID}
+          onClick={onMenuToggle}
+        >
+          <Icon name="menu" />
+        </button>
+      ) : null}
       <div className="tb-titles">
         {group ? <span className="tb-eyebrow">{group}</span> : null}
         <div className="tb-title-row">

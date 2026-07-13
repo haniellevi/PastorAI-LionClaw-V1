@@ -248,7 +248,8 @@ a {
   padding: 1px 7px;
   border-radius: 999px;
   font-family: var(--font-display);
-  font-size: 9.5px;
+  /* Gate 6.1: nenhum texto operacional do shell abaixo de 12px. */
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -545,14 +546,37 @@ input[type="checkbox"] {
 }
 
 /* ---------- APP SHELL ---------- */
+/* Texto só para leitores de tela (Gate 6.1): mantém o nome acessível de
+   controles icon-only (sidebar colapsada, locked "em breve") sem ocupar layout. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
 .app {
   display: grid;
-  grid-template-columns: 248px 1fr;
+  /* Gate 6.2: a coluna segue a LARGURA REAL da sidebar (248px expandida,
+     64px colapsada) — sem faixa vazia de 184px quando recolhida. */
+  grid-template-columns: auto 1fr;
   height: 100dvh;
   overflow: hidden;
 }
 .sidebar {
-  background: var(--grad-sidebar);
+  /* Gate 6 (Diamante Lapidado): diamond-950 PLANO — sem gradiente/decoração.
+     Tokens de sidebar redefinidos NO ESCOPO (o hero do login continua no tema
+     antigo): tinta e seleção migram do teal para o azul mineral. */
+  --sidebar: var(--diamond-950);
+  --sidebar-fg: oklch(86% 0.02 235);
+  --sidebar-muted: oklch(70% 0.025 238);
+  --accent: var(--diamond-500);
+  --accent-bright: oklch(84% 0.09 235);
+  background: var(--diamond-950);
   color: var(--sidebar-fg);
   display: flex;
   flex-direction: column;
@@ -563,6 +587,8 @@ input[type="checkbox"] {
   height: 100dvh;
   width: 248px;
   flex: none;
+  /* Gate 6.1: rolagem interna do drawer não encadeia para o conteúdo atrás. */
+  overscroll-behavior: contain;
   /* Gate 5.1: sem transição de width — animar layout causa reflow; a mudança
      de largura da sidebar é instantânea. */
 }
@@ -572,6 +598,7 @@ input[type="checkbox"] {
   gap: 1px;
   overflow-y: auto;
   overflow-x: hidden;
+  overscroll-behavior: contain;
   margin: 0 -4px;
   padding: 0 4px;
   flex: 1;
@@ -603,17 +630,18 @@ input[type="checkbox"] {
   min-width: 0;
 }
 .side-brand .brand-mark {
+  /* Gate 6: assinatura canônica (DiamondMark) — sem caixa colorida atrás. */
   display: grid;
   place-items: center;
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
   flex: none;
-  background: var(--accent);
-  font-size: 12px; /* "12" proporcional à caixa menor da sidebar */
+  background: transparent;
 }
-.side-brand .brand-mark svg {
-  width: 16px;
-  height: 16px;
+.side-brand .brand-word {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.015em;
 }
 .collapse-btn {
   flex: none;
@@ -704,7 +732,8 @@ input[type="checkbox"] {
   display: block;
   margin: 0 4px 6px;
   padding: 0 8px;
-  font-size: 10px;
+  /* Gate 6.1: nenhum texto operacional do shell abaixo de 12px. */
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.16em;
   text-transform: uppercase;
@@ -730,13 +759,24 @@ input[type="checkbox"] {
   margin-bottom: 1px;
 }
 .nav-item:hover {
-  background: oklch(26% 0.012 187);
-  color: #fff;
+  background: color-mix(in oklch, var(--ice-50) 8%, transparent);
+  color: oklch(97% 0.006 235);
 }
 .nav-item.active {
   background: color-mix(in oklch, var(--accent) 18%, transparent);
   color: var(--accent-bright);
   font-weight: 640;
+}
+/* Gate 6: foco visível em todo item de navegação (teclado). */
+.nav-item:focus-visible,
+.collapse-btn:focus-visible,
+.side-user-link:focus-visible,
+.side-user #logoutBtn:focus-visible,
+.bn-item:focus-visible,
+.menu-toggle:focus-visible,
+.journey-step-btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 /* bloco do ícone: 27x27, tint + fg coloridos (--ic, default teal #0d9488) */
@@ -784,7 +824,7 @@ input[type="checkbox"] {
 }
 .nav-item .badge {
   margin-left: auto;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   background: oklch(34% 0.012 187);
   color: #fff;
@@ -853,7 +893,7 @@ input[type="checkbox"] {
   text-overflow: ellipsis;
 }
 .side-user .nm span {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--sidebar-muted);
 }
 .role-chips {
@@ -876,17 +916,35 @@ input[type="checkbox"] {
 .sidebar.collapsed {
   width: 64px;
 }
+/* Gate 6.1: colapsada, os rótulos saem do LAYOUT mas não da árvore de
+   acessibilidade (padrão sr-only, não display:none) — cada item icon-only
+   mantém nome acessível; tooltip por hover não conta como nome. */
 .sidebar.collapsed .lbl,
-.sidebar.collapsed .badge,
-.sidebar.collapsed .soon,
 .sidebar.collapsed .nav-group-title {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+.sidebar.collapsed .badge,
+.sidebar.collapsed .soon {
   display: none;
 }
 .sidebar.collapsed .nav-group {
   margin-top: var(--s3);
 }
 .sidebar.collapsed .side-top {
+  /* Gate 6.2: colapsada, a marca canônica (DiamondMark) continua visível em
+     tamanho compacto — empilhada sobre o botão de expandir (64px não comporta
+     os dois lado a lado). */
+  flex-direction: column;
   justify-content: center;
+  gap: 10px;
 }
 .sidebar.collapsed .collapse-btn svg {
   transform: rotate(180deg);
@@ -900,11 +958,28 @@ input[type="checkbox"] {
   gap: 0;
   padding: 7px 0;
 }
+/* Gate 6.3: na rail de 64px, perfil e logout não cabem lado a lado — empilha
+   os dois no rodapé, sem sobreposição, cada um com alvo ≥44×44. Os !important
+   vencem os estilos INLINE do side-user-link (flex:1 / minWidth:0), que valem
+   para o layout expandido. */
 .sidebar.collapsed .side-user {
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 0;
+  margin: 0 -2px; /* 40px úteis + 4px = alvo de 44px dentro da rail */
+}
+.sidebar.collapsed .side-user-link {
+  flex: none !important;
+  min-width: 44px !important;
+  min-height: 44px;
   justify-content: center;
 }
 .sidebar.collapsed .side-user #logoutBtn {
   margin-left: 0 !important;
+  min-width: 44px;
+  min-height: 44px;
 }
 .sidebar.collapsed [data-tip] {
   position: relative;
@@ -939,11 +1014,12 @@ input[type="checkbox"] {
   position: sticky;
   top: 0;
   z-index: 5;
-  /* PR fix/design-surface-hierarchy: acompanha o --bg via color-mix (antes era o valor
-     96% hardcoded do --bg antigo; com --bg→94% viraria "faixa clara fantasma" ao rolar). */
-  background: color-mix(in oklch, var(--bg) 82%, transparent);
-  backdrop-filter: blur(10px);
-  border-bottom: 1px solid var(--border);
+  /* Gate 6: fundo SÓLIDO — glassmorphism (backdrop-filter) removido; a
+     hierarquia vem da borda e da tipografia, não de efeito.
+     Gate 6.1: canvas/linha da direção Diamante Lapidado, ESCOPADOS aqui —
+     os tokens legados --bg/--border seguem intactos p/ telas não migradas. */
+  background: var(--ice-50);
+  border-bottom: 1px solid var(--line-200);
   padding: var(--s4) var(--s5);
   display: flex;
   align-items: center;
@@ -959,7 +1035,8 @@ input[type="checkbox"] {
   min-width: 0;
 }
 .tb-eyebrow {
-  font-size: 10px;
+  /* Gate 6.1: nenhum texto operacional do shell abaixo de 12px. */
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -1020,7 +1097,7 @@ input[type="checkbox"] {
   max-width: 340px;
 }
 .who .rchip {
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.02em;
   padding: 3px 8px;
@@ -1096,25 +1173,51 @@ input[type="checkbox"] {
   align-items: center;
 }
 .infotip-btn {
-  width: 17px;
-  height: 17px;
+  /* Gate 6.2: alvo de toque/foco REAL de 44×44; o círculo visual segue
+     discreto (20px, desenhado no ::before atrás do glifo).
+     Gate 6.1: glifo "i" ≥12px. */
+  position: relative;
+  /* stacking context próprio: o círculo (::before, z -1) fica ATRÁS do glifo
+     sem escapar para trás da topbar. */
+  z-index: 0;
+  width: 44px;
+  height: 44px;
   padding: 0;
-  border-radius: 50%;
-  border: 1px solid var(--border-strong);
-  background: var(--surface);
+  border: none;
+  background: transparent;
   color: var(--muted);
-  font: 700 11px var(--font);
+  font: 700 12px var(--font);
   line-height: 1;
   cursor: help;
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
-.infotip-btn:hover,
+.infotip-btn::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+}
+.infotip-btn:hover {
+  color: var(--accent);
+}
+.infotip-btn:hover::before {
+  border-color: var(--accent);
+}
+/* Foco visível: anel no círculo (substituto equivalente ao outline nativo). */
 .infotip-btn:focus-visible {
   color: var(--accent);
-  border-color: var(--accent);
   outline: none;
+}
+.infotip-btn:focus-visible::before {
+  border-color: var(--accent);
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 .infotip-pop {
   position: absolute;
@@ -1789,24 +1892,17 @@ button.jr-row:focus-visible {
     flex-wrap: wrap;
   }
 }
-/* abas de módulo (F2): barra acima da tela rolável, alinhada ao padding da .screen */
+/* abas de módulo (F2 · Gate 6): navegação entre rotas irmãs do módulo com o
+   visual/rolagem da fundação (classes ds-tabs-*). Barra acima da tela rolável,
+   alinhada ao padding da .screen. */
 .module-tabs {
-  align-self: flex-start;
+  align-self: stretch;
   margin: var(--s5) var(--s5) 0;
 }
-.module-tabs .tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-.module-tabs .tab.locked {
-  color: var(--faint);
-  cursor: default;
-}
-.module-tabs .tab svg {
-  width: 13px;
-  height: 13px;
-  opacity: 0.7;
+@media (max-width: 860px) {
+  .module-tabs {
+    margin: var(--s3) var(--s4) 0;
+  }
 }
 
 /* journey-stepper (F2): trilha horizontal das 4 etapas da Jornada G12, acima do
@@ -1815,8 +1911,74 @@ button.jr-row:focus-visible {
 .journey-stepper {
   flex-shrink: 0;
   padding: var(--s4) var(--s5) 0;
+  position: relative;
+  min-width: 0;
+  max-width: 100%;
+}
+/* Gate 6.1: mesma faixa rolável da fundação (par do .ds-tabs-scroll):
+   scrollbar VISUAL oculta (scroll real por toque/roda/teclado intactos) +
+   véu de continuidade que some no fim (data-at-end via useTabStrip). */
+.journey-scroll {
   overflow-x: auto;
-  scrollbar-width: thin;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-mask-image: linear-gradient(to right, black calc(100% - 44px), transparent);
+  mask-image: linear-gradient(to right, black calc(100% - 44px), transparent);
+}
+.journey-scroll::-webkit-scrollbar {
+  display: none;
+}
+/* Gate 6.3: véus por estado do scroll (data-at-start/data-at-end via
+   useTabStrip). Base (início): véu só à direita. Rolado no meio: véu dos dois
+   lados. No fim: véu só à esquerda. Sem overflow (início E fim): nenhum. */
+.journey-stepper[data-at-start="false"] .journey-scroll {
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent,
+    black 44px,
+    black calc(100% - 44px),
+    transparent
+  );
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    black 44px,
+    black calc(100% - 44px),
+    transparent
+  );
+}
+.journey-stepper[data-at-end="true"] .journey-scroll {
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+.journey-stepper[data-at-end="true"][data-at-start="false"] .journey-scroll {
+  -webkit-mask-image: linear-gradient(to right, transparent, black 44px);
+  mask-image: linear-gradient(to right, transparent, black 44px);
+}
+/* Chevrons de continuação (par dos véus, como .ds-tabs-chevron): decorativos —
+   aria-hidden, sem toque (pointer-events none). O direito some no fim; o
+   esquerdo SÓ aparece com conteúdo cortado atrás (scrollLeft > 0). */
+.journey-chevron {
+  position: absolute;
+  top: var(--s4);
+  right: var(--s2);
+  bottom: 0;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  font-size: 14px;
+  pointer-events: none;
+}
+.journey-stepper[data-at-end="true"] .journey-chevron:not(.journey-chevron--left) {
+  display: none;
+}
+.journey-chevron--left {
+  display: none;
+  right: auto;
+  left: var(--s2);
+}
+.journey-stepper[data-at-start="false"] .journey-chevron--left {
+  display: grid;
 }
 .journey-stepper ol {
   display: flex;
@@ -1852,6 +2014,8 @@ button.jr-row:focus-visible {
   font-weight: 560;
   white-space: nowrap;
   cursor: pointer;
+  /* Gate 6.2: agora é <a href="#…"> (navegação real) — sem sublinhado. */
+  text-decoration: none;
   transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
 .journey-step-btn:hover {
@@ -1868,7 +2032,7 @@ button.jr-row:focus-visible {
   border-radius: 999px;
   background: color-mix(in oklch, var(--ic, var(--accent)) 16%, transparent);
   color: var(--ic, var(--accent));
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
 }
 /* accents por etapa (mesmos oklch da Sidebar — STAGE_ACCENT) */
@@ -2645,9 +2809,27 @@ table.data-table {
     transform: translateX(-100%);
     transition: transform 0.2s;
     width: 248px;
+    /* Gate 6.2: safe areas (notch/gesto) — perfil/logout nunca ficam sob a
+       barra de gestos, nem a marca sob o notch. */
+    padding-top: calc(var(--s4) + env(safe-area-inset-top, 0px));
+    padding-bottom: calc(var(--s4) + env(safe-area-inset-bottom, 0px));
+    padding-left: calc(var(--s3) + env(safe-area-inset-left, 0px));
   }
   .sidebar.open {
     transform: none;
+  }
+  /* Gate 6.2: todo controle do shell mobile com alvo ≥44px. */
+  .nav-item,
+  .side-user-link,
+  .journey-step-btn {
+    min-height: 44px;
+  }
+  .side-user #logoutBtn {
+    min-width: 44px;
+    min-height: 44px;
+  }
+  .topbar .search input {
+    min-height: 44px;
   }
   .topbar .search input {
     width: 140px;
@@ -2656,11 +2838,20 @@ table.data-table {
   .tb-eyebrow {
     display: none;
   }
-  /* F4 (D1): hambúrguer da Topbar é redundante com o atalho "Mais" do bottom-nav
-     (ambos abrem o mesmo drawer ≤860). Oculto — "Mais" é a entrada única do drawer
-     no mobile. Desktop já tinha .menu-toggle oculto (sidebar sempre visível). */
+  /* F4 (D1) + Gate 6: no APP o hambúrguer não é renderizado (o "Mais" da
+     bottom-nav é a entrada única do drawer). A superfície ADMIN não tem
+     bottom-nav — lá o Topbar renderiza o hambúrguer (prop menuButton) e ele
+     aparece ≤860 com alvo de 44px. */
   .menu-toggle {
-    display: none !important;
+    display: grid;
+    place-items: center;
+    min-width: 44px;
+    min-height: 44px;
+    border: none;
+    background: transparent;
+    color: var(--fg);
+    border-radius: var(--radius-control);
+    cursor: pointer;
   }
   /* "Recolher menu" é affordance só de desktop; no drawer mobile o usuário fecha
      pelo overlay/"Mais" do bottom-nav. Oculto p/ não poluir o topo da sidebar. */
@@ -4430,7 +4621,10 @@ table.data-table {
   background: none;
   cursor: pointer;
   color: var(--muted);
-  font-size: 11px;
+  /* Gate 6.2: itens podem ser <a href="#…"> (navegação real) — sem sublinhado. */
+  text-decoration: none;
+  /* Gate 6.1: nenhum texto operacional do shell abaixo de 12px. */
+  font-size: 12px;
   font-weight: 500;
 }
 .bn-item svg {
@@ -4438,7 +4632,32 @@ table.data-table {
   height: 22px;
 }
 .bn-item.active {
-  color: var(--accent);
+  /* Gate 6: seleção em azul mineral (a bottom-nav vive fora do escopo da
+     sidebar, então referencia o token da fundação diretamente). */
+  color: var(--action-primary);
+  font-weight: 650;
+}
+
+/* Backdrop do drawer mobile (Gate 6): fecha ao tocar; bloqueia o conteúdo
+   atrás. Fica sob a sidebar (z40) e sobre o resto. */
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 39;
+  background: oklch(24% 0.035 245 / 0.45);
+  /* Gate 6.1: é um <button> semântico (aria-label "Fechar menu") — zera o
+     chrome nativo de botão. Fora do tab order (tabIndex=-1): Esc + trap cobrem. */
+  border: 0;
+  padding: 0;
+  margin: 0;
+  appearance: none;
+  cursor: pointer;
+}
+@media (min-width: 861px) {
+  /* Desktop: sidebar fixa — o backdrop nunca deve cobrir a tela. */
+  .drawer-backdrop {
+    display: none;
+  }
 }
 
 @media (max-width: 860px) {

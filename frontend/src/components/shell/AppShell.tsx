@@ -20,6 +20,7 @@ import { JourneyStepper } from "./JourneyStepper";
 import { ScreenView } from "./ScreenView";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
+import { useDrawerA11y } from "./useDrawerA11y";
 
 /** Telas bloqueadas no MVP (locked-em-breve): não renderizam conteúdo. */
 const LOCKED_SCREENS = new Set(["universidade-vida", "capacitacao"]);
@@ -78,10 +79,24 @@ export function AppShell() {
     setMobileOpen(false);
   }, [resolvedBase]);
 
+  // Drawer mobile: Esc fecha, scroll lock, foco retorna ao gatilho (Gate 6).
+  useDrawerA11y(mobileOpen, () => setMobileOpen(false));
+
   if (!user) return null;
 
   return (
     <div className="app">
+      {mobileOpen ? (
+        // Botão semântico (não div aria-hidden clicável); fora do tab order —
+        // Esc e o trap do drawer cobrem o teclado (useDrawerA11y).
+        <button
+          type="button"
+          className="drawer-backdrop"
+          aria-label="Fechar menu"
+          tabIndex={-1}
+          onClick={() => setMobileOpen(false)}
+        />
+      ) : null}
       <Sidebar
         user={user}
         route={resolvedBase}
@@ -95,12 +110,17 @@ export function AppShell() {
           navigate("login");
         }}
       />
-      <div className="main">
-        <Topbar user={user} route={resolvedBase} onMenuToggle={() => setMobileOpen((v) => !v)} />
+      <main className="main">
+        <Topbar
+          user={user}
+          route={resolvedBase}
+          menuOpen={mobileOpen}
+          onMenuToggle={() => setMobileOpen((v) => !v)}
+        />
         <JourneyStepper />
         <ScreenView route={resolvedBase} param={resolvedParam} />
-      </div>
-      <BottomNav onMore={() => setMobileOpen((v) => !v)} />
+      </main>
+      <BottomNav menuOpen={mobileOpen} onMore={() => setMobileOpen((v) => !v)} />
     </div>
   );
 }
