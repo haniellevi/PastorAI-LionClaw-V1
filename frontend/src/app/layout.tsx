@@ -16,6 +16,10 @@ import "@fontsource/jetbrains-mono/400.css";
 import "@fontsource/jetbrains-mono/500.css";
 
 import "./globals.css";
+// Fundação "Diamante Lapidado" (Gate 6): tokens semânticos + primitives ds-*.
+// Aditivos — nenhum token legado muda de valor; telas não migradas não mudam.
+import "./design-tokens.css";
+import "./ds.css";
 
 export const metadata: Metadata = {
   title: {
@@ -47,7 +51,9 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: "#0b2c29",
+  // Gate 6.1: chrome do PWA na direção Diamante Lapidado — hex sRGB do token
+  // --diamond-950 (oklch(24% 0.055 252)); o teal #0b2c29 era da identidade antiga.
+  themeColor: "#092038",
   colorScheme: "light",
 };
 

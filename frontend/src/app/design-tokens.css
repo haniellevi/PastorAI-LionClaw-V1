@@ -14,6 +14,9 @@
  *   --bg                    → --surface-canvas
  *   --fg / --muted          → --text-primary / --text-secondary
  *   --border                → --border-subtle
+ *   --border-strong         → --border-emphasis (nome novo: o token legado
+ *                             --border-strong continua existindo com o valor
+ *                             teal do globals.css — a fundação NÃO o sobrescreve)
  *   --r-sm (10px)           → --radius-control (mesmo valor)
  *   --s1..--s7              → escala mantida; novo passo --s8 (64px)
  * Regra definitiva: action-primary = diamond-700; hover = diamond-900;
@@ -48,7 +51,10 @@
 
   /* Bordas e foco */
   --border-subtle: var(--line-200);
-  --border-strong: oklch(82% 0.024 238);
+  /* Gate 6.1: nome próprio da fundação — NUNCA reutilizar um nome de token que
+     já exista no :root do globals.css (este arquivo importa DEPOIS e venceria
+     a cascata, mudando telas legadas). Regressão: design-tokens.test.ts. */
+  --border-emphasis: oklch(82% 0.024 238);
   --focus-ring: var(--diamond-500);
 
   /* Ação e seleção (regra definitiva do gate) */
