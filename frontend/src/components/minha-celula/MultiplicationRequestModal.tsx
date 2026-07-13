@@ -9,7 +9,9 @@
  */
 import { useEffect, useMemo, useState } from "react";
 
-import { Button } from "@/components/ui/Button";
+import { DsBanner } from "@/components/ds/Banner";
+import { DsButton } from "@/components/ds/Button";
+import { Dialog as DsDialog } from "@/components/ds/Dialog";
 import { Field } from "@/components/ui/Field";
 import { Icon } from "@/lib/icons";
 import { ApiError } from "@/lib/dashboard-api";
@@ -131,31 +133,20 @@ export function MultiplicationRequestModal({
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div
-        className="modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Solicitar multiplicação"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="modal-head">
-          <strong>Solicitar multiplicação</strong>
-          <button type="button" className="btn btn-sm btn-ghost" onClick={onClose}>
-            Fechar
-          </button>
-        </div>
-        <div className="modal-sub">
-          A multiplicação <strong>não acontece na hora</strong>: esta solicitação vai
-          para a Central aprovar. A nova célula só é criada após a aprovação.
-        </div>
+    // Gate 9: shell migrado mecanicamente para o DsDialog (Esc/trap/
+    // backdrop/retorno de foco do primitive; fechar bloqueado em busy).
+    <DsDialog
+      open
+      onClose={() => {
+        if (!busy) onClose();
+      }}
+      title="Solicitar multiplicação"
+      description="A multiplicação não acontece na hora: esta solicitação vai para a Central aprovar. A nova célula só é criada após a aprovação."
+    >
+      <>
 
-        {error ? (
-          <div className="error-banner" role="alert">
-            <Icon name="alert" />
-            <span>{error}</span>
-          </div>
-        ) : null}
+
+      {error ? <DsBanner kind="error">{error}</DsBanner> : null}
 
         <form
           className="modal-form"
@@ -171,7 +162,7 @@ export function MultiplicationRequestModal({
             onChange={(e) => setNome(e.target.value)}
             disabled={busy}
             maxLength={120}
-            autoFocus
+            data-autofocus=""
           />
 
           <div className="field">
@@ -240,22 +231,16 @@ export function MultiplicationRequestModal({
           </div>
 
           <div className="modal-foot">
-            <button type="button" className="btn btn-sm" onClick={onClose} disabled={busy}>
+            <DsButton variant="tertiary" onClick={onClose} disabled={busy}>
               Cancelar
-            </button>
-            <Button
-              type="submit"
-              variant="primary"
-              size="sm"
-              loading={busy}
-              loadingText="Enviando…"
-            >
+            </DsButton>
+            <DsButton type="submit" loading={busy}>
               <Icon name="send" />
-              <span>Enviar solicitação</span>
-            </Button>
+              <span>{busy ? "Enviando…" : "Enviar solicitação"}</span>
+            </DsButton>
           </div>
         </form>
-      </div>
-    </div>
+      </>
+    </DsDialog>
   );
 }

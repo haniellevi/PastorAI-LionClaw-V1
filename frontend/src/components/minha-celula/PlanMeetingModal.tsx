@@ -8,7 +8,9 @@
  */
 import { useState } from "react";
 
-import { Button } from "@/components/ui/Button";
+import { DsBanner } from "@/components/ds/Banner";
+import { DsButton } from "@/components/ds/Button";
+import { Dialog as DsDialog } from "@/components/ds/Dialog";
 import { Field } from "@/components/ui/Field";
 import { Icon } from "@/lib/icons";
 import { ApiError } from "@/lib/dashboard-api";
@@ -71,31 +73,20 @@ export function PlanMeetingModal({
   const title = "Planejar reunião";
 
   return (
-    <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div
-        className="modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="modal-head">
-          <strong>{title}</strong>
-          <button type="button" className="btn btn-sm btn-ghost" onClick={onClose}>
-            Fechar
-          </button>
-        </div>
-        <div className="modal-sub">
-          Cria uma reunião pontual. <strong>Não altera</strong> o dia e o horário
-          padrão da célula — para mudar o padrão, use “Solicitar alteração”.
-        </div>
+    // Gate 9: shell migrado mecanicamente para o DsDialog (Esc/trap/
+    // backdrop/retorno de foco do primitive; fechar bloqueado em busy).
+    <DsDialog
+      open
+      onClose={() => {
+        if (!busy) onClose();
+      }}
+      title={title}
+      description="Cria uma reunião pontual. Não altera o dia e o horário padrão da célula — para mudar o padrão, use “Solicitar alteração”."
+    >
+      <>
 
-        {error ? (
-          <div className="error-banner" role="alert">
-            <Icon name="alert" />
-            <span>{error}</span>
-          </div>
-        ) : null}
+
+      {error ? <DsBanner kind="error">{error}</DsBanner> : null}
 
         <form
           className="modal-form"
@@ -112,7 +103,7 @@ export function PlanMeetingModal({
               onChange={(e) => setData(e.target.value)}
               error={dataError}
               disabled={busy}
-              autoFocus
+              data-autofocus=""
             />
             <Field
               label="Horário (opcional)"
@@ -136,23 +127,16 @@ export function PlanMeetingModal({
           />
 
           <div className="modal-foot">
-            <button type="button" className="btn btn-sm" onClick={onClose} disabled={busy}>
+            <DsButton variant="tertiary" onClick={onClose} disabled={busy}>
               Cancelar
-            </button>
-            <Button
-              type="submit"
-              variant="primary"
-              size="sm"
-              loading={busy}
-              loadingText="Planejando…"
-              disabled={!data}
-            >
+            </DsButton>
+            <DsButton type="submit" loading={busy} disabled={!data}>
               <Icon name="calendar" />
-              <span>Planejar reunião</span>
-            </Button>
+              <span>{busy ? "Planejando…" : "Planejar reunião"}</span>
+            </DsButton>
           </div>
         </form>
-      </div>
-    </div>
+      </>
+    </DsDialog>
   );
 }

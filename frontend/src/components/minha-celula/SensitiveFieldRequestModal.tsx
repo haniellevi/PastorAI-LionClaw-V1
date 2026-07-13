@@ -11,7 +11,9 @@
  */
 import { useState } from "react";
 
-import { Button } from "@/components/ui/Button";
+import { DsBanner } from "@/components/ds/Banner";
+import { DsButton } from "@/components/ds/Button";
+import { Dialog as DsDialog } from "@/components/ds/Dialog";
 import { Field } from "@/components/ui/Field";
 import { Icon } from "@/lib/icons";
 import { ApiError } from "@/lib/dashboard-api";
@@ -138,31 +140,20 @@ export function SensitiveFieldRequestModal({
   const title = TITLES[tipo];
 
   return (
-    <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div
-        className="modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="modal-head">
-          <strong>{title}</strong>
-          <button type="button" className="btn btn-sm btn-ghost" onClick={onClose}>
-            Fechar
-          </button>
-        </div>
-        <div className="modal-sub">
-          Campos sensíveis <strong>não mudam na hora</strong>. Esta solicitação vai
-          para a Central aprovar; o dado só muda após a aprovação.
-        </div>
+    // Gate 9: shell migrado mecanicamente para o DsDialog (Esc/trap/
+    // backdrop/retorno de foco do primitive; fechar bloqueado em busy).
+    <DsDialog
+      open
+      onClose={() => {
+        if (!busy) onClose();
+      }}
+      title={title}
+      description="Campos sensíveis não mudam na hora. Esta solicitação vai para a Central aprovar; o dado só muda após a aprovação."
+    >
+      <>
 
-        {error ? (
-          <div className="error-banner" role="alert">
-            <Icon name="alert" />
-            <span>{error}</span>
-          </div>
-        ) : null}
+
+      {error ? <DsBanner kind="error">{error}</DsBanner> : null}
 
         <form
           className="modal-form"
@@ -176,6 +167,7 @@ export function SensitiveFieldRequestModal({
               <label htmlFor="req-dia">Novo dia da reunião</label>
               <select
                 id="req-dia"
+                data-autofocus=""
                 value={dia}
                 onChange={(e) => setDia(e.target.value)}
                 disabled={busy}
@@ -200,7 +192,7 @@ export function SensitiveFieldRequestModal({
               disabled={busy}
               maxLength={5}
               inputMode="numeric"
-              autoFocus
+              data-autofocus=""
             />
           ) : null}
 
@@ -209,6 +201,7 @@ export function SensitiveFieldRequestModal({
               <label htmlFor="req-endereco">Novo endereço</label>
               <textarea
                 id="req-endereco"
+                data-autofocus=""
                 rows={2}
                 value={endereco}
                 onChange={(e) => setEndereco(e.target.value)}
@@ -226,6 +219,7 @@ export function SensitiveFieldRequestModal({
               </label>
               <select
                 id="req-pessoa"
+                data-autofocus=""
                 value={pessoaId}
                 onChange={(e) => setPessoaId(e.target.value)}
                 disabled={busy}
@@ -254,23 +248,16 @@ export function SensitiveFieldRequestModal({
           </div>
 
           <div className="modal-foot">
-            <button type="button" className="btn btn-sm" onClick={onClose} disabled={busy}>
+            <DsButton variant="tertiary" onClick={onClose} disabled={busy}>
               Cancelar
-            </button>
-            <Button
-              type="submit"
-              variant="primary"
-              size="sm"
-              loading={busy}
-              loadingText="Enviando…"
-              disabled={touched && Boolean(horaError)}
-            >
+            </DsButton>
+            <DsButton type="submit" loading={busy} disabled={touched && Boolean(horaError)}>
               <Icon name="send" />
-              <span>Enviar solicitação</span>
-            </Button>
+              <span>{busy ? "Enviando…" : "Enviar solicitação"}</span>
+            </DsButton>
           </div>
         </form>
-      </div>
-    </div>
+      </>
+    </DsDialog>
   );
 }
