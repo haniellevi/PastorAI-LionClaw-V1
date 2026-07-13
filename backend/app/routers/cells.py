@@ -28,7 +28,11 @@ from app.db.session import get_db
 from app.deps import CurrentUser, get_current_user, require_central
 from app.domain.hierarchy import is_leader_or_superior
 from app.routers._common import Page, PaginationParams
-from app.services.celula_membro import assert_membro_elegivel, promote_tipo_para_membro
+from app.services.celula_membro import (
+    assert_membro_elegivel,
+    assert_pessoas_nao_arquivadas,
+    promote_tipo_para_membro,
+)
 
 logger = logging.getLogger("pastorai.cells")
 
@@ -308,6 +312,26 @@ def _validate_pessoa_refs(db: Session, payload: UpsertCellRequest) -> None:
     _assert_pessoa_tenant(db, _to_uuid(payload.auxiliarId), "auxiliarId")
 
 
+def _assert_referenced_pessoas_nao_arquivadas(
+    db: Session, current_user: CurrentUser, payload: UpsertCellRequest
+) -> None:
+    """Líder/anfitrião/auxiliar não podem estar arquivados (revisão externa
+    PR#163). Guarda canônica (``assert_pessoas_nao_arquivadas`` de
+    ``celula_membro.py`` — mesma usada por ``add_cell_member``/
+    ``create_cell_request``/``approve``, sem duplicar a checagem de
+    ``arquivada_em``). ``for_update=True`` trava as Pessoas referenciadas
+    (ordem determinística por id) para serializar contra ``archive_pessoa``,
+    que trava a própria Pessoa com o mesmo padrão SEC-4B — só um dos dois
+    estados pode vencer (ver docstring de ``assert_pessoas_nao_arquivadas``).
+    """
+    assert_pessoas_nao_arquivadas(
+        db,
+        igreja_id=uuid.UUID(current_user.igreja_id),
+        pessoa_ids=[payload.liderId, payload.anfitriaoId, payload.auxiliarId],
+        for_update=True,
+    )
+
+
 def _validate_lider_elegivel(
     db: Session,
     lider_id: uuid.UUID | None,
@@ -463,6 +487,7 @@ def upsert_cell(
                 ),
             )
         _validate_pessoa_refs(db, payload)
+        _assert_referenced_pessoas_nao_arquivadas(db, current_user, payload)
         _validate_lider_elegivel(
             db, _to_uuid(payload.liderId), celula_ativa=payload.ativo
         )
@@ -495,6 +520,7 @@ def upsert_cell(
             detail="Apenas o líder da célula ou um superior pode editá-la",
         )
     _validate_pessoa_refs(db, payload)
+    _assert_referenced_pessoas_nao_arquivadas(db, current_user, payload)
     # Elegibilidade (2026-07-06) só na TROCA/atribuição de líder: reenviar o
     # mesmo líder passa (grandfather); remover líder (None) também.
     novo_lider = _to_uuid(payload.liderId)

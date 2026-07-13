@@ -113,32 +113,49 @@ def assert_membro_elegivel(
 
 
 def assert_pessoas_nao_arquivadas(
-    db: Session, *, igreja_id: uuid.UUID, pessoa_ids: list[uuid.UUID | str]
+    db: Session,
+    *,
+    igreja_id: uuid.UUID,
+    pessoa_ids: list[uuid.UUID | str | None],
+    for_update: bool = False,
 ) -> None:
     """Recusa (``MembroInelegivelError``) se ALGUMA de `pessoa_ids` estiver arquivada.
 
-    Guarda usada por ``cell_requests.create_cell_request`` (antes de qualquer
-    escrita) e por ``cell_requests_service.approve`` (revalidado DENTRO da
-    transação travada da solicitação — fecha o TOCTOU: a pessoa referenciada
-    pode ter sido arquivada entre a criação e a aprovação). IDs vazios/None são
-    ignorados; duplicatas são deduplicadas antes das queries. Uma lookup por id
-    (só igualdade — ``id ==`` / ``igreja_id ==``) em vez de `IN`: a lista de
-    referências por payload é pequena (poucas unidades) e a checagem em Python
-    de `arquivada_em` evita depender de operadores compostos (`IN`/`IS NOT
-    NULL`) que o harness de teste offline (`cell_backend_fakes.py`) não
-    interpreta — mesmo padrão de `_assert_pessoa_in_tenant`.
+    Guarda canônica usada por TODOS os pontos de escrita que atribuem uma
+    Pessoa a uma responsabilidade/vínculo ministerial: seam ``ensure_active_
+    membro``/``add_cell_member`` (via ``assert_membro_elegivel`` acima),
+    ``cell_requests.create_cell_request`` + ``cell_requests_service.approve``
+    (revalida DENTRO da transação travada da solicitação — TOCTOU
+    create->approve), e ``cells.upsert_cell`` (líder/anfitrião/auxiliar).
+
+    IDs vazios/None são ignorados; duplicatas são deduplicadas. A ORDEM é
+    SEMPRE determinística (ordenada por UUID) — necessário quando
+    ``for_update=True`` trava múltiplas Pessoas na mesma chamada (ex.:
+    upsert_cell com líder+anfitrião+auxiliar distintos): duas chamadas
+    concorrentes que referenciam o MESMO conjunto de pessoas em ordens
+    diferentes travam na MESMA ordem e nunca deadlockam entre si.
+
+    ``for_update=True`` serializa contra ``archive_pessoa`` (que trava a
+    própria Pessoa com o mesmo padrão SEC-4B, ``db.refresh(...,
+    with_for_update=True)``): quem trava primeiro decide o estado; o outro
+    relê sob lock e vê o resultado já commitado — nunca os dois vencem
+    (responsabilidade criada + archive bloqueado pelo bloqueador
+    `celula_lider`/`celula_anfitriao`/`celula_auxiliar` já existente, OU
+    pessoa arquivada + este assert recusando).
+
+    Uma lookup por id (só igualdade — ``id ==`` / ``igreja_id ==``) em vez de
+    `IN`: a lista de referências por payload é pequena (poucas unidades) e a
+    checagem em Python de `arquivada_em` evita depender de operadores
+    compostos (`IN`/`IS NOT NULL`) que o harness de teste offline
+    (`cell_backend_fakes.py`) não interpreta — mesmo padrão de
+    `_assert_pessoa_in_tenant`.
     """
-    seen: set[uuid.UUID] = set()
-    for raw_id in pessoa_ids:
-        if not raw_id:
-            continue
-        pid = uuid.UUID(str(raw_id))
-        if pid in seen:
-            continue
-        seen.add(pid)
-        pessoa = db.execute(
-            select(Pessoa).where(Pessoa.id == pid, Pessoa.igreja_id == igreja_id)
-        ).scalar_one_or_none()
+    uuids = sorted({uuid.UUID(str(raw_id)) for raw_id in pessoa_ids if raw_id}, key=str)
+    for pid in uuids:
+        query = select(Pessoa).where(Pessoa.id == pid, Pessoa.igreja_id == igreja_id)
+        if for_update:
+            query = query.with_for_update()
+        pessoa = db.execute(query).scalar_one_or_none()
         if pessoa is not None and getattr(pessoa, "arquivada_em", None) is not None:
             raise MembroInelegivelError(
                 "pessoa_arquivada",

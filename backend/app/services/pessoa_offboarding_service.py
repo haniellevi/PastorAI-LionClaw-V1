@@ -104,6 +104,25 @@ _PRESERVADOS_FIXOS: tuple[PreflightItem, ...] = (
         tipo="expectativas_visitante",
         rotulo="Expectativas de visitante registradas em reuniões de célula",
     ),
+    # 2ª revisão externa PR#163 — completando a lista com as demais relações
+    # históricas/de autoria (não bloqueadoras — nenhuma é uma responsabilidade
+    # ATIVA que o archive precise desfazer) relevantes ao relatório do admin:
+    PreflightItem(
+        tipo="relatorios_reuniao",
+        rotulo="Relatórios de reunião de célula enviados",
+    ),
+    PreflightItem(
+        tipo="registros_pastorais",
+        rotulo="Registros pastorais de reunião (decisão/oração/observação)",
+    ),
+    PreflightItem(
+        tipo="trilha_decisoes_celula",
+        rotulo="Decisões e trilha de auditoria de solicitações de célula",
+    ),
+    PreflightItem(
+        tipo="avisos_materiais_publicados",
+        rotulo="Avisos e materiais de célula publicados",
+    ),
     PreflightItem(
         tipo="logs_ia", rotulo="Logs de uso e conversas do agente de IA"
     ),

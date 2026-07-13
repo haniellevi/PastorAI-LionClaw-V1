@@ -57,6 +57,7 @@ from app.db.models import (
 )
 from app.deps import CurrentUser
 from app.routers import cell_requests as cell_requests_router
+from app.routers import cells as cells_router
 from app.routers import contacts as contacts_router
 from app.routers import pipeline as pipeline_router
 from app.services import cell_requests_service
@@ -367,6 +368,48 @@ def test_append_only_trigger_blocks_direct_update_and_delete(factory: sessionmak
         session.close()
 
 
+@pytest.mark.rls_integration
+def test_append_only_trigger_allows_igreja_cascade_two_levels(
+    factory: sessionmaker,
+) -> None:
+    """Cascata em 2 níveis (2ª revisão externa PR#163, item de hardening):
+    apagar a Igreja (avô) remove a Pessoa (pai, `pessoas.igreja_id` CASCADE)
+    que remove o evento (`pessoa_arquivamento_evento.pessoa_id` CASCADE) —
+    sem o trigger append-only bloquear em NENHUM nível (pg_trigger_depth() > 1
+    em ambos)."""
+    session = factory()
+    try:
+        ctx = _base(session)
+        pessoa_id = _mk_pessoa(session, ctx["igreja_id"])
+        session.commit()
+
+        evento_id = session.execute(
+            text(
+                "insert into pessoa_arquivamento_evento "
+                "(igreja_id, pessoa_id, ator_id, acao, motivo) "
+                "values (:ig, :p, :a, 'arquivada', 'motivo') returning id"
+            ),
+            {"ig": ctx["igreja_id"], "p": pessoa_id, "a": ctx["ator_id"]},
+        ).scalar_one()
+        session.commit()
+
+        session.execute(text("delete from igrejas where id = :id"), {"id": ctx["igreja_id"]})
+        session.commit()
+
+        pessoas_restantes = session.execute(
+            text("select count(*) from pessoas where id = :id"), {"id": pessoa_id}
+        ).scalar_one()
+        eventos_restantes = session.execute(
+            text("select count(*) from pessoa_arquivamento_evento where id = :id"),
+            {"id": evento_id},
+        ).scalar_one()
+        assert pessoas_restantes == 0, "Pessoa deve cascatear com a Igreja"
+        assert eventos_restantes == 0, "evento deve cascatear em 2 níveis (via Pessoa)"
+    finally:
+        session.rollback()
+        session.close()
+
+
 def _set_tenant(conn, igreja_id: uuid.UUID) -> None:
     """Mesmo idioma de produção (app/db/rls.py): GUC via set_config parametrizado
     + `SET LOCAL ROLE authenticated` — nunca string-formata o UUID no SQL."""
@@ -650,6 +693,10 @@ def test_preflight_no_blockers_pode_arquivar(factory: sessionmaker) -> None:
         "decisoes",
         "presencas_reuniao",
         "expectativas_visitante",
+        "relatorios_reuniao",
+        "registros_pastorais",
+        "trilha_decisoes_celula",
+        "avisos_materiais_publicados",
         "logs_ia",
     }
 
@@ -1488,8 +1535,21 @@ def test_create_cell_request_refuses_referenced_pessoa_arquivada_jsonb(
 def test_approve_refuses_when_referenced_pessoa_arquivada_toctou(
     factory: sessionmaker,
 ) -> None:
-    """Fecha o TOCTOU: pessoa arquivada DEPOIS que a solicitação foi criada
-    (janela create->approve) é revalidada SOB O LOCK na aprovação."""
+    """Defesa-em-profundidade do `approve`: dado o ESTADO transitório aceito
+    (solicitação `aguardando` referenciando uma pessoa já arquivada — provado
+    ALCANÇÁVEL de verdade, com 2 threads/2 transações reais e sincronização
+    determinística via Event, em
+    ``test_create_cell_request_vs_archive_thread_race_reaches_transitory_state``
+    logo abaixo), o `approve` revalida SOB O LOCK e recusa sem mutação. Este
+    teste NÃO afirma que o estado transitório deixou de existir — ele
+    permanece alcançável por contrato aceito (a solicitação nasce e fica
+    `aguardando`; nenhum vínculo/responsabilidade é concedido só por ela
+    existir; `cancel`/`reject` seguem limpando-a normalmente — ver
+    ``test_cancel_solicitacao_referencing_arquivada_pessoa_still_works``). O
+    UPDATE direto aqui é só uma forma BARATA de chegar no mesmo estado final
+    para testar a reação do `approve` em isolamento — a prova de que o estado
+    é de fato alcançável por uma corrida real está no teste de threads.
+    """
     session = factory()
     ctx = _base(session)
     outro_lider_id = _mk_pessoa(session, ctx["igreja_id"], nome="Outro líder")
@@ -1509,12 +1569,6 @@ def test_approve_refuses_when_referenced_pessoa_arquivada_toctou(
     )
     session.commit()
 
-    # Simula a corrida real (2 transações): archive_pessoa() de verdade RECUSA
-    # arquivar alguém com solicitação aberta (bloqueador #10) — por isso o
-    # cenário só existe quando a transação de archive não vê ainda a
-    # solicitação recém-criada (não commitada) e a de create não vê ainda o
-    # archive recém-commitado. UPDATE direto reproduz o ESTADO resultante
-    # dessa corrida sem depender de vencer o timing de duas threads.
     session.execute(
         text(
             "update pessoas set arquivada_em = now(), arquivada_por = :ator, "
@@ -1556,6 +1610,329 @@ def test_approve_refuses_when_referenced_pessoa_arquivada_toctou(
             .where(CelulaSolicitacaoEvento.solicitacao_id == sol_id)
         ).scalar_one()
         assert eventos == 0, "recusa não pode gravar evento de decisão"
+    finally:
+        session.close()
+
+
+@pytest.mark.rls_integration
+def test_create_cell_request_vs_archive_thread_race_reaches_transitory_state(
+    factory: sessionmaker,
+) -> None:
+    """Prova REAL (2 threads/2 transações, sincronização determinística via
+    ``threading.Event`` — sem depender de sorte de timing) da corrida entre
+    ``create_cell_request`` e ``archive_pessoa`` (2ª revisão externa PR#163:
+    o teste anterior fabricava o estado com UPDATE pós-fato e não testava a
+    corrida alegada).
+
+    Sequência forçada:
+      1. T1 (``create_cell_request``) roda a checagem de elegibilidade
+         (``assert_pessoas_nao_arquivadas`` — passa, a pessoa ainda não está
+         arquivada) e INSERE a solicitação, mas PAUSA antes de commitar (hook
+         de teste no `session.commit` — nenhuma mudança em código de
+         produção; único ponto de commit no caminho de sucesso, então não há
+         ambiguidade de qual chamada interceptar).
+      2. T2 (``archive_pessoa``) roda enquanto T1 está pausada: o bloqueador
+         `celula_solicitacao_aberta` NÃO vê a solicitação de T1 (ainda não
+         commitada — MVCC/READ COMMITTED), então o archive passa e commita.
+      3. T1 é liberada e completa o commit da solicitação.
+
+    Contrato ACEITO (documentado, não escondido): a solicitação `aguardando`
+    passa a existir referenciando uma pessoa já arquivada. Isso é seguro
+    porque (a) nenhum vínculo/responsabilidade é concedido só por ela existir
+    — só nasce a linha; (b) ``approve`` revalida sob lock e recusa (teste
+    acima); (c) ``cancel``/``reject`` continuam limpando-a normalmente (teste
+    abaixo). Fechar esta janela por completo exigeria travar a Pessoa também
+    durante ``create_cell_request`` (custo de lock alto para toda criação de
+    solicitação, incluindo os tipos sem referência de pessoa) — não foi feito;
+    ver riscos residuais no relatório.
+    """
+    session_setup = factory()
+    ctx = _base(session_setup)
+    lider_id = _mk_pessoa(session_setup, ctx["igreja_id"], nome="Líder")
+    lider_app_user_id = uuid.uuid4()
+    session_setup.add(
+        AppUser(
+            id=lider_app_user_id,
+            igreja_id=ctx["igreja_id"],
+            nome="Líder",
+            email=f"{lider_app_user_id}@teste.com",
+            status="ativo",
+            pessoa_id=lider_id,
+        )
+    )
+    celula_id = _mk_celula(session_setup, ctx["igreja_id"], lider_id=lider_id)
+    alvo_id = _mk_pessoa(session_setup, ctx["igreja_id"], nome="Alvo remoção")
+    session_setup.commit()
+    session_setup.close()
+
+    checked = threading.Event()  # T1: passei da checagem e do INSERT, ainda não commitei
+    proceed = threading.Event()  # T2: já arquivei e commitei — T1 pode continuar
+    result: dict[str, object] = {}
+
+    def t1_create_cell_request() -> None:
+        session = factory()
+        try:
+            current_user = CurrentUser(
+                app_user_id=str(lider_app_user_id),
+                clerk_user_id="clerk_lider",
+                igreja_id=str(ctx["igreja_id"]),
+                email="lider@teste.com",
+                nome="Líder",
+                roles=frozenset({"lider_celula"}),
+            )
+            # Pausa no COMMIT (não no flush: autoflush chama session.flush()
+            # implicitamente em TODA query, inclusive dentro da própria
+            # checagem de arquivada_em — contar "a 1ª chamada de flush" pausaria
+            # cedo demais, ANTES da checagem rodar). Há exatamente 1 db.commit()
+            # no caminho de sucesso: neste ponto a checagem já rodou e passou,
+            # o INSERT da solicitação já foi feito (flush), só falta commitar.
+            original_commit = session.commit
+
+            def paused_commit(*a, **kw):
+                checked.set()
+                if not proceed.wait(timeout=15):
+                    raise TimeoutError("T2 não sinalizou proceed a tempo")
+                return original_commit(*a, **kw)
+
+            session.commit = paused_commit
+            # `alterar_anfitriao` (não `remover_membro`/`transferir_membro`):
+            # a tela do líder não pode abrir tipos de MEMBRO
+            # (`_reject_member_tipo` — M7B-W1.3, 403); a referência de pessoa
+            # via payload JSONB é a mesma coisa que já provei em
+            # `test_create_cell_request_refuses_referenced_pessoa_arquivada_jsonb`.
+            body = cell_requests_router.CreateCellRequest(
+                celula_id=str(celula_id),
+                tipo="alterar_anfitriao",
+                payload_proposto={"anfitriao_id": str(alvo_id)},
+            )
+            out = cell_requests_router.create_cell_request(
+                body, db=session, current_user=current_user
+            )
+            result["sol_id"] = out.id
+        except Exception as exc:  # noqa: BLE001
+            result["t1_error"] = repr(exc)
+        finally:
+            session.close()
+
+    def t2_archive() -> None:
+        if not checked.wait(timeout=15):
+            result["t2_error"] = "timeout esperando T1 chegar na pausa"
+            return
+        session = factory()
+        try:
+            pessoa = session.get(Pessoa, alvo_id)
+            svc.archive_pessoa(
+                session, pessoa=pessoa, actor_app_user_id=ctx["ator_id"], motivo="saiu"
+            )
+        except Exception as exc:  # noqa: BLE001
+            result["t2_error"] = repr(exc)
+        finally:
+            proceed.set()  # libera T1 mesmo se T2 falhar (não trava o teste)
+            session.close()
+
+    t1 = threading.Thread(target=t1_create_cell_request)
+    t2 = threading.Thread(target=t2_archive)
+    t1.start()
+    t2.start()
+    t1.join(timeout=20)
+    t2.join(timeout=20)
+
+    assert "t1_error" not in result, result.get("t1_error")
+    assert "t2_error" not in result, result.get("t2_error")
+    assert "sol_id" in result, "create_cell_request deveria completar (estado transitório aceito)"
+
+    session = factory()
+    try:
+        pessoa_db = session.get(Pessoa, alvo_id)
+        assert pessoa_db.arquivada_em is not None, "archive deveria ter vencido a corrida"
+
+        sol_db = session.get(CelulaSolicitacao, uuid.UUID(str(result["sol_id"])))
+        assert sol_db is not None, "a solicitação criada por T1 deve existir (commit efetivou)"
+        assert sol_db.status == "aguardando"
+        assert sol_db.payload_proposto.get("anfitriao_id") == str(alvo_id)
+
+        # Nenhum vínculo/responsabilidade foi concedido — só a linha nasceu.
+        membro = session.execute(
+            select(CelulaMembro).where(CelulaMembro.pessoa_id == alvo_id)
+        ).scalar_one_or_none()
+        assert membro is None
+    finally:
+        session.close()
+
+
+@pytest.mark.rls_integration
+def test_cancel_solicitacao_referencing_arquivada_pessoa_still_works(
+    factory: sessionmaker,
+) -> None:
+    """Parte do contrato aceito do estado transitório: `cancel`/`reject`
+    continuam limpando a solicitação normalmente mesmo referenciando uma
+    pessoa já arquivada (nenhuma trava nova em cancel/reject — eles não
+    tocam Pessoa, só o estado da própria solicitação)."""
+    session = factory()
+    ctx = _base(session)
+    lider_id = _mk_pessoa(session, ctx["igreja_id"], nome="Líder")
+    celula_id = _mk_celula(session, ctx["igreja_id"], lider_id=lider_id)
+    alvo_id = _mk_pessoa(session, ctx["igreja_id"], nome="Alvo")
+    sol_id = uuid.uuid4()
+    session.add(
+        CelulaSolicitacao(
+            id=sol_id,
+            igreja_id=ctx["igreja_id"],
+            celula_id=celula_id,
+            pessoa_id=alvo_id,
+            tipo="remover_membro",
+            status="aguardando",
+            payload_proposto={"pessoa_id": str(alvo_id)},
+        )
+    )
+    session.commit()
+    # Estado transitório aceito (ver teste de corrida acima) — aqui só se
+    # testa a REAÇÃO de cancel/reject a ele, então um UPDATE direto é
+    # suficiente e honesto (a prova de alcançabilidade é o teste de threads).
+    session.execute(
+        text("update pessoas set arquivada_em = now() where id = :id"), {"id": alvo_id}
+    )
+    session.commit()
+    session.close()
+
+    session = factory()
+    try:
+        solicitacao = session.get(CelulaSolicitacao, sol_id)
+        cancelada = cell_requests_service.cancel(
+            session, solicitacao=solicitacao, actor_pessoa_id=lider_id
+        )
+        assert cancelada.status == "cancelada"
+    finally:
+        session.close()
+
+    session = factory()
+    try:
+        sol_db = session.get(CelulaSolicitacao, sol_id)
+        assert sol_db.status == "cancelada"
+        eventos = session.execute(
+            select(func.count())
+            .select_from(CelulaSolicitacaoEvento)
+            .where(
+                CelulaSolicitacaoEvento.solicitacao_id == sol_id,
+                CelulaSolicitacaoEvento.acao == "cancelada",
+            )
+        ).scalar_one()
+        assert eventos == 1, "cancel deve gravar a auditoria normalmente"
+    finally:
+        session.close()
+
+
+# ---------------------------------------------------------------------------
+# 2ª revisão externa PR#163 — BLOCKER: upsert_cell aceitava pessoa arquivada
+# em liderId/anfitriaoId/auxiliarId.
+# ---------------------------------------------------------------------------
+@pytest.mark.rls_integration
+def test_archive_vs_upsert_cell_concurrent_lider_never_both(
+    factory: sessionmaker,
+) -> None:
+    """Prova real de concorrência (2 threads/2 transações reais, sincronização
+    determinística via ``threading.Barrier`` — sem depender de sorte de
+    timing) entre ``archive_pessoa(X)`` e ``upsert_cell(liderId=X)``.
+
+    A guarda nova em ``upsert_cell``
+    (``assert_pessoas_nao_arquivadas(..., for_update=True)``) trava a MESMA
+    linha de Pessoa que ``archive_pessoa`` trava (mesmo padrão SEC-4B,
+    ``db.refresh(pessoa, with_for_update=True)``) — as duas operações
+    serializam na MESMA ordem de lock (uma única Pessoa aqui; ver docstring de
+    ``assert_pessoas_nao_arquivadas`` para o caso de múltiplas pessoas
+    ordenadas). Só um estado pode vencer:
+      - responsabilidade CRIADA (célula com líder=X) e archive BLOQUEADO
+        depois (bloqueador `celula_lider`, já existente na matriz), OU
+      - X ARQUIVADA e upsert RECUSADO (409, nenhuma célula criada).
+    Nunca uma célula com líder já arquivado.
+    """
+    session_setup = factory()
+    ctx = _base(session_setup)
+    alvo_id = _mk_pessoa(
+        session_setup, ctx["igreja_id"], nome="Alvo líder", apto_lider=True
+    )
+    session_setup.commit()
+    session_setup.close()
+
+    barrier = threading.Barrier(2)
+    out: dict[str, tuple] = {}
+
+    def worker_upsert() -> None:
+        session = factory()
+        try:
+            current_user = CurrentUser(
+                app_user_id=str(ctx["ator_id"]),
+                clerk_user_id="clerk_pastor",
+                igreja_id=str(ctx["igreja_id"]),
+                email="pastor@teste.com",
+                nome="Pastor",
+                roles=frozenset({"pastor"}),
+            )
+            body = cells_router.UpsertCellRequest(
+                nome="Nova Célula",
+                coberturaEspiritual="Rede",
+                liderId=str(alvo_id),
+            )
+            barrier.wait(timeout=15)
+            cells_router.upsert_cell(body, db=session, current_user=current_user)
+            out["upsert"] = ("ok", None)
+        except HTTPException as exc:
+            out["upsert"] = ("http", exc.status_code)
+        except MembroInelegivelError as exc:
+            out["upsert"] = ("membro_inelegivel", exc.code)
+        finally:
+            session.close()
+
+    def worker_archive() -> None:
+        session = factory()
+        try:
+            pessoa = session.get(Pessoa, alvo_id)
+            barrier.wait(timeout=15)
+            svc.archive_pessoa(
+                session, pessoa=pessoa, actor_app_user_id=ctx["ator_id"], motivo="saiu"
+            )
+            out["archive"] = ("ok", None)
+        except HTTPException as exc:
+            out["archive"] = ("http", exc.status_code)
+        finally:
+            session.close()
+
+    threads = [
+        threading.Thread(target=worker_upsert),
+        threading.Thread(target=worker_archive),
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=20)
+
+    assert "upsert" in out and "archive" in out, out
+
+    session = factory()
+    try:
+        pessoa_db = session.get(Pessoa, alvo_id)
+        celulas_com_lider = session.execute(
+            select(Celula).where(Celula.lider_id == alvo_id)
+        ).scalars().all()
+
+        arquivada = pessoa_db.arquivada_em is not None
+        tem_celula = len(celulas_com_lider) > 0
+
+        # Nunca os dois: célula com líder + pessoa arquivada ao mesmo tempo.
+        assert not (arquivada and tem_celula), (
+            "célula não pode ter líder já arquivado",
+            out,
+            arquivada,
+            tem_celula,
+        )
+        # Exatamente um dos dois efeitos venceu (o outro foi recusado).
+        assert arquivada or tem_celula, out
+        if tem_celula:
+            assert out["archive"] == ("http", 409), out
+            assert out["upsert"] == ("ok", None), out
+        else:
+            assert arquivada
+            assert out["upsert"][0] in ("http", "membro_inelegivel"), out
     finally:
         session.close()
 
