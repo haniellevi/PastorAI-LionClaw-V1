@@ -143,23 +143,26 @@ def assert_pessoas_nao_arquivadas(
     `celula_lider`/`celula_anfitriao`/`celula_auxiliar`/`celula_membro_ativo`
     já existente, OU pessoa arquivada + este assert recusando).
 
-    ``populate_existing=True`` (investigado na 3ª revisão externa PR#163): a
-    hipótese era que, se a MESMA Pessoa já estivesse no identity map da
-    Session (carregada antes, em outra checagem, na mesma Session), um
-    `SELECT ... FOR UPDATE` subsequente devolveria o objeto Python JÁ
-    CACHEADO sem atualizar `arquivada_em` a partir da linha fresca do
-    Postgres — mesmo com o lock tendo esperado e lido o valor certo no banco.
-    `test_assert_pessoas_nao_arquivadas_for_update_ignores_stale_identity_map`
-    prova a Pessoa realmente arquivada por outra conexão sendo detectada após
-    já estar no identity map desta Session — e CONTINUA passando mesmo sem
-    esta opção: nesta versão do SQLAlchemy (2.0.46), `Session.execute(select(
-    Entity).where(...).with_for_update())` já sobrescreve os atributos do
-    objeto já presente com os valores da linha lida (só `populate_existing()`
-    de coleções/relacionamentos eager-loaded tem a proteção "não sobrescreve"
-    documentada — não colunas escalares simples como esta). Mantido mesmo
-    assim como defesa em profundidade explícita e documentada (barato, sem
-    efeito colateral) — não depende de um detalhe de implementação não
-    documentado do carregador da ORM se manter estável entre versões.
+    ``populate_existing=True`` (BLOCKER real, confirmado na 4ª revisão externa
+    PR#163): se a MESMA Pessoa já estiver no identity map da Session — carregada
+    antes por ESTE ou por OUTRO call site que segure uma referência Python viva
+    ao objeto (ex.: `cell_requests_service._apply_payload`, que guarda `pessoa`
+    numa variável local usada em várias linhas após a 1ª leitura) — um `SELECT
+    ... FOR UPDATE` subsequente, SEM `populate_existing`, devolve o MESMO objeto
+    Python já presente, com `arquivada_em` desatualizado, mesmo com o lock tendo
+    esperado e lido a linha certa no Postgres (o SELECT roda, o lock é real, mas
+    o RESULTADO não é aplicado ao objeto já mapeado). A 3ª rodada desta revisão
+    chegou a marcar isso como "não reproduz" — o teste daquela rodada estava
+    ERRADO: sem uma referência Python forte mantida viva propositalmente, o
+    identity map (que guarda referência FRACA por padrão) deixava o GC coletar o
+    objeto entre as duas leituras, e a "prova" de que não precisava de
+    `populate_existing` era só o efeito colateral de reconstruir um objeto novo,
+    não de o SQLAlchemy atualizar o antigo.
+    `test_assert_pessoas_nao_arquivadas_for_update_refreshes_strongly_referenced_object`
+    mantém uma referência forte deliberada (`pessoa_ref`) viva durante todo o
+    cenário e prova: sem esta opção, o assert NÃO detecta o arquivamento
+    concorrente (`DID NOT RAISE`); com ela, detecta e atualiza `arquivada_em`
+    IN PLACE no mesmo objeto.
 
     Uma lookup por id (só igualdade — ``id ==`` / ``igreja_id ==``) em vez de
     `IN`: a lista de referências por payload é pequena (poucas unidades) e a

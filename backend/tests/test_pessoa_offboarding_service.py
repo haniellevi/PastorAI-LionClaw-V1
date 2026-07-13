@@ -2286,39 +2286,48 @@ def test_consolidacao_check_constraint_rejects_concluida_and_abandonada(
 # como defesa em profundidade (consistência com o padrão SEC-4B já usado em
 # `upsert_cell`/`archive_pessoa`), não como fechamento de um exploit vivo —
 # ver relatório da 3ª rodada para a análise completa.
+#
+# CORREÇÃO (4ª rodada — a versão anterior deste teste estava errada): o
+# identity map da Session, por padrão, guarda referência FRACA (`weakref`)
+# aos objetos ORM. Sem NADA segurando uma referência forte ao objeto Pessoa
+# entre as duas chamadas, o Python podia coletar o objeto (GC) antes da 2ª
+# chamada — que então montava um objeto NOVO com dado fresco, não porque
+# `SELECT ... FOR UPDATE` "atualiza objeto cacheado" (não atualiza, por
+# padrão, sem `populate_existing`), mas porque não havia objeto cacheado
+# nenhum sobrevivendo para testar. O teste original não reproduzia o cenário
+# real (produção mantém referências fortes vivas — ex.: `_apply_payload` em
+# `cell_requests_service.py` guarda `pessoa` numa variável local usada por
+# várias linhas depois da 1ª leitura). Este teste corrige isso mantendo uma
+# referência forte explícita (`pessoa_ref`) viva durante todo o cenário.
 # ---------------------------------------------------------------------------
 @pytest.mark.rls_integration
-def test_assert_pessoas_nao_arquivadas_for_update_ignores_stale_identity_map(
+def test_assert_pessoas_nao_arquivadas_for_update_refreshes_strongly_referenced_object(
     factory: sessionmaker,
 ) -> None:
     """Prova que `assert_pessoas_nao_arquivadas(..., for_update=True)`
-    detecta corretamente uma Pessoa arquivada por OUTRA conexão/transação
-    mesmo depois de já ter sido lida (sem lock) e cacheada no identity map
-    desta MESMA Session — cenário que a hipótese de bug de identity map da 3ª
-    revisão externa descrevia. NOTA HONESTA: este teste passa COM e SEM
-    `.execution_options(populate_existing=True)` em `assert_pessoas_nao_
-    arquivadas` (verificado com `git stash` isolando só essa linha) — nesta
-    versão do SQLAlchemy (2.0.46), o `SELECT ... FOR UPDATE` já sobrescreve
-    os atributos do objeto já presente com os valores frescos da linha por
-    padrão para colunas escalares simples como esta (a proteção "não
-    sobrescreve objeto já carregado" documentada em `populate_existing()` é
-    sobre coleções/relacionamentos eager-loaded, não sobre isto). A hipótese
-    original de bug não se confirmou; `populate_existing=True` é mantido como
-    defesa em profundidade explícita (não depende de um detalhe de
-    implementação não documentado do carregador da ORM), e este teste
-    continua valioso como regressão do comportamento correto do lock em si.
+    atualiza `arquivada_em` no MESMO objeto Python já presente no identity
+    map — mesmo quando uma referência FORTE ao objeto é mantida viva pelo
+    teste (`pessoa_ref`), impedindo o Python de coletar (GC) o objeto entre
+    as duas leituras (o que mascarava o cenário real na versão anterior deste
+    teste). `populate_existing=True` é o que força essa atualização;
+    `SELECT ... FOR UPDATE` sozinho NÃO reescreve atributos de um objeto já
+    carregado por padrão. Remover `.execution_options(populate_existing=
+    True)` de `assert_pessoas_nao_arquivadas` (celula_membro.py) faz este
+    teste falhar de verdade — verificado com `git stash` isolando só essa
+    linha (ver relatório da 4ª rodada).
     """
     session_a = factory()
     ctx = _base(session_a)
     pessoa_id = _mk_pessoa(session_a, ctx["igreja_id"])
     session_a.commit()
 
-    # Popula o identity map de session_a com a Pessoa NÃO arquivada — a MESMA
-    # leitura desprotegida que `create_cell_request` faz (for_update=False),
-    # simulando um call site que já tocou esta Pessoa antes do lock.
-    assert_pessoas_nao_arquivadas(
-        session_a, igreja_id=ctx["igreja_id"], pessoa_ids=[pessoa_id], for_update=False
-    )
+    # Referência FORTE mantida viva pelo teste — impede o GC de coletar o
+    # objeto entre as duas leituras (a lacuna do teste anterior). Mesma leitura
+    # desprotegida que `create_cell_request` faz (for_update=False).
+    pessoa_ref = session_a.execute(
+        select(Pessoa).where(Pessoa.id == pessoa_id)
+    ).scalar_one()
+    assert pessoa_ref.arquivada_em is None
 
     # Outra CONEXÃO real arquiva e commita — session_a nunca viu essa escrita.
     session_b = factory()
@@ -2330,20 +2339,30 @@ def test_assert_pessoas_nao_arquivadas_for_update_ignores_stale_identity_map(
     finally:
         session_b.close()
 
+    # `pessoa_ref` ainda é o MESMO objeto Python (identity map não expirou
+    # nem foi coletado — a referência forte garante isso) e AINDA mostra o
+    # valor stale até a próxima leitura sob `populate_existing`.
+    assert pessoa_ref.arquivada_em is None, (
+        "pré-condição: pessoa_ref deve continuar stale antes da releitura"
+    )
+
     try:
         with pytest.raises(MembroInelegivelError) as exc_info:
             assert_pessoas_nao_arquivadas(
                 session_a, igreja_id=ctx["igreja_id"], pessoa_ids=[pessoa_id], for_update=True
             )
         assert exc_info.value.code == "pessoa_arquivada"
+
+        # Prova de que é o MESMO objeto Python (identity), não um novo objeto
+        # criado do zero: `populate_existing=True` atualizou `arquivada_em`
+        # IN PLACE na referência forte que o teste segurou o tempo todo.
+        assert pessoa_ref.arquivada_em is not None, (
+            "populate_existing=True deveria ter atualizado o objeto já "
+            "presente no identity map, não apenas retornado um novo"
+        )
     finally:
         session_a.rollback()
         session_a.close()
-
-
-
-
-
 
 def _approve_vs_archive_race(
     factory: sessionmaker,
