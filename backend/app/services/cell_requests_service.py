@@ -50,9 +50,15 @@ from app.domain.cell_requests import (
     TIPO_MULTIPLICACAO,
     TIPO_REMOVER_MEMBRO,
     TIPO_TRANSFERIR_MEMBRO,
+    referenced_pessoa_ids,
 )
 from app.services.cell_multiplication_service import execute_multiplication
-from app.services.celula_membro import assert_membro_elegivel, promote_tipo_para_membro
+from app.services.celula_membro import (
+    MembroInelegivelError,
+    assert_membro_elegivel,
+    assert_pessoas_nao_arquivadas,
+    promote_tipo_para_membro,
+)
 
 
 def _now() -> dt.datetime:
@@ -258,6 +264,22 @@ def approve(
             status_code=status.HTTP_409_CONFLICT,
             detail="Solicitação não está aguardando aprovação",
         )
+
+    # W3.2A: revalida SOB O LOCK — a pessoa referenciada pode ter sido
+    # arquivada entre a criação da solicitação e esta aprovação (fecha o
+    # TOCTOU; revisão externa PR#163). Mesmo padrão de rollback-antes-do-raise
+    # das checagens acima.
+    try:
+        assert_pessoas_nao_arquivadas(
+            db,
+            igreja_id=solicitacao.igreja_id,
+            pessoa_ids=referenced_pessoa_ids(
+                solicitacao.tipo, solicitacao.payload_proposto or {}
+            ),
+        )
+    except MembroInelegivelError:
+        db.rollback()
+        raise
 
     if solicitacao.tipo == TIPO_MULTIPLICACAO:
         key = (idempotency_key or "").strip()

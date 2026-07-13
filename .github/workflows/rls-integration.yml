@@ -82,6 +82,13 @@ jobs:
             tests/test_pessoa_arquivamento_migration.py \
             tests/test_pessoa_offboarding_service.py
 
+      - name: Rodar test_pessoa_offboarding_router.py (offline, FakeSession — sem marker/Postgres)
+        # Sem `-m rls_integration`: os testes deste arquivo não usam Postgres
+        # (403/404/422 via FakeSession, mesma técnica de test_team_revoke.py),
+        # então não são marcados — e ficariam sem NENHUMA execução em CI se
+        # só corressem no passo acima (que filtra por marker).
+        run: pytest -o addopts= -rA tests/test_pessoa_offboarding_router.py
+
       - name: Falhar se T1-T6 nao executaram de fato (0 coletados / todos skip)
         run: |
           python - <<'PY'

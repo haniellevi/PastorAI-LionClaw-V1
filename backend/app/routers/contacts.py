@@ -334,6 +334,12 @@ class ArchiveContactResponse(BaseModel):
     arquivada_em: str
     arquivada_por: str | None
     arquivada_motivo: str
+    # W3.2A (revisão externa PR#163): sinaliza explicitamente quando a chamada
+    # foi um no-op idempotente (pessoa já estava arquivada) — o cliente não
+    # tem como distinguir "acabei de arquivar" de "já estava arquivada" só
+    # olhando `arquivada=true`. `arquivada_motivo`/`arquivada_por` nesse caso
+    # são sempre os do arquivamento ORIGINAL, nunca sobrescritos.
+    ja_arquivada: bool
 
 
 # ---------------------------------------------------------------------------
@@ -716,7 +722,7 @@ def archive_contact(
     própria pessoa é encerrada como "abandonada" na mesma transação.
     """
     pessoa = _get_pessoa_or_404(db, pessoa_id)
-    pessoa, _ja_arquivada = pessoa_offboarding_service.archive_pessoa(
+    pessoa, ja_arquivada = pessoa_offboarding_service.archive_pessoa(
         db,
         pessoa=pessoa,
         actor_app_user_id=uuid.UUID(current_user.app_user_id),
@@ -728,4 +734,5 @@ def archive_contact(
         arquivada_em=pessoa.arquivada_em.isoformat(),
         arquivada_por=str(pessoa.arquivada_por) if pessoa.arquivada_por else None,
         arquivada_motivo=pessoa.arquivada_motivo or "",
+        ja_arquivada=ja_arquivada,
     )

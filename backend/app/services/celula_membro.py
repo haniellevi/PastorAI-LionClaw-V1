@@ -28,16 +28,23 @@ _TIPOS_PROMOVIVEIS_A_MEMBRO: frozenset[str | None] = frozenset(
 
 
 class MembroInelegivelError(ValueError):
-    """Missão M7B-W1.2: a pessoa não pode ter vínculo ATIVO de célula.
+    """A pessoa não pode receber um vínculo/responsabilidade ministerial.
 
-    Regras ministeriais (fonte: célula = discípulos daquela célula):
+    Regras (fonte: célula = discípulos daquela célula; W3.2A estende ao
+    arquivamento de Pessoa):
       * ``pastor`` nunca é membro de célula;
       * o líder indicado em ``celulas.lider_id`` nunca é membro da PRÓPRIA célula;
-      * o número conectado ao WhatsApp/Evolution da igreja não participa de célula.
+      * o número conectado ao WhatsApp/Evolution da igreja não participa de célula;
+      * uma Pessoa ARQUIVADA (``arquivada_em`` preenchido) não pode receber NENHUM
+        vínculo/responsabilidade ministerial novo — invariante de domínio (W3.2A,
+        revisão externa da PR#163): o arquivamento não pode ser silenciosamente
+        desfeito por um write-path que ignore a coluna.
 
-    Levantada no seam canônico (``ensure_active_membro``) e no único caller que
-    escreve fora dele (``cells.add_cell_member``). ``code`` é o rótulo estável
-    para o cliente; o handler global em ``app.main`` mapeia para HTTP 409.
+    Levantada no seam canônico (``ensure_active_membro``), no caller que escreve
+    fora dele (``cells.add_cell_member``) e na validação de referências de Pessoa
+    em ``celula_solicitacao`` (``assert_pessoas_nao_arquivadas`` — criação e
+    reaprovação sob lock). ``code`` é o rótulo estável para o cliente; o handler
+    global em ``app.main`` mapeia para HTTP 409.
     """
 
     def __init__(self, code: str, message: str) -> None:
@@ -77,6 +84,12 @@ def assert_membro_elegivel(
     Usa ``getattr`` porque os fakes de teste modelam a pessoa/célula como
     ``SimpleNamespace`` parcial; em produção os atributos são colunas reais.
     """
+    if getattr(pessoa, "arquivada_em", None) is not None:
+        raise MembroInelegivelError(
+            "pessoa_arquivada",
+            "Pessoa arquivada não pode receber novos vínculos ministeriais.",
+        )
+
     if (getattr(pessoa, "tipo", None) or "").lower() == "pastor":
         raise MembroInelegivelError(
             "pastor_nao_pode_ser_membro",
@@ -97,6 +110,40 @@ def assert_membro_elegivel(
             "numero_whatsapp_nao_participa",
             "O número conectado ao WhatsApp da igreja não pode participar de célula.",
         )
+
+
+def assert_pessoas_nao_arquivadas(
+    db: Session, *, igreja_id: uuid.UUID, pessoa_ids: list[uuid.UUID | str]
+) -> None:
+    """Recusa (``MembroInelegivelError``) se ALGUMA de `pessoa_ids` estiver arquivada.
+
+    Guarda usada por ``cell_requests.create_cell_request`` (antes de qualquer
+    escrita) e por ``cell_requests_service.approve`` (revalidado DENTRO da
+    transação travada da solicitação — fecha o TOCTOU: a pessoa referenciada
+    pode ter sido arquivada entre a criação e a aprovação). IDs vazios/None são
+    ignorados; duplicatas são deduplicadas antes das queries. Uma lookup por id
+    (só igualdade — ``id ==`` / ``igreja_id ==``) em vez de `IN`: a lista de
+    referências por payload é pequena (poucas unidades) e a checagem em Python
+    de `arquivada_em` evita depender de operadores compostos (`IN`/`IS NOT
+    NULL`) que o harness de teste offline (`cell_backend_fakes.py`) não
+    interpreta — mesmo padrão de `_assert_pessoa_in_tenant`.
+    """
+    seen: set[uuid.UUID] = set()
+    for raw_id in pessoa_ids:
+        if not raw_id:
+            continue
+        pid = uuid.UUID(str(raw_id))
+        if pid in seen:
+            continue
+        seen.add(pid)
+        pessoa = db.execute(
+            select(Pessoa).where(Pessoa.id == pid, Pessoa.igreja_id == igreja_id)
+        ).scalar_one_or_none()
+        if pessoa is not None and getattr(pessoa, "arquivada_em", None) is not None:
+            raise MembroInelegivelError(
+                "pessoa_arquivada",
+                "Pessoa arquivada não pode receber novos vínculos ministeriais.",
+            )
 
 
 def phone_matches_active_whatsapp(

@@ -16,6 +16,7 @@ import uuid
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Date,
     DateTime,
     ForeignKey,
@@ -933,6 +934,14 @@ class Consolidacao(Base):
     """Individual consolidation track for a person (US-38/39, delta-018)."""
 
     __tablename__ = "consolidacoes"
+    __table_args__ = (
+        # W3.2A: uma consolidação não pode estar concluída E abandonada ao
+        # mesmo tempo — mutuamente exclusivos (revisão externa PR#163).
+        CheckConstraint(
+            "not (concluida = true and abandonada_em is not null)",
+            name="consolidacoes_concluida_abandonada_excl_chk",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     igreja_id: Mapped[uuid.UUID] = mapped_column(

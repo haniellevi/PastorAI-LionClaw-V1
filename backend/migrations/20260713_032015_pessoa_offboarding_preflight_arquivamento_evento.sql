@@ -12,7 +12,10 @@
 --       coluna de status (só `concluida boolean` + `progresso int`) — sem enum
 --       a estender, este par de colunas nullable espelha exatamente o padrão
 --       `pessoas.arquivada_em/motivo` da migration 20260713_013054 (W3.1), sem
---       inventar enum/estado novo.
+--       inventar enum/estado novo. CHECK garante exclusividade mútua
+--       concluida/abandonada (revisão externa PR#163): sem ela, um
+--       advance_stage concorrente ao archive poderia produzir uma linha
+--       concluida=true E abandonada_em preenchido simultaneamente.
 --
 --   (2) pessoa_arquivamento_evento — trilha de auditoria APPEND-ONLY dos
 --       eventos de arquivamento de Pessoa. `platform_audit_log` NÃO serve:
@@ -41,6 +44,12 @@ comment on column consolidacoes.abandonada_em is
   'W3.2A: consolidação encerrada como abandonada (efeito automático do arquivamento de Pessoa). NULL = não abandonada. Independente de concluida.';
 comment on column consolidacoes.abandonada_motivo is
   'W3.2A: motivo técnico do abandono (ex.: arquivamento da Pessoa).';
+
+do $$ begin
+  alter table consolidacoes
+    add constraint consolidacoes_concluida_abandonada_excl_chk
+    check (not (concluida = true and abandonada_em is not null));
+exception when duplicate_object then null; end $$;
 
 -- ----------------------------------------------------------------------------
 -- (2) pessoa_arquivamento_evento — trilha append-only

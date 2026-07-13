@@ -78,6 +78,17 @@ class PreflightResult:
 
 # Categorias SEMPRE preservadas pelo arquivamento (política, não consulta por
 # linha — o contrato garante que estas tabelas nunca são tocadas pelo archive).
+#
+# `celula_expectativa_visitante.pessoa_id` (revisão externa PR#163) foi
+# avaliada e NÃO é bloqueador: (1) criar uma linha NOVA já exige vínculo ATIVO
+# em celula_membro na própria célula (cell_discipulo.py: 403 "Você não tem
+# vínculo ativo na célula desta reunião") — esse pré-requisito já é o
+# bloqueador `celula_membro_ativo` existente; (2) nenhum cron/notificação/ação
+# automatizada lê `pessoa_id` desta tabela para agir no futuro — os únicos 2
+# leitores (`cell_health_service.py` para o sinal de saúde da reunião,
+# `cell_discipulo.py` para o discípulo listar as PRÓPRIAS expectativas) são
+# ambos read-only de histórico/relatório, mesma categoria de `celula_presenca`
+# (já preservada abaixo). Entra aqui como preservado, não como bloqueador.
 _PRESERVADOS_FIXOS: tuple[PreflightItem, ...] = (
     PreflightItem(
         tipo="conversas_mensagens", rotulo="Conversas e mensagens do WhatsApp"
@@ -88,6 +99,10 @@ _PRESERVADOS_FIXOS: tuple[PreflightItem, ...] = (
     PreflightItem(tipo="decisoes", rotulo="Decisões por Jesus"),
     PreflightItem(
         tipo="presencas_reuniao", rotulo="Presenças em reuniões de célula"
+    ),
+    PreflightItem(
+        tipo="expectativas_visitante",
+        rotulo="Expectativas de visitante registradas em reuniões de célula",
     ),
     PreflightItem(
         tipo="logs_ia", rotulo="Logs de uso e conversas do agente de IA"
@@ -201,11 +216,20 @@ def preflight_archive(
                 )
             )
 
-    # 4) discípulos vinculados (pessoas.lider_id == pessoa.id).
+    # 4) discípulos vinculados (pessoas.lider_id == pessoa.id) — só os NÃO
+    # arquivados contam: um discípulo já arquivado não é mais uma dependência
+    # ativa e não pode travar o arquivamento do líder indefinidamente (revisão
+    # externa da PR#163). `lider_id` não tem writer em produção hoje (só
+    # seed/dev), mas o cálculo do bloqueador precisa estar correto de qualquer
+    # forma — não há remediação (endpoint de escrita) para desvincular.
     discipulos_count = db.execute(
         select(func.count())
         .select_from(Pessoa)
-        .where(Pessoa.igreja_id == igreja_id, Pessoa.lider_id == pessoa_id)
+        .where(
+            Pessoa.igreja_id == igreja_id,
+            Pessoa.lider_id == pessoa_id,
+            Pessoa.arquivada_em.is_(None),
+        )
     ).scalar_one()
     if discipulos_count:
         bloqueadores.append(
@@ -496,13 +520,22 @@ def archive_pessoa(
     try:
         agora = dt.datetime.now(dt.timezone.utc)
 
+        # FOR UPDATE: estas linhas estão prestes a ser escritas (abandonada_em).
+        # Serializa contra pipeline.advance_stage, que trava a MESMA linha com
+        # o mesmo with_for_update() — sem isso, um advance_stage concorrente
+        # poderia concluir a consolidação entre esta leitura e a escrita abaixo,
+        # produzindo concluida=true E abandonada_em preenchido (revisão externa
+        # PR#163; a exclusividade mútua é também garantida pelo CHECK do banco,
+        # este lock evita a corrida ANTES do CHECK precisar intervir).
         consolidacoes_abertas = db.execute(
-            select(Consolidacao).where(
+            select(Consolidacao)
+            .where(
                 Consolidacao.igreja_id == pessoa.igreja_id,
                 Consolidacao.pessoa_id == pessoa.id,
                 Consolidacao.concluida.is_(False),
                 Consolidacao.abandonada_em.is_(None),
             )
+            .with_for_update()
         ).scalars().all()
         for cons in consolidacoes_abertas:
             cons.abandonada_em = agora
