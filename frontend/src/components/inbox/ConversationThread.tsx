@@ -18,6 +18,9 @@
 import { useEffect, useRef, useState } from "react";
 
 import { StatusPill } from "@/components/dashboard/StatusPill";
+import { DsBanner } from "@/components/ds/Banner";
+import { DsButton } from "@/components/ds/Button";
+import { DsIconButton } from "@/components/ds/IconButton";
 import type { ChatMessage, Conversation } from "@/lib/conversations-api";
 import { Icon } from "@/lib/icons";
 
@@ -394,9 +397,9 @@ export function ConversationThread({
         <div className="ctrl">
           <StatusPill tone={pill.tone}>{pill.label}</StatusPill>
           {isMine ? (
-            <button
-              type="button"
-              className="btn btn-sm"
+            // Devolver é ação SECUNDÁRIA (Gate 8) — mesma regra/callback.
+            <DsButton
+              variant="secondary"
               onClick={() => onReturn(conversation)}
               disabled={busy}
               aria-label="Devolver para a IA"
@@ -404,11 +407,10 @@ export function ConversationThread({
             >
               <Icon name="sparkles" />
               <span>Devolver para a IA</span>
-            </button>
+            </DsButton>
           ) : (
-            <button
-              type="button"
-              className="btn btn-sm btn-primary"
+            // Assumir (pausar IA) é a ação operacional PRINCIPAL — azul mineral.
+            <DsButton
               onClick={() => onAssume(conversation)}
               disabled={busy || heldByOther}
               aria-label="Assumir (pausar IA)"
@@ -420,67 +422,51 @@ export function ConversationThread({
             >
               <Icon name="user" />
               <span>Assumir (pausar IA)</span>
-            </button>
+            </DsButton>
           )}
           {isMine || isAdmin ? (
-            <button
-              type="button"
-              className="btn btn-sm btn-icon thread-tool"
-              onClick={() => onTransfer(conversation)}
-              title="Transferir conversa"
-              aria-label="Transferir conversa"
-            >
+            <DsIconButton label="Transferir conversa" onClick={() => onTransfer(conversation)}>
               <Icon name="transfer" />
-            </button>
+            </DsIconButton>
           ) : null}
-          <button
-            type="button"
-            className={`btn btn-sm btn-icon thread-tool${panelOpen ? " active" : ""}`}
+          <DsIconButton
+            label="Dados do contato"
             onClick={onTogglePanel}
-            title="Dados do contato"
-            aria-label="Dados do contato"
             aria-pressed={panelOpen}
+            className={panelOpen ? "ib-tool-active" : undefined}
           >
             <Icon name="info" />
-          </button>
+          </DsIconButton>
           {isAdmin ? (
-            <button
-              type="button"
-              className="btn btn-sm btn-icon thread-tool danger"
+            // Excluir: restrita (admin), perigosa — coral, nunca compete com a principal.
+            <DsIconButton
+              label="Excluir conversa"
               onClick={() => onDelete(conversation)}
-              title="Excluir conversa"
-              aria-label="Excluir conversa"
+              className="ib-tool-danger"
             >
               <Icon name="trash" />
-            </button>
+            </DsIconButton>
           ) : null}
         </div>
       </div>
 
-      <div className={`ia-banner ${copy.bannerClass}`}>
-        <Icon name={estado === "ia" ? "sparkles" : "user"} />
-        <span>{copy.bannerText}</span>
-      </div>
-
-      {heldByOther ? (
-        <div className="degraded-banner">
-          <Icon name="alert" />
-          <span>
+      {/* Banners informam sem dominar a conversa (Gate 8): compactos, borda
+          1px completa, texto no tom do estado. Mesmos textos e condições. */}
+      <div className="ib-banners">
+        <DsBanner kind="info">{copy.bannerText}</DsBanner>
+        {heldByOther ? (
+          <DsBanner kind="warning">
             {conflict ??
               `Em atendimento por ${holderName ?? "outro líder"}. Você não pode assumir agora.`}
-          </span>
-        </div>
-      ) : null}
-
-      {degraded ? (
-        <div className="degraded-banner">
-          <Icon name="alert" />
-          <span>
+          </DsBanner>
+        ) : null}
+        {degraded ? (
+          <DsBanner kind="degraded">
             WhatsApp indisponível (offline ou reconectando). O envio de respostas está
             desabilitado até a conexão ser restabelecida.
-          </span>
-        </div>
-      ) : null}
+          </DsBanner>
+        ) : null}
+      </div>
 
       <div className="thread-body" ref={bodyRef}>
         {messagesLoading && messages.length === 0 ? (
@@ -548,40 +534,30 @@ export function ConversationThread({
             <span className="rec-dot" aria-hidden="true" />
             <span className="rec-time">{fmtSecs(recSecs)}</span>
             <span className="rec-label">Gravando áudio…</span>
-            <button type="button" className="btn btn-sm" onClick={cancelRecording}>
+            <DsButton variant="tertiary" onClick={cancelRecording}>
               Cancelar
-            </button>
-            <button
-              type="button"
-              className="btn btn-sm btn-primary"
-              onClick={finishRecording}
-            >
+            </DsButton>
+            <DsButton onClick={finishRecording}>
               <Icon name="check" />
               <span>Pronto</span>
-            </button>
+            </DsButton>
           </div>
         ) : (
           <>
-            <button
-              type="button"
-              className="btn btn-icon"
+            <DsIconButton
+              label="Anexar imagem ou arquivo"
               onClick={() => fileInputRef.current?.click()}
               disabled={!canCompose || sending}
-              title="Anexar imagem ou arquivo"
-              aria-label="Anexar imagem ou arquivo"
             >
               <Icon name="paperclip" />
-            </button>
-            <button
-              type="button"
-              className="btn btn-icon"
+            </DsIconButton>
+            <DsIconButton
+              label="Gravar áudio"
               onClick={() => void startRecording()}
               disabled={!canCompose || sending || !!pendingFile}
-              title="Gravar áudio"
-              aria-label="Gravar áudio"
             >
               <Icon name="mic" />
-            </button>
+            </DsIconButton>
             <input
               type="text"
               value={draft}
@@ -597,9 +573,8 @@ export function ConversationThread({
               }
               disabled={!canCompose || sending}
             />
-            <button
+            <DsButton
               type="submit"
-              className="btn btn-primary"
               aria-label="Enviar mensagem"
               title="Enviar mensagem"
               disabled={
@@ -608,7 +583,7 @@ export function ConversationThread({
             >
               <Icon name="send" />
               <span>{sending ? "Enviando…" : "Enviar"}</span>
-            </button>
+            </DsButton>
           </>
         )}
       </form>

@@ -3,7 +3,14 @@
 /**
  * transfer-conversation-modal — escolhe outro membro (com acesso ao inbox) para
  * assumir o atendimento. A lista já vem filtrada/ordenada pelo InboxScreen.
+ *
+ * Gate 8: migração MECÂNICA para o DsDialog da fundação — mesmas opções,
+ * callbacks, erro e busy; Esc, trap, backdrop e retorno de foco vêm do
+ * primitive (fechar é bloqueado enquanto busy, como antes).
  */
+import { DsBanner } from "@/components/ds/Banner";
+import { DsButton } from "@/components/ds/Button";
+import { Dialog as DsDialog } from "@/components/ds/Dialog";
 import type { Conversation } from "@/lib/conversations-api";
 import type { TeamMember } from "@/lib/dashboard-api";
 import { Icon } from "@/lib/icons";
@@ -42,70 +49,44 @@ export function TransferConversationModal({
   onConfirm: (userId: string) => void;
 }) {
   return (
-    <div className="modal-overlay" onClick={onCancel} role="presentation">
-      <div
-        className="modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Transferir conversa"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="modal-head">
-          <strong>Transferir conversa</strong>
-          <button
-            type="button"
-            className="btn btn-sm btn-ghost"
-            onClick={onCancel}
-            disabled={busy}
-          >
-            Fechar
-          </button>
+    <DsDialog
+      open
+      onClose={() => {
+        if (!busy) onCancel();
+      }}
+      title="Transferir conversa"
+      description={`Escolha quem vai assumir o atendimento de ${displayName(conversation)}.`}
+      footer={
+        <DsButton variant="tertiary" onClick={onCancel} disabled={busy}>
+          Cancelar
+        </DsButton>
+      }
+    >
+      {error ? <DsBanner kind="error">{error}</DsBanner> : null}
+
+      {loading ? (
+        <p className="ib-picker-empty">Carregando equipe…</p>
+      ) : members.length === 0 ? (
+        <div className="ib-picker-empty">
+          <Icon name="team" />
+          <p>Nenhum outro membro com acesso ao inbox para receber a conversa.</p>
         </div>
-
-        <p className="modal-sub">
-          Escolha quem vai assumir o atendimento de{" "}
-          <strong>{displayName(conversation)}</strong>.
-        </p>
-
-        {error ? (
-          <div className="error-banner" role="alert">
-            <Icon name="alert" />
-            <span>{error}</span>
-          </div>
-        ) : null}
-
-        {loading ? (
-          <p className="panel-loading">Carregando equipe…</p>
-        ) : members.length === 0 ? (
-          <div className="empty-state" style={{ padding: "var(--s5)" }}>
-            <Icon name="team" />
-            <p className="sub">
-              Nenhum outro membro com acesso ao inbox para receber a conversa.
-            </p>
-          </div>
-        ) : (
-          <div className="picker">
-            {members.map((m) => (
-              <button
-                key={m.usuarioId}
-                type="button"
-                className="picker-row"
-                onClick={() => onConfirm(m.usuarioId)}
-                disabled={busy}
-              >
-                <span className="nm">{m.nome}</span>
-                <span className="sub">{rolesSummary(m.papeis)}</span>
-              </button>
-            ))}
-          </div>
-        )}
-
-        <div className="modal-foot">
-          <button type="button" className="btn btn-sm" onClick={onCancel} disabled={busy}>
-            Cancelar
-          </button>
+      ) : (
+        <div className="ib-picker">
+          {members.map((m) => (
+            <button
+              key={m.usuarioId}
+              type="button"
+              className="ib-picker-row"
+              onClick={() => onConfirm(m.usuarioId)}
+              disabled={busy}
+            >
+              <span className="ib-picker-nm">{m.nome}</span>
+              <span className="ib-picker-sub">{rolesSummary(m.papeis)}</span>
+            </button>
+          ))}
         </div>
-      </div>
-    </div>
+      )}
+    </DsDialog>
   );
 }

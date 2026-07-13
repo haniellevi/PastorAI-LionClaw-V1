@@ -9,9 +9,10 @@
  * pessoa vinculada (pessoaId null) exibem um aviso amigável — não há cadastro
  * ainda para aquele número.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { EditContactModal } from "@/components/contacts/EditContactModal";
+import { getFocusable, trapNextIndex } from "@/components/ds/a11y";
 import { Button } from "@/components/ui/Button";
 import { SessionExpiredError } from "@/lib/api";
 import {
@@ -114,6 +115,43 @@ export function ContactPanel({
   const { token, user, expireSession } = useAuth();
   const canEdit = user ? isAdmin(user.roles) : false;
 
+  // Gate 8: o painel é um DRAWER sob demanda — acessível como o ds/Dialog
+  // (mesma lógica de foco de ds/a11y): foco inicial no primeiro focável,
+  // Tab/Shift+Tab contidos, Esc fecha, foco retorna a quem abriu.
+  const rootRef = useRef<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+  useEffect(() => {
+    const panel = rootRef.current;
+    if (!panel) return;
+    const opener = document.activeElement as HTMLElement | null;
+    const focusables = getFocusable(panel);
+    (focusables[0] ?? panel).focus();
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        onCloseRef.current();
+        return;
+      }
+      if (e.key !== "Tab") return;
+      // O EditContactModal (modal próprio) assume o foco quando aberto.
+      if (!panel!.contains(document.activeElement)) return;
+      const items = getFocusable(panel!);
+      const current = items.indexOf(document.activeElement as HTMLElement);
+      const next = trapNextIndex(current, items.length, e.shiftKey);
+      e.preventDefault();
+      if (next >= 0) items[next]?.focus();
+      else panel!.focus();
+    }
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown, true);
+      opener?.focus();
+    };
+  }, []);
+
   const [detail, setDetail] = useState<ContactDetail | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -174,7 +212,14 @@ export function ContactPanel({
   );
 
   return (
-    <aside className="conv-panel" aria-label="Dados do contato">
+    <aside
+      ref={rootRef}
+      className="conv-panel"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Dados do contato"
+      tabIndex={-1}
+    >
       <div className="panel-head">
         <strong>Dados do contato</strong>
         <button

@@ -4,7 +4,12 @@
  * conversation-list — coluna esquerda do inbox (estados default/active).
  * Filtra por Todas / Aguardando / IA e abre a thread ao clicar (US-11).
  * Estado vazio (empty-state) quando não há conversas no filtro.
+ *
+ * Gate 8 (Diamante Lapidado): linhas contínuas com borda 1px; seleção por
+ * selection-soft + aria-current; "aguardando" comunicado por ÍCONE + TEXTO
+ * (nunca só cor). Nenhum filtro, busca, dado ou callback mudou.
  */
+import { DsEmptyState } from "@/components/ds/EmptyState";
 import type { Conversation } from "@/lib/conversations-api";
 import { Icon } from "@/lib/icons";
 
@@ -41,62 +46,65 @@ export function ConversationList({
 }) {
   return (
     <div className="conv-list">
-      <div className="conv-filter">
-        <div className="tabs" style={{ flex: 1 }}>
-          <button
-            type="button"
-            className={`tab${filter === "todas" ? " active" : ""}`}
-            onClick={() => onFilter("todas")}
-          >
-            Todas
-          </button>
-          <button
-            type="button"
-            className={`tab${filter === "aguardando" ? " active" : ""}`}
-            onClick={() => onFilter("aguardando")}
-          >
-            Aguardando {waitingCount > 0 ? <span className="num">{waitingCount}</span> : null}
-          </button>
-          <button
-            type="button"
-            className={`tab${filter === "ia" ? " active" : ""}`}
-            onClick={() => onFilter("ia")}
-          >
-            IA
-          </button>
-        </div>
+      <div className="ib-filter" role="group" aria-label="Filtrar conversas">
+        <button
+          type="button"
+          className={`ib-filter-btn${filter === "todas" ? " active" : ""}`}
+          aria-pressed={filter === "todas"}
+          onClick={() => onFilter("todas")}
+        >
+          Todas
+        </button>
+        <button
+          type="button"
+          className={`ib-filter-btn${filter === "aguardando" ? " active" : ""}`}
+          aria-pressed={filter === "aguardando"}
+          onClick={() => onFilter("aguardando")}
+        >
+          Aguardando
+          {waitingCount > 0 ? <span className="ib-filter-num">{waitingCount}</span> : null}
+        </button>
+        <button
+          type="button"
+          className={`ib-filter-btn${filter === "ia" ? " active" : ""}`}
+          aria-pressed={filter === "ia"}
+          onClick={() => onFilter("ia")}
+        >
+          IA
+        </button>
       </div>
 
-      <div className="conv-search" style={{ padding: "0 var(--s3) var(--s2)" }}>
+      <div className="ib-search">
         <input
           type="search"
           value={search}
           onChange={(e) => onSearch(e.target.value)}
           placeholder="Buscar por nome, telefone ou mensagem…"
           aria-label="Buscar conversa"
-          style={{ width: "100%" }}
         />
       </div>
 
       {conversations.length === 0 ? (
-        <div className="empty-state" style={{ padding: "var(--s6)" }}>
-          <Icon name="chat" />
-          <p>
-            <strong>Nenhuma conversa encontrada.</strong>
-          </p>
-        </div>
+        <DsEmptyState
+          title="Nenhuma conversa encontrada."
+          hint="Ajuste o filtro ou a busca para ver outras conversas."
+        />
       ) : (
         conversations.map((c) => {
           const estado = effectiveEstado(c);
           const marker = tipoMarker(c);
+          const active = c.id === selectedId;
           return (
             <button
               type="button"
               key={c.id}
-              className={`conv${c.id === selectedId ? " active" : ""}`}
+              className={`conv${active ? " active" : ""}`}
+              aria-current={active ? "true" : undefined}
               onClick={() => onSelect(c.id)}
             >
-              <span className="av">{contactAvatar(c)}</span>
+              <span className="av" aria-hidden="true">
+                {contactAvatar(c)}
+              </span>
               <div className="conv-main">
                 <div className="conv-top">
                   <strong>{displayName(c)}</strong>
@@ -108,9 +116,6 @@ export function ConversationList({
                   <time>{shortTime(c.atualizadoEm ?? c.assumidoEm ?? c.esperaDesde, now)}</time>
                 </div>
                 <div className="conv-sub">
-                  {estado === "aguardando" ? (
-                    <span className="conv-dot warn" title="Aguardando atendimento" />
-                  ) : null}
                   <span className="snippet">
                     {c.ultimaMensagem ?? "Sem mensagens ainda"}
                   </span>
@@ -120,6 +125,13 @@ export function ConversationList({
                     </span>
                   ) : null}
                 </div>
+                {estado === "aguardando" ? (
+                  // Gate 8: aguardando por ÍCONE + TEXTO (nunca só cor).
+                  <span className="ib-wait">
+                    <Icon name="clock" />
+                    Aguardando atendimento
+                  </span>
+                ) : null}
               </div>
             </button>
           );
