@@ -563,7 +563,8 @@ input[type="checkbox"] {
   height: 100dvh;
   width: 248px;
   flex: none;
-  transition: width 0.18s ease;
+  /* Gate 5.1: sem transição de width — animar layout causa reflow; a mudança
+     de largura da sidebar é instantânea. */
 }
 .nav-scroll {
   display: flex;
@@ -4921,7 +4922,8 @@ table.data-table {
   border-color: var(--accent);
 }
 .central-card.alert {
-  border-left: 3px solid var(--warn);
+  /* Gate 5.1: borda completa de 1px no lugar da faixa lateral (anti-padrão). */
+  border: 1px solid var(--warn);
 }
 .central-card .cc-val {
   font-size: 26px;
