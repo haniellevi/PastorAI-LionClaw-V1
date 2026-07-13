@@ -119,10 +119,13 @@ def scan_breaches(
         )
 
     # --- consolidacoes with an open 24h connection deadline -----------------
+    # W3.2A: uma consolidação ABANDONADA (Pessoa arquivada) não é mais "aberta"
+    # — não pode ser cobrada/escalonada por WhatsApp (revisão externa PR#163).
     consolidacoes = session.execute(
         select(Consolidacao).where(
             Consolidacao.igreja_id == igreja_id,
             Consolidacao.concluida.is_(False),
+            Consolidacao.abandonada_em.is_(None),
             Consolidacao.prazo_conexao.is_not(None),
         )
     ).scalars().all()
@@ -431,7 +434,10 @@ def run_all_igrejas(
     igreja_ids.update(
         session.execute(
             select(Consolidacao.igreja_id)
-            .where(Consolidacao.concluida.is_(False))
+            .where(
+                Consolidacao.concluida.is_(False),
+                Consolidacao.abandonada_em.is_(None),
+            )
             .distinct()
         ).scalars().all()
     )

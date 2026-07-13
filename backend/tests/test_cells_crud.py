@@ -216,6 +216,7 @@ def make_pessoa(
     *, pessoa_id: str = _P1, igreja_id: str = _TENANT, lider_id: str | None = None,
     celula_id: str | None = None, apto_lider: bool = True,
     sem_interesse: bool = False, tipo: str = "membro", telefone: str | None = None,
+    arquivada_em: object = None,
 ):
     return SimpleNamespace(
         id=pessoa_id,
@@ -227,6 +228,7 @@ def make_pessoa(
         telefone=telefone,
         apto_lider=apto_lider,
         sem_interesse=sem_interesse,
+        arquivada_em=arquivada_em,
     )
 
 
@@ -439,6 +441,154 @@ def test_edit_cell_changing_to_apto_leader_passes(app) -> None:
     )
     assert resp.status_code == 200, resp.text
     assert str(cell.lider_id) == _P2
+
+
+# ---- pessoa arquivada não recebe liderId/anfitriaoId/auxiliarId (revisão --
+# externa PR#163 — BLOCKER) --------------------------------------------------
+_P3 = "00000000-0000-0000-0000-0000000000f3"
+_ARQUIVADA_EM = "2026-07-13T00:00:00+00:00"
+
+
+def test_create_cell_rejects_lider_arquivado(app) -> None:
+    session = CellSession(
+        app_user=make_app_user(),
+        roles=["pastor"],
+        pessoas=[make_pessoa(pessoa_id=_P1, apto_lider=True, arquivada_em=_ARQUIVADA_EM)],
+    )
+    resp = _wire(app, session=session).post(
+        "/cells", headers=_AUTH, json=_full_payload(liderId=_P1)
+    )
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["error"] == "pessoa_arquivada"
+    assert session.committed is False
+    assert session.added == [], "nenhuma célula pode ter sido criada"
+
+
+def test_edit_cell_rejects_lider_arquivado_ao_atribuir(app) -> None:
+    cell = make_cell(lider_id=_P1)
+    session = CellSession(
+        app_user=make_app_user(),
+        roles=["pastor"],
+        cells=[cell],
+        pessoas=[make_pessoa(pessoa_id=_P1), make_pessoa(pessoa_id=_P2, arquivada_em=_ARQUIVADA_EM)],
+    )
+    resp = _wire(app, session=session).post(
+        "/cells", headers=_AUTH, json=_full_payload(id=_CELL, liderId=_P2)
+    )
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["error"] == "pessoa_arquivada"
+    assert session.committed is False
+    assert str(cell.lider_id) == _P1, "célula não pode ter sido parcialmente alterada"
+
+
+def test_create_cell_rejects_anfitriao_arquivado(app) -> None:
+    session = CellSession(
+        app_user=make_app_user(),
+        roles=["pastor"],
+        pessoas=[make_pessoa(pessoa_id=_P1, arquivada_em=_ARQUIVADA_EM)],
+    )
+    resp = _wire(app, session=session).post(
+        "/cells", headers=_AUTH, json=_full_payload(anfitriaoId=_P1)
+    )
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["error"] == "pessoa_arquivada"
+    assert session.committed is False
+    assert session.added == []
+
+
+def test_create_cell_rejects_auxiliar_arquivado(app) -> None:
+    session = CellSession(
+        app_user=make_app_user(),
+        roles=["pastor"],
+        pessoas=[make_pessoa(pessoa_id=_P1, arquivada_em=_ARQUIVADA_EM)],
+    )
+    resp = _wire(app, session=session).post(
+        "/cells", headers=_AUTH, json=_full_payload(auxiliarId=_P1)
+    )
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["error"] == "pessoa_arquivada"
+    assert session.committed is False
+    assert session.added == []
+
+
+def test_edit_cell_rejects_anfitriao_arquivado(app) -> None:
+    cell = make_cell(lider_id=_P1)
+    session = CellSession(
+        app_user=make_app_user(),
+        roles=["pastor"],
+        cells=[cell],
+        pessoas=[make_pessoa(pessoa_id=_P1), make_pessoa(pessoa_id=_P2, arquivada_em=_ARQUIVADA_EM)],
+    )
+    resp = _wire(app, session=session).post(
+        "/cells",
+        headers=_AUTH,
+        json=_full_payload(id=_CELL, liderId=_P1, anfitriaoId=_P2),
+    )
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["error"] == "pessoa_arquivada"
+    assert session.committed is False
+    assert cell.anfitriao_id is None, "célula não pode ter sido parcialmente alterada"
+
+
+def test_edit_cell_rejects_auxiliar_arquivado(app) -> None:
+    cell = make_cell(lider_id=_P1)
+    session = CellSession(
+        app_user=make_app_user(),
+        roles=["pastor"],
+        cells=[cell],
+        pessoas=[make_pessoa(pessoa_id=_P1), make_pessoa(pessoa_id=_P2, arquivada_em=_ARQUIVADA_EM)],
+    )
+    resp = _wire(app, session=session).post(
+        "/cells",
+        headers=_AUTH,
+        json=_full_payload(id=_CELL, liderId=_P1, auxiliarId=_P2),
+    )
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["error"] == "pessoa_arquivada"
+    assert session.committed is False
+    assert cell.auxiliar_id is None, "célula não pode ter sido parcialmente alterada"
+
+
+def test_create_cell_accepts_todas_pessoas_ativas(app) -> None:
+    """Regressão: pessoa ATIVA (arquivada_em=None) continua funcionando em
+    liderId/anfitriaoId/auxiliarId — o novo guard não produz falso-positivo."""
+    session = CellSession(
+        app_user=make_app_user(),
+        roles=["pastor"],
+        pessoas=[
+            make_pessoa(pessoa_id=_P1, apto_lider=True),
+            make_pessoa(pessoa_id=_P2),
+            make_pessoa(pessoa_id=_P3),
+        ],
+    )
+    resp = _wire(app, session=session).post(
+        "/cells",
+        headers=_AUTH,
+        json=_full_payload(liderId=_P1, anfitriaoId=_P2, auxiliarId=_P3),
+    )
+    assert resp.status_code == 200, resp.text
+    assert session.committed is True
+
+
+def test_create_cell_lider_de_outra_igreja_ainda_e_422_por_tenant(app) -> None:
+    """Cross-tenant continua recusado pelo padrão atual (422, `_assert_pessoa_
+    tenant`) — o guard novo não muda essa ordem nem esse contrato. Em produção
+    a RLS torna uma pessoa de outra igreja invisível à query (sem filtro
+    explícito de igreja_id em `_assert_pessoa_tenant`, que confia na RLS); o
+    fake reproduz isso não incluindo a pessoa em `pessoas=[]` — dar-lhe um
+    `igreja_id` diferente não testaria a RLS de verdade, só o predicado do
+    fake, que a query real não tem."""
+    session = CellSession(
+        app_user=make_app_user(),
+        roles=["pastor"],
+        pessoas=[],  # cross-tenant = invisível sob RLS, mesmo padrão do resto do arquivo
+    )
+    resp = _wire(app, session=session).post(
+        "/cells", headers=_AUTH, json=_full_payload(liderId=_P1)
+    )
+    assert resp.status_code == 422, resp.text
+    assert "não encontrada nesta igreja" in resp.json()["detail"]
+    assert session.committed is False
 
 
 # ---- sensitive-field guard (decisão 3.2) ----------------------------------

@@ -423,6 +423,15 @@ def advance_stage(
             detail="Consolidação já concluída",
         )
 
+    # W3.2A: consolidação ABANDONADA (Pessoa arquivada) não pode avançar nem
+    # ser concluída — revisão externa PR#163. A linha já está travada
+    # (with_for_update acima), serializando contra archive_pessoa.
+    if consolidacao.abandonada_em is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Consolidação abandonada (pessoa arquivada) não pode ser avançada",
+        )
+
     # Confirm the requested stage (idempotent per stage name).
     if payload.etapa is not None:
         etapa_row = db.execute(

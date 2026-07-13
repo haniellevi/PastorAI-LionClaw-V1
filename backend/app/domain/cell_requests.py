@@ -284,3 +284,33 @@ def conflict_pessoa_id(tipo: str, payload: dict) -> str | None:
         value = payload.get("pessoa_id")
         return str(value) if value else None
     return None
+
+
+def referenced_pessoa_ids(tipo: str, payload: dict) -> list[str]:
+    """TODOS os ids de Pessoa referenciados no payload, por `tipo` (W3.2A).
+
+    Superset de ``conflict_pessoa_id``: usado para validar elegibilidade
+    (ex.: pessoa arquivada) de QUALQUER pessoa citada no payload — não só o
+    alvo de transferir/remover. `anfitriao_id`/`auxiliar_id` da multiplicação
+    são opcionais (podem faltar no payload).
+    """
+    ids: list[str] = []
+    if tipo in MEMBER_TIPOS:
+        value = payload.get("pessoa_id")
+        if value:
+            ids.append(str(value))
+    elif tipo == TIPO_ALTERAR_ANFITRIAO:
+        value = payload.get("anfitriao_id")
+        if value:
+            ids.append(str(value))
+    elif tipo == TIPO_ALTERAR_AUXILIAR:
+        value = payload.get("auxiliar_id")
+        if value:
+            ids.append(str(value))
+    elif tipo == TIPO_MULTIPLICACAO:
+        for key in ("novo_lider_id", "anfitriao_id", "auxiliar_id"):
+            value = payload.get(key)
+            if value:
+                ids.append(str(value))
+        ids.extend(str(m) for m in payload.get("membros_transferidos_ids") or [])
+    return ids

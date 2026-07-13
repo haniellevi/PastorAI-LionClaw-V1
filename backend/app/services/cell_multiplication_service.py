@@ -133,6 +133,17 @@ def execute_multiplication(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="novo_lider_id: pessoa não encontrada nesta igreja",
         )
+    # Defesa em profundidade (revisão externa PR#163): `approve()` já checou
+    # `referenced_pessoa_ids` (inclui `novo_lider_id`) via
+    # `assert_pessoas_nao_arquivadas` ANTES de chamar esta função — o único
+    # caller hoje. Este assert não duplica a checagem (não faz query nova; o
+    # objeto já está em mãos) — só impede um caller FUTURO de pular a
+    # validação em silêncio caso chame `execute_multiplication` direto.
+    # ``getattr`` porque os fakes de teste modelam a pessoa como
+    # ``SimpleNamespace`` parcial (mesmo padrão de ``assert_membro_elegivel``).
+    assert getattr(novo_lider, "arquivada_em", None) is None, (
+        "invariante: novo_lider_id arquivado deveria ter sido recusado antes de chegar aqui"
+    )
     if bool(novo_lider.sem_interesse):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

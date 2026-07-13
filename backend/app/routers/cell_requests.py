@@ -49,10 +49,12 @@ from app.domain.cell_requests import (
     STATUS_AGUARDANDO,
     InvalidPayload,
     conflict_pessoa_id,
+    referenced_pessoa_ids,
     validate_payload,
 )
 from app.routers._common import Page, PaginationParams
 from app.services import cell_requests_service
+from app.services.celula_membro import assert_pessoas_nao_arquivadas
 
 router = APIRouter(prefix="/cell-requests", tags=["cell-requests"])
 
@@ -329,6 +331,13 @@ def create_cell_request(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
+
+    # W3.2A: nenhuma pessoa referenciada no payload (alvo de transferir/remover,
+    # anfitrião/auxiliar propostos, novo líder/membros da multiplicação) pode
+    # estar arquivada — antes de qualquer escrita (revisão externa PR#163).
+    assert_pessoas_nao_arquivadas(
+        db, igreja_id=igreja_id, pessoa_ids=referenced_pessoa_ids(body.tipo, payload)
+    )
 
     pessoa_id = conflict_pessoa_id(body.tipo, payload)
     if _has_open_conflict(

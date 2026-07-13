@@ -28,16 +28,23 @@ _TIPOS_PROMOVIVEIS_A_MEMBRO: frozenset[str | None] = frozenset(
 
 
 class MembroInelegivelError(ValueError):
-    """Missão M7B-W1.2: a pessoa não pode ter vínculo ATIVO de célula.
+    """A pessoa não pode receber um vínculo/responsabilidade ministerial.
 
-    Regras ministeriais (fonte: célula = discípulos daquela célula):
+    Regras (fonte: célula = discípulos daquela célula; W3.2A estende ao
+    arquivamento de Pessoa):
       * ``pastor`` nunca é membro de célula;
       * o líder indicado em ``celulas.lider_id`` nunca é membro da PRÓPRIA célula;
-      * o número conectado ao WhatsApp/Evolution da igreja não participa de célula.
+      * o número conectado ao WhatsApp/Evolution da igreja não participa de célula;
+      * uma Pessoa ARQUIVADA (``arquivada_em`` preenchido) não pode receber NENHUM
+        vínculo/responsabilidade ministerial novo — invariante de domínio (W3.2A,
+        revisão externa da PR#163): o arquivamento não pode ser silenciosamente
+        desfeito por um write-path que ignore a coluna.
 
-    Levantada no seam canônico (``ensure_active_membro``) e no único caller que
-    escreve fora dele (``cells.add_cell_member``). ``code`` é o rótulo estável
-    para o cliente; o handler global em ``app.main`` mapeia para HTTP 409.
+    Levantada no seam canônico (``ensure_active_membro``), no caller que escreve
+    fora dele (``cells.add_cell_member``) e na validação de referências de Pessoa
+    em ``celula_solicitacao`` (``assert_pessoas_nao_arquivadas`` — criação e
+    reaprovação sob lock). ``code`` é o rótulo estável para o cliente; o handler
+    global em ``app.main`` mapeia para HTTP 409.
     """
 
     def __init__(self, code: str, message: str) -> None:
@@ -77,6 +84,12 @@ def assert_membro_elegivel(
     Usa ``getattr`` porque os fakes de teste modelam a pessoa/célula como
     ``SimpleNamespace`` parcial; em produção os atributos são colunas reais.
     """
+    if getattr(pessoa, "arquivada_em", None) is not None:
+        raise MembroInelegivelError(
+            "pessoa_arquivada",
+            "Pessoa arquivada não pode receber novos vínculos ministeriais.",
+        )
+
     if (getattr(pessoa, "tipo", None) or "").lower() == "pastor":
         raise MembroInelegivelError(
             "pastor_nao_pode_ser_membro",
@@ -90,7 +103,7 @@ def assert_membro_elegivel(
             "O líder da célula não pode ser membro da própria célula.",
         )
 
-    if _phone_matches_active_whatsapp(
+    if phone_matches_active_whatsapp(
         db, igreja_id=igreja_id, telefone=getattr(pessoa, "telefone", None)
     ):
         raise MembroInelegivelError(
@@ -99,14 +112,88 @@ def assert_membro_elegivel(
         )
 
 
-def _phone_matches_active_whatsapp(
+def assert_pessoas_nao_arquivadas(
+    db: Session,
+    *,
+    igreja_id: uuid.UUID,
+    pessoa_ids: list[uuid.UUID | str | None],
+    for_update: bool = False,
+) -> None:
+    """Recusa (``MembroInelegivelError``) se ALGUMA de `pessoa_ids` estiver arquivada.
+
+    Guarda canônica usada por TODOS os pontos de escrita que atribuem uma
+    Pessoa a uma responsabilidade/vínculo ministerial: seam ``ensure_active_
+    membro``/``add_cell_member`` (via ``assert_membro_elegivel`` acima),
+    ``cell_requests.create_cell_request`` + ``cell_requests_service.approve``
+    (revalida DENTRO da transação travada da solicitação — TOCTOU
+    create->approve), e ``cells.upsert_cell`` (líder/anfitrião/auxiliar).
+
+    IDs vazios/None são ignorados; duplicatas são deduplicadas. A ORDEM é
+    SEMPRE determinística (ordenada por UUID) — necessário quando
+    ``for_update=True`` trava múltiplas Pessoas na mesma chamada (ex.:
+    upsert_cell com líder+anfitrião+auxiliar distintos): duas chamadas
+    concorrentes que referenciam o MESMO conjunto de pessoas em ordens
+    diferentes travam na MESMA ordem e nunca deadlockam entre si.
+
+    ``for_update=True`` serializa contra ``archive_pessoa`` (que trava a
+    própria Pessoa com o mesmo padrão SEC-4B, ``db.refresh(...,
+    with_for_update=True)``): quem trava primeiro decide o estado; o outro
+    relê sob lock e vê o resultado já commitado — nunca os dois vencem
+    (responsabilidade criada + archive bloqueado pelo bloqueador
+    `celula_lider`/`celula_anfitriao`/`celula_auxiliar`/`celula_membro_ativo`
+    já existente, OU pessoa arquivada + este assert recusando).
+
+    ``populate_existing=True`` (BLOCKER real, confirmado na 4ª revisão externa
+    PR#163): se a MESMA Pessoa já estiver no identity map da Session — carregada
+    antes por ESTE ou por OUTRO call site que segure uma referência Python viva
+    ao objeto (ex.: `cell_requests_service._apply_payload`, que guarda `pessoa`
+    numa variável local usada em várias linhas após a 1ª leitura) — um `SELECT
+    ... FOR UPDATE` subsequente, SEM `populate_existing`, devolve o MESMO objeto
+    Python já presente, com `arquivada_em` desatualizado, mesmo com o lock tendo
+    esperado e lido a linha certa no Postgres (o SELECT roda, o lock é real, mas
+    o RESULTADO não é aplicado ao objeto já mapeado). A 3ª rodada desta revisão
+    chegou a marcar isso como "não reproduz" — o teste daquela rodada estava
+    ERRADO: sem uma referência Python forte mantida viva propositalmente, o
+    identity map (que guarda referência FRACA por padrão) deixava o GC coletar o
+    objeto entre as duas leituras, e a "prova" de que não precisava de
+    `populate_existing` era só o efeito colateral de reconstruir um objeto novo,
+    não de o SQLAlchemy atualizar o antigo.
+    `test_assert_pessoas_nao_arquivadas_for_update_refreshes_strongly_referenced_object`
+    mantém uma referência forte deliberada (`pessoa_ref`) viva durante todo o
+    cenário e prova: sem esta opção, o assert NÃO detecta o arquivamento
+    concorrente (`DID NOT RAISE`); com ela, detecta e atualiza `arquivada_em`
+    IN PLACE no mesmo objeto.
+
+    Uma lookup por id (só igualdade — ``id ==`` / ``igreja_id ==``) em vez de
+    `IN`: a lista de referências por payload é pequena (poucas unidades) e a
+    checagem em Python de `arquivada_em` evita depender de operadores
+    compostos (`IN`/`IS NOT NULL`) que o harness de teste offline
+    (`cell_backend_fakes.py`) não interpreta — mesmo padrão de
+    `_assert_pessoa_in_tenant`.
+    """
+    uuids = sorted({uuid.UUID(str(raw_id)) for raw_id in pessoa_ids if raw_id}, key=str)
+    for pid in uuids:
+        query = select(Pessoa).where(Pessoa.id == pid, Pessoa.igreja_id == igreja_id)
+        if for_update:
+            query = query.with_for_update().execution_options(populate_existing=True)
+        pessoa = db.execute(query).scalar_one_or_none()
+        if pessoa is not None and getattr(pessoa, "arquivada_em", None) is not None:
+            raise MembroInelegivelError(
+                "pessoa_arquivada",
+                "Pessoa arquivada não pode receber novos vínculos ministeriais.",
+            )
+
+
+def phone_matches_active_whatsapp(
     db: Session, *, igreja_id: uuid.UUID, telefone: str | None
 ) -> bool:
     """True se ``telefone`` (normalizado) é o número conectado ao WhatsApp do tenant.
 
     Uma conexão por igreja (UNIQUE igreja_id). Compara pela chave canônica
     ``normalize_phone`` (mesmo normalizador do dedupe de contatos), de modo que
-    ``+55`` e o 9º dígito não escondam a correspondência.
+    ``+55`` e o 9º dígito não escondam a correspondência. Público: reusado por
+    ``pessoa_offboarding_service`` para o bloqueador "número oficial WhatsApp"
+    do preflight de arquivamento (mesma comparação, sem duplicar a lógica).
     """
     normalized = normalize_phone(telefone or "")
     if not normalized:

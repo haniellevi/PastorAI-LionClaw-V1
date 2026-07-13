@@ -16,6 +16,7 @@ import uuid
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Date,
     DateTime,
     ForeignKey,
@@ -933,6 +934,14 @@ class Consolidacao(Base):
     """Individual consolidation track for a person (US-38/39, delta-018)."""
 
     __tablename__ = "consolidacoes"
+    __table_args__ = (
+        # W3.2A: uma consolidação não pode estar concluída E abandonada ao
+        # mesmo tempo — mutuamente exclusivos (revisão externa PR#163).
+        CheckConstraint(
+            "not (concluida = true and abandonada_em is not null)",
+            name="consolidacoes_concluida_abandonada_excl_chk",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     igreja_id: Mapped[uuid.UUID] = mapped_column(
@@ -958,6 +967,14 @@ class Consolidacao(Base):
     prazo_conexao: Mapped[dt.datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # W3.2A: encerramento "abandonada" — única exceção automática do
+    # arquivamento de Pessoa (ver pessoa_offboarding_service). NULL = não
+    # abandonada; independente de `concluida`. Sem status/enum no domínio
+    # anterior — este par nullable espelha pessoas.arquivada_em/motivo.
+    abandonada_em: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    abandonada_motivo: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
@@ -1342,6 +1359,45 @@ class WhatsappConnection(Base):
     instance: Mapped[str | None] = mapped_column(Text, nullable=True)
     ultima_sync: Mapped[dt.datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+
+
+class PessoaArquivamentoEvento(Base):
+    """Trilha de auditoria APPEND-ONLY do arquivamento/reativação de Pessoa (W3.2A).
+
+    Blindada no banco pelo trigger `trg_pessoa_arquivamento_evento_append_only`
+    (UPDATE/DELETE diretos levantam exceção). `acao` ∈ {arquivada, reativada} —
+    "reativada" é headroom de schema para PR futuro (reativação administrativa
+    não implementada aqui). NÃO é `platform_audit_log`: aquela é do plano de
+    plataforma (sem igreja_id, sem RLS de tenant); esta é tenant-aware, mesmo
+    padrão de `celula_solicitacao_evento`. `igreja_id`/`pessoa_id` ON DELETE
+    CASCADE (estrutural — Pessoa nunca é hard-deletada na prática); `ator_id`
+    (app_user que executou a ação) ON DELETE SET NULL. Sem `updated_at`
+    (append-only: cada evento é uma linha imutável).
+    """
+
+    __tablename__ = "pessoa_arquivamento_evento"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    igreja_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("igrejas.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    pessoa_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("pessoas.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    ator_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("app_users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    acao: Mapped[str] = mapped_column(String, nullable=False)
+    motivo: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
 
 
