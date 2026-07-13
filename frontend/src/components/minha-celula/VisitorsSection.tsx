@@ -199,7 +199,7 @@ export function VisitorsSection({
             <div className="section-actions">
               <Button
                 type="submit"
-                variant="primary"
+                variant="default"
                 size="sm"
                 loading={busy}
                 loadingText="Registrando…"

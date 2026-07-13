@@ -10,8 +10,11 @@
  * próxima reunião, das solicitações ou dos avisos (primeira fonte disponível).
  * Campos sensíveis NUNCA são salvos direto — abrem a Solicitação (RF-14).
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { DsBanner } from "@/components/ds/Banner";
+import { DsButton } from "@/components/ds/Button";
+import { DsToast, DsToastRegion } from "@/components/ds/Toast";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/lib/icons";
 import { SessionExpiredError } from "@/lib/api";
@@ -85,19 +88,10 @@ export function MinhaCelulaLider() {
   const [requestsReload, setRequestsReload] = useState(0);
   const [noticesReload, setNoticesReload] = useState(0);
 
+  // Gate 9.1: sem timer manual — o DsToast e o dono do ciclo de vida
+  // (ok auto-dismiss 3600ms; err persistente ate fechar).
   const [toast, setToast] = useState<CellToast | null>(null);
-  const toastTimer = useRef<number | null>(null);
-  const flashToast = useCallback((t: CellToast) => {
-    setToast(t);
-    if (toastTimer.current) window.clearTimeout(toastTimer.current);
-    toastTimer.current = window.setTimeout(() => setToast(null), 3600);
-  }, []);
-  useEffect(
-    () => () => {
-      if (toastTimer.current) window.clearTimeout(toastTimer.current);
-    },
-    [],
-  );
+  const flashToast = useCallback((t: CellToast) => setToast(t), []);
 
   const handleSessionError = useCallback(
     (err: unknown): boolean => {
@@ -217,7 +211,7 @@ export function MinhaCelulaLider() {
   const showSkeleton = loading && !loaded;
 
   return (
-    <div className="screen" key="minha-celula-lider">
+    <div className="screen mc" key="minha-celula-lider">
       <div className="screen-head">
         <div className="titles">
           <h2>Minha Célula</h2>
@@ -225,27 +219,29 @@ export function MinhaCelulaLider() {
         </div>
         {cellId ? (
           <div className="head-actions">
-            <Button variant="primary" size="sm" onClick={() => setShowPlan(true)}>
+            <DsButton variant="secondary" onClick={() => setShowPlan(true)}>
               <Icon name="calendar" />
               <span>Planejar reunião</span>
-            </Button>
+            </DsButton>
           </div>
         ) : null}
       </div>
 
       {error ? (
-        <div className="error-banner" role="alert">
-          <Icon name="alert" />
-          <span>{error}</span>
-          <button
-            type="button"
-            className="btn btn-sm"
-            onClick={() => void load("retry")}
-            disabled={loading}
-          >
-            Tentar novamente
-          </button>
-        </div>
+        <DsBanner
+          kind="error"
+          action={
+            <DsButton
+              variant="secondary"
+              onClick={() => void load("retry")}
+              disabled={loading}
+            >
+              Tentar novamente
+            </DsButton>
+          }
+        >
+          {error}
+        </DsBanner>
       ) : null}
 
       {showSkeleton ? (
@@ -424,12 +420,22 @@ export function MinhaCelulaLider() {
         />
       ) : null}
 
-      {toast ? (
-        <div className={`toast ${toast.kind}`} role="status">
-          <Icon name={toast.kind === "ok" ? "check" : "alert"} />
-          <span>{toast.text}</span>
-        </div>
-      ) : null}
+      {/* Gate 9.1: primitive real — ok some em 3600ms; err e role=alert
+          PERSISTENTE, fecha so pelo botao do primitive. */}
+      <DsToastRegion>
+        {toast ? (
+          toast.kind === "ok" ? (
+            <DsToast
+              kind="ok"
+              text={toast.text}
+              duration={3600}
+              onDismiss={() => setToast(null)}
+            />
+          ) : (
+            <DsToast kind="err" text={toast.text} onDismiss={() => setToast(null)} />
+          )
+        ) : null}
+      </DsToastRegion>
     </div>
   );
 }

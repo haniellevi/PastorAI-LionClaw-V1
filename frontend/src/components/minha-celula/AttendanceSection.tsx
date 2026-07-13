@@ -112,7 +112,7 @@ export function AttendanceSection({
           {!locked ? (
             <div className="section-actions">
               <Button
-                variant="primary"
+                variant="default"
                 size="sm"
                 onClick={() => void save()}
                 loading={busy}

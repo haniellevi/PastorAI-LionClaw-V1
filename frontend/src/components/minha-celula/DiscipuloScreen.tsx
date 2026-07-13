@@ -6,8 +6,11 @@
  * Ações de escrita: confirmar presença (US-02) e indicar visitante (US-03).
  * Estados de cada seção: loading (skeleton) · empty · populated · erro (retry).
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
+import { DsBanner } from "@/components/ds/Banner";
+import { DsButton } from "@/components/ds/Button";
+import { DsToast, DsToastRegion } from "@/components/ds/Toast";
 import { Icon } from "@/lib/icons";
 import { SessionExpiredError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
@@ -82,23 +85,13 @@ export function DiscipuloScreen() {
     void load("initial");
   }, [load]);
 
-  const toastTimer = useRef<number | null>(null);
-  const flashToast = useCallback((t: CellToast) => {
-    setToast(t);
-    if (toastTimer.current) window.clearTimeout(toastTimer.current);
-    toastTimer.current = window.setTimeout(() => setToast(null), 3600);
-  }, []);
-  useEffect(
-    () => () => {
-      if (toastTimer.current) window.clearTimeout(toastTimer.current);
-    },
-    [],
-  );
+  // Gate 9.1: sem timer manual — o DsToast e o dono do ciclo de vida.
+  const flashToast = useCallback((t: CellToast) => setToast(t), []);
 
   const showSkeleton = loading && !loaded;
 
   return (
-    <div className="screen" key="minha-celula">
+    <div className="screen mc" key="minha-celula">
       <div className="screen-head">
         <div className="titles">
           <h2>Minha Célula</h2>
@@ -107,18 +100,20 @@ export function DiscipuloScreen() {
       </div>
 
       {error ? (
-        <div className="error-banner" role="alert">
-          <Icon name="alert" />
-          <span>{error}</span>
-          <button
-            type="button"
-            className="btn btn-sm"
-            onClick={() => void load("retry")}
-            disabled={loading}
-          >
-            Tentar novamente
-          </button>
-        </div>
+        <DsBanner
+          kind="error"
+          action={
+            <DsButton
+              variant="secondary"
+              onClick={() => void load("retry")}
+              disabled={loading}
+            >
+              Tentar novamente
+            </DsButton>
+          }
+        >
+          {error}
+        </DsBanner>
       ) : null}
 
       {showSkeleton ? (
@@ -155,12 +150,22 @@ export function DiscipuloScreen() {
         />
       ) : null}
 
-      {toast ? (
-        <div className={`toast ${toast.kind}`} role="status">
-          <Icon name={toast.kind === "ok" ? "check" : "alert"} />
-          <span>{toast.text}</span>
-        </div>
-      ) : null}
+      {/* Gate 9.1: primitive real — ok some em 3600ms; err e role=alert
+          PERSISTENTE, fecha so pelo botao do primitive. */}
+      <DsToastRegion>
+        {toast ? (
+          toast.kind === "ok" ? (
+            <DsToast
+              kind="ok"
+              text={toast.text}
+              duration={3600}
+              onDismiss={() => setToast(null)}
+            />
+          ) : (
+            <DsToast kind="err" text={toast.text} onDismiss={() => setToast(null)} />
+          )
+        ) : null}
+      </DsToastRegion>
     </div>
   );
 }

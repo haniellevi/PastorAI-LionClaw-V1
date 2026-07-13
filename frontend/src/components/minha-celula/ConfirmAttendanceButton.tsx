@@ -65,8 +65,10 @@ export function ConfirmAttendanceButton({
   }
 
   return (
+    // Gate 9 (P6): a AÇÃO a tomar é a primária — azul mineral enquanto
+    // pendente; confirmado vira estado quieto (check + aria-pressed).
     <Button
-      variant={confirmed ? "primary" : "default"}
+      variant={confirmed ? "default" : "primary"}
       onClick={() => void toggle()}
       disabled={disabled}
       loading={busy}

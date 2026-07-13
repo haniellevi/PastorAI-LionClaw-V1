@@ -182,7 +182,7 @@ export function RecordsSection({
             <div className="section-actions">
               <Button
                 type="submit"
-                variant="primary"
+                variant="default"
                 size="sm"
                 loading={busy}
                 loadingText="Adicionando…"

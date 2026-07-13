@@ -7,7 +7,9 @@
  */
 import { useState } from "react";
 
-import { Button } from "@/components/ui/Button";
+import { DsBanner } from "@/components/ds/Banner";
+import { DsButton } from "@/components/ds/Button";
+import { Dialog as DsDialog } from "@/components/ds/Dialog";
 import { Field } from "@/components/ui/Field";
 import { Icon } from "@/lib/icons";
 import { ApiError } from "@/lib/dashboard-api";
@@ -60,30 +62,20 @@ export function IndicateVisitorModal({
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div
-        className="modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="modal-head">
-          <strong>{title}</strong>
-          <button type="button" className="btn btn-sm btn-ghost" onClick={onClose}>
-            Fechar
-          </button>
-        </div>
-        <div className="modal-sub">
-          Avise a liderança de quem você quer trazer para a próxima reunião.
-        </div>
+    // Gate 9: shell migrado mecanicamente para o DsDialog (Esc/trap/
+    // backdrop/retorno de foco do primitive; fechar bloqueado em busy).
+    <DsDialog
+      open
+      onClose={() => {
+        if (!busy) onClose();
+      }}
+      title={title}
+      description="Avise a liderança de quem você quer trazer para a próxima reunião."
+    >
+      <>
 
-        {error ? (
-          <div className="error-banner" role="alert">
-            <Icon name="alert" />
-            <span>{error}</span>
-          </div>
-        ) : null}
+
+      {error ? <DsBanner kind="error">{error}</DsBanner> : null}
 
         <form
           onSubmit={(e) => {
@@ -97,7 +89,7 @@ export function IndicateVisitorModal({
             value={nome}
             onChange={(e) => setNome(e.target.value)}
             disabled={busy}
-            autoFocus
+            data-autofocus=""
             maxLength={120}
           />
           <div className="field">
@@ -114,22 +106,16 @@ export function IndicateVisitorModal({
           </div>
 
           <div className="modal-foot">
-            <Button variant="ghost" onClick={onClose} disabled={busy}>
+            <DsButton variant="tertiary" onClick={onClose} disabled={busy}>
               Cancelar
-            </Button>
-            <Button
-              type="submit"
-              variant="primary"
-              loading={busy}
-              loadingText="Enviando…"
-              disabled={!nome.trim()}
-            >
+            </DsButton>
+            <DsButton type="submit" loading={busy} disabled={!nome.trim()}>
               <Icon name="plus" />
-              <span>Indicar</span>
-            </Button>
+              <span>{busy ? "Enviando…" : "Indicar"}</span>
+            </DsButton>
           </div>
         </form>
-      </div>
-    </div>
+      </>
+    </DsDialog>
   );
 }
