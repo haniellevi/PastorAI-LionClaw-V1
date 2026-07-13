@@ -42,6 +42,11 @@ export function useTabStrip(
     // eslint-disable-next-line react-hooks/exhaustive-deps -- refs são estáveis; reage à mudança de item ativo
   }, [activeKey]);
 
+  // Gate 6.4: reage também a activeKey (rota ativa), não só à montagem — um
+  // host persistente (JourneyStepper no AppShell) pode montar SEM a faixa no
+  // DOM (retorna null fora da Jornada); quando a rota muda e a faixa aparece,
+  // este efeito re-roda, encontra os refs e registra os listeners. O cleanup
+  // do ciclo anterior remove os listeners antes do re-registro (sem duplicar).
   useEffect(() => {
     const scroller = listRef.current?.parentElement;
     const wrap = wrapRef.current;
@@ -61,6 +66,6 @@ export function useTabStrip(
       scroller.removeEventListener("scroll", update);
       window.removeEventListener("resize", update);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- refs são estáveis; efeito de montagem
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refs são estáveis; re-registra quando a faixa (re)aparece com a rota
+  }, [activeKey]);
 }
