@@ -16,6 +16,10 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { DsBanner } from "@/components/ds/Banner";
+import { DsButton } from "@/components/ds/Button";
+import { DsEmptyState } from "@/components/ds/EmptyState";
+import { DsToastRegion } from "@/components/ds/Toast";
 import { useAuth } from "@/lib/auth-context";
 import {
   ApiError,
@@ -214,11 +218,9 @@ export function InboxScreen() {
     return () => window.clearInterval(id);
   }, [allowed, load, loadConnection, selectedId, loadMessages]);
 
-  // Painel de dados: aberto por padrão no desktop, fechado (drawer) no mobile.
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    setPanelOpen(window.matchMedia("(min-width: 1101px)").matches);
-  }, []);
+  // Gate 8: o painel de dados é um DRAWER sob demanda em TODAS as larguras —
+  // sem três colunas permanentes competindo por atenção. Abre só pelo botão
+  // "Dados do contato" (mesmo gatilho de antes).
 
   // ---- toast efêmero ------------------------------------------------------
   const toastTimer = useRef<number | null>(null);
@@ -511,44 +513,41 @@ export function InboxScreen() {
   const showSkeleton = loading && !loaded;
 
   return (
-    <div className={`screen screen-chat${selected ? " thread-open" : ""}`} key="inbox">
-      <div className="screen-head">
+    <div className={`screen screen-chat ib${selected ? " thread-open" : ""}`} key="inbox">
+      <div className="screen-head ib-head">
         <div className="actions">
-          <button
-            type="button"
-            className="btn btn-sm"
+          <DsButton
+            variant="secondary"
             onClick={() => void load("retry")}
             disabled={loading}
           >
-            <Icon name="refresh" />
-            <span>Atualizar</span>
-          </button>
+            Atualizar
+          </DsButton>
         </div>
       </div>
 
       {error ? (
-        <div className="error-banner" role="alert">
-          <Icon name="alert" />
-          <span>{error}</span>
-          <button
-            type="button"
-            className="btn btn-sm"
-            onClick={() => void load("retry")}
-            disabled={loading}
-          >
-            Tentar novamente
-          </button>
-        </div>
+        <DsBanner
+          kind="error"
+          action={
+            <DsButton
+              variant="secondary"
+              onClick={() => void load("retry")}
+              disabled={loading}
+            >
+              Tentar novamente
+            </DsButton>
+          }
+        >
+          {error}
+        </DsBanner>
       ) : null}
 
       {degraded ? (
-        <div className="degraded-banner" role="status" style={{ borderRadius: "var(--r-md)", marginBottom: "var(--s3)" }}>
-          <Icon name="alert" />
-          <span>
-            Conexão do WhatsApp {connStatus === "reconectando" ? "reconectando" : "offline"}.
-            O atendimento está degradado e o envio de respostas está desabilitado.
-          </span>
-        </div>
+        <DsBanner kind="degraded">
+          Conexão do WhatsApp {connStatus === "reconectando" ? "reconectando" : "offline"}.
+          O atendimento está degradado e o envio de respostas está desabilitado.
+        </DsBanner>
       ) : null}
 
       <div className={`inbox${selected && panelOpen ? " with-panel" : ""}`}>
@@ -606,23 +605,23 @@ export function InboxScreen() {
           />
         ) : (
           <div className="empty-pane">
-            <Icon name="chat" />
-            <p>
-              <strong>Nenhuma conversa por aqui ainda.</strong>
-            </p>
-            <p className="sub">
-              Assim que alguém falar com o número oficial da igreja, a conversa
-              aparece nesta lista.
-            </p>
+            <DsEmptyState
+              title="Nenhuma conversa por aqui ainda."
+              hint="Assim que alguém falar com o número oficial da igreja, a conversa aparece nesta lista."
+            />
           </div>
         )}
 
         {selected && panelOpen ? (
           <>
-            <div
+            {/* Botão semântico (Gate 8); fora do tab order — Esc e o trap do
+                drawer cobrem o teclado (padrão do shell/Gate 6.1). */}
+            <button
+              type="button"
               className="panel-backdrop"
+              aria-label="Fechar painel de dados"
+              tabIndex={-1}
               onClick={() => setPanelOpen(false)}
-              role="presentation"
             />
             <ContactPanel
               pessoaId={selected.pessoaId}
@@ -664,12 +663,19 @@ export function InboxScreen() {
         />
       ) : null}
 
-      {toast ? (
-        <div className={`toast ${toast.kind}`} role="status">
-          <Icon name={toast.kind === "ok" ? "check" : "alert"} />
-          <span>{toast.text}</span>
-        </div>
-      ) : null}
+      {/* Feedback: visual da fundação; COMPORTAMENTO atual preservado (ok e
+          err somem em 3200ms via flashToast — DsToast mudaria o err para
+          persistente, o que seria delta funcional). */}
+      <DsToastRegion>
+        {toast ? (
+          <div className={`ds-toast ds-toast--${toast.kind}`} role="status">
+            <span className="ds-toast-icon" aria-hidden="true">
+              <Icon name={toast.kind === "ok" ? "check" : "alert"} />
+            </span>
+            <span className="ds-toast-text">{toast.text}</span>
+          </div>
+        ) : null}
+      </DsToastRegion>
     </div>
   );
 }

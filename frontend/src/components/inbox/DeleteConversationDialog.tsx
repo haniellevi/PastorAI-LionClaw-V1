@@ -7,8 +7,14 @@
  * (célula, liderança, cadastro, histórico) são PRESERVADOS. O ícone de lixeira
  * não exclui o contato; ao escrever de novo, uma nova conversa reusa a mesma
  * Pessoa (backend: DELETE /conversations/{id} não toca em Pessoa).
+ *
+ * Gate 8: migração MECÂNICA para o DsDialog — mesma confirmação, callbacks,
+ * erro e busy; Esc/trap/backdrop/foco do primitive (fechar bloqueado em busy).
+ * Destrutivo permanece coral (DsButton danger), nunca azul.
  */
-import { Button } from "@/components/ui/Button";
+import { DsBanner } from "@/components/ds/Banner";
+import { DsButton } from "@/components/ds/Button";
+import { Dialog as DsDialog } from "@/components/ds/Dialog";
 import type { Conversation } from "@/lib/conversations-api";
 import { Icon } from "@/lib/icons";
 
@@ -28,65 +34,41 @@ export function DeleteConversationDialog({
   onConfirm: () => void;
 }) {
   return (
-    <div className="modal-overlay" onClick={onCancel} role="presentation">
-      <div
-        className="modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Excluir conversa"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="modal-head">
-          <strong>Excluir conversa</strong>
-          <button
-            type="button"
-            className="btn btn-sm btn-ghost"
-            onClick={onCancel}
-            disabled={busy}
-          >
-            Fechar
-          </button>
-        </div>
-
-        <p className="modal-sub">
-          Excluir a conversa com <strong>{displayName(conversation)}</strong>? Apaga
-          permanentemente as mensagens e as mídias <strong>desta conversa</strong>. Esta
-          ação não pode ser desfeita.
-        </p>
-
-        <div className="preserve-note" role="note">
-          <Icon name="shield" />
-          <span>
-            O contato <strong>não é excluído</strong>. O cadastro (nome e tipo) e os
-            vínculos ministeriais — célula, liderança, consolidação e histórico — são
-            preservados. Se a pessoa escrever de novo, uma nova conversa é aberta com o
-            mesmo cadastro.
-          </span>
-        </div>
-
-        {error ? (
-          <div className="error-banner" role="alert">
-            <Icon name="alert" />
-            <span>{error}</span>
-          </div>
-        ) : null}
-
-        <div className="modal-foot">
-          <button type="button" className="btn btn-sm" onClick={onCancel} disabled={busy}>
+    <DsDialog
+      open
+      onClose={() => {
+        if (!busy) onCancel();
+      }}
+      title="Excluir conversa"
+      footer={
+        <>
+          <DsButton variant="tertiary" onClick={onCancel} disabled={busy}>
             Cancelar
-          </button>
-          <Button
-            variant="danger"
-            size="sm"
-            loading={busy}
-            loadingText="Excluindo…"
-            onClick={onConfirm}
-          >
+          </DsButton>
+          <DsButton variant="danger" loading={busy} onClick={onConfirm}>
             <Icon name="trash" />
-            <span>Excluir conversa</span>
-          </Button>
-        </div>
+            <span>{busy ? "Excluindo…" : "Excluir conversa"}</span>
+          </DsButton>
+        </>
+      }
+    >
+      <p className="ib-dialog-text">
+        Excluir a conversa com <strong>{displayName(conversation)}</strong>? Apaga
+        permanentemente as mensagens e as mídias <strong>desta conversa</strong>. Esta
+        ação não pode ser desfeita.
+      </p>
+
+      <div className="preserve-note" role="note">
+        <Icon name="shield" />
+        <span>
+          O contato <strong>não é excluído</strong>. O cadastro (nome e tipo) e os
+          vínculos ministeriais — célula, liderança, consolidação e histórico — são
+          preservados. Se a pessoa escrever de novo, uma nova conversa é aberta com o
+          mesmo cadastro.
+        </span>
       </div>
-    </div>
+
+      {error ? <DsBanner kind="error">{error}</DsBanner> : null}
+    </DsDialog>
   );
 }
