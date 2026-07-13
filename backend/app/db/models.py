@@ -125,6 +125,16 @@ class Pessoa(Base):
         Boolean, nullable=False, server_default=text("false")
     )
     sem_interesse_motivo: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Arquivamento (W3): NULL = pessoa ativa. Não há hard delete de Pessoa.
+    arquivada_em: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    arquivada_por: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("app_users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    arquivada_motivo: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
