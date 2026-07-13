@@ -140,8 +140,26 @@ def assert_pessoas_nao_arquivadas(
     with_for_update=True)``): quem trava primeiro decide o estado; o outro
     relê sob lock e vê o resultado já commitado — nunca os dois vencem
     (responsabilidade criada + archive bloqueado pelo bloqueador
-    `celula_lider`/`celula_anfitriao`/`celula_auxiliar` já existente, OU
-    pessoa arquivada + este assert recusando).
+    `celula_lider`/`celula_anfitriao`/`celula_auxiliar`/`celula_membro_ativo`
+    já existente, OU pessoa arquivada + este assert recusando).
+
+    ``populate_existing=True`` (investigado na 3ª revisão externa PR#163): a
+    hipótese era que, se a MESMA Pessoa já estivesse no identity map da
+    Session (carregada antes, em outra checagem, na mesma Session), um
+    `SELECT ... FOR UPDATE` subsequente devolveria o objeto Python JÁ
+    CACHEADO sem atualizar `arquivada_em` a partir da linha fresca do
+    Postgres — mesmo com o lock tendo esperado e lido o valor certo no banco.
+    `test_assert_pessoas_nao_arquivadas_for_update_ignores_stale_identity_map`
+    prova a Pessoa realmente arquivada por outra conexão sendo detectada após
+    já estar no identity map desta Session — e CONTINUA passando mesmo sem
+    esta opção: nesta versão do SQLAlchemy (2.0.46), `Session.execute(select(
+    Entity).where(...).with_for_update())` já sobrescreve os atributos do
+    objeto já presente com os valores da linha lida (só `populate_existing()`
+    de coleções/relacionamentos eager-loaded tem a proteção "não sobrescreve"
+    documentada — não colunas escalares simples como esta). Mantido mesmo
+    assim como defesa em profundidade explícita e documentada (barato, sem
+    efeito colateral) — não depende de um detalhe de implementação não
+    documentado do carregador da ORM se manter estável entre versões.
 
     Uma lookup por id (só igualdade — ``id ==`` / ``igreja_id ==``) em vez de
     `IN`: a lista de referências por payload é pequena (poucas unidades) e a
@@ -154,7 +172,7 @@ def assert_pessoas_nao_arquivadas(
     for pid in uuids:
         query = select(Pessoa).where(Pessoa.id == pid, Pessoa.igreja_id == igreja_id)
         if for_update:
-            query = query.with_for_update()
+            query = query.with_for_update().execution_options(populate_existing=True)
         pessoa = db.execute(query).scalar_one_or_none()
         if pessoa is not None and getattr(pessoa, "arquivada_em", None) is not None:
             raise MembroInelegivelError(

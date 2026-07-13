@@ -267,8 +267,21 @@ def approve(
 
     # W3.2A: revalida SOB O LOCK — a pessoa referenciada pode ter sido
     # arquivada entre a criação da solicitação e esta aprovação (fecha o
-    # TOCTOU; revisão externa PR#163). Mesmo padrão de rollback-antes-do-raise
-    # das checagens acima.
+    # TOCTOU create->approve). `for_update=True` (3ª revisão externa PR#163)
+    # trava a(s) Pessoa(s) referenciada(s) com o MESMO padrão SEC-4B de
+    # `archive_pessoa`, serializando as duas operações na mesma linha de
+    # Pessoa — mantido como defesa em profundidade e consistência com
+    # `upsert_cell`. NOTA: a hipótese original de que a ausência deste lock
+    # permitia `archive_pessoa` commitar DURANTE esta transação e conceder um
+    # vínculo a pessoa já arquivada foi investigada e refutada — o bloqueador
+    # `celula_solicitacao_aberta` (`preflight_archive`) já recusa
+    # `archive_pessoa` durante toda a vida desta solicitação, e a mutação
+    # aplicada abaixo fica coberta pelo bloqueador tipo-específico
+    # (`celula_anfitriao`/`celula_auxiliar`/`celula_membro_ativo`/
+    # `celula_lider`) no mesmo commit atômico que a aprova — ver testes
+    # `test_approve_vs_archive_concurrent_*` em
+    # test_pessoa_offboarding_service.py e o relatório da 3ª rodada. Mesmo
+    # padrão de rollback-antes-do-raise das checagens acima.
     try:
         assert_pessoas_nao_arquivadas(
             db,
@@ -276,6 +289,7 @@ def approve(
             pessoa_ids=referenced_pessoa_ids(
                 solicitacao.tipo, solicitacao.payload_proposto or {}
             ),
+            for_update=True,
         )
     except MembroInelegivelError:
         db.rollback()

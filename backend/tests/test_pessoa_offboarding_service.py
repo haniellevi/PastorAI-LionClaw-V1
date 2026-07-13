@@ -2272,3 +2272,522 @@ def test_consolidacao_check_constraint_rejects_concluida_and_abandonada(
                 {"ig": igreja_id, "p": pessoa_id},
             )
         trans.rollback()
+
+
+# ---------------------------------------------------------------------------
+# 3ª revisão externa PR#163 — investigação do BLOCKER alegado (approve()
+# revalidava `assert_pessoas_nao_arquivadas` SEM `for_update`, hipoteticamente
+# permitindo `archive_pessoa` concorrente ENTRE a checagem e o commit de
+# approve). Corrigido com `for_update=True` em approve + `populate_existing=
+# True` no helper — mas a investigação (ver `_approve_vs_archive_race` abaixo)
+# mostrou que o desfecho alegado NÃO é alcançável na prática: o bloqueador
+# `celula_solicitacao_aberta` já protege a Pessoa durante toda a vida da
+# solicitação, independentemente deste fix. Ambas as mudanças são mantidas
+# como defesa em profundidade (consistência com o padrão SEC-4B já usado em
+# `upsert_cell`/`archive_pessoa`), não como fechamento de um exploit vivo —
+# ver relatório da 3ª rodada para a análise completa.
+# ---------------------------------------------------------------------------
+@pytest.mark.rls_integration
+def test_assert_pessoas_nao_arquivadas_for_update_ignores_stale_identity_map(
+    factory: sessionmaker,
+) -> None:
+    """Prova que `assert_pessoas_nao_arquivadas(..., for_update=True)`
+    detecta corretamente uma Pessoa arquivada por OUTRA conexão/transação
+    mesmo depois de já ter sido lida (sem lock) e cacheada no identity map
+    desta MESMA Session — cenário que a hipótese de bug de identity map da 3ª
+    revisão externa descrevia. NOTA HONESTA: este teste passa COM e SEM
+    `.execution_options(populate_existing=True)` em `assert_pessoas_nao_
+    arquivadas` (verificado com `git stash` isolando só essa linha) — nesta
+    versão do SQLAlchemy (2.0.46), o `SELECT ... FOR UPDATE` já sobrescreve
+    os atributos do objeto já presente com os valores frescos da linha por
+    padrão para colunas escalares simples como esta (a proteção "não
+    sobrescreve objeto já carregado" documentada em `populate_existing()` é
+    sobre coleções/relacionamentos eager-loaded, não sobre isto). A hipótese
+    original de bug não se confirmou; `populate_existing=True` é mantido como
+    defesa em profundidade explícita (não depende de um detalhe de
+    implementação não documentado do carregador da ORM), e este teste
+    continua valioso como regressão do comportamento correto do lock em si.
+    """
+    session_a = factory()
+    ctx = _base(session_a)
+    pessoa_id = _mk_pessoa(session_a, ctx["igreja_id"])
+    session_a.commit()
+
+    # Popula o identity map de session_a com a Pessoa NÃO arquivada — a MESMA
+    # leitura desprotegida que `create_cell_request` faz (for_update=False),
+    # simulando um call site que já tocou esta Pessoa antes do lock.
+    assert_pessoas_nao_arquivadas(
+        session_a, igreja_id=ctx["igreja_id"], pessoa_ids=[pessoa_id], for_update=False
+    )
+
+    # Outra CONEXÃO real arquiva e commita — session_a nunca viu essa escrita.
+    session_b = factory()
+    try:
+        pessoa_b = session_b.get(Pessoa, pessoa_id)
+        svc.archive_pessoa(
+            session_b, pessoa=pessoa_b, actor_app_user_id=ctx["ator_id"], motivo="concorrente"
+        )
+    finally:
+        session_b.close()
+
+    try:
+        with pytest.raises(MembroInelegivelError) as exc_info:
+            assert_pessoas_nao_arquivadas(
+                session_a, igreja_id=ctx["igreja_id"], pessoa_ids=[pessoa_id], for_update=True
+            )
+        assert exc_info.value.code == "pessoa_arquivada"
+    finally:
+        session_a.rollback()
+        session_a.close()
+
+
+
+
+
+
+def _approve_vs_archive_race(
+    factory: sessionmaker,
+    *,
+    sol_id: uuid.UUID,
+    celula_id: uuid.UUID,
+    alvo_id: uuid.UUID,
+    central_pessoa_id: uuid.UUID,
+    ator_id: uuid.UUID,
+    idempotency_key: str | None,
+) -> dict[str, tuple]:
+    """2 threads/2 transações reais, sincronização via ``threading.Barrier`` —
+    dispara ``approve()`` e ``archive_pessoa`` concorrentemente sobre a MESMA
+    solicitação/Pessoa e devolve o resultado observado de cada lado.
+
+    NOTA HONESTA (3ª revisão externa PR#163 — investigação, não confirmação):
+    a hipótese original era que ``approve()`` sem ``for_update`` permitiria
+    ``archive_pessoa`` commitar NO MEIO da transação de ``approve``, resultando
+    em vínculo/mutação aplicado a uma Pessoa já arquivada. Construir a prova
+    determinística (ver histórico do PR) revelou que esse desfecho NÃO é
+    alcançável através do fluxo de solicitação: o bloqueador
+    `celula_solicitacao_aberta` (``preflight_archive``, item 10) já recusa
+    ``archive_pessoa`` enquanto QUALQUER solicitação `aguardando`/
+    `ajuste_solicitado` referenciar a pessoa — cobrindo exatamente os mesmos
+    campos JSONB que ``referenced_pessoa_ids`` usa (`anfitriao_id`,
+    `auxiliar_id`, `pessoa_id`, `novo_lider_id`, `membros_transferidos_ids`).
+    Como o commit de ``approve`` é atômico, no instante em que a solicitação
+    deixa de estar "aberta" (aprovada) a mutação específica do tipo (anfitrião/
+    auxiliar/vínculo/nova célula) já está visível na MESMA leitura — criando
+    IMEDIATAMENTE o bloqueador específico (`celula_anfitriao`/
+    `celula_auxiliar`/`celula_membro_ativo`/`celula_lider`). Não existe janela
+    em que nenhum dos dois bloqueadores protege a Pessoa. `archive` portanto
+    SEMPRE perde para uma aprovação em andamento, com qualquer ordem de
+    chegada — o teste abaixo prova isso sob concorrência real (não é um
+    resultado tautológico do teste; é uma propriedade do preflight que só se
+    confirma rodando os dois caminhos concorrentemente e inspecionando o
+    estado final do banco).
+    """
+    barrier = threading.Barrier(2)
+    out: dict[str, tuple] = {}
+
+    def worker_approve() -> None:
+        session = factory()
+        try:
+            solicitacao = session.get(CelulaSolicitacao, sol_id)
+            cell = session.get(Celula, celula_id)
+            barrier.wait(timeout=15)
+            cell_requests_service.approve(
+                session,
+                solicitacao=solicitacao,
+                cell=cell,
+                actor_pessoa_id=central_pessoa_id,
+                approver_app_user_id=None,
+                idempotency_key=idempotency_key,
+            )
+            out["approve"] = ("ok", None)
+        except MembroInelegivelError as exc:
+            out["approve"] = ("membro_inelegivel", exc.code)
+        except HTTPException as exc:
+            out["approve"] = ("http", exc.status_code)
+        finally:
+            session.close()
+
+    def worker_archive() -> None:
+        session = factory()
+        try:
+            pessoa = session.get(Pessoa, alvo_id)
+            barrier.wait(timeout=15)
+            svc.archive_pessoa(
+                session, pessoa=pessoa, actor_app_user_id=ator_id, motivo="saiu"
+            )
+            out["archive"] = ("ok", None)
+        except HTTPException as exc:
+            out["archive"] = ("http", exc.status_code)
+        finally:
+            session.close()
+
+    threads = [threading.Thread(target=worker_approve), threading.Thread(target=worker_archive)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=20)
+    return out
+
+
+@pytest.mark.rls_integration
+def test_approve_vs_archive_concurrent_alterar_anfitriao_never_both(
+    factory: sessionmaker,
+) -> None:
+    """tipo=alterar_anfitriao, concorrência real (2 threads/2 transações,
+    Barrier). Desfecho SEMPRE observado (ver nota honesta em
+    ``_approve_vs_archive_race``): `archive` recusado (409,
+    `celula_solicitacao_aberta` OU, se a corrida terminar depois do commit de
+    `approve`, `celula_anfitriao`); `approve` sempre aplica o payload."""
+    session_setup = factory()
+    ctx = _base(session_setup)
+    central_pessoa_id = _mk_pessoa(session_setup, ctx["igreja_id"], nome="Central")
+    lider_id = _mk_pessoa(session_setup, ctx["igreja_id"], nome="Líder")
+    alvo_id = _mk_pessoa(session_setup, ctx["igreja_id"], nome="Alvo anfitrião")
+    celula_id = _mk_celula(session_setup, ctx["igreja_id"], lider_id=lider_id)
+    sol_id = uuid.uuid4()
+    session_setup.add(
+        CelulaSolicitacao(
+            id=sol_id,
+            igreja_id=ctx["igreja_id"],
+            celula_id=celula_id,
+            tipo="alterar_anfitriao",
+            status="aguardando",
+            payload_proposto={"anfitriao_id": str(alvo_id)},
+        )
+    )
+    session_setup.commit()
+    session_setup.close()
+
+    out = _approve_vs_archive_race(
+        factory,
+        sol_id=sol_id,
+        celula_id=celula_id,
+        alvo_id=alvo_id,
+        central_pessoa_id=central_pessoa_id,
+        ator_id=ctx["ator_id"],
+        idempotency_key=None,
+    )
+    assert "approve" in out and "archive" in out, out
+
+    session = factory()
+    try:
+        pessoa_db = session.get(Pessoa, alvo_id)
+        cell_db = session.get(Celula, celula_id)
+
+        assert pessoa_db.arquivada_em is None, ("BLOCKER real", out)
+        assert cell_db.anfitriao_id == alvo_id, ("aprovação deveria sempre vencer", out)
+        assert out["approve"] == ("ok", None), out
+        assert out["archive"] == ("http", 409), out
+    finally:
+        session.close()
+
+
+@pytest.mark.rls_integration
+def test_approve_vs_archive_concurrent_alterar_auxiliar_never_both(
+    factory: sessionmaker,
+) -> None:
+    """Espelha o teste de anfitrião para tipo=alterar_auxiliar (mesmo helper
+    `assert_pessoas_nao_arquivadas`/mesmo bloqueador `celula_solicitacao_
+    aberta` — o caminho de `_apply_payload` é um `elif` distinto e merece
+    prova própria)."""
+    session_setup = factory()
+    ctx = _base(session_setup)
+    central_pessoa_id = _mk_pessoa(session_setup, ctx["igreja_id"], nome="Central")
+    lider_id = _mk_pessoa(session_setup, ctx["igreja_id"], nome="Líder")
+    alvo_id = _mk_pessoa(session_setup, ctx["igreja_id"], nome="Alvo auxiliar")
+    celula_id = _mk_celula(session_setup, ctx["igreja_id"], lider_id=lider_id)
+    sol_id = uuid.uuid4()
+    session_setup.add(
+        CelulaSolicitacao(
+            id=sol_id,
+            igreja_id=ctx["igreja_id"],
+            celula_id=celula_id,
+            tipo="alterar_auxiliar",
+            status="aguardando",
+            payload_proposto={"auxiliar_id": str(alvo_id)},
+        )
+    )
+    session_setup.commit()
+    session_setup.close()
+
+    out = _approve_vs_archive_race(
+        factory,
+        sol_id=sol_id,
+        celula_id=celula_id,
+        alvo_id=alvo_id,
+        central_pessoa_id=central_pessoa_id,
+        ator_id=ctx["ator_id"],
+        idempotency_key=None,
+    )
+    assert "approve" in out and "archive" in out, out
+
+    session = factory()
+    try:
+        pessoa_db = session.get(Pessoa, alvo_id)
+        cell_db = session.get(Celula, celula_id)
+
+        assert pessoa_db.arquivada_em is None, ("BLOCKER real", out)
+        assert cell_db.auxiliar_id == alvo_id, ("aprovação deveria sempre vencer", out)
+        assert out["approve"] == ("ok", None), out
+        assert out["archive"] == ("http", 409), out
+    finally:
+        session.close()
+
+
+@pytest.mark.rls_integration
+def test_approve_vs_archive_concurrent_transferir_membro_never_both(
+    factory: sessionmaker,
+) -> None:
+    """tipo=transferir_membro: aprovação cria vínculo ATIVO em celula_membro
+    na célula destino. Concorrência real (2 threads/2 transações, Barrier)
+    contra `archive`. `celula_solicitacao_aberta` bloqueia `archive` enquanto
+    a solicitação estiver aberta; depois do commit de `approve`,
+    `celula_membro_ativo` bloqueia — nunca fica um vínculo ativo com pessoa
+    arquivada."""
+    session_setup = factory()
+    ctx = _base(session_setup)
+    central_pessoa_id = _mk_pessoa(session_setup, ctx["igreja_id"], nome="Central")
+    lider_origem_id = _mk_pessoa(session_setup, ctx["igreja_id"], nome="Líder origem")
+    lider_destino_id = _mk_pessoa(session_setup, ctx["igreja_id"], nome="Líder destino")
+    alvo_id = _mk_pessoa(session_setup, ctx["igreja_id"], nome="Alvo transferência")
+    celula_origem_id = _mk_celula(
+        session_setup, ctx["igreja_id"], nome="Origem", lider_id=lider_origem_id
+    )
+    celula_destino_id = _mk_celula(
+        session_setup, ctx["igreja_id"], nome="Destino", lider_id=lider_destino_id
+    )
+    sol_id = uuid.uuid4()
+    session_setup.add(
+        CelulaSolicitacao(
+            id=sol_id,
+            igreja_id=ctx["igreja_id"],
+            celula_id=celula_origem_id,
+            pessoa_id=alvo_id,
+            tipo="transferir_membro",
+            status="aguardando",
+            payload_proposto={
+                "pessoa_id": str(alvo_id),
+                "celula_destino_id": str(celula_destino_id),
+            },
+        )
+    )
+    session_setup.commit()
+    session_setup.close()
+
+    out = _approve_vs_archive_race(
+        factory,
+        sol_id=sol_id,
+        celula_id=celula_origem_id,
+        alvo_id=alvo_id,
+        central_pessoa_id=central_pessoa_id,
+        ator_id=ctx["ator_id"],
+        idempotency_key=None,
+    )
+    assert "approve" in out and "archive" in out, out
+
+    session = factory()
+    try:
+        pessoa_db = session.get(Pessoa, alvo_id)
+        membro = session.execute(
+            select(CelulaMembro).where(
+                CelulaMembro.pessoa_id == alvo_id, CelulaMembro.ativo.is_(True)
+            )
+        ).scalar_one_or_none()
+
+        assert pessoa_db.arquivada_em is None, ("BLOCKER real", out)
+        assert membro is not None and membro.celula_id == celula_destino_id, (
+            "aprovação deveria sempre vencer", out
+        )
+        assert out["approve"] == ("ok", None), out
+        assert out["archive"] == ("http", 409), out
+    finally:
+        session.close()
+
+
+@pytest.mark.rls_integration
+def test_approve_vs_archive_concurrent_multiplicacao_never_both(
+    factory: sessionmaker,
+) -> None:
+    """tipo=multiplicacao, novo_lider_id=Pessoa disputada. Concorrência real
+    (2 threads/2 transações, Barrier) contra `archive`. `celula_solicitacao_
+    aberta` bloqueia `archive` enquanto a solicitação estiver aberta; depois
+    do commit de `approve`, `celula_lider` bloqueia — nunca fica uma célula
+    nova com líder arquivado."""
+    session_setup = factory()
+    ctx = _base(session_setup)
+    central_pessoa_id = _mk_pessoa(session_setup, ctx["igreja_id"], nome="Central")
+    lider_origem_id = _mk_pessoa(session_setup, ctx["igreja_id"], nome="Líder origem")
+    membro_id = _mk_pessoa(session_setup, ctx["igreja_id"], nome="Membro transferido")
+    alvo_id = _mk_pessoa(
+        session_setup, ctx["igreja_id"], nome="Alvo novo líder", apto_lider=True
+    )
+    celula_origem_id = _mk_celula(
+        session_setup, ctx["igreja_id"], nome="Origem", lider_id=lider_origem_id
+    )
+    session_setup.add(
+        CelulaMembro(
+            igreja_id=ctx["igreja_id"],
+            celula_id=celula_origem_id,
+            pessoa_id=membro_id,
+            papel="membro",
+            ativo=True,
+        )
+    )
+    sol_id = uuid.uuid4()
+    session_setup.add(
+        CelulaSolicitacao(
+            id=sol_id,
+            igreja_id=ctx["igreja_id"],
+            celula_id=celula_origem_id,
+            tipo="multiplicacao",
+            status="aguardando",
+            payload_proposto={
+                "idempotency_key": "idem-mult-race-1",
+                "nome_nova_celula": "Nova Célula",
+                "novo_lider_id": str(alvo_id),
+                "membros_transferidos_ids": [str(membro_id)],
+            },
+        )
+    )
+    session_setup.commit()
+    session_setup.close()
+
+    out = _approve_vs_archive_race(
+        factory,
+        sol_id=sol_id,
+        celula_id=celula_origem_id,
+        alvo_id=alvo_id,
+        central_pessoa_id=central_pessoa_id,
+        ator_id=ctx["ator_id"],
+        idempotency_key="idem-mult-race-1",
+    )
+    assert "approve" in out and "archive" in out, out
+
+    session = factory()
+    try:
+        pessoa_db = session.get(Pessoa, alvo_id)
+        nova_celula = session.execute(
+            select(Celula).where(Celula.lider_id == alvo_id, Celula.ativo.is_(True))
+        ).scalar_one_or_none()
+        mult = session.execute(
+            select(Multiplicacao).where(Multiplicacao.solicitacao_id == sol_id)
+        ).scalar_one_or_none()
+
+        assert pessoa_db.arquivada_em is None, ("BLOCKER real", out)
+        assert nova_celula is not None, ("aprovação deveria sempre vencer", out)
+        assert mult is not None
+        assert out["approve"] == ("ok", None), out
+        assert out["archive"] == ("http", 409), out
+    finally:
+        session.close()
+
+
+@pytest.mark.rls_integration
+def test_approve_vs_archive_alterar_anfitriao_approve_wins_deterministic(
+    factory: sessionmaker,
+) -> None:
+    """Prova DETERMINÍSTICA (2 threads/2 transações reais, sincronização via
+    ``threading.Event`` — ``approve`` trava a Pessoa e pausa ANTES do commit
+    via hook em `session.commit`, `archive` só começa depois de `approve` já
+    ter passado a checagem): quando `approve` já aplicou o payload e está
+    prestes a commitar, `archive` — mesmo tentando exatamente nesse instante —
+    bloqueia no lock real do Postgres até `approve` liberar, depois relê sob
+    lock e vê o bloqueador `celula_anfitriao` recém-criado (409). Cobre o
+    caso em que a solicitação JÁ FOI aprovada (não está mais aberta) no
+    instante em que `archive` roda seu preflight — complementar ao teste de
+    Barrier acima, que só observa o resultado final."""
+    session_setup = factory()
+    ctx = _base(session_setup)
+    central_pessoa_id = _mk_pessoa(session_setup, ctx["igreja_id"], nome="Central")
+    lider_id = _mk_pessoa(session_setup, ctx["igreja_id"], nome="Líder")
+    alvo_id = _mk_pessoa(session_setup, ctx["igreja_id"], nome="Alvo anfitrião")
+    celula_id = _mk_celula(session_setup, ctx["igreja_id"], lider_id=lider_id)
+    sol_id = uuid.uuid4()
+    session_setup.add(
+        CelulaSolicitacao(
+            id=sol_id,
+            igreja_id=ctx["igreja_id"],
+            celula_id=celula_id,
+            tipo="alterar_anfitriao",
+            status="aguardando",
+            payload_proposto={"anfitriao_id": str(alvo_id)},
+        )
+    )
+    session_setup.commit()
+    session_setup.close()
+
+    approve_ready = threading.Event()
+    proceed = threading.Event()
+    out: dict[str, tuple] = {}
+
+    def worker_approve() -> None:
+        session = factory()
+        try:
+            solicitacao = session.get(CelulaSolicitacao, sol_id)
+            cell = session.get(Celula, celula_id)
+            original_commit = session.commit
+
+            def paused_commit(*a, **kw):
+                approve_ready.set()
+                if not proceed.wait(timeout=15):
+                    raise TimeoutError("T2 não sinalizou proceed a tempo")
+                return original_commit(*a, **kw)
+
+            session.commit = paused_commit
+            cell_requests_service.approve(
+                session,
+                solicitacao=solicitacao,
+                cell=cell,
+                actor_pessoa_id=central_pessoa_id,
+                approver_app_user_id=None,
+                idempotency_key=None,
+            )
+            out["approve"] = ("ok", None)
+        except MembroInelegivelError as exc:
+            out["approve"] = ("membro_inelegivel", exc.code)
+        except HTTPException as exc:
+            out["approve"] = ("http", exc.status_code)
+        finally:
+            session.close()
+
+    def worker_archive() -> None:
+        if not approve_ready.wait(timeout=15):
+            out["archive"] = ("error", "timeout esperando approve_ready")
+            return
+        session = factory()
+        try:
+            pessoa = session.get(Pessoa, alvo_id)
+            svc.archive_pessoa(
+                session, pessoa=pessoa, actor_app_user_id=ctx["ator_id"], motivo="saiu"
+            )
+            out["archive"] = ("ok", None)
+        except HTTPException as exc:
+            out["archive"] = ("http", exc.status_code)
+        finally:
+            session.close()
+
+    t_approve = threading.Thread(target=worker_approve)
+    t_archive = threading.Thread(target=worker_archive)
+    t_approve.start()
+    assert approve_ready.wait(timeout=15), "T1 não travou a Pessoa a tempo"
+    t_archive.start()
+    proceed.set()
+    t_approve.join(timeout=20)
+    t_archive.join(timeout=20)
+
+    assert out.get("approve") == ("ok", None), out
+
+    session = factory()
+    try:
+        pessoa_db = session.get(Pessoa, alvo_id)
+        cell_db = session.get(Celula, celula_id)
+        sol_db = session.get(CelulaSolicitacao, sol_id)
+
+        assert cell_db.anfitriao_id == alvo_id, "aprovação deve ter aplicado o payload"
+        assert sol_db.status == "aprovada"
+        assert pessoa_db.arquivada_em is None, (
+            "BLOCKER: pessoa não pode ter sido arquivada com vínculo ativo", out
+        )
+        assert out.get("archive") == ("http", 409), out
+    finally:
+        session.close()
