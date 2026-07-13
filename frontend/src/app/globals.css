@@ -6105,6 +6105,12 @@ button.dh-journey-row:hover .dh-journey-label {
 /* ---- mobile (≤860): alvos ≥44px; lista/thread já alternam via regras
    .screen-chat.thread-open existentes ---- */
 @media (max-width: 860px) {
+  /* Gate 8.6 (P2 do Codex no PR #166): a regra base .ib .inbox (340px 1fr)
+     vence a mobile legada por especificidade — no telefone o master-detail é
+     tela única: UMA coluna, sem faixa morta. */
+  .ib .inbox {
+    grid-template-columns: 1fr;
+  }
   .ib .conv {
     min-height: 64px;
   }
