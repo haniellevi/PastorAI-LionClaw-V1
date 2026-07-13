@@ -90,7 +90,7 @@ def assert_membro_elegivel(
             "O líder da célula não pode ser membro da própria célula.",
         )
 
-    if _phone_matches_active_whatsapp(
+    if phone_matches_active_whatsapp(
         db, igreja_id=igreja_id, telefone=getattr(pessoa, "telefone", None)
     ):
         raise MembroInelegivelError(
@@ -99,14 +99,16 @@ def assert_membro_elegivel(
         )
 
 
-def _phone_matches_active_whatsapp(
+def phone_matches_active_whatsapp(
     db: Session, *, igreja_id: uuid.UUID, telefone: str | None
 ) -> bool:
     """True se ``telefone`` (normalizado) é o número conectado ao WhatsApp do tenant.
 
     Uma conexão por igreja (UNIQUE igreja_id). Compara pela chave canônica
     ``normalize_phone`` (mesmo normalizador do dedupe de contatos), de modo que
-    ``+55`` e o 9º dígito não escondam a correspondência.
+    ``+55`` e o 9º dígito não escondam a correspondência. Público: reusado por
+    ``pessoa_offboarding_service`` para o bloqueador "número oficial WhatsApp"
+    do preflight de arquivamento (mesma comparação, sem duplicar a lógica).
     """
     normalized = normalize_phone(telefone or "")
     if not normalized:

@@ -12,6 +12,7 @@ state-machine side effects rather than re-implementing them in the app.
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import uuid
 
@@ -24,6 +25,7 @@ from app.db.models import Celula, Pessoa
 from app.db.session import get_db
 from app.deps import CurrentUser, get_current_user, require_role
 from app.domain.phone import normalize_phone, phone_suffix
+from app.services import pessoa_offboarding_service
 from app.services.celula_membro import ensure_active_membro
 from app.routers._common import Page, PaginationParams
 
@@ -290,6 +292,48 @@ class LinkCellRequest(BaseModel):
         except (ValueError, AttributeError) as exc:
             raise ValueError("celulaId inválido") from exc
         return value
+
+
+class PreflightItemOut(BaseModel):
+    """Bloqueador, efeito automático ou item preservado (mesmo formato — M7B-W3.2A)."""
+
+    tipo: str
+    rotulo: str
+    recurso_id: str | None = None
+    recurso_nome: str | None = None
+    acao_recomendada: str | None = None
+
+
+class OffboardingPreflightOut(BaseModel):
+    """Resposta de ``GET /contacts/{pessoa_id}/offboarding-preflight``."""
+
+    pessoa_id: str
+    pode_arquivar: bool
+    bloqueadores: list[PreflightItemOut]
+    automaticos: list[PreflightItemOut]
+    preservados: list[PreflightItemOut]
+
+
+class ArchiveContactRequest(BaseModel):
+    """Payload de ``POST /contacts/{pessoa_id}/archive`` — motivo obrigatório."""
+
+    motivo: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("motivo")
+    @classmethod
+    def _motivo(cls, value: str) -> str:
+        trimmed = value.strip()
+        if not trimmed:
+            raise ValueError("motivo é obrigatório")
+        return trimmed
+
+
+class ArchiveContactResponse(BaseModel):
+    pessoa_id: str
+    arquivada: bool
+    arquivada_em: str
+    arquivada_por: str | None
+    arquivada_motivo: str
 
 
 # ---------------------------------------------------------------------------
@@ -613,3 +657,75 @@ def link_cell(
     db.commit()
 
     return ContactOut.from_model(pessoa, lider_de_celula=lider_de_celula)
+
+
+def _get_pessoa_or_404(db: Session, pessoa_id: str) -> Pessoa:
+    """Carrega a Pessoa no tenant (RLS) ou 404 — cross-tenant nunca revela existência."""
+    try:
+        pessoa_uuid = uuid.UUID(pessoa_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Pessoa não encontrada"
+        ) from exc
+    pessoa = db.execute(
+        select(Pessoa).where(Pessoa.id == pessoa_uuid)
+    ).scalar_one_or_none()
+    if pessoa is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Pessoa não encontrada"
+        )
+    return pessoa
+
+
+@router.get(
+    "/{pessoa_id}/offboarding-preflight", response_model=OffboardingPreflightOut
+)
+def get_offboarding_preflight(
+    pessoa_id: str,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_role(["admin"])),
+) -> OffboardingPreflightOut:
+    """Somente leitura: calcula se `pessoa_id` pode ser arquivada agora (M7B-W3.2A).
+
+    Admin-only. Nenhuma mutação acontece aqui — inclusive o abandono automático
+    de consolidação aberta só é aplicado dentro da transação real de
+    ``POST .../archive`` (``automaticos`` aqui é só o aviso do que aconteceria).
+    """
+    pessoa = _get_pessoa_or_404(db, pessoa_id)
+    result = pessoa_offboarding_service.preflight_archive(
+        db,
+        pessoa=pessoa,
+        actor_app_user_id=uuid.UUID(current_user.app_user_id),
+    )
+    return OffboardingPreflightOut.model_validate(dataclasses.asdict(result))
+
+
+@router.post("/{pessoa_id}/archive", response_model=ArchiveContactResponse)
+def archive_contact(
+    pessoa_id: str,
+    payload: ArchiveContactRequest,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_role(["admin"])),
+) -> ArchiveContactResponse:
+    """Arquiva `pessoa_id` (M7B-W3.2A) — nunca hard delete. Admin-only.
+
+    Revalida o preflight DENTRO da transação travada (SEC-4B): qualquer
+    bloqueador reverte e devolve 409 com a lista estruturada (mesmo formato do
+    GET preflight). Pessoa já arquivada é idempotente (200, sem duplicar
+    efeito). Única mutação em cascata: uma consolidação individual aberta da
+    própria pessoa é encerrada como "abandonada" na mesma transação.
+    """
+    pessoa = _get_pessoa_or_404(db, pessoa_id)
+    pessoa, _ja_arquivada = pessoa_offboarding_service.archive_pessoa(
+        db,
+        pessoa=pessoa,
+        actor_app_user_id=uuid.UUID(current_user.app_user_id),
+        motivo=payload.motivo,
+    )
+    return ArchiveContactResponse(
+        pessoa_id=str(pessoa.id),
+        arquivada=True,
+        arquivada_em=pessoa.arquivada_em.isoformat(),
+        arquivada_por=str(pessoa.arquivada_por) if pessoa.arquivada_por else None,
+        arquivada_motivo=pessoa.arquivada_motivo or "",
+    )
