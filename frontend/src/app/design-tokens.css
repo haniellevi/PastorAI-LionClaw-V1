@@ -1,0 +1,112 @@
+/**
+ * Igreja 12 — Design tokens "Diamante Lapidado" (Gate 5 · fundação).
+ * Fonte de verdade: DESIGN.md §3–§9 + docs/design/IDENTIDADE-VISUAL-DIAMANTE-LAPIDADO-IGREJA12.md.
+ *
+ * ADITIVO: nenhum token legado do globals.css muda de valor aqui. As telas de
+ * negócio continuam no vocabulário antigo (--accent teal etc.) até os PRs de
+ * migração; os primitives novos (components/ds/*) usam somente estes tokens.
+ *
+ * Mapeamento legado → novo (aplicar na migração de cada tela, quando seguro):
+ *   --accent/--accent-dark  → --action-primary / --action-primary-hover
+ *   --accent-soft           → --selection-soft
+ *   --ring                  → --focus-ring (2px + offset, ver .ds-* em ds.css)
+ *   --surface/--surface-2   → --surface-raised / --surface-panel
+ *   --bg                    → --surface-canvas
+ *   --fg / --muted          → --text-primary / --text-secondary
+ *   --border                → --border-subtle
+ *   --r-sm (10px)           → --radius-control (mesmo valor)
+ *   --s1..--s7              → escala mantida; novo passo --s8 (64px)
+ * Regra definitiva: action-primary = diamond-700; hover = diamond-900;
+ * diamond-600 é só borda ativa/foco/seleção forte. Nenhuma tela inventa outro
+ * azul primário.
+ */
+
+:root {
+  /* Cor — família diamond (hue ~252) e neutros minerais */
+  --diamond-950: oklch(24% 0.055 252);
+  --diamond-900: oklch(32% 0.08 252);
+  --diamond-700: oklch(48% 0.13 252);
+  --diamond-600: oklch(58% 0.16 248);
+  --diamond-500: oklch(67% 0.15 238);
+  --diamond-300: oklch(82% 0.09 230);
+  --diamond-100: oklch(95% 0.025 230);
+  --ice-50: oklch(98.5% 0.008 230);
+  --ink-950: oklch(24% 0.035 245);
+  --ink-700: oklch(39% 0.03 245);
+  --ink-600: oklch(52% 0.025 245);
+  --line-200: oklch(88% 0.018 235);
+
+  /* Superfícies */
+  --surface-canvas: var(--ice-50);
+  --surface-panel: oklch(97% 0.012 232);
+  --surface-raised: oklch(99% 0.006 232);
+
+  /* Texto */
+  --text-primary: var(--ink-950);
+  --text-secondary: var(--ink-600);
+  --text-on-action: oklch(99% 0.005 240);
+
+  /* Bordas e foco */
+  --border-subtle: var(--line-200);
+  --border-strong: oklch(82% 0.024 238);
+  --focus-ring: var(--diamond-500);
+
+  /* Ação e seleção (regra definitiva do gate) */
+  --action-primary: var(--diamond-700);
+  --action-primary-hover: var(--diamond-900);
+  --selection-soft: var(--diamond-100);
+  --selection-strong: var(--diamond-600);
+
+  /* Estados semânticos (independentes da marca; destrutivo é coral, nunca azul) */
+  --state-ok: oklch(52% 0.12 152);
+  --state-ok-soft: oklch(95.5% 0.03 152);
+  --state-warn: oklch(50% 0.11 75);
+  --state-warn-soft: oklch(96% 0.035 85);
+  --state-danger: oklch(53% 0.14 30);
+  --state-danger-strong: oklch(44% 0.14 30); /* hover do destrutivo — AA com texto claro */
+  --state-danger-soft: oklch(95.5% 0.025 25);
+  --state-info: oklch(52% 0.1 245);
+  --state-info-soft: oklch(96% 0.02 240);
+
+  /* Spacing — escala DESIGN.md (4,8,12,16,24,32,48,64); --s1..--s7 já existem
+     no globals.css com os mesmos valores; aqui só o passo novo. */
+  --s8: 64px;
+
+  /* Radius */
+  --radius-control: 10px; /* = --r-sm legado */
+  --radius-panel: 14px;
+  --radius-dialog: 18px;
+  --radius-pill: 999px;
+
+  /* Elevation — sombra azulada, baixa e rara (só dialog/popover/toast) */
+  --shadow-raised: 0 12px 36px oklch(24% 0.055 252 / 0.1);
+  --shadow-floating: 0 20px 56px oklch(24% 0.055 252 / 0.16);
+
+  /* Z-index */
+  --z-nav: 30;
+  --z-drawer: 40;
+  --z-dialog: 50;
+  --z-toast: 60;
+
+  /* Tipografia — papéis (famílias vêm de --font/--font-display do globals.css,
+     carregadas via @fontsource no layout) */
+  --type-display: 700 32px/1.15 var(--font-display);
+  --type-h1: 700 26px/1.2 var(--font-display);
+  --type-h2: 650 20px/1.25 var(--font-display);
+  --type-h3: 700 16px/1.35 var(--font);
+  --type-body: 450 14px/1.5 var(--font);
+  --type-label: 650 13px/1.35 var(--font);
+  --type-meta: 500 12px/1.4 var(--font);
+  /* Nenhum texto operacional abaixo de 12px. */
+
+  /* Motion — produtivo 140–220ms; expressivo 480–760ms, uma única vez */
+  --motion-fast: 140ms;
+  --motion-standard: 200ms;
+  --motion-expressive: 640ms;
+  --ease-out-productive: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-out-expressive: cubic-bezier(0.19, 1, 0.22, 1);
+}
+
+/* Reduced motion: o bloco global do globals.css (linhas ~118–127) já zera
+   animation/transition para TODO o documento, incluindo os primitives ds-*.
+   Não duplicar aqui. */
