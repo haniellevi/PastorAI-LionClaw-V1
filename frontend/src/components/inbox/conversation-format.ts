@@ -2,6 +2,7 @@
  * Formatação/derivações puras das conversas do inbox (sem I/O) — testável e
  * compartilhada entre a lista e a thread.
  */
+import type { PillTone } from "@/components/dashboard/StatusPill";
 import type { Conversation, ConversationEstado } from "@/lib/conversations-api";
 
 /** Estado efetivo da conversa: a fila de espera (espera_desde) tem prioridade. */
@@ -19,6 +20,28 @@ export function estadoPill(estado: ConversationEstado): {
   if (estado === "humano") return { tone: "ok", label: "Em atendimento" };
   if (estado === "aguardando") return { tone: "warn", label: "Aguardando humano" };
   return { tone: "accent", label: "IA ativa" };
+}
+
+/**
+ * A IA está pausada para o contato marcado "sem interesse": o worker do backend
+ * (backend/app/agent/runtime.py) suprime a resposta automática ANTES de qualquer
+ * envio — inclusive para registros legados em que o estado da conversa ainda é
+ * "ia". A UI só reflete essa verdade do backend; não é uma pausa só de front.
+ * Não se aplica quando um humano já assumiu (aí o estado efetivo é "humano").
+ */
+export function iaPausadaSemInteresse(c: Conversation): boolean {
+  return Boolean(c.semInteresse) && effectiveEstado(c) !== "humano";
+}
+
+/**
+ * Pílula de status considerando "sem interesse" (IA pausada) além do handoff.
+ * Um contato sem interesse NUNCA aparece como "IA ativa": o atendimento
+ * automático está suspenso no backend, então mostra "IA pausada". Um humano que
+ * assumiu continua tendo prioridade ("Em atendimento").
+ */
+export function conversationPill(c: Conversation): { tone: PillTone; label: string } {
+  if (iaPausadaSemInteresse(c)) return { tone: "muted", label: "IA pausada" };
+  return estadoPill(effectiveEstado(c));
 }
 
 /**

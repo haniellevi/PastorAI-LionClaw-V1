@@ -303,7 +303,12 @@ export function InboxScreen() {
         });
         flashToast({
           kind: "ok",
-          text: to === "human" ? "Atendimento assumido. IA pausada." : "Devolvido para a IA.",
+          text:
+            to === "human"
+              ? "Atendimento assumido. IA pausada."
+              : c.semInteresse
+                ? "Atendimento encerrado. A IA segue pausada."
+                : "Devolvido para a IA.",
         });
       } catch (err) {
         if (handleSessionError(err)) return;
