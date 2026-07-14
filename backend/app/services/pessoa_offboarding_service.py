@@ -260,13 +260,23 @@ def preflight_archive(
             )
         )
 
-    # 5/6/7) AppUser vinculado — acesso ativo / dono da igreja / último admin.
-    app_user = db.execute(
+    # 5/6/7/8) AppUser(s) vinculado(s) — acesso ativo / dono da igreja / último
+    # admin / auto-arquivamento. Uma Pessoa pode ter MAIS DE UM app_user na
+    # mesma igreja (ex.: um convite reemitido criou um segundo registro); por
+    # isso NUNCA usar scalar_one_or_none() aqui — estoura MultipleResultsFound
+    # (500) com dois. Avalia-se o CONJUNTO completo: qualquer app_user ativo
+    # inclui acesso_painel_ativo; se algum for o dono, inclui dono_igreja.
+    app_users = db.execute(
         select(AppUser).where(
             AppUser.pessoa_id == pessoa_id, AppUser.igreja_id == igreja_id
         )
-    ).scalar_one_or_none()
-    if app_user is not None:
+    ).scalars().all()
+    igreja = (
+        db.execute(select(Igreja).where(Igreja.id == igreja_id)).scalar_one_or_none()
+        if app_users
+        else None
+    )
+    for app_user in app_users:
         acesso_ativo = app_user.status != REVOKED_USER_STATUS
         if acesso_ativo:
             bloqueadores.append(
@@ -279,9 +289,6 @@ def preflight_archive(
                 )
             )
 
-        igreja = db.execute(
-            select(Igreja).where(Igreja.id == igreja_id)
-        ).scalar_one_or_none()
         if igreja is not None and igreja.dono_id == app_user.id:
             bloqueadores.append(
                 PreflightItem(
