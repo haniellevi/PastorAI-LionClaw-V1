@@ -5108,20 +5108,10 @@ table.data-table {
 }
 
 /* ===========================================================================
-   Central de Célula (Jornada G12 > Discipular) — shell de 5 abas, dashboard,
-   saúde (10 bolinhas), master-detail de solicitações. Reusa .card/.pill/.tabs.
+   Central de Célula (Jornada G12 > Discipular) — shell de 5 abas (Ds/Tabs),
+   dashboard, saúde (10 bolinhas), master-detail de solicitações.
+   Reusa .card/.pill; abas migradas ao primitive da fundação (Gate 10).
    =========================================================================== */
-/* Strip de abas rolável na horizontal (não vaza a página em 360px) */
-.central-tabs {
-  align-self: stretch;
-  margin: 0 0 var(--s4);
-  overflow-x: auto;
-  scrollbar-width: thin;
-}
-.central-tabs .tabs {
-  min-width: max-content;
-}
-
 /* Cards do painel (WorkQueuePanel) */
 .central-cards {
   display: grid;
@@ -5161,6 +5151,12 @@ table.data-table {
   margin-top: 4px;
   font-size: 11.5px;
   color: var(--muted);
+}
+/* Estado de alerta do card: a borda já muda de cor — o rótulo "Atenção"
+   soma texto ao sinal (nunca cor isolada, DESIGN.md §2.8). */
+.cc-delta-alert {
+  color: var(--warn);
+  font-weight: 650;
 }
 
 /* Master-detail: 2 colunas no desktop, empilhado no mobile (mesmo código-base) */
@@ -5271,6 +5267,44 @@ table.data-table {
 .central-stack {
   display: grid;
   gap: var(--s4);
+}
+/* Linha de célula selecionável em "Gerenciar células" (Gate 10): mesmo
+   padrão visual do .req-row/.req-row.active — estado por classe, não por
+   inline style computado no JS. */
+.cc-cell-row {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  padding: var(--s3) var(--s4);
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+.cc-cell-row:last-child {
+  border-bottom: none;
+}
+.cc-cell-row:hover {
+  background: var(--surface-2);
+}
+.cc-cell-row--active {
+  background: var(--surface-2);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.cc-req-close {
+  margin-left: var(--s2);
+}
+
+/* ---- mobile: alvos ≥44px (DESIGN.md §11) ---- */
+@media (max-width: 860px) {
+  .cc .ds-btn {
+    min-height: 44px;
+  }
 }
 /* Corpo dos cards de seção (Central/Minha Célula: publicar aviso/material,
    listas, decisões). O .card é padding-0 e só o .panel-title tem padding —

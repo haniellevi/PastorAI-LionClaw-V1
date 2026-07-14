@@ -11,7 +11,9 @@
  */
 import { useState } from "react";
 
-import { Button } from "@/components/ui/Button";
+import { DsButton } from "@/components/ds/Button";
+import { DsField } from "@/components/ds/Field";
+import { DsIconButton } from "@/components/ds/IconButton";
 import { StatusPill, type PillTone } from "@/components/dashboard/StatusPill";
 import { Icon } from "@/lib/icons";
 import { ApiError } from "@/lib/dashboard-api";
@@ -156,15 +158,9 @@ export function RequestDecisionPanel({
         <div className="right">
           <StatusPill tone={status.tone}>{status.label}</StatusPill>
           {onClose ? (
-            <button
-              type="button"
-              className="btn btn-sm"
-              onClick={onClose}
-              aria-label="Fechar detalhe"
-              style={{ marginLeft: "var(--s2)" }}
-            >
+            <DsIconButton label="Fechar detalhe" onClick={onClose} className="cc-req-close">
               <Icon name="close" />
-            </button>
+            </DsIconButton>
           ) : null}
         </div>
       </div>
@@ -207,12 +203,10 @@ export function RequestDecisionPanel({
         ) : null}
 
         {mode ? (
-          <div className="field" style={{ marginTop: "var(--s3)" }}>
-            <label htmlFor="obs-central">
-              {mode === "reject" ? "Motivo da rejeição" : "O que ajustar"} (obrigatório)
-            </label>
-            <textarea
-              id="obs-central"
+          <div style={{ marginTop: "var(--s3)" }}>
+            <DsField
+              label={`${mode === "reject" ? "Motivo da rejeição" : "O que ajustar"} (obrigatório)`}
+              as="textarea"
               value={observacao}
               onChange={(e) => {
                 setObservacao(e.target.value);
@@ -220,27 +214,19 @@ export function RequestDecisionPanel({
               }}
               rows={3}
               maxLength={2000}
-              aria-invalid={fieldError ? true : undefined}
+              error={fieldError ?? undefined}
               placeholder="Explique para o líder o que precisa ser revisto."
             />
-            {fieldError ? (
-              <div className="err" role="alert">
-                {fieldError}
-              </div>
-            ) : null}
             <div className="chip-actions" style={{ marginTop: "var(--s3)" }}>
-              <Button
+              <DsButton
                 variant={mode === "reject" ? "danger" : "primary"}
-                size="sm"
                 onClick={() => void submitObservacao()}
                 loading={busy === "reject" || busy === "adjust"}
-                loadingText="Enviando…"
               >
                 {mode === "reject" ? "Confirmar rejeição" : "Enviar ajuste"}
-              </Button>
-              <Button
-                variant="default"
-                size="sm"
+              </DsButton>
+              <DsButton
+                variant="tertiary"
                 onClick={() => {
                   setMode(null);
                   setObservacao("");
@@ -249,40 +235,23 @@ export function RequestDecisionPanel({
                 disabled={anyBusy}
               >
                 Voltar
-              </Button>
+              </DsButton>
             </div>
           </div>
         ) : (
           <div className="chip-actions" style={{ marginTop: "var(--s3)" }}>
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => void approve()}
-              loading={busy === "approve"}
-              loadingText="Aprovando…"
-              disabled={anyBusy}
-            >
+            <DsButton variant="primary" onClick={() => void approve()} loading={busy === "approve"} disabled={anyBusy}>
               <Icon name="check" />
               <span>Aprovar</span>
-            </Button>
-            <Button
-              variant="default"
-              size="sm"
-              onClick={() => setMode("adjust")}
-              disabled={anyBusy}
-            >
+            </DsButton>
+            <DsButton variant="secondary" onClick={() => setMode("adjust")} disabled={anyBusy}>
               <Icon name="refresh" />
               <span>Pedir ajuste</span>
-            </Button>
-            <Button
-              variant="danger"
-              size="sm"
-              onClick={() => setMode("reject")}
-              disabled={anyBusy}
-            >
+            </DsButton>
+            <DsButton variant="danger" onClick={() => setMode("reject")} disabled={anyBusy}>
               <Icon name="close" />
               <span>Rejeitar</span>
-            </Button>
+            </DsButton>
           </div>
         )}
       </div>

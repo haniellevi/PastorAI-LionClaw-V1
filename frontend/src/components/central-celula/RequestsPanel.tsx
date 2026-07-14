@@ -9,6 +9,9 @@
  */
 import { useCallback, useEffect, useState } from "react";
 
+import { DsBanner } from "@/components/ds/Banner";
+import { DsButton } from "@/components/ds/Button";
+import { DsEmptyState } from "@/components/ds/EmptyState";
 import { StatusPill } from "@/components/dashboard/StatusPill";
 import { Icon } from "@/lib/icons";
 import { ApiError } from "@/lib/dashboard-api";
@@ -93,13 +96,16 @@ export function RequestsPanel({
         </div>
 
         {error ? (
-          <div className="error-banner" role="alert">
-            <Icon name="alert" />
-            <span>{error}</span>
-            <button type="button" className="btn btn-sm" onClick={() => void load("initial")} disabled={loading}>
-              Tentar novamente
-            </button>
-          </div>
+          <DsBanner
+            kind="error"
+            action={
+              <DsButton variant="secondary" onClick={() => void load("initial")} disabled={loading}>
+                Tentar novamente
+              </DsButton>
+            }
+          >
+            {error}
+          </DsBanner>
         ) : null}
 
         {showSkeleton ? (
@@ -109,12 +115,7 @@ export function RequestsPanel({
             ))}
           </div>
         ) : items.length === 0 ? (
-          <div className="empty-state" style={{ padding: "var(--s6)" }}>
-            <Icon name="check" />
-            <p>
-              <strong>Nenhuma solicitação aguardando.</strong>
-            </p>
-          </div>
+          <DsEmptyState illustration={<Icon name="check" />} title="Nenhuma solicitação aguardando." />
         ) : (
           <div>
             {items.map((req) => (
@@ -151,12 +152,11 @@ export function RequestsPanel({
         />
       ) : (
         <section className="card" aria-label="Detalhe da solicitação">
-          <div className="empty-state" style={{ padding: "var(--s6)" }}>
-            <Icon name="document" />
-            <p>
-              <strong>Selecione uma solicitação</strong> para revisar e decidir.
-            </p>
-          </div>
+          <DsEmptyState
+            illustration={<Icon name="document" />}
+            title="Selecione uma solicitação"
+            hint="Escolha um item da fila ao lado para revisar e decidir."
+          />
         </section>
       )}
     </div>

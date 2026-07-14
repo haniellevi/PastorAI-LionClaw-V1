@@ -8,7 +8,8 @@
  */
 import { useState } from "react";
 
-import { Button } from "@/components/ui/Button";
+import { DsButton } from "@/components/ds/Button";
+import { DsField } from "@/components/ds/Field";
 import { Icon } from "@/lib/icons";
 import { ApiError } from "@/lib/dashboard-api";
 import { createNotice, type Notice } from "@/lib/cell-notices-api";
@@ -79,100 +80,70 @@ export function CentralNoticeForm({
       </div>
 
       <div className="section-body" style={{ display: "grid", gap: "var(--s3)" }}>
-        <div className="field">
-          <label htmlFor="notice-target">Destino</label>
-          <select
-            id="notice-target"
-            value={target}
-            onChange={(e) => {
-              setTarget(e.target.value as Target);
-              setErrors((p) => ({ ...p, cell: undefined }));
-            }}
-          >
-            <option value="igreja">Igreja inteira</option>
-            <option value="celula">Célula específica</option>
-          </select>
-        </div>
+        <DsField
+          label="Destino"
+          as="select"
+          value={target}
+          onChange={(e) => {
+            setTarget(e.target.value as Target);
+            setErrors((p) => ({ ...p, cell: undefined }));
+          }}
+        >
+          <option value="igreja">Igreja inteira</option>
+          <option value="celula">Célula específica</option>
+        </DsField>
 
         {target === "celula" ? (
-          <div className={`field${errors.cell ? " invalid" : ""}`}>
-            <label htmlFor="notice-cell">Célula</label>
-            <select
-              id="notice-cell"
-              value={cellId}
-              onChange={(e) => {
-                setCellId(e.target.value);
-                if (errors.cell) setErrors((p) => ({ ...p, cell: undefined }));
-              }}
-              aria-invalid={errors.cell ? true : undefined}
-            >
-              <option value="">Selecione…</option>
-              {cells.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.nome}
-                </option>
-              ))}
-            </select>
-            {errors.cell ? (
-              <div className="err" role="alert">
-                {errors.cell}
-              </div>
-            ) : null}
-          </div>
+          <DsField
+            label="Célula"
+            as="select"
+            value={cellId}
+            onChange={(e) => {
+              setCellId(e.target.value);
+              if (errors.cell) setErrors((p) => ({ ...p, cell: undefined }));
+            }}
+            error={errors.cell}
+          >
+            <option value="">Selecione…</option>
+            {cells.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.nome}
+              </option>
+            ))}
+          </DsField>
         ) : null}
 
-        <div className={`field${errors.titulo ? " invalid" : ""}`}>
-          <label htmlFor="notice-titulo">Título</label>
-          <input
-            id="notice-titulo"
-            value={titulo}
-            maxLength={120}
-            onChange={(e) => {
-              setTitulo(e.target.value);
-              if (errors.titulo) setErrors((p) => ({ ...p, titulo: undefined }));
-            }}
-            aria-invalid={errors.titulo ? true : undefined}
-            placeholder="Ex.: Reunião de líderes no sábado"
-          />
-          {errors.titulo ? (
-            <div className="err" role="alert">
-              {errors.titulo}
-            </div>
-          ) : null}
-        </div>
+        <DsField
+          label="Título"
+          value={titulo}
+          maxLength={120}
+          onChange={(e) => {
+            setTitulo(e.target.value);
+            if (errors.titulo) setErrors((p) => ({ ...p, titulo: undefined }));
+          }}
+          error={errors.titulo}
+          placeholder="Ex.: Reunião de líderes no sábado"
+        />
 
-        <div className={`field${errors.conteudo ? " invalid" : ""}`}>
-          <label htmlFor="notice-conteudo">Conteúdo</label>
-          <textarea
-            id="notice-conteudo"
-            value={conteudo}
-            rows={3}
-            maxLength={2000}
-            onChange={(e) => {
-              setConteudo(e.target.value);
-              if (errors.conteudo) setErrors((p) => ({ ...p, conteudo: undefined }));
-            }}
-            aria-invalid={errors.conteudo ? true : undefined}
-            placeholder="Escreva a mensagem para os destinatários."
-          />
-          {errors.conteudo ? (
-            <div className="err" role="alert">
-              {errors.conteudo}
-            </div>
-          ) : null}
-        </div>
+        <DsField
+          label="Conteúdo"
+          as="textarea"
+          value={conteudo}
+          rows={3}
+          maxLength={2000}
+          onChange={(e) => {
+            setConteudo(e.target.value);
+            if (errors.conteudo) setErrors((p) => ({ ...p, conteudo: undefined }));
+          }}
+          error={errors.conteudo}
+          placeholder="Escreva a mensagem para os destinatários."
+        />
 
         <div>
-          <Button
-            variant="primary"
-            size="sm"
-            onClick={() => void submit()}
-            loading={busy}
-            loadingText="Publicando…"
-          >
+          <DsButton variant="primary" onClick={() => void submit()} loading={busy}>
             <Icon name="send" />
             <span>Publicar aviso</span>
-          </Button>
+          </DsButton>
         </div>
       </div>
     </section>

@@ -7,6 +7,9 @@
  */
 import { useCallback, useEffect, useState } from "react";
 
+import { DsBanner } from "@/components/ds/Banner";
+import { DsButton } from "@/components/ds/Button";
+import { DsEmptyState } from "@/components/ds/EmptyState";
 import { StatusPill } from "@/components/dashboard/StatusPill";
 import { Icon } from "@/lib/icons";
 import { ApiError } from "@/lib/dashboard-api";
@@ -56,13 +59,16 @@ export function MultiplicationsList({ token }: { token: string }) {
       </div>
 
       {error ? (
-        <div className="error-banner" role="alert">
-          <Icon name="alert" />
-          <span>{error}</span>
-          <button type="button" className="btn btn-sm" onClick={() => void load("retry")} disabled={loading}>
-            Tentar novamente
-          </button>
-        </div>
+        <DsBanner
+          kind="error"
+          action={
+            <DsButton variant="secondary" onClick={() => void load("retry")} disabled={loading}>
+              Tentar novamente
+            </DsButton>
+          }
+        >
+          {error}
+        </DsBanner>
       ) : null}
 
       {showSkeleton ? (
@@ -72,12 +78,7 @@ export function MultiplicationsList({ token }: { token: string }) {
           ))}
         </div>
       ) : total === 0 ? (
-        <div className="empty-state" style={{ padding: "var(--s6)" }}>
-          <Icon name="enviar" />
-          <p>
-            <strong>Nenhuma multiplicação.</strong>
-          </p>
-        </div>
+        <DsEmptyState illustration={<Icon name="enviar" />} title="Nenhuma multiplicação." />
       ) : (
         <div className="section-body" style={{ display: "grid", gap: "var(--s4)" }}>
           <div>
