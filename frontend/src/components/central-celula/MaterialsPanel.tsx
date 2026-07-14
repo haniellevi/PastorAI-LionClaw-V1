@@ -8,7 +8,10 @@
  */
 import { useCallback, useEffect, useState } from "react";
 
-import { Button } from "@/components/ui/Button";
+import { DsBanner } from "@/components/ds/Banner";
+import { DsButton } from "@/components/ds/Button";
+import { DsEmptyState } from "@/components/ds/EmptyState";
+import { DsField } from "@/components/ds/Field";
 import { Icon } from "@/lib/icons";
 import { ApiError } from "@/lib/dashboard-api";
 import {
@@ -127,70 +130,47 @@ export function MaterialsPanel({
           <Icon name="link" /> Publicar material
         </div>
         <div className="section-body" style={{ display: "grid", gap: "var(--s3)" }}>
-          <div className={`field${errors.titulo ? " invalid" : ""}`}>
-            <label htmlFor="mat-titulo">Título</label>
-            <input
-              id="mat-titulo"
-              value={titulo}
-              maxLength={120}
-              onChange={(e) => {
-                setTitulo(e.target.value);
-                if (errors.titulo) setErrors((p) => ({ ...p, titulo: undefined }));
-              }}
-              aria-invalid={errors.titulo ? true : undefined}
-              placeholder="Ex.: Estudo da semana"
-            />
-            {errors.titulo ? (
-              <div className="err" role="alert">
-                {errors.titulo}
-              </div>
-            ) : null}
-          </div>
+          <DsField
+            label="Título"
+            value={titulo}
+            maxLength={120}
+            onChange={(e) => {
+              setTitulo(e.target.value);
+              if (errors.titulo) setErrors((p) => ({ ...p, titulo: undefined }));
+            }}
+            error={errors.titulo}
+            placeholder="Ex.: Estudo da semana"
+          />
 
-          <div className={`field${errors.url ? " invalid" : ""}`}>
-            <label htmlFor="mat-url">URL</label>
-            <input
-              id="mat-url"
-              value={url}
-              maxLength={2048}
-              inputMode="url"
-              onChange={(e) => {
-                setUrl(e.target.value);
-                if (errors.url) setErrors((p) => ({ ...p, url: undefined }));
-              }}
-              aria-invalid={errors.url ? true : undefined}
-              placeholder="https://…"
-            />
-            {errors.url ? (
-              <div className="err" role="alert">
-                {errors.url}
-              </div>
-            ) : null}
-          </div>
+          <DsField
+            label="URL"
+            type="url"
+            value={url}
+            maxLength={2048}
+            inputMode="url"
+            onChange={(e) => {
+              setUrl(e.target.value);
+              if (errors.url) setErrors((p) => ({ ...p, url: undefined }));
+            }}
+            error={errors.url}
+            placeholder="https://…"
+          />
 
-          <div className="field">
-            <label htmlFor="mat-desc">Descrição (opcional)</label>
-            <textarea
-              id="mat-desc"
-              value={descricao}
-              rows={2}
-              maxLength={2000}
-              onChange={(e) => setDescricao(e.target.value)}
-              placeholder="Um resumo do material."
-            />
-          </div>
+          <DsField
+            label="Descrição (opcional)"
+            as="textarea"
+            value={descricao}
+            rows={2}
+            maxLength={2000}
+            onChange={(e) => setDescricao(e.target.value)}
+            placeholder="Um resumo do material."
+          />
 
           <div>
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => void publish()}
-              loading={busy}
-              loadingText="Publicando…"
-            >
+            <DsButton variant="primary" onClick={() => void publish()} loading={busy}>
               <Icon name="send" />
               <span>Publicar material</span>
-            </Button>
+            </DsButton>
           </div>
         </div>
       </section>
@@ -202,13 +182,16 @@ export function MaterialsPanel({
         </div>
 
         {error ? (
-          <div className="error-banner" role="alert">
-            <Icon name="alert" />
-            <span>{error}</span>
-            <button type="button" className="btn btn-sm" onClick={() => void load("initial")} disabled={loading}>
-              Tentar novamente
-            </button>
-          </div>
+          <DsBanner
+            kind="error"
+            action={
+              <DsButton variant="secondary" onClick={() => void load("initial")} disabled={loading}>
+                Tentar novamente
+              </DsButton>
+            }
+          >
+            {error}
+          </DsBanner>
         ) : null}
 
         {showSkeleton ? (
@@ -218,12 +201,7 @@ export function MaterialsPanel({
             ))}
           </div>
         ) : items.length === 0 ? (
-          <div className="empty-state" style={{ padding: "var(--s6)" }}>
-            <Icon name="document" />
-            <p>
-              <strong>Nenhum material publicado.</strong>
-            </p>
-          </div>
+          <DsEmptyState illustration={<Icon name="document" />} title="Nenhum material publicado." />
         ) : (
           <div>
             {items.map((m) => (
@@ -245,17 +223,15 @@ export function MaterialsPanel({
                     </span>
                   ) : null}
                 </span>
-                <Button
-                  variant="ghost"
-                  size="sm"
+                <DsButton
+                  variant="tertiary"
                   onClick={() => void inactivate(m)}
                   loading={pendingId === m.id}
-                  loadingText="Inativando…"
                   disabled={pendingId !== null && pendingId !== m.id}
                 >
                   <Icon name="trash" />
                   <span>Inativar</span>
-                </Button>
+                </DsButton>
               </div>
             ))}
           </div>

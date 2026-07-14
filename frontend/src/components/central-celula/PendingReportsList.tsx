@@ -7,6 +7,9 @@
  */
 import { useCallback, useEffect, useState } from "react";
 
+import { DsBanner } from "@/components/ds/Banner";
+import { DsButton } from "@/components/ds/Button";
+import { DsEmptyState } from "@/components/ds/EmptyState";
 import { Icon } from "@/lib/icons";
 import { ApiError } from "@/lib/dashboard-api";
 import { getPendingReports, type PendingReportItem } from "@/lib/cell-central-api";
@@ -49,13 +52,16 @@ export function PendingReportsList({ token }: { token: string }) {
       </div>
 
       {error ? (
-        <div className="error-banner" role="alert">
-          <Icon name="alert" />
-          <span>{error}</span>
-          <button type="button" className="btn btn-sm" onClick={() => void load("retry")} disabled={loading}>
-            Tentar novamente
-          </button>
-        </div>
+        <DsBanner
+          kind="error"
+          action={
+            <DsButton variant="secondary" onClick={() => void load("retry")} disabled={loading}>
+              Tentar novamente
+            </DsButton>
+          }
+        >
+          {error}
+        </DsBanner>
       ) : null}
 
       {showSkeleton ? (
@@ -65,12 +71,7 @@ export function PendingReportsList({ token }: { token: string }) {
           ))}
         </div>
       ) : items.length === 0 ? (
-        <div className="empty-state" style={{ padding: "var(--s6)" }}>
-          <Icon name="check" />
-          <p>
-            <strong>Nenhum relatório pendente.</strong>
-          </p>
-        </div>
+        <DsEmptyState illustration={<Icon name="check" />} title="Nenhum relatório pendente." />
       ) : (
         <table className="data-table">
           <thead>

@@ -9,6 +9,9 @@
  * Componente presentacional: o `dashboard` é buscado pela casca (fonte única
  * também dos badges das abas) e injetado por props.
  */
+import { DsBanner } from "@/components/ds/Banner";
+import { DsButton } from "@/components/ds/Button";
+import { DsEmptyState } from "@/components/ds/EmptyState";
 import { Icon, type IconKey } from "@/lib/icons";
 import type { CentralDashboard } from "@/lib/cell-central-api";
 import type { CentralTab } from "./types";
@@ -95,13 +98,16 @@ export function DashboardPanel({
       </div>
 
       {error ? (
-        <div className="error-banner" role="alert">
-          <Icon name="alert" />
-          <span>{error}</span>
-          <button type="button" className="btn btn-sm" onClick={onRetry} disabled={loading}>
-            Tentar novamente
-          </button>
-        </div>
+        <DsBanner
+          kind="error"
+          action={
+            <DsButton variant="secondary" onClick={onRetry} disabled={loading}>
+              Tentar novamente
+            </DsButton>
+          }
+        >
+          {error}
+        </DsBanner>
       ) : null}
 
       <div style={{ padding: "var(--s4)" }}>
@@ -115,13 +121,11 @@ export function DashboardPanel({
             ))}
           </div>
         ) : !dashboard ? (
-          <div className="empty-state" style={{ padding: "var(--s6)" }}>
-            <Icon name="dashboard" />
-            <p>
-              <strong>Nada por aqui ainda.</strong> Os contadores aparecem assim que
-              houver movimento nas células.
-            </p>
-          </div>
+          <DsEmptyState
+            illustration={<Icon name="dashboard" />}
+            title="Nada por aqui ainda."
+            hint="Os contadores aparecem assim que houver movimento nas células."
+          />
         ) : (
           <div className="central-cards">
             {CARDS.map((c) => {
@@ -139,7 +143,10 @@ export function DashboardPanel({
                     {c.label}
                   </div>
                   <div className="cc-val num">{value}</div>
-                  <div className="cc-delta">{c.delta}</div>
+                  <div className="cc-delta">
+                    {alert ? <span className="cc-delta-alert">Atenção · </span> : null}
+                    {c.delta}
+                  </div>
                 </button>
               );
             })}

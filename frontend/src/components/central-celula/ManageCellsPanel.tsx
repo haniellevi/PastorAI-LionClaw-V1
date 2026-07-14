@@ -17,6 +17,9 @@
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { DsBanner } from "@/components/ds/Banner";
+import { DsButton } from "@/components/ds/Button";
+import { DsEmptyState } from "@/components/ds/EmptyState";
 import { StatusPill } from "@/components/dashboard/StatusPill";
 import { CellFormModal } from "@/components/cells/CellFormModal";
 import { InviteMemberModal } from "@/components/cells/InviteMemberModal";
@@ -233,36 +236,38 @@ export function ManageCellsPanel({
   return (
     <div className="central-stack">
       <div style={{ display: "flex", justifyContent: "flex-end" }}>
-        <button type="button" className="btn btn-primary" onClick={openForm}>
+        <DsButton variant="primary" onClick={openForm}>
           <Icon name="plus" />
           <span>Nova célula</span>
-        </button>
+        </DsButton>
       </div>
 
       {loadError ? (
-        <div className="error-banner" role="alert">
-          <Icon name="alert" />
-          <span>{loadError}</span>
-          <button type="button" className="btn btn-sm" onClick={() => void load()}>
-            Tentar novamente
-          </button>
-        </div>
+        <DsBanner
+          kind="error"
+          action={
+            <DsButton variant="secondary" onClick={() => void load()}>
+              Tentar novamente
+            </DsButton>
+          }
+        >
+          {loadError}
+        </DsBanner>
       ) : null}
 
       {showEmpty ? (
         <div className="card">
-          <div className="empty-state" style={{ padding: "var(--s6)" }}>
-            <Icon name="central-celula" />
-            <p>
-              <strong>Nenhuma célula cadastrada.</strong>{" "}
-              Crie a primeira célula para começar a organizar líderes, membros e
-              relatórios.
-            </p>
-            <button type="button" className="btn btn-primary" onClick={openForm}>
-              <Icon name="plus" />
-              <span>Criar primeira célula</span>
-            </button>
-          </div>
+          <DsEmptyState
+            illustration={<Icon name="central-celula" />}
+            title="Nenhuma célula cadastrada."
+            hint="Crie a primeira célula para começar a organizar líderes, membros e relatórios."
+            action={
+              <DsButton variant="primary" onClick={openForm}>
+                <Icon name="plus" />
+                <span>Criar primeira célula</span>
+              </DsButton>
+            }
+          />
         </div>
       ) : null}
 
@@ -279,18 +284,9 @@ export function ManageCellsPanel({
                 <button
                   type="button"
                   key={c.id}
-                  className="list-row"
+                  className={`cc-cell-row${selected ? " cc-cell-row--active" : ""}`}
                   onClick={() => setSelectedId(selected ? null : c.id)}
-                  style={{
-                    width: "100%",
-                    textAlign: "left",
-                    background: selected ? "var(--surface-2)" : "transparent",
-                    border: "none",
-                    borderBottom: "1px solid var(--border)",
-                    cursor: "pointer",
-                    font: "inherit",
-                    color: "inherit",
-                  }}
+                  aria-pressed={selected}
                 >
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div className="nm">{c.nome}</div>
@@ -307,24 +303,14 @@ export function ManageCellsPanel({
           {selectedCell ? (
             <>
               <div style={{ display: "flex", gap: "var(--s2)", padding: "var(--s3) var(--s4)" }}>
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={() => openEdit(selectedCell)}
-                  style={{ flex: 1 }}
-                >
+                <DsButton variant="secondary" onClick={() => openEdit(selectedCell)} block>
                   <Icon name="document" />
                   <span>Editar célula</span>
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  onClick={() => setShowInvite(true)}
-                  style={{ flex: 1 }}
-                >
+                </DsButton>
+                <DsButton variant="primary" onClick={() => setShowInvite(true)} block>
                   <Icon name="plus" />
                   <span>Convidar membro</span>
-                </button>
+                </DsButton>
               </div>
 
               <div style={{ borderTop: "1px solid var(--border)" }}>
@@ -338,20 +324,17 @@ export function ManageCellsPanel({
                     Carregando…
                   </div>
                 ) : membrosError ? (
-                  <div
-                    className="error-banner"
-                    role="alert"
-                    style={{ margin: "0 var(--s4) var(--s3)" }}
-                  >
-                    <Icon name="alert" />
-                    <span>{membrosError}</span>
-                    <button
-                      type="button"
-                      className="btn btn-sm"
-                      onClick={() => setMembrosNonce((n) => n + 1)}
+                  <div style={{ margin: "0 var(--s4) var(--s3)" }}>
+                    <DsBanner
+                      kind="error"
+                      action={
+                        <DsButton variant="secondary" onClick={() => setMembrosNonce((n) => n + 1)}>
+                          Tentar novamente
+                        </DsButton>
+                      }
                     >
-                      Tentar novamente
-                    </button>
+                      {membrosError}
+                    </DsBanner>
                   </div>
                 ) : membros.length === 0 ? (
                   <div className="sub" style={{ padding: "0 var(--s4) var(--s3)" }}>

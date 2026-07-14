@@ -8,7 +8,9 @@
  */
 import { useCallback, useEffect, useState } from "react";
 
-import { Button } from "@/components/ui/Button";
+import { DsBanner } from "@/components/ds/Banner";
+import { DsButton } from "@/components/ds/Button";
+import { DsEmptyState } from "@/components/ds/EmptyState";
 import { Icon } from "@/lib/icons";
 import { ApiError } from "@/lib/dashboard-api";
 import { listNotices, deleteNotice, type Notice } from "@/lib/cell-notices-api";
@@ -104,13 +106,16 @@ export function NoticesPanel({
         </div>
 
         {error ? (
-          <div className="error-banner" role="alert">
-            <Icon name="alert" />
-            <span>{error}</span>
-            <button type="button" className="btn btn-sm" onClick={() => void load("initial")} disabled={loading}>
-              Tentar novamente
-            </button>
-          </div>
+          <DsBanner
+            kind="error"
+            action={
+              <DsButton variant="secondary" onClick={() => void load("initial")} disabled={loading}>
+                Tentar novamente
+              </DsButton>
+            }
+          >
+            {error}
+          </DsBanner>
         ) : null}
 
         {showSkeleton ? (
@@ -120,12 +125,7 @@ export function NoticesPanel({
             ))}
           </div>
         ) : items.length === 0 ? (
-          <div className="empty-state" style={{ padding: "var(--s6)" }}>
-            <Icon name="bell" />
-            <p>
-              <strong>Nenhum aviso publicado.</strong>
-            </p>
-          </div>
+          <DsEmptyState illustration={<Icon name="bell" />} title="Nenhum aviso publicado." />
         ) : (
           <div>
             {items.map((n) => (
@@ -139,17 +139,15 @@ export function NoticesPanel({
                 <p className="notice-body">{n.conteudo}</p>
                 <div className="notice-foot" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--s3)" }}>
                   <span className="notice-time">{formatPublishedAt(n.publicado_em)}</span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
+                  <DsButton
+                    variant="tertiary"
                     onClick={() => void inactivate(n)}
                     loading={pendingId === n.id}
-                    loadingText="Inativando…"
                     disabled={pendingId !== null && pendingId !== n.id}
                   >
                     <Icon name="trash" />
                     <span>Inativar</span>
-                  </Button>
+                  </DsButton>
                 </div>
               </article>
             ))}

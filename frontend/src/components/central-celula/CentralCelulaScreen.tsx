@@ -12,8 +12,10 @@
  * recarregado quando uma aba altera o estado (onChanged). Master-detail no
  * desktop e empilhado no mobile, no mesmo código-base.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
+import { DsEmptyState } from "@/components/ds/EmptyState";
+import { DsToast, DsToastRegion } from "@/components/ds/Toast";
 import { Icon } from "@/lib/icons";
 import { SessionExpiredError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
@@ -37,19 +39,11 @@ export function CentralCelulaScreen() {
   const [loadingDash, setLoadingDash] = useState(true);
   const [dashError, setDashError] = useState<string | null>(null);
 
+  // Gate 10: sem timer manual — o DsToast é o dono do ciclo de vida (ok
+  // auto-dismiss 3600ms; err persistente até fechar), igual ao contrato do
+  // Gate 9.1 em Minha Célula.
   const [toast, setToast] = useState<CentralToast | null>(null);
-  const toastTimer = useRef<number | null>(null);
-  const flashToast = useCallback((t: CentralToast) => {
-    setToast(t);
-    if (toastTimer.current) window.clearTimeout(toastTimer.current);
-    toastTimer.current = window.setTimeout(() => setToast(null), 3600);
-  }, []);
-  useEffect(
-    () => () => {
-      if (toastTimer.current) window.clearTimeout(toastTimer.current);
-    },
-    [],
-  );
+  const flashToast = useCallback((t: CentralToast) => setToast(t), []);
 
   const loadDashboard = useCallback(
     async (mode: "initial" | "reload") => {
@@ -83,13 +77,13 @@ export function CentralCelulaScreen() {
   // Guarda de papel: a Central é exclusiva de pastor/admin.
   if (!isCentral) {
     return (
-      <div className="screen" key="central-celula">
+      <div className="screen cc" key="central-celula">
         <div className="card">
-          <div className="scaffold">
-            <Icon name="lock" className="scaffold-ic" />
-            <h3>Acesso restrito</h3>
-            <p>A Central de Célula é exclusiva de pastores e administradores.</p>
-          </div>
+          <DsEmptyState
+            illustration={<Icon name="lock" />}
+            title="Acesso restrito"
+            hint="A Central de Célula é exclusiva de pastores e administradores."
+          />
         </div>
       </div>
     );
@@ -100,7 +94,7 @@ export function CentralCelulaScreen() {
   };
 
   return (
-    <div className="screen" key="central-celula">
+    <div className="screen cc" key="central-celula">
       <div className="screen-head">
         <div className="titles">
           <h2>Central de Célula</h2>
@@ -108,40 +102,43 @@ export function CentralCelulaScreen() {
         </div>
       </div>
 
-      <CentralTabs active={tab} onChange={setTab} badges={badges} />
+      <CentralTabs active={tab} onChange={setTab} badges={badges}>
+        {tab === "dashboard" ? (
+          <DashboardPanel
+            dashboard={dashboard}
+            loading={loadingDash}
+            error={dashError}
+            onRetry={() => void loadDashboard("initial")}
+            onGoTo={setTab}
+          />
+        ) : null}
 
-      {tab === "dashboard" ? (
-        <DashboardPanel
-          dashboard={dashboard}
-          loading={loadingDash}
-          error={dashError}
-          onRetry={() => void loadDashboard("initial")}
-          onGoTo={setTab}
-        />
-      ) : null}
+        {tab === "cells" && token ? (
+          <ManageCellsPanel token={token} onToast={flashToast} onChanged={refreshDashboard} />
+        ) : null}
 
-      {tab === "cells" && token ? (
-        <ManageCellsPanel token={token} onToast={flashToast} onChanged={refreshDashboard} />
-      ) : null}
+        {tab === "requests" && token ? (
+          <RequestsPanel token={token} onToast={flashToast} onChanged={refreshDashboard} />
+        ) : null}
 
-      {tab === "requests" && token ? (
-        <RequestsPanel token={token} onToast={flashToast} onChanged={refreshDashboard} />
-      ) : null}
+        {tab === "notices" && token ? (
+          <NoticesPanel token={token} onToast={flashToast} onChanged={refreshDashboard} />
+        ) : null}
 
-      {tab === "notices" && token ? (
-        <NoticesPanel token={token} onToast={flashToast} onChanged={refreshDashboard} />
-      ) : null}
+        {tab === "materials" && token ? (
+          <MaterialsPanel token={token} onToast={flashToast} onChanged={refreshDashboard} />
+        ) : null}
+      </CentralTabs>
 
-      {tab === "materials" && token ? (
-        <MaterialsPanel token={token} onToast={flashToast} onChanged={refreshDashboard} />
-      ) : null}
-
-      {toast ? (
-        <div className={`toast ${toast.kind}`} role="status">
-          <Icon name={toast.kind === "ok" ? "check" : "alert"} />
-          <span>{toast.text}</span>
-        </div>
-      ) : null}
+      <DsToastRegion>
+        {toast ? (
+          toast.kind === "ok" ? (
+            <DsToast kind="ok" text={toast.text} duration={3600} onDismiss={() => setToast(null)} />
+          ) : (
+            <DsToast kind="err" text={toast.text} onDismiss={() => setToast(null)} />
+          )
+        ) : null}
+      </DsToastRegion>
     </div>
   );
 }
