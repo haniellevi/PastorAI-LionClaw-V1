@@ -44,9 +44,10 @@ por IA. A UI nunca exibe simultaneamente "Sem interesse" e "IA ativa"; reflete
   (`ConversationOut.semInteresse`). Adicionar campo `iaPausada` seria duplicação.
 - **Prioridade da pílula:** humano > sem_interesse ("IA pausada") > aguardando > ia.
   Um humano que assumiu tem estado próprio ("Em atendimento"), sem conflito.
-- **"Devolver para a IA" mantido** para conversa sem interesse já sob humano: ao
-  devolver, o estado volta a `ia` e a UI imediatamente mostra "IA pausada"
-  (coerente); relabel seria fora de escopo.
+- **"Devolver para a IA" relabelado para "Encerrar atendimento"** na conversa sem
+  interesse já sob humano: ao encerrar, o estado volta a `ia`, mas a IA segue
+  suprimida no backend (o release não toca `pessoa.sem_interesse`), então o rótulo
+  NÃO promete devolver para uma IA que não responde e a UI mostra "IA pausada".
 - **Reconciliação em massa NÃO feita** (contrato): nenhum backfill em DEV/PROD.
 - **Filtro "IA" da lista NÃO alterado** (achado nit da revisão, fora de escopo):
   um contato sem interesse ocioso tem `estado="ia"` e cai no balde "IA" do filtro.
@@ -65,6 +66,6 @@ por IA. A UI nunca exibe simultaneamente "Sem interesse" e "IA ativa"; reflete
 
 ## Verificação
 - Backend: `pytest` verde — sweep agent/worker/conversation/classification/csim
-  (187 testes, 0 falha); `test_agent_hygiene.py` 6/6 incl. os 2 novos.
-- Frontend: `vitest` inbox 14/14 (9 novos); `tsc --noEmit` limpo; `next lint` limpo.
+  (187 testes, 0 falha); `test_agent_hygiene.py` 8/8 (6 base + 2 novos).
+- Frontend: `vitest` inbox 15/15 (10 novos); `tsc --noEmit` limpo; `next lint` limpo.
 - `git diff --check` limpo; secret scan sem achados.

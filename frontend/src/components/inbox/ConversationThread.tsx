@@ -433,23 +433,29 @@ export function ConversationThread({
               </span>
             </DsButton>
           ) : (
-            // Assumir é a ação operacional PRINCIPAL — azul mineral. Quando a IA
-            // já está pausada (sem interesse), o rótulo NÃO promete "pausar IA":
-            // não há IA ativa para pausar; o humano só assume para responder.
+            // Assumir é a ação operacional PRINCIPAL — azul mineral. Para um
+            // contato "sem interesse" a IA segue suprimida no backend mesmo sob
+            // outro líder (botão desabilitado), então o rótulo NUNCA promete
+            // "pausar IA": não há IA ativa para pausar; o humano só assume para
+            // responder. Chaveia por `semInteresse` (superset de `paused`).
             <DsButton
               onClick={() => onAssume(conversation)}
               disabled={busy || heldByOther}
-              aria-label={paused ? "Assumir atendimento" : "Assumir (pausar IA)"}
+              aria-label={
+                conversation.semInteresse ? "Assumir atendimento" : "Assumir (pausar IA)"
+              }
               title={
                 heldByOther
                   ? "Conversa já assumida por outro líder"
-                  : paused
+                  : conversation.semInteresse
                     ? "Assumir o atendimento"
                     : "Assumir o atendimento e pausar a IA"
               }
             >
               <Icon name="user" />
-              <span>{paused ? "Assumir atendimento" : "Assumir (pausar IA)"}</span>
+              <span>
+                {conversation.semInteresse ? "Assumir atendimento" : "Assumir (pausar IA)"}
+              </span>
             </DsButton>
           )}
           {isMine || isAdmin ? (

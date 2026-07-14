@@ -118,4 +118,16 @@ describe("ConversationThread — sem interesse ⇒ IA pausada (CONV-AI-1)", () =
     expect(text).toContain("Devolver para a IA");
     expect(text).not.toContain("Encerrar atendimento");
   });
+
+  it("sem interesse sob OUTRO líder: botão desabilitado usa 'Assumir atendimento', nunca 'pausar IA'", () => {
+    // Held-by-other: o botão fica DESABILITADO (não muda handoff/permissão), mas
+    // o rótulo não pode prometer "pausar IA" — a IA já está suprimida no backend.
+    render(conv({ semInteresse: true, estado: "humano", assumidoPor: "outro-lider" }));
+    const text = container.textContent ?? "";
+    expect(text).toContain("Assumir atendimento");
+    expect(text).not.toContain("pausar IA");
+    const assume = container.querySelector('[aria-label="Assumir atendimento"]');
+    expect(assume).not.toBeNull();
+    expect((assume as HTMLButtonElement).disabled).toBe(true);
+  });
 });
