@@ -16,20 +16,26 @@ import { DataTable, type Column } from "@/components/ui/DataTable";
 import { SessionExpiredError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import {
+  archiveContact,
+  ArchiveBlockedError,
   createContact,
   fetchContacts,
+  fetchOffboardingPreflight,
   followStatus,
   linkContactCell,
   tipoLabel,
   tipoTone,
   updateContact,
+  type ArchiveContactResult,
   type Contact,
   type CreateContactInput,
+  type OffboardingPreflight,
   type UpdateContactInput,
 } from "@/lib/contacts-api";
 import { ApiError, fetchCells, type Cell } from "@/lib/dashboard-api";
 import { Icon } from "@/lib/icons";
 
+import { ArchiveContactModal } from "./ArchiveContactModal";
 import { EditContactModal } from "./EditContactModal";
 import { LinkCellModal } from "./LinkCellModal";
 import { NewContactModal } from "./NewContactModal";
@@ -133,6 +139,18 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
   const [editSaving, setEditSaving] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
+
+  // Arquivamento de Pessoa (M7B-W3.2B, admin-only) — nunca hard delete.
+  const [archiveTarget, setArchiveTarget] = useState<Contact | null>(null);
+  const [archivePreflight, setArchivePreflight] = useState<OffboardingPreflight | null>(null);
+  const [archivePreflightLoading, setArchivePreflightLoading] = useState(false);
+  const [archivePreflightError, setArchivePreflightError] = useState<string | null>(null);
+  const [archiveBusy, setArchiveBusy] = useState(false);
+  const [archiveError, setArchiveError] = useState<string | null>(null);
+  // Sessão-only: o backend não expõe arquivada_em/por/motivo em GET /contacts
+  // (nem no detalhe) — o indicador de "Arquivada" só reflete o que a própria
+  // sessão acabou de fazer; um reload volta a mostrar a pessoa sem o selo.
+  const [archivedInfo, setArchivedInfo] = useState<Record<string, ArchiveContactResult>>({});
 
   const handleSessionError = useCallback(
     (err: unknown): boolean => {
@@ -287,6 +305,68 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
     [token, editTarget, flashToast, handleSessionError],
   );
 
+  const loadArchivePreflight = useCallback(
+    async (target: Contact) => {
+      if (!token) return;
+      setArchivePreflightLoading(true);
+      setArchivePreflightError(null);
+      try {
+        const result = await fetchOffboardingPreflight(token, target.id);
+        setArchivePreflight(result);
+      } catch (err) {
+        if (handleSessionError(err)) return;
+        setArchivePreflightError(
+          err instanceof ApiError
+            ? err.message
+            : "Não foi possível verificar se esta pessoa pode ser arquivada.",
+        );
+      } finally {
+        setArchivePreflightLoading(false);
+      }
+    },
+    [token, handleSessionError],
+  );
+
+  useEffect(() => {
+    if (archiveTarget) void loadArchivePreflight(archiveTarget);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [archiveTarget]);
+
+  const handleArchiveConfirm = useCallback(
+    async (motivo: string) => {
+      if (!token || !archiveTarget) return;
+      setArchiveBusy(true);
+      setArchiveError(null);
+      try {
+        const result = await archiveContact(token, archiveTarget.id, motivo);
+        setArchivedInfo((prev) => ({ ...prev, [result.pessoa_id]: result }));
+        flashToast({
+          kind: "ok",
+          text: result.ja_arquivada
+            ? `${archiveTarget.nome} já estava arquivada.`
+            : `${archiveTarget.nome} foi arquivada.`,
+        });
+        setArchiveTarget(null);
+        setArchivePreflight(null);
+      } catch (err) {
+        if (handleSessionError(err)) return;
+        if (err instanceof ArchiveBlockedError) {
+          // Bloqueadores surgiram entre o GET de preflight e a confirmação
+          // (TOCTOU): reexibe a lista revalidada pelo backend, sem fechar.
+          setArchivePreflight(err.preflight);
+          setArchiveError("Novos vínculos impedem o arquivamento agora. Revise a lista abaixo.");
+          return;
+        }
+        setArchiveError(
+          err instanceof ApiError ? err.message : "Não foi possível arquivar esta pessoa.",
+        );
+      } finally {
+        setArchiveBusy(false);
+      }
+    },
+    [token, archiveTarget, flashToast, handleSessionError],
+  );
+
   const columns: Array<Column<Contact>> = useMemo(
     () => [
       {
@@ -438,6 +518,7 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
             cellName={cellName(selectedContact?.celulaId ?? null)}
             busy={busyId === selectedContact?.id}
             canEdit={canEdit}
+            archived={selectedContact ? archivedInfo[selectedContact.id] : undefined}
             onEdit={() => {
               if (!selectedContact) return;
               setEditError(null);
@@ -447,6 +528,13 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
               if (!selectedContact) return;
               setLinkError(null);
               setLinkTarget(selectedContact);
+            }}
+            onArchive={() => {
+              if (!selectedContact) return;
+              setArchivePreflight(null);
+              setArchivePreflightError(null);
+              setArchiveError(null);
+              setArchiveTarget(selectedContact);
             }}
           />
         </div>
@@ -488,6 +576,25 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
         />
       ) : null}
 
+      {archiveTarget ? (
+        <ArchiveContactModal
+          contact={archiveTarget}
+          preflight={archivePreflight}
+          preflightLoading={archivePreflightLoading}
+          preflightError={archivePreflightError}
+          busy={archiveBusy}
+          error={archiveError}
+          onRetryPreflight={() => void loadArchivePreflight(archiveTarget)}
+          onClose={() => {
+            setArchiveTarget(null);
+            setArchivePreflight(null);
+            setArchivePreflightError(null);
+            setArchiveError(null);
+          }}
+          onConfirm={(motivo) => void handleArchiveConfirm(motivo)}
+        />
+      ) : null}
+
       {toast ? (
         <div className={`toast ${toast.kind}`} role="status">
           <Icon name={toast.kind === "ok" ? "check" : "alert"} />
@@ -506,15 +613,20 @@ function ContactDetail({
   cellName,
   busy,
   canEdit,
+  archived,
   onEdit,
   onLink,
+  onArchive,
 }: {
   contact: Contact | null;
   cellName: string;
   busy: boolean;
   canEdit: boolean;
+  /** Preenchido quando esta sessão acabou de arquivar a pessoa (sem persistir ao recarregar). */
+  archived?: ArchiveContactResult;
   onEdit: () => void;
   onLink: () => void;
+  onArchive: () => void;
 }) {
   if (!contact) {
     return (
@@ -539,7 +651,9 @@ function ContactDetail({
           <h3>{contact.nome}</h3>
           <div className="sub mono">{contact.telefone}</div>
         </div>
-        {contact.semInteresse ? (
+        {archived ? (
+          <StatusPill tone="muted">Arquivada</StatusPill>
+        ) : contact.semInteresse ? (
           <StatusPill tone="danger">Sem interesse (CSIM)</StatusPill>
         ) : (
           <StatusPill tone={tipoTone(contact.tipo)}>{tipoLabel(contact.tipo)}</StatusPill>
@@ -611,6 +725,19 @@ function ContactDetail({
           style={{ marginTop: !contact.celulaId ? "var(--s2)" : 0 }}
         >
           Editar dados
+        </button>
+      ) : null}
+
+      {canEdit && !archived ? (
+        <button
+          type="button"
+          className="btn btn-danger btn-block"
+          onClick={onArchive}
+          disabled={busy}
+          style={{ marginTop: "var(--s2)" }}
+        >
+          <Icon name="lock" />
+          <span>Arquivar pessoa</span>
         </button>
       ) : null}
     </div>
