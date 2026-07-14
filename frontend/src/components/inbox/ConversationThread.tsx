@@ -26,9 +26,10 @@ import { Icon } from "@/lib/icons";
 
 import {
   contactAvatar,
+  conversationPill,
   displayName,
   effectiveEstado,
-  estadoPill,
+  iaPausadaSemInteresse,
   maskPhone,
   messageStamp,
   messageTime,
@@ -40,12 +41,23 @@ interface ThreadCopy {
   bannerText: string;
 }
 
-function threadCopy(estado: "ia" | "humano" | "aguardando"): ThreadCopy {
+function threadCopy(
+  estado: "ia" | "humano" | "aguardando",
+  paused: boolean,
+): ThreadCopy {
   if (estado === "humano") {
     return {
       bannerClass: "human",
       bannerText:
         "Atendimento sob controle humano. A IA está pausada nesta conversa.",
+    };
+  }
+  // "Sem interesse": a IA já está suspensa no backend para este contato.
+  if (paused) {
+    return {
+      bannerClass: "human",
+      bannerText:
+        "A IA está pausada para este contato (sem interesse). Nenhuma resposta automática será enviada.",
     };
   }
   if (estado === "aguardando") {
@@ -224,8 +236,9 @@ export function ConversationThread({
   const recCancelRef = useRef(false);
 
   const estado = effectiveEstado(conversation);
-  const pill = estadoPill(estado);
-  const copy = threadCopy(estado);
+  const paused = iaPausadaSemInteresse(conversation);
+  const pill = conversationPill(conversation);
+  const copy = threadCopy(estado, paused);
   const marker = tipoMarker(conversation);
 
   const holder = conversation.assumidoPor;
@@ -397,31 +410,46 @@ export function ConversationThread({
         <div className="ctrl">
           <StatusPill tone={pill.tone}>{pill.label}</StatusPill>
           {isMine ? (
-            // Devolver é ação SECUNDÁRIA (Gate 8) — mesma regra/callback.
+            // Devolver é ação SECUNDÁRIA (Gate 8) — mesma regra/callback. Para um
+            // contato "sem interesse" a IA segue pausada no backend mesmo após o
+            // release, então o rótulo NÃO promete devolver para uma IA que não
+            // volta a responder: vira "Encerrar atendimento".
             <DsButton
               variant="secondary"
               onClick={() => onReturn(conversation)}
               disabled={busy}
-              aria-label="Devolver para a IA"
-              title="Devolver para a IA"
+              aria-label={
+                conversation.semInteresse ? "Encerrar atendimento" : "Devolver para a IA"
+              }
+              title={
+                conversation.semInteresse
+                  ? "Encerrar o atendimento (a IA segue pausada para este contato)"
+                  : "Devolver para a IA"
+              }
             >
-              <Icon name="sparkles" />
-              <span>Devolver para a IA</span>
+              <Icon name={conversation.semInteresse ? "user" : "sparkles"} />
+              <span>
+                {conversation.semInteresse ? "Encerrar atendimento" : "Devolver para a IA"}
+              </span>
             </DsButton>
           ) : (
-            // Assumir (pausar IA) é a ação operacional PRINCIPAL — azul mineral.
+            // Assumir é a ação operacional PRINCIPAL — azul mineral. Quando a IA
+            // já está pausada (sem interesse), o rótulo NÃO promete "pausar IA":
+            // não há IA ativa para pausar; o humano só assume para responder.
             <DsButton
               onClick={() => onAssume(conversation)}
               disabled={busy || heldByOther}
-              aria-label="Assumir (pausar IA)"
+              aria-label={paused ? "Assumir atendimento" : "Assumir (pausar IA)"}
               title={
                 heldByOther
                   ? "Conversa já assumida por outro líder"
-                  : "Assumir o atendimento e pausar a IA"
+                  : paused
+                    ? "Assumir o atendimento"
+                    : "Assumir o atendimento e pausar a IA"
               }
             >
               <Icon name="user" />
-              <span>Assumir (pausar IA)</span>
+              <span>{paused ? "Assumir atendimento" : "Assumir (pausar IA)"}</span>
             </DsButton>
           )}
           {isMine || isAdmin ? (
