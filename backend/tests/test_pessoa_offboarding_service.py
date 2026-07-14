@@ -244,6 +244,34 @@ def _mk_admin_app_user(
     return app_user_id
 
 
+def _mk_app_user(
+    session: Session,
+    igreja_id: uuid.UUID,
+    *,
+    pessoa_id: uuid.UUID | None = None,
+    status: str = "ativo",
+    admin: bool = False,
+) -> uuid.UUID:
+    """app_user avulso (sem papel por padrão) — para cenários de MÚLTIPLOS
+    app_users por Pessoa (não há UNIQUE em app_users.pessoa_id)."""
+    app_user_id = uuid.uuid4()
+    session.add(
+        AppUser(
+            id=app_user_id,
+            igreja_id=igreja_id,
+            nome="Usuário",
+            email=f"{app_user_id}@teste.com",
+            status=status,
+            pessoa_id=pessoa_id,
+        )
+    )
+    session.flush()
+    if admin:
+        session.add(UserRole(igreja_id=igreja_id, user_id=app_user_id, papel="admin"))
+        session.flush()
+    return app_user_id
+
+
 def _mk_celula(session: Session, igreja_id: uuid.UUID, **kw) -> uuid.UUID:
     celula_id = kw.pop("id", uuid.uuid4())
     session.add(
@@ -874,6 +902,116 @@ def test_bloqueio_auto_arquivamento(factory: sessionmaker) -> None:
 
     # ator == o próprio app_user vinculado à pessoa alvo.
     _assert_blocks(factory, pessoa_id, proprio_app_user_id, "auto_arquivamento")
+
+
+# ---------------------------------------------------------------------------
+# Múltiplos app_users por Pessoa — regressão do defeito PROD: o preflight usava
+# scalar_one_or_none() para o app_user, estourando MultipleResultsFound (500)
+# quando a Pessoa tinha 2 app_users na mesma igreja. Agora avalia o CONJUNTO.
+# ---------------------------------------------------------------------------
+@pytest.mark.rls_integration
+def test_preflight_dois_app_users_nao_estoura_500(factory: sessionmaker) -> None:
+    """Dois app_users (ambos revogados, sem outro vínculo) -> GET preflight
+    devolve resultado normal (pode_arquivar=True), NUNCA MultipleResultsFound."""
+    session = factory()
+    ctx = _base(session)
+    pessoa_id = _mk_pessoa(session, ctx["igreja_id"])
+    _mk_app_user(session, ctx["igreja_id"], pessoa_id=pessoa_id, status="revogado")
+    _mk_app_user(session, ctx["igreja_id"], pessoa_id=pessoa_id, status="revogado")
+    session.commit()
+    session.close()
+
+    result = _run_preflight(factory, pessoa_id, ctx["ator_id"])
+    assert result.pode_arquivar is True
+    assert result.bloqueadores == []
+
+
+@pytest.mark.rls_integration
+def test_preflight_dois_app_users_um_ativo_bloqueia(factory: sessionmaker) -> None:
+    """Dois app_users, um ATIVO e um revogado -> bloqueia (acesso_painel_ativo)
+    e archive recusa (409), sem 500."""
+    session = factory()
+    ctx = _base(session)
+    pessoa_id = _mk_pessoa(session, ctx["igreja_id"])
+    _mk_app_user(session, ctx["igreja_id"], pessoa_id=pessoa_id, status="revogado")
+    _mk_app_user(session, ctx["igreja_id"], pessoa_id=pessoa_id, status="ativo")
+    session.commit()
+    session.close()
+
+    _assert_blocks(factory, pessoa_id, ctx["ator_id"], "acesso_painel_ativo")
+
+
+@pytest.mark.rls_integration
+def test_preflight_dois_app_users_um_dono_bloqueia(factory: sessionmaker) -> None:
+    """Dois app_users, um é o DONO da igreja (revogado de propósito, para
+    isolar dono_igreja de acesso_painel_ativo) -> bloqueia (dono_igreja) e
+    archive recusa (409), sem 500. Prova que o dono é bloqueador mesmo quando
+    NÃO é o primeiro app_user retornado."""
+    session = factory()
+    ctx = _base(session)
+    pessoa_id = _mk_pessoa(session, ctx["igreja_id"])
+    _mk_app_user(session, ctx["igreja_id"], pessoa_id=pessoa_id, status="revogado")
+    dono_id = _mk_app_user(
+        session, ctx["igreja_id"], pessoa_id=pessoa_id, status="revogado"
+    )
+    igreja = session.get(Igreja, ctx["igreja_id"])
+    igreja.dono_id = dono_id
+    session.commit()
+    session.close()
+
+    _assert_blocks(factory, pessoa_id, ctx["ator_id"], "dono_igreja")
+
+
+@pytest.mark.rls_integration
+def test_archive_dois_app_users_agrega_bloqueadores_e_nao_muta(
+    factory: sessionmaker,
+) -> None:
+    """POST archive de Pessoa com DOIS app_users (um ativo, outro dono) -> 409
+    com AMBOS os bloqueadores acumulados sobre o conjunto, sem mutação parcial."""
+    session = factory()
+    ctx = _base(session)
+    pessoa_id = _mk_pessoa(session, ctx["igreja_id"])
+    _mk_app_user(session, ctx["igreja_id"], pessoa_id=pessoa_id, status="ativo")
+    dono_id = _mk_app_user(
+        session, ctx["igreja_id"], pessoa_id=pessoa_id, status="revogado"
+    )
+    igreja = session.get(Igreja, ctx["igreja_id"])
+    igreja.dono_id = dono_id
+    session.commit()
+    session.close()
+
+    result = _run_preflight(factory, pessoa_id, ctx["ator_id"])
+    tipos = {b.tipo for b in result.bloqueadores}
+    assert {"acesso_painel_ativo", "dono_igreja"} <= tipos, tipos
+
+    with pytest.raises(HTTPException) as exc_info:
+        _run_archive(factory, pessoa_id, ctx["ator_id"])
+    assert exc_info.value.status_code == 409
+    tipos_409 = {b["tipo"] for b in exc_info.value.detail["bloqueadores"]}
+    assert {"acesso_painel_ativo", "dono_igreja"} <= tipos_409, tipos_409
+
+    session = factory()
+    try:
+        assert session.get(Pessoa, pessoa_id).arquivada_em is None
+    finally:
+        session.close()
+
+
+@pytest.mark.rls_integration
+def test_preflight_um_app_user_inalterado(factory: sessionmaker) -> None:
+    """Regressão: com UM único app_user ativo o comportamento é o de sempre —
+    exatamente um bloqueador acesso_painel_ativo (sem duplicar). O caso de ZERO
+    app_user é coberto por test_preflight_no_blockers_pode_arquivar."""
+    session = factory()
+    ctx = _base(session)
+    pessoa_id = _mk_pessoa(session, ctx["igreja_id"])
+    _mk_app_user(session, ctx["igreja_id"], pessoa_id=pessoa_id, status="ativo")
+    session.commit()
+    session.close()
+
+    result = _run_preflight(factory, pessoa_id, ctx["ator_id"])
+    tipos = [b.tipo for b in result.bloqueadores]
+    assert tipos.count("acesso_painel_ativo") == 1, tipos
 
 
 @pytest.mark.rls_integration
