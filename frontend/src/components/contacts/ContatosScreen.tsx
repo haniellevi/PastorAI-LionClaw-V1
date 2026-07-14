@@ -305,15 +305,27 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
     [token, editTarget, flashToast, handleSessionError],
   );
 
+  // Geração da requisição de preflight: A pode ser aberto, o usuário trocar
+  // para B antes de A responder, e a resposta de A chegar DEPOIS da de B
+  // (rede não garante ordem). Sem essa guarda, a resposta tardia de A
+  // sobrescreveria o preflight/erro/loading que a tela já mostra para B.
+  // Cada chamada real de loadArchivePreflight reserva o próximo número; só a
+  // MAIS RECENTE tem permissão de gravar estado — qualquer uma que resolva
+  // depois de já ter sido superada por uma chamada mais nova é descartada.
+  const archivePreflightRequestRef = useRef(0);
+
   const loadArchivePreflight = useCallback(
     async (target: Contact) => {
       if (!token) return;
+      const requestId = ++archivePreflightRequestRef.current;
       setArchivePreflightLoading(true);
       setArchivePreflightError(null);
       try {
         const result = await fetchOffboardingPreflight(token, target.id);
+        if (archivePreflightRequestRef.current !== requestId) return; // resposta obsoleta
         setArchivePreflight(result);
       } catch (err) {
+        if (archivePreflightRequestRef.current !== requestId) return; // resposta obsoleta
         if (handleSessionError(err)) return;
         setArchivePreflightError(
           err instanceof ApiError
@@ -321,7 +333,9 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
             : "Não foi possível verificar se esta pessoa pode ser arquivada.",
         );
       } finally {
-        setArchivePreflightLoading(false);
+        if (archivePreflightRequestRef.current === requestId) {
+          setArchivePreflightLoading(false);
+        }
       }
     },
     [token, handleSessionError],

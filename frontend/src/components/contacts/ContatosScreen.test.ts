@@ -5,9 +5,11 @@
  *    (toast + selo "Arquivada", sem remover a pessoa da lista — nunca um
  *    hard delete visual);
  *  - preflight bloqueado nunca deixa confirmar;
- *  - 403 no preflight e 409 (bloqueado) na confirmação aparecem como erro,
- *    sem quebrar a tela;
- *  - usuário não-admin nem vê o botão nem dispara o preflight.
+ *  - 403/404 no preflight, 403/404/409(bloqueado)/rede na confirmação
+ *    aparecem como erro, sem quebrar a tela;
+ *  - usuário não-admin nem vê o botão nem dispara o preflight;
+ *  - RACE: preflight de A atrasado não pode sobrescrever o preflight de B
+ *    (REVIEW_FAIL do PR#169 — rede não garante ordem de resposta).
  *
  * Sem JSX (createElement): o tsconfig do Next usa jsx:"preserve".
  */
@@ -109,6 +111,13 @@ function preflight(over: Partial<OffboardingPreflight> = {}): OffboardingPreflig
   };
 }
 
+const contactB: Contact = {
+  ...contact,
+  id: "p2",
+  nome: "Beatriz Lima",
+  telefone: "5511999998888",
+};
+
 function archiveResult(over: Partial<ArchiveContactResult> = {}): ArchiveContactResult {
   return {
     pessoa_id: "p1",
@@ -135,6 +144,27 @@ async function flush(times = 3) {
 
 function findButton(label: string): HTMLButtonElement | undefined {
   return [...container.querySelectorAll("button")].find((b) => b.textContent!.includes(label));
+}
+
+function findRow(nameSubstring: string): HTMLTableRowElement {
+  const row = [...container.querySelectorAll<HTMLTableRowElement>(".data-table tbody tr")].find(
+    (r) => r.textContent!.includes(nameSubstring),
+  );
+  if (!row) throw new Error(`linha não encontrada na tabela: ${nameSubstring}`);
+  return row;
+}
+
+function clickRow(nameSubstring: string) {
+  act(() => {
+    findRow(nameSubstring).dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  });
+}
+
+/** Botão de confirmar "Arquivar pessoa" DENTRO do diálogo (o 2º/último com esse texto). */
+function findConfirmButton(): HTMLButtonElement | undefined {
+  return [...container.querySelectorAll("button")]
+    .filter((b) => b.textContent!.includes("Arquivar pessoa"))
+    .at(-1);
 }
 
 function setTextarea(value: string) {
@@ -304,5 +334,180 @@ describe("ContatosScreen — arquivamento de Pessoa (M7B-W3.2B)", () => {
     await renderScreenWithContact();
     expect(findButton("Arquivar pessoa")).toBeUndefined();
     expect(apiMock.fetchOffboardingPreflight).not.toHaveBeenCalled();
+  });
+
+  it("404 no GET preflight aparece como erro sem quebrar a tela", async () => {
+    await renderScreenWithContact();
+    apiMock.fetchOffboardingPreflight.mockRejectedValue(new ApiError(404, "Pessoa não encontrada"));
+    act(() => {
+      findButton("Arquivar pessoa")!.click();
+    });
+    await flush();
+    expect(container.textContent).toContain("Pessoa não encontrada");
+    expect(findButton("Tentar novamente")).toBeDefined();
+  });
+
+  it("403 no POST archive aparece como erro sem fechar o diálogo", async () => {
+    await renderScreenWithContact();
+    apiMock.fetchOffboardingPreflight.mockResolvedValue(preflight({ pode_arquivar: true }));
+    act(() => {
+      findButton("Arquivar pessoa")!.click();
+    });
+    await flush();
+
+    apiMock.archiveContact.mockRejectedValue(
+      new ApiError(403, "Você não tem permissão para arquivar pessoas."),
+    );
+    setTextarea("Motivo qualquer");
+    act(() => {
+      findConfirmButton()!.click();
+    });
+    await flush();
+
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(container.textContent).toContain("Você não tem permissão para arquivar pessoas.");
+    expect(container.querySelector(".toast")).toBeNull();
+  });
+
+  it("404 no POST archive aparece como erro sem fechar o diálogo", async () => {
+    await renderScreenWithContact();
+    apiMock.fetchOffboardingPreflight.mockResolvedValue(preflight({ pode_arquivar: true }));
+    act(() => {
+      findButton("Arquivar pessoa")!.click();
+    });
+    await flush();
+
+    apiMock.archiveContact.mockRejectedValue(new ApiError(404, "Pessoa não encontrada"));
+    setTextarea("Motivo qualquer");
+    act(() => {
+      findConfirmButton()!.click();
+    });
+    await flush();
+
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(container.textContent).toContain("Pessoa não encontrada");
+    expect(container.querySelector(".toast")).toBeNull();
+  });
+
+  it("erro de rede ao confirmar aparece como erro, sem fechar o diálogo nem perder o motivo digitado", async () => {
+    await renderScreenWithContact();
+    apiMock.fetchOffboardingPreflight.mockResolvedValue(preflight({ pode_arquivar: true }));
+    act(() => {
+      findButton("Arquivar pessoa")!.click();
+    });
+    await flush();
+
+    // Mesma ApiError(0, ...) que authedFetch lança quando o fetch() em si falha
+    // (ver dashboard-api.ts) — não é um contrato inventado para o teste.
+    apiMock.archiveContact.mockRejectedValue(
+      new ApiError(0, "Falha de conexão. Verifique sua internet e tente novamente."),
+    );
+    setTextarea("Sem internet agora");
+    act(() => {
+      findConfirmButton()!.click();
+    });
+    await flush();
+
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(container.textContent).toContain("Falha de conexão");
+    expect(container.querySelector<HTMLTextAreaElement>("textarea")?.value).toBe(
+      "Sem internet agora",
+    );
+  });
+
+  it("RACE: preflight de A atrasado não sobrescreve o de B (resposta de A chega depois da de B)", async () => {
+    apiMock.fetchContacts.mockResolvedValue({
+      items: [contact, contactB],
+      page: 1,
+      pageSize: 200,
+      total: 2,
+    });
+    act(() => {
+      root.render(h(ContatosScreen, {}));
+    });
+    await flush();
+
+    let resolveA!: (v: OffboardingPreflight) => void;
+    const deferredA = new Promise<OffboardingPreflight>((resolve) => {
+      resolveA = resolve;
+    });
+    let resolveB!: (v: OffboardingPreflight) => void;
+    const deferredB = new Promise<OffboardingPreflight>((resolve) => {
+      resolveB = resolve;
+    });
+    apiMock.fetchOffboardingPreflight.mockImplementationOnce(() => deferredA);
+    apiMock.fetchOffboardingPreflight.mockImplementationOnce(() => deferredB);
+
+    // 1) abrir Pessoa A — 2) iniciar GET do preflight de A.
+    clickRow("Ana Souza");
+    act(() => {
+      findButton("Arquivar pessoa")!.click();
+    });
+    await flush();
+    expect(apiMock.fetchOffboardingPreflight).toHaveBeenNthCalledWith(1, "tok-1", "p1");
+    expect(container.querySelector("textarea")).toBeNull(); // ainda "Verificando…"
+
+    // 3) fechar/trocar para Pessoa B (a requisição de A segue pendente).
+    act(() => {
+      findButton("Fechar")!.click();
+    });
+    await flush();
+    clickRow("Beatriz Lima");
+
+    // 4) iniciar GET do preflight de B.
+    act(() => {
+      findButton("Arquivar pessoa")!.click();
+    });
+    await flush();
+    expect(apiMock.fetchOffboardingPreflight).toHaveBeenNthCalledWith(2, "tok-1", "p2");
+
+    // 5) resposta de A chega DEPOIS da de B.
+    const preflightB = preflight({ pessoa_id: "p2", pode_arquivar: true, bloqueadores: [] });
+    const preflightA = preflight({
+      pessoa_id: "p1",
+      pode_arquivar: false,
+      bloqueadores: [
+        {
+          tipo: "celula_lider",
+          rotulo: "BLOQUEADOR-SO-DE-A",
+          recurso_id: "c1",
+          recurso_nome: "Célula de A",
+          acao_recomendada: "Troque o líder antes de arquivar.",
+        },
+      ],
+    });
+    act(() => {
+      resolveB(preflightB);
+    });
+    await flush();
+    act(() => {
+      resolveA(preflightA);
+    });
+    await flush();
+
+    // O diálogo aberto é o de B: sem rastro do bloqueador de A, formulário liberado.
+    expect(container.textContent).not.toContain("BLOQUEADOR-SO-DE-A");
+    expect(container.textContent).not.toContain("Não é possível arquivar agora");
+    const dialog = container.querySelector('[role="dialog"]')!;
+    expect(dialog.textContent).toContain("Beatriz Lima");
+    // Um bloqueador de A nunca pode habilitar/desabilitar o arquivamento de B:
+    // aqui o botão de confirmar existe porque B (não A) está liberada.
+    const confirmBtn = findConfirmButton();
+    expect(confirmBtn).toBeDefined();
+
+    apiMock.archiveContact.mockResolvedValue(
+      archiveResult({ pessoa_id: "p2", arquivada_motivo: "Motivo B" }),
+    );
+    setTextarea("Motivo B");
+    act(() => {
+      confirmBtn!.click();
+    });
+    await flush();
+    expect(apiMock.archiveContact).toHaveBeenCalledWith("tok-1", "p2", "Motivo B");
+    expect(apiMock.archiveContact).not.toHaveBeenCalledWith(
+      "tok-1",
+      "p1",
+      expect.anything(),
+    );
   });
 });
