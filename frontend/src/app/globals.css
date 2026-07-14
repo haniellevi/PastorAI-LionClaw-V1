@@ -812,9 +812,8 @@ input[type="checkbox"] {
 .nav-item[data-accent="whats"] .nav-ic {
   --ic: oklch(63% 0.144 152);
 }
-.nav-item.active .nav-ic {
-  background: color-mix(in oklch, var(--ic) 30%, transparent);
-}
+/* Gate 6 (M7B-Visual-W1): ativo é UMA affordance (o tint da linha) — o bloco
+   do ícone não ganha um segundo tint por cima (evita caixa dentro de caixa). */
 
 .nav-item .lbl {
   min-width: 0;
@@ -984,7 +983,8 @@ input[type="checkbox"] {
 .sidebar.collapsed [data-tip] {
   position: relative;
 }
-.sidebar.collapsed [data-tip]:hover::after {
+.sidebar.collapsed [data-tip]:hover::after,
+.sidebar.collapsed [data-tip]:focus-visible::after {
   content: attr(data-tip);
   position: absolute;
   left: calc(100% + 10px);
@@ -1000,6 +1000,14 @@ input[type="checkbox"] {
   z-index: 60;
   pointer-events: none;
   box-shadow: 0 8px 24px oklch(0% 0 0 / 0.35);
+}
+/* Gate 6 (M7B-Visual-W1): .nav-scroll corta overflow-x (linha ~600) pra não
+   vazar durante o scroll vertical — isso também cortava o tooltip acima
+   (nunca aparecia, nem no :hover). Libera o overflow só enquanto o item com
+   tooltip está em hover/foco (:has — Chrome/Edge/Safari/Firefox atuais, mesma
+   baseline do oklch() já usado no arquivo). */
+.sidebar.collapsed .nav-scroll:has([data-tip]:hover, [data-tip]:focus-visible) {
+  overflow: visible;
 }
 
 /* ---------- MAIN / TOPBAR ---------- */
@@ -1027,6 +1035,13 @@ input[type="checkbox"] {
 }
 .topbar h1 {
   font-size: 17px;
+  /* Gate 6 (M7B-Visual-W1): título/busca/chips no mesmo eixo — sem espaço,
+     trunca com reticências em vez de quebrar linha (evitava "texto cortado"
+     por wrap no meio da frase quando a busca+chips espremiam o título). */
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .tb-titles {
   display: flex;

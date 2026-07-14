@@ -96,6 +96,11 @@ export function Sidebar({
     ]
       .filter(Boolean)
       .join(" ");
+    // Gate 6.1 (M7B-Visual-W1): nome acessível explícito via aria-label — vale
+    // pro colapsado (ícone só) e pro expandido; locked soma "em breve" (o
+    // aria-label substitui o texto visível inteiro, então o sufixo precisa
+    // estar aqui, não num span sr-only separado que o aria-label silenciaria).
+    const accessibleLabel = item.locked ? `${item.label} — disponível em breve` : item.label;
 
     return (
       <button
@@ -104,6 +109,7 @@ export function Sidebar({
         className={classes}
         data-tip={item.label}
         data-accent={tint}
+        aria-label={accessibleLabel}
         aria-current={!item.locked && route === item.target ? "page" : undefined}
         aria-disabled={item.locked || undefined}
         onClick={() => {
@@ -116,13 +122,9 @@ export function Sidebar({
         <span className="lbl">{item.label}</span>
         {item.badge ? <span className="badge">{item.badge}</span> : null}
         {item.locked ? (
-          <>
-            <span className="soon" title="Disponível em breve" aria-hidden="true">
-              <Icon name="lock" />
-            </span>
-            {/* Gate 6.1: "em breve" comunicado a leitores de tela (title não basta). */}
-            <span className="sr-only"> — disponível em breve</span>
-          </>
+          <span className="soon" title="Disponível em breve" aria-hidden="true">
+            <Icon name="lock" />
+          </span>
         ) : null}
       </button>
     );
@@ -218,6 +220,7 @@ export function Sidebar({
               href={crossSurface.href}
               data-tip={crossSurface.label}
               data-accent="whats"
+              aria-label={crossSurface.label}
             >
               <span className="nav-ic" aria-hidden="true">
                 <Icon name="lock" />
