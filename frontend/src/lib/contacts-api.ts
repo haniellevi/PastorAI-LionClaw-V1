@@ -7,10 +7,14 @@
  *   POST /contacts/{id}/cell       -> Contact         (api-link-cell)
  *   GET  /pipeline?etapa=ganhar    -> Page<Contact>   (api-pipeline)
  *   PUT  /pipeline                 -> PipelineResult  (api-pipeline / promover)
+ *   GET  /contacts/{id}/offboarding-preflight -> OffboardingPreflight (M7B-W3.2B)
+ *   POST /contacts/{id}/archive    -> ArchiveContactResult (M7B-W3.2B)
  *
  * Reaproveita o transporte autenticado e o tratamento de 401 (sessão expirada)
  * do dashboard-api. 409 em /contacts/{id}/cell carrega o motivo (célula inativa
  * ou sem líder); 409 em PUT /pipeline carrega o critério de promoção não atendido.
+ * 409 em /contacts/{id}/archive carrega o MESMO formato do preflight (bloqueadores
+ * revalidados dentro da transação travada do backend — ver ArchiveBlockedError).
  */
 
 import {
@@ -101,6 +105,57 @@ export interface PromoteResult {
   etapa: string | null;
   subetapa: string | null;
   tipo: string | null;
+}
+
+/**
+ * Bloqueador, efeito automático ou item preservado do arquivamento de Pessoa
+ * (M7B-W3.2B). Mesmo formato nas 3 listas — espelha PreflightItemOut do
+ * backend (chaves em snake_case, sem alias de camelCase neste endpoint).
+ */
+export interface OffboardingPreflightItem {
+  tipo: string;
+  rotulo: string;
+  recurso_id: string | null;
+  recurso_nome: string | null;
+  acao_recomendada: string | null;
+}
+
+/** Resposta de GET /contacts/{id}/offboarding-preflight (admin-only). */
+export interface OffboardingPreflight {
+  pessoa_id: string;
+  pode_arquivar: boolean;
+  bloqueadores: OffboardingPreflightItem[];
+  automaticos: OffboardingPreflightItem[];
+  preservados: OffboardingPreflightItem[];
+}
+
+/** Resposta de POST /contacts/{id}/archive (admin-only). */
+export interface ArchiveContactResult {
+  pessoa_id: string;
+  arquivada: boolean;
+  arquivada_em: string;
+  arquivada_por: string | null;
+  arquivada_motivo: string;
+  /** true quando a pessoa já estava arquivada (chamada idempotente). */
+  ja_arquivada: boolean;
+}
+
+/**
+ * 409 de /archive: o backend revalida o preflight na mesma transação travada
+ * e devolve a lista estruturada de bloqueadores (SEC-4B) — o cliente reexibe
+ * exatamente o que mudou desde o GET de preflight, em vez de um texto genérico.
+ */
+export class ArchiveBlockedError extends Error {
+  readonly preflight: OffboardingPreflight;
+  constructor(preflight: OffboardingPreflight) {
+    super("Novos vínculos impedem o arquivamento agora.");
+    this.name = "ArchiveBlockedError";
+    this.preflight = preflight;
+  }
+}
+
+function isOffboardingPreflight(value: unknown): value is OffboardingPreflight {
+  return isRecord(value) && Array.isArray(value.bloqueadores);
 }
 
 // ---------------------------------------------------------------------------
@@ -257,6 +312,59 @@ export async function promoteContact(
     throw new ApiError(res.status, detail ?? "Não foi possível promover.");
   }
   return (await res.json()) as PromoteResult;
+}
+
+/**
+ * Calcula se `contactId` pode ser arquivada agora (M7B-W3.2B, admin-only).
+ * Somente leitura — nenhuma mutação. 403 quando o usuário não é admin; 404
+ * quando a pessoa não existe (ou é de outro tenant — RLS nunca revela).
+ */
+export async function fetchOffboardingPreflight(
+  token: string,
+  contactId: string,
+): Promise<OffboardingPreflight> {
+  const res = await authedFetch(token, `/contacts/${contactId}/offboarding-preflight`);
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(
+      res.status,
+      detail ?? "Não foi possível verificar se esta pessoa pode ser arquivada.",
+    );
+  }
+  return (await res.json()) as OffboardingPreflight;
+}
+
+/**
+ * Arquiva `contactId` (M7B-W3.2B, admin-only) — nunca hard delete; motivo
+ * obrigatório. 409 revalida o preflight na transação travada e lança
+ * `ArchiveBlockedError` com a lista atual de bloqueadores.
+ */
+export async function archiveContact(
+  token: string,
+  contactId: string,
+  motivo: string,
+): Promise<ArchiveContactResult> {
+  const res = await authedFetch(token, `/contacts/${contactId}/archive`, {
+    method: "POST",
+    body: JSON.stringify({ motivo }),
+  });
+  if (res.status === 409) {
+    try {
+      const body = (await res.json()) as { detail?: unknown };
+      if (isOffboardingPreflight(body.detail)) {
+        throw new ArchiveBlockedError(body.detail);
+      }
+    } catch (err) {
+      if (err instanceof ArchiveBlockedError) throw err;
+      /* corpo não-JSON: cai no ApiError genérico abaixo */
+    }
+    throw new ApiError(409, "Não é possível arquivar: há vínculos ativos pendentes.");
+  }
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível arquivar esta pessoa.");
+  }
+  return (await res.json()) as ArchiveContactResult;
 }
 
 // ---------------------------------------------------------------------------
