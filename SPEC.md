@@ -456,7 +456,7 @@
 - **`trg_consent_on_inbound`** (AFTER INSERT em `messages` direcao=in de novo contato) — US-31/RF-36: concede `consentimento=true` na pessoa (a igreja nunca inicia comunicacao espontanea).
 - **`trg_subscription_autoupgrade`** (AFTER INSERT/UPDATE em `pessoas`) — US-36/RF-42: ao ultrapassar `subscriptions.limite`, promove `plano` e marca notificacao ao admin.
 - **`trg_set_updated_at`** — manutencao de `updated_at`.
-- **`trg_sla_engine`** (cron/worker — A1/delta-039/RNF-23): detecta SLA estourando (relatorio 2h, conexao 12h, fonovisita 24h) e dispara cobranca por WhatsApp; escalona lider sem resposta -> coordenacao.
+- **`trg_sla_engine`** (cron/worker — A1/delta-039/RNF-23): detecta SLA estourando (relatorio 2h, conexao 24h, fonovisita 24h) e dispara cobranca por WhatsApp; escalona lider sem resposta -> coordenacao.
 
 ### 2.4 Seed Data
 - **1 igreja piloto** em `igrejas` (status `ativa`, plano `ate_100`) — F1 (1o registro).
@@ -629,7 +629,7 @@ backend/
 - **Distincao do Assistente do painel (US-41):** o `assistant-panel` e um agente **separado**, interno ao painel web, ciente de papel/tenant; **nao** se confunde com o Orquestrador do WhatsApp (canais e publicos distintos).
 - **Tools (F5/delta-034):** registrar decisao, marcar presenca, vincular celula, avancar trilha — invocadas pelos sub-agentes/Orquestrador com as mesmas funcoes/validacoes de um humano, no escopo do tenant.
 - **Logs (F8/RNF-24):** registrar interacoes, tools usadas, consumo de IA (modelo/tokens/custo) em `ai_usage_logs`/`agent_conversation_logs`, com mascara de dados sensiveis.
-- **SLA engine (A1/delta-039):** detecta prazos (relatorio 2h, conexao 12h, fonovisita 24h, Numero de Sonho UV) e dispara cobranca/escalonamento por WhatsApp.
+- **SLA engine (A1/delta-039):** detecta prazos (relatorio 2h, conexao 24h, fonovisita 24h, Numero de Sonho UV) e dispara cobranca/escalonamento por WhatsApp.
 
 ### 3.5 Integracoes Externas
 | Integracao | Uso | Stories |

@@ -1,6 +1,6 @@
 """Tests for SLA policy + breach classification (SLA engine — O5).
 
-Pure tests of the deadline math: report 2h, connection 12h, fonovisita 24h, plus
+Pure tests of the deadline math: report 2h, connection 24h, fonovisita 24h, plus
 the escalation grace that turns an unanswered charge into an escalation.
 """
 
@@ -29,7 +29,7 @@ def _hours(n: float) -> dt.timedelta:
 # ---- policy deadlines -----------------------------------------------------
 def test_policies_match_spec_deadlines() -> None:
     assert SLA_POLICIES[SLA_REPORT].deadline_hours == 2
-    assert SLA_POLICIES[SLA_CONNECTION].deadline_hours == 12
+    assert SLA_POLICIES[SLA_CONNECTION].deadline_hours == 24
     assert SLA_POLICIES[SLA_FONOVISITA].deadline_hours == 24
 
 
@@ -58,9 +58,9 @@ def test_past_escalation_grace_triggers_escalonamento() -> None:
 
 
 def test_classify_from_start_uses_policy_window() -> None:
-    policy = SLA_POLICIES[SLA_CONNECTION]  # 12h deadline
-    # 13h after start: past the 12h deadline but within the 12h escalation grace.
-    now = _T0 + _hours(13)
+    policy = SLA_POLICIES[SLA_CONNECTION]  # 24h deadline
+    # 25h after start: past the 24h deadline but within the 12h escalation grace.
+    now = _T0 + _hours(25)
     assert (
         classify_from_start(policy=policy, started_at=_T0, now=now)
         is SlaStatus.COBRANCA
