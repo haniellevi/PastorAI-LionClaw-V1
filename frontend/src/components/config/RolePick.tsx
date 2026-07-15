@@ -5,7 +5,8 @@
  * Portado do artifact travado (.role-pick). Cada papel marca/desmarca de forma
  * independente, refletindo a UNIÃO de user_roles (F3).
  */
-import { ROLE_DEFS, sortedRoles, type Role } from "@/lib/roles";
+import { RoleBadgeList } from "@/components/ui/RoleBadge";
+import { ROLE_DEFS, type Role } from "@/lib/roles";
 
 export interface RolePickProps {
   /** Papéis disponíveis para seleção (ordem de exibição). */
@@ -42,14 +43,5 @@ export function RolePick({ options, selected, onToggle, disabled }: RolePickProp
 
 /** role-tags — papéis acumulados exibidos como pílulas (ordenados). */
 export function RoleTags({ roles }: { roles: Role[] }) {
-  const sorted = sortedRoles(roles);
-  return (
-    <div className="role-tags">
-      {sorted.map((r) => (
-        <span key={r} className={`rt${ROLE_DEFS[r]?.lead ? " lead" : ""}`}>
-          {ROLE_DEFS[r]?.label ?? r}
-        </span>
-      ))}
-    </div>
-  );
+  return <RoleBadgeList roles={roles} />;
 }
