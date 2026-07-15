@@ -320,6 +320,34 @@ export function CalendarioScreen() {
     [canManage],
   );
 
+  /**
+   * Props para tornar a célula/dia do calendário acionável por teclado — mesmo
+   * gatilho de `eventActivation` acima (Enter/Espaço abrem a criação com a data
+   * pré-preenchida; o mouse já fazia isso via onClick). Só quando `canManage` e
+   * a célula tem `iso` (dias "off" do grid mensal não recebem foco).
+   *
+   * SEM `role="button"` aqui de propósito: a célula já contém chips de evento
+   * com `role="button"` próprio (`eventActivation`) — um `role="button"` no
+   * container pai criaria "interactive-in-interactive" (nome acessível da
+   * célula herdaria o texto de todos os chips filhos). `tabIndex`+`onKeyDown`
+   * bastam para a operabilidade por teclado sem essa semântica de widget.
+   */
+  const dayCellActivation = useCallback(
+    (iso: string | null) => {
+      if (!canManage || !iso) return {};
+      return {
+        tabIndex: 0,
+        onKeyDown: (e: KeyboardEvent) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            openCreateForDate(iso);
+          }
+        },
+      };
+    },
+    [canManage, openCreateForDate],
+  );
+
   const handleEdit = useCallback(
     async (input: CreateEventInput) => {
       if (!token || !editing) return;
@@ -482,6 +510,7 @@ export function CalendarioScreen() {
                     className={`cal-cell${cell.day == null ? " off" : ""}${cell.today ? " today" : ""}`}
                     onClick={() => openCreateForDate(cell.iso)}
                     style={cell.iso != null && canManage ? { cursor: "pointer" } : undefined}
+                    {...dayCellActivation(cell.iso)}
                   >
                     {cell.day != null ? <div className="d num">{cell.day}</div> : null}
                     {cell.events.map((ev) => (
@@ -509,6 +538,7 @@ export function CalendarioScreen() {
                   className={`agenda-day${d.today ? " today" : ""}`}
                   onClick={() => openCreateForDate(d.iso)}
                   style={canManage ? { cursor: "pointer" } : undefined}
+                  {...dayCellActivation(d.iso)}
                 >
                   <div className="agenda-day-head">
                     <span className="wd">{WEEKDAYS[d.weekday]}</span>

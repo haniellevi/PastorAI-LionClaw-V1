@@ -6,9 +6,14 @@
  * backend tenta espelhar no Google Calendar na criação; se o sync falhar, o
  * evento é salvo local e devolvido como não sincronizado (a tela sinaliza para
  * re-tentar). A edição não re-sincroniza (escopo EVT-6+).
+ *
+ * Wave Visual W3: migração mecânica para o DsDialog (Esc/trap/backdrop/retorno
+ * de foco do primitive; fechar bloqueado em busy) — mesmos campos, callbacks e
+ * textos de antes.
  */
 import { useState } from "react";
 
+import { Dialog as DsDialog } from "@/components/ds/Dialog";
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
 import { TIPO_LABEL, type CreateEventInput, type EventItem, type EventTipo } from "@/lib/events-api";
@@ -56,97 +61,88 @@ export function EventFormModal({
   const title = isEdit ? "Editar evento" : "Novo evento";
 
   return (
-    <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div
-        className="modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        onClick={(e) => e.stopPropagation()}
+    <DsDialog
+      open
+      onClose={() => {
+        if (!busy) onClose();
+      }}
+      title={title}
+    >
+      <form
+        className="modal-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          submit();
+        }}
       >
-        <div className="modal-head">
-          <strong>{title}</strong>
-          <button type="button" className="btn btn-sm btn-ghost" onClick={onClose}>
-            Fechar
-          </button>
+        {error ? (
+          <div className="error-banner" role="alert">
+            <span>{error}</span>
+          </div>
+        ) : null}
+
+        <Field
+          label="Título"
+          value={titulo}
+          onChange={(e) => setTitulo(e.target.value)}
+          placeholder="Ex.: Culto de domingo"
+          error={tituloError}
+          data-autofocus=""
+        />
+
+        <div className="row">
+          <Field
+            label="Data"
+            type="date"
+            value={data}
+            onChange={(e) => setData(e.target.value)}
+            error={dataError}
+          />
+          <Field
+            label="Hora"
+            type="time"
+            value={hora}
+            onChange={(e) => setHora(e.target.value)}
+            helper="Opcional"
+          />
         </div>
 
-        <form
-          className="modal-form"
-          onSubmit={(e) => {
-            e.preventDefault();
-            submit();
-          }}
-        >
-          {error ? (
-            <div className="error-banner" role="alert">
-              <span>{error}</span>
-            </div>
-          ) : null}
+        <div className="field">
+          <label htmlFor="ev-tipo">Categoria</label>
+          <select
+            id="ev-tipo"
+            value={tipo}
+            onChange={(e) => setTipo(e.target.value as EventTipo | "")}
+          >
+            <option value="">Sem categoria</option>
+            {(Object.keys(TIPO_LABEL) as EventTipo[]).map((t) => (
+              <option key={t} value={t}>
+                {TIPO_LABEL[t]}
+              </option>
+            ))}
+          </select>
+        </div>
 
-          <Field
-            label="Título"
-            value={titulo}
-            onChange={(e) => setTitulo(e.target.value)}
-            placeholder="Ex.: Culto de domingo"
-            error={tituloError}
-            autoFocus
+        <div className="field" style={{ marginBottom: 0 }}>
+          <label htmlFor="ev-desc">Descrição</label>
+          <textarea
+            id="ev-desc"
+            rows={3}
+            value={descricao}
+            onChange={(e) => setDescricao(e.target.value)}
+            placeholder="Detalhes do evento (opcional)"
           />
+        </div>
 
-          <div className="row">
-            <Field
-              label="Data"
-              type="date"
-              value={data}
-              onChange={(e) => setData(e.target.value)}
-              error={dataError}
-            />
-            <Field
-              label="Hora"
-              type="time"
-              value={hora}
-              onChange={(e) => setHora(e.target.value)}
-              helper="Opcional"
-            />
-          </div>
-
-          <div className="field">
-            <label htmlFor="ev-tipo">Categoria</label>
-            <select
-              id="ev-tipo"
-              value={tipo}
-              onChange={(e) => setTipo(e.target.value as EventTipo | "")}
-            >
-              <option value="">Sem categoria</option>
-              {(Object.keys(TIPO_LABEL) as EventTipo[]).map((t) => (
-                <option key={t} value={t}>
-                  {TIPO_LABEL[t]}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="field" style={{ marginBottom: 0 }}>
-            <label htmlFor="ev-desc">Descrição</label>
-            <textarea
-              id="ev-desc"
-              rows={3}
-              value={descricao}
-              onChange={(e) => setDescricao(e.target.value)}
-              placeholder="Detalhes do evento (opcional)"
-            />
-          </div>
-
-          <div className="modal-foot">
-            <button type="button" className="btn btn-sm" onClick={onClose} disabled={busy}>
-              Cancelar
-            </button>
-            <Button type="submit" variant="primary" size="sm" loading={busy} loadingText="Salvando…">
-              {isEdit ? "Salvar alterações" : "Salvar evento"}
-            </Button>
-          </div>
-        </form>
-      </div>
-    </div>
+        <div className="modal-foot">
+          <button type="button" className="btn btn-sm" onClick={onClose} disabled={busy}>
+            Cancelar
+          </button>
+          <Button type="submit" variant="primary" size="sm" loading={busy} loadingText="Salvando…">
+            {isEdit ? "Salvar alterações" : "Salvar evento"}
+          </Button>
+        </div>
+      </form>
+    </DsDialog>
   );
 }

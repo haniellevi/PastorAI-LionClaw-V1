@@ -13,10 +13,15 @@
  * Sem notificação (toggle desligado) → confirma sem body, mantendo o fluxo antigo.
  * NÃO há preview de destinatários resolvidos: o resolver (EVT-8 PR2) é interno e
  * não expõe endpoint ainda — o resumo aqui é só da configuração escolhida.
+ *
+ * Wave Visual W3: migração mecânica para o DsDialog (Esc/trap/backdrop/retorno
+ * de foco do primitive; fechar bloqueado em busy) — mesmos campos, callbacks e
+ * textos de antes.
  */
 
 import { useEffect, useMemo, useState } from "react";
 
+import { Dialog as DsDialog } from "@/components/ds/Dialog";
 import { Button } from "@/components/ui/Button";
 import { ApiError } from "@/lib/dashboard-api";
 import { fetchConversations, type Conversation } from "@/lib/conversations-api";
@@ -155,221 +160,212 @@ export function ConfirmEventModal({
       : (ANTECEDENCIAS.find((a) => a.id === quando)?.label.toLowerCase() ?? "");
 
   return (
-    <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div
-        className="modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Confirmar evento"
-        onClick={(e) => e.stopPropagation()}
+    <DsDialog
+      open
+      onClose={() => {
+        if (!busy) onClose();
+      }}
+      title="Confirmar evento"
+    >
+      <form
+        className="modal-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (canSubmit) submit();
+        }}
       >
-        <div className="modal-head">
-          <strong>Confirmar evento</strong>
-          <button type="button" className="btn btn-sm btn-ghost" onClick={onClose}>
-            Fechar
-          </button>
+        {error ? (
+          <div className="error-banner" role="alert">
+            <span>{error}</span>
+          </div>
+        ) : null}
+
+        <div className="sub" style={{ marginBottom: "var(--s3)" }}>
+          <strong>{event.titulo}</strong>
+          {event.data ? ` · ${event.data}${event.hora ? ` ${event.hora}` : ""}` : ""}
         </div>
 
-        <form
-          className="modal-form"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (canSubmit) submit();
-          }}
+        <label
+          className="field"
+          style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}
         >
-          {error ? (
-            <div className="error-banner" role="alert">
-              <span>{error}</span>
+          <input
+            type="checkbox"
+            checked={notify}
+            onChange={(e) => setNotify(e.target.checked)}
+          />
+          <span>Notificar sobre este evento</span>
+        </label>
+
+        {notify ? (
+          <>
+            <div className="field">
+              <label htmlFor="cev-quando">Quando notificar</label>
+              <select
+                id="cev-quando"
+                value={quando}
+                onChange={(e) => setQuando(e.target.value as QuandoOpt)}
+              >
+                {ANTECEDENCIAS.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.label}
+                  </option>
+                ))}
+                <option value="custom">Data/hora personalizada…</option>
+              </select>
             </div>
-          ) : null}
 
-          <div className="sub" style={{ marginBottom: "var(--s3)" }}>
-            <strong>{event.titulo}</strong>
-            {event.data ? ` · ${event.data}${event.hora ? ` ${event.hora}` : ""}` : ""}
-          </div>
-
-          <label
-            className="field"
-            style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}
-          >
-            <input
-              type="checkbox"
-              checked={notify}
-              onChange={(e) => setNotify(e.target.checked)}
-            />
-            <span>Notificar sobre este evento</span>
-          </label>
-
-          {notify ? (
-            <>
+            {quando === "custom" ? (
               <div className="field">
-                <label htmlFor="cev-quando">Quando notificar</label>
-                <select
-                  id="cev-quando"
-                  value={quando}
-                  onChange={(e) => setQuando(e.target.value as QuandoOpt)}
-                >
-                  {ANTECEDENCIAS.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.label}
-                    </option>
-                  ))}
-                  <option value="custom">Data/hora personalizada…</option>
-                </select>
+                <label htmlFor="cev-dt">Data e hora da notificação</label>
+                <input
+                  id="cev-dt"
+                  type="datetime-local"
+                  value={notificarEm}
+                  max={eventoStart}
+                  onChange={(e) => setNotificarEm(e.target.value)}
+                />
+                <span className="helper">Deve ser anterior ao início do evento.</span>
               </div>
+            ) : null}
 
-              {quando === "custom" ? (
-                <div className="field">
-                  <label htmlFor="cev-dt">Data e hora da notificação</label>
-                  <input
-                    id="cev-dt"
-                    type="datetime-local"
-                    value={notificarEm}
-                    max={eventoStart}
-                    onChange={(e) => setNotificarEm(e.target.value)}
-                  />
-                  <span className="helper">Deve ser anterior ao início do evento.</span>
-                </div>
-              ) : null}
+            <div className="field">
+              <label>Público</label>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                {PUBLICOS.map((p) => (
+                  <label
+                    key={p}
+                    style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={publicos.has(p)}
+                      onChange={() => togglePublico(p)}
+                    />
+                    <span>{PUBLICO_ALVO_LABEL[p]}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
 
-              <div className="field">
-                <label>Público</label>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-                  {PUBLICOS.map((p) => (
+            <div className="field">
+              <label htmlFor="cev-busca">Contatos individuais</label>
+              <input
+                id="cev-busca"
+                type="search"
+                placeholder="Buscar contato…"
+                value={busca}
+                onChange={(e) => setBusca(e.target.value)}
+              />
+              <div
+                style={{
+                  maxHeight: 180,
+                  overflowY: "auto",
+                  marginTop: 8,
+                  border: "1px solid var(--border)",
+                  borderRadius: 8,
+                }}
+              >
+                {convLoading ? (
+                  <div className="sub" style={{ padding: 12 }}>
+                    Carregando contatos…
+                  </div>
+                ) : convError ? (
+                  <div className="sub" style={{ padding: 12 }}>
+                    {convError}
+                  </div>
+                ) : filtradas.length === 0 ? (
+                  <div className="sub" style={{ padding: 12 }}>
+                    Nenhuma conversa encontrada.
+                  </div>
+                ) : (
+                  filtradas.map((c) => (
                     <label
-                      key={p}
-                      style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" }}
+                      key={c.id}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        padding: "6px 10px",
+                        cursor: "pointer",
+                      }}
                     >
                       <input
                         type="checkbox"
-                        checked={publicos.has(p)}
-                        onChange={() => togglePublico(p)}
+                        checked={selecionados.has(c.id)}
+                        onChange={() => toggleContato(c)}
                       />
-                      <span>{PUBLICO_ALVO_LABEL[p]}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-
-              <div className="field">
-                <label htmlFor="cev-busca">Contatos individuais</label>
-                <input
-                  id="cev-busca"
-                  type="search"
-                  placeholder="Buscar contato…"
-                  value={busca}
-                  onChange={(e) => setBusca(e.target.value)}
-                />
-                <div
-                  style={{
-                    maxHeight: 180,
-                    overflowY: "auto",
-                    marginTop: 8,
-                    border: "1px solid var(--border)",
-                    borderRadius: 8,
-                  }}
-                >
-                  {convLoading ? (
-                    <div className="sub" style={{ padding: 12 }}>
-                      Carregando contatos…
-                    </div>
-                  ) : convError ? (
-                    <div className="sub" style={{ padding: 12 }}>
-                      {convError}
-                    </div>
-                  ) : filtradas.length === 0 ? (
-                    <div className="sub" style={{ padding: 12 }}>
-                      Nenhuma conversa encontrada.
-                    </div>
-                  ) : (
-                    filtradas.map((c) => (
-                      <label
-                        key={c.id}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 8,
-                          padding: "6px 10px",
-                          cursor: "pointer",
-                        }}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selecionados.has(c.id)}
-                          onChange={() => toggleContato(c)}
-                        />
-                        <span style={{ minWidth: 0 }}>
-                          <span
-                            style={{
-                              display: "block",
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            {c.nome ?? c.telefone}
-                          </span>
-                          {c.nome ? (
-                            <span className="sub" style={{ display: "block" }}>
-                              {c.telefone}
-                            </span>
-                          ) : null}
+                      <span style={{ minWidth: 0 }}>
+                        <span
+                          style={{
+                            display: "block",
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {c.nome ?? c.telefone}
                         </span>
-                      </label>
-                    ))
-                  )}
-                </div>
-                <span className="helper">
-                  Só contatos que já conversaram no WhatsApp da igreja.
-                </span>
+                        {c.nome ? (
+                          <span className="sub" style={{ display: "block" }}>
+                            {c.telefone}
+                          </span>
+                        ) : null}
+                      </span>
+                    </label>
+                  ))
+                )}
               </div>
+              <span className="helper">
+                Só contatos que já conversaram no WhatsApp da igreja.
+              </span>
+            </div>
 
-              <div className="field">
-                <label htmlFor="cev-msg">Mensagem (opcional)</label>
-                <textarea
-                  id="cev-msg"
-                  rows={3}
-                  maxLength={2000}
-                  value={mensagem}
-                  onChange={(e) => setMensagem(e.target.value)}
-                  placeholder="Texto do aviso (opcional)"
-                />
-                <span className="helper">{mensagem.length}/2000</span>
-              </div>
+            <div className="field">
+              <label htmlFor="cev-msg">Mensagem (opcional)</label>
+              <textarea
+                id="cev-msg"
+                rows={3}
+                maxLength={2000}
+                value={mensagem}
+                onChange={(e) => setMensagem(e.target.value)}
+                placeholder="Texto do aviso (opcional)"
+              />
+              <span className="helper">{mensagem.length}/2000</span>
+            </div>
 
-              <div
-                className="sub"
-                style={{ padding: "8px 10px", background: "var(--surface-2)", borderRadius: 8 }}
-              >
-                {semDestino
-                  ? "Escolha ao menos um público ou contato."
-                  : `Notificar ${publicos.size} público(s) e ${selecionados.size} contato(s) · ${quandoLabel}.`}
-                <br />
-                <span className="muted">
-                  O disparo automático ainda não está ativo — isto apenas agenda/configura a
-                  notificação. Nada é enviado agora.
-                </span>
-              </div>
-            </>
-          ) : null}
-
-          <div className="modal-foot">
-            <button type="button" className="btn btn-sm" onClick={onClose} disabled={busy}>
-              Cancelar
-            </button>
-            <Button
-              type="submit"
-              variant="primary"
-              size="sm"
-              loading={busy}
-              loadingText="Confirmando…"
-              disabled={!canSubmit}
+            <div
+              className="sub"
+              style={{ padding: "8px 10px", background: "var(--surface-2)", borderRadius: 8 }}
             >
-              {notify ? "Confirmar e agendar" : "Confirmar evento"}
-            </Button>
-          </div>
-        </form>
-      </div>
-    </div>
+              {semDestino
+                ? "Escolha ao menos um público ou contato."
+                : `Notificar ${publicos.size} público(s) e ${selecionados.size} contato(s) · ${quandoLabel}.`}
+              <br />
+              <span className="muted">
+                O disparo automático ainda não está ativo — isto apenas agenda/configura a
+                notificação. Nada é enviado agora.
+              </span>
+            </div>
+          </>
+        ) : null}
+
+        <div className="modal-foot">
+          <button type="button" className="btn btn-sm" onClick={onClose} disabled={busy}>
+            Cancelar
+          </button>
+          <Button
+            type="submit"
+            variant="primary"
+            size="sm"
+            loading={busy}
+            loadingText="Confirmando…"
+            disabled={!canSubmit}
+          >
+            {notify ? "Confirmar e agendar" : "Confirmar evento"}
+          </Button>
+        </div>
+      </form>
+    </DsDialog>
   );
 }
