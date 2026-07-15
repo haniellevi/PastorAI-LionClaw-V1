@@ -20,7 +20,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.db.models import (
@@ -180,6 +180,12 @@ def list_pipeline(
     CSIM (``sem_interesse=True``) está FORA da Visão/Jornada G12: nunca aparece
     no pipeline, espelhando ``dashboard.overview`` (porEtapa). Fecha a dívida do
     PR #103 — a regra passa a valer no backend, não só no filtro client-side.
+
+    ``etapa`` NULL conta como "ganhar" (entrada do funil): criadores (POST
+    /contacts, convite) nunca gravam etapa explicitamente, e o trigger
+    ``fn_promote_pipeline`` já trata NULL como "ganhar" para promoção — igual
+    ``dashboard.overview`` (porEtapa) já fazia. Sem esse OR, essas pessoas eram
+    contadas no dashboard mas nunca apareciam na tela Ganhar (PIPE-1).
     """
 
     filters = [Pessoa.sem_interesse.is_(False)]
@@ -190,7 +196,10 @@ def list_pipeline(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=f"etapa inválida: {etapa}",
             )
-        filters.append(Pessoa.etapa == normalized)
+        if normalized == "ganhar":
+            filters.append(or_(Pessoa.etapa.is_(None), Pessoa.etapa == normalized))
+        else:
+            filters.append(Pessoa.etapa == normalized)
 
     total = db.execute(
         select(func.count()).select_from(Pessoa).where(*filters)

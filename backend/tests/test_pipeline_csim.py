@@ -77,15 +77,15 @@ class PipelineSession:
         pass
 
 
-def _pessoa_ganhar():
+def _pessoa_ganhar(*, etapa="ganhar", tipo="contato"):
     return SimpleNamespace(
         id=_PID,
         nome="João Normal",
         telefone="+5589999991111",
         email=None,
         genero=None,
-        tipo="contato",
-        etapa="ganhar",
+        tipo=tipo,
+        etapa=etapa,
         subetapa="novo_contato",
         acompanhamento=None,
         sem_interesse=False,
@@ -140,3 +140,72 @@ def test_pipeline_sem_etapa_ainda_exclui_csim(app) -> None:
     assert len(session.pessoa_sql) == 2
     for sql in session.pessoa_sql:
         assert "sem_interesse" in sql, sql
+
+
+# ---------------------------------------------------------------------------
+# PIPE-1: etapa NULL conta como "ganhar" (contato manual e convite nunca
+# gravam etapa na criação — dashboard.overview já tratava NULL como "ganhar";
+# GET /pipeline não tratava, e por isso essas pessoas somem da tela Ganhar).
+# ---------------------------------------------------------------------------
+def test_pipeline_ganhar_where_inclui_etapa_null(app) -> None:
+    """Regressão: o WHERE de ?etapa=ganhar cobre etapa IS NULL, não só '='."""
+    session = PipelineSession(
+        app_user=make_app_user(), roles=["pastor"], pessoas=[_pessoa_ganhar()]
+    )
+    client = _wire(app, session=session)
+
+    resp = client.get("/pipeline?etapa=ganhar", headers=_AUTH)
+    assert resp.status_code == 200
+
+    assert len(session.pessoa_sql) == 2  # contagem + linhas
+    for sql in session.pessoa_sql:
+        assert "IS NULL" in sql, sql
+        assert "etapa" in sql, sql
+
+
+def test_pipeline_outras_etapas_nao_incluem_null(app) -> None:
+    """Regressão inversa: consolidar/discipular/enviar seguem com '=' estrito."""
+    session = PipelineSession(
+        app_user=make_app_user(),
+        roles=["pastor"],
+        pessoas=[_pessoa_ganhar(etapa="consolidar")],
+    )
+    client = _wire(app, session=session)
+
+    resp = client.get("/pipeline?etapa=consolidar", headers=_AUTH)
+    assert resp.status_code == 200
+
+    assert len(session.pessoa_sql) == 2
+    for sql in session.pessoa_sql:
+        assert "IS NULL" not in sql, sql
+
+
+def test_pipeline_ganhar_pessoa_criada_manualmente_com_etapa_null_aparece(app) -> None:
+    """Contato manual (POST /contacts nunca grava etapa): etapa=None aparece em Ganhar."""
+    pessoa = _pessoa_ganhar(etapa=None, tipo="contato")
+    session = PipelineSession(
+        app_user=make_app_user(), roles=["pastor"], pessoas=[pessoa]
+    )
+    client = _wire(app, session=session)
+
+    resp = client.get("/pipeline?etapa=ganhar", headers=_AUTH)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert [item["id"] for item in body["items"]] == [_PID]
+    assert body["items"][0]["etapa"] is None
+
+
+def test_pipeline_ganhar_pessoa_criada_por_convite_com_etapa_null_aparece(app) -> None:
+    """Fluxo de convite (auth.py cria Pessoa tipo=membro, sem etapa): também conta como Ganhar."""
+    pessoa = _pessoa_ganhar(etapa=None, tipo="membro")
+    session = PipelineSession(
+        app_user=make_app_user(), roles=["pastor"], pessoas=[pessoa]
+    )
+    client = _wire(app, session=session)
+
+    resp = client.get("/pipeline?etapa=ganhar", headers=_AUTH)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert [item["id"] for item in body["items"]] == [_PID]
+    assert body["items"][0]["etapa"] is None
+    assert body["items"][0]["tipo"] == "membro"
