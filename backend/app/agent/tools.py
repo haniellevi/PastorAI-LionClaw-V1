@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.models import Celula, Decision, Pessoa
@@ -34,6 +35,11 @@ from app.services.celula_membro import (
     assert_membro_elegivel,
     ensure_active_membro,
 )
+
+# Postgres SQLSTATE de unique_violation. Só ele é traduzido para ToolError em
+# registrar_decisao; outras violações de integridade sobem (não são um refusal
+# de validação, e sim um erro inesperado).
+_PG_UNIQUE_VIOLATION = "23505"
 
 
 class ToolError(Exception):
@@ -115,7 +121,20 @@ def registrar_decisao(
     )
     session.add(decision)
     pessoa.aceitou_jesus = True
-    session.flush()  # fires trg_decision_opens_consolidation
+    try:
+        session.flush()  # fires trg_decision_opens_consolidation
+    except IntegrityError as exc:
+        # CONSOL-1: TOCTOU — two concurrent decisions for the SAME pessoa both
+        # fire trg_decision_opens_consolidation; uq_consolidacoes_pessoa_aberta
+        # (partial unique on pessoa_id where concluida=false AND
+        # abandonada_em IS NULL) serializes them. The 2nd to commit gets
+        # unique_violation, translated DETERMINISTICALLY to ToolError (mirrors
+        # the HTTP 409 in app/routers/consolidacao.py). Any other integrity
+        # error (not unique) bubbles up unchanged — not a validation refusal.
+        session.rollback()
+        if getattr(exc.orig, "pgcode", None) == _PG_UNIQUE_VIOLATION:
+            raise ToolError("Pessoa já possui uma consolidação em aberto") from exc
+        raise
 
     return ToolResult(
         ferramenta="registrar_decisao",
