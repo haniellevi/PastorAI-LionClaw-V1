@@ -745,10 +745,10 @@ function AdminsTab({
                     <span
                       title="Dono (admin principal) — gerencia a Assinatura"
                       style={{
-                        fontSize: 11,
+                        fontSize: 12,
                         fontWeight: 600,
-                        color: "var(--accent)",
-                        border: "1px solid var(--accent)",
+                        color: "var(--action-primary)",
+                        border: "1px solid var(--action-primary)",
                         borderRadius: 6,
                         padding: "1px 7px",
                       }}

@@ -5,10 +5,10 @@
  * (papéis detectados no cadastro — união acumulada).
  */
 import { InfoTip } from "@/components/ui/InfoTip";
+import { RoleBadgeList } from "@/components/ui/RoleBadge";
 import type { SessionUser } from "@/lib/auth-context";
 import { Icon } from "@/lib/icons";
 import { SCREEN_META, groupLabelForScreen } from "@/lib/navigation";
-import { ROLE_DEFS, sortedRoles } from "@/lib/roles";
 
 import { SHELL_DRAWER_ID } from "./useDrawerA11y";
 
@@ -33,7 +33,6 @@ export function Topbar({
 }: TopbarProps) {
   const meta = SCREEN_META[route] ?? { title: "Igreja 12", crumb: "" };
   const group = groupLabelForScreen(route);
-  const roles = sortedRoles(user.roles);
 
   return (
     <header className="topbar">
@@ -64,11 +63,7 @@ export function Topbar({
         <input type="search" placeholder="Buscar contato, célula, conversa…" aria-label="Buscar" />
       </div>
       <div className="who" title="Papéis detectados no seu cadastro">
-        {roles.map((r) => (
-          <span className={`rchip${ROLE_DEFS[r].lead ? " lead" : ""}`} key={r}>
-            {ROLE_DEFS[r].label}
-          </span>
-        ))}
+        <RoleBadgeList roles={user.roles} />
       </div>
     </header>
   );
