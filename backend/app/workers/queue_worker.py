@@ -7,6 +7,13 @@ Design notes:
 - Idempotency (RNF-16): a contact is never duplicated. Persons are deduped by
   (normalized telefone, igreja); the provider message id is recorded in Redis so
   a redelivery after a reconnection is skipped instead of reprocessed.
+- Idempotency in depth (MSG-IDEMP-1): Redis is the fast first barrier, but its
+  claim expires (PROCESSED_TTL_SECONDS) and does not survive a Redis outage/
+  flush. `messages_inbound_provider_id_uidx` (partial unique index on
+  `messages(igreja_id, provider_message_id)` where inbound) is the durable
+  second barrier — `ingest_message_event_ex` catches the resulting
+  IntegrityError and returns DUPLICATE instead of persisting twice or
+  re-running the agent.
 - Official number only (US-07): a message is only persisted when its instance
   matches a registered `whatsapp_connections.instance`. Personal conversations
   (any other number/instance) are dropped.
@@ -29,6 +36,7 @@ from enum import Enum
 from typing import Any
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -55,6 +63,10 @@ PROCESSED_PREFIX = "pastorai:processed:"
 PROCESSED_TTL_SECONDS = 60 * 60 * 24 * 7  # 7 days
 MAX_ATTEMPTS = 5
 BRPOP_TIMEOUT = 5  # seconds
+
+# Postgres error code for unique_violation (23505) — the only IntegrityError
+# `ingest_message_event_ex` treats as a duplicate; anything else re-raises.
+_PG_UNIQUE_VIOLATION = "23505"
 
 
 class IngestionResult(str, Enum):
@@ -112,6 +124,12 @@ def ingest_message_event_ex(
     is supplied, the bytes are fetched from Evolution and uploaded to Storage;
     a resolver failure degrades gracefully (the row keeps its media `tipo` so
     the panel shows a placeholder, instead of losing the message).
+
+    MSG-IDEMP-1: if `messages_inbound_provider_id_uidx` rejects the insert
+    (the same inbound provider_message_id was already persisted for this
+    igreja — Redis dedupe expired/missed/lost the race), the whole
+    transaction rolls back and this returns IngestionResult.DUPLICATE instead
+    of raising, so the caller never double-runs the agent for it.
     """
     # Fase 1 (D4) — saída cross-tenant NOMEADA: o lookup por `instance` descobre
     # a igreja e por isso PRECISA rodar sem escopo (no papel de conexão). Marcar
@@ -240,6 +258,7 @@ def ingest_message_event_ex(
         if parsed.media_kind
         else None,
         media_tamanho=stored.tamanho if stored else None,
+        provider_message_id=parsed.provider_message_id,
     )
     db.add(message)
 
@@ -248,7 +267,25 @@ def ingest_message_event_ex(
         conversation.nao_lidas = (conversation.nao_lidas or 0) + 1
 
     # trg_consent_on_inbound grants consent automatically on the first inbound.
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        # MSG-IDEMP-1: segunda barreira (DB) contra a mesma barreira do Redis
+        # (mark_processed_if_new) ter expirado/faltado/perdido a corrida.
+        # messages_inbound_provider_id_uidx é a ÚNICA fonte de unique_violation
+        # nesta transação — qualquer outro IntegrityError não é duplicata e
+        # sobe (RNF-17 reprocessa). O rollback desfaz Pessoa/Conversation/
+        # Message inteiros desta chamada, então o lado perdedor de uma corrida
+        # na primeira mensagem de um contato novo nunca deixa registro órfão.
+        db.rollback()
+        if getattr(exc.orig, "pgcode", None) != _PG_UNIQUE_VIOLATION:
+            raise
+        logger.info(
+            "Duplicate inbound message %s for igreja %s (DB-level dedupe)",
+            parsed.provider_message_id,
+            igreja_id,
+        )
+        return IngestionOutcome(result=IngestionResult.DUPLICATE, igreja_id=igreja_id)
     return IngestionOutcome(
         result=IngestionResult.REGISTERED,
         conversation_id=conversation.id,

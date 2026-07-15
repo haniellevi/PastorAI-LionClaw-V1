@@ -221,6 +221,18 @@ def test_ingest_reuses_person_after_conversation_deleted() -> None:
     assert any(isinstance(o, Conversation) for o in session.added)
 
 
+def test_ingest_persists_provider_message_id() -> None:
+    """MSG-IDEMP-1: a linha grava o id estável da Evolution — é a chave que o
+    índice único parcial `messages_inbound_provider_id_uidx` (Postgres real,
+    ver test_messages_inbound_idempotency.py) usa como 2ª barreira de dedupe."""
+    connection = WhatsappConnection(igreja_id=_IGREJA, instance="igreja-1")
+    session = FakeIngestSession(connection=connection, pessoa=None, conversation=None)
+    parsed = parse_message_event(_parsed_payload("PID1"))
+    ingest_message_event_ex(session, parsed)
+    msg = next(o for o in session.added if isinstance(o, Message))
+    assert msg.provider_message_id == "PID1"
+
+
 def test_ingest_sets_tenant_context_for_igreja() -> None:
     """Fase 0 (#10b): após resolver a igreja pelo instance, o worker ativa o
     tenant-context (GUC app.tenant_igreja_id + role authenticated) antes de

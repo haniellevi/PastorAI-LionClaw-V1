@@ -833,6 +833,25 @@ class Message(Base):
 
     __tablename__ = "messages"
 
+    # MSG-IDEMP-1: defesa em profundidade contra duplicação de mensagem INBOUND.
+    # Redis (WebhookQueue.mark_processed_if_new) é a primeira barreira, chaveada
+    # pelo id estável da Evolution, mas expira em 7 dias e não sobrevive a um
+    # Redis indisponível/flush. Este índice único PARCIAL garante que o MESMO
+    # provider_message_id nunca persiste duas vezes como inbound na mesma
+    # igreja, mesmo que o Redis diga "novo" de novo. Outbound (direcao='out')
+    # fica fora do escopo — não carrega a mesma garantia de dedupe hoje.
+    __table_args__ = (
+        Index(
+            "messages_inbound_provider_id_uidx",
+            "igreja_id",
+            "provider_message_id",
+            unique=True,
+            postgresql_where=text(
+                "direcao = 'in' AND provider_message_id IS NOT NULL"
+            ),
+        ),
+    )
+
     id: Mapped[uuid.UUID] = _uuid_pk()
     igreja_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -847,6 +866,11 @@ class Message(Base):
     direcao: Mapped[str] = mapped_column(String, nullable=False)
     autor: Mapped[str] = mapped_column(String, nullable=False)
     texto: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Id estável do provider (Evolution `data.key.id` / ParsedMessage.
+    # provider_message_id). Só populado para mensagens vindas do webhook
+    # (in/out); histórico anterior a esta migration fica NULL. Ver
+    # messages_inbound_provider_id_uidx acima.
+    provider_message_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Mídia (Etapa 2 do chat): o binário vive no Supabase Storage (bucket
     # whatsapp-media); aqui guardamos só o ponteiro + metadados. tipo='texto'
     # para mensagens de texto puro (default).
