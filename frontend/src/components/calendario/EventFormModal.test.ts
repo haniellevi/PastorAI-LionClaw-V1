@@ -26,6 +26,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 let container: HTMLDivElement;
 let root: Root;
 let opener: HTMLButtonElement;
+let unmounted = false;
 const onClose = vi.fn();
 const onSubmit = vi.fn();
 
@@ -67,10 +68,11 @@ beforeEach(() => {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
+  unmounted = false;
 });
 
 afterEach(() => {
-  act(() => root.unmount());
+  if (!unmounted) act(() => root.unmount());
   container.remove();
   opener.remove();
 });
@@ -79,16 +81,22 @@ describe("EventFormModal — migração DsDialog", () => {
   it("abre em modo criação, título 'Novo evento', foco inicial no campo Título", () => {
     render(false);
     expect(container.querySelector("h2")?.textContent).toBe("Novo evento");
-    expect(document.activeElement?.getAttribute("data-autofocus")).toBe("");
-    expect((document.activeElement as HTMLInputElement)?.previousElementSibling?.textContent).toBe(
-      "Título",
-    );
+    const active = document.activeElement as HTMLInputElement;
+    expect(active.getAttribute("data-autofocus")).toBe("");
+    // API semântica (HTMLInputElement.labels), não adjacência de DOM.
+    expect(active.labels?.length).toBe(1);
+    expect(active.labels?.[0]?.textContent).toBe("Título");
   });
 
-  it("Esc fecha (onClose) quando não está salvando, e o foco volta ao gatilho", () => {
+  it("Esc fecha (onClose) e o foco retorna ao elemento que abriu o modal", () => {
     render(false);
     pressEscape();
     expect(onClose).toHaveBeenCalledTimes(1);
+    // onClose real (fora deste teste isolado) desmontaria o EventFormModal —
+    // simula essa reação do pai pra provar o retorno de foco do primitive.
+    act(() => root.unmount());
+    unmounted = true;
+    expect(document.activeElement).toBe(opener);
   });
 
   it("Esc NÃO fecha enquanto está salvando (busy=true)", () => {

@@ -64,6 +64,9 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
+  // Resiliente a asserção que falhe no meio do teste: sempre restaura o papel
+  // padrão, mesmo que o "sem canManage" nunca chegue na linha de reset.
+  authState.roles = ["pastor"];
 });
 
 describe("CalendarioScreen — teclado na célula do dia (B2)", () => {
@@ -103,7 +106,6 @@ describe("CalendarioScreen — teclado na célula do dia (B2)", () => {
     });
 
     expect(container.querySelector('.cal-cell[tabindex="0"]')).toBeNull();
-    authState.roles = ["pastor"];
   });
 
   it("célula do dia não tem role=button (evita interactive-in-interactive com os chips de evento)", async () => {
@@ -114,5 +116,56 @@ describe("CalendarioScreen — teclado na célula do dia (B2)", () => {
     const cell = container.querySelector<HTMLElement>('.cal-cell[tabindex="0"]');
     expect(cell).not.toBeNull();
     expect(cell?.getAttribute("role")).toBeNull();
+  });
+
+  it("célula do dia tem nome acessível explicando a ação de Enter/Espaço", async () => {
+    await act(async () => {
+      root.render(h(CalendarioScreen, {}));
+    });
+
+    const cell = container.querySelector<HTMLElement>('.cal-cell[tabindex="0"]');
+    const label = cell?.getAttribute("aria-label");
+    expect(label).toMatch(/^Novo evento em /);
+  });
+
+  it("ativar um chip de evento não dispara também a criação de novo evento da célula-pai", async () => {
+    const today = new Date();
+    const iso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(
+      today.getDate(),
+    ).padStart(2, "0")}`;
+    apiMock.fetchEvents.mockResolvedValue({
+      items: [
+        {
+          id: "ev-1",
+          titulo: "Reunião de líderes",
+          data: iso,
+          hora: null,
+          descricao: null,
+          googleEventId: null,
+          sincronizado: true,
+        },
+      ],
+      page: 1,
+      pageSize: 200,
+      total: 1,
+    });
+
+    await act(async () => {
+      root.render(h(CalendarioScreen, {}));
+    });
+
+    const chip = container.querySelector<HTMLElement>(".cal-ev");
+    expect(chip).not.toBeNull();
+
+    act(() => {
+      chip!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    });
+
+    // Abriu o DETALHE do evento (eventActivation), não a criação de novo
+    // evento da célula-pai (dayCellActivation) — a propagação do keydown foi
+    // interrompida no chip antes de alcançar o onKeyDown da célula.
+    const dialogs = container.querySelectorAll('[role="dialog"]');
+    expect(dialogs.length).toBe(1);
+    expect(container.querySelector(".ds-dialog-title")?.textContent).toBe("Reunião de líderes");
   });
 });

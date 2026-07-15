@@ -330,13 +330,16 @@ export function CalendarioScreen() {
    * com `role="button"` próprio (`eventActivation`) — um `role="button"` no
    * container pai criaria "interactive-in-interactive" (nome acessível da
    * célula herdaria o texto de todos os chips filhos). `tabIndex`+`onKeyDown`
-   * bastam para a operabilidade por teclado sem essa semântica de widget.
+   * bastam para a operabilidade por teclado sem essa semântica de widget;
+   * `aria-label` dá o nome acessível explícito (não herdado dos chips filhos),
+   * deixando claro o que Enter/Espaço fazem nesta célula.
    */
   const dayCellActivation = useCallback(
     (iso: string | null) => {
       if (!canManage || !iso) return {};
       return {
         tabIndex: 0,
+        "aria-label": `Novo evento em ${formatLongDate(iso)}`,
         onKeyDown: (e: KeyboardEvent) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
