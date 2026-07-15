@@ -8,7 +8,7 @@
  * dos papéis acumulados (role_permissions). Configuração só para admin.
  * Navegação por hash, sem reload. canSee/locked/deep-link preservados.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { DiamondMark } from "@/components/brand/DiamondMark";
 import type { SessionUser } from "@/lib/auth-context";
@@ -23,7 +23,7 @@ import { allowedScreens } from "@/lib/permissions";
 import { usePermissions } from "@/lib/permissions-context";
 import { isAdmin } from "@/lib/roles";
 
-import { SHELL_DRAWER_ID, drawerSidebarClass } from "./useDrawerA11y";
+import { SHELL_DRAWER_ID, drawerSidebarClass, isDesktopCollapsed } from "./useDrawerA11y";
 
 interface SidebarProps {
   user: SessionUser;
@@ -87,6 +87,35 @@ export function Sidebar({
     [sections, admin],
   );
 
+  // Tooltip do colapsado (revisão externa achado #1): NÃO usar CSS puro pra
+  // escapar do overflow-x:hidden do .nav-scroll — não dá pra liberar só o
+  // eixo X mantendo o Y scrollável no MESMO elemento (spec CSS Overflow §3:
+  // overflow-x/overflow-y diferentes com um "visible" faz o outro virar
+  // "auto", então "visible" nos dois é a ÚNICA forma de escapar — e isso reseta
+  // o scroll). Em vez disso, o tooltip vira um flyout renderizado FORA do
+  // .nav-scroll (irmão dele, dentro do <nav>) — nunca é cortado por overflow
+  // nenhum, e o overflow/scrollTop do .nav-scroll nunca é tocado.
+  const navRef = useRef<HTMLElement | null>(null);
+  const [tip, setTip] = useState<{ label: string; top: number } | null>(null);
+  // Revisão externa (2ª rodada): o flyout só existe no rail 64px de verdade —
+  // com o drawer mobile aberto a sidebar renderiza em largura completa (rótulo
+  // já visível inline) mesmo que a preferência de desktop siga "colapsada"
+  // depois de um resize. Mesma condição de drawerSidebarClass (fonte única).
+  const isCollapsedRail = isDesktopCollapsed(collapsed, mobileOpen);
+
+  function showTip(e: { currentTarget: HTMLElement }, tipLabel: string) {
+    if (!isCollapsedRail) return;
+    const navEl = navRef.current;
+    if (!navEl) return;
+    const itemRect = e.currentTarget.getBoundingClientRect();
+    const navRect = navEl.getBoundingClientRect();
+    setTip({ label: tipLabel, top: itemRect.top - navRect.top + itemRect.height / 2 });
+  }
+  function hideTip() {
+    if (!isCollapsedRail) return;
+    setTip(null);
+  }
+
   function renderItem(item: NavItem, accent?: NavItem["accent"]) {
     const tint = item.accent ?? accent;
     const classes = [
@@ -96,19 +125,28 @@ export function Sidebar({
     ]
       .filter(Boolean)
       .join(" ");
+    // Gate 6.1 (M7B-Visual-W1): nome acessível explícito via aria-label — vale
+    // pro colapsado (ícone só) e pro expandido; locked soma "em breve" (o
+    // aria-label substitui o texto visível inteiro, então o sufixo precisa
+    // estar aqui, não num span sr-only separado que o aria-label silenciaria).
+    const accessibleLabel = item.locked ? `${item.label} — disponível em breve` : item.label;
 
     return (
       <button
         key={`${item.target}-${item.label}`}
         type="button"
         className={classes}
-        data-tip={item.label}
         data-accent={tint}
+        aria-label={accessibleLabel}
         aria-current={!item.locked && route === item.target ? "page" : undefined}
         aria-disabled={item.locked || undefined}
         onClick={() => {
           if (!item.locked) onNavigate(item.target);
         }}
+        onMouseEnter={(e) => showTip(e, item.label)}
+        onMouseLeave={hideTip}
+        onFocus={(e) => showTip(e, item.label)}
+        onBlur={hideTip}
       >
         <span className="nav-ic" aria-hidden="true">
           <Icon name={item.icon} />
@@ -116,13 +154,9 @@ export function Sidebar({
         <span className="lbl">{item.label}</span>
         {item.badge ? <span className="badge">{item.badge}</span> : null}
         {item.locked ? (
-          <>
-            <span className="soon" title="Disponível em breve" aria-hidden="true">
-              <Icon name="lock" />
-            </span>
-            {/* Gate 6.1: "em breve" comunicado a leitores de tela (title não basta). */}
-            <span className="sr-only"> — disponível em breve</span>
-          </>
+          <span className="soon" title="Disponível em breve" aria-hidden="true">
+            <Icon name="lock" />
+          </span>
         ) : null}
       </button>
     );
@@ -153,6 +187,7 @@ export function Sidebar({
     // trap do drawer mobile (useDrawerA11y). aria-label nomeia o landmark.
     // drawerSidebarClass: aberto em mobile NUNCA fica colapsado (Gate 6.2).
     <nav
+      ref={navRef}
       id={SHELL_DRAWER_ID}
       aria-label={label}
       tabIndex={-1}
@@ -216,8 +251,12 @@ export function Sidebar({
             <a
               className="nav-item"
               href={crossSurface.href}
-              data-tip={crossSurface.label}
               data-accent="whats"
+              aria-label={crossSurface.label}
+              onMouseEnter={(e) => showTip(e, crossSurface.label)}
+              onMouseLeave={hideTip}
+              onFocus={(e) => showTip(e, crossSurface.label)}
+              onBlur={hideTip}
             >
               <span className="nav-ic" aria-hidden="true">
                 <Icon name="lock" />
@@ -228,6 +267,17 @@ export function Sidebar({
         ) : null}
         {visibleSections.map(renderSection)}
       </div>
+
+      {/* Flyout do tooltip colapsado: IRMÃO do .nav-scroll (não descendente) —
+          nunca é cortado pelo overflow-x:hidden do scroll. Só existe enquanto
+          hover/foco estiver ativo num item (showTip/hideTip) E a sidebar for
+          o rail 64px de verdade (isCollapsedRail) — nunca no drawer mobile
+          aberto, que sempre renderiza em largura completa. */}
+      {isCollapsedRail && tip ? (
+        <div className="nav-tip" style={{ top: tip.top }} aria-hidden="true">
+          {tip.label}
+        </div>
+      ) : null}
 
       <div className="side-foot">
         <div className="side-user">

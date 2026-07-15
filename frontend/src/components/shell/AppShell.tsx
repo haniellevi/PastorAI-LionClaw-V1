@@ -120,7 +120,11 @@ export function AppShell() {
         <JourneyStepper />
         <ScreenView route={resolvedBase} param={resolvedParam} />
       </main>
-      <BottomNav menuOpen={mobileOpen} onMore={() => setMobileOpen((v) => !v)} />
+      <BottomNav
+        route={resolvedBase}
+        menuOpen={mobileOpen}
+        onMore={() => setMobileOpen((v) => !v)}
+      />
     </div>
   );
 }

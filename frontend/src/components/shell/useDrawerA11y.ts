@@ -29,13 +29,22 @@ export const SHELL_DRAWER_ID = "shell-drawer";
 export const DRAWER_MEDIA_MOBILE = "(max-width: 860px)";
 
 /**
- * Classe da sidebar (Gate 6.2): o drawer mobile NUNCA abre colapsado — a
- * preferência de sidebar recolhida vale só no desktop; com o drawer aberto
- * (mobileOpen) a largura é sempre completa, com rótulos visíveis. Pura para
- * regressão em vitest.
+ * "Colapsada de verdade" (rail 64px, ícone-only) — Gate 6.2: o drawer mobile
+ * NUNCA abre colapsado, mesmo que a preferência de desktop siga colapsada
+ * depois de um resize; só conta como colapsada quando não há drawer mobile
+ * aberto. Fonte ÚNICA usada pela classe CSS (drawerSidebarClass) E por
+ * qualquer lógica de UI que dependa do rail 64px (ex.: o flyout do tooltip
+ * colapsado em Sidebar.tsx) — evita as duas lógicas divergirem (revisão
+ * externa M7B-Visual-W1: o flyout usava só `collapsed`, ignorando
+ * `mobileOpen`, e aparecia errado dentro do drawer mobile aberto).
  */
+export function isDesktopCollapsed(collapsed: boolean, mobileOpen: boolean): boolean {
+  return collapsed && !mobileOpen;
+}
+
+/** Classe da sidebar. Pura para regressão em vitest. */
 export function drawerSidebarClass(collapsed: boolean, mobileOpen: boolean): string {
-  return `sidebar${collapsed && !mobileOpen ? " collapsed" : ""}${mobileOpen ? " open" : ""}`;
+  return `sidebar${isDesktopCollapsed(collapsed, mobileOpen) ? " collapsed" : ""}${mobileOpen ? " open" : ""}`;
 }
 
 export function useDrawerA11y(open: boolean, onClose: () => void) {
