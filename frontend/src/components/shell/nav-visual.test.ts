@@ -27,17 +27,27 @@ describe("nav-item ativo — sem caixa dentro de caixa (Gate 6 / M7B-Visual-W1)"
   });
 });
 
-describe("tooltip do colapsado — visível no hover E no foco de teclado", () => {
-  it("[data-tip]::after dispara em :hover e em :focus-visible", () => {
+describe("tooltip do colapsado — visível no hover E no foco de teclado, sem mexer no scroll (revisão externa achados #1)", () => {
+  it("[data-tip]::after (só .side-church, fora do .nav-scroll) dispara em :hover e em :focus-visible", () => {
     expect(globals).toMatch(
       /\.sidebar\.collapsed \[data-tip\]:hover::after,\s*\n\s*\.sidebar\.collapsed \[data-tip\]:focus-visible::after\s*\{/,
     );
   });
 
-  it("nav-scroll libera o overflow enquanto o item com tooltip está em hover/foco (senão o tooltip nunca aparece, cortado pelo overflow-x:hidden do scroll)", () => {
-    expect(globals).toMatch(
-      /\.sidebar\.collapsed \.nav-scroll:has\(\[data-tip\]:hover, \[data-tip\]:focus-visible\)\s*\{\s*overflow:\s*visible;\s*\}/,
-    );
+  it("NÃO existe mais escape de overflow via :has() no .nav-scroll (regressão do blocker: overflow-x/overflow-y misto no mesmo elemento não dá pra escapar só num eixo — a correção usa o flyout .nav-tip, fora do .nav-scroll)", () => {
+    expect(globals).not.toMatch(/\.nav-scroll:has\(/);
+  });
+
+  it(".nav-scroll mantém overflow-y:auto INCONDICIONAL (nunca alternado em runtime — nada toca scrollTop/scroll container)", () => {
+    const body = rule(String.raw`\.nav-scroll`);
+    expect(body).toContain("overflow-y: auto");
+    expect(body).toContain("overflow-x: hidden");
+  });
+
+  it(".nav-tip (flyout JS-driven, Sidebar.tsx) existe, é decorativo e não intercepta clique", () => {
+    const body = rule(String.raw`\.nav-tip`);
+    expect(body).toContain("position: absolute");
+    expect(body).toContain("pointer-events: none");
   });
 });
 

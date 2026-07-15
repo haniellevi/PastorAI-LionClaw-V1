@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 /**
  * M7B-Visual-W1 (realinhamento estrutural da navegação): BottomNav precisa
- * compartilhar a MESMA rota ativa da Sidebar (mesmo contrato de dado —
- * lib/navigation.ts — e mesma semântica aria-current="page").
+ * compartilhar a MESMA rota ativa da Sidebar. Desde a revisão externa (achado
+ * #2), isso significa receber `route` já resolvida via prop (igual
+ * Sidebar/Topbar) — não recalcular a partir do hash cru internamente.
  *
  * Sem JSX (createElement): o tsconfig do Next usa jsx:"preserve".
  */
@@ -33,22 +34,15 @@ let container: HTMLDivElement;
 let root: Root;
 const onMore = vi.fn();
 
-function render() {
+function render(route: string) {
   act(() => {
-    root.render(h(PermissionsProvider, null, h(BottomNav, { onMore, menuOpen: false })));
-  });
-}
-
-function setHash(route: string) {
-  act(() => {
-    window.location.hash = `#${route}`;
+    root.render(h(PermissionsProvider, null, h(BottomNav, { route, onMore, menuOpen: false })));
   });
 }
 
 beforeEach(() => {
   authState.roles = ["pastor"];
   onMore.mockReset();
-  window.location.hash = "";
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -59,7 +53,7 @@ afterEach(() => {
   container.remove();
 });
 
-describe("BottomNav — contrato de rota compartilhado com a Sidebar", () => {
+describe("BottomNav — contrato de rota compartilhado com a Sidebar (via prop, não hash cru)", () => {
   it("todo atalho fixo do BottomNav existe como screenId em NAV_SECTIONS (evita drift entre os dois)", () => {
     const sidebarTargets = new Set(
       NAV_SECTIONS.flatMap((s) => [
@@ -67,7 +61,7 @@ describe("BottomNav — contrato de rota compartilhado com a Sidebar", () => {
         ...(s.stages ?? []).map((st) => st.head.target),
       ]),
     );
-    render();
+    render("dashboard");
     const hrefs = Array.from(container.querySelectorAll(".bn-item[href]")).map((el) =>
       el.getAttribute("href")!.replace("#", ""),
     );
@@ -78,8 +72,7 @@ describe("BottomNav — contrato de rota compartilhado com a Sidebar", () => {
   });
 
   it("rota vigente = dashboard: atalho 'Hoje' fica active com aria-current=page", () => {
-    setHash("dashboard");
-    render();
+    render("dashboard");
     const items = Array.from(container.querySelectorAll(".bn-item")) as HTMLAnchorElement[];
     const hoje = items.find((el) => el.textContent?.includes("Hoje"))!;
     expect(hoje.classList.contains("active")).toBe(true);
@@ -90,8 +83,7 @@ describe("BottomNav — contrato de rota compartilhado com a Sidebar", () => {
   });
 
   it("rota vigente = inbox: atalho 'Conversas' fica active, 'Hoje' não", () => {
-    setHash("inbox");
-    render();
+    render("inbox");
     const items = Array.from(container.querySelectorAll(".bn-item")) as HTMLAnchorElement[];
     const conversas = items.find((el) => el.textContent?.includes("Conversas"))!;
     const hoje = items.find((el) => el.textContent?.includes("Hoje"))!;
@@ -99,9 +91,31 @@ describe("BottomNav — contrato de rota compartilhado com a Sidebar", () => {
     expect(hoje.classList.contains("active")).toBe(false);
   });
 
+  it("rota vigente dentro da Jornada (consolidar): o chip dinâmico 'Consolidar' fica active com aria-current=page", () => {
+    render("consolidar");
+    const items = Array.from(container.querySelectorAll(".bn-item")) as HTMLAnchorElement[];
+    const jornada = items.find((el) => el.textContent?.includes("Consolidar"))!;
+    expect(jornada).toBeDefined();
+    expect(jornada.getAttribute("href")).toBe("#consolidar");
+    expect(jornada.classList.contains("active")).toBe(true);
+    expect(jornada.getAttribute("aria-current")).toBe("page");
+
+    // Fora da Jornada, nenhum outro item concorre pelo aria-current=page.
+    const activos = container.querySelectorAll(".bn-item.active");
+    expect(activos).toHaveLength(1);
+  });
+
+  it("fora da Jornada (dashboard): o chip dinâmico mostra 'Jornada' e NÃO fica active", () => {
+    render("dashboard");
+    const items = Array.from(container.querySelectorAll(".bn-item")) as HTMLAnchorElement[];
+    const jornada = items.find((el) => el.textContent?.includes("Jornada"))!;
+    expect(jornada).toBeDefined();
+    expect(jornada.classList.contains("active")).toBe(false);
+    expect(jornada.getAttribute("aria-current")).toBeNull();
+  });
+
   it("'Mais' nunca é active (é ação, não rota) e expõe aria-controls do drawer da Sidebar", () => {
-    setHash("dashboard");
-    render();
+    render("dashboard");
     const mais = Array.from(container.querySelectorAll(".bn-item")).find(
       (el) => el.tagName === "BUTTON",
     ) as HTMLButtonElement;

@@ -980,6 +980,10 @@ input[type="checkbox"] {
   min-width: 44px;
   min-height: 44px;
 }
+/* .side-church é o ÚNICO uso restante deste tooltip CSS-puro (data-tip +
+   ::after) — fica fora do .nav-scroll (não sofre corte de overflow), então
+   não precisa do flyout JS. Não vira elemento focável só por causa disto
+   (revisão externa achado #5): permanece <div>, decorativo, hover-only. */
 .sidebar.collapsed [data-tip] {
   position: relative;
 }
@@ -1001,13 +1005,27 @@ input[type="checkbox"] {
   pointer-events: none;
   box-shadow: 0 8px 24px oklch(0% 0 0 / 0.35);
 }
-/* Gate 6 (M7B-Visual-W1): .nav-scroll corta overflow-x (linha ~600) pra não
-   vazar durante o scroll vertical — isso também cortava o tooltip acima
-   (nunca aparecia, nem no :hover). Libera o overflow só enquanto o item com
-   tooltip está em hover/foco (:has — Chrome/Edge/Safari/Firefox atuais, mesma
-   baseline do oklch() já usado no arquivo). */
-.sidebar.collapsed .nav-scroll:has([data-tip]:hover, [data-tip]:focus-visible) {
-  overflow: visible;
+/* Gate 6 (M7B-Visual-W1, revisão externa achado #1): os nav-item/crossSurface
+   usam este flyout em vez do ::after acima — .nav-scroll corta overflow-x
+   (não dá pra liberar só esse eixo mantendo overflow-y:auto no MESMO elemento,
+   spec CSS Overflow §3 corrige overflow-x/y misto pra "auto" nos dois; e
+   "visible" nos dois eixos reseta o scroll). O flyout é irmão do .nav-scroll
+   (Sidebar.tsx: showTip/hideTip calculam `top` via getBoundingClientRect),
+   então nunca é cortado e o overflow/scrollTop do .nav-scroll NUNCA é tocado. */
+.nav-tip {
+  position: absolute;
+  left: calc(100% + 10px);
+  transform: translateY(-50%);
+  background: oklch(16% 0.012 187);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  padding: 6px 10px;
+  border-radius: 7px;
+  z-index: 60;
+  pointer-events: none;
+  box-shadow: 0 8px 24px oklch(0% 0 0 / 0.35);
 }
 
 /* ---------- MAIN / TOPBAR ---------- */

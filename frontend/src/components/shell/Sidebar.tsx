@@ -8,7 +8,7 @@
  * dos papéis acumulados (role_permissions). Configuração só para admin.
  * Navegação por hash, sem reload. canSee/locked/deep-link preservados.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { DiamondMark } from "@/components/brand/DiamondMark";
 import type { SessionUser } from "@/lib/auth-context";
@@ -87,6 +87,29 @@ export function Sidebar({
     [sections, admin],
   );
 
+  // Tooltip do colapsado (revisão externa achado #1): NÃO usar CSS puro pra
+  // escapar do overflow-x:hidden do .nav-scroll — não dá pra liberar só o
+  // eixo X mantendo o Y scrollável no MESMO elemento (spec CSS Overflow §3:
+  // overflow-x/overflow-y diferentes com um "visible" faz o outro virar
+  // "auto", então "visible" nos dois é a ÚNICA forma de escapar — e isso reseta
+  // o scroll). Em vez disso, o tooltip vira um flyout renderizado FORA do
+  // .nav-scroll (irmão dele, dentro do <nav>) — nunca é cortado por overflow
+  // nenhum, e o overflow/scrollTop do .nav-scroll nunca é tocado.
+  const navRef = useRef<HTMLElement | null>(null);
+  const [tip, setTip] = useState<{ label: string; top: number } | null>(null);
+
+  function showTip(e: { currentTarget: HTMLElement }, tipLabel: string) {
+    if (!collapsed) return;
+    const navEl = navRef.current;
+    if (!navEl) return;
+    const itemRect = e.currentTarget.getBoundingClientRect();
+    const navRect = navEl.getBoundingClientRect();
+    setTip({ label: tipLabel, top: itemRect.top - navRect.top + itemRect.height / 2 });
+  }
+  function hideTip() {
+    setTip(null);
+  }
+
   function renderItem(item: NavItem, accent?: NavItem["accent"]) {
     const tint = item.accent ?? accent;
     const classes = [
@@ -107,7 +130,6 @@ export function Sidebar({
         key={`${item.target}-${item.label}`}
         type="button"
         className={classes}
-        data-tip={item.label}
         data-accent={tint}
         aria-label={accessibleLabel}
         aria-current={!item.locked && route === item.target ? "page" : undefined}
@@ -115,6 +137,10 @@ export function Sidebar({
         onClick={() => {
           if (!item.locked) onNavigate(item.target);
         }}
+        onMouseEnter={(e) => showTip(e, item.label)}
+        onMouseLeave={hideTip}
+        onFocus={(e) => showTip(e, item.label)}
+        onBlur={hideTip}
       >
         <span className="nav-ic" aria-hidden="true">
           <Icon name={item.icon} />
@@ -155,6 +181,7 @@ export function Sidebar({
     // trap do drawer mobile (useDrawerA11y). aria-label nomeia o landmark.
     // drawerSidebarClass: aberto em mobile NUNCA fica colapsado (Gate 6.2).
     <nav
+      ref={navRef}
       id={SHELL_DRAWER_ID}
       aria-label={label}
       tabIndex={-1}
@@ -218,9 +245,12 @@ export function Sidebar({
             <a
               className="nav-item"
               href={crossSurface.href}
-              data-tip={crossSurface.label}
               data-accent="whats"
               aria-label={crossSurface.label}
+              onMouseEnter={(e) => showTip(e, crossSurface.label)}
+              onMouseLeave={hideTip}
+              onFocus={(e) => showTip(e, crossSurface.label)}
+              onBlur={hideTip}
             >
               <span className="nav-ic" aria-hidden="true">
                 <Icon name="lock" />
@@ -231,6 +261,15 @@ export function Sidebar({
         ) : null}
         {visibleSections.map(renderSection)}
       </div>
+
+      {/* Flyout do tooltip colapsado: IRMÃO do .nav-scroll (não descendente) —
+          nunca é cortado pelo overflow-x:hidden do scroll. Só existe enquanto
+          hover/foco estiver ativo num item (showTip/hideTip). */}
+      {collapsed && tip ? (
+        <div className="nav-tip" style={{ top: tip.top }} aria-hidden="true">
+          {tip.label}
+        </div>
+      ) : null}
 
       <div className="side-foot">
         <div className="side-user">

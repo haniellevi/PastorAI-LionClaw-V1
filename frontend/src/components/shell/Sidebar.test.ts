@@ -118,4 +118,44 @@ describe("Sidebar — nav-item ativo/aria-label (contrato compartilhado M7B-Visu
     expect(active.getAttribute("aria-label")).toBe("Painel de Hoje");
     expect(container.querySelector(".sidebar")?.classList.contains("collapsed")).toBe(true);
   });
+
+  it("colapsado + locked: aria-label com sufixo, nunca active, não navega, e o flyout mostra o rótulo curto no foco (revisão externa achado #3)", () => {
+    render("dashboard", true);
+    const locked = container.querySelector(".nav-item.locked") as HTMLButtonElement;
+    expect(locked.getAttribute("aria-label")).toBe("Universidade da Vida — disponível em breve");
+    expect(locked.getAttribute("aria-disabled")).toBe("true");
+    expect(locked.classList.contains("active")).toBe(false);
+
+    act(() => locked.click());
+    expect(onNavigate).not.toHaveBeenCalled();
+
+    act(() => locked.focus());
+    const tip = container.querySelector(".nav-tip");
+    // O flyout usa o rótulo curto (o sufixo "em breve" já está no aria-label,
+    // anunciado por leitor de tela — repeti-lo no tooltip visual seria ruído).
+    expect(tip?.textContent).toBe("Universidade da Vida");
+
+    act(() => locked.blur());
+    expect(container.querySelector(".nav-tip")).toBeNull();
+  });
+
+  it("colapsado: focar/desfocar um item NUNCA mexe no scroll do .nav-scroll (revisão externa achado #1 — overflow/scrollTop preservados)", () => {
+    render("dashboard", true);
+    const navScroll = container.querySelector(".nav-scroll") as HTMLDivElement;
+    navScroll.scrollTop = 42;
+
+    const active = container.querySelector(".nav-item.active") as HTMLButtonElement;
+    act(() => active.focus());
+    // O flyout do tooltip apareceu...
+    expect(container.querySelector(".nav-tip")).not.toBeNull();
+    // ...mas o container de scroll não foi tocado: mesmo scrollTop, mesma
+    // classe, sem style inline (nada no código muda overflow em runtime).
+    expect(navScroll.scrollTop).toBe(42);
+    expect(navScroll.className).toBe("nav-scroll");
+    expect(navScroll.getAttribute("style")).toBeNull();
+
+    act(() => active.blur());
+    expect(navScroll.scrollTop).toBe(42);
+    expect(container.querySelector(".nav-tip")).toBeNull();
+  });
 });

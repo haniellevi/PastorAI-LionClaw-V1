@@ -11,6 +11,14 @@
  *  - "Mais" é ação (não é screen), sempre visível;
  *  - item ativo = rota vigente.
  *
+ * `route` vem JÁ RESOLVIDA do AppShell (mesma prop que a Sidebar/Topbar
+ * recebem — revisão externa M7B-Visual-W1 achado #2): o BottomNav NÃO lê o
+ * hash cru por conta própria. Antes recalculava via useHashRoute() interno, o
+ * que podia mostrar item ativo divergente da Sidebar por um instante quando o
+ * deep-link pedido era bloqueado/sem permissão (o AppShell já resolveu pra
+ * #dashboard antes de renderizar; o BottomNav via o hash cru até o
+ * hashchange do redirect chegar).
+ *
  * "Jornada" é contextual (Gate 6.1 — derivação em journey.ts): dentro de uma
  * etapa G12 o atalho mostra a etapa E navega para ela (texto e destino
  * coincidem); fora, mostra "Jornada" apontando para a primeira etapa acessível
@@ -20,7 +28,6 @@ import { useAuth } from "@/lib/auth-context";
 import { Icon } from "@/lib/icons";
 import { canSee } from "@/lib/permissions";
 import { usePermissions } from "@/lib/permissions-context";
-import { useHashRoute } from "@/lib/use-hash-route";
 
 import { journeyNavItem } from "./journey";
 import { SHELL_DRAWER_ID } from "./useDrawerA11y";
@@ -30,26 +37,32 @@ const SHORTCUTS = [
   { target: "inbox", label: "Conversas", icon: "chat" as const },
 ];
 
-export function BottomNav({ onMore, menuOpen }: { onMore: () => void; menuOpen: boolean }) {
+export function BottomNav({
+  route,
+  onMore,
+  menuOpen,
+}: {
+  /** Rota já resolvida pelo AppShell (mesma fonte que Sidebar/Topbar). */
+  route: string;
+  onMore: () => void;
+  menuOpen: boolean;
+}) {
   const { user } = useAuth();
   const { matrix } = usePermissions();
-  const [route] = useHashRoute();
 
   if (!user) return null;
 
   // Sem permissão de ver a tela → atalho some.
   const visible = SHORTCUTS.filter((it) => canSee(it.target, user.roles, matrix));
 
-  const slash = route.indexOf("/");
-  const base = slash === -1 ? route : route.slice(0, slash);
-  const journey = journeyNavItem(base, user.roles, matrix);
+  const journey = journeyNavItem(route, user.roles, matrix);
 
   return (
     <nav className="bottom-nav" aria-label="Navegação rápida">
       {/* Gate 6.2: navegação por hash = LINKS reais (como ModuleTabs); "Mais"
           continua botão — é ação (abre o drawer), não rota. */}
       {visible.map((it) => {
-        const active = base === it.target;
+        const active = route === it.target;
         return (
           <a
             key={it.target}
@@ -65,8 +78,8 @@ export function BottomNav({ onMore, menuOpen }: { onMore: () => void; menuOpen: 
       {journey ? (
         <a
           href={`#${journey.target}`}
-          className={`bn-item${journey.active || base === journey.target ? " active" : ""}`}
-          aria-current={journey.active || base === journey.target ? "page" : undefined}
+          className={`bn-item${journey.active || route === journey.target ? " active" : ""}`}
+          aria-current={journey.active || route === journey.target ? "page" : undefined}
         >
           <Icon name={journey.icon} />
           <span>{journey.label}</span>

@@ -52,7 +52,10 @@ export function Topbar({
       <div className="tb-titles">
         {group ? <span className="tb-eyebrow">{group}</span> : null}
         <div className="tb-title-row">
-          <h1>{meta.title}</h1>
+          {/* Gate 6 (M7B-Visual-W1, revisão externa achado #4): o h1 trunca com
+              reticências em telas estreitas — title nativo dá ao mouse o texto
+              completo sem JS/tooltip próprio. */}
+          <h1 title={meta.title}>{meta.title}</h1>
           {meta.info ? <InfoTip text={meta.info} /> : null}
         </div>
       </div>
