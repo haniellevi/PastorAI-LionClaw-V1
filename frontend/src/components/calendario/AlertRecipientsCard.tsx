@@ -126,7 +126,7 @@ export function AlertRecipientsCard() {
       </p>
 
       {error ? (
-        <p className="sub" style={{ color: "var(--danger)", marginBottom: "var(--s2)" }}>
+        <p className="sub" role="alert" style={{ color: "var(--danger)", marginBottom: "var(--s2)" }}>
           {error}
         </p>
       ) : null}
@@ -170,14 +170,18 @@ export function AlertRecipientsCard() {
       )}
 
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <label className="sr-only" htmlFor="alert-recipient-nome">Nome</label>
         <input
+          id="alert-recipient-nome"
           className="input"
           placeholder="Nome"
           value={nome}
           onChange={(e) => setNome(e.target.value)}
           style={{ flex: "1 1 140px" }}
         />
+        <label className="sr-only" htmlFor="alert-recipient-telefone">Telefone (WhatsApp)</label>
         <input
+          id="alert-recipient-telefone"
           className="input"
           placeholder="Telefone (WhatsApp)"
           value={telefone}

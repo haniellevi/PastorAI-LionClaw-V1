@@ -149,7 +149,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
       </div>
 
       {error ? (
-        <p className="sub" style={{ color: "var(--danger)", marginTop: "var(--s2)" }}>
+        <p className="sub" role="alert" style={{ color: "var(--danger)", marginTop: "var(--s2)" }}>
           {error}
         </p>
       ) : null}

@@ -12,11 +12,13 @@
  *  - Excluir: confirmação em dois passos no próprio rodapé (sem prompt do browser).
  *  - Confirmar: só aparece quando status='a_confirmar' (POST /events/{id}/confirm).
  *
- * Reusa o sistema de modais corrigido (.modal-overlay/.modal) — rola dentro do
- * modal no mobile, sem overflow horizontal.
+ * Wave Visual W3: migração mecânica para o DsDialog (Esc/trap/backdrop/retorno
+ * de foco do primitive; fechar bloqueado em busy) — mesmas ações, callbacks e
+ * textos de antes.
  */
 import { useState } from "react";
 
+import { Dialog as DsDialog } from "@/components/ds/Dialog";
 import { Button } from "@/components/ui/Button";
 import { formatLongDate, TIPO_LABEL, type EventItem } from "@/lib/events-api";
 import { Icon, type IconKey } from "@/lib/icons";
@@ -89,69 +91,15 @@ export function EventDetailModal({
   const showPills = Boolean(status || event.tipo || event.origem || event.recorrencia);
 
   return (
-    <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div
-        className="modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label={`Detalhe do evento ${event.titulo}`}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="modal-head">
-          <strong>{event.titulo}</strong>
-          <button type="button" className="btn btn-sm btn-ghost" onClick={onClose}>
-            Fechar
-          </button>
-        </div>
-
-        {error ? (
-          <div className="error-banner" role="alert" style={{ marginBottom: "var(--s3)" }}>
-            <Icon name="alert" />
-            <span>{error}</span>
-          </div>
-        ) : null}
-
-        <div style={{ display: "flex", flexDirection: "column", gap: "var(--s3)" }}>
-          <DetailRow icon="calendar" label="Quando" value={when} />
-          {event.descricao ? (
-            <DetailRow icon="document" label="Descrição" value={event.descricao} />
-          ) : null}
-
-          {showPills ? (
-            <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
-              {status ? <span className={`pill ${status.cls}`}>{status.text}</span> : null}
-              {event.tipo ? (
-                <span className={`pill tipo-${event.tipo}`}>{TIPO_LABEL[event.tipo]}</span>
-              ) : null}
-              {event.origem ? (
-                <span className="pill muted">
-                  {event.origem === "google" ? "Importado do Google" : "Manual"}
-                </span>
-              ) : null}
-              {event.recorrencia ? (
-                <span className="pill accent">
-                  {event.recorrencia === "semanal" ? "Semanal" : "Recorrente"}
-                </span>
-              ) : null}
-            </div>
-          ) : null}
-
-          <DetailRow
-            icon="link"
-            label="Google Calendar"
-            value={event.sincronizado ? "Sincronizado" : "Evento local — não enviado ao Google"}
-          />
-
-          {!canManage && event.status === "a_confirmar" ? (
-            <p className="sub" style={{ margin: 0 }}>
-              Este evento ainda será confirmado pela liderança. Você será avisado
-              quando estiver definido.
-            </p>
-          ) : null}
-        </div>
-
-        {canManage ? (
-          <div className="modal-foot" style={{ flexWrap: "wrap" }}>
+    <DsDialog
+      open
+      onClose={() => {
+        if (!busy) onClose();
+      }}
+      title={event.titulo}
+      footer={
+        canManage ? (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {canConfirm ? (
               <Button
                 variant="primary"
@@ -191,8 +139,54 @@ export function EventDetailModal({
               </button>
             )}
           </div>
+        ) : undefined
+      }
+    >
+      {error ? (
+        <div className="error-banner" role="alert" style={{ marginBottom: "var(--s3)" }}>
+          <Icon name="alert" />
+          <span>{error}</span>
+        </div>
+      ) : null}
+
+      <div style={{ display: "flex", flexDirection: "column", gap: "var(--s3)" }}>
+        <DetailRow icon="calendar" label="Quando" value={when} />
+        {event.descricao ? (
+          <DetailRow icon="document" label="Descrição" value={event.descricao} />
+        ) : null}
+
+        {showPills ? (
+          <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+            {status ? <span className={`pill ${status.cls}`}>{status.text}</span> : null}
+            {event.tipo ? (
+              <span className={`pill tipo-${event.tipo}`}>{TIPO_LABEL[event.tipo]}</span>
+            ) : null}
+            {event.origem ? (
+              <span className="pill muted">
+                {event.origem === "google" ? "Importado do Google" : "Manual"}
+              </span>
+            ) : null}
+            {event.recorrencia ? (
+              <span className="pill accent">
+                {event.recorrencia === "semanal" ? "Semanal" : "Recorrente"}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+
+        <DetailRow
+          icon="link"
+          label="Google Calendar"
+          value={event.sincronizado ? "Sincronizado" : "Evento local — não enviado ao Google"}
+        />
+
+        {!canManage && event.status === "a_confirmar" ? (
+          <p className="sub" style={{ margin: 0 }}>
+            Este evento ainda será confirmado pela liderança. Você será avisado
+            quando estiver definido.
+          </p>
         ) : null}
       </div>
-    </div>
+    </DsDialog>
   );
 }
