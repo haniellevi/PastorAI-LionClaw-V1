@@ -16,7 +16,7 @@ import { act, createElement as h, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { SHELL_DRAWER_ID, drawerSidebarClass, useDrawerA11y } from "./useDrawerA11y";
+import { SHELL_DRAWER_ID, drawerSidebarClass, isDesktopCollapsed, useDrawerA11y } from "./useDrawerA11y";
 
 declare global {
   // eslint-disable-next-line no-var
@@ -194,5 +194,12 @@ describe("useDrawerA11y", () => {
     expect(drawerSidebarClass(true, false)).toBe("sidebar collapsed");
     expect(drawerSidebarClass(false, true)).toBe("sidebar open");
     expect(drawerSidebarClass(false, false)).toBe("sidebar");
+  });
+
+  it("isDesktopCollapsed: mesma condição que drawerSidebarClass usa pra decidir a classe .collapsed — fonte única (revisão externa M7B-Visual-W1, 2ª rodada: o flyout do tooltip em Sidebar.tsx usa esta mesma função, pra nunca divergir)", () => {
+    expect(isDesktopCollapsed(true, true)).toBe(false);
+    expect(isDesktopCollapsed(true, false)).toBe(true);
+    expect(isDesktopCollapsed(false, true)).toBe(false);
+    expect(isDesktopCollapsed(false, false)).toBe(false);
   });
 });

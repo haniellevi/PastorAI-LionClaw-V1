@@ -23,7 +23,7 @@ import { allowedScreens } from "@/lib/permissions";
 import { usePermissions } from "@/lib/permissions-context";
 import { isAdmin } from "@/lib/roles";
 
-import { SHELL_DRAWER_ID, drawerSidebarClass } from "./useDrawerA11y";
+import { SHELL_DRAWER_ID, drawerSidebarClass, isDesktopCollapsed } from "./useDrawerA11y";
 
 interface SidebarProps {
   user: SessionUser;
@@ -97,9 +97,14 @@ export function Sidebar({
   // nenhum, e o overflow/scrollTop do .nav-scroll nunca é tocado.
   const navRef = useRef<HTMLElement | null>(null);
   const [tip, setTip] = useState<{ label: string; top: number } | null>(null);
+  // Revisão externa (2ª rodada): o flyout só existe no rail 64px de verdade —
+  // com o drawer mobile aberto a sidebar renderiza em largura completa (rótulo
+  // já visível inline) mesmo que a preferência de desktop siga "colapsada"
+  // depois de um resize. Mesma condição de drawerSidebarClass (fonte única).
+  const isCollapsedRail = isDesktopCollapsed(collapsed, mobileOpen);
 
   function showTip(e: { currentTarget: HTMLElement }, tipLabel: string) {
-    if (!collapsed) return;
+    if (!isCollapsedRail) return;
     const navEl = navRef.current;
     if (!navEl) return;
     const itemRect = e.currentTarget.getBoundingClientRect();
@@ -107,6 +112,7 @@ export function Sidebar({
     setTip({ label: tipLabel, top: itemRect.top - navRect.top + itemRect.height / 2 });
   }
   function hideTip() {
+    if (!isCollapsedRail) return;
     setTip(null);
   }
 
@@ -264,8 +270,10 @@ export function Sidebar({
 
       {/* Flyout do tooltip colapsado: IRMÃO do .nav-scroll (não descendente) —
           nunca é cortado pelo overflow-x:hidden do scroll. Só existe enquanto
-          hover/foco estiver ativo num item (showTip/hideTip). */}
-      {collapsed && tip ? (
+          hover/foco estiver ativo num item (showTip/hideTip) E a sidebar for
+          o rail 64px de verdade (isCollapsedRail) — nunca no drawer mobile
+          aberto, que sempre renderiza em largura completa. */}
+      {isCollapsedRail && tip ? (
         <div className="nav-tip" style={{ top: tip.top }} aria-hidden="true">
           {tip.label}
         </div>

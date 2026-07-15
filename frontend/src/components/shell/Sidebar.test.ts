@@ -53,7 +53,7 @@ let container: HTMLDivElement;
 let root: Root;
 const onNavigate = vi.fn();
 
-function render(route: string, collapsed = false) {
+function render(route: string, collapsed = false, mobileOpen = false) {
   act(() => {
     root.render(
       h(
@@ -64,7 +64,7 @@ function render(route: string, collapsed = false) {
           route,
           sections: SECTIONS,
           collapsed,
-          mobileOpen: false,
+          mobileOpen,
           onNavigate,
           onToggleCollapse: vi.fn(),
           onLogout: vi.fn(),
@@ -156,6 +156,37 @@ describe("Sidebar — nav-item ativo/aria-label (contrato compartilhado M7B-Visu
 
     act(() => active.blur());
     expect(navScroll.scrollTop).toBe(42);
+    expect(container.querySelector(".nav-tip")).toBeNull();
+  });
+});
+
+describe("Sidebar — flyout do tooltip só no rail 64px de verdade (revisão externa, 2ª rodada)", () => {
+  it("collapsed=true + mobileOpen=true: hover/foco NÃO renderiza .nav-tip (drawer mobile é sempre largura completa, Gate 6.2)", () => {
+    render("dashboard", true, true);
+    // Sem a classe CSS "collapsed" no DOM: o drawer mobile aberto ignora a
+    // preferência de desktop (drawerSidebarClass já cobre isso).
+    expect(container.querySelector(".sidebar")?.classList.contains("collapsed")).toBe(false);
+    expect(container.querySelector(".sidebar")?.classList.contains("open")).toBe(true);
+
+    const active = container.querySelector(".nav-item.active") as HTMLButtonElement;
+    act(() => active.focus());
+    expect(container.querySelector(".nav-tip")).toBeNull();
+
+    act(() => active.blur());
+    expect(container.querySelector(".nav-tip")).toBeNull();
+  });
+
+  it("collapsed=true + mobileOpen=false: hover/foco AINDA renderiza .nav-tip (rail 64px de verdade, comportamento preservado)", () => {
+    render("dashboard", true, false);
+    expect(container.querySelector(".sidebar")?.classList.contains("collapsed")).toBe(true);
+
+    const active = container.querySelector(".nav-item.active") as HTMLButtonElement;
+    act(() => active.focus());
+    const tip = container.querySelector(".nav-tip");
+    expect(tip).not.toBeNull();
+    expect(tip!.textContent).toBe("Painel de Hoje");
+
+    act(() => active.blur());
     expect(container.querySelector(".nav-tip")).toBeNull();
   });
 });
