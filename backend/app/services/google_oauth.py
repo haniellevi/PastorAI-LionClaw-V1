@@ -19,11 +19,16 @@ import httpx
 import jwt
 
 from app.config import Settings, get_settings
+from app.services.clerk import ClerkAuthError, ClerkClient
 
 logger = logging.getLogger("pastorai.gcal_oauth")
 
 _STATE_ALG = "HS256"
 _STATE_PURPOSE = "gcal_oauth"
+# Distinct issuer (SEC-ALTO-004): pins the state token to this purpose so it
+# can never be swapped for/with a session, reset or invite token even though
+# all four share the same signing secret.
+_STATE_ISSUER = "pastorai-gcal-oauth"
 _STATE_TTL_MIN = 10
 # Read/write events + read the calendar list (to let the admin pick one).
 _SCOPES = (
@@ -48,8 +53,13 @@ class OAuthTokens:
 class GoogleOAuthClient:
     """Thin client around Google's OAuth + calendarList endpoints."""
 
-    def __init__(self, settings: Settings | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings | None = None,
+        clerk_client: ClerkClient | None = None,
+    ) -> None:
         self._settings = settings or get_settings()
+        self._clerk_client = clerk_client or ClerkClient(self._settings)
 
     def _require_config(self) -> tuple[str, str, str]:
         s = self._settings
@@ -71,6 +81,7 @@ class GoogleOAuthClient:
         payload = {
             "purpose": _STATE_PURPOSE,
             "igreja_id": str(igreja_id),
+            "iss": _STATE_ISSUER,
             "iat": now,
             "exp": now + dt.timedelta(minutes=_STATE_TTL_MIN),
         }
@@ -79,14 +90,21 @@ class GoogleOAuthClient:
         )
 
     def verify_state(self, state: str) -> str:
-        """Return the igreja_id from a valid state, else raise."""
+        """Return the igreja_id from a valid state, else raise.
+
+        Signature/algorithm/issuer/required-claims verification is delegated
+        to ``ClerkClient.verify_purpose_token`` — the same hardened policy
+        used for session/reset/invite tokens (SEC-ALTO-004) — instead of
+        decoding independently here. Only the ``purpose``/``igreja_id``
+        VALUE checks stay local, since they're specific to this token.
+        """
         try:
-            claims = jwt.decode(
+            claims = self._clerk_client.verify_purpose_token(
                 state,
-                self._settings.effective_session_secret,
-                algorithms=[_STATE_ALG],
+                issuer=_STATE_ISSUER,
+                required_claims=("exp", "iss", "purpose", "igreja_id"),
             )
-        except jwt.PyJWTError as exc:
+        except ClerkAuthError as exc:
             raise GoogleOAuthError("state inválido ou expirado") from exc
         if claims.get("purpose") != _STATE_PURPOSE or not claims.get("igreja_id"):
             raise GoogleOAuthError("state inválido")
