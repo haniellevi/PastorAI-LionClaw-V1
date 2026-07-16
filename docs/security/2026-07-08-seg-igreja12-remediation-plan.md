@@ -33,7 +33,7 @@ Pontos de partida já resolvidos (na autoria original, 2026-07-08):
 - **ALTO-001 (Secrets)** foi tratado pela **Missão 7A** como **contenção/higiene local**. O snapshot do pipeline (2026-07-07 18:04) registrou credencial real (e-mail, nome completo e duas senhas em texto claro) nas linhas `:42`/`:50` dos `settings.local.json`. Na execução da 7A esses arquivos **já estavam com regra curinga** (`clerk users create *`), **sem `--password`**; restavam apenas IDs locais, que foram redigidos. **Nenhum arquivo estava rastreado pelo git nem foi ao remoto.** Valores omitidos deste documento por política. **Atualização 2026-07-16: a rotação da senha, então pendente, foi confirmada concluída em 2026-07-09 — ver Apêndice B.**
 - **Missão 6/C1** (seam profundo de RLS/tenant-context) está **fechada e em produção** e é a **base para os itens de RLS** deste plano — especificamente o gate do SEC-5 (`FORCE ROW LEVEL SECURITY`), que só deve ser executado **depois** do C1 validado.
 
-**Reconciliação 2026-07-16 (missão SEC-PLAN-RECON-1):** dos 5 ALTO + 6 MÉDIO, **8 estão concluídos e deployados em produção** (ALTO-001, ALTO-002, ALTO-005, MEDIO-001, MEDIO-002, MEDIO-003), **1 pendente de confirmação de deploy** (MEDIO-006), **1 parcial com risco de segurança remanescente** (MEDIO-004) e **3 pendentes de fato** (ALTO-003, ALTO-004, MEDIO-005 — dedup/refactor, risco de drift não de exploração ativa). Ver §2.4 para evidência item a item e §8 para o backlog real restante.
+**Reconciliação 2026-07-16 (missão SEC-PLAN-RECON-1):** dos 5 ALTO + 6 MÉDIO, **9 estão concluídos e deployados em produção** (ALTO-001, ALTO-002, ALTO-005, MEDIO-001, MEDIO-002, MEDIO-003, MEDIO-006), **1 parcial com risco de segurança remanescente** (MEDIO-004) e **3 pendentes de fato** (ALTO-003, ALTO-004, MEDIO-005 — dedup/refactor, risco de drift não de exploração ativa). Ver §2.4 para evidência item a item e §8 para o backlog real restante.
 
 Este plano **não** implementa correções. Ele fixa: estado por severidade, ordem recomendada (SEC-0..7), riscos, gates por PR, dependências e decisões. A execução será feita depois, **um SEC por PR** (ou sub-PR pequeno), via Cloud Code com gates reais — **não** pelo LionCloud Coder.
 
@@ -62,7 +62,7 @@ Legenda de **status** (revalidada em 2026-07-16, ver §2.4): `CONCLUÍDO` (corri
 | MEDIO-003 | Token de reset de senha reutilizável (sem uso único) | `backend/app/services/clerk.py`, `backend/app/routers/auth.py` | SEC-3 | **CONCLUÍDO** (PR#135) — ver §2.4 |
 | MEDIO-004 | Dedup canônica de telefone repetida em 4 locais (uma sem filtro de `igreja_id`) | `contacts.py`, `auth.py`, `queue_worker.py` → novo `domain/phone.py` | SEC-7 | **PARCIAL** — ver §2.4 |
 | MEDIO-005 | Métodos de emissão de JWT quase idênticos em `ClerkClient` | `backend/app/services/clerk.py` (mint session/reset/invite) | SEC-7 | PENDENTE — ver §2.4 |
-| MEDIO-006 | Approve de solicitação de célula sem lock → TOCTOU | `cell_requests.py`, `cell_requests_service.py` | SEC-4 | **PENDENTE de confirmação de deploy** — ver §2.4 |
+| MEDIO-006 | Approve de solicitação de célula sem lock → TOCTOU | `cell_requests.py`, `cell_requests_service.py` | SEC-4 | **CONCLUÍDO + deployado** — ver §2.4 |
 
 ### 2.3 BAIXO (10)
 
@@ -195,14 +195,12 @@ assinatura isoladamente (SEC-3B) sem que os outros dois acompanhassem. **Próxim
 isolada:** 1 PR pequeno — extrair um helper privado único de emissão, preservando as
 assinaturas públicas atuais; teste de roundtrip por tipo.
 
-**MEDIO-006 — Approve de solicitação de célula.** `PENDENTE de confirmação de deploy`. Há uma
-correção relacionada a este finding mergeada em `origin/main` (PR#157), com teste automatizado
-cobrindo o cenário do finding. Porém esse commit **não** é ancestral do último commit de
-backend com deploy registrado em doc (`docs/sprints/2026-07-11-deploy-m7b-sec-prod.md` e
-`2026-07-11-m7b-w1-3-w1-4-fechamento.md`) — nenhum doc de deploy posterior cobre esse commit,
-então não há confirmação versionada de que a correção já está ativa em produção. **Próxima
-missão isolada — não é código, é operacional:** deploy de backend a partir do `origin/main`
-atual (mesmo processo dos handoffs de 2026-07-09/11) + smoke do fluxo de aprovação de célula.
+**MEDIO-006 — Approve de solicitação de célula.** `CONCLUÍDO + deployado`. Há uma correção
+relacionada a este finding mergeada em `origin/main` (PR#157, commit de merge `40f705a`), com
+teste automatizado cobrindo o cenário do finding. Confirmado por revisão adicional (2026-07-16):
+`40f705a` é ancestral de `82e1c6f` (verificado por mim via `git merge-base`), e `82e1c6f` é o
+commit publicado no backend de produção (confirmado pelo responsável). Sem pendência de código
+ou de deploy para este item.
 
 ---
 
@@ -228,9 +226,9 @@ Cada SEC é **um PR separado** (ou sub-PR pequeno). A ordem prioriza: contençã
 - **O que foi feito:** `password_changed_at` em `app_users` + rejeição de token pré-evento em `get_current_user`/`get_platform_admin`; `password_reset_tokens` com `jti` único + `SELECT FOR UPDATE` antes do Clerk. Ver evidência em §2.4 (MEDIO-002/003).
 - **Nota histórica:** o resequenciamento opcional (ALTO-004/MEDIO-005 antes do SEC-3, para encolher o diff) **não** foi seguido — SEC-3 foi implementado com os 3 métodos de verify/mint de `clerk.py` ainda duplicados. Não é mais acionável (SEC-3 já em produção); ALTO-004/MEDIO-005 seguem pendentes só como dedup, sem urgência de sequenciamento.
 
-### SEC-4 — Idempotência / locks / TOCTOU · **ALTO-005 concluído+deployado; MEDIO-006 pendente de confirmação de deploy**
-- **Findings:** ALTO-005 (SLA: log de dedupe antes do envio) — **concluído, PR#144, deployado 2026-07-11**; MEDIO-006 (approve de solicitação de célula) — **correção mergeada (PR#157), deploy não confirmado** (ver §2.4); BAIXO-004 (`confirm_event` com lock + unicidade) e BAIXO-005 (`notify_autoupgrade` idempotente) — **não revisados nesta reconciliação** (fora do escopo ALTO/MÉDIO da missão SEC-PLAN-RECON-1).
-- **Pendente real:** deploy de backend cobrindo o commit de MEDIO-006 + smoke do fluxo de aprovação de célula. Revisar BAIXO-004/005 fica para uma missão futura dedicada a BAIXO.
+### SEC-4 — Idempotência / locks / TOCTOU · **ALTO-005 e MEDIO-006 concluídos+deployados**
+- **Findings:** ALTO-005 (SLA: log de dedupe antes do envio) — **concluído, PR#144, deployado**; MEDIO-006 (approve de solicitação de célula) — **concluído, PR#157, deployado** (ver §2.4); BAIXO-004 (`confirm_event` com lock + unicidade) e BAIXO-005 (`notify_autoupgrade` idempotente) — **não revisados nesta reconciliação** (fora do escopo ALTO/MÉDIO da missão SEC-PLAN-RECON-1).
+- **Pendente real:** nenhum item ALTO/MÉDIO deste bucket em aberto. Revisar BAIXO-004/005 fica para uma missão futura dedicada a BAIXO.
 
 ### SEC-5 — `FORCE ROW LEVEL SECURITY` · **somente depois do C1 validado**
 - **Findings:** BAIXO-002.
@@ -305,12 +303,11 @@ Todo PR de remediação (SEC-1 em diante) deve passar, **antes do merge**:
 
 ## 8. Próximo passo recomendado
 
-**Atualizado em 2026-07-16 (reconciliação SEC-PLAN-RECON-1) — o `iniciar SEC-1` original já foi executado e superado.** SEC-0/1/2/3 estão concluídos e deployados; ALTO-005 concluído e deployado; MEDIO-006 pendente só de confirmação de deploy. O backlog real de segurança ALTO/MÉDIO que resta é:
+**Atualizado em 2026-07-16 (reconciliação SEC-PLAN-RECON-1) — o `iniciar SEC-1` original já foi executado e superado.** SEC-0/1/2/3/4 estão concluídos e deployados (incluindo ALTO-005 e MEDIO-006). O backlog real de segurança ALTO/MÉDIO que resta é:
 
-1. **Deploy de backend** cobrindo o commit de MEDIO-006 (PR#157) + smoke do fluxo de aprovação de célula — item operacional, não requer novo PR de código.
-2. **MEDIO-004 (prioridade dentro do SEC-7a):** PR pequeno e isolado adicionando filtro explícito de `igreja_id` nas 2 queries de dedupe por telefone em `backend/app/routers/contacts.py` (`create_contact`/`update_contact`) — único item ALTO/MÉDIO remanescente com risco de segurança concreto (não apenas dívida). Sem migration.
-3. **SEC-7a restante (dedup, sem urgência de segurança ativa, mas recomendado cedo por risco de drift):** ALTO-003 (`CENTRAL_ROLES` única fonte), ALTO-004 (helper único de verify JWT), MEDIO-005 (helper único de mint JWT) — 3 PRs pequenos e isolados, cada um com teste de paridade/roundtrip.
-4. BAIXO-001..010 não foram revisados nesta reconciliação (fora do escopo da missão SEC-PLAN-RECON-1) — permanecem como registrados em §2.3/§3, precisam de revalidação própria antes de qualquer PR.
+1. **MEDIO-004 (prioridade dentro do SEC-7a):** PR pequeno e isolado adicionando filtro explícito de `igreja_id` nas 2 queries de dedupe por telefone em `backend/app/routers/contacts.py` (`create_contact`/`update_contact`) — único item ALTO/MÉDIO remanescente com risco de segurança concreto (não apenas dívida). Sem migration.
+2. **SEC-7a restante (dedup, sem urgência de segurança ativa, mas recomendado cedo por risco de drift):** ALTO-003 (`CENTRAL_ROLES` única fonte), ALTO-004 (helper único de verify JWT), MEDIO-005 (helper único de mint JWT) — 3 PRs pequenos e isolados, cada um com teste de paridade/roundtrip.
+3. BAIXO-001..010 não foram revisados nesta reconciliação (fora do escopo da missão SEC-PLAN-RECON-1) — permanecem como registrados em §2.3/§3, precisam de revalidação própria antes de qualquer PR.
 
 ---
 
@@ -328,7 +325,7 @@ Todo PR de remediação (SEC-1 em diante) deve passar, **antes do merge**:
 | MEDIO-003 | MÉDIO | SEC-3 | CONCLUÍDO + deployado | PR#135 |
 | MEDIO-004 | MÉDIO | SEC-7a | PARCIAL — priorizar | PR pequeno (filtro `igreja_id` em `contacts.py`) a abrir |
 | MEDIO-005 | MÉDIO | SEC-7a | PENDENTE | PR pequeno (dedup) a abrir |
-| MEDIO-006 | MÉDIO | SEC-4 | **PENDENTE de confirmação de deploy** | PR#157 |
+| MEDIO-006 | MÉDIO | SEC-4 | CONCLUÍDO + deployado | PR#157 |
 | BAIXO-001 | BAIXO | SEC-1 | não revisado nesta rodada | PR SEC-1 |
 | BAIXO-002 | BAIXO | SEC-5 | não revisado nesta rodada | PR SEC-5 (dep. C1) |
 | BAIXO-003 | BAIXO | SEC-7a | não revisado nesta rodada | PR pequeno (dedup) |
