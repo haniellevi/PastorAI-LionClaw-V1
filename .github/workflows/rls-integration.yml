@@ -70,7 +70,7 @@ jobs:
           print("guard OK: alvo descartavel")
           PY
 
-      - name: Rodar suite rls_integration (T1-T6 + TOCTOU SEC-4B confirm + approve + transitions + create + W3 arquivamento + W3.2A preflight/archive)
+      - name: Rodar suite rls_integration (T1-T6 + TOCTOU SEC-4B confirm + approve + transitions + create + W3 arquivamento + W3.2A preflight/archive + MSG-IDEMP-1)
         run: |
           pytest -m rls_integration -o addopts= -rA \
             --junitxml=rls-results.xml \
@@ -80,7 +80,8 @@ jobs:
             tests/test_cell_requests_transitions_concurrency.py \
             tests/test_cell_requests_create_concurrency.py \
             tests/test_pessoa_arquivamento_migration.py \
-            tests/test_pessoa_offboarding_service.py
+            tests/test_pessoa_offboarding_service.py \
+            tests/test_messages_inbound_idempotency.py
 
       - name: Rodar test_pessoa_offboarding_router.py (offline, FakeSession — sem marker/Postgres)
         # Sem `-m rls_integration`: os testes deste arquivo não usam Postgres
