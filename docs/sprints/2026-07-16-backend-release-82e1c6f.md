@@ -28,6 +28,15 @@ confirmado via `git merge-base --is-ancestor`):
 - Nenhuma exposição de segredo identificada neste release (sem credencial,
   token ou chave em diff, log ou documento).
 
+## Nota de escopo da verificação
+
+Este registro comprova que o commit `82e1c6f` foi publicado em produção. As
+checagens de runtime acima cobrem especificamente **MSG-IDEMP-1, PIPE-1,
+CONSOL-1 e SLA-ALIGN-1** — não constitui verificação runtime separada para
+nenhuma outra correção de código que também esteja contida neste mesmo commit.
+Para qualquer outra correção, "contida no commit `82e1c6f`" e "verificada em
+runtime por este registro" são afirmações distintas.
+
 ## Pendente / próximo passo
 
 Nenhum item de código pendente vinculado a este release.

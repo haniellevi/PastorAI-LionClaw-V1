@@ -111,7 +111,7 @@ cair) é chamado nos 5 endpoints do finding em `backend/app/routers/auth.py` (`l
 `/admin/login` (PR#148). `backend/app/main.py` registra handler de `RateLimitExceeded` → 429 +
 `Retry-After`. Testes: `backend/tests/test_rate_limit.py` (unitário + HTTP 429 real em
 login/forgot-password/admin-login). Deploy: `docker compose up -d --build --no-deps backend`
-em `docs/sprints/DEPLOY-HANDOFF-2026-07-09.md` (commit `a7a04c8`, ancestral de `f9c8629`/PR#131)
+em `docs/sprints/DEPLOY-HANDOFF-2026-07-09.md` (commit `a7a04c8`, que contém `f9c8629`/PR#131)
 e reforço do admin em `docs/sprints/2026-07-11-deploy-m7b-sec-prod.md` (commit `8cbf78f`).
 Gap não-bloqueante: reset-password/activate/change-password não têm teste HTTP de 429 literal
 (só o rate limiter compartilhado é testado exaustivamente) — cobertura de teste, não brecha.
@@ -164,8 +164,8 @@ _mark_password_changed` grava o carimbo em `reset_password` e `change_password`.
 `test_session_password_invalidation.py`, 12/12 passando, incluindo caso end-to-end via
 `TestClient` em `/auth/me`. Corrigido no commit `2537068` (PR#133). **Deploy confirmado por
 query read-only em PROD** (não por relato): `docs/sprints/DEPLOY-HANDOFF-2026-07-09.md` seção
-"1/4" — coluna `password_changed_at` confirmada existente em `app_users` no Supabase de
-produção (`pffafnchtxbimpwyaczq`).
+"1/4" — coluna `password_changed_at` confirmada existente em `app_users` no projeto Supabase
+de produção.
 
 **MEDIO-003 — Reset token reutilizável.** `CONCLUÍDO`. Tabela `password_reset_tokens`
 (`jti` único, `used_at` nullable) + `reset_password` (`backend/app/routers/auth.py:328-352`)
@@ -198,10 +198,14 @@ assinaturas públicas atuais; teste de roundtrip por tipo.
 **MEDIO-006 — Approve de solicitação de célula.** `CONCLUÍDO + deployado`. Há uma correção
 relacionada a este finding mergeada em `origin/main` (PR#157, commit de merge `40f705a`), com
 teste automatizado cobrindo o cenário do finding. `40f705a` é ancestral de `82e1c6f` (verificado
-via `git merge-base`). Evidência versionada de deploy:
-`docs/sprints/2026-07-16-backend-release-82e1c6f.md` registra o release de backend no commit
-`82e1c6f` em produção, health check 200 e verificação de runtime da correção — não apenas
-merge isolado. Sem pendência de código ou de deploy para este item.
+via `git merge-base`) — a correção está contida no código desse commit. Evidência versionada de
+deploy: `docs/sprints/2026-07-16-backend-release-82e1c6f.md` registra que `82e1c6f` foi
+publicado em produção (não apenas mergeado em `origin/main`). **Ressalva de precisão:** o
+registro de deploy documenta checagem de runtime específica só para MSG-IDEMP-1, PIPE-1,
+CONSOL-1 e SLA-ALIGN-1 — não para este finding. A classificação de MEDIO-006 como deployado se
+apoia em (a) o código da correção estar contido no commit publicado e (b) esse commit ter
+registro versionado de deploy; ancestralidade Git isolada, sem esse registro, não seria prova
+suficiente de deploy. Sem pendência de código para este item.
 
 ---
 
@@ -276,7 +280,7 @@ Todo PR de remediação (SEC-1 em diante) deve passar, **antes do merge**:
 4. **`git diff --check`** — sem whitespace/conflito residual.
 5. **Secret scan** — nenhum segredo/credencial no diff (grep por `--password`, chaves, tokens, e-mails reais).
 6. **Smoke local** — exercitar o fluxo afetado no runtime real (login, CORS preflight, envio idempotente, etc.), não só testes.
-7. **DEV antes de PROD quando houver migration** (SEC-3, SEC-5) — aplicar e validar no Supabase DEV `cxmjojnocigekgcxhubi` antes do PROD `pffafnchtxbimpwyaczq`.
+7. **DEV antes de PROD quando houver migration** (SEC-3, SEC-5) — aplicar e validar no projeto Supabase DEV antes do projeto Supabase PROD.
 8. **Rollback documentado** para itens que alteram **auth ou RLS** (SEC-1 fail-fast, SEC-2, SEC-3, SEC-5): passo de reversão explícito no PR (migration reversa / flag / revert), testado ou descrito.
 
 ---
