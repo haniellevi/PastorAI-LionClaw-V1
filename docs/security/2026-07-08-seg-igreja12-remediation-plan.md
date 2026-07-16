@@ -93,13 +93,12 @@ da missão).
 `.claude/settings.local.json` usa regra curinga `Bash(CLERK_MODE=agent clerk users create *)`
 sem `--password`, sem e-mail em claro; `git ls-files` confirma que o arquivo nunca foi
 rastreado. **Correção de precisão ao plano original:** a proteção **não** vem do `.gitignore`
-versionado do repositório (ele não contém nenhum padrão para `.claude/`) — vem do
-`core.excludesfile` **global** do dono (`~/.config/git/ignore`, entrada
-`**/.claude/settings.local.json`) e do `.git/info/exclude` **local, não versionado**
-(entrada `**/.claude/worktrees/`). Isso funciona nesta máquina, mas não protege
-automaticamente um clone novo ou outra máquina do time sem a mesma config global — risco
-residual pequeno, mitigável adicionando esses dois padrões ao `.gitignore` do repo (1 linha,
-sem efeito funcional). **Rotação da senha:** `docs/sprints/DEPLOY-HANDOFF-2026-07-09.md`
+versionado do repositório (ele não contém nenhum padrão para `.claude/`) — vem de configuração
+git **global do dono** e de uma configuração de exclusão **local deste clone, não versionada**.
+Isso funciona nesta máquina, mas não protege automaticamente um clone novo ou outra máquina do
+time sem a mesma configuração — risco residual pequeno, mitigável adicionando os padrões
+equivalentes ao `.gitignore` do repo (poucas linhas, sem efeito funcional). **Rotação da
+senha:** `docs/sprints/DEPLOY-HANDOFF-2026-07-09.md`
 (seção "SEC-0 — CONCLUÍDO") registra a rotação como feita pelo responsável em 2026-07-09 —
 ação humana fora do Clerk, não verificável por código nesta missão, mas é evidência
 versionada (não memória de chat) de que o único item aberto do SEC-0 foi fechado.
@@ -110,9 +109,10 @@ cair) é chamado nos 5 endpoints do finding em `backend/app/routers/auth.py` (`l
 `forgot_password`, `reset_password`, `activate`, `change_password`) e depois estendido ao
 `/admin/login` (PR#148). `backend/app/main.py` registra handler de `RateLimitExceeded` → 429 +
 `Retry-After`. Testes: `backend/tests/test_rate_limit.py` (unitário + HTTP 429 real em
-login/forgot-password/admin-login). Deploy: `docker compose up -d --build --no-deps backend`
-em `docs/sprints/DEPLOY-HANDOFF-2026-07-09.md` (commit `a7a04c8`, que contém `f9c8629`/PR#131)
-e reforço do admin em `docs/sprints/2026-07-11-deploy-m7b-sec-prod.md` (commit `8cbf78f`).
+login/forgot-password/admin-login). Deploy do backend concluído conforme registro versionado
+de release em `docs/sprints/DEPLOY-HANDOFF-2026-07-09.md` (commit `a7a04c8`, que contém
+`f9c8629`/PR#131) e reforço do admin em `docs/sprints/2026-07-11-deploy-m7b-sec-prod.md`
+(commit `8cbf78f`).
 Gap não-bloqueante: reset-password/activate/change-password não têm teste HTTP de 429 literal
 (só o rate limiter compartilhado é testado exaustivamente) — cobertura de teste, não brecha.
 
@@ -215,7 +215,7 @@ Cada SEC é **um PR separado** (ou sub-PR pequeno). A ordem prioriza: contençã
 
 ### SEC-0 — Secrets / contenção · **CONCLUÍDO (Missão 7A + rotação 2026-07-09)**
 - **Findings:** ALTO-001.
-- **O que já foi feito:** arquivos atuais sem `--password`; IDs locais redigidos; confirmado não-rastreado/não-remoto (proteção real via git config global do dono + `.git/info/exclude` local — **não** via `.gitignore` versionado, ver §2.4). Rotação da senha no Clerk confirmada em `docs/sprints/DEPLOY-HANDOFF-2026-07-09.md`.
+- **O que já foi feito:** arquivos atuais sem `--password`; IDs locais redigidos; confirmado não-rastreado/não-remoto (proteção real via configuração git local/global do dono — **não** via `.gitignore` versionado, ver §2.4). Rotação da senha no Clerk confirmada em `docs/sprints/DEPLOY-HANDOFF-2026-07-09.md`.
 - **Pendente:** nenhum item de código ou operacional. Sugestão de baixo custo (não bloqueante): versionar os 2 padrões de `.claude/` no `.gitignore` do repo, para não depender de config local/global de cada máquina.
 
 ### SEC-1 — Config segura (fundação) · **CONCLUÍDO — PR#129, deployado em PROD 2026-07-09**
@@ -346,5 +346,5 @@ Todo PR de remediação (SEC-1 em diante) deve passar, **antes do merge**:
 
 - **Snapshot do pipeline (2026-07-07 18:04):** `settings.local.json` (raiz + 4 worktrees), linhas `:42`/`:50`, continham regra de permissão com e-mail real, nome completo e **duas senhas** em texto claro. Repositório sob OneDrive amplia a exposição. Severidade ALTO.
 - **Missão 7A (2026-07-08):** os arquivos **atuais** já estavam com regra curinga (`clerk users create *`), **sem `--password`**. Restavam apenas IDs de usuário Clerk locais, que foram **redigidos** para placeholder. Confirmado: **nenhum arquivo rastreado pelo git, nunca enviado ao remoto**.
-- **Correção de precisão (reconciliação 2026-07-16):** a afirmação original "`.gitignore` cobre os padrões" está **errada** — o `.gitignore` versionado do repositório não contém nenhuma entrada para `.claude/`. A proteção real vem do `core.excludesfile` **global** do dono (`~/.config/git/ignore`) e do `.git/info/exclude` **local, não versionado**. Funciona nesta máquina, mas não protegeria automaticamente um clone novo sem a mesma config — ver §2.4 para o detalhe e a sugestão de mitigação (1 linha no `.gitignore` do repo).
+- **Correção de precisão (reconciliação 2026-07-16):** a afirmação original "`.gitignore` cobre os padrões" está **errada** — o `.gitignore` versionado do repositório não contém nenhuma entrada para `.claude/`. A proteção real vem de configuração git **global do dono** e de uma configuração de exclusão **local deste clone, não versionada**. Funciona nesta máquina, mas não protegeria automaticamente um clone novo sem a mesma configuração — ver §2.4 para o detalhe e a sugestão de mitigação (poucas linhas no `.gitignore` do repo).
 - **Conclusão (revalidada em 2026-07-16):** sem credencial ativa versionada no estado atual (reconfirmado no código agora, não só em 2026-07-08). A parte de código/higiene do finding está contida. **A rotação da senha no Clerk — antes pendente — foi confirmada concluída em 2026-07-09** (`docs/sprints/DEPLOY-HANDOFF-2026-07-09.md`, seção "SEC-0"). ALTO-001/SEC-0 está **integralmente concluído**, sem pendência aberta.
