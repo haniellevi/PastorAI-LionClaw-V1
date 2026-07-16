@@ -3,7 +3,7 @@
 Responsibilities:
 
 1. Scan the tenant's timed items for SLA breaches:
-   - work_queue_items of a timed tipo (relatorio 2h, conectar_celula 12h,
+   - work_queue_items of a timed tipo (relatorio 2h, conectar_celula 24h,
      fonovisita 24h) that are still open.
    - consolidacoes with an open 24h connection deadline (prazo_conexao).
 2. For a blown deadline, charge the responsible leader by WhatsApp (Evolution).

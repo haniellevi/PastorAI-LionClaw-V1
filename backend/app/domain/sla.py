@@ -8,7 +8,7 @@ its deadline is approaching/blown and which action to take:
   - `escalonamento` — the leader did not respond within the escalation grace:
                       escalate to coordination (US — líder sem resposta).
 
-Deadlines (SPEC): cell report 2h, connection 12h, fonovisita 24h. Each policy
+Deadlines (SPEC): cell report 2h, connection 24h, fonovisita 24h. Each policy
 also carries an escalation grace counted *after* the deadline. The service layer
 (`services/sla_engine.py`) reads prazos from work_queue/consolidacao and applies
 these rules; keeping the math here makes it deterministic and unit-testable.
@@ -57,7 +57,7 @@ class SlaPolicy:
 # time to act before coordination is pulled in.
 SLA_POLICIES: dict[str, SlaPolicy] = {
     SLA_REPORT: SlaPolicy(SLA_REPORT, deadline_hours=2, escalate_after_hours=2),
-    SLA_CONNECTION: SlaPolicy(SLA_CONNECTION, deadline_hours=12, escalate_after_hours=12),
+    SLA_CONNECTION: SlaPolicy(SLA_CONNECTION, deadline_hours=24, escalate_after_hours=12),
     SLA_FONOVISITA: SlaPolicy(SLA_FONOVISITA, deadline_hours=24, escalate_after_hours=24),
 }
 
