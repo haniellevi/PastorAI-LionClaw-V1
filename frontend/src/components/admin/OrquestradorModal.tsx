@@ -5,9 +5,16 @@
  * ("começa igual a todas as igrejas"); ao aprovar uma igreja, esse modelo é
  * copiado para o agente dela. Aqui o master só edita o modelo; o ajuste por
  * igreja é na página da igreja (aba Agente). Não toca no runtime do agente.
+ *
+ * Wave Visual W4B: migração para o DsDialog (Esc/trap/backdrop/scroll-lock/
+ * retorno de foco do primitive; fechar bloqueado em busy) — mesmos campos,
+ * callbacks e textos. Enquanto os dados não carregam, o corpo mostra o spinner
+ * e o rodapé de ações só aparece depois. O rodapé fica fora do <form>, então o
+ * botão primário usa form="orquestrador-form" para preservar o submit por Enter.
  */
 import { useCallback, useEffect, useState } from "react";
 
+import { Dialog as DsDialog } from "@/components/ds/Dialog";
 import { Button } from "@/components/ui/Button";
 import {
   AdminSessionExpiredError,
@@ -88,106 +95,102 @@ export function OrquestradorModal({ token, onClose, onExpired }: OrquestradorMod
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div
-        className="modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Orquestrador padrão"
-        onClick={(e) => e.stopPropagation()}
-        style={{ maxWidth: 620 }}
-      >
-        <div className="modal-head">
-          <strong>Orquestrador padrão</strong>
-          <button type="button" className="btn btn-sm btn-ghost" onClick={onClose}>
-            Fechar
-          </button>
-        </div>
-
-        <form
-          className="modal-form"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void save();
-          }}
-        >
-          <p className="sub" style={{ color: "var(--muted)", marginBottom: "var(--s2)" }}>
-            Este é o modelo base do agente. Toda igreja aprovada começa com ele;
-            depois você pode ajustar por igreja na aba <strong>Agente</strong> da
-            página dela.
-          </p>
-
-          {error ? (
-            <div className="error-banner" role="alert">
-              <span>{error}</span>
-            </div>
-          ) : null}
-          {notice ? (
-            <div
-              className="error-banner"
-              role="status"
-              style={{ background: "var(--accent-soft)", color: "var(--accent)" }}
+    <DsDialog
+      open
+      onClose={() => {
+        if (!busy) onClose();
+      }}
+      title="Orquestrador"
+      footer={
+        loaded ? (
+          <>
+            <button type="button" className="btn btn-sm" onClick={onClose} disabled={busy}>
+              Fechar
+            </button>
+            <Button
+              type="submit"
+              form="orquestrador-form"
+              variant="primary"
+              size="sm"
+              loading={busy}
+              loadingText="Salvando…"
             >
-              <span>{notice}</span>
-            </div>
-          ) : null}
+              Salvar modelo
+            </Button>
+          </>
+        ) : undefined
+      }
+    >
+      <form
+        id="orquestrador-form"
+        className="modal-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void save();
+        }}
+      >
+        <p className="sub" style={{ color: "var(--muted)", marginBottom: "var(--s2)" }}>
+          Este é o modelo base do agente. Toda igreja aprovada começa com ele;
+          depois você pode ajustar por igreja na aba <strong>Agente</strong> da
+          página dela.
+        </p>
 
-          {!loaded ? (
-            <div style={{ padding: "var(--s5)", textAlign: "center", color: "var(--muted)" }}>
-              <span className="spinner" aria-hidden="true" />
-              <div className="sub" style={{ marginTop: "var(--s2)" }}>
-                Carregando…
-              </div>
-            </div>
-          ) : (
-            <>
-              <div className="field">
-                <label htmlFor="orq-nome">Nome do agente</label>
-                <input
-                  id="orq-nome"
-                  value={nome}
-                  onChange={(e) => setNome(e.target.value)}
-                  placeholder="Ex.: Assistente da Igreja"
-                />
-              </div>
-              <div className="field">
-                <label htmlFor="orq-tom">Tom de voz</label>
-                <input
-                  id="orq-tom"
-                  value={tom}
-                  onChange={(e) => setTom(e.target.value)}
-                  placeholder="Ex.: acolhedor e pastoral"
-                />
-              </div>
-              <div className="field">
-                <label htmlFor="orq-comp">Comportamento e instruções</label>
-                <textarea
-                  id="orq-comp"
-                  rows={9}
-                  value={comportamento}
-                  onChange={(e) => setComportamento(e.target.value)}
-                  placeholder="Como o agente deve se comunicar, o que pode e não pode fazer…"
-                />
-              </div>
+        {error ? (
+          <div className="error-banner" role="alert">
+            <span>{error}</span>
+          </div>
+        ) : null}
+        {notice ? (
+          <div
+            className="error-banner"
+            role="status"
+            style={{ background: "var(--accent-soft)", color: "var(--accent)" }}
+          >
+            <span>{notice}</span>
+          </div>
+        ) : null}
 
-              <div className="modal-foot">
-                <button type="button" className="btn btn-sm" onClick={onClose} disabled={busy}>
-                  Fechar
-                </button>
-                <Button
-                  type="submit"
-                  variant="primary"
-                  size="sm"
-                  loading={busy}
-                  loadingText="Salvando…"
-                >
-                  Salvar modelo
-                </Button>
-              </div>
-            </>
-          )}
-        </form>
-      </div>
-    </div>
+        {!loaded ? (
+          <div style={{ padding: "var(--s5)", textAlign: "center", color: "var(--muted)" }}>
+            <span className="spinner" aria-hidden="true" />
+            <div className="sub" style={{ marginTop: "var(--s2)" }}>
+              Carregando…
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="field">
+              <label htmlFor="orq-nome">Nome do agente</label>
+              <input
+                id="orq-nome"
+                value={nome}
+                onChange={(e) => setNome(e.target.value)}
+                placeholder="Ex.: Assistente da Igreja"
+                data-autofocus=""
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="orq-tom">Tom de voz</label>
+              <input
+                id="orq-tom"
+                value={tom}
+                onChange={(e) => setTom(e.target.value)}
+                placeholder="Ex.: acolhedor e pastoral"
+              />
+            </div>
+            <div className="field">
+              <label htmlFor="orq-comp">Comportamento e instruções</label>
+              <textarea
+                id="orq-comp"
+                rows={9}
+                value={comportamento}
+                onChange={(e) => setComportamento(e.target.value)}
+                placeholder="Como o agente deve se comunicar, o que pode e não pode fazer…"
+              />
+            </div>
+          </>
+        )}
+      </form>
+    </DsDialog>
   );
 }

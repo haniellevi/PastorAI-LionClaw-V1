@@ -5,9 +5,16 @@
  * ou mover de plano. Envia só os campos alterados. Observação: o backend não
  * aceita "limpar" o plano (apenas trocar por um plano válido), então selecionar
  * "Sem plano definido" quando já há plano não tem efeito.
+ *
+ * Wave Visual W4B: migração para o DsDialog (Esc/trap/backdrop/scroll-lock/
+ * retorno de foco do primitive; fechar bloqueado em busy) — mesmos campos,
+ * callbacks e textos. A zona destrutiva (aviso + window.confirm + onDelete)
+ * segue no corpo; o rodapé fica fora do <form>, então o botão primário usa
+ * form="edit-igreja-form" para preservar o submit por Enter.
  */
 import { useState } from "react";
 
+import { Dialog as DsDialog } from "@/components/ds/Dialog";
 import { Button } from "@/components/ui/Button";
 import type { AdminIgreja, UpdateIgrejaInput } from "@/lib/admin-api";
 import type { PlanoOption } from "./CreateIgrejaModal";
@@ -71,115 +78,110 @@ export function EditIgrejaModal({
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div
-        className="modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Editar igreja"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="modal-head">
-          <strong>{igreja.nome}</strong>
-          <button type="button" className="btn btn-sm btn-ghost" onClick={onClose}>
-            Fechar
+    <DsDialog
+      open
+      onClose={() => {
+        if (!busy) onClose();
+      }}
+      title={igreja.nome}
+      footer={
+        <>
+          <button type="button" className="btn btn-sm" onClick={onClose} disabled={busy}>
+            Cancelar
           </button>
+          <Button
+            type="submit"
+            form="edit-igreja-form"
+            variant="primary"
+            size="sm"
+            loading={busy}
+            loadingText="Salvando…"
+          >
+            Salvar alterações
+          </Button>
+        </>
+      }
+    >
+      <form
+        id="edit-igreja-form"
+        className="modal-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          submit();
+        }}
+      >
+        {error ? (
+          <div className="error-banner" role="alert">
+            <span>{error}</span>
+          </div>
+        ) : null}
+
+        <div className="field">
+          <label htmlFor="ei-nome">Nome da igreja</label>
+          <input
+            id="ei-nome"
+            value={nome}
+            onChange={(e) => setNome(e.target.value)}
+            placeholder="Nome da igreja"
+            data-autofocus=""
+          />
         </div>
 
-        <form
-          className="modal-form"
-          onSubmit={(e) => {
-            e.preventDefault();
-            submit();
+        <div className="field">
+          <label htmlFor="ei-status">Status</label>
+          <select id="ei-status" value={status} onChange={(e) => setStatus(e.target.value)}>
+            {STATUSES.map((s) => (
+              <option key={s.value} value={s.value}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="field">
+          <label htmlFor="ei-plano">Plano</label>
+          <select id="ei-plano" value={plano} onChange={(e) => setPlano(e.target.value)}>
+            <option value="">Sem plano definido</option>
+            {planOptions.map((p) => (
+              <option key={p.codigo} value={p.codigo}>
+                {p.nome}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div
+          style={{
+            borderTop: "1px solid var(--border)",
+            marginTop: "var(--s3)",
+            paddingTop: "var(--s3)",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: "var(--s2)",
           }}
         >
-          {error ? (
-            <div className="error-banner" role="alert">
-              <span>{error}</span>
-            </div>
-          ) : null}
-
-          <div className="field">
-            <label htmlFor="ei-nome">Nome da igreja</label>
-            <input
-              id="ei-nome"
-              value={nome}
-              onChange={(e) => setNome(e.target.value)}
-              placeholder="Nome da igreja"
-            />
-          </div>
-
-          <div className="field">
-            <label htmlFor="ei-status">Status</label>
-            <select id="ei-status" value={status} onChange={(e) => setStatus(e.target.value)}>
-              {STATUSES.map((s) => (
-                <option key={s.value} value={s.value}>
-                  {s.label}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="field">
-            <label htmlFor="ei-plano">Plano</label>
-            <select id="ei-plano" value={plano} onChange={(e) => setPlano(e.target.value)}>
-              <option value="">Sem plano definido</option>
-              {planOptions.map((p) => (
-                <option key={p.codigo} value={p.codigo}>
-                  {p.nome}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="modal-foot">
-            <button type="button" className="btn btn-sm" onClick={onClose} disabled={busy}>
-              Cancelar
-            </button>
-            <Button
-              type="submit"
-              variant="primary"
-              size="sm"
-              loading={busy}
-              loadingText="Salvando…"
-            >
-              Salvar alterações
-            </Button>
-          </div>
-
-          <div
-            style={{
-              borderTop: "1px solid var(--border)",
-              marginTop: "var(--s3)",
-              paddingTop: "var(--s3)",
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              gap: "var(--s2)",
+          <span className="sub" style={{ color: "var(--muted)" }}>
+            Excluir apaga a igreja e todos os seus dados.
+          </span>
+          <button
+            type="button"
+            className="btn btn-sm btn-danger"
+            disabled={busy}
+            onClick={() => {
+              if (
+                window.confirm(
+                  `Excluir a igreja "${igreja.nome}" e TODOS os seus dados? Esta ação é irreversível.`,
+                )
+              ) {
+                onDelete();
+              }
             }}
           >
-            <span className="sub" style={{ color: "var(--muted)" }}>
-              Excluir apaga a igreja e todos os seus dados.
-            </span>
-            <button
-              type="button"
-              className="btn btn-sm btn-danger"
-              disabled={busy}
-              onClick={() => {
-                if (
-                  window.confirm(
-                    `Excluir a igreja "${igreja.nome}" e TODOS os seus dados? Esta ação é irreversível.`,
-                  )
-                ) {
-                  onDelete();
-                }
-              }}
-            >
-              Excluir igreja
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+            Excluir igreja
+          </button>
+        </div>
+      </form>
+    </DsDialog>
   );
 }
