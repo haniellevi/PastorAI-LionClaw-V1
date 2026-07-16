@@ -181,6 +181,38 @@ describe("EditIgrejaModal — W4B (DsDialog)", () => {
     expect(document.activeElement).toBe(opener);
   });
 
+  it("Esc fecha (onClose) quando não está em envio", () => {
+    const onClose = vi.fn();
+    render({ onClose });
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("busy bloqueia fechar por ESC e por backdrop", () => {
+    const onClose = vi.fn();
+    render({ busy: true, onClose });
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    const overlay = container.querySelector<HTMLElement>(".ds-overlay")!;
+    act(() => {
+      overlay.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    });
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("rodapé: primário type=submit ligado ao form via form=", () => {
+    render();
+    const primary = findButton("Salvar alterações")!;
+    expect(primary.getAttribute("type")).toBe("submit");
+    expect(primary.getAttribute("form")).toBe("edit-igreja-form");
+    expect(container.querySelector("form")!.id).toBe("edit-igreja-form");
+    expect(primary.closest("form")).toBeNull();
+    expect(primary.closest(".ds-dialog-foot")).not.toBeNull();
+  });
+
   it("Excluir: só chama onDelete se o window.confirm for aceito", () => {
     const onDelete = vi.fn();
     const confirmSpy = vi.fn(() => false);

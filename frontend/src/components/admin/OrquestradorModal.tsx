@@ -12,7 +12,7 @@
  * e o rodapé de ações só aparece depois. O rodapé fica fora do <form>, então o
  * botão primário usa form="orquestrador-form" para preservar o submit por Enter.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Dialog as DsDialog } from "@/components/ds/Dialog";
 import { Button } from "@/components/ui/Button";
@@ -36,6 +36,15 @@ export function OrquestradorModal({ token, onClose, onExpired }: OrquestradorMod
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const nomeRef = useRef<HTMLInputElement>(null);
+
+  // Foco inicial correto: o Dialog monta em loading, então o efeito de foco do
+  // primitive roda antes de o campo "Nome do agente" existir (cai no botão
+  // Fechar). Quando os dados chegam, movemos o foco para o campo — solução
+  // local ao modal, sem nova API no ds/Dialog.
+  useEffect(() => {
+    if (loaded) nomeRef.current?.focus();
+  }, [loaded]);
 
   const handleErr = useCallback(
     (err: unknown, fallback: string): string | null => {
@@ -100,7 +109,7 @@ export function OrquestradorModal({ token, onClose, onExpired }: OrquestradorMod
       onClose={() => {
         if (!busy) onClose();
       }}
-      title="Orquestrador"
+      title="Orquestrador padrão"
       footer={
         loaded ? (
           <>
@@ -162,11 +171,11 @@ export function OrquestradorModal({ token, onClose, onExpired }: OrquestradorMod
             <div className="field">
               <label htmlFor="orq-nome">Nome do agente</label>
               <input
+                ref={nomeRef}
                 id="orq-nome"
                 value={nome}
                 onChange={(e) => setNome(e.target.value)}
                 placeholder="Ex.: Assistente da Igreja"
-                data-autofocus=""
               />
             </div>
             <div className="field">

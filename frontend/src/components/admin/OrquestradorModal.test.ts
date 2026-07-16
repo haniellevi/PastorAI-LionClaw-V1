@@ -114,7 +114,7 @@ describe("OrquestradorModal — W4B (DsDialog)", () => {
     expect(container.textContent).toContain("Carregando…");
     expect(container.querySelector("#orq-comp")).toBeNull();
     expect(findButton("Salvar modelo")).toBeUndefined();
-    expect(document.querySelector(".ds-dialog-title")?.textContent).toBe("Orquestrador");
+    expect(document.querySelector(".ds-dialog-title")?.textContent).toBe("Orquestrador padrão");
 
     d.resolve({ nome: "Assistente", tom: "acolhedor", comportamento: "seja gentil" });
     await flush();
@@ -186,5 +186,52 @@ describe("OrquestradorModal — W4B (DsDialog)", () => {
       document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     });
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("após carregar, o foco vai para o campo Nome do agente", async () => {
+    // Bug corrigido: o Dialog monta em loading e o efeito de foco do primitive
+    // roda antes de o campo existir (cai no botão Fechar). Ao carregar, o foco
+    // deve ir para o campo Nome do agente (efeito local ao modal).
+    fetchOrquestrador.mockResolvedValue({ nome: "Ana", tom: "", comportamento: "algo" });
+    render();
+    await flush();
+    expect(document.activeElement).toBe(document.getElementById("orq-nome"));
+  });
+
+  it("busy bloqueia fechar por ESC e por backdrop", async () => {
+    fetchOrquestrador.mockResolvedValue({ nome: "", tom: "", comportamento: "algo" });
+    const pending = deferred<void>();
+    saveOrquestrador.mockReturnValue(pending.promise);
+    const onClose = vi.fn();
+    render({ onClose });
+    await flush();
+
+    submitForm(); // dispara o save → busy=true
+    await flush();
+    expect(findButton("Salvando…")).toBeDefined();
+
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    });
+    const overlay = container.querySelector<HTMLElement>(".ds-overlay")!;
+    act(() => {
+      overlay.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    });
+    expect(onClose).not.toHaveBeenCalled();
+
+    pending.resolve();
+    await flush();
+  });
+
+  it("rodapé: primário type=submit ligado ao form via form=", async () => {
+    fetchOrquestrador.mockResolvedValue({ nome: "", tom: "", comportamento: "algo" });
+    render();
+    await flush();
+    const primary = findButton("Salvar modelo")!;
+    expect(primary.getAttribute("type")).toBe("submit");
+    expect(primary.getAttribute("form")).toBe("orquestrador-form");
+    expect(container.querySelector("form")!.id).toBe("orquestrador-form");
+    expect(primary.closest("form")).toBeNull();
+    expect(primary.closest(".ds-dialog-foot")).not.toBeNull();
   });
 });

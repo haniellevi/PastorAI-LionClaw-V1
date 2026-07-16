@@ -199,6 +199,17 @@ describe("CreateIgrejaModal — W4B (DsDialog)", () => {
     expect(primary.getAttribute("aria-busy")).toBe("true");
   });
 
+  it("busy bloqueia fechar por ESC e por backdrop", () => {
+    const onClose = vi.fn();
+    render({ busy: true, onClose });
+    pressKey("Escape");
+    const overlay = container.querySelector<HTMLElement>(".ds-overlay")!;
+    act(() => {
+      overlay.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    });
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it("erro do backend aparece no banner role=alert", () => {
     render({ error: "Plano inválido." });
     const banner = container.querySelector('.error-banner[role="alert"]')!;
