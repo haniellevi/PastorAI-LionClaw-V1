@@ -40,6 +40,17 @@ Mapa:
     test_tool_non_unique_integrity_error_is_not_mapped_to_toolerror —
     determinismo: só unique_violation (23505) é traduzido; qualquer outra
     IntegrityError sobe inalterada.
+  * test_agent_tool_preserves_pending_session_mutation_across_toolerror —
+    revisão externa da PR#179: ``registrar_decisao`` roda na Session
+    COMPARTILHADA por turno de ``app/agent/runtime.py`` (intake/consentimento/
+    optout/tools anteriores mutam a MESMA session antes dela rodar). Um
+    ``session.rollback()`` global no 23505 desfaria essas mutações também —
+    por isso o INSERT da Decision roda dentro de um SAVEPOINT
+    (``session.begin_nested()``); no unique_violation, só o SAVEPOINT é
+    desfeito (``ROLLBACK TO SAVEPOINT``), nunca a transação externa. Prova:
+    pessoa já com consolidação aberta ⇒ 2ª decisão dispara 23505⇒ToolError;
+    uma mutação de intake pendente na mesma Session sobrevive ao commit
+    externo; nenhuma 2ª Decision/consolidação é criada.
 """
 
 from __future__ import annotations
@@ -578,3 +589,68 @@ def test_tool_non_unique_integrity_error_is_not_mapped_to_toolerror(
             )
     finally:
         session.close()
+
+
+# ---------------------------------------------------------------------------
+# PR#179 (revisão externa): savepoint isola a Decision — não derruba o turno
+# ---------------------------------------------------------------------------
+def test_agent_tool_preserves_pending_session_mutation_across_toolerror(
+    engine_fx: Engine,
+) -> None:
+    """1ª decisão abre a consolidação; 2ª (mesma pessoa) dispara 23505.
+
+    Antes da 2ª chamada, muta ``pessoa.origem`` na MESMA Session SEM
+    flush/commit — espelha ``_apply_intake`` rodando antes de
+    ``_execute_tools`` em ``app/agent/runtime.py::process_inbound_message``
+    (a Session é compartilhada pelo turno inteiro, um único commit no fim).
+    Sem o SAVEPOINT, o ``session.rollback()`` global desfaria essa mutação
+    junto com a Decision recusada — o bug que a revisão externa apontou.
+    """
+    factory = _factory(engine_fx)
+    _seed_church(factory, igreja_id=_IGREJA_A, pessoa_id=_PESSOA_A, app_user_id=_APPUSER_A)
+
+    # Pré-condição (item 1 do blocker): pessoa já tem consolidação aberta.
+    session = factory()
+    try:
+        registrar_decisao(
+            session, igreja_id=_IGREJA_A, pessoa_id=_PESSOA_A, vinculo="visitante"
+        )
+        session.commit()
+    finally:
+        session.close()
+    assert _open_count(factory, _PESSOA_A) == 1
+
+    # Turno do agente: intake pendente (item 2) + 2ª decisão ⇒ ToolError (item 3).
+    session = factory()
+    try:
+        pessoa = session.get(Pessoa, _PESSOA_A)
+        pessoa.origem = "intake-pendente-mesmo-turno"
+        with pytest.raises(ToolError):
+            registrar_decisao(
+                session, igreja_id=_IGREJA_A, pessoa_id=_PESSOA_A, vinculo="visitante"
+            )
+        # O commit é do RUNTIME (dono da transação), não da tool.
+        session.commit()
+    finally:
+        session.close()
+
+    # Item 4: commit externo preserva a mutação de intake anterior.
+    session = factory()
+    try:
+        reloaded = session.get(Pessoa, _PESSOA_A)
+        assert reloaded.origem == "intake-pendente-mesmo-turno"
+    finally:
+        session.close()
+
+    # Item 5: nenhuma 2ª Decision nem 2ª Consolidacao — só a 1ª sobrevive.
+    assert _total_consolidacoes(factory, _PESSOA_A) == 1
+    assert _open_count(factory, _PESSOA_A) == 1
+    session = factory()
+    try:
+        n_decisions = session.execute(
+            text("select count(*) from decisions where pessoa_id = :p"),
+            {"p": str(_PESSOA_A)},
+        ).scalar_one()
+    finally:
+        session.close()
+    assert n_decisions == 1

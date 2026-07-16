@@ -119,19 +119,37 @@ def registrar_decisao(
         celula_id=celula_uuid,
         prazo_conexao=prazo_conexao,
     )
-    session.add(decision)
-    pessoa.aceitou_jesus = True
+    # PR#179 review: `session` here is the SHARED, per-turn session owned by
+    # app/agent/runtime.py::process_inbound_message — by the time this tool
+    # runs, _apply_intake/_apply_consent/_apply_optout (and any earlier tool
+    # call in the same turn) may already have pending, unflushed mutations on
+    # THIS session. Flush them into the OUTER transaction now, BEFORE opening
+    # the SAVEPOINT below: session.flush() flushes the whole unit of work, not
+    # just this function's objects, so anything still pending would otherwise
+    # be swept into the SAME flush as the Decision insert and be undone by a
+    # ROLLBACK TO SAVEPOINT if that insert hits unique_violation.
+    session.flush()
     try:
-        session.flush()  # fires trg_decision_opens_consolidation
+        # CONSOL-1 + savepoint fix: only the Decision insert (and the
+        # trigger's consolidacoes/consolidacao_etapas/work_queue_items side
+        # effects) run inside this SAVEPOINT. On unique_violation, ROLLBACK TO
+        # SAVEPOINT undoes only THIS block — the outer transaction (and
+        # anything flushed above) stays open and intact for the runtime's own
+        # later commit.
+        with session.begin_nested():
+            session.add(decision)
+            pessoa.aceitou_jesus = True
+            session.flush()  # fires trg_decision_opens_consolidation
     except IntegrityError as exc:
-        # CONSOL-1: TOCTOU — two concurrent decisions for the SAME pessoa both
-        # fire trg_decision_opens_consolidation; uq_consolidacoes_pessoa_aberta
+        # TOCTOU — two concurrent decisions for the SAME pessoa both fire
+        # trg_decision_opens_consolidation; uq_consolidacoes_pessoa_aberta
         # (partial unique on pessoa_id where concluida=false AND
         # abandonada_em IS NULL) serializes them. The 2nd to commit gets
         # unique_violation, translated DETERMINISTICALLY to ToolError (mirrors
-        # the HTTP 409 in app/routers/consolidacao.py). Any other integrity
-        # error (not unique) bubbles up unchanged — not a validation refusal.
-        session.rollback()
+        # the HTTP 409 in app/routers/consolidacao.py). NO session.rollback()
+        # here — that would abort the whole shared per-turn transaction (the
+        # bug this fix closes). Any other integrity error (not unique) bubbles
+        # up unchanged — not a validation refusal.
         if getattr(exc.orig, "pgcode", None) == _PG_UNIQUE_VIOLATION:
             raise ToolError("Pessoa já possui uma consolidação em aberto") from exc
         raise
