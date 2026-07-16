@@ -86,7 +86,18 @@ export function Dialog({ open, onClose, title, description, sheet = false, child
   if (!open) return null;
 
   return (
-    <div className="ds-overlay" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div
+      className="ds-overlay"
+      onMouseDown={(e) => {
+        if (e.target !== e.currentTarget) return;
+        // Sem preventDefault, o mousedown no backdrop (não focável) move o foco
+        // para o <body> DEPOIS deste handler, sobrescrevendo o retorno de foco
+        // ao opener feito no cleanup do efeito — ao fechar por backdrop o foco
+        // terminava no body (comprovado em navegador real; ver Dialog.test).
+        e.preventDefault();
+        onClose();
+      }}
+    >
       <div
         ref={panelRef}
         role="dialog"

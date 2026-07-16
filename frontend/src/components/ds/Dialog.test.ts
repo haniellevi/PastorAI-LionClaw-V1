@@ -103,3 +103,26 @@ describe("Dialog — foco inicial (Gate 7.1)", () => {
     expect(document.activeElement?.getAttribute("aria-label")).toBe("Fechar");
   });
 });
+
+describe("Dialog — fechar por backdrop (retorno de foco)", () => {
+  it("mousedown no backdrop: onClose + preventDefault; no painel não fecha", () => {
+    // Sem preventDefault, o mousedown no backdrop leva o foco ao <body> depois
+    // do handler, sobrescrevendo o retorno de foco ao opener (comprovado em
+    // navegador real). O defaultPrevented é o contrato dessa correção.
+    render(true, h("button", { id: "x", key: "x" }, "X"));
+    const overlay = document.querySelector<HTMLElement>(".ds-overlay")!;
+    const panel = document.querySelector<HTMLElement>('[role="dialog"]')!;
+
+    // Clique dentro do painel (target !== overlay) não fecha nem previne default.
+    const onPanel = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+    act(() => panel.dispatchEvent(onPanel));
+    expect(onClose).not.toHaveBeenCalled();
+    expect(onPanel.defaultPrevented).toBe(false);
+
+    // Clique no backdrop fecha e previne o default.
+    const onBackdrop = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+    act(() => overlay.dispatchEvent(onBackdrop));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onBackdrop.defaultPrevented).toBe(true);
+  });
+});

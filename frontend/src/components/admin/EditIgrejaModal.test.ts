@@ -11,7 +11,7 @@
  *
  * Sem JSX (createElement): o tsconfig do Next usa jsx:"preserve".
  */
-import { act, createElement as h } from "react";
+import { act, createElement as h, Fragment, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -133,6 +133,52 @@ describe("EditIgrejaModal — W4B (DsDialog)", () => {
     render({ error: "Não foi possível atualizar." });
     const banner = container.querySelector('.error-banner[role="alert"]')!;
     expect(banner.textContent).toContain("Não foi possível atualizar.");
+  });
+
+  it("fechar por backdrop: mousedown no overlay chama onClose e faz preventDefault", () => {
+    // Regressão do smoke DEV W4B: ao fechar por backdrop, o foco terminava no
+    // <body> em vez de voltar ao opener. Causa: o mousedown no backdrop (não
+    // focável) move o foco para o body DEPOIS do handler, sobrescrevendo o
+    // retorno de foco do primitive. A correção é preventDefault no mousedown do
+    // overlay — verificável aqui pelo defaultPrevented (jsdom não modela o
+    // "clobber" de foco do navegador; o defaultPrevented é o contrato do fix).
+    const onClose = vi.fn();
+    render({ onClose });
+    const overlay = container.querySelector<HTMLElement>(".ds-overlay")!;
+    const evt = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+    act(() => {
+      overlay.dispatchEvent(evt);
+    });
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(evt.defaultPrevented).toBe(true);
+  });
+
+  it("fechar por backdrop devolve o foco ao opener", () => {
+    // Fluxo fiel: um botão abre o modal; após fechar por backdrop o foco volta
+    // ao botão que abriu (retorno de foco do primitive, agora não sobrescrito).
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      return h(
+        Fragment,
+        null,
+        h("button", { id: "opener", onClick: () => setOpen(true) }, "Editar dados"),
+        open
+          ? h(EditIgrejaModal, {
+              igreja, busy: false, error: null,
+              onClose: () => setOpen(false), onSubmit: () => {}, onDelete: () => {},
+            })
+          : null,
+      );
+    }
+    act(() => root.render(h(Harness)));
+    const opener = document.getElementById("opener") as HTMLButtonElement;
+    act(() => opener.focus());
+    act(() => opener.click());
+    expect(document.activeElement).toBe(document.querySelector("[data-autofocus]"));
+
+    const overlay = document.querySelector<HTMLElement>(".ds-overlay")!;
+    act(() => overlay.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true })));
+    expect(document.activeElement).toBe(opener);
   });
 
   it("Excluir: só chama onDelete se o window.confirm for aceito", () => {
