@@ -22,6 +22,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.models import Celula, Consolidacao, Decision, Pessoa
@@ -37,6 +38,10 @@ from app.domain.consolidation import (
 logger = logging.getLogger("pastorai.consolidacao")
 
 router = APIRouter(prefix="/consolidacao", tags=["consolidacao"])
+
+# Postgres SQLSTATE de unique_violation. Só ele é traduzido para 409 aqui;
+# outras violações de integridade sobem (500) — não são conflito de estado.
+_PG_UNIQUE_VIOLATION = "23505"
 
 
 # ---------------------------------------------------------------------------
@@ -146,8 +151,23 @@ def launch_decision(
     db.add(decision)
     # A decision implies the person accepted Jesus (feeds F2 promotion).
     pessoa.aceitou_jesus = True
-    # Flush so trg_decision_opens_consolidation creates the consolidation.
-    db.flush()
+    try:
+        # Flush so trg_decision_opens_consolidation creates the consolidation.
+        db.flush()
+    except IntegrityError as exc:
+        # CONSOL-1: TOCTOU — two concurrent decisions for the SAME pessoa both
+        # fire trg_decision_opens_consolidation; uq_consolidacoes_pessoa_aberta
+        # (partial unique on pessoa_id where concluida=false AND
+        # abandonada_em IS NULL) serializes them. The 2nd to commit gets
+        # unique_violation, translated DETERMINISTICALLY to 409. Any other
+        # integrity error (not unique) bubbles up as 500 — not a state conflict.
+        db.rollback()
+        if getattr(exc.orig, "pgcode", None) == _PG_UNIQUE_VIOLATION:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Pessoa já possui uma consolidação em aberto",
+            ) from exc
+        raise
 
     consolidacao = db.execute(
         select(Consolidacao)

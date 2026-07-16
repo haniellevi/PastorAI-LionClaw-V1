@@ -965,6 +965,22 @@ class Consolidacao(Base):
             "not (concluida = true and abandonada_em is not null)",
             name="consolidacoes_concluida_abandonada_excl_chk",
         ),
+        # CONSOL-1: no máximo UMA consolidação ABERTA por pessoa. Fecha o TOCTOU
+        # do INSERT feito por fn_decision_opens_consolidation (trigger, AFTER
+        # INSERT em decisions) — duas decisões concorrentes para a mesma pessoa
+        # disparam o trigger nas duas transações, sem linha a travar antes do
+        # INSERT. Índice único PARCIAL serializa: uma vence, a outra recebe
+        # unique_violation, que o router/tool traduzem para 409/ToolError.
+        # "Aberta" = concluida=false AND abandonada_em IS NULL (mesma definição
+        # do check acima); concluída/abandonada saem do índice e liberam nova
+        # consolidação. Índice em __table_args__ + migration idênticos (padrão
+        # SEC-4B/E13).
+        Index(
+            "uq_consolidacoes_pessoa_aberta",
+            "pessoa_id",
+            unique=True,
+            postgresql_where=text("concluida = false AND abandonada_em IS NULL"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
