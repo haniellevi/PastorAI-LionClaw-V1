@@ -4,7 +4,7 @@
 - **Projeto pipeline:** Seg-Igreja12 (LionCloud Security Audit Pipeline)
 - **Base de código:** PastorAI (`main` @ `b188358`, C1/RLS já fechado)
 - **Tipo deste documento:** fonte de verdade versionada do resultado do pipeline. **Docs-only — não implementa correção.**
-- **Última reconciliação:** 2026-07-16 (missão SEC-PLAN-RECON-1, docs-only) — todo finding ALTO/MÉDIO revalidado contra o código atual (`origin/main` @ `82e1c6f`) e contra evidência de deploy versionada (`docs/sprints/DEPLOY-HANDOFF-2026-07-09.md`, `docs/sprints/2026-07-11-deploy-m7b-sec-prod.md`, `docs/sprints/2026-07-11-m7b-w1-3-w1-4-fechamento.md`), **não** por comentário/commit antigo/memória de chat. Ver §2.4 para o detalhe item a item; tabelas de §2.1/§2.2 já refletem o status revalidado.
+- **Última reconciliação:** 2026-07-16 (missão SEC-PLAN-RECON-1, docs-only) — todo finding ALTO/MÉDIO revalidado contra o código atual (`origin/main` @ `82e1c6f`) e contra evidência de deploy versionada (`docs/sprints/DEPLOY-HANDOFF-2026-07-09.md`, `docs/sprints/2026-07-11-deploy-m7b-sec-prod.md`, `docs/sprints/2026-07-11-m7b-w1-3-w1-4-fechamento.md`, `docs/sprints/2026-07-16-backend-release-82e1c6f.md`), **não** por comentário/commit antigo/memória de chat. Ver §2.4 para o detalhe item a item; tabelas de §2.1/§2.2 já refletem o status revalidado.
 - **Fontes:**
   - `.lionclaw/Security/SPECsecurity-20260707_180329.md` (SPEC consolidada, 21 findings)
   - `.lionclaw/Security/Security-20260707-1804-*.md` (relatórios por categoria: secrets, auth, isolation, duplication, logic, standards, owasp)
@@ -197,10 +197,11 @@ assinaturas públicas atuais; teste de roundtrip por tipo.
 
 **MEDIO-006 — Approve de solicitação de célula.** `CONCLUÍDO + deployado`. Há uma correção
 relacionada a este finding mergeada em `origin/main` (PR#157, commit de merge `40f705a`), com
-teste automatizado cobrindo o cenário do finding. Confirmado por revisão adicional (2026-07-16):
-`40f705a` é ancestral de `82e1c6f` (verificado por mim via `git merge-base`), e `82e1c6f` é o
-commit publicado no backend de produção (confirmado pelo responsável). Sem pendência de código
-ou de deploy para este item.
+teste automatizado cobrindo o cenário do finding. `40f705a` é ancestral de `82e1c6f` (verificado
+via `git merge-base`). Evidência versionada de deploy:
+`docs/sprints/2026-07-16-backend-release-82e1c6f.md` registra o release de backend no commit
+`82e1c6f` em produção, health check 200 e verificação de runtime da correção — não apenas
+merge isolado. Sem pendência de código ou de deploy para este item.
 
 ---
 
@@ -325,7 +326,7 @@ Todo PR de remediação (SEC-1 em diante) deve passar, **antes do merge**:
 | MEDIO-003 | MÉDIO | SEC-3 | CONCLUÍDO + deployado | PR#135 |
 | MEDIO-004 | MÉDIO | SEC-7a | PARCIAL — priorizar | PR pequeno (filtro `igreja_id` em `contacts.py`) a abrir |
 | MEDIO-005 | MÉDIO | SEC-7a | PENDENTE | PR pequeno (dedup) a abrir |
-| MEDIO-006 | MÉDIO | SEC-4 | CONCLUÍDO + deployado | PR#157 |
+| MEDIO-006 | MÉDIO | SEC-4 | CONCLUÍDO + deployado | PR#157 (deploy: `docs/sprints/2026-07-16-backend-release-82e1c6f.md`) |
 | BAIXO-001 | BAIXO | SEC-1 | não revisado nesta rodada | PR SEC-1 |
 | BAIXO-002 | BAIXO | SEC-5 | não revisado nesta rodada | PR SEC-5 (dep. C1) |
 | BAIXO-003 | BAIXO | SEC-7a | não revisado nesta rodada | PR pequeno (dedup) |
