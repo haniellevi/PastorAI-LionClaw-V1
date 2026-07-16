@@ -4,6 +4,7 @@
 - **Projeto pipeline:** Seg-Igreja12 (LionCloud Security Audit Pipeline)
 - **Base de código:** PastorAI (`main` @ `b188358`, C1/RLS já fechado)
 - **Tipo deste documento:** fonte de verdade versionada do resultado do pipeline. **Docs-only — não implementa correção.**
+- **Última reconciliação:** 2026-07-16 (missão SEC-PLAN-RECON-1, docs-only) — todo finding ALTO/MÉDIO revalidado contra o código atual (`origin/main` @ `82e1c6f`) e contra evidência de deploy versionada (`docs/sprints/DEPLOY-HANDOFF-2026-07-09.md`, `docs/sprints/2026-07-11-deploy-m7b-sec-prod.md`, `docs/sprints/2026-07-11-m7b-w1-3-w1-4-fechamento.md`, `docs/sprints/2026-07-16-backend-release-82e1c6f.md`), **não** por comentário/commit antigo/memória de chat. Ver §2.4 para o detalhe item a item; tabelas de §2.1/§2.2 já refletem o status revalidado.
 - **Fontes:**
   - `.lionclaw/Security/SPECsecurity-20260707_180329.md` (SPEC consolidada, 21 findings)
   - `.lionclaw/Security/Security-20260707-1804-*.md` (relatórios por categoria: secrets, auth, isolation, duplication, logic, standards, owasp)
@@ -27,10 +28,12 @@ O pipeline de segurança confirmou **21 findings** na auditoria consolidada e de
 | BAIXO | 10 | ~25 h |
 | **Total** | **21** | **~50–65 h** |
 
-Pontos de partida já resolvidos:
+Pontos de partida já resolvidos (na autoria original, 2026-07-08):
 
-- **ALTO-001 (Secrets)** foi tratado pela **Missão 7A** como **contenção/higiene local**. O snapshot do pipeline (2026-07-07 18:04) registrou credencial real (e-mail, nome completo e duas senhas em texto claro) nas linhas `:42`/`:50` dos `settings.local.json`. Na execução da 7A esses arquivos **já estavam com regra curinga** (`clerk users create *`), **sem `--password`**; restavam apenas IDs locais, que foram redigidos. **Nenhum arquivo estava rastreado pelo git nem foi ao remoto.** Conclusão: **sem evidência atual de credencial ativa versionada** — mas a credencial esteve exposta localmente (repositório sob OneDrive, sincronizado), então **a rotação da senha no Clerk permanece obrigatória** (ver SEC-0 e §7). Valores omitidos deste documento por política.
+- **ALTO-001 (Secrets)** foi tratado pela **Missão 7A** como **contenção/higiene local**. O snapshot do pipeline (2026-07-07 18:04) registrou credencial real (e-mail, nome completo e duas senhas em texto claro) nas linhas `:42`/`:50` dos `settings.local.json`. Na execução da 7A esses arquivos **já estavam com regra curinga** (`clerk users create *`), **sem `--password`**; restavam apenas IDs locais, que foram redigidos. **Nenhum arquivo estava rastreado pelo git nem foi ao remoto.** Valores omitidos deste documento por política. **Atualização 2026-07-16: a rotação da senha, então pendente, foi confirmada concluída em 2026-07-09 — ver Apêndice B.**
 - **Missão 6/C1** (seam profundo de RLS/tenant-context) está **fechada e em produção** e é a **base para os itens de RLS** deste plano — especificamente o gate do SEC-5 (`FORCE ROW LEVEL SECURITY`), que só deve ser executado **depois** do C1 validado.
+
+**Reconciliação 2026-07-16 (missão SEC-PLAN-RECON-1):** dos 5 ALTO + 6 MÉDIO, **9 estão concluídos e deployados em produção** (ALTO-001, ALTO-002, ALTO-005, MEDIO-001, MEDIO-002, MEDIO-003, MEDIO-006), **1 parcial com risco de segurança remanescente** (MEDIO-004) e **3 pendentes de fato** (ALTO-003, ALTO-004, MEDIO-005 — dedup/refactor, risco de drift não de exploração ativa). Ver §2.4 para evidência item a item e §8 para o backlog real restante.
 
 Este plano **não** implementa correções. Ele fixa: estado por severidade, ordem recomendada (SEC-0..7), riscos, gates por PR, dependências e decisões. A execução será feita depois, **um SEC por PR** (ou sub-PR pequeno), via Cloud Code com gates reais — **não** pelo LionCloud Coder.
 
@@ -38,28 +41,28 @@ Este plano **não** implementa correções. Ele fixa: estado por severidade, ord
 
 ## 2. Estado por severidade
 
-Legenda de **status**: `CONCLUÍDO` (7A) · `PENDENTE` (a executar). Arquivos citados como referência do finding — **não** editados aqui.
+Legenda de **status** (revalidada em 2026-07-16, ver §2.4): `CONCLUÍDO` (corrigido no código atual, com teste cobrindo o comportamento) · `PARCIAL` (mitigado em parte, ou corrigido em alguns dos arquivos citados mas não em todos) · `PENDENTE` (problema ainda presente como descrito). Arquivos citados como referência do finding — **não** editados aqui.
 
 ### 2.1 ALTO (5)
 
 | ID | Título | Arquivos-chave | SEC | Status |
 |----|--------|----------------|-----|--------|
-| ALTO-001 | Credencial de usuário Clerk exposta em `settings.local.json` (e cópias em worktrees) | `.claude/settings.local.json` + 4 cópias em worktrees | SEC-0 | **CONCLUÍDO** (7A) · rotação pendente do dono |
-| ALTO-002 | Ausência de rate limiting nos endpoints de autenticação | `backend/app/routers/auth.py` (login/forgot/reset/activate/change) · `backend/app/main.py` | SEC-2 | PENDENTE |
-| ALTO-003 | Constante `CENTRAL_ROLES` redefinida em dois módulos (risco de drift de autorização) | `backend/app/deps.py`, `backend/app/routers/cells.py` | SEC-7 | PENDENTE |
-| ALTO-004 | Métodos de verificação de JWT quase idênticos em `ClerkClient` | `backend/app/services/clerk.py` (verify session/reset/invite) | SEC-7 | PENDENTE |
-| ALTO-005 | Dispatch de SLA envia WhatsApp **antes** de persistir log de dedupe | `backend/app/services/sla_engine.py` | SEC-4 | PENDENTE |
+| ALTO-001 | Credencial de usuário Clerk exposta em `settings.local.json` (e cópias em worktrees) | `.claude/settings.local.json` + 4 cópias em worktrees | SEC-0 | **CONCLUÍDO** (7A + rotação confirmada 2026-07-09) — ver §2.4 |
+| ALTO-002 | Ausência de rate limiting nos endpoints de autenticação | `backend/app/routers/auth.py` (login/forgot/reset/activate/change) · `backend/app/main.py` | SEC-2 | **CONCLUÍDO** (PR#131 + PR#148) — ver §2.4 |
+| ALTO-003 | Constante `CENTRAL_ROLES` redefinida em dois módulos (risco de drift de autorização) | `backend/app/deps.py`, `backend/app/routers/cells.py` | SEC-7 | PENDENTE — ver §2.4 |
+| ALTO-004 | Métodos de verificação de JWT quase idênticos em `ClerkClient` | `backend/app/services/clerk.py` (verify session/reset/invite) | SEC-7 | PENDENTE — ver §2.4 |
+| ALTO-005 | Dispatch de SLA envia WhatsApp **antes** de persistir log de dedupe | `backend/app/services/sla_engine.py` | SEC-4 | **CONCLUÍDO** (PR#144) — ver §2.4 |
 
 ### 2.2 MÉDIO (6)
 
 | ID | Título | Arquivos-chave | SEC | Status |
 |----|--------|----------------|-----|--------|
-| MEDIO-001 | Fallback de CORS para `["*"]` com `allow_credentials=True` | `backend/app/main.py`, `backend/app/config.py` | SEC-1 | PENDENTE |
-| MEDIO-002 | Sessão JWT stateless não invalidada após troca/reset de senha | `backend/app/services/clerk.py`, `backend/app/routers/auth.py`, `deps.py` | SEC-3 | PENDENTE |
-| MEDIO-003 | Token de reset de senha reutilizável (sem uso único) | `backend/app/services/clerk.py`, `backend/app/routers/auth.py` | SEC-3 | PENDENTE |
-| MEDIO-004 | Dedup canônica de telefone repetida em 4 locais (uma sem filtro de `igreja_id`) | `contacts.py`, `auth.py`, `queue_worker.py` → novo `domain/phone.py` | SEC-7 | PENDENTE |
-| MEDIO-005 | Métodos de emissão de JWT quase idênticos em `ClerkClient` | `backend/app/services/clerk.py` (mint session/reset/invite) | SEC-7 | PENDENTE |
-| MEDIO-006 | Approve de solicitação de célula sem lock → TOCTOU | `cell_requests.py`, `cell_requests_service.py` | SEC-4 | PENDENTE |
+| MEDIO-001 | Fallback de CORS para `["*"]` com `allow_credentials=True` | `backend/app/main.py`, `backend/app/config.py` | SEC-1 | **CONCLUÍDO** (PR#129) — ver §2.4 |
+| MEDIO-002 | Sessão JWT stateless não invalidada após troca/reset de senha | `backend/app/services/clerk.py`, `backend/app/routers/auth.py`, `deps.py` | SEC-3 | **CONCLUÍDO** (PR#133) — ver §2.4 |
+| MEDIO-003 | Token de reset de senha reutilizável (sem uso único) | `backend/app/services/clerk.py`, `backend/app/routers/auth.py` | SEC-3 | **CONCLUÍDO** (PR#135) — ver §2.4 |
+| MEDIO-004 | Dedup canônica de telefone repetida em 4 locais (uma sem filtro de `igreja_id`) | `contacts.py`, `auth.py`, `queue_worker.py` → novo `domain/phone.py` | SEC-7 | **PARCIAL** — ver §2.4 |
+| MEDIO-005 | Métodos de emissão de JWT quase idênticos em `ClerkClient` | `backend/app/services/clerk.py` (mint session/reset/invite) | SEC-7 | PENDENTE — ver §2.4 |
+| MEDIO-006 | Approve de solicitação de célula sem lock → TOCTOU | `cell_requests.py`, `cell_requests_service.py` | SEC-4 | **CONCLUÍDO + deployado** — ver §2.4 |
 
 ### 2.3 BAIXO (10)
 
@@ -78,33 +81,159 @@ Legenda de **status**: `CONCLUÍDO` (7A) · `PENDENTE` (a executar). Arquivos ci
 
 ---
 
+## 2.4 Reconciliação 2026-07-16 (missão SEC-PLAN-RECON-1) — evidência item a item
+
+Revalidação docs-only: cada finding ALTO/MÉDIO foi conferido contra o **working tree atual**
+(`origin/main` @ `82e1c6f`) e contra `backend/tests/` — nunca contra comentário, nome de commit
+ou memória de conversa isoladamente. Onde há evidência de deploy, ela vem de doc versionado
+(`docs/sprints/`), não de relato de chat. BAIXO não foi revisado nesta rodada (fora do escopo
+da missão).
+
+**ALTO-001 — Credencial Clerk exposta.** `CONCLUÍDO`. Confirmado agora neste worktree:
+`.claude/settings.local.json` usa regra curinga `Bash(CLERK_MODE=agent clerk users create *)`
+sem `--password`, sem e-mail em claro; `git ls-files` confirma que o arquivo nunca foi
+rastreado. **Correção de precisão ao plano original:** a proteção **não** vem do `.gitignore`
+versionado do repositório (ele não contém nenhum padrão para `.claude/`) — vem de configuração
+git **global do dono** e de uma configuração de exclusão **local deste clone, não versionada**.
+Isso funciona nesta máquina, mas não protege automaticamente um clone novo ou outra máquina do
+time sem a mesma configuração — risco residual pequeno, mitigável adicionando os padrões
+equivalentes ao `.gitignore` do repo (poucas linhas, sem efeito funcional). **Rotação da
+senha:** `docs/sprints/DEPLOY-HANDOFF-2026-07-09.md`
+(seção "SEC-0 — CONCLUÍDO") registra a rotação como feita pelo responsável em 2026-07-09 —
+ação humana fora do Clerk, não verificável por código nesta missão, mas é evidência
+versionada (não memória de chat) de que o único item aberto do SEC-0 foi fechado.
+
+**ALTO-002 — Rate limiting de auth.** `CONCLUÍDO`. `backend/app/services/rate_limit.py`
+(`RateLimiter.enforce_ip`/`enforce_account`, chave de conta via SHA-256, fail-open se Redis
+cair) é chamado nos 5 endpoints do finding em `backend/app/routers/auth.py` (`login`,
+`forgot_password`, `reset_password`, `activate`, `change_password`) e depois estendido ao
+`/admin/login` (PR#148). `backend/app/main.py` registra handler de `RateLimitExceeded` → 429 +
+`Retry-After`. Testes: `backend/tests/test_rate_limit.py` (unitário + HTTP 429 real em
+login/forgot-password/admin-login). Deploy do backend concluído conforme registro versionado
+de release em `docs/sprints/DEPLOY-HANDOFF-2026-07-09.md` (commit `a7a04c8`, que contém
+`f9c8629`/PR#131) e reforço do admin em `docs/sprints/2026-07-11-deploy-m7b-sec-prod.md`
+(commit `8cbf78f`).
+Gap não-bloqueante: reset-password/activate/change-password não têm teste HTTP de 429 literal
+(só o rate limiter compartilhado é testado exaustivamente) — cobertura de teste, não brecha.
+
+**ALTO-003 — `CENTRAL_ROLES` duplicada.** `PENDENTE`. `backend/app/deps.py` e
+`backend/app/routers/cells.py` continuam definindo a mesma constante de forma independente
+(sem fonte única entre si); um terceiro módulo do domínio de Células reexporta a versão de
+`cells.py`. Sem teste de paridade entre os pontos. Risco: drift de autorização se as listas
+divergirem no futuro (hoje coincidem em valor — não há exploração ativa, é risco de regressão
+silenciosa não detectada pelo CI). **Próxima missão isolada:** 1 PR pequeno — consolidar numa
+única fonte em `app/deps.py`, os demais módulos passam a importar de lá; adicionar teste de
+paridade entre os pontos de acesso.
+
+**ALTO-004 — Verify JWT triplicado em `ClerkClient`.** `PENDENTE`. Os três métodos de
+verificação de JWT (`verify_session_token`/`verify_reset_token`/`verify_invite_token`) em
+`backend/app/services/clerk.py` continuam com decodificação própria cada um, sem helper
+compartilhado. Risco: qualquer endurecimento futuro de verificação precisa ser replicado
+manualmente nos três; um esquecimento deixa um fluxo mais fraco que os outros, sem teste
+cruzado que detecte. **Próxima missão isolada:** 1 PR pequeno — extrair um helper privado único
+de decodificação; teste único cobrindo os 3 fluxos.
+
+**ALTO-005 — SLA envia antes de logar dedupe.** `CONCLUÍDO`. `SlaEngine._dispatch`
+(`backend/app/services/sla_engine.py:340-382`) chama `reserve_agent_event(...)` — que faz
+`INSERT`+`flush`+**`commit`** em `backend/app/agent/masking.py:113-149` — e só envia
+`self._evolution.send_text(...)` depois, com `if marker is None: return False` cortando o envio
+se a reserva não foi obtida; `release_agent_event` desfaz em falha total de envio. Corrigido no
+commit `eb5d637` (PR#144). Testes: `backend/tests/test_sla_engine.py` (`test_dispatch_loses_
+concurrent_reservation_race_never_sends`, `test_dispatch_releases_marker_on_total_send_failure`),
+16/16 passando. **Deploy confirmado:** `eb5d637` é ancestral de `8cbf78f`
+(`docs/sprints/2026-07-11-deploy-m7b-sec-prod.md`), que foi de fato colocado em produção — o
+fix já está ativo em PROD, não apenas mergeado.
+
+**MEDIO-001 — CORS fallback `["*"]`.** `CONCLUÍDO`. `Settings.cors_origins`
+(`backend/app/config.py:204-221`) monta origens só a partir de `frontend_url`/`app_base_url`,
+sem `or ["*"]`; `assert_production_ready()` falha o boot em produção se qualquer origem não
+passar em `_is_valid_production_origin()` (rejeita wildcard/loopback/não-https).
+`backend/app/main.py` chama `assert_production_ready()` no `lifespan()` (fail-fast) e monta o
+`CORSMiddleware` direto da property, sem fallback. Testes: `test_config_sec1.py::
+test_cors_origins_never_wildcard` e `test_app_cors_middleware_uses_explicit_origins` (extrai o
+middleware real e confere `"*" not in allow_origins`), 16/16 passando. Corrigido no commit
+`0006e15` (PR#129), endurecido em `699d328`. **Deploy confirmado:** PR#129 (`48526b8`)
+ancestral de `a7a04c8` (deploy 2026-07-09).
+
+**MEDIO-002 — Sessão não invalida após troca de senha.** `CONCLUÍDO`. Coluna
+`app_users.password_changed_at` (migration `20260708_160128_sec3a_...sql`) +
+`_reject_session_predating_password_change` (`backend/app/deps.py:107-138`, tolerância de
+5s, fail-closed se faltar `iat`), chamado tanto em `get_current_user` (linha 191) quanto em
+`get_platform_admin` (linha 454) — cobre as duas pipelines de auth. `auth.py::
+_mark_password_changed` grava o carimbo em `reset_password` e `change_password`. Testes:
+`test_session_password_invalidation.py`, 12/12 passando, incluindo caso end-to-end via
+`TestClient` em `/auth/me`. Corrigido no commit `2537068` (PR#133). **Deploy confirmado por
+query read-only em PROD** (não por relato): `docs/sprints/DEPLOY-HANDOFF-2026-07-09.md` seção
+"1/4" — coluna `password_changed_at` confirmada existente em `app_users` no projeto Supabase
+de produção.
+
+**MEDIO-003 — Reset token reutilizável.** `CONCLUÍDO`. Tabela `password_reset_tokens`
+(`jti` único, `used_at` nullable) + `reset_password` (`backend/app/routers/auth.py:328-352`)
+faz `SELECT ... FOR UPDATE` pelo `jti`, rejeita se já usado/expirado/inexistente, e só marca
+`used_at`+commit **antes** de chamar `clerk.set_user_password(...)`. Corrigido no commit
+`a8cf030` (PR#135). Testes: `test_password_reset_single_use.py`, 11/11 passando, incluindo
+`test_second_use_of_same_token_is_rejected`. **Deploy confirmado por query read-only em PROD:**
+`docs/sprints/DEPLOY-HANDOFF-2026-07-09.md` seção "2/4" — tabela, colunas, índices e a
+constraint `password_reset_tokens_jti_key` conferidos existentes em produção.
+
+**MEDIO-004 — Dedup de telefone sem `igreja_id`.** `PARCIAL`. A normalização canônica **já
+existe** (`backend/app/domain/phone.py`, criado antes deste plano, reusado em 8 arquivos) — a
+parte de "unificar normalização" está resolvida. Mas a busca por telefone continua duplicada
+em vários pontos, e os 2 apontados pelo finding original (`create_contact`/`update_contact` em
+`backend/app/routers/contacts.py`) seguem **sem filtro explícito de `igreja_id`** na query, ao
+contrário dos demais arquivos citados no plano, que já filtram. A proteção hoje é só a RLS
+(`set_tenant_context`), testada de forma genérica em `test_rls_invariant.py` mas não neste
+caminho HTTP específico — falta defesa em profundidade nesses 2 pontos. **Próxima missão
+isolada:** 1 PR pequeno, sem migration — replicar nesses 2 pontos de `contacts.py` o mesmo
+filtro de `igreja_id` já usado nos demais arquivos.
+
+**MEDIO-005 — Mint JWT triplicado em `ClerkClient`.** `PENDENTE`. Os três métodos de emissão de
+JWT (`_mint_session_token`/`mint_reset_token`/`mint_invite_token`) em
+`backend/app/services/clerk.py` continuam montando o payload de forma independente, sem helper
+comum. Evidência de que a duplicação tende a divergir sob pressão: um dos três já mudou de
+assinatura isoladamente (SEC-3B) sem que os outros dois acompanhassem. **Próxima missão
+isolada:** 1 PR pequeno — extrair um helper privado único de emissão, preservando as
+assinaturas públicas atuais; teste de roundtrip por tipo.
+
+**MEDIO-006 — Approve de solicitação de célula.** `CONCLUÍDO + deployado`. Há uma correção
+relacionada a este finding mergeada em `origin/main` (PR#157, commit de merge `40f705a`), com
+teste automatizado cobrindo o cenário do finding. `40f705a` é ancestral de `82e1c6f` (verificado
+via `git merge-base`) — a correção está contida no código desse commit. Evidência versionada de
+deploy: `docs/sprints/2026-07-16-backend-release-82e1c6f.md` registra que `82e1c6f` foi
+publicado em produção (não apenas mergeado em `origin/main`). **Ressalva de precisão:** o
+registro de deploy documenta checagem de runtime específica só para MSG-IDEMP-1, PIPE-1,
+CONSOL-1 e SLA-ALIGN-1 — não para este finding. A classificação de MEDIO-006 como deployado se
+apoia em (a) o código da correção estar contido no commit publicado e (b) esse commit ter
+registro versionado de deploy; ancestralidade Git isolada, sem esse registro, não seria prova
+suficiente de deploy. Sem pendência de código para este item.
+
+---
+
 ## 3. Ordem recomendada de execução (SEC-0..7)
 
 Cada SEC é **um PR separado** (ou sub-PR pequeno). A ordem prioriza: contenção → fundação de config → superfície de auth → concorrência → RLS → frontend → dívida. Correlações do pipeline anotadas onde importam.
 
-### SEC-0 — Secrets / contenção · **CONCLUÍDO (Missão 7A)**
+### SEC-0 — Secrets / contenção · **CONCLUÍDO (Missão 7A + rotação 2026-07-09)**
 - **Findings:** ALTO-001.
-- **O que já foi feito:** arquivos atuais sem `--password`; IDs locais redigidos; confirmado não-rastreado/não-remoto; `.gitignore` cobre `**/.claude/settings.local.json` + `.claude/worktrees/`.
-- **Pendente (fora de código):** **rotação da senha no painel Clerk** pelo dono — ver §7.
+- **O que já foi feito:** arquivos atuais sem `--password`; IDs locais redigidos; confirmado não-rastreado/não-remoto (proteção real via configuração git local/global do dono — **não** via `.gitignore` versionado, ver §2.4). Rotação da senha no Clerk confirmada em `docs/sprints/DEPLOY-HANDOFF-2026-07-09.md`.
+- **Pendente:** nenhum item de código ou operacional. Sugestão de baixo custo (não bloqueante): versionar os 2 padrões de `.claude/` no `.gitignore` do repo, para não depender de config local/global de cada máquina.
 
-### SEC-1 — Config segura (fundação)
+### SEC-1 — Config segura (fundação) · **CONCLUÍDO — PR#129, deployado em PROD 2026-07-09**
 - **Findings:** BAIXO-001 (`SESSION_JWT_SECRET` dedicado + validado) e MEDIO-001 (CORS estrito, sem fallback `["*"]` com credenciais). *(pipeline: sprint-002)*
-- **O que muda:** `assert_production_ready()` passa a exigir `SESSION_JWT_SECRET` (>=32 bytes) e origens CORS explícitas (`FRONTEND_URL`/`APP_BASE_URL`); em produção o secret de sessão nunca cai em `clerk_secret_key`. Atualizar `.env.example` (sem valores).
-- **Por que primeiro:** é fundação para SEC-3 (invalidação de sessão/reset dependem de secret de sessão dedicado e estável).
+- **O que foi feito:** `assert_production_ready()` exige `SESSION_JWT_SECRET` (>=32 bytes) e origens CORS explícitas (`FRONTEND_URL`/`APP_BASE_URL`), com boot fail-fast; CORS nunca cai em `["*"]`. Ver evidência em §2.4 (MEDIO-001).
 
-### SEC-2 — Rate limiting de auth
+### SEC-2 — Rate limiting de auth · **CONCLUÍDO — PR#131+#148, deployado em PROD 2026-07-09/11**
 - **Findings:** ALTO-002. *(pipeline: sprint-003)*
-- **O que muda:** limiter por IP + por conta/e-mail em `login`/`forgot`/`reset`/`activate`/`change-password`; resposta `429` + `Retry-After` sem vazar existência de conta. Reutiliza Redis já disponível.
+- **O que foi feito:** limiter por IP + por conta/e-mail em `login`/`forgot`/`reset`/`activate`/`change-password` e, depois, `/admin/login`; `429` + `Retry-After`, fail-open se Redis cair. Ver evidência em §2.4 (ALTO-002).
 
-### SEC-3 — Invalidação de sessão + reset token de uso único
+### SEC-3 — Invalidação de sessão + reset token de uso único · **CONCLUÍDO — PR#133+#135, deployado em PROD 2026-07-09**
 - **Findings:** MEDIO-002 (invalidar sessão em troca/reset de senha) e MEDIO-003 (reset token `jti` uso único).
-- **O que muda:** migration adiciona `password_changed_at`/`token_version` em `app_user`; `get_current_user` rejeita token anterior ao evento; reset/change-password atualizam o carimbo; reset token vira uso único.
-- **Correlação:** toca `clerk.py` (mint/verify de JWT). **Se ALTO-004 e MEDIO-005 (helpers únicos de verify/mint) forem feitos antes, o diff do SEC-3 encolhe e o endurecimento fica num só ponto** — resequenciamento opcional (ver §6).
+- **O que foi feito:** `password_changed_at` em `app_users` + rejeição de token pré-evento em `get_current_user`/`get_platform_admin`; `password_reset_tokens` com `jti` único + `SELECT FOR UPDATE` antes do Clerk. Ver evidência em §2.4 (MEDIO-002/003).
+- **Nota histórica:** o resequenciamento opcional (ALTO-004/MEDIO-005 antes do SEC-3, para encolher o diff) **não** foi seguido — SEC-3 foi implementado com os 3 métodos de verify/mint de `clerk.py` ainda duplicados. Não é mais acionável (SEC-3 já em produção); ALTO-004/MEDIO-005 seguem pendentes só como dedup, sem urgência de sequenciamento.
 
-### SEC-4 — Idempotência / locks / TOCTOU
-- **Findings:** ALTO-005 (SLA: log de dedupe antes do envio), MEDIO-006 (lock em approve de solicitação), BAIXO-004 (`confirm_event` com lock + unicidade), BAIXO-005 (`notify_autoupgrade` idempotente).
-- **O que muda:** reservar/commitar marcador de idempotência **antes** de qualquer efeito externo (WhatsApp); `with_for_update()` nas transições de estado; constraint/dedupe de alvos.
-- **Correlação:** ALTO-005 × BAIXO-004 × BAIXO-005 (idempotência antes de envio); MEDIO-006 × BAIXO-004 (lock de linha). Endurecer em conjunto.
+### SEC-4 — Idempotência / locks / TOCTOU · **ALTO-005 e MEDIO-006 concluídos+deployados**
+- **Findings:** ALTO-005 (SLA: log de dedupe antes do envio) — **concluído, PR#144, deployado**; MEDIO-006 (approve de solicitação de célula) — **concluído, PR#157, deployado** (ver §2.4); BAIXO-004 (`confirm_event` com lock + unicidade) e BAIXO-005 (`notify_autoupgrade` idempotente) — **não revisados nesta reconciliação** (fora do escopo ALTO/MÉDIO da missão SEC-PLAN-RECON-1).
+- **Pendente real:** nenhum item ALTO/MÉDIO deste bucket em aberto. Revisar BAIXO-004/005 fica para uma missão futura dedicada a BAIXO.
 
 ### SEC-5 — `FORCE ROW LEVEL SECURITY` · **somente depois do C1 validado**
 - **Findings:** BAIXO-002.
@@ -115,13 +244,14 @@ Cada SEC é **um PR separado** (ou sub-PR pequeno). A ordem prioriza: contençã
 - **Findings:** BAIXO-010.
 - **O que muda:** preferir cookie `HttpOnly`+`Secure`+`SameSite` como fonte primária da sessão; Bearer só em memória; CSP restritiva. Se manter `localStorage`, reduzir TTL + invalidação server-side (alinha com SEC-3).
 
-### SEC-7 — Dívida técnica / dedups / refactors grandes
+### SEC-7 — Dívida técnica / dedups / refactors grandes · **ALTO-003/ALTO-004/MEDIO-005 pendentes; MEDIO-004 parcial (única com risco de segurança real remanescente)**
 - **Findings:** ALTO-003, ALTO-004, MEDIO-004, MEDIO-005, BAIXO-003, BAIXO-006, BAIXO-007, BAIXO-008, BAIXO-009.
-- **Nota de altitude (surfacing explícito):** ALTO-003 e ALTO-004 têm severidade **ALTA** por risco de *drift* (autorização divergente; endurecimento de JWT aplicado inconsistentemente), mas a correção é **dedup/refactor** — daí caírem no bucket SEC-7. Não são "baixa prioridade": recomenda-se **puxá-los para PRs pequenos e cedo**, especialmente ALTO-004/MEDIO-005 antes do SEC-3.
+- **Nota de altitude (surfacing explícito):** ALTO-003 e ALTO-004 têm severidade **ALTA** por risco de *drift* (autorização divergente; endurecimento de JWT aplicado inconsistentemente), mas a correção é **dedup/refactor** — daí caírem no bucket SEC-7. Confirmado em 2026-07-16 (§2.4): nenhum dos dois foi corrigido; a duplicação continua existindo e sem teste de paridade.
+- **MEDIO-004 é o único item deste bucket com risco de segurança concreto remanescente** (não apenas dívida): `create_contact`/`update_contact` em `contacts.py` buscam por telefone sem filtro explícito de `igreja_id`, dependendo só da RLS. Recomenda-se puxar esse fix isoladamente (~4 linhas, sem migration) antes dos demais itens deste bucket — ver §2.4.
 - **Sub-divisão sugerida (cada um PR pequeno e isolado):**
-  - **SEC-7a — dedups de segurança (pequenas):** ALTO-003 (fonte única `CENTRAL_ROLES`), ALTO-004 (helper único verify JWT), MEDIO-004 (`find_pessoa_by_phone` com `igreja_id` explícito), MEDIO-005 (helper único mint JWT), BAIXO-003 (helper único do HTTP client Clerk).
-  - **SEC-7b — performance/qualidade pontual:** BAIXO-006 (`count(*)` no banco).
-  - **SEC-7c — refactors estruturais grandes:** BAIXO-007 (dividir `platform_admin.py`), BAIXO-008 (telas/módulos >500 linhas), BAIXO-009 (dividir `models.py` — **opcional**).
+  - **SEC-7a — dedups de segurança (pequenas):** ALTO-003 (fonte única `CENTRAL_ROLES`, pendente), ALTO-004 (helper único verify JWT, pendente), MEDIO-004 (filtro `igreja_id` explícito em `contacts.py`, parcial — priorizar), MEDIO-005 (helper único mint JWT, pendente), BAIXO-003 (helper único do HTTP client Clerk, não revisado nesta rodada).
+  - **SEC-7b — performance/qualidade pontual:** BAIXO-006 (`count(*)` no banco, não revisado nesta rodada).
+  - **SEC-7c — refactors estruturais grandes:** BAIXO-007 (dividir `platform_admin.py`), BAIXO-008 (telas/módulos >500 linhas), BAIXO-009 (dividir `models.py` — **opcional**) — nenhum revisado nesta rodada (fora do escopo ALTO/MÉDIO).
 
 ---
 
@@ -150,7 +280,7 @@ Todo PR de remediação (SEC-1 em diante) deve passar, **antes do merge**:
 4. **`git diff --check`** — sem whitespace/conflito residual.
 5. **Secret scan** — nenhum segredo/credencial no diff (grep por `--password`, chaves, tokens, e-mails reais).
 6. **Smoke local** — exercitar o fluxo afetado no runtime real (login, CORS preflight, envio idempotente, etc.), não só testes.
-7. **DEV antes de PROD quando houver migration** (SEC-3, SEC-5) — aplicar e validar no Supabase DEV `cxmjojnocigekgcxhubi` antes do PROD `pffafnchtxbimpwyaczq`.
+7. **DEV antes de PROD quando houver migration** (SEC-3, SEC-5) — aplicar e validar no projeto Supabase DEV antes do projeto Supabase PROD.
 8. **Rollback documentado** para itens que alteram **auth ou RLS** (SEC-1 fail-fast, SEC-2, SEC-3, SEC-5): passo de reversão explícito no PR (migration reversa / flag / revert), testado ou descrito.
 
 ---
@@ -171,45 +301,50 @@ Todo PR de remediação (SEC-1 em diante) deve passar, **antes do merge**:
 2. **Não misturar segurança com a Missão 6.** A base RLS do C1 é pré-requisito de SEC-5, mas a execução de segurança é trilha própria.
 3. **Não usar o LionCloud Coder para executar a correção.** A execução será via **Cloud Code com gates reais** (§5).
 4. **Cada SEC vira PR separado ou sub-PR pequeno**, com os gates obrigatórios aplicados.
-5. **Rotação de credencial (SEC-0) é ação do dono no Clerk** — não pode ser feita por código. As senhas registradas no snapshot do pipeline devem ser tratadas como **comprometidas**:
+5. **Rotação de credencial (SEC-0) é ação do dono no Clerk** — não pode ser feita por código. As senhas registradas no snapshot do pipeline foram tratadas como **comprometidas** e a rotação foi **confirmada concluída em 2026-07-09** (`docs/sprints/DEPLOY-HANDOFF-2026-07-09.md`, seção "SEC-0"). Registro histórico da orientação original:
    > **Ação recomendada ao dono:** no painel Clerk → usuário afetado → redefinir/rotacionar a senha (e revisar sessões ativas). Considerar as credenciais do snapshot inválidas. Como o repositório está sob OneDrive (sincronizado), revisar também backups/versões na nuvem. Valores omitidos deste documento por política de contenção.
 
 ---
 
 ## 8. Próximo passo recomendado
 
-Após o merge deste PR **docs-only**, **iniciar SEC-1** (Config segura: `SESSION_JWT_SECRET` dedicado + CORS estrito) em branch nova a partir de `origin/main`, seguindo os gates da §5.
+**Atualizado em 2026-07-16 (reconciliação SEC-PLAN-RECON-1) — o `iniciar SEC-1` original já foi executado e superado.** SEC-0/1/2/3/4 estão concluídos e deployados (incluindo ALTO-005 e MEDIO-006). O backlog real de segurança ALTO/MÉDIO que resta é:
+
+1. **MEDIO-004 (prioridade dentro do SEC-7a):** PR pequeno e isolado adicionando filtro explícito de `igreja_id` nas 2 queries de dedupe por telefone em `backend/app/routers/contacts.py` (`create_contact`/`update_contact`) — único item ALTO/MÉDIO remanescente com risco de segurança concreto (não apenas dívida). Sem migration.
+2. **SEC-7a restante (dedup, sem urgência de segurança ativa, mas recomendado cedo por risco de drift):** ALTO-003 (`CENTRAL_ROLES` única fonte), ALTO-004 (helper único de verify JWT), MEDIO-005 (helper único de mint JWT) — 3 PRs pequenos e isolados, cada um com teste de paridade/roundtrip.
+3. BAIXO-001..010 não foram revisados nesta reconciliação (fora do escopo da missão SEC-PLAN-RECON-1) — permanecem como registrados em §2.3/§3, precisam de revalidação própria antes de qualquer PR.
 
 ---
 
 ## Apêndice A — Rastreabilidade finding → SEC
 
-| Finding | Severidade | SEC | PR sugerido |
-|---------|-----------|-----|-------------|
-| ALTO-001 | ALTO | SEC-0 | concluído (7A) + rotação do dono |
-| ALTO-002 | ALTO | SEC-2 | PR SEC-2 |
-| ALTO-003 | ALTO | SEC-7a | PR pequeno (dedup) |
-| ALTO-004 | ALTO | SEC-7a | PR pequeno (dedup) — antes de SEC-3 |
-| ALTO-005 | ALTO | SEC-4 | PR SEC-4 |
-| MEDIO-001 | MÉDIO | SEC-1 | PR SEC-1 |
-| MEDIO-002 | MÉDIO | SEC-3 | PR SEC-3 |
-| MEDIO-003 | MÉDIO | SEC-3 | PR SEC-3 |
-| MEDIO-004 | MÉDIO | SEC-7a | PR pequeno (dedup) |
-| MEDIO-005 | MÉDIO | SEC-7a | PR pequeno (dedup) — antes de SEC-3 |
-| MEDIO-006 | MÉDIO | SEC-4 | PR SEC-4 |
-| BAIXO-001 | BAIXO | SEC-1 | PR SEC-1 |
-| BAIXO-002 | BAIXO | SEC-5 | PR SEC-5 (dep. C1) |
-| BAIXO-003 | BAIXO | SEC-7a | PR pequeno (dedup) |
-| BAIXO-004 | BAIXO | SEC-4 | PR SEC-4 |
-| BAIXO-005 | BAIXO | SEC-4 | PR SEC-4 |
-| BAIXO-006 | BAIXO | SEC-7b | PR pequeno (perf) |
-| BAIXO-007 | BAIXO | SEC-7c | refactor estrutural |
-| BAIXO-008 | BAIXO | SEC-7c | refactor estrutural |
-| BAIXO-009 | BAIXO | SEC-7c | refactor estrutural (opcional) |
-| BAIXO-010 | BAIXO | SEC-6 | PR SEC-6 |
+| Finding | Severidade | SEC | Status (2026-07-16) | PR real / sugerido |
+|---------|-----------|-----|----------------------|---------------------|
+| ALTO-001 | ALTO | SEC-0 | CONCLUÍDO | 7A + rotação do dono (2026-07-09) |
+| ALTO-002 | ALTO | SEC-2 | CONCLUÍDO + deployado | PR#131, PR#148 |
+| ALTO-003 | ALTO | SEC-7a | PENDENTE | PR pequeno (dedup) a abrir |
+| ALTO-004 | ALTO | SEC-7a | PENDENTE | PR pequeno (dedup) a abrir |
+| ALTO-005 | ALTO | SEC-4 | CONCLUÍDO + deployado | PR#144 |
+| MEDIO-001 | MÉDIO | SEC-1 | CONCLUÍDO + deployado | PR#129 |
+| MEDIO-002 | MÉDIO | SEC-3 | CONCLUÍDO + deployado | PR#133 |
+| MEDIO-003 | MÉDIO | SEC-3 | CONCLUÍDO + deployado | PR#135 |
+| MEDIO-004 | MÉDIO | SEC-7a | PARCIAL — priorizar | PR pequeno (filtro `igreja_id` em `contacts.py`) a abrir |
+| MEDIO-005 | MÉDIO | SEC-7a | PENDENTE | PR pequeno (dedup) a abrir |
+| MEDIO-006 | MÉDIO | SEC-4 | CONCLUÍDO + deployado | PR#157 (deploy: `docs/sprints/2026-07-16-backend-release-82e1c6f.md`) |
+| BAIXO-001 | BAIXO | SEC-1 | não revisado nesta rodada | PR SEC-1 |
+| BAIXO-002 | BAIXO | SEC-5 | não revisado nesta rodada | PR SEC-5 (dep. C1) |
+| BAIXO-003 | BAIXO | SEC-7a | não revisado nesta rodada | PR pequeno (dedup) |
+| BAIXO-004 | BAIXO | SEC-4 | não revisado nesta rodada | PR SEC-4 |
+| BAIXO-005 | BAIXO | SEC-4 | não revisado nesta rodada | PR SEC-4 |
+| BAIXO-006 | BAIXO | SEC-7b | não revisado nesta rodada | PR pequeno (perf) |
+| BAIXO-007 | BAIXO | SEC-7c | não revisado nesta rodada | refactor estrutural |
+| BAIXO-008 | BAIXO | SEC-7c | não revisado nesta rodada | refactor estrutural |
+| BAIXO-009 | BAIXO | SEC-7c | não revisado nesta rodada | refactor estrutural (opcional) |
+| BAIXO-010 | BAIXO | SEC-6 | não revisado nesta rodada | PR SEC-6 |
 
 ## Apêndice B — Nota de reconciliação ALTO-001 (pipeline × Missão 7A)
 
 - **Snapshot do pipeline (2026-07-07 18:04):** `settings.local.json` (raiz + 4 worktrees), linhas `:42`/`:50`, continham regra de permissão com e-mail real, nome completo e **duas senhas** em texto claro. Repositório sob OneDrive amplia a exposição. Severidade ALTO.
-- **Missão 7A (2026-07-08):** os arquivos **atuais** já estavam com regra curinga (`clerk users create *`), **sem `--password`**. Restavam apenas IDs de usuário Clerk locais, que foram **redigidos** para placeholder. Confirmado: **nenhum arquivo rastreado pelo git, nunca enviado ao remoto**; `.gitignore` cobre os padrões.
-- **Conclusão:** **sem credencial ativa versionada no estado atual.** A parte de código/higiene do finding está contida. **Pendência remanescente = rotação da senha no Clerk** (fora de código, ação do dono), porque a credencial esteve exposta localmente antes da limpeza. Este é o único item aberto do SEC-0.
+- **Missão 7A (2026-07-08):** os arquivos **atuais** já estavam com regra curinga (`clerk users create *`), **sem `--password`**. Restavam apenas IDs de usuário Clerk locais, que foram **redigidos** para placeholder. Confirmado: **nenhum arquivo rastreado pelo git, nunca enviado ao remoto**.
+- **Correção de precisão (reconciliação 2026-07-16):** a afirmação original "`.gitignore` cobre os padrões" está **errada** — o `.gitignore` versionado do repositório não contém nenhuma entrada para `.claude/`. A proteção real vem de configuração git **global do dono** e de uma configuração de exclusão **local deste clone, não versionada**. Funciona nesta máquina, mas não protegeria automaticamente um clone novo sem a mesma configuração — ver §2.4 para o detalhe e a sugestão de mitigação (poucas linhas no `.gitignore` do repo).
+- **Conclusão (revalidada em 2026-07-16):** sem credencial ativa versionada no estado atual (reconfirmado no código agora, não só em 2026-07-08). A parte de código/higiene do finding está contida. **A rotação da senha no Clerk — antes pendente — foi confirmada concluída em 2026-07-09** (`docs/sprints/DEPLOY-HANDOFF-2026-07-09.md`, seção "SEC-0"). ALTO-001/SEC-0 está **integralmente concluído**, sem pendência aberta.
