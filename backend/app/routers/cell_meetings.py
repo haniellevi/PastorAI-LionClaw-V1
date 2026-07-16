@@ -40,6 +40,7 @@ from app.db.models import (
 )
 from app.db.session import get_db
 from app.deps import (
+    CENTRAL_ROLES,
     CurrentUser,
     get_current_cell_for_leader,
     get_current_user,
@@ -50,7 +51,6 @@ from app.domain.hierarchy import is_leader_or_superior
 
 # Reuso dos helpers de cells.py (BK-DEC-01) — não reimplementar aqui.
 from app.routers.cells import (
-    CENTRAL_ROLES,
     _actor_pessoa_id,
     _assert_pessoa_tenant,
     _get_cell_or_404,

@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models import AppUser, Celula, CelulaMembro, CellAlert, Pessoa
 from app.db.session import get_db
-from app.deps import CurrentUser, get_current_user, require_central
+from app.deps import CENTRAL_ROLES, CurrentUser, get_current_user, require_central
 from app.domain.hierarchy import is_leader_or_superior
 from app.routers._common import Page, PaginationParams
 from app.services.celula_membro import (
@@ -42,9 +42,6 @@ router = APIRouter(tags=["cells"])
 CELL_CREATE_ROLES = ["pastor", "lider_g12"]
 # Roles treated as superior to any cell leader for edit authorization.
 CELL_EDIT_SUPERIOR_ROLES = ["pastor"]
-# Central de Células (decisão 3.1): pastor + admin (implícito) aprovam e alteram
-# campos sensíveis. `lider_central` dedicado fica para o futuro (fora do MVP).
-CENTRAL_ROLES = ["pastor"]
 # Papéis válidos de vínculo em celula_membro (enum celula_membro_papel).
 CELL_MEMBER_ROLES = ("membro", "auxiliar", "anfitriao")
 # Horário no formato HH:MM (24h) — espelha o CHECK da migration.
