@@ -7,17 +7,21 @@ in-memory session/clerk fakes plus a fake OAuth client (no live Google).
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import httpx
+import jwt
 import pytest
 from fastapi.testclient import TestClient
 
 from app.config import Settings
 from app.db.models import AppUser, CalendarSync, Event
 from app.db.session import get_db
-from app.services.clerk import get_clerk_client
+from app.services.clerk import ClerkAuthError, ClerkClient, get_clerk_client
 from app.services.google_oauth import (
+    _STATE_ISSUER,
+    _STATE_PURPOSE,
     GoogleOAuthClient,
     GoogleOAuthError,
     OAuthTokens,
@@ -59,6 +63,65 @@ def test_state_wrong_secret_is_rejected() -> None:
     state = _oauth_client("topsecret").sign_state(_IGREJA)
     with pytest.raises(GoogleOAuthError):
         _oauth_client("different").verify_state(state)
+
+
+# ---------------------------------------------------------------------------
+# SEC-ALTO-004 — verify_state delegates to ClerkClient.verify_purpose_token
+# (shared policy: issuer pinning + required claims), instead of decoding the
+# state independently. These cover the hardening the mission asks for.
+# ---------------------------------------------------------------------------
+def _craft_state(*, secret="topsecret", issuer=_STATE_ISSUER, purpose=_STATE_PURPOSE, igreja_id=_IGREJA, exp_delta=timedelta(minutes=10), omit=()):
+    now = datetime.now(timezone.utc)
+    payload = {
+        "purpose": purpose,
+        "igreja_id": igreja_id,
+        "iss": issuer,
+        "iat": now,
+        "exp": now + exp_delta,
+    }
+    for key in omit:
+        payload.pop(key, None)
+    return jwt.encode(payload, secret, algorithm="HS256")
+
+
+def test_state_expired_is_rejected() -> None:
+    oauth = _oauth_client()
+    token = _craft_state(exp_delta=timedelta(minutes=-10))
+    with pytest.raises(GoogleOAuthError):
+        oauth.verify_state(token)
+
+
+def test_state_wrong_issuer_is_rejected() -> None:
+    oauth = _oauth_client()
+    # Shaped like a valid state (right secret, purpose, igreja_id) but issued
+    # under the SESSION-token issuer — must still be rejected.
+    token = _craft_state(issuer="pastorai")
+    with pytest.raises(GoogleOAuthError):
+        oauth.verify_state(token)
+
+
+def test_state_missing_required_claim_is_rejected() -> None:
+    oauth = _oauth_client()
+    token = _craft_state(omit=("igreja_id",))
+    with pytest.raises(GoogleOAuthError):
+        oauth.verify_state(token)
+
+
+def test_state_wrong_purpose_is_rejected() -> None:
+    oauth = _oauth_client()
+    token = _craft_state(purpose="something_else")
+    with pytest.raises(GoogleOAuthError):
+        oauth.verify_state(token)
+
+
+def test_oauth_state_cannot_be_used_as_session_token() -> None:
+    """Issuer pinning stops the OAuth state from being replayed as a panel
+    session JWT, even though both are signed with the same secret."""
+    secret = "topsecret"
+    state = _oauth_client(secret).sign_state(_IGREJA)
+    clerk = ClerkClient(settings=Settings(session_jwt_secret=secret))
+    with pytest.raises(ClerkAuthError):
+        clerk.verify_session_token(state)
 
 
 def test_consent_url_forces_offline_and_carries_state() -> None:
@@ -264,6 +327,66 @@ def test_callback_bad_state_redirects_without_storing(app) -> None:
     app.dependency_overrides[get_google_oauth_client] = lambda: oauth
     c = TestClient(app)
     r = c.get("/calendar/callback?code=x&state=bad", follow_redirects=False)
+    assert r.status_code in (302, 307)
+    assert session.added == []
+    assert session.committed is False
+
+
+class _RealStateOAuth(GoogleOAuthClient):
+    """Real sign_state/verify_state (SEC-ALTO-004 path); exchange_code stubbed
+    so the test never calls the live Google token endpoint."""
+
+    def __init__(self, tokens: OAuthTokens, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._tokens = tokens
+
+    def exchange_code(self, code):  # noqa: ARG002 - fixed stub, code unused
+        return self._tokens
+
+
+def _real_oauth(tokens: OAuthTokens, secret: str = "topsecret") -> _RealStateOAuth:
+    return _RealStateOAuth(
+        tokens,
+        settings=Settings(
+            session_jwt_secret=secret,
+            google_oauth_client_id="cid",
+            google_oauth_client_secret="sec",
+            google_oauth_redirect_uri="https://api.igreja12.com.br/calendar/callback",
+        ),
+    )
+
+
+def test_callback_accepts_real_state_end_to_end(app, monkeypatch) -> None:
+    """Proves the callback still works with the NEW verify_state (real JWT,
+    not the fake) — a valid state is accepted and tokens are stored."""
+    from app.services import crypto
+
+    monkeypatch.setattr(crypto.get_settings(), "secrets_encryption_key", "k" * 32)
+    crypto._get_fernet.cache_clear()  # noqa: SLF001 - rebuild Fernet with test key
+    try:
+        oauth = _real_oauth(
+            OAuthTokens(access_token="at", refresh_token="rt", expires_in=3600)
+        )
+        state = oauth.sign_state(_IGREJA)
+        session = _CalSession(app_user=None, roles=[], sync=None)
+        app.dependency_overrides[get_db] = lambda: session
+        app.dependency_overrides[get_google_oauth_client] = lambda: oauth
+        c = TestClient(app)
+        r = c.get(f"/calendar/callback?code=abc&state={state}", follow_redirects=False)
+        assert r.status_code in (302, 307)
+        assert len(session.added) == 1
+        assert session.committed is True
+    finally:
+        crypto._get_fernet.cache_clear()  # noqa: SLF001 - don't leak the test key
+
+
+def test_callback_real_invalid_state_redirects_without_storing(app) -> None:
+    oauth = _real_oauth(OAuthTokens(access_token="at", refresh_token="rt", expires_in=3600))
+    session = _CalSession(app_user=None, roles=[], sync=None)
+    app.dependency_overrides[get_db] = lambda: session
+    app.dependency_overrides[get_google_oauth_client] = lambda: oauth
+    c = TestClient(app)
+    r = c.get("/calendar/callback?code=abc&state=not-a-jwt", follow_redirects=False)
     assert r.status_code in (302, 307)
     assert session.added == []
     assert session.committed is False

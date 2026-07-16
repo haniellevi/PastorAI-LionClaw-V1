@@ -266,6 +266,45 @@ class ClerkClient:
             raise ClerkAuthError("Token missing subject")
         return str(subject)
 
+    # ---- Shared purpose-token policy (reused by other short-lived JWTs) -----
+    def verify_purpose_token(
+        self,
+        token: str,
+        *,
+        issuer: str,
+        required_claims: tuple[str, ...],
+    ) -> dict[str, Any]:
+        """Decode+verify an HS256 JWT under the same hardened policy as above.
+
+        Centralizes the rules shared by session/reset/invite tokens (fixed
+        algorithm allowlist, panel session secret, pinned issuer, required
+        claims, normalized error with no leaked detail) so other short-lived,
+        purpose-scoped tokens — e.g. the Google Calendar OAuth ``state``
+        (SEC-ALTO-004) — verify against this policy instead of decoding
+        independently. Callers still validate their own claim VALUES (e.g. a
+        ``purpose``/tenant field) after this returns.
+        """
+        if not token:
+            raise ClerkAuthError("Empty token")
+        secret = self._settings.effective_session_secret
+        if not secret:
+            raise ClerkAuthError("Session secret is not configured")
+        try:
+            return jwt.decode(
+                token,
+                secret,
+                algorithms=[_SESSION_ALG],
+                issuer=issuer,
+                options={"require": list(required_claims), "verify_aud": False},
+            )
+        except Exception as exc:  # noqa: BLE001 - normalize to one error type
+            logger.warning(
+                "Purpose token verification failed (issuer=%s): %s",
+                issuer,
+                type(exc).__name__,
+            )
+            raise ClerkAuthError("Invalid or expired token") from exc
+
     def find_user_id_by_email(self, email: str) -> str | None:
         """Return the Clerk user id for an e-mail, or None when not found."""
         secret = self._settings.clerk_secret_key
