@@ -21,8 +21,8 @@ confirmado via `git log 82e1c6f..70846d2`, ambos os merges listados):
   merge `cd2f918`). `GoogleOAuthClient.verify_state`
   (`backend/app/services/google_oauth.py`) delega a verificação de
   assinatura/algoritmo/issuer/claims obrigatórias a
-  `ClerkClient.verify_purpose_token` — a mesma política endurecida já usada
-  para os tokens de sessão/reset/invite — com issuer dedicado
+  `ClerkClient.verify_purpose_token` — a política compartilhada que, neste
+  release, era usada pelo state OAuth — com issuer dedicado
   `pastorai-gcal-oauth`, pinando o state ao seu propósito e impedindo troca
   por outro tipo de token mesmo compartilhando o mesmo segredo de assinatura.
 

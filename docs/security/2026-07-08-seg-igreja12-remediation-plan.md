@@ -4,8 +4,8 @@
 - **Projeto pipeline:** Seg-Igreja12 (LionCloud Security Audit Pipeline)
 - **Base de código:** PastorAI (`main` @ `b188358`, C1/RLS já fechado)
 - **Tipo deste documento:** fonte de verdade versionada do resultado do pipeline. **Docs-only — não implementa correção.**
-- **Última reconciliação:** 2026-07-16 (missão SEC-PLAN-RECON-1, docs-only) — todo finding ALTO/MÉDIO revalidado contra o código atual (`origin/main` @ `82e1c6f`) e contra evidência de deploy versionada (`docs/sprints/DEPLOY-HANDOFF-2026-07-09.md`, `docs/sprints/2026-07-11-deploy-m7b-sec-prod.md`, `docs/sprints/2026-07-11-m7b-w1-3-w1-4-fechamento.md`, `docs/sprints/2026-07-16-backend-release-82e1c6f.md`), **não** por comentário/commit antigo/memória de chat. Ver §2.4 para o detalhe item a item; tabelas de §2.1/§2.2 já refletem o status revalidado.
-- **Atualização REL-3B (2026-07-16, docs-only):** ALTO-003 passou de PENDENTE para **CONCLUÍDO + deployado** (PR#181, `70846d2`). ALTO-004 passou de PENDENTE para **PARCIAL** — PR#182 (`70846d2`) endureceu um novo consumidor (o *state* OAuth do Calendar) com política compartilhada, mas **não** eliminou a triplicação original do finding (`verify_session_token`/`verify_reset_token`/`verify_invite_token` continuam com decodificação própria e independente cada um) — ver §2.4 para o detalhe verificado linha a linha e a divergência frente à instrução original desta missão. Evidência de deploy do commit em `docs/sprints/2026-07-16-backend-release-70846d2.md`.
+- **Última atualização:** 2026-07-17 (REL-5, docs-only) — ALTO-004 foi revalidado contra o código atual (`origin/main` @ `fd651f9`) e contra evidência versionada de deploy. As demais classificações preservam a reconciliação anterior, detalhada em §2.4.
+- **Atualização REL-5 (2026-07-17):** ALTO-004 passou de **PARCIAL** para **CONCLUÍDO + deployado**. PR#186 (`9284038`, merge `fd651f9`) fez o retrofit dos três métodos originais de verificação JWT para `verify_purpose_token`, preservando os contratos públicos. O deploy e a verificação de runtime estão registrados em `docs/sprints/2026-07-17-backend-release-fd651f9.md`.
 - **Fontes:**
   - `.lionclaw/Security/SPECsecurity-20260707_180329.md` (SPEC consolidada, 21 findings)
   - `.lionclaw/Security/Security-20260707-1804-*.md` (relatórios por categoria: secrets, auth, isolation, duplication, logic, standards, owasp)
@@ -34,9 +34,7 @@ Pontos de partida já resolvidos (na autoria original, 2026-07-08):
 - **ALTO-001 (Secrets)** foi tratado pela **Missão 7A** como **contenção/higiene local**. O snapshot do pipeline (2026-07-07 18:04) registrou credencial real (e-mail, nome completo e duas senhas em texto claro) nas linhas `:42`/`:50` dos `settings.local.json`. Na execução da 7A esses arquivos **já estavam com regra curinga** (`clerk users create *`), **sem `--password`**; restavam apenas IDs locais, que foram redigidos. **Nenhum arquivo estava rastreado pelo git nem foi ao remoto.** Valores omitidos deste documento por política. **Atualização 2026-07-16: a rotação da senha, então pendente, foi confirmada concluída em 2026-07-09 — ver Apêndice B.**
 - **Missão 6/C1** (seam profundo de RLS/tenant-context) está **fechada e em produção** e é a **base para os itens de RLS** deste plano — especificamente o gate do SEC-5 (`FORCE ROW LEVEL SECURITY`), que só deve ser executado **depois** do C1 validado.
 
-**Reconciliação 2026-07-16 (missão SEC-PLAN-RECON-1):** dos 5 ALTO + 6 MÉDIO, **9 estão concluídos e deployados em produção** (ALTO-001, ALTO-002, ALTO-005, MEDIO-001, MEDIO-002, MEDIO-003, MEDIO-006), **1 parcial com risco de segurança remanescente** (MEDIO-004) e **3 pendentes de fato** (ALTO-003, ALTO-004, MEDIO-005 — dedup/refactor, risco de drift não de exploração ativa). Ver §2.4 para evidência item a item e §8 para o backlog real restante.
-
-**Atualização REL-3B (2026-07-16):** ALTO-003 concluído e deployado em produção no commit `70846d2` (PR#181). ALTO-004 (PR#182, mesmo commit) evoluiu de PENDENTE para **PARCIAL** — ver nota abaixo. Dos 5 ALTO + 6 MÉDIO, agora **8 estão concluídos e deployados em produção** (ALTO-001, ALTO-002, ALTO-003, ALTO-005, MEDIO-001, MEDIO-002, MEDIO-003, MEDIO-006), **2 parciais** (ALTO-004, MEDIO-004) e **1 pendente de fato** (MEDIO-005 — dedup/refactor, risco de drift não de exploração ativa). Ver §2.4.
+**Atualização REL-5 (2026-07-17):** dos 5 ALTO + 6 MÉDIO, **9 estão concluídos e deployados em produção** (ALTO-001, ALTO-002, ALTO-003, ALTO-004, ALTO-005, MEDIO-001, MEDIO-002, MEDIO-003 e MEDIO-006), **1 parcial** (MEDIO-004) e **1 pendente de fato** (MEDIO-005). Ver §2.4 para evidência item a item e §8 para o backlog real restante.
 
 Este plano **não** implementa correções. Ele fixa: estado por severidade, ordem recomendada (SEC-0..7), riscos, gates por PR, dependências e decisões. A execução será feita depois, **um SEC por PR** (ou sub-PR pequeno), via Cloud Code com gates reais — **não** pelo LionCloud Coder.
 
@@ -44,7 +42,7 @@ Este plano **não** implementa correções. Ele fixa: estado por severidade, ord
 
 ## 2. Estado por severidade
 
-Legenda de **status** (revalidada em 2026-07-16, ver §2.4): `CONCLUÍDO` (corrigido no código atual, com teste cobrindo o comportamento) · `PARCIAL` (mitigado em parte, ou corrigido em alguns dos arquivos citados mas não em todos) · `PENDENTE` (problema ainda presente como descrito). Arquivos citados como referência do finding — **não** editados aqui.
+Legenda de **status** (revalidada em 2026-07-17, ver §2.4): `CONCLUÍDO` (corrigido no código atual, com teste cobrindo o comportamento) · `PARCIAL` (mitigado em parte, ou corrigido em alguns dos arquivos citados mas não em todos) · `PENDENTE` (problema ainda presente como descrito). Arquivos citados como referência do finding — **não** editados aqui.
 
 ### 2.1 ALTO (5)
 
@@ -53,7 +51,7 @@ Legenda de **status** (revalidada em 2026-07-16, ver §2.4): `CONCLUÍDO` (corri
 | ALTO-001 | Credencial de usuário Clerk exposta em `settings.local.json` (e cópias em worktrees) | `.claude/settings.local.json` + 4 cópias em worktrees | SEC-0 | **CONCLUÍDO** (7A + rotação confirmada 2026-07-09) — ver §2.4 |
 | ALTO-002 | Ausência de rate limiting nos endpoints de autenticação | `backend/app/routers/auth.py` (login/forgot/reset/activate/change) · `backend/app/main.py` | SEC-2 | **CONCLUÍDO** (PR#131 + PR#148) — ver §2.4 |
 | ALTO-003 | Constante `CENTRAL_ROLES` redefinida em dois módulos (risco de drift de autorização) | `backend/app/deps.py`, `backend/app/routers/cells.py` | SEC-7 | **CONCLUÍDO + deployado** (PR#181, `70846d2`) — ver §2.4 |
-| ALTO-004 | Métodos de verificação de JWT quase idênticos em `ClerkClient` | `backend/app/services/clerk.py` (verify session/reset/invite) | SEC-7 | **PARCIAL** (PR#182, `70846d2`) — ver §2.4 |
+| ALTO-004 | Métodos de verificação de JWT quase idênticos em `ClerkClient` | `backend/app/services/clerk.py` (verify session/reset/invite) | SEC-7 | **CONCLUÍDO + deployado** (PR#186, `fd651f9`) — ver §2.4 |
 | ALTO-005 | Dispatch de SLA envia WhatsApp **antes** de persistir log de dedupe | `backend/app/services/sla_engine.py` | SEC-4 | **CONCLUÍDO** (PR#144) — ver §2.4 |
 
 ### 2.2 MÉDIO (6)
@@ -132,31 +130,17 @@ que um único lugar para definir a lista. **Deploy confirmado:** `55abfd6` é an
 `70846d2` (`git log 82e1c6f..70846d2`), publicado em produção — ver
 `docs/sprints/2026-07-16-backend-release-70846d2.md`.
 
-**ALTO-004 — Verify JWT triplicado em `ClerkClient`.** `PARCIAL` (atualizado 2026-07-16,
-REL-3B — **revisado por verificação de código, diverge da classificação inicialmente pedida
-para esta missão**). PR#182 (commit `f28b680`, merge `cd2f918`, ambos ancestrais de `70846d2`)
-adicionou `ClerkClient.verify_purpose_token` (`backend/app/services/clerk.py:270-306`) — um
-helper **novo e compartilhável** que centraliza a política de decodificação HS256 (algoritmo
-fixo, segredo de sessão, issuer/claims obrigatórias parametrizados) — e migrou
-`GoogleOAuthClient.verify_state` (`backend/app/services/google_oauth.py:92-111`) para usá-lo,
-com issuer dedicado `pastorai-gcal-oauth`, fechando um risco real de confusão de tokens (o state
-OAuth não podia mais ser trocado por um token de sessão/reset/invite, coberto pelo teste
-`test_oauth_state_cannot_be_used_as_session_token`). **Isso não é, porém, a mesma coisa que o
-finding original descreve.** Conferido linha a linha em `backend/app/services/clerk.py`: os três
-métodos citados no finding — `verify_session_token` (linha 83), `verify_reset_token` (linha
-203) e `verify_invite_token` (linha 246) — continuam **cada um com seu próprio `jwt.decode(...)`
-independente**; nenhum deles foi alterado para chamar `verify_purpose_token`. A triplicação que
-o finding aponta como risco de drift **persiste sem mudança** nesses três métodos originais.
-Em outras palavras: o PR criou o helper único que o plano recomendava, mas só o conectou a um
-consumidor novo (o state OAuth) — não fez o retrofit dos três métodos pré-existentes ao helper.
-**Nota de processo:** a missão que gerou este registro (REL-3B) instruiu marcar ALTO-004 como
-"CONCLUÍDO + deployado"; a verificação de código direta contradiz essa instrução, então este
-documento registra `PARCIAL`, que é o que o código realmente mostra — ver princípio de
-julgamento independente (não tratar instrução/resumo como evidência substituta do código).
-**Próxima missão isolada (retomando a recomendação original):** 1 PR pequeno — retrofit de
-`verify_session_token`/`verify_reset_token`/`verify_invite_token` para chamarem
-`verify_purpose_token` internamente (preservando assinaturas públicas); teste único cobrindo
-os 3 fluxos + o de state OAuth já existente, confirmando paridade de comportamento.
+**ALTO-004 — Verify JWT triplicado em `ClerkClient`.** `CONCLUÍDO + deployado` (atualizado
+2026-07-17, REL-5). PR#182 criou `ClerkClient.verify_purpose_token` e migrou o state OAuth para
+a política compartilhada. PR#186 (commit `9284038`, merge `fd651f9`) completou o retrofit:
+`verify_session_token`, `verify_reset_token` e `verify_invite_token` agora delegam a
+decodificação e validação de algoritmo, segredo, issuer, expiração e claims obrigatórias ao
+mesmo helper, preservando as assinaturas e mensagens públicas de erro de cada fluxo. A checagem
+de valor específica de cada token permanece local ao método. O novo teste
+`backend/tests/test_clerk_jwt_policy.py` cobre roundtrip, expiração, issuer incorreto, claim
+ausente e isolamento entre session, reset, invite e state. **Deploy confirmado:** `fd651f9` foi
+publicado e a presença da política compartilhada foi verificada no runtime; ver
+`docs/sprints/2026-07-17-backend-release-fd651f9.md`.
 
 **ALTO-005 — SLA envia antes de logar dedupe.** `CONCLUÍDO`. `SlaEngine._dispatch`
 (`backend/app/services/sla_engine.py:340-382`) chama `reserve_agent_event(...)` — que faz
@@ -254,7 +238,7 @@ Cada SEC é **um PR separado** (ou sub-PR pequeno). A ordem prioriza: contençã
 ### SEC-3 — Invalidação de sessão + reset token de uso único · **CONCLUÍDO — PR#133+#135, deployado em PROD 2026-07-09**
 - **Findings:** MEDIO-002 (invalidar sessão em troca/reset de senha) e MEDIO-003 (reset token `jti` uso único).
 - **O que foi feito:** `password_changed_at` em `app_users` + rejeição de token pré-evento em `get_current_user`/`get_platform_admin`; `password_reset_tokens` com `jti` único + `SELECT FOR UPDATE` antes do Clerk. Ver evidência em §2.4 (MEDIO-002/003).
-- **Nota histórica:** o resequenciamento opcional (ALTO-004/MEDIO-005 antes do SEC-3, para encolher o diff) **não** foi seguido — SEC-3 foi implementado com os 3 métodos de verify/mint de `clerk.py` ainda duplicados. Não é mais acionável (SEC-3 já em produção). **Atualização 2026-07-16 (REL-3B):** ALTO-004 evoluiu para PARCIAL (helper compartilhado criado e usado por um novo consumidor, mas os 3 métodos originais de `clerk.py` seguem duplicados — ver §2.4); MEDIO-005 (mint) segue pendente, sem mudança.
+- **Nota histórica:** o resequenciamento opcional (ALTO-004/MEDIO-005 antes do SEC-3, para encolher o diff) não foi seguido. **Atualização 2026-07-17 (REL-5):** ALTO-004 foi concluído no PR#186 e publicado em `fd651f9`; MEDIO-005 (mint) segue pendente, sem mudança.
 
 ### SEC-4 — Idempotência / locks / TOCTOU · **ALTO-005 e MEDIO-006 concluídos+deployados**
 - **Findings:** ALTO-005 (SLA: log de dedupe antes do envio) — **concluído, PR#144, deployado**; MEDIO-006 (approve de solicitação de célula) — **concluído, PR#157, deployado** (ver §2.4); BAIXO-004 (`confirm_event` com lock + unicidade) e BAIXO-005 (`notify_autoupgrade` idempotente) — **não revisados nesta reconciliação** (fora do escopo ALTO/MÉDIO da missão SEC-PLAN-RECON-1).
@@ -269,12 +253,12 @@ Cada SEC é **um PR separado** (ou sub-PR pequeno). A ordem prioriza: contençã
 - **Findings:** BAIXO-010.
 - **O que muda:** preferir cookie `HttpOnly`+`Secure`+`SameSite` como fonte primária da sessão; Bearer só em memória; CSP restritiva. Se manter `localStorage`, reduzir TTL + invalidação server-side (alinha com SEC-3).
 
-### SEC-7 — Dívida técnica / dedups / refactors grandes · **ALTO-003 concluído+deployado; ALTO-004 parcial; MEDIO-004 parcial (risco de segurança real remanescente); MEDIO-005 pendente**
+### SEC-7 — Dívida técnica / dedups / refactors grandes · **ALTO-003 e ALTO-004 concluídos+deployados; MEDIO-004 parcial (risco de segurança real remanescente); MEDIO-005 pendente**
 - **Findings:** ALTO-003, ALTO-004, MEDIO-004, MEDIO-005, BAIXO-003, BAIXO-006, BAIXO-007, BAIXO-008, BAIXO-009.
-- **Nota de altitude (surfacing explícito):** ALTO-003 e ALTO-004 têm severidade **ALTA** por risco de *drift* (autorização divergente; endurecimento de JWT aplicado inconsistentemente), mas a correção é **dedup/refactor** — daí caírem no bucket SEC-7. **Atualizado 2026-07-16 (REL-3B, §2.4):** ALTO-003 foi corrigido e deployado (PR#181, `70846d2`) — fonte única confirmada em `app/deps.py`. ALTO-004 (PR#182, `70846d2`) evoluiu para PARCIAL: um helper compartilhado (`verify_purpose_token`) foi criado e adotado pelo novo consumidor (state OAuth), mas os 3 métodos originais do finding (`verify_session_token`/`verify_reset_token`/`verify_invite_token`) continuam duplicados, sem retrofit e sem teste de paridade entre eles.
+- **Nota de altitude (surfacing explícito):** ALTO-003 e ALTO-004 têm severidade **ALTA** por risco de *drift* (autorização divergente; endurecimento de JWT aplicado inconsistentemente), mas a correção é **dedup/refactor** — daí caírem no bucket SEC-7. **Atualizado 2026-07-17 (REL-5, §2.4):** ALTO-003 foi corrigido e deployado (PR#181, `70846d2`) e ALTO-004 foi concluído e deployado (PR#186, `fd651f9`), com os três métodos originais de verificação delegando à política JWT compartilhada.
 - **MEDIO-004 é o único item deste bucket com risco de segurança concreto remanescente** (não apenas dívida): `create_contact`/`update_contact` em `contacts.py` buscam por telefone sem filtro explícito de `igreja_id`, dependendo só da RLS. Recomenda-se puxar esse fix isoladamente (~4 linhas, sem migration) antes dos demais itens deste bucket — ver §2.4.
 - **Sub-divisão sugerida (cada um PR pequeno e isolado):**
-  - **SEC-7a — dedups de segurança (pequenas):** ~~ALTO-003 (fonte única `CENTRAL_ROLES`)~~ **concluído+deployado**, ALTO-004 (retrofit dos 3 métodos verify de `clerk.py` para usar `verify_purpose_token`, parcial — helper já existe), MEDIO-004 (filtro `igreja_id` explícito em `contacts.py`, parcial — priorizar), MEDIO-005 (helper único mint JWT, pendente), BAIXO-003 (helper único do HTTP client Clerk, não revisado nesta rodada).
+  - **SEC-7a — dedups de segurança (pequenas):** ~~ALTO-003 (fonte única `CENTRAL_ROLES`)~~ **concluído+deployado**, ~~ALTO-004 (retrofit dos 3 métodos verify de `clerk.py`)~~ **concluído+deployado**, MEDIO-004 (filtro `igreja_id` explícito em `contacts.py`, parcial — priorizar), MEDIO-005 (helper único mint JWT, pendente), BAIXO-003 (helper único do HTTP client Clerk, não revisado nesta rodada).
   - **SEC-7b — performance/qualidade pontual:** BAIXO-006 (`count(*)` no banco, não revisado nesta rodada).
   - **SEC-7c — refactors estruturais grandes:** BAIXO-007 (dividir `platform_admin.py`), BAIXO-008 (telas/módulos >500 linhas), BAIXO-009 (dividir `models.py` — **opcional**) — nenhum revisado nesta rodada (fora do escopo ALTO/MÉDIO).
 
@@ -314,7 +298,7 @@ Todo PR de remediação (SEC-1 em diante) deve passar, **antes do merge**:
 
 - **SEC-5 (FORCE RLS) depende do C1/RLS seam fechado** — pré-condição satisfeita (Missão 6/C1 em produção). Ainda assim, validar policies + cross-tenant em DEV antes de aplicar.
 - **SEC-1 é fundação de SEC-3** — `SESSION_JWT_SECRET` dedicado e CORS estrito antes da invalidação de sessão/reset.
-- **Resequenciamento opcional:** ALTO-004 + MEDIO-005 (helpers únicos verify/mint em `clerk.py`) **antes** do SEC-3, para reduzir o diff e centralizar o endurecimento de JWT num só ponto.
+- **Atualização REL-5:** ALTO-004 foi concluído; MEDIO-005 (helper único de mint) segue como a pendência de JWT dentro do SEC-7a.
 - **Refactors baixos não bloqueiam ALTO/MÉDIO** — SEC-7b/7c (BAIXO-006/007/008/009) podem esperar; não são gate de nada.
 - **Não misturar SEC-1/2/3/4 com SEC-7** no mesmo PR — mudança de comportamento de segurança separada de refactor estrutural, para preservar rastreabilidade.
 
@@ -333,23 +317,22 @@ Todo PR de remediação (SEC-1 em diante) deve passar, **antes do merge**:
 
 ## 8. Próximo passo recomendado
 
-**Atualizado em 2026-07-16 (reconciliação SEC-PLAN-RECON-1, refinado em REL-3B) — o `iniciar SEC-1` original já foi executado e superado.** SEC-0/1/2/3/4 estão concluídos e deployados (incluindo ALTO-005 e MEDIO-006). ALTO-003 também está concluído e deployado (PR#181, `70846d2`). O backlog real de segurança ALTO/MÉDIO que resta é:
+**Atualizado em 2026-07-17 (REL-5) — o `iniciar SEC-1` original já foi executado e superado.** SEC-0/1/2/3/4 estão concluídos e deployados (incluindo ALTO-005 e MEDIO-006). ALTO-003 e ALTO-004 também estão concluídos e deployados (PR#181/PR#186). O backlog real de segurança ALTO/MÉDIO que resta é:
 
 1. **MEDIO-004 (prioridade dentro do SEC-7a):** PR pequeno e isolado adicionando filtro explícito de `igreja_id` nas 2 queries de dedupe por telefone em `backend/app/routers/contacts.py` (`create_contact`/`update_contact`) — único item ALTO/MÉDIO remanescente com risco de segurança concreto (não apenas dívida). Sem migration.
-2. **ALTO-004 (SEC-7a, parcial — finalizar):** o helper compartilhado `ClerkClient.verify_purpose_token` já existe e está em produção (PR#182, `70846d2`); falta o retrofit de `verify_session_token`/`verify_reset_token`/`verify_invite_token` para usá-lo internamente, fechando a triplicação original do finding. PR pequeno e isolado, sem mudança de assinatura pública; teste de paridade entre os 4 fluxos (session/reset/invite/state).
-3. **SEC-7a restante (dedup, sem urgência de segurança ativa, mas recomendado cedo por risco de drift):** MEDIO-005 (helper único de mint JWT) — 1 PR pequeno e isolado, com teste de roundtrip.
-4. BAIXO-001..010 não foram revisados nesta reconciliação (fora do escopo da missão SEC-PLAN-RECON-1) — permanecem como registrados em §2.3/§3, precisam de revalidação própria antes de qualquer PR.
+2. **SEC-7a restante (dedup, sem urgência de segurança ativa, mas recomendado cedo por risco de drift):** MEDIO-005 (helper único de mint JWT) — 1 PR pequeno e isolado, com teste de roundtrip.
+3. BAIXO-001..010 não foram revisados nesta reconciliação (fora do escopo da missão SEC-PLAN-RECON-1) — permanecem como registrados em §2.3/§3, precisam de revalidação própria antes de qualquer PR.
 
 ---
 
 ## Apêndice A — Rastreabilidade finding → SEC
 
-| Finding | Severidade | SEC | Status (2026-07-16, REL-3B) | PR real / sugerido |
+| Finding | Severidade | SEC | Status (2026-07-17, REL-5) | PR real / sugerido |
 |---------|-----------|-----|----------------------|---------------------|
 | ALTO-001 | ALTO | SEC-0 | CONCLUÍDO | 7A + rotação do dono (2026-07-09) |
 | ALTO-002 | ALTO | SEC-2 | CONCLUÍDO + deployado | PR#131, PR#148 |
 | ALTO-003 | ALTO | SEC-7a | CONCLUÍDO + deployado | PR#181 (deploy: `docs/sprints/2026-07-16-backend-release-70846d2.md`) |
-| ALTO-004 | ALTO | SEC-7a | PARCIAL — helper criado, retrofit dos 3 métodos originais falta | PR#182 (parcial) + PR pequeno (retrofit) a abrir |
+| ALTO-004 | ALTO | SEC-7a | CONCLUÍDO + deployado | PR#186 (deploy: `docs/sprints/2026-07-17-backend-release-fd651f9.md`) |
 | ALTO-005 | ALTO | SEC-4 | CONCLUÍDO + deployado | PR#144 |
 | MEDIO-001 | MÉDIO | SEC-1 | CONCLUÍDO + deployado | PR#129 |
 | MEDIO-002 | MÉDIO | SEC-3 | CONCLUÍDO + deployado | PR#133 |
