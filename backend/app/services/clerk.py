@@ -83,34 +83,18 @@ class ClerkClient:
     def verify_session_token(self, token: str) -> ClerkIdentity:
         """Verify a PastorAI-issued session JWT and return the resolved identity.
 
-        Raises ClerkAuthError on any validation failure (expired, bad
-        signature, wrong issuer, missing subject).
+        Decode+verify is delegated to ``verify_purpose_token`` (SEC-ALTO-004B)
+        — the same hardened policy shared with reset/invite/OAuth-state; only
+        the ``sub`` VALUE check stays local. Raises ClerkAuthError on any
+        validation failure (expired, bad signature, wrong issuer, missing
+        subject).
         """
-        if not token:
-            raise ClerkAuthError("Empty token")
-
-        secret = self._settings.effective_session_secret
-        if not secret:
-            raise ClerkAuthError("Session secret is not configured")
-
-        try:
-            claims = jwt.decode(
-                token,
-                secret,
-                algorithms=[_SESSION_ALG],
-                issuer=_SESSION_ISSUER,
-                options={
-                    "require": ["exp", "sub", "iss"],
-                    "verify_aud": False,
-                },
-            )
-        except ClerkAuthError:
-            raise
-        except Exception as exc:  # noqa: BLE001 - normalize to one error type
-            # Log without leaking the token contents.
-            logger.warning("Session token verification failed: %s", type(exc).__name__)
-            raise ClerkAuthError("Invalid session token") from exc
-
+        claims = self.verify_purpose_token(
+            token,
+            issuer=_SESSION_ISSUER,
+            required_claims=("exp", "sub", "iss"),
+            invalid_token_message="Invalid session token",
+        )
         subject = claims.get("sub")
         if not subject:
             raise ClerkAuthError("Token missing subject")
@@ -201,23 +185,17 @@ class ClerkClient:
         return token, jti, expires_at
 
     def verify_reset_token(self, token: str) -> tuple[str, str]:
-        """Verify a password-reset JWT and return ``(clerk_user_id, jti)``."""
-        if not token:
-            raise ClerkAuthError("Empty token")
-        secret = self._settings.effective_session_secret
-        if not secret:
-            raise ClerkAuthError("Session secret is not configured")
-        try:
-            claims = jwt.decode(
-                token,
-                secret,
-                algorithms=[_SESSION_ALG],
-                issuer=_RESET_ISSUER,
-                options={"require": ["exp", "sub", "iss", "jti"], "verify_aud": False},
-            )
-        except Exception as exc:  # noqa: BLE001 - normalize to one error type
-            logger.warning("Reset token verification failed: %s", type(exc).__name__)
-            raise ClerkAuthError("Invalid or expired reset token") from exc
+        """Verify a password-reset JWT and return ``(clerk_user_id, jti)``.
+
+        Decode+verify delegated to ``verify_purpose_token`` (SEC-ALTO-004B);
+        only the ``sub``/``jti`` VALUE checks stay local.
+        """
+        claims = self.verify_purpose_token(
+            token,
+            issuer=_RESET_ISSUER,
+            required_claims=("exp", "sub", "iss", "jti"),
+            invalid_token_message="Invalid or expired reset token",
+        )
         subject = claims.get("sub")
         jti = claims.get("jti")
         if not subject or not jti:
@@ -244,23 +222,17 @@ class ClerkClient:
         return jwt.encode(payload, secret, algorithm=_SESSION_ALG)
 
     def verify_invite_token(self, token: str) -> str:
-        """Verify an invite token and return the app_user_id (sub)."""
-        if not token:
-            raise ClerkAuthError("Empty token")
-        secret = self._settings.effective_session_secret
-        if not secret:
-            raise ClerkAuthError("Session secret is not configured")
-        try:
-            claims = jwt.decode(
-                token,
-                secret,
-                algorithms=[_SESSION_ALG],
-                issuer=_INVITE_ISSUER,
-                options={"require": ["exp", "sub", "iss"], "verify_aud": False},
-            )
-        except Exception as exc:  # noqa: BLE001 - normalize to one error type
-            logger.warning("Invite token verification failed: %s", type(exc).__name__)
-            raise ClerkAuthError("Invalid or expired invite token") from exc
+        """Verify an invite token and return the app_user_id (sub).
+
+        Decode+verify delegated to ``verify_purpose_token`` (SEC-ALTO-004B);
+        only the ``sub`` VALUE check stays local.
+        """
+        claims = self.verify_purpose_token(
+            token,
+            issuer=_INVITE_ISSUER,
+            required_claims=("exp", "sub", "iss"),
+            invalid_token_message="Invalid or expired invite token",
+        )
         subject = claims.get("sub")
         if not subject:
             raise ClerkAuthError("Token missing subject")
@@ -273,16 +245,16 @@ class ClerkClient:
         *,
         issuer: str,
         required_claims: tuple[str, ...],
+        invalid_token_message: str = "Invalid or expired token",
     ) -> dict[str, Any]:
-        """Decode+verify an HS256 JWT under the same hardened policy as above.
+        """Decode+verify an HS256 JWT under one hardened policy (SEC-ALTO-004B).
 
-        Centralizes the rules shared by session/reset/invite tokens (fixed
-        algorithm allowlist, panel session secret, pinned issuer, required
-        claims, normalized error with no leaked detail) so other short-lived,
-        purpose-scoped tokens — e.g. the Google Calendar OAuth ``state``
-        (SEC-ALTO-004) — verify against this policy instead of decoding
-        independently. Callers still validate their own claim VALUES (e.g. a
-        ``purpose``/tenant field) after this returns.
+        Centralizes the rules shared by every short-lived, purpose-scoped JWT
+        PastorAI issues — session, reset, invite (all three above) and the
+        Google Calendar OAuth ``state`` (SEC-ALTO-004): fixed algorithm
+        allowlist, panel session secret, pinned issuer, required claims,
+        normalized error with no leaked detail. Callers still validate their
+        own claim VALUES (e.g. a ``purpose``/tenant field) after this returns.
         """
         if not token:
             raise ClerkAuthError("Empty token")
@@ -303,7 +275,7 @@ class ClerkClient:
                 issuer,
                 type(exc).__name__,
             )
-            raise ClerkAuthError("Invalid or expired token") from exc
+            raise ClerkAuthError(invalid_token_message) from exc
 
     def find_user_id_by_email(self, email: str) -> str | None:
         """Return the Clerk user id for an e-mail, or None when not found."""
