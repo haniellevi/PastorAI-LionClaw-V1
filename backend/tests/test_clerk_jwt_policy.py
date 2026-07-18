@@ -179,3 +179,50 @@ def test_oauth_state_cannot_be_used_as_reset_or_invite() -> None:
         clerk.verify_reset_token(state)
     with pytest.raises(ClerkAuthError):
         clerk.verify_invite_token(state)
+
+
+# ---------------------------------------------------------------------------
+# FECH-02 (MEDIO-005) — emission unified in ``_mint_purpose_token``. The
+# roundtrip tests above already prove every minted token passes its verify_*
+# counterpart (which delegates to verify_purpose_token). These tests pin the
+# EMITTED artifact itself: exact claim set, claim values, TTL and algorithm
+# stay identical to the pre-refactor per-method payloads.
+# ---------------------------------------------------------------------------
+def _decode_minted(token: str) -> tuple[dict, dict]:
+    """Decode header+claims verifying only signature/alg (no issuer pinning)."""
+    header = jwt.get_unverified_header(token)
+    claims = jwt.decode(token, _SECRET, algorithms=["HS256"])
+    return header, claims
+
+
+def test_minted_session_token_claims_ttl_and_algorithm() -> None:
+    token = _clerk()._mint_session_token("clerk_user_1")  # noqa: SLF001
+    header, claims = _decode_minted(token)
+    assert header["alg"] == "HS256"
+    assert set(claims) == {"sub", "iss", "iat", "exp"}
+    assert claims["sub"] == "clerk_user_1"
+    assert claims["iss"] == "pastorai"
+    assert claims["exp"] - claims["iat"] == _SETTINGS.session_ttl_hours * 3600
+
+
+def test_minted_reset_token_claims_ttl_and_algorithm() -> None:
+    token, jti, expires_at = _clerk().mint_reset_token("clerk_user_1")
+    header, claims = _decode_minted(token)
+    assert header["alg"] == "HS256"
+    assert set(claims) == {"sub", "iss", "iat", "exp", "jti"}
+    assert claims["sub"] == "clerk_user_1"
+    assert claims["iss"] == "pastorai-reset"
+    assert claims["jti"] == jti
+    assert claims["exp"] - claims["iat"] == _SETTINGS.password_reset_ttl_minutes * 60
+    # The returned expires_at must match the emitted ``exp`` claim exactly.
+    assert claims["exp"] == int(expires_at.timestamp())
+
+
+def test_minted_invite_token_claims_ttl_and_algorithm() -> None:
+    token = _clerk().mint_invite_token("app_user_1")
+    header, claims = _decode_minted(token)
+    assert header["alg"] == "HS256"
+    assert set(claims) == {"sub", "iss", "iat", "exp"}
+    assert claims["sub"] == "app_user_1"
+    assert claims["iss"] == "pastorai-invite"
+    assert claims["exp"] - claims["iat"] == 7 * 24 * 3600

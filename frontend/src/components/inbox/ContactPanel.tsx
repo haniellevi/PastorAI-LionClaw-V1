@@ -212,11 +212,12 @@ export function ContactPanel({
   );
 
   return (
+    // W5A: painel lateral (drawer), não é modal — sem role de dialog nem
+    // aria-modal. O aria-label permanece nomeando a landmark <aside>; o
+    // tabIndex sustenta o fallback de foco da lógica de teclado acima.
     <aside
       ref={rootRef}
       className="conv-panel"
-      role="dialog"
-      aria-modal="true"
       aria-label="Dados do contato"
       tabIndex={-1}
     >

@@ -65,20 +65,48 @@ class ClerkClient:
     def __init__(self, settings: Settings | None = None) -> None:
         self._settings = settings or get_settings()
 
-    # ---- Session token: PastorAI-issued JWT (panel session) ----------------
-    def _mint_session_token(self, clerk_user_id: str) -> str:
-        """Mint a short-lived PastorAI session JWT (HS256) for the panel."""
+    # ---- Shared purpose-token emission (MEDIO-005) --------------------------
+    def _mint_purpose_token(
+        self,
+        subject: str,
+        *,
+        issuer: str,
+        ttl: timedelta,
+        extra_claims: dict[str, Any] | None = None,
+    ) -> tuple[str, datetime]:
+        """Mint an HS256 purpose-scoped JWT under one shared policy (MEDIO-005).
+
+        Emission counterpart of ``verify_purpose_token``: every short-lived,
+        purpose-scoped JWT PastorAI issues (session, reset, invite) is built
+        here with the same secret, algorithm and base claims (``sub``/``iss``/
+        ``iat``/``exp``); only the issuer, the TTL and purpose-specific extra
+        claims (e.g. the reset ``jti``) vary per caller. Returns ``(token,
+        expires_at)``.
+        """
         secret = self._settings.effective_session_secret
         if not secret:
             raise ClerkAuthError("Session secret is not configured")
         now = datetime.now(timezone.utc)
-        payload = {
-            "sub": clerk_user_id,
-            "iss": _SESSION_ISSUER,
+        expires_at = now + ttl
+        payload: dict[str, Any] = {
+            "sub": subject,
+            "iss": issuer,
             "iat": now,
-            "exp": now + timedelta(hours=self._settings.session_ttl_hours),
+            "exp": expires_at,
         }
-        return jwt.encode(payload, secret, algorithm=_SESSION_ALG)
+        if extra_claims:
+            payload.update(extra_claims)
+        return jwt.encode(payload, secret, algorithm=_SESSION_ALG), expires_at
+
+    # ---- Session token: PastorAI-issued JWT (panel session) ----------------
+    def _mint_session_token(self, clerk_user_id: str) -> str:
+        """Mint a short-lived PastorAI session JWT (HS256) for the panel."""
+        token, _expires_at = self._mint_purpose_token(
+            clerk_user_id,
+            issuer=_SESSION_ISSUER,
+            ttl=timedelta(hours=self._settings.session_ttl_hours),
+        )
+        return token
 
     def verify_session_token(self, token: str) -> ClerkIdentity:
         """Verify a PastorAI-issued session JWT and return the resolved identity.
@@ -168,20 +196,13 @@ class ClerkClient:
         token was minted by us and hasn't expired, not that it wasn't already
         used.
         """
-        secret = self._settings.effective_session_secret
-        if not secret:
-            raise ClerkAuthError("Session secret is not configured")
-        now = datetime.now(timezone.utc)
-        expires_at = now + timedelta(minutes=self._settings.password_reset_ttl_minutes)
         jti = str(uuid.uuid4())
-        payload = {
-            "sub": clerk_user_id,
-            "iss": _RESET_ISSUER,
-            "iat": now,
-            "exp": expires_at,
-            "jti": jti,
-        }
-        token = jwt.encode(payload, secret, algorithm=_SESSION_ALG)
+        token, expires_at = self._mint_purpose_token(
+            clerk_user_id,
+            issuer=_RESET_ISSUER,
+            ttl=timedelta(minutes=self._settings.password_reset_ttl_minutes),
+            extra_claims={"jti": jti},
+        )
         return token, jti, expires_at
 
     def verify_reset_token(self, token: str) -> tuple[str, str]:
@@ -209,17 +230,12 @@ class ClerkClient:
         The subject is the app_user id (the invited account has no Clerk user
         yet). Signed so the link cannot be forged from a raw id.
         """
-        secret = self._settings.effective_session_secret
-        if not secret:
-            raise ClerkAuthError("Session secret is not configured")
-        now = datetime.now(timezone.utc)
-        payload = {
-            "sub": app_user_id,
-            "iss": _INVITE_ISSUER,
-            "iat": now,
-            "exp": now + timedelta(days=_INVITE_TTL_DAYS),
-        }
-        return jwt.encode(payload, secret, algorithm=_SESSION_ALG)
+        token, _expires_at = self._mint_purpose_token(
+            app_user_id,
+            issuer=_INVITE_ISSUER,
+            ttl=timedelta(days=_INVITE_TTL_DAYS),
+        )
+        return token
 
     def verify_invite_token(self, token: str) -> str:
         """Verify an invite token and return the app_user_id (sub).

@@ -13,6 +13,7 @@
 import { useMemo, useState } from "react";
 
 import { StatusPill } from "@/components/dashboard/StatusPill";
+import { Dialog as DsDialog } from "@/components/ds/Dialog";
 import { SessionExpiredError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import type { Contact } from "@/lib/contacts-api";
@@ -100,20 +101,16 @@ export function InviteMemberModal({ celulaId, celulaNome, contacts, onClose, onI
   }
 
   return (
-    <div className="modal-overlay" role="presentation" onClick={onClose}>
-      <div
-        className="modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label={`Convidar membro para ${celulaNome}`}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="modal-head">
-          <strong>Convidar membro · {celulaNome}</strong>
-          <button type="button" className="btn btn-sm btn-ghost" onClick={onClose}>
-            Fechar
-          </button>
-        </div>
+    // W5A: shell manual → DsDialog (Esc/trap/backdrop/retorno de foco do
+    // primitive); fechar bloqueado enquanto envia. O foco inicial vai para o
+    // campo do modo ativo via [data-autofocus].
+    <DsDialog
+      open
+      onClose={() => {
+        if (!sending) onClose();
+      }}
+      title={`Convidar membro · ${celulaNome}`}
+    >
         <form
           className="modal-form"
           onSubmit={(e) => {
@@ -143,6 +140,7 @@ export function InviteMemberModal({ celulaId, celulaNome, contacts, onClose, onI
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder="Buscar por nome, telefone ou e-mail…"
                   autoFocus
+                  data-autofocus=""
                 />
                 <div
                   style={{
@@ -239,6 +237,7 @@ export function InviteMemberModal({ celulaId, celulaNome, contacts, onClose, onI
                   onChange={(e) => setNovoNome(e.target.value)}
                   placeholder="Nome completo"
                   autoFocus
+                  data-autofocus=""
                 />
               </div>
               <div className="field">
@@ -280,7 +279,6 @@ export function InviteMemberModal({ celulaId, celulaNome, contacts, onClose, onI
             </button>
           </div>
         </form>
-      </div>
-    </div>
+    </DsDialog>
   );
 }

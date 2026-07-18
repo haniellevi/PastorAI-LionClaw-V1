@@ -400,7 +400,10 @@ def create_contact(
     # +55 / 9th-digit variations of the same number collapse to one contact.
     stored_digits = func.regexp_replace(Pessoa.telefone, r"\D", "", "g")
     candidates = db.execute(
-        select(Pessoa).where(func.right(stored_digits, 8) == phone_suffix(normalized))
+        select(Pessoa).where(
+            Pessoa.igreja_id == uuid.UUID(current_user.igreja_id),
+            func.right(stored_digits, 8) == phone_suffix(normalized),
+        )
     ).scalars().all()
     existing = next(
         (p for p in candidates if normalize_phone(p.telefone) == normalized),
@@ -528,6 +531,7 @@ def update_contact(
         stored_digits = func.regexp_replace(Pessoa.telefone, r"\D", "", "g")
         candidates = db.execute(
             select(Pessoa).where(
+                Pessoa.igreja_id == uuid.UUID(current_user.igreja_id),
                 func.right(stored_digits, 8) == phone_suffix(normalized),
                 Pessoa.id != pessoa_uuid,
             )

@@ -14,6 +14,7 @@ import { useMemo } from "react";
 
 import { DeadlineBadge } from "@/components/dashboard/DeadlineBadge";
 import { StatusPill } from "@/components/dashboard/StatusPill";
+import { Dialog as DsDialog } from "@/components/ds/Dialog";
 import { Button } from "@/components/ui/Button";
 import {
   MANDATORY_ETAPAS,
@@ -89,22 +90,17 @@ export function TrackModal({
           : "Concluir é liberado apenas com todas as etapas obrigatórias confirmadas.";
 
   return (
-    <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div
-        className="modal modal-wide"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Trilha de consolidação"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="modal-head">
-          <strong>Trilha de consolidação</strong>
-          <button type="button" className="btn btn-sm btn-ghost" onClick={onClose}>
-            Fechar
-          </button>
-        </div>
-        <p className="modal-sub">Processo individual — da decisão à conclusão</p>
-
+    // W5A: shell manual → DsDialog (Esc/trap/backdrop/retorno de foco do
+    // primitive); fechar bloqueado enquanto uma ação está em andamento.
+    <DsDialog
+      open
+      onClose={() => {
+        if (!busy) onClose();
+      }}
+      title="Trilha de consolidação"
+      description="Processo individual — da decisão à conclusão"
+    >
+      <>
         {error ? (
           <div className="error-banner" role="alert">
             <Icon name="alert" />
@@ -194,7 +190,7 @@ export function TrackModal({
             </Button>
           )}
         </div>
-      </div>
-    </div>
+      </>
+    </DsDialog>
   );
 }
