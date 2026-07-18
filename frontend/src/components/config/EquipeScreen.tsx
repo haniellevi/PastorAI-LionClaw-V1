@@ -19,6 +19,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { StatusPill, type PillTone } from "@/components/dashboard/StatusPill";
+import { Dialog as DsDialog } from "@/components/ds/Dialog";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { SessionExpiredError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
@@ -702,20 +703,9 @@ export function EquipeScreen() {
       </div>
 
       {editing ? (
-        <div className="modal-overlay" role="presentation" onClick={closeEdit}>
-          <div
-            className="modal"
-            role="dialog"
-            aria-modal="true"
-            aria-label={`Editar papéis de ${editing.nome}`}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="modal-head">
-              <strong>Editar papéis · {editing.nome}</strong>
-              <button type="button" className="btn btn-sm btn-ghost" onClick={closeEdit}>
-                Fechar
-              </button>
-            </div>
+        // W5A: shell manual → DsDialog (Esc/trap/backdrop/retorno de foco do
+        // primitive); mesmo título do head manual anterior.
+        <DsDialog open onClose={closeEdit} title={`Editar papéis · ${editing.nome}`}>
             <form
               className="modal-form"
               onSubmit={(e) => {
@@ -742,8 +732,7 @@ export function EquipeScreen() {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
+        </DsDialog>
       ) : null}
 
       {toast ? (

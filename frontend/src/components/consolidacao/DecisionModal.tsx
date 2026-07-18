@@ -15,6 +15,7 @@
  */
 import { useMemo, useState } from "react";
 
+import { Dialog as DsDialog } from "@/components/ds/Dialog";
 import { Button } from "@/components/ui/Button";
 import type { CellSummary } from "@/lib/cells-api";
 import type { Contact } from "@/lib/contacts-api";
@@ -89,25 +90,16 @@ export function DecisionModal({
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div
-        className="modal modal-wide"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Lançar decisão por Jesus"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="modal-head">
-          <strong>Lançar decisão por Jesus</strong>
-          <button type="button" className="btn btn-sm btn-ghost" onClick={onClose}>
-            Fechar
-          </button>
-        </div>
-        <p className="modal-sub">
-          Registre quem decidiu por Jesus para iniciar a consolidação. Ninguém que
-          aceitou Jesus fica sem acompanhamento.
-        </p>
-
+    // W5A: shell manual → DsDialog (Esc/trap/backdrop/retorno de foco do
+    // primitive); fechar bloqueado enquanto salva, como nas waves anteriores.
+    <DsDialog
+      open
+      onClose={() => {
+        if (!busy) onClose();
+      }}
+      title="Lançar decisão por Jesus"
+      description="Registre quem decidiu por Jesus para iniciar a consolidação. Ninguém que aceitou Jesus fica sem acompanhamento."
+    >
         <form
           className="modal-form"
           onSubmit={(e) => {
@@ -269,7 +261,6 @@ export function DecisionModal({
             </Button>
           </div>
         </form>
-      </div>
-    </div>
+    </DsDialog>
   );
 }

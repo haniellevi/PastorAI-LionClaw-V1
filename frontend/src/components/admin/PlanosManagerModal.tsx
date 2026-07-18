@@ -10,6 +10,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 
+import { Dialog as DsDialog } from "@/components/ds/Dialog";
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
 import {
@@ -195,22 +196,14 @@ export function PlanosManagerModal({
   const isForm = editing !== null;
 
   return (
-    <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div
-        className="modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Gestão de planos"
-        onClick={(e) => e.stopPropagation()}
-        style={{ maxWidth: 640 }}
-      >
-        <div className="modal-head">
-          <strong>{isForm ? (editing === "new" ? "Novo plano" : "Editar plano") : "Planos"}</strong>
-          <button type="button" className="btn btn-sm btn-ghost" onClick={onClose}>
-            Fechar
-          </button>
-        </div>
-
+    // W5A: shell manual → DsDialog (Esc/trap/backdrop/retorno de foco do
+    // primitive); título acompanha o modo (lista/novo/edição) como no head
+    // manual anterior.
+    <DsDialog
+      open
+      onClose={onClose}
+      title={isForm ? (editing === "new" ? "Novo plano" : "Editar plano") : "Planos"}
+    >
         {isForm ? (
           <form
             className="modal-form"
@@ -393,7 +386,6 @@ export function PlanosManagerModal({
             </div>
           </div>
         )}
-      </div>
-    </div>
+    </DsDialog>
   );
 }

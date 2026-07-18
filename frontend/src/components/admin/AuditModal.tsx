@@ -7,6 +7,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 
+import { Dialog as DsDialog } from "@/components/ds/Dialog";
 import { Button } from "@/components/ui/Button";
 import {
   AdminSessionExpiredError,
@@ -82,23 +83,10 @@ export function AuditModal({ token, onClose, onExpired }: AuditModalProps) {
   }, [load]);
 
   return (
-    <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div
-        className="modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Auditoria do console"
-        onClick={(e) => e.stopPropagation()}
-        style={{ maxWidth: 720 }}
-      >
-        <div className="modal-head">
-          <strong>Auditoria</strong>
-          <button type="button" className="btn btn-sm btn-ghost" onClick={onClose}>
-            Fechar
-          </button>
-        </div>
-
-        <div className="modal-form">
+    // W5A: shell manual → DsDialog (Esc/trap/backdrop/retorno de foco do
+    // primitive); somente leitura — fechar sempre disponível.
+    <DsDialog open onClose={onClose} title="Auditoria">
+      <div className="modal-form">
           {error ? (
             <div className="error-banner" role="alert">
               <span>{error}</span>
@@ -158,8 +146,7 @@ export function AuditModal({ token, onClose, onExpired }: AuditModalProps) {
               Atualizar
             </Button>
           </div>
-        </div>
       </div>
-    </div>
+    </DsDialog>
   );
 }

@@ -7,6 +7,7 @@
  */
 import { useState } from "react";
 
+import { Dialog as DsDialog } from "@/components/ds/Dialog";
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
 import type { Contact, UpdateContactInput } from "@/lib/contacts-api";
@@ -75,21 +76,16 @@ export function EditContactModal({ contact, busy, error, onClose, onSubmit }: Ed
   };
 
   return (
-    <div className="modal-overlay" onClick={onClose} role="presentation">
-      <div
-        className="modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label={`Editar ${contact.nome}`}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="modal-head">
-          <strong>Editar pessoa</strong>
-          <button type="button" className="btn btn-sm btn-ghost" onClick={onClose}>
-            Fechar
-          </button>
-        </div>
-
+    // W5A: shell manual → DsDialog (Esc/trap/backdrop/retorno de foco do
+    // primitive); fechar bloqueado enquanto salva. O foco inicial vai para o
+    // campo Nome via [data-autofocus].
+    <DsDialog
+      open
+      onClose={() => {
+        if (!busy) onClose();
+      }}
+      title="Editar pessoa"
+    >
         <form
           className="modal-form"
           onSubmit={(e) => {
@@ -108,7 +104,7 @@ export function EditContactModal({ contact, busy, error, onClose, onSubmit }: Ed
             value={nome}
             onChange={(e) => setNome(e.target.value)}
             error={nomeError}
-            autoFocus
+            data-autofocus=""
           />
           <Field
             label="Telefone"
@@ -199,7 +195,6 @@ export function EditContactModal({ contact, busy, error, onClose, onSubmit }: Ed
             </Button>
           </div>
         </form>
-      </div>
-    </div>
+    </DsDialog>
   );
 }
