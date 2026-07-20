@@ -54,6 +54,7 @@ from app.domain.conversations import (
     parse_message_event,
 )
 from app.domain.phone import normalize_phone, phone_suffix
+from app.services.pessoa_dedup import insert_pessoa_or_get_winner
 
 logger = logging.getLogger("pastorai.queue_worker")
 
@@ -199,17 +200,26 @@ def ingest_message_event_ex(
         # Nasce como "contato" (US-10): quem fala pela 1ª vez e ainda não foi à
         # igreja/célula. Vira "visitante" só por evento real (líder cadastra,
         # consolidação ou check-in) — nunca por autodeclaração no chat.
-        pessoa = Pessoa(
+        # UNIQ-PESSOA-1: SAVEPOINT + re-fetch da vencedora. Duas mensagens
+        # inbound concorrentes do MESMO número (mesmo parsed.telefone_raw) não se
+        # veem na dedupe acima e ambas tentariam inserir; uq_pessoas_telefone_ativa
+        # serializa — a perdedora recebe unique_violation e reaproveita a Pessoa
+        # vencedora. Caminho feliz idêntico. A Session aqui é a do turno; o
+        # SAVEPOINT preserva o já pendente na transação externa.
+        pessoa = insert_pessoa_or_get_winner(
+            db,
+            Pessoa(
+                igreja_id=igreja_id,
+                nome=parsed.push_name or parsed.telefone_raw,
+                telefone=parsed.telefone_raw,
+                origem="whatsapp",
+                tipo="contato",
+                etapa="ganhar",
+                subetapa="novo_contato",
+            ),
             igreja_id=igreja_id,
-            nome=parsed.push_name or parsed.telefone_raw,
-            telefone=parsed.telefone_raw,
-            origem="whatsapp",
-            tipo="contato",
-            etapa="ganhar",
-            subetapa="novo_contato",
+            canonical=parsed.telefone,
         )
-        db.add(pessoa)
-        db.flush()
 
     conversation = db.execute(
         select(Conversation).where(

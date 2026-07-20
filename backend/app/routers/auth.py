@@ -32,6 +32,7 @@ from app.deps import (
     get_current_user,
 )
 from app.domain.phone import normalize_phone, phone_suffix
+from app.services.pessoa_dedup import insert_pessoa_or_get_winner
 from app.services.brevo import BrevoClient, BrevoError, get_brevo_client
 from app.services.celula_membro import ensure_active_membro
 from app.services.clerk import ClerkAuthError, ClerkClient, get_clerk_client
@@ -433,7 +434,7 @@ def _complete_cadastro_pessoa(
                 db, igreja_id=igreja_uuid, celula_id=celula_id, pessoa_id=existing.id
             )
     else:
-        pessoa = Pessoa(
+        new_pessoa = Pessoa(
             igreja_id=igreja_uuid,
             nome=app_user.nome,
             telefone=telefone_raw.strip(),
@@ -441,12 +442,23 @@ def _complete_cadastro_pessoa(
             tipo="membro",
             celula_id=celula_id,
         )
-        db.add(pessoa)
-        db.flush()  # fires person/cell triggers; assigns id
+        # UNIQ-PESSOA-1: SAVEPOINT + re-fetch. Se uma criação concorrente do
+        # mesmo telefone/tenant venceu, uq_pessoas_telefone_ativa levanta
+        # unique_violation e reaproveitamos a vencedora — tratada como o ramo
+        # "existing" (adota a célula pendente só se ainda não tiver uma).
+        pessoa = insert_pessoa_or_get_winner(
+            db, new_pessoa, igreja_id=igreja_uuid, canonical=normalized
+        )
         app_user.pessoa_id = pessoa.id
-        if celula_id is not None:
-            # Vínculo canônico (achado C-02): Pessoa recém-criada na célula
-            # pendente também precisa da linha em celula_membro.
+        if pessoa is new_pessoa:
+            if celula_id is not None:
+                # Vínculo canônico (achado C-02): Pessoa recém-criada na célula
+                # pendente também precisa da linha em celula_membro.
+                ensure_active_membro(
+                    db, igreja_id=igreja_uuid, celula_id=celula_id, pessoa_id=pessoa.id
+                )
+        elif pessoa.celula_id is None and celula_id is not None:
+            pessoa.celula_id = celula_id
             ensure_active_membro(
                 db, igreja_id=igreja_uuid, celula_id=celula_id, pessoa_id=pessoa.id
             )

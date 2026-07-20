@@ -97,6 +97,13 @@ class FakeIngestSession:
     def add(self, obj) -> None:
         self.added.append(obj)
 
+    def begin_nested(self):
+        # UNIQ-PESSOA-1: insert_pessoa_or_get_winner roda o INSERT num SAVEPOINT.
+        # Sem corrida na fake (flush não levanta), o SAVEPOINT é um no-op.
+        from contextlib import nullcontext
+
+        return nullcontext()
+
     def flush(self) -> None:
         pass
 
