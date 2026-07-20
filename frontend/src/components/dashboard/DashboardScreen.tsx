@@ -262,7 +262,7 @@ export function DashboardScreen() {
     },
     {
       key: "csim",
-      label: "Sem interesse (CSIM)",
+      label: "Fora da igreja",
       icon: "alert",
       value: overview?.semInteresse,
       sub: "fora do funil",

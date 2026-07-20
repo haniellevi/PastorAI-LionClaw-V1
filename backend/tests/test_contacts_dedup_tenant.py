@@ -143,6 +143,7 @@ def make_pessoa(*, pessoa_id, igreja_id, telefone, nome="Pessoa"):
         celula_id=None,
         lider_id=None,
         apto_lider=False,
+        arquivada_em=None,
     )
 
 

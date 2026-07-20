@@ -91,6 +91,23 @@ function origemLabel(o: string | null | undefined): string | null {
   return null;
 }
 
+/**
+ * FECH-08 (AGENDA-ORD-1): ordena a fila "A confirmar" por data do evento,
+ * ascendente (mais próximo primeiro). Ordenação estável (Array.prototype.sort
+ * é estável desde ES2019): empates de data preservam a ordem original da API.
+ * Eventos sem data (recorrentes, `data=null`) vão para o fim, também na ordem
+ * original. `data` é YYYY-MM-DD → comparação lexicográfica = cronológica.
+ * Frontend-only; as demais abas/visões da Agenda não passam por aqui.
+ */
+function sortPendingByDate(items: EventItem[]): EventItem[] {
+  return [...items].sort((a, b) => {
+    if (a.data === b.data) return 0;
+    if (a.data === null) return 1;
+    if (b.data === null) return -1;
+    return a.data < b.data ? -1 : 1;
+  });
+}
+
 // P0b-3: cor do evento nas visões. 'a_confirmar' (vermelho/alerta) tem
 // precedência sobre a cor por tipo; sem tipo/null mantém o accent neutro atual.
 function evClass(ev: EventItem): string {
@@ -204,8 +221,12 @@ export function CalendarioScreen() {
   const calendarView: EventView | null = view === "confirmar" ? null : view;
   const isCalendar = calendarView !== null;
 
-  // Fila "A confirmar": eventos status='a_confirmar' (semeados/importados EVT-6).
-  const pendentes = useMemo(() => events.filter((e) => e.status === "a_confirmar"), [events]);
+  // Fila "A confirmar": eventos status='a_confirmar' (semeados/importados EVT-6),
+  // ordenados por data ascendente no frontend (FECH-08 / AGENDA-ORD-1).
+  const pendentes = useMemo(
+    () => sortPendingByDate(events.filter((e) => e.status === "a_confirmar")),
+    [events],
+  );
 
   const year = cursor.getFullYear();
   const month = cursor.getMonth();

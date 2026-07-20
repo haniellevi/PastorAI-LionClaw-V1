@@ -159,14 +159,14 @@ export function EditContactModal({ contact, busy, error, onClose, onSubmit }: Ed
                     {t.label}
                   </option>
                 ))}
-                <option value="csim">Sem interesse (CSIM)</option>
+                <option value="csim">Fora da igreja</option>
               </select>
             </div>
           </div>
 
           {semInteresse ? (
             <Field
-              label="Motivo (CSIM)"
+              label="Motivo (Fora da igreja)"
               value={csimMotivo}
               onChange={(e) => setCsimMotivo(e.target.value)}
               placeholder="ex.: empresa, outra cidade"

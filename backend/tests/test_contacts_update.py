@@ -86,6 +86,7 @@ def make_pessoa(*, nome="Antigo", telefone="+5589999990000", email="a@x.com"):
         celula_id=None,
         lider_id=None,
         apto_lider=False,
+        arquivada_em=None,
     )
 
 

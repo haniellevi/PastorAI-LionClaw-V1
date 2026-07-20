@@ -17,7 +17,7 @@ const TIPO_ORDER: Array<[string, string]> = [
   ["discipulo", "Discípulos"],
   ["membro", "Membros"],
   ["pastor", "Pastores"],
-  ["sem_interesse", "Sem interesse"],
+  ["sem_interesse", "Fora da igreja"],
 ];
 
 const ETAPA_ORDER: Array<[string, string, IconKey]> = [
@@ -63,7 +63,7 @@ export function OverviewSection({ stats }: { stats: OverviewStats }) {
     },
     {
       icon: "alert",
-      label: "Sem interesse (CSIM)",
+      label: "Fora da igreja",
       value: stats.semInteresse,
       delta: "fora do funil",
     },

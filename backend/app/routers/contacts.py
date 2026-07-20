@@ -13,19 +13,22 @@ state-machine side effects rather than re-implementing them in the app.
 from __future__ import annotations
 
 import dataclasses
+import datetime as dt
 import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.db.models import Celula, Pessoa
+from app.config import get_settings
+from app.db.models import Celula, ConsentRecord, Pessoa, PessoaArquivamentoEvento
 from app.db.session import get_db
 from app.deps import CurrentUser, get_current_user, require_role
 from app.domain.phone import normalize_phone, phone_suffix
-from app.services.pessoa_dedup import insert_pessoa_or_get_winner
+from app.services.pessoa_dedup import _PG_UNIQUE_VIOLATION, insert_pessoa_or_get_winner
 from app.services import pessoa_offboarding_service
 from app.services.celula_membro import ensure_active_membro
 from app.routers._common import Page, PaginationParams
@@ -99,6 +102,9 @@ class ContactOut(BaseModel):
     liderId: str | None = None  # noqa: N815
     aptoLider: bool = False  # noqa: N815 - realizou o Reencontro
     liderDeCelula: bool = False  # noqa: N815 - derivado: lidera célula ativa
+    # FECH-06/REATIVAR-1: derivado de arquivada_em — permite à UI separar as
+    # pessoas arquivadas das listas normais (sem expor por/motivo na listagem).
+    arquivada: bool = False
 
     @classmethod
     def from_model(cls, p: Pessoa, *, lider_de_celula: bool = False) -> "ContactOut":
@@ -120,6 +126,7 @@ class ContactOut(BaseModel):
             liderId=str(p.lider_id) if p.lider_id else None,
             aptoLider=bool(p.apto_lider),
             liderDeCelula=lider_de_celula,
+            arquivada=p.arquivada_em is not None,
         )
 
 
@@ -329,6 +336,22 @@ class ArchiveContactRequest(BaseModel):
         return trimmed
 
 
+class ReactivateCommunicationsResponse(BaseModel):
+    """Resposta de ``POST /contacts/{pessoa_id}/reactivate-communications`` (OPTIN-1).
+
+    ``ja_ativa`` sinaliza a chamada idempotente (pessoa NÃO estava em opt-out):
+    nada muda e nenhum consentimento novo é gravado — espelho do padrão
+    ``ja_arquivada`` do archive. ``reativada_por`` registra o app_user que
+    executou a reativação (auditoria da ação administrativa).
+    """
+
+    pessoa_id: str
+    optout: bool
+    termo_versao: str
+    reativada_por: str | None
+    ja_ativa: bool
+
+
 class ArchiveContactResponse(BaseModel):
     pessoa_id: str
     arquivada: bool
@@ -341,6 +364,19 @@ class ArchiveContactResponse(BaseModel):
     # olhando `arquivada=true`. `arquivada_motivo`/`arquivada_por` nesse caso
     # são sempre os do arquivamento ORIGINAL, nunca sobrescritos.
     ja_arquivada: bool
+
+
+class UnarchiveContactResponse(BaseModel):
+    """Resposta de ``POST /contacts/{pessoa_id}/unarchive`` (FECH-06/REATIVAR-1).
+
+    Caminho de volta do archive: ``arquivada`` volta a ``False`` e
+    ``reativada_por`` registra o app_user que executou a reativação
+    (a trilha completa fica em ``pessoa_arquivamento_evento``).
+    """
+
+    pessoa_id: str
+    arquivada: bool
+    reativada_por: str | None
 
 
 # ---------------------------------------------------------------------------
@@ -757,4 +793,189 @@ def archive_contact(
         arquivada_por=str(pessoa.arquivada_por) if pessoa.arquivada_por else None,
         arquivada_motivo=pessoa.arquivada_motivo or "",
         ja_arquivada=ja_arquivada,
+    )
+
+
+@router.post("/{pessoa_id}/unarchive", response_model=UnarchiveContactResponse)
+def unarchive_contact(
+    pessoa_id: str,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_role(["admin", "pastor"])),
+) -> UnarchiveContactResponse:
+    """Desarquiva `pessoa_id` (FECH-06/REATIVAR-1) — caminho de volta do archive.
+
+    Restrito a admin/pastor (RBAC real via ``require_role``). Limpa
+    ``arquivada_em/arquivada_por/arquivada_motivo`` e grava uma linha
+    append-only em ``pessoa_arquivamento_evento`` com ``acao='reativada'`` —
+    a metade do enum modelada em W3.2A e nunca usada até aqui. A pessoa volta
+    às listas normais (o índice parcial ``uq_pessoas_telefone_ativa`` cobre
+    apenas ``arquivada_em IS NULL``; se outra pessoa ATIVA já usa o mesmo
+    telefone, o banco rejeita e nada é aplicado — rollback total).
+
+    A query filtra ``igreja_id`` EXPLICITAMENTE (além da RLS): pessoa de outra
+    igreja responde 404 sem revelar existência. Reativar pessoa NÃO arquivada
+    responde 409 (mesmo status usado pelo archive para estado conflitante).
+    O fluxo de arquivar (preflight + POST /archive) permanece intocado.
+    """
+    try:
+        pessoa_uuid = uuid.UUID(pessoa_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Pessoa não encontrada"
+        ) from exc
+
+    igreja_uuid = uuid.UUID(current_user.igreja_id)
+    pessoa = db.execute(
+        select(Pessoa).where(
+            Pessoa.id == pessoa_uuid,
+            # Filtro explícito de tenant (regra de ouro), além da RLS.
+            Pessoa.igreja_id == igreja_uuid,
+        )
+    ).scalar_one_or_none()
+    if pessoa is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Pessoa não encontrada"
+        )
+
+    if pessoa.arquivada_em is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Pessoa não está arquivada",
+        )
+
+    motivo_original = (pessoa.arquivada_motivo or "").strip()
+    pessoa.arquivada_em = None
+    pessoa.arquivada_por = None
+    pessoa.arquivada_motivo = None
+
+    # Auditoria append-only na MESMA transação da reativação (espelho da linha
+    # 'arquivada' gravada por archive_pessoa) — preserva o motivo original do
+    # arquivamento, que acabou de ser limpo da Pessoa.
+    db.add(
+        PessoaArquivamentoEvento(
+            igreja_id=igreja_uuid,
+            pessoa_id=pessoa.id,
+            ator_id=uuid.UUID(current_user.app_user_id),
+            acao=pessoa_offboarding_service.ACAO_REATIVADA,
+            motivo=(
+                f"Reativação administrativa — motivo do arquivamento original: {motivo_original}"
+                if motivo_original
+                else "Reativação administrativa"
+            ),
+        )
+    )
+    logger.info(
+        "unarchive_contact: pessoa=%s reativada por app_user=%s",
+        pessoa.id,
+        current_user.app_user_id,
+    )
+    try:
+        db.flush()
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        # Colisão com uq_pessoas_telefone_ativa: outra pessoa ATIVA do mesmo
+        # tenant já usa este telefone (ex.: recriada via WhatsApp após o
+        # arquivamento). Mesmo contrato 409 dos demais conflitos do endpoint.
+        if getattr(exc.orig, "pgcode", None) != _PG_UNIQUE_VIOLATION:
+            raise
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Não é possível reativar: já existe uma pessoa ativa com este "
+                "telefone nesta igreja."
+            ),
+        ) from exc
+
+    return UnarchiveContactResponse(
+        pessoa_id=str(pessoa.id),
+        arquivada=False,
+        reativada_por=str(current_user.app_user_id),
+    )
+
+
+@router.post(
+    "/{pessoa_id}/reactivate-communications",
+    response_model=ReactivateCommunicationsResponse,
+)
+def reactivate_communications(
+    pessoa_id: str,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_role(["admin", "pastor"])),
+) -> ReactivateCommunicationsResponse:
+    """Reativa comunicações de uma Pessoa em opt-out (FECH-05/OPTIN-1).
+
+    Restrito a admin/pastor (RBAC real via ``require_role``). Caminho de volta
+    do opt-out do agente (US-32/RNF-06): seta ``pessoas.optout=False`` e grava
+    um ``ConsentRecord`` novo com ``termo_versao='reoptin:<versao>'`` — MESMA
+    estrutura registrada por ``_apply_optout`` (agent/runtime.py), que usa
+    ``'optout:<versao>'``. O histórico de consentimento fica íntegro: a
+    retirada anterior nunca é apagada, a reativação é uma linha nova.
+
+    A query filtra ``igreja_id`` EXPLICITAMENTE (além da RLS): pessoa de outra
+    igreja responde 404 sem revelar existência. Chamada com a pessoa já ativa
+    é idempotente (200, ``ja_ativa=True``, sem consentimento duplicado).
+
+    O agente (silêncio em opt-out) e a exclusão de opt-out no broadcast NÃO
+    são tocados por este fluxo — este endpoint é o ÚNICO caminho
+    administrativo que escreve ``optout``.
+    """
+    try:
+        pessoa_uuid = uuid.UUID(pessoa_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Pessoa não encontrada"
+        ) from exc
+
+    igreja_uuid = uuid.UUID(current_user.igreja_id)
+    pessoa = db.execute(
+        select(Pessoa).where(
+            Pessoa.id == pessoa_uuid,
+            # Filtro explícito de tenant (regra de ouro), além da RLS.
+            Pessoa.igreja_id == igreja_uuid,
+        )
+    ).scalar_one_or_none()
+    if pessoa is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Pessoa não encontrada"
+        )
+
+    termo_versao = f"reoptin:{get_settings().agent_term_version}"
+
+    if not pessoa.optout:
+        # Idempotente: já estava ativa — nada muda, nada é gravado.
+        return ReactivateCommunicationsResponse(
+            pessoa_id=str(pessoa.id),
+            optout=False,
+            termo_versao=termo_versao,
+            reativada_por=str(current_user.app_user_id),
+            ja_ativa=True,
+        )
+
+    pessoa.optout = False
+    db.add(
+        ConsentRecord(
+            igreja_id=igreja_uuid,
+            pessoa_id=pessoa.id,
+            termo_versao=termo_versao,
+            aceite_em=dt.datetime.now(dt.timezone.utc),
+        )
+    )
+    # Auditoria de quem reativou (ConsentRecord não tem coluna de ator; a
+    # autoria fica no log estruturado + na resposta `reativada_por`).
+    logger.info(
+        "reactivate_communications: pessoa=%s reativada por app_user=%s (%s)",
+        pessoa.id,
+        current_user.app_user_id,
+        termo_versao,
+    )
+    db.flush()
+    db.commit()
+
+    return ReactivateCommunicationsResponse(
+        pessoa_id=str(pessoa.id),
+        optout=False,
+        termo_versao=termo_versao,
+        reativada_por=str(current_user.app_user_id),
+        ja_ativa=False,
     )
