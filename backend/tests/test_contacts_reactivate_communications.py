@@ -121,7 +121,7 @@ def _post(client: TestClient):
 
 
 def test_reactivate_happy_path_admin(app) -> None:
-    """optout=True -> False + ConsentRecord 'reoptin:<versao>' + autor na resposta."""
+    """optout=True -> False + ConsentRecord 'reoptin:<versao>' com ator persistido."""
     pessoa = make_pessoa(optout=True)
     session = ReoptinSession(
         app_user=make_app_user(), roles=["admin"], pessoa=pessoa
@@ -147,6 +147,10 @@ def test_reactivate_happy_path_admin(app) -> None:
     assert str(record.pessoa_id) == _PID
     assert str(record.igreja_id) == _IGREJA_A
     assert record.aceite_em is not None
+    # Autoria DURÁVEL: quem reativou fica no próprio ConsentRecord persistido
+    # (consent_records.ator_id, migration 20260720_191143) — não apenas na
+    # resposta HTTP/log. NULL segue reservado aos fluxos automáticos.
+    assert str(record.ator_id) == "00000000-0000-0000-0000-0000000000a1"
     assert session.committed is True
 
 

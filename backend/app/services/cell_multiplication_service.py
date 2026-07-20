@@ -148,7 +148,7 @@ def execute_multiplication(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=(
-                "novo_lider_id: pessoa sem interesse (CSIM) não pode liderar célula"
+                "novo_lider_id: pessoa fora da igreja não pode liderar célula"
             ),
         )
     if not bool(novo_lider.apto_lider):

@@ -114,17 +114,29 @@ function findButton(label: string): HTMLButtonElement | undefined {
   );
 }
 
-async function renderPanel() {
+async function renderPanel(onClose: () => void = () => {}) {
   act(() => {
     root.render(
       h(ContactPanel, {
         pessoaId: "p1",
         telefone: "5511987654321",
-        onClose: () => {},
+        onClose,
       }),
     );
   });
   await flush();
+}
+
+function pressEscape(target: EventTarget = document) {
+  // Dispatch REAL com bubbles: exercita a fase de captura de verdade —
+  // listeners capture no document (painel e ds/Dialog) rodam na ordem de
+  // registro antes de qualquer bubble. Chamar handlers direto não provaria a
+  // ordem capture-phase.
+  act(() => {
+    target.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+    );
+  });
 }
 
 beforeEach(() => {
@@ -219,5 +231,87 @@ describe("ContactPanel — reativar comunicações (FECH-05/OPTIN-1)", () => {
     expect(apiMock.reactivateCommunications).not.toHaveBeenCalled();
     // Botão continua lá (pessoa segue em opt-out).
     expect(findButton("Reativar comunicações")).toBeDefined();
+  });
+});
+
+describe("ContactPanel — Escape (drawer × diálogo interno)", () => {
+  async function openReactivateDialog() {
+    apiMock.fetchContactDetail.mockResolvedValue(detail({ optout: true }));
+    const onClose = vi.fn();
+    await renderPanel(onClose);
+    act(() => {
+      findButton("Reativar comunicações")!.click();
+    });
+    await flush();
+    const dialog = container.querySelector<HTMLElement>('[role="dialog"]');
+    expect(dialog).not.toBeNull();
+    return { onClose, dialog: dialog! };
+  }
+
+  it("com o diálogo aberto (idle), Escape fecha SÓ o diálogo — painel continua", async () => {
+    const { onClose, dialog } = await openReactivateDialog();
+
+    // Dispatch num nó INTERNO do diálogo: a captura no document (painel
+    // primeiro, Dialog depois — ordem de registro) roda antes do bubble.
+    pressEscape(dialog);
+    await flush();
+
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+    // Painel segue montado (dados do contato ainda visíveis).
+    expect(findButton("Reativar comunicações")).toBeDefined();
+  });
+
+  it("com o diálogo busy, Escape não fecha nem o diálogo nem o painel", async () => {
+    const { onClose, dialog } = await openReactivateDialog();
+
+    // Confirma com a promise pendurada → reactivateBusy=true.
+    apiMock.reactivateCommunications.mockReturnValue(new Promise(() => {}));
+    const confirm = [...dialog.querySelectorAll("button")].find((b) =>
+      b.textContent!.includes("Reativando") || b.textContent!.includes("Reativar comunicações"),
+    )!;
+    act(() => {
+      confirm.click();
+    });
+    await flush();
+
+    pressEscape(container.querySelector<HTMLElement>('[role="dialog"]') ?? document);
+    await flush();
+
+    // Guard `busy` do onClose do Dialog respeitado; painel intocado.
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("sem diálogo aberto, Escape fecha o painel (comportamento original)", async () => {
+    apiMock.fetchContactDetail.mockResolvedValue(detail({ optout: true }));
+    const onClose = vi.fn();
+    await renderPanel(onClose);
+
+    pressEscape(container);
+    await flush();
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("listener do painel é capture-phase real (não bubble)", async () => {
+    apiMock.fetchContactDetail.mockResolvedValue(detail({ optout: true }));
+    const onClose = vi.fn();
+    await renderPanel(onClose);
+
+    // Prova discriminante: um stopPropagation em fase BUBBLE num nó
+    // intermediário mataria o evento antes de ele subir ao document — um
+    // listener bubble no document nunca rodaria. O painel fecha mesmo assim
+    // ⟺ seu listener roda na DESCIDA (capture no document), antes do bubble.
+    const stopper = (e: Event) => e.stopPropagation();
+    container.addEventListener("keydown", stopper); // bubble no intermediário
+    try {
+      pressEscape(container.firstElementChild ?? container);
+    } finally {
+      container.removeEventListener("keydown", stopper);
+    }
+    await flush();
+
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

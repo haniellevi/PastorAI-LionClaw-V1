@@ -356,7 +356,7 @@ def _validate_lider_elegivel(
     if bool(pessoa.sem_interesse):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="liderId: pessoa sem interesse (CSIM) não pode liderar célula",
+            detail="liderId: pessoa fora da igreja não pode liderar célula",
         )
     if not bool(pessoa.apto_lider):
         raise HTTPException(

@@ -1482,6 +1482,16 @@ class ConsentRecord(Base):
     aceite_em: Mapped[dt.datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # App_user que registrou o consentimento quando a origem é ação
+    # administrativa (ex.: reoptin do FECH-05). NULL = fluxo automático
+    # (consent inbound, optout do agente) e legado. ON DELETE SET NULL: apagar
+    # o app_user não apaga nem trava a trilha de consentimento (migration
+    # 20260720_191143, espelho de pessoa_arquivamento_evento.ator_id).
+    ator_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("app_users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
 
 class AgentConfig(Base):

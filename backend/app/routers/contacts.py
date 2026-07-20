@@ -634,7 +634,7 @@ def update_contact(
         if payload.aptoLider and pessoa.sem_interesse:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="Pessoa sem interesse (CSIM) não pode ser apta a liderar",
+                detail="Pessoa fora da igreja não pode ser apta a liderar",
             )
         pessoa.apto_lider = payload.aptoLider
 
@@ -826,11 +826,16 @@ def unarchive_contact(
 
     igreja_uuid = uuid.UUID(current_user.igreja_id)
     pessoa = db.execute(
-        select(Pessoa).where(
+        select(Pessoa)
+        .where(
             Pessoa.id == pessoa_uuid,
             # Filtro explícito de tenant (regra de ouro), além da RLS.
             Pessoa.igreja_id == igreja_uuid,
         )
+        # Lock pessimista: serializa unarchives concorrentes da MESMA pessoa —
+        # a segunda transação só lê o estado APÓS o commit da primeira e cai no
+        # 409 "não está arquivada" em vez de gravar um 2º evento 'reativada'.
+        .with_for_update()
     ).scalar_one_or_none()
     if pessoa is None:
         raise HTTPException(
@@ -929,11 +934,17 @@ def reactivate_communications(
 
     igreja_uuid = uuid.UUID(current_user.igreja_id)
     pessoa = db.execute(
-        select(Pessoa).where(
+        select(Pessoa)
+        .where(
             Pessoa.id == pessoa_uuid,
             # Filtro explícito de tenant (regra de ouro), além da RLS.
             Pessoa.igreja_id == igreja_uuid,
         )
+        # Lock pessimista: serializa reativações concorrentes da MESMA pessoa —
+        # a segunda transação só lê o estado APÓS o commit da primeira, cai no
+        # ramo idempotente (ja_ativa=True) e nenhum ConsentRecord duplicado é
+        # gravado.
+        .with_for_update()
     ).scalar_one_or_none()
     if pessoa is None:
         raise HTTPException(
@@ -959,10 +970,12 @@ def reactivate_communications(
             pessoa_id=pessoa.id,
             termo_versao=termo_versao,
             aceite_em=dt.datetime.now(dt.timezone.utc),
+            # Autoria durável da ação administrativa (migration
+            # 20260720_191143): QUEM reativou fica no próprio registro de
+            # consentimento. NULL permanece o valor dos fluxos automáticos.
+            ator_id=uuid.UUID(current_user.app_user_id),
         )
     )
-    # Auditoria de quem reativou (ConsentRecord não tem coluna de ator; a
-    # autoria fica no log estruturado + na resposta `reativada_por`).
     logger.info(
         "reactivate_communications: pessoa=%s reativada por app_user=%s (%s)",
         pessoa.id,

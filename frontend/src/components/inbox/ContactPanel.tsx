@@ -138,6 +138,14 @@ export function ContactPanel({
     (focusables[0] ?? panel).focus();
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") {
+        // Diálogo modal interno aberto (ds/Dialog só existe no DOM enquanto
+        // `open` — role="dialog"): o Escape pertence a ELE. Este listener é
+        // capture-phase registrado antes do listener do Dialog; consumir aqui
+        // fecharia o painel por cima do diálogo e contornaria o guard `busy`
+        // do onClose. Detecção via DOM (não estado React): o effect tem deps
+        // vazias e um state capturado aqui estaria stale. Cobre o diálogo de
+        // reativação e o EditContactModal.
+        if (document.querySelector('[role="dialog"]')) return;
         e.stopPropagation();
         onCloseRef.current();
         return;
