@@ -94,7 +94,13 @@ def _seed(factory: sessionmaker, *, optout: bool, arquivada: bool) -> uuid.UUID:
         session.add(Igreja(id=_IGREJA, nome="Igreja"))
         session.flush()
         session.add(
-            AppUser(id=_ADMIN, igreja_id=_IGREJA, clerk_user_id="clerk-admin")
+            AppUser(
+                id=_ADMIN,
+                igreja_id=_IGREJA,
+                clerk_user_id="clerk-admin",
+                nome="Admin",
+                email="admin@igreja.test",
+            )
         )
         pessoa_id = uuid.uuid4()
         session.add(
