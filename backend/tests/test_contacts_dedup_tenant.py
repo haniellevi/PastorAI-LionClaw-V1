@@ -97,6 +97,12 @@ class DedupSession:
     def add(self, obj) -> None:
         self.added.append(obj)
 
+    def begin_nested(self):
+        # UNIQ-PESSOA-1: INSERT roda num SAVEPOINT; sem corrida na fake é no-op.
+        from contextlib import nullcontext
+
+        return nullcontext()
+
     def flush(self) -> None:
         pass
 

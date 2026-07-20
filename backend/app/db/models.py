@@ -74,6 +74,27 @@ class Pessoa(Base):
     """Unified person model (F2/F6/F7)."""
 
     __tablename__ = "pessoas"
+    __table_args__ = (
+        # UNIQ-PESSOA-1: no máximo UMA pessoa ATIVA por (igreja_id, telefone).
+        # Fecha o TOCTOU do "procura-antes-de-criar" nos três pontos que criam
+        # Pessoa por telefone (queue_worker inbound, POST /contacts, ativação de
+        # convite): duas criações concorrentes do MESMO telefone/tenant não se
+        # veem e ambas inserem → duplicata. Índice único PARCIAL serializa: uma
+        # vence, a outra recebe unique_violation, e app/services/pessoa_dedup.py
+        # (savepoint) re-busca a vencedora e segue com ela. Parcial sobre
+        # `arquivada_em IS NULL` — arquivada não bloqueia recriar ativa (não há
+        # hard delete de Pessoa). Telefone BRUTO (não o sufixo da dedupe): o
+        # sufixo é ambíguo entre números distintos de DDDs diferentes; a
+        # unicidade canônica fica na dedupe da aplicação. Índice em
+        # __table_args__ + migration idênticos (padrão CONSOL-1 / SEC-4B).
+        Index(
+            "uq_pessoas_telefone_ativa",
+            "igreja_id",
+            "telefone",
+            unique=True,
+            postgresql_where=text("arquivada_em IS NULL"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     igreja_id: Mapped[uuid.UUID] = mapped_column(

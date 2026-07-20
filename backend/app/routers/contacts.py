@@ -25,6 +25,7 @@ from app.db.models import Celula, Pessoa
 from app.db.session import get_db
 from app.deps import CurrentUser, get_current_user, require_role
 from app.domain.phone import normalize_phone, phone_suffix
+from app.services.pessoa_dedup import insert_pessoa_or_get_winner
 from app.services import pessoa_offboarding_service
 from app.services.celula_membro import ensure_active_membro
 from app.routers._common import Page, PaginationParams
@@ -419,7 +420,7 @@ def create_contact(
             deduped=True,
         )
 
-    pessoa = Pessoa(
+    new_pessoa = Pessoa(
         igreja_id=uuid.UUID(current_user.igreja_id),
         nome=payload.nome,
         telefone=payload.telefone,
@@ -431,10 +432,27 @@ def create_contact(
         tipo=payload.tipo or "contato",
         origem=payload.origem,
     )
-    db.add(pessoa)
-    db.flush()  # fires person triggers; assigns server defaults
+    # UNIQ-PESSOA-1: SAVEPOINT + re-fetch. Se uma criação concorrente do mesmo
+    # telefone/tenant venceu entre a dedupe acima e este INSERT,
+    # uq_pessoas_telefone_ativa levanta unique_violation e reaproveitamos a
+    # Pessoa vencedora (deduped=True) — nada de duplicata nem 500.
+    pessoa = insert_pessoa_or_get_winner(
+        db,
+        new_pessoa,
+        igreja_id=uuid.UUID(current_user.igreja_id),
+        canonical=normalized,
+    )
     db.refresh(pessoa)
     db.commit()
+
+    if pessoa is not new_pessoa:
+        logger.info("create_contact deduped to existing pessoa (race)")
+        return CreateContactResponse(
+            contact=ContactOut.from_model(
+                pessoa, lider_de_celula=_leads_active_cell(db, pessoa.id)
+            ),
+            deduped=True,
+        )
 
     return CreateContactResponse(
         contact=ContactOut.from_model(pessoa), deduped=False
