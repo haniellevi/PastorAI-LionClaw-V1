@@ -61,24 +61,24 @@ Legenda de **status** (revalidada em 2026-07-17, ver §2.4): `CONCLUÍDO` (corri
 | MEDIO-001 | Fallback de CORS para `["*"]` com `allow_credentials=True` | `backend/app/main.py`, `backend/app/config.py` | SEC-1 | **CONCLUÍDO** (PR#129) — ver §2.4 |
 | MEDIO-002 | Sessão JWT stateless não invalidada após troca/reset de senha | `backend/app/services/clerk.py`, `backend/app/routers/auth.py`, `deps.py` | SEC-3 | **CONCLUÍDO** (PR#133) — ver §2.4 |
 | MEDIO-003 | Token de reset de senha reutilizável (sem uso único) | `backend/app/services/clerk.py`, `backend/app/routers/auth.py` | SEC-3 | **CONCLUÍDO** (PR#135) — ver §2.4 |
-| MEDIO-004 | Dedup canônica de telefone repetida em 4 locais (uma sem filtro de `igreja_id`) | `contacts.py`, `auth.py`, `queue_worker.py` → novo `domain/phone.py` | SEC-7 | **PARCIAL** — ver §2.4 |
-| MEDIO-005 | Métodos de emissão de JWT quase idênticos em `ClerkClient` | `backend/app/services/clerk.py` (mint session/reset/invite) | SEC-7 | PENDENTE — ver §2.4 |
+| MEDIO-004 | Dedup canônica de telefone repetida em 4 locais (uma sem filtro de `igreja_id`) | `contacts.py`, `auth.py`, `queue_worker.py` → novo `domain/phone.py` | SEC-7 | **CONCLUÍDO** (merge `b5b990d`, PR#188, 2026-07-18) |
+| MEDIO-005 | Métodos de emissão de JWT quase idênticos em `ClerkClient` | `backend/app/services/clerk.py` (mint session/reset/invite) | SEC-7 | **CONCLUÍDO** (merge `b5b990d`, PR#188, 2026-07-18) |
 | MEDIO-006 | Approve de solicitação de célula sem lock → TOCTOU | `cell_requests.py`, `cell_requests_service.py` | SEC-4 | **CONCLUÍDO + deployado** — ver §2.4 |
 
 ### 2.3 BAIXO (10)
 
 | ID | Título | Arquivos-chave | SEC | Status |
 |----|--------|----------------|-----|--------|
-| BAIXO-001 | Segredo de sessão reutiliza Clerk secret key e não é validado | `backend/app/config.py` | SEC-1 | PENDENTE |
-| BAIXO-002 | RLS com `ENABLE` mas sem `FORCE ROW LEVEL SECURITY` | `backend/migrations/` (tabelas de tenant) | SEC-5 | PENDENTE (dep. C1) |
-| BAIXO-003 | Montagem repetida do cliente HTTP autenticado do Clerk | `backend/app/services/clerk.py` | SEC-7 | PENDENTE |
-| BAIXO-004 | `confirm_event` transita estado sem lock | `backend/app/routers/events.py` | SEC-4 | PENDENTE |
-| BAIXO-005 | `notify_autoupgrade` envia WhatsApp antes de commitar idempotência | `backend/app/routers/subscription.py` | SEC-4 | PENDENTE |
-| BAIXO-006 | `list_events` conta total materializando todos os IDs | `backend/app/routers/events.py` | SEC-7 | PENDENTE |
-| BAIXO-007 | Router `platform_admin.py` com ~1754 linhas | `backend/app/routers/platform_admin.py` | SEC-7 | PENDENTE |
-| BAIXO-008 | Múltiplas telas/módulos acima de 500 linhas | frontend `*Screen.tsx` / backend routers | SEC-7 | PENDENTE |
-| BAIXO-009 | Módulo `models.py` único com ~1562 linhas | `backend/app/db/models.py` | SEC-7 | PENDENTE (opcional) |
-| BAIXO-010 | JWT de sessão persistido em `localStorage` | `frontend/src/lib/auth-context.tsx`, `admin-auth-context.tsx` | SEC-6 | PENDENTE |
+| BAIXO-001 | Segredo de sessão reutiliza Clerk secret key e não é validado | `backend/app/config.py` | SEC-1 | **CONCLUÍDO** — revalidado em `docs/security/2026-07-18-sec-baixo-revalidacao.md` |
+| BAIXO-002 | RLS com `ENABLE` mas sem `FORCE ROW LEVEL SECURITY` | `backend/migrations/` (tabelas de tenant) | SEC-5 | PENDENTE (dep. C1; gate registrado) — revalidado em `2026-07-18-sec-baixo-revalidacao.md` |
+| BAIXO-003 | Montagem repetida do cliente HTTP autenticado do Clerk | `backend/app/services/clerk.py` | SEC-7 | PENDENTE (ficha F1) — revalidado em `2026-07-18-sec-baixo-revalidacao.md` |
+| BAIXO-004 | `confirm_event` transita estado sem lock | `backend/app/routers/events.py` | SEC-4 | **CONCLUÍDO** (PR#156) — revalidado em `2026-07-18-sec-baixo-revalidacao.md` |
+| BAIXO-005 | `notify_autoupgrade` envia WhatsApp antes de commitar idempotência | `backend/app/routers/subscription.py` | SEC-4 | **CONCLUÍDO** (PR#144) — revalidado em `2026-07-18-sec-baixo-revalidacao.md` |
+| BAIXO-006 | `list_events` conta total materializando todos os IDs | `backend/app/routers/events.py` | SEC-7 | PENDENTE (ficha F2) — revalidado em `2026-07-18-sec-baixo-revalidacao.md` |
+| BAIXO-007 | Router `platform_admin.py` com ~1754 linhas | `backend/app/routers/platform_admin.py` | SEC-7 | PENDENTE (pós-MVP) — revalidado em `2026-07-18-sec-baixo-revalidacao.md` |
+| BAIXO-008 | Múltiplas telas/módulos acima de 500 linhas | frontend `*Screen.tsx` / backend routers | SEC-7 | PENDENTE (pós-MVP) — revalidado em `2026-07-18-sec-baixo-revalidacao.md` |
+| BAIXO-009 | Módulo `models.py` único com ~1562 linhas | `backend/app/db/models.py` | SEC-7 | PENDENTE (opcional; aceitar risco) — revalidado em `2026-07-18-sec-baixo-revalidacao.md` |
+| BAIXO-010 | JWT de sessão persistido em `localStorage` | `frontend/src/lib/auth-context.tsx`, `admin-auth-context.tsx` | SEC-6 | PENDENTE (pós-MVP; parcialmente mitigado) — revalidado em `2026-07-18-sec-baixo-revalidacao.md` |
 
 ---
 
@@ -319,9 +319,9 @@ Todo PR de remediação (SEC-1 em diante) deve passar, **antes do merge**:
 
 **Atualizado em 2026-07-17 (REL-5) — o `iniciar SEC-1` original já foi executado e superado.** SEC-0/1/2/3/4 estão concluídos e deployados (incluindo ALTO-005 e MEDIO-006). ALTO-003 e ALTO-004 também estão concluídos e deployados (PR#181/PR#186). O backlog real de segurança ALTO/MÉDIO que resta é:
 
-1. **MEDIO-004 (prioridade dentro do SEC-7a):** PR pequeno e isolado adicionando filtro explícito de `igreja_id` nas 2 queries de dedupe por telefone em `backend/app/routers/contacts.py` (`create_contact`/`update_contact`) — único item ALTO/MÉDIO remanescente com risco de segurança concreto (não apenas dívida). Sem migration.
-2. **SEC-7a restante (dedup, sem urgência de segurança ativa, mas recomendado cedo por risco de drift):** MEDIO-005 (helper único de mint JWT) — 1 PR pequeno e isolado, com teste de roundtrip.
-3. BAIXO-001..010 não foram revisados nesta reconciliação (fora do escopo da missão SEC-PLAN-RECON-1) — permanecem como registrados em §2.3/§3, precisam de revalidação própria antes de qualquer PR.
+1. **MEDIO-004 — CONCLUÍDO (merge `b5b990d`, PR#188, 2026-07-18):** filtro explícito de `igreja_id` nas 2 queries de dedupe por telefone em `backend/app/routers/contacts.py` (`create_contact`/`update_contact`), com teste dedicado (`test_contacts_dedup_tenant.py`).
+2. **MEDIO-005 — CONCLUÍDO (merge `b5b990d`, PR#188, 2026-07-18):** emissão de JWT unificada em `_mint_purpose_token` (`backend/app/services/clerk.py`), com teste de roundtrip (`test_clerk_jwt_policy.py`).
+3. BAIXO-001..010 foram revalidados em 2026-07-18 (missão M7 SEC-BAIXO-REVAL) — vereditos, evidências `file:line` e fichas candidatas em `docs/security/2026-07-18-sec-baixo-revalidacao.md`. Placar: 3 corrigidos (001/004/005), 7 ainda válidos (002/003/006/007/008/009/010).
 
 ---
 
@@ -337,19 +337,19 @@ Todo PR de remediação (SEC-1 em diante) deve passar, **antes do merge**:
 | MEDIO-001 | MÉDIO | SEC-1 | CONCLUÍDO + deployado | PR#129 |
 | MEDIO-002 | MÉDIO | SEC-3 | CONCLUÍDO + deployado | PR#133 |
 | MEDIO-003 | MÉDIO | SEC-3 | CONCLUÍDO + deployado | PR#135 |
-| MEDIO-004 | MÉDIO | SEC-7a | PARCIAL — priorizar | PR pequeno (filtro `igreja_id` em `contacts.py`) a abrir |
-| MEDIO-005 | MÉDIO | SEC-7a | PENDENTE | PR pequeno (dedup) a abrir |
+| MEDIO-004 | MÉDIO | SEC-7a | CONCLUÍDO (2026-07-18) | PR#188 (merge `b5b990d`, commit `ce14ee0`) |
+| MEDIO-005 | MÉDIO | SEC-7a | CONCLUÍDO (2026-07-18) | PR#188 (merge `b5b990d`, commit `1419e97`) |
 | MEDIO-006 | MÉDIO | SEC-4 | CONCLUÍDO + deployado | PR#157 (deploy: `docs/sprints/2026-07-16-backend-release-82e1c6f.md`) |
-| BAIXO-001 | BAIXO | SEC-1 | não revisado nesta rodada | PR SEC-1 |
-| BAIXO-002 | BAIXO | SEC-5 | não revisado nesta rodada | PR SEC-5 (dep. C1) |
-| BAIXO-003 | BAIXO | SEC-7a | não revisado nesta rodada | PR pequeno (dedup) |
-| BAIXO-004 | BAIXO | SEC-4 | não revisado nesta rodada | PR SEC-4 |
-| BAIXO-005 | BAIXO | SEC-4 | não revisado nesta rodada | PR SEC-4 |
-| BAIXO-006 | BAIXO | SEC-7b | não revisado nesta rodada | PR pequeno (perf) |
-| BAIXO-007 | BAIXO | SEC-7c | não revisado nesta rodada | refactor estrutural |
-| BAIXO-008 | BAIXO | SEC-7c | não revisado nesta rodada | refactor estrutural |
-| BAIXO-009 | BAIXO | SEC-7c | não revisado nesta rodada | refactor estrutural (opcional) |
-| BAIXO-010 | BAIXO | SEC-6 | não revisado nesta rodada | PR SEC-6 |
+| BAIXO-001 | BAIXO | SEC-1 | CONCLUÍDO (revalidado 2026-07-18) | PR#129 — ver `2026-07-18-sec-baixo-revalidacao.md` |
+| BAIXO-002 | BAIXO | SEC-5 | PENDENTE (revalidado 2026-07-18; gate SEC-5) | PR SEC-5 (dep. C1) |
+| BAIXO-003 | BAIXO | SEC-7a | PENDENTE (revalidado 2026-07-18; ficha F1) | PR pequeno (dedup) |
+| BAIXO-004 | BAIXO | SEC-4 | CONCLUÍDO (revalidado 2026-07-18) | PR#156 — ver `2026-07-18-sec-baixo-revalidacao.md` |
+| BAIXO-005 | BAIXO | SEC-4 | CONCLUÍDO (revalidado 2026-07-18) | PR#144 — ver `2026-07-18-sec-baixo-revalidacao.md` |
+| BAIXO-006 | BAIXO | SEC-7b | PENDENTE (revalidado 2026-07-18; ficha F2) | PR pequeno (perf) |
+| BAIXO-007 | BAIXO | SEC-7c | PENDENTE (revalidado 2026-07-18; pós-MVP) | refactor estrutural |
+| BAIXO-008 | BAIXO | SEC-7c | PENDENTE (revalidado 2026-07-18; pós-MVP) | refactor estrutural |
+| BAIXO-009 | BAIXO | SEC-7c | PENDENTE (revalidado 2026-07-18; aceitar risco) | refactor estrutural (opcional) |
+| BAIXO-010 | BAIXO | SEC-6 | PENDENTE (revalidado 2026-07-18; pós-MVP) | PR SEC-6 |
 
 ## Apêndice B — Nota de reconciliação ALTO-001 (pipeline × Missão 7A)
 
