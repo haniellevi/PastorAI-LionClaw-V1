@@ -137,21 +137,25 @@ export function ContactPanel({
     const focusables = getFocusable(panel);
     (focusables[0] ?? panel).focus();
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") {
+      if (e.key === "Escape" || e.key === "Tab") {
         // Diálogo modal interno aberto (ds/Dialog só existe no DOM enquanto
-        // `open` — role="dialog"): o Escape pertence a ELE. Este listener é
-        // capture-phase registrado antes do listener do Dialog; consumir aqui
-        // fecharia o painel por cima do diálogo e contornaria o guard `busy`
-        // do onClose. Detecção via DOM (não estado React): o effect tem deps
-        // vazias e um state capturado aqui estaria stale. Cobre o diálogo de
+        // `open`): TODO o teclado pertence a ELE — o Escape fecha o diálogo
+        // (respeitando o guard `busy` do onClose dele) e o focus-trap de
+        // Tab/Shift+Tab é o do Dialog. Este listener capture roda ANTES do
+        // listener do Dialog; consumir aqui fecharia o painel por cima do
+        // diálogo ou moveria o foco para controles do drawer. Detecção no
+        // PRÓPRIO painel (não global) e via DOM: o effect tem deps vazias e
+        // um state capturado aqui estaria stale. Cobre o diálogo de
         // reativação e o EditContactModal.
-        if (document.querySelector('[role="dialog"]')) return;
+        if (panel!.querySelector('[role="dialog"][aria-modal="true"]')) return;
+      }
+      if (e.key === "Escape") {
         e.stopPropagation();
         onCloseRef.current();
         return;
       }
       if (e.key !== "Tab") return;
-      // O EditContactModal (modal próprio) assume o foco quando aberto.
+      // Foco fora do drawer (ex.: outro overlay da página): não interferir.
       if (!panel!.contains(document.activeElement)) return;
       const items = getFocusable(panel!);
       const current = items.indexOf(document.activeElement as HTMLElement);

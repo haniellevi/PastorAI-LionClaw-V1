@@ -230,6 +230,30 @@ describe("ContatosScreen — reativação de Pessoa arquivada (FECH-06/REATIVAR-
     expect(tableText()).toContain("Aristides Arquivado");
   });
 
+  it("pessoa já arquivada no fetch (pós-reload): detalhe mostra 'Arquivada' e esconde 'Arquivar pessoa'", async () => {
+    // Estado PERSISTENTE: fetchContacts já devolve arquivada=true (backend) —
+    // nenhum arquivamento aconteceu nesta sessão (archivedInfo vazio).
+    await renderScreen();
+    clickTab("Arquivadas");
+
+    const row = [...container.querySelectorAll("tr")].find((r) =>
+      r.textContent!.includes("Aristides Arquivado"),
+    );
+    expect(row).toBeDefined();
+    act(() => {
+      (row as HTMLElement).click();
+    });
+    await flush();
+
+    const side = container.querySelector(".dash-side")!;
+    expect(side.textContent).toContain("Arquivada");
+    expect(
+      [...side.querySelectorAll("button")].find((b) =>
+        b.textContent!.includes("Arquivar pessoa"),
+      ),
+    ).toBeUndefined();
+  });
+
   it("papel sem admin/pastor não vê o botão Reativar (espelho do RBAC do backend)", async () => {
     authState.roles = ["lider_celula"];
     await renderScreen();

@@ -294,6 +294,70 @@ describe("ContactPanel — Escape (drawer × diálogo interno)", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it("com o diálogo aberto, Tab e Shift+Tab ficam presos no diálogo (trap do ds/Dialog)", async () => {
+    // jsdom: offsetParent é sempre null e getFocusable() filtraria TODOS os
+    // focáveis — durante este teste, todo elemento conta como visível (o
+    // mesmo filtro vale para o trap do painel e o do Dialog).
+    const originalOffsetParent = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "offsetParent",
+    );
+    Object.defineProperty(HTMLElement.prototype, "offsetParent", {
+      configurable: true,
+      get() {
+        return document.body;
+      },
+    });
+    try {
+      const { onClose, dialog } = await openReactivateDialog();
+      // MESMA lista que o trap do ds/Dialog enxerga (FOCUSABLE_SELECTOR).
+      const { FOCUSABLE_SELECTOR } = await import("../ds/a11y");
+      const dialogFocusables = [
+        ...dialog.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
+      ];
+      expect(dialogFocusables.length).toBeGreaterThanOrEqual(2);
+
+      act(() => {
+        dialogFocusables[0]!.focus();
+      });
+      const pressTab = (shiftKey: boolean) =>
+        act(() => {
+          document.activeElement!.dispatchEvent(
+            new KeyboardEvent("keydown", {
+              key: "Tab",
+              shiftKey,
+              bubbles: true,
+              cancelable: true,
+            }),
+          );
+        });
+
+      // Tab: avança EXATAMENTE uma posição e permanece dentro do diálogo —
+      // se o trap do drawer tivesse consumido, o foco iria para um controle
+      // do painel (a lista do drawer é maior e começa fora do diálogo).
+      pressTab(false);
+      expect(document.activeElement).toBe(dialogFocusables[1]);
+      expect(dialog.contains(document.activeElement)).toBe(true);
+
+      // Shift+Tab: volta exatamente uma posição, ainda dentro do diálogo.
+      pressTab(true);
+      expect(document.activeElement).toBe(dialogFocusables[0]);
+      expect(dialog.contains(document.activeElement)).toBe(true);
+
+      // Nenhum controle do drawer visitado; painel segue aberto.
+      expect(onClose).not.toHaveBeenCalled();
+      expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    } finally {
+      if (originalOffsetParent) {
+        Object.defineProperty(
+          HTMLElement.prototype,
+          "offsetParent",
+          originalOffsetParent,
+        );
+      }
+    }
+  });
+
   it("listener do painel é capture-phase real (não bubble)", async () => {
     apiMock.fetchContactDetail.mockResolvedValue(detail({ optout: true }));
     const onClose = vi.fn();

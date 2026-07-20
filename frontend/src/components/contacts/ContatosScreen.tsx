@@ -160,9 +160,11 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
   const [archivePreflightError, setArchivePreflightError] = useState<string | null>(null);
   const [archiveBusy, setArchiveBusy] = useState(false);
   const [archiveError, setArchiveError] = useState<string | null>(null);
-  // Sessão-only: o backend não expõe arquivada_em/por/motivo em GET /contacts
-  // (nem no detalhe) — o indicador de "Arquivada" só reflete o que a própria
-  // sessão acabou de fazer; um reload volta a mostrar a pessoa sem o selo.
+  // O estado arquivado PERSISTE após reload: GET /contacts expõe o booleano
+  // `arquivada` (FECH-06) e é ele quem manda no selo/ações do detalhe. Este
+  // registro de sessão guarda apenas os METADADOS do arquivamento que a
+  // própria sessão acabou de fazer (arquivada_em/por/motivo do resultado do
+  // POST), que o GET de lista não traz.
   const [archivedInfo, setArchivedInfo] = useState<Record<string, ArchiveContactResult>>({});
 
   // Reativação (desarquivamento) de Pessoa — FECH-06/REATIVAR-1.
@@ -757,7 +759,8 @@ function ContactDetail({
   cellName: string;
   busy: boolean;
   canEdit: boolean;
-  /** Preenchido quando esta sessão acabou de arquivar a pessoa (sem persistir ao recarregar). */
+  /** Metadados de um arquivamento feito NESTA sessão (o estado arquivado em
+   * si persiste via `contact.arquivada`, que o backend expõe no GET). */
   archived?: ArchiveContactResult;
   onEdit: () => void;
   onLink: () => void;
@@ -778,6 +781,8 @@ function ContactDetail({
   }
 
   const status = followStatus(contact);
+  // Persistente (backend) OU recém-arquivada nesta sessão (metadados locais).
+  const isArquivada = contact.arquivada === true || archived !== undefined;
 
   return (
     <div className="card card-pad">
@@ -786,7 +791,7 @@ function ContactDetail({
           <h3>{contact.nome}</h3>
           <div className="sub mono">{contact.telefone}</div>
         </div>
-        {archived ? (
+        {isArquivada ? (
           <StatusPill tone="muted">Arquivada</StatusPill>
         ) : contact.semInteresse ? (
           <StatusPill tone="danger">Fora da igreja</StatusPill>
@@ -863,7 +868,7 @@ function ContactDetail({
         </button>
       ) : null}
 
-      {canEdit && !archived ? (
+      {canEdit && !isArquivada ? (
         <button
           type="button"
           className="btn btn-danger btn-block"
