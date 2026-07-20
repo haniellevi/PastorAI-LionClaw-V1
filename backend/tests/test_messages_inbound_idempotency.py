@@ -49,6 +49,7 @@ from sqlalchemy.orm import sessionmaker
 import app.db.session  # noqa: F401 - registra o listener after_begin (paridade prod)
 from app.db.models import Base, Igreja, WhatsappConnection
 from app.domain.conversations import ParsedMessage
+from app.domain.phone import normalize_phone
 from app.workers.queue_worker import (
     IngestionResult,
     QueueWorker,
@@ -139,10 +140,17 @@ def _parsed(
     instance: str = "igreja-1",
     telefone: str = "5511988887777",
 ) -> ParsedMessage:
+    """Espelha o contrato do parse_message_event de produção: `telefone` é o
+    parâmetro BRUTO (como vem do JID); `ParsedMessage.telefone` recebe a chave
+    canônica via normalize_phone e `telefone_raw` preserva o bruto. Com o valor
+    bruto nos dois campos, a confirmação canônica do dedupe de Pessoa nunca
+    bate e a 2ª ingestão do MESMO número tentava recriar a Pessoa — colidindo
+    com `uq_pessoas_telefone_ativa` (UNIQ-PESSOA-1) em vez de reconhecê-la.
+    """
     return ParsedMessage(
         instance=instance,
         provider_message_id=provider_message_id,
-        telefone=telefone,
+        telefone=normalize_phone(telefone),
         telefone_raw=telefone,
         texto="Oi",
         push_name="João",
