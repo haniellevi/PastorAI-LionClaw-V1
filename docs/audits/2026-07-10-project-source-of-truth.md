@@ -1,3 +1,5 @@
+> SUPERADO por docs/audits/2026-07-18-project-source-of-truth.md
+
 # Igreja 12 - fonte de verdade de produto e codigo
 
 **Data-base:** 2026-07-10

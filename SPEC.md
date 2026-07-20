@@ -100,335 +100,59 @@
 
 ### 2.1 Tabelas
 
-#### `igrejas` (tenants — F1)
-| Campo | Tipo | Notas |
-|-------|------|-------|
-| id | uuid PK | |
-| nome | text NOT NULL | |
-| status | enum(`ativa`,`suspensa`,`aguardando_aprovacao`,`inadimplente`) | default `ativa` |
-| plano | text | `ate_100`/`101_200`/`acima_201` |
-| created_at | timestamptz | default now() |
+> **Atualizado em 2026-07-18:** esta secao lista as **45 tabelas reais** de
+> `backend/app/db/models.py` (fonte de verdade do schema, junto com
+> `backend/migrations/`). O detalhamento campo a campo do desenho original de
+> 2026-06-11 foi substituido por esta visao de inventario; consulte os models
+> e as migrations para colunas, constraints e indices.
 
-#### `pessoas` (modelo unificado — F2/F6/F7; data-contacts, data-contact-detail, data-pipeline-stage)
-| Campo | Tipo | Origem (data req / story) |
-|-------|------|---------------------------|
-| id | uuid PK | |
-| igreja_id | uuid FK -> igrejas | F1 / US-02 |
-| nome | text NOT NULL | data-contacts.nome / US-09 |
-| telefone | text NOT NULL | data-contacts.telefone / US-09 |
-| email | text | |
-| genero | enum(`m`,`f`) | delta-017/026 (ranking/convite) |
-| faixa_etaria | text | delta-017/025 |
-| endereco | text | US-10 |
-| tipo | enum(`visitante`,`membro`,`lider`,`pastor`,`discipulo`) | data-contacts.tipo / US-18 |
-| etapa | enum(`ganhar`,`consolidar`,`discipular`,`enviar`) | data-pipeline-stage.etapa / US-18 |
-| subetapa | enum(`novo_contato`,`visitante`,`em_consolidacao`,`consolidado`) | data-pipeline-stage.subetapa |
-| presencas_celula | int default 0 | data-pipeline-stage / delta-013 |
-| aceitou_jesus | boolean default false | data-pipeline-stage / delta-013 |
-| acompanhamento | enum(`sem`,`em_andamento`,`consolidado`) | data-contacts.acompanhamento / US-18 |
-| sem_interesse | boolean default false | CSIM (Onda 1/#1) — contato sem interesse ministerial, fora do funil |
-| sem_interesse_motivo | text | CSIM (Onda 1/#1) — motivo curto (ex.: empresa, outra cidade) |
-| origem | text | US-09 (ex.: whatsapp) |
-| primeiro_contato | timestamptz | US-09 |
-| celula_id | uuid FK -> celulas NULL | data-contacts.celula / US-20 |
-| lider_id | uuid FK -> pessoas NULL | F7 / lideranca G12 (RNF-25) |
-| consentimento | boolean default false | data-consent.consentido / US-31 |
-| optout | boolean default false | data-consent.optout / US-32 |
-| apto_proxima_cd | boolean default false | US-39 / RF-45 |
-| created_at | timestamptz default now() | |
-
-#### `app_users` (acesso ao painel via Clerk; data-team, data-user-roles)
-| Campo | Tipo | Notas |
-|-------|------|-------|
-| id | uuid PK | |
-| igreja_id | uuid FK -> igrejas | F1 |
-| clerk_user_id | text UNIQUE | US-01 (Clerk) |
-| pessoa_id | uuid FK -> pessoas NULL | vincula login a pessoa unificada (F6) |
-| nome | text NOT NULL | data-team.nome |
-| email | text NOT NULL | data-team.email |
-| status | enum(`ativo`,`convidado`) | data-team.status / US-03 |
-| created_at | timestamptz default now() | |
-
-#### `user_roles` (papeis acumulados — F3; data-user-roles)
-| Campo | Tipo | Notas |
-|-------|------|-------|
-| id | uuid PK | |
-| igreja_id | uuid FK | F1 |
-| user_id | uuid FK -> app_users | |
-| papel | enum(`admin`,`pastor`,`lider_g12`,`lider_consol`,`lider_celula`,`lider_mult`,`membro`) | data-team.papeis / US-04 |
-| UNIQUE(user_id, papel) | | uniao de acessos |
-
-#### `role_permissions` (matriz papel x tela — delta-010; data-role-perms)
-| Campo | Tipo | Notas |
-|-------|------|-------|
-| id | uuid PK | |
-| igreja_id | uuid FK | F1 |
-| papel | enum(`pastor`,`lider_g12`,`lider_consol`,`lider_celula`,`lider_mult`,`membro`) | data-role-perms.papel / US-04 |
-| tela | text | screenId liberado (data-role-perms.telas) |
-| UNIQUE(igreja_id, papel, tela) | | admin tem acesso implicito; dashboard garantido a todos |
-
-#### `celulas` (data-cells, data-cell-detail; delta-029)
-| Campo | Tipo | Notas |
-|-------|------|-------|
-| id | uuid PK | |
-| igreja_id | uuid FK | F1 |
-| nome | text NOT NULL | data-cells.nome / US-21 |
-| lider_id | uuid FK -> pessoas | data-cells.lider / US-21 |
-| dia_reuniao | text | data-cells.diaReuniao |
-| cobertura_espiritual | text NOT NULL | delta-029 (campo obrigatorio) / US-21 |
-| ativo | boolean default true | US-21 (inativar) |
-| created_at | timestamptz default now() | |
-
-#### `cell_alerts` (alertas sobre liderados — data-cell-detail.alertas; US-23)
-| Campo | Tipo | Notas |
-|-------|------|-------|
-| id | uuid PK | |
-| igreja_id | uuid FK | F1 |
-| celula_id | uuid FK | |
-| pessoa_id | uuid FK -> pessoas | contato alvo do alerta |
-| gatilho | text | gatilho configuravel (RF-26) |
-| acao_esperada | text | |
-| tratado | boolean default false | US-23 (alerta tratado ao baixar) |
-| created_at | timestamptz default now() | |
-
-#### `conversations` (data-conversations; US-08/11/12/13)
-| Campo | Tipo | Notas |
-|-------|------|-------|
-| id | uuid PK | |
-| igreja_id | uuid FK | F1 |
-| pessoa_id | uuid FK -> pessoas | |
-| telefone | text NOT NULL | data-conversations.telefone |
-| estado | enum(`ia`,`humano`,`aguardando`) | data-conversations.estado |
-| assumido_por | uuid FK -> app_users NULL | US-12 (quem assumiu) |
-| assumido_em | timestamptz NULL | US-12 (horario) |
-| ultima_mensagem | text | data-conversations.ultimaMensagem |
-| nao_lidas | int default 0 | data-conversations.naoLidas |
-| espera_desde | timestamptz NULL | data-human-queue.esperaMin (US-14) |
-| numero_oficial | boolean default true | US-07 (so numero oficial) |
-| updated_at | timestamptz | |
-
-#### `messages` (historico cronologico — US-11)
-| Campo | Tipo | Notas |
-|-------|------|-------|
-| id | uuid PK | |
-| igreja_id | uuid FK | F1 |
-| conversation_id | uuid FK | |
-| direcao | enum(`in`,`out`) | |
-| autor | enum(`contato`,`ia`,`humano`) | |
-| texto | text | |
-| criado_em | timestamptz default now() | ordem cronologica |
-
-#### `work_queue_items` (data-work-queue, data-next-actions; US-15/16/17/26/40)
-| Campo | Tipo | Notas |
-|-------|------|-------|
-| id | uuid PK | |
-| igreja_id | uuid FK | F1 |
-| tipo | enum(`visitante`,`atendimento`,`relatorio`,`conectar_celula`,`fonovisita`) | data-work-queue.tipo + US-40 (delta-022) |
-| titulo | text NOT NULL | data-work-queue.titulo |
-| contexto | text | data-work-queue.contexto |
-| pessoa_id | uuid FK -> pessoas NULL | alvo da pendencia |
-| responsavel_id | uuid FK -> app_users NULL | data-work-queue.responsavel (US-17; "Nao atribuido" = NULL) |
-| status | enum(`aberto`,`assumido`,`resolvido`) | data-work-queue.status |
-| prazo | timestamptz NULL | US-40 (conectar a celula 24h, fonovisita) |
-| prioridade | int | ordenacao por urgencia (RF-18) |
-| created_at | timestamptz default now() | |
-
-#### `reports` (relatorios de celula — data-reports; US-24/25/26)
-| Campo | Tipo | Notas |
-|-------|------|-------|
-| id | uuid PK | |
-| igreja_id | uuid FK | F1 |
-| celula_id | uuid FK | data-reports.celula |
-| semana | text NOT NULL | data-reports.semana |
-| data_reuniao | date | US-24 |
-| presentes | int | data-reports.presentes |
-| visitantes | int | data-reports.visitantes |
-| decisoes | int | US-24 (decisoes por Jesus) |
-| oferta | numeric NULL | delta-041 |
-| observacoes | text | US-25 |
-| status | enum(`recebido`,`pendente`) | data-reports.status |
-| origem | enum(`whatsapp_texto`,`whatsapp_audio`,`manual`) | delta-041 |
-| created_at | timestamptz default now() | |
-
-#### `broadcasts` (data-broadcasts; US-33 / delta-009)
-| Campo | Tipo | Notas |
-|-------|------|-------|
-| id | uuid PK | |
-| igreja_id | uuid FK | F1 |
-| titulo | text NOT NULL | data-broadcasts.titulo |
-| mensagem | text NOT NULL | data-broadcasts.mensagem |
-| segmentos | text[] NOT NULL | data-broadcasts.segmentos (multi-select) |
-| modo | enum(`agora`,`agendado`) | data-broadcasts.modo |
-| data | date NULL | data-broadcasts.data |
-| hora | text NULL | data-broadcasts.hora |
-| repeticao | enum(`once`,`daily`,`weekly`,`biweekly`,`monthly`) NULL | data-broadcasts.repeticao |
-| alcance | int NULL | data-broadcasts.alcance |
-| ignorados_optout | int NULL | RF-38 (excluir opt-out/sem consentimento) |
-| status | enum(`rascunho`,`agendado`,`enviado`) | |
-| created_at | timestamptz default now() | |
-
-#### `events` (data-events; US-30)
-| Campo | Tipo | Notas |
-|-------|------|-------|
-| id | uuid PK | |
-| igreja_id | uuid FK | F1 |
-| titulo | text NOT NULL | data-events.titulo |
-| data | date NOT NULL | data-events.data |
-| hora | text NULL | data-events.hora |
-| descricao | text | US-30 |
-| google_event_id | text NULL | RF-34 (sync Google Calendar) |
-| created_at | timestamptz default now() | |
-
-#### `whatsapp_connections` (data-whatsapp-connection; US-05/06/07)
-| Campo | Tipo | Notas |
-|-------|------|-------|
-| id | uuid PK | |
-| igreja_id | uuid FK UNIQUE | F1 + RF-07 (1 numero por igreja) |
-| numero | text | data-whatsapp-connection.numero |
-| status | enum(`online`,`offline`,`reconectando`) | data-whatsapp-connection.status |
-| instance | text | id da instancia Evolution API |
-| ultima_sync | timestamptz | data-whatsapp-connection.ultimaSync |
-
-#### `agent_configs` (data-agent-config; US-28 / delta-009)
-| Campo | Tipo | Notas |
-|-------|------|-------|
-| id | uuid PK | |
-| igreja_id | uuid FK UNIQUE | F1 |
-| nome | text | data-agent-config.nome |
-| tom | text | data-agent-config.tom |
-| comportamento | text NOT NULL | prompt (data-agent-config.comportamento) |
-| publico_alvo | text[] | data-agent-config.publicoAlvo |
-| acessos | text[] | enum(contatos,celulas,relatorios,calendario,comunicados,assinatura) |
-| ativo | boolean default true | data-agent-config.ativo |
-
-#### `llm_credentials` (data-llm-credential; US-27 / RNF-03)
-| Campo | Tipo | Notas |
-|-------|------|-------|
-| id | uuid PK | |
-| igreja_id | uuid FK UNIQUE | F1 / BYO por igreja |
-| provedor | text NOT NULL | data-llm-credential.provedor (OpenAI no MVP) |
-| api_key_encrypted | text NOT NULL | cifrada; nunca exibida (RNF-03) |
-| validado | boolean default false | RF-30 (validar antes de ativar) |
-| ativo | boolean default false | |
-
-#### `crons` (data-crons; US-29 / delta-038 — gatilhos por estado)
-| Campo | Tipo | Notas |
-|-------|------|-------|
-| id | uuid PK | |
-| igreja_id | uuid FK | F1 |
-| nome | text NOT NULL | data-crons.nome |
-| frequencia | text NOT NULL | data-crons.frequencia (horario fixo) |
-| gatilho_estado | text NULL | RNF-23 (prazo vencendo, meta atingida) |
-| acao | text | acao do agente |
-| ativo | boolean default true | data-crons.ativo |
-
-#### `subscriptions` (data-subscription; US-34/35/36)
-| Campo | Tipo | Notas |
-|-------|------|-------|
-| id | uuid PK | |
-| igreja_id | uuid FK UNIQUE | F1 |
-| plano | text NOT NULL | data-subscription.plano |
-| status | enum(`ativa`,`pendente`,`inadimplente`) | data-subscription.status |
-| pessoas | int | data-subscription.pessoas (porte) |
-| limite | int | data-subscription.limite |
-| proxima_cobranca | date NULL | data-subscription.proximaCobranca |
-| asaas_customer_id | text NULL | RF-39 (Asaas) |
-| asaas_subscription_id | text NULL | |
-| setup_pago | boolean default false | US-34 (setup fee R$1.000) |
-
-#### `system_managers` (data-system-managers; US-03/04 — delta-015)
-| Campo | Tipo | Notas |
-|-------|------|-------|
-| id | uuid PK | |
-| igreja_id | uuid FK | F1 |
-| nome | text NOT NULL | data-system-managers.nome |
-| email | text NOT NULL | data-system-managers.email |
-| papel_operacional | enum(`admin_sistema`,`operador`) | data-system-managers.papelOperacional |
-
-> **[Fase 1 — divergência de implementação · 2026-06-14]** Tabela `system_managers` **descontinuada**: `operador` → papel `operador` em `user_roles`; `admin_sistema` → papel `admin`. Módulo `system_managers.py` e a API `api-system-managers` (`/system-managers`) **removidos**; a tela `#gerentes`/`nav-gerentes` saiu do contrato operacional (gestão concentra-se em `#equipe` + `#permissoes`). Migração: `0008_add_operador_role.sql` (enums) + `0009_unify_system_managers.sql` (backfill); tabela/enum não dropados ainda (rollback). Conceder acesso passa a vincular `app_user` a uma `pessoa` (FK `app_users.pessoa_id`).
-
-#### `consolidacoes` (data-consolidacao; US-38/39 — delta-018)
-| Campo | Tipo | Notas |
-|-------|------|-------|
-| id | uuid PK | |
-| igreja_id | uuid FK | F1 |
-| pessoa_id | uuid FK -> pessoas | data-consolidacao.pessoa |
-| tipo | enum(`individual`,`universidade_vida`) | data-consolidacao.tipo |
-| responsavel_id | uuid FK -> app_users NULL | data-consolidacao.responsavel (consolidador) |
-| progresso | int default 0 | data-consolidacao.progresso |
-| concluida | boolean default false | data-consolidacao.concluida |
-| prazo_conexao | timestamptz NULL | US-40 (24h conectar a celula) |
-| created_at | timestamptz default now() | |
-
-#### `consolidacao_etapas` (trilha individual — delta-018; US-39)
-| Campo | Tipo | Notas |
-|-------|------|-------|
-| id | uuid PK | |
-| igreja_id | uuid FK | F1 |
-| consolidacao_id | uuid FK | |
-| etapa | text | aceitou_jesus / conectou_celula / fonovisita / visita_n |
-| concluida | boolean default false | US-39 |
-| confirmada_por | uuid FK -> app_users NULL | gate por identidade (so consolidador — delta-018) |
-| confirmada_em | timestamptz NULL | |
-
-#### `decisions` (data-decision; US-37/40 — delta-021)
-| Campo | Tipo | Notas |
-|-------|------|-------|
-| id | uuid PK | |
-| igreja_id | uuid FK | F1 |
-| pessoa_id | uuid FK -> pessoas | data-decision.pessoa |
-| origem | text | data-decision.origem (culto/celula) |
-| vinculo | enum(`celula`,`visitante`) | data-decision.vinculo |
-| celula_id | uuid FK NULL | data-decision.celulaId (fluxo A) |
-| responsavel_id | uuid FK NULL | data-decision.responsavel |
-| prazo_conexao | timestamptz NULL | fluxo B: 24h (data-decision.prazoConexao) |
-| created_at | timestamptz default now() | |
-
-#### `multiplicacoes` (data-multiplicacoes, data-aptos-lideranca; enviar — delta-027)
-| Campo | Tipo | Notas |
-|-------|------|-------|
-| id | uuid PK | |
-| igreja_id | uuid FK | F1 |
-| celula_id | uuid FK | data-multiplicacoes.celula |
-| status | enum(`agendada`,`sem_agendamento`,`aprovada`,`concluida`) | data-multiplicacoes.status |
-| data_prevista | date NULL | data-multiplicacoes.dataPrevista |
-| descendencia | text NULL | data-multiplicacoes.descendencia |
-| novo_lider_id | uuid FK -> pessoas NULL | delta-027 (aprovacao gateada) |
-| supervisao_ok | boolean default false | delta-027 (botao aprovar desabilitado se pendente) |
-| aprovada_por | uuid FK -> app_users NULL | US-23 |
-
-#### `consent_records` (LGPD — delta-040; RNF-06)
-| Campo | Tipo | Notas |
-|-------|------|-------|
-| id | uuid PK | |
-| igreja_id | uuid FK | F1 |
-| pessoa_id | uuid FK -> pessoas | |
-| termo_versao | text | versao do termo aceito |
-| aceite_em | timestamptz | data/hora do aceite |
-
-#### `ai_usage_logs` (auditoria de IA — F8/RNF-24; delta-037)
-| Campo | Tipo | Notas |
-|-------|------|-------|
-| id | uuid PK | |
-| igreja_id | uuid FK | F1 |
-| modelo | text | |
-| tokens_in | int | |
-| tokens_out | int | |
-| custo | numeric | |
-| ferramenta | text NULL | tool usada pelo agente |
-| created_at | timestamptz default now() | |
-
-#### `agent_conversation_logs` (logs do agente — F8/RNF-24)
-| Campo | Tipo | Notas |
-|-------|------|-------|
-| id | uuid PK | |
-| igreja_id | uuid FK | F1 |
-| conversation_id | uuid FK NULL | |
-| evento | text | interacao/decisao/tool-call |
-| payload | jsonb | CPF/dados sensiveis mascarados (delta-040) |
-| created_at | timestamptz default now() | |
-
-> **Telas legadas / stub (sem novas tabelas):** `contatos`, `celulas`, `relatorios` reusam `pessoas`/`celulas`/`reports` (deep-link, fora do menu — delta-012). `universidade-vida` e `capacitacao` estao BLOQUEADAS no MVP (delta-019/028): nao requerem tabelas operacionais; quando habilitadas usarao extensoes de `consolidacoes`/trilha. As telas `super-admin-igrejas` / `super-admin-provisionar` sao **stub** (superficie separada — delta-024): **nao** criar tabelas/endpoints no painel operacional.
+| Tabela | Proposito |
+|--------|-----------|
+| `igrejas` | Raiz do tenant (F1); unica tabela core sem `igreja_id`. |
+| `pessoas` | Modelo unificado de pessoa (F2/F6/F7): contato/visitante/membro/lider/pastor sao estados da mesma linha. |
+| `app_users` | Usuario do painel autenticado via Clerk. |
+| `password_reset_tokens` | Um registro por link de "esqueci a senha" (`jti` + uso unico — SEC-3B/MEDIO-003). |
+| `user_roles` | Papeis acumulados por usuario (F3). |
+| `role_permissions` | Matriz papel x tela (delta-010). |
+| `celulas` | Celula (grupo). |
+| `celula_membro` | Vinculo canonico pessoa<->celula; fonte de verdade da participacao (`pessoas.celula_id` e espelho legado). |
+| `celula_reuniao` | Ocorrencia materializada de reuniao de celula (data/hora), com ciclo de relatorio. |
+| `celula_presenca` | Presenca de uma pessoa numa reuniao (UNIQUE por reuniao+pessoa; confirmada/compareceu/ausente). |
+| `celula_expectativa_visitante` | Visitante esperado por um membro para uma reuniao (sem UNIQUE — N por membro). |
+| `celula_reuniao_registro` | Registro pastoral da reuniao (decisao/oracao/observacao); oculto do discipulo. |
+| `celula_visitante` | Visitante presente numa reuniao; pode referenciar a expectativa que o antecedeu. |
+| `celula_solicitacao` | Solicitacao de alteracao sensivel / multiplicacao (extensivel por `tipo` + payload proposto). |
+| `celula_solicitacao_evento` | Trilha APPEND-ONLY das transicoes de uma solicitacao (trigger bloqueia UPDATE/DELETE). |
+| `celula_aviso` | Aviso da celula (origem=celula) ou da Central (origem=central); escopo celula/igreja. |
+| `celula_material` | Material de apoio publicado pela Central (link/metadados, sem upload real). |
+| `cell_alerts` | Alerta pastoral levantado para uma pessoa dentro de uma celula. |
+| `conversations` | Thread de conversa WhatsApp vinculada a uma pessoa (F6). |
+| `messages` | Mensagem cronologica dentro de uma conversa (F6). |
+| `work_queue_items` | Item acionavel da fila de trabalho compartilhada (F5). |
+| `decisions` | Decisao por Jesus (US-37); INSERT dispara abertura de consolidacao via trigger. |
+| `consolidacoes` | Trilha de consolidacao individual por pessoa (US-38/39, delta-018). |
+| `consolidacao_etapas` | Etapa da trilha individual; confirmacao restrita ao `responsavel_id` (consolidador). |
+| `multiplicacoes` | Multiplicacao de celula (enviar — delta-027); transacional e idempotente (Celulas PR3-PR9). |
+| `crons` | Job agendado / gatilho por estado executado pelo cron_worker. |
+| `subscriptions` | Assinatura de billing (1:1 com igreja); usada no gate de login. |
+| `reports` | Relatorio semanal de celula (RF-37); uma linha por (celula, semana). |
+| `broadcasts` | Comunicado segmentado (RF-38); respeita opt-out no envio. |
+| `events` | Evento da igreja (RF-39 / Agenda); opcionalmente espelhado no Google Calendar. |
+| `event_notify_targets` | Contato individual a notificar de um evento (EVT-8), vindo de `conversations`. |
+| `calendar_sync` | Conexao Google Calendar por igreja + estado de sync (tokens OAuth cifrados). |
+| `agenda_alert_recipients` | Destinatario opt-in de avisos internos da Agenda por WhatsApp (EVT-7 PR2). |
+| `whatsapp_connections` | Conexao WhatsApp oficial por igreja (1:1; UNIQUE em `igreja_id`). |
+| `pessoa_arquivamento_evento` | Trilha APPEND-ONLY de arquivamento/reativacao de Pessoa (W3.2A). |
+| `consent_records` | Registro de consentimento LGPD concedido na primeira mensagem inbound (US-31/RF-36). |
+| `agent_configs` | Config de comportamento do agente por igreja (1:1, US-28). |
+| `agent_config_requests` | Requisicao admin -> master para mudar o agente (#10b Fase 1 / delta-043). |
+| `llm_credentials` | Credencial LLM BYO por igreja (1:1; chave cifrada, nunca exibida — RNF-03). |
+| `ai_usage_logs` | Log de consumo de IA por igreja: modelo/tokens/custo (F8/RNF-24). |
+| `agent_conversation_logs` | Auditoria de eventos do agente/webhook numa conversa (F8/RNF-24). |
+| `planos` | Catalogo global de planos do SaaS (referencia sem `igreja_id`; CRUD do master). |
+| `platform_audit_log` | Auditoria imutavel das acoes cross-tenant do console master (M3; plano de plataforma). |
+| `platform_admins` | Allowlist de Super-Admin (plano de plataforma; sem `igreja_id`/RLS por tenant). |
+| `platform_orchestrator` | Modelo padrao do orquestrador (1 linha do master), copiado para o `AgentConfig` da igreja na aprovacao. |
 
 ### 2.2 RLS Policies
 > RNF-02 / F1 / F4 (delta-033): isolamento por tenant em nivel de banco; autorizacao **revalidada no backend** (igreja_id + papel) em todo endpoint.
@@ -496,6 +220,8 @@ igrejas (1) ──< (N) ai_usage_logs / agent_conversation_logs
 ---
 
 ## 3. Backend
+
+> **Nota (2026-07-18):** esta secao reflete o desenho original de 2026-06-11. O historico do que foi entregue/alterado depois esta em `docs/sprints/`.
 
 > Stack: FastAPI (API REST) + LangGraph (agente orquestrador) + worker de filas (webhooks WhatsApp). Autorizacao real no backend (F4): cada endpoint revalida `igreja_id` + papel. Endpoints derivados 1:1 das `apiExpectations` do design lock.
 
@@ -646,6 +372,8 @@ backend/
 ---
 
 ## 4. Frontend
+
+> **Nota (2026-07-18):** esta secao reflete o desenho original de 2026-06-11. O historico do que foi entregue/alterado depois esta em `docs/sprints/`.
 
 ### 4.1 Design Lock Source
 - **Artifact HTML (fonte visual oficial):** `docs/Docs20260611_163530/design/artifact.html` (sha256 `93f2b3d2224849faf242dc202441f19ac12639f4c157d7db6292ca794b466478`)
