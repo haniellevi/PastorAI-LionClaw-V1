@@ -931,7 +931,9 @@ def test_approve_multiplication_rejects_csim_422(app) -> None:
             p.sem_interesse = True
     resp = _approve(app, session)
     assert resp.status_code == 422
-    assert "CSIM" in resp.json()["detail"]
+    # FECH-07/ROTULO-1: rótulo visível é "fora da igreja" (valor técnico
+    # sem_interesse/CSIM inalterado no modelo).
+    assert "fora da igreja" in resp.json()["detail"]
 
 
 def test_approve_multiplication_rejects_ja_lidera_409(app) -> None:

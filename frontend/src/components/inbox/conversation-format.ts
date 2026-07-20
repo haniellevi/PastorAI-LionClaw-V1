@@ -82,10 +82,10 @@ const TIPO_SHORT: Record<string, string> = {
 
 /**
  * Marca discreta de tipo exibida ao lado do nome no chat. CSIM tem prioridade
- * ("Sem interesse"); sem cadastro/tipo retorna null (não mostra nada).
+ * ("Fora da igreja"); sem cadastro/tipo retorna null (não mostra nada).
  */
 export function tipoMarker(c: Conversation): { label: string; csim: boolean } | null {
-  if (c.semInteresse) return { label: "Sem interesse", csim: true };
+  if (c.semInteresse) return { label: "Fora da igreja", csim: true };
   if (!c.tipo) return null;
   return { label: TIPO_SHORT[c.tipo] ?? c.tipo, csim: false };
 }

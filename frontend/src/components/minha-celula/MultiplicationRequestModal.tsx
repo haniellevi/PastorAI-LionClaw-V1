@@ -67,7 +67,7 @@ export function MultiplicationRequestModal({
   function leaderBlockReason(pessoaId: string): string | null {
     const c = contactById?.get(pessoaId);
     if (!c) return null;
-    if (c.semInteresse) return "sem interesse (CSIM)";
+    if (c.semInteresse) return "fora da igreja";
     if (!c.aptoLider) return "ainda não fez o Reencontro";
     if (c.liderDeCelula) return "já lidera célula ativa";
     return null;

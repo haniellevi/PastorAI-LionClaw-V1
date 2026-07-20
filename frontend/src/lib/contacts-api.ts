@@ -48,6 +48,12 @@ export interface Contact {
   aptoLider: boolean;
   /** Derivado no backend: lidera célula ATIVA (celulas.lider_id). */
   liderDeCelula: boolean;
+  /**
+   * FECH-06/REATIVAR-1: pessoa arquivada (pessoas.arquivada_em preenchido).
+   * Opcional porque projeções derivadas do detalhe (toContact) não a trazem —
+   * ausente equivale a false.
+   */
+  arquivada?: boolean;
 }
 
 /**
@@ -129,6 +135,19 @@ export interface OffboardingPreflight {
   preservados: OffboardingPreflightItem[];
 }
 
+/**
+ * Resposta de POST /contacts/{id}/reactivate-communications (FECH-05/OPTIN-1,
+ * admin/pastor). `ja_ativa` = chamada idempotente (a pessoa não estava em
+ * opt-out; nada mudou). Chaves em snake_case, espelhando o backend.
+ */
+export interface ReactivateCommunicationsResult {
+  pessoa_id: string;
+  optout: boolean;
+  termo_versao: string;
+  reativada_por: string | null;
+  ja_ativa: boolean;
+}
+
 /** Resposta de POST /contacts/{id}/archive (admin-only). */
 export interface ArchiveContactResult {
   pessoa_id: string;
@@ -138,6 +157,16 @@ export interface ArchiveContactResult {
   arquivada_motivo: string;
   /** true quando a pessoa já estava arquivada (chamada idempotente). */
   ja_arquivada: boolean;
+}
+
+/**
+ * Resposta de POST /contacts/{id}/unarchive (FECH-06/REATIVAR-1, admin/pastor).
+ * Chaves em snake_case, espelhando o backend.
+ */
+export interface UnarchiveContactResult {
+  pessoa_id: string;
+  arquivada: boolean;
+  reativada_por: string | null;
 }
 
 /**
@@ -315,6 +344,30 @@ export async function promoteContact(
 }
 
 /**
+ * Reativa as comunicações de uma pessoa em opt-out (FECH-05/OPTIN-1).
+ * Backend restringe a admin/pastor (403 caso contrário); 404 quando a pessoa
+ * não existe ou é de outra igreja (tenant nunca revela existência).
+ */
+export async function reactivateCommunications(
+  token: string,
+  contactId: string,
+): Promise<ReactivateCommunicationsResult> {
+  const res = await authedFetch(
+    token,
+    `/contacts/${contactId}/reactivate-communications`,
+    { method: "POST" },
+  );
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(
+      res.status,
+      detail ?? "Não foi possível reativar as comunicações.",
+    );
+  }
+  return (await res.json()) as ReactivateCommunicationsResult;
+}
+
+/**
  * Calcula se `contactId` pode ser arquivada agora (M7B-W3.2B, admin-only).
  * Somente leitura — nenhuma mutação. 403 quando o usuário não é admin; 404
  * quando a pessoa não existe (ou é de outro tenant — RLS nunca revela).
@@ -365,6 +418,26 @@ export async function archiveContact(
     throw new ApiError(res.status, detail ?? "Não foi possível arquivar esta pessoa.");
   }
   return (await res.json()) as ArchiveContactResult;
+}
+
+/**
+ * Desarquiva `contactId` (FECH-06/REATIVAR-1) — a pessoa volta às listas
+ * normais. Backend restringe a admin/pastor (403 caso contrário); 404 quando a
+ * pessoa não existe ou é de outra igreja (tenant nunca revela existência);
+ * 409 quando a pessoa não está arquivada.
+ */
+export async function unarchiveContact(
+  token: string,
+  contactId: string,
+): Promise<UnarchiveContactResult> {
+  const res = await authedFetch(token, `/contacts/${contactId}/unarchive`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível reativar esta pessoa.");
+  }
+  return (await res.json()) as UnarchiveContactResult;
 }
 
 // ---------------------------------------------------------------------------

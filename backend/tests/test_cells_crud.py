@@ -363,7 +363,9 @@ def test_create_cell_rejects_lider_csim(app) -> None:
         "/cells", headers=_AUTH, json=_full_payload(liderId=_P1)
     )
     assert resp.status_code == 422
-    assert "CSIM" in resp.json()["detail"]
+    # FECH-07/ROTULO-1: rótulo visível é "fora da igreja" (valor técnico
+    # sem_interesse/CSIM inalterado no modelo).
+    assert "fora da igreja" in resp.json()["detail"]
 
 
 def test_create_cell_rejects_lider_que_ja_lidera_ativa(app) -> None:

@@ -187,6 +187,7 @@ def _pessoa(pessoa_id: uuid.UUID, *, celula_id=None) -> SimpleNamespace:
         apto_lider=False,
         telefone="11988887777",
         email=None,
+        arquivada_em=None,
     )
 
 

@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { StatusPill } from "@/components/dashboard/StatusPill";
+import { Dialog } from "@/components/ds/Dialog";
 import { DataTable, type Column } from "@/components/ui/DataTable";
 import { SessionExpiredError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
@@ -25,6 +26,7 @@ import {
   linkContactCell,
   tipoLabel,
   tipoTone,
+  unarchiveContact,
   updateContact,
   type ArchiveContactResult,
   type Contact,
@@ -49,7 +51,8 @@ type Filter =
   | "lideres_celula"
   | "aptos"
   | "pastor"
-  | "csim";
+  | "csim"
+  | "arquivadas";
 
 interface Toast {
   kind: "ok" | "err";
@@ -67,7 +70,10 @@ const FILTERS: Array<{ id: Filter; label: string; warn?: boolean }> = [
   { id: "lideres_celula", label: "Líderes de célula" },
   { id: "aptos", label: "Aptos sem célula" },
   { id: "pastor", label: "Pastores" },
-  { id: "csim", label: "Sem interesse (CSIM)", warn: true },
+  { id: "csim", label: "Fora da igreja", warn: true },
+  // FECH-06/REATIVAR-1: pessoas arquivadas ficam FORA das listas normais e
+  // só aparecem aqui, com ação "Reativar" (admin/pastor).
+  { id: "arquivadas", label: "Arquivadas" },
 ];
 
 const ETAPA_LABEL: Record<string, string> = {
@@ -107,6 +113,10 @@ function maskPhone(phone: string): string {
 }
 
 function matchesFilter(c: Contact, f: Filter): boolean {
+  // Arquivadas só aparecem na aba própria; nas demais listas ficam de fora
+  // (reativar as devolve às listas normais — FECH-06/REATIVAR-1).
+  if (f === "arquivadas") return c.arquivada === true;
+  if (c.arquivada) return false;
   if (f === "all") return true;
   if (f === "pending") return followStatus(c).label === "Sem acompanhamento";
   if (f === "csim") return c.semInteresse === true;
@@ -118,7 +128,10 @@ function matchesFilter(c: Contact, f: Filter): boolean {
 
 export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
   const { token, user, expireSession } = useAuth();
-  const canEdit = (user?.roles ?? []).includes("admin");
+  const roles = user?.roles ?? [];
+  const canEdit = roles.includes("admin");
+  // FECH-06/REATIVAR-1: o backend aceita admin/pastor no unarchive.
+  const canReactivate = canEdit || roles.includes("pastor");
 
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [cells, setCells] = useState<Cell[]>([]);
@@ -147,10 +160,17 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
   const [archivePreflightError, setArchivePreflightError] = useState<string | null>(null);
   const [archiveBusy, setArchiveBusy] = useState(false);
   const [archiveError, setArchiveError] = useState<string | null>(null);
-  // Sessão-only: o backend não expõe arquivada_em/por/motivo em GET /contacts
-  // (nem no detalhe) — o indicador de "Arquivada" só reflete o que a própria
-  // sessão acabou de fazer; um reload volta a mostrar a pessoa sem o selo.
+  // O estado arquivado PERSISTE após reload: GET /contacts expõe o booleano
+  // `arquivada` (FECH-06) e é ele quem manda no selo/ações do detalhe. Este
+  // registro de sessão guarda apenas os METADADOS do arquivamento que a
+  // própria sessão acabou de fazer (arquivada_em/por/motivo do resultado do
+  // POST), que o GET de lista não traz.
   const [archivedInfo, setArchivedInfo] = useState<Record<string, ArchiveContactResult>>({});
+
+  // Reativação (desarquivamento) de Pessoa — FECH-06/REATIVAR-1.
+  const [unarchiveTarget, setUnarchiveTarget] = useState<Contact | null>(null);
+  const [unarchiveBusy, setUnarchiveBusy] = useState(false);
+  const [unarchiveError, setUnarchiveError] = useState<string | null>(null);
 
   const handleSessionError = useCallback(
     (err: unknown): boolean => {
@@ -353,6 +373,11 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
       setArchiveError(null);
       try {
         const result = await archiveContact(token, archiveTarget.id, motivo);
+        // Pessoa sai das listas normais e entra em "Arquivadas" (espelho do
+        // patch local feito por handleUnarchiveConfirm).
+        setContacts((prev) =>
+          prev.map((c) => (c.id === result.pessoa_id ? { ...c, arquivada: true } : c)),
+        );
         setArchivedInfo((prev) => ({ ...prev, [result.pessoa_id]: result }));
         flashToast({
           kind: "ok",
@@ -381,6 +406,35 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
     [token, archiveTarget, flashToast, handleSessionError],
   );
 
+  const handleUnarchiveConfirm = useCallback(async () => {
+    if (!token || !unarchiveTarget) return;
+    setUnarchiveBusy(true);
+    setUnarchiveError(null);
+    try {
+      const result = await unarchiveContact(token, unarchiveTarget.id);
+      // Pessoa sai de "Arquivadas" e volta às listas normais.
+      setContacts((prev) =>
+        prev.map((c) => (c.id === result.pessoa_id ? { ...c, arquivada: false } : c)),
+      );
+      // O selo de sessão do fluxo de arquivar (se houver) também deixa de valer.
+      setArchivedInfo((prev) => {
+        if (!(result.pessoa_id in prev)) return prev;
+        const next = { ...prev };
+        delete next[result.pessoa_id];
+        return next;
+      });
+      flashToast({ kind: "ok", text: `${unarchiveTarget.nome} foi reativada.` });
+      setUnarchiveTarget(null);
+    } catch (err) {
+      if (handleSessionError(err)) return;
+      setUnarchiveError(
+        err instanceof ApiError ? err.message : "Não foi possível reativar esta pessoa.",
+      );
+    } finally {
+      setUnarchiveBusy(false);
+    }
+  }, [token, unarchiveTarget, flashToast, handleSessionError]);
+
   const columns: Array<Column<Contact>> = useMemo(
     () => [
       {
@@ -402,7 +456,7 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
         header: "Tipo",
         cell: (c) =>
           c.semInteresse ? (
-            <StatusPill tone="danger">Sem interesse (CSIM)</StatusPill>
+            <StatusPill tone="danger">Fora da igreja</StatusPill>
           ) : (
             <>
               <StatusPill tone={tipoTone(c.tipo)}>{tipoLabel(c.tipo)}</StatusPill>
@@ -432,8 +486,31 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
             <span className="sub">—</span>
           ),
       },
+      // FECH-06/REATIVAR-1: só a aba "Arquivadas" ganha a coluna de ação, e
+      // apenas para papéis que o backend aceita no unarchive (admin/pastor).
+      ...(filter === "arquivadas" && canReactivate
+        ? [
+            {
+              header: "Ações",
+              cell: (c: Contact) => (
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={(e) => {
+                    // Não abrir o painel de detalhe ao clicar na ação da linha.
+                    e.stopPropagation();
+                    setUnarchiveError(null);
+                    setUnarchiveTarget(c);
+                  }}
+                >
+                  Reativar
+                </button>
+              ),
+            } satisfies Column<Contact>,
+          ]
+        : []),
     ],
-    [cellName],
+    [cellName, filter, canReactivate],
   );
 
   const showSkeleton = loading && !loaded;
@@ -609,6 +686,52 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
         />
       ) : null}
 
+      {/* Confirmação de reativação — FECH-06/REATIVAR-1 (ds/Dialog, nunca window.confirm). */}
+      <Dialog
+        open={unarchiveTarget !== null}
+        onClose={() => {
+          if (unarchiveBusy) return;
+          setUnarchiveTarget(null);
+          setUnarchiveError(null);
+        }}
+        title="Reativar pessoa"
+        description={
+          unarchiveTarget
+            ? `${unarchiveTarget.nome} voltará às listas normais e sairá de "Arquivadas".`
+            : undefined
+        }
+        footer={
+          <>
+            <button
+              type="button"
+              className="btn"
+              onClick={() => {
+                setUnarchiveTarget(null);
+                setUnarchiveError(null);
+              }}
+              disabled={unarchiveBusy}
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => void handleUnarchiveConfirm()}
+              disabled={unarchiveBusy}
+            >
+              {unarchiveBusy ? "Reativando…" : "Reativar"}
+            </button>
+          </>
+        }
+      >
+        {unarchiveError ? (
+          <div className="error-banner" role="alert">
+            <Icon name="alert" />
+            <span>{unarchiveError}</span>
+          </div>
+        ) : null}
+      </Dialog>
+
       {toast ? (
         <div className={`toast ${toast.kind}`} role="status">
           <Icon name={toast.kind === "ok" ? "check" : "alert"} />
@@ -636,7 +759,8 @@ function ContactDetail({
   cellName: string;
   busy: boolean;
   canEdit: boolean;
-  /** Preenchido quando esta sessão acabou de arquivar a pessoa (sem persistir ao recarregar). */
+  /** Metadados de um arquivamento feito NESTA sessão (o estado arquivado em
+   * si persiste via `contact.arquivada`, que o backend expõe no GET). */
   archived?: ArchiveContactResult;
   onEdit: () => void;
   onLink: () => void;
@@ -657,6 +781,8 @@ function ContactDetail({
   }
 
   const status = followStatus(contact);
+  // Persistente (backend) OU recém-arquivada nesta sessão (metadados locais).
+  const isArquivada = contact.arquivada === true || archived !== undefined;
 
   return (
     <div className="card card-pad">
@@ -665,10 +791,10 @@ function ContactDetail({
           <h3>{contact.nome}</h3>
           <div className="sub mono">{contact.telefone}</div>
         </div>
-        {archived ? (
+        {isArquivada ? (
           <StatusPill tone="muted">Arquivada</StatusPill>
         ) : contact.semInteresse ? (
-          <StatusPill tone="danger">Sem interesse (CSIM)</StatusPill>
+          <StatusPill tone="danger">Fora da igreja</StatusPill>
         ) : (
           <StatusPill tone={tipoTone(contact.tipo)}>{tipoLabel(contact.tipo)}</StatusPill>
         )}
@@ -677,7 +803,7 @@ function ContactDetail({
       <dl className="detail-list">
         {contact.semInteresse ? (
           <div>
-            <dt>Motivo (CSIM)</dt>
+            <dt>Motivo (Fora da igreja)</dt>
             <dd>{contact.semInteresseMotivo?.trim() || "—"}</dd>
           </div>
         ) : null}
@@ -742,7 +868,7 @@ function ContactDetail({
         </button>
       ) : null}
 
-      {canEdit && !archived ? (
+      {canEdit && !isArquivada ? (
         <button
           type="button"
           className="btn btn-danger btn-block"

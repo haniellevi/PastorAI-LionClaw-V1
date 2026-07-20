@@ -106,6 +106,7 @@ def _pessoa_ganhar(*, etapa="ganhar", tipo="contato", sem_interesse=False):
         lider_id=None,
         apto_lider=False,
         created_at=None,
+        arquivada_em=None,
     )
 
 

@@ -12,11 +12,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { EditContactModal } from "@/components/contacts/EditContactModal";
+import { Dialog } from "@/components/ds/Dialog";
 import { getFocusable, trapNextIndex } from "@/components/ds/a11y";
 import { Button } from "@/components/ui/Button";
 import { SessionExpiredError } from "@/lib/api";
 import {
   fetchContactDetail,
+  reactivateCommunications,
   tipoLabel,
   updateContact,
   type Contact,
@@ -114,6 +116,11 @@ export function ContactPanel({
 }) {
   const { token, user, expireSession } = useAuth();
   const canEdit = user ? isAdmin(user.roles) : false;
+  // FECH-05/OPTIN-1: espelha o guard do backend (require_role admin/pastor).
+  // RBAC real é do servidor — aqui é só visibilidade do botão.
+  const canReactivate = user
+    ? user.roles.includes("admin") || user.roles.includes("pastor")
+    : false;
 
   // Gate 8: o painel é um DRAWER sob demanda — acessível como o ds/Dialog
   // (mesma lógica de foco de ds/a11y): foco inicial no primeiro focável,
@@ -130,13 +137,25 @@ export function ContactPanel({
     const focusables = getFocusable(panel);
     (focusables[0] ?? panel).focus();
     function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape" || e.key === "Tab") {
+        // Diálogo modal interno aberto (ds/Dialog só existe no DOM enquanto
+        // `open`): TODO o teclado pertence a ELE — o Escape fecha o diálogo
+        // (respeitando o guard `busy` do onClose dele) e o focus-trap de
+        // Tab/Shift+Tab é o do Dialog. Este listener capture roda ANTES do
+        // listener do Dialog; consumir aqui fecharia o painel por cima do
+        // diálogo ou moveria o foco para controles do drawer. Detecção no
+        // PRÓPRIO painel (não global) e via DOM: o effect tem deps vazias e
+        // um state capturado aqui estaria stale. Cobre o diálogo de
+        // reativação e o EditContactModal.
+        if (panel!.querySelector('[role="dialog"][aria-modal="true"]')) return;
+      }
       if (e.key === "Escape") {
         e.stopPropagation();
         onCloseRef.current();
         return;
       }
       if (e.key !== "Tab") return;
-      // O EditContactModal (modal próprio) assume o foco quando aberto.
+      // Foco fora do drawer (ex.: outro overlay da página): não interferir.
       if (!panel!.contains(document.activeElement)) return;
       const items = getFocusable(panel!);
       const current = items.indexOf(document.activeElement as HTMLElement);
@@ -159,6 +178,12 @@ export function ContactPanel({
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+
+  // Reativação de comunicações (FECH-05/OPTIN-1) — confirmação via ds/Dialog.
+  const [reactivateOpen, setReactivateOpen] = useState(false);
+  const [reactivateBusy, setReactivateBusy] = useState(false);
+  const [reactivateError, setReactivateError] = useState<string | null>(null);
+  const [reactivateSuccess, setReactivateSuccess] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!token || !pessoaId) return;
@@ -184,6 +209,9 @@ export function ContactPanel({
     setDetail(null);
     setEditing(false);
     setError(null);
+    setReactivateOpen(false);
+    setReactivateError(null);
+    setReactivateSuccess(null);
     if (pessoaId) void load();
   }, [pessoaId, load]);
 
@@ -210,6 +238,30 @@ export function ContactPanel({
     },
     [token, detail, load, expireSession],
   );
+
+  const handleReactivate = useCallback(async () => {
+    if (!token || !detail) return;
+    setReactivateBusy(true);
+    setReactivateError(null);
+    try {
+      await reactivateCommunications(token, detail.id);
+      setReactivateOpen(false);
+      setReactivateSuccess("Comunicações reativadas com sucesso.");
+      await load(); // re-busca o detalhe: optout=false some com o botão
+    } catch (err) {
+      if (err instanceof SessionExpiredError) {
+        expireSession();
+        return;
+      }
+      setReactivateError(
+        err instanceof ApiError
+          ? err.message
+          : "Não foi possível reativar as comunicações.",
+      );
+    } finally {
+      setReactivateBusy(false);
+    }
+  }, [token, detail, load, expireSession]);
 
   return (
     // W5A: painel lateral (drawer), não é modal — sem role de dialog nem
@@ -272,7 +324,7 @@ export function ContactPanel({
               <strong>{detail.nome}</strong>
               {detail.semInteresse || detail.tipo ? (
                 <span className={`panel-tipo${detail.semInteresse ? " csim" : ""}`}>
-                  {detail.semInteresse ? "Sem interesse" : tipoLabel(detail.tipo)}
+                  {detail.semInteresse ? "Fora da igreja" : tipoLabel(detail.tipo)}
                 </span>
               ) : null}
             </div>
@@ -320,14 +372,14 @@ export function ContactPanel({
                 label="Tipo"
                 value={
                   detail.semInteresse
-                    ? "Sem interesse"
+                    ? "Fora da igreja"
                     : detail.tipo
                       ? tipoLabel(detail.tipo)
                       : null
                 }
               />
               <Row
-                label="Motivo (CSIM)"
+                label="Motivo (Fora da igreja)"
                 value={detail.semInteresse ? detail.semInteresseMotivo : null}
               />
               <Row
@@ -340,11 +392,79 @@ export function ContactPanel({
                 label="Consentimento (LGPD)"
                 value={detail.consentimento ? "Concedido" : "Pendente"}
               />
+              <Row
+                label="Comunicações"
+                value={detail.optout ? "Opt-out (pausadas)" : null}
+              />
               <Row label="Primeiro contato" value={fmtDate(detail.primeiroContato)} />
               <Row label="Cadastrado em" value={fmtDate(detail.criadoEm)} />
             </dl>
           </section>
+
+          {/* FECH-05/OPTIN-1: feedback de sucesso persiste após o reload do
+              detalhe (quando optout=false o botão abaixo já sumiu). */}
+          {reactivateSuccess ? (
+            <p className="panel-reactivate-success" role="status">
+              {reactivateSuccess}
+            </p>
+          ) : null}
+
+          {/* Botão só existe quando a pessoa está em opt-out (e para papéis
+              que o backend aceita — admin/pastor). Confirmação via ds/Dialog. */}
+          {detail.optout && canReactivate ? (
+            <Button size="sm" block onClick={() => setReactivateOpen(true)}>
+              <Icon name="chat" />
+              <span>Reativar comunicações</span>
+            </Button>
+          ) : null}
         </div>
+      ) : null}
+
+      {detail ? (
+        <Dialog
+          open={reactivateOpen}
+          onClose={() => {
+            if (reactivateBusy) return;
+            setReactivateOpen(false);
+            setReactivateError(null);
+          }}
+          title="Reativar comunicações"
+          description={`${detail.nome} voltará a receber mensagens da igreja pelo WhatsApp.`}
+          footer={
+            <>
+              <Button
+                onClick={() => {
+                  setReactivateOpen(false);
+                  setReactivateError(null);
+                }}
+                disabled={reactivateBusy}
+              >
+                Cancelar
+              </Button>
+              <Button
+                variant="primary"
+                loading={reactivateBusy}
+                loadingText="Reativando…"
+                onClick={() => void handleReactivate()}
+              >
+                Reativar comunicações
+              </Button>
+            </>
+          }
+        >
+          <p>
+            Esta pessoa pediu para não receber comunicações (opt-out). Ao
+            confirmar, o opt-out é removido e um novo registro de consentimento
+            de reativação é gravado — a retirada anterior permanece no
+            histórico (LGPD).
+          </p>
+          {reactivateError ? (
+            <div className="error-banner" role="alert">
+              <Icon name="alert" />
+              <span>{reactivateError}</span>
+            </div>
+          ) : null}
+        </Dialog>
       ) : null}
 
       {editing && detail ? (

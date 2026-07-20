@@ -49,6 +49,9 @@ from app.domain.cell_requests import OPEN_STATUSES
 from app.services.celula_membro import phone_matches_active_whatsapp
 
 ACAO_ARQUIVADA = "arquivada"
+# FECH-06/REATIVAR-1: metade "reativada" do enum de auditoria (modelada em
+# PessoaArquivamentoEvento desde W3.2A) — usada pelo unarchive em contacts.py.
+ACAO_REATIVADA = "reativada"
 
 # multiplicacoes.status: só 'concluida' é terminal (0001_extensions_and_enums).
 _OPEN_MULTIPLICACAO_STATUSES = ("agendada", "sem_agendamento", "aprovada")
