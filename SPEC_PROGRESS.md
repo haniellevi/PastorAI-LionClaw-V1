@@ -168,3 +168,22 @@ Ultima atualizacao: 2026-07-07T19:14:45.251Z
 - Remover ensure_tenant_context dos routers de alta densidade: Remover ensure_tenant_context(db, current_user) dos routers de maior densidade primeiro (cell_meetings.py=19, calendar.py=11, conversations.py=10, cell_requests.py/cells.py/cell_discipulo.py=8-9 ocorrencias). Cada router validado por T1-T6 + seus proprios testes. Comportamento observavel identico (a sessao ja vem marcada de get_current_user).
 - Remover ensure_tenant_context dos routers restantes: Remover ensure_tenant_context(db, current_user) dos demais routers (restante dos ~20 routers apos os de alta densidade do feat-016), OBRIGATORIAMENTE em lotes pequenos com limite explicito por PR (maximo 3 routers por PR/commit), cada lote com gate proprio antes de seguir para o proximo. Nunca migrar todos de uma vez (blast radius, SPEC secao 10).
 - Destino final de ensure_tenant_context em _common.py: Ao migrar o ultimo router, decidir e implementar o destino de ensure_tenant_context (OQ#3): remover de vez OU transforma-lo num shim de assert que FALHA (observabilidade fail-closed) se a sessao nao estiver marcada. Documentar a escolha. Auditar tambem chamadores de clear_tenant_context (rls.py:68) — quem quiser sair da RLS deve usar mark_cross_tenant, nao clear_tenant_context (que e inocuo no modelo novo).
+
+---
+
+## Apendice - Cronologia 2026-07-08 a 2026-07-18 (pos-pipeline C1/RLS)
+
+Fonte: `docs/sprints/` e `docs/security/2026-07-08-seg-igreja12-remediation-plan.md`. Cada item traz PR e release (commit de `origin/main` deployado em producao).
+
+- **SLA-ALIGN-1** — alinhamento do contrato `SLA_CONNECTION` para 24h. PR#175; release `82e1c6f` (2026-07-16).
+- **MSG-IDEMP-1** — dedupe de mensagem inbound por indice unico (migration aplicada em PROD antes do deploy). PR#176; release `82e1c6f` (2026-07-16).
+- **PIPE-1** — correcao da leitura de etapa `NULL` no pipeline pastoral. PR#178; release `82e1c6f` (2026-07-16).
+- **CONSOL-1** — impede consolidacao aberta duplicada por pessoa (indice + savepoint; migration em PROD). PR#179; release `82e1c6f` (2026-07-16).
+- **Wave visual W2** — papeis/status na UI de Pessoas. PR#173 (merge `d00bbb5`); deploy de frontend ~2026-07-15.
+- **Wave visual W3** — Agenda + dialogos. PR#174 (merge `611a2ad`); deploy de frontend ~2026-07-15.
+- **Wave visual W4A** — dialogos Report/NewContact/LinkCell migrados para `ds/Dialog`. PR#183 (merge `a67cae9`); deploy de frontend 2026-07-17 (`3aac399`).
+- **Wave visual W4B** — dialogos admin (Create/Edit/Orquestrador Igreja) migrados para `ds/Dialog`. PR#184 (merge `70846d2`); deploy de frontend 2026-07-17 (`3aac399`).
+- **SEC ALTO-003** — fonte unica para `CENTRAL_ROLES`. PR#181; release `70846d2` (2026-07-16).
+- **SEC ALTO-004 (parte 1)** — hardening do OAuth state do Google Calendar via `verify_purpose_token`. PR#182; release `70846d2` (2026-07-16).
+- **SEC ALTO-004 (conclusao) / unificacao JWT (verify)** — `verify_session/reset/invite_token` delegando a `verify_purpose_token`. PR#186; release `fd651f9` (2026-07-17). Reconciliacao REL-5 dos findings ALTO/MEDIO em `docs/security/` (PR#185/#187): 9 de 11 concluidos+deployados.
+- **Fechamento `b5b990d`** (PR#188; release backend+frontend 2026-07-18): **MEDIO-004/CONTACT-TENANT-DEDUP-1** (dedupe de contato com filtro explicito de `igreja_id`), **MEDIO-005/JWT-MINT-1** (emissao dos 3 tokens de proposito unificada em helper unico) e **W5A** (ultimos 8 dialogos migrados para `ds/Dialog`). Smoke autenticado em PROD 2026-07-18: PASS.
