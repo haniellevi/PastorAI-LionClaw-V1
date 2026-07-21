@@ -15,8 +15,11 @@
 - Rollback primário mantido no deployment de produção imediatamente anterior a esta publicação (preservado, não removido) — disponível para reversão caso necessário.
 
 ## Pendente / próximo passo
-- **SEC-DEP-3 (obrigatório)**: migrar para Next `15.5.20` — única linha que fecha o cluster de advisories de maio/2026 sem depender de backport para a série 14.
-- `npm audit --omit=dev` pós-bump: **7 findings de runtime conhecidos (6 high, 1 moderate)**, sem fix disponível na série 14.2.x — risco **temporariamente aceito**, não resolvido por esta release.
+- **SEC-DEP-3 (obrigatório)**: missão de re-grounding e migração major do Next. `15.5.20` foi a baseline considerada na auditoria anterior — cobre os advisories diretos do framework analisados até então, mas **não é alvo garantidamente limpo**: fixa `postcss@8.4.31`, abaixo do patch `8.5.10` (`GHSA-qx2v-qp2m-jg93`). A versão-alvo final deve ser decidida com audit e compatibilidade vigentes no momento da execução de SEC-DEP-3 — não fica fixada a priori nesta release.
+- **Rechecagem do audit (2026-07-21)**: `npm audit --omit=dev` aponta **7 pacotes vulneráveis (6 high, 1 moderate)** em dois grupos independentes:
+  - **Next/PostCSS** — `next` (múltiplos advisories sem backport pra série 14: DoS, SSRF via WebSocket, cache poisoning, XSS via CSP nonce, bypass i18n) + `postcss` (XSS moderate). Orientação atual do audit: `next@16.2.10`.
+  - **Clerk/js-cookie** — `@clerk/clerk-react`/`@clerk/shared`/`@clerk/backend` + `js-cookie` (prototype hijack em `assign()`). Orientação atual do audit: `@clerk/nextjs@7.5.20`.
+- **Clerk como frente separada** de avaliação/upgrade, independente do bump de Next: `@clerk/clerk-react` 5.12.0 continua nominalmente sinalizado pelo advisory `GHSA-w24r-5266-9c3c`, mas não foi encontrado no código o pré-requisito explorável (combinação organization/billing/reverification em `has()`/`auth.protect()`) — conclusão da auditoria anterior, preservada.
 
 ## Verificação
 - Smoke público (read-only, sem autenticação) nos 3 domínios: **3/3 PASS** — HTTP 200, páginas não vazias, conteúdo/roteamento consistente.
@@ -26,4 +29,4 @@
   - Painel central: sessão super-admin carregou; Orquestrador abriu com foco inicial em "Nome do agente", fechou sem salvar e devolveu foco ao botão de abertura; console limpo.
   - Nenhum formulário enviado, nenhum dado alterado.
 - `npm ci`, suíte de testes, typecheck, lint e build de produção: todos verdes antes do deploy.
-- **Este runtime não está livre de vulnerabilidades** — 7 findings remanescentes documentados acima; cobertura completa depende de SEC-DEP-3.
+- **Este runtime não está livre de vulnerabilidades** — 7 findings remanescentes documentados acima. O fechamento exige revalidação do framework e do Clerk, novo audit e todos os gates após as atualizações.
