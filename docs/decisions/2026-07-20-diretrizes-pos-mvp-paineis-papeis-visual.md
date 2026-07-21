@@ -1,6 +1,6 @@
 # Diretrizes do dono — Pós-MVP 1: painéis por papel, visibilidade e visual — 2026-07-20
 
-**Baseline:** `origin/main` = `9732abd` (pós PR#196 / veredito de fechamento do MVP M10)
+**Baseline:** `origin/main` = `ee39d37` (pós PR#200 / release record do FECH-2)
 **Processo:** o dono registrou 9 diretrizes de evolução após o fechamento do MVP.
 Cada uma foi verificada contra o PRD consolidado
 (`docs/Docs20260611_163530/PRD20260611_163530.md`) e classificada como
@@ -121,7 +121,7 @@ conteúdo pedagógico disponível → **mostrar em modo educativo** (ver Diretri
 
 | Pacote | Itens | Tamanho / via |
 |---|---|---|
-| **FECH-2** (inalterado) | OPTIN-1, REATIVAR-1, ROTULO-1, AGENDA-ORD-1 | Pipeline já preparado em `wt-pipeline-fech2` — **nenhuma diretriz nova entra** (SPEC congelada) |
+| **FECH-2** (concluído) | OPTIN-1, REATIVAR-1, ROTULO-1, AGENDA-ORD-1 | **Concluído em código via PR#198, migration aplicada em DEV/PROD, backend e frontend deployados, release record mergeado via PR#200.** Smoke PROD: 2 PASS (ROTULO-1, AGENDA-ORD-1) e 2 BLOCKED por ausência de dados elegíveis; OPTIN-1 e REATIVAR-1 pendentes **apenas de smoke funcional**. Nenhuma diretriz nova entrou no pacote. |
 | **VIS-2** | Diretrizes 2, 3, 4 (Minha Célula, Agenda, espaçamentos/botões) | Missões Claude Code diretas (padrão W-series), validação visual do dono |
 | **PAPEL-1** | Diretrizes 1, 5, 6 | Módulo grande → design + decisões pendentes → pipeline novo |
 | **EDU-1** | Diretriz 9 | Médio; após/junto do PAPEL-1 |
