@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { AdminAuthProvider } from "@/lib/admin-auth-context";
 
 export const metadata: Metadata = {
-  title: "Console da Plataforma · Igreja 12",
+  title: "Console da Plataforma",
   description: "Administração multi-igreja do Igreja 12 (acesso restrito).",
   // Superfície interna do provedor: nunca indexar.
   robots: { index: false, follow: false },
