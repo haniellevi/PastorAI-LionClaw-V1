@@ -276,14 +276,27 @@ de execução.** A ordem válida das próximas missões é a da seção 4 deste 
 Esta missão **não** removeu, moveu nem editou nada no checkout principal — por decisão de
 escopo.
 
-**Estado do housekeeping de worktrees e branches:** já avançou. O inventário de 2026-07-20
-era read-only, mas **HOUSEKEEPING-7A executou depois**: removeu os alvos classificados
-`SAFE_REMOVE` e fez prune dos registros autorizados. Verificado nesta baseline —
-`git worktree list` retorna hoje **10 entradas**, contra a ordem de grandeza que o
-inventário de 20/07 havia mapeado. O inventário original preservava explicitamente
-`wip/antigravity-resgate` como `KEEP`, por conter a única cópia de Dockerfile e do
-`.env.example` de deploy. Nenhum documento de housekeeping está versionado no repositório;
-o histórico dessa trilha vive na memória de trabalho, não em `docs/`.
+**Estado do housekeeping de worktrees:** já avançou. O inventário de 2026-07-20 era
+read-only, mas **HOUSEKEEPING-7A executou depois**: removeu os **worktrees** classificados
+`SAFE_REMOVE` que estavam autorizados e fez prune dos registros autorizados.
+
+**Quantos worktrees existem agora é estado operacional, não fato documental.** Muda a cada
+worktree criado ou removido, inclusive por conversas paralelas. Este documento
+deliberadamente não fixa esse número — **consulte sempre ao vivo**:
+
+```bash
+git worktree list
+```
+
+**Branches não foram tocadas.** O HOUSEKEEPING-7A **não removeu nenhuma branch**, local ou
+remota. A limpeza de branches continua sendo **missão separada**, com auditoria e
+autorização próprias — não deriva da autorização dada ao 7A nem pode ser executada de
+carona nela.
+
+O inventário de 20/07 preservava explicitamente `wip/antigravity-resgate` como `KEEP`, por
+conter a única cópia de Dockerfile e do `.env.example` de deploy. Nenhum documento de
+housekeeping está versionado no repositório; o histórico dessa trilha vive na memória de
+trabalho, não em `docs/`.
 
 **O que continua pendente é outra coisa:** a limpeza dos **resíduos da raiz antiga**
 listados na seção 5 (artefatos do pipeline v1 travado, `before.png`, `output/`,
