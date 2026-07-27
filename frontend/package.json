@@ -16,7 +16,7 @@
     "@fontsource/jetbrains-mono": "^5.2.8",
     "@fontsource/plus-jakarta-sans": "^5.2.8",
     "@fontsource/sora": "^5.2.8",
-    "next": "15.5.20",
+    "next": "15.5.22",
     "react": "19.2.7",
     "react-dom": "19.2.7"
   },
@@ -25,14 +25,14 @@
     "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",
     "eslint": "8.57.0",
-    "eslint-config-next": "15.5.20",
+    "eslint-config-next": "15.5.22",
     "jsdom": "^29.1.1",
     "typescript": "5.5.4",
     "vitest": "^4.1.10"
   },
   "overrides": {
     "next": {
-      "postcss": "8.5.10",
+      "postcss": "8.5.23",
       "sharp": "0.35.3"
     }
   }
