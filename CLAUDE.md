@@ -4,7 +4,7 @@ SaaS de gestão pastoral (jornada G12: ganhar → consolidar → discipular → 
 
 ## Stack
 - **Backend**: FastAPI (Python) em `backend/` — entry `app/main.py`. SQLAlchemy + PostgreSQL (Supabase), RLS por tenant (`igreja_id`). Auth Clerk. LangGraph (agente orquestrador). Migrations SQL em `backend/migrations/` — histórico `0001…0017` (numeração congelada); **novas migrations usam nome por timestamp** `AAAAMMDD_HHMMSS_slug.sql` (helper: `python scripts/new_migration.py "..."`), pra não colidir entre branches. Aplicação manual no Supabase, em ordem de nome. Ver `backend/migrations/README.md`.
-- **Frontend**: Next.js 14 (App Router) em `frontend/` — Clerk, PWA, mobile-first.
+- **Frontend**: Next.js 15.5.22 (App Router) em `frontend/` — Clerk, PWA, mobile-first.
 - **Serviços externos**: Supabase, Clerk, Evolution API (WhatsApp), OpenAI, Asaas (billing), Brevo (e-mail de convite), Google Calendar.
 - **Docs do pipeline**: `docs/Docs<id>/` (PRD, SPEC, sprints, design).
 
@@ -13,7 +13,7 @@ SaaS de gestão pastoral (jornada G12: ganhar → consolidar → discipular → 
 ### Bootstrap obrigatorio de contexto
 
 Antes de investigar ou implementar, leia
-`docs/audits/2026-07-10-project-source-of-truth.md`, confirme `origin/main` e
+`docs/audits/2026-07-27-project-source-of-truth.md`, confirme `origin/main` e
 compare o commit do worktree com `code-review-graph status`. Use o CRG antes de
 Grep/Read e use Graphify para arquitetura/documentacao. Se o grafo estiver em
 outro commit, trate-o como desatualizado e reconstrua antes de confiar nele.

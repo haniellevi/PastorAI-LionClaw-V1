@@ -1,0 +1,820 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <!-- DEV smokes: leia usuario-dev.md na raiz do projeto. Credenciais nao ficam no prototipo. -->
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#103b38">
+  <title>Igreja 12 · Protótipo Quiet Operations</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f2f6f4;
+      --paper: #fbfdfc;
+      --paper-2: #f6f9f7;
+      --ink: #173330;
+      --muted: #687b78;
+      --faint: #94a4a1;
+      --line: #dbe5e1;
+      --line-strong: #c9d7d2;
+      --petroleum: #103b38;
+      --petroleum-2: #0a504a;
+      --teal: #0f8f83;
+      --teal-dark: #08786f;
+      --teal-soft: #e2f1ee;
+      --amber: #bc7200;
+      --amber-soft: #fff1d7;
+      --red: #c83e3b;
+      --red-soft: #fce8e6;
+      --green: #1b8a4c;
+      --green-soft: #e4f4ea;
+      --blue-soft: #e9f0f5;
+      --radius-sm: 8px;
+      --radius: 12px;
+      --radius-lg: 16px;
+      --shadow-pop: 0 22px 60px rgba(16, 59, 56, .18);
+      --sidebar-w: 232px;
+      --ease: cubic-bezier(.22, 1, .36, 1);
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      min-width: 320px;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: "Segoe UI Variable", "Segoe UI", system-ui, -apple-system, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+    button, input, textarea, select { font: inherit; }
+    button { color: inherit; }
+    button, [role="button"] { touch-action: manipulation; }
+    button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible {
+      outline: 3px solid rgba(15, 143, 131, .25);
+      outline-offset: 2px;
+    }
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
+    svg.icon { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+
+    .app { min-height: 100dvh; }
+    .sidebar {
+      position: fixed;
+      inset: 0 auto 0 0;
+      z-index: 40;
+      width: var(--sidebar-w);
+      display: flex;
+      flex-direction: column;
+      padding: 28px 16px 18px;
+      color: #edf6f3;
+      background-color: var(--petroleum);
+      background-image:
+        radial-gradient(120% 70% at 0 0, rgba(15, 143, 131, .17), transparent 58%),
+        linear-gradient(180deg, #103b38, #093832 72%, #082f2c);
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-height: 56px;
+      padding: 0 12px;
+      margin-bottom: 24px;
+    }
+    .brand-mark { font-size: 52px; font-weight: 760; line-height: 1; letter-spacing: -.07em; }
+    .brand-copy { display: none; }
+    .nav-group { margin-top: 12px; }
+    .nav-group + .nav-group { padding-top: 18px; margin-top: 18px; border-top: 1px solid rgba(235, 246, 243, .16); }
+    .nav-label { padding: 0 12px 8px; color: rgba(235, 246, 243, .66); font-size: 12px; font-weight: 650; letter-spacing: .02em; }
+    .nav-item {
+      width: 100%;
+      min-height: 44px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 9px 12px;
+      border: 0;
+      border-radius: 9px;
+      color: rgba(244, 250, 248, .82);
+      background: transparent;
+      text-align: left;
+      cursor: pointer;
+      transition: background-color .18s var(--ease), color .18s var(--ease), transform .18s var(--ease);
+    }
+    .nav-item:hover { color: #fff; background: rgba(255,255,255,.07); }
+    .nav-item:active { transform: translateY(1px); }
+    .nav-item.active { color: #fff; background: rgba(121, 204, 193, .18); }
+    .nav-item .icon { width: 18px; height: 18px; }
+    .nav-item[aria-disabled="true"] { opacity: .48; cursor: not-allowed; }
+    .sidebar-foot { margin-top: auto; }
+    .sidebar-foot .nav-item { color: rgba(244, 250, 248, .62); }
+
+    .shell { min-height: 100dvh; margin-left: var(--sidebar-w); }
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      height: 72px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+      padding: 0 36px;
+      border-bottom: 1px solid var(--line);
+      background: #fbfdfc;
+      backdrop-filter: blur(14px);
+    }
+    .topbar-title { display: flex; align-items: baseline; gap: 14px; min-width: 0; }
+    .topbar h1 { margin: 0; font-size: 25px; line-height: 1.2; letter-spacing: -.035em; }
+    .topbar-context { color: var(--muted); white-space: nowrap; }
+    .topbar-actions { display: flex; align-items: center; gap: 8px; }
+    .icon-btn {
+      width: 44px;
+      height: 44px;
+      display: inline-grid;
+      place-items: center;
+      border: 0;
+      border-radius: 10px;
+      background: transparent;
+      cursor: pointer;
+    }
+    .icon-btn:hover { background: var(--paper-2); }
+    .user-chip { display: flex; align-items: center; gap: 10px; padding-left: 8px; }
+    .avatar {
+      width: 38px;
+      height: 38px;
+      display: inline-grid;
+      place-items: center;
+      flex: 0 0 auto;
+      border-radius: 50%;
+      color: var(--petroleum);
+      background: #dcece8;
+      font-weight: 700;
+    }
+    .avatar.dark { color: #fff; background: var(--petroleum-2); }
+    .avatar.sm { width: 32px; height: 32px; font-size: 12px; }
+
+    .content { width: min(100%, 1540px); margin: 0 auto; padding: 34px 38px 64px; }
+    .screen { display: none; animation: screen-in .22s var(--ease); }
+    .screen.active { display: block; }
+    @keyframes screen-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+    .page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin-bottom: 28px; }
+    .eyebrow { margin-bottom: 4px; color: var(--teal-dark); font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+    .page-head h2, .greeting h2 { margin: 0; font-size: clamp(26px, 2.25vw, 36px); line-height: 1.15; letter-spacing: -.045em; font-weight: 680; text-wrap: balance; }
+    .page-head p, .greeting p { margin: 7px 0 0; color: var(--muted); font-size: 16px; }
+    .attention-line { display: flex; align-items: center; gap: 9px; }
+    .attention-line .icon { color: var(--amber); }
+    .page-actions { display: flex; align-items: center; gap: 10px; }
+    .btn {
+      min-height: 44px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      padding: 0 16px;
+      border: 1px solid var(--line-strong);
+      border-radius: 10px;
+      color: var(--ink);
+      background: var(--paper);
+      font-weight: 650;
+      cursor: pointer;
+      transition: background-color .18s var(--ease), border-color .18s var(--ease), color .18s var(--ease), transform .18s var(--ease);
+    }
+    .btn:hover { border-color: #aebfba; background: #fff; }
+    .btn:active { transform: translateY(1px); }
+    .btn.primary { border-color: var(--teal); color: #f7fffd; background: var(--teal); }
+    .btn.primary:hover { border-color: var(--teal-dark); background: var(--teal-dark); }
+    .btn.ghost { border-color: transparent; background: transparent; }
+    .btn.ghost:hover { background: var(--paper-2); }
+    .btn.danger { border-color: #e7b7b5; color: var(--red); background: var(--paper); }
+    .btn.small { min-height: 44px; padding: 0 13px; font-size: 13px; }
+    .text-btn { min-height: 44px; padding: 0 4px; border: 0; color: var(--teal-dark); background: transparent; font-weight: 700; cursor: pointer; }
+
+    .dashboard-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 38px; align-items: start; }
+    .queue-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--line-strong); }
+    .section-title { margin: 0; font-size: 21px; line-height: 1.3; letter-spacing: -.025em; }
+    .section-sub { margin-top: 4px; color: var(--muted); }
+    .queue-labels, .queue-row {
+      display: grid;
+      grid-template-columns: 42px minmax(220px, 1.45fr) minmax(110px, .65fr) minmax(170px, 1fr) minmax(150px, .8fr) auto;
+      gap: 16px;
+      align-items: center;
+    }
+    .queue-labels { padding: 16px 0 8px; color: var(--faint); font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+    .queue-row { min-height: 110px; border-bottom: 1px solid var(--line); transition: opacity .18s var(--ease), transform .18s var(--ease); }
+    .queue-row.resolved { opacity: 0; transform: translateX(8px); pointer-events: none; }
+    .task-icon { width: 42px; height: 42px; display: grid; place-items: center; border-radius: 50%; color: var(--teal-dark); background: var(--teal-soft); }
+    .task-main strong { display: block; font-size: 15px; line-height: 1.35; }
+    .task-meta, .cell-meta, .conv-preview { color: var(--muted); }
+    .deadline { color: var(--red); font-weight: 660; }
+    .deadline small { display: block; margin-top: 3px; font-weight: 500; }
+    .context { color: #344e4a; }
+    .responsible { display: flex; align-items: center; gap: 9px; }
+    .responsible strong { display: block; font-size: 13px; }
+    .responsible small { color: var(--muted); }
+    .summary-strip { display: grid; grid-template-columns: repeat(5, 1fr); margin-top: 26px; padding: 18px 0; border-top: 1px solid var(--line-strong); }
+    .summary-item { min-width: 0; padding: 0 18px; border-right: 1px solid var(--line); }
+    .summary-item:first-child { padding-left: 0; }
+    .summary-item:last-child { border-right: 0; }
+    .summary-item span { display: block; color: var(--muted); font-size: 12px; }
+    .summary-item strong { display: block; margin: 4px 0; font-size: 25px; font-weight: 640; font-variant-numeric: tabular-nums; }
+    .summary-item small { color: var(--teal-dark); }
+    .summary-item.alert strong, .summary-item.alert small { color: var(--red); }
+
+    .side-rail { border-left: 1px solid var(--line); padding-left: 26px; }
+    .rail-section + .rail-section { margin-top: 28px; padding-top: 24px; border-top: 1px solid var(--line); }
+    .rail-section h3 { margin: 0 0 16px; font-size: 16px; }
+    .journey-list { list-style: none; padding: 0; margin: 0; }
+    .journey-item { position: relative; display: grid; grid-template-columns: 30px 1fr; gap: 12px; min-height: 55px; }
+    .journey-item:not(:last-child)::after { content: ""; position: absolute; left: 14px; top: 30px; bottom: -3px; width: 1px; background: var(--line-strong); }
+    .journey-dot { z-index: 1; width: 30px; height: 30px; display: grid; place-items: center; border: 1px solid var(--line-strong); border-radius: 50%; color: var(--muted); background: var(--paper); font-weight: 700; }
+    .journey-item.done .journey-dot, .journey-item.current .journey-dot { border-color: var(--teal); color: #fff; background: var(--teal); }
+    .journey-copy strong { display: block; }
+    .journey-copy small { color: var(--muted); }
+    .next-list { display: grid; gap: 16px; }
+    .next-item { display: grid; grid-template-columns: 24px 1fr; gap: 10px; }
+    .next-item .icon { width: 18px; height: 18px; margin-top: 1px; }
+    .next-item small { display: block; color: var(--muted); }
+    .mobile-summary, .mobile-summary-content { display: none; }
+
+    .inbox-shell { min-height: calc(100dvh - 140px); display: grid; grid-template-columns: 340px minmax(0, 1fr); margin: -34px -38px -64px; background: var(--paper); }
+    .conversation-panel { border-right: 1px solid var(--line); }
+    .conversation-tools { padding: 18px 18px 10px; }
+    .search { position: relative; }
+    .search .icon { position: absolute; left: 13px; top: 12px; width: 18px; height: 18px; color: var(--muted); }
+    .search input { width: 100%; min-height: 44px; padding: 0 13px 0 40px; border: 1px solid var(--line-strong); border-radius: 9px; color: var(--ink); background: var(--paper); }
+    .filter-tabs, .central-tabs, .role-note { display: flex; align-items: center; gap: 6px; }
+    .filter-tabs { padding: 0 18px 10px; border-bottom: 1px solid var(--line); }
+    .filter-tab, .central-tab {
+      min-height: 44px;
+      padding: 0 14px;
+      border: 0;
+      border-bottom: 2px solid transparent;
+      color: var(--muted);
+      background: transparent;
+      font-weight: 650;
+      cursor: pointer;
+    }
+    .filter-tab.active, .central-tab.active { border-bottom-color: var(--teal); color: var(--teal-dark); }
+    .conversation-list { max-height: calc(100dvh - 242px); overflow: auto; }
+    .conv-row {
+      width: 100%;
+      min-height: 84px;
+      display: grid;
+      grid-template-columns: 44px minmax(0, 1fr) auto;
+      gap: 12px;
+      align-items: center;
+      padding: 13px 18px;
+      border: 0;
+      border-bottom: 1px solid var(--line);
+      background: var(--paper);
+      text-align: left;
+      cursor: pointer;
+    }
+    .conv-row:hover { background: var(--paper-2); }
+    .conv-row.active { background: var(--teal-soft); }
+    .conv-main { min-width: 0; }
+    .conv-topline { display: flex; justify-content: space-between; gap: 8px; }
+    .conv-topline strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .conv-time { color: var(--muted); font-size: 12px; }
+    .conv-preview { display: block; margin-top: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .unread { min-width: 20px; height: 20px; display: grid; place-items: center; padding: 0 6px; border-radius: 10px; color: #fff; background: var(--teal); font-size: 11px; font-weight: 700; }
+    .thread { min-width: 0; display: grid; grid-template-rows: auto minmax(420px, 1fr) auto; }
+    .thread-head { min-height: 74px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 22px; border-bottom: 1px solid var(--line); }
+    .thread-person { display: flex; align-items: center; gap: 11px; }
+    .thread-person strong, .thread-person small { display: block; }
+    .thread-person small { color: var(--muted); }
+    .online-dot { display: inline-block; width: 7px; height: 7px; margin-right: 5px; border-radius: 50%; background: var(--green); }
+    .thread-actions { display: flex; align-items: center; gap: 8px; }
+    .back-thread { display: none; }
+    .messages { display: flex; flex-direction: column; gap: 14px; overflow: auto; padding: 26px 30px; background: #f8fbf9; }
+    .day-label { align-self: center; padding: 4px 10px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); background: var(--paper); font-size: 12px; }
+    .bubble { max-width: min(520px, 76%); padding: 12px 14px 8px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); }
+    .bubble.out { align-self: flex-end; border-color: #c9e4df; background: var(--teal-soft); }
+    .bubble time { display: block; margin-top: 5px; color: var(--muted); font-size: 11px; text-align: right; }
+    .composer { display: grid; grid-template-columns: 44px 1fr 48px; gap: 8px; align-items: end; padding: 13px 18px; border-top: 1px solid var(--line); background: var(--paper); }
+    .composer textarea { min-height: 46px; max-height: 120px; resize: vertical; padding: 12px 13px; border: 1px solid var(--line-strong); border-radius: 10px; color: var(--ink); background: #fff; }
+    .send-btn { width: 48px; height: 46px; display: grid; place-items: center; border: 0; border-radius: 10px; color: #fff; background: var(--teal); cursor: pointer; }
+
+    .cell-hero { display: grid; grid-template-columns: 52px 1fr auto; gap: 16px; align-items: center; padding: 20px 0 24px; border-top: 1px solid var(--line-strong); border-bottom: 1px solid var(--line); }
+    .cell-symbol { width: 52px; height: 52px; display: grid; place-items: center; border-radius: 14px; color: var(--teal-dark); background: var(--teal-soft); }
+    .cell-hero h3 { margin: 0; font-size: 22px; }
+    .cell-hero p { margin: 4px 0 0; color: var(--muted); }
+    .cell-count { text-align: right; }
+    .cell-count strong { display: block; font-size: 28px; font-variant-numeric: tabular-nums; }
+    .cell-count span { color: var(--muted); }
+    .cell-layout { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(300px, .75fr); gap: 36px; margin-top: 28px; }
+    .open-section + .open-section { margin-top: 30px; padding-top: 26px; border-top: 1px solid var(--line); }
+    .section-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+    .section-head h3 { margin: 0; font-size: 19px; }
+    .meeting-box { display: grid; grid-template-columns: 1fr auto; gap: 20px; padding: 20px; border: 1px solid var(--line-strong); border-radius: 14px; background: var(--paper); }
+    .meeting-date { color: var(--teal-dark); font-weight: 700; }
+    .meeting-box h4 { margin: 4px 0; font-size: 18px; }
+    .meeting-box p { margin: 0; color: var(--muted); }
+    .report-progress { display: flex; align-items: center; gap: 10px; margin-top: 18px; }
+    .progress { height: 6px; flex: 1; overflow: hidden; border-radius: 4px; background: var(--line); }
+    .progress span { display: block; height: 100%; width: 62%; background: var(--teal); }
+    .disciple-list, .notice-list, .request-list { display: grid; }
+    .disciple-row, .notice-row, .request-row { display: grid; grid-template-columns: 38px 1fr auto; gap: 12px; align-items: center; min-height: 66px; border-bottom: 1px solid var(--line); }
+    .notice-row { grid-template-columns: 36px 1fr; }
+    .origin { color: var(--teal-dark); font-size: 12px; font-weight: 700; }
+    .quiet-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+    .journey-stepper { display: grid; grid-template-columns: 150px repeat(4, minmax(110px, 1fr)); align-items: center; gap: 12px; margin: 0 0 24px; padding: 18px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+    .journey-stepper > strong { font-size: 13px; }
+    .step { min-height: 44px; display: flex; align-items: center; gap: 9px; border: 0; color: var(--muted); background: transparent; cursor: pointer; }
+    .step-num { width: 32px; height: 32px; display: grid; place-items: center; border: 1px solid var(--line-strong); border-radius: 50%; background: var(--paper); font-weight: 700; }
+    .step.done .step-num, .step.active .step-num { border-color: var(--teal); color: #fff; background: var(--teal); }
+    .step.active { color: var(--ink); font-weight: 700; }
+    .central-tabs { overflow-x: auto; border-bottom: 1px solid var(--line-strong); margin-bottom: 28px; }
+    .central-tabs, .journey-stepper { scrollbar-width: none; }
+    .central-tabs::-webkit-scrollbar, .journey-stepper::-webkit-scrollbar { display: none; }
+    .central-tab { flex: 0 0 auto; }
+    .central-view { display: none; }
+    .central-view.active { display: block; }
+    .central-grid { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(320px, .9fr); gap: 34px; }
+    .attention-list h3, .health-list h3, .cells-table h3 { margin: 0 0 14px; font-size: 20px; }
+    .attention-row { display: grid; grid-template-columns: 44px 42px 1fr auto; gap: 12px; align-items: center; min-height: 82px; border-bottom: 1px solid var(--line); }
+    .attention-count { font-size: 27px; font-weight: 680; font-variant-numeric: tabular-nums; }
+    .attention-row.danger .task-icon, .attention-row.danger .attention-count { color: var(--red); }
+    .attention-row.danger .task-icon { background: var(--red-soft); }
+    .attention-row.warning .task-icon, .attention-row.warning .attention-count { color: var(--amber); }
+    .attention-row.warning .task-icon { background: var(--amber-soft); }
+    .health-list { padding-left: 26px; border-left: 1px solid var(--line); }
+    .health-row { display: grid; grid-template-columns: 12px 1fr auto 22px; gap: 12px; align-items: center; min-height: 61px; border-bottom: 1px solid var(--line); }
+    .status-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--green); }
+    .status-dot.warn { background: #e49a00; }
+    .status-dot.bad { background: var(--red); }
+    .health-name strong, .health-name small { display: block; }
+    .health-name small, .last-meeting { color: var(--muted); }
+    .trend { font-size: 22px; color: var(--green); }
+    .trend.down { color: var(--red); }
+    .cells-table { margin-top: 30px; padding-top: 26px; border-top: 1px solid var(--line-strong); }
+    .table-row { display: grid; grid-template-columns: minmax(190px, 1.2fr) minmax(160px, 1fr) minmax(140px, .8fr) 80px 110px auto; gap: 16px; align-items: center; min-height: 62px; border-bottom: 1px solid var(--line); }
+    .table-row.head { min-height: 36px; color: var(--faint); font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+    .cell-name, .leader-name { display: flex; align-items: center; gap: 10px; }
+    .health-label { display: flex; align-items: center; gap: 8px; }
+    .placeholder-panel { padding: 34px 0; }
+    .placeholder-panel h3 { margin: 0 0 8px; font-size: 21px; }
+    .placeholder-panel > p { max-width: 65ch; color: var(--muted); }
+
+    .modal-backdrop { position: fixed; inset: 0; z-index: 80; display: none; align-items: center; justify-content: center; padding: 24px; background: rgba(8, 47, 44, .46); }
+    .modal-backdrop.open { display: flex; }
+    .modal { width: min(520px, 100%); max-height: min(760px, calc(100dvh - 48px)); overflow: auto; border: 1px solid rgba(255,255,255,.5); border-radius: 18px; background: var(--paper); box-shadow: var(--shadow-pop); }
+    .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 20px 22px; border-bottom: 1px solid var(--line); }
+    .modal-head h2 { margin: 0; font-size: 21px; }
+    .modal-body { display: grid; gap: 16px; padding: 22px; }
+    .field { display: grid; gap: 7px; }
+    .field label { font-size: 13px; font-weight: 650; }
+    .field input, .field select { width: 100%; min-height: 44px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 9px; color: var(--ink); background: #fff; }
+    .modal-foot { display: flex; justify-content: flex-end; gap: 10px; padding: 16px 22px 22px; }
+
+    .toast { position: fixed; right: 24px; bottom: 24px; z-index: 100; min-height: 48px; display: flex; align-items: center; gap: 10px; padding: 10px 15px; border: 1px solid #b9d9d2; border-radius: 11px; color: var(--petroleum); background: #f2fffb; box-shadow: 0 12px 34px rgba(16,59,56,.14); opacity: 0; transform: translateY(10px); pointer-events: none; transition: opacity .2s var(--ease), transform .2s var(--ease); }
+    .toast.show { opacity: 1; transform: translateY(0); }
+    .prototype-note { position: fixed; right: 14px; bottom: 14px; z-index: 20; padding: 5px 9px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); background: rgba(251,253,252,.88); font-size: 11px; }
+    .bottom-nav, .mobile-header { display: none; }
+
+    @media (max-width: 1500px) {
+      .queue-labels, .queue-row { grid-template-columns: 42px minmax(190px, 1.4fr) 110px minmax(150px, 1fr) auto; }
+      .queue-labels > :nth-child(5), .queue-row > :nth-child(5) { display: none; }
+    }
+
+    @media (max-width: 1180px) {
+      .content { padding-inline: 26px; }
+      .dashboard-layout { grid-template-columns: 1fr; }
+      .side-rail { display: grid; grid-template-columns: 1fr 1fr; gap: 26px; border-left: 0; border-top: 1px solid var(--line-strong); padding: 24px 0 0; }
+      .rail-section + .rail-section { margin: 0; padding: 0 0 0 24px; border: 0; border-left: 1px solid var(--line); }
+      .inbox-shell { margin-inline: -26px; }
+      .central-grid { grid-template-columns: 1fr; }
+      .health-list { padding: 24px 0 0; border-left: 0; border-top: 1px solid var(--line); }
+      .table-row { grid-template-columns: minmax(170px, 1.2fr) minmax(150px, 1fr) 110px 80px auto; }
+      .table-row > :nth-child(3) { display: none; }
+    }
+
+    @media (max-width: 900px) {
+      .sidebar, .topbar { display: none; }
+      .shell { margin-left: 0; }
+      .mobile-header {
+        position: sticky;
+        top: 0;
+        z-index: 35;
+        min-height: 68px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 8px 18px;
+        border-bottom: 1px solid var(--line);
+        background: #fbfdfc;
+        backdrop-filter: blur(14px);
+      }
+      .mobile-brand { display: flex; align-items: center; gap: 13px; }
+      .mobile-brand strong:first-child { font-size: 29px; letter-spacing: -.06em; }
+      .mobile-title { font-size: 19px; letter-spacing: -.025em; }
+      .mobile-actions { display: flex; align-items: center; gap: 2px; }
+      .content { width: 100%; padding: 26px 20px calc(92px + env(safe-area-inset-bottom)); }
+      .page-head { margin-bottom: 24px; }
+      .page-head h2, .greeting h2 { font-size: 28px; }
+      .page-head p, .greeting p { font-size: 15px; }
+      .page-actions .btn:not(.primary) { display: none; }
+      .bottom-nav {
+        position: fixed;
+        inset: auto 0 0;
+        z-index: 50;
+        min-height: calc(68px + env(safe-area-inset-bottom));
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        padding: 3px 8px env(safe-area-inset-bottom);
+        border-top: 1px solid var(--line-strong);
+        background: #fbfdfc;
+        backdrop-filter: blur(14px);
+      }
+      .bottom-item { min-height: 62px; display: grid; place-items: center; align-content: center; gap: 2px; border: 0; color: var(--muted); background: transparent; font-size: 11px; cursor: pointer; }
+      .bottom-item .icon { width: 22px; height: 22px; }
+      .bottom-item.active { color: var(--teal-dark); }
+      .prototype-note { display: none; }
+
+      .queue-labels { display: none; }
+      .queue-row { grid-template-columns: 44px minmax(0, 1fr) auto; gap: 12px; min-height: 132px; padding: 17px 0; }
+      .queue-row .deadline { grid-column: 2; align-self: start; margin-top: -18px; }
+      .queue-row .context, .queue-row .responsible { display: none; }
+      .queue-row .btn { grid-column: 3; grid-row: 1 / span 2; min-width: 92px; }
+      .task-main strong { font-size: 15px; }
+      .summary-strip, .side-rail { display: none; }
+      .mobile-summary { width: 100%; min-height: 58px; display: flex; align-items: center; justify-content: space-between; margin-top: 22px; padding: 0 14px; border: 1px solid var(--line-strong); border-radius: 11px; background: var(--paper); font-weight: 700; cursor: pointer; }
+      .mobile-summary-content { display: none; grid-template-columns: repeat(2, 1fr); gap: 1px; margin-top: 10px; overflow: hidden; border: 1px solid var(--line); border-radius: 11px; background: var(--line); }
+      .mobile-summary-content.open { display: grid; }
+      .mobile-summary-content div { padding: 15px; background: var(--paper); }
+      .mobile-summary-content span, .mobile-summary-content strong { display: block; }
+      .mobile-summary-content span { color: var(--muted); font-size: 12px; }
+      .mobile-summary-content strong { margin-top: 3px; font-size: 22px; }
+
+      .inbox-shell { min-height: calc(100dvh - 186px); display: block; margin: -26px -20px -92px; }
+      .conversation-panel { min-height: calc(100dvh - 136px); border-right: 0; }
+      .conversation-list { max-height: none; overflow: visible; }
+      .thread { display: none; min-height: calc(100dvh - 136px); grid-template-rows: auto 1fr auto; }
+      .conversations-screen.thread-open .conversation-panel { display: none; }
+      .conversations-screen.thread-open .thread { display: grid; }
+      .thread-head { padding: 10px 12px; }
+      .back-thread { display: inline-grid; }
+      .thread-actions .btn { display: none; }
+      .thread-actions .btn.primary { display: inline-flex; min-width: 44px; padding: 0 12px; }
+      .messages { min-height: 480px; padding: 20px 15px; }
+      .bubble { max-width: 86%; }
+      .composer { position: sticky; bottom: calc(68px + env(safe-area-inset-bottom)); padding: 10px 12px; }
+
+      .cell-hero { grid-template-columns: 48px 1fr; }
+      .cell-count { grid-column: 2; text-align: left; }
+      .cell-count strong, .cell-count span { display: inline; font-size: 13px; }
+      .cell-layout { grid-template-columns: 1fr; gap: 30px; }
+      .meeting-box { grid-template-columns: 1fr; }
+      .meeting-box .btn { width: 100%; }
+
+      .journey-stepper { display: flex; gap: 3px; overflow-x: auto; margin-inline: -20px; padding: 12px 20px; border-top: 0; }
+      .journey-stepper > strong { display: none; }
+      .step { min-width: 85px; flex: 1 0 85px; justify-content: center; padding: 0 4px; font-size: 12px; }
+      .step-num { width: 28px; height: 28px; }
+      .central-tabs { margin-inline: -20px; padding-inline: 12px; }
+      .central-grid { gap: 28px; }
+      .attention-row { grid-template-columns: 40px 34px 1fr; min-height: 92px; }
+      .attention-row .text-btn { grid-column: 3; justify-self: start; min-height: 32px; }
+      .health-list { padding-top: 24px; }
+      .cells-table { overflow: hidden; }
+      .table-row.head { display: none; }
+      .table-row { grid-template-columns: 1fr auto; gap: 8px; min-height: 88px; padding: 12px 0; }
+      .table-row > :nth-child(2), .table-row > :nth-child(3), .table-row > :nth-child(4) { display: none; }
+      .table-row .health-label { grid-column: 1; }
+      .table-row .text-btn { grid-column: 2; grid-row: 1 / span 2; }
+      .modal-backdrop { align-items: flex-end; padding: 0; }
+      .modal { width: 100%; max-height: 88dvh; border-radius: 18px 18px 0 0; }
+      .toast { right: 12px; bottom: calc(80px + env(safe-area-inset-bottom)); left: 12px; }
+    }
+
+    @media (max-width: 420px) {
+      .content { padding-inline: 16px; }
+      .mobile-header { padding-inline: 14px; }
+      .page-head h2, .greeting h2 { font-size: 25px; }
+      .queue-row { grid-template-columns: 40px minmax(0, 1fr); min-height: 164px; }
+      .queue-row .btn { grid-column: 2; grid-row: auto; width: 100%; }
+      .queue-row .deadline { margin-top: -8px; }
+      .inbox-shell { margin-inline: -16px; }
+      .attention-row { grid-template-columns: 38px 30px 1fr; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+    }
+  </style>
+</head>
+<body>
+  <svg aria-hidden="true" width="0" height="0" style="position:absolute">
+    <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10.5V20h13v-9.5M9.5 20v-6h5v6"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3"/><path d="M3.5 19c.4-4 2.3-6 5.5-6s5.1 2 5.5 6"/><circle cx="17" cy="9" r="2.3"/><path d="M15.5 14c3.1-.3 5 1.3 5.5 4.5"/></symbol>
+    <symbol id="i-cell" viewBox="0 0 24 24"><circle cx="12" cy="5" r="2"/><circle cx="5" cy="13" r="2"/><circle cx="19" cy="13" r="2"/><circle cx="12" cy="20" r="2"/><path d="M10.5 6.5 6.5 11M13.5 6.5l4 4.5M6.8 14.5l3.7 4M17.2 14.5l-3.7 4"/></symbol>
+    <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4M17 3v4M3 10h18"/></symbol>
+    <symbol id="i-chat" viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-8 8H6l-4 2 1.5-5A9 9 0 1 1 21 12Z"/></symbol>
+    <symbol id="i-journey" viewBox="0 0 24 24"><path d="M5 20c1-5 5-4 5-8s-4-3-3-8M18 4c-1 5-5 4-5 8s4 3 3 8"/><path d="m15 18 1 2 2-1M9 6 7 4 5 5"/></symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4"/></symbol>
+    <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.8 9a2.4 2.4 0 1 1 3.8 2c-1 .7-1.6 1.2-1.6 2.5M12 17h.01"/></symbol>
+    <symbol id="i-phone" viewBox="0 0 24 24"><path d="M7 3H4a1 1 0 0 0-1 1c0 9.4 7.6 17 17 17a1 1 0 0 0 1-1v-3l-5-2-1.5 2c-3.2-1.4-5.7-3.9-7-7L9 8 7 3Z"/></symbol>
+    <symbol id="i-file" viewBox="0 0 24 24"><path d="M6 2h8l4 4v16H6zM14 2v5h5M9 12h6M9 16h6"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path d="m3 3 18 9-18 9 4-9-4-9ZM7 12h14"/></symbol>
+    <symbol id="i-back" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></symbol>
+    <symbol id="i-more" viewBox="0 0 24 24"><circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/></symbol>
+    <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+    <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V10h4v10M10 20V4h4v16M16 20v-7h4v7"/></symbol>
+  </svg>
+
+  <div class="app">
+    <aside class="sidebar" aria-label="Navegação principal">
+      <div class="brand"><span class="brand-mark">12</span><span class="brand-copy">Igreja 12</span></div>
+      <nav>
+        <div class="nav-group">
+          <div class="nav-label">Igreja</div>
+          <button class="nav-item active" data-view="dashboard"><svg class="icon"><use href="#i-home"/></svg><span>Painel de Hoje</span></button>
+          <button class="nav-item" data-view="cell"><svg class="icon"><use href="#i-cell"/></svg><span>Minha Célula</span></button>
+          <button class="nav-item" aria-disabled="true"><svg class="icon"><use href="#i-calendar"/></svg><span>Agenda</span></button>
+          <button class="nav-item" data-view="conversations"><svg class="icon"><use href="#i-chat"/></svg><span>Conversas</span></button>
+        </div>
+        <div class="nav-group">
+          <div class="nav-label">A Jornada G12</div>
+          <button class="nav-item" data-demo-toast="Ganhar permanece com o fluxo atual."><span class="task-icon" style="width:28px;height:28px;background:rgba(255,255,255,.08);color:inherit">1</span><span>Ganhar</span></button>
+          <button class="nav-item" data-demo-toast="Consolidar permanece com o fluxo atual."><span class="task-icon" style="width:28px;height:28px;background:rgba(255,255,255,.08);color:inherit">2</span><span>Consolidar</span></button>
+          <button class="nav-item" data-view="central"><span class="task-icon" style="width:28px;height:28px;background:rgba(255,255,255,.12);color:inherit">3</span><span>Discipular</span></button>
+          <button class="nav-item" data-demo-toast="Enviar permanece com o fluxo atual."><span class="task-icon" style="width:28px;height:28px;background:rgba(255,255,255,.08);color:inherit">4</span><span>Enviar</span></button>
+        </div>
+      </nav>
+      <div class="sidebar-foot"><button class="nav-item" data-demo-toast="Menu recolhido na implementação real."><svg class="icon"><use href="#i-back"/></svg><span>Recolher menu</span></button></div>
+    </aside>
+
+    <div class="shell">
+      <header class="topbar">
+        <div class="topbar-title"><h1 id="desktop-title">Painel de Hoje</h1><span class="topbar-context" id="desktop-context">Pendências de hoje</span></div>
+        <div class="topbar-actions">
+          <button class="icon-btn" aria-label="Notificações" data-demo-toast="Nenhuma nova notificação."><svg class="icon"><use href="#i-bell"/></svg></button>
+          <button class="icon-btn" aria-label="Ajuda" data-demo-toast="Ajuda contextual da tela atual."><svg class="icon"><use href="#i-help"/></svg></button>
+          <div class="user-chip"><span class="avatar dark">PD</span><span>Pr. Daniel</span></div>
+        </div>
+      </header>
+
+      <header class="mobile-header">
+        <div class="mobile-brand"><strong>12</strong><strong class="mobile-title" id="mobile-title">Painel de Hoje</strong></div>
+        <div class="mobile-actions"><button class="icon-btn" aria-label="Notificações" data-demo-toast="Nenhuma nova notificação."><svg class="icon"><use href="#i-bell"/></svg></button><span class="avatar sm dark">PD</span></div>
+      </header>
+
+      <main class="content" id="main-content">
+        <section class="screen active dashboard-screen" data-screen="dashboard" aria-labelledby="dash-title">
+          <div class="page-head greeting">
+            <div><div class="eyebrow">Sábado, 11 de julho</div><h2 id="dash-title">Bom dia, Pr. Daniel</h2><p class="attention-line"><svg class="icon"><use href="#i-bell"/></svg><span><strong id="action-count">3 ações</strong> precisam da sua atenção</span></p></div>
+            <div class="page-actions"><button class="btn ghost" data-demo-toast="Painel atualizado agora.">Atualizar</button></div>
+          </div>
+          <div class="dashboard-layout">
+            <div>
+              <div class="queue-head"><div><h3 class="section-title">Fila pastoral</h3><div class="section-sub">O que precisa de ação agora</div></div><button class="text-btn" data-demo-toast="Esta demonstração já mostra todos os itens.">Ver todas ›</button></div>
+              <div class="queue-labels" aria-hidden="true"><span></span><span>Ação</span><span>Prazo</span><span>Contexto</span><span>Responsável</span><span></span></div>
+              <div class="queue" id="pastoral-queue">
+                <article class="queue-row">
+                  <span class="task-icon"><svg class="icon"><use href="#i-users"/></svg></span>
+                  <div class="task-main"><strong>Conectar Ana Souza a uma célula</strong><span class="task-meta">Nova pessoa · Cadastro em 10/07</span></div>
+                  <div class="deadline">Hoje, 11/07<small>Vence às 18h</small></div>
+                  <div class="context">Ana demonstrou interesse em participar de uma célula.</div>
+                  <div class="responsible"><span class="avatar sm">JL</span><div><strong>Juliana Lima</strong><small>Líder de Conexão</small></div></div>
+                  <button class="btn primary small resolve-task">Assumir</button>
+                </article>
+                <article class="queue-row">
+                  <span class="task-icon"><svg class="icon"><use href="#i-phone"/></svg></span>
+                  <div class="task-main"><strong>Fonovisita de Marcos vence hoje</strong><span class="task-meta">Membro · Último contato em 08/07</span></div>
+                  <div class="deadline">Hoje, 11/07<small>Vence às 16h</small></div>
+                  <div class="context">Marcos não participa há duas semanas.</div>
+                  <div class="responsible"><span class="avatar sm">PA</span><div><strong>Pedro Almeida</strong><small>Pastor auxiliar</small></div></div>
+                  <button class="btn primary small resolve-task">Resolver</button>
+                </article>
+                <article class="queue-row">
+                  <span class="task-icon"><svg class="icon"><use href="#i-file"/></svg></span>
+                  <div class="task-main"><strong>Relatório da Célula Esperança pendente</strong><span class="task-meta">Célula · Semana de 05/07 a 11/07</span></div>
+                  <div class="deadline">Ontem, 10/07<small>Atrasado</small></div>
+                  <div class="context">Relatório semanal ainda não enviado.</div>
+                  <div class="responsible"><span class="avatar sm">CR</span><div><strong>Camila Rocha</strong><small>Líder de célula</small></div></div>
+                  <button class="btn primary small resolve-task">Resolver</button>
+                </article>
+              </div>
+              <div class="summary-strip" aria-label="Resumo da semana">
+                <div class="summary-item"><span>Pessoas</span><strong>248</strong><small>+12 esta semana</small></div>
+                <div class="summary-item"><span>Células</span><strong>24</strong><small>+1 esta semana</small></div>
+                <div class="summary-item"><span>Participação</span><strong>68%</strong><small>média semanal</small></div>
+                <div class="summary-item"><span>Novas pessoas</span><strong>7</strong><small>esta semana</small></div>
+                <div class="summary-item alert"><span>Relatórios</span><strong>3</strong><small>atrasados</small></div>
+              </div>
+              <button class="mobile-summary" aria-expanded="false"><span style="display:flex;align-items:center;gap:10px"><svg class="icon"><use href="#i-chart"/></svg>Resumo da semana</span><svg class="icon"><use href="#i-chevron"/></svg></button>
+              <div class="mobile-summary-content"><div><span>Pessoas</span><strong>248</strong></div><div><span>Células</span><strong>24</strong></div><div><span>Participação</span><strong>68%</strong></div><div><span>Relatórios atrasados</span><strong style="color:var(--red)">3</strong></div></div>
+            </div>
+            <aside class="side-rail" aria-label="Contexto da semana">
+              <section class="rail-section"><h3>A Jornada esta semana</h3><ol class="journey-list"><li class="journey-item done"><span class="journey-dot">✓</span><span class="journey-copy"><strong>Ganhar</strong><small>7 novas pessoas</small></span></li><li class="journey-item done"><span class="journey-dot">✓</span><span class="journey-copy"><strong>Consolidar</strong><small>4 acompanhamentos</small></span></li><li class="journey-item current"><span class="journey-dot">3</span><span class="journey-copy"><strong>Discipular</strong><small>Em andamento</small></span></li><li class="journey-item"><span class="journey-dot">4</span><span class="journey-copy"><strong>Enviar</strong><small>2 multiplicações</small></span></li></ol></section>
+              <section class="rail-section"><h3>Próximas ações</h3><div class="next-list"><div class="next-item"><svg class="icon"><use href="#i-calendar"/></svg><div>Reunião de pastores<small>Hoje às 19h</small></div></div><div class="next-item"><svg class="icon"><use href="#i-users"/></svg><div>Treinamento de líderes<small>13/07 às 8h30</small></div></div><div class="next-item"><svg class="icon"><use href="#i-file"/></svg><div>Envio de comunicação<small>14/07 às 20h</small></div></div></div></section>
+            </aside>
+          </div>
+        </section>
+
+        <section class="screen conversations-screen" data-screen="conversations" aria-label="Conversas">
+          <div class="inbox-shell">
+            <aside class="conversation-panel" aria-label="Lista de conversas">
+              <div class="conversation-tools"><label class="search"><span class="sr-only">Buscar conversas</span><svg class="icon"><use href="#i-search"/></svg><input id="conversation-search" placeholder="Buscar conversas…"></label></div>
+              <div class="filter-tabs" role="tablist" aria-label="Filtros de conversa"><button class="filter-tab active" role="tab" aria-selected="true">Todas</button><button class="filter-tab" role="tab">Aguardando</button><button class="filter-tab" role="tab">Minhas</button></div>
+              <div class="conversation-list">
+                <button class="conv-row active" data-name="Ana Souza" data-initials="AS"><span class="avatar">AS</span><span class="conv-main"><span class="conv-topline"><strong>Ana Souza</strong><time class="conv-time">09:24</time></span><span class="conv-preview">Bom dia! Gostaria de saber mais sobre a próxima célula.</span></span><span class="unread">2</span></button>
+                <button class="conv-row" data-name="Marcos Lima" data-initials="ML"><span class="avatar">ML</span><span class="conv-main"><span class="conv-topline"><strong>Marcos Lima</strong><time class="conv-time">09:11</time></span><span class="conv-preview">Quero participar da próxima reunião de jovens.</span></span><span class="unread">1</span></button>
+                <button class="conv-row" data-name="Juliana Costa" data-initials="JC"><span class="avatar">JC</span><span class="conv-main"><span class="conv-topline"><strong>Juliana Costa</strong><time class="conv-time">Ontem</time></span><span class="conv-preview">Onde encontro os horários dos cultos?</span></span><span class="unread">1</span></button>
+                <button class="conv-row" data-name="Pedro Almeida" data-initials="PA"><span class="avatar">PA</span><span class="conv-main"><span class="conv-topline"><strong>Pedro Almeida</strong><time class="conv-time">Ontem</time></span><span class="conv-preview">Como faço para me batizar?</span></span><span></span></button>
+                <button class="conv-row" data-name="Fernanda Rocha" data-initials="FR"><span class="avatar">FR</span><span class="conv-main"><span class="conv-topline"><strong>Fernanda Rocha</strong><time class="conv-time">Ontem</time></span><span class="conv-preview">Preciso de oração por um familiar.</span></span><span class="unread">2</span></button>
+              </div>
+            </aside>
+            <article class="thread" aria-label="Conversa selecionada">
+              <header class="thread-head"><div class="thread-person"><button class="icon-btn back-thread" aria-label="Voltar para conversas"><svg class="icon"><use href="#i-back"/></svg></button><span class="avatar" id="thread-avatar">AS</span><div><strong id="thread-name">Ana Souza</strong><small><span class="online-dot"></span>Atendimento humano</small></div></div><div class="thread-actions"><button class="btn primary small" data-demo-toast="Conversa assumida por Pr. Daniel.">Assumir</button><button class="btn small" data-demo-toast="Escolha do responsável abriria aqui.">Transferir</button><button class="icon-btn" aria-label="Mais ações"><svg class="icon"><use href="#i-more"/></svg></button></div></header>
+              <div class="messages" id="messages"><span class="day-label">Hoje</span><div class="bubble">Bom dia! Gostaria de saber mais sobre a próxima célula.<time>09:20</time></div><div class="bubble out">Bom dia, Ana! Que alegria falar com você. Posso ajudar sim. Qual região você prefere?<time>09:21 ✓✓</time></div><div class="bubble">Prefiro algo na região central, se tiver.<time>09:22</time></div><div class="bubble out">Temos uma célula às quartas-feiras, às 19h30, no Centro. Posso enviar o endereço?<time>09:22 ✓✓</time></div><div class="bubble">Sim, por favor!<time>09:23</time></div></div>
+              <form class="composer" id="composer"><button class="icon-btn" type="button" aria-label="Anexar arquivo" data-demo-toast="Anexo disponível na implementação real.">＋</button><textarea id="message-input" rows="1" placeholder="Escreva uma resposta…" aria-label="Escreva uma resposta"></textarea><button class="send-btn" aria-label="Enviar mensagem"><svg class="icon"><use href="#i-send"/></svg></button></form>
+            </article>
+          </div>
+        </section>
+
+        <section class="screen cell-screen" data-screen="cell" aria-labelledby="cell-title">
+          <div class="page-head"><div><div class="eyebrow">Papel demonstrado · Líder</div><h2 id="cell-title">Minha Célula</h2><p>O que você precisa para conduzir a próxima reunião.</p></div><div class="page-actions"><button class="btn primary" data-demo-toast="Planejamento da reunião aberto."><svg class="icon"><use href="#i-calendar"/></svg>Planejar reunião</button></div></div>
+          <section class="cell-hero" aria-label="Célula Esperança"><span class="cell-symbol"><svg class="icon"><use href="#i-cell"/></svg></span><div><h3>Célula Esperança</h3><p>Quarta-feira, 19h30 · Cobertura: Pr. Daniel</p></div><div class="cell-count"><strong>12</strong><span> discípulos ativos</span></div></section>
+          <div class="cell-layout">
+            <div>
+              <section class="open-section"><div class="section-head"><h3>Próxima reunião</h3><span class="origin">AMANHÃ</span></div><div class="meeting-box"><div><span class="meeting-date">Domingo, 12 de julho · 19h30</span><h4>Chamados para servir</h4><p>Casa da Juliana · Rua das Oliveiras, 123</p><div class="report-progress"><span>Planejamento</span><div class="progress" aria-label="Planejamento 62%"><span></span></div><strong>62%</strong></div></div><button class="btn primary" data-demo-toast="Relatório da reunião aberto.">Abrir reunião</button></div></section>
+              <section class="open-section"><div class="section-head"><h3>Discípulos</h3><button class="text-btn" data-demo-toast="Lista completa de discípulos.">Ver todos ›</button></div><div class="disciple-list"><div class="disciple-row"><span class="avatar sm">AS</span><div><strong>Ana Souza</strong><div class="cell-meta">Confirmou presença</div></div><span style="color:var(--green)">Confirmado</span></div><div class="disciple-row"><span class="avatar sm">ML</span><div><strong>Marcos Lima</strong><div class="cell-meta">Último encontro há 2 semanas</div></div><span style="color:var(--amber)">Acompanhar</span></div><div class="disciple-row"><span class="avatar sm">JC</span><div><strong>Juliana Costa</strong><div class="cell-meta">Anfitriã</div></div><span>Ativa</span></div></div></section>
+              <section class="open-section"><div class="section-head"><h3>Solicitações à Central</h3></div><p class="section-sub">Alterações sensíveis passam por aprovação e ficam rastreáveis.</p><div class="quiet-actions" style="margin-top:14px"><button class="btn small" data-demo-toast="Solicitação de horário iniciada.">Alterar dia ou horário</button><button class="btn small" data-demo-toast="Solicitação de anfitrião iniciada.">Alterar anfitrião</button><button class="btn small" data-demo-toast="Solicitação de multiplicação iniciada.">Solicitar multiplicação</button></div></section>
+            </div>
+            <aside>
+              <section class="open-section"><div class="section-head"><h3>Avisos</h3><button class="text-btn" data-demo-toast="Formulário de aviso aberto.">Publicar</button></div><div class="notice-list"><div class="notice-row"><span class="task-icon" style="width:36px;height:36px"><svg class="icon"><use href="#i-bell"/></svg></span><div><span class="origin">CENTRAL</span><strong style="display:block">Treinamento de líderes no sábado</strong><span class="cell-meta">Publicado hoje</span></div></div><div class="notice-row"><span class="task-icon" style="width:36px;height:36px"><svg class="icon"><use href="#i-chat"/></svg></span><div><span class="origin">SUA CÉLULA</span><strong style="display:block">Levar um alimento para compartilhar</strong><span class="cell-meta">Publicado ontem</span></div></div></div></section>
+              <section class="open-section"><div class="section-head"><h3>Materiais</h3></div><div class="notice-list"><div class="notice-row"><span class="task-icon" style="width:36px;height:36px"><svg class="icon"><use href="#i-file"/></svg></span><div><strong style="display:block">Guia da reunião semanal</strong><span class="cell-meta">PDF · 2,4 MB</span></div></div><div class="notice-row"><span class="task-icon" style="width:36px;height:36px"><svg class="icon"><use href="#i-file"/></svg></span><div><strong style="display:block">Roteiro para visitantes</strong><span class="cell-meta">PDF · 1,1 MB</span></div></div></div></section>
+            </aside>
+          </div>
+        </section>
+
+        <section class="screen central-screen" data-screen="central" aria-labelledby="central-title">
+          <div class="page-head"><div><div class="eyebrow">Jornada G12 · Discipular</div><h2 id="central-title">Central de Célula</h2><p>Supervisão da rede, com exceções antes de métricas.</p></div><div class="page-actions"><button class="btn primary" id="open-cell-modal"><svg class="icon"><use href="#i-plus"/></svg>Nova célula</button></div></div>
+          <nav class="journey-stepper" aria-label="Etapas da Jornada G12"><strong>Jornada G12</strong><button class="step done" data-demo-toast="Etapa Ganhar."><span class="step-num">1</span>Ganhar</button><button class="step done" data-demo-toast="Etapa Consolidar."><span class="step-num">2</span>Consolidar</button><button class="step active"><span class="step-num">3</span>Discipular</button><button class="step" data-demo-toast="Etapa Enviar."><span class="step-num">4</span>Enviar</button></nav>
+          <div class="central-tabs" role="tablist" aria-label="Áreas da Central"><button class="central-tab active" role="tab" data-central-tab="overview" aria-selected="true">Visão geral</button><button class="central-tab" role="tab" data-central-tab="cells">Células</button><button class="central-tab" role="tab" data-central-tab="requests">Solicitações</button><button class="central-tab" role="tab" data-central-tab="notices">Avisos</button><button class="central-tab" role="tab" data-central-tab="materials">Materiais</button></div>
+          <div class="central-view active" data-central-view="overview">
+            <div class="central-grid"><section class="attention-list"><h3>Precisa da sua atenção</h3><div class="attention-row danger"><span class="task-icon"><svg class="icon"><use href="#i-file"/></svg></span><span class="attention-count">4</span><div><strong>relatórios pendentes</strong><div class="cell-meta">Relatórios semanais não enviados</div></div><button class="text-btn" data-central-jump="requests">Revisar ›</button></div><div class="attention-row warning"><span class="task-icon"><svg class="icon"><use href="#i-users"/></svg></span><span class="attention-count">2</span><div><strong>solicitações aguardando</strong><div class="cell-meta">Pedidos de líderes e membros</div></div><button class="text-btn" data-central-jump="requests">Revisar ›</button></div><div class="attention-row danger"><span class="task-icon"><svg class="icon"><use href="#i-calendar"/></svg></span><span class="attention-count">3</span><div><strong>células sem reunião registrada</strong><div class="cell-meta">Sem registro na última semana</div></div><button class="text-btn" data-central-jump="cells">Revisar ›</button></div></section><section class="health-list"><h3>Saúde da rede</h3><div class="health-row"><span class="status-dot"></span><span class="health-name"><strong>Célula Vida Nova</strong><small>Juliana Lima</small></span><span class="last-meeting">Ontem</span><span class="trend">↗</span></div><div class="health-row"><span class="status-dot"></span><span class="health-name"><strong>Célula Esperança</strong><small>Marcos Almeida</small></span><span class="last-meeting">2 dias</span><span class="trend">↗</span></div><div class="health-row"><span class="status-dot warn"></span><span class="health-name"><strong>Célula Aliança</strong><small>Pedro Almeida</small></span><span class="last-meeting">8 dias</span><span class="trend down">↘</span></div><div class="health-row"><span class="status-dot bad"></span><span class="health-name"><strong>Célula Restauração</strong><small>Camila Rocha</small></span><span class="last-meeting">Sem registro</span><span class="trend down">↘</span></div></section></div>
+            <section class="cells-table"><h3>Células recentes</h3><div class="table-row head"><span>Célula</span><span>Líder</span><span>Dia</span><span>Membros</span><span>Saúde</span><span>Ação</span></div><div class="table-row"><span class="cell-name"><span class="task-icon" style="width:34px;height:34px"><svg class="icon"><use href="#i-users"/></svg></span><strong>Vida Nova</strong></span><span class="leader-name"><span class="avatar sm">JL</span>Juliana Lima</span><span>Domingo 19h</span><span>12</span><span class="health-label"><span class="status-dot"></span>Saudável</span><button class="text-btn" data-demo-toast="Detalhe da Célula Vida Nova.">Detalhes ›</button></div><div class="table-row"><span class="cell-name"><span class="task-icon" style="width:34px;height:34px"><svg class="icon"><use href="#i-users"/></svg></span><strong>Esperança</strong></span><span class="leader-name"><span class="avatar sm">MA</span>Marcos Almeida</span><span>Sábado 19h30</span><span>10</span><span class="health-label"><span class="status-dot"></span>Saudável</span><button class="text-btn" data-demo-toast="Detalhe da Célula Esperança.">Detalhes ›</button></div><div class="table-row"><span class="cell-name"><span class="task-icon" style="width:34px;height:34px;background:var(--amber-soft);color:var(--amber)"><svg class="icon"><use href="#i-users"/></svg></span><strong>Aliança</strong></span><span class="leader-name"><span class="avatar sm">PA</span>Pedro Almeida</span><span>Terça 20h</span><span>8</span><span class="health-label"><span class="status-dot warn"></span>Em atenção</span><button class="text-btn" data-demo-toast="Detalhe da Célula Aliança.">Detalhes ›</button></div></section>
+          </div>
+          <div class="central-view" data-central-view="cells"><div class="placeholder-panel"><h3>Gerenciar células</h3><p>A mesma linguagem visual aplicada à lista completa: busca e filtros discretos, célula e líder como informação dominante, saúde e última reunião como apoio.</p><button class="btn primary" id="open-cell-modal-2"><svg class="icon"><use href="#i-plus"/></svg>Nova célula</button></div></div>
+          <div class="central-view" data-central-view="requests"><div class="placeholder-panel"><h3>Solicitações</h3><p>Pedidos aguardando decisão aparecem em uma fila contínua. A comparação entre valor atual e proposto fica visível antes de aprovar ou rejeitar.</p><div class="request-list"><div class="request-row"><span class="task-icon"><svg class="icon"><use href="#i-calendar"/></svg></span><div><strong>Alteração de horário · Célula Esperança</strong><div class="cell-meta">Quarta 19h30 → Quinta 20h</div></div><button class="btn small" data-demo-toast="Solicitação aberta para revisão.">Revisar</button></div><div class="request-row"><span class="task-icon"><svg class="icon"><use href="#i-users"/></svg></span><div><strong>Multiplicação · Célula Vida Nova</strong><div class="cell-meta">Novo líder: Rafael Oliveira</div></div><button class="btn small" data-demo-toast="Solicitação aberta para revisão.">Revisar</button></div></div></div></div>
+          <div class="central-view" data-central-view="notices"><div class="placeholder-panel"><h3>Avisos</h3><p>Avisos ativos e encerrados em lista editorial simples, com público, origem e período claramente rotulados.</p></div></div>
+          <div class="central-view" data-central-view="materials"><div class="placeholder-panel"><h3>Materiais</h3><p>Materiais de apoio organizados por título, formato, publicação e disponibilidade para líderes.</p></div></div>
+        </section>
+      </main>
+    </div>
+
+    <nav class="bottom-nav" aria-label="Navegação móvel"><button class="bottom-item active" data-view="dashboard"><svg class="icon"><use href="#i-home"/></svg><span>Hoje</span></button><button class="bottom-item" data-view="conversations"><svg class="icon"><use href="#i-chat"/></svg><span>Conversas</span></button><button class="bottom-item" data-view="central"><svg class="icon"><use href="#i-journey"/></svg><span>Jornada</span></button><button class="bottom-item" data-view="cell"><svg class="icon"><use href="#i-more"/></svg><span>Minha Célula</span></button></nav>
+    <div class="prototype-note">Protótipo visual · dados fictícios</div>
+  </div>
+
+  <div class="modal-backdrop" id="cell-modal-backdrop" role="presentation">
+    <section class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <header class="modal-head"><h2 id="modal-title">Nova célula</h2><button class="icon-btn" id="close-modal" aria-label="Fechar"><svg class="icon"><use href="#i-close"/></svg></button></header>
+      <form id="cell-form"><div class="modal-body"><div class="field"><label for="cell-name">Nome da célula</label><input id="cell-name" required placeholder="Ex.: Célula Vida Plena"></div><div class="field"><label for="cell-leader">Líder</label><select id="cell-leader" required><option value="">Selecione uma pessoa apta</option><option>Rafael Oliveira</option><option>Fernanda Rocha</option></select></div><div class="field"><label for="cell-day">Dia da reunião</label><select id="cell-day"><option>Quarta-feira</option><option>Quinta-feira</option><option>Sábado</option></select></div><div class="field"><label for="cell-time">Horário</label><input id="cell-time" type="time" value="19:30"></div></div><footer class="modal-foot"><button class="btn" type="button" id="cancel-modal">Cancelar</button><button class="btn primary" type="submit">Criar célula</button></footer></form>
+    </section>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"><svg class="icon"><use href="#i-check"/></svg><span id="toast-text">Ação concluída.</span></div>
+
+  <script>
+    (() => {
+      const meta = {
+        dashboard: ["Painel de Hoje", "Pendências de hoje"],
+        conversations: ["Conversas", "WhatsApp da Igreja"],
+        cell: ["Minha Célula", "Reunião, avisos e histórico"],
+        central: ["Central de Célula", "Supervisão da rede"]
+      };
+      const screens = [...document.querySelectorAll("[data-screen]")];
+      const navButtons = [...document.querySelectorAll("[data-view]")];
+      const desktopTitle = document.getElementById("desktop-title");
+      const desktopContext = document.getElementById("desktop-context");
+      const mobileTitle = document.getElementById("mobile-title");
+      const toast = document.getElementById("toast");
+      const toastText = document.getElementById("toast-text");
+      let toastTimer;
+
+      function showToast(message) {
+        toastText.textContent = message;
+        toast.classList.add("show");
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => toast.classList.remove("show"), 2600);
+      }
+
+      function setView(view) {
+        if (!meta[view]) return;
+        screens.forEach(screen => screen.classList.toggle("active", screen.dataset.screen === view));
+        navButtons.forEach(button => button.classList.toggle("active", button.dataset.view === view));
+        desktopTitle.textContent = meta[view][0];
+        desktopContext.textContent = meta[view][1];
+        mobileTitle.textContent = meta[view][0];
+        document.title = `${meta[view][0]} · Igreja 12`;
+        history.replaceState(null, "", `#${view}`);
+        window.scrollTo({ top: 0, behavior: "smooth" });
+      }
+
+      navButtons.forEach(button => button.addEventListener("click", () => setView(button.dataset.view)));
+      document.querySelectorAll("[data-demo-toast]").forEach(button => button.addEventListener("click", () => showToast(button.dataset.demoToast)));
+
+      document.querySelectorAll(".resolve-task").forEach(button => button.addEventListener("click", () => {
+        const row = button.closest(".queue-row");
+        row.classList.add("resolved");
+        setTimeout(() => row.remove(), 180);
+        const count = document.querySelectorAll(".queue-row:not(.resolved)").length - 1;
+        document.getElementById("action-count").textContent = `${Math.max(0, count)} ${count === 1 ? "ação" : "ações"}`;
+        showToast(button.textContent.trim() === "Assumir" ? "Pendência assumida por Pr. Daniel." : "Pendência marcada como resolvida.");
+      }));
+
+      const summaryButton = document.querySelector(".mobile-summary");
+      const summaryContent = document.querySelector(".mobile-summary-content");
+      summaryButton.addEventListener("click", () => {
+        const open = summaryContent.classList.toggle("open");
+        summaryButton.setAttribute("aria-expanded", String(open));
+      });
+
+      document.querySelectorAll(".filter-tab").forEach(tab => tab.addEventListener("click", () => {
+        document.querySelectorAll(".filter-tab").forEach(item => { item.classList.remove("active"); item.setAttribute("aria-selected", "false"); });
+        tab.classList.add("active");
+        tab.setAttribute("aria-selected", "true");
+        showToast(`Filtro “${tab.textContent.trim()}” aplicado.`);
+      }));
+
+      const conversationScreen = document.querySelector(".conversations-screen");
+      document.querySelectorAll(".conv-row").forEach(row => row.addEventListener("click", () => {
+        document.querySelectorAll(".conv-row").forEach(item => item.classList.remove("active"));
+        row.classList.add("active");
+        document.getElementById("thread-name").textContent = row.dataset.name;
+        document.getElementById("thread-avatar").textContent = row.dataset.initials;
+        conversationScreen.classList.add("thread-open");
+      }));
+      document.querySelector(".back-thread").addEventListener("click", () => conversationScreen.classList.remove("thread-open"));
+      document.getElementById("conversation-search").addEventListener("input", event => {
+        const value = event.target.value.toLocaleLowerCase("pt-BR");
+        document.querySelectorAll(".conv-row").forEach(row => row.hidden = !row.textContent.toLocaleLowerCase("pt-BR").includes(value));
+      });
+
+      document.getElementById("composer").addEventListener("submit", event => {
+        event.preventDefault();
+        const input = document.getElementById("message-input");
+        const value = input.value.trim();
+        if (!value) return;
+        const bubble = document.createElement("div");
+        bubble.className = "bubble out";
+        bubble.textContent = value;
+        const time = document.createElement("time");
+        time.textContent = "agora ✓";
+        bubble.appendChild(time);
+        document.getElementById("messages").appendChild(bubble);
+        bubble.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        input.value = "";
+        showToast("Mensagem adicionada à demonstração.");
+      });
+
+      function setCentralTab(id) {
+        document.querySelectorAll("[data-central-tab]").forEach(tab => {
+          const active = tab.dataset.centralTab === id;
+          tab.classList.toggle("active", active);
+          tab.setAttribute("aria-selected", String(active));
+        });
+        document.querySelectorAll("[data-central-view]").forEach(view => view.classList.toggle("active", view.dataset.centralView === id));
+      }
+      document.querySelectorAll("[data-central-tab]").forEach(tab => tab.addEventListener("click", () => setCentralTab(tab.dataset.centralTab)));
+      document.querySelectorAll("[data-central-jump]").forEach(button => button.addEventListener("click", () => setCentralTab(button.dataset.centralJump)));
+
+      const modalBackdrop = document.getElementById("cell-modal-backdrop");
+      const firstField = document.getElementById("cell-name");
+      let modalOpener;
+      function openModal(event) { modalOpener = event.currentTarget; modalBackdrop.classList.add("open"); setTimeout(() => firstField.focus(), 0); }
+      function closeModal() { modalBackdrop.classList.remove("open"); modalOpener?.focus(); }
+      [document.getElementById("open-cell-modal"), document.getElementById("open-cell-modal-2")].forEach(button => button.addEventListener("click", openModal));
+      document.getElementById("close-modal").addEventListener("click", closeModal);
+      document.getElementById("cancel-modal").addEventListener("click", closeModal);
+      modalBackdrop.addEventListener("click", event => { if (event.target === modalBackdrop) closeModal(); });
+      document.addEventListener("keydown", event => { if (event.key === "Escape" && modalBackdrop.classList.contains("open")) closeModal(); });
+      document.getElementById("cell-form").addEventListener("submit", event => { event.preventDefault(); closeModal(); showToast("Célula criada apenas na demonstração visual."); event.target.reset(); });
+
+      const initial = location.hash.slice(1);
+      if (meta[initial]) setView(initial);
+    })();
+  </script>
+</body>
+</html>
