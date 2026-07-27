@@ -46,6 +46,11 @@ commit `0a011fb`:
 Os dois overrides são **escopados a `next`** (bloco `overrides.next`), não
 globais — não alteram resoluções de outras árvores de dependência.
 
+`sharp 0.35.3` e libvips `8.18.3` têm dupla evidência: além da resolução da
+cadeia de pacotes no `package-lock.json`, a **versão exata do runtime foi
+comprovada no smoke local pré-deploy**, por inspeção direta do runtime
+(`sharp.versions.sharp` = `0.35.3`, libvips `8.18.3`).
+
 ## Segurança
 
 - **Audit de runtime antes**: 2 pacotes com severidade **high**.
@@ -98,9 +103,23 @@ foram alterados nesta release.** O diff publicado é restrito a
 
 - HTML não vazio nas três respostas.
 - **Zero respostas 5xx.**
-- Image optimizer do Next exercitado: HTTP **200**, `content-type: image/png`,
-  **1150 bytes** — prova que o pipeline `sharp` 0.35.3 / libvips 8.18.3 responde
-  em produção.
+- Image optimizer do Next exercitado em PROD: HTTP **200**,
+  `content-type: image/png`, **1150 bytes**. Isso confirma que o **endpoint de
+  otimização respondeu corretamente em produção** e serviu uma imagem
+  transformada.
+
+### Escopo da evidência do image optimizer
+
+A requisição de produção, **isoladamente, não prova a execução dos binários
+exatos** `sharp 0.35.3` / libvips `8.18.3` — cache e camadas de plataforma da
+Vercel ficam entre o cliente e o processo que gera a imagem.
+
+A execução exata desses binários foi comprovada no **smoke local pré-deploy**:
+redimensionamento para **64x64**, conversão para **WebP** e inspeção direta do
+runtime (`sharp.versions.sharp` = `0.35.3`, libvips `8.18.3`).
+
+As duas evidências são complementares: o smoke local prova *qual binário roda*;
+o smoke de PROD prova *que o endpoint responde na publicação*.
 
 ## Smoke autenticado — verificação externa pelo Codex
 
