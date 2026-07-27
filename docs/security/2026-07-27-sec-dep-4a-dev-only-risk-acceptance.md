@@ -66,16 +66,16 @@ Não afirmamos aqui que `.eslintignore` ou `ignorePatterns` passem por `minimatc
 
 ## 4. Decisão do dono
 
-> **"Aceito temporariamente o residual dev-only da PR #210, com registro versionado e reabertura quando houver caminho compatível."**
+> **"Aceito temporariamente o residual da PR #210, inclusive o risco de interromper o lint durante um build de produção, sem impacto no sistema já publicado; reabrir quando houver correção compatível."**
 
-Texto literal da decisão, registrado pelo dono em 2026-07-27 na missão SEC-DEP-4A-RISK-RECORD-1, que determinou a criação deste documento como registro versionado.
+Texto literal da decisão, registrado pelo dono em 2026-07-27. Esta é a formulação definitiva: substitui a redação anterior, feita antes de a análise identificar que o `next build` executa o ESLint (§2). O dono foi informado dessa correção de superfície e a confirmou de forma explícita — a aceitação **inclui**, com todas as letras, o risco de interrupção do lint durante a geração de um build.
 
-Alcance da aceitação, explicitamente delimitado:
+O que a decisão reconhece, ponto a ponto:
 
-- vale **somente** para o `GHSA-mh99-v99m-4gvg` em `brace-expansion` 1.1.16, alcançado pela cadeia `minimatch@3.1.5` → `eslint@8.57.0` / `eslint-config-next@15.5.22`;
-- **não** se estende a nenhum outro finding, atual ou futuro, do mesmo pacote, da mesma cadeia ou de qualquer outra;
-- **não** cria precedente para aceitar findings de runtime — a régua de runtime continua sendo `npm audit --omit=dev` = 0;
-- é **temporária**: qualquer gatilho do item 5 a encerra e obriga reavaliação.
+- **Não entra no sistema publicado.** O pacote não está na árvore de runtime nem no bundle servido; nenhum usuário do painel, da API ou do login é exposto a ele. `npm audit --omit=dev` = 0.
+- **Pode interromper o lint durante a geração de um novo build.** É o efeito aceito: um padrão hostil pode derrubar por memória o processo de lint — inclusive o passo de lint que o `next build` executa ao gerar um build novo. O resultado seria um build que falha, nunca um sistema publicado comprometido. O que já está no ar não é afetado.
+- **A aceitação vale somente para este finding.** Cobre exclusivamente o `GHSA-mh99-v99m-4gvg` em `brace-expansion` 1.1.16, alcançado pela cadeia `minimatch@3.1.5` → `eslint@8.57.0` / `eslint-config-next@15.5.22`. **Não** se estende a nenhum outro finding, atual ou futuro, do mesmo pacote, da mesma cadeia ou de qualquer outra, e **não** cria precedente para aceitar findings de runtime — a régua de runtime continua sendo `npm audit --omit=dev` = 0.
+- **A reabertura continua obrigatória.** A aceitação é temporária por construção: assim que houver correção compatível — ou qualquer outro gatilho da §5 — ela se encerra e o item volta à análise. Nenhum gatilho foi afrouxado por esta confirmação.
 
 ---
 
