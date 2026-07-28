@@ -72,23 +72,9 @@ describe("rodapés de diálogo — o wrap é do contêiner, o texto do botão n�
     expect(globals).toMatch(/\.modal-foot \.btn\s*\{\s*min-height:\s*44px/);
   });
 
-  it("nenhum rodapé de ação da base ficou sem wrap (varredura fechada)", () => {
-    // Qualquer regra `display:flex` + `justify-content:flex-end` sem
-    // `flex-wrap` é uma linha de ações que pode vazar. A lista tem de ficar
-    // vazia: se um rodapé novo aparecer sem wrap, este teste acusa.
-    const semWrap: string[] = [];
-    for (const [arquivo, fonte] of [
-      ["globals.css", globals],
-      ["ds.css", ds],
-    ] as const) {
-      for (const m of fonte.matchAll(/([^{}]+)\{([^}]*)\}/g)) {
-        const corpo = m[2]!;
-        if (!/display:\s*flex/.test(corpo)) continue;
-        if (!/justify-content:\s*flex-end/.test(corpo)) continue;
-        if (/flex-wrap/.test(corpo)) continue;
-        semWrap.push(`${arquivo}: ${m[1]!.trim().split("\n").pop()!.trim()}`);
-      }
-    }
-    expect(semWrap).toEqual([]);
-  });
+  // A varredura repo-wide que existia aqui (todo `display:flex` +
+  // `justify-content:flex-end` sem `flex-wrap` reprovava) foi removida a pedido
+  // da revisão externa: nem todo flex alinhado à direita é um rodapé de ações —
+  // uma toolbar de linha fixa futura falharia a suíte mesmo estando correta.
+  // A cobertura fica nos testes parametrizados dos três rodapés acima.
 });

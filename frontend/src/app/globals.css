@@ -2127,13 +2127,21 @@ button.jr-row:focus-visible {
     padding: 2px 4px;
     font-size: 10.5px;
   }
-  /* PR212-CORRECTIVE-2 (finding P2 do Codex): no grid mensal estreito a hora
-     basta como rótulo e o título sai para caber na célula — mas só quando HÁ
-     hora. Evento sem horário (`hora: null`) mantém o título visível, truncado
-     com ellipsis pelo `.cal-ev-title`; sem isso o chip virava barra colorida
-     sem texto e com nome acessível vazio. Semana/Ano e desktop não mudam. */
-  .cal-grid .cal-ev-title:not(.cal-ev-title--untimed) {
-    display: none;
+  /* PR212-CORRECTIVE-6 (revisão externa): no grid mensal estreito o chip vira
+     DUAS linhas — hora em cima, título embaixo truncado com ellipsis. A versão
+     anterior escondia o título do evento com hora, e dois eventos no mesmo
+     horário ficavam visualmente idênticos ("19:30"/"19:30") para o usuário
+     vidente no toque (o `title` é hover; o aria-label não é visual). Empilhar
+     não alarga a coluna: o truncamento continua no eixo horizontal e as 7
+     colunas seguem `minmax(0, 1fr)`. Evento sem hora rende só a linha do
+     título. Semana/Ano e desktop não mudam. */
+  .cal-grid .cal-ev {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+  }
+  .cal-grid .cal-ev-title {
+    font-size: 10px;
   }
   .mc.mc--leader .mc-hero {
     display: grid;

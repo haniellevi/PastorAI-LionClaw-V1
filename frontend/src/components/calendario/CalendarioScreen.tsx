@@ -121,29 +121,16 @@ function dotClass(ev: EventItem): string {
   return ev.tipo ? `dot tipo-${ev.tipo}` : "dot";
 }
 /**
- * PR212-CORRECTIVE-2 (finding P2 do Codex): classe do título do chip. O grid
- * mensal esconde o título até 640px para caber na célula, contando com a hora
- * como rótulo — mas `hora` é nullable (evento sem horário), e aí o chip ficava
- * uma barra colorida SEM texto nenhum: ilegível no mobile e com nome acessível
- * vazio. `--untimed` marca esse caso; o CSS preserva o título (truncado com
- * ellipsis) só para ele. Marcador explícito, sem :has() no CSS.
- */
-function titleClass(ev: EventItem): string {
-  return ev.hora ? "cal-ev-title" : "cal-ev-title cal-ev-title--untimed";
-}
-/**
  * PR212-CORRECTIVE-3 (2º finding P2 do Codex): nome acessível do chip no GRID
- * MENSAL. Até 640px o título sai do chip com hora e sobra só "19:30" — que não
- * identifica o evento: dois eventos no mesmo horário ficam indistinguíveis e o
- * `role="button"` é anunciado como "19:30". O atributo `title` NÃO resolve: só
- * entra no nome acessível quando o conteúdo é vazio (aqui não é) e é hover de
- * mouse, ausente no toque.
+ * MENSAL — "<título>, às <hora>" numa frase única. No mobile o chip empilha
+ * hora e título truncado (PR212-CORRECTIVE-6); o aria-label evita que o leitor
+ * de tela anuncie os dois fragmentos soltos e garante o título COMPLETO mesmo
+ * quando o visual trunca. O atributo `title` não faz esse papel: só entra no
+ * nome acessível quando o conteúdo é vazio, e é hover de mouse.
  *
  * Só o grid mensal precisa disto — Semana e as listas de apoio já expõem o
- * título no próprio conteúdo. Por isso o rótulo NÃO entra em `eventActivation`
- * (compartilhado), e sim no chip do mês. O visual não muda: `aria-label` é
- * invisível, o chip segue compacto e o toque continua abrindo o detalhe com o
- * título completo.
+ * título inteiro no próprio conteúdo. Por isso o rótulo NÃO entra em
+ * `eventActivation` (compartilhado), e sim no chip do mês.
  */
 function monthChipLabel(ev: EventItem): string {
   return ev.hora ? `${ev.titulo}, às ${ev.hora}` : ev.titulo;
@@ -584,7 +571,7 @@ export function CalendarioScreen() {
                           aria-label={monthChipLabel(ev)}
                         >
                           {ev.hora ? <span className="cal-ev-time">{ev.hora}</span> : null}
-                          <span className={titleClass(ev)}>{ev.titulo}</span>
+                          <span className="cal-ev-title">{ev.titulo}</span>
                         </div>
                       ))}
                     </div>
@@ -617,7 +604,7 @@ export function CalendarioScreen() {
                             {...eventActivation(ev)}
                           >
                             {ev.hora ? <span className="cal-ev-time">{ev.hora}</span> : null}
-                            <span className={titleClass(ev)}>{ev.titulo}</span>
+                            <span className="cal-ev-title">{ev.titulo}</span>
                           </div>
                         ))}
                       </div>

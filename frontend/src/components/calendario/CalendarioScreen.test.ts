@@ -171,13 +171,15 @@ describe("CalendarioScreen — teclado na célula do dia (B2)", () => {
 });
 
 /**
- * PR212-CORRECTIVE-2 (finding P2 do Codex, revisão do commit cbecb490b9):
- * até 640px o grid mensal esconde o título do chip e conta com a hora como
- * rótulo — mas `hora` é nullable. Sem marcação, evento sem horário virava uma
- * barra colorida sem texto nenhum. O marcador `cal-ev-title--untimed` é o que
- * o CSS usa para preservar o título só nesse caso; aqui provamos a marcação.
+ * PR212-CORRECTIVE-2/6 (findings P2 do Codex): o chip do grid mensal precisa
+ * de hora E título no DOM. A primeira rodada provou que evento sem horário
+ * virava barra sem texto; a revisão de CORRECTIVE-6 derrubou o esconder-título
+ * do evento COM hora — no mobile o CSS empilha hora + título truncado (chip em
+ * duas linhas), sem marcador condicional. Aqui provamos o contrato do DOM:
+ * ambos os fragmentos sempre presentes (visibilidade/empilhamento é CSS,
+ * coberto pelo smoke em navegador real).
  */
-describe("CalendarioScreen — chip de evento sem horário (P2)", () => {
+describe("CalendarioScreen — chip do mês tem hora e título no DOM (P2)", () => {
   const iso = () => {
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
@@ -197,7 +199,7 @@ describe("CalendarioScreen — chip de evento sem horário (P2)", () => {
     };
   }
 
-  it("evento com hora=null recebe o marcador de evento sem horário", async () => {
+  it("evento sem horário rende só o título (sem span de hora)", async () => {
     apiMock.fetchEvents.mockResolvedValue({
       items: [evento("ev-sem-hora", "Retiro de carnaval", null)],
       page: 1,
@@ -211,14 +213,12 @@ describe("CalendarioScreen — chip de evento sem horário (P2)", () => {
 
     const titulo = container.querySelector<HTMLElement>(".cal-grid .cal-ev-title");
     expect(titulo).not.toBeNull();
-    expect(titulo?.classList.contains("cal-ev-title--untimed")).toBe(true);
-    // O título continua no DOM (não é só o atributo title do chip).
     expect(titulo?.textContent).toBe("Retiro de carnaval");
-    // Sem hora, não há chip de horário para servir de rótulo.
+    // Sem hora, não há span de horário.
     expect(container.querySelector(".cal-grid .cal-ev-time")).toBeNull();
   });
 
-  it("evento com horário mantém o comportamento compacto (hora, sem marcador)", async () => {
+  it("evento com horário rende HORA e TÍTULO — nenhum dos dois some do DOM", async () => {
     apiMock.fetchEvents.mockResolvedValue({
       items: [evento("ev-com-hora", "Culto de celebração", "19:30")],
       page: 1,
@@ -230,17 +230,17 @@ describe("CalendarioScreen — chip de evento sem horário (P2)", () => {
       root.render(h(CalendarioScreen, {}));
     });
 
-    const titulo = container.querySelector<HTMLElement>(".cal-grid .cal-ev-title");
-    expect(titulo).not.toBeNull();
-    expect(titulo?.classList.contains("cal-ev-title--untimed")).toBe(false);
     expect(container.querySelector(".cal-grid .cal-ev-time")?.textContent).toBe("19:30");
+    expect(container.querySelector(".cal-grid .cal-ev-title")?.textContent).toBe(
+      "Culto de celebração",
+    );
   });
 
-  it("o marcador acompanha cada evento (misto sem hora + com hora)", async () => {
+  it("dois eventos no MESMO horário têm títulos visuais distintos no chip", async () => {
     apiMock.fetchEvents.mockResolvedValue({
       items: [
-        evento("ev-a", "Retiro de carnaval", null),
-        evento("ev-b", "Culto de celebração", "19:30"),
+        evento("ev-a", "Culto de celebração", "19:30"),
+        evento("ev-b", "Ensaio do coral", "19:30"),
       ],
       page: 1,
       pageSize: 200,
@@ -251,12 +251,16 @@ describe("CalendarioScreen — chip de evento sem horário (P2)", () => {
       root.render(h(CalendarioScreen, {}));
     });
 
-    const titulos = [...container.querySelectorAll<HTMLElement>(".cal-grid .cal-ev-title")];
-    expect(titulos.length).toBe(2);
-    const marcados = titulos
-      .filter((t) => t.classList.contains("cal-ev-title--untimed"))
-      .map((t) => t.textContent);
-    expect(marcados).toEqual(["Retiro de carnaval"]);
+    const chips = [...container.querySelectorAll<HTMLElement>(".cal-grid .cal-ev")];
+    expect(chips.length).toBe(2);
+    const fragmentos = chips.map((c) => ({
+      hora: c.querySelector(".cal-ev-time")?.textContent,
+      titulo: c.querySelector(".cal-ev-title")?.textContent,
+    }));
+    expect(fragmentos).toEqual([
+      { hora: "19:30", titulo: "Culto de celebração" },
+      { hora: "19:30", titulo: "Ensaio do coral" },
+    ]);
   });
 });
 
@@ -302,8 +306,9 @@ describe("CalendarioScreen — nome acessível do chip do mês (P2)", () => {
 
     const chip = container.querySelector<HTMLElement>(".cal-grid .cal-ev");
     expect(chip?.getAttribute("aria-label")).toBe("Culto de celebração, às 19:30");
-    // O visual segue compacto: o texto do chip continua sendo só o horário
-    // (o título existe no DOM, mas o CSS o esconde no mês estreito).
+    // O aria-label é a frase única para o leitor de tela; visualmente o chip
+    // empilha hora + título truncado (CORRECTIVE-6), então o rótulo garante o
+    // título COMPLETO mesmo quando o visual corta.
     expect(chip?.querySelector(".cal-ev-time")?.textContent).toBe("19:30");
   });
 
