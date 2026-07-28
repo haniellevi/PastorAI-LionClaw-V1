@@ -259,3 +259,114 @@ describe("CalendarioScreen — chip de evento sem horário (P2)", () => {
     expect(marcados).toEqual(["Retiro de carnaval"]);
   });
 });
+
+/**
+ * PR212-CORRECTIVE-3 (2º finding P2 do Codex, revisão do commit 30d0bb909e):
+ * até 640px o chip do grid mensal com horário mostra só "19:30", e o chip é um
+ * `role="button"` — o nome acessível virava o horário, sem identificar o
+ * evento. O atributo `title` não cobre isso (só vale como fallback de conteúdo
+ * vazio, e é hover de mouse). O `aria-label` do chip do MÊS é a prova aqui;
+ * Semana e listas seguem sem rótulo próprio, pois já expõem o título.
+ */
+describe("CalendarioScreen — nome acessível do chip do mês (P2)", () => {
+  const iso = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+      d.getDate(),
+    ).padStart(2, "0")}`;
+  };
+
+  function evento(id: string, titulo: string, hora: string | null) {
+    return {
+      id,
+      titulo,
+      data: iso(),
+      hora,
+      descricao: null,
+      googleEventId: null,
+      sincronizado: false,
+    };
+  }
+
+  it("chip com horário tem nome acessível com título E horário", async () => {
+    apiMock.fetchEvents.mockResolvedValue({
+      items: [evento("ev-1", "Culto de celebração", "19:30")],
+      page: 1,
+      pageSize: 200,
+      total: 1,
+    });
+
+    await act(async () => {
+      root.render(h(CalendarioScreen, {}));
+    });
+
+    const chip = container.querySelector<HTMLElement>(".cal-grid .cal-ev");
+    expect(chip?.getAttribute("aria-label")).toBe("Culto de celebração, às 19:30");
+    // O visual segue compacto: o texto do chip continua sendo só o horário
+    // (o título existe no DOM, mas o CSS o esconde no mês estreito).
+    expect(chip?.querySelector(".cal-ev-time")?.textContent).toBe("19:30");
+  });
+
+  it("eventos no MESMO horário com títulos diferentes têm nomes acessíveis distintos", async () => {
+    apiMock.fetchEvents.mockResolvedValue({
+      items: [
+        evento("ev-a", "Culto de celebração", "19:30"),
+        evento("ev-b", "Ensaio do coral", "19:30"),
+      ],
+      page: 1,
+      pageSize: 200,
+      total: 2,
+    });
+
+    await act(async () => {
+      root.render(h(CalendarioScreen, {}));
+    });
+
+    const nomes = [...container.querySelectorAll<HTMLElement>(".cal-grid .cal-ev")].map((c) =>
+      c.getAttribute("aria-label"),
+    );
+    expect(nomes).toEqual(["Culto de celebração, às 19:30", "Ensaio do coral, às 19:30"]);
+    expect(new Set(nomes).size).toBe(2);
+  });
+
+  it("chip sem horário tem nome acessível só com o título", async () => {
+    apiMock.fetchEvents.mockResolvedValue({
+      items: [evento("ev-sem-hora", "Retiro de carnaval", null)],
+      page: 1,
+      pageSize: 200,
+      total: 1,
+    });
+
+    await act(async () => {
+      root.render(h(CalendarioScreen, {}));
+    });
+
+    const chip = container.querySelector<HTMLElement>(".cal-grid .cal-ev");
+    expect(chip?.getAttribute("aria-label")).toBe("Retiro de carnaval");
+  });
+
+  it("chips da visão Semana NÃO recebem aria-label (o título já está no conteúdo)", async () => {
+    apiMock.fetchEvents.mockResolvedValue({
+      items: [evento("ev-1", "Culto de celebração", "19:30")],
+      page: 1,
+      pageSize: 200,
+      total: 1,
+    });
+
+    await act(async () => {
+      root.render(h(CalendarioScreen, {}));
+    });
+
+    const abaSemana = [...container.querySelectorAll<HTMLElement>('[role="tab"]')].find(
+      (t) => t.textContent?.trim() === "Semana",
+    );
+    act(() => {
+      abaSemana!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const chip = container.querySelector<HTMLElement>(".agenda-week .cal-ev");
+    expect(chip).not.toBeNull();
+    expect(chip?.getAttribute("aria-label")).toBeNull();
+    expect(chip?.textContent).toContain("Culto de celebração");
+  });
+});

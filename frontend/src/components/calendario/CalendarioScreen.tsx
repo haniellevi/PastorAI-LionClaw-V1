@@ -131,6 +131,23 @@ function dotClass(ev: EventItem): string {
 function titleClass(ev: EventItem): string {
   return ev.hora ? "cal-ev-title" : "cal-ev-title cal-ev-title--untimed";
 }
+/**
+ * PR212-CORRECTIVE-3 (2º finding P2 do Codex): nome acessível do chip no GRID
+ * MENSAL. Até 640px o título sai do chip com hora e sobra só "19:30" — que não
+ * identifica o evento: dois eventos no mesmo horário ficam indistinguíveis e o
+ * `role="button"` é anunciado como "19:30". O atributo `title` NÃO resolve: só
+ * entra no nome acessível quando o conteúdo é vazio (aqui não é) e é hover de
+ * mouse, ausente no toque.
+ *
+ * Só o grid mensal precisa disto — Semana e as listas de apoio já expõem o
+ * título no próprio conteúdo. Por isso o rótulo NÃO entra em `eventActivation`
+ * (compartilhado), e sim no chip do mês. O visual não muda: `aria-label` é
+ * invisível, o chip segue compacto e o toque continua abrindo o detalhe com o
+ * título completo.
+ */
+function monthChipLabel(ev: EventItem): string {
+  return ev.hora ? `${ev.titulo}, às ${ev.hora}` : ev.titulo;
+}
 const PREV_LABEL: Record<EventView, string> = {
   semana: "Semana anterior",
   mes: "Mês anterior",
@@ -562,6 +579,9 @@ export function CalendarioScreen() {
                           className={evClass(ev)}
                           title={ev.titulo}
                           {...eventActivation(ev)}
+                          // Depois do spread de propósito: o nome acessível do
+                          // chip do mês não pode ser sobrescrito por ele.
+                          aria-label={monthChipLabel(ev)}
                         >
                           {ev.hora ? <span className="cal-ev-time">{ev.hora}</span> : null}
                           <span className={titleClass(ev)}>{ev.titulo}</span>
