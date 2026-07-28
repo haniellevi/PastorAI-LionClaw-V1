@@ -78,3 +78,29 @@ describe("rodapés de diálogo — o wrap é do contêiner, o texto do botão n�
   // uma toolbar de linha fixa futura falharia a suíte mesmo estando correta.
   // A cobertura fica nos testes parametrizados dos três rodapés acima.
 });
+
+/**
+ * PR212-CORRECTIVE-7 (finding P2 do Codex): as ações do detalhe da célula
+ * ("Editar célula" + "Convidar membro", CelulasScreen) eram um flex inline SEM
+ * wrap com dois botões `flex: 1` — com o `.btn` em `white-space: nowrap`, a
+ * soma dos min-content passava da largura do card no celular e os controles
+ * vazavam. Mesma classe de defeito dos rodapés acima, mesma trava.
+ */
+describe(".cell-detail-actions — par de ações do detalhe da célula quebra de linha", () => {
+  const body = rule(globals, String.raw`\.cell-detail-actions`);
+
+  it("declara flex + flex-wrap: wrap (linha única quando cabe; botão inteiro desce quando não)", () => {
+    expect(body).toMatch(/display:\s*flex/);
+    expect(body).toMatch(/flex-wrap:\s*wrap/);
+    expect(body).not.toMatch(/flex-wrap:\s*(nowrap|wrap-reverse)/);
+  });
+
+  it("preserva gap e respiro do grupo", () => {
+    expect(body).toMatch(/gap:\s*var\(--s2\)/);
+    expect(body).toMatch(/margin-bottom:\s*var\(--s4\)/);
+  });
+
+  it("os botões seguem flexíveis (dividem a linha quando lado a lado)", () => {
+    expect(rule(globals, String.raw`\.cell-detail-actions \.btn`)).toMatch(/flex:\s*1/);
+  });
+});

@@ -566,12 +566,12 @@ function CellDetailPanel({
       </dl>
 
       {canEdit ? (
-        <div style={{ display: "flex", gap: "var(--s2)", marginBottom: "var(--s4)" }}>
-          <button type="button" className="btn" onClick={onEdit} style={{ flex: 1 }}>
+        <div className="cell-detail-actions">
+          <button type="button" className="btn" onClick={onEdit}>
             <Icon name="document" />
             <span>Editar célula</span>
           </button>
-          <button type="button" className="btn btn-primary" onClick={onInvite} style={{ flex: 1 }}>
+          <button type="button" className="btn btn-primary" onClick={onInvite}>
             <Icon name="plus" />
             <span>Convidar membro</span>
           </button>

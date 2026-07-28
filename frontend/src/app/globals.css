@@ -2764,6 +2764,28 @@ table.data-table {
   font-weight: 540;
   text-align: right;
 }
+/* PR212-CORRECTIVE-7 (finding P2 do Codex): par de ações do detalhe da célula
+   ("Editar célula" + "Convidar membro"). Era um flex inline SEM wrap com dois
+   botões `flex: 1`; como o `.btn` é `white-space: nowrap`, o min-content dos
+   dois rótulos somados passava da largura do card no celular e os controles
+   vazavam. `flex-wrap: wrap` mantém a linha única quando cabe e desce o botão
+   INTEIRO quando não cabe — sem mexer no `.btn` global nem criar regra
+   genérica de grupo. */
+.cell-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  margin-bottom: var(--s4);
+}
+.cell-detail-actions .btn {
+  flex: 1;
+}
+/* Alvo de toque no mobile — mesmo breakpoint/padrão do .modal-foot .btn. */
+@media (max-width: 600px) {
+  .cell-detail-actions .btn {
+    min-height: 44px;
+  }
+}
 
 /* ---------- CÉLULAS (grid de cards) ---------- */
 .grid-cells {
