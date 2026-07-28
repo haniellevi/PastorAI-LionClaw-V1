@@ -2127,7 +2127,12 @@ button.jr-row:focus-visible {
     padding: 2px 4px;
     font-size: 10.5px;
   }
-  .cal-grid .cal-ev-title {
+  /* PR212-CORRECTIVE-2 (finding P2 do Codex): no grid mensal estreito a hora
+     basta como rótulo e o título sai para caber na célula — mas só quando HÁ
+     hora. Evento sem horário (`hora: null`) mantém o título visível, truncado
+     com ellipsis pelo `.cal-ev-title`; sem isso o chip virava barra colorida
+     sem texto e com nome acessível vazio. Semana/Ano e desktop não mudam. */
+  .cal-grid .cal-ev-title:not(.cal-ev-title--untimed) {
     display: none;
   }
   .mc.mc--leader .mc-hero {
@@ -4445,9 +4450,16 @@ table.data-table {
 }
 .cal-grid {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  /* PR212-CORRECTIVE-2: `1fr` é `minmax(auto, 1fr)` — o tamanho mínimo
+     automático da coluna é o min-content da célula, e o título do chip é
+     `white-space: nowrap`. Com o título visível, um evento de nome longo
+     inflava a coluna do dia e esmagava as outras seis. `minmax(0, 1fr)` +
+     `min-width: 0` na célula deixam as 7 colunas realmente iguais; o chip já
+     trunca sozinho (`.cal-ev` tem overflow hidden + ellipsis). */
+  grid-template-columns: repeat(7, minmax(0, 1fr));
 }
 .cal-cell {
+  min-width: 0;
   min-height: 92px;
   padding: 6px;
   border-right: 1px solid var(--border);

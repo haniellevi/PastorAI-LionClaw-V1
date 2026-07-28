@@ -169,3 +169,93 @@ describe("CalendarioScreen — teclado na célula do dia (B2)", () => {
     expect(container.querySelector(".ds-dialog-title")?.textContent).toBe("Reunião de líderes");
   });
 });
+
+/**
+ * PR212-CORRECTIVE-2 (finding P2 do Codex, revisão do commit cbecb490b9):
+ * até 640px o grid mensal esconde o título do chip e conta com a hora como
+ * rótulo — mas `hora` é nullable. Sem marcação, evento sem horário virava uma
+ * barra colorida sem texto nenhum. O marcador `cal-ev-title--untimed` é o que
+ * o CSS usa para preservar o título só nesse caso; aqui provamos a marcação.
+ */
+describe("CalendarioScreen — chip de evento sem horário (P2)", () => {
+  const iso = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+      d.getDate(),
+    ).padStart(2, "0")}`;
+  };
+
+  function evento(id: string, titulo: string, hora: string | null) {
+    return {
+      id,
+      titulo,
+      data: iso(),
+      hora,
+      descricao: null,
+      googleEventId: null,
+      sincronizado: false,
+    };
+  }
+
+  it("evento com hora=null recebe o marcador de evento sem horário", async () => {
+    apiMock.fetchEvents.mockResolvedValue({
+      items: [evento("ev-sem-hora", "Retiro de carnaval", null)],
+      page: 1,
+      pageSize: 200,
+      total: 1,
+    });
+
+    await act(async () => {
+      root.render(h(CalendarioScreen, {}));
+    });
+
+    const titulo = container.querySelector<HTMLElement>(".cal-grid .cal-ev-title");
+    expect(titulo).not.toBeNull();
+    expect(titulo?.classList.contains("cal-ev-title--untimed")).toBe(true);
+    // O título continua no DOM (não é só o atributo title do chip).
+    expect(titulo?.textContent).toBe("Retiro de carnaval");
+    // Sem hora, não há chip de horário para servir de rótulo.
+    expect(container.querySelector(".cal-grid .cal-ev-time")).toBeNull();
+  });
+
+  it("evento com horário mantém o comportamento compacto (hora, sem marcador)", async () => {
+    apiMock.fetchEvents.mockResolvedValue({
+      items: [evento("ev-com-hora", "Culto de celebração", "19:30")],
+      page: 1,
+      pageSize: 200,
+      total: 1,
+    });
+
+    await act(async () => {
+      root.render(h(CalendarioScreen, {}));
+    });
+
+    const titulo = container.querySelector<HTMLElement>(".cal-grid .cal-ev-title");
+    expect(titulo).not.toBeNull();
+    expect(titulo?.classList.contains("cal-ev-title--untimed")).toBe(false);
+    expect(container.querySelector(".cal-grid .cal-ev-time")?.textContent).toBe("19:30");
+  });
+
+  it("o marcador acompanha cada evento (misto sem hora + com hora)", async () => {
+    apiMock.fetchEvents.mockResolvedValue({
+      items: [
+        evento("ev-a", "Retiro de carnaval", null),
+        evento("ev-b", "Culto de celebração", "19:30"),
+      ],
+      page: 1,
+      pageSize: 200,
+      total: 2,
+    });
+
+    await act(async () => {
+      root.render(h(CalendarioScreen, {}));
+    });
+
+    const titulos = [...container.querySelectorAll<HTMLElement>(".cal-grid .cal-ev-title")];
+    expect(titulos.length).toBe(2);
+    const marcados = titulos
+      .filter((t) => t.classList.contains("cal-ev-title--untimed"))
+      .map((t) => t.textContent);
+    expect(marcados).toEqual(["Retiro de carnaval"]);
+  });
+});

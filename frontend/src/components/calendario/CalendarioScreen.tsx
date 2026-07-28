@@ -120,6 +120,17 @@ function dotClass(ev: EventItem): string {
   if (ev.status === "a_confirmar") return "dot danger";
   return ev.tipo ? `dot tipo-${ev.tipo}` : "dot";
 }
+/**
+ * PR212-CORRECTIVE-2 (finding P2 do Codex): classe do título do chip. O grid
+ * mensal esconde o título até 640px para caber na célula, contando com a hora
+ * como rótulo — mas `hora` é nullable (evento sem horário), e aí o chip ficava
+ * uma barra colorida SEM texto nenhum: ilegível no mobile e com nome acessível
+ * vazio. `--untimed` marca esse caso; o CSS preserva o título (truncado com
+ * ellipsis) só para ele. Marcador explícito, sem :has() no CSS.
+ */
+function titleClass(ev: EventItem): string {
+  return ev.hora ? "cal-ev-title" : "cal-ev-title cal-ev-title--untimed";
+}
 const PREV_LABEL: Record<EventView, string> = {
   semana: "Semana anterior",
   mes: "Mês anterior",
@@ -553,7 +564,7 @@ export function CalendarioScreen() {
                           {...eventActivation(ev)}
                         >
                           {ev.hora ? <span className="cal-ev-time">{ev.hora}</span> : null}
-                          <span className="cal-ev-title">{ev.titulo}</span>
+                          <span className={titleClass(ev)}>{ev.titulo}</span>
                         </div>
                       ))}
                     </div>
@@ -586,7 +597,7 @@ export function CalendarioScreen() {
                             {...eventActivation(ev)}
                           >
                             {ev.hora ? <span className="cal-ev-time">{ev.hora}</span> : null}
-                            <span className="cal-ev-title">{ev.titulo}</span>
+                            <span className={titleClass(ev)}>{ev.titulo}</span>
                           </div>
                         ))}
                       </div>
