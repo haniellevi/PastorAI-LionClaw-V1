@@ -198,7 +198,10 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
             </label>
           ) : null}
 
-          <div style={{ display: "flex", gap: 8, marginTop: "var(--s4)" }}>
+          {/* PR212-CORRECTIVE-8: flexWrap comprovado por medição — em 320px o
+              min-content do par (a palavra "Desconectar" não quebra) passa
+              21,9px da borda do card mesmo sem o nowrap global do .btn. */}
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: "var(--s4)" }}>
             <button
               type="button"
               className="btn btn-primary"

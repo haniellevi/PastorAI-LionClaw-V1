@@ -1,21 +1,18 @@
 /**
- * PR212-CORRECTIVE-4/5 (3º e 4º findings P2 do Codex) — invariantes de CSS dos
+ * PR212-CORRECTIVE-4/5/8 (findings P2 do Codex) — invariantes de CSS dos
  * rodapés de diálogo, que não dá pra provar em jsdom (sem cascata/layout real):
  * regressão por leitura do CSS-fonte, no mesmo padrão de design-tokens.test.ts
  * e nav-visual.test.ts.
  *
- * O VIS-2 pôs `white-space: nowrap` no `.btn` (e a fundação já tinha no
- * `.ds-btn`), então o min-content de cada botão passou a ser o rótulo inteiro.
- * Num rodapé flex SEM wrap e com `justify-content: flex-end`, o excesso vaza
- * pela ESQUERDA — e overflow à esquerda NÃO entra em `scrollWidth`, por isso o
- * defeito passava batido. Casos reais medidos: "Fechar" + "Confirmar: Visitas
- * de consolidação" (TrackModal, `.modal-foot`) saía do próprio diálogo em
- * 360px; "Cancelar" + "Reativar comunicações" (ContactPanel,
- * `.ds-dialog-foot`) em 320px.
- *
- * A trava é `flex-wrap: wrap` nos TRÊS rodapés de ação da base — e ela só
- * protege enquanto o `nowrap` dos botões existir junto, por isso os dois lados
- * são verificados aqui.
+ * História: o VIS-2 pôs `white-space: nowrap` GLOBAL no `.btn`/`.ds-btn`; o
+ * min-content de cada botão virou o rótulo inteiro e linhas flex sem wrap
+ * passaram a vazar pela ESQUERDA (overflow que não entra em `scrollWidth`).
+ * Casos reais medidos: TrackModal (`.modal-foot`, 360px), ContactPanel
+ * (`.ds-dialog-foot`, 320px), CalendarConnectCard e WhatsappScreen (flex
+ * inline). O CORRECTIVE-8 inverteu a direção: a BASE deixou de ter nowrap
+ * (rótulo pode quebrar dentro do botão em linhas sem wrap) e o nowrap é
+ * reaplicado SÓ nos quatro grupos com `flex-wrap: wrap`, onde o botão inteiro
+ * desce de linha. Os dois lados do contrato são verificados aqui.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -59,13 +56,29 @@ describe.each(RODAPES)("$nome — botões quebram de linha em vez de vazar do di
   });
 });
 
-describe("rodapés de diálogo — o wrap é do contêiner, o texto do botão não quebra", () => {
-  it(".btn mantém white-space: nowrap", () => {
-    expect(rule(globals, String.raw`\n\.btn`)).toMatch(/white-space:\s*nowrap/);
+describe("nowrap escopado — a base quebra dentro do botão; os grupos com wrap não", () => {
+  it(".btn base NÃO tem white-space: nowrap (rótulo pode quebrar em linhas sem wrap)", () => {
+    expect(rule(globals, String.raw`\n\.btn`)).not.toMatch(/white-space:\s*nowrap/);
   });
 
-  it(".ds-btn mantém white-space: nowrap", () => {
-    expect(rule(ds, String.raw`\n\.ds-btn`)).toMatch(/white-space:\s*nowrap/);
+  it(".ds-btn base NÃO tem white-space: nowrap", () => {
+    expect(rule(ds, String.raw`\n\.ds-btn`)).not.toMatch(/white-space:\s*nowrap/);
+  });
+
+  it("nowrap reaplicado aos botões dos grupos de globals.css protegidos por wrap", () => {
+    // Uma regra única cobre .modal-foot (.btn/.ds-btn), .dh-modal-foot
+    // (.ds-btn) e .cell-detail-actions (.btn) — as classes reais usadas lá.
+    const m = globals.match(
+      /\.modal-foot \.btn,\s*\.modal-foot \.ds-btn,\s*\.dh-modal-foot \.ds-btn,\s*\.cell-detail-actions \.btn\s*\{([^}]*)\}/,
+    );
+    expect(m, "regra escopada de nowrap não encontrada em globals.css").not.toBeNull();
+    expect(m![1]).toMatch(/white-space:\s*nowrap/);
+  });
+
+  it("nowrap reaplicado aos botões do .ds-dialog-foot (ds.css)", () => {
+    const m = ds.match(/\.ds-dialog-foot \.ds-btn,\s*\.ds-dialog-foot \.btn\s*\{([^}]*)\}/);
+    expect(m, "regra escopada de nowrap não encontrada em ds.css").not.toBeNull();
+    expect(m![1]).toMatch(/white-space:\s*nowrap/);
   });
 
   it("o alvo de toque de 44px do .modal-foot no mobile segue declarado", () => {
@@ -101,6 +114,12 @@ describe(".cell-detail-actions — par de ações do detalhe da célula quebra d
   });
 
   it("os botões seguem flexíveis (dividem a linha quando lado a lado)", () => {
-    expect(rule(globals, String.raw`\.cell-detail-actions \.btn`)).toMatch(/flex:\s*1/);
+    // O seletor aparece em mais de uma regra (nowrap escopado, 44px mobile);
+    // basta que ALGUMA declare flex: 1.
+    const corpos = [...globals.matchAll(/\.cell-detail-actions \.btn[^{]*\{([^}]*)\}/g)].map(
+      (m) => m[1]!,
+    );
+    expect(corpos.length).toBeGreaterThan(0);
+    expect(corpos.some((c) => /flex:\s*1/.test(c))).toBe(true);
   });
 });

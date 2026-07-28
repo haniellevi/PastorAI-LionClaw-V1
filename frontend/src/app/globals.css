@@ -452,8 +452,12 @@ input[type="checkbox"] {
   color: var(--fg);
   border-color: var(--border-strong);
   transition: background 0.15s, border-color 0.15s, transform 0.05s;
+  /* PR212-CORRECTIVE-8: sem nowrap na base. O nowrap global do VIS-2 dava a
+     todo .btn um min-content do rótulo inteiro e estourava linhas flex sem
+     wrap espalhadas pelo app (CalendarConnectCard, WhatsappScreen…). Rótulo em
+     uma linha agora é responsabilidade dos contêineres que permitem o botão
+     inteiro descer (ver regra junto ao .modal-foot). */
   max-width: 100%;
-  white-space: nowrap;
 }
 .btn:hover {
   background: var(--surface);
@@ -2544,20 +2548,28 @@ button.jr-row:focus-visible {
 }
 .modal-foot {
   display: flex;
-  /* PR212-CORRECTIVE-4 (3º finding P2 do Codex): o `white-space: nowrap` do
-     `.btn` (VIS-2) dá aos botões um min-content igual ao rótulo inteiro. Numa
-     linha flex SEM wrap e com `justify-content: flex-end`, o excesso vaza pela
+  /* PR212-CORRECTIVE-4 (3º finding P2 do Codex): num rodapé flex SEM wrap com
+     `justify-content: flex-end`, botões de rótulo em linha única vazavam pela
      ESQUERDA — em 360px o "Fechar" do TrackModal saía do rodapé e, com
-     "Confirmar: Visitas de consolidação", do próprio diálogo. `flex-wrap: wrap`
-     resolve sem tocar no nowrap: cabendo, os botões seguem na mesma linha;
-     não cabendo, o botão INTEIRO desce, sem texto quebrado. Vale para os 17
-     consumidores de .modal-foot. */
+     "Confirmar: Visitas de consolidação", do próprio diálogo. `flex-wrap: wrap`:
+     cabendo, os botões seguem na mesma linha; não cabendo, o botão INTEIRO
+     desce. Vale para os 17 consumidores de .modal-foot. */
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
   margin-top: var(--s4);
   padding-top: var(--s3);
   border-top: 1px solid var(--border);
+}
+/* PR212-CORRECTIVE-8: o rótulo em UMA linha deixou de ser global (o nowrap na
+   base do .btn/.ds-btn estourava linhas flex sem wrap pelo app afora) e passou
+   a valer só onde o contêiner deixa o botão inteiro descer — os quatro grupos
+   com flex-wrap: wrap. Fora deles, rótulo comprido quebra DENTRO do botão. */
+.modal-foot .btn,
+.modal-foot .ds-btn,
+.dh-modal-foot .ds-btn,
+.cell-detail-actions .btn {
+  white-space: nowrap;
 }
 
 /* alvo de toque ≥44px no mobile pros controles de modal e selects */
@@ -2766,11 +2778,10 @@ table.data-table {
 }
 /* PR212-CORRECTIVE-7 (finding P2 do Codex): par de ações do detalhe da célula
    ("Editar célula" + "Convidar membro"). Era um flex inline SEM wrap com dois
-   botões `flex: 1`; como o `.btn` é `white-space: nowrap`, o min-content dos
-   dois rótulos somados passava da largura do card no celular e os controles
-   vazavam. `flex-wrap: wrap` mantém a linha única quando cabe e desce o botão
-   INTEIRO quando não cabe — sem mexer no `.btn` global nem criar regra
-   genérica de grupo. */
+   botões `flex: 1` cujos rótulos em linha única somavam mais que a largura do
+   card no celular — os controles vazavam. `flex-wrap: wrap` mantém a linha
+   única quando cabe e desce o botão INTEIRO quando não cabe. (O nowrap dos
+   botões deste grupo vem da regra escopada junto ao .modal-foot.) */
 .cell-detail-actions {
   display: flex;
   flex-wrap: wrap;
@@ -6073,8 +6084,8 @@ button.dh-journey-row:hover .dh-journey-label {
   display: flex;
   /* PR212-CORRECTIVE-5: último rodapé de ação em flex sem wrap (o modal de
      mensagem do DashboardScreen). Mesma causa de `.modal-foot` e
-     `.ds-dialog-foot` — o `nowrap` do `.btn` dá min-content do rótulo inteiro e
-     o excesso vazaria pela esquerda. */
+     `.ds-dialog-foot` — rótulo em linha única dá min-content do rótulo inteiro
+     e o excesso vazaria pela esquerda. */
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: var(--s2);
