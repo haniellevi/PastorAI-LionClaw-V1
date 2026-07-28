@@ -213,8 +213,10 @@ export function MinhaCelulaLider() {
   return (
     <div className="screen mc mc--leader" key="minha-celula-lider">
       <div className="screen-head">
+        {/* PR212-CORRECTIVE-1: o h1 "Minha Célula" é da Topbar (SCREEN_META);
+            repetir o mesmo texto aqui duplicava o título na tela. Fica só o
+            subtítulo (as ações do cabeçalho seguem inalteradas). */}
         <div className="titles">
-          <h2>Minha Célula</h2>
           <p>Conduza a próxima reunião e mantenha o relatório em dia.</p>
         </div>
         {cellId ? (

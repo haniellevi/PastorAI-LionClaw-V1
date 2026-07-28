@@ -93,8 +93,10 @@ export function DiscipuloScreen() {
   return (
     <div className="screen mc mc--member" key="minha-celula">
       <div className="screen-head">
+        {/* PR212-CORRECTIVE-1: o h1 "Minha Célula" é da Topbar (SCREEN_META);
+            repetir o mesmo texto aqui duplicava o título na tela. Fica só o
+            subtítulo. */}
         <div className="titles">
-          <h2>Minha Célula</h2>
           <p>Sua próxima reunião, avisos e histórico.</p>
         </div>
       </div>

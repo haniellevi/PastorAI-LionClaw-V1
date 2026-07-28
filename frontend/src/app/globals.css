@@ -2018,11 +2018,6 @@ button.jr-row:focus-visible {
   border-radius: var(--radius-control);
 }
 
-.agenda-tabs {
-  max-width: 100%;
-  margin-bottom: var(--s4);
-  overflow-x: auto;
-}
 .cal-ev {
   display: flex;
   gap: 4px;
@@ -2070,6 +2065,17 @@ button.jr-row:focus-visible {
   margin-top: var(--s4);
 }
 
+/* PR212-CORRECTIVE-1: alvo de toque >=44x44 em TODOS os botões do cabeçalho da
+   Agenda (Hoje, anterior, próximo e Novo evento) até 768px — antes só os
+   .btn-sm ganhavam altura, e só abaixo de 640px. As abas já herdam os 44px de
+   altura da .ds-tab da fundação. Acima de 768px o desktop fica intacto. */
+@media (max-width: 768px) {
+  .agenda .screen-head .actions .btn {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
 @media (max-width: 860px) {
   .mc-member-layout {
     grid-template-columns: minmax(0, 1fr);
@@ -2102,9 +2108,6 @@ button.jr-row:focus-visible {
   .agenda .screen-head .btn-primary {
     grid-column: 1 / -1;
     grid-row: 2;
-  }
-  .agenda .screen-head .btn-sm {
-    min-height: 44px;
   }
   .agenda .cal-head > div {
     padding: 7px 2px;
@@ -4533,14 +4536,11 @@ table.data-table {
 }
 
 /* ===========================================================================
-   Agenda — visões Semana / Ano (EVT-3). Tabs reusam .tabs/.tab.
+   Agenda — visões Semana / Ano (EVT-3). As abas usam a primitive ds/Tabs
+   (classes .ds-tabs-*), não mais .tabs/.tab.
    Semana = lista vertical de dias (sem 7 colunas → zero overflow no mobile);
    Ano = grade responsiva de 12 meses (auto-fill → 1 col em 360px).
    =========================================================================== */
-.agenda-tabs {
-  align-self: flex-start;
-}
-
 .agenda-week {
   display: flex;
   flex-direction: column;
