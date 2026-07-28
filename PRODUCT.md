@@ -80,7 +80,7 @@ O sistema preserva a identidade já reconhecível, mas reduz gradientes decorati
 - Não desbloquear Universidade da Vida ou Capacitação Destino.
 - Não misturar Minha Célula com Central de Célula.
 - Não reabrir decisões ministeriais já travadas.
-- Melhorias funcionais descobertas durante a auditoria devem ser registradas em `pontos-melhoria.md`, não implementadas no ciclo visual.
+- Melhorias funcionais descobertas durante a auditoria devem ser registradas em `docs/design/pontos-melhoria.md`, não implementadas no ciclo visual.
 
 ## Fontes de verdade
 
