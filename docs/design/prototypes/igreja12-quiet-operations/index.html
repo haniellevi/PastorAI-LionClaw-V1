@@ -801,15 +801,28 @@
       document.querySelectorAll("[data-central-jump]").forEach(button => button.addEventListener("click", () => setCentralTab(button.dataset.centralJump)));
 
       const modalBackdrop = document.getElementById("cell-modal-backdrop");
+      const modalDialog = modalBackdrop.querySelector('[role="dialog"]');
+      const appShell = document.querySelector(".app");
       const firstField = document.getElementById("cell-name");
+      const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+      const dialogFocusables = () => [...modalDialog.querySelectorAll(FOCUSABLE)];
       let modalOpener;
-      function openModal(event) { modalOpener = event.currentTarget; modalBackdrop.classList.add("open"); setTimeout(() => firstField.focus(), 0); }
-      function closeModal() { modalBackdrop.classList.remove("open"); modalOpener?.focus(); }
+      function openModal(event) { modalOpener = event.currentTarget; modalBackdrop.classList.add("open"); appShell.inert = true; setTimeout(() => firstField.focus(), 0); }
+      function closeModal() { modalBackdrop.classList.remove("open"); appShell.inert = false; modalOpener?.focus(); }
       [document.getElementById("open-cell-modal"), document.getElementById("open-cell-modal-2")].forEach(button => button.addEventListener("click", openModal));
       document.getElementById("close-modal").addEventListener("click", closeModal);
       document.getElementById("cancel-modal").addEventListener("click", closeModal);
       modalBackdrop.addEventListener("click", event => { if (event.target === modalBackdrop) closeModal(); });
-      document.addEventListener("keydown", event => { if (event.key === "Escape" && modalBackdrop.classList.contains("open")) closeModal(); });
+      document.addEventListener("keydown", event => {
+        if (!modalBackdrop.classList.contains("open")) return;
+        if (event.key === "Escape") { closeModal(); return; }
+        if (event.key !== "Tab") return;
+        const items = dialogFocusables();
+        if (!items.length) return;
+        const first = items[0], last = items[items.length - 1];
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+      });
       document.getElementById("cell-form").addEventListener("submit", event => { event.preventDefault(); closeModal(); showToast("Célula criada apenas na demonstração visual."); event.target.reset(); });
 
       const initial = location.hash.slice(1);

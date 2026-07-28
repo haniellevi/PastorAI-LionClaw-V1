@@ -129,7 +129,7 @@ foram editadas nem removidas.
 | `docs/design/pontos-melhoria.md` | `pontos-melhoria.md` — **origem histórica**, raiz do checkout principal | Backlog levantado durante a auditoria visual | conteúdo inalterado; caminho canônico passa a ser o destino (ver 3.1) |
 | `docs/design/PROMPT-CLAUDE-CODE-FABLE-REFATORACAO-VISUAL.md` | mesmo caminho | Prompt executor do Gate 4 da refatoração visual | whitespace final da linha 3 (ver 3.3) |
 | `docs/ops/DEV-SMOKE-USERS.md` | mesmo caminho | Regra de uso das contas de smoke DEV | caminho absoluto generalizado (ver 3.2) |
-| `docs/design/prototypes/igreja12-quiet-operations/index.html` | mesmo caminho | Protótipo visual autocontido (67.821 bytes) | correção de contador (ver 3.5) |
+| `docs/design/prototypes/igreja12-quiet-operations/index.html` | mesmo caminho | Protótipo visual autocontido (68.690 bytes) | contador da fila + focus trap do diálogo (ver 3.5) |
 
 **As cópias não são byte a byte idênticas às fontes.** Três dos quatro arquivos receberam
 ajuste pontual, cada um documentado na sua subseção. Quem comparar com o checkout
@@ -250,10 +250,14 @@ principal, quatro capturas de referência somando **4.974.251 bytes** (~4,7 MiB)
 Quem precisar das capturas as encontra no checkout principal local. **Ausência de PNG não
 é motivo para adiar VIS-2 nem o Discovery mestre.**
 
-### 3.5 Protótipo — correção do contador da fila
+### 3.5 Protótipo — duas correções de comportamento
 
-O protótipo foi versionado com **uma correção** em relação à fonte no checkout principal
-(finding P2 do Codex na PR#211). O handler de resolver pendência contava assim:
+O protótipo foi versionado com **duas correções** em relação à fonte no checkout principal,
+ambas vindas de findings do Codex na PR#211. Nenhuma altera o visual.
+
+#### Contador da fila
+
+O handler de resolver pendência contava assim:
 
 ```js
 row.classList.add("resolved");
@@ -268,10 +272,55 @@ que o real. O `- 1` foi removido; o resto da lógica (remoção da linha após 1
 Smoke executado no arquivo desta branch, clicando nas três linhas da fila: **3 → 2 → 1 →
 0 ações**, sem valor negativo e com plural correto.
 
-O bug era **pré-existente na fonte**, não introduzido pela cópia. Corrigir aqui evita
-versionar um defeito conhecido num insumo que VIS-2 vai consumir. É protótipo de design —
-**não faz parte do build nem do runtime do produto**: vive em `docs/`, fora de `frontend/`,
-e nenhum código de `backend/`, `frontend/` ou `.github/` o referencia.
+#### Focus trap no diálogo "Nova célula"
+
+Segunda correção no mesmo arquivo (finding P2 do Codex no SHA `7b227c2`). O diálogo já
+tinha foco inicial, `Escape`, fechamento por backdrop e retorno de foco ao gatilho — mas
+**não continha o foco**: `Tab`/`Shift+Tab` nas pontas do formulário escapavam para
+controles atrás do backdrop, e o fundo não era inerte.
+
+Isso contrariava o próprio gate de design deste repositório, que exige o contrário:
+
+- `docs/design/PLANO-MESTRE-REFATORACAO-VISUAL-IGREJA12.md:133` — "`Dialog`: Esc, **focus
+  trap**, retorno de foco, scroll lock";
+- `docs/design/PROMPT-CLAUDE-CODE-FABLE-REFATORACAO-VISUAL.md:253` — "Esc e **focus trap**
+  em dialogs";
+- idem, linha 278 — "Nenhum dialog sem foco correto".
+
+Como o protótipo é a **referência visual de diálogos** para VIS-2, versioná-lo violando o
+requisito que ele mesmo estabelece induziria a implementação a repetir o defeito.
+
+Correção mínima, sem biblioteca e sem mudança visual:
+
+- enquanto aberto, o shell `.app` recebe `inert` — ele é **irmão** do backdrop, então o
+  diálogo continua operável;
+- o listener de teclado **já existente** passou a tratar `Tab` além de `Escape`, evitando
+  um segundo listener;
+- os focáveis são consultados no DOM a cada evento
+  (`modalDialog.querySelectorAll(FOCUSABLE)`), não fixados numa lista manual;
+- `Tab` no último volta ao primeiro; `Shift+Tab` no primeiro volta ao último;
+- todo caminho de fechamento passa por `closeModal`, que remove o `inert` e devolve o foco
+  ao gatilho.
+
+**Smoke em navegador real** (arquivo desta branch, navegando até a Central como um usuário):
+
+| Verificação | Resultado |
+|---|---|
+| Foco inicial em `#cell-name` | ✔ |
+| `.app.inert === true` com o diálogo aberto | ✔ |
+| Focáveis detectados no diálogo | 7 |
+| `Tab` no último → primeiro | ✔ |
+| `Shift+Tab` no primeiro → último | ✔ |
+| `activeElement` sempre dentro do diálogo no ciclo | ✔ |
+| Controle do fundo não recebe foco (inert real) | ✔ |
+| `Escape` fecha, remove `inert`, devolve foco ao gatilho | ✔ |
+| Abertura pelo 2º gatilho devolve foco a ele | ✔ |
+| Cancelar, botão fechar e submit fecham e restauram | ✔ |
+
+Ambos os defeitos eram **pré-existentes na fonte**, não introduzidos pela cópia. É
+protótipo de design — **não faz parte do build nem do runtime do produto**: vive em
+`docs/`, fora de `frontend/`, e nenhum código de `backend/`, `frontend/` ou `.github/` o
+referencia.
 
 ---
 
