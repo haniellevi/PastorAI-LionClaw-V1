@@ -452,6 +452,8 @@ input[type="checkbox"] {
   color: var(--fg);
   border-color: var(--border-strong);
   transition: background 0.15s, border-color 0.15s, transform 0.05s;
+  max-width: 100%;
+  white-space: nowrap;
 }
 .btn:hover {
   background: var(--surface);
@@ -1207,6 +1209,8 @@ input[type="checkbox"] {
   margin-left: auto;
   display: flex;
   gap: var(--s2);
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 /* InfoTip — "i" com popover (descrição da tela, ao lado do título na topbar) */
@@ -1933,6 +1937,205 @@ button.jr-row:focus-visible {
   }
   .panel-title .tabs {
     flex-wrap: wrap;
+  }
+}
+
+/* ===========================================================================
+   VIS-2 — Minha Célula e Agenda. Hierarquia operacional, menos caixas e
+   controles estáveis em desktop e mobile; sem alterar comportamento funcional.
+   =========================================================================== */
+
+.mc-member-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(300px, 0.75fr);
+  grid-template-areas:
+    "meeting notices"
+    "history materials";
+  gap: var(--s6);
+  align-items: start;
+  max-width: 1280px;
+  margin-inline: auto;
+}
+.mc-area--meeting { grid-area: meeting; }
+.mc-area--notices { grid-area: notices; }
+.mc-area--materials { grid-area: materials; }
+.mc-area--history { grid-area: history; }
+
+.mc-meeting-body {
+  padding: var(--s5);
+}
+.mc-empty-state,
+.agenda-empty-body {
+  padding: var(--s6);
+}
+.hist-main {
+  min-width: 0;
+}
+.hist-date {
+  text-transform: capitalize;
+}
+
+/* Reunião é o único bloco enquadrado da visão do membro; feeds viram seções. */
+.mc--member .mc-area:not(.mc-area--meeting) .card,
+.mc--leader .mc-leader-stack > .card,
+.mc--leader .mc-report-picker {
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--border-subtle);
+  border-radius: 0;
+  box-shadow: none;
+}
+.mc--member .mc-area:not(.mc-area--meeting) .panel-title,
+.mc--leader .mc-leader-stack > .card > .panel-title,
+.mc--leader .mc-report-picker > .panel-title {
+  padding-inline: 0;
+}
+.mc--leader .mc-leader-stack > .card > .section-body,
+.mc--leader .mc-report-picker > .section-body {
+  padding-inline: 0;
+}
+.mc--member .notice-item,
+.mc--member .material-item,
+.mc--member .hist-item {
+  padding-inline: 0;
+}
+.mc--member .notice-item {
+  padding-left: var(--s3);
+}
+
+/* Contexto da liderança como faixa contínua, não como card decorativo. */
+.mc.mc--leader .mc-hero {
+  padding: var(--s5) 0;
+  border: 0;
+  border-top: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+  border-radius: 0;
+  background: transparent;
+}
+.mc.mc--leader .mc-hero-ic {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-control);
+}
+
+.agenda-tabs {
+  max-width: 100%;
+  margin-bottom: var(--s4);
+  overflow-x: auto;
+}
+.cal-ev {
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+}
+.cal-ev-time {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.cal-ev-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.agenda-support-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s6);
+  margin-top: var(--s6);
+}
+.agenda-section {
+  min-width: 0;
+  padding-top: var(--s3);
+  border-top: 1px solid var(--border-subtle);
+}
+.agenda-section .panel-title,
+.agenda-section .list-row {
+  padding-inline: 0;
+}
+.agenda-section-note {
+  margin: 0;
+  padding: 0 0 var(--s3);
+}
+.agenda-row-main {
+  flex: 1;
+  min-width: 0;
+}
+.agenda-row-action {
+  cursor: pointer;
+}
+.agenda-empty {
+  margin-top: var(--s4);
+  border-top: 1px solid var(--border-subtle);
+}
+.agenda-confirm-list {
+  margin-top: var(--s4);
+}
+
+@media (max-width: 860px) {
+  .mc-member-layout {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "meeting"
+      "notices"
+      "materials"
+      "history";
+    gap: var(--s5);
+  }
+  .agenda-support-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--s5);
+  }
+}
+
+@media (max-width: 640px) {
+  .screen-head .actions {
+    width: 100%;
+    margin-left: 0;
+    justify-content: flex-start;
+  }
+  .agenda .screen-head {
+    align-items: flex-start;
+  }
+  .agenda .screen-head .actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 44px 44px;
+  }
+  .agenda .screen-head .btn-primary {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .agenda .screen-head .btn-sm {
+    min-height: 44px;
+  }
+  .agenda .cal-head > div {
+    padding: 7px 2px;
+    font-size: 10px;
+    letter-spacing: 0;
+  }
+  .agenda .cal-cell {
+    min-height: 70px;
+    padding: 4px 3px;
+    gap: 3px;
+  }
+  .agenda .cal-cell .d.num {
+    font-size: 11px;
+  }
+  .agenda .cal-ev {
+    min-height: 18px;
+    padding: 2px 4px;
+    font-size: 10.5px;
+  }
+  .cal-grid .cal-ev-title {
+    display: none;
+  }
+  .mc.mc--leader .mc-hero {
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr);
+    gap: var(--s3);
+    padding-block: var(--s4);
+  }
+  .mc.mc--leader .mc-hero-stats {
+    grid-column: 2;
+    width: auto;
   }
 }
 /* abas de módulo (F2 · Gate 6): navegação entre rotas irmãs do módulo com o

@@ -440,10 +440,11 @@ export function CalendarioScreen() {
   const periodLabel = calendarView ? viewLabel(cursor, calendarView) : "A confirmar";
 
   return (
-    <div className="screen" key="calendario">
+    <div className="screen agenda" key="calendario">
       <div className="screen-head">
         <div className="titles">
-          <h2>Calendário · {periodLabel}</h2>
+          <h2>{periodLabel}</h2>
+          <p>Eventos da igreja, recorrências e confirmações.</p>
         </div>
         <div className="actions">
           {isCalendar ? (
@@ -544,8 +545,8 @@ export function CalendarioScreen() {
                         title={ev.titulo}
                         {...eventActivation(ev)}
                       >
-                        {ev.hora ? `${ev.hora} ` : ""}
-                        {ev.titulo}
+                        {ev.hora ? <span className="cal-ev-time">{ev.hora}</span> : null}
+                        <span className="cal-ev-title">{ev.titulo}</span>
                       </div>
                     ))}
                   </div>
@@ -577,8 +578,8 @@ export function CalendarioScreen() {
                           title={ev.titulo}
                           {...eventActivation(ev)}
                         >
-                          {ev.hora ? `${ev.hora} · ` : ""}
-                          {ev.titulo}
+                          {ev.hora ? <span className="cal-ev-time">{ev.hora}</span> : null}
+                          <span className="cal-ev-title">{ev.titulo}</span>
                         </div>
                       ))}
                     </div>
@@ -624,8 +625,8 @@ export function CalendarioScreen() {
           ) : null}
 
           {viewIsEmpty ? (
-            <div className="card" style={{ marginTop: "var(--s4)" }}>
-              <div className="empty-state" style={{ padding: "var(--s6)" }}>
+            <div className="agenda-empty">
+              <div className="empty-state agenda-empty-body">
                 <Icon name="calendar" />
                 <p>
                   <strong>Nenhum evento em {periodLabel}.</strong> Use as setas para
@@ -635,51 +636,55 @@ export function CalendarioScreen() {
             </div>
           ) : null}
 
-          {recurring.length > 0 ? (
-            <div className="card" style={{ marginTop: "var(--s4)" }}>
-              <div className="panel-title">
-                <Icon name="refresh" /> Eventos recorrentes
-                <span className="count">· {recurring.length}</span>
-              </div>
-              {recurring.map((ev) => (
-                <div className="list-row" key={ev.id} {...eventActivation(ev)}>
-                  <div style={{ flex: 1 }}>
-                    <div className="nm">{ev.titulo}</div>
-                    <div className="sub">
-                      {ev.hora ? `${ev.hora} · ` : ""}
-                      {ev.recorrencia === "semanal" ? "Semanal" : "Recorrente"}
+          {recurring.length > 0 || unsynced.length > 0 ? (
+            <div className="agenda-support-grid">
+              {recurring.length > 0 ? (
+                <section className="agenda-section">
+                  <div className="panel-title">
+                    <Icon name="refresh" /> Eventos recorrentes
+                    <span className="count">· {recurring.length}</span>
+                  </div>
+                  {recurring.map((ev) => (
+                    <div className="list-row" key={ev.id} {...eventActivation(ev)}>
+                      <div className="agenda-row-main">
+                        <div className="nm">{ev.titulo}</div>
+                        <div className="sub">
+                          {ev.hora ? `${ev.hora} · ` : ""}
+                          {ev.recorrencia === "semanal" ? "Semanal" : "Recorrente"}
+                        </div>
+                      </div>
+                      <span className="pill">Recorrente</span>
                     </div>
-                  </div>
-                  <span className="pill">Recorrente</span>
-                </div>
-              ))}
-            </div>
-          ) : null}
+                  ))}
+                </section>
+              ) : null}
 
-          {unsynced.length > 0 ? (
-            <div className="card" style={{ marginTop: "var(--s4)" }}>
-              <div className="panel-title">
-                <Icon name="calendar" /> Eventos locais
-                <span className="count">· {unsynced.length}</span>
-              </div>
-              <p className="sub" style={{ margin: "0 0 var(--s2)" }}>
-                Criados no Igreja 12 e não enviados ao Google Calendar. Clique num
-                evento para abrir o detalhe{canManage ? ", editar ou excluir" : ""}.
-              </p>
-              {unsynced.map((ev) => (
-                <div className="list-row" key={ev.id} {...eventActivation(ev)}>
-                  <div style={{ flex: 1 }}>
-                    <div className="nm">{ev.titulo}</div>
-                    <div className="sub">{ev.data ? formatLongDate(ev.data) : ""}{ev.hora ? ` · ${ev.hora}` : ""}</div>
+              {unsynced.length > 0 ? (
+                <section className="agenda-section">
+                  <div className="panel-title">
+                    <Icon name="calendar" /> Eventos locais
+                    <span className="count">· {unsynced.length}</span>
                   </div>
-                  <span className="pill muted">Local</span>
-                </div>
-              ))}
+                  <p className="sub agenda-section-note">
+                    Criados no Igreja 12 e não enviados ao Google Calendar. Clique num
+                    evento para abrir o detalhe{canManage ? ", editar ou excluir" : ""}.
+                  </p>
+                  {unsynced.map((ev) => (
+                    <div className="list-row" key={ev.id} {...eventActivation(ev)}>
+                      <div className="agenda-row-main">
+                        <div className="nm">{ev.titulo}</div>
+                        <div className="sub">{ev.data ? formatLongDate(ev.data) : ""}{ev.hora ? ` · ${ev.hora}` : ""}</div>
+                      </div>
+                      <span className="pill muted">Local</span>
+                    </div>
+                  ))}
+                </section>
+              ) : null}
             </div>
           ) : null}
         </>
       ) : pendentes.length > 0 ? (
-        <div className="card" style={{ marginTop: "var(--s4)" }}>
+        <section className="agenda-section agenda-confirm-list">
           <div className="panel-title">
             <Icon name="clock" /> A confirmar
             <span className="count">· {pendentes.length}</span>
@@ -698,7 +703,7 @@ export function CalendarioScreen() {
                       openDetail(ev);
                     }
                   }}
-                  style={{ flex: 1, minWidth: 0, cursor: "pointer" }}
+                  className="agenda-row-main agenda-row-action"
                 >
                   <div className="nm" style={{ display: "flex", alignItems: "center", gap: 6 }}>
                     <Icon name="alert" size={14} className="icon-danger" />
@@ -730,10 +735,10 @@ export function CalendarioScreen() {
               </div>
             );
           })}
-        </div>
+        </section>
       ) : (
-        <div className="card" style={{ marginTop: "var(--s4)" }}>
-          <div className="empty-state" style={{ padding: "var(--s6)" }}>
+        <div className="agenda-empty">
+          <div className="empty-state agenda-empty-body">
             <Icon name="check" />
             <p>
               <strong>Nenhum evento aguardando confirmação.</strong> Eventos

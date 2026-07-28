@@ -40,6 +40,8 @@
   font: 650 14px/1.2 var(--font);
   cursor: pointer;
   text-decoration: none;
+  max-width: 100%;
+  white-space: nowrap;
   transition:
     background-color var(--motion-fast) var(--ease-out-productive),
     border-color var(--motion-fast) var(--ease-out-productive),
