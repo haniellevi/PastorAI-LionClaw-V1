@@ -2536,6 +2536,15 @@ button.jr-row:focus-visible {
 }
 .modal-foot {
   display: flex;
+  /* PR212-CORRECTIVE-4 (3º finding P2 do Codex): o `white-space: nowrap` do
+     `.btn` (VIS-2) dá aos botões um min-content igual ao rótulo inteiro. Numa
+     linha flex SEM wrap e com `justify-content: flex-end`, o excesso vaza pela
+     ESQUERDA — em 360px o "Fechar" do TrackModal saía do rodapé e, com
+     "Confirmar: Visitas de consolidação", do próprio diálogo. `flex-wrap: wrap`
+     resolve sem tocar no nowrap: cabendo, os botões seguem na mesma linha;
+     não cabendo, o botão INTEIRO desce, sem texto quebrado. Vale para os 17
+     consumidores de .modal-foot. */
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
   margin-top: var(--s4);
