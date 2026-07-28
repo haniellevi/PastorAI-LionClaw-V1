@@ -53,7 +53,7 @@ FONTES DE VERDADE, EM ORDEM
 1. PRODUCT.md
 2. docs/design/AUDITORIA-UX-UI-IGREJA12-2026-07-11.md
 3. docs/design/PLANO-MESTRE-REFATORACAO-VISUAL-IGREJA12.md
-4. pontos-melhoria.md, somente para saber o que NÃO entra no ciclo visual
+4. docs/design/pontos-melhoria.md, somente para saber o que NÃO entra no ciclo visual
 5. docs/design/IDENTIDADE-VISUAL-DIAMANTE-LAPIDADO-IGREJA12.md
 6. DESIGN.md
 7. SPEC.md
@@ -87,7 +87,7 @@ Antes de desenhar:
 - Conte e catalogue dialogs, formulários, tabelas, cards, banners, toasts e empty states.
 - Confirme os dois anti-padrões determinísticos apontados na auditoria.
 - Confirme que nenhuma proposta exigirá endpoint ou estado novo.
-- Se encontrar melhoria funcional, registre como candidata em pontos-melhoria.md, mas não implemente.
+- Se encontrar melhoria funcional, registre como candidata em docs/design/pontos-melhoria.md, mas não implemente.
 
 SAÍDA DO GATE
 

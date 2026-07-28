@@ -338,5 +338,5 @@ Cada proposta deve conter, no mínimo:
 - Um PR de shell/navegação.
 - Um PR por superfície crítica ou grupo pequeno de telas relacionadas.
 - Nunca misturar redesign global com correção funcional.
-- Se uma melhoria exigir comportamento novo, registrar em `pontos-melhoria.md` e retirar do diff.
+- Se uma melhoria exigir comportamento novo, registrar em `docs/design/pontos-melhoria.md` e retirar do diff.
 

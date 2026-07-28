@@ -3,9 +3,13 @@
 **Data-base:** 2026-07-27
 **Commit auditado (baseline real):** `4e71c47c5e8a6804bf57b59c35d90898e8fd5459` (`origin/main`, pós PR#210)
 **Missão:** SOURCE-TRUTH-1 — reconciliação documental antes do Discovery mestre / VIS-2.
-**Escopo desta missão:** **7 arquivos** — 6 documentais (5 `.md` + o protótipo `.html`) e o
-`.gitignore`. Nenhuma dependência, ambiente, migration, deploy ou worktree existente foi
-tocado, e nada em `backend/`, `frontend/` ou `.github/` mudou.
+**Escopo acumulado desta missão:** **9 arquivos** — 8 documentais (7 `.md` + o protótipo
+`.html`) e o `.gitignore`. Nenhuma dependência, ambiente, migration, deploy ou worktree
+existente foi tocado, e nada em `backend/`, `frontend/` ou `.github/` mudou.
+
+Os dois arquivos além dos 7 iniciais — `PRODUCT.md` e
+`docs/design/PLANO-MESTRE-REFATORACAO-VISUAL-IGREJA12.md` — entraram apenas para
+reconciliar o caminho de `pontos-melhoria.md`, uma linha em cada (ver 3.1).
 
 A entrada de `.gitignore` (`/usuario-dev.md`) não é código de produto: fecha a proteção do
 arquivo local de credenciais de smoke que o `docs/ops/DEV-SMOKE-USERS.md` já prometia mas
@@ -122,7 +126,7 @@ foram editadas nem removidas.
 
 | Destino versionado | Origem | Natureza | Ajuste na cópia |
 |---|---|---|---|
-| `docs/design/pontos-melhoria.md` | `pontos-melhoria.md` (raiz do checkout principal) | Backlog levantado durante a auditoria visual | nenhum |
+| `docs/design/pontos-melhoria.md` | `pontos-melhoria.md` — **origem histórica**, raiz do checkout principal | Backlog levantado durante a auditoria visual | conteúdo inalterado; caminho canônico passa a ser o destino (ver 3.1) |
 | `docs/design/PROMPT-CLAUDE-CODE-FABLE-REFATORACAO-VISUAL.md` | mesmo caminho | Prompt executor do Gate 4 da refatoração visual | whitespace final da linha 3 (ver 3.3) |
 | `docs/ops/DEV-SMOKE-USERS.md` | mesmo caminho | Regra de uso das contas de smoke DEV | caminho absoluto generalizado (ver 3.2) |
 | `docs/design/prototypes/igreja12-quiet-operations/index.html` | mesmo caminho | Protótipo visual autocontido (67.821 bytes) | correção de contador (ver 3.5) |
@@ -131,7 +135,30 @@ foram editadas nem removidas.
 ajuste pontual, cada um documentado na sua subseção. Quem comparar com o checkout
 principal encontrará essas diferenças — e só essas.
 
-### 3.1 `pontos-melhoria.md` é insumo, não decisão canônica
+### 3.1 `docs/design/pontos-melhoria.md` — caminho canônico e insumo, não decisão
+
+**Caminho canônico: `docs/design/pontos-melhoria.md`.** É onde o arquivo vive no Git e o
+único caminho que instrução operacional deve citar. A raiz (`pontos-melhoria.md`) é
+**origem histórica** — o lugar onde o arquivo existia como untracked no checkout principal,
+antes desta missão. Não usar como destino de escrita.
+
+**Referências operacionais reconciliadas (finding P2 do Codex na PR#211).** Quatro
+instruções ainda mandavam ler ou gravar na raiz. Num checkout limpo esse arquivo não
+existe: o gate de ambiente do prompt não conseguiria confirmar a fonte, e a instrução de
+registrar candidatas recriaria um backlog **untracked na raiz** em vez de atualizar o
+canônico. Todas apontam agora para `docs/design/pontos-melhoria.md`:
+
+| Arquivo | Onde | Papel da instrução |
+|---|---|---|
+| `docs/design/PROMPT-CLAUDE-CODE-FABLE-REFATORACAO-VISUAL.md` | lista de fontes de verdade | leitura — o que **não** entra no ciclo visual |
+| `docs/design/PROMPT-CLAUDE-CODE-FABLE-REFATORACAO-VISUAL.md` | regras de execução | escrita — onde registrar candidatas |
+| `PRODUCT.md` | contrato de produto | escrita — onde registrar melhorias da auditoria |
+| `docs/design/PLANO-MESTRE-REFATORACAO-VISUAL-IGREJA12.md` | regras do ciclo visual | escrita — o que sai do diff |
+
+`PRODUCT.md` e o Plano Mestre já estavam em `origin/main` com a referência à raiz — ou
+seja, **já apontavam para um arquivo inexistente no Git antes desta PR**. A reconciliação
+foi feita aqui porque é esta missão que traz o arquivo para o repositório; deixar as duas
+divergentes manteria o mesmo defeito com o alvo agora existente, mas em outro lugar.
 
 O documento lista 15 oportunidades (4 P1, 8 P2, 3 P3) encontradas durante a auditoria visual:
 onboarding real, dependência célula-antes-de-convite, governança do agente, estado de
