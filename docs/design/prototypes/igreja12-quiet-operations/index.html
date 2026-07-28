@@ -739,7 +739,7 @@
         const row = button.closest(".queue-row");
         row.classList.add("resolved");
         setTimeout(() => row.remove(), 180);
-        const count = document.querySelectorAll(".queue-row:not(.resolved)").length - 1;
+        const count = document.querySelectorAll(".queue-row:not(.resolved)").length;
         document.getElementById("action-count").textContent = `${Math.max(0, count)} ${count === 1 ? "ação" : "ações"}`;
         showToast(button.textContent.trim() === "Assumir" ? "Pendência assumida por Pr. Daniel." : "Pendência marcada como resolvida.");
       }));

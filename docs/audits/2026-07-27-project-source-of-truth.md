@@ -3,8 +3,14 @@
 **Data-base:** 2026-07-27
 **Commit auditado (baseline real):** `4e71c47c5e8a6804bf57b59c35d90898e8fd5459` (`origin/main`, pós PR#210)
 **Missão:** SOURCE-TRUTH-1 — reconciliação documental antes do Discovery mestre / VIS-2.
-**Escopo desta missão:** somente documentação. Nenhum código, dependência, ambiente,
-migration, deploy ou worktree existente foi tocado.
+**Escopo desta missão:** **7 arquivos** — 6 documentais (5 `.md` + o protótipo `.html`) e o
+`.gitignore`. Nenhuma dependência, ambiente, migration, deploy ou worktree existente foi
+tocado, e nada em `backend/`, `frontend/` ou `.github/` mudou.
+
+A entrada de `.gitignore` (`/usuario-dev.md`) não é código de produto: fecha a proteção do
+arquivo local de credenciais de smoke que o `docs/ops/DEV-SMOKE-USERS.md` já prometia mas
+que não existia no repositório — ver 3.2. A única alteração executável é o contador do
+protótipo de design em `docs/`, fora do build — ver 3.5. **Runtime do produto inalterado.**
 
 **Substitui como referência operacional:** `docs/audits/2026-07-18-project-source-of-truth.md`
 (baseline `ceef64d`), que por sua vez substituiu `docs/audits/2026-07-10-project-source-of-truth.md`
@@ -114,12 +120,16 @@ Quatro arquivos úteis viviam **apenas no checkout principal local**, fora do Gi
 missão os trouxe para `origin/main` **copiando** — as fontes no checkout principal não
 foram editadas nem removidas.
 
-| Destino versionado | Origem | Natureza |
-|---|---|---|
-| `docs/design/pontos-melhoria.md` | `pontos-melhoria.md` (raiz do checkout principal) | Backlog levantado durante a auditoria visual |
-| `docs/design/PROMPT-CLAUDE-CODE-FABLE-REFATORACAO-VISUAL.md` | mesmo caminho | Prompt executor do Gate 4 da refatoração visual |
-| `docs/ops/DEV-SMOKE-USERS.md` | mesmo caminho | Regra de uso das contas de smoke DEV |
-| `docs/design/prototypes/igreja12-quiet-operations/index.html` | mesmo caminho | Protótipo visual autocontido (67.825 bytes) |
+| Destino versionado | Origem | Natureza | Ajuste na cópia |
+|---|---|---|---|
+| `docs/design/pontos-melhoria.md` | `pontos-melhoria.md` (raiz do checkout principal) | Backlog levantado durante a auditoria visual | nenhum |
+| `docs/design/PROMPT-CLAUDE-CODE-FABLE-REFATORACAO-VISUAL.md` | mesmo caminho | Prompt executor do Gate 4 da refatoração visual | whitespace final da linha 3 (ver 3.3) |
+| `docs/ops/DEV-SMOKE-USERS.md` | mesmo caminho | Regra de uso das contas de smoke DEV | caminho absoluto generalizado (ver 3.2) |
+| `docs/design/prototypes/igreja12-quiet-operations/index.html` | mesmo caminho | Protótipo visual autocontido (67.821 bytes) | correção de contador (ver 3.5) |
+
+**As cópias não são byte a byte idênticas às fontes.** Três dos quatro arquivos receberam
+ajuste pontual, cada um documentado na sua subseção. Quem comparar com o checkout
+principal encontrará essas diferenças — e só essas.
 
 ### 3.1 `pontos-melhoria.md` é insumo, não decisão canônica
 
@@ -135,12 +145,31 @@ altera o PRD, **não** reabre o veredito M10 e **não** entra em VIS-2. Serve co
 para um ciclo de produto posterior — depois de entrevistas com pastor, administrador
 recém-chegado e líder de célula mobile, conforme o próprio doc recomenda.
 
-### 3.2 `DEV-SMOKE-USERS.md` — generalização aplicada
+### 3.2 `DEV-SMOKE-USERS.md` — generalização e proteção real do arquivo de credenciais
 
 O arquivo original citava um caminho absoluto de máquina
 (`C:\Users\...\usuario-dev.md`). A versão versionada aponta para
 `<raiz-do-checkout-principal>/usuario-dev.md`. **Nenhuma credencial foi copiada** —
 `usuario-dev.md` continua fora do Git e fora deste worktree, como sempre foi.
+
+**Correção de um risco real (finding P1 do Codex na PR#211).** O documento afirma que
+`usuario-dev.md` "é ignorado pelo Git", mas essa proteção **não existia no repositório**:
+a regra vivia apenas como modificação não commitada no `.gitignore` do checkout principal.
+Em clone fresco ou worktree novo, `git check-ignore usuario-dev.md` não dava match — quem
+seguisse o documento criaria um arquivo de credenciais que o Git trataria como untracked
+comum, passível de `git add .`.
+
+A regra agora está **versionada**, na seção de segredos do `.gitignore`:
+
+```gitignore
+/usuario-dev.md
+```
+
+A âncora `/` restringe à **raiz do checkout**, onde o arquivo de fato mora — um
+`usuario-dev.md` em subpasta continua visível ao Git, de propósito. Verificado nesta
+branch: `git check-ignore -v usuario-dev.md` → `.gitignore:17:/usuario-dev.md`.
+
+Isso é proteção de credencial local. **Não altera o runtime do produto.**
 
 ### 3.3 `PROMPT-CLAUDE-CODE-FABLE-...` é **insumo histórico**, não roteiro de execução
 
@@ -193,6 +222,29 @@ principal, quatro capturas de referência somando **4.974.251 bytes** (~4,7 MiB)
 
 Quem precisar das capturas as encontra no checkout principal local. **Ausência de PNG não
 é motivo para adiar VIS-2 nem o Discovery mestre.**
+
+### 3.5 Protótipo — correção do contador da fila
+
+O protótipo foi versionado com **uma correção** em relação à fonte no checkout principal
+(finding P2 do Codex na PR#211). O handler de resolver pendência contava assim:
+
+```js
+row.classList.add("resolved");
+const count = document.querySelectorAll(".queue-row:not(.resolved)").length - 1;
+```
+
+O seletor `:not(.resolved)` **já exclui** a linha que acabou de receber a classe; o `- 1`
+descontava a mesma linha uma segunda vez, e o contador exibia sempre uma pendência a menos
+que o real. O `- 1` foi removido; o resto da lógica (remoção da linha após 180 ms, guarda
+`Math.max(0, …)`, singular/plural) está intacto.
+
+Smoke executado no arquivo desta branch, clicando nas três linhas da fila: **3 → 2 → 1 →
+0 ações**, sem valor negativo e com plural correto.
+
+O bug era **pré-existente na fonte**, não introduzido pela cópia. Corrigir aqui evita
+versionar um defeito conhecido num insumo que VIS-2 vai consumir. É protótipo de design —
+**não faz parte do build nem do runtime do produto**: vive em `docs/`, fora de `frontend/`,
+e nenhum código de `backend/`, `frontend/` ou `.github/` o referencia.
 
 ---
 

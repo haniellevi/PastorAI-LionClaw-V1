@@ -12,6 +12,10 @@ Thumbs.db
 .env.development
 .env.staging
 
+# Credenciais locais de smoke DEV — fica na RAIZ do checkout e nunca vai pro repo.
+# Ver docs/ops/DEV-SMOKE-USERS.md.
+/usuario-dev.md
+
 # ===== Python (backend) =====
 __pycache__/
 *.py[cod]
