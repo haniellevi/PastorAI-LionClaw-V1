@@ -13,8 +13,9 @@ reconciliar o caminho de `pontos-melhoria.md`, uma linha em cada (ver 3.1).
 
 A entrada de `.gitignore` (`/usuario-dev.md`) não é código de produto: fecha a proteção do
 arquivo local de credenciais de smoke que o `docs/ops/DEV-SMOKE-USERS.md` já prometia mas
-que não existia no repositório — ver 3.2. A única alteração executável é o contador do
-protótipo de design em `docs/`, fora do build — ver 3.5. **Runtime do produto inalterado.**
+que não existia no repositório — ver 3.2. As únicas alterações executáveis estão no
+protótipo de design em `docs/`, fora do build: o contador da fila e a contenção do diálogo
+(focus trap, `inert` e scroll lock) — ver 3.5. **Runtime do produto inalterado.**
 
 **Substitui como referência operacional:** `docs/audits/2026-07-18-project-source-of-truth.md`
 (baseline `ceef64d`), que por sua vez substituiu `docs/audits/2026-07-10-project-source-of-truth.md`
@@ -129,7 +130,7 @@ foram editadas nem removidas.
 | `docs/design/pontos-melhoria.md` | `pontos-melhoria.md` — **origem histórica**, raiz do checkout principal | Backlog levantado durante a auditoria visual | conteúdo inalterado; caminho canônico passa a ser o destino (ver 3.1) |
 | `docs/design/PROMPT-CLAUDE-CODE-FABLE-REFATORACAO-VISUAL.md` | mesmo caminho | Prompt executor do Gate 4 da refatoração visual | whitespace final da linha 3 (ver 3.3) |
 | `docs/ops/DEV-SMOKE-USERS.md` | mesmo caminho | Regra de uso das contas de smoke DEV | caminho absoluto generalizado (ver 3.2) |
-| `docs/design/prototypes/igreja12-quiet-operations/index.html` | mesmo caminho | Protótipo visual autocontido (68.690 bytes) | contador da fila + focus trap do diálogo (ver 3.5) |
+| `docs/design/prototypes/igreja12-quiet-operations/index.html` | mesmo caminho | Protótipo visual autocontido (68.821 bytes) | contador da fila + contenção do diálogo (ver 3.5) |
 
 **As cópias não são byte a byte idênticas às fontes.** Três dos quatro arquivos receberam
 ajuste pontual, cada um documentado na sua subseção. Quem comparar com o checkout
@@ -272,12 +273,13 @@ que o real. O `- 1` foi removido; o resto da lógica (remoção da linha após 1
 Smoke executado no arquivo desta branch, clicando nas três linhas da fila: **3 → 2 → 1 →
 0 ações**, sem valor negativo e com plural correto.
 
-#### Focus trap no diálogo "Nova célula"
+#### Contenção do diálogo "Nova célula": focus trap, `inert` e scroll lock
 
-Segunda correção no mesmo arquivo (finding P2 do Codex no SHA `7b227c2`). O diálogo já
-tinha foco inicial, `Escape`, fechamento por backdrop e retorno de foco ao gatilho — mas
-**não continha o foco**: `Tab`/`Shift+Tab` nas pontas do formulário escapavam para
-controles atrás do backdrop, e o fundo não era inerte.
+Segunda correção no mesmo arquivo (finding P2 do Codex no SHA `7b227c2`, mais o scroll lock
+que o mesmo gate exige). O diálogo já tinha foco inicial, `Escape`, fechamento por backdrop
+e retorno de foco ao gatilho — mas **não continha o foco**: `Tab`/`Shift+Tab` nas pontas do
+formulário escapavam para controles atrás do backdrop, o fundo não era inerte e **a página
+de trás continuava rolando**.
 
 Isso contrariava o próprio gate de design deste repositório, que exige o contrário:
 
@@ -294,15 +296,21 @@ Correção mínima, sem biblioteca e sem mudança visual:
 
 - enquanto aberto, o shell `.app` recebe `inert` — ele é **irmão** do backdrop, então o
   diálogo continua operável;
+- o `body` recebe a classe `modal-open`, e o CSS traz `body.modal-open { overflow: hidden; }`
+  — o fundo para de rolar;
 - o listener de teclado **já existente** passou a tratar `Tab` além de `Escape`, evitando
   um segundo listener;
 - os focáveis são consultados no DOM a cada evento
   (`modalDialog.querySelectorAll(FOCUSABLE)`), não fixados numa lista manual;
 - `Tab` no último volta ao primeiro; `Shift+Tab` no primeiro volta ao último;
-- todo caminho de fechamento passa por `closeModal`, que remove o `inert` e devolve o foco
-  ao gatilho.
+- todo caminho de fechamento passa por `closeModal`, que remove `inert` e `modal-open` e
+  devolve o foco ao gatilho.
 
-**Smoke em navegador real** (arquivo desta branch, navegando até a Central como um usuário):
+Com isso o diálogo do protótipo cumpre os quatro itens que o Plano Mestre exige do
+primitive `Dialog` (linha 133): **Esc, focus trap, retorno de foco e scroll lock**.
+
+**Smoke em navegador real** (arquivo desta branch, viewport 900×600 com a página rolável —
+`scrollHeight` 1486 > `clientHeight` 600 —, navegando até a Central como um usuário):
 
 | Verificação | Resultado |
 |---|---|
@@ -313,9 +321,20 @@ Correção mínima, sem biblioteca e sem mudança visual:
 | `Shift+Tab` no primeiro → último | ✔ |
 | `activeElement` sempre dentro do diálogo no ciclo | ✔ |
 | Controle do fundo não recebe foco (inert real) | ✔ |
-| `Escape` fecha, remove `inert`, devolve foco ao gatilho | ✔ |
+| `body.modal-open` aplicada; `overflow` computado do `body` = `hidden` | ✔ |
+| Barra de rolagem do viewport: 15 px sem o diálogo → **0 px** com ele | ✔ |
+| **Rolagem real do mouse** sobre o fundo não move a página (`scrollY` fixo em 240) | ✔ |
+| `Escape` fecha, remove `inert` e `modal-open`, devolve foco ao gatilho | ✔ |
+| Após fechar, a barra volta a 15 px e a página rola de novo | ✔ |
+| Posição de rolagem preservada ao fechar (`scrollY` = 240) | ✔ |
 | Abertura pelo 2º gatilho devolve foco a ele | ✔ |
 | Cancelar, botão fechar e submit fecham e restauram | ✔ |
+
+Nota de método: `overflow: hidden` bloqueia a rolagem **do usuário**, não a programática —
+`window.scrollBy` continua movendo a página, e eventos `wheel`/`keydown` sintéticos não
+acionam a rolagem nativa. Por isso a prova aqui é dupla: o desaparecimento da barra de
+rolagem clássica (15 px → 0), que evidencia a propagação do `overflow` do `body` para o
+viewport, e uma **rolagem real de mouse** sobre a área de fundo, que não moveu a página.
 
 Ambos os defeitos eram **pré-existentes na fonte**, não introduzidos pela cópia. É
 protótipo de design — **não faz parte do build nem do runtime do produto**: vive em

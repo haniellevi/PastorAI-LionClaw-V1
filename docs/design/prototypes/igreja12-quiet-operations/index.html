@@ -371,6 +371,7 @@
 
     .modal-backdrop { position: fixed; inset: 0; z-index: 80; display: none; align-items: center; justify-content: center; padding: 24px; background: rgba(8, 47, 44, .46); }
     .modal-backdrop.open { display: flex; }
+    body.modal-open { overflow: hidden; }
     .modal { width: min(520px, 100%); max-height: min(760px, calc(100dvh - 48px)); overflow: auto; border: 1px solid rgba(255,255,255,.5); border-radius: 18px; background: var(--paper); box-shadow: var(--shadow-pop); }
     .modal-head { display: flex; align-items: center; justify-content: space-between; padding: 20px 22px; border-bottom: 1px solid var(--line); }
     .modal-head h2 { margin: 0; font-size: 21px; }
@@ -807,8 +808,8 @@
       const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
       const dialogFocusables = () => [...modalDialog.querySelectorAll(FOCUSABLE)];
       let modalOpener;
-      function openModal(event) { modalOpener = event.currentTarget; modalBackdrop.classList.add("open"); appShell.inert = true; setTimeout(() => firstField.focus(), 0); }
-      function closeModal() { modalBackdrop.classList.remove("open"); appShell.inert = false; modalOpener?.focus(); }
+      function openModal(event) { modalOpener = event.currentTarget; modalBackdrop.classList.add("open"); document.body.classList.add("modal-open"); appShell.inert = true; setTimeout(() => firstField.focus(), 0); }
+      function closeModal() { modalBackdrop.classList.remove("open"); document.body.classList.remove("modal-open"); appShell.inert = false; modalOpener?.focus(); }
       [document.getElementById("open-cell-modal"), document.getElementById("open-cell-modal-2")].forEach(button => button.addEventListener("click", openModal));
       document.getElementById("close-modal").addEventListener("click", closeModal);
       document.getElementById("cancel-modal").addEventListener("click", closeModal);
