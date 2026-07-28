@@ -211,15 +211,17 @@ export function MinhaCelulaLider() {
   const showSkeleton = loading && !loaded;
 
   return (
-    <div className="screen mc" key="minha-celula-lider">
+    <div className="screen mc mc--leader" key="minha-celula-lider">
       <div className="screen-head">
+        {/* PR212-CORRECTIVE-1: o h1 "Minha Célula" é da Topbar (SCREEN_META);
+            repetir o mesmo texto aqui duplicava o título na tela. Fica só o
+            subtítulo (as ações do cabeçalho seguem inalteradas). */}
         <div className="titles">
-          <h2>Minha Célula</h2>
-          <p>Gestão da célula que você lidera.</p>
+          <p>Conduza a próxima reunião e mantenha o relatório em dia.</p>
         </div>
         {cellId ? (
-          <div className="head-actions">
-            <DsButton variant="secondary" onClick={() => setShowPlan(true)}>
+          <div className="actions">
+            <DsButton variant="primary" onClick={() => setShowPlan(true)}>
               <Icon name="calendar" />
               <span>Planejar reunião</span>
             </DsButton>
@@ -265,7 +267,7 @@ export function MinhaCelulaLider() {
           </div>
         </div>
       ) : (
-        <div className="mc-stack">
+        <div className="mc-stack mc-leader-stack">
           {/* Contexto da célula — nome, agenda, cobertura e nº de membros */}
           {cellCtx ? (
             <section className="mc-hero" aria-label="Contexto da célula">
@@ -288,7 +290,7 @@ export function MinhaCelulaLider() {
           ) : null}
 
           {/* Reunião a relatar */}
-          <section className="card" aria-label="Reunião">
+          <section className="mc-report-picker" aria-label="Reunião">
             <div className="panel-title">
               <Icon name="calendar" /> Relatório da reunião
             </div>

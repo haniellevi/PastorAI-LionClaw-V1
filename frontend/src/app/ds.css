@@ -40,6 +40,10 @@
   font: 650 14px/1.2 var(--font);
   cursor: pointer;
   text-decoration: none;
+  /* PR212-CORRECTIVE-8: sem nowrap na base (mesma razão do .btn em
+     globals.css — o nowrap global estourava linhas flex sem wrap). O rodapé
+     do Dialog reaplica nowrap aos botões porque lá o botão inteiro desce. */
+  max-width: 100%;
   transition:
     background-color var(--motion-fast) var(--ease-out-productive),
     border-color var(--motion-fast) var(--ease-out-productive),
@@ -250,9 +254,23 @@ textarea.ds-input {
 }
 .ds-dialog-foot {
   display: flex;
+  /* PR212-CORRECTIVE-5: par do `.modal-foot`. Numa linha flex SEM wrap com
+     `justify-content: flex-end`, botões de rótulo em linha única vazavam pela
+     ESQUERDA (e não entra em `scrollWidth`) — em 320px o "Cancelar" ao lado de
+     "Reativar comunicações" (ContactPanel) saía do rodapé, agravado pelo
+     padding lateral daqui. Cabendo, os botões seguem na mesma linha; não
+     cabendo, o botão INTEIRO desce, sem texto quebrado. */
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: var(--s2);
   padding: 0 var(--s5) var(--s5);
+}
+/* PR212-CORRECTIVE-8: nowrap reaplicado SÓ aqui — o rodapé permite o botão
+   inteiro descer, então o rótulo não precisa quebrar. Fora dos grupos com
+   wrap, a base do .ds-btn deixa o rótulo quebrar dentro do botão. */
+.ds-dialog-foot .ds-btn,
+.ds-dialog-foot .btn {
+  white-space: nowrap;
 }
 
 /* ---------- Tabs ---------- */

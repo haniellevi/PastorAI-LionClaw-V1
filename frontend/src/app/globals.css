@@ -452,6 +452,12 @@ input[type="checkbox"] {
   color: var(--fg);
   border-color: var(--border-strong);
   transition: background 0.15s, border-color 0.15s, transform 0.05s;
+  /* PR212-CORRECTIVE-8: sem nowrap na base. O nowrap global do VIS-2 dava a
+     todo .btn um min-content do rótulo inteiro e estourava linhas flex sem
+     wrap espalhadas pelo app (CalendarConnectCard, WhatsappScreen…). Rótulo em
+     uma linha agora é responsabilidade dos contêineres que permitem o botão
+     inteiro descer (ver regra junto ao .modal-foot). */
+  max-width: 100%;
 }
 .btn:hover {
   background: var(--surface);
@@ -1207,6 +1213,8 @@ input[type="checkbox"] {
   margin-left: auto;
   display: flex;
   gap: var(--s2);
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 /* InfoTip — "i" com popover (descrição da tela, ao lado do título na topbar) */
@@ -1935,6 +1943,221 @@ button.jr-row:focus-visible {
     flex-wrap: wrap;
   }
 }
+
+/* ===========================================================================
+   VIS-2 — Minha Célula e Agenda. Hierarquia operacional, menos caixas e
+   controles estáveis em desktop e mobile; sem alterar comportamento funcional.
+   =========================================================================== */
+
+.mc-member-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(300px, 0.75fr);
+  grid-template-areas:
+    "meeting notices"
+    "history materials";
+  gap: var(--s6);
+  align-items: start;
+  max-width: 1280px;
+  margin-inline: auto;
+}
+.mc-area--meeting { grid-area: meeting; }
+.mc-area--notices { grid-area: notices; }
+.mc-area--materials { grid-area: materials; }
+.mc-area--history { grid-area: history; }
+
+.mc-meeting-body {
+  padding: var(--s5);
+}
+.mc-empty-state,
+.agenda-empty-body {
+  padding: var(--s6);
+}
+.hist-main {
+  min-width: 0;
+}
+.hist-date {
+  text-transform: capitalize;
+}
+
+/* Reunião é o único bloco enquadrado da visão do membro; feeds viram seções. */
+.mc--member .mc-area:not(.mc-area--meeting) .card,
+.mc--leader .mc-leader-stack > .card,
+.mc--leader .mc-report-picker {
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--border-subtle);
+  border-radius: 0;
+  box-shadow: none;
+}
+.mc--member .mc-area:not(.mc-area--meeting) .panel-title,
+.mc--leader .mc-leader-stack > .card > .panel-title,
+.mc--leader .mc-report-picker > .panel-title {
+  padding-inline: 0;
+}
+.mc--leader .mc-leader-stack > .card > .section-body,
+.mc--leader .mc-report-picker > .section-body {
+  padding-inline: 0;
+}
+.mc--member .notice-item,
+.mc--member .material-item,
+.mc--member .hist-item {
+  padding-inline: 0;
+}
+.mc--member .notice-item {
+  padding-left: var(--s3);
+}
+
+/* Contexto da liderança como faixa contínua, não como card decorativo. */
+.mc.mc--leader .mc-hero {
+  padding: var(--s5) 0;
+  border: 0;
+  border-top: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--border-subtle);
+  border-radius: 0;
+  background: transparent;
+}
+.mc.mc--leader .mc-hero-ic {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-control);
+}
+
+.cal-ev {
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+}
+.cal-ev-time {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.cal-ev-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.agenda-support-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s6);
+  margin-top: var(--s6);
+}
+.agenda-section {
+  min-width: 0;
+  padding-top: var(--s3);
+  border-top: 1px solid var(--border-subtle);
+}
+.agenda-section .panel-title,
+.agenda-section .list-row {
+  padding-inline: 0;
+}
+.agenda-section-note {
+  margin: 0;
+  padding: 0 0 var(--s3);
+}
+.agenda-row-main {
+  flex: 1;
+  min-width: 0;
+}
+.agenda-row-action {
+  cursor: pointer;
+}
+.agenda-empty {
+  margin-top: var(--s4);
+  border-top: 1px solid var(--border-subtle);
+}
+.agenda-confirm-list {
+  margin-top: var(--s4);
+}
+
+/* PR212-CORRECTIVE-1: alvo de toque >=44x44 em TODOS os botões do cabeçalho da
+   Agenda (Hoje, anterior, próximo e Novo evento) até 768px — antes só os
+   .btn-sm ganhavam altura, e só abaixo de 640px. As abas já herdam os 44px de
+   altura da .ds-tab da fundação. Acima de 768px o desktop fica intacto. */
+@media (max-width: 768px) {
+  .agenda .screen-head .actions .btn {
+    min-height: 44px;
+    min-width: 44px;
+  }
+}
+
+@media (max-width: 860px) {
+  .mc-member-layout {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas:
+      "meeting"
+      "notices"
+      "materials"
+      "history";
+    gap: var(--s5);
+  }
+  .agenda-support-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--s5);
+  }
+}
+
+@media (max-width: 640px) {
+  .screen-head .actions {
+    width: 100%;
+    margin-left: 0;
+    justify-content: flex-start;
+  }
+  .agenda .screen-head {
+    align-items: flex-start;
+  }
+  .agenda .screen-head .actions {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 44px 44px;
+  }
+  .agenda .screen-head .btn-primary {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  .agenda .cal-head > div {
+    padding: 7px 2px;
+    font-size: 10px;
+    letter-spacing: 0;
+  }
+  .agenda .cal-cell {
+    min-height: 70px;
+    padding: 4px 3px;
+    gap: 3px;
+  }
+  .agenda .cal-cell .d.num {
+    font-size: 11px;
+  }
+  .agenda .cal-ev {
+    min-height: 18px;
+    padding: 2px 4px;
+    font-size: 10.5px;
+  }
+  /* PR212-CORRECTIVE-6 (revisão externa): no grid mensal estreito o chip vira
+     DUAS linhas — hora em cima, título embaixo truncado com ellipsis. A versão
+     anterior escondia o título do evento com hora, e dois eventos no mesmo
+     horário ficavam visualmente idênticos ("19:30"/"19:30") para o usuário
+     vidente no toque (o `title` é hover; o aria-label não é visual). Empilhar
+     não alarga a coluna: o truncamento continua no eixo horizontal e as 7
+     colunas seguem `minmax(0, 1fr)`. Evento sem hora rende só a linha do
+     título. Semana/Ano e desktop não mudam. */
+  .cal-grid .cal-ev {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+  }
+  .cal-grid .cal-ev-title {
+    font-size: 10px;
+  }
+  .mc.mc--leader .mc-hero {
+    display: grid;
+    grid-template-columns: 44px minmax(0, 1fr);
+    gap: var(--s3);
+    padding-block: var(--s4);
+  }
+  .mc.mc--leader .mc-hero-stats {
+    grid-column: 2;
+    width: auto;
+  }
+}
 /* abas de módulo (F2 · Gate 6): navegação entre rotas irmãs do módulo com o
    visual/rolagem da fundação (classes ds-tabs-*). Barra acima da tela rolável,
    alinhada ao padding da .screen. */
@@ -2325,11 +2548,28 @@ button.jr-row:focus-visible {
 }
 .modal-foot {
   display: flex;
+  /* PR212-CORRECTIVE-4 (3º finding P2 do Codex): num rodapé flex SEM wrap com
+     `justify-content: flex-end`, botões de rótulo em linha única vazavam pela
+     ESQUERDA — em 360px o "Fechar" do TrackModal saía do rodapé e, com
+     "Confirmar: Visitas de consolidação", do próprio diálogo. `flex-wrap: wrap`:
+     cabendo, os botões seguem na mesma linha; não cabendo, o botão INTEIRO
+     desce. Vale para os 17 consumidores de .modal-foot. */
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
   margin-top: var(--s4);
   padding-top: var(--s3);
   border-top: 1px solid var(--border);
+}
+/* PR212-CORRECTIVE-8: o rótulo em UMA linha deixou de ser global (o nowrap na
+   base do .btn/.ds-btn estourava linhas flex sem wrap pelo app afora) e passou
+   a valer só onde o contêiner deixa o botão inteiro descer — os quatro grupos
+   com flex-wrap: wrap. Fora deles, rótulo comprido quebra DENTRO do botão. */
+.modal-foot .btn,
+.modal-foot .ds-btn,
+.dh-modal-foot .ds-btn,
+.cell-detail-actions .btn {
+  white-space: nowrap;
 }
 
 /* alvo de toque ≥44px no mobile pros controles de modal e selects */
@@ -2535,6 +2775,27 @@ table.data-table {
   font-size: 13px;
   font-weight: 540;
   text-align: right;
+}
+/* PR212-CORRECTIVE-7 (finding P2 do Codex): par de ações do detalhe da célula
+   ("Editar célula" + "Convidar membro"). Era um flex inline SEM wrap com dois
+   botões `flex: 1` cujos rótulos em linha única somavam mais que a largura do
+   card no celular — os controles vazavam. `flex-wrap: wrap` mantém a linha
+   única quando cabe e desce o botão INTEIRO quando não cabe. (O nowrap dos
+   botões deste grupo vem da regra escopada junto ao .modal-foot.) */
+.cell-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  margin-bottom: var(--s4);
+}
+.cell-detail-actions .btn {
+  flex: 1;
+}
+/* Alvo de toque no mobile — mesmo breakpoint/padrão do .modal-foot .btn. */
+@media (max-width: 600px) {
+  .cell-detail-actions .btn {
+    min-height: 44px;
+  }
 }
 
 /* ---------- CÉLULAS (grid de cards) ---------- */
@@ -4239,9 +4500,16 @@ table.data-table {
 }
 .cal-grid {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  /* PR212-CORRECTIVE-2: `1fr` é `minmax(auto, 1fr)` — o tamanho mínimo
+     automático da coluna é o min-content da célula, e o título do chip é
+     `white-space: nowrap`. Com o título visível, um evento de nome longo
+     inflava a coluna do dia e esmagava as outras seis. `minmax(0, 1fr)` +
+     `min-width: 0` na célula deixam as 7 colunas realmente iguais; o chip já
+     trunca sozinho (`.cal-ev` tem overflow hidden + ellipsis). */
+  grid-template-columns: repeat(7, minmax(0, 1fr));
 }
 .cal-cell {
+  min-width: 0;
   min-height: 92px;
   padding: 6px;
   border-right: 1px solid var(--border);
@@ -4330,14 +4598,11 @@ table.data-table {
 }
 
 /* ===========================================================================
-   Agenda — visões Semana / Ano (EVT-3). Tabs reusam .tabs/.tab.
+   Agenda — visões Semana / Ano (EVT-3). As abas usam a primitive ds/Tabs
+   (classes .ds-tabs-*), não mais .tabs/.tab.
    Semana = lista vertical de dias (sem 7 colunas → zero overflow no mobile);
    Ano = grade responsiva de 12 meses (auto-fill → 1 col em 360px).
    =========================================================================== */
-.agenda-tabs {
-  align-self: flex-start;
-}
-
 .agenda-week {
   display: flex;
   flex-direction: column;
@@ -5817,6 +6082,11 @@ button.dh-journey-row:hover .dh-journey-label {
 }
 .dh-modal-foot {
   display: flex;
+  /* PR212-CORRECTIVE-5: último rodapé de ação em flex sem wrap (o modal de
+     mensagem do DashboardScreen). Mesma causa de `.modal-foot` e
+     `.ds-dialog-foot` — rótulo em linha única dá min-content do rótulo inteiro
+     e o excesso vazaria pela esquerda. */
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: var(--s2);
   margin-top: var(--s3);

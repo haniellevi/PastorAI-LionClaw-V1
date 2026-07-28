@@ -46,8 +46,8 @@ export function MeetingHistoryList({ items }: { items: HistoryItem[] }) {
             const visitors = it.meus_visitantes_indicados;
             return (
               <div className="hist-item" key={`${it.data}-${idx}`}>
-                <div className="grow" style={{ minWidth: 0 }}>
-                  <div className="nm" style={{ textTransform: "capitalize" }}>
+                <div className="grow hist-main">
+                  <div className="nm hist-date">
                     {formatMeetingDate(it.data)}
                   </div>
                   {it.tema ? <div className="sub">{it.tema}</div> : null}

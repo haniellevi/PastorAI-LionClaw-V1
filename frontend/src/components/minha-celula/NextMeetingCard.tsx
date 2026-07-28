@@ -31,7 +31,7 @@ export function NextMeetingCard({
       </div>
 
       {meeting ? (
-        <div style={{ padding: "var(--s4)" }}>
+        <div className="mc-meeting-body">
           <div className="meeting-date">{formatMeetingDate(meeting.data)}</div>
           <div className="meeting-meta">
             <span className="meeting-meta-item">
@@ -65,7 +65,7 @@ export function NextMeetingCard({
           </div>
         </div>
       ) : (
-        <div className="empty-state" style={{ padding: "var(--s6)" }}>
+        <div className="empty-state mc-empty-state">
           <Icon name="calendar" />
           <p>
             <strong>Próxima reunião ainda não definida.</strong> Assim que a

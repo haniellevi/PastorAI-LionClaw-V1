@@ -91,10 +91,12 @@ export function DiscipuloScreen() {
   const showSkeleton = loading && !loaded;
 
   return (
-    <div className="screen mc" key="minha-celula">
+    <div className="screen mc mc--member" key="minha-celula">
       <div className="screen-head">
+        {/* PR212-CORRECTIVE-1: o h1 "Minha Célula" é da Topbar (SCREEN_META);
+            repetir o mesmo texto aqui duplicava o título na tela. Fica só o
+            subtítulo. */}
         <div className="titles">
-          <h2>Minha Célula</h2>
           <p>Sua próxima reunião, avisos e histórico.</p>
         </div>
       </div>
@@ -126,18 +128,26 @@ export function DiscipuloScreen() {
           ))}
         </div>
       ) : (
-        <div className="mc-stack">
+        <div className="mc-member-layout">
           {token ? (
-            <NextMeetingCard
-              token={token}
-              meeting={meeting}
-              onToast={flashToast}
-              onIndicateVisitor={() => setShowVisitor(true)}
-            />
+            <div className="mc-area mc-area--meeting">
+              <NextMeetingCard
+                token={token}
+                meeting={meeting}
+                onToast={flashToast}
+                onIndicateVisitor={() => setShowVisitor(true)}
+              />
+            </div>
           ) : null}
-          <NoticesFeed notices={notices} />
-          <MaterialsFeed materials={materials} />
-          <MeetingHistoryList items={history} />
+          <div className="mc-area mc-area--notices">
+            <NoticesFeed notices={notices} />
+          </div>
+          <div className="mc-area mc-area--materials">
+            <MaterialsFeed materials={materials} />
+          </div>
+          <div className="mc-area mc-area--history">
+            <MeetingHistoryList items={history} />
+          </div>
         </div>
       )}
 
