@@ -6041,6 +6041,11 @@ button.dh-journey-row:hover .dh-journey-label {
 }
 .dh-modal-foot {
   display: flex;
+  /* PR212-CORRECTIVE-5: último rodapé de ação em flex sem wrap (o modal de
+     mensagem do DashboardScreen). Mesma causa de `.modal-foot` e
+     `.ds-dialog-foot` — o `nowrap` do `.btn` dá min-content do rótulo inteiro e
+     o excesso vazaria pela esquerda. */
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: var(--s2);
   margin-top: var(--s3);
