@@ -22,6 +22,7 @@
 import { useEffect, useRef } from "react";
 
 import { getFocusable, trapNextIndex } from "@/components/ds/a11y";
+import { lockScroll } from "@/components/ds/scrollLock";
 
 /** id do <nav> da sidebar — alvo do aria-controls dos gatilhos ("Mais"/hambúrguer). */
 export const SHELL_DRAWER_ID = "shell-drawer";
@@ -76,12 +77,10 @@ export function useDrawerA11y(open: boolean, onClose: () => void) {
     if (!drawer) return;
     const opener = document.activeElement as HTMLElement | null;
 
-    // Scroll lock no scroller REAL (.screen) além do body.
-    const screen = document.querySelector<HTMLElement>(".screen");
-    const prevScreenOverflow = screen?.style.overflow ?? "";
-    const prevBodyOverflow = document.body.style.overflow;
-    if (screen) screen.style.overflow = "hidden";
-    document.body.style.overflow = "hidden";
+    // Scroll lock no scroller REAL (.screen) além do body, pelo coordenador
+    // compartilhado (ds/scrollLock): com um Dialog aberto por cima, só a última
+    // liberação restaura — fechar o drawer primeiro não destrava a página.
+    const unlockScroll = lockScroll();
 
     // Conteúdo atrás inerte: irmãos do drawer no .app (main, bottom-nav…),
     // exceto o backdrop — que precisa continuar clicável para fechar.
@@ -124,8 +123,7 @@ export function useDrawerA11y(open: boolean, onClose: () => void) {
       document.removeEventListener("keydown", onKeyDown, true);
       mqDesktop.removeEventListener("change", onMq);
       inerted.forEach((el) => el.removeAttribute("inert"));
-      if (screen) screen.style.overflow = prevScreenOverflow;
-      document.body.style.overflow = prevBodyOverflow;
+      unlockScroll();
       // Gate 6.2: o foco tem de terminar em elemento VISÍVEL. Após resize para
       // desktop o gatilho mobile ("Mais"/hambúrguer) some (display:none) —
       // nesse caso o foco vai para o primeiro focável da sidebar (agora fixa).
