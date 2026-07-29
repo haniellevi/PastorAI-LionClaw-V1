@@ -17,6 +17,7 @@
 import { useEffect, useId, useRef, type ReactNode } from "react";
 
 import { getFocusable, trapNextIndex } from "./a11y";
+import { lockScroll } from "./scrollLock";
 
 export interface DialogProps {
   open: boolean;
@@ -53,13 +54,10 @@ export function Dialog({ open, onClose, title, description, sheet = false, child
     // Scroll lock no scroller REAL (.screen) além do body: no desktop o body
     // não rola — `overflow:hidden` nele não impede a roda do mouse de rolar a
     // .screen atrás do overlay. `overflow:hidden` preserva o scrollTop, então
-    // ao fechar a posição anterior permanece. Salvar/restaurar o valor inline
-    // mantém o encadeamento correto com o lock do drawer e entre diálogos.
-    const screen = document.querySelector<HTMLElement>(".screen");
-    const previousScreenOverflow = screen?.style.overflow ?? "";
-    const previousOverflow = document.body.style.overflow;
-    if (screen) screen.style.overflow = "hidden";
-    document.body.style.overflow = "hidden";
+    // ao fechar a posição anterior permanece. Quem faz o encadeamento com o
+    // drawer e com outros diálogos é o coordenador (ds/scrollLock): só a última
+    // liberação restaura, em qualquer ordem de fechamento.
+    const unlockScroll = lockScroll();
 
     // Foco inicial coerente: um alvo MARCADO com [data-autofocus] (Gate 7.1 —
     // ex.: o textarea do modal de mensagem) tem prioridade; sem marcação, o
@@ -88,8 +86,7 @@ export function Dialog({ open, onClose, title, description, sheet = false, child
     document.addEventListener("keydown", onKeyDown, true);
     return () => {
       document.removeEventListener("keydown", onKeyDown, true);
-      if (screen) screen.style.overflow = previousScreenOverflow;
-      document.body.style.overflow = previousOverflow;
+      unlockScroll();
       opener?.focus();
     };
   }, [open]);
