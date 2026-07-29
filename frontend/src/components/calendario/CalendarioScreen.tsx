@@ -659,13 +659,23 @@ export function CalendarioScreen() {
                         <Icon name="calendar" /> Eventos em {formatLongDate(selectedDayCell.iso)}
                       </div>
                       {selectedDayCell.events.length ? (
+                        // PR214-CORRECTIVE-1: botão NATIVO, não div+role="button" —
+                        // Enter/Espaço e foco visível vêm de graça e sem
+                        // eventActivation (aqui não há célula-pai clicável para
+                        // conter propagação). Spans por dentro: div em button é
+                        // HTML inválido. O visual fica na classe .cal-m-event.
                         selectedDayCell.events.map((ev) => (
-                          <div className="list-row" key={ev.id} {...eventActivation(ev)}>
-                            <div className="agenda-row-main">
-                              <div className="nm">{ev.titulo}</div>
-                              {ev.hora ? <div className="sub">{ev.hora}</div> : null}
-                            </div>
-                          </div>
+                          <button
+                            type="button"
+                            className="list-row cal-m-event"
+                            key={ev.id}
+                            onClick={() => openDetail(ev)}
+                          >
+                            <span className="agenda-row-main">
+                              <span className="nm">{ev.titulo}</span>
+                              {ev.hora ? <span className="sub">{ev.hora}</span> : null}
+                            </span>
+                          </button>
                         ))
                       ) : (
                         <p className="sub cal-m-day-empty">Nenhum evento neste dia.</p>

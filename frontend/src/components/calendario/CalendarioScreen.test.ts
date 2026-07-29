@@ -491,7 +491,7 @@ describe("CalendarioScreen — grade mensal mobile: seletor de dia + lista (VIS-
     );
   });
 
-  it("lista do dia mostra hora e título COMPLETOS e abre o detalhe existente", async () => {
+  it("lista do dia usa BOTÕES nativos com hora e título COMPLETOS e abre o detalhe existente", async () => {
     apiMock.fetchEvents.mockResolvedValue({
       items: [
         evento("ev-1", "Reunião de líderes de célula do setor norte", "09:00"),
@@ -506,8 +506,16 @@ describe("CalendarioScreen — grade mensal mobile: seletor de dia + lista (VIS-
       root.render(h(CalendarioScreen, {}));
     });
 
-    const rows = [...container.querySelectorAll<HTMLElement>(".cal-m-day .list-row")];
+    // PR214-CORRECTIVE-1: item = <button type="button"> nativo (Enter/Espaço e
+    // foco visível do UA), NÃO uma div fingindo botão via role/tabindex.
+    const rows = [...container.querySelectorAll<HTMLElement>(".cal-m-day button.cal-m-event")];
     expect(rows.length).toBe(2);
+    expect(rows.every((r) => r.tagName === "BUTTON" && r.getAttribute("type") === "button")).toBe(
+      true,
+    );
+    expect(container.querySelector('.cal-m-day [role="button"]')).toBeNull();
+    // Sem div dentro do botão (HTML inválido): o miolo é todo span.
+    expect(rows.every((r) => r.querySelector("div") === null)).toBe(true);
     // Sem hora vem primeiro (ordenação byHora do buildMonthGrid).
     expect(rows[0]?.querySelector(".nm")?.textContent).toBe("Retiro de carnaval");
     expect(rows[0]?.querySelector(".sub")).toBeNull();
