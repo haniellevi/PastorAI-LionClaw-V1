@@ -11,7 +11,8 @@
  * - focus trap (Tab/Shift+Tab ciclam dentro do dialog — lógica em a11y.ts);
  * - foco inicial no primeiro focável (ou no próprio painel);
  * - foco retorna ao elemento que abriu;
- * - scroll lock no body enquanto aberto.
+ * - scroll lock enquanto aberto no scroller REAL do shell (.screen) além do
+ *   body — o body não é quem rola no desktop (mesmo padrão do useDrawerA11y).
  */
 import { useEffect, useId, useRef, type ReactNode } from "react";
 
@@ -48,7 +49,16 @@ export function Dialog({ open, onClose, title, description, sheet = false, child
     if (!panel) return;
 
     const opener = document.activeElement as HTMLElement | null;
+
+    // Scroll lock no scroller REAL (.screen) além do body: no desktop o body
+    // não rola — `overflow:hidden` nele não impede a roda do mouse de rolar a
+    // .screen atrás do overlay. `overflow:hidden` preserva o scrollTop, então
+    // ao fechar a posição anterior permanece. Salvar/restaurar o valor inline
+    // mantém o encadeamento correto com o lock do drawer e entre diálogos.
+    const screen = document.querySelector<HTMLElement>(".screen");
+    const previousScreenOverflow = screen?.style.overflow ?? "";
     const previousOverflow = document.body.style.overflow;
+    if (screen) screen.style.overflow = "hidden";
     document.body.style.overflow = "hidden";
 
     // Foco inicial coerente: um alvo MARCADO com [data-autofocus] (Gate 7.1 —
@@ -78,6 +88,7 @@ export function Dialog({ open, onClose, title, description, sheet = false, child
     document.addEventListener("keydown", onKeyDown, true);
     return () => {
       document.removeEventListener("keydown", onKeyDown, true);
+      if (screen) screen.style.overflow = previousScreenOverflow;
       document.body.style.overflow = previousOverflow;
       opener?.focus();
     };

@@ -104,6 +104,26 @@ describe("Dialog — foco inicial (Gate 7.1)", () => {
   });
 });
 
+describe("Dialog — scroll lock do scroller real (.screen)", () => {
+  it("aberto: .screen e body travados; fechado: valores anteriores restaurados", () => {
+    // No desktop quem rola é a .screen (overflow-y:auto), não o body: travar só
+    // o body deixava a roda do mouse rolar a Agenda atrás do overlay.
+    const screen = document.createElement("div");
+    screen.className = "screen agenda";
+    document.body.appendChild(screen);
+    document.body.style.overflow = "";
+
+    render(true, h("button", { id: "x", key: "x" }, "X"));
+    expect(screen.style.overflow).toBe("hidden");
+    expect(document.body.style.overflow).toBe("hidden");
+
+    render(false, null);
+    expect(screen.style.overflow).toBe("");
+    expect(document.body.style.overflow).toBe("");
+    screen.remove();
+  });
+});
+
 describe("Dialog — fechar por backdrop (retorno de foco)", () => {
   it("mousedown no backdrop: onClose + preventDefault; no painel não fecha", () => {
     // Sem preventDefault, o mousedown no backdrop leva o foco ao <body> depois
