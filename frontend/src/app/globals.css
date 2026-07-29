@@ -2118,34 +2118,123 @@ button.jr-row:focus-visible {
     font-size: 10px;
     letter-spacing: 0;
   }
-  .agenda .cal-cell {
-    min-height: 70px;
-    padding: 4px 3px;
-    gap: 3px;
-  }
-  .agenda .cal-cell .d.num {
-    font-size: 11px;
-  }
   .agenda .cal-ev {
     min-height: 18px;
     padding: 2px 4px;
     font-size: 10.5px;
   }
-  /* PR212-CORRECTIVE-6 (revisão externa): no grid mensal estreito o chip vira
-     DUAS linhas — hora em cima, título embaixo truncado com ellipsis. A versão
-     anterior escondia o título do evento com hora, e dois eventos no mesmo
-     horário ficavam visualmente idênticos ("19:30"/"19:30") para o usuário
-     vidente no toque (o `title` é hover; o aria-label não é visual). Empilhar
-     não alarga a coluna: o truncamento continua no eixo horizontal e as 7
-     colunas seguem `minmax(0, 1fr)`. Evento sem hora rende só a linha do
-     título. Semana/Ano e desktop não mudam. */
-  .cal-grid .cal-ev {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 0;
+  /* VIS-2-MOBILE-CALENDAR-ARCH-1: até 640px a grade mensal desktop (.cal, com
+     chips hora+título) sai de cena e entra a variante mobile (.cal-m) rendida
+     pelo CalendarioScreen: grade seletora de dia (botões com aria-pressed e
+     badge de contagem) + lista "Eventos em <dia>" abaixo, com hora e título
+     completos. Decisão de produto: coluna de ~40px não comporta texto de
+     evento e a fonte NÃO encolhe para forçar encaixe — substitui o chip
+     empilhado do PR212-CORRECTIVE-6. `.agenda .cal-ev` acima segue valendo:
+     a visão Semana usa os mesmos chips. */
+  .agenda .cal {
+    display: none;
   }
-  .cal-grid .cal-ev-title {
+  .agenda .cal-m {
+    display: block;
+  }
+  .cal-m-cal {
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    overflow: hidden;
+    background: var(--surface);
+  }
+  .cal-m-grid {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+  }
+  .cal-m-cell {
+    min-width: 0;
+    min-height: 48px;
+    padding: 5px 2px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    border: 0;
+    border-right: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    border-radius: 0;
+    background: var(--surface);
+  }
+  .cal-m-cell:nth-child(7n) {
+    border-right: 0;
+  }
+  .cal-m-cell.off {
+    background: var(--surface-2);
+    cursor: default;
+  }
+  .cal-m-cell .d.num {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+  }
+  /* Selecionado: fundo + anel interno; o estado programático é o aria-pressed
+     do botão. */
+  .cal-m-cell.selected {
+    background: var(--selection-soft);
+    box-shadow: inset 0 0 0 2px var(--action-primary);
+  }
+  .cal-m-cell.selected .d.num {
+    color: var(--action-primary);
+  }
+  .cal-m-cell:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
+  /* Indicador de eventos do dia: número visível na badge (nunca só cor) +
+     contagem repetida no aria-label do botão. */
+  .cal-m-count {
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    display: inline-grid;
+    place-items: center;
+    border-radius: 999px;
+    background: var(--action-primary);
+    color: var(--text-on-action);
     font-size: 10px;
+    font-weight: 600;
+    line-height: 1;
+  }
+  .cal-m-day {
+    margin-top: var(--s4);
+  }
+  /* PR214-CORRECTIVE-1: o item da lista do dia é um <button> nativo com a cara
+     do .list-row — este reset cobre só o que o UA impõe ao button (fundo,
+     borda, cor, alinhamento, largura). O separador inferior re-declara o do
+     .list-row, que o border:0 apagaria; o :last-child do .list-row segue mais
+     específico e tira o do último. Filhos viram span (div em button é
+     inválido) — .nm/.sub precisam voltar a empilhar. */
+  .cal-m-event {
+    width: 100%;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+    font: inherit;
+    border: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .cal-m-event:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+  }
+  .cal-m-event .nm,
+  .cal-m-event .sub {
+    display: block;
+  }
+  .cal-m-day-empty {
+    margin: 0;
+    padding: var(--s3) 0;
+  }
+  .cal-m-new {
+    width: 100%;
+    min-height: 44px;
+    margin-top: var(--s3);
   }
   .mc.mc--leader .mc-hero {
     display: grid;
@@ -4483,6 +4572,12 @@ table.data-table {
   overflow: hidden;
   background: var(--surface);
 }
+/* VIS-2-MOBILE-CALENDAR-ARCH-1: a variante mensal mobile só existe ≤640px —
+   acima disso fica fora do fluxo e da árvore de acessibilidade. O bloco
+   @media (max-width: 640px) da Agenda é quem a exibe (e esconde a .cal). */
+.cal-m {
+  display: none;
+}
 .cal-head {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
@@ -4529,7 +4624,8 @@ table.data-table {
   font-weight: 600;
   color: var(--muted);
 }
-.cal-cell.today .d.num {
+.cal-cell.today .d.num,
+.cal-m-cell.today .d.num {
   display: inline-grid;
   place-items: center;
   width: 22px;

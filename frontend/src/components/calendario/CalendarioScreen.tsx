@@ -135,6 +135,17 @@ function dotClass(ev: EventItem): string {
 function monthChipLabel(ev: EventItem): string {
   return ev.hora ? `${ev.titulo}, às ${ev.hora}` : ev.titulo;
 }
+/**
+ * VIS-2-MOBILE-CALENDAR-ARCH-1: nome acessível do botão de dia da grade mensal
+ * mobile — data por extenso + contagem ("5 de julho de 2026, 2 eventos"). A
+ * contagem entra no rótulo E na badge numérica visível: o indicador de eventos
+ * nunca é só cor.
+ */
+function mobileDayLabel(iso: string, count: number): string {
+  const when = formatLongDate(iso);
+  if (count === 0) return `${when}, sem eventos`;
+  return `${when}, ${count} ${count === 1 ? "evento" : "eventos"}`;
+}
 const PREV_LABEL: Record<EventView, string> = {
   semana: "Semana anterior",
   mes: "Mês anterior",
@@ -160,6 +171,12 @@ export function CalendarioScreen() {
 
   const [view, setView] = useState<AgendaTab>("mes");
   const [cursor, setCursor] = useState<Date>(() => new Date());
+
+  // VIS-2-MOBILE-CALENDAR-ARCH-1: dia tocado na grade mensal MOBILE (≤640px, CSS
+  // esconde a variante que não vale). Guarda só o último toque; qual dia está
+  // efetivamente selecionado é derivado adiante (selectedDayCell) — assim a
+  // navegação de mês não precisa de efeito para "resetar" a seleção.
+  const [tappedDayIso, setTappedDayIso] = useState<string | null>(null);
 
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -277,6 +294,19 @@ export function CalendarioScreen() {
     () => (view === "ano" ? buildYearMonths(year, dated, today) : []),
     [view, year, dated, today],
   );
+
+  // VIS-2 mobile: célula do dia selecionado na grade mensal ≤640px. O último
+  // dia tocado vale enquanto pertencer ao mês exibido; fora dele (navegou de
+  // mês) cai para hoje, e por fim para o dia 1. Derivação pura, sem efeito.
+  const selectedDayCell = useMemo(() => {
+    if (monthCells.length === 0) return null;
+    return (
+      monthCells.find((c) => c.iso != null && c.iso === tappedDayIso) ??
+      monthCells.find((c) => c.today) ??
+      monthCells.find((c) => c.iso != null) ??
+      null
+    );
+  }, [monthCells, tappedDayIso]);
 
   const viewIsEmpty =
     (view === "mes" && monthEvents.length === 0) ||
@@ -544,40 +574,126 @@ export function CalendarioScreen() {
         ) : isCalendar ? (
           <>
             {view === "mes" ? (
-              <div className="cal">
-                <div className="cal-head">
-                  {WEEKDAYS.map((d) => (
-                    <div key={d}>{d}</div>
-                  ))}
+              <>
+                <div className="cal">
+                  <div className="cal-head">
+                    {WEEKDAYS.map((d) => (
+                      <div key={d}>{d}</div>
+                    ))}
+                  </div>
+                  <div className="cal-grid">
+                    {monthCells.map((cell, i) => (
+                      <div
+                        key={cell.iso ?? `pad-${i}`}
+                        className={`cal-cell${cell.day == null ? " off" : ""}${cell.today ? " today" : ""}`}
+                        onClick={() => openCreateForDate(cell.iso)}
+                        style={cell.iso != null && canManage ? { cursor: "pointer" } : undefined}
+                        {...dayCellActivation(cell.iso)}
+                      >
+                        {cell.day != null ? <div className="d num">{cell.day}</div> : null}
+                        {cell.events.map((ev) => (
+                          <div
+                            key={ev.id}
+                            className={evClass(ev)}
+                            title={ev.titulo}
+                            {...eventActivation(ev)}
+                            // Depois do spread de propósito: o nome acessível do
+                            // chip do mês não pode ser sobrescrito por ele.
+                            aria-label={monthChipLabel(ev)}
+                          >
+                            {ev.hora ? <span className="cal-ev-time">{ev.hora}</span> : null}
+                            <span className="cal-ev-title">{ev.titulo}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
                 </div>
-                <div className="cal-grid">
-                  {monthCells.map((cell, i) => (
-                    <div
-                      key={cell.iso ?? `pad-${i}`}
-                      className={`cal-cell${cell.day == null ? " off" : ""}${cell.today ? " today" : ""}`}
-                      onClick={() => openCreateForDate(cell.iso)}
-                      style={cell.iso != null && canManage ? { cursor: "pointer" } : undefined}
-                      {...dayCellActivation(cell.iso)}
-                    >
-                      {cell.day != null ? <div className="d num">{cell.day}</div> : null}
-                      {cell.events.map((ev) => (
-                        <div
-                          key={ev.id}
-                          className={evClass(ev)}
-                          title={ev.titulo}
-                          {...eventActivation(ev)}
-                          // Depois do spread de propósito: o nome acessível do
-                          // chip do mês não pode ser sobrescrito por ele.
-                          aria-label={monthChipLabel(ev)}
-                        >
-                          {ev.hora ? <span className="cal-ev-time">{ev.hora}</span> : null}
-                          <span className="cal-ev-title">{ev.titulo}</span>
-                        </div>
+
+                {/* VIS-2-MOBILE-CALENDAR-ARCH-1: variante mensal MOBILE (≤640px).
+                    Decisão de produto: em coluna de ~40px não cabe hora+título —
+                    a grade vira visão geral + seletor de dia (botões reais com
+                    aria-pressed e badge de contagem), e os detalhes completos
+                    ficam na lista "Eventos em <dia>" logo abaixo. Tocar no dia
+                    só seleciona; a criação para admin/pastor é o botão explícito
+                    "Novo evento neste dia" (no desktop o clique na célula segue
+                    criando, acima). Qual das duas grades aparece é decisão do
+                    CSS: .cal-m só existe ≤640px; .cal some nessa faixa. */}
+                <div className="cal-m">
+                  <div className="cal-m-cal">
+                    <div className="cal-head">
+                      {WEEKDAYS.map((d) => (
+                        <div key={d}>{d}</div>
                       ))}
                     </div>
-                  ))}
+                    <div className="cal-m-grid">
+                      {monthCells.map((cell, i) =>
+                        cell.iso == null ? (
+                          <div key={`pad-${i}`} className="cal-m-cell off" aria-hidden="true" />
+                        ) : (
+                          <button
+                            key={cell.iso}
+                            type="button"
+                            className={`cal-m-cell${cell.today ? " today" : ""}${
+                              cell.iso === selectedDayCell?.iso ? " selected" : ""
+                            }`}
+                            aria-pressed={cell.iso === selectedDayCell?.iso}
+                            aria-label={mobileDayLabel(cell.iso, cell.events.length)}
+                            onClick={() => setTappedDayIso(cell.iso)}
+                          >
+                            <span className="d num">{cell.day}</span>
+                            {cell.events.length > 0 ? (
+                              <span className="cal-m-count" aria-hidden="true">
+                                {cell.events.length}
+                              </span>
+                            ) : null}
+                          </button>
+                        ),
+                      )}
+                    </div>
+                  </div>
+
+                  {selectedDayCell?.iso ? (
+                    <section className="agenda-section cal-m-day">
+                      <div className="panel-title">
+                        <Icon name="calendar" /> Eventos em {formatLongDate(selectedDayCell.iso)}
+                      </div>
+                      {selectedDayCell.events.length ? (
+                        // PR214-CORRECTIVE-1: botão NATIVO, não div+role="button" —
+                        // Enter/Espaço e foco visível vêm de graça e sem
+                        // eventActivation (aqui não há célula-pai clicável para
+                        // conter propagação). Spans por dentro: div em button é
+                        // HTML inválido. O visual fica na classe .cal-m-event.
+                        selectedDayCell.events.map((ev) => (
+                          <button
+                            type="button"
+                            className="list-row cal-m-event"
+                            key={ev.id}
+                            onClick={() => openDetail(ev)}
+                          >
+                            <span className="agenda-row-main">
+                              <span className="nm">{ev.titulo}</span>
+                              {ev.hora ? <span className="sub">{ev.hora}</span> : null}
+                            </span>
+                          </button>
+                        ))
+                      ) : (
+                        <p className="sub cal-m-day-empty">Nenhum evento neste dia.</p>
+                      )}
+                      {canManage ? (
+                        <button
+                          type="button"
+                          className="btn cal-m-new"
+                          onClick={() => openCreateForDate(selectedDayCell.iso)}
+                        >
+                          <Icon name="plus" />
+                          <span>Novo evento neste dia</span>
+                        </button>
+                      ) : null}
+                    </section>
+                  ) : null}
                 </div>
-              </div>
+              </>
             ) : null}
 
             {view === "semana" ? (

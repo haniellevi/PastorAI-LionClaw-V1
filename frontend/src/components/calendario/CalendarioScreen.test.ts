@@ -37,6 +37,8 @@ vi.mock("@/lib/events-api", async (importOriginal) => {
 });
 
 const { CalendarioScreen } = await import("./CalendarioScreen");
+// O mock acima espalha o módulo real — formatLongDate é o original.
+const { formatLongDate } = await import("@/lib/events-api");
 
 declare global {
   // eslint-disable-next-line no-var
@@ -373,5 +375,232 @@ describe("CalendarioScreen — nome acessível do chip do mês (P2)", () => {
     expect(chip).not.toBeNull();
     expect(chip?.getAttribute("aria-label")).toBeNull();
     expect(chip?.textContent).toContain("Culto de celebração");
+  });
+});
+
+/**
+ * VIS-2-MOBILE-CALENDAR-ARCH-1: em ≤640px a grade mensal vira visão geral +
+ * seletor de dia (a variante .cal-m; a .cal desktop some via CSS) e os
+ * detalhes completos ficam na lista "Eventos em <dia>" abaixo. Aqui provamos o
+ * CONTRATO do DOM/comportamento da variante mobile — qual das duas grades está
+ * visível é decisão do CSS, coberta pelo smoke de geometria em navegador real:
+ *  - cada dia é um <button> real com aria-pressed e contagem acessível;
+ *  - tocar no dia seleciona (NÃO abre criação — decisão de produto);
+ *  - a lista traz hora + título completos e abre o detalhe existente;
+ *  - admin cria pelo botão explícito "Novo evento neste dia";
+ *  - a grade mobile não rende chips hora+título (isso é só do desktop).
+ */
+describe("CalendarioScreen — grade mensal mobile: seletor de dia + lista (VIS-2)", () => {
+  const isoOf = (d: Date) =>
+    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+      d.getDate(),
+    ).padStart(2, "0")}`;
+  const todayIso = () => isoOf(new Date());
+  /** Um dia do mês corrente diferente de hoje (1º, ou 2 se hoje for dia 1º). */
+  const otherDayIso = () => {
+    const d = new Date();
+    return isoOf(new Date(d.getFullYear(), d.getMonth(), d.getDate() === 1 ? 2 : 1));
+  };
+
+  function evento(id: string, titulo: string, hora: string | null, data = todayIso()) {
+    return {
+      id,
+      titulo,
+      data,
+      hora,
+      descricao: null,
+      googleEventId: null,
+      sincronizado: false,
+    };
+  }
+
+  it("cada dia é um BOTÃO real; hoje começa selecionado via aria-pressed", async () => {
+    await act(async () => {
+      root.render(h(CalendarioScreen, {}));
+    });
+
+    const botoes = [...container.querySelectorAll<HTMLElement>(".cal-m-grid button.cal-m-cell")];
+    expect(botoes.length).toBeGreaterThanOrEqual(28);
+
+    const selecionados = botoes.filter((b) => b.getAttribute("aria-pressed") === "true");
+    expect(selecionados.length).toBe(1);
+    expect(selecionados[0]?.getAttribute("aria-label")).toBe(
+      `${formatLongDate(todayIso())}, sem eventos`,
+    );
+    expect(selecionados[0]?.classList.contains("today")).toBe(true);
+  });
+
+  it("a grade mobile não rende chips hora+título; o dia mostra badge e contagem acessível", async () => {
+    apiMock.fetchEvents.mockResolvedValue({
+      items: [
+        evento("ev-a", "Culto de celebração", "19:30"),
+        evento("ev-b", "Ensaio do coral", "19:30"),
+      ],
+      page: 1,
+      pageSize: 200,
+      total: 2,
+    });
+
+    await act(async () => {
+      root.render(h(CalendarioScreen, {}));
+    });
+
+    // Nenhum chip de evento dentro da grade mobile (decisão de produto).
+    expect(container.querySelector(".cal-m-grid .cal-ev")).toBeNull();
+
+    const hoje = container.querySelector<HTMLElement>('.cal-m-grid button[aria-pressed="true"]');
+    expect(hoje?.getAttribute("aria-label")).toBe(`${formatLongDate(todayIso())}, 2 eventos`);
+    expect(hoje?.querySelector(".cal-m-count")?.textContent).toBe("2");
+  });
+
+  it("tocar num dia SELECIONA (não abre criação) e atualiza a lista abaixo", async () => {
+    apiMock.fetchEvents.mockResolvedValue({
+      items: [evento("ev-1", "Culto de celebração", "19:30")],
+      page: 1,
+      pageSize: 200,
+      total: 1,
+    });
+
+    await act(async () => {
+      root.render(h(CalendarioScreen, {}));
+    });
+
+    const alvoLabel = `${formatLongDate(otherDayIso())}, sem eventos`;
+    const alvo = container.querySelector<HTMLElement>(
+      `.cal-m-grid button[aria-label="${alvoLabel}"]`,
+    );
+    expect(alvo).not.toBeNull();
+
+    act(() => {
+      alvo!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    // Não abriu nenhum diálogo (nem criação, nem detalhe).
+    expect(container.querySelector(".ds-dialog-title")).toBeNull();
+    // Seleção migrou para o dia tocado…
+    expect(alvo!.getAttribute("aria-pressed")).toBe("true");
+    expect(
+      container.querySelectorAll('.cal-m-grid button[aria-pressed="true"]').length,
+    ).toBe(1);
+    // …e a lista abaixo passou a ser a do dia tocado, com estado vazio claro.
+    expect(container.querySelector(".cal-m-day .panel-title")?.textContent).toContain(
+      `Eventos em ${formatLongDate(otherDayIso())}`,
+    );
+    expect(container.querySelector(".cal-m-day-empty")?.textContent).toBe(
+      "Nenhum evento neste dia.",
+    );
+  });
+
+  it("lista do dia usa BOTÕES nativos com hora e título COMPLETOS e abre o detalhe existente", async () => {
+    apiMock.fetchEvents.mockResolvedValue({
+      items: [
+        evento("ev-1", "Reunião de líderes de célula do setor norte", "09:00"),
+        evento("ev-2", "Retiro de carnaval", null),
+      ],
+      page: 1,
+      pageSize: 200,
+      total: 2,
+    });
+
+    await act(async () => {
+      root.render(h(CalendarioScreen, {}));
+    });
+
+    // PR214-CORRECTIVE-1: item = <button type="button"> nativo (Enter/Espaço e
+    // foco visível do UA), NÃO uma div fingindo botão via role/tabindex.
+    const rows = [...container.querySelectorAll<HTMLElement>(".cal-m-day button.cal-m-event")];
+    expect(rows.length).toBe(2);
+    expect(rows.every((r) => r.tagName === "BUTTON" && r.getAttribute("type") === "button")).toBe(
+      true,
+    );
+    expect(container.querySelector('.cal-m-day [role="button"]')).toBeNull();
+    // Sem div dentro do botão (HTML inválido): o miolo é todo span.
+    expect(rows.every((r) => r.querySelector("div") === null)).toBe(true);
+    // Sem hora vem primeiro (ordenação byHora do buildMonthGrid).
+    expect(rows[0]?.querySelector(".nm")?.textContent).toBe("Retiro de carnaval");
+    expect(rows[0]?.querySelector(".sub")).toBeNull();
+    expect(rows[1]?.querySelector(".nm")?.textContent).toBe(
+      "Reunião de líderes de célula do setor norte",
+    );
+    expect(rows[1]?.querySelector(".sub")?.textContent).toBe("09:00");
+
+    act(() => {
+      rows[1]!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.querySelectorAll('[role="dialog"]').length).toBe(1);
+    expect(container.querySelector(".ds-dialog-title")?.textContent).toBe(
+      "Reunião de líderes de célula do setor norte",
+    );
+  });
+
+  it("'Novo evento neste dia' abre a criação com a data selecionada pré-preenchida", async () => {
+    await act(async () => {
+      root.render(h(CalendarioScreen, {}));
+    });
+
+    const alvo = container.querySelector<HTMLElement>(
+      `.cal-m-grid button[aria-label="${formatLongDate(otherDayIso())}, sem eventos"]`,
+    );
+    act(() => {
+      alvo!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const novo = container.querySelector<HTMLElement>(".cal-m-day .cal-m-new");
+    expect(novo?.textContent).toContain("Novo evento neste dia");
+
+    act(() => {
+      novo!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.querySelector(".ds-dialog-title")?.textContent).toBe("Novo evento");
+    // A data selecionada chegou ao form (nada é submetido neste teste).
+    expect(container.querySelector<HTMLInputElement>('input[type="date"]')?.value).toBe(
+      otherDayIso(),
+    );
+  });
+
+  it("sem canManage: dias seguem selecionáveis, mas não há botão de criação", async () => {
+    authState.roles = ["lider_g12"];
+    await act(async () => {
+      root.render(h(CalendarioScreen, {}));
+    });
+
+    const alvo = container.querySelector<HTMLElement>(
+      `.cal-m-grid button[aria-label="${formatLongDate(otherDayIso())}, sem eventos"]`,
+    );
+    expect(alvo).not.toBeNull();
+
+    act(() => {
+      alvo!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(alvo!.getAttribute("aria-pressed")).toBe("true");
+    expect(container.querySelector(".cal-m-new")).toBeNull();
+    expect(container.querySelector(".ds-dialog-title")).toBeNull();
+  });
+
+  it("navegar de mês recai a seleção para o dia 1 do mês exibido", async () => {
+    await act(async () => {
+      root.render(h(CalendarioScreen, {}));
+    });
+
+    act(() => {
+      container
+        .querySelector<HTMLElement>('button[aria-label="Próximo mês"]')!
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    const d = new Date();
+    const primeiroDoProximo = isoOf(new Date(d.getFullYear(), d.getMonth() + 1, 1));
+    const selecionado = container.querySelector<HTMLElement>(
+      '.cal-m-grid button[aria-pressed="true"]',
+    );
+    expect(selecionado?.getAttribute("aria-label")).toBe(
+      `${formatLongDate(primeiroDoProximo)}, sem eventos`,
+    );
+    expect(container.querySelector(".cal-m-day .panel-title")?.textContent).toContain(
+      `Eventos em ${formatLongDate(primeiroDoProximo)}`,
+    );
   });
 });
