@@ -418,9 +418,14 @@ def asaas_webhook(
         if new_status == "ativa":
             sub.setup_pago = True
         # Reflect billing status onto the igreja access gate (US-35).
-        igreja = db.get(Igreja, sub.igreja_id)
-        if igreja is not None:
-            igreja.status = "ativa" if new_status == "ativa" else "inadimplente"
+        # "pendente" (fatura criada/aguardando pagamento) preserva igreja.status:
+        # a cobrança mensal recém-emitida não pode bloquear igreja adimplente.
+        # Só pagamento confirmado reativa e só status explicitamente mapeado
+        # como inadimplente (vencido/estornado) bloqueia.
+        if new_status in ("ativa", "inadimplente"):
+            igreja = db.get(Igreja, sub.igreja_id)
+            if igreja is not None:
+                igreja.status = new_status
         db.commit()
 
     return WebhookResponse(received=True, status=new_status)

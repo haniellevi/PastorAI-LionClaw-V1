@@ -1,0 +1,283 @@
+"""Corpo real do webhook Asaas (BILLING-GATE-1): transições de status.
+
+Bug corrigido: todo status não-"ativa" — inclusive a fatura mensal recém
+criada (PAYMENT_CREATED / payment.status=PENDING) — derrubava igreja.status
+para "inadimplente", bloqueando o acesso (deps.BLOCKING_IGREJA_STATUSES) de
+igreja adimplente a cada ciclo de cobrança. Agora "pendente" preserva
+igreja.status; só pagamento confirmado reativa e só status explicitamente
+mapeado como inadimplente (vencido/estornado em _STATUS_MAP) bloqueia.
+
+Nenhum teste toca rede ou Asaas real: o handler do webhook só usa o DB
+(fake abaixo) e o token compartilhado via settings (monkeypatch).
+"""
+
+from __future__ import annotations
+
+import uuid
+from types import SimpleNamespace
+
+from fastapi.testclient import TestClient
+
+from app.config import get_settings
+from app.db.session import get_db
+
+_IGREJA_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
+_TOKEN = "whsec-test"
+_HDR = {"asaas-access-token": _TOKEN}
+
+
+def _sub(**over):
+    base = dict(
+        igreja_id=_IGREJA_ID,
+        plano="ate_100",
+        status="ativa",
+        setup_pago=True,
+        asaas_subscription_id="sub_asaas_1",
+    )
+    base.update(over)
+    return SimpleNamespace(**base)
+
+
+def _igreja(status: str = "ativa"):
+    return SimpleNamespace(id=_IGREJA_ID, status=status)
+
+
+class _Result:
+    def __init__(self, scalar) -> None:
+        self._scalar = scalar
+
+    def scalar_one_or_none(self):
+        return self._scalar
+
+
+class _WebhookDb:
+    """Fake mínimo do que o handler do webhook toca: 2 selects, get, commit.
+
+    Roteia os selects de Subscription pelos bind params compilados
+    (igreja_id / asaas_subscription_id) e compara com o sub configurado —
+    o texto do SQL não serve de discriminador porque o projection lista
+    `subscriptions.igreja_id` em ambas as queries.
+    """
+
+    def __init__(self, sub=None, igreja=None) -> None:
+        self.sub = sub
+        self.igreja = igreja
+        self.commits = 0
+
+    def execute(self, statement, params=None) -> _Result:
+        bound = statement.compile().params
+        sub = self.sub
+        if sub is not None:
+            for key, value in bound.items():
+                if key.startswith("asaas_subscription_id") and str(value) == str(
+                    sub.asaas_subscription_id
+                ):
+                    return _Result(sub)
+                if key.startswith("igreja_id") and str(value) == str(sub.igreja_id):
+                    return _Result(sub)
+        return _Result(None)
+
+    def get(self, _model, pk):
+        if self.igreja is not None and str(pk) == str(self.igreja.id):
+            return self.igreja
+        return None
+
+    def commit(self) -> None:
+        self.commits += 1
+
+    def close(self) -> None:  # pragma: no cover - nothing to release
+        pass
+
+
+def _client(app, db: _WebhookDb, monkeypatch) -> TestClient:
+    monkeypatch.setattr(get_settings(), "asaas_webhook_token", _TOKEN, raising=False)
+    app.dependency_overrides[get_db] = lambda: db
+    return TestClient(app)
+
+
+def _payment(
+    status: str | None = None,
+    external_ref: str | None = str(_IGREJA_ID),
+    subscription: str | None = "sub_asaas_1",
+) -> dict:
+    p: dict = {"id": "pay_1"}
+    if status is not None:
+        p["status"] = status
+    if external_ref is not None:
+        p["externalReference"] = external_ref
+    if subscription is not None:
+        p["subscription"] = subscription
+    return p
+
+
+def _post(client: TestClient, event: str, payment: dict):
+    return client.post(
+        "/subscription/webhook",
+        json={"event": event, "payment": payment},
+        headers=_HDR,
+    )
+
+
+def test_payment_created_pending_preserva_igreja_ativa(app, monkeypatch) -> None:
+    # Fatura mensal recém-criada NÃO pode derrubar igreja adimplente.
+    db = _WebhookDb(sub=_sub(), igreja=_igreja("ativa"))
+    client = _client(app, db, monkeypatch)
+    resp = _post(client, "PAYMENT_CREATED", _payment(status="PENDING"))
+    assert resp.status_code == 200
+    assert resp.json() == {"received": True, "status": "pendente"}
+    assert db.sub.status == "pendente"
+    assert db.igreja.status == "ativa"  # antes do fix: "inadimplente"
+    assert db.commits == 1
+
+
+def test_pendente_nao_reativa_igreja_inadimplente(app, monkeypatch) -> None:
+    # Preservar vale nos dois sentidos: cobrança pendente também não REativa.
+    db = _WebhookDb(
+        sub=_sub(status="inadimplente"), igreja=_igreja("inadimplente")
+    )
+    client = _client(app, db, monkeypatch)
+    resp = _post(client, "PAYMENT_CREATED", _payment(status="PENDING"))
+    assert resp.json()["status"] == "pendente"
+    assert db.igreja.status == "inadimplente"
+
+
+def test_payment_confirmed_ativa_igreja_e_setup_pago(app, monkeypatch) -> None:
+    db = _WebhookDb(
+        sub=_sub(status="pendente", setup_pago=False),
+        igreja=_igreja("inadimplente"),
+    )
+    client = _client(app, db, monkeypatch)
+    resp = _post(client, "PAYMENT_CONFIRMED", _payment(status="CONFIRMED"))
+    assert resp.json() == {"received": True, "status": "ativa"}
+    assert db.sub.status == "ativa"
+    assert db.sub.setup_pago is True
+    assert db.igreja.status == "ativa"
+    assert db.commits == 1
+
+
+def test_payment_received_ativa(app, monkeypatch) -> None:
+    db = _WebhookDb(
+        sub=_sub(status="pendente", setup_pago=False), igreja=_igreja("ativa")
+    )
+    client = _client(app, db, monkeypatch)
+    resp = _post(client, "PAYMENT_RECEIVED", _payment(status="RECEIVED"))
+    assert resp.json()["status"] == "ativa"
+    assert db.sub.status == "ativa"
+    assert db.sub.setup_pago is True
+    assert db.igreja.status == "ativa"
+
+
+def test_payment_overdue_torna_inadimplente(app, monkeypatch) -> None:
+    db = _WebhookDb(sub=_sub(), igreja=_igreja("ativa"))
+    client = _client(app, db, monkeypatch)
+    resp = _post(client, "PAYMENT_OVERDUE", _payment(status="OVERDUE"))
+    assert resp.json()["status"] == "inadimplente"
+    assert db.sub.status == "inadimplente"
+    assert db.igreja.status == "inadimplente"
+
+
+def test_evento_desconhecido_ack_sem_mutacao(app, monkeypatch) -> None:
+    db = _WebhookDb(sub=_sub(), igreja=_igreja("ativa"))
+    client = _client(app, db, monkeypatch)
+    resp = _post(
+        client,
+        "PAYMENT_CHARGEBACK_REQUESTED",
+        _payment(status="CHARGEBACK_REQUESTED"),
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {"received": True, "status": None}
+    assert db.sub.status == "ativa"
+    assert db.igreja.status == "ativa"
+    assert db.commits == 0
+
+
+def test_external_ref_invalida_cai_no_fallback_por_subscription_id(
+    app, monkeypatch
+) -> None:
+    db = _WebhookDb(
+        sub=_sub(status="pendente", setup_pago=False), igreja=_igreja("ativa")
+    )
+    client = _client(app, db, monkeypatch)
+    resp = _post(
+        client,
+        "PAYMENT_CONFIRMED",
+        _payment(status="CONFIRMED", external_ref="nao-e-uuid"),
+    )
+    assert resp.json()["status"] == "ativa"
+    assert db.sub.status == "ativa"
+
+
+def test_external_ref_invalida_sem_fallback_nao_muta(app, monkeypatch) -> None:
+    db = _WebhookDb(sub=_sub(), igreja=_igreja("ativa"))
+    client = _client(app, db, monkeypatch)
+    resp = _post(
+        client,
+        "PAYMENT_CONFIRMED",
+        _payment(
+            status="CONFIRMED", external_ref="nao-e-uuid", subscription="sub_outra"
+        ),
+    )
+    assert resp.json() == {"received": True, "status": None}
+    assert db.sub.status == "ativa"
+    assert db.igreja.status == "ativa"
+    assert db.commits == 0
+
+
+def test_assinatura_desconhecida_ack_sem_mutacao(app, monkeypatch) -> None:
+    db = _WebhookDb(sub=None, igreja=_igreja("ativa"))
+    client = _client(app, db, monkeypatch)
+    resp = _post(client, "PAYMENT_CONFIRMED", _payment(status="CONFIRMED"))
+    assert resp.status_code == 200
+    assert resp.json() == {"received": True, "status": None}
+    assert db.igreja.status == "ativa"
+    assert db.commits == 0
+
+
+def test_repeticao_do_evento_e_idempotente(app, monkeypatch) -> None:
+    db = _WebhookDb(
+        sub=_sub(status="pendente", setup_pago=False), igreja=_igreja("ativa")
+    )
+    client = _client(app, db, monkeypatch)
+    for _ in range(2):
+        resp = _post(client, "PAYMENT_CONFIRMED", _payment(status="CONFIRMED"))
+        assert resp.json()["status"] == "ativa"
+    assert db.sub.status == "ativa"
+    assert db.sub.setup_pago is True
+    assert db.igreja.status == "ativa"
+    assert db.commits == 2
+
+
+def test_pendente_apos_ativa_nao_derruba_igreja(app, monkeypatch) -> None:
+    # Ciclo real: paga (ativa) → mês seguinte o Asaas emite a nova fatura.
+    db = _WebhookDb(
+        sub=_sub(status="pendente", setup_pago=False), igreja=_igreja("ativa")
+    )
+    client = _client(app, db, monkeypatch)
+    _post(client, "PAYMENT_CONFIRMED", _payment(status="CONFIRMED"))
+    _post(client, "PAYMENT_CREATED", _payment(status="PENDING"))
+    assert db.sub.status == "pendente"
+    assert db.igreja.status == "ativa"
+
+
+def test_token_incorreto_rejeitado(app, monkeypatch) -> None:
+    db = _WebhookDb(sub=_sub(), igreja=_igreja("ativa"))
+    client = _client(app, db, monkeypatch)
+    resp = client.post(
+        "/subscription/webhook",
+        json={"event": "PAYMENT_CONFIRMED", "payment": _payment(status="CONFIRMED")},
+        headers={"asaas-access-token": "errado"},
+    )
+    assert resp.status_code == 401
+    assert db.sub.status == "ativa"
+    assert db.commits == 0
+
+
+def test_token_ausente_rejeitado(app, monkeypatch) -> None:
+    db = _WebhookDb(sub=_sub(), igreja=_igreja("ativa"))
+    client = _client(app, db, monkeypatch)
+    resp = client.post(
+        "/subscription/webhook",
+        json={"event": "PAYMENT_CONFIRMED", "payment": _payment(status="CONFIRMED")},
+    )
+    assert resp.status_code == 401
+    assert db.commits == 0
