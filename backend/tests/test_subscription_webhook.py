@@ -3,9 +3,11 @@
 Bug corrigido: todo status não-"ativa" — inclusive a fatura mensal recém
 criada (PAYMENT_CREATED / payment.status=PENDING) — derrubava igreja.status
 para "inadimplente", bloqueando o acesso (deps.BLOCKING_IGREJA_STATUSES) de
-igreja adimplente a cada ciclo de cobrança. Agora "pendente" preserva
-igreja.status; só pagamento confirmado reativa e só status explicitamente
-mapeado como inadimplente (vencido/estornado em _STATUS_MAP) bloqueia.
+igreja adimplente a cada ciclo de cobrança. Agora igreja.status só faz as
+transições FINANCEIRAS: pagamento confirmado tira de "inadimplente" e
+vencimento explícito (mapeado em _STATUS_MAP) tira de "ativa". "pendente" e
+os estados administrativos do console master ("suspensa",
+"aguardando_aprovacao") preservam igreja.status sempre.
 
 Nenhum teste toca rede ou Asaas real: o handler do webhook só usa o DB
 (fake abaixo) e o token compartilhado via settings (monkeypatch).
@@ -16,6 +18,7 @@ from __future__ import annotations
 import uuid
 from types import SimpleNamespace
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.config import get_settings
@@ -257,6 +260,32 @@ def test_pendente_apos_ativa_nao_derruba_igreja(app, monkeypatch) -> None:
     _post(client, "PAYMENT_CREATED", _payment(status="PENDING"))
     assert db.sub.status == "pendente"
     assert db.igreja.status == "ativa"
+
+
+@pytest.mark.parametrize("estado_admin", ["suspensa", "aguardando_aprovacao"])
+@pytest.mark.parametrize(
+    ("event", "payment_status", "esperado_sub"),
+    [
+        ("PAYMENT_CONFIRMED", "CONFIRMED", "ativa"),
+        ("PAYMENT_OVERDUE", "OVERDUE", "inadimplente"),
+        ("PAYMENT_CREATED", "PENDING", "pendente"),
+    ],
+)
+def test_estados_administrativos_sao_preservados(
+    app, monkeypatch, estado_admin, event, payment_status, esperado_sub
+) -> None:
+    # "suspensa"/"aguardando_aprovacao" pertencem ao console master (a
+    # aprovação também semeia permissões/AgentConfig) — o webhook financeiro
+    # atualiza a assinatura, mas NUNCA sobrescreve esses estados da igreja.
+    db = _WebhookDb(
+        sub=_sub(status="pendente", setup_pago=False), igreja=_igreja(estado_admin)
+    )
+    client = _client(app, db, monkeypatch)
+    resp = _post(client, event, _payment(status=payment_status))
+    assert resp.status_code == 200
+    assert resp.json()["status"] == esperado_sub
+    assert db.sub.status == esperado_sub
+    assert db.igreja.status == estado_admin
 
 
 def test_token_incorreto_rejeitado(app, monkeypatch) -> None:

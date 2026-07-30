@@ -417,14 +417,17 @@ def asaas_webhook(
         # First confirmed payment settles the setup fee.
         if new_status == "ativa":
             sub.setup_pago = True
-        # Reflect billing status onto the igreja access gate (US-35).
-        # "pendente" (fatura criada/aguardando pagamento) preserva igreja.status:
-        # a cobrança mensal recém-emitida não pode bloquear igreja adimplente.
-        # Só pagamento confirmado reativa e só status explicitamente mapeado
-        # como inadimplente (vencido/estornado) bloqueia.
+        # Reflect billing status onto the igreja access gate (US-35) — só as
+        # transições FINANCEIRAS: pagamento confirmado tira a igreja de
+        # "inadimplente" e vencimento explícito tira de "ativa". Estados
+        # administrativos do console master ("suspensa", "aguardando_aprovacao"
+        # — a aprovação também semeia permissões/AgentConfig) nunca são
+        # sobrescritos por webhook, e "pendente" (fatura recém-emitida)
+        # preserva qualquer igreja.status.
         if new_status in ("ativa", "inadimplente"):
             igreja = db.get(Igreja, sub.igreja_id)
-            if igreja is not None:
+            expected = "inadimplente" if new_status == "ativa" else "ativa"
+            if igreja is not None and igreja.status == expected:
                 igreja.status = new_status
         db.commit()
 
