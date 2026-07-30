@@ -37,6 +37,7 @@ def _sub(**over):
         status="ativa",
         setup_pago=True,
         asaas_subscription_id="sub_asaas_1",
+        asaas_setup_charge_id=None,
     )
     base.update(over)
     return SimpleNamespace(**base)
@@ -84,6 +85,10 @@ class _WebhookDb:
         sub = self.sub
         if sub is not None:
             for key, value in bound.items():
+                if key.startswith("asaas_setup_charge_id") and str(value) == str(
+                    sub.asaas_setup_charge_id
+                ):
+                    return _Result(sub)
                 if key.startswith("asaas_subscription_id") and str(value) == str(
                     sub.asaas_subscription_id
                 ):
@@ -151,7 +156,7 @@ def test_pendente_nao_reativa_igreja_inadimplente(app, monkeypatch) -> None:
     assert db.igreja.status == "inadimplente"
 
 
-def test_payment_confirmed_ativa_igreja_e_setup_pago(app, monkeypatch) -> None:
+def test_payment_confirmed_ativa_igreja_sem_marcar_setup(app, monkeypatch) -> None:
     db = _WebhookDb(
         sub=_sub(status="pendente", setup_pago=False),
         igreja=_igreja("inadimplente"),
@@ -160,7 +165,7 @@ def test_payment_confirmed_ativa_igreja_e_setup_pago(app, monkeypatch) -> None:
     resp = _post(client, "PAYMENT_CONFIRMED", _payment(status="CONFIRMED"))
     assert resp.json() == {"received": True, "status": "ativa"}
     assert db.sub.status == "ativa"
-    assert db.sub.setup_pago is True
+    assert db.sub.setup_pago is False
     assert db.igreja.status == "ativa"
     assert db.commits == 1
 
@@ -173,7 +178,7 @@ def test_payment_received_ativa(app, monkeypatch) -> None:
     resp = _post(client, "PAYMENT_RECEIVED", _payment(status="RECEIVED"))
     assert resp.json()["status"] == "ativa"
     assert db.sub.status == "ativa"
-    assert db.sub.setup_pago is True
+    assert db.sub.setup_pago is False
     assert db.igreja.status == "ativa"
 
 
@@ -252,9 +257,67 @@ def test_repeticao_do_evento_e_idempotente(app, monkeypatch) -> None:
         resp = _post(client, "PAYMENT_CONFIRMED", _payment(status="CONFIRMED"))
         assert resp.json()["status"] == "ativa"
     assert db.sub.status == "ativa"
-    assert db.sub.setup_pago is True
+    assert db.sub.setup_pago is False
     assert db.igreja.status == "ativa"
     assert db.commits == 2
+
+
+def test_setup_confirmed_only_marks_the_tracked_setup_charge_paid(app, monkeypatch) -> None:
+    db = _WebhookDb(
+        sub=_sub(
+            status="pendente",
+            setup_pago=False,
+            asaas_setup_charge_id="pay_setup_1",
+        ),
+        igreja=_igreja("aguardando_aprovacao"),
+    )
+    client = _client(app, db, monkeypatch)
+    payment = _payment(status="CONFIRMED", subscription=None)
+    payment["id"] = "pay_setup_1"
+
+    resp = _post(client, "PAYMENT_CONFIRMED", payment)
+
+    assert resp.json() == {"received": True, "status": "ativa"}
+    assert db.sub.setup_pago is True
+    assert db.sub.status == "pendente"
+    assert db.igreja.status == "aguardando_aprovacao"
+    assert db.commits == 1
+
+
+def test_pending_setup_payment_does_not_unlock_the_setup(app, monkeypatch) -> None:
+    db = _WebhookDb(
+        sub=_sub(setup_pago=False, asaas_setup_charge_id="pay_setup_1"),
+        igreja=_igreja("ativa"),
+    )
+    client = _client(app, db, monkeypatch)
+    payment = _payment(status="PENDING", subscription=None)
+    payment["id"] = "pay_setup_1"
+
+    resp = _post(client, "PAYMENT_CREATED", payment)
+
+    assert resp.json() == {"received": True, "status": "pendente"}
+    assert db.sub.setup_pago is False
+    assert db.sub.status == "ativa"
+    assert db.igreja.status == "ativa"
+    assert db.commits == 0
+
+
+def test_untracked_one_time_payment_cannot_change_access(app, monkeypatch) -> None:
+    db = _WebhookDb(
+        sub=_sub(setup_pago=False, asaas_setup_charge_id="pay_setup_1"),
+        igreja=_igreja("ativa"),
+    )
+    client = _client(app, db, monkeypatch)
+    payment = _payment(status="CONFIRMED", subscription=None)
+    payment["id"] = "pay_untracked"
+
+    resp = _post(client, "PAYMENT_CONFIRMED", payment)
+
+    assert resp.json() == {"received": True, "status": None}
+    assert db.sub.setup_pago is False
+    assert db.sub.status == "ativa"
+    assert db.igreja.status == "ativa"
+    assert db.commits == 0
 
 
 def test_pendente_apos_ativa_nao_derruba_igreja(app, monkeypatch) -> None:

@@ -16,6 +16,7 @@ shared `asaas-access-token` header instead of Clerk auth.
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
@@ -44,6 +45,7 @@ from app.services.asaas import (
     map_payment_status,
     verify_webhook_token,
 )
+from app.services.billing import get_setup_fee_for_igreja
 from app.services.evolution import EvolutionClient, EvolutionError, get_evolution_client
 
 logger = logging.getLogger("pastorai.subscription")
@@ -75,7 +77,7 @@ class SubscriptionOut(BaseModel):
 
 class CheckoutRequest(BaseModel):
     plano: str
-    cpfCnpj: str | None = Field(default=None, max_length=20)  # noqa: N815
+    cpfCnpj: str = Field(max_length=20)  # noqa: N815
 
     @field_validator("plano")
     @classmethod
@@ -87,10 +89,45 @@ class CheckoutRequest(BaseModel):
             raise ValueError("plano obrigatório")
         return value
 
+    @field_validator("cpfCnpj")
+    @classmethod
+    def _cpf_cnpj(cls, value: str) -> str:
+        digits = re.sub(r"\D", "", value)
+        if len(digits) == 11 and _cpf_is_valid(digits):
+            return digits
+        if len(digits) == 14 and _cnpj_is_valid(digits):
+            return digits
+        raise ValueError("CPF ou CNPJ inválido")
+
+
+def _cpf_is_valid(digits: str) -> bool:
+    if digits == digits[0] * 11:
+        return False
+    first = sum(int(digit) * weight for digit, weight in zip(digits[:9], range(10, 1, -1)))
+    second = sum(int(digit) * weight for digit, weight in zip(digits[:10], range(11, 1, -1)))
+    return digits[9] == str(0 if first % 11 < 2 else 11 - first % 11) and digits[10] == str(
+        0 if second % 11 < 2 else 11 - second % 11
+    )
+
+
+def _cnpj_is_valid(digits: str) -> bool:
+    if digits == digits[0] * 14:
+        return False
+    first = sum(
+        int(digit) * weight for digit, weight in zip(digits[:12], (5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2))
+    )
+    second = sum(
+        int(digit) * weight for digit, weight in zip(digits[:13], (6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2))
+    )
+    return digits[12] == str(0 if first % 11 < 2 else 11 - first % 11) and digits[13] == str(
+        0 if second % 11 < 2 else 11 - second % 11
+    )
+
 
 class CheckoutResponse(BaseModel):
     status: str
-    invoiceUrl: str | None = None  # noqa: N815
+    invoiceUrl: str | None = None  # noqa: N815 - mensalidade
+    setupInvoiceUrl: str | None = None  # noqa: N815
     asaasSubscriptionId: str | None = None  # noqa: N815
 
 
@@ -291,6 +328,11 @@ def create_checkout(
     """
     plano_row = _plano_ativo_or_422(db, payload.plano)
     igreja_uuid = uuid.UUID(current_user.igreja_id)
+    igreja = db.execute(
+        select(Igreja).where(Igreja.id == igreja_uuid)
+    ).scalar_one_or_none()
+    if igreja is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Igreja não encontrada")
 
     sub = db.execute(
         select(Subscription).where(Subscription.igreja_id == igreja_uuid)
@@ -299,7 +341,7 @@ def create_checkout(
         sub = Subscription(igreja_id=igreja_uuid, plano=payload.plano)
         db.add(sub)
 
-    setup_fee = 0.0 if sub.setup_pago else get_settings().asaas_setup_fee
+    setup_fee = 0.0 if sub.setup_pago else get_setup_fee_for_igreja(db, igreja)
 
     try:
         result = asaas.create_checkout(
@@ -322,13 +364,18 @@ def create_checkout(
     sub.status = result.status
     sub.asaas_customer_id = result.customer_id
     sub.asaas_subscription_id = result.subscription_id
-    if result.setup_charge_id:
-        sub.setup_pago = False  # paid only once Asaas confirms via webhook
+    if setup_fee > 0:
+        sub.setup_pago = False  # paid only once its own webhook confirms it
+        sub.asaas_setup_charge_id = result.setup_charge_id
+    else:
+        sub.setup_pago = True  # no setup charge was configured for this igreja
+        sub.asaas_setup_charge_id = None
     db.commit()
 
     return CheckoutResponse(
         status=result.status,
         invoiceUrl=result.invoice_url,
+        setupInvoiceUrl=result.setup_invoice_url,
         asaasSubscriptionId=result.subscription_id,
     )
 
@@ -336,7 +383,7 @@ def create_checkout(
 @router.get("/planos", response_model=PlanCatalogOut)
 def list_planos_disponiveis(
     db: Session = Depends(get_db),
-    _current_user: CurrentUser = Depends(require_owner),
+    current_user: CurrentUser = Depends(require_owner),
 ) -> PlanCatalogOut:
     """Catálogo de planos ATIVOS (tabela `planos`, editada pelo master) + taxa de
     setup vigente — a tela de Assinatura da igreja usa isto em vez de um
@@ -355,7 +402,13 @@ def list_planos_disponiveis(
         )
         for p in rows
     ]
-    return PlanCatalogOut(planos=planos, setupFee=get_settings().asaas_setup_fee)
+    igreja_uuid = uuid.UUID(current_user.igreja_id)
+    igreja = db.execute(
+        select(Igreja).where(Igreja.id == igreja_uuid)
+    ).scalar_one_or_none()
+    if igreja is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Igreja não encontrada")
+    return PlanCatalogOut(planos=planos, setupFee=get_setup_fee_for_igreja(db, igreja))
 
 
 class AsaasWebhookEvent(BaseModel):
@@ -386,48 +439,54 @@ def asaas_webhook(
             detail="Assinatura de webhook inválida",
         )
 
-    obj = payload.payment or payload.subscription or {}
-    external_ref = obj.get("externalReference")
-    asaas_sub_id = obj.get("subscription") or obj.get("id")
+    payment = payload.payment or {}
+    subscription = payload.subscription or {}
+    obj = payment or subscription
     raw_status = obj.get("status") or payload.event
     new_status = map_payment_status(raw_status)
 
-    sub: Subscription | None = None
-    if external_ref:
-        try:
-            igreja_uuid = uuid.UUID(str(external_ref))
-            sub = db.execute(
-                select(Subscription).where(Subscription.igreja_id == igreja_uuid)
-            ).scalar_one_or_none()
-        except ValueError:
-            sub = None
-    if sub is None and asaas_sub_id:
-        sub = db.execute(
-            select(Subscription).where(
-                Subscription.asaas_subscription_id == str(asaas_sub_id)
-            )
+    payment_id = str(payment["id"]) if payment.get("id") else None
+    if payment_id:
+        setup_sub = db.execute(
+            select(Subscription).where(Subscription.asaas_setup_charge_id == payment_id)
         ).scalar_one_or_none()
+        if setup_sub is not None:
+            if new_status == "ativa" and not setup_sub.setup_pago:
+                setup_sub.setup_pago = True
+                db.commit()
+            return WebhookResponse(received=True, status=new_status)
 
+    # A payment without an Asaas subscription can only be the tracked setup
+    # charge above. Never use its externalReference as authority for a monthly
+    # status transition; that would let another one-time charge alter access.
+    if payment and not payment.get("subscription"):
+        logger.info("Asaas webhook for unknown one-time payment; acknowledged")
+        return WebhookResponse(received=True, status=None)
+
+    asaas_sub_id = payment.get("subscription") or subscription.get("id")
+    sub: Subscription | None = None
+    if asaas_sub_id:
+        sub = db.execute(
+            select(Subscription).where(Subscription.asaas_subscription_id == str(asaas_sub_id))
+        ).scalar_one_or_none()
+    if sub is None and not payment:
+        external_ref = subscription.get("externalReference")
+        if external_ref:
+            try:
+                igreja_uuid = uuid.UUID(str(external_ref))
+                sub = db.execute(
+                    select(Subscription).where(Subscription.igreja_id == igreja_uuid)
+                ).scalar_one_or_none()
+            except ValueError:
+                sub = None
     if sub is None:
         logger.info("Asaas webhook for unknown subscription; acknowledged")
         return WebhookResponse(received=True, status=None)
 
     if new_status is not None:
         sub.status = new_status
-        # First confirmed payment settles the setup fee.
-        if new_status == "ativa":
-            sub.setup_pago = True
-        # Reflect billing status onto the igreja access gate (US-35) — só as
-        # transições FINANCEIRAS: pagamento confirmado tira a igreja de
-        # "inadimplente" e vencimento explícito tira de "ativa". Estados
-        # administrativos do console master ("suspensa", "aguardando_aprovacao"
-        # — a aprovação também semeia permissões/AgentConfig) nunca são
-        # sobrescritos por webhook, e "pendente" (fatura recém-emitida)
-        # preserva qualquer igreja.status.
-        # A transição é um UPDATE condicional (WHERE inclui o estado esperado):
-        # a decisão acontece atomicamente no banco, então uma mudança
-        # administrativa comitada durante este request (corrida com o console
-        # master) faz o UPDATE afetar zero linhas em vez de ser sobrescrita.
+        # Reflect subscription billing only onto the igreja access gate. Setup
+        # payment events return above and never change this status.
         if new_status in ("ativa", "inadimplente"):
             expected = "inadimplente" if new_status == "ativa" else "ativa"
             db.execute(

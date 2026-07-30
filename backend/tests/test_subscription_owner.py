@@ -45,6 +45,6 @@ def test_subscription_get_allowed_for_owner(app) -> None:
 def test_subscription_checkout_forbidden_for_non_owner_admin(app) -> None:
     # body válido: o 403 vem do require_owner, não de validação.
     resp = _client(app, dono_id=_OTHER).post(
-        "/subscription", json={"plano": "ate_100"}, headers=_AUTH
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": "249.715.637-92"}, headers=_AUTH
     )
     assert resp.status_code == 403

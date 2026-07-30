@@ -12,7 +12,14 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.db.models import AppUser, PasswordResetToken, Plano, RolePermission
+from app.db.models import (
+    AppUser,
+    BillingSettings,
+    Igreja,
+    PasswordResetToken,
+    Plano,
+    RolePermission,
+)
 from app.services.clerk import ClerkAuthError, ClerkIdentity
 
 
@@ -74,6 +81,8 @@ class FakeSession:
         role_permissions: list[tuple[str, str]] | None = None,
         reset_token=None,
         planos: list | None = None,
+        igreja=None,
+        billing_settings=None,
     ) -> None:
         self.app_user = app_user
         self.roles = roles or []
@@ -86,6 +95,15 @@ class FakeSession:
         # WHERE compilado de verdade (ver _plano_query_filters), não confia
         # cegamente no shape da query.
         self.planos = planos or []
+        # Checkout resolve a taxa de setup pela igreja e pela configuração
+        # global do master. Defaults explícitos deixam os testes isolados da
+        # variável de ambiente legada.
+        self.igreja = igreja if igreja is not None else getattr(app_user, "igreja", None)
+        self.billing_settings = (
+            billing_settings
+            if billing_settings is not None
+            else SimpleNamespace(id=1, setup_fee_default=0.0)
+        )
         # Objetos passados a .add() (ex.: Subscription novo no checkout) —
         # permite o teste inspecionar o que o handler gravou (ex.: sub.limite).
         self.added: list = []
@@ -115,6 +133,10 @@ class FakeSession:
             return _FakeResult(rows=self.role_permissions)
         if entity is PasswordResetToken:
             return _FakeResult(scalar=self.reset_token)
+        if entity is Igreja:
+            return _FakeResult(scalar=self.igreja)
+        if entity is BillingSettings:
+            return _FakeResult(scalar=self.billing_settings)
         if entity is Plano:
             codigo, ativo_required = _plano_query_filters(statement)
             candidatos = self.planos
@@ -225,6 +247,7 @@ def make_app_user(
         status=igreja_status,
         dono_id=dono_id,
         logo_path=None,
+        setup_fee_override=None,
     )
     return SimpleNamespace(
         id="00000000-0000-0000-0000-0000000000a1",

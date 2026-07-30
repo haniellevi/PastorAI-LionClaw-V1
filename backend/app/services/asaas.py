@@ -22,6 +22,7 @@ from app.config import Settings, get_settings
 from app.services.outbound_guard import external_sends_allowed, log_suppressed
 
 logger = logging.getLogger("pastorai.asaas")
+MIN_UNDEFINED_PAYMENT_VALUE = 5.0
 
 # Map Asaas event/payment status to our subscription_status enum (RF-42).
 _STATUS_MAP = {
@@ -67,6 +68,7 @@ class CheckoutResult:
     subscription_id: str
     setup_charge_id: str | None
     invoice_url: str | None
+    setup_invoice_url: str | None
     status: str  # ativa | pendente | inadimplente
 
 
@@ -114,11 +116,16 @@ class AsaasClient:
                 subscription_id="sandbox",
                 setup_charge_id=None,
                 invoice_url=None,
+                setup_invoice_url=None,
                 status="pendente",
             )
+        if not cpf_cnpj:
+            raise AsaasError("CPF ou CNPJ é obrigatório para o checkout")
         base_url, api_key = self._require_config()
         headers = self._headers(api_key)
         fee = self._settings.asaas_setup_fee if setup_fee is None else setup_fee
+        if 0 < fee < MIN_UNDEFINED_PAYMENT_VALUE:
+            raise AsaasError("A taxa de setup precisa ser de pelo menos R$ 5,00")
 
         try:
             with httpx.Client(base_url=base_url, timeout=20.0) as client:
@@ -134,11 +141,22 @@ class AsaasClient:
                     descricao=f"PastorAI — plano {plano}",
                     external_reference=external_reference,
                 )
+                subscription_id = str(sub["id"])
+                monthly_payment = self._first_subscription_payment(
+                    client, headers, subscription_id=subscription_id
+                )
                 setup_charge_id: str | None = None
+                setup_invoice_url: str | None = None
                 if fee and fee > 0:
-                    setup_charge_id = self._create_setup_charge(
-                        client, headers, customer_id=customer_id, valor=fee
+                    setup_charge = self._create_setup_charge(
+                        client,
+                        headers,
+                        customer_id=customer_id,
+                        valor=fee,
+                        external_reference=external_reference,
                     )
+                    setup_charge_id = str(setup_charge["id"])
+                    setup_invoice_url = self._invoice_url(setup_charge)
         except httpx.HTTPError as exc:
             logger.warning("Asaas checkout failed: %s", type(exc).__name__)
             raise AsaasError("Falha ao criar checkout no Asaas") from exc
@@ -146,12 +164,15 @@ class AsaasClient:
             logger.warning("Unexpected Asaas response shape")
             raise AsaasError("Resposta inesperada do Asaas") from exc
 
-        status = map_payment_status(sub.get("status")) or "pendente"
+        status = map_payment_status(
+            monthly_payment.get("status") if monthly_payment else None
+        ) or map_payment_status(sub.get("status")) or "pendente"
         return CheckoutResult(
             customer_id=customer_id,
-            subscription_id=str(sub.get("id")),
+            subscription_id=subscription_id,
             setup_charge_id=setup_charge_id,
-            invoice_url=sub.get("invoiceUrl") or sub.get("checkoutUrl"),
+            invoice_url=self._invoice_url(monthly_payment),
+            setup_invoice_url=setup_invoice_url,
             status=status,
         )
 
@@ -163,19 +184,17 @@ class AsaasClient:
         *,
         nome: str,
         email: str,
-        cpf_cnpj: str | None,
+        cpf_cnpj: str,
     ) -> str:
-        """Find an existing customer by email or create a new one."""
-        resp = client.get("/customers", headers=headers, params={"email": email})
+        """Find an existing customer by document or create a new one."""
+        resp = client.get("/customers", headers=headers, params={"cpfCnpj": cpf_cnpj})
         resp.raise_for_status()
         data = resp.json()
         existing = (data.get("data") or []) if isinstance(data, dict) else []
         if existing:
             return str(existing[0]["id"])
 
-        payload: dict[str, object] = {"name": nome, "email": email}
-        if cpf_cnpj:
-            payload["cpfCnpj"] = cpf_cnpj
+        payload: dict[str, object] = {"name": nome, "email": email, "cpfCnpj": cpf_cnpj}
         resp = client.post("/customers", headers=headers, json=payload)
         resp.raise_for_status()
         return str(resp.json()["id"])
@@ -207,6 +226,35 @@ class AsaasClient:
         resp.raise_for_status()
         return resp.json()
 
+    def _first_subscription_payment(
+        self,
+        client: httpx.Client,
+        headers: dict[str, str],
+        *,
+        subscription_id: str,
+    ) -> dict | None:
+        """Return the first generated payment for a new subscription, if ready."""
+        resp = client.get(
+            f"/subscriptions/{subscription_id}/payments",
+            headers=headers,
+            params={"limit": 1},
+        )
+        resp.raise_for_status()
+        body = resp.json()
+        payments = body.get("data") if isinstance(body, dict) else None
+        if not isinstance(payments, list) or not payments:
+            return None
+        payment = payments[0]
+        return payment if isinstance(payment, dict) else None
+
+    @staticmethod
+    def _invoice_url(payment: dict | None) -> str | None:
+        """Extract the public payment page without exposing provider payloads."""
+        if not payment:
+            return None
+        value = payment.get("invoiceUrl") or payment.get("bankSlipUrl")
+        return str(value) if value else None
+
     def _create_setup_charge(
         self,
         client: httpx.Client,
@@ -214,7 +262,8 @@ class AsaasClient:
         *,
         customer_id: str,
         valor: float,
-    ) -> str:
+        external_reference: str | None,
+    ) -> dict:
         """One-time setup fee charged as a single payment."""
         payload: dict[str, object] = {
             "customer": customer_id,
@@ -223,9 +272,11 @@ class AsaasClient:
             "dueDate": dt.date.today().isoformat(),
             "description": "PastorAI — taxa de setup",
         }
+        if external_reference:
+            payload["externalReference"] = external_reference
         resp = client.post("/payments", headers=headers, json=payload)
         resp.raise_for_status()
-        return str(resp.json()["id"])
+        return resp.json()
 
 
 def get_asaas_client() -> AsaasClient:

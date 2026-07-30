@@ -3,7 +3,7 @@
  * Consome o backend (sprint-009 / US-34..36):
  *
  *   GET  /subscription          -> { plano, status, pessoas, limite, proximaCobranca, setupPago }
- *   POST /subscription          -> { status, invoiceUrl, asaasSubscriptionId }   (checkout)
+ *   POST /subscription          -> { status, invoiceUrl, setupInvoiceUrl, asaasSubscriptionId }
  *   GET  /subscription/planos   -> { planos: PlanInfo[], setupFee }             (catálogo)
  *
  * O upgrade automático por porte é feito pelo trigger `trg_subscription_autoupgrade`
@@ -40,6 +40,7 @@ export interface Subscription {
 export interface CheckoutResult {
   status: string;
   invoiceUrl: string | null;
+  setupInvoiceUrl: string | null;
   asaasSubscriptionId: string | null;
 }
 
@@ -128,11 +129,11 @@ export async function fetchSubscription(token: string): Promise<Subscription> {
 
 export async function createCheckout(
   token: string,
-  payload: { plano: PlanCode; cpfCnpj?: string },
+  payload: { plano: PlanCode; cpfCnpj: string },
 ): Promise<CheckoutResult> {
   const res = await authedFetch(token, "/subscription", {
     method: "POST",
-    body: JSON.stringify({ plano: payload.plano, cpfCnpj: payload.cpfCnpj ?? null }),
+    body: JSON.stringify({ plano: payload.plano, cpfCnpj: payload.cpfCnpj }),
   });
   if (!res.ok) {
     const detail = await readDetail(res);

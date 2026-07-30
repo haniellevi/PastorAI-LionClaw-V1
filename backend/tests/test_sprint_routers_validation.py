@@ -125,7 +125,7 @@ def test_roles_permissions_rejects_invalid_role(app) -> None:
 # ---- subscription validation + webhook gating -----------------------------
 def test_subscription_checkout_rejects_invalid_plano(app) -> None:
     resp = _client(app).post(
-        "/subscription", json={"plano": "ilimitado"}, headers=_AUTH
+        "/subscription", json={"plano": "ilimitado", "cpfCnpj": "249.715.637-92"}, headers=_AUTH
     )
     assert resp.status_code == 422
 

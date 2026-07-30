@@ -68,6 +68,11 @@ export function AssinaturaScreen() {
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("overview");
   const [checkoutPlan, setCheckoutPlan] = useState<PlanCode | null>(null);
+  const [cpfCnpj, setCpfCnpj] = useState("");
+  const [checkoutLinks, setCheckoutLinks] = useState<{
+    monthly: string | null;
+    setup: string | null;
+  } | null>(null);
 
   const [toast, setToast] = useState<Toast | null>(null);
   const toastTimer = useRef<number | null>(null);
@@ -146,15 +151,19 @@ export function AssinaturaScreen() {
   const contract = useCallback(
     async (plano: PlanCode) => {
       if (!token || checkoutPlan) return;
+      const billingDocument = cpfCnpj.replace(/\D/g, "");
+      if (billingDocument.length !== 11 && billingDocument.length !== 14) {
+        flashToast({ kind: "err", text: "Informe um CPF ou CNPJ válido para iniciar o checkout." });
+        return;
+      }
       setCheckoutPlan(plano);
       try {
-        const result = await createCheckout(token, { plano });
-        if (result.invoiceUrl) {
-          window.open(result.invoiceUrl, "_blank", "noopener,noreferrer");
-        }
+        const result = await createCheckout(token, { plano, cpfCnpj: billingDocument });
+        setCpfCnpj("");
+        setCheckoutLinks({ monthly: result.invoiceUrl, setup: result.setupInvoiceUrl });
         flashToast({
           kind: "ok",
-          text: "Checkout iniciado — conclua o pagamento. O acesso libera após a confirmação.",
+          text: "Checkout iniciado — use os links de pagamento abaixo. O acesso libera após a confirmação.",
         });
         await load("retry");
       } catch (err) {
@@ -167,7 +176,7 @@ export function AssinaturaScreen() {
         setCheckoutPlan(null);
       }
     },
-    [token, checkoutPlan, flashToast, load, handleSessionError],
+    [token, checkoutPlan, cpfCnpj, flashToast, load, handleSessionError],
   );
 
   const showSkeleton = loading && !loaded;
@@ -228,6 +237,60 @@ export function AssinaturaScreen() {
           >
             {checkoutPlan != null ? "Abrindo…" : "Regularizar pagamento"}
           </button>
+        </div>
+      ) : null}
+
+      {checkoutLinks ? (
+        <div className="card card-pad" style={{ marginBottom: "var(--s4)" }}>
+          <h4 style={{ marginTop: 0 }}>Conclua as cobranças</h4>
+          <p className="sub" style={{ color: "var(--muted)" }}>
+            A mensalidade e a taxa inicial, quando aplicável, são cobranças separadas.
+          </p>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--s2)" }}>
+            {checkoutLinks.monthly ? (
+              <a
+                className="btn btn-primary"
+                href={checkoutLinks.monthly}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Pagar mensalidade
+              </a>
+            ) : null}
+            {checkoutLinks.setup ? (
+              <a className="btn" href={checkoutLinks.setup} target="_blank" rel="noreferrer">
+                Pagar taxa de setup
+              </a>
+            ) : null}
+          </div>
+          {!checkoutLinks.monthly && !checkoutLinks.setup ? (
+            <p className="sub" style={{ color: "var(--muted)", marginBottom: 0 }}>
+              Os links ainda estão sendo preparados pelo Asaas. Atualize esta tela em instantes.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {!showSkeleton && (sub === null || uiState === "past-due") ? (
+        <div className="card card-pad" style={{ marginBottom: "var(--s4)" }}>
+          <div className="field" style={{ margin: 0, maxWidth: 360 }}>
+            <label htmlFor="subscription-cpf-cnpj">CPF ou CNPJ do responsável financeiro</label>
+            <input
+              id="subscription-cpf-cnpj"
+              className="input"
+              type="text"
+              inputMode="numeric"
+              autoComplete="off"
+              placeholder="000.000.000-00 ou 00.000.000/0000-00"
+              value={cpfCnpj}
+              onChange={(event) => setCpfCnpj(event.target.value)}
+              aria-describedby="subscription-cpf-cnpj-help"
+              aria-invalid={cpfCnpj.length > 0 && cpfCnpj.replace(/\D/g, "").length !== 11 && cpfCnpj.replace(/\D/g, "").length !== 14 ? true : undefined}
+            />
+            <p id="subscription-cpf-cnpj-help" className="helper">
+              Usado somente para criar a cobrança no Asaas; não fica salvo no painel.
+            </p>
+          </div>
         </div>
       ) : null}
 

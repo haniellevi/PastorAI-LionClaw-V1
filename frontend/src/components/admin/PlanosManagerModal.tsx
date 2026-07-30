@@ -17,7 +17,9 @@ import {
   AdminSessionExpiredError,
   createPlano,
   deletePlano,
+  fetchBillingSettings,
   listPlanos,
+  updateBillingSettings,
   updatePlano,
   type AdminPlano,
 } from "@/lib/admin-api";
@@ -75,6 +77,7 @@ export function PlanosManagerModal({
   const [form, setForm] = useState<FormState>(EMPTY);
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [setupFeeInput, setSetupFeeInput] = useState("");
 
   const handleErr = useCallback(
     (err: unknown, fallback: string): string | null => {
@@ -90,7 +93,12 @@ export function PlanosManagerModal({
   const load = useCallback(async () => {
     setError(null);
     try {
-      setPlanos(await listPlanos(token));
+      const [nextPlanos, billing] = await Promise.all([
+        listPlanos(token),
+        fetchBillingSettings(token),
+      ]);
+      setPlanos(nextPlanos);
+      setSetupFeeInput(String(billing.setupFeePadrao));
     } catch (err) {
       const m = handleErr(err, "Não foi possível carregar os planos.");
       if (m) setError(m);
@@ -188,6 +196,27 @@ export function PlanosManagerModal({
     } catch (err) {
       const m = handleErr(err, "Não foi possível excluir o plano.");
       if (m) setError(m); // o 409 (plano em uso) chega aqui
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveSetupFee = async () => {
+    const rawSetupFee = setupFeeInput.trim();
+    const setupFee = Number(rawSetupFee);
+    if (!rawSetupFee || !Number.isFinite(setupFee) || setupFee < 0) {
+      setError("Taxa padrão de setup inválida.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const saved = await updateBillingSettings(token, { setupFeePadrao: setupFee });
+      setSetupFeeInput(String(saved.setupFeePadrao));
+      onChanged?.();
+    } catch (err) {
+      const m = handleErr(err, "Não foi possível atualizar a taxa de setup.");
+      if (m) setError(m);
     } finally {
       setBusy(false);
     }
@@ -315,65 +344,92 @@ export function PlanosManagerModal({
                   Carregando os planos…
                 </div>
               </div>
-            ) : planos.length === 0 ? (
-              <p className="sub" style={{ color: "var(--muted)" }}>
-                Nenhum plano cadastrado.
-              </p>
             ) : (
-              <table className="data-table">
-                <thead>
-                  <tr>
-                    <th>Plano</th>
-                    <th className="num">Limite</th>
-                    <th className="num">Mensalidade</th>
-                    <th className="num">Em uso</th>
-                    <th />
-                  </tr>
-                </thead>
-                <tbody>
-                  {planos.map((p) => (
-                    <tr key={p.id} style={{ opacity: p.ativo ? 1 : 0.55 }}>
-                      <td className="nm">
-                        {p.nome}
-                        <div className="sub" style={{ color: "var(--muted)" }}>
-                          {p.codigo}
-                          {p.ativo ? "" : " · inativo"}
-                        </div>
-                      </td>
-                      <td className="num">
-                        {p.limitePessoas == null ? "Ilimitado" : p.limitePessoas}
-                      </td>
-                      <td className="num">{brl(p.precoMensal)}</td>
-                      <td className="num">{p.emUso}</td>
-                      <td>
-                        <div style={{ display: "flex", gap: "var(--s2)", justifyContent: "flex-end" }}>
-                          <button
-                            type="button"
-                            className="btn btn-sm btn-ghost"
-                            onClick={() => startEdit(p)}
-                            disabled={busy}
-                          >
-                            Editar
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn-sm btn-danger"
-                            onClick={() => void remove(p)}
-                            disabled={busy || p.emUso > 0}
-                            title={
-                              p.emUso > 0
-                                ? "Há igrejas neste plano — desative em vez de excluir."
-                                : undefined
-                            }
-                          >
-                            Excluir
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <>
+                <div
+                  style={{
+                    borderBottom: "1px solid var(--border)",
+                    marginBottom: "var(--s4)",
+                    paddingBottom: "var(--s3)",
+                  }}
+                >
+                  <Field
+                    label="Taxa padrão de setup (R$)"
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={setupFeeInput}
+                    onChange={(event) => setSetupFeeInput(event.target.value)}
+                    helper="Vale para igrejas sem taxa personalizada."
+                    disabled={busy}
+                  />
+                  <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "var(--s2)" }}>
+                    <Button variant="primary" size="sm" onClick={() => void saveSetupFee()} disabled={busy}>
+                      Salvar taxa padrão
+                    </Button>
+                  </div>
+                </div>
+                {planos.length === 0 ? (
+                  <p className="sub" style={{ color: "var(--muted)" }}>
+                    Nenhum plano cadastrado.
+                  </p>
+                ) : (
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Plano</th>
+                        <th className="num">Limite</th>
+                        <th className="num">Mensalidade</th>
+                        <th className="num">Em uso</th>
+                        <th />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {planos.map((p) => (
+                        <tr key={p.id} style={{ opacity: p.ativo ? 1 : 0.55 }}>
+                          <td className="nm">
+                            {p.nome}
+                            <div className="sub" style={{ color: "var(--muted)" }}>
+                              {p.codigo}
+                              {p.ativo ? "" : " · inativo"}
+                            </div>
+                          </td>
+                          <td className="num">
+                            {p.limitePessoas == null ? "Ilimitado" : p.limitePessoas}
+                          </td>
+                          <td className="num">{brl(p.precoMensal)}</td>
+                          <td className="num">{p.emUso}</td>
+                          <td>
+                            <div style={{ display: "flex", gap: "var(--s2)", justifyContent: "flex-end" }}>
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-ghost"
+                                onClick={() => startEdit(p)}
+                                disabled={busy}
+                              >
+                                Editar
+                              </button>
+                              <button
+                                type="button"
+                                className="btn btn-sm btn-danger"
+                                onClick={() => void remove(p)}
+                                disabled={busy || p.emUso > 0}
+                                title={
+                                  p.emUso > 0
+                                    ? "Há igrejas neste plano — desative em vez de excluir."
+                                    : undefined
+                                }
+                              >
+                                Excluir
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </>
             )}
 
             <div className="modal-foot">

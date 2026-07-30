@@ -47,6 +47,7 @@ export function CreateIgrejaModal({
   const planOptions = planos && planos.length ? planos : FALLBACK_PLANOS;
   const [nome, setNome] = useState("");
   const [plano, setPlano] = useState("");
+  const [setupFeeOverride, setSetupFeeOverride] = useState("");
   const [adminNome, setAdminNome] = useState("");
   const [adminEmail, setAdminEmail] = useState("");
   const [touched, setTouched] = useState(false);
@@ -56,13 +57,22 @@ export function CreateIgrejaModal({
     touched && !adminNome.trim() ? "Informe o nome do administrador." : undefined;
   const adminEmailError =
     touched && !adminEmail.includes("@") ? "Informe um e-mail válido." : undefined;
+  const setupFeeValue =
+    setupFeeOverride.trim() === "" ? null : Number(setupFeeOverride);
+  const setupFeeError =
+    touched &&
+    setupFeeValue !== null &&
+    (!Number.isFinite(setupFeeValue) || setupFeeValue < 0)
+      ? "Taxa de setup inválida."
+      : undefined;
 
   const submit = () => {
     setTouched(true);
-    if (!nome.trim() || !adminNome.trim() || !adminEmail.includes("@")) return;
+    if (!nome.trim() || !adminNome.trim() || !adminEmail.includes("@") || setupFeeError) return;
     onSubmit({
       nome: nome.trim(),
       plano: plano || null,
+      setupFeeOverride: setupFeeValue,
       admin: { nome: adminNome.trim(), email: adminEmail.trim() },
     });
   };
@@ -126,6 +136,18 @@ export function CreateIgrejaModal({
             ))}
           </select>
         </div>
+
+        <Field
+          label="Taxa de setup personalizada (R$)"
+          type="number"
+          min={0}
+          step="0.01"
+          value={setupFeeOverride}
+          onChange={(e) => setSetupFeeOverride(e.target.value)}
+          placeholder="Use a taxa padrão"
+          helper="Deixe vazio para usar a taxa padrão definida no painel master."
+          error={setupFeeError}
+        />
 
         <Field
           label="Administrador — nome"

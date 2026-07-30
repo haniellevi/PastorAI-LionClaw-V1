@@ -310,6 +310,10 @@ function DashboardTab({
           label="Mensalidade"
           value={detail?.mensalidade != null ? brl(detail.mensalidade) : "—"}
         />
+        <Stat
+          label="Setup inicial"
+          value={detail ? brl(detail.setupFeeAplicavel) : "…"}
+        />
         <Stat label="Custo de IA" value={detail ? brl(detail.custoIa) : "…"} />
         <Stat
           label="Chave de IA"

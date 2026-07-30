@@ -33,6 +33,7 @@ from app.db.models import (
     AgentConfigRequest,
     AiUsageLog,
     AppUser,
+    BillingSettings,
     Celula,
     Igreja,
     LlmCredential,
@@ -49,6 +50,7 @@ from app.db.session import get_db
 from app.deps import PlatformAdminUser, get_platform_admin
 from app.domain.permissions import DEFAULT_PERMISSIONS
 from app.services.brevo import BrevoClient, BrevoError, get_brevo_client
+from app.services.billing import get_setup_fee_default, get_setup_fee_for_igreja
 from app.services.clerk import ClerkAuthError, ClerkClient, get_clerk_client
 from app.services.rate_limit import RateLimiter, get_rate_limiter
 
@@ -231,6 +233,7 @@ class IgrejaOut(BaseModel):
     nome: str
     status: str
     plano: str | None = None
+    setupFeeOverride: float | None = None  # noqa: N815
     membros: int = 0
     pessoas: int = 0
     createdAt: str | None = None  # noqa: N815 - external contract is camelCase
@@ -262,6 +265,7 @@ class AdminSeed(BaseModel):
 class CreateIgrejaRequest(BaseModel):
     nome: str = Field(min_length=1, max_length=200)
     plano: str | None = Field(default=None)
+    setupFeeOverride: float | None = Field(default=None, ge=0)  # noqa: N815
     admin: AdminSeed
 
     @field_validator("nome")
@@ -292,6 +296,8 @@ class UpdateIgrejaRequest(BaseModel):
     nome: str | None = Field(default=None, max_length=200)
     status: str | None = Field(default=None)
     plano: str | None = Field(default=None)
+    # Null explícito limpa a exceção e volta ao valor padrão do master.
+    setupFeeOverride: float | None = Field(default=None, ge=0)  # noqa: N815
 
     @field_validator("nome")
     @classmethod
@@ -385,6 +391,11 @@ def list_igrejas(
             nome=ig.nome,
             status=ig.status,
             plano=ig.plano,
+            setupFeeOverride=(
+                float(ig.setup_fee_override)
+                if ig.setup_fee_override is not None
+                else None
+            ),
             membros=int(membros_por.get(ig.id, 0)),
             pessoas=int(pessoas_por.get(ig.id, 0)),
             createdAt=ig.created_at.isoformat() if ig.created_at else None,
@@ -422,7 +433,10 @@ def create_igreja(
         _validate_plano_or_422(db, payload.plano)
 
     igreja = Igreja(
-        nome=payload.nome, status="aguardando_aprovacao", plano=payload.plano
+        nome=payload.nome,
+        status="aguardando_aprovacao",
+        plano=payload.plano,
+        setup_fee_override=payload.setupFeeOverride,
     )
     db.add(igreja)
     db.flush()  # assign igreja.id
@@ -440,7 +454,11 @@ def create_igreja(
     igreja.dono_id = app_user.id  # #4: o primeiro admin é o dono (gerencia a Assinatura)
     _audit(
         db, admin, "provisionar", "igreja", igreja.id, igreja.nome,
-        {"plano": payload.plano, "adminEmail": email},
+        {
+            "plano": payload.plano,
+            "setupFeeOverride": payload.setupFeeOverride,
+            "adminEmail": email,
+        },
     )
     db.commit()
 
@@ -474,10 +492,15 @@ def update_igreja(
     Edit church data, suspend/reactivate/approve, or move it between plans. At
     least one field must be provided (422 otherwise).
     """
-    if payload.nome is None and payload.status is None and payload.plano is None:
+    if (
+        payload.nome is None
+        and payload.status is None
+        and payload.plano is None
+        and "setupFeeOverride" not in payload.model_fields_set
+    ):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Informe ao menos um campo para atualizar (nome, status ou plano)",
+            detail="Informe ao menos um campo para atualizar",
         )
 
     try:
@@ -498,13 +521,24 @@ def update_igreja(
     if payload.plano is not None:
         _validate_plano_or_422(db, payload.plano)
 
-    antes = {"nome": igreja.nome, "status": igreja.status, "plano": igreja.plano}
+    antes = {
+        "nome": igreja.nome,
+        "status": igreja.status,
+        "plano": igreja.plano,
+        "setupFeeOverride": (
+            float(igreja.setup_fee_override)
+            if igreja.setup_fee_override is not None
+            else None
+        ),
+    }
     if payload.nome is not None:
         igreja.nome = payload.nome
     if payload.status is not None:
         igreja.status = payload.status
     if payload.plano is not None:
         igreja.plano = payload.plano
+    if "setupFeeOverride" in payload.model_fields_set:
+        igreja.setup_fee_override = payload.setupFeeOverride
     _audit(
         db, admin, "editar", "igreja", igreja.id, igreja.nome,
         {
@@ -513,6 +547,11 @@ def update_igreja(
                 "nome": igreja.nome,
                 "status": igreja.status,
                 "plano": igreja.plano,
+                "setupFeeOverride": (
+                    float(igreja.setup_fee_override)
+                    if igreja.setup_fee_override is not None
+                    else None
+                ),
             },
         },
     )
@@ -538,6 +577,11 @@ def update_igreja(
         nome=igreja.nome,
         status=igreja.status,
         plano=igreja.plano,
+        setupFeeOverride=(
+            float(igreja.setup_fee_override)
+            if igreja.setup_fee_override is not None
+            else None
+        ),
         membros=membros,
         pessoas=pessoas,
         createdAt=igreja.created_at.isoformat() if igreja.created_at else None,
@@ -702,6 +746,8 @@ class IgrejaDetailOut(BaseModel):
     plano: str | None = None
     createdAt: str | None = None  # noqa: N815
     mensalidade: float | None = None  # R$/mês do plano (None se sem plano)
+    setupFeeOverride: float | None = None  # noqa: N815
+    setupFeeAplicavel: float = 0  # noqa: N815
     membros: int = 0  # app_users (acessos ao painel)
     pessoas: int = 0  # Pessoa (cadastro)
     celulas: int = 0
@@ -831,6 +877,7 @@ def get_igreja_detail(
     )
 
     mensalidade = _plano_precos(db).get(igreja.plano) if igreja.plano else None
+    setup_fee_aplicavel = get_setup_fee_for_igreja(db, igreja)
 
     return IgrejaDetailOut(
         id=str(igreja.id),
@@ -839,6 +886,12 @@ def get_igreja_detail(
         plano=igreja.plano,
         createdAt=igreja.created_at.isoformat() if igreja.created_at else None,
         mensalidade=mensalidade,
+        setupFeeOverride=(
+            float(igreja.setup_fee_override)
+            if igreja.setup_fee_override is not None
+            else None
+        ),
+        setupFeeAplicavel=setup_fee_aplicavel,
         membros=membros,
         pessoas=pessoas,
         celulas=celulas,
@@ -1504,6 +1557,58 @@ def set_igreja_dono(
     )
     db.commit()
     return DonoResponse(donoId=str(user.id))
+
+
+# ---------------------------------------------------------------------------
+# Cobrança e planos — valores definidos pelo master
+# ---------------------------------------------------------------------------
+class BillingSettingsOut(BaseModel):
+    setupFeePadrao: float  # noqa: N815
+
+
+class UpdateBillingSettingsRequest(BaseModel):
+    setupFeePadrao: float = Field(ge=0)  # noqa: N815
+
+
+def _billing_settings_row(db: Session) -> BillingSettings | None:
+    return db.execute(
+        select(BillingSettings).where(BillingSettings.id == 1)
+    ).scalar_one_or_none()
+
+
+@router.get("/billing/settings", response_model=BillingSettingsOut)
+def get_billing_settings(
+    db: Session = Depends(get_db),
+    _admin: PlatformAdminUser = Depends(get_platform_admin),
+) -> BillingSettingsOut:
+    """Mostra a taxa padrão usada quando uma igreja não tem exceção própria."""
+    return BillingSettingsOut(setupFeePadrao=get_setup_fee_default(db))
+
+
+@router.put("/billing/settings", response_model=BillingSettingsOut)
+def put_billing_settings(
+    payload: UpdateBillingSettingsRequest,
+    db: Session = Depends(get_db),
+    admin: PlatformAdminUser = Depends(get_platform_admin),
+) -> BillingSettingsOut:
+    """Define a taxa padrão de setup para novas contratações."""
+    settings_row = _billing_settings_row(db)
+    if settings_row is None:
+        settings_row = BillingSettings(id=1, setup_fee_default=payload.setupFeePadrao)
+        db.add(settings_row)
+    else:
+        settings_row.setup_fee_default = payload.setupFeePadrao
+    _audit(
+        db,
+        admin,
+        "billing_setup_padrao_editar",
+        "plataforma",
+        None,
+        "Cobrança",
+        {"setupFeePadrao": payload.setupFeePadrao},
+    )
+    db.commit()
+    return BillingSettingsOut(setupFeePadrao=float(payload.setupFeePadrao))
 
 
 # ---------------------------------------------------------------------------

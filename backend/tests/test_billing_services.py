@@ -6,7 +6,8 @@ import datetime as dt
 
 import pytest
 
-from app.services.asaas import AsaasClient, map_payment_status, verify_webhook_token
+from app.config import Settings
+from app.services.asaas import AsaasClient, AsaasError, map_payment_status, verify_webhook_token
 from app.services.google_calendar import GoogleCalendarError, _to_rfc3339
 
 
@@ -37,6 +38,76 @@ def test_asaas_headers_identify_the_client() -> None:
         "Content-Type": "application/json",
         "User-Agent": "PastorAI/1.0 (Python; billing)",
     }
+
+
+def test_customer_lookup_and_creation_require_the_document() -> None:
+    calls: list[dict] = []
+
+    class _Response:
+        def __init__(self, body: dict) -> None:
+            self._body = body
+
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self) -> dict:
+            return self._body
+
+    class _Client:
+        def get(self, path: str, *, headers: dict, params: dict) -> _Response:
+            calls.append({"method": "get", "path": path, "headers": headers, "params": params})
+            return _Response({"data": []})
+
+        def post(self, path: str, *, headers: dict, json: dict) -> _Response:
+            calls.append({"method": "post", "path": path, "headers": headers, "json": json})
+            return _Response({"id": "cus_test"})
+
+    customer_id = AsaasClient()._ensure_customer(
+        _Client(),
+        {"access_token": "test"},
+        nome="Igreja Teste",
+        email="financeiro@example.com",
+        cpf_cnpj="24971563792",
+    )
+
+    assert customer_id == "cus_test"
+    assert calls == [
+        {
+            "method": "get",
+            "path": "/customers",
+            "headers": {"access_token": "test"},
+            "params": {"cpfCnpj": "24971563792"},
+        },
+        {
+            "method": "post",
+            "path": "/customers",
+            "headers": {"access_token": "test"},
+            "json": {
+                "name": "Igreja Teste",
+                "email": "financeiro@example.com",
+                "cpfCnpj": "24971563792",
+            },
+        },
+    ]
+
+
+def test_checkout_rejects_setup_fee_below_asaas_minimum_before_network() -> None:
+    settings = Settings(
+        app_env="staging",
+        allow_real_sends=True,
+        asaas_api_url="https://api-sandbox.asaas.com/v3",
+        asaas_api_key="sandbox-key",
+        asaas_setup_fee=3.0,
+    )
+
+    with pytest.raises(AsaasError, match=r"pelo menos R\$ 5,00"):
+        AsaasClient(settings).create_checkout(
+            nome="Igreja Teste",
+            email="financeiro@example.com",
+            plano="ate_100",
+            valor=19.9,
+            cpf_cnpj="24971563792",
+        )
 
 
 def test_subscription_payload_sets_first_due_date() -> None:
@@ -95,7 +166,7 @@ def test_setup_charge_payload_sets_due_date() -> None:
             pass
 
         def json(self) -> dict[str, str]:
-            return {"id": "pay_test"}
+            return {"id": "pay_test", "invoiceUrl": "https://asaas.test/setup"}
 
     class _Client:
         def post(self, path: str, *, headers: dict, json: dict) -> _Response:
@@ -103,10 +174,14 @@ def test_setup_charge_payload_sets_due_date() -> None:
             return _Response()
 
     result = AsaasClient()._create_setup_charge(
-        _Client(), {"access_token": "test"}, customer_id="cus_test", valor=3.0
+        _Client(),
+        {"access_token": "test"},
+        customer_id="cus_test",
+        valor=3.0,
+        external_reference="igreja_1",
     )
 
-    assert result == "pay_test"
+    assert result == {"id": "pay_test", "invoiceUrl": "https://asaas.test/setup"}
     assert calls == [
         {
             "path": "/payments",
@@ -117,6 +192,7 @@ def test_setup_charge_payload_sets_due_date() -> None:
                 "value": 3.0,
                 "dueDate": dt.date.today().isoformat(),
                 "description": "PastorAI — taxa de setup",
+                "externalReference": "igreja_1",
             },
         }
     ]

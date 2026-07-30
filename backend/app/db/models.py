@@ -55,6 +55,11 @@ class Igreja(Base):
         String, nullable=False, server_default=text("'ativa'")
     )
     plano: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Valor excepcional de setup definido pelo master para esta igreja. NULL
+    # significa usar a taxa padrão global de cobrança.
+    setup_fee_override: Mapped[float | None] = mapped_column(
+        Numeric(10, 2), nullable=True
+    )
     # #4: dono (admin principal) — único admin que enxerga/gerencia a Assinatura.
     # FK -> app_users (definido adiante); SET NULL no delete. NULL = sem dono.
     dono_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -1172,6 +1177,9 @@ class Subscription(Base):
     proxima_cobranca: Mapped[dt.date | None] = mapped_column(Date, nullable=True)
     asaas_customer_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     asaas_subscription_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Pagamento avulso da taxa de setup. O webhook usa este id para não
+    # confundir a confirmação mensal com a confirmação do setup.
+    asaas_setup_charge_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     setup_pago: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false")
     )
@@ -1653,6 +1661,24 @@ class Plano(Base):
         Integer, nullable=False, server_default=text("0")
     )
     created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+
+class BillingSettings(Base):
+    """Configuração global de cobrança definida pelo console master.
+
+    Há uma única linha (``id=1``). ``setup_fee_default`` nulo mantém o valor
+    legado de ambiente até o master salvar a taxa no painel.
+    """
+
+    __tablename__ = "billing_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    setup_fee_default: Mapped[float | None] = mapped_column(
+        Numeric(10, 2), nullable=True
+    )
+    updated_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
 
