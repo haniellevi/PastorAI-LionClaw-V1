@@ -20,6 +20,7 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import Update
 
 from app.config import get_settings
 from app.db.session import get_db
@@ -69,6 +70,17 @@ class _WebhookDb:
 
     def execute(self, statement, params=None) -> _Result:
         bound = statement.compile().params
+        if isinstance(statement, Update):
+            # UPDATE condicional da igreja (P1 Codex): como no banco real, o
+            # WHERE (id + status esperado) é avaliado contra o estado ATUAL do
+            # registro no momento do UPDATE — casa, aplica; não casa, 0 linhas.
+            if (
+                self.igreja is not None
+                and str(bound.get("id_1")) == str(self.igreja.id)
+                and bound.get("status_1") == self.igreja.status
+            ):
+                self.igreja.status = bound["status"]
+            return _Result(None)
         sub = self.sub
         if sub is not None:
             for key, value in bound.items():
@@ -79,11 +91,6 @@ class _WebhookDb:
                 if key.startswith("igreja_id") and str(value) == str(sub.igreja_id):
                     return _Result(sub)
         return _Result(None)
-
-    def get(self, _model, pk):
-        if self.igreja is not None and str(pk) == str(self.igreja.id):
-            return self.igreja
-        return None
 
     def commit(self) -> None:
         self.commits += 1
@@ -286,6 +293,54 @@ def test_estados_administrativos_sao_preservados(
     assert resp.json()["status"] == esperado_sub
     assert db.sub.status == esperado_sub
     assert db.igreja.status == estado_admin
+
+
+class _RacingDb(_WebhookDb):
+    """Simula o console master comitando um estado administrativo DURANTE o
+    request do webhook — depois da resolução da assinatura (primeiro select),
+    antes do UPDATE da igreja. É a corrida do P1 do Codex: com read-check-write
+    o webhook sobrescreveria; com UPDATE condicional o WHERE vê o estado novo
+    e afeta zero linhas.
+    """
+
+    def __init__(self, sub, igreja, admin_status: str) -> None:
+        super().__init__(sub=sub, igreja=igreja)
+        self._admin_status: str | None = admin_status
+
+    def execute(self, statement, params=None) -> _Result:
+        result = super().execute(statement, params)
+        if self._admin_status is not None and not isinstance(statement, Update):
+            # "admin comitou" logo após o webhook resolver a assinatura.
+            self.igreja.status = self._admin_status
+            self._admin_status = None
+        return result
+
+
+@pytest.mark.parametrize("estado_admin", ["suspensa", "aguardando_aprovacao"])
+@pytest.mark.parametrize(
+    ("event", "payment_status", "estado_inicial", "esperado_sub"),
+    [
+        ("PAYMENT_CONFIRMED", "CONFIRMED", "inadimplente", "ativa"),
+        ("PAYMENT_OVERDUE", "OVERDUE", "ativa", "inadimplente"),
+    ],
+)
+def test_corrida_com_admin_durante_request_preserva_estado(
+    app, monkeypatch, estado_admin, event, payment_status, estado_inicial, esperado_sub
+) -> None:
+    # A igreja começa num estado ELEGÍVEL para a transição (sem a corrida o
+    # UPDATE aplicaria); o admin comita suspensa/aguardando_aprovacao no meio
+    # do request e o UPDATE condicional precisa afetar zero linhas.
+    db = _RacingDb(
+        sub=_sub(status="pendente", setup_pago=False),
+        igreja=_igreja(estado_inicial),
+        admin_status=estado_admin,
+    )
+    client = _client(app, db, monkeypatch)
+    resp = _post(client, event, _payment(status=payment_status))
+    assert resp.status_code == 200
+    assert db.igreja.status == estado_admin  # estado administrativo venceu
+    assert db.sub.status == esperado_sub  # assinatura segue o financeiro
+    assert db.commits == 1
 
 
 def test_token_incorreto_rejeitado(app, monkeypatch) -> None:

@@ -20,7 +20,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.agent.masking import release_agent_event, reserve_agent_event
@@ -424,11 +424,17 @@ def asaas_webhook(
         # — a aprovação também semeia permissões/AgentConfig) nunca são
         # sobrescritos por webhook, e "pendente" (fatura recém-emitida)
         # preserva qualquer igreja.status.
+        # A transição é um UPDATE condicional (WHERE inclui o estado esperado):
+        # a decisão acontece atomicamente no banco, então uma mudança
+        # administrativa comitada durante este request (corrida com o console
+        # master) faz o UPDATE afetar zero linhas em vez de ser sobrescrita.
         if new_status in ("ativa", "inadimplente"):
-            igreja = db.get(Igreja, sub.igreja_id)
             expected = "inadimplente" if new_status == "ativa" else "ativa"
-            if igreja is not None and igreja.status == expected:
-                igreja.status = new_status
+            db.execute(
+                update(Igreja)
+                .where(Igreja.id == sub.igreja_id, Igreja.status == expected)
+                .values(status=new_status)
+            )
         db.commit()
 
     return WebhookResponse(received=True, status=new_status)
