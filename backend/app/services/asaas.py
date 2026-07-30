@@ -11,6 +11,7 @@ The client never raises raw HTTP errors to callers: failures are normalized to
 
 from __future__ import annotations
 
+import datetime as dt
 import hmac
 import logging
 from dataclasses import dataclass
@@ -191,6 +192,9 @@ class AsaasClient:
             "billingType": "UNDEFINED",
             "value": valor,
             "cycle": ciclo,
+            # A primeira cobrança precisa de uma data explícita no contrato do
+            # Asaas. Hoje preserva o checkout imediato esperado pelo produto.
+            "nextDueDate": dt.date.today().isoformat(),
             "description": descricao,
         }
         if external_reference:
