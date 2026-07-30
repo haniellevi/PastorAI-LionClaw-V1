@@ -29,6 +29,16 @@ def test_verify_webhook_token_constant_time() -> None:
     assert verify_webhook_token("secret", None) is False
 
 
+def test_asaas_headers_identify_the_client() -> None:
+    headers = AsaasClient()._headers("test")
+
+    assert headers == {
+        "access_token": "test",
+        "Content-Type": "application/json",
+        "User-Agent": "PastorAI/1.0 (Python; billing)",
+    }
+
+
 def test_subscription_payload_sets_first_due_date() -> None:
     """Asaas exige a data da primeira cobrança ao criar uma assinatura."""
 

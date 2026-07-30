@@ -84,7 +84,11 @@ class AsaasClient:
         return base_url.rstrip("/"), api_key
 
     def _headers(self, api_key: str) -> dict[str, str]:
-        return {"access_token": api_key, "Content-Type": "application/json"}
+        return {
+            "access_token": api_key,
+            "Content-Type": "application/json",
+            "User-Agent": "PastorAI/1.0 (Python; billing)",
+        }
 
     def create_checkout(
         self,
