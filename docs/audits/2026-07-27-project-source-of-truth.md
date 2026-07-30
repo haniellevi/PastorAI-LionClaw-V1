@@ -369,9 +369,19 @@ educativo.
 
 **Dívidas de evidência (não são funcionalidade):**
 
-- Smoke funcional pendente de OPTIN-1 e REATIVAR-1 (FECH-2 deployado; 2 smokes BLOCKED por
-  ausência de dados elegíveis).
-- Billing (cobrança real Asaas) em produção sem smoke autenticado versionado.
+- ~~Smoke funcional pendente de OPTIN-1 e REATIVAR-1~~ — **concluídos em DEV em 2026-07-30**
+  (`docs/sprints/2026-07-30-v1-acceptance-dev-smokes.md`). Ambos os fluxos passaram no
+  ambiente DEV isolado (`APP_ENV=staging`, projeto `cxmjojnocigekgcxhubi`), com dados
+  sintéticos prefixados `SMOKE` e envios externos desligados. **Nenhuma escrita foi feita
+  em PROD** — a prova é deliberadamente de DEV e não declara que a mesma escrita foi
+  repetida em produção.
+- ~~Billing (cobrança real Asaas) em produção sem smoke autenticado versionado~~ —
+  **deixa de ser pendência da V1 por decisão do dono em 2026-07-30**
+  (`docs/decisions/2026-07-30-v1-billing-sandbox.md`). Cobrança real em PROD **não está
+  autorizada** e não é requisito de encerramento. Isso **não** significa que o billing foi
+  validado ponta a ponta: a validação financeira continua por fazer, como a missão futura
+  **`BILLING-SANDBOX-1`**, restrita a sandbox ou ambiente financeiro de teste separado de
+  PROD. Sem esse ambiente, a missão fica `BLOCKED` — nunca substituída por PROD.
 - Registro de sprint ausente para PR#209 e PR#210.
 - Risco residual aceito: `GHSA-mh99-v99m-4gvg` dev-only
   (`docs/security/2026-07-27-sec-dep-4a-dev-only-risk-acceptance.md`); BAIXO-002 (FORCE RLS
