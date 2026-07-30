@@ -171,18 +171,28 @@ export function InboxScreen() {
   }, [token, canReadConnection, handleSessionError]);
 
   // ---- histórico de mensagens da conversa selecionada ---------------------
+  // INBOX-RACE-1: qual conversa está aberta AGORA. Requisições de /messages são
+  // concorrentes (troca de conversa, polling, envio), e a resposta de uma
+  // conversa antiga pode chegar depois da atual — sem esta guarda ela
+  // sobrescreveria a thread sob o cabeçalho de outro contato.
+  const selectedIdRef = useRef<string | null>(null);
+
   const loadMessages = useCallback(
     async (convId: string, mode: "initial" | "poll" = "initial") => {
       if (!token) return;
       if (mode === "initial") setMessagesLoading(true);
       try {
         const items = await fetchMessages(token, convId);
+        // Resposta obsoleta (a conversa já mudou): descarta sem tocar na UI.
+        if (selectedIdRef.current !== convId) return;
         setMessages(items);
       } catch (err) {
         if (handleSessionError(err)) return;
         // No poll a falha é silenciosa; no initial a thread mostra vazio.
       } finally {
-        if (mode === "initial") setMessagesLoading(false);
+        // Idem para o "carregando": só a requisição da conversa atual pode
+        // encerrá-lo — senão a resposta antiga apagaria o skeleton da nova.
+        if (mode === "initial" && selectedIdRef.current === convId) setMessagesLoading(false);
       }
     },
     [token, handleSessionError],
@@ -190,6 +200,7 @@ export function InboxScreen() {
 
   // Ao trocar de conversa, limpa e recarrega o histórico daquela conversa.
   useEffect(() => {
+    selectedIdRef.current = selectedId;
     if (!selectedId) {
       setMessages([]);
       return;
