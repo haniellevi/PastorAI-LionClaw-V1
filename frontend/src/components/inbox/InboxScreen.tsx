@@ -182,11 +182,21 @@ export function InboxScreen() {
   // então o polling e o envio da conversa atual seguem na mesma geração da carga
   // inicial e não deixam o `messagesLoading` preso.
   const selectionGenRef = useRef(0);
+  // INBOX-RACE-1B: dentro da MESMA visita ainda há concorrência — a carga
+  // inicial e o polling (ou o recarregamento pós-envio) correm juntos. Se a mais
+  // nova responder primeiro, a mais antiga chegando depois voltaria o histórico
+  // para um snapshot vencido. `reqSeq` numera cada requisição e `appliedSeq`
+  // guarda a última que escreveu; uma iniciada antes dessa não escreve mais.
+  // Ordena só a ESCRITA: o fim do `messagesLoading` continua preso à visita,
+  // senão uma carga inicial ultrapassada por um poll deixaria o skeleton na tela.
+  const reqSeqRef = useRef(0);
+  const appliedSeqRef = useRef(0);
 
   const loadMessages = useCallback(
     async (convId: string, mode: "initial" | "poll" = "initial") => {
       if (!token) return;
       const gen = selectionGenRef.current;
+      const seq = (reqSeqRef.current += 1);
       // A requisição só continua valendo se, na volta, a conversa aberta for a
       // mesma E ainda for a mesma visita a ela.
       const atual = () => selectedIdRef.current === convId && selectionGenRef.current === gen;
@@ -196,6 +206,10 @@ export function InboxScreen() {
         // Resposta obsoleta (trocou de conversa, ou é de uma visita anterior a
         // esta mesma conversa): descarta sem tocar na UI.
         if (!atual()) return;
+        // Fora de ordem: outra requisição desta mesma visita, iniciada depois,
+        // já escreveu um histórico mais recente.
+        if (seq < appliedSeqRef.current) return;
+        appliedSeqRef.current = seq;
         setMessages(items);
       } catch (err) {
         if (handleSessionError(err)) return;
@@ -213,11 +227,13 @@ export function InboxScreen() {
   useEffect(() => {
     selectedIdRef.current = selectedId;
     selectionGenRef.current += 1;
+    setMessages([]);
     if (!selectedId) {
-      setMessages([]);
+      // Sem conversa aberta não há requisição para encerrar o carregamento: a
+      // que estava em voo já não conta como atual e seu `finally` é descartado.
+      setMessagesLoading(false);
       return;
     }
-    setMessages([]);
     void loadMessages(selectedId, "initial");
   }, [selectedId, loadMessages]);
 

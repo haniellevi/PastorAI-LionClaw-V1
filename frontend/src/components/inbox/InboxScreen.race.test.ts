@@ -95,23 +95,38 @@ const MSGS_B = [msg("m-b1", "mensagem atual do Bruno")];
 // qual das duas respostas ficou na tela.
 const MSGS_A_1A_VISITA = [msg("m-a-v1", "resposta da 1a visita a Ana")];
 const MSGS_A_2A_VISITA = [msg("m-a-v2", "resposta da 2a visita a Ana")];
+// Dois SNAPSHOTS da MESMA visita (INBOX-RACE-1B): o antigo da carga inicial e o
+// mais recente do polling.
+const SNAPSHOT_M1 = [msg("m-s1", "snapshot antigo M1")];
+const SNAPSHOT_M2 = [msg("m-s2", "snapshot mais novo M2")];
 
 // ---- promessas controladas -------------------------------------------------
 /** Requisições de mensagens em voo, na ordem em que foram disparadas. */
 let pending: Array<{ convId: string; resolve: (items: ChatMessage[]) => void }>;
 
 /**
+ * Resolve a requisição em voo na POSIÇÃO indicada de `pending` (0 = a mais
+ * antiga). É o que permite fazer a MAIS NOVA responder primeiro.
+ */
+async function resolveRequestAt(index: number, items: ChatMessage[]) {
+  const alvo = pending[index];
+  if (!alvo) throw new Error(`não há requisição em voo na posição ${index}`);
+  pending.splice(index, 1);
+  await act(async () => {
+    alvo.resolve(items);
+  });
+}
+
+/**
  * Resolve UMA requisição em voo: a MAIS ANTIGA daquela conversa. Uma a uma —
- * com duas visitas à mesma conversa pendentes ao mesmo tempo, resolver "todas
- * de A" apagaria justamente a corrida que se quer provar.
+ * com duas requisições da mesma conversa pendentes ao mesmo tempo, resolver
+ * "todas de A" apagaria justamente a corrida que se quer provar. Para escolher
+ * outra que não a mais antiga, use `resolveRequestAt`.
  */
 async function resolveMessages(convId: string, items: ChatMessage[]) {
   const i = pending.findIndex((p) => p.convId === convId);
   if (i < 0) throw new Error(`nenhuma requisição em voo para ${convId}`);
-  const [alvo] = pending.splice(i, 1);
-  await act(async () => {
-    alvo!.resolve(items);
-  });
+  await resolveRequestAt(i, items);
 }
 
 // ---- harness ---------------------------------------------------------------
@@ -305,12 +320,8 @@ describe("InboxScreen — duas visitas à MESMA conversa (INBOX-RACE-1A)", () =>
     selectConversation("Ana Souza");
     expect(pending.map((p) => p.convId)).toEqual(["conv-a", "conv-b", "conv-a"]);
 
-    // A2 (visita atual) responde primeiro e preenche a thread…
-    const a2 = pending[2]!;
-    pending.splice(2, 1);
-    await act(async () => {
-      a2.resolve(MSGS_A_2A_VISITA);
-    });
+    // A2 (visita atual, a mais nova da fila) responde primeiro e preenche a thread…
+    await resolveRequestAt(2, MSGS_A_2A_VISITA);
     expect(threadBody().textContent).toContain("resposta da 2a visita a Ana");
 
     // …e A1, chegando depois com o MESMO id, não a substitui.
@@ -333,13 +344,72 @@ describe("InboxScreen — duas visitas à MESMA conversa (INBOX-RACE-1A)", () =>
     });
     expect(pending.map((p) => p.convId)).toEqual(["conv-a", "conv-a"]);
 
-    // A do polling responde primeiro: mesma visita, então vale.
-    await resolveMessages("conv-a", MSGS_A);
-    expect(threadBody().textContent).toContain("mensagem antiga da Ana");
-
-    // A inicial responde depois e ENCERRA o loading (não ficou presa).
-    await resolveMessages("conv-a", MSGS_A);
+    // A inicial (posição 0) responde: continua na mesma visita, então vale e
+    // ENCERRA o loading — o disparo do polling não a invalidou.
+    await resolveRequestAt(0, MSGS_A);
     expect(threadBody().textContent).not.toContain("Carregando conversa…");
     expect(threadBody().textContent).toContain("mensagem antiga da Ana");
+
+    // A do polling responde depois; sendo a mais nova, também vale.
+    await resolveRequestAt(0, MSGS_A);
+    expect(threadBody().textContent).toContain("mensagem antiga da Ana");
+  });
+});
+
+/**
+ * INBOX-RACE-1B: a geração por seleção não ordena requisições concorrentes da
+ * MESMA visita. A carga inicial e o polling (ou o recarregamento pós-envio) da
+ * conversa aberta passam as duas por `atual()` — se a mais nova responder
+ * primeiro, a mais antiga chegando depois voltava o histórico para um snapshot
+ * vencido.
+ *
+ * A sequência por requisição resolve só isso: bloqueia a ESCRITA de uma resposta
+ * iniciada antes de outra já aplicada. Ela NÃO participa do encerramento do
+ * loading — se participasse, a carga inicial ultrapassada por um poll nunca
+ * tiraria o "Carregando conversa…" da tela (2º caso).
+ */
+describe("InboxScreen — respostas concorrentes da MESMA visita (INBOX-RACE-1B)", () => {
+  /** Deixa a carga inicial e a do polling de A em voo, nessa ordem. */
+  async function duasRequisicoesDeA() {
+    vi.useFakeTimers();
+    await renderInbox();
+    expect(pending.map((p) => p.convId)).toEqual(["conv-a"]);
+    await act(async () => {
+      vi.advanceTimersByTime(15_000);
+    });
+    expect(pending.map((p) => p.convId)).toEqual(["conv-a", "conv-a"]);
+  }
+
+  it("a mais NOVA responde primeiro (M2): a inicial atrasada (M1) não volta atrás", async () => {
+    // 1) A-inicial pendente (vai responder M1); 2) polling de A em voo.
+    await duasRequisicoesDeA();
+
+    // 3) a MAIS NOVA (posição 1 = a do polling) responde primeiro com M2.
+    await resolveRequestAt(1, SNAPSHOT_M2);
+    expect(threadBody().textContent).toContain("snapshot mais novo M2");
+
+    // 4) a inicial, iniciada ANTES, responde depois com M1…
+    await resolveRequestAt(0, SNAPSHOT_M1);
+
+    // 5) …e não substitui M2.
+    expect(threadBody().textContent).toContain("snapshot mais novo M2");
+    expect(threadBody().textContent).not.toContain("snapshot antigo M1");
+    expect(threadBody().querySelectorAll(".msg").length).toBe(1);
+  });
+
+  it("a inicial ultrapassada ainda encerra o loading (a sequência não trava o skeleton)", async () => {
+    await duasRequisicoesDeA();
+
+    // A mais nova responde primeiro com histórico VAZIO: o skeleton continua,
+    // porque só a requisição `initial` encerra o `messagesLoading`.
+    await resolveRequestAt(1, []);
+    expect(threadBody().textContent).toContain("Carregando conversa…");
+
+    // A inicial responde depois: a escrita dela é descartada (é mais antiga),
+    // mas o `finally` dela ainda encerra o loading — nada fica preso.
+    await resolveRequestAt(0, SNAPSHOT_M1);
+    expect(threadBody().textContent).not.toContain("Carregando conversa…");
+    expect(threadBody().textContent).toContain("Ainda não há mensagens nesta conversa.");
+    expect(threadBody().textContent).not.toContain("snapshot antigo M1");
   });
 });
