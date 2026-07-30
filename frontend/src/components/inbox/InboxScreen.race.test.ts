@@ -91,18 +91,26 @@ const CONV_A = conv("conv-a", "Ana Souza");
 const CONV_B = conv("conv-b", "Bruno Lima");
 const MSGS_A = [msg("m-a1", "mensagem antiga da Ana")];
 const MSGS_B = [msg("m-b1", "mensagem atual do Bruno")];
+// Duas VISITAS à mesma conversa A (INBOX-RACE-1A): textos distintos para provar
+// qual das duas respostas ficou na tela.
+const MSGS_A_1A_VISITA = [msg("m-a-v1", "resposta da 1a visita a Ana")];
+const MSGS_A_2A_VISITA = [msg("m-a-v2", "resposta da 2a visita a Ana")];
 
 // ---- promessas controladas -------------------------------------------------
 /** Requisições de mensagens em voo, na ordem em que foram disparadas. */
 let pending: Array<{ convId: string; resolve: (items: ChatMessage[]) => void }>;
 
-/** Resolve TODAS as requisições em voo daquela conversa. */
+/**
+ * Resolve UMA requisição em voo: a MAIS ANTIGA daquela conversa. Uma a uma —
+ * com duas visitas à mesma conversa pendentes ao mesmo tempo, resolver "todas
+ * de A" apagaria justamente a corrida que se quer provar.
+ */
 async function resolveMessages(convId: string, items: ChatMessage[]) {
-  const alvos = pending.filter((p) => p.convId === convId);
-  if (alvos.length === 0) throw new Error(`nenhuma requisição em voo para ${convId}`);
-  pending = pending.filter((p) => p.convId !== convId);
+  const i = pending.findIndex((p) => p.convId === convId);
+  if (i < 0) throw new Error(`nenhuma requisição em voo para ${convId}`);
+  const [alvo] = pending.splice(i, 1);
   await act(async () => {
-    alvos.forEach((p) => p.resolve(items));
+    alvo!.resolve(items);
   });
 }
 
@@ -152,6 +160,8 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
   vi.unstubAllGlobals();
+  // Só um caso usa timers falsos (o do polling); restaura sempre.
+  vi.useRealTimers();
 });
 
 /** Renderiza o inbox; no desktop a 1ª conversa (A) já abre sozinha. */
@@ -244,5 +254,92 @@ describe("InboxScreen — resposta obsoleta não sobrescreve a conversa atual (I
 
     expect(threadBody().textContent).toContain("mensagem antiga da Ana");
     expect(threadBody().textContent).not.toContain("mensagem atual do Bruno");
+  });
+});
+
+/**
+ * INBOX-RACE-1A (finding P2 do Codex no PR#218): o guard só por id resolve
+ * A → B, mas não A → B → A. Na volta o id bate de novo, então a resposta da
+ * PRIMEIRA visita a A era aceita — podendo substituir a resposta da segunda
+ * visita e encerrar o "carregando" dela antes da hora.
+ *
+ * A geração de seleção separa as duas visitas. Ela muda por TROCA DE CONVERSA,
+ * nunca por requisição: o polling e o envio da conversa aberta continuam na
+ * mesma geração da carga inicial (provado no último caso), então nenhum
+ * `messagesLoading` fica preso.
+ */
+describe("InboxScreen — duas visitas à MESMA conversa (INBOX-RACE-1A)", () => {
+  it("A1 → B → A2: A1 chegando atrasada não preenche a thread nem encerra o loading de A2", async () => {
+    // 1) A selecionada: requisição da 1ª visita (A1) em voo.
+    await renderInbox();
+    expect(pending.map((p) => p.convId)).toEqual(["conv-a"]);
+
+    // 2) troca para B (A1 segue em voo)…
+    selectConversation("Bruno Lima");
+    // 3) …e volta para A: 2ª visita (A2) em voo, com A1 ainda pendente.
+    selectConversation("Ana Souza");
+    expect(pending.map((p) => p.convId)).toEqual(["conv-a", "conv-b", "conv-a"]);
+    expect(container.querySelector("button.conv[aria-current='true']")?.textContent).toContain(
+      "Ana Souza",
+    );
+
+    // 4) A1 (visita anterior) resolve enquanto A2 ainda carrega.
+    await resolveMessages("conv-a", MSGS_A_1A_VISITA);
+
+    // 5) mesmo com o id batendo, A1 não entra na thread nem encerra o loading.
+    expect(threadBody().textContent).not.toContain("resposta da 1a visita a Ana");
+    expect(threadBody().textContent).toContain("Carregando conversa…");
+    expect(threadBody().textContent).not.toContain("Ainda não há mensagens nesta conversa.");
+
+    // 6) A2 resolve: é a única resposta exibida.
+    await resolveMessages("conv-a", MSGS_A_2A_VISITA);
+    expect(threadBody().textContent).not.toContain("Carregando conversa…");
+    expect(threadBody().textContent).toContain("resposta da 2a visita a Ana");
+    expect(threadBody().textContent).not.toContain("resposta da 1a visita a Ana");
+    expect(threadBody().querySelectorAll(".msg").length).toBe(1);
+  });
+
+  it("A1 → B → A2 com A2 resolvendo primeiro: A1 atrasada não substitui A2", async () => {
+    await renderInbox();
+    selectConversation("Bruno Lima");
+    selectConversation("Ana Souza");
+    expect(pending.map((p) => p.convId)).toEqual(["conv-a", "conv-b", "conv-a"]);
+
+    // A2 (visita atual) responde primeiro e preenche a thread…
+    const a2 = pending[2]!;
+    pending.splice(2, 1);
+    await act(async () => {
+      a2.resolve(MSGS_A_2A_VISITA);
+    });
+    expect(threadBody().textContent).toContain("resposta da 2a visita a Ana");
+
+    // …e A1, chegando depois com o MESMO id, não a substitui.
+    await resolveMessages("conv-a", MSGS_A_1A_VISITA);
+    expect(threadBody().textContent).toContain("resposta da 2a visita a Ana");
+    expect(threadBody().textContent).not.toContain("resposta da 1a visita a Ana");
+    expect(threadBody().querySelectorAll(".msg").length).toBe(1);
+  });
+
+  it("a geração não é por requisição: o polling da conversa aberta não prende o loading inicial", async () => {
+    // Duas requisições da MESMA visita (a inicial e a do polling de 15s). Se a
+    // geração fosse incrementada por requisição, a do polling invalidaria a
+    // inicial e o "Carregando conversa…" nunca sairia da tela.
+    vi.useFakeTimers();
+    await renderInbox();
+    expect(pending.map((p) => p.convId)).toEqual(["conv-a"]);
+
+    await act(async () => {
+      vi.advanceTimersByTime(15_000);
+    });
+    expect(pending.map((p) => p.convId)).toEqual(["conv-a", "conv-a"]);
+
+    // A do polling responde primeiro: mesma visita, então vale.
+    await resolveMessages("conv-a", MSGS_A);
+    expect(threadBody().textContent).toContain("mensagem antiga da Ana");
+
+    // A inicial responde depois e ENCERRA o loading (não ficou presa).
+    await resolveMessages("conv-a", MSGS_A);
+    expect(threadBody().textContent).not.toContain("Carregando conversa…");
+    expect(threadBody().textContent).toContain("mensagem antiga da Ana");
   });
 });

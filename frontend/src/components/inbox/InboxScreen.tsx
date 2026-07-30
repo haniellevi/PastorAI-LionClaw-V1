@@ -176,23 +176,34 @@ export function InboxScreen() {
   // conversa antiga pode chegar depois da atual — sem esta guarda ela
   // sobrescreveria a thread sob o cabeçalho de outro contato.
   const selectedIdRef = useRef<string | null>(null);
+  // INBOX-RACE-1A: o id sozinho não separa DUAS VISITAS à mesma conversa
+  // (A → B → A): na volta o id bate de novo e a resposta da 1ª visita seria
+  // aceita. Esta geração muda a cada troca de seleção — nunca por requisição —,
+  // então o polling e o envio da conversa atual seguem na mesma geração da carga
+  // inicial e não deixam o `messagesLoading` preso.
+  const selectionGenRef = useRef(0);
 
   const loadMessages = useCallback(
     async (convId: string, mode: "initial" | "poll" = "initial") => {
       if (!token) return;
+      const gen = selectionGenRef.current;
+      // A requisição só continua valendo se, na volta, a conversa aberta for a
+      // mesma E ainda for a mesma visita a ela.
+      const atual = () => selectedIdRef.current === convId && selectionGenRef.current === gen;
       if (mode === "initial") setMessagesLoading(true);
       try {
         const items = await fetchMessages(token, convId);
-        // Resposta obsoleta (a conversa já mudou): descarta sem tocar na UI.
-        if (selectedIdRef.current !== convId) return;
+        // Resposta obsoleta (trocou de conversa, ou é de uma visita anterior a
+        // esta mesma conversa): descarta sem tocar na UI.
+        if (!atual()) return;
         setMessages(items);
       } catch (err) {
         if (handleSessionError(err)) return;
         // No poll a falha é silenciosa; no initial a thread mostra vazio.
       } finally {
-        // Idem para o "carregando": só a requisição da conversa atual pode
+        // Idem para o "carregando": só a requisição da visita atual pode
         // encerrá-lo — senão a resposta antiga apagaria o skeleton da nova.
-        if (mode === "initial" && selectedIdRef.current === convId) setMessagesLoading(false);
+        if (mode === "initial" && atual()) setMessagesLoading(false);
       }
     },
     [token, handleSessionError],
@@ -201,6 +212,7 @@ export function InboxScreen() {
   // Ao trocar de conversa, limpa e recarrega o histórico daquela conversa.
   useEffect(() => {
     selectedIdRef.current = selectedId;
+    selectionGenRef.current += 1;
     if (!selectedId) {
       setMessages([]);
       return;
