@@ -75,6 +75,43 @@ def test_subscription_payload_sets_first_due_date() -> None:
     ]
 
 
+def test_setup_charge_payload_sets_due_date() -> None:
+    """A taxa avulsa também exige a data de vencimento no Asaas."""
+
+    calls: list[dict] = []
+
+    class _Response:
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self) -> dict[str, str]:
+            return {"id": "pay_test"}
+
+    class _Client:
+        def post(self, path: str, *, headers: dict, json: dict) -> _Response:
+            calls.append({"path": path, "headers": headers, "json": json})
+            return _Response()
+
+    result = AsaasClient()._create_setup_charge(
+        _Client(), {"access_token": "test"}, customer_id="cus_test", valor=3.0
+    )
+
+    assert result == "pay_test"
+    assert calls == [
+        {
+            "path": "/payments",
+            "headers": {"access_token": "test"},
+            "json": {
+                "customer": "cus_test",
+                "billingType": "UNDEFINED",
+                "value": 3.0,
+                "dueDate": dt.date.today().isoformat(),
+                "description": "PastorAI — taxa de setup",
+            },
+        }
+    ]
+
+
 def test_gcal_timed_event_block() -> None:
     start, end = _to_rfc3339(dt.date(2026, 6, 13), "19:30")
     assert "dateTime" in start and "dateTime" in end

@@ -216,6 +216,7 @@ class AsaasClient:
             "customer": customer_id,
             "billingType": "UNDEFINED",
             "value": valor,
+            "dueDate": dt.date.today().isoformat(),
             "description": "PastorAI — taxa de setup",
         }
         resp = client.post("/payments", headers=headers, json=payload)
