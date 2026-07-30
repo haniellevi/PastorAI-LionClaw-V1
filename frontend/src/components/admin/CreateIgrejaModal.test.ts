@@ -197,6 +197,32 @@ describe("CreateIgrejaModal — W4B (DsDialog)", () => {
     });
   });
 
+  it("bloqueia já no primeiro submit uma taxa entre R$ 0,01 e R$ 4,99", () => {
+    const onSubmit = vi.fn<(i: CreateIgrejaInput) => void>();
+    render({ onSubmit });
+
+    setValue(fieldByLabel("Nome da igreja"), "Igreja Nova");
+    setValue(fieldByLabel("Taxa de setup personalizada"), "4.99");
+    setValue(fieldByLabel("Administrador — nome"), "Pastor João");
+    setValue(fieldByLabel("Administrador — e-mail"), "joao@igreja.com");
+    submitForm();
+
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(container.textContent).toContain(
+      "Taxa de setup deve ser R$ 0,00 (isenta) ou de pelo menos R$ 5,00.",
+    );
+
+    // R$ 0,00 (isenta) é aceito.
+    setValue(fieldByLabel("Taxa de setup personalizada"), "0");
+    submitForm();
+    expect(onSubmit).toHaveBeenCalledWith({
+      nome: "Igreja Nova",
+      plano: null,
+      setupFeeOverride: 0,
+      admin: { nome: "Pastor João", email: "joao@igreja.com" },
+    });
+  });
+
   it("o botão primário fica no rodapé, ligado ao form via form=", () => {
     render();
     const primary = findButton("Provisionar igreja")!;

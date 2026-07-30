@@ -14,12 +14,22 @@
 
 begin;
 
+-- Regra canônica da taxa de setup: R$ 0,00 (isenta) ou pelo menos R$ 5,00 —
+-- o Asaas rejeita cobranças avulsas entre R$ 0,01 e R$ 4,99.
 alter table igrejas
   add column if not exists setup_fee_override numeric(10,2) null
-    check (setup_fee_override >= 0);
+    check (setup_fee_override = 0 or setup_fee_override >= 5);
 
 alter table subscriptions
   add column if not exists asaas_setup_charge_id text null;
+
+-- Links públicos de pagamento (mensalidade e setup) devolvidos pelo checkout.
+-- Persistidos para a tela de Assinatura recuperá-los após reload.
+alter table subscriptions
+  add column if not exists asaas_invoice_url text null;
+
+alter table subscriptions
+  add column if not exists asaas_setup_invoice_url text null;
 
 create unique index if not exists subscriptions_asaas_setup_charge_id_uidx
   on subscriptions (asaas_setup_charge_id)
@@ -27,7 +37,8 @@ create unique index if not exists subscriptions_asaas_setup_charge_id_uidx
 
 create table if not exists billing_settings (
   id                integer primary key check (id = 1),
-  setup_fee_default numeric(10,2) null check (setup_fee_default >= 0),
+  setup_fee_default numeric(10,2) null
+    check (setup_fee_default = 0 or setup_fee_default >= 5),
   updated_at        timestamptz not null default now()
 );
 
@@ -56,5 +67,9 @@ comment on column igrejas.setup_fee_override is
   'Taxa de setup específica da igreja definida pelo master. NULL usa billing_settings.setup_fee_default.';
 comment on column subscriptions.asaas_setup_charge_id is
   'ID Asaas da cobrança avulsa de setup, usado para distinguir seu webhook da mensalidade.';
+comment on column subscriptions.asaas_invoice_url is
+  'Link público da primeira fatura da mensalidade, persistido para sobreviver a reload.';
+comment on column subscriptions.asaas_setup_invoice_url is
+  'Link público da cobrança avulsa de setup, persistido para sobreviver a reload.';
 
 commit;

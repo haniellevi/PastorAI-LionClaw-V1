@@ -2,7 +2,7 @@
  * Cliente da API de assinatura Asaas (tela #assinatura).
  * Consome o backend (sprint-009 / US-34..36):
  *
- *   GET  /subscription          -> { plano, status, pessoas, limite, proximaCobranca, setupPago }
+ *   GET  /subscription          -> { plano, status, ..., setupPago, invoiceUrl, setupInvoiceUrl }
  *   POST /subscription          -> { status, invoiceUrl, setupInvoiceUrl, asaasSubscriptionId }
  *   GET  /subscription/planos   -> { planos: PlanInfo[], setupFee }             (catálogo)
  *
@@ -35,6 +35,10 @@ export interface Subscription {
   limite: number | null;
   proximaCobranca: string | null;
   setupPago: boolean;
+  /** Link da fatura da mensalidade — presente só enquanto `pendente`. */
+  invoiceUrl: string | null;
+  /** Link da cobrança de setup — presente só enquanto o setup não foi pago. */
+  setupInvoiceUrl: string | null;
 }
 
 export interface CheckoutResult {

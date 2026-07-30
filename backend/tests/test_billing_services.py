@@ -110,6 +110,15 @@ def test_checkout_rejects_setup_fee_below_asaas_minimum_before_network() -> None
         )
 
 
+def test_invoice_link_lookups_stay_offline_without_send_permission() -> None:
+    """Recovery de links respeita o outbound guard: fora de produção (sem
+    ALLOW_REAL_SENDS) devolve None sem tocar a rede."""
+    client = AsaasClient()
+
+    assert client.get_subscription_invoice_url("sub_x") is None
+    assert client.get_payment_invoice_url("pay_x") is None
+
+
 def test_subscription_payload_sets_first_due_date() -> None:
     """Asaas exige a data da primeira cobrança ao criar uma assinatura."""
 

@@ -13,12 +13,14 @@ from types import SimpleNamespace
 import pytest
 
 from app.db.models import (
+    AgentConversationLog,
     AppUser,
     BillingSettings,
     Igreja,
     PasswordResetToken,
     Plano,
     RolePermission,
+    Subscription,
 )
 from app.services.clerk import ClerkAuthError, ClerkIdentity
 
@@ -70,6 +72,10 @@ class _FakeResult:
         # Usado pelo probe read-only de observabilidade (rls_observability).
         return self._one_row
 
+    def first(self):
+        # Usado pelo dedupe de notificação (notify_autoupgrade).
+        return self._rows[0] if self._rows else self._one_row
+
 
 class FakeSession:
     """Minimal session: routes selects by entity, ignores set_config text."""
@@ -83,6 +89,7 @@ class FakeSession:
         planos: list | None = None,
         igreja=None,
         billing_settings=None,
+        subscription=None,
     ) -> None:
         self.app_user = app_user
         self.roles = roles or []
@@ -104,9 +111,12 @@ class FakeSession:
             if billing_settings is not None
             else SimpleNamespace(id=1, setup_fee_default=0.0)
         )
+        # Assinatura existente da igreja (GET /subscription e recovery de links).
+        self.subscription = subscription
         # Objetos passados a .add() (ex.: Subscription novo no checkout) —
         # permite o teste inspecionar o que o handler gravou (ex.: sub.limite).
         self.added: list = []
+        self.commits = 0
 
     def execute(self, statement, params=None) -> _FakeResult:
         descriptions = getattr(statement, "column_descriptions", None)
@@ -137,6 +147,13 @@ class FakeSession:
             return _FakeResult(scalar=self.igreja)
         if entity is BillingSettings:
             return _FakeResult(scalar=self.billing_settings)
+        if entity is Subscription:
+            return _FakeResult(scalar=self.subscription)
+        if entity is AgentConversationLog:
+            # GET /subscription passa por notify_autoupgrade; um marcador
+            # existente encerra a notificação cedo (já anunciado), mantendo o
+            # teste offline sem WhatsApp.
+            return _FakeResult(rows=[("ja-notificado",)])
         if entity is Plano:
             codigo, ativo_required = _plano_query_filters(statement)
             candidatos = self.planos
@@ -156,8 +173,10 @@ class FakeSession:
     def refresh(self, obj) -> None:  # pragma: no cover - object is already "live"
         pass
 
-    def commit(self) -> None:  # pragma: no cover - in-memory, nothing to persist
-        pass
+    def commit(self) -> None:
+        # In-memory: nada a persistir, mas o contador permite asserts de
+        # persistência (ex.: recovery de links grava exatamente uma vez).
+        self.commits += 1
 
     def close(self) -> None:  # pragma: no cover - nothing to release
         pass

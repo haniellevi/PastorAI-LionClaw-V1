@@ -15,7 +15,7 @@ import { useState } from "react";
 import { Dialog as DsDialog } from "@/components/ds/Dialog";
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
-import type { CreateIgrejaInput } from "@/lib/admin-api";
+import { isInvalidSetupFee, type CreateIgrejaInput } from "@/lib/admin-api";
 
 /** Planos oferecidos no seletor (vêm do catálogo; fallback p/ os 3 padrão). */
 export interface PlanoOption {
@@ -59,16 +59,16 @@ export function CreateIgrejaModal({
     touched && !adminEmail.includes("@") ? "Informe um e-mail válido." : undefined;
   const setupFeeValue =
     setupFeeOverride.trim() === "" ? null : Number(setupFeeOverride);
+  const setupFeeInvalid = setupFeeValue !== null && isInvalidSetupFee(setupFeeValue);
   const setupFeeError =
-    touched &&
-    setupFeeValue !== null &&
-    (!Number.isFinite(setupFeeValue) || setupFeeValue < 0)
-      ? "Taxa de setup inválida."
+    touched && setupFeeInvalid
+      ? "Taxa de setup deve ser R$ 0,00 (isenta) ou de pelo menos R$ 5,00."
       : undefined;
 
   const submit = () => {
     setTouched(true);
-    if (!nome.trim() || !adminNome.trim() || !adminEmail.includes("@") || setupFeeError) return;
+    if (!nome.trim() || !adminNome.trim() || !adminEmail.includes("@") || setupFeeInvalid)
+      return;
     onSubmit({
       nome: nome.trim(),
       plano: plano || null,

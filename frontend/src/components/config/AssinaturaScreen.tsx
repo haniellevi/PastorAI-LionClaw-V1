@@ -112,7 +112,17 @@ export function AssinaturaScreen() {
       let nextError: string | null = null;
 
       if (subResult.status === "fulfilled") {
-        setSub(subResult.value);
+        const value = subResult.value;
+        setSub(value);
+        // Reconstrói o painel "Conclua as cobranças" a partir dos links
+        // persistidos na assinatura — sobrevive a reload sem depender do
+        // estado do checkout. Pendente sem link ainda mostra o painel com o
+        // aviso de "links sendo preparados".
+        if (value.status === "pendente" || value.invoiceUrl || value.setupInvoiceUrl) {
+          setCheckoutLinks({ monthly: value.invoiceUrl, setup: value.setupInvoiceUrl });
+        } else {
+          setCheckoutLinks(null);
+        }
       } else {
         const err = subResult.reason;
         if (handleSessionError(err)) return;

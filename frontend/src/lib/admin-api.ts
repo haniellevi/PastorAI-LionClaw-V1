@@ -179,6 +179,16 @@ export interface AdminBillingSettings {
   setupFeePadrao: number;
 }
 
+/** Menor cobrança avulsa aceita pelo Asaas — a taxa de setup é R$ 0,00 ou ≥ R$ 5,00. */
+export const MIN_SETUP_FEE_BRL = 5;
+
+/** True quando o valor viola a regra "R$ 0,00 ou pelo menos R$ 5,00". */
+export function isInvalidSetupFee(value: number): boolean {
+  return (
+    !Number.isFinite(value) || value < 0 || (value > 0 && value < MIN_SETUP_FEE_BRL)
+  );
+}
+
 export interface AdminIgrejaAdmin {
   id: string;
   nome: string;

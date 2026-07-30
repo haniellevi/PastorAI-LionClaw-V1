@@ -102,4 +102,56 @@ describe("AssinaturaScreen — links do checkout", () => {
     expect(monthly?.getAttribute("href")).toBe("https://asaas.test/mensalidade");
     expect(setup?.getAttribute("href")).toBe("https://asaas.test/setup");
   });
+
+  it("reconstrói o painel de cobranças ao carregar uma assinatura pendente (reload)", async () => {
+    // Simula o reload: nenhum checkout nesta sessão — os links vêm apenas do
+    // GET /subscription, persistidos no backend.
+    fetchSubscription.mockResolvedValue({
+      plano: "ate_100",
+      status: "pendente",
+      pessoas: 0,
+      limite: 100,
+      proximaCobranca: null,
+      setupPago: false,
+      invoiceUrl: "https://asaas.test/mensalidade-persistida",
+      setupInvoiceUrl: "https://asaas.test/setup-persistido",
+    });
+
+    act(() => root.render(h(AssinaturaScreen)));
+    await flush();
+
+    const monthly = [...container.querySelectorAll("a")].find((link) =>
+      link.textContent?.includes("Pagar mensalidade"),
+    );
+    const setup = [...container.querySelectorAll("a")].find((link) =>
+      link.textContent?.includes("Pagar taxa de setup"),
+    );
+    expect(monthly?.getAttribute("href")).toBe("https://asaas.test/mensalidade-persistida");
+    expect(setup?.getAttribute("href")).toBe("https://asaas.test/setup-persistido");
+    expect(createCheckout).not.toHaveBeenCalled();
+    // O CPF/CNPJ não reaparece depois do checkout (não é persistido nem exibido).
+    expect(container.querySelector("#subscription-cpf-cnpj")).toBeNull();
+  });
+
+  it("assinatura pendente sem links ainda mostra o painel com o aviso do Asaas", async () => {
+    fetchSubscription.mockResolvedValue({
+      plano: "ate_100",
+      status: "pendente",
+      pessoas: 0,
+      limite: 100,
+      proximaCobranca: null,
+      setupPago: false,
+      invoiceUrl: null,
+      setupInvoiceUrl: null,
+    });
+
+    act(() => root.render(h(AssinaturaScreen)));
+    await flush();
+
+    expect(container.textContent).toContain("Conclua as cobranças");
+    expect(container.textContent).toContain(
+      "Os links ainda estão sendo preparados pelo Asaas.",
+    );
+    expect(createCheckout).not.toHaveBeenCalled();
+  });
 });

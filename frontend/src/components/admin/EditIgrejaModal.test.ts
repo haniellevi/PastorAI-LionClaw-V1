@@ -129,6 +129,20 @@ describe("EditIgrejaModal — W4B (DsDialog)", () => {
     expect(onSubmit).toHaveBeenLastCalledWith({ setupFeeOverride: null });
   });
 
+  it("rejeita exceção de setup entre R$ 0,01 e R$ 4,99", () => {
+    const onSubmit = vi.fn<(i: UpdateIgrejaInput) => void>();
+    render({ onSubmit });
+
+    const setupInput = container.querySelector<HTMLInputElement>('input[type="number"]')!;
+    setValue(setupInput, "4.99");
+    submitForm();
+
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(container.textContent).toContain(
+      "Taxa de setup deve ser R$ 0,00 (isenta) ou de pelo menos R$ 5,00.",
+    );
+  });
+
   it("sem nenhuma alteração, submit apenas fecha (não chama onSubmit)", () => {
     const onSubmit = vi.fn();
     const onClose = vi.fn();

@@ -176,6 +176,57 @@ class AsaasClient:
             status=status,
         )
 
+    def get_subscription_invoice_url(self, subscription_id: str) -> str | None:
+        """Re-read the public payment page of a subscription's first charge.
+
+        Read-only recovery path (never creates charges): used when the checkout
+        response was lost before persistence. Returns None when Asaas has not
+        generated the payment yet or sends are sandboxed in this environment.
+        """
+        if not external_sends_allowed(self._settings):
+            log_suppressed("Asaas", "get_subscription_invoice_url")
+            return None
+        base_url, api_key = self._require_config()
+        headers = self._headers(api_key)
+        try:
+            with httpx.Client(base_url=base_url, timeout=20.0) as client:
+                payment = self._first_subscription_payment(
+                    client, headers, subscription_id=subscription_id
+                )
+        except httpx.HTTPError as exc:
+            logger.warning(
+                "Asaas subscription payment lookup failed: %s", type(exc).__name__
+            )
+            raise AsaasError("Falha ao consultar a assinatura no Asaas") from exc
+        except (ValueError, KeyError) as exc:
+            logger.warning("Unexpected Asaas response shape")
+            raise AsaasError("Resposta inesperada do Asaas") from exc
+        return self._invoice_url(payment)
+
+    def get_payment_invoice_url(self, payment_id: str) -> str | None:
+        """Re-read the public payment page of an existing one-time charge.
+
+        Read-only recovery path for the setup fee — looks up by the stored
+        charge id, never creates a new payment.
+        """
+        if not external_sends_allowed(self._settings):
+            log_suppressed("Asaas", "get_payment_invoice_url")
+            return None
+        base_url, api_key = self._require_config()
+        headers = self._headers(api_key)
+        try:
+            with httpx.Client(base_url=base_url, timeout=20.0) as client:
+                resp = client.get(f"/payments/{payment_id}", headers=headers)
+                resp.raise_for_status()
+                body = resp.json()
+        except httpx.HTTPError as exc:
+            logger.warning("Asaas payment lookup failed: %s", type(exc).__name__)
+            raise AsaasError("Falha ao consultar a cobrança no Asaas") from exc
+        except (ValueError, KeyError) as exc:
+            logger.warning("Unexpected Asaas response shape")
+            raise AsaasError("Resposta inesperada do Asaas") from exc
+        return self._invoice_url(body if isinstance(body, dict) else None)
+
     # ---- helpers ------------------------------------------------------------
     def _ensure_customer(
         self,

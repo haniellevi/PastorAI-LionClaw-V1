@@ -10,7 +10,7 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 
 from app.db.session import get_db
-from app.services.asaas import CheckoutResult, get_asaas_client
+from app.services.asaas import AsaasError, CheckoutResult, get_asaas_client
 from app.services.clerk import get_clerk_client
 from tests.conftest import FakeClerk, FakeSession, make_app_user
 
@@ -48,13 +48,68 @@ class _FakeAsaas:
         )
 
 
+class _RecoveryAsaas:
+    """Fake do caminho de RECUPERAÇÃO de links (GET /subscription).
+
+    Só sabe consultar por id; qualquer tentativa de criar cobrança durante a
+    recuperação explode o teste — recovery é estritamente read-only.
+    """
+
+    def __init__(
+        self,
+        *,
+        monthly_url: str | None = None,
+        setup_url: str | None = None,
+        unavailable: bool = False,
+    ) -> None:
+        self.calls: list[tuple[str, str]] = []
+        self._monthly_url = monthly_url
+        self._setup_url = setup_url
+        self._unavailable = unavailable
+
+    def get_subscription_invoice_url(self, subscription_id: str) -> str | None:
+        self.calls.append(("get_subscription_invoice_url", subscription_id))
+        if self._unavailable:
+            raise AsaasError("Asaas indisponível")
+        return self._monthly_url
+
+    def get_payment_invoice_url(self, payment_id: str) -> str | None:
+        self.calls.append(("get_payment_invoice_url", payment_id))
+        if self._unavailable:
+            raise AsaasError("Asaas indisponível")
+        return self._setup_url
+
+    def create_checkout(self, **kwargs):  # pragma: no cover - defesa do teste
+        raise AssertionError("recovery de links nunca pode criar cobrança")
+
+
+def _subscription(**over):
+    base = dict(
+        igreja_id=make_app_user().igreja_id,
+        plano="ate_100",
+        status="pendente",
+        pessoas=10,
+        limite=100,
+        proxima_cobranca=None,
+        asaas_customer_id="cus_1",
+        asaas_subscription_id="sub_asaas_1",
+        asaas_setup_charge_id="pay_setup_1",
+        asaas_invoice_url=None,
+        asaas_setup_invoice_url=None,
+        setup_pago=False,
+    )
+    base.update(over)
+    return SimpleNamespace(**base)
+
+
 def _client(
     app,
     *,
     planos,
-    asaas: _FakeAsaas | None = None,
+    asaas=None,
     setup_fee_default: float = 0.0,
     setup_fee_override: float | None = None,
+    subscription=None,
 ) -> tuple[TestClient, FakeSession]:
     igreja = SimpleNamespace(
         id=make_app_user().igreja_id,
@@ -66,6 +121,7 @@ def _client(
         planos=planos,
         igreja=igreja,
         billing_settings=SimpleNamespace(id=1, setup_fee_default=setup_fee_default),
+        subscription=subscription,
     )
     app.dependency_overrides[get_db] = lambda: db
     app.dependency_overrides[get_clerk_client] = lambda: FakeClerk()
@@ -139,6 +195,10 @@ def test_checkout_uses_master_setup_default_and_returns_two_payment_links(app) -
     }
     assert db.added[0].asaas_setup_charge_id == "pay_setup_1"
     assert db.added[0].setup_pago is False
+    # Os links são PERSISTIDOS na assinatura — a tela pendente sobrevive a
+    # reload lendo GET /subscription, sem depender do estado do checkout.
+    assert db.added[0].asaas_invoice_url == "https://asaas.test/monthly"
+    assert db.added[0].asaas_setup_invoice_url == "https://asaas.test/setup"
 
 
 def test_checkout_uses_church_setup_override_before_master_default(app) -> None:
@@ -178,6 +238,125 @@ def test_zero_church_setup_override_skips_the_setup_charge(app) -> None:
     assert resp.json()["setupInvoiceUrl"] is None
     assert db.added[0].setup_pago is True
     assert db.added[0].asaas_setup_charge_id is None
+    assert db.added[0].asaas_setup_invoice_url is None
+    assert db.added[0].asaas_invoice_url == "https://asaas.test/monthly"
+
+
+# ---------------------------------------------------------------------------
+# GET /subscription — links persistidos e recuperação read-only (PR#219 P2):
+# a tela pendente reconstrói o painel de pagamento após reload; se um link se
+# perdeu, o backend o recupera pelos ids Asaas já armazenados, sem NUNCA criar
+# outra assinatura ou taxa de setup.
+# ---------------------------------------------------------------------------
+def test_get_subscription_returns_persisted_payment_links(app) -> None:
+    asaas = _RecoveryAsaas()
+    sub = _subscription(
+        asaas_invoice_url="https://asaas.test/monthly",
+        asaas_setup_invoice_url="https://asaas.test/setup",
+    )
+    client, db = _client(app, planos=[], asaas=asaas, subscription=sub)
+
+    resp = client.get("/subscription", headers=_AUTH)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["invoiceUrl"] == "https://asaas.test/monthly"
+    assert body["setupInvoiceUrl"] == "https://asaas.test/setup"
+    assert asaas.calls == []  # nada a recuperar => nenhuma chamada externa
+
+
+def test_get_subscription_recovers_monthly_link_by_subscription_id(app) -> None:
+    asaas = _RecoveryAsaas(monthly_url="https://asaas.test/recovered-monthly")
+    sub = _subscription(
+        asaas_invoice_url=None,
+        asaas_setup_charge_id=None,
+        asaas_setup_invoice_url=None,
+        setup_pago=True,
+    )
+    client, db = _client(app, planos=[], asaas=asaas, subscription=sub)
+
+    resp = client.get("/subscription", headers=_AUTH)
+
+    assert resp.status_code == 200
+    assert resp.json()["invoiceUrl"] == "https://asaas.test/recovered-monthly"
+    assert sub.asaas_invoice_url == "https://asaas.test/recovered-monthly"
+    assert asaas.calls == [("get_subscription_invoice_url", "sub_asaas_1")]
+    assert db.commits == 1  # link recuperado é persistido
+
+
+def test_get_subscription_recovers_setup_link_by_charge_id(app) -> None:
+    asaas = _RecoveryAsaas(setup_url="https://asaas.test/recovered-setup")
+    sub = _subscription(
+        asaas_invoice_url="https://asaas.test/monthly",
+        asaas_setup_invoice_url=None,
+        setup_pago=False,
+    )
+    client, db = _client(app, planos=[], asaas=asaas, subscription=sub)
+
+    resp = client.get("/subscription", headers=_AUTH)
+
+    assert resp.status_code == 200
+    assert resp.json()["setupInvoiceUrl"] == "https://asaas.test/recovered-setup"
+    assert sub.asaas_setup_invoice_url == "https://asaas.test/recovered-setup"
+    assert asaas.calls == [("get_payment_invoice_url", "pay_setup_1")]
+    assert db.commits == 1
+
+
+def test_get_subscription_survives_asaas_outage_with_null_links(app) -> None:
+    asaas = _RecoveryAsaas(unavailable=True)
+    sub = _subscription()  # pendente, ambos os links ausentes
+    client, db = _client(app, planos=[], asaas=asaas, subscription=sub)
+
+    resp = client.get("/subscription", headers=_AUTH)
+
+    # A leitura da assinatura continua 200 com links nulos — a tela inteira
+    # não vira 502 por indisponibilidade temporária do provedor.
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "pendente"
+    assert body["invoiceUrl"] is None
+    assert body["setupInvoiceUrl"] is None
+    assert db.commits == 0  # nada recuperado, nada persistido
+
+
+def test_link_recovery_never_creates_new_charges(app) -> None:
+    asaas = _RecoveryAsaas(
+        monthly_url="https://asaas.test/recovered-monthly",
+        setup_url="https://asaas.test/recovered-setup",
+    )
+    sub = _subscription()  # ambos ausentes => recupera os dois
+    client, _db = _client(app, planos=[], asaas=asaas, subscription=sub)
+
+    resp = client.get("/subscription", headers=_AUTH)
+
+    assert resp.status_code == 200
+    # Somente consultas por id — _RecoveryAsaas.create_checkout levantaria
+    # AssertionError se o recovery tentasse criar qualquer cobrança.
+    assert asaas.calls == [
+        ("get_subscription_invoice_url", "sub_asaas_1"),
+        ("get_payment_invoice_url", "pay_setup_1"),
+    ]
+
+
+def test_get_subscription_hides_links_already_settled(app) -> None:
+    # Assinatura ativa com setup pago: links persistidos não voltam na leitura
+    # (nada em aberto para pagar).
+    asaas = _RecoveryAsaas()
+    sub = _subscription(
+        status="ativa",
+        setup_pago=True,
+        asaas_invoice_url="https://asaas.test/monthly",
+        asaas_setup_invoice_url="https://asaas.test/setup",
+    )
+    client, _db = _client(app, planos=[], asaas=asaas, subscription=sub)
+
+    resp = client.get("/subscription", headers=_AUTH)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["invoiceUrl"] is None
+    assert body["setupInvoiceUrl"] is None
+    assert asaas.calls == []
 
 
 def test_checkout_rejects_plano_desconhecido(app) -> None:

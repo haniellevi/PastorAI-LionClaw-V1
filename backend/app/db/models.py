@@ -1180,6 +1180,10 @@ class Subscription(Base):
     # Pagamento avulso da taxa de setup. O webhook usa este id para não
     # confundir a confirmação mensal com a confirmação do setup.
     asaas_setup_charge_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Links públicos de pagamento devolvidos pelo Asaas no checkout. Persistidos
+    # para a tela de Assinatura sobreviver a reload sem recriar cobranças.
+    asaas_invoice_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    asaas_setup_invoice_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     setup_pago: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false")
     )

@@ -49,6 +49,7 @@ from app.db.models import (
 from app.db.session import get_db
 from app.deps import PlatformAdminUser, get_platform_admin
 from app.domain.permissions import DEFAULT_PERMISSIONS
+from app.services.asaas import MIN_UNDEFINED_PAYMENT_VALUE
 from app.services.brevo import BrevoClient, BrevoError, get_brevo_client
 from app.services.billing import get_setup_fee_default, get_setup_fee_for_igreja
 from app.services.clerk import ClerkAuthError, ClerkClient, get_clerk_client
@@ -262,6 +263,18 @@ class AdminSeed(BaseModel):
         return v
 
 
+def _validate_setup_fee(value: float | None) -> float | None:
+    """Regra canônica da taxa de setup: R$ 0,00 (isenta) ou pelo menos R$ 5,00.
+
+    O Asaas rejeita cobranças avulsas entre R$ 0,01 e R$ 4,99
+    (MIN_UNDEFINED_PAYMENT_VALUE); aceitar esses valores aqui deixaria toda
+    igreja herdeira do default com o checkout quebrado (502) até a correção.
+    """
+    if value is not None and 0 < value < MIN_UNDEFINED_PAYMENT_VALUE:
+        raise ValueError("taxa de setup deve ser R$ 0,00 ou de pelo menos R$ 5,00")
+    return value
+
+
 class CreateIgrejaRequest(BaseModel):
     nome: str = Field(min_length=1, max_length=200)
     plano: str | None = Field(default=None)
@@ -284,6 +297,11 @@ class CreateIgrejaRequest(BaseModel):
         if v is None:
             return None
         return v.strip() or None
+
+    @field_validator("setupFeeOverride")
+    @classmethod
+    def _setup_fee(cls, v: float | None) -> float | None:
+        return _validate_setup_fee(v)
 
 
 class CreateIgrejaResponse(BaseModel):
@@ -326,6 +344,11 @@ class UpdateIgrejaRequest(BaseModel):
         if v is None:
             return None
         return v.strip() or None
+
+    @field_validator("setupFeeOverride")
+    @classmethod
+    def _setup_fee(cls, v: float | None) -> float | None:
+        return _validate_setup_fee(v)
 
 
 class PlatformAdminMe(BaseModel):
@@ -1568,6 +1591,12 @@ class BillingSettingsOut(BaseModel):
 
 class UpdateBillingSettingsRequest(BaseModel):
     setupFeePadrao: float = Field(ge=0)  # noqa: N815
+
+    @field_validator("setupFeePadrao")
+    @classmethod
+    def _setup_fee(cls, v: float) -> float:
+        _validate_setup_fee(v)
+        return v
 
 
 def _billing_settings_row(db: Session) -> BillingSettings | None:

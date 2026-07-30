@@ -1466,3 +1466,111 @@ def test_admin_billing_settings_updates_only_the_master_default(app) -> None:
         isinstance(obj, PlatformAuditLog) and obj.acao == "billing_setup_padrao_editar"
         for obj in db.added
     )
+
+
+# ---------------------------------------------------------------------------
+# Regra canônica da taxa de setup: R$ 0,00 (isenta) ou pelo menos R$ 5,00 —
+# o Asaas rejeita cobranças avulsas de R$ 0,01 a R$ 4,99, então um default (ou
+# exceção por igreja) nessa faixa quebraria o checkout de todo tenant herdeiro.
+# ---------------------------------------------------------------------------
+def test_admin_billing_settings_accepts_zero_and_the_asaas_minimum(app) -> None:
+    settings = SimpleNamespace(id=1, setup_fee_default=20.0)
+    db = PlatformDB(
+        gate_app_user=make_app_user(), admin_marker="pa1", billing_settings=settings
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+
+    zero = client.put("/admin/billing/settings", headers=_AUTH, json={"setupFeePadrao": 0})
+    assert zero.status_code == 200
+    assert settings.setup_fee_default == 0
+
+    minimum = client.put(
+        "/admin/billing/settings", headers=_AUTH, json={"setupFeePadrao": 5}
+    )
+    assert minimum.status_code == 200
+    assert settings.setup_fee_default == 5
+
+
+def test_admin_billing_settings_rejects_nonzero_fee_below_the_minimum(app) -> None:
+    settings = SimpleNamespace(id=1, setup_fee_default=20.0)
+    db = PlatformDB(
+        gate_app_user=make_app_user(), admin_marker="pa1", billing_settings=settings
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+
+    below = client.put(
+        "/admin/billing/settings", headers=_AUTH, json={"setupFeePadrao": 4.99}
+    )
+    negative = client.put(
+        "/admin/billing/settings", headers=_AUTH, json={"setupFeePadrao": -1}
+    )
+
+    assert below.status_code == 422
+    assert negative.status_code == 422
+    assert settings.setup_fee_default == 20.0  # nada persistido
+
+
+def test_admin_create_igreja_accepts_zero_and_minimum_setup_override(app) -> None:
+    db = PlatformDB(gate_app_user=make_app_user(), admin_marker="pa1")
+    client = _wire(app, db=db, clerk=FakeClerk(), mailer=FakeMailer())
+
+    zero = client.post(
+        "/admin/igrejas",
+        headers=_AUTH,
+        json={
+            "nome": "Igreja Isenta",
+            "setupFeeOverride": 0,
+            "admin": {"nome": "Pastor Zero", "email": "zero@nova.org"},
+        },
+    )
+    minimum = client.post(
+        "/admin/igrejas",
+        headers=_AUTH,
+        json={
+            "nome": "Igreja Mínima",
+            "setupFeeOverride": 5,
+            "admin": {"nome": "Pastor Mínimo", "email": "minimo@nova.org"},
+        },
+    )
+
+    assert zero.status_code == 201
+    assert minimum.status_code == 201
+    overrides = [
+        obj.setup_fee_override for obj in db.added if isinstance(obj, Igreja)
+    ]
+    assert overrides == [0, 5]
+
+
+def test_admin_create_igreja_rejects_setup_override_below_the_minimum(app) -> None:
+    db = PlatformDB(gate_app_user=make_app_user(), admin_marker="pa1")
+    client = _wire(app, db=db, clerk=FakeClerk(), mailer=FakeMailer())
+
+    resp = client.post(
+        "/admin/igrejas",
+        headers=_AUTH,
+        json={
+            "nome": "Nova Igreja",
+            "setupFeeOverride": 4.99,
+            "admin": {"nome": "Pastor Novo", "email": "pastor@nova.org"},
+        },
+    )
+
+    assert resp.status_code == 422
+    assert not any(isinstance(obj, Igreja) for obj in db.added)
+
+
+def test_admin_patch_rejects_setup_override_below_the_minimum(app) -> None:
+    igreja = _igreja_ns(id="00000000-0000-0000-0000-000000000009", setup_fee_override=40.0)
+    db = PlatformDB(
+        gate_app_user=make_app_user(), admin_marker="pa1", igreja_scalar=igreja
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+
+    resp = client.patch(
+        "/admin/igrejas/00000000-0000-0000-0000-000000000009",
+        headers=_AUTH,
+        json={"setupFeeOverride": 4.99},
+    )
+
+    assert resp.status_code == 422
+    assert igreja.setup_fee_override == 40.0  # exceção intocada

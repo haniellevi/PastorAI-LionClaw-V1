@@ -60,6 +60,11 @@ class SubscriptionOut(BaseModel):
     limite: int | None = None
     proximaCobranca: str | None = None  # noqa: N815
     setupPago: bool  # noqa: N815
+    # Links persistidos do checkout, expostos apenas enquanto a cobrança
+    # correspondente ainda está em aberto — a tela reconstrói o painel de
+    # pagamento após reload sem criar novas cobranças.
+    invoiceUrl: str | None = None  # noqa: N815 - mensalidade
+    setupInvoiceUrl: str | None = None  # noqa: N815
 
     @classmethod
     def from_model(cls, s: Subscription) -> "SubscriptionOut":
@@ -72,6 +77,8 @@ class SubscriptionOut(BaseModel):
             if s.proxima_cobranca
             else None,
             setupPago=s.setup_pago,
+            invoiceUrl=s.asaas_invoice_url if s.status == "pendente" else None,
+            setupInvoiceUrl=s.asaas_setup_invoice_url if not s.setup_pago else None,
         )
 
 
@@ -278,11 +285,53 @@ def notify_autoupgrade(
     return True
 
 
+def _recover_missing_invoice_urls(
+    db: Session, sub: Subscription, asaas: AsaasClient
+) -> None:
+    """Best-effort: re-resolve payment links lost before persistence existed.
+
+    Only READS the Asaas API by the ids already stored on the subscription —
+    never creates another subscription or setup charge. When Asaas has not
+    generated the link yet (or is unavailable), the subscription read keeps
+    returning null links instead of failing the whole screen.
+    """
+    monthly_missing = (
+        sub.status == "pendente"
+        and sub.asaas_invoice_url is None
+        and bool(sub.asaas_subscription_id)
+    )
+    setup_missing = (
+        not sub.setup_pago
+        and sub.asaas_setup_invoice_url is None
+        and bool(sub.asaas_setup_charge_id)
+    )
+    if not monthly_missing and not setup_missing:
+        return
+
+    changed = False
+    try:
+        if monthly_missing:
+            url = asaas.get_subscription_invoice_url(sub.asaas_subscription_id)
+            if url:
+                sub.asaas_invoice_url = url
+                changed = True
+        if setup_missing:
+            url = asaas.get_payment_invoice_url(sub.asaas_setup_charge_id)
+            if url:
+                sub.asaas_setup_invoice_url = url
+                changed = True
+    except AsaasError:
+        logger.warning("Asaas link recovery failed; keeping null links")
+    if changed:
+        db.commit()
+
+
 @router.get("", response_model=SubscriptionOut)
 def get_subscription(
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(require_owner),
     evolution: EvolutionClient = Depends(get_evolution_client),
+    asaas: AsaasClient = Depends(get_asaas_client),
 ) -> SubscriptionOut:
     """Return the tenant's subscription, notifying any pending autoupgrade."""
     # Sinal de observabilidade (PR1 / feat-004) ligado a este caminho HTTP de
@@ -301,6 +350,11 @@ def get_subscription(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Assinatura não encontrada",
         )
+
+    # Cobrança pendente sem link persistido (checkout antigo ou Asaas ainda
+    # gerando a fatura): tenta recuperar pelos ids já armazenados, sem nunca
+    # criar cobrança nova. Falha do Asaas não derruba a leitura.
+    _recover_missing_invoice_urls(db, sub, asaas)
 
     # Surface the trigger-driven autoupgrade to the admin (idempotent).
     # notify_autoupgrade comita internamente; a re-asserção manual do contexto
@@ -364,12 +418,17 @@ def create_checkout(
     sub.status = result.status
     sub.asaas_customer_id = result.customer_id
     sub.asaas_subscription_id = result.subscription_id
+    # Persist the payment links so the pending screen survives a reload —
+    # they otherwise existed only in the checkout HTTP response.
+    sub.asaas_invoice_url = result.invoice_url
     if setup_fee > 0:
         sub.setup_pago = False  # paid only once its own webhook confirms it
         sub.asaas_setup_charge_id = result.setup_charge_id
+        sub.asaas_setup_invoice_url = result.setup_invoice_url
     else:
         sub.setup_pago = True  # no setup charge was configured for this igreja
         sub.asaas_setup_charge_id = None
+        sub.asaas_setup_invoice_url = None
     db.commit()
 
     return CheckoutResponse(

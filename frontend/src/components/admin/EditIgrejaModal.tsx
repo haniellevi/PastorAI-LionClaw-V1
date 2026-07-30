@@ -17,7 +17,7 @@ import { useState } from "react";
 import { Dialog as DsDialog } from "@/components/ds/Dialog";
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
-import type { AdminIgreja, UpdateIgrejaInput } from "@/lib/admin-api";
+import { isInvalidSetupFee, type AdminIgreja, type UpdateIgrejaInput } from "@/lib/admin-api";
 import type { PlanoOption } from "./CreateIgrejaModal";
 
 const STATUSES = [
@@ -72,11 +72,8 @@ export function EditIgrejaModal({
     const input: UpdateIgrejaInput = {};
     const setupFeeValue =
       setupFeeOverride.trim() === "" ? null : Number(setupFeeOverride);
-    if (
-      setupFeeValue !== null &&
-      (!Number.isFinite(setupFeeValue) || setupFeeValue < 0)
-    ) {
-      setSetupFeeError("Taxa de setup inválida.");
+    if (setupFeeValue !== null && isInvalidSetupFee(setupFeeValue)) {
+      setSetupFeeError("Taxa de setup deve ser R$ 0,00 (isenta) ou de pelo menos R$ 5,00.");
       return;
     }
     setSetupFeeError(null);

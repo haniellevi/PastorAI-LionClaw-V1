@@ -21,15 +21,18 @@ const {
   updatePlano: vi.fn(),
 }));
 
-vi.mock("@/lib/admin-api", () => ({
-  AdminSessionExpiredError: class AdminSessionExpiredError extends Error {},
-  createPlano,
-  deletePlano,
-  fetchBillingSettings,
-  listPlanos,
-  updateBillingSettings,
-  updatePlano,
-}));
+vi.mock("@/lib/admin-api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/admin-api")>();
+  return {
+    ...actual,
+    createPlano,
+    deletePlano,
+    fetchBillingSettings,
+    listPlanos,
+    updateBillingSettings,
+    updatePlano,
+  };
+});
 
 declare global {
   // eslint-disable-next-line no-var
@@ -119,5 +122,36 @@ describe("PlanosManagerModal — cobrança do master", () => {
       setupFeePadrao: 75,
     });
     expect(onChanged).toHaveBeenCalledTimes(1);
+  });
+
+  it("rejeita taxa padrão entre R$ 0,01 e R$ 4,99 sem chamar a API", async () => {
+    listPlanos.mockResolvedValue([]);
+    fetchBillingSettings.mockResolvedValue({ setupFeePadrao: 59.9 });
+
+    render();
+    await flush();
+
+    const setupInput = container.querySelector<HTMLInputElement>('input[type="number"]')!;
+    setValue(setupInput, "4.99");
+    const save = [...container.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Salvar taxa padrão"),
+    )!;
+    act(() => save.click());
+    await flush();
+
+    expect(updateBillingSettings).not.toHaveBeenCalled();
+    expect(container.textContent).toContain(
+      "Taxa padrão de setup deve ser R$ 0,00 (isenta) ou de pelo menos R$ 5,00.",
+    );
+
+    // Zero é aceito e vai para a API.
+    updateBillingSettings.mockResolvedValue({ setupFeePadrao: 0 });
+    setValue(setupInput, "0");
+    act(() => save.click());
+    await flush();
+
+    expect(updateBillingSettings).toHaveBeenCalledWith("master-token", {
+      setupFeePadrao: 0,
+    });
   });
 });

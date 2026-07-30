@@ -18,6 +18,7 @@ import {
   createPlano,
   deletePlano,
   fetchBillingSettings,
+  isInvalidSetupFee,
   listPlanos,
   updateBillingSettings,
   updatePlano,
@@ -204,8 +205,8 @@ export function PlanosManagerModal({
   const saveSetupFee = async () => {
     const rawSetupFee = setupFeeInput.trim();
     const setupFee = Number(rawSetupFee);
-    if (!rawSetupFee || !Number.isFinite(setupFee) || setupFee < 0) {
-      setError("Taxa padrão de setup inválida.");
+    if (!rawSetupFee || isInvalidSetupFee(setupFee)) {
+      setError("Taxa padrão de setup deve ser R$ 0,00 (isenta) ou de pelo menos R$ 5,00.");
       return;
     }
     setBusy(true);
