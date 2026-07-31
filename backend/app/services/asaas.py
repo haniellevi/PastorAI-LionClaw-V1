@@ -23,6 +23,9 @@ from app.services.outbound_guard import external_sends_allowed, log_suppressed
 
 logger = logging.getLogger("pastorai.asaas")
 MIN_UNDEFINED_PAYMENT_VALUE = 5.0
+# Descrição EXATA da cobrança avulsa de setup — também é o critério de
+# reconciliação de setups legados no webhook (registros pré-migration).
+SETUP_CHARGE_DESCRIPTION = "PastorAI — taxa de setup"
 
 # Map Asaas event/payment status to our subscription_status enum (RF-42).
 _STATUS_MAP = {
@@ -330,7 +333,7 @@ class AsaasClient:
             "billingType": "UNDEFINED",
             "value": valor,
             "dueDate": dt.date.today().isoformat(),
-            "description": "PastorAI — taxa de setup",
+            "description": SETUP_CHARGE_DESCRIPTION,
         }
         if external_reference:
             payload["externalReference"] = external_reference

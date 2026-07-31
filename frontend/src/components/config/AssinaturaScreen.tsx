@@ -230,7 +230,9 @@ export function AssinaturaScreen() {
         </div>
       ) : null}
 
-      {/* Estado inadimplente: CTA de regularização. */}
+      {/* Estado inadimplente: CTA de regularização. Com o link da fatura
+          vencida persistido, regularizar é ABRIR a fatura atual — nunca um
+          novo checkout, que criaria outra assinatura recorrente no Asaas. */}
       {uiState === "past-due" && sub ? (
         <div className="error-banner" role="alert" style={{ marginBottom: "var(--s4)" }}>
           <Icon name="alert" />
@@ -238,15 +240,26 @@ export function AssinaturaScreen() {
             <strong>Pagamento em atraso.</strong> Regularize para manter o acesso da
             igreja ativo.
           </span>
-          <button
-            type="button"
-            className="btn btn-sm btn-primary"
-            onClick={() => void contract(sub.plano)}
-            disabled={checkoutPlan != null}
-            aria-busy={checkoutPlan != null || undefined}
-          >
-            {checkoutPlan != null ? "Abrindo…" : "Regularizar pagamento"}
-          </button>
+          {sub.invoiceUrl ? (
+            <a
+              className="btn btn-sm btn-primary"
+              href={sub.invoiceUrl}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Regularizar pagamento
+            </a>
+          ) : (
+            <button
+              type="button"
+              className="btn btn-sm btn-primary"
+              onClick={() => void contract(sub.plano)}
+              disabled={checkoutPlan != null}
+              aria-busy={checkoutPlan != null || undefined}
+            >
+              {checkoutPlan != null ? "Abrindo…" : "Regularizar pagamento"}
+            </button>
+          )}
         </div>
       ) : null}
 

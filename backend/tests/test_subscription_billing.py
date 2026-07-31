@@ -372,6 +372,47 @@ def test_link_recovery_never_creates_new_charges(app) -> None:
     ]
 
 
+def test_get_subscription_returns_invoice_url_when_overdue(app) -> None:
+    # Fatura VENCIDA continua pagável: o link persistido é exatamente o caminho
+    # de regularização — some só quando a assinatura está ativa/quitada.
+    asaas = _RecoveryAsaas()
+    sub = _subscription(
+        status="inadimplente",
+        setup_pago=True,
+        asaas_setup_charge_id=None,
+        asaas_invoice_payment_id="pay_m2",
+        asaas_invoice_url="https://asaas.test/m2-overdue",
+    )
+    client, _db = _client(app, planos=[], asaas=asaas, subscription=sub)
+
+    resp = client.get("/subscription", headers=_AUTH)
+
+    assert resp.status_code == 200
+    assert resp.json()["invoiceUrl"] == "https://asaas.test/m2-overdue"
+    assert asaas.calls == []
+
+
+def test_get_subscription_recovers_overdue_url_by_current_payment_id(app) -> None:
+    asaas = _RecoveryAsaas(payment_urls={"pay_m2": "https://asaas.test/m2-overdue"})
+    sub = _subscription(
+        status="inadimplente",
+        setup_pago=True,
+        asaas_setup_charge_id=None,
+        asaas_setup_invoice_url=None,
+        asaas_invoice_payment_id="pay_m2",
+        asaas_invoice_url=None,
+    )
+    client, db = _client(app, planos=[], asaas=asaas, subscription=sub)
+
+    resp = client.get("/subscription", headers=_AUTH)
+
+    assert resp.status_code == 200
+    assert resp.json()["invoiceUrl"] == "https://asaas.test/m2-overdue"
+    assert sub.asaas_invoice_url == "https://asaas.test/m2-overdue"
+    assert asaas.calls == [("get_payment_invoice_url", "pay_m2")]
+    assert db.commits == 1
+
+
 def test_get_subscription_hides_links_already_settled(app) -> None:
     # Assinatura ativa com setup pago: links persistidos não voltam na leitura
     # (nada em aberto para pagar).

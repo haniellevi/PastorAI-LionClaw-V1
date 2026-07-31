@@ -40,6 +40,7 @@ from app.db.rls_observability import log_if_not_scoped
 from app.db.session import get_db
 from app.deps import ADMIN_ROLE, CurrentUser, require_owner
 from app.services.asaas import (
+    SETUP_CHARGE_DESCRIPTION,
     AsaasClient,
     AsaasError,
     get_asaas_client,
@@ -64,7 +65,9 @@ class SubscriptionOut(BaseModel):
     setupPago: bool  # noqa: N815
     # Links persistidos do checkout, expostos apenas enquanto a cobrança
     # correspondente ainda está em aberto — a tela reconstrói o painel de
-    # pagamento após reload sem criar novas cobranças.
+    # pagamento após reload sem criar novas cobranças. A fatura VENCIDA
+    # continua pagável: inadimplente também expõe o link (regularizar nunca
+    # deve criar outra assinatura no Asaas).
     invoiceUrl: str | None = None  # noqa: N815 - mensalidade
     setupInvoiceUrl: str | None = None  # noqa: N815
 
@@ -79,7 +82,11 @@ class SubscriptionOut(BaseModel):
             if s.proxima_cobranca
             else None,
             setupPago=s.setup_pago,
-            invoiceUrl=s.asaas_invoice_url if s.status == "pendente" else None,
+            invoiceUrl=(
+                s.asaas_invoice_url
+                if s.status in ("pendente", "inadimplente")
+                else None
+            ),
             setupInvoiceUrl=s.asaas_setup_invoice_url if not s.setup_pago else None,
         )
 
@@ -297,14 +304,37 @@ def _parse_iso_date(value: object) -> dt.date | None:
         return None
 
 
+def _is_stale_cycle_event(sub: Subscription, payment: dict) -> bool:
+    """True quando o evento pertence a um ciclo ANTERIOR ao já rastreado.
+
+    A decisão acontece ANTES de qualquer mutação no webhook: um evento vetado
+    aqui não muda status, link, payment id, acesso da igreja nem comita — um
+    OVERDUE atrasado de julho não pode derrubar a assinatura que agosto já
+    confirmou. Mesmo payment id nunca é stale (o ciclo corrente transita de
+    status normalmente). Um id DIFERENTE sem dueDate ordenável não tem como
+    provar que é mais novo, então não pode regredir um ciclo já rastreado.
+    """
+    incoming_id = str(payment["id"]) if payment.get("id") else None
+    if not incoming_id or sub.asaas_invoice_payment_id in (None, incoming_id):
+        return False
+    if sub.proxima_cobranca is None:
+        # Rastreio sem data de referência (ex.: checkout sem 1º evento datado):
+        # aceita o evento — é a primeira base de ordenação disponível.
+        return False
+    due = _parse_iso_date(payment.get("dueDate"))
+    if due is None:
+        return True  # id diferente sem data: não pode regredir o rastreado
+    return due < sub.proxima_cobranca
+
+
 def _apply_monthly_payment_link(sub: Subscription, payment: dict) -> None:
     """Track the CURRENT monthly invoice (id + link) from a payment webhook.
 
     Every billing cycle emits a new payment; the stored link must follow it,
     otherwise "Pagar mensalidade" keeps opening the settled first invoice.
-    Ordering guard: a late/duplicate event from an EARLIER cycle (smaller
-    dueDate than the tracked one) never clobbers the newer cycle. Same payment
-    id is an idempotent refresh — it may only fill a link that was missing.
+    Stale-cycle ordering is decided by _is_stale_cycle_event BEFORE any
+    mutation — by the time this runs, the event is same-cycle (idempotent
+    refresh that may only fill a missing link) or a genuinely newer cycle.
     """
     incoming_id = str(payment["id"]) if payment.get("id") else None
     if not incoming_id:
@@ -318,19 +348,49 @@ def _apply_monthly_payment_link(sub: Subscription, payment: dict) -> None:
             sub.proxima_cobranca = due
         return
 
-    if (
-        due is not None
-        and sub.proxima_cobranca is not None
-        and due < sub.proxima_cobranca
-    ):
-        return  # stale event from a previous cycle
-
     sub.asaas_invoice_payment_id = incoming_id
     # None quando o Asaas ainda não gerou o link — nunca manter a URL quitada
     # do ciclo anterior à mostra.
     sub.asaas_invoice_url = payment_invoice_url(payment)
     if due is not None:
         sub.proxima_cobranca = due
+
+
+def _reconcile_legacy_setup_charge(
+    db: Session, payment: dict, payment_id: str | None, new_status: str | None
+) -> WebhookResponse | None:
+    """Setup pago por checkout ANTERIOR à migration (sem charge id rastreado).
+
+    O cliente antigo criava a cobrança de setup sem persistir o id, então a
+    confirmação chegaria aqui como "one-time payment desconhecido" e o tenant
+    ficaria devendo setup para sempre. Reconciliação ESTRITA — só marca pago
+    quando TODAS as condições fecham: é confirmação, a descrição é exatamente a
+    da cobrança de setup, há customer no payload e existe UMA ÚNICA assinatura
+    candidata (mesmo customer, setup em aberto, sem charge id rastreado).
+    Qualquer ambiguidade é apenas reconhecida, sem mutação. Nunca altera
+    mensalidade, status da assinatura ou acesso da igreja.
+    """
+    if (
+        payment_id is None
+        or new_status != "ativa"
+        or payment.get("description") != SETUP_CHARGE_DESCRIPTION
+        or not payment.get("customer")
+    ):
+        return None
+    candidatas = db.execute(
+        select(Subscription).where(
+            Subscription.asaas_customer_id == str(payment["customer"]),
+            Subscription.setup_pago.is_(False),
+            Subscription.asaas_setup_charge_id.is_(None),
+        )
+    ).scalars().all()
+    if len(candidatas) != 1:
+        return None
+    legada = candidatas[0]
+    legada.asaas_setup_charge_id = payment_id
+    legada.setup_pago = True
+    db.commit()
+    return WebhookResponse(received=True, status=new_status)
 
 
 def _recover_missing_invoice_urls(
@@ -344,7 +404,7 @@ def _recover_missing_invoice_urls(
     returning null links instead of failing the whole screen.
     """
     monthly_missing = (
-        sub.status == "pendente"
+        sub.status in ("pendente", "inadimplente")
         and sub.asaas_invoice_url is None
         and bool(sub.asaas_invoice_payment_id or sub.asaas_subscription_id)
     )
@@ -570,10 +630,13 @@ def asaas_webhook(
                 db.commit()
             return WebhookResponse(received=True, status=new_status)
 
-    # A payment without an Asaas subscription can only be the tracked setup
-    # charge above. Never use its externalReference as authority for a monthly
-    # status transition; that would let another one-time charge alter access.
+    # A payment without an Asaas subscription can only be a setup charge.
+    # Never use its externalReference as authority for a monthly status
+    # transition; that would let another one-time charge alter access.
     if payment and not payment.get("subscription"):
+        legacy = _reconcile_legacy_setup_charge(db, payment, payment_id, new_status)
+        if legacy is not None:
+            return legacy
         logger.info("Asaas webhook for unknown one-time payment; acknowledged")
         return WebhookResponse(received=True, status=None)
 
@@ -597,11 +660,18 @@ def asaas_webhook(
         logger.info("Asaas webhook for unknown subscription; acknowledged")
         return WebhookResponse(received=True, status=None)
 
+    # Veto de ciclo ANTES de qualquer mutação: um evento atrasado/duplicado de
+    # fatura de ciclo anterior é reconhecido e ignorado por inteiro — nem
+    # status, nem link/payment id, nem acesso da igreja, nem commit.
+    if payment and _is_stale_cycle_event(sub, payment):
+        logger.info("Asaas webhook for a previous billing cycle; acknowledged")
+        return WebhookResponse(received=True, status=None)
+
     if new_status is not None:
         sub.status = new_status
         # Cada ciclo mensal emite uma cobrança nova: acompanha id + link da
-        # fatura corrente (com guarda contra evento atrasado de ciclo antigo),
-        # senão "Pagar mensalidade" abriria a primeira fatura já quitada.
+        # fatura corrente, senão "Pagar mensalidade" abriria a primeira
+        # fatura já quitada.
         if payment:
             _apply_monthly_payment_link(sub, payment)
         # Reflect subscription billing only onto the igreja access gate. Setup

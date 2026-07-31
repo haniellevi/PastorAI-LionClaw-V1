@@ -133,6 +133,56 @@ describe("AssinaturaScreen — links do checkout", () => {
     expect(container.querySelector("#subscription-cpf-cnpj")).toBeNull();
   });
 
+  it("inadimplente com link persistido: Regularizar abre a fatura atual, sem novo checkout", async () => {
+    fetchSubscription.mockResolvedValue({
+      plano: "ate_100",
+      status: "inadimplente",
+      pessoas: 10,
+      limite: 100,
+      proximaCobranca: null,
+      setupPago: true,
+      invoiceUrl: "https://asaas.test/m2-overdue",
+      setupInvoiceUrl: null,
+    });
+
+    act(() => root.render(h(AssinaturaScreen)));
+    await flush();
+
+    const regularizar = [...container.querySelectorAll("a")].find((link) =>
+      link.textContent?.includes("Regularizar pagamento"),
+    );
+    expect(regularizar?.getAttribute("href")).toBe("https://asaas.test/m2-overdue");
+    // Nenhum botão de regularização dispara checkout quando o link existe —
+    // um novo checkout criaria OUTRA assinatura recorrente no Asaas.
+    const botaoRegularizar = [...container.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Regularizar pagamento"),
+    );
+    expect(botaoRegularizar).toBeUndefined();
+    expect(createCheckout).not.toHaveBeenCalled();
+  });
+
+  it("inadimplente sem link: o fallback continua sendo o botão de regularização", async () => {
+    fetchSubscription.mockResolvedValue({
+      plano: "ate_100",
+      status: "inadimplente",
+      pessoas: 10,
+      limite: 100,
+      proximaCobranca: null,
+      setupPago: true,
+      invoiceUrl: null,
+      setupInvoiceUrl: null,
+    });
+
+    act(() => root.render(h(AssinaturaScreen)));
+    await flush();
+
+    const botaoRegularizar = [...container.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Regularizar pagamento"),
+    );
+    expect(botaoRegularizar).toBeDefined();
+    expect(createCheckout).not.toHaveBeenCalled();
+  });
+
   it("assinatura pendente sem links ainda mostra o painel com o aviso do Asaas", async () => {
     fetchSubscription.mockResolvedValue({
       plano: "ate_100",

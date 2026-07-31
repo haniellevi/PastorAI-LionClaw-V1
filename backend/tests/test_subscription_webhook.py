@@ -53,11 +53,15 @@ def _igreja(status: str = "ativa"):
 
 
 class _Result:
-    def __init__(self, scalar) -> None:
+    def __init__(self, scalar, scalars_list=None) -> None:
         self._scalar = scalar
+        self._scalars_list = scalars_list or []
 
     def scalar_one_or_none(self):
         return self._scalar
+
+    def scalars(self):
+        return SimpleNamespace(all=lambda: list(self._scalars_list))
 
 
 class _WebhookDb:
@@ -69,13 +73,29 @@ class _WebhookDb:
     `subscriptions.igreja_id` em ambas as queries.
     """
 
-    def __init__(self, sub=None, igreja=None) -> None:
+    def __init__(self, sub=None, igreja=None, legacy_candidates=None) -> None:
         self.sub = sub
         self.igreja = igreja
+        # Reconciliação de setup legado: assinaturas retornadas pelo select por
+        # asaas_customer_id (o fake reaplica o WHERE real da query).
+        self.legacy_candidates = legacy_candidates or []
         self.commits = 0
 
     def execute(self, statement, params=None) -> _Result:
         bound = statement.compile().params
+        if any(key.startswith("asaas_customer_id") for key in bound):
+            customer = next(
+                value for key, value in bound.items()
+                if key.startswith("asaas_customer_id")
+            )
+            matches = [
+                s
+                for s in self.legacy_candidates
+                if str(getattr(s, "asaas_customer_id", None)) == str(customer)
+                and not s.setup_pago
+                and s.asaas_setup_charge_id is None
+            ]
+            return _Result(matches[0] if matches else None, scalars_list=matches)
         if isinstance(statement, Update):
             # UPDATE condicional da igreja (P1 Codex): como no banco real, o
             # WHERE (id + status esperado) é avaliado contra o estado ATUAL do
@@ -456,6 +476,176 @@ def test_repeated_payment_created_is_idempotent_and_fills_missing_url(
     resp = _post(client, "PAYMENT_CREATED", evento)
     assert db.sub.asaas_invoice_payment_id == "pay_m2"
     assert db.sub.asaas_invoice_url == "https://asaas.test/m2"
+
+
+# ---------------------------------------------------------------------------
+# Veto de ciclo (P1 review 3): evento atrasado de fatura ANTIGA não muda nada —
+# nem status, nem link, nem acesso da igreja, nem commit.
+# ---------------------------------------------------------------------------
+def test_old_overdue_after_new_cycle_confirmed_changes_nothing(app, monkeypatch) -> None:
+    # Agosto (pay_m2) confirmado; OVERDUE atrasado de julho (pay_m1) chega
+    # depois. Antes do fix: derrubava sub e igreja para "inadimplente".
+    db = _WebhookDb(
+        sub=_sub(
+            status="ativa",
+            asaas_invoice_payment_id="pay_m2",
+            asaas_invoice_url="https://asaas.test/m2",
+            proxima_cobranca=dt.date(2026, 8, 1),
+        ),
+        igreja=_igreja("ativa"),
+    )
+    client = _client(app, db, monkeypatch)
+
+    resp = _post(
+        client,
+        "PAYMENT_OVERDUE",
+        _payment(
+            status="OVERDUE",
+            payment_id="pay_m1",
+            due_date="2026-07-01",
+            invoice_url="https://asaas.test/m1",
+        ),
+    )
+
+    assert resp.json() == {"received": True, "status": None}
+    assert db.sub.status == "ativa"
+    assert db.igreja.status == "ativa"
+    assert db.sub.asaas_invoice_payment_id == "pay_m2"
+    assert db.sub.asaas_invoice_url == "https://asaas.test/m2"
+    assert str(db.sub.proxima_cobranca) == "2026-08-01"
+    assert db.commits == 0
+
+
+def test_different_payment_without_duedate_cannot_regress_tracked_cycle(
+    app, monkeypatch
+) -> None:
+    # Sem dueDate não há como provar que o evento é mais novo — id diferente
+    # do rastreado é ignorado por inteiro.
+    db = _WebhookDb(
+        sub=_sub(
+            status="pendente",
+            asaas_invoice_payment_id="pay_m2",
+            asaas_invoice_url="https://asaas.test/m2",
+            proxima_cobranca=dt.date(2026, 8, 1),
+        ),
+        igreja=_igreja("ativa"),
+    )
+    client = _client(app, db, monkeypatch)
+
+    resp = _post(
+        client,
+        "PAYMENT_OVERDUE",
+        _payment(status="OVERDUE", payment_id="pay_mx"),
+    )
+
+    assert resp.json() == {"received": True, "status": None}
+    assert db.sub.status == "pendente"
+    assert db.igreja.status == "ativa"
+    assert db.sub.asaas_invoice_payment_id == "pay_m2"
+    assert db.commits == 0
+
+
+def test_same_payment_id_still_transitions_status(app, monkeypatch) -> None:
+    # O ciclo CORRENTE transita normalmente: confirmação do payment rastreado
+    # ativa a assinatura e reativa a igreja inadimplente.
+    db = _WebhookDb(
+        sub=_sub(
+            status="pendente",
+            asaas_invoice_payment_id="pay_m2",
+            asaas_invoice_url="https://asaas.test/m2",
+            proxima_cobranca=dt.date(2026, 8, 1),
+        ),
+        igreja=_igreja("inadimplente"),
+    )
+    client = _client(app, db, monkeypatch)
+
+    resp = _post(
+        client,
+        "PAYMENT_CONFIRMED",
+        _payment(status="CONFIRMED", payment_id="pay_m2", due_date="2026-08-01"),
+    )
+
+    assert resp.json() == {"received": True, "status": "ativa"}
+    assert db.sub.status == "ativa"
+    assert db.igreja.status == "ativa"
+    assert db.commits == 1
+
+
+# ---------------------------------------------------------------------------
+# Setup legado (P2 review 3): checkout anterior à migration não tem charge id
+# rastreado — a confirmação reconcilia por customer + descrição exata, e SÓ
+# quando existe uma única candidata.
+# ---------------------------------------------------------------------------
+def _legacy_payment(**over) -> dict:
+    p = {
+        "id": "pay_leg_1",
+        "status": "CONFIRMED",
+        "customer": "cus_leg_1",
+        "description": "PastorAI — taxa de setup",
+    }
+    p.update(over)
+    return p
+
+
+def _legacy_sub(**over):
+    return _sub(
+        status="pendente",
+        setup_pago=False,
+        asaas_setup_charge_id=None,
+        asaas_customer_id="cus_leg_1",
+        **over,
+    )
+
+
+def test_legacy_setup_confirmation_marks_paid(app, monkeypatch) -> None:
+    legada = _legacy_sub()
+    db = _WebhookDb(sub=None, igreja=_igreja("ativa"), legacy_candidates=[legada])
+    client = _client(app, db, monkeypatch)
+
+    resp = _post(client, "PAYMENT_CONFIRMED", _legacy_payment())
+
+    assert resp.json() == {"received": True, "status": "ativa"}
+    assert legada.setup_pago is True
+    assert legada.asaas_setup_charge_id == "pay_leg_1"  # persiste o id
+    assert legada.status == "pendente"  # mensalidade intocada
+    assert db.igreja.status == "ativa"  # acesso intocado
+    assert db.commits == 1
+
+
+def test_legacy_setup_pending_event_does_not_mark_paid(app, monkeypatch) -> None:
+    # Só CONFIRMAÇÃO reconcilia — fatura de setup recém-criada não.
+    legada = _legacy_sub()
+    db = _WebhookDb(sub=None, igreja=_igreja("ativa"), legacy_candidates=[legada])
+    client = _client(app, db, monkeypatch)
+
+    resp = _post(client, "PAYMENT_CREATED", _legacy_payment(status="PENDING"))
+
+    assert resp.json() == {"received": True, "status": None}
+    assert legada.setup_pago is False
+    assert legada.asaas_setup_charge_id is None
+    assert db.commits == 0
+
+
+def test_legacy_setup_rejects_wrong_description_missing_customer_or_ambiguity(
+    app, monkeypatch
+) -> None:
+    for payload, candidatas in [
+        # Descrição diferente da cobrança de setup oficial.
+        (_legacy_payment(description="Outra cobrança"), [_legacy_sub()]),
+        # Payload sem customer.
+        ({k: v for k, v in _legacy_payment().items() if k != "customer"}, [_legacy_sub()]),
+        # Duas candidatas com o mesmo customer: ambíguo, nada muda.
+        (_legacy_payment(), [_legacy_sub(), _legacy_sub()]),
+    ]:
+        db = _WebhookDb(sub=None, igreja=_igreja("ativa"), legacy_candidates=candidatas)
+        client = _client(app, db, monkeypatch)
+
+        resp = _post(client, "PAYMENT_CONFIRMED", payload)
+
+        assert resp.json() == {"received": True, "status": None}
+        assert all(c.setup_pago is False for c in candidatas)
+        assert all(c.asaas_setup_charge_id is None for c in candidatas)
+        assert db.commits == 0
 
 
 def test_setup_charge_event_does_not_touch_monthly_link(app, monkeypatch) -> None:
