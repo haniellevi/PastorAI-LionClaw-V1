@@ -6,7 +6,9 @@
  *
  * Cada linha é uma REUNIÃO materializada (`celula_reuniao`), nunca uma célula
  * abstrata: célula sem reunião na semana simplesmente não aparece. As abas
- * Semana atual / Histórico trocam a semana ISO consultada.
+ * Semana atual / Histórico trocam a semana ISO consultada — a atual fica a
+ * cargo do backend (sem `?semana=`) e o histórico é derivado em
+ * `America/Sao_Paulo`, nunca no fuso do navegador.
  *
  * A status-pill (Pendente / Atrasado) reflete o status classificado pelo
  * BACKEND — o SLA de 2h após a reunião roda no servidor, em America/Sao_Paulo.
@@ -16,6 +18,9 @@
  *
  * Acesso restrito a pastor/admin (GET /reports exige a Central); um papel sem
  * permissão recebe 403 e a tela mostra o banner de erro.
+ *
+ * O modal de detalhe guarda o ID da reunião, não o objeto: assim ele acompanha
+ * o polling em vez de congelar no status da hora em que foi aberto.
  *
  * Estados: loading (skeleton) · empty (sem reuniões) · populated · detail (modal).
  */
@@ -30,6 +35,7 @@ import { Icon } from "@/lib/icons";
 import {
   fetchReports,
   formatMeetingDate,
+  previousIsoWeekInSaoPaulo,
   reportSla,
   splitReports,
   type ReportItem,
@@ -42,18 +48,6 @@ type Tab = "atual" | "historico";
 /** Intervalo do refetch da semana corrente (ms) — ver o efeito de polling. */
 const REFRESH_MS = 60_000;
 
-/** Semana ISO `YYYY-Www` de uma data (algoritmo ISO-8601). */
-function isoWeekString(input: Date): string {
-  const date = new Date(Date.UTC(input.getFullYear(), input.getMonth(), input.getDate()));
-  const day = (date.getUTCDay() + 6) % 7;
-  date.setUTCDate(date.getUTCDate() - day + 3); // quinta-feira da semana
-  const firstThursday = new Date(Date.UTC(date.getUTCFullYear(), 0, 4));
-  const firstDay = (firstThursday.getUTCDay() + 6) % 7;
-  const week =
-    1 + Math.round((date.getTime() - firstThursday.getTime()) / 86400000 / 7 + (firstDay - 3) / 7);
-  return `${date.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
-}
-
 export function RelatoriosScreen() {
   const { token, expireSession } = useAuth();
 
@@ -63,19 +57,22 @@ export function RelatoriosScreen() {
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("atual");
 
-  const [detail, setDetail] = useState<ReportItem | null>(null);
+  // Guardamos o ID da reunião, não o objeto: o polling troca o array `reports`,
+  // e uma cópia congelada deixaria o modal aberto exibindo o status antigo.
+  const [detailId, setDetailId] = useState<string | null>(null);
 
   // Busca em voo (impede polls concorrentes) e sequência da requisição (impede
   // que uma resposta atrasada sobrescreva o resultado de uma carga mais nova).
   const inFlight = useRef(false);
   const latestRequest = useRef(0);
 
-  const semana = useMemo(() => {
-    if (tab === "atual") return undefined;
-    const prev = new Date();
-    prev.setDate(prev.getDate() - 7);
-    return isoWeekString(prev);
-  }, [tab]);
+  // Semana atual NÃO manda `?semana=` (o backend resolve a semana corrente em
+  // São Paulo); o histórico manda a semana anterior derivada NO MESMO fuso —
+  // pelo fuso do navegador as duas abas pediriam a mesma semana na virada.
+  const semana = useMemo(
+    () => (tab === "atual" ? undefined : previousIsoWeekInSaoPaulo()),
+    [tab],
+  );
 
   const handleSessionError = useCallback(
     (err: unknown): boolean => {
@@ -148,6 +145,22 @@ export function RelatoriosScreen() {
 
   const { recebidos, pendentes } = useMemo(() => splitReports(reports), [reports]);
 
+  // O item do modal é DERIVADO do array atual: quando o poll traz a mesma
+  // reunião já enviada (ou atrasada), o modal aberto acompanha na hora.
+  const detail = useMemo(
+    () => (detailId ? reports.find((r) => r.id === detailId) ?? null : null),
+    [detailId, reports],
+  );
+
+  // Reunião sumiu do resultado (mudou de semana, foi cancelada): fecha o modal e
+  // esquece o ID — sem isso, um poll futuro que a trouxesse de volta reabriria
+  // o diálogo sozinho.
+  useEffect(() => {
+    if (detailId !== null && !reports.some((r) => r.id === detailId)) {
+      setDetailId(null);
+    }
+  }, [detailId, reports]);
+
   const showSkeleton = loading && !loaded;
   const reunioesTotal = recebidos.length + pendentes.length;
 
@@ -169,7 +182,7 @@ export function RelatoriosScreen() {
             className="btn btn-sm"
             onClick={(e) => {
               e.stopPropagation();
-              setDetail(r);
+              setDetailId(r.id);
             }}
           >
             Ver
@@ -255,7 +268,7 @@ export function RelatoriosScreen() {
                 title: "Nenhum relatório recebido ainda.",
                 hint: "Os relatórios enviados pelos líderes aparecem aqui.",
               }}
-              onRowClick={(r) => setDetail(r)}
+              onRowClick={(r) => setDetailId(r.id)}
             />
           </div>
 
@@ -283,7 +296,7 @@ export function RelatoriosScreen() {
                         <div className="sub">Reunião de {formatMeetingDate(r.dataReuniao)}</div>
                       </div>
                       <StatusPill tone={sla.tone}>{sla.label}</StatusPill>
-                      <button type="button" className="btn btn-sm" onClick={() => setDetail(r)}>
+                      <button type="button" className="btn btn-sm" onClick={() => setDetailId(r.id)}>
                         Ver
                       </button>
                     </div>
@@ -295,7 +308,7 @@ export function RelatoriosScreen() {
         </div>
       )}
 
-      {detail ? <ReportDetailModal report={detail} onClose={() => setDetail(null)} /> : null}
+      {detail ? <ReportDetailModal report={detail} onClose={() => setDetailId(null)} /> : null}
     </div>
   );
 }

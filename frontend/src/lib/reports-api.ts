@@ -109,3 +109,62 @@ export function formatMeetingDate(dataReuniao: string): string {
   if (!match) return dataReuniao;
   return `${match[3]}/${match[2]}/${match[1]}`;
 }
+
+// ---------------------------------------------------------------------------
+// Semana ISO no fuso do PRODUTO
+// ---------------------------------------------------------------------------
+/** Fuso canônico do produto — o mesmo que o backend usa para semana e SLA. */
+export const SAO_PAULO_TZ = "America/Sao_Paulo";
+
+/**
+ * Data civil (ano/mês/dia) em São Paulo no instante dado.
+ *
+ * Lê as PARTES numéricas de `Intl.DateTimeFormat` — sem parse de string, que
+ * dependeria do locale. O navegador pode estar em qualquer fuso: usar
+ * `getFullYear()/getMonth()/getDate()` daria o calendário da máquina, não o do
+ * produto (às 00:30Z de 03/08 ainda é dia 02/08 em São Paulo).
+ */
+function saoPauloCivilDate(now: Date): { year: number; month: number; day: number } {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: SAO_PAULO_TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+  const pick = (type: Intl.DateTimeFormatPartTypes): number =>
+    Number(parts.find((p) => p.type === type)?.value);
+  return { year: pick("year"), month: pick("month"), day: pick("day") };
+}
+
+/** Semana ISO `YYYY-Www` de uma data civil (algoritmo ISO-8601, âncora em UTC). */
+function isoWeekOfCivilDate(year: number, month: number, day: number): string {
+  const date = new Date(Date.UTC(year, month - 1, day));
+  const dow = (date.getUTCDay() + 6) % 7; // 0 = segunda
+  date.setUTCDate(date.getUTCDate() - dow + 3); // quinta-feira da semana
+  const firstThursday = new Date(Date.UTC(date.getUTCFullYear(), 0, 4));
+  const firstDow = (firstThursday.getUTCDay() + 6) % 7;
+  const week =
+    1 + Math.round((date.getTime() - firstThursday.getTime()) / 86400000 / 7 + (firstDow - 3) / 7);
+  return `${date.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
+}
+
+/**
+ * Semana ISO ANTERIOR à corrente, em `America/Sao_Paulo` — o que a aba
+ * Histórico consulta.
+ *
+ * A aba "Semana atual" NÃO manda `?semana=`: quem resolve a semana corrente é o
+ * backend (`current_iso_week`, também em São Paulo). Se o histórico derivasse a
+ * semana pelo fuso do navegador, as duas abas pediriam a MESMA semana na virada
+ * — em `2026-08-03T00:30Z` o backend responde `2026-W31` e um navegador em UTC
+ * calcularia `2026-W31` para o histórico em vez de `2026-W30`.
+ */
+export function previousIsoWeekInSaoPaulo(now: Date = new Date()): string {
+  const { year, month, day } = saoPauloCivilDate(now);
+  const anchor = new Date(Date.UTC(year, month - 1, day));
+  anchor.setUTCDate(anchor.getUTCDate() - 7);
+  return isoWeekOfCivilDate(
+    anchor.getUTCFullYear(),
+    anchor.getUTCMonth() + 1,
+    anchor.getUTCDate(),
+  );
+}
