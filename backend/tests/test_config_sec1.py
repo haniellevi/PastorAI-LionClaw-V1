@@ -35,6 +35,9 @@ _PROD = dict(
     frontend_url="https://app.igreja12.com.br",
     app_base_url="https://api.igreja12.com.br",
     session_jwt_secret="s" * 40,
+    # OAUTH-CALENDAR-V1: allowlist de retorno do consentimento. Obrigatória em
+    # produção — os casos de falha ficam em test_calendar_oauth_flows.py.
+    calendar_oauth_return_origins="https://admin.igreja12.com.br",
 )
 
 

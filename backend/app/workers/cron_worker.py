@@ -31,6 +31,8 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.db.models import Cron
 from app.db.session import get_session_factory
+from app.db.tenant_session import mark_cross_tenant
+from app.services.calendar_oauth_flows import purge_expired_flows
 from app.services.sla_engine import SlaEngine, run_all_igrejas
 
 logger = logging.getLogger("pastorai.cron_worker")
@@ -165,9 +167,51 @@ class CronWorker:
         logger.info("Cron worker shutdown requested")
         self._running = False
 
+    def _purge_oauth_flows(self, now: dt.datetime) -> int:
+        """Purga fluxos OAuth expirados numa sessão PRÓPRIA, cross-tenant.
+
+        Contrato de contenção: QUALQUER falha da infraestrutura exclusiva do
+        purge (factory, mark_cross_tenant, execute, commit, rollback ou close) é
+        logada e devolve 0. Nada escapa para o tick — o sweep de SLA e os crons
+        rodam sempre.
+
+        Sessão nova de propósito: a compartilhada do tick é usada pelo sweep, e
+        `mark_cross_tenant` sobre uma sessão já pinada num tenant levantaria
+        TenantPinConflictError (modos mutuamente exclusivos, D1/D4 do seam).
+
+        `except Exception` e nunca BaseException: KeyboardInterrupt/SystemExit
+        precisam propagar para o shutdown gracioso.
+        """
+        session: Session | None = None
+        try:
+            session = self._session_factory()
+            mark_cross_tenant(session, source="worker-oauth-flow-purge")
+            purged = purge_expired_flows(session, now=now)
+            session.commit()
+            return purged
+        except Exception:  # noqa: BLE001 - purge nunca derruba o tick
+            logger.exception("OAuth flow purge failed")
+            if session is not None:
+                try:
+                    session.rollback()
+                except Exception:  # noqa: BLE001
+                    logger.exception("OAuth flow purge rollback failed")
+            return 0
+        finally:
+            if session is not None:
+                try:
+                    session.close()
+                except Exception:  # noqa: BLE001
+                    logger.exception("OAuth flow purge close failed")
+
     def tick(self, now: dt.datetime | None = None) -> dict[str, int]:
-        """Run one full cycle: global SLA sweep + due crons. Returns counters."""
+        """Run one full cycle: purge + global SLA sweep + due crons.
+
+        O purge vem PRIMEIRO e é totalmente contido, de modo que uma falha nele
+        não atrasa nem impede o sweep de SLA e os crons deste mesmo tick.
+        """
         now = now or _now()
+        oauth_flows_purged = self._purge_oauth_flows(now)
         session: Session = self._session_factory()
         try:
             # A `session` compartilhada só faz a DESCOBERTA cross-tenant do sweep
@@ -184,7 +228,11 @@ class CronWorker:
             )
         finally:
             session.close()
-        return {"sla_handled": sla_handled, "crons_run": crons_run}
+        return {
+            "sla_handled": sla_handled,
+            "crons_run": crons_run,
+            "oauth_flows_purged": oauth_flows_purged,
+        }
 
     def run(self) -> None:
         """Block ticking on the configured interval until stopped."""
@@ -193,10 +241,14 @@ class CronWorker:
         while self._running:
             try:
                 counters = self.tick()
+                # `oauth_flows_purged` na linha NÃO é cosmético: é a assinatura
+                # que o gate G7a usa para provar que o worker está no artefato
+                # novo. Não remover.
                 logger.info(
-                    "Cron tick done (sla=%d, crons=%d)",
+                    "Cron tick done (sla=%d, crons=%d, oauth_flows_purged=%d)",
                     counters["sla_handled"],
                     counters["crons_run"],
+                    counters["oauth_flows_purged"],
                 )
             except Exception:  # noqa: BLE001 - never let a tick kill the loop
                 logger.exception("Cron tick failed")

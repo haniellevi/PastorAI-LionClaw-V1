@@ -1,9 +1,24 @@
 """Calendar router — connect a church's existing Google Calendar (events F1).
 
-OAuth web flow (offline → refresh_token). The connect/status/list/select/
-disconnect endpoints are admin-only and tenant-scoped; the callback is PUBLIC
-(a redirect from Google) and attributes the consent via a signed ``state`` —
-so it writes scoped strictly by the igreja_id carried in that state.
+OAuth web flow (offline → refresh_token) com **PKCE S256** e estado no servidor
+(OAUTH-CALENDAR-V1). O consentimento é concluído em DOIS tempos:
+
+1. ``GET /calendar/connect`` (admin) cria uma linha em ``calendar_oauth_flows``
+   com o ``code_verifier`` cifrado, devolve a URL de consentimento e um
+   ``flowSecret`` que o painel guarda em ``sessionStorage`` (particionado por
+   ORIGEM — host irmão não lê nem grava).
+2. ``GET /calendar/callback`` é PÚBLICO e só **estaciona** o ``code``. Não lê
+   sessão, não fala com o Google, não grava ``calendar_sync``.
+3. ``POST /calendar/connect/finish`` (admin, Bearer) apresenta o ``flowSecret``,
+   compara ``app_user_id`` + ``igreja_id``, **consome** o fluxo e só então troca
+   o ``code`` com o ``code_verifier``.
+
+Essa separação é o que fecha o account-linking CSRF: um consentimento iniciado
+por alguém só conclui na sessão de quem o iniciou.
+
+ATENÇÃO: o callback é anônimo e usa ``get_db``, que não aplica tenant context —
+roda no papel de conexão com BYPASSRLS. **RLS não é defesa do callback**; a
+autorização dele é o ``state`` inadivinhável mais as condições do ``WHERE``.
 
 Tokens are stored encrypted at rest (reusing the BYO-credential crypto). The
 key never leaves the server; status/list never echo it.
@@ -14,18 +29,33 @@ from __future__ import annotations
 import datetime as dt
 import logging
 import uuid
+from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    status,
+)
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.db.models import AgendaAlertRecipient, CalendarSync, Event
+from app.db.models import (
+    AgendaAlertRecipient,
+    CalendarOAuthFlow,
+    CalendarSync,
+    Event,
+)
 from app.db.session import get_db
 from app.deps import CurrentUser, require_role
 from app.domain.phone import normalize_phone
+from app.services.calendar_oauth_flows import hash_secret, new_pkce_pair, new_secret
 from app.services.crypto import SecretDecryptionError, decrypt_secret, encrypt_secret
 from app.services.google_oauth import (
     GoogleOAuthClient,
@@ -37,12 +67,53 @@ logger = logging.getLogger("pastorai.calendar")
 
 router = APIRouter(prefix="/calendar", tags=["calendar"])
 
+# Marcadores de rota do retorno. O parser do shell divide no PRIMEIRO "/"
+# (frontend/src/components/shell/AdminAppShell.tsx), então `integracoes/callback/
+# <marker>` resolve a base `integracoes` e preserva o sufixo. Query string no
+# hash NÃO funciona: o shell trataria a string inteira como nome de rota.
+_MARKER_READY = "ready"
+_MARKER_CANCELLED = "cancelled"
+# Caminho por superfície, escolhido no SERVIDOR a partir do host da origem
+# persistida. Espelha o mapa de rotas de frontend/src/lib/navigation.ts:103
+# ("admin.<domínio> → /gestao"); se aquela tabela mudar, esta constante muda.
+_RETURN_PATH_ADMIN = "/#integracoes/callback/"
+_RETURN_PATH_APP = "/gestao#integracoes/callback/"
+
+# Mesmo corpo para TODA rejeição do finish — sem oráculo de causa.
+_FINISH_GENERIC = "Não foi possível concluir a conexão com o Google."
+
+
+def _return_url(origin: str, marker: str) -> str:
+    """URL de retorno para uma origem JÁ validada contra a allowlist."""
+    host = urlparse(origin).hostname or ""
+    path = (
+        _RETURN_PATH_ADMIN
+        if host.startswith(("admin.", "painel."))
+        else _RETURN_PATH_APP
+    )
+    return f"{origin}{path}{marker}"
+
 
 # ---------------------------------------------------------------------------
 # Schemas
 # ---------------------------------------------------------------------------
 class ConnectUrlOut(BaseModel):
     authUrl: str  # noqa: N815 - external contract camelCase
+    # Segredo do fluxo, distinto do `state`. Vai para o sessionStorage do painel
+    # e nunca viaja para o Google nem entra em access log.
+    flowSecret: str  # noqa: N815
+
+
+class FinishRequest(BaseModel):
+    flowSecret: str = Field(min_length=1, max_length=400)  # noqa: N815
+
+
+class FinishOut(BaseModel):
+    """200 = conectado; 202 = callback ainda não estacionou o code."""
+
+    status: str
+    connected: bool
+    calendarId: str | None = None  # noqa: N815
 
 
 class StatusOut(BaseModel):
@@ -164,43 +235,202 @@ def _valid_access_token(
 # ---------------------------------------------------------------------------
 @router.get("/connect", response_model=ConnectUrlOut)
 def connect(
+    request: Request,
+    db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(require_role(["admin"])),
     oauth: GoogleOAuthClient = Depends(get_google_oauth_client),
 ) -> ConnectUrlOut:
-    """Return the Google consent URL to connect the igreja's calendar."""
+    """Cria o fluxo OAuth e devolve a URL de consentimento + o ``flowSecret``.
+
+    A origem de retorno vem do header ``Origin`` e é validada por IGUALDADE
+    EXATA contra ``calendar_oauth_return_origins`` — nunca ``Referer``, nunca
+    path do cliente, nunca ``cors_origins`` (que inclui a própria API e o
+    console master). Origem ausente ou fora da lista falha fechada em 400.
+    """
+    settings = get_settings()
+    origin = (request.headers.get("origin") or "").strip().rstrip("/")
+    if not origin or origin not in settings.calendar_oauth_return_origin_allowlist:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Origem não autorizada para conectar a agenda",
+        )
+
+    state = new_secret()
+    flow_secret = new_secret()
+    verifier, challenge = new_pkce_pair()
     try:
-        url = oauth.build_consent_url(current_user.igreja_id)
+        url = oauth.build_consent_url(state=state, code_challenge=challenge)
     except GoogleOAuthError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
         ) from exc
-    return ConnectUrlOut(authUrl=url)
+
+    now = dt.datetime.now(dt.timezone.utc)
+    db.add(
+        CalendarOAuthFlow(
+            state_hash=hash_secret(state),
+            flow_secret_hash=hash_secret(flow_secret),
+            igreja_id=uuid.UUID(current_user.igreja_id),
+            app_user_id=uuid.UUID(current_user.app_user_id),
+            return_origin=origin,
+            verifier_encrypted=encrypt_secret(verifier),
+            expires_at=now
+            + dt.timedelta(minutes=settings.calendar_oauth_flow_ttl_minutes),
+        )
+    )
+    db.commit()
+    return ConnectUrlOut(authUrl=url, flowSecret=flow_secret)
+
+
+def _flow_redirect(db: Session, state_hash: str, fallback: str) -> RedirectResponse:
+    """Redirect de leitura pura: `ready` se já há code estacionado, senão `cancelled`.
+
+    Um ``error`` que chegue DEPOIS de um park legítimo devolve ``ready`` — nunca
+    ``cancelled`` — para que um ``state`` vazado não consiga cancelar visualmente
+    um fluxo que já está pronto para ser concluído.
+    """
+    row = db.execute(
+        select(CalendarOAuthFlow.return_origin, CalendarOAuthFlow.code_encrypted).where(
+            CalendarOAuthFlow.state_hash == state_hash
+        )
+    ).first()
+    if row is None:
+        return RedirectResponse(url=_return_url(fallback, _MARKER_CANCELLED))
+    origin, parked = row
+    marker = _MARKER_READY if parked else _MARKER_CANCELLED
+    return RedirectResponse(url=_return_url(origin, marker))
 
 
 @router.get("/callback")
 def callback(
     code: str = Query(default=""),
     state: str = Query(default=""),
+    error: str = Query(default=""),
     db: Session = Depends(get_db),
-    oauth: GoogleOAuthClient = Depends(get_google_oauth_client),
 ) -> RedirectResponse:
-    """Public OAuth callback. Stores tokens for the igreja named in `state`.
+    """Callback público: **só estaciona** o ``code``. Não troca nada.
 
-    No session here (Google redirects the browser), so the tenant is taken from
-    the signed `state` and the write is scoped strictly to that igreja_id.
+    Um único UPDATE condicional (primeira escrita vence); ``rowcount`` nunca é
+    exposto e a resposta é sempre um 3xx. Nenhuma chamada ao Google, nenhuma
+    leitura de sessão, nenhuma escrita em ``calendar_sync``.
+
+    ``error``/``code`` ausente é terminal para a jornada mas **não queima** o
+    fluxo: queimar aqui daria a quem tivesse um ``state`` vazado um DoS sobre um
+    consentimento já estacionado. O fluxo morre no TTL e o purge o apaga.
     """
-    frontend = get_settings().frontend_url.rstrip("/")
+    fallback = get_settings().frontend_url.rstrip("/")
+    if not state:
+        return RedirectResponse(url=_return_url(fallback, _MARKER_CANCELLED))
+    state_hash = hash_secret(state)
+    now = dt.datetime.now(dt.timezone.utc)
     try:
-        igreja_id = uuid.UUID(oauth.verify_state(state))
-        tokens = oauth.exchange_code(code)
-    except (GoogleOAuthError, ValueError):
-        logger.warning("Google OAuth callback rejected (state/code)")
-        return RedirectResponse(url=f"{frontend}/#calendario")
+        if error or not code:
+            return _flow_redirect(db, state_hash, fallback)
+        result = db.execute(
+            update(CalendarOAuthFlow)
+            .where(
+                CalendarOAuthFlow.state_hash == state_hash,
+                CalendarOAuthFlow.consumed_at.is_(None),
+                CalendarOAuthFlow.code_encrypted.is_(None),
+                CalendarOAuthFlow.expires_at > now,
+            )
+            .values(code_encrypted=encrypt_secret(code), atualizado_em=now)
+            .returning(CalendarOAuthFlow.return_origin)
+        )
+        origin = result.scalar_one_or_none()
+        db.commit()
+        if origin:
+            return RedirectResponse(url=_return_url(origin, _MARKER_READY))
+        # Nada atualizado: inexistente, já estacionado, consumido ou expirado.
+        return _flow_redirect(db, state_hash, fallback)
+    except Exception:  # noqa: BLE001 - o callback nunca devolve 5xx ao navegador
+        db.rollback()
+        logger.warning("Google OAuth callback rejected")
+        return RedirectResponse(url=_return_url(fallback, _MARKER_CANCELLED))
+
+
+def _burn(db: Session, flow: CalendarOAuthFlow, now: dt.datetime) -> None:
+    """Consome o fluxo e apaga os segredos, no MESMO update. Commit solta o lock."""
+    flow.consumed_at = now
+    flow.verifier_encrypted = None
+    flow.code_encrypted = None
+    flow.atualizado_em = now
+    db.commit()
+
+
+def _finish_rejected() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT, detail=_FINISH_GENERIC
+    )
+
+
+@router.post("/connect/finish", response_model=FinishOut)
+def finish_connection(
+    payload: FinishRequest,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_role(["admin"])),
+    oauth: GoogleOAuthClient = Depends(get_google_oauth_client),
+) -> FinishOut:
+    """Consome o fluxo e persiste a conexão. Só o iniciador conclui.
+
+    Ordem obrigatória: identidade ANTES de qualquer sinal sobre o estado do
+    fluxo (senão o 202 vira oráculo de existência), e queima ANTES da troca com
+    o Google (o commit solta o lock antes da chamada de 15s).
+    """
+    flow = db.execute(
+        select(CalendarOAuthFlow)
+        .where(CalendarOAuthFlow.flow_secret_hash == hash_secret(payload.flowSecret))
+        .with_for_update()
+    ).scalar_one_or_none()
+    if flow is None:
+        raise _finish_rejected()
 
     now = dt.datetime.now(dt.timezone.utc)
-    sync = _sync_for(db, igreja_id)
+    igreja_uuid = uuid.UUID(current_user.igreja_id)
+    if flow.app_user_id != uuid.UUID(current_user.app_user_id):
+        _burn(db, flow, now)
+        raise _finish_rejected()
+    if flow.igreja_id != igreja_uuid:
+        _burn(db, flow, now)
+        raise _finish_rejected()
+    if flow.consumed_at is not None:
+        db.rollback()
+        raise _finish_rejected()
+    if flow.expires_at <= now:
+        _burn(db, flow, now)
+        raise _finish_rejected()
+    if not flow.code_encrypted:
+        # Callback ainda não estacionou (reload/back/corrida). NÃO consome.
+        db.rollback()
+        response.status_code = status.HTTP_202_ACCEPTED
+        return FinishOut(status="aguardando_callback", connected=False)
+
+    try:
+        code = decrypt_secret(flow.code_encrypted)
+        verifier = decrypt_secret(flow.verifier_encrypted or "")
+    except (SecretDecryptionError, ValueError) as exc:
+        _burn(db, flow, now)
+        raise _finish_rejected() from exc
+
+    _burn(db, flow, now)
+
+    try:
+        tokens = oauth.exchange_code(code, verifier)
+        # PROBE de capacidade: `connected` passa a significar "verificadamente
+        # utilizável". O campo `scope` da resposta do token NÃO é usado como
+        # condição — sua semântica não é garantida e ausência não reprova.
+        oauth.list_calendars(tokens.access_token)
+    except GoogleOAuthError as exc:
+        raise _finish_rejected() from exc
+
+    sync = _sync_for(db, igreja_uuid)
+    if not tokens.refresh_token and not (sync and sync.refresh_token_encrypted):
+        # Primeira conexão sem refresh_token: nada de linha meia-conectada.
+        raise _finish_rejected()
+
     if sync is None:
-        sync = CalendarSync(igreja_id=igreja_id)
+        sync = CalendarSync(igreja_id=igreja_uuid)
         db.add(sync)
     if tokens.refresh_token:
         sync.refresh_token_encrypted = encrypt_secret(tokens.refresh_token)
@@ -208,8 +438,10 @@ def callback(
     sync.access_token_expira_em = now + dt.timedelta(seconds=tokens.expires_in)
     sync.atualizado_em = now
     db.commit()
-    logger.info("Google Calendar connected for an igreja")
-    return RedirectResponse(url=f"{frontend}/#calendario")
+    logger.info("Google Calendar connected for an igreja (scope=%s)", tokens.scope)
+    return FinishOut(
+        status="conectado", connected=True, calendarId=sync.google_calendar_id
+    )
 
 
 @router.get("/status", response_model=StatusOut)

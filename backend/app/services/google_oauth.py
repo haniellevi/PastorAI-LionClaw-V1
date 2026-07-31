@@ -1,9 +1,13 @@
 """Google OAuth 2.0 — connect a church's existing Google Calendar (events F1).
 
-Implements the web-server OAuth flow (offline access → refresh_token), token
-refresh and the calendar-list call. The OAuth ``state`` is a short-lived JWT
-signed with the panel session secret, carrying the igreja_id so the (public)
-callback can attribute the consent to the right tenant without a session.
+Implements the web-server OAuth flow (offline access → refresh_token) with
+**PKCE S256**, token refresh and the calendar-list call.
+
+OAUTH-CALENDAR-V1: o ``state`` deixou de ser um JWT auto-contido. Agora é um
+segredo opaco cuja única função é indexar uma linha de ``calendar_oauth_flows``
+(ver ``app.services.calendar_oauth_flows``), que guarda tenant, iniciador e o
+``code_verifier`` cifrado. Esta classe não sabe mais o que é ``state``: quem o
+gera e valida é o router, contra o banco.
 
 Failures are normalized to ``GoogleOAuthError`` and never leak the secret.
 """
@@ -13,28 +17,24 @@ from __future__ import annotations
 import datetime as dt
 import logging
 from dataclasses import dataclass
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import httpx
-import jwt
 
 from app.config import Settings, get_settings
-from app.services.clerk import ClerkAuthError, ClerkClient
 
 logger = logging.getLogger("pastorai.gcal_oauth")
 
-_STATE_ALG = "HS256"
-_STATE_PURPOSE = "gcal_oauth"
-# Distinct issuer (SEC-ALTO-004): pins the state token to this purpose so it
-# can never be swapped for/with a session, reset or invite token even though
-# all four share the same signing secret.
-_STATE_ISSUER = "pastorai-gcal-oauth"
-_STATE_TTL_MIN = 10
 # Read/write events + read the calendar list (to let the admin pick one).
 _SCOPES = (
     "https://www.googleapis.com/auth/calendar.events "
     "https://www.googleapis.com/auth/calendar.readonly"
 )
+# Capacidade mínima que a conexão precisa ter para ser utilizável. Validada por
+# PROBE (uma chamada real a calendarList), não pelo campo `scope` da resposta do
+# token — a semântica desse campo não é garantida e um `scope` ausente jamais
+# pode, sozinho, reprovar uma conexão.
+REQUIRED_SCOPE = "https://www.googleapis.com/auth/calendar.readonly"
 
 
 class GoogleOAuthError(Exception):
@@ -48,6 +48,9 @@ class OAuthTokens:
     access_token: str
     refresh_token: str | None
     expires_in: int
+    # Escopos que o Google diz ter concedido. Observabilidade apenas — pode vir
+    # ausente e nunca é usado como condição de aceite (ver REQUIRED_SCOPE).
+    scope: str | None = None
 
 
 class GoogleOAuthClient:
@@ -56,10 +59,8 @@ class GoogleOAuthClient:
     def __init__(
         self,
         settings: Settings | None = None,
-        clerk_client: ClerkClient | None = None,
     ) -> None:
         self._settings = settings or get_settings()
-        self._clerk_client = clerk_client or ClerkClient(self._settings)
 
     def _require_config(self) -> tuple[str, str, str]:
         s = self._settings
@@ -75,43 +76,14 @@ class GoogleOAuthClient:
             s.google_oauth_redirect_uri,
         )
 
-    # ---- state (CSRF + tenant attribution) ---------------------------------
-    def sign_state(self, igreja_id: str) -> str:
-        now = dt.datetime.now(dt.timezone.utc)
-        payload = {
-            "purpose": _STATE_PURPOSE,
-            "igreja_id": str(igreja_id),
-            "iss": _STATE_ISSUER,
-            "iat": now,
-            "exp": now + dt.timedelta(minutes=_STATE_TTL_MIN),
-        }
-        return jwt.encode(
-            payload, self._settings.effective_session_secret, algorithm=_STATE_ALG
-        )
-
-    def verify_state(self, state: str) -> str:
-        """Return the igreja_id from a valid state, else raise.
-
-        Signature/algorithm/issuer/required-claims verification is delegated
-        to ``ClerkClient.verify_purpose_token`` — the same hardened policy
-        used for session/reset/invite tokens (SEC-ALTO-004) — instead of
-        decoding independently here. Only the ``purpose``/``igreja_id``
-        VALUE checks stay local, since they're specific to this token.
-        """
-        try:
-            claims = self._clerk_client.verify_purpose_token(
-                state,
-                issuer=_STATE_ISSUER,
-                required_claims=("exp", "iss", "purpose", "igreja_id"),
-            )
-        except ClerkAuthError as exc:
-            raise GoogleOAuthError("state inválido ou expirado") from exc
-        if claims.get("purpose") != _STATE_PURPOSE or not claims.get("igreja_id"):
-            raise GoogleOAuthError("state inválido")
-        return str(claims["igreja_id"])
-
     # ---- flow --------------------------------------------------------------
-    def build_consent_url(self, igreja_id: str) -> str:
+    def build_consent_url(self, *, state: str, code_challenge: str) -> str:
+        """URL de consentimento com PKCE S256.
+
+        ``state`` é opaco para esta classe (e para o Google): é a chave da linha
+        de ``calendar_oauth_flows``. Só o ``code_challenge`` viaja — o verifier
+        correspondente fica cifrado no servidor.
+        """
         client_id, _, redirect_uri = self._require_config()
         params = {
             "client_id": client_id,
@@ -121,11 +93,20 @@ class GoogleOAuthClient:
             "access_type": "offline",
             "prompt": "consent",
             "include_granted_scopes": "true",
-            "state": self.sign_state(igreja_id),
+            "state": state,
+            "code_challenge": code_challenge,
+            "code_challenge_method": "S256",
         }
         return f"{self._settings.google_oauth_auth_url}?{urlencode(params)}"
 
-    def exchange_code(self, code: str) -> OAuthTokens:
+    def exchange_code(self, code: str, code_verifier: str) -> OAuthTokens:
+        """Troca o ``code`` apresentando o ``code_verifier`` do MESMO fluxo.
+
+        É isto que recusa um código injetado: o Google amarrou o code ao
+        ``code_challenge`` da requisição de autorização, então um code obtido em
+        outro fluxo não casa com este verifier e volta ``invalid_grant`` (400),
+        que ``_token_request`` normaliza em ``GoogleOAuthError``.
+        """
         client_id, client_secret, redirect_uri = self._require_config()
         return self._token_request(
             {
@@ -134,6 +115,7 @@ class GoogleOAuthClient:
                 "client_secret": client_secret,
                 "redirect_uri": redirect_uri,
                 "grant_type": "authorization_code",
+                "code_verifier": code_verifier,
             }
         )
 
@@ -162,10 +144,12 @@ class GoogleOAuthClient:
         access = body.get("access_token")
         if not access:
             raise GoogleOAuthError("Google não retornou access_token")
+        scope = body.get("scope")
         return OAuthTokens(
             access_token=str(access),
             refresh_token=body.get("refresh_token"),
             expires_in=int(body.get("expires_in") or 3600),
+            scope=str(scope) if scope else None,
         )
 
     def list_events(
@@ -196,7 +180,9 @@ class GoogleOAuthClient:
         try:
             with httpx.Client(timeout=15.0) as client:
                 resp = client.get(
-                    f"{base}/calendars/{calendar_id}/events",
+                    # `calendar_id` vem do que o admin escolheu; escapado para
+                    # não escorregar do segmento de path.
+                    f"{base}/calendars/{quote(calendar_id, safe='')}/events",
                     headers={"Authorization": f"Bearer {access_token}"},
                     params=params,
                 )

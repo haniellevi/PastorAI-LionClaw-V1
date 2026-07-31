@@ -1367,6 +1367,57 @@ class CalendarSync(Base):
     )
 
 
+class CalendarOAuthFlow(Base):
+    """Fluxo OAuth do Google Calendar em voo (OAUTH-CALENDAR-V1).
+
+    Uma linha por clique em "Conectar", com TTL curto. Substitui o ``state`` JWT
+    auto-contido: o callback público só ESTACIONA o ``code`` aqui e quem troca é
+    ``POST /calendar/connect/finish``, autenticado, comparando ``app_user_id`` +
+    ``igreja_id`` antes de consumir a linha.
+
+    Guarda os HASHES de dois segredos DISTINTOS, nunca os valores:
+    ``state_hash`` é a chave que o callback PÚBLICO apresenta (o ``state`` viaja
+    ao Google e cai no access log); ``flow_secret_hash`` é a chave do ``finish``
+    AUTENTICADO (o ``flowSecret`` nunca sai das origens do painel).
+
+    ``verifier_encrypted`` (PKCE) e ``code_encrypted`` são anulados no mesmo
+    UPDATE do consumo — retenção certa é zero.
+    """
+
+    __tablename__ = "calendar_oauth_flows"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    state_hash: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    flow_secret_hash: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    igreja_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("igrejas.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    app_user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("app_users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    # Origem validada contra a allowlist no /connect; o callback redireciona
+    # para ela. Nunca derivada de Referer nem de campo do cliente.
+    return_origin: Mapped[str] = mapped_column(Text, nullable=False)
+    verifier_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    code_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    expires_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    consumed_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    criado_em: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    atualizado_em: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+
 class AgendaAlertRecipient(Base):
     """Destinatário de avisos internos da Agenda por igreja (EVT-7 PR2).
 

@@ -38,15 +38,73 @@ export async function fetchCalendarStatus(token: string): Promise<CalendarStatus
   return { connected: Boolean(d.connected), calendarId: d.calendarId ?? null };
 }
 
-export async function fetchConnectUrl(token: string): Promise<string> {
+export interface ConnectStart {
+  authUrl: string;
+  flowSecret: string;
+}
+
+/**
+ * Inicia o fluxo OAuth (OAUTH-CALENDAR-V1). Devolve a URL de consentimento e o
+ * `flowSecret`, que o card guarda em `sessionStorage` e apresenta depois em
+ * `finishConnection`.
+ *
+ * FAIL-CLOSED: um backend antigo responde só `{authUrl}`. Sem `flowSecret` não
+ * existe quem conclua o fluxo, então NÃO redirecionamos ao Google — o usuário
+ * consentiria à toa e a conexão nunca completaria.
+ */
+export async function fetchConnectUrl(token: string): Promise<ConnectStart> {
   const res = await authedFetch(token, `/calendar/connect`);
   if (!res.ok) {
     const detail = await readDetail(res);
     throw new ApiError(res.status, detail ?? "Não foi possível iniciar a conexão com o Google.");
   }
-  const d = (await res.json()) as { authUrl?: string };
+  const d = (await res.json()) as { authUrl?: string; flowSecret?: string };
   if (!d.authUrl) throw new ApiError(502, "O Google não retornou a URL de consentimento.");
-  return d.authUrl;
+  if (!d.flowSecret) {
+    throw new ApiError(
+      409,
+      "Conexão indisponível no momento. Atualize a página e tente novamente.",
+    );
+  }
+  return { authUrl: d.authUrl, flowSecret: d.flowSecret };
+}
+
+export interface FinishResult {
+  /** `conectado` (HTTP 200) ou `aguardando_callback` (HTTP 202). */
+  status: "conectado" | "aguardando_callback";
+  connected: boolean;
+  calendarId: string | null;
+}
+
+/**
+ * Conclui o fluxo: consome o flow, troca o code com o `code_verifier` guardado
+ * no servidor e persiste a conexão. Só o admin que iniciou consegue concluir.
+ *
+ * 202 = o callback ainda não estacionou o code (reload/back/corrida). É estado
+ * recuperável, NÃO consome o fluxo e não deve virar polling.
+ */
+export async function finishConnection(
+  token: string,
+  flowSecret: string,
+): Promise<FinishResult> {
+  const res = await authedFetch(token, `/calendar/connect/finish`, {
+    method: "POST",
+    body: JSON.stringify({ flowSecret }),
+  });
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível concluir a conexão com o Google.");
+  }
+  const d = (await res.json()) as {
+    status?: string;
+    connected?: boolean;
+    calendarId?: string | null;
+  };
+  return {
+    status: d.status === "conectado" ? "conectado" : "aguardando_callback",
+    connected: Boolean(d.connected),
+    calendarId: d.calendarId ?? null,
+  };
 }
 
 export async function fetchCalendarList(token: string): Promise<CalendarOption[]> {
