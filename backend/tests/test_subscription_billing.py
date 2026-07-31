@@ -127,6 +127,7 @@ def _client(
     setup_fee_override: float | None = None,
     subscription=None,
     operations=None,
+    plan_changes=None,
 ) -> tuple[TestClient, FakeSession]:
     igreja = SimpleNamespace(
         id=make_app_user().igreja_id,
@@ -140,6 +141,7 @@ def _client(
         billing_settings=SimpleNamespace(id=1, setup_fee_default=setup_fee_default),
         subscription=subscription,
         operations=operations,
+        plan_changes=plan_changes,
     )
     app.dependency_overrides[get_db] = lambda: db
     app.dependency_overrides[get_clerk_client] = lambda: FakeClerk()
@@ -840,6 +842,183 @@ def test_same_plan_any_status_never_posts_subscription(app, sub_status) -> None:
 
     assert resp.status_code == 200
     assert asaas.calls[0] == ("get_subscription_payment", "sub_asaas_1")
+
+
+class _ChangePlanAsaas:
+    """Fake da troca de plano: PUT in-place; criar assinatura explode."""
+
+    def __init__(self, *, error: bool = False) -> None:
+        self.puts: list[tuple[str, float, str]] = []
+        self._error = error
+
+    def update_subscription(self, subscription_id: str, *, valor: float, descricao: str):
+        self.puts.append((subscription_id, valor, descricao))
+        if self._error:
+            raise AsaasError("Asaas indisponível")
+        return {"id": subscription_id, "value": valor}
+
+    def get_subscription(self, subscription_id: str):
+        return None
+
+    def create_checkout(self, **kwargs):  # pragma: no cover - defesa
+        raise AssertionError("troca de plano nunca cria assinatura")
+
+
+def _active_sub(**over):
+    base = dict(
+        status="ativa",
+        setup_pago=True,
+        asaas_setup_charge_id=None,
+        asaas_setup_invoice_url=None,
+    )
+    base.update(over)
+    return _subscription(**base)
+
+
+def test_change_plan_updates_existing_subscription_in_place(app) -> None:
+    asaas = _ChangePlanAsaas()
+    sub = _active_sub(proxima_cobranca=None)
+    client, db = _client(
+        app,
+        planos=[_plano(codigo="101_200", preco_mensal=299, limite_pessoas=200)],
+        asaas=asaas,
+        subscription=sub,
+    )
+
+    resp = client.post(
+        "/subscription/change-plan", json={"plano": "101_200"}, headers=_AUTH
+    )
+
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "status": "ativa",
+        "plano": "101_200",
+        "precoMensal": 299.0,
+        "vigencia": "proximo_ciclo",
+    }
+    # PUT no MESMO id remoto; zero POST /subscriptions (o fake explodiria).
+    assert asaas.puts == [("sub_asaas_1", 299.0, "PastorAI — plano 101_200")]
+    assert sub.plano == "101_200"
+    assert sub.limite == 200
+    assert sub.asaas_subscription_id == "sub_asaas_1"
+    assert db.igreja.plano == "101_200"  # reflexo no cadastro da igreja
+
+
+def test_change_plan_rejects_same_plan_as_noop(app) -> None:
+    client, _db = _client(
+        app,
+        planos=[_plano()],
+        asaas=_ChangePlanAsaas(),
+        subscription=_active_sub(),
+    )
+
+    resp = client.post(
+        "/subscription/change-plan", json={"plano": "ate_100"}, headers=_AUTH
+    )
+
+    assert resp.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "dirty",
+    [
+        {"status": "pendente"},
+        {"status": "inadimplente"},
+        {"asaas_invoice_reversal": "refunded"},
+        {"setup_pago": False},
+    ],
+)
+def test_change_plan_blocks_dirty_states(app, dirty) -> None:
+    asaas = _ChangePlanAsaas()
+    sub = _active_sub(**dirty)
+    client, _db = _client(
+        app,
+        planos=[_plano(codigo="101_200", preco_mensal=299, limite_pessoas=200)],
+        asaas=asaas,
+        subscription=sub,
+    )
+
+    resp = client.post(
+        "/subscription/change-plan", json={"plano": "101_200"}, headers=_AUTH
+    )
+
+    assert resp.status_code == 409
+    assert asaas.puts == []
+    assert sub.plano == "ate_100"
+
+
+def test_change_plan_blocks_while_recovery_charge_is_open(app) -> None:
+    from app.db.models import BillingPaymentOperation
+
+    open_recovery = BillingPaymentOperation(
+        subscription_id="00000000-0000-0000-0000-00000000su01",
+        purpose="monthly_recovery",
+        operation_key="pastorai-monthly_recovery-x",
+        status="created",
+        valor=199.0,
+    )
+    client, _db = _client(
+        app,
+        planos=[_plano(codigo="101_200", preco_mensal=299, limite_pessoas=200)],
+        asaas=_ChangePlanAsaas(),
+        subscription=_active_sub(),
+        operations=[open_recovery],
+    )
+
+    resp = client.post(
+        "/subscription/change-plan", json={"plano": "101_200"}, headers=_AUTH
+    )
+
+    assert resp.status_code == 409
+
+
+def test_change_plan_remote_failure_keeps_local_plan(app) -> None:
+    from app.db.models import BillingPlanChangeOperation
+
+    asaas = _ChangePlanAsaas(error=True)
+    sub = _active_sub()
+    client, db = _client(
+        app,
+        planos=[_plano(codigo="101_200", preco_mensal=299, limite_pessoas=200)],
+        asaas=asaas,
+        subscription=sub,
+    )
+
+    resp = client.post(
+        "/subscription/change-plan", json={"plano": "101_200"}, headers=_AUTH
+    )
+
+    assert resp.status_code == 502
+    assert sub.plano == "ate_100"  # plano local intacto
+    op = next(o for o in db.added if isinstance(o, BillingPlanChangeOperation))
+    assert op.status == "reconciling"  # retry reconciliará por GET
+
+
+def test_change_plan_conflicts_with_open_change_to_other_plan(app) -> None:
+    from app.db.models import BillingPlanChangeOperation
+
+    open_change = BillingPlanChangeOperation(
+        subscription_id="00000000-0000-0000-0000-00000000su01",
+        asaas_subscription_id="sub_asaas_1",
+        from_plano="ate_100",
+        to_plano="acima_201",
+        to_preco=499.0,
+        to_limite=None,
+        status="processing",
+    )
+    client, _db = _client(
+        app,
+        planos=[_plano(codigo="101_200", preco_mensal=299, limite_pessoas=200)],
+        asaas=_ChangePlanAsaas(),
+        subscription=_active_sub(),
+        plan_changes=[open_change],
+    )
+
+    resp = client.post(
+        "/subscription/change-plan", json={"plano": "101_200"}, headers=_AUTH
+    )
+
+    assert resp.status_code == 409
 
 
 def test_get_subscription_hides_links_already_settled(app) -> None:

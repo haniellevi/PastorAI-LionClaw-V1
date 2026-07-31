@@ -10,6 +10,7 @@ const {
   createCheckout,
   recoverInvoice,
   createSetupCharge,
+  changePlan,
 } = vi.hoisted(() => ({
   expireSession: vi.fn(),
   fetchPlanCatalog: vi.fn(),
@@ -17,6 +18,7 @@ const {
   createCheckout: vi.fn(),
   recoverInvoice: vi.fn(),
   createSetupCharge: vi.fn(),
+  changePlan: vi.fn(),
 }));
 
 vi.mock("@/lib/auth-context", () => ({
@@ -27,6 +29,7 @@ vi.mock("@/lib/subscription-api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/subscription-api")>();
   return {
     ...actual,
+    changePlan,
     createCheckout,
     createSetupCharge,
     fetchPlanCatalog,
@@ -68,6 +71,7 @@ beforeEach(() => {
   createCheckout.mockReset();
   recoverInvoice.mockReset();
   createSetupCharge.mockReset();
+  changePlan.mockReset();
   fetchSubscription.mockRejectedValue(new NoSubscriptionError());
   fetchPlanCatalog.mockResolvedValue({
     setupFee: 59.9,
@@ -174,7 +178,7 @@ describe("AssinaturaScreen — links do checkout", () => {
     expect(createCheckout).not.toHaveBeenCalled();
   });
 
-  it("assinante ativo consegue trocar de plano: campo CPF/CNPJ na aba de planos", async () => {
+  it("assinante ativo muda de plano com confirmação — sem CPF e sem checkout", async () => {
     fetchSubscription.mockResolvedValue({
       plano: "ate_100",
       status: "ativa",
@@ -184,6 +188,9 @@ describe("AssinaturaScreen — links do checkout", () => {
       setupPago: true,
       invoiceUrl: null,
       setupInvoiceUrl: null,
+      invoiceReversal: null,
+      recoveryInvoiceUrl: null,
+      setupRecoveryRequired: false,
     });
     fetchPlanCatalog.mockResolvedValue({
       setupFee: 0,
@@ -192,38 +199,91 @@ describe("AssinaturaScreen — links do checkout", () => {
         { code: "101_200", label: "101–200 pessoas", limite: 200, preco: 299 },
       ],
     });
-    createCheckout.mockResolvedValue({
-      status: "pendente",
-      invoiceUrl: "https://asaas.test/upgrade",
-      setupInvoiceUrl: null,
-      asaasSubscriptionId: "sub_2",
+    changePlan.mockResolvedValue({
+      status: "ativa",
+      plano: "101_200",
+      precoMensal: 299,
+      vigencia: "proximo_ciclo",
     });
 
     act(() => root.render(h(AssinaturaScreen)));
     await flush();
 
-    // Vai para a aba de planos — onde a ação "Contratar" existe para o
-    // assinante ativo — e o campo de documento precisa estar visível.
     const plansTab = [...container.querySelectorAll("button")].find((button) =>
       button.textContent?.includes("Planos por porte"),
     )!;
     act(() => plansTab.click());
     await flush();
 
-    const cpfInput = container.querySelector<HTMLInputElement>("#subscription-cpf-cnpj");
-    expect(cpfInput).not.toBeNull();
-    setValue(cpfInput!, "24971563792");
+    // Assinante NÃO vê "Contratar" nem o campo de documento — a troca
+    // atualiza a assinatura existente.
+    expect(container.querySelector("#subscription-cpf-cnpj")).toBeNull();
+    expect(
+      [...container.querySelectorAll("button")].some((b) =>
+        b.textContent?.includes("Contratar"),
+      ),
+    ).toBe(false);
 
-    const contratar = [...container.querySelectorAll("button")].find((button) =>
-      button.textContent?.includes("Contratar"),
+    const mudar = [...container.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Mudar plano"),
     )!;
-    act(() => contratar.click());
+    act(() => mudar.click());
     await flush();
 
-    expect(createCheckout).toHaveBeenCalledWith("tenant-token", {
-      plano: "101_200",
-      cpfCnpj: "24971563792",
+    // Confirmação mostra plano/preço e a vigência no próximo ciclo.
+    expect(container.textContent).toContain("Confirmar mudança de plano?");
+    expect(container.textContent).toContain("101–200 pessoas");
+    expect(container.textContent).toContain("Válido a partir do próximo ciclo");
+
+    const confirmar = [...container.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Confirmar mudança"),
+    )!;
+    act(() => confirmar.click());
+    await flush();
+
+    expect(changePlan).toHaveBeenCalledWith("tenant-token", { plano: "101_200" });
+    expect(createCheckout).not.toHaveBeenCalled();
+  });
+
+  it("estado com pendência bloqueia a troca de plano", async () => {
+    fetchSubscription.mockResolvedValue({
+      plano: "ate_100",
+      status: "ativa",
+      pessoas: 40,
+      limite: 100,
+      proximaCobranca: null,
+      setupPago: false, // setup devido => troca bloqueada
+      invoiceUrl: null,
+      setupInvoiceUrl: "https://asaas.test/setup",
+      invoiceReversal: null,
+      recoveryInvoiceUrl: null,
+      setupRecoveryRequired: false,
     });
+    fetchPlanCatalog.mockResolvedValue({
+      setupFee: 59.9,
+      planos: [
+        { code: "ate_100", label: "Até 100 pessoas", limite: 100, preco: 199 },
+        { code: "101_200", label: "101–200 pessoas", limite: 200, preco: 299 },
+      ],
+    });
+
+    act(() => root.render(h(AssinaturaScreen)));
+    await flush();
+
+    const plansTab = [...container.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Planos por porte"),
+    )!;
+    act(() => plansTab.click());
+    await flush();
+
+    const mudar = [...container.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Mudar plano"),
+    )!;
+    expect(mudar.disabled).toBe(true);
+    expect(container.textContent).toContain(
+      "Regularize as cobranças pendentes",
+    );
+    expect(changePlan).not.toHaveBeenCalled();
   });
 
   it("mensalidade REVERTIDA usa a ação específica de recuperação, nunca createCheckout", async () => {

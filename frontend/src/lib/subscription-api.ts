@@ -173,6 +173,32 @@ export async function recoverInvoice(token: string): Promise<RecoveryResult> {
   return (await res.json()) as RecoveryResult;
 }
 
+/** Resultado da troca de plano (assinatura Asaas atualizada in-place). */
+export interface ChangePlanResult {
+  status: string;
+  plano: PlanCode;
+  precoMensal: number;
+  /** Sempre "proximo_ciclo": cobranças já emitidas não mudam. */
+  vigencia: string;
+}
+
+/** Troca o plano ATUALIZANDO a assinatura Asaas existente (nunca cria outra
+ * recorrência). Vale a partir do próximo ciclo; não pede CPF/CNPJ. */
+export async function changePlan(
+  token: string,
+  payload: { plano: PlanCode },
+): Promise<ChangePlanResult> {
+  const res = await authedFetch(token, "/subscription/change-plan", {
+    method: "POST",
+    body: JSON.stringify({ plano: payload.plano }),
+  });
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível mudar o plano.");
+  }
+  return (await res.json()) as ChangePlanResult;
+}
+
 /** (Re)emite a taxa de setup em aberto como cobrança avulsa — nunca cria
  * assinatura nem passa pelo checkout. */
 export async function createSetupCharge(token: string): Promise<RecoveryResult> {

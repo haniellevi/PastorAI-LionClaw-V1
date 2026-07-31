@@ -51,7 +51,9 @@ from app.services.asaas import (
     verify_webhook_token,
 )
 from app.services.billing import (
+    PlanChangeConflict,
     ensure_payment_operation,
+    ensure_plan_change_operation,
     find_open_operation,
     find_operation_for_payment,
     get_setup_fee_for_igreja,
@@ -973,6 +975,111 @@ def list_planos_disponiveis(
     if igreja is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Igreja não encontrada")
     return PlanCatalogOut(planos=planos, setupFee=get_setup_fee_for_igreja(db, igreja))
+
+
+class ChangePlanRequest(BaseModel):
+    plano: str
+
+    @field_validator("plano")
+    @classmethod
+    def _plano(cls, value: str) -> str:
+        value = value.strip().lower()
+        if not value:
+            raise ValueError("plano obrigatório")
+        return value
+
+
+class ChangePlanResponse(BaseModel):
+    status: str
+    plano: str
+    precoMensal: float  # noqa: N815
+    # A mudança vale a partir do próximo ciclo: cobranças já emitidas não são
+    # alteradas (updatePendingPayments=false, decisão do dono).
+    vigencia: str = "proximo_ciclo"
+
+
+@router.post("/change-plan", response_model=ChangePlanResponse)
+def change_plan(
+    payload: ChangePlanRequest,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_owner),
+    asaas: AsaasClient = Depends(get_asaas_client),
+) -> ChangePlanResponse:
+    """Troca de plano de assinante: atualiza a assinatura Asaas EXISTENTE.
+
+    Decisão de produto (PLAN-CHANGE-SAFETY-1): PUT in-place com
+    ``updatePendingPayments=false`` (vigência no próximo ciclo; cobranças
+    emitidas intocadas); NUNCA cria segunda recorrência; exige estado limpo —
+    assinatura ativa, setup quitado, sem reversão nem recuperação pendente.
+    Não solicita CPF/CNPJ (o cliente Asaas já existe).
+    """
+    plano_row = _plano_ativo_or_422(db, payload.plano)
+    igreja_uuid = uuid.UUID(current_user.igreja_id)
+    sub = db.execute(
+        select(Subscription).where(Subscription.igreja_id == igreja_uuid)
+    ).scalar_one_or_none()
+    if sub is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Assinatura não encontrada"
+        )
+    if payload.plano == sub.plano:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Este já é o plano atual",
+        )
+    if not sub.asaas_subscription_id or sub.asaas_subscription_id == "sandbox":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Não há assinatura Asaas rastreada — contrate um plano primeiro",
+        )
+    # Estado precisa estar LIMPO antes de trocar: pendências financeiras são
+    # regularizadas primeiro (pendente/inadimplente/reversão/recovery/setup).
+    if sub.status != "ativa":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Regularize a assinatura antes de mudar de plano",
+        )
+    if sub.asaas_invoice_reversal:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Há uma cobrança revertida pendente de recuperação",
+        )
+    if not sub.setup_pago:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Quite a taxa de setup antes de mudar de plano",
+        )
+    if find_open_operation(db, sub.id, "monthly_recovery") is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Há uma cobrança de recuperação em aberto",
+        )
+
+    try:
+        ensure_plan_change_operation(
+            db,
+            asaas,
+            sub=sub,
+            to_plano=plano_row.codigo,
+            to_preco=float(plano_row.preco_mensal),
+            to_limite=plano_row.limite_pessoas,
+        )
+    except PlanChangeConflict as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
+    except AsaasError as exc:
+        # Plano local permanece INTACTO; a operação fica reconciliável.
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Não foi possível atualizar a assinatura no Asaas — tente novamente",
+        ) from exc
+
+    return ChangePlanResponse(
+        status=sub.status or "ativa",
+        plano=sub.plano,
+        precoMensal=float(plano_row.preco_mensal),
+    )
 
 
 class AsaasWebhookEvent(BaseModel):

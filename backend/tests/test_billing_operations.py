@@ -226,3 +226,185 @@ def test_created_operation_is_reused_without_any_remote_call() -> None:
     assert op is done
     assert asaas.posts == 0
     assert asaas.finds == 0
+
+
+# ---------------------------------------------------------------------------
+# Troca de plano durável (PLAN-CHANGE-SAFETY-1): PUT na assinatura EXISTENTE,
+# vigência no próximo ciclo, retry por reconciliação — nunca 2ª recorrência.
+# ---------------------------------------------------------------------------
+from app.db.models import BillingPlanChangeOperation, Subscription  # noqa: E402
+from app.services.billing import (  # noqa: E402
+    PlanChangeConflict,
+    ensure_plan_change_operation,
+)
+
+
+def _plan_sub():
+    return SimpleNamespace(
+        id="local-sub-1",
+        igreja_id="igreja-1",
+        plano="ate_100",
+        limite=100,
+        proxima_cobranca="2026-08-01",
+        asaas_subscription_id="sub_asaas_1",
+    )
+
+
+class _PlanAsaas:
+    def __init__(self, *, remote: dict | None = None, put_error: bool = False) -> None:
+        self.puts = 0
+        self.gets = 0
+        self._remote = remote
+        self._put_error = put_error
+
+    def update_subscription(self, subscription_id: str, *, valor: float, descricao: str):
+        self.puts += 1
+        if self._put_error:
+            raise AsaasError("timeout ambíguo depois do PUT")
+        return {"id": subscription_id, "value": valor, "description": descricao}
+
+    def get_subscription(self, subscription_id: str):
+        self.gets += 1
+        return self._remote
+
+    def create_checkout(self, **kwargs):  # pragma: no cover - defesa
+        raise AssertionError("troca de plano nunca cria assinatura")
+
+
+def _change(db, asaas, sub, *, to_plano: str = "101_200"):
+    return ensure_plan_change_operation(
+        db,
+        asaas,
+        sub=sub,
+        to_plano=to_plano,
+        to_preco=299.0,
+        to_limite=200,
+    )
+
+
+def test_plan_change_updates_same_subscription_in_place() -> None:
+    sub = _plan_sub()
+    igreja = SimpleNamespace(id="igreja-1", plano="ate_100")
+    db = FakeSession(igreja=igreja)
+    asaas = _PlanAsaas()
+
+    op = _change(db, asaas, sub)
+
+    assert op.status == "completed"
+    assert asaas.puts == 1
+    assert sub.plano == "101_200"
+    assert sub.limite == 200
+    assert igreja.plano == "101_200"
+    assert sub.proxima_cobranca == "2026-08-01"  # ciclo preservado
+    assert sub.asaas_subscription_id == "sub_asaas_1"  # MESMO id remoto
+
+
+def test_plan_change_put_timeout_keeps_local_plan_and_reconciles_later() -> None:
+    sub = _plan_sub()
+    db = FakeSession(igreja=SimpleNamespace(id="igreja-1", plano="ate_100"))
+    flaky = _PlanAsaas(put_error=True)
+
+    with pytest.raises(AsaasError):
+        _change(db, flaky, sub)
+
+    op = next(o for o in db.added if isinstance(o, BillingPlanChangeOperation))
+    assert op.status == "reconciling"
+    assert sub.plano == "ate_100"  # plano local INTACTO até confirmação
+    assert flaky.puts == 1
+
+    # Retry: GET confirma que o PUT anterior chegou (valor remoto == alvo) —
+    # conclui SEM repetir o PUT.
+    confirming = _PlanAsaas(remote={"id": "sub_asaas_1", "value": 299.0})
+    done = _change(db, confirming, sub)
+
+    assert done is op
+    assert done.status == "completed"
+    assert sub.plano == "101_200"
+    assert confirming.puts == 0
+    assert confirming.gets == 1
+
+
+def test_plan_change_divergent_remote_stays_reconciling() -> None:
+    sub = _plan_sub()
+    op = BillingPlanChangeOperation(
+        subscription_id="local-sub-1",
+        asaas_subscription_id="sub_asaas_1",
+        from_plano="ate_100",
+        to_plano="101_200",
+        to_preco=299.0,
+        to_limite=200,
+        status="reconciling",
+    )
+    db = FakeSession(plan_changes=[op])
+    # Remoto ainda mostra o valor antigo: não conclui, não aplica local.
+    asaas = _PlanAsaas(remote={"id": "sub_asaas_1", "value": 199.0})
+
+    with pytest.raises(AsaasError):
+        _change(db, asaas, sub)
+
+    assert op.status == "reconciling"
+    assert sub.plano == "ate_100"
+    assert asaas.puts == 0
+
+
+def test_concurrent_plan_change_to_other_plan_conflicts() -> None:
+    sub = _plan_sub()
+    open_op = BillingPlanChangeOperation(
+        subscription_id="local-sub-1",
+        asaas_subscription_id="sub_asaas_1",
+        from_plano="ate_100",
+        to_plano="acima_201",
+        to_preco=499.0,
+        to_limite=None,
+        status="processing",
+    )
+    db = FakeSession(plan_changes=[open_op])
+    asaas = _PlanAsaas()
+
+    with pytest.raises(PlanChangeConflict):
+        _change(db, asaas, sub, to_plano="101_200")
+
+    assert asaas.puts == 0
+
+
+def test_concurrent_claim_adopts_winner_for_same_plan() -> None:
+    winner = BillingPlanChangeOperation(
+        subscription_id="local-sub-1",
+        asaas_subscription_id="sub_asaas_1",
+        from_plano="ate_100",
+        to_plano="101_200",
+        to_preco=299.0,
+        to_limite=200,
+        status="processing",
+    )
+
+    class _RacyPlanSession(FakeSession):
+        def __init__(self) -> None:
+            super().__init__(igreja=SimpleNamespace(id="igreja-1", plano="ate_100"))
+            self._raced = False
+
+        def commit(self) -> None:
+            pending = [
+                o for o in self.added if isinstance(o, BillingPlanChangeOperation)
+            ]
+            if not self._raced and pending:
+                self._raced = True
+                self.added = [
+                    o
+                    for o in self.added
+                    if not isinstance(o, BillingPlanChangeOperation)
+                ]
+                self.plan_changes.append(winner)
+                raise IntegrityError("insert", {}, Exception("unique violation"))
+            super().commit()
+
+    sub = _plan_sub()
+    db = _RacyPlanSession()
+    # A operação do vencedor está `processing`: o perdedor reconcilia por GET.
+    asaas = _PlanAsaas(remote={"id": "sub_asaas_1", "value": 299.0})
+
+    op = _change(db, asaas, sub)
+
+    assert op is winner
+    assert op.status == "completed"
+    assert asaas.puts == 0  # nenhum PUT duplicado

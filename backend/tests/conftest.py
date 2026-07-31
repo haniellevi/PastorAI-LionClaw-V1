@@ -16,6 +16,7 @@ from app.db.models import (
     AgentConversationLog,
     AppUser,
     BillingPaymentOperation,
+    BillingPlanChangeOperation,
     BillingSettings,
     Igreja,
     PasswordResetToken,
@@ -92,6 +93,7 @@ class FakeSession:
         billing_settings=None,
         subscription=None,
         operations: list | None = None,
+        plan_changes: list | None = None,
     ) -> None:
         self.app_user = app_user
         self.roles = roles or []
@@ -117,6 +119,8 @@ class FakeSession:
         self.subscription = subscription
         # Operações duráveis de cobrança avulsa (setup / monthly_recovery).
         self.operations = operations or []
+        # Operações duráveis de TROCA DE PLANO (PUT na assinatura existente).
+        self.plan_changes = plan_changes or []
         # Objetos passados a .add() (ex.: Subscription novo no checkout) —
         # permite o teste inspecionar o que o handler gravou (ex.: sub.limite).
         self.added: list = []
@@ -153,6 +157,18 @@ class FakeSession:
             return _FakeResult(scalar=self.billing_settings)
         if entity is Subscription:
             return _FakeResult(scalar=self.subscription)
+        if entity is BillingPlanChangeOperation:
+            pool = [
+                *self.plan_changes,
+                *(
+                    o
+                    for o in self.added
+                    if isinstance(o, BillingPlanChangeOperation)
+                ),
+            ]
+            open_statuses = ("prepared", "processing", "reconciling")
+            pool = [o for o in pool if o.status in open_statuses]
+            return _FakeResult(scalar=pool[0] if pool else None, scalars_list=pool)
         if entity is BillingPaymentOperation:
             # Operações duráveis de cobrança: filtra o pool (kwarg + added)
             # pelos binds reais da query (operation_key / asaas_payment_id /

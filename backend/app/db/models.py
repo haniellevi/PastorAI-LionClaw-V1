@@ -1235,6 +1235,46 @@ class BillingPaymentOperation(Base):
     )
 
 
+class BillingPlanChangeOperation(Base):
+    """Troca de plano durável: PUT na assinatura Asaas EXISTENTE.
+
+    Decisão de produto (PLAN-CHANGE-SAFETY-1): nunca criar segunda recorrência;
+    vigência no próximo ciclo; cobranças já emitidas intocadas
+    (updatePendingPayments=false). O alvo (plano/preço/limite) é CONGELADO na
+    solicitação e persistido antes do PUT — retry reconcilia pelo GET da
+    assinatura, nunca repete o PUT às cegas. ``origin='autoupgrade'`` reserva o
+    mesmo trilho para o gatilho de porte quando existir worker de billing.
+    """
+
+    __tablename__ = "billing_plan_change_operations"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    subscription_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("subscriptions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    asaas_subscription_id: Mapped[str] = mapped_column(Text, nullable=False)
+    from_plano: Mapped[str] = mapped_column(Text, nullable=False)
+    to_plano: Mapped[str] = mapped_column(Text, nullable=False)
+    to_preco: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
+    to_limite: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    origin: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'manual'")
+    )
+    # prepared | processing | reconciling | completed | failed
+    status: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'prepared'")
+    )
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+
 class Report(Base):
     """Weekly cell report (RF-37). One row per (celula, semana) when received."""
 

@@ -250,6 +250,61 @@ class AsaasClient:
         """Public payment page of a subscription's first charge (read-only)."""
         return payment_invoice_url(self.get_subscription_payment(subscription_id))
 
+    def get_subscription(self, subscription_id: str) -> dict | None:
+        """Full payload of an existing subscription (read-only reconciliation)."""
+        if not external_sends_allowed(self._settings):
+            log_suppressed("Asaas", "get_subscription")
+            return None
+        base_url, api_key = self._require_config()
+        headers = self._headers(api_key)
+        try:
+            with httpx.Client(base_url=base_url, timeout=20.0) as client:
+                resp = client.get(f"/subscriptions/{subscription_id}", headers=headers)
+                resp.raise_for_status()
+                body = resp.json()
+        except httpx.HTTPError as exc:
+            logger.warning("Asaas subscription lookup failed: %s", type(exc).__name__)
+            raise AsaasError("Falha ao consultar a assinatura no Asaas") from exc
+        except (ValueError, KeyError) as exc:
+            logger.warning("Unexpected Asaas response shape")
+            raise AsaasError("Resposta inesperada do Asaas") from exc
+        return body if isinstance(body, dict) else None
+
+    def update_subscription(
+        self, subscription_id: str, *, valor: float, descricao: str
+    ) -> dict | None:
+        """Update the EXISTING recurring subscription in place (plan change).
+
+        PUT /subscriptions/{id} com ``updatePendingPayments=false``: cobranças
+        já emitidas ficam intocadas e o novo valor vale a partir do próximo
+        ciclo — nunca cria outra recorrência. Returns None when external sends
+        are sandboxed.
+        """
+        if not external_sends_allowed(self._settings):
+            log_suppressed("Asaas", "update_subscription")
+            return None
+        base_url, api_key = self._require_config()
+        headers = self._headers(api_key)
+        payload: dict[str, object] = {
+            "value": valor,
+            "description": descricao,
+            "updatePendingPayments": False,
+        }
+        try:
+            with httpx.Client(base_url=base_url, timeout=20.0) as client:
+                resp = client.put(
+                    f"/subscriptions/{subscription_id}", headers=headers, json=payload
+                )
+                resp.raise_for_status()
+                body = resp.json()
+        except httpx.HTTPError as exc:
+            logger.warning("Asaas subscription update failed: %s", type(exc).__name__)
+            raise AsaasError("Falha ao atualizar a assinatura no Asaas") from exc
+        except (ValueError, KeyError) as exc:
+            logger.warning("Unexpected Asaas response shape")
+            raise AsaasError("Resposta inesperada do Asaas") from exc
+        return body if isinstance(body, dict) else None
+
     def create_one_time_charge(
         self,
         *,

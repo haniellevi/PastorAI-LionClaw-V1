@@ -19,13 +19,25 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.db.models import BillingPaymentOperation, BillingSettings, Igreja, Subscription
+from app.db.models import (
+    BillingPaymentOperation,
+    BillingPlanChangeOperation,
+    BillingSettings,
+    Igreja,
+    Subscription,
+)
 from app.services.asaas import AsaasClient, AsaasError, payment_invoice_url
 
 logger = logging.getLogger("pastorai.billing")
 
 # Estados em que a operação ainda "ocupa" o slot (claim) da assinatura+propósito.
 OPEN_OPERATION_STATUSES = ("prepared", "creating", "reconciling", "created")
+# Estados abertos da troca de plano (claim único por assinatura).
+OPEN_PLAN_CHANGE_STATUSES = ("prepared", "processing", "reconciling")
+
+
+class PlanChangeConflict(Exception):
+    """Já existe uma troca de plano EM ANDAMENTO para outro plano."""
 
 
 def get_setup_fee_default(db: Session) -> float:
@@ -194,4 +206,133 @@ def ensure_payment_operation(
     op.invoice_url = payment_invoice_url(charge)
     op.status = "created"
     db.commit()
+    return op
+
+
+def find_open_plan_change(
+    db: Session, subscription_id
+) -> BillingPlanChangeOperation | None:
+    """A troca de plano em andamento desta assinatura, se houver."""
+    return db.execute(
+        select(BillingPlanChangeOperation).where(
+            BillingPlanChangeOperation.subscription_id == subscription_id,
+            BillingPlanChangeOperation.status.in_(OPEN_PLAN_CHANGE_STATUSES),
+        )
+    ).scalar_one_or_none()
+
+
+def _plan_change_matches_remote(
+    op: BillingPlanChangeOperation, remote: dict | None
+) -> bool:
+    """O estado remoto já reflete o alvo congelado da operação?"""
+    if not isinstance(remote, dict):
+        return False
+    try:
+        return float(remote.get("value")) == float(op.to_preco)
+    except (TypeError, ValueError):
+        return False
+
+
+def _complete_plan_change(
+    db: Session, op: BillingPlanChangeOperation, sub: Subscription
+) -> None:
+    """Aplica o plano local SOMENTE após confirmação/reconciliação remota."""
+    sub.plano = op.to_plano
+    sub.limite = op.to_limite
+    igreja = db.execute(
+        select(Igreja).where(Igreja.id == sub.igreja_id)
+    ).scalar_one_or_none()
+    if igreja is not None:
+        igreja.plano = op.to_plano
+    op.status = "completed"
+    db.commit()
+
+
+def ensure_plan_change_operation(
+    db: Session,
+    asaas: AsaasClient,
+    *,
+    sub: Subscription,
+    to_plano: str,
+    to_preco: float,
+    to_limite: int | None,
+    origin: str = "manual",
+) -> BillingPlanChangeOperation:
+    """Troca de plano durável: PUT na assinatura Asaas EXISTENTE, retry-safe.
+
+    O alvo (plano/preço/limite) é congelado e persistido ANTES do PUT; um
+    retry com a operação em `processing`/`reconciling` RECONCILIA pelo GET da
+    assinatura (valor remoto == alvo) em vez de repetir o PUT às cegas. O
+    plano/limite locais só mudam após confirmação ou reconciliação. Falha
+    remota preserva o plano atual. Nunca cria outra recorrência.
+    """
+    op = find_open_plan_change(db, sub.id)
+
+    if op is not None and op.to_plano != to_plano:
+        # Duas solicitações concorrentes para planos DIFERENTES nunca se
+        # atropelam silenciosamente: a segunda é rejeitada com conflito.
+        raise PlanChangeConflict(
+            f"Já existe uma troca em andamento para o plano {op.to_plano}"
+        )
+
+    if op is None:
+        op = BillingPlanChangeOperation(
+            subscription_id=sub.id,
+            asaas_subscription_id=str(sub.asaas_subscription_id),
+            from_plano=sub.plano,
+            to_plano=to_plano,
+            to_preco=to_preco,
+            to_limite=to_limite,
+            origin=origin,
+            status="prepared",
+        )
+        db.add(op)
+        try:
+            # Índice único parcial (subscription_id | status aberto) = claim
+            # atômico: a corrida perde aqui e adota a operação do vencedor.
+            db.commit()
+        except Exception:
+            db.rollback()
+            op = find_open_plan_change(db, sub.id)
+            if op is None:
+                raise
+            if op.to_plano != to_plano:
+                raise PlanChangeConflict(
+                    f"Já existe uma troca em andamento para o plano {op.to_plano}"
+                ) from None
+
+    if op.status in ("processing", "reconciling"):
+        # Resultado do PUT anterior é DESCONHECIDO: reconcilia pelo GET antes
+        # de qualquer nova escrita remota.
+        remote = asaas.get_subscription(op.asaas_subscription_id)
+        if _plan_change_matches_remote(op, remote):
+            _complete_plan_change(db, op, sub)
+            return op
+        op.status = "reconciling"
+        db.commit()
+        raise AsaasError(
+            "Troca de plano em reconciliação no Asaas — tente novamente"
+        )
+
+    # prepared: marca a intenção e faz exatamente UM PUT.
+    op.status = "processing"
+    db.commit()
+    try:
+        remote = asaas.update_subscription(
+            op.asaas_subscription_id,
+            valor=float(op.to_preco),
+            descricao=f"PastorAI — plano {op.to_plano}",
+        )
+    except AsaasError:
+        # Ambíguo (o PUT pode ter chegado): plano local fica INTACTO e o
+        # retry reconcilia — nunca outro PUT automático imediato.
+        op.status = "reconciling"
+        db.commit()
+        raise
+    if remote is None:
+        # Sandbox (sends bloqueados): não há remoto a confirmar — completa
+        # localmente para o fluxo de desenvolvimento seguir utilizável.
+        _complete_plan_change(db, op, sub)
+        return op
+    _complete_plan_change(db, op, sub)
     return op

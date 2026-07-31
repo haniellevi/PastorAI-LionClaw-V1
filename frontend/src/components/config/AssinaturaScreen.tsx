@@ -21,6 +21,7 @@ import { useAuth } from "@/lib/auth-context";
 import { ApiError } from "@/lib/dashboard-api";
 import { Icon } from "@/lib/icons";
 import {
+  changePlan,
   createCheckout,
   createSetupCharge,
   fetchPlanCatalog,
@@ -71,6 +72,10 @@ export function AssinaturaScreen() {
   const [tab, setTab] = useState<Tab>("overview");
   const [checkoutPlan, setCheckoutPlan] = useState<PlanCode | null>(null);
   const [recovering, setRecovering] = useState<"invoice" | "setup" | null>(null);
+  // Troca de plano de assinante: pendingPlanChange = aguardando confirmação
+  // explícita do usuário; changingPlan = requisição em voo (trava duplo clique).
+  const [pendingPlanChange, setPendingPlanChange] = useState<PlanInfo | null>(null);
+  const [changingPlan, setChangingPlan] = useState(false);
   const [cpfCnpj, setCpfCnpj] = useState("");
   const [checkoutLinks, setCheckoutLinks] = useState<{
     monthly: string | null;
@@ -213,6 +218,30 @@ export function AssinaturaScreen() {
     }
   }, [token, recovering, flashToast, load, handleSessionError]);
 
+  // Confirmação da troca de plano: PUT na assinatura existente (vigência no
+  // próximo ciclo) — nunca um novo checkout, nunca pede CPF/CNPJ.
+  const confirmPlanChange = useCallback(async () => {
+    if (!token || !pendingPlanChange || changingPlan) return;
+    setChangingPlan(true);
+    try {
+      await changePlan(token, { plano: pendingPlanChange.code });
+      flashToast({
+        kind: "ok",
+        text: `Plano atualizado para ${pendingPlanChange.label} — válido a partir do próximo ciclo.`,
+      });
+      setPendingPlanChange(null);
+      await load("retry");
+    } catch (err) {
+      if (handleSessionError(err)) return;
+      flashToast({
+        kind: "err",
+        text: err instanceof ApiError ? err.message : "Não foi possível mudar o plano.",
+      });
+    } finally {
+      setChangingPlan(false);
+    }
+  }, [token, pendingPlanChange, changingPlan, flashToast, load, handleSessionError]);
+
   // (Re)emissão da taxa de setup em aberto — cobrança avulsa; sem checkout.
   const emitSetupCharge = useCallback(async () => {
     if (!token || recovering) return;
@@ -238,6 +267,10 @@ export function AssinaturaScreen() {
   // `current` pode ficar undefined se o master desativou o plano do assinante
   // (grandfathering): a igreja continua com ele, só some do catálogo ativo.
   const current = sub ? planInfo(catalog, sub.plano) : undefined;
+  // Troca de plano exige estado LIMPO: ativa, setup quitado, sem reversão.
+  const planChangeBlocked =
+    sub != null &&
+    (uiState !== "active" || !sub.setupPago || sub.invoiceReversal != null);
   const pessoas = sub?.pessoas ?? 0;
   const limite = sub?.limite ?? current?.limite ?? null;
   const pct = limite ? Math.min(100, Math.round((pessoas / limite) * 100)) : 0;
@@ -358,10 +391,10 @@ export function AssinaturaScreen() {
         </div>
       ) : null}
 
-      {/* Documento fica visível em TODA situação com ação de checkout:
-          contratação inicial, regularização sem link e troca de plano de
-          assinante ativo (aba de planos) — sem ele o contract() não dispara. */}
-      {!showSkeleton && (sub === null || uiState === "past-due" || tab === "plans") ? (
+      {/* Documento SÓ quando um checkout real pode acontecer: contratação
+          inicial ou regularização sem link. Troca de plano de assinante
+          atualiza a assinatura existente e NÃO pede CPF/CNPJ. */}
+      {!showSkeleton && (sub === null || uiState === "past-due") ? (
         <div className="card card-pad" style={{ marginBottom: "var(--s4)" }}>
           <div className="field" style={{ margin: 0, maxWidth: 360 }}>
             <label htmlFor="subscription-cpf-cnpj">CPF ou CNPJ do responsável financeiro</label>
@@ -527,6 +560,44 @@ export function AssinaturaScreen() {
       ) : (
         <div className="card">
           <div className="panel-title">Planos por porte da igreja</div>
+          {pendingPlanChange && sub ? (
+            <div className="card-pad" style={{ borderBottom: "1px solid var(--border)" }}>
+              <p style={{ marginTop: 0 }}>
+                <strong>Confirmar mudança de plano?</strong>
+              </p>
+              <p className="sub" style={{ color: "var(--muted)" }}>
+                {`${current?.label ?? sub.plano} → ${pendingPlanChange.label} (${BRL.format(pendingPlanChange.preco)}/mês). `}
+                Válido a partir do próximo ciclo — cobranças já emitidas não mudam.
+              </p>
+              <div style={{ display: "flex", gap: "var(--s2)" }}>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-primary"
+                  onClick={() => void confirmPlanChange()}
+                  disabled={changingPlan}
+                  aria-busy={changingPlan || undefined}
+                >
+                  {changingPlan ? "Atualizando…" : "Confirmar mudança"}
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={() => setPendingPlanChange(null)}
+                  disabled={changingPlan}
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          ) : null}
+          {sub && planChangeBlocked ? (
+            <div className="card-pad" style={{ borderBottom: "1px solid var(--border)" }}>
+              <p className="sub" style={{ color: "var(--muted)", margin: 0 }}>
+                Regularize as cobranças pendentes (mensalidade e taxa de setup)
+                para poder mudar de plano.
+              </p>
+            </div>
+          ) : null}
           <table className="data-table">
             <thead>
               <tr>
@@ -549,6 +620,22 @@ export function AssinaturaScreen() {
                     <td>
                       {isCurrent ? (
                         <StatusPill tone="accent">Plano atual</StatusPill>
+                      ) : sub ? (
+                        // Assinante: troca ATUALIZA a assinatura existente
+                        // (sem CPF, sem checkout) após confirmação explícita.
+                        <button
+                          type="button"
+                          className="btn btn-sm"
+                          onClick={() => setPendingPlanChange(plan)}
+                          disabled={changingPlan || planChangeBlocked}
+                          title={
+                            planChangeBlocked
+                              ? "Regularize as cobranças pendentes para mudar de plano."
+                              : undefined
+                          }
+                        >
+                          Mudar plano
+                        </button>
                       ) : (
                         <button
                           type="button"

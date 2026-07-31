@@ -126,6 +126,11 @@ def test_invoice_link_lookups_stay_offline_without_send_permission() -> None:
     assert client.get_payment("pay_x") is None
     assert client.restore_payment("pay_x") is None
     assert client.find_payments_by_external_reference("pastorai-setup-x") == []
+    assert client.get_subscription("sub_x") is None
+    assert (
+        client.update_subscription("sub_x", valor=299.0, descricao="PastorAI — plano x")
+        is None
+    )
     assert (
         client.create_one_time_charge(
             customer_id="cus_x",
@@ -282,6 +287,55 @@ def test_setup_charge_payload_sets_due_date() -> None:
                 "dueDate": dt.date.today().isoformat(),
                 "description": "PastorAI — taxa de setup",
                 "externalReference": "pastorai-setup-op1",
+            },
+        }
+    ]
+
+
+def test_update_subscription_puts_in_place_and_freezes_pending_payments(
+    monkeypatch,
+) -> None:
+    """Troca de plano = PUT na MESMA assinatura com updatePendingPayments=false
+    (cobranças já emitidas intocadas; vigência no próximo ciclo)."""
+    calls: list[dict] = []
+
+    class _Resp:
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self) -> dict:
+            return {"id": "sub_1", "value": 299.0}
+
+    class _FakeHttpClient:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args) -> bool:
+            return False
+
+        def put(self, path: str, *, headers: dict, json: dict) -> _Resp:
+            calls.append({"path": path, "json": json})
+            return _Resp()
+
+    import app.services.asaas as asaas_mod
+
+    monkeypatch.setattr(asaas_mod.httpx, "Client", _FakeHttpClient)
+
+    result = AsaasClient(_sends_allowed_settings()).update_subscription(
+        "sub_1", valor=299.0, descricao="PastorAI — plano 101_200"
+    )
+
+    assert result == {"id": "sub_1", "value": 299.0}
+    assert calls == [
+        {
+            "path": "/subscriptions/sub_1",
+            "json": {
+                "value": 299.0,
+                "description": "PastorAI — plano 101_200",
+                "updatePendingPayments": False,
             },
         }
     ]

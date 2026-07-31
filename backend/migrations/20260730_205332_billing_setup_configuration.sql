@@ -73,6 +73,53 @@ create unique index if not exists billing_payment_operations_open_uidx
   on billing_payment_operations (subscription_id, purpose)
   where status in ('prepared','creating','reconciling','created');
 
+-- Troca de plano (decisão do dono, PLAN-CHANGE-SAFETY-1): atualiza a
+-- assinatura Asaas EXISTENTE (PUT, updatePendingPayments=false, vigência no
+-- próximo ciclo) — nunca cria segunda recorrência. A operação congela o alvo
+-- antes do PUT; retry reconcilia por GET /subscriptions/{id}. `origin`
+-- reserva o mesmo trilho para o auto-upgrade quando houver worker de billing.
+create table if not exists billing_plan_change_operations (
+  id                    uuid primary key default gen_random_uuid(),
+  subscription_id       uuid not null references subscriptions(id) on delete cascade,
+  asaas_subscription_id text not null,
+  from_plano            text not null,
+  to_plano              text not null,
+  to_preco              numeric(10,2) not null,
+  to_limite             integer null,
+  origin                text not null default 'manual'
+    check (origin in ('manual', 'autoupgrade')),
+  status                text not null default 'prepared'
+    check (status in ('prepared','processing','reconciling','completed','failed')),
+  error                 text null,
+  created_at            timestamptz not null default now(),
+  updated_at            timestamptz not null default now()
+);
+
+-- Claim atômico: no máximo UMA troca em andamento por assinatura.
+create unique index if not exists billing_plan_change_operations_open_uidx
+  on billing_plan_change_operations (subscription_id)
+  where status in ('prepared','processing','reconciling');
+
+alter table billing_plan_change_operations enable row level security;
+
+do $$ begin
+  create policy billing_plan_change_operations_tenant on billing_plan_change_operations
+    for all
+    using (
+      subscription_id in (
+        select s.id from subscriptions s where s.igreja_id = current_igreja_id()
+      )
+    )
+    with check (
+      subscription_id in (
+        select s.id from subscriptions s where s.igreja_id = current_igreja_id()
+      )
+    );
+exception when duplicate_object then null; end $$;
+
+comment on table billing_plan_change_operations is
+  'Trocas de plano duráveis: PUT na assinatura Asaas existente (nunca nova recorrência), vigência no próximo ciclo, retry por reconciliação.';
+
 alter table billing_payment_operations enable row level security;
 
 do $$ begin
