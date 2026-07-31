@@ -10,14 +10,16 @@
  *
  * A status-pill (Pendente / Atrasado) reflete o status classificado pelo
  * BACKEND — o SLA de 2h após a reunião roda no servidor, em America/Sao_Paulo.
- * Não há mais cálculo de prazo no cliente.
+ * Não há mais cálculo de prazo no cliente; para a pílula migrar sem reload
+ * quando a reunião cruza a fronteira do SLA, a aba "Semana atual" rebusca o
+ * endpoint a cada 60s (refresh silencioso: sem skeleton e sem limpar a tela).
  *
  * Acesso restrito a pastor/admin (GET /reports exige a Central); um papel sem
  * permissão recebe 403 e a tela mostra o banner de erro.
  *
  * Estados: loading (skeleton) · empty (sem reuniões) · populated · detail (modal).
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { StatusPill } from "@/components/dashboard/StatusPill";
 import { DataTable, type Column } from "@/components/ui/DataTable";
@@ -36,6 +38,9 @@ import {
 import { ReportDetailModal } from "./ReportDetailModal";
 
 type Tab = "atual" | "historico";
+
+/** Intervalo do refetch da semana corrente (ms) — ver o efeito de polling. */
+const REFRESH_MS = 60_000;
 
 /** Semana ISO `YYYY-Www` de uma data (algoritmo ISO-8601). */
 function isoWeekString(input: Date): string {
@@ -60,6 +65,11 @@ export function RelatoriosScreen() {
 
   const [detail, setDetail] = useState<ReportItem | null>(null);
 
+  // Busca em voo (impede polls concorrentes) e sequência da requisição (impede
+  // que uma resposta atrasada sobrescreva o resultado de uma carga mais nova).
+  const inFlight = useRef(false);
+  const latestRequest = useRef(0);
+
   const semana = useMemo(() => {
     if (tab === "atual") return undefined;
     const prev = new Date();
@@ -79,19 +89,41 @@ export function RelatoriosScreen() {
   );
 
   const load = useCallback(
-    async (mode: "initial" | "retry") => {
+    async (mode: "initial" | "retry" | "refresh") => {
       if (!token) return;
-      if (mode === "initial") setLoading(true);
-      setError(null);
+      const background = mode === "refresh";
+      // Um poll nunca concorre com uma busca em voo: pula o ciclo e tenta no
+      // próximo. Cargas do usuário (initial/retry) não são puladas.
+      if (background && inFlight.current) return;
+      const requestId = ++latestRequest.current;
+      inFlight.current = true;
+      if (!background) {
+        if (mode === "initial") setLoading(true);
+        setError(null);
+      }
       try {
         const page = await fetchReports(token, semana);
+        // Resposta obsoleta (a semana já mudou, ou uma carga mais nova começou):
+        // não escreve nada — senão o histórico sobrescreveria a semana atual.
+        if (requestId !== latestRequest.current) return;
         setReports(page.items);
         setLoaded(true);
+        setError(null);
       } catch (err) {
         if (handleSessionError(err)) return;
-        setError(err instanceof ApiError ? err.message : "Não foi possível carregar os relatórios.");
+        if (requestId !== latestRequest.current) return;
+        // Falha de poll é silenciosa: mantém na tela os dados já carregados,
+        // sem piscar banner de erro, e tenta de novo no ciclo seguinte.
+        if (!background) {
+          setError(
+            err instanceof ApiError ? err.message : "Não foi possível carregar os relatórios.",
+          );
+        }
       } finally {
-        setLoading(false);
+        if (requestId === latestRequest.current) {
+          inFlight.current = false;
+          if (!background) setLoading(false);
+        }
       }
     },
     [token, semana, handleSessionError],
@@ -100,6 +132,19 @@ export function RelatoriosScreen() {
   useEffect(() => {
     void load("initial");
   }, [load]);
+
+  // O status pendente/atrasado é do BACKEND (SLA de data+hora+2h em São Paulo);
+  // nada é recalculado aqui. Para a pílula migrar sem reload quando a reunião
+  // cruza a fronteira do SLA com a tela aberta, rebuscamos a semana corrente a
+  // cada 60s. Só na aba "Semana atual" — o histórico é fechado e não muda de
+  // status. O timer morre ao desmontar ou ao sair da aba (cleanup do efeito).
+  useEffect(() => {
+    if (tab !== "atual") return;
+    const id = window.setInterval(() => {
+      void load("refresh");
+    }, REFRESH_MS);
+    return () => window.clearInterval(id);
+  }, [tab, load]);
 
   const { recebidos, pendentes } = useMemo(() => splitReports(reports), [reports]);
 
