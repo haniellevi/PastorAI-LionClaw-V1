@@ -86,12 +86,20 @@ def _autoupgrade_event_name(plano: str) -> str:
 
 def notify_autoupgrade(
     db: Session, igreja_id: uuid.UUID, evolution: EvolutionClient
-) -> bool:
+) -> str:
     """Notify the admin once when the plan was promoted by the autoupgrade flow.
 
     Idempotent: a `subscription_upgrade:<plano>` event in agent_conversation_logs
     marks a plan as already announced, so repeated calls do not re-notify.
-    Returns True when a new notification was emitted.
+    Returns the delivery outcome:
+
+      - ``"sent"``    — mensagem emitida agora (ou nada a emitir: sem conexão
+        WhatsApp/telefones, o marcador fica reservado e não há retry a fazer);
+      - ``"already"`` — marcador já existia/perdeu a corrida (outro processo é
+        o dono do anúncio);
+      - ``"skipped"`` — nada a anunciar (sem assinatura ou tier base);
+      - ``"retry"``   — TODOS os envios falharam: a reserva foi liberada e o
+        chamador deve manter a entrega descobrível para uma nova tentativa.
 
     SEC-4: a reserva do marcador (`reserve_agent_event`, INSERT + commit
     imediato) acontece ANTES do `send_text` — nunca depois. Se a reserva
@@ -113,7 +121,7 @@ def notify_autoupgrade(
         select(Subscription).where(Subscription.igreja_id == igreja_id)
     ).scalar_one_or_none()
     if sub is None:
-        return False
+        return "skipped"
 
     evento = _autoupgrade_event_name(sub.plano)
     already = db.execute(
@@ -123,11 +131,11 @@ def notify_autoupgrade(
         )
     ).first()
     if already is not None:
-        return False  # saída antecipada barata
+        return "already"  # saída antecipada barata
 
     # Only notify when there is an upgrade marker to record beyond the base tier.
     if sub.plano == "ate_100":
-        return False
+        return "skipped"
 
     # Lidas ANTES da reserva (gap-2): só valores simples sobrevivem até o
     # send, nenhuma query fica pendurada numa transação aberta pelo envio.
@@ -142,7 +150,7 @@ def notify_autoupgrade(
     )
     if marker is None:
         # Perdeu a corrida: outro processo já reserva este marcador.
-        return False
+        return "already"
 
     texto = (
         "Aviso de assinatura: seu plano foi atualizado automaticamente para "
@@ -162,9 +170,37 @@ def notify_autoupgrade(
     if attempted and not sent_any:
         # Falha total do envio: libera a reserva pra próxima chamada tentar.
         release_agent_event(db, marker)
-        return False
+        return "retry"
 
-    return True
+    return "sent"
+
+
+def _deliver_upgrade_notification(
+    db: Session,
+    op: BillingPlanChangeOperation,
+    igreja_id: uuid.UUID,
+    evolution: EvolutionClient,
+) -> bool:
+    """Entrega DURÁVEL da notificação de upgrade — separada do financeiro.
+
+    `notify_status='pending'` é o estado descobrível: só vira 'sent' quando o
+    desfecho não pede retry. Falha do Evolution (ou crash) mantém 'pending' e
+    o próximo tick reencontra a operação COMPLETED pendente de aviso; o
+    marcador idempotente em agent_conversation_logs impede duplicar a mensagem
+    após sucesso. Nunca reverte nem bloqueia o billing.
+    """
+    if op.notify_status != "pending":
+        return False
+    try:
+        outcome = notify_autoupgrade(db, igreja_id, evolution)
+    except Exception:  # noqa: BLE001 - notificação nunca reverte billing
+        logger.exception("Autoupgrade notification failed for igreja %s", igreja_id)
+        return False  # segue 'pending': redescoberta no próximo tick
+    if outcome == "retry":
+        return False  # reserva liberada; segue 'pending' para o próximo tick
+    op.notify_status = "sent"
+    db.commit()
+    return outcome == "sent"
 
 
 def _process_operation(
@@ -201,13 +237,24 @@ def _process_operation(
         return False
 
     # Notificação SÓ depois do commit da conclusão (feito por
-    # _complete_plan_change). Uma falha aqui nunca desfaz a troca já
-    # confirmada — o marcador idempotente permite reentregar no próximo tick.
-    try:
-        notify_autoupgrade(db, igreja_id, evolution)
-    except Exception:  # noqa: BLE001 - notificação nunca reverte billing
-        logger.exception("Autoupgrade notification failed for igreja %s", igreja_id)
+    # _complete_plan_change) — e com entrega DURÁVEL: se falhar agora, a
+    # operação completed permanece com notify_status='pending' e o próximo
+    # tick a redescobre. Nunca desfaz a troca já confirmada.
+    _deliver_upgrade_notification(db, op, igreja_id, evolution)
     return True
+
+
+def _retry_pending_notification(
+    db: Session,
+    evolution: EvolutionClient,
+    op_id: uuid.UUID,
+    igreja_id: uuid.UUID,
+) -> bool:
+    """Reentrega o aviso de uma operação já COMPLETED (descoberta dedicada)."""
+    op = db.get(BillingPlanChangeOperation, op_id)
+    if op is None or op.status != "completed":
+        return False
+    return _deliver_upgrade_notification(db, op, igreja_id, evolution)
 
 
 def run_pending_plan_changes(
@@ -230,7 +277,7 @@ def run_pending_plan_changes(
     asaas = asaas or AsaasClient()
     evolution = evolution or EvolutionClient()
 
-    rows = session.execute(
+    open_rows = session.execute(
         select(BillingPlanChangeOperation.id, Subscription.igreja_id)
         .join(
             Subscription,
@@ -241,14 +288,39 @@ def run_pending_plan_changes(
             BillingPlanChangeOperation.status.in_(OPEN_PLAN_CHANGE_STATUSES),
         )
     ).all()
+    # Entrega durável: operações já COMPLETED cuja notificação ainda não saiu
+    # (falha do Evolution ou crash pós-conclusão) são redescobertas aqui.
+    notify_rows = session.execute(
+        select(BillingPlanChangeOperation.id, Subscription.igreja_id)
+        .join(
+            Subscription,
+            Subscription.id == BillingPlanChangeOperation.subscription_id,
+        )
+        .where(
+            BillingPlanChangeOperation.origin == "autoupgrade",
+            BillingPlanChangeOperation.status == "completed",
+            BillingPlanChangeOperation.notify_status == "pending",
+        )
+    ).all()
+
+    work: list[tuple[str, uuid.UUID, uuid.UUID]] = [
+        ("process", op_id, igreja_id) for op_id, igreja_id in open_rows
+    ] + [("notify", op_id, igreja_id) for op_id, igreja_id in notify_rows]
 
     completed = 0
-    for op_id, igreja_id in rows:
+    for kind, op_id, igreja_id in work:
         tenant_session = session_factory()
         try:
             mark_tenant_scoped(tenant_session, igreja_id, source="cron_billing")
-            if _process_operation(tenant_session, asaas, evolution, op_id, igreja_id):
-                completed += 1
+            if kind == "process":
+                if _process_operation(
+                    tenant_session, asaas, evolution, op_id, igreja_id
+                ):
+                    completed += 1
+            else:
+                _retry_pending_notification(
+                    tenant_session, evolution, op_id, igreja_id
+                )
         except AsaasError:
             # Falha/timeout remoto: a operação ficou `reconciling` (plano
             # local intacto) e o próximo tick reconcilia — sem PUT repetido.

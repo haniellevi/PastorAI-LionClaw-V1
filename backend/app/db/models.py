@@ -1266,6 +1266,54 @@ class BillingPlanChangeOperation(Base):
     status: Mapped[str] = mapped_column(
         Text, nullable=False, server_default=text("'prepared'")
     )
+    # pending | sent | skipped — separa a conclusão FINANCEIRA da entrega da
+    # notificação de upgrade: 'pending' fica descobrível pelo cron-worker até
+    # o envio; operações manuais nascem 'skipped'.
+    notify_status: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'skipped'")
+    )
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+
+class BillingSubscriptionOperation(Base):
+    """Intenção durável de criação da assinatura recorrente (CORRECTIVE-6).
+
+    Persistida ANTES do POST /subscriptions; a ``operation_key`` vira a
+    ``externalReference`` da assinatura. A externalReference NÃO é garantia de
+    idempotência do POST — serve para LOCALIZAR e reconciliar: resposta
+    perdida marca ``reconciling`` e o retry adota somente uma assinatura cujo
+    customer/valor/ciclo/descrição batam com o alvo congelado. Nunca há
+    segundo POST automático.
+    """
+
+    __tablename__ = "billing_subscription_operations"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    subscription_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("subscriptions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    operation_key: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    # Persistido assim que o customer é resolvido — ANTES do POST da assinatura.
+    customer_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    plano: Mapped[str] = mapped_column(Text, nullable=False)
+    valor: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
+    ciclo: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'MONTHLY'")
+    )
+    descricao: Mapped[str] = mapped_column(Text, nullable=False)
+    asaas_subscription_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # prepared | creating | reconciling | created | failed
+    status: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'prepared'")
+    )
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")

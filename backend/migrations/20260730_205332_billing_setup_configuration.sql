@@ -73,11 +73,68 @@ create unique index if not exists billing_payment_operations_open_uidx
   on billing_payment_operations (subscription_id, purpose)
   where status in ('prepared','creating','reconciling','created');
 
+-- Criação INICIAL de assinatura retry-safe (CORRECTIVE-6): a intenção é
+-- persistida ANTES do POST /subscriptions e a operation_key vira a
+-- externalReference da assinatura. Resposta perdida → `reconciling`; o retry
+-- procura GET /subscriptions?externalReference= e ADOTA somente a assinatura
+-- que corresponda a customer/valor/ciclo/descrição congelados — nunca repete
+-- o POST às cegas (a externalReference NÃO é garantia de idempotência do
+-- POST no Asaas; serve para localizar e reconciliar).
+create table if not exists billing_subscription_operations (
+  id                    uuid primary key default gen_random_uuid(),
+  subscription_id       uuid not null references subscriptions(id) on delete cascade,
+  operation_key         text not null unique,
+  customer_id           text null,
+  plano                 text not null,
+  valor                 numeric(10,2) not null,
+  ciclo                 text not null default 'MONTHLY',
+  descricao             text not null,
+  asaas_subscription_id text null,
+  status                text not null default 'prepared'
+    check (status in ('prepared','creating','reconciling','created','failed')),
+  error                 text null,
+  created_at            timestamptz not null default now(),
+  updated_at            timestamptz not null default now()
+);
+
+-- Claim atômico: no máximo UMA criação de assinatura em andamento por
+-- Subscription local.
+create unique index if not exists billing_subscription_operations_open_uidx
+  on billing_subscription_operations (subscription_id)
+  where status in ('prepared','creating','reconciling');
+
+create unique index if not exists billing_subscription_operations_asaas_id_uidx
+  on billing_subscription_operations (asaas_subscription_id)
+  where asaas_subscription_id is not null;
+
+alter table billing_subscription_operations enable row level security;
+
+do $$ begin
+  create policy billing_subscription_operations_tenant on billing_subscription_operations
+    for all
+    using (
+      subscription_id in (
+        select s.id from subscriptions s where s.igreja_id = current_igreja_id()
+      )
+    )
+    with check (
+      subscription_id in (
+        select s.id from subscriptions s where s.igreja_id = current_igreja_id()
+      )
+    );
+exception when duplicate_object then null; end $$;
+
+comment on table billing_subscription_operations is
+  'Intenções duráveis de criação de assinatura: operation_key persistida antes do POST /subscriptions vira externalReference — retry reconcilia por busca, nunca repete o POST às cegas.';
+
 -- Troca de plano (decisão do dono, PLAN-CHANGE-SAFETY-1): atualiza a
 -- assinatura Asaas EXISTENTE (PUT, updatePendingPayments=false, vigência no
 -- próximo ciclo) — nunca cria segunda recorrência. A operação congela o alvo
 -- antes do PUT; retry reconcilia por GET /subscriptions/{id}. `origin`
 -- reserva o mesmo trilho para o auto-upgrade quando houver worker de billing.
+-- `notify_status` separa a conclusão FINANCEIRA da entrega da notificação:
+-- 'pending' fica descobrível pelo cron-worker até o envio ('sent'); operações
+-- manuais nascem 'skipped' (não notificam).
 create table if not exists billing_plan_change_operations (
   id                    uuid primary key default gen_random_uuid(),
   subscription_id       uuid not null references subscriptions(id) on delete cascade,
@@ -90,6 +147,8 @@ create table if not exists billing_plan_change_operations (
     check (origin in ('manual', 'autoupgrade')),
   status                text not null default 'prepared'
     check (status in ('prepared','processing','reconciling','completed','failed')),
+  notify_status         text not null default 'skipped'
+    check (notify_status in ('pending','sent','skipped')),
   error                 text null,
   created_at            timestamptz not null default now(),
   updated_at            timestamptz not null default now()
@@ -191,10 +250,10 @@ begin
           -- insert em vez de duplicar ou sobrescrever.
           insert into billing_plan_change_operations
             (subscription_id, asaas_subscription_id, from_plano, to_plano,
-             to_preco, to_limite, origin, status)
+             to_preco, to_limite, origin, status, notify_status)
           values
             (v_sub.id, v_sub.asaas_subscription_id, v_sub.plano, v_novo_plano,
-             v_novo_preco, v_novo_limite, 'autoupgrade', 'prepared')
+             v_novo_preco, v_novo_limite, 'autoupgrade', 'prepared', 'pending')
           on conflict (subscription_id)
             where status in ('prepared','processing','reconciling')
             do nothing;

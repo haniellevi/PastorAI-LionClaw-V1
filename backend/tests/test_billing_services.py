@@ -126,6 +126,7 @@ def test_invoice_link_lookups_stay_offline_without_send_permission() -> None:
     assert client.get_payment("pay_x") is None
     assert client.restore_payment("pay_x") is None
     assert client.find_payments_by_external_reference("pastorai-setup-x") == []
+    assert client.find_subscriptions_by_external_reference("pastorai-subcreate-x") == []
     assert client.get_subscription("sub_x") is None
     assert (
         client.update_subscription("sub_x", valor=299.0, descricao="PastorAI — plano x")

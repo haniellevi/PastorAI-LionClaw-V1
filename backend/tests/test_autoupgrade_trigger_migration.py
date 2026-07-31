@@ -48,7 +48,9 @@ def test_trigger_is_redefined_in_the_pr_migration() -> None:
     body = _fn_body()
     assert "set search_path = public, pg_temp" in body  # endurecimento de 0006
     assert "insert into billing_plan_change_operations" in body
-    assert "'autoupgrade', 'prepared'" in body
+    # A operação nasce com a entrega da notificação PENDENTE (durável).
+    assert "'autoupgrade', 'prepared', 'pending'" in body
+    assert "notify_status" in body
 
 
 def test_tracked_subscription_branch_never_updates_local_plan() -> None:

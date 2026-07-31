@@ -24,6 +24,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import Update
 
 from app.config import get_settings
+from app.db.models import BillingSubscriptionOperation
 from app.db.session import get_db
 
 _IGREJA_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
@@ -76,7 +77,12 @@ class _WebhookDb:
     """
 
     def __init__(
-        self, sub=None, igreja=None, legacy_candidates=None, operations=None
+        self,
+        sub=None,
+        igreja=None,
+        legacy_candidates=None,
+        operations=None,
+        subscription_create_ops=None,
     ) -> None:
         self.sub = sub
         self.igreja = igreja
@@ -85,10 +91,27 @@ class _WebhookDb:
         self.legacy_candidates = legacy_candidates or []
         # Operações duráveis (setup / monthly_recovery) visíveis ao webhook.
         self.operations = operations or []
+        # Intenções duráveis de criação de assinatura (externalReference nova).
+        self.subscription_create_ops = subscription_create_ops or []
         self.commits = 0
 
     def execute(self, statement, params=None) -> _Result:
         bound = statement.compile().params
+        descriptions = getattr(statement, "column_descriptions", None)
+        entity = descriptions[0].get("entity") if descriptions else None
+        if entity is BillingSubscriptionOperation:
+            key = next(
+                (v for k, v in bound.items() if k.startswith("operation_key")), None
+            )
+            match = next(
+                (
+                    o
+                    for o in self.subscription_create_ops
+                    if o.operation_key == str(key)
+                ),
+                None,
+            )
+            return _Result(match)
         # Operações duráveis: resolvidas por asaas_payment_id OU operation_key.
         for key, value in bound.items():
             if key.startswith("asaas_payment_id") or key.startswith("operation_key"):
@@ -1028,3 +1051,40 @@ def test_token_ausente_rejeitado(app, monkeypatch) -> None:
     )
     assert resp.status_code == 401
     assert db.commits == 0
+
+
+# ---------------------------------------------------------------------------
+# CORRECTIVE-6: a externalReference NOVA (operation_key da intenção durável)
+# resolve a Subscription pela operação; o formato legado (igreja_id) segue no
+# fallback (coberto pelos testes de external_ref acima).
+# ---------------------------------------------------------------------------
+def test_subscription_event_resolves_new_external_reference_via_operation(
+    app, monkeypatch
+) -> None:
+    sub = _sub(status="pendente", setup_pago=True)
+    create_op = SimpleNamespace(
+        operation_key="pastorai-subcreate-k1", subscription_id=sub.id
+    )
+    db = _WebhookDb(
+        sub=sub, igreja=_igreja("ativa"), subscription_create_ops=[create_op]
+    )
+    client = _client(app, db, monkeypatch)
+
+    resp = client.post(
+        "/subscription/webhook",
+        json={
+            "event": "SUBSCRIPTION_UPDATED",
+            "subscription": {
+                # id remoto DIFERENTE do rastreado: só a externalReference nova
+                # (via operação durável) pode resolver o tenant.
+                "id": "sub_asaas_9",
+                "status": "ACTIVE",
+                "externalReference": "pastorai-subcreate-k1",
+            },
+        },
+        headers=_HDR,
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ativa"
+    assert db.sub.status == "ativa"

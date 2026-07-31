@@ -49,11 +49,17 @@ from app.services.asaas import (
 )
 from app.services.billing import (
     PlanChangeConflict,
+    SubscriptionCreateConflict,
+    claim_transition,
     ensure_payment_operation,
     ensure_plan_change_operation,
     find_open_operation,
     find_operation_for_payment,
+    find_subscription_operation_by_key,
+    finish_operation,
     get_setup_fee_for_igreja,
+    prepare_subscription_operation,
+    reconcile_subscription_operation,
 )
 
 logger = logging.getLogger("pastorai.subscription")
@@ -600,6 +606,9 @@ def create_checkout(
     if sub is None:
         sub = Subscription(igreja_id=igreja_uuid, plano=payload.plano)
         db.add(sub)
+        # Persistida JÁ: a intenção durável de criação referencia sub.id
+        # (server_default) antes de qualquer chamada externa.
+        db.commit()
 
     setup_fee = 0.0 if sub.setup_pago else get_setup_fee_for_igreja(db, igreja)
 
@@ -615,6 +624,77 @@ def create_checkout(
     ):
         return _resume_tracked_checkout(db, sub, asaas, setup_fee)
 
+    # A INTENÇÃO durável nasce (ou é adotada) ANTES do POST /subscriptions: a
+    # operation_key vira a externalReference da assinatura — uma resposta
+    # perdida é reconciliada por BUSCA no retry, nunca com um segundo POST (a
+    # externalReference localiza, mas não é idempotência de POST no Asaas).
+    descricao = f"PastorAI — plano {payload.plano}"
+    try:
+        op = prepare_subscription_operation(
+            db,
+            sub=sub,
+            plano=payload.plano,
+            valor=float(plano_row.preco_mensal),
+            descricao=descricao,
+        )
+    except SubscriptionCreateConflict as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
+
+    if op.status in ("creating", "reconciling"):
+        # Resultado do POST anterior é DESCONHECIDO: só reconciliação.
+        try:
+            remote = reconcile_subscription_operation(db, asaas, op)
+        except AsaasError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Não foi possível criar o checkout no Asaas",
+            ) from exc
+        if remote is None:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Contratação em reconciliação no Asaas — tente novamente",
+            )
+        # Assinatura ENCONTRADA e correspondente ao alvo congelado: adota.
+        # Ordem deliberada — persiste o vínculo na Subscription ANTES de
+        # fechar a operação: um crash no meio deixa a operação aberta (lixo
+        # inofensivo), nunca uma assinatura viva sem rastreio.
+        sub.plano = op.plano
+        sub.limite = plano_row.limite_pessoas
+        sub.status = "pendente"
+        sub.asaas_subscription_id = str(remote["id"])
+        if op.customer_id:
+            sub.asaas_customer_id = op.customer_id
+        elif remote.get("customer"):
+            sub.asaas_customer_id = str(remote["customer"])
+        sub.asaas_invoice_reversal = None
+        db.commit()
+        finish_operation(
+            db,
+            op,
+            ("creating", "reconciling"),
+            status="created",
+            asaas_subscription_id=str(remote["id"]),
+        )
+        return _resume_tracked_checkout(db, sub, asaas, setup_fee)
+
+    # prepared: claim ATÔMICO da transição — dois requests que adotaram a
+    # mesma intenção nunca fazem dois POSTs.
+    if not claim_transition(db, op, "prepared", "creating"):
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Contratação em processamento — tente novamente",
+        )
+
+    def _persist_resolved_customer(customer_id: str) -> None:
+        # Chamado ANTES do POST /subscriptions: com o customer persistido,
+        # uma falha ambígua adiante é sabidamente do POST da assinatura (e
+        # vira reconciliação — nunca um novo POST às cegas).
+        sub.asaas_customer_id = customer_id
+        op.customer_id = customer_id
+        db.commit()
+
     def _track_created_subscription(customer_id: str, subscription_id: str) -> None:
         # Chamado pelo AsaasClient IMEDIATAMENTE após o POST /subscriptions:
         # persiste o vínculo antes de qualquer outra chamada remota, para uma
@@ -626,6 +706,13 @@ def create_checkout(
         sub.asaas_customer_id = customer_id
         sub.asaas_subscription_id = subscription_id
         db.commit()
+        finish_operation(
+            db,
+            op,
+            ("creating", "reconciling"),
+            status="created",
+            asaas_subscription_id=subscription_id,
+        )
 
     try:
         result = asaas.create_checkout(
@@ -634,14 +721,29 @@ def create_checkout(
             plano=payload.plano,
             valor=float(plano_row.preco_mensal),
             cpf_cnpj=payload.cpfCnpj,
-            external_reference=str(igreja_uuid),
+            external_reference=op.operation_key,
+            on_customer_resolved=_persist_resolved_customer,
             on_subscription_created=_track_created_subscription,
         )
     except AsaasError as exc:
+        if op.customer_id:
+            # Customer já existia quando falhou → o erro pertence ao POST da
+            # assinatura (ou veio depois dele): resultado DESCONHECIDO, o
+            # retry deve reconciliar — nunca repetir o POST.
+            claim_transition(db, op, "creating", "reconciling")
+        else:
+            # Falhou ainda no customer: o POST da assinatura comprovadamente
+            # não aconteceu — a intenção volta a `prepared` para o retry.
+            claim_transition(db, op, "creating", "prepared")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Não foi possível criar o checkout no Asaas",
         ) from exc
+
+    if result.subscription_id == "sandbox":
+        # Guard de sandbox: nenhuma chamada externa aconteceu — a intenção
+        # volta a `prepared` (nada a reconciliar).
+        claim_transition(db, op, "creating", "prepared")
 
     sub.plano = payload.plano
     sub.limite = plano_row.limite_pessoas
@@ -688,6 +790,38 @@ class RecoveryResponse(BaseModel):
     invoiceUrl: str | None = None  # noqa: N815
     recoveryInvoiceUrl: str | None = None  # noqa: N815
     setupInvoiceUrl: str | None = None  # noqa: N815
+
+
+def _monthly_recovery_amount(sub: Subscription, asaas: AsaasClient) -> float:
+    """Valor da cobrança de recuperação mensal — o CONTRATADO, não o catálogo.
+
+    Fontes, na ordem: o payment mensal rastreado (o próprio valor estornado) e
+    a assinatura Asaas existente. O catálogo `planos` NÃO entra: um plano
+    desativado com assinantes (grandfathered) continua recuperável e um preço
+    editado depois nunca reajusta a recuperação. Sem fonte confiável → erro
+    controlado, sem criar cobrança.
+    """
+    try:
+        if sub.asaas_invoice_payment_id:
+            payment = asaas.get_payment(sub.asaas_invoice_payment_id)
+            if payment is not None and payment.get("value") is not None:
+                return float(payment["value"])
+        if sub.asaas_subscription_id and sub.asaas_subscription_id != "sandbox":
+            remote = asaas.get_subscription(sub.asaas_subscription_id)
+            if remote is not None and remote.get("value") is not None:
+                return float(remote["value"])
+    except (AsaasError, TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Não foi possível recuperar a cobrança no Asaas",
+        ) from exc
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=(
+            "Sem fonte confiável para o valor da recuperação — "
+            "nenhuma cobrança foi criada"
+        ),
+    )
 
 
 @router.post("/recover-invoice", response_model=RecoveryResponse)
@@ -744,14 +878,17 @@ def recover_invoice(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Assinatura sem cliente Asaas rastreado",
         )
-    plano_row = _plano_ativo_or_422(db, sub.plano)
+    # Valor da recuperação = o CONTRATADO desta assinatura, nunca o preço
+    # atual do catálogo: um plano desativado pelo master (grandfathering) não
+    # pode bloquear a recuperação (422) nem reajustar o assinante por fora.
+    valor = _monthly_recovery_amount(sub, asaas)
     try:
         op = ensure_payment_operation(
             db,
             asaas,
             sub=sub,
             purpose="monthly_recovery",
-            valor=float(plano_row.preco_mensal),
+            valor=valor,
             description=MONTHLY_RECOVERY_DESCRIPTION,
             customer_id=sub.asaas_customer_id,
             source_payment_id=sub.asaas_invoice_payment_id,
@@ -1040,13 +1177,26 @@ def asaas_webhook(
     if sub is None and not payment:
         external_ref = subscription.get("externalReference")
         if external_ref:
-            try:
-                igreja_uuid = uuid.UUID(str(external_ref))
+            # Formato novo (CORRECTIVE-6): a externalReference é a
+            # operation_key da intenção durável de criação.
+            create_op = find_subscription_operation_by_key(db, str(external_ref))
+            if create_op is not None:
                 sub = db.execute(
-                    select(Subscription).where(Subscription.igreja_id == igreja_uuid)
+                    select(Subscription).where(
+                        Subscription.id == create_op.subscription_id
+                    )
                 ).scalar_one_or_none()
-            except ValueError:
-                sub = None
+            else:
+                # Compat: assinaturas antigas carregam o igreja_id.
+                try:
+                    igreja_uuid = uuid.UUID(str(external_ref))
+                    sub = db.execute(
+                        select(Subscription).where(
+                            Subscription.igreja_id == igreja_uuid
+                        )
+                    ).scalar_one_or_none()
+                except ValueError:
+                    sub = None
     if sub is None:
         logger.info("Asaas webhook for unknown subscription; acknowledged")
         return WebhookResponse(received=True, status=None)

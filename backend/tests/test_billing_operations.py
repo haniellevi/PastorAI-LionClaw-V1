@@ -408,3 +408,145 @@ def test_concurrent_claim_adopts_winner_for_same_plan() -> None:
     assert op is winner
     assert op.status == "completed"
     assert asaas.puts == 0  # nenhum PUT duplicado
+
+
+# ---------------------------------------------------------------------------
+# CORRECTIVE-6 P1: claim ATÔMICO prepared -> creating — dois requests que
+# adotaram a MESMA operação nunca fazem dois POST /payments.
+# ---------------------------------------------------------------------------
+import uuid  # noqa: E402
+
+from app.services.billing import (  # noqa: E402
+    claim_transition,
+    find_subscription_operation_by_key,
+    finish_operation,
+    subscription_matches_operation,
+)
+from app.db.models import BillingSubscriptionOperation  # noqa: E402
+from tests.conftest import FakeSession as _ConfFakeSession  # noqa: E402
+
+
+class _RaceOnClaimSession(FakeSession):
+    """No PRIMEIRO UPDATE condicional, o rival roda ANTES — reproduz
+    deterministicamente os dois requests que leram `prepared` juntos."""
+
+    def __init__(self, rival, **kw) -> None:
+        super().__init__(**kw)
+        self._rival = rival
+        self._raced = False
+
+    def _apply_conditional_update(self, statement):
+        if not self._raced:
+            self._raced = True
+            self._rival()
+        return super()._apply_conditional_update(statement)
+
+
+def test_payment_claim_race_makes_at_most_one_post() -> None:
+    shared = BillingPaymentOperation(
+        id=uuid.uuid4(),
+        subscription_id="local-sub-1",
+        purpose="setup",
+        operation_key="pastorai-setup-race",
+        status="prepared",
+        valor=59.9,
+    )
+    asaas_winner = _OpsAsaas(charge={"id": "pay_winner", "invoiceUrl": "u"})
+    db_winner = FakeSession(operations=[shared])
+
+    def rival() -> None:
+        # O rival A completa o fluxo INTEIRO entre o find do B e o claim do B.
+        result = _ensure(db_winner, asaas_winner)
+        assert result.status == "created"
+
+    asaas_loser = _OpsAsaas(charge={"id": "pay_loser", "invoiceUrl": "u2"})
+    db_loser = _RaceOnClaimSession(rival, operations=[shared])
+
+    result = _ensure(db_loser, asaas_loser)
+
+    # Exatamente UM POST no total; o perdedor ADOTA a cobrança do vencedor.
+    assert asaas_winner.posts == 1
+    assert asaas_loser.posts == 0
+    assert result is shared
+    assert shared.status == "created"
+    assert shared.asaas_payment_id == "pay_winner"
+
+
+def test_zero_match_reconcile_never_regresses_created_by_owner() -> None:
+    # O dono do POST grava `created` ENQUANTO um retry reconciliava com zero
+    # correspondências: a escrita condicional do retry não pode regredir.
+    op = BillingPaymentOperation(
+        id=uuid.uuid4(),
+        subscription_id="local-sub-1",
+        purpose="setup",
+        operation_key="pastorai-setup-owner",
+        status="creating",
+        valor=59.9,
+    )
+    db = FakeSession(operations=[op])
+
+    class _OwnerFinishesDuringReconcile:
+        def find_payments_by_external_reference(self, key: str) -> list[dict]:
+            finish_operation(
+                db,
+                op,
+                ("creating", "reconciling"),
+                status="created",
+                asaas_payment_id="pay_owner",
+                invoice_url="https://asaas.test/owner",
+            )
+            return []
+
+        def create_one_time_charge(self, **kwargs):  # pragma: no cover
+            raise AssertionError("retry em reconciliação nunca POSTa")
+
+    with pytest.raises(AsaasError):
+        _ensure(db, _OwnerFinishesDuringReconcile())
+
+    assert op.status == "created"  # resultado do dono PRESERVADO
+    assert op.asaas_payment_id == "pay_owner"
+
+
+# ---------------------------------------------------------------------------
+# CORRECTIVE-6 P1: helpers da intenção durável de criação de assinatura
+# ---------------------------------------------------------------------------
+def _sub_op(**over) -> BillingSubscriptionOperation:
+    fields = dict(
+        id=uuid.uuid4(),
+        subscription_id="local-sub-1",
+        operation_key="pastorai-subcreate-k1",
+        customer_id="cus_1",
+        plano="ate_100",
+        valor=199.0,
+        ciclo="MONTHLY",
+        descricao="PastorAI — plano ate_100",
+        status="reconciling",
+    )
+    fields.update(over)
+    return BillingSubscriptionOperation(**fields)
+
+
+def test_find_subscription_operation_by_key_matches_exact_key() -> None:
+    op = _sub_op()
+    db = _ConfFakeSession(subscription_ops=[op])
+    assert find_subscription_operation_by_key(db, "pastorai-subcreate-k1") is op
+    assert find_subscription_operation_by_key(db, "outra-chave") is None
+
+
+def test_subscription_matches_operation_requires_frozen_target() -> None:
+    op = _sub_op()
+    good = {
+        "id": "sub_9",
+        "customer": "cus_1",
+        "value": 199.0,
+        "cycle": "MONTHLY",
+        "description": "PastorAI — plano ate_100",
+    }
+    assert subscription_matches_operation(op, good) is True
+    assert subscription_matches_operation(op, {**good, "value": 149.0}) is False
+    assert subscription_matches_operation(op, {**good, "customer": "cus_2"}) is False
+    assert subscription_matches_operation(op, {**good, "cycle": "YEARLY"}) is False
+    assert subscription_matches_operation(
+        op, {**good, "description": "outra"}
+    ) is False
+    assert subscription_matches_operation(op, {}) is False

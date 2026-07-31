@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
+from app.db.models import BillingSubscriptionOperation, Subscription
 from app.db.session import get_db
 from app.services.asaas import AsaasError, CheckoutResult, get_asaas_client
 from app.services.clerk import get_clerk_client
@@ -165,8 +166,9 @@ def test_checkout_charges_price_and_saves_limit_from_planos_table(app) -> None:
     assert asaas.calls[0]["cpf_cnpj"] == "24971563792"
     # A Subscription nova é passada a db.add() dentro do handler — inspeciona
     # o objeto de verdade em vez de confiar só no preço cobrado no Asaas.
-    assert len(db.added) == 1
-    assert db.added[0].limite == 150
+    added_subs = [o for o in db.added if isinstance(o, Subscription)]
+    assert len(added_subs) == 1  # a intenção durável também entra em db.added
+    assert added_subs[0].limite == 150
 
 
 def test_checkout_uses_price_of_requested_plano_not_another_active_one(app) -> None:
@@ -468,8 +470,9 @@ def test_checkout_persists_tracking_even_when_client_fails_after_creation(app) -
     )
 
     assert resp.status_code == 502
-    assert len(db.added) == 1
-    tracked = db.added[0]
+    added_subs = [o for o in db.added if isinstance(o, Subscription)]
+    assert len(added_subs) == 1
+    tracked = added_subs[0]
     assert tracked.asaas_customer_id == "cus_1"
     assert tracked.asaas_subscription_id == "sub_1"
     assert tracked.status == "pendente"
@@ -624,16 +627,36 @@ class _RestoreAsaas:
 
 
 class _RecoveryChargeAsaas:
-    """Fake do fluxo refunded→cobrança avulsa de recuperação (via operação)."""
+    """Fake do fluxo refunded→cobrança avulsa de recuperação (via operação).
 
-    def __init__(self) -> None:
+    O VALOR da recuperação vem da cobrança rastreada (ou da assinatura) — o
+    catálogo do master não participa, então um plano desativado/reprecificado
+    nunca muda o que o assinante grandfathered paga.
+    """
+
+    def __init__(self, *, payment_value: float | None = 199.0,
+                 subscription_value: float | None = None) -> None:
         self.posts = 0
+        self.charged_values: list[float] = []
+        self._payment_value = payment_value
+        self._subscription_value = subscription_value
+
+    def get_payment(self, payment_id: str):
+        if self._payment_value is None:
+            return None
+        return {"id": payment_id, "value": self._payment_value, "status": "REFUNDED"}
+
+    def get_subscription(self, subscription_id: str):
+        if self._subscription_value is None:
+            return None
+        return {"id": subscription_id, "value": self._subscription_value}
 
     def create_checkout(self, **kwargs):  # pragma: no cover - defesa
         raise AssertionError("recuperação nunca cria assinatura")
 
     def create_one_time_charge(self, **kwargs):
         self.posts += 1
+        self.charged_values.append(kwargs["valor"])
         assert kwargs["external_reference"].startswith("pastorai-monthly_recovery-")
         return {"id": "pay_rec_1", "invoiceUrl": "https://asaas.test/recovery"}
 
@@ -1160,3 +1183,201 @@ def test_get_subscription_makes_no_external_call_nor_notification(app) -> None:
 
     assert not hasattr(subscription_module, "notify_autoupgrade")
     assert not hasattr(subscription_module, "get_evolution_client")
+
+
+# ---------------------------------------------------------------------------
+# CORRECTIVE-6 P1: criação INICIAL de assinatura retry-safe — intenção durável
+# antes do POST; resposta perdida reconcilia por externalReference (que
+# localiza, mas NÃO é idempotência de POST); nunca um segundo POST às cegas.
+# ---------------------------------------------------------------------------
+class _LostResponseAsaas:
+    """POST /subscriptions ACEITO no Asaas, resposta perdida (timeout).
+
+    O customer resolve (callback roda) e a exceção estoura DEPOIS — como um
+    `raise_for_status` de timeout. `found` é o que o retry enxerga no
+    GET /subscriptions?externalReference=.
+    """
+
+    def __init__(self) -> None:
+        self.create_calls = 0
+        self.find_calls = 0
+        self.found: list[dict] = []
+
+    def create_checkout(self, **kwargs):
+        self.create_calls += 1
+        kwargs["on_customer_resolved"]("cus_1")
+        raise AsaasError("timeout depois do POST /subscriptions")
+
+    def find_subscriptions_by_external_reference(self, ref: str) -> list[dict]:
+        self.find_calls += 1
+        assert ref.startswith("pastorai-subcreate-")
+        return list(self.found)
+
+    def get_subscription_payment(self, subscription_id: str):
+        return {
+            "id": "pay_m1",
+            "status": "PENDING",
+            "invoiceUrl": "https://asaas.test/m1",
+            "dueDate": "2026-08-01",
+        }
+
+
+def _adopt_created_sub(db) -> None:
+    """Entre requests do mesmo tenant: o dispatch de Subscription do fake lê
+    self.subscription — aponta para a Subscription criada no 1º request."""
+    created = next(o for o in db.added if isinstance(o, Subscription))
+    db.subscription = created
+
+
+def test_checkout_lost_response_reconciles_without_second_post(app) -> None:
+    asaas = _LostResponseAsaas()
+    client, db = _client(app, planos=[_plano()], asaas=asaas)
+
+    # 1º request: POST aceito, resposta perdida → 502; NADA de retry cego.
+    resp = client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    )
+    assert resp.status_code == 502
+    assert asaas.create_calls == 1
+
+    op = next(o for o in db.added if isinstance(o, BillingSubscriptionOperation))
+    assert op.status == "reconciling"  # resultado desconhecido → só reconciliação
+    # Customer persistido ANTES do POST da assinatura (nos dois lugares).
+    assert op.customer_id == "cus_1"
+    created_sub = next(o for o in db.added if isinstance(o, Subscription))
+    assert created_sub.asaas_customer_id == "cus_1"
+
+    # Retry: a assinatura EXISTE no Asaas com a externalReference da intenção.
+    _adopt_created_sub(db)
+    asaas.found = [{
+        "id": "sub_asaas_9",
+        "customer": "cus_1",
+        "value": 199.0,
+        "cycle": "MONTHLY",
+        "description": "PastorAI — plano ate_100",
+    }]
+    resp2 = client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    )
+    assert resp2.status_code == 200
+    # ADOTADA por reconciliação: zero POST novo, mesmo id remoto rastreado.
+    assert asaas.create_calls == 1
+    assert created_sub.asaas_subscription_id == "sub_asaas_9"
+    assert op.status == "created"
+    assert op.asaas_subscription_id == "sub_asaas_9"
+    assert resp2.json()["invoiceUrl"] == "https://asaas.test/m1"
+
+
+def test_checkout_reconcile_zero_matches_stays_reconciling_without_post(app) -> None:
+    asaas = _LostResponseAsaas()
+    client, db = _client(app, planos=[_plano()], asaas=asaas)
+
+    assert client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    ).status_code == 502
+    _adopt_created_sub(db)
+
+    # Retry com ZERO correspondências: permanece reconciling — nunca outro POST.
+    resp2 = client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    )
+    assert resp2.status_code == 502
+    assert asaas.create_calls == 1
+    assert asaas.find_calls == 1
+    op = next(o for o in db.added if isinstance(o, BillingSubscriptionOperation))
+    assert op.status == "reconciling"
+    created_sub = next(o for o in db.added if isinstance(o, Subscription))
+    assert created_sub.asaas_subscription_id is None
+
+
+class _CustomerFailAsaas:
+    """Falha ANTES do customer existir: o POST comprovadamente não aconteceu."""
+
+    def __init__(self) -> None:
+        self.create_calls = 0
+
+    def create_checkout(self, **kwargs):
+        self.create_calls += 1
+        if self.create_calls == 1:
+            raise AsaasError("falha ao resolver o customer")
+        kwargs["on_customer_resolved"]("cus_1")
+        kwargs["on_subscription_created"]("cus_1", "sub_asaas_1")
+        return CheckoutResult(
+            customer_id="cus_1",
+            subscription_id="sub_asaas_1",
+            invoice_url="https://asaas.test/m1",
+            status="pendente",
+            invoice_payment_id="pay_m1",
+        )
+
+
+def test_checkout_customer_failure_returns_to_prepared_and_allows_retry_post(
+    app,
+) -> None:
+    asaas = _CustomerFailAsaas()
+    client, db = _client(app, planos=[_plano()], asaas=asaas)
+
+    assert client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    ).status_code == 502
+    op = next(o for o in db.added if isinstance(o, BillingSubscriptionOperation))
+    # Sem customer resolvido, o POST nunca rodou: a intenção volta a prepared.
+    assert op.status == "prepared"
+    assert op.customer_id is None
+
+    _adopt_created_sub(db)
+    resp2 = client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    )
+    # Retry LEGÍTIMO (nada existia no Asaas): um novo POST é permitido.
+    assert resp2.status_code == 200
+    assert asaas.create_calls == 2
+    assert op.status == "created"
+    assert op.asaas_subscription_id == "sub_asaas_1"
+
+
+# ---------------------------------------------------------------------------
+# CORRECTIVE-6 P1: recuperação com plano grandfathered (desativado no catálogo)
+# ---------------------------------------------------------------------------
+def test_recover_refunded_works_with_inactive_plan_using_original_amount(
+    app,
+) -> None:
+    # Plano DESATIVADO pelo master, assinante existente, fatura estornada: a
+    # recuperação sai pelo VALOR ORIGINAL da cobrança rastreada — não pelo
+    # catálogo (que nem pode reajustar o grandfathered).
+    asaas = _RecoveryChargeAsaas(payment_value=149.0)
+    plano_inativo = _plano(ativo=False, preco_mensal=999.0)
+    sub = _subscription(
+        status="inadimplente",
+        setup_pago=True,
+        asaas_setup_charge_id=None,
+        asaas_invoice_payment_id="pay_m3",
+        asaas_invoice_reversal="refunded",
+    )
+    client, db = _client(app, planos=[plano_inativo], asaas=asaas, subscription=sub)
+
+    resp = client.post("/subscription/recover-invoice", headers=_AUTH)
+
+    assert resp.status_code == 200
+    assert asaas.posts == 1
+    assert asaas.charged_values == [149.0]  # nunca os 999 do catálogo atual
+    assert resp.json()["recoveryInvoiceUrl"] == "https://asaas.test/recovery"
+    assert plano_inativo.ativo is False  # plano segue desativado
+
+
+def test_recover_refunded_without_value_source_fails_without_charge(app) -> None:
+    asaas = _RecoveryChargeAsaas(payment_value=None, subscription_value=None)
+    sub = _subscription(
+        status="inadimplente",
+        setup_pago=True,
+        asaas_setup_charge_id=None,
+        asaas_invoice_payment_id="pay_m3",
+        asaas_invoice_reversal="refunded",
+    )
+    client, _db = _client(app, planos=[_plano()], asaas=asaas, subscription=sub)
+
+    resp = client.post("/subscription/recover-invoice", headers=_AUTH)
+
+    # Sem fonte confiável de valor: erro CONTROLADO e nenhuma cobrança criada.
+    assert resp.status_code == 409
+    assert asaas.posts == 0

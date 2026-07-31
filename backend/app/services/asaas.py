@@ -144,10 +144,15 @@ class AsaasClient:
         ciclo: str = "MONTHLY",
         cpf_cnpj: str | None = None,
         external_reference: str | None = None,
+        on_customer_resolved: Callable[[str], None] | None = None,
         on_subscription_created: Callable[[str, str], None] | None = None,
     ) -> CheckoutResult:
         """Create (or reuse) a customer and open the recurring subscription.
 
+        ``on_customer_resolved(customer_id)`` is invoked as soon as the
+        customer exists, BEFORE the subscription POST — the caller persists it
+        there, so a later ambiguous failure is known to belong to the
+        subscription POST (and must be reconciled, never blindly retried).
         ``on_subscription_created(customer_id, subscription_id)`` is invoked
         IMMEDIATELY after the subscription POST succeeds, before any further
         remote call — the caller persists the tracking there, so a later
@@ -174,6 +179,8 @@ class AsaasClient:
                 customer_id = self._ensure_customer(
                     client, headers, nome=nome, email=email, cpf_cnpj=cpf_cnpj
                 )
+                if on_customer_resolved is not None:
+                    on_customer_resolved(customer_id)
                 sub = self._create_subscription(
                     client,
                     headers,
@@ -343,6 +350,41 @@ class AsaasClient:
         except (ValueError, KeyError) as exc:
             logger.warning("Unexpected Asaas response shape")
             raise AsaasError("Resposta inesperada do Asaas") from exc
+
+    def find_subscriptions_by_external_reference(
+        self, external_reference: str
+    ) -> list[dict]:
+        """All subscriptions carrying this externalReference (reconciliation).
+
+        Read-only: caminho de RECONCILIAÇÃO da criação de assinatura — uma
+        resposta perdida de POST /subscriptions é resolvida procurando pela
+        operation_key da intenção durável (a externalReference localiza, mas
+        NÃO é garantia de idempotência do POST), nunca repetindo o POST.
+        """
+        if not external_sends_allowed(self._settings):
+            log_suppressed("Asaas", "find_subscriptions_by_external_reference")
+            return []
+        base_url, api_key = self._require_config()
+        headers = self._headers(api_key)
+        try:
+            with httpx.Client(base_url=base_url, timeout=20.0) as client:
+                resp = client.get(
+                    "/subscriptions",
+                    headers=headers,
+                    params={"externalReference": external_reference},
+                )
+                resp.raise_for_status()
+                body = resp.json()
+        except httpx.HTTPError as exc:
+            logger.warning("Asaas subscription search failed: %s", type(exc).__name__)
+            raise AsaasError("Falha ao consultar assinaturas no Asaas") from exc
+        except (ValueError, KeyError) as exc:
+            logger.warning("Unexpected Asaas response shape")
+            raise AsaasError("Resposta inesperada do Asaas") from exc
+        subscriptions = body.get("data") if isinstance(body, dict) else None
+        if not isinstance(subscriptions, list):
+            return []
+        return [s for s in subscriptions if isinstance(s, dict)]
 
     def find_payments_by_external_reference(self, external_reference: str) -> list[dict]:
         """All payments carrying this externalReference (reconciliation).

@@ -44,6 +44,9 @@ def _op(**over) -> BillingPlanChangeOperation:
         to_limite=200,
         origin="autoupgrade",
         status="prepared",
+        # Espelha o trigger: toda operação de autoupgrade nasce com a entrega
+        # da notificação pendente (durável).
+        notify_status="pending",
     )
     fields.update(over)
     return BillingPlanChangeOperation(**fields)
@@ -106,10 +109,13 @@ class _Discovery:
     def execute(self, statement, params=None) -> _FakeResult:
         bound = statement.compile().params
         origin = next((v for k, v in bound.items() if k.startswith("origin")), None)
+        notify = next(
+            (v for k, v in bound.items() if k.startswith("notify_status")), None
+        )
         # O IN(...) compila como UM bind expanding com a tupla inteira.
         statuses: list[str] = []
         for key, value in bound.items():
-            if not key.startswith("status"):
+            if key.startswith("notify_status") or not key.startswith("status"):
                 continue
             if isinstance(value, (list, tuple, set)):
                 statuses.extend(value)
@@ -120,6 +126,7 @@ class _Discovery:
             for op, igreja_id in self._pool
             if (origin is None or op.origin == origin)
             and (not statuses or op.status in statuses)
+            and (notify is None or op.notify_status == notify)
         ]
         return _FakeResult(rows=rows)
 
@@ -161,12 +168,12 @@ def _factory_queue(sessions: list[_WorkerSession]):
     return factory
 
 
-def _spy_notify(monkeypatch) -> list:
+def _spy_notify(monkeypatch, outcome: str = "sent") -> list:
     calls: list = []
     monkeypatch.setattr(
         billing_worker,
         "notify_autoupgrade",
-        lambda db, igreja_id, evolution: calls.append(igreja_id) or True,
+        lambda db, igreja_id, evolution: calls.append(igreja_id) or outcome,
     )
     return calls
 
@@ -284,9 +291,9 @@ def test_worker_divergent_remote_stays_reconciling_without_put(monkeypatch) -> N
 
 
 def test_worker_discovery_ignores_manual_and_closed_operations(monkeypatch) -> None:
-    manual = _op(origin="manual")
-    finished = _op(status="completed")
-    failed = _op(status="failed")
+    manual = _op(origin="manual", notify_status="skipped")
+    finished = _op(status="completed", notify_status="sent")  # aviso já entregue
+    failed = _op(status="failed", notify_status="pending")
     notified = _spy_notify(monkeypatch)
     asaas = _WorkerAsaas()
     factory = _factory_queue([])  # nenhuma sessão tenant deve ser criada
@@ -378,3 +385,78 @@ def test_worker_tenant_failure_does_not_break_other_tenants(monkeypatch) -> None
     assert op_b.status == "completed"
     assert igreja_b.plano == "101_200"
     assert notified == [_IGREJA_B]
+
+
+# ---------------------------------------------------------------------------
+# CORRECTIVE-6 P2: entrega DURÁVEL da notificação — separada do financeiro.
+# ---------------------------------------------------------------------------
+def test_notification_failure_stays_pending_and_next_tick_delivers(
+    monkeypatch,
+) -> None:
+    op = _op()
+    sub = _sub()
+    igreja = SimpleNamespace(id=_IGREJA_A, plano="ate_100")
+
+    # Tick 1: troca CONCLUI, mas todos os envios falham -> segue 'pending'.
+    failed_notify = _spy_notify(monkeypatch, outcome="retry")
+    tick1 = _WorkerSession(subscription=sub, igreja=igreja, plan_changes=[op])
+    completed = run_pending_plan_changes(
+        _Discovery([(op, _IGREJA_A)]),
+        session_factory=_factory_queue([tick1]),
+        asaas=_WorkerAsaas(),
+        evolution=object(),
+    )
+    assert completed == 1
+    assert op.status == "completed"  # financeiro NUNCA é revertido pelo aviso
+    assert op.notify_status == "pending"
+    assert failed_notify == [_IGREJA_A]
+
+    # Tick 2: a descoberta dedicada reencontra a operação COMPLETED pendente
+    # de aviso e entrega — sem tocar o financeiro.
+    ok_notify = _spy_notify(monkeypatch, outcome="sent")
+    tick2 = _WorkerSession(subscription=sub, igreja=igreja, plan_changes=[op])
+    completed2 = run_pending_plan_changes(
+        _Discovery([(op, _IGREJA_A)]),
+        session_factory=_factory_queue([tick2]),
+        asaas=_WorkerAsaas(),
+        evolution=object(),
+    )
+    assert completed2 == 0  # nada financeiro a concluir
+    assert ok_notify == [_IGREJA_A]
+    assert op.notify_status == "sent"
+
+    # Tick 3: nada pendente — nenhuma chamada de notificação.
+    quiet_notify = _spy_notify(monkeypatch, outcome="sent")
+    completed3 = run_pending_plan_changes(
+        _Discovery([(op, _IGREJA_A)]),
+        session_factory=_factory_queue([]),
+        asaas=_WorkerAsaas(),
+        evolution=object(),
+    )
+    assert completed3 == 0
+    assert quiet_notify == []
+
+
+def test_notification_crash_keeps_pending_for_next_tick(monkeypatch) -> None:
+    op = _op(status="completed")
+    sub = _sub(plano="101_200", limite=200)
+
+    def _boom(db, igreja_id, evolution):
+        raise RuntimeError("evolution indisponível")
+
+    monkeypatch.setattr(billing_worker, "notify_autoupgrade", _boom)
+    tick = _WorkerSession(
+        subscription=sub,
+        igreja=SimpleNamespace(id=_IGREJA_A, plano="101_200"),
+        plan_changes=[op],
+    )
+    completed = run_pending_plan_changes(
+        _Discovery([(op, _IGREJA_A)]),
+        session_factory=_factory_queue([tick]),
+        asaas=_WorkerAsaas(),
+        evolution=object(),
+    )
+    assert completed == 0
+    assert op.status == "completed"  # financeiro intacto
+    assert op.notify_status == "pending"  # descobrível no próximo tick
+    assert tick.closed is True

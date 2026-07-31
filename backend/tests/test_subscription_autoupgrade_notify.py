@@ -200,7 +200,7 @@ def test_first_call_notifies_and_reserves_marker() -> None:
 
     result = notify_autoupgrade(session, _IGREJA, evo)
 
-    assert result is True
+    assert result == "sent"
     assert len(evo.sent) == 1
     evento = _autoupgrade_event_name("comunidade")
     assert (_IGREJA, evento) in session.reserved_markers
@@ -219,7 +219,7 @@ def test_second_call_is_idempotent_no_resend() -> None:
 
     result = notify_autoupgrade(session, _IGREJA, evo)
 
-    assert result is False
+    assert result == "already"
     assert evo.sent == []
 
 
@@ -239,7 +239,7 @@ def test_concurrent_reservation_loses_never_sends() -> None:
 
     result = notify_autoupgrade(session, _IGREJA, evo)
 
-    assert result is False
+    assert result == "already"
     assert evo.sent == []
 
 
@@ -256,7 +256,7 @@ def test_send_failure_releases_marker_for_retry() -> None:
 
     result = notify_autoupgrade(session, _IGREJA, evo)
 
-    assert result is False
+    assert result == "retry"
     assert evo.sent == []
     assert not any(isinstance(o, AgentConversationLog) for o in session.added)
     assert session.reserved_markers == set()
@@ -277,7 +277,7 @@ def test_notify_does_not_query_or_hold_transaction_during_send() -> None:
 
     result = notify_autoupgrade(session, _IGREJA, evo)
 
-    assert result is True
+    assert result == "sent"
     assert evo.sent  # o teste teria um event_log incompleto se nada tivesse enviado
     reserve_commit_idx = session.event_log.index("commit")  # commit da reserva (1º e único antes do send)
     send_idx = session.event_log.index("send_text")
@@ -298,7 +298,7 @@ def test_same_plano_different_igreja_both_notify() -> None:
         **admin_a,
     )
     evo_a = FakeEvolution()
-    assert notify_autoupgrade(session, _IGREJA, evo_a) is True
+    assert notify_autoupgrade(session, _IGREJA, evo_a) == "sent"
 
     admin_b = _admin(_OTHER_IGREJA)
     session.subscription = Subscription(igreja_id=_OTHER_IGREJA, plano="comunidade")
@@ -307,7 +307,7 @@ def test_same_plano_different_igreja_both_notify() -> None:
     session.users = admin_b["users"]
     session.pessoas = admin_b["pessoas"]
     evo_b = FakeEvolution()
-    assert notify_autoupgrade(session, _OTHER_IGREJA, evo_b) is True
+    assert notify_autoupgrade(session, _OTHER_IGREJA, evo_b) == "sent"
 
     evento = _autoupgrade_event_name("comunidade")
     assert session.reserved_markers == {(_IGREJA, evento), (_OTHER_IGREJA, evento)}

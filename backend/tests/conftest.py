@@ -12,12 +12,15 @@ from types import SimpleNamespace
 
 import pytest
 
+from sqlalchemy.sql.dml import Update as _SqlUpdate
+
 from app.db.models import (
     AgentConversationLog,
     AppUser,
     BillingPaymentOperation,
     BillingPlanChangeOperation,
     BillingSettings,
+    BillingSubscriptionOperation,
     Igreja,
     PasswordResetToken,
     Plano,
@@ -55,11 +58,16 @@ class _FakeScalars:
 
 
 class _FakeResult:
-    def __init__(self, scalar=None, scalars_list=None, rows=None, one_row=None) -> None:
+    def __init__(
+        self, scalar=None, scalars_list=None, rows=None, one_row=None, rowcount=0
+    ) -> None:
         self._scalar = scalar
         self._scalars_list = scalars_list or []
         self._rows = rows or []
         self._one_row = one_row
+        # UPDATEs condicionais (claim_transition/finish_operation) decidem a
+        # posse do passo pelo rowcount — o dispatch de Update o preenche.
+        self.rowcount = rowcount
 
     def scalar_one_or_none(self):
         return self._scalar
@@ -94,6 +102,7 @@ class FakeSession:
         subscription=None,
         operations: list | None = None,
         plan_changes: list | None = None,
+        subscription_ops: list | None = None,
     ) -> None:
         self.app_user = app_user
         self.roles = roles or []
@@ -121,12 +130,63 @@ class FakeSession:
         self.operations = operations or []
         # Operações duráveis de TROCA DE PLANO (PUT na assinatura existente).
         self.plan_changes = plan_changes or []
+        # Intenções duráveis de CRIAÇÃO de assinatura (CORRECTIVE-6).
+        self.subscription_ops = subscription_ops or []
         # Objetos passados a .add() (ex.: Subscription novo no checkout) —
         # permite o teste inspecionar o que o handler gravou (ex.: sub.limite).
         self.added: list = []
         self.commits = 0
 
+    def _apply_conditional_update(self, statement) -> _FakeResult:
+        """Aplica um UPDATE condicional de operação durável no pool em memória.
+
+        As transições de estado (claim_transition/finish_operation) decidem a
+        posse do passo pelo rowcount REAL: o fake lê os binds compilados —
+        nomes puros são o SET; sufixados (`id_1`, `status_1`, expanding IN) são
+        o WHERE — e só muta quem satisfaz id+status.
+        """
+        entity = statement.entity_description.get("entity")
+        pools = {
+            BillingPaymentOperation: self.operations,
+            BillingPlanChangeOperation: self.plan_changes,
+            BillingSubscriptionOperation: self.subscription_ops,
+        }
+        if entity not in pools:
+            # Outros UPDATEs (ex.: gate da igreja no webhook) seguem inertes,
+            # como antes deste dispatch existir.
+            return _FakeResult()
+        pool = [
+            *pools[entity],
+            *(o for o in self.added if isinstance(o, entity)),
+        ]
+        params = statement.compile().params
+        set_values = {
+            k: v for k, v in params.items() if re.fullmatch(r"[a-z_]+[a-z]", k)
+        }
+        where_id = next(
+            (v for k, v in params.items() if re.fullmatch(r"id_\d+", k)), None
+        )
+        where_statuses: list[str] = []
+        for key, value in params.items():
+            if re.fullmatch(r"status_\d+(_\d+)?", key):
+                if isinstance(value, (list, tuple, set)):
+                    where_statuses.extend(value)
+                else:
+                    where_statuses.append(value)
+        rowcount = 0
+        for obj in pool:
+            if where_id is not None and str(obj.id) != str(where_id):
+                continue
+            if where_statuses and obj.status not in where_statuses:
+                continue
+            for key, value in set_values.items():
+                setattr(obj, key, value)
+            rowcount += 1
+        return _FakeResult(rowcount=rowcount)
+
     def execute(self, statement, params=None) -> _FakeResult:
+        if isinstance(statement, _SqlUpdate):
+            return self._apply_conditional_update(statement)
         descriptions = getattr(statement, "column_descriptions", None)
         if not descriptions:
             # Cláusula text(): set_config(...) da RLS OU o probe read-only de
@@ -168,6 +228,25 @@ class FakeSession:
             ]
             open_statuses = ("prepared", "processing", "reconciling")
             pool = [o for o in pool if o.status in open_statuses]
+            return _FakeResult(scalar=pool[0] if pool else None, scalars_list=pool)
+        if entity is BillingSubscriptionOperation:
+            bound = statement.compile().params
+            pool = [
+                *self.subscription_ops,
+                *(
+                    o
+                    for o in self.added
+                    if isinstance(o, BillingSubscriptionOperation)
+                ),
+            ]
+            key = next(
+                (v for k, v in bound.items() if k.startswith("operation_key")), None
+            )
+            if key is not None:
+                pool = [o for o in pool if o.operation_key == str(key)]
+            elif any(k.startswith("status") for k in bound):
+                open_statuses = ("prepared", "creating", "reconciling")
+                pool = [o for o in pool if o.status in open_statuses]
             return _FakeResult(scalar=pool[0] if pool else None, scalars_list=pool)
         if entity is BillingPaymentOperation:
             # Operações duráveis de cobrança: filtra o pool (kwarg + added)
