@@ -171,18 +171,53 @@ export function InboxScreen() {
   }, [token, canReadConnection, handleSessionError]);
 
   // ---- histórico de mensagens da conversa selecionada ---------------------
+  // INBOX-RACE-1: qual conversa está aberta AGORA. Requisições de /messages são
+  // concorrentes (troca de conversa, polling, envio), e a resposta de uma
+  // conversa antiga pode chegar depois da atual — sem esta guarda ela
+  // sobrescreveria a thread sob o cabeçalho de outro contato.
+  const selectedIdRef = useRef<string | null>(null);
+  // INBOX-RACE-1A: o id sozinho não separa DUAS VISITAS à mesma conversa
+  // (A → B → A): na volta o id bate de novo e a resposta da 1ª visita seria
+  // aceita. Esta geração muda a cada troca de seleção — nunca por requisição —,
+  // então o polling e o envio da conversa atual seguem na mesma geração da carga
+  // inicial e não deixam o `messagesLoading` preso.
+  const selectionGenRef = useRef(0);
+  // INBOX-RACE-1B: dentro da MESMA visita ainda há concorrência — a carga
+  // inicial e o polling (ou o recarregamento pós-envio) correm juntos. Se a mais
+  // nova responder primeiro, a mais antiga chegando depois voltaria o histórico
+  // para um snapshot vencido. `reqSeq` numera cada requisição e `appliedSeq`
+  // guarda a última que escreveu; uma iniciada antes dessa não escreve mais.
+  // Ordena só a ESCRITA: o fim do `messagesLoading` continua preso à visita,
+  // senão uma carga inicial ultrapassada por um poll deixaria o skeleton na tela.
+  const reqSeqRef = useRef(0);
+  const appliedSeqRef = useRef(0);
+
   const loadMessages = useCallback(
     async (convId: string, mode: "initial" | "poll" = "initial") => {
       if (!token) return;
+      const gen = selectionGenRef.current;
+      const seq = (reqSeqRef.current += 1);
+      // A requisição só continua valendo se, na volta, a conversa aberta for a
+      // mesma E ainda for a mesma visita a ela.
+      const atual = () => selectedIdRef.current === convId && selectionGenRef.current === gen;
       if (mode === "initial") setMessagesLoading(true);
       try {
         const items = await fetchMessages(token, convId);
+        // Resposta obsoleta (trocou de conversa, ou é de uma visita anterior a
+        // esta mesma conversa): descarta sem tocar na UI.
+        if (!atual()) return;
+        // Fora de ordem: outra requisição desta mesma visita, iniciada depois,
+        // já escreveu um histórico mais recente.
+        if (seq < appliedSeqRef.current) return;
+        appliedSeqRef.current = seq;
         setMessages(items);
       } catch (err) {
         if (handleSessionError(err)) return;
         // No poll a falha é silenciosa; no initial a thread mostra vazio.
       } finally {
-        if (mode === "initial") setMessagesLoading(false);
+        // Idem para o "carregando": só a requisição da visita atual pode
+        // encerrá-lo — senão a resposta antiga apagaria o skeleton da nova.
+        if (mode === "initial" && atual()) setMessagesLoading(false);
       }
     },
     [token, handleSessionError],
@@ -190,11 +225,15 @@ export function InboxScreen() {
 
   // Ao trocar de conversa, limpa e recarrega o histórico daquela conversa.
   useEffect(() => {
+    selectedIdRef.current = selectedId;
+    selectionGenRef.current += 1;
+    setMessages([]);
     if (!selectedId) {
-      setMessages([]);
+      // Sem conversa aberta não há requisição para encerrar o carregamento: a
+      // que estava em voo já não conta como atual e seu `finally` é descartado.
+      setMessagesLoading(false);
       return;
     }
-    setMessages([]);
     void loadMessages(selectedId, "initial");
   }, [selectedId, loadMessages]);
 
