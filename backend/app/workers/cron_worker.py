@@ -31,6 +31,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.db.models import Cron
 from app.db.session import get_session_factory
+from app.services.billing_worker import run_pending_plan_changes
 from app.services.sla_engine import SlaEngine, run_all_igrejas
 
 logger = logging.getLogger("pastorai.cron_worker")
@@ -182,9 +183,24 @@ class CronWorker:
             crons_run = run_due_crons(
                 session, engine=self._engine, now=now, last_run=self._last_run
             )
+            # Auto-upgrade de plano (billing): fronteira de erro PRÓPRIA — uma
+            # falha aqui nunca impede o sweep de SLA nem os crons do tick, e
+            # vice-versa. A descoberta usa a mesma sessão compartilhada; o
+            # processamento abre sessões tenant-scoped próprias (D3).
+            try:
+                plan_changes = run_pending_plan_changes(
+                    session, session_factory=self._session_factory
+                )
+            except Exception:  # noqa: BLE001 - billing não derruba o tick
+                logger.exception("Autoupgrade plan-change pass failed")
+                plan_changes = 0
         finally:
             session.close()
-        return {"sla_handled": sla_handled, "crons_run": crons_run}
+        return {
+            "sla_handled": sla_handled,
+            "crons_run": crons_run,
+            "plan_changes_completed": plan_changes,
+        }
 
     def run(self) -> None:
         """Block ticking on the configured interval until stopped."""
@@ -194,9 +210,10 @@ class CronWorker:
             try:
                 counters = self.tick()
                 logger.info(
-                    "Cron tick done (sla=%d, crons=%d)",
+                    "Cron tick done (sla=%d, crons=%d, plan_changes=%d)",
                     counters["sla_handled"],
                     counters["crons_run"],
+                    counters["plan_changes_completed"],
                 )
             except Exception:  # noqa: BLE001 - never let a tick kill the loop
                 logger.exception("Cron tick failed")

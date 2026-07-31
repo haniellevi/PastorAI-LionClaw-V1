@@ -1,0 +1,380 @@
+"""Auto-upgrade sincronizado pelo cron-worker (AUTOUPGRADE-BILLING-WORKER-1).
+
+O trigger registra a operação durável (origin='autoupgrade') e NADA mais; o
+worker é quem faz o PUT na assinatura Asaas EXISTENTE (nunca POST, nunca
+setup) e só então aplica plano/limite/rótulo locais. Estes testes cobrem o
+sweep `run_pending_plan_changes` com fakes offline:
+
+  - PUT no MESMO id remoto; plano local só após confirmação; notificação só
+    após a conclusão.
+  - Falha remota → operação `reconciling`, plano local intacto, retry conclui
+    por GET sem segundo PUT.
+  - Descoberta ignora operações manuais/fechadas (o request do assinante é o
+    dono das manuais) e respeita os binds REAIS da query.
+  - Isolamento por tenant: sessão nova `mark_tenant_scoped` por operação,
+    fechada sempre; a falha de uma igreja não interrompe as demais.
+"""
+
+from __future__ import annotations
+
+import uuid
+from types import SimpleNamespace
+
+from app.db.models import BillingPlanChangeOperation, Subscription
+from app.db.tenant_session import TENANT_IGREJA_KEY, TENANT_META_KEY
+from app.services import billing_worker
+from app.services.asaas import AsaasError
+from app.services.billing_worker import run_pending_plan_changes
+
+from tests.conftest import FakeSession, _FakeResult
+
+_IGREJA_A = uuid.uuid4()
+_IGREJA_B = uuid.uuid4()
+_SUB_ID = uuid.UUID("00000000-0000-0000-0000-00000000ab01")
+
+
+def _op(**over) -> BillingPlanChangeOperation:
+    fields = dict(
+        id=uuid.uuid4(),
+        subscription_id=_SUB_ID,
+        asaas_subscription_id="sub_asaas_1",
+        from_plano="ate_100",
+        to_plano="101_200",
+        to_preco=299.0,
+        to_limite=200,
+        origin="autoupgrade",
+        status="prepared",
+    )
+    fields.update(over)
+    return BillingPlanChangeOperation(**fields)
+
+
+def _sub(**over):
+    base = dict(
+        id=_SUB_ID,
+        igreja_id=_IGREJA_A,
+        plano="ate_100",
+        limite=100,
+        asaas_subscription_id="sub_asaas_1",
+        proxima_cobranca="2026-08-01",
+    )
+    base.update(over)
+    return SimpleNamespace(**base)
+
+
+class _WorkerAsaas:
+    """Asaas do worker: só PUT/GET existem — qualquer criação EXPLODE."""
+
+    def __init__(self, *, remote: dict | None = None, put_error: bool = False) -> None:
+        self.puts = 0
+        self.gets = 0
+        self.put_targets: list[str] = []
+        self._remote = remote
+        self._put_error = put_error
+
+    def update_subscription(self, subscription_id: str, *, valor: float, descricao: str):
+        self.puts += 1
+        self.put_targets.append(subscription_id)
+        if self._put_error:
+            raise AsaasError("timeout ambíguo depois do PUT")
+        return {"id": subscription_id, "value": valor, "description": descricao}
+
+    def get_subscription(self, subscription_id: str):
+        self.gets += 1
+        return self._remote
+
+    def create_checkout(self, **kwargs):  # pragma: no cover - defesa
+        raise AssertionError(
+            "auto-upgrade nunca cria assinatura (POST /subscriptions)"
+        )
+
+    def create_one_time_charge(self, **kwargs):  # pragma: no cover - defesa
+        raise AssertionError("auto-upgrade nunca emite cobrança de setup")
+
+
+class _Discovery:
+    """Sessão compartilhada da descoberta: aplica os binds REAIS da query.
+
+    O pool recebe pares (operação, igreja_id); o filtro de origin/status vem
+    dos parâmetros compilados do select — provando que a descoberta só enxerga
+    operações autoupgrade ABERTAS, nunca as manuais nem as fechadas.
+    """
+
+    def __init__(self, pool: list[tuple[BillingPlanChangeOperation, uuid.UUID]]) -> None:
+        self._pool = pool
+
+    def execute(self, statement, params=None) -> _FakeResult:
+        bound = statement.compile().params
+        origin = next((v for k, v in bound.items() if k.startswith("origin")), None)
+        # O IN(...) compila como UM bind expanding com a tupla inteira.
+        statuses: list[str] = []
+        for key, value in bound.items():
+            if not key.startswith("status"):
+                continue
+            if isinstance(value, (list, tuple, set)):
+                statuses.extend(value)
+            else:
+                statuses.append(value)
+        rows = [
+            (op.id, igreja_id)
+            for op, igreja_id in self._pool
+            if (origin is None or op.origin == origin)
+            and (not statuses or op.status in statuses)
+        ]
+        return _FakeResult(rows=rows)
+
+
+class _WorkerSession(FakeSession):
+    """Sessão tenant-scoped fake: aceita o seam real (`mark_tenant_scoped`)."""
+
+    def __init__(self, **kw) -> None:
+        super().__init__(**kw)
+        self.info: dict = {}
+        self.closed = False
+        self.rolled_back = False
+
+    def get(self, model, ident):
+        if model is BillingPlanChangeOperation:
+            pool = [
+                *self.plan_changes,
+                *(o for o in self.added if isinstance(o, BillingPlanChangeOperation)),
+            ]
+            return next((o for o in pool if str(o.id) == str(ident)), None)
+        if model is Subscription:
+            return self.subscription
+        return None
+
+    def rollback(self) -> None:
+        self.rolled_back = True
+
+    def close(self) -> None:
+        self.closed = True
+
+
+def _factory_queue(sessions: list[_WorkerSession]):
+    queue = list(sessions)
+
+    def factory() -> _WorkerSession:
+        return queue.pop(0)
+
+    factory.created = sessions  # type: ignore[attr-defined]
+    return factory
+
+
+def _spy_notify(monkeypatch) -> list:
+    calls: list = []
+    monkeypatch.setattr(
+        billing_worker,
+        "notify_autoupgrade",
+        lambda db, igreja_id, evolution: calls.append(igreja_id) or True,
+    )
+    return calls
+
+
+def test_worker_completes_autoupgrade_via_put_on_existing_subscription(
+    monkeypatch,
+) -> None:
+    op = _op()
+    sub = _sub()
+    igreja = SimpleNamespace(id=_IGREJA_A, plano="ate_100")
+    tenant = _WorkerSession(subscription=sub, igreja=igreja, plan_changes=[op])
+    asaas = _WorkerAsaas()
+    notified = _spy_notify(monkeypatch)
+
+    completed = run_pending_plan_changes(
+        _Discovery([(op, _IGREJA_A)]),
+        session_factory=_factory_queue([tenant]),
+        asaas=asaas,
+        evolution=object(),
+    )
+
+    assert completed == 1
+    # PUT exatamente uma vez, no MESMO id remoto já rastreado.
+    assert asaas.puts == 1
+    assert asaas.put_targets == ["sub_asaas_1"]
+    # Local só muda após a confirmação remota — e muda por inteiro.
+    assert sub.plano == "101_200"
+    assert sub.limite == 200
+    assert igreja.plano == "101_200"
+    assert op.status == "completed"
+    assert sub.asaas_subscription_id == "sub_asaas_1"  # nunca outra recorrência
+    # Notificação disparada UMA vez, depois da conclusão.
+    assert notified == [_IGREJA_A]
+    # Seam aplicado ANTES do processamento, sessão fechada ao fim.
+    assert tenant.info[TENANT_IGREJA_KEY] == str(_IGREJA_A)
+    assert tenant.info[TENANT_META_KEY]["source"] == "cron_billing"
+    assert tenant.closed is True
+
+
+def test_worker_put_failure_keeps_local_plan_and_operation_recoverable(
+    monkeypatch,
+) -> None:
+    op = _op()
+    sub = _sub()
+    tenant = _WorkerSession(
+        subscription=sub,
+        igreja=SimpleNamespace(id=_IGREJA_A, plano="ate_100"),
+        plan_changes=[op],
+    )
+    notified = _spy_notify(monkeypatch)
+
+    completed = run_pending_plan_changes(
+        _Discovery([(op, _IGREJA_A)]),
+        session_factory=_factory_queue([tenant]),
+        asaas=_WorkerAsaas(put_error=True),
+        evolution=object(),
+    )
+
+    assert completed == 0
+    # Plano local INTACTO; a operação fica recuperável para o próximo tick.
+    assert sub.plano == "ate_100"
+    assert sub.limite == 100
+    assert op.status == "reconciling"
+    assert notified == []
+    assert tenant.closed is True
+
+
+def test_worker_retry_reconciles_by_get_without_second_put(monkeypatch) -> None:
+    op = _op(status="reconciling")
+    sub = _sub()
+    igreja = SimpleNamespace(id=_IGREJA_A, plano="ate_100")
+    tenant = _WorkerSession(subscription=sub, igreja=igreja, plan_changes=[op])
+    asaas = _WorkerAsaas(remote={"id": "sub_asaas_1", "value": 299.0})
+    notified = _spy_notify(monkeypatch)
+
+    completed = run_pending_plan_changes(
+        _Discovery([(op, _IGREJA_A)]),
+        session_factory=_factory_queue([tenant]),
+        asaas=asaas,
+        evolution=object(),
+    )
+
+    assert completed == 1
+    # O remoto já refletia o alvo: conclui por GET, sem repetir o PUT e sem
+    # qualquer criação (os métodos de criação do fake explodem).
+    assert asaas.puts == 0
+    assert asaas.gets == 1
+    assert op.status == "completed"
+    assert sub.plano == "101_200"
+    assert igreja.plano == "101_200"
+    assert notified == [_IGREJA_A]
+
+
+def test_worker_divergent_remote_stays_reconciling_without_put(monkeypatch) -> None:
+    op = _op(status="reconciling")
+    sub = _sub()
+    tenant = _WorkerSession(
+        subscription=sub,
+        igreja=SimpleNamespace(id=_IGREJA_A, plano="ate_100"),
+        plan_changes=[op],
+    )
+    notified = _spy_notify(monkeypatch)
+
+    completed = run_pending_plan_changes(
+        _Discovery([(op, _IGREJA_A)]),
+        session_factory=_factory_queue([tenant]),
+        asaas=_WorkerAsaas(remote={"id": "sub_asaas_1", "value": 149.0}),
+        evolution=object(),
+    )
+
+    assert completed == 0
+    assert op.status == "reconciling"
+    assert sub.plano == "ate_100"
+    assert notified == []
+
+
+def test_worker_discovery_ignores_manual_and_closed_operations(monkeypatch) -> None:
+    manual = _op(origin="manual")
+    finished = _op(status="completed")
+    failed = _op(status="failed")
+    notified = _spy_notify(monkeypatch)
+    asaas = _WorkerAsaas()
+    factory = _factory_queue([])  # nenhuma sessão tenant deve ser criada
+
+    completed = run_pending_plan_changes(
+        _Discovery([(manual, _IGREJA_A), (finished, _IGREJA_A), (failed, _IGREJA_A)]),
+        session_factory=factory,
+        asaas=asaas,
+        evolution=object(),
+    )
+
+    assert completed == 0
+    assert asaas.puts == 0
+    assert asaas.gets == 0
+    assert notified == []
+    assert manual.status == "prepared"  # a operação do assinante fica INTACTA
+
+
+def test_worker_skips_operation_closed_between_discovery_and_claim(
+    monkeypatch,
+) -> None:
+    # A descoberta ainda viu a operação aberta, mas uma troca manual a
+    # concluiu antes do claim do worker: recarregada no tenant, ela é pulada.
+    stale_view = _op(status="prepared")
+    current = _op(id=stale_view.id, status="completed")
+    tenant = _WorkerSession(
+        subscription=_sub(),
+        igreja=SimpleNamespace(id=_IGREJA_A, plano="ate_100"),
+        plan_changes=[current],
+    )
+    asaas = _WorkerAsaas()
+    notified = _spy_notify(monkeypatch)
+
+    completed = run_pending_plan_changes(
+        _Discovery([(stale_view, _IGREJA_A)]),
+        session_factory=_factory_queue([tenant]),
+        asaas=asaas,
+        evolution=object(),
+    )
+
+    assert completed == 0
+    assert asaas.puts == 0
+    assert asaas.gets == 0
+    assert notified == []
+    assert tenant.closed is True
+
+
+def test_worker_tenant_failure_does_not_break_other_tenants(monkeypatch) -> None:
+    op_a = _op()
+    op_b = _op(
+        id=uuid.uuid4(),
+        subscription_id=uuid.UUID("00000000-0000-0000-0000-00000000ab02"),
+        asaas_subscription_id="sub_asaas_2",
+    )
+    sub_b = _sub(
+        id=op_b.subscription_id,
+        igreja_id=_IGREJA_B,
+        asaas_subscription_id="sub_asaas_2",
+    )
+    igreja_b = SimpleNamespace(id=_IGREJA_B, plano="ate_100")
+
+    # Sessão da igreja A vem "suja" (pré-pinada em OUTRO tenant): o seam real
+    # levanta TenantPinConflictError — a falha fica contida naquela iteração.
+    broken = _WorkerSession(
+        subscription=_sub(), igreja=SimpleNamespace(id=_IGREJA_A, plano="ate_100"),
+        plan_changes=[op_a],
+    )
+    broken.info[TENANT_IGREJA_KEY] = str(uuid.uuid4())
+    healthy = _WorkerSession(
+        subscription=sub_b, igreja=igreja_b, plan_changes=[op_b]
+    )
+    asaas = _WorkerAsaas()
+    notified = _spy_notify(monkeypatch)
+
+    completed = run_pending_plan_changes(
+        _Discovery([(op_a, _IGREJA_A), (op_b, _IGREJA_B)]),
+        session_factory=_factory_queue([broken, healthy]),
+        asaas=asaas,
+        evolution=object(),
+    )
+
+    assert completed == 1
+    assert broken.rolled_back is True
+    assert broken.closed is True
+    assert healthy.closed is True
+    # Só a igreja saudável avançou — com o PUT no id remoto DELA.
+    assert asaas.put_targets == ["sub_asaas_2"]
+    assert op_a.status == "prepared"  # intacta, retry no próximo tick
+    assert op_b.status == "completed"
+    assert igreja_b.plano == "101_200"
+    assert notified == [_IGREJA_B]

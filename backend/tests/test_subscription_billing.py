@@ -1126,3 +1126,37 @@ def test_list_planos_forbidden_for_non_owner_admin(app) -> None:
     client = TestClient(app)
     resp = client.get("/subscription/planos", headers=_AUTH)
     assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# AUTOUPGRADE-BILLING-WORKER-1: GET /subscription é leitura pura — nenhuma
+# chamada externa nem notificação como efeito colateral. A sincronização do
+# auto-upgrade (e sua notificação) pertence ao cron-worker.
+# ---------------------------------------------------------------------------
+def test_get_subscription_makes_no_external_call_nor_notification(app) -> None:
+    class _BoomAsaas:
+        """Explode em QUALQUER acesso: prova que o GET não toca o Asaas."""
+
+        def __getattr__(self, name):  # pragma: no cover - defesa do teste
+            raise AssertionError(f"GET /subscription não pode chamar Asaas ({name})")
+
+    sub = _subscription(
+        status="pendente",
+        asaas_invoice_url="https://asaas.test/i/abc",
+        setup_pago=True,
+    )
+    client, db = _client(app, planos=[_plano()], asaas=_BoomAsaas(), subscription=sub)
+
+    resp = client.get("/subscription", headers=_AUTH)
+
+    assert resp.status_code == 200
+    assert resp.json()["invoiceUrl"] == "https://asaas.test/i/abc"
+    assert db.commits == 0  # leitura pura: nada persistido
+
+    # O caminho de notificação saiu do router por inteiro: notify_autoupgrade
+    # vive em app/services/billing_worker.py e o GET não depende mais do
+    # EvolutionClient.
+    from app.routers import subscription as subscription_module
+
+    assert not hasattr(subscription_module, "notify_autoupgrade")
+    assert not hasattr(subscription_module, "get_evolution_client")

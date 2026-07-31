@@ -6,11 +6,13 @@ Endpoints:
   - GET  /subscription/planos   active plan catalog + setup fee (admin)
   - POST /subscription/webhook  Asaas events -> update status (token-gated)
 
-The autoupgrade itself is performed by the DB trigger `trg_subscription_autoupgrade`
-when the people count crosses the plan limit; this router detects the resulting
-plan change and notifies the admin once (idempotent), and keeps the subscription
-status in sync from Asaas payment events. The webhook is public but gated by the
-shared `asaas-access-token` header instead of Clerk auth.
+The autoupgrade gatilho is the DB trigger `trg_subscription_autoupgrade`: with a
+tracked Asaas subscription it only records a durable operation that the
+cron-worker synchronizes (see app/services/billing_worker.py — PUT in-place,
+local plan only after remote confirmation, notification after commit). This
+router never performs autoupgrade side effects; it keeps the subscription
+status in sync from Asaas payment events. The webhook is public but gated by
+the shared `asaas-access-token` header instead of Clerk auth.
 """
 
 from __future__ import annotations
@@ -25,20 +27,15 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
-from app.agent.masking import release_agent_event, reserve_agent_event
 from app.config import get_settings
 from app.db.models import (
-    AgentConversationLog,
-    AppUser,
     Igreja,
     Plano,
     Subscription,
-    UserRole,
-    WhatsappConnection,
 )
 from app.db.rls_observability import log_if_not_scoped
 from app.db.session import get_db
-from app.deps import ADMIN_ROLE, CurrentUser, require_owner
+from app.deps import CurrentUser, require_owner
 from app.services.asaas import (
     MONTHLY_RECOVERY_DESCRIPTION,
     SETUP_CHARGE_DESCRIPTION,
@@ -58,7 +55,6 @@ from app.services.billing import (
     find_operation_for_payment,
     get_setup_fee_for_igreja,
 )
-from app.services.evolution import EvolutionClient, EvolutionError, get_evolution_client
 
 logger = logging.getLogger("pastorai.subscription")
 
@@ -208,117 +204,6 @@ def _plano_ativo_or_422(db: Session, codigo: str) -> Plano:
             detail=f"plano inválido: {codigo}",
         )
     return plano
-
-
-def _admin_phones(db: Session, igreja_id: uuid.UUID) -> list[str]:
-    """Phones of admins (via their linked pessoa) for upgrade notifications."""
-    admin_ids = db.execute(
-        select(UserRole.user_id).where(
-            UserRole.igreja_id == igreja_id, UserRole.papel == ADMIN_ROLE
-        )
-    ).scalars().all()
-    phones: list[str] = []
-    for uid in set(admin_ids):
-        app_user = db.get(AppUser, uid)
-        if app_user and app_user.pessoa_id:
-            from app.db.models import Pessoa  # noqa: PLC0415
-
-            pessoa = db.get(Pessoa, app_user.pessoa_id)
-            if pessoa and pessoa.telefone:
-                phones.append(pessoa.telefone)
-    return phones
-
-
-def _autoupgrade_event_name(plano: str) -> str:
-    """Stable dedupe key for one autoupgrade notification (SEC-4).
-
-    Must match the `subscription\\_upgrade:%` predicate of the partial unique
-    index `agent_conversation_logs_idem_marker_uidx`.
-    """
-    return f"subscription_upgrade:{plano}"
-
-
-def notify_autoupgrade(
-    db: Session, igreja_id: uuid.UUID, evolution: EvolutionClient
-) -> bool:
-    """Notify the admin once when the plan was promoted by the autoupgrade trigger.
-
-    Idempotent: a `subscription_upgrade:<plano>` event in agent_conversation_logs
-    marks a plan as already announced, so repeated calls do not re-notify.
-    Returns True when a new notification was emitted.
-
-    SEC-4: a reserva do marcador (`reserve_agent_event`, INSERT + commit
-    imediato) acontece ANTES do `send_text` — nunca depois. Se a reserva
-    perder a corrida (outro processo já reservou o MESMO marcador), retorna
-    sem enviar; nenhuma transação fica aberta durante a chamada externa. Se o
-    envio falhar pra todo destinatário tentado, a reserva é liberada
-    (`release_agent_event`) pra próxima chamada tentar de novo
-    (at-least-once — ver decisão no PR).
-
-    Gap-2 (revisão SEC-4): TODAS as leituras (conexão WhatsApp, telefones de
-    admin) acontecem ANTES da reserva — não depois. `db.execute`/`db.get`
-    após um `commit()` reabre implicitamente uma transação (autobegin do
-    SQLAlchemy); fazer essas leituras depois da reserva deixaria essa
-    transação aberta durante o `send_text` (chamada externa). Lendo antes e
-    guardando só valores simples (str), nenhuma query roda entre a reserva e
-    o envio.
-    """
-    sub = db.execute(
-        select(Subscription).where(Subscription.igreja_id == igreja_id)
-    ).scalar_one_or_none()
-    if sub is None:
-        return False
-
-    evento = _autoupgrade_event_name(sub.plano)
-    already = db.execute(
-        select(AgentConversationLog.id).where(
-            AgentConversationLog.igreja_id == igreja_id,
-            AgentConversationLog.evento == evento,
-        )
-    ).first()
-    if already is not None:
-        return False  # saída antecipada barata
-
-    # Only notify when there is an upgrade marker to record beyond the base tier.
-    if sub.plano == "ate_100":
-        return False
-
-    # Lidas ANTES da reserva (gap-2): só valores simples sobrevivem até o
-    # send, nenhuma query fica pendurada numa transação aberta pelo envio.
-    conn = db.execute(
-        select(WhatsappConnection).where(WhatsappConnection.igreja_id == igreja_id)
-    ).scalar_one_or_none()
-    instance = conn.instance if conn else None
-    phones = _admin_phones(db, igreja_id)
-
-    marker = reserve_agent_event(
-        db, igreja_id=igreja_id, evento=evento, payload={"plano": sub.plano}
-    )
-    if marker is None:
-        # Perdeu a corrida: outro processo já reserva este marcador.
-        return False
-
-    texto = (
-        "Aviso de assinatura: seu plano foi atualizado automaticamente para "
-        f"'{sub.plano}' por aumento do número de pessoas. 🙏"
-    )
-    attempted = False
-    sent_any = False
-    if instance:
-        for phone in phones:
-            attempted = True
-            try:
-                evolution.send_text(instance, phone, texto)
-                sent_any = True
-            except EvolutionError:
-                logger.warning("Autoupgrade notification failed to an admin")
-
-    if attempted and not sent_any:
-        # Falha total do envio: libera a reserva pra próxima chamada tentar.
-        release_agent_event(db, marker)
-        return False
-
-    return True
 
 
 def _parse_iso_date(value: object) -> dt.date | None:
@@ -569,10 +454,16 @@ def _recover_missing_invoice_urls(
 def get_subscription(
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(require_owner),
-    evolution: EvolutionClient = Depends(get_evolution_client),
     asaas: AsaasClient = Depends(get_asaas_client),
 ) -> SubscriptionOut:
-    """Return the tenant's subscription, notifying any pending autoupgrade."""
+    """Return the tenant's subscription (read-only view).
+
+    Nenhuma notificação nem sincronização de autoupgrade acontece aqui — isso
+    é papel do cron-worker (billing_worker.run_pending_plan_changes). A única
+    interação externa possível é a RECUPERAÇÃO read-only de um link de fatura
+    ausente pelos ids já rastreados; com os links persistidos presentes, esta
+    rota não faz nenhuma chamada externa.
+    """
     # Sinal de observabilidade (PR1 / feat-004) ligado a este caminho HTTP de
     # amostra do seam: se a sessão marcada por get_current_user NÃO estiver
     # tenant-scoped (perda de contexto / BYPASSRLS inesperado / fallback), emite
@@ -594,16 +485,6 @@ def get_subscription(
     # gerando a fatura): tenta recuperar pelos ids já armazenados, sem nunca
     # criar cobrança nova. Falha do Asaas não derruba a leitura.
     _recover_missing_invoice_urls(db, sub, asaas)
-
-    # Surface the trigger-driven autoupgrade to the admin (idempotent).
-    # notify_autoupgrade comita internamente; a re-asserção manual do contexto
-    # pós-commit foi REMOVIDA (PR3-A, caso âncora): o listener after_begin (D2)
-    # reabre a transação já escopada assim que db.refresh() emite o próximo BEGIN,
-    # pois a sessão está marcada por get_current_user. expire_on_commit=False
-    # (session.py) garante que só o refresh reabre a transação — objetos já
-    # carregados não expiram no commit. A estrutura (seam) substitui a convenção.
-    notify_autoupgrade(db, igreja_uuid, evolution)
-    db.refresh(sub)
 
     # Cobrança avulsa de recuperação mensal emitida e em aberto: expõe o link
     # dela (a mensalidade revertida não tem link pagável próprio).

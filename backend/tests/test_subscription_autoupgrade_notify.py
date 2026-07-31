@@ -22,7 +22,7 @@ from app.db.models import (
     WhatsappConnection,
 )
 from app.deps import ADMIN_ROLE
-from app.routers.subscription import _autoupgrade_event_name, notify_autoupgrade
+from app.services.billing_worker import _autoupgrade_event_name, notify_autoupgrade
 from app.services.evolution import EvolutionError
 
 _IGREJA = uuid.UUID("00000000-0000-0000-0000-0000000000a1")

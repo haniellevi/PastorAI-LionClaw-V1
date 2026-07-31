@@ -198,9 +198,10 @@ class FakeSession:
                 pool = [o for o in pool if o.status in open_statuses]
             return _FakeResult(scalar=pool[0] if pool else None, scalars_list=pool)
         if entity is AgentConversationLog:
-            # GET /subscription passa por notify_autoupgrade; um marcador
-            # existente encerra a notificação cedo (já anunciado), mantendo o
-            # teste offline sem WhatsApp.
+            # notify_autoupgrade (hoje chamado só pelo cron-worker) deduplica
+            # por um marcador em agent_conversation_logs; devolver um marcador
+            # existente encerra a notificação cedo, mantendo o teste offline
+            # sem WhatsApp.
             return _FakeResult(rows=[("ja-notificado",)])
         if entity is Plano:
             codigo, ativo_required = _plano_query_filters(statement)

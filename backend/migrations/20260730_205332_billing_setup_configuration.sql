@@ -120,6 +120,93 @@ exception when duplicate_object then null; end $$;
 comment on table billing_plan_change_operations is
   'Trocas de plano duráveis: PUT na assinatura Asaas existente (nunca nova recorrência), vigência no próximo ciclo, retry por reconciliação.';
 
+-- ----------------------------------------------------------------------------
+-- Auto-upgrade sincronizado (AUTOUPGRADE-BILLING-WORKER-1): o trigger deixa de
+-- promover o plano local diretamente quando há assinatura Asaas rastreada — em
+-- vez disso registra UMA operação durável (origin='autoupgrade') que o
+-- cron-worker processa via PUT /subscriptions/{id} com
+-- updatePendingPayments=false. O trigger NUNCA chama rede, NUNCA cria segunda
+-- recorrência nem setup, e plano/limite/rótulo locais só mudam após a
+-- confirmação remota (feita pelo worker). Sem vínculo Asaas não existe
+-- recorrência a sincronizar: o upgrade local imediato é preservado.
+-- Escada e thresholds preservados de 0004; preço alvo congelado do catálogo
+-- `planos` (fonte única editada pelo master) no momento do gatilho.
+-- ----------------------------------------------------------------------------
+create or replace function fn_subscription_autoupgrade()
+returns trigger
+language plpgsql
+set search_path = public, pg_temp
+as $$
+declare
+  v_total int;
+  v_sub   subscriptions%rowtype;
+  v_novo_plano  text;
+  v_novo_limite int;
+  v_novo_preco  numeric(10,2);
+begin
+  select * into v_sub from subscriptions where igreja_id = new.igreja_id;
+  if not found then
+    return new;
+  end if;
+
+  select count(*) into v_total from pessoas where igreja_id = new.igreja_id;
+
+  -- atualiza contagem corrente de pessoas
+  update subscriptions set pessoas = v_total where igreja_id = new.igreja_id;
+
+  if v_sub.limite is not null and v_total > v_sub.limite then
+    -- promove plano em escada
+    if v_sub.plano = 'ate_100' then
+      v_novo_plano := '101_200';
+      v_novo_limite := 200;
+    elsif v_sub.plano = '101_200' then
+      v_novo_plano := 'acima_201';
+      v_novo_limite := 999999;
+    else
+      v_novo_plano := v_sub.plano;
+      v_novo_limite := v_sub.limite;
+    end if;
+
+    if v_novo_plano <> v_sub.plano then
+      if v_sub.asaas_subscription_id is null then
+        -- Sem assinatura Asaas rastreada não há recorrência remota: o
+        -- upgrade local imediato (comportamento original de 0004) permanece.
+        update subscriptions
+          set plano = v_novo_plano,
+              limite = v_novo_limite
+          where igreja_id = new.igreja_id;
+        update igrejas set plano = v_novo_plano where id = new.igreja_id;
+      else
+        -- Preço alvo do catálogo do master. Plano fora do catálogo não gera
+        -- operação (nunca escrever um preço inventado no Asaas); o gatilho
+        -- reavalia no próximo INSERT/UPDATE de pessoas.
+        select p.preco_mensal into v_novo_preco
+          from planos p
+          where p.codigo = v_novo_plano;
+
+        if v_novo_preco is not null then
+          -- Repetições do gatilho coalescem na operação aberta, e uma troca
+          -- MANUAL em andamento tem precedência: o índice único parcial
+          -- (subscription_id | status aberto) faz o ON CONFLICT ignorar o
+          -- insert em vez de duplicar ou sobrescrever.
+          insert into billing_plan_change_operations
+            (subscription_id, asaas_subscription_id, from_plano, to_plano,
+             to_preco, to_limite, origin, status)
+          values
+            (v_sub.id, v_sub.asaas_subscription_id, v_sub.plano, v_novo_plano,
+             v_novo_preco, v_novo_limite, 'autoupgrade', 'prepared')
+          on conflict (subscription_id)
+            where status in ('prepared','processing','reconciling')
+            do nothing;
+        end if;
+      end if;
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
+
 alter table billing_payment_operations enable row level security;
 
 do $$ begin

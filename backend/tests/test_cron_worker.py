@@ -200,6 +200,11 @@ def test_tick_runs_sla_sweep_and_due_crons(monkeypatch) -> None:
         "run_all_igrejas",
         lambda s, e, now, session_factory=None: 3,
     )
+    monkeypatch.setattr(
+        worker_module,
+        "run_pending_plan_changes",
+        lambda s, session_factory=None: 0,
+    )
 
     worker = CronWorker(
         session_factory=lambda: session, engine=engine, tick_seconds=300
@@ -208,4 +213,64 @@ def test_tick_runs_sla_sweep_and_due_crons(monkeypatch) -> None:
 
     assert counters["sla_handled"] == 3
     assert counters["crons_run"] == 1
+    assert counters["plan_changes_completed"] == 0
+    assert session.closed is True
+
+
+def test_tick_includes_autoupgrade_plan_change_pass(monkeypatch) -> None:
+    """O tick processa as operações de autoupgrade pendentes (billing)."""
+    session = FakeCronSession([])
+    import app.workers.cron_worker as worker_module
+
+    monkeypatch.setattr(
+        worker_module,
+        "run_all_igrejas",
+        lambda s, e, now, session_factory=None: 0,
+    )
+    seen: dict = {}
+
+    def _fake_pass(s, session_factory=None):
+        seen["session"] = s
+        seen["factory"] = session_factory
+        return 2
+
+    monkeypatch.setattr(worker_module, "run_pending_plan_changes", _fake_pass)
+
+    factory = lambda: session  # noqa: E731
+    worker = CronWorker(session_factory=factory, engine=FakeEngine(), tick_seconds=300)
+    counters = worker.tick(now=_T0)
+
+    assert counters["plan_changes_completed"] == 2
+    # A descoberta usa a sessão compartilhada; o processamento recebe a MESMA
+    # factory do worker para abrir sessões tenant-scoped próprias (D3).
+    assert seen["session"] is session
+    assert seen["factory"] is factory
+    assert session.closed is True
+
+
+def test_tick_isolates_plan_change_failure_from_sla_and_crons(monkeypatch) -> None:
+    """Fronteira própria: billing quebrado nunca derruba SLA nem crons."""
+    cron = _cron(acao="rodar_sla", frequencia="continuo")
+    session = FakeCronSession([cron])
+    import app.workers.cron_worker as worker_module
+
+    monkeypatch.setattr(
+        worker_module,
+        "run_all_igrejas",
+        lambda s, e, now, session_factory=None: 3,
+    )
+
+    def _boom(s, session_factory=None):
+        raise RuntimeError("billing pass exploded")
+
+    monkeypatch.setattr(worker_module, "run_pending_plan_changes", _boom)
+
+    worker = CronWorker(
+        session_factory=lambda: session, engine=FakeEngine(), tick_seconds=300
+    )
+    counters = worker.tick(now=_T0)
+
+    assert counters["sla_handled"] == 3
+    assert counters["crons_run"] == 1
+    assert counters["plan_changes_completed"] == 0
     assert session.closed is True
