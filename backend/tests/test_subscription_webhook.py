@@ -15,6 +15,7 @@ Nenhum teste toca rede ou Asaas real: o handler do webhook só usa o DB
 
 from __future__ import annotations
 
+import datetime as dt
 import uuid
 from types import SimpleNamespace
 
@@ -38,6 +39,10 @@ def _sub(**over):
         setup_pago=True,
         asaas_subscription_id="sub_asaas_1",
         asaas_setup_charge_id=None,
+        asaas_invoice_payment_id=None,
+        asaas_invoice_url=None,
+        asaas_setup_invoice_url=None,
+        proxima_cobranca=None,
     )
     base.update(over)
     return SimpleNamespace(**base)
@@ -114,14 +119,21 @@ def _payment(
     status: str | None = None,
     external_ref: str | None = str(_IGREJA_ID),
     subscription: str | None = "sub_asaas_1",
+    payment_id: str = "pay_1",
+    due_date: str | None = None,
+    invoice_url: str | None = None,
 ) -> dict:
-    p: dict = {"id": "pay_1"}
+    p: dict = {"id": payment_id}
     if status is not None:
         p["status"] = status
     if external_ref is not None:
         p["externalReference"] = external_ref
     if subscription is not None:
         p["subscription"] = subscription
+    if due_date is not None:
+        p["dueDate"] = due_date
+    if invoice_url is not None:
+        p["invoiceUrl"] = invoice_url
     return p
 
 
@@ -318,6 +330,157 @@ def test_untracked_one_time_payment_cannot_change_access(app, monkeypatch) -> No
     assert db.sub.status == "ativa"
     assert db.igreja.status == "ativa"
     assert db.commits == 0
+
+
+# ---------------------------------------------------------------------------
+# Ciclo mensal (P1 Codex, PR#219 corretivo 2): cada fatura nova substitui id +
+# link da anterior; evento atrasado de ciclo antigo nunca regride o corrente.
+# ---------------------------------------------------------------------------
+def test_second_monthly_invoice_replaces_url_and_payment_id(app, monkeypatch) -> None:
+    db = _WebhookDb(
+        sub=_sub(
+            status="ativa",
+            asaas_invoice_payment_id="pay_m1",
+            asaas_invoice_url="https://asaas.test/m1",
+            proxima_cobranca=dt.date(2026, 7, 1),
+        ),
+        igreja=_igreja("ativa"),
+    )
+    client = _client(app, db, monkeypatch)
+
+    resp = _post(
+        client,
+        "PAYMENT_CREATED",
+        _payment(
+            status="PENDING",
+            payment_id="pay_m2",
+            due_date="2026-08-01",
+            invoice_url="https://asaas.test/m2",
+        ),
+    )
+
+    assert resp.json() == {"received": True, "status": "pendente"}
+    assert db.sub.asaas_invoice_payment_id == "pay_m2"
+    assert db.sub.asaas_invoice_url == "https://asaas.test/m2"
+    assert str(db.sub.proxima_cobranca) == "2026-08-01"
+    assert db.commits == 1
+
+
+def test_monthly_payload_without_url_clears_the_stale_link(app, monkeypatch) -> None:
+    # Asaas ainda não gerou o link da fatura nova: melhor link NENHUM do que o
+    # link quitado do ciclo anterior (o GET recupera depois pelo payment id).
+    db = _WebhookDb(
+        sub=_sub(
+            status="ativa",
+            asaas_invoice_payment_id="pay_m1",
+            asaas_invoice_url="https://asaas.test/m1",
+            proxima_cobranca=dt.date(2026, 7, 1),
+        ),
+        igreja=_igreja("ativa"),
+    )
+    client = _client(app, db, monkeypatch)
+
+    resp = _post(
+        client,
+        "PAYMENT_CREATED",
+        _payment(status="PENDING", payment_id="pay_m2", due_date="2026-08-01"),
+    )
+
+    assert resp.json()["status"] == "pendente"
+    assert db.sub.asaas_invoice_payment_id == "pay_m2"
+    assert db.sub.asaas_invoice_url is None
+    assert str(db.sub.proxima_cobranca) == "2026-08-01"
+
+
+def test_late_event_from_previous_cycle_does_not_regress_the_newer_one(
+    app, monkeypatch
+) -> None:
+    # Retry atrasado do PAYMENT_CREATED do ciclo 1 chega DEPOIS do ciclo 2:
+    # dueDate menor que o rastreado => id/URL/data do ciclo 2 ficam intactos.
+    db = _WebhookDb(
+        sub=_sub(
+            status="pendente",
+            asaas_invoice_payment_id="pay_m2",
+            asaas_invoice_url="https://asaas.test/m2",
+            proxima_cobranca=dt.date(2026, 8, 1),
+        ),
+        igreja=_igreja("ativa"),
+    )
+    client = _client(app, db, monkeypatch)
+
+    resp = _post(
+        client,
+        "PAYMENT_CREATED",
+        _payment(
+            status="PENDING",
+            payment_id="pay_m1",
+            due_date="2026-07-01",
+            invoice_url="https://asaas.test/m1",
+        ),
+    )
+
+    assert resp.status_code == 200
+    assert db.sub.asaas_invoice_payment_id == "pay_m2"
+    assert db.sub.asaas_invoice_url == "https://asaas.test/m2"
+    assert str(db.sub.proxima_cobranca) == "2026-08-01"
+
+
+def test_repeated_payment_created_is_idempotent_and_fills_missing_url(
+    app, monkeypatch
+) -> None:
+    db = _WebhookDb(
+        sub=_sub(
+            status="ativa",
+            asaas_invoice_payment_id=None,
+            asaas_invoice_url=None,
+        ),
+        igreja=_igreja("ativa"),
+    )
+    client = _client(app, db, monkeypatch)
+    evento = _payment(
+        status="PENDING",
+        payment_id="pay_m2",
+        due_date="2026-08-01",
+        invoice_url="https://asaas.test/m2",
+    )
+
+    for _ in range(2):
+        resp = _post(client, "PAYMENT_CREATED", evento)
+        assert resp.json()["status"] == "pendente"
+        assert db.sub.asaas_invoice_payment_id == "pay_m2"
+        assert db.sub.asaas_invoice_url == "https://asaas.test/m2"
+        assert str(db.sub.proxima_cobranca) == "2026-08-01"
+
+    # Variante: retry do MESMO payment preenche a URL que faltava, sem trocar id.
+    db.sub.asaas_invoice_url = None
+    resp = _post(client, "PAYMENT_CREATED", evento)
+    assert db.sub.asaas_invoice_payment_id == "pay_m2"
+    assert db.sub.asaas_invoice_url == "https://asaas.test/m2"
+
+
+def test_setup_charge_event_does_not_touch_monthly_link(app, monkeypatch) -> None:
+    # A cobrança de setup segue um trilho separado: seu webhook nunca mexe no
+    # id/link da mensalidade nem no status mensal.
+    db = _WebhookDb(
+        sub=_sub(
+            status="pendente",
+            setup_pago=False,
+            asaas_setup_charge_id="pay_setup_1",
+            asaas_invoice_payment_id="pay_m1",
+            asaas_invoice_url="https://asaas.test/m1",
+        ),
+        igreja=_igreja("ativa"),
+    )
+    client = _client(app, db, monkeypatch)
+    payment = _payment(status="CONFIRMED", subscription=None, payment_id="pay_setup_1")
+
+    resp = _post(client, "PAYMENT_CONFIRMED", payment)
+
+    assert resp.json() == {"received": True, "status": "ativa"}
+    assert db.sub.setup_pago is True
+    assert db.sub.status == "pendente"  # mensal intocado
+    assert db.sub.asaas_invoice_payment_id == "pay_m1"
+    assert db.sub.asaas_invoice_url == "https://asaas.test/m1"
 
 
 def test_pendente_apos_ativa_nao_derruba_igreja(app, monkeypatch) -> None:

@@ -56,6 +56,14 @@ def verify_webhook_token(expected: str, provided: str | None) -> bool:
     return hmac.compare_digest(expected, provided.strip())
 
 
+def payment_invoice_url(payment: dict | None) -> str | None:
+    """Public payment page of an Asaas payment payload (API or webhook)."""
+    if not isinstance(payment, dict):
+        return None
+    value = payment.get("invoiceUrl") or payment.get("bankSlipUrl")
+    return str(value) if value else None
+
+
 class AsaasError(Exception):
     """Raised when an Asaas API call fails or the client is misconfigured."""
 
@@ -70,6 +78,9 @@ class CheckoutResult:
     invoice_url: str | None
     setup_invoice_url: str | None
     status: str  # ativa | pendente | inadimplente
+    # ID da primeira cobrança mensal (quando o Asaas já a gerou) — persistido
+    # para recuperar/atualizar o link por cobrança exata nos ciclos seguintes.
+    invoice_payment_id: str | None = None
 
 
 class AsaasClient:
@@ -118,6 +129,7 @@ class AsaasClient:
                 invoice_url=None,
                 setup_invoice_url=None,
                 status="pendente",
+                invoice_payment_id=None,
             )
         if not cpf_cnpj:
             raise AsaasError("CPF ou CNPJ é obrigatório para o checkout")
@@ -156,7 +168,7 @@ class AsaasClient:
                         external_reference=external_reference,
                     )
                     setup_charge_id = str(setup_charge["id"])
-                    setup_invoice_url = self._invoice_url(setup_charge)
+                    setup_invoice_url = payment_invoice_url(setup_charge)
         except httpx.HTTPError as exc:
             logger.warning("Asaas checkout failed: %s", type(exc).__name__)
             raise AsaasError("Falha ao criar checkout no Asaas") from exc
@@ -171,9 +183,14 @@ class AsaasClient:
             customer_id=customer_id,
             subscription_id=subscription_id,
             setup_charge_id=setup_charge_id,
-            invoice_url=self._invoice_url(monthly_payment),
+            invoice_url=payment_invoice_url(monthly_payment),
             setup_invoice_url=setup_invoice_url,
             status=status,
+            invoice_payment_id=(
+                str(monthly_payment["id"])
+                if monthly_payment and monthly_payment.get("id")
+                else None
+            ),
         )
 
     def get_subscription_invoice_url(self, subscription_id: str) -> str | None:
@@ -201,7 +218,7 @@ class AsaasClient:
         except (ValueError, KeyError) as exc:
             logger.warning("Unexpected Asaas response shape")
             raise AsaasError("Resposta inesperada do Asaas") from exc
-        return self._invoice_url(payment)
+        return payment_invoice_url(payment)
 
     def get_payment_invoice_url(self, payment_id: str) -> str | None:
         """Re-read the public payment page of an existing one-time charge.
@@ -225,7 +242,7 @@ class AsaasClient:
         except (ValueError, KeyError) as exc:
             logger.warning("Unexpected Asaas response shape")
             raise AsaasError("Resposta inesperada do Asaas") from exc
-        return self._invoice_url(body if isinstance(body, dict) else None)
+        return payment_invoice_url(body if isinstance(body, dict) else None)
 
     # ---- helpers ------------------------------------------------------------
     def _ensure_customer(
@@ -297,14 +314,6 @@ class AsaasClient:
             return None
         payment = payments[0]
         return payment if isinstance(payment, dict) else None
-
-    @staticmethod
-    def _invoice_url(payment: dict | None) -> str | None:
-        """Extract the public payment page without exposing provider payloads."""
-        if not payment:
-            return None
-        value = payment.get("invoiceUrl") or payment.get("bankSlipUrl")
-        return str(value) if value else None
 
     def _create_setup_charge(
         self,

@@ -1184,6 +1184,9 @@ class Subscription(Base):
     # para a tela de Assinatura sobreviver a reload sem recriar cobranças.
     asaas_invoice_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     asaas_setup_invoice_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # ID Asaas da cobrança mensal do CICLO CORRENTE — atualizado a cada webhook
+    # de fatura, para o link nunca apontar para uma mensalidade já quitada.
+    asaas_invoice_payment_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     setup_pago: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false")
     )

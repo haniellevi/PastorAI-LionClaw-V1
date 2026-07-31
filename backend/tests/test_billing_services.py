@@ -7,7 +7,13 @@ import datetime as dt
 import pytest
 
 from app.config import Settings
-from app.services.asaas import AsaasClient, AsaasError, map_payment_status, verify_webhook_token
+from app.services.asaas import (
+    AsaasClient,
+    AsaasError,
+    map_payment_status,
+    payment_invoice_url,
+    verify_webhook_token,
+)
 from app.services.google_calendar import GoogleCalendarError, _to_rfc3339
 
 
@@ -117,6 +123,18 @@ def test_invoice_link_lookups_stay_offline_without_send_permission() -> None:
 
     assert client.get_subscription_invoice_url("sub_x") is None
     assert client.get_payment_invoice_url("pay_x") is None
+
+
+def test_payment_invoice_url_extraction() -> None:
+    """Página pública do pagamento: invoiceUrl primeiro, bankSlipUrl como
+    fallback; payload vazio/ausente vira None (nunca uma URL herdada)."""
+    assert (
+        payment_invoice_url({"invoiceUrl": "https://a/i", "bankSlipUrl": "https://a/b"})
+        == "https://a/i"
+    )
+    assert payment_invoice_url({"bankSlipUrl": "https://a/b"}) == "https://a/b"
+    assert payment_invoice_url({}) is None
+    assert payment_invoice_url(None) is None
 
 
 def test_subscription_payload_sets_first_due_date() -> None:

@@ -31,6 +31,11 @@ alter table subscriptions
 alter table subscriptions
   add column if not exists asaas_setup_invoice_url text null;
 
+-- Cobrança mensal do ciclo corrente: cada webhook de fatura atualiza id + URL,
+-- para o link nunca apontar para uma mensalidade já quitada de ciclo anterior.
+alter table subscriptions
+  add column if not exists asaas_invoice_payment_id text null;
+
 create unique index if not exists subscriptions_asaas_setup_charge_id_uidx
   on subscriptions (asaas_setup_charge_id)
   where asaas_setup_charge_id is not null;
@@ -71,5 +76,7 @@ comment on column subscriptions.asaas_invoice_url is
   'Link público da primeira fatura da mensalidade, persistido para sobreviver a reload.';
 comment on column subscriptions.asaas_setup_invoice_url is
   'Link público da cobrança avulsa de setup, persistido para sobreviver a reload.';
+comment on column subscriptions.asaas_invoice_payment_id is
+  'ID Asaas da cobrança mensal do ciclo corrente, atualizado a cada webhook de fatura.';
 
 commit;

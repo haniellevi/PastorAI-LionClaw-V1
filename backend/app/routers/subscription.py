@@ -15,6 +15,7 @@ shared `asaas-access-token` header instead of Clerk auth.
 
 from __future__ import annotations
 
+import datetime as dt
 import logging
 import re
 import uuid
@@ -43,6 +44,7 @@ from app.services.asaas import (
     AsaasError,
     get_asaas_client,
     map_payment_status,
+    payment_invoice_url,
     verify_webhook_token,
 )
 from app.services.billing import get_setup_fee_for_igreja
@@ -285,6 +287,52 @@ def notify_autoupgrade(
     return True
 
 
+def _parse_iso_date(value: object) -> dt.date | None:
+    """dueDate do payload Asaas (ISO yyyy-mm-dd) — None quando ausente/ilegível."""
+    if not value:
+        return None
+    try:
+        return dt.date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None
+
+
+def _apply_monthly_payment_link(sub: Subscription, payment: dict) -> None:
+    """Track the CURRENT monthly invoice (id + link) from a payment webhook.
+
+    Every billing cycle emits a new payment; the stored link must follow it,
+    otherwise "Pagar mensalidade" keeps opening the settled first invoice.
+    Ordering guard: a late/duplicate event from an EARLIER cycle (smaller
+    dueDate than the tracked one) never clobbers the newer cycle. Same payment
+    id is an idempotent refresh — it may only fill a link that was missing.
+    """
+    incoming_id = str(payment["id"]) if payment.get("id") else None
+    if not incoming_id:
+        return
+    due = _parse_iso_date(payment.get("dueDate"))
+
+    if sub.asaas_invoice_payment_id == incoming_id:
+        if not sub.asaas_invoice_url:
+            sub.asaas_invoice_url = payment_invoice_url(payment)
+        if due is not None:
+            sub.proxima_cobranca = due
+        return
+
+    if (
+        due is not None
+        and sub.proxima_cobranca is not None
+        and due < sub.proxima_cobranca
+    ):
+        return  # stale event from a previous cycle
+
+    sub.asaas_invoice_payment_id = incoming_id
+    # None quando o Asaas ainda não gerou o link — nunca manter a URL quitada
+    # do ciclo anterior à mostra.
+    sub.asaas_invoice_url = payment_invoice_url(payment)
+    if due is not None:
+        sub.proxima_cobranca = due
+
+
 def _recover_missing_invoice_urls(
     db: Session, sub: Subscription, asaas: AsaasClient
 ) -> None:
@@ -298,7 +346,7 @@ def _recover_missing_invoice_urls(
     monthly_missing = (
         sub.status == "pendente"
         and sub.asaas_invoice_url is None
-        and bool(sub.asaas_subscription_id)
+        and bool(sub.asaas_invoice_payment_id or sub.asaas_subscription_id)
     )
     setup_missing = (
         not sub.setup_pago
@@ -311,7 +359,13 @@ def _recover_missing_invoice_urls(
     changed = False
     try:
         if monthly_missing:
-            url = asaas.get_subscription_invoice_url(sub.asaas_subscription_id)
+            if sub.asaas_invoice_payment_id:
+                # Cobrança mensal do ciclo corrente — consulta pelo id exato.
+                url = asaas.get_payment_invoice_url(sub.asaas_invoice_payment_id)
+            else:
+                # Compat: registro anterior à coluna do payment id — cai na
+                # primeira cobrança da assinatura.
+                url = asaas.get_subscription_invoice_url(sub.asaas_subscription_id)
             if url:
                 sub.asaas_invoice_url = url
                 changed = True
@@ -421,6 +475,7 @@ def create_checkout(
     # Persist the payment links so the pending screen survives a reload —
     # they otherwise existed only in the checkout HTTP response.
     sub.asaas_invoice_url = result.invoice_url
+    sub.asaas_invoice_payment_id = result.invoice_payment_id
     if setup_fee > 0:
         sub.setup_pago = False  # paid only once its own webhook confirms it
         sub.asaas_setup_charge_id = result.setup_charge_id
@@ -544,6 +599,11 @@ def asaas_webhook(
 
     if new_status is not None:
         sub.status = new_status
+        # Cada ciclo mensal emite uma cobrança nova: acompanha id + link da
+        # fatura corrente (com guarda contra evento atrasado de ciclo antigo),
+        # senão "Pagar mensalidade" abriria a primeira fatura já quitada.
+        if payment:
+            _apply_monthly_payment_link(sub, payment)
         # Reflect subscription billing only onto the igreja access gate. Setup
         # payment events return above and never change this status.
         if new_status in ("ativa", "inadimplente"):

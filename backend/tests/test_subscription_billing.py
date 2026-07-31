@@ -45,6 +45,7 @@ class _FakeAsaas:
                 "https://asaas.test/setup" if kwargs["setup_fee"] > 0 else None
             ),
             status="pendente",
+            invoice_payment_id="pay_m1",
         )
 
 
@@ -60,11 +61,13 @@ class _RecoveryAsaas:
         *,
         monthly_url: str | None = None,
         setup_url: str | None = None,
+        payment_urls: dict[str, str] | None = None,
         unavailable: bool = False,
     ) -> None:
         self.calls: list[tuple[str, str]] = []
         self._monthly_url = monthly_url
         self._setup_url = setup_url
+        self._payment_urls = payment_urls or {}
         self._unavailable = unavailable
 
     def get_subscription_invoice_url(self, subscription_id: str) -> str | None:
@@ -77,6 +80,8 @@ class _RecoveryAsaas:
         self.calls.append(("get_payment_invoice_url", payment_id))
         if self._unavailable:
             raise AsaasError("Asaas indisponível")
+        if payment_id in self._payment_urls:
+            return self._payment_urls[payment_id]
         return self._setup_url
 
     def create_checkout(self, **kwargs):  # pragma: no cover - defesa do teste
@@ -94,6 +99,7 @@ def _subscription(**over):
         asaas_customer_id="cus_1",
         asaas_subscription_id="sub_asaas_1",
         asaas_setup_charge_id="pay_setup_1",
+        asaas_invoice_payment_id=None,
         asaas_invoice_url=None,
         asaas_setup_invoice_url=None,
         setup_pago=False,
@@ -199,6 +205,9 @@ def test_checkout_uses_master_setup_default_and_returns_two_payment_links(app) -
     # reload lendo GET /subscription, sem depender do estado do checkout.
     assert db.added[0].asaas_invoice_url == "https://asaas.test/monthly"
     assert db.added[0].asaas_setup_invoice_url == "https://asaas.test/setup"
+    # O id da 1ª cobrança mensal também é persistido: os ciclos seguintes (e o
+    # recovery) passam a mirar a cobrança exata, nunca "a primeira da assinatura".
+    assert db.added[0].asaas_invoice_payment_id == "pay_m1"
 
 
 def test_checkout_uses_church_setup_override_before_master_default(app) -> None:
@@ -282,6 +291,31 @@ def test_get_subscription_recovers_monthly_link_by_subscription_id(app) -> None:
     assert sub.asaas_invoice_url == "https://asaas.test/recovered-monthly"
     assert asaas.calls == [("get_subscription_invoice_url", "sub_asaas_1")]
     assert db.commits == 1  # link recuperado é persistido
+
+
+def test_get_subscription_recovers_by_exact_monthly_payment_id(app) -> None:
+    # Ciclo 2+: o webhook rastreou o payment id da fatura corrente mas o link
+    # ainda faltava (payload sem invoiceUrl). O GET consulta a cobrança EXATA
+    # — nunca a "primeira da assinatura", que já está quitada.
+    asaas = _RecoveryAsaas(payment_urls={"pay_m2": "https://asaas.test/m2"})
+    sub = _subscription(
+        asaas_invoice_payment_id="pay_m2",
+        asaas_invoice_url=None,
+        asaas_setup_charge_id=None,
+        asaas_setup_invoice_url=None,
+        setup_pago=True,
+    )
+    client, db = _client(app, planos=[], asaas=asaas, subscription=sub)
+
+    resp = client.get("/subscription", headers=_AUTH)
+
+    assert resp.status_code == 200
+    assert resp.json()["invoiceUrl"] == "https://asaas.test/m2"
+    assert sub.asaas_invoice_url == "https://asaas.test/m2"
+    # Somente a consulta pelo id exato — a busca pela primeira cobrança da
+    # assinatura fica restrita a registros legados sem payment id.
+    assert asaas.calls == [("get_payment_invoice_url", "pay_m2")]
+    assert db.commits == 1
 
 
 def test_get_subscription_recovers_setup_link_by_charge_id(app) -> None:
