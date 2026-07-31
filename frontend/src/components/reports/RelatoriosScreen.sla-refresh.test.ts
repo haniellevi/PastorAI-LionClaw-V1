@@ -203,7 +203,10 @@ describe("RelatoriosScreen — refetch na fronteira do SLA (P2 #221)", () => {
     expect(apiMock.fetchReports).toHaveBeenCalledTimes(3);
   });
 
-  it("trocar para Histórico para o polling da semana atual", async () => {
+  it("o Histórico TAMBÉM refresca — dado histórico não é imutável", async () => {
+    // Antes o polling era gateado por `tab === "atual"` e o Histórico ficava
+    // congelado: nem o SLA da reunião de domingo nem a virada de semana
+    // chegavam à tela. O relógio do produto agora vale para as duas abas.
     render();
     await resolveRequest(0, page("pendente"));
     expect(apiMock.fetchReports).toHaveBeenCalledTimes(1);
@@ -214,17 +217,21 @@ describe("RelatoriosScreen — refetch na fronteira do SLA (P2 #221)", () => {
     expect(pending[0]?.semana).toMatch(/^\d{4}-W\d{2}$/);
     await resolveRequest(0, page("recebido"));
 
-    // Sem polling no histórico: o relógio anda e nada é buscado.
+    // Cada tick refaz a busca também no histórico.
     await advance(60_000);
-    await advance(60_000);
-    expect(apiMock.fetchReports).toHaveBeenCalledTimes(2);
-
-    // Voltar para a semana atual religa o polling.
-    clickTab("Semana atual");
     expect(apiMock.fetchReports).toHaveBeenCalledTimes(3);
-    await resolveRequest(0, page("pendente"));
+    await resolveRequest(0, page("recebido"));
     await advance(60_000);
     expect(apiMock.fetchReports).toHaveBeenCalledTimes(4);
+    await resolveRequest(0, page("recebido"));
+
+    // E a semana atual segue igual, sem parâmetro.
+    clickTab("Semana atual");
+    expect(apiMock.fetchReports).toHaveBeenCalledTimes(5);
+    expect(pending[0]?.semana).toBeUndefined();
+    await resolveRequest(0, page("pendente"));
+    await advance(60_000);
+    expect(apiMock.fetchReports).toHaveBeenCalledTimes(6);
   });
 
   it("desmontar a tela cancela o polling", async () => {

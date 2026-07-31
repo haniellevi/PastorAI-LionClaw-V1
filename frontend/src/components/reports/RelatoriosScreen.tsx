@@ -12,9 +12,14 @@
  *
  * A status-pill (Pendente / Atrasado) reflete o status classificado pelo
  * BACKEND — o SLA de 2h após a reunião roda no servidor, em America/Sao_Paulo.
- * Não há mais cálculo de prazo no cliente; para a pílula migrar sem reload
- * quando a reunião cruza a fronteira do SLA, a aba "Semana atual" rebusca o
- * endpoint a cada 60s (refresh silencioso: sem skeleton e sem limpar a tela).
+ * Nada de prazo é calculado no cliente.
+ *
+ * Um ÚNICO relógio do produto avança a cada 60s e governa as duas coisas que
+ * dependem do tempo aqui: qual semana o Histórico consulta e quando refazemos a
+ * busca (refresh silencioso, sem skeleton e sem limpar a tela). Vale para as
+ * DUAS abas — histórico não é imutável: a reunião de domingo à noite vence o
+ * SLA depois da meia-noite, e a virada de segunda promove uma semana nova a
+ * histórica.
  *
  * Acesso restrito a pastor/admin (GET /reports exige a Central); um papel sem
  * permissão recebe 403 e a tela mostra o banner de erro.
@@ -66,12 +71,19 @@ export function RelatoriosScreen() {
   const inFlight = useRef(false);
   const latestRequest = useRef(0);
 
+  // Relógio do produto: um único instante que avança a cada tick. Dele saem AS
+  // DUAS coisas que dependem do tempo nesta tela — qual semana o Histórico
+  // consulta e quando refazemos a busca. Sem ele, a aba aberta na virada de
+  // segunda-feira continuaria presa na semana e nos status de antes.
+  const [now, setNow] = useState(() => Date.now());
+
   // Semana atual NÃO manda `?semana=` (o backend resolve a semana corrente em
-  // São Paulo); o histórico manda a semana anterior derivada NO MESMO fuso —
-  // pelo fuso do navegador as duas abas pediriam a mesma semana na virada.
+  // São Paulo); o histórico manda a semana anterior derivada NO MESMO fuso, a
+  // partir do relógio acima — pelo fuso do navegador, ou com um instante
+  // congelado na montagem, as duas abas acabariam na mesma semana.
   const semana = useMemo(
-    () => (tab === "atual" ? undefined : previousIsoWeekInSaoPaulo()),
-    [tab],
+    () => (tab === "atual" ? undefined : previousIsoWeekInSaoPaulo(new Date(now))),
+    [tab, now],
   );
 
   const handleSessionError = useCallback(
@@ -126,22 +138,44 @@ export function RelatoriosScreen() {
     [token, semana, handleSessionError],
   );
 
+  // Espelho sempre atual de `load`, para o efeito do tick não precisar dele nas
+  // dependências (senão cada mudança de semana dispararia um refresh extra).
+  // Declarado ANTES do efeito do tick: efeitos rodam na ordem de declaração,
+  // então quando o refresh acontece o `load` já enxerga a semana recalculada.
+  const loadRef = useRef(load);
+  useEffect(() => {
+    loadRef.current = load;
+  });
+
+  // Carga dirigida pelo usuário/contexto: montagem, troca de aba e virada de
+  // semana (quando `semana` muda, `load` muda junto).
   useEffect(() => {
     void load("initial");
   }, [load]);
 
-  // O status pendente/atrasado é do BACKEND (SLA de data+hora+2h em São Paulo);
-  // nada é recalculado aqui. Para a pílula migrar sem reload quando a reunião
-  // cruza a fronteira do SLA com a tela aberta, rebuscamos a semana corrente a
-  // cada 60s. Só na aba "Semana atual" — o histórico é fechado e não muda de
-  // status. O timer morre ao desmontar ou ao sair da aba (cleanup do efeito).
+  // ÚNICO relógio da tela: avança o instante a cada 60s. Não busca nada aqui —
+  // só move o tempo, para a semana do Histórico ser recalculada na renderização
+  // antes de qualquer requisição. Morre no unmount.
   useEffect(() => {
-    if (tab !== "atual") return;
-    const id = window.setInterval(() => {
-      void load("refresh");
-    }, REFRESH_MS);
+    const id = window.setInterval(() => setNow(Date.now()), REFRESH_MS);
     return () => window.clearInterval(id);
-  }, [tab, load]);
+  }, []);
+
+  // Depois que o tick re-renderizou (semana já recalculada), refaz a busca em
+  // silêncio — nas DUAS abas. O status pendente/atrasado é do BACKEND (SLA de
+  // data+hora+2h em São Paulo) e nada é recalculado aqui; o Histórico também
+  // muda, porque a reunião de domingo à noite vence o SLA depois da meia-noite
+  // e porque a virada de segunda promove uma nova semana a histórica.
+  // Na virada, `load` muda junto e o efeito acima já dispara a busca da semana
+  // nova; a guarda `inFlight` faz este refresh pular o ciclo em vez de duplicar.
+  const skipFirstTick = useRef(true);
+  useEffect(() => {
+    if (skipFirstTick.current) {
+      skipFirstTick.current = false;
+      return;
+    }
+    void loadRef.current("refresh");
+  }, [now]);
 
   const { recebidos, pendentes } = useMemo(() => splitReports(reports), [reports]);
 
