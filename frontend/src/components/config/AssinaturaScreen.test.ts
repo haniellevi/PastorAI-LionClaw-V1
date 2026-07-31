@@ -161,6 +161,58 @@ describe("AssinaturaScreen — links do checkout", () => {
     expect(createCheckout).not.toHaveBeenCalled();
   });
 
+  it("assinante ativo consegue trocar de plano: campo CPF/CNPJ na aba de planos", async () => {
+    fetchSubscription.mockResolvedValue({
+      plano: "ate_100",
+      status: "ativa",
+      pessoas: 40,
+      limite: 100,
+      proximaCobranca: null,
+      setupPago: true,
+      invoiceUrl: null,
+      setupInvoiceUrl: null,
+    });
+    fetchPlanCatalog.mockResolvedValue({
+      setupFee: 0,
+      planos: [
+        { code: "ate_100", label: "Até 100 pessoas", limite: 100, preco: 199 },
+        { code: "101_200", label: "101–200 pessoas", limite: 200, preco: 299 },
+      ],
+    });
+    createCheckout.mockResolvedValue({
+      status: "pendente",
+      invoiceUrl: "https://asaas.test/upgrade",
+      setupInvoiceUrl: null,
+      asaasSubscriptionId: "sub_2",
+    });
+
+    act(() => root.render(h(AssinaturaScreen)));
+    await flush();
+
+    // Vai para a aba de planos — onde a ação "Contratar" existe para o
+    // assinante ativo — e o campo de documento precisa estar visível.
+    const plansTab = [...container.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Planos por porte"),
+    )!;
+    act(() => plansTab.click());
+    await flush();
+
+    const cpfInput = container.querySelector<HTMLInputElement>("#subscription-cpf-cnpj");
+    expect(cpfInput).not.toBeNull();
+    setValue(cpfInput!, "24971563792");
+
+    const contratar = [...container.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Contratar"),
+    )!;
+    act(() => contratar.click());
+    await flush();
+
+    expect(createCheckout).toHaveBeenCalledWith("tenant-token", {
+      plano: "101_200",
+      cpfCnpj: "24971563792",
+    });
+  });
+
   it("inadimplente sem link: o fallback continua sendo o botão de regularização", async () => {
     fetchSubscription.mockResolvedValue({
       plano: "ate_100",

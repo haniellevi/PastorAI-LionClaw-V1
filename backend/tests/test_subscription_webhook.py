@@ -41,6 +41,7 @@ def _sub(**over):
         asaas_setup_charge_id=None,
         asaas_invoice_payment_id=None,
         asaas_invoice_url=None,
+        asaas_invoice_reversed=False,
         asaas_setup_invoice_url=None,
         proxima_cobranca=None,
     )
@@ -646,6 +647,127 @@ def test_legacy_setup_rejects_wrong_description_missing_customer_or_ambiguity(
         assert all(c.setup_pago is False for c in candidatas)
         assert all(c.asaas_setup_charge_id is None for c in candidatas)
         assert db.commits == 0
+
+
+# ---------------------------------------------------------------------------
+# Reversões (review 4): estorno/exclusão difere de atraso — a cobrança deixa
+# de existir para pagamento.
+# ---------------------------------------------------------------------------
+def test_setup_refund_reopens_the_pending_setup(app, monkeypatch) -> None:
+    db = _WebhookDb(
+        sub=_sub(
+            status="ativa",
+            setup_pago=True,
+            asaas_setup_charge_id="pay_setup_1",
+            asaas_setup_invoice_url="https://asaas.test/setup",
+        ),
+        igreja=_igreja("ativa"),
+    )
+    client = _client(app, db, monkeypatch)
+    payment = _payment(status="REFUNDED", subscription=None, payment_id="pay_setup_1")
+
+    resp = _post(client, "PAYMENT_REFUNDED", payment)
+
+    assert resp.status_code == 200
+    assert db.sub.setup_pago is False  # pendência reaberta
+    assert db.sub.asaas_setup_charge_id is None  # cobrança revertida morre
+    assert db.sub.asaas_setup_invoice_url is None  # link inutilizável some
+    assert db.sub.status == "ativa"  # mensalidade intocada
+    assert db.igreja.status == "ativa"  # acesso intocado
+    assert db.commits == 1
+
+
+def test_setup_delete_clears_the_dead_charge_even_if_unpaid(app, monkeypatch) -> None:
+    db = _WebhookDb(
+        sub=_sub(
+            status="pendente",
+            setup_pago=False,
+            asaas_setup_charge_id="pay_setup_1",
+            asaas_setup_invoice_url="https://asaas.test/setup",
+        ),
+        igreja=_igreja("ativa"),
+    )
+    client = _client(app, db, monkeypatch)
+    payment = _payment(status="DELETED", subscription=None, payment_id="pay_setup_1")
+
+    resp = _post(client, "PAYMENT_DELETED", payment)
+
+    assert resp.status_code == 200
+    assert db.sub.setup_pago is False
+    assert db.sub.asaas_setup_charge_id is None
+    assert db.sub.asaas_setup_invoice_url is None
+    # Próximo checkout volta a criar (e cobrar) a taxa: nada ficou "pago".
+
+
+def test_monthly_refund_withholds_link_until_next_cycle(app, monkeypatch) -> None:
+    db = _WebhookDb(
+        sub=_sub(
+            status="ativa",
+            asaas_invoice_payment_id="pay_m2",
+            asaas_invoice_url="https://asaas.test/m2",
+            proxima_cobranca=dt.date(2026, 8, 1),
+        ),
+        igreja=_igreja("ativa"),
+    )
+    client = _client(app, db, monkeypatch)
+
+    refund = _post(
+        client,
+        "PAYMENT_REFUNDED",
+        _payment(
+            status="REFUNDED",
+            payment_id="pay_m2",
+            due_date="2026-08-01",
+            invoice_url="https://asaas.test/m2",
+        ),
+    )
+
+    assert refund.json()["status"] == "inadimplente"
+    assert db.sub.asaas_invoice_url is None  # link estornado retido
+    assert db.sub.asaas_invoice_reversed is True
+    assert db.sub.asaas_invoice_payment_id == "pay_m2"
+
+    # Novo ciclo VÁLIDO restaura o comportamento normal do link.
+    created = _post(
+        client,
+        "PAYMENT_CREATED",
+        _payment(
+            status="PENDING",
+            payment_id="pay_m3",
+            due_date="2026-09-01",
+            invoice_url="https://asaas.test/m3",
+        ),
+    )
+
+    assert created.json()["status"] == "pendente"
+    assert db.sub.asaas_invoice_payment_id == "pay_m3"
+    assert db.sub.asaas_invoice_url == "https://asaas.test/m3"
+    assert db.sub.asaas_invoice_reversed is False
+
+
+def test_monthly_overdue_keeps_the_payable_link(app, monkeypatch) -> None:
+    # Atraso NÃO é reversão: a mesma fatura continua sendo o caminho de
+    # regularização.
+    db = _WebhookDb(
+        sub=_sub(
+            status="pendente",
+            asaas_invoice_payment_id="pay_m2",
+            asaas_invoice_url="https://asaas.test/m2",
+            proxima_cobranca=dt.date(2026, 8, 1),
+        ),
+        igreja=_igreja("ativa"),
+    )
+    client = _client(app, db, monkeypatch)
+
+    resp = _post(
+        client,
+        "PAYMENT_OVERDUE",
+        _payment(status="OVERDUE", payment_id="pay_m2", due_date="2026-08-01"),
+    )
+
+    assert resp.json()["status"] == "inadimplente"
+    assert db.sub.asaas_invoice_url == "https://asaas.test/m2"
+    assert db.sub.asaas_invoice_reversed is False
 
 
 def test_setup_charge_event_does_not_touch_monthly_link(app, monkeypatch) -> None:

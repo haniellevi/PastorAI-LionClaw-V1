@@ -101,6 +101,7 @@ def _subscription(**over):
         asaas_setup_charge_id="pay_setup_1",
         asaas_invoice_payment_id=None,
         asaas_invoice_url=None,
+        asaas_invoice_reversed=False,
         asaas_setup_invoice_url=None,
         setup_pago=False,
     )
@@ -411,6 +412,172 @@ def test_get_subscription_recovers_overdue_url_by_current_payment_id(app) -> Non
     assert sub.asaas_invoice_url == "https://asaas.test/m2-overdue"
     assert asaas.calls == [("get_payment_invoice_url", "pay_m2")]
     assert db.commits == 1
+
+
+class _TrackingFailAsaas:
+    """create_checkout que rastreia a assinatura via callback e ENTÃO falha —
+    simula lookup/setup quebrando depois do POST /subscriptions real."""
+
+    def create_checkout(self, **kwargs):
+        kwargs["on_subscription_created"]("cus_1", "sub_1")
+        raise AsaasError("falha transitória depois da criação")
+
+
+class _ResumeAsaas:
+    """Fake do caminho de RETOMADA: proíbe recriar a assinatura."""
+
+    def __init__(self, *, payment=None, charge=None) -> None:
+        self.calls: list[tuple[str, str]] = []
+        self._payment = payment
+        self._charge = charge
+
+    def create_checkout(self, **kwargs):  # pragma: no cover - defesa do teste
+        raise AssertionError("retomada nunca emite outro POST /subscriptions")
+
+    def get_subscription_payment(self, subscription_id: str):
+        self.calls.append(("get_subscription_payment", subscription_id))
+        return self._payment
+
+    def create_setup_charge(self, **kwargs):
+        self.calls.append(("create_setup_charge", kwargs["customer_id"]))
+        return self._charge
+
+
+def test_checkout_persists_tracking_even_when_client_fails_after_creation(app) -> None:
+    # POST /subscriptions remoto ok + falha posterior => 502, mas a assinatura
+    # criada NÃO fica órfã: o callback persistiu o vínculo antes da falha.
+    client, db = _client(app, planos=[_plano()], asaas=_TrackingFailAsaas())
+
+    resp = client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    )
+
+    assert resp.status_code == 502
+    assert len(db.added) == 1
+    tracked = db.added[0]
+    assert tracked.asaas_customer_id == "cus_1"
+    assert tracked.asaas_subscription_id == "sub_1"
+    assert tracked.status == "pendente"
+    assert tracked.plano == "ate_100"
+    assert db.commits >= 1  # rastreio comitado apesar do 502
+
+
+def test_retry_resumes_pending_checkout_without_new_subscription(app) -> None:
+    # Retry do MESMO plano com assinatura já vinculada: recupera fatura e cria
+    # só a cobrança de setup que faltava — nenhum novo POST /subscriptions.
+    asaas = _ResumeAsaas(
+        payment={
+            "id": "pay_m1",
+            "invoiceUrl": "https://asaas.test/m1",
+            "dueDate": "2026-07-31",
+        },
+        charge={"id": "pay_setup_9", "invoiceUrl": "https://asaas.test/setup9"},
+    )
+    sub = _subscription(
+        status="pendente",
+        setup_pago=False,
+        asaas_setup_charge_id=None,
+        asaas_setup_invoice_url=None,
+        asaas_invoice_payment_id=None,
+        asaas_invoice_url=None,
+    )
+    client, db = _client(
+        app,
+        planos=[_plano()],
+        asaas=asaas,
+        setup_fee_default=59.9,
+        subscription=sub,
+    )
+
+    resp = client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    )
+
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "status": "pendente",
+        "invoiceUrl": "https://asaas.test/m1",
+        "setupInvoiceUrl": "https://asaas.test/setup9",
+        "asaasSubscriptionId": "sub_asaas_1",
+    }
+    assert asaas.calls == [
+        ("get_subscription_payment", "sub_asaas_1"),
+        ("create_setup_charge", "cus_1"),
+    ]
+    assert sub.asaas_invoice_payment_id == "pay_m1"
+    assert sub.asaas_setup_charge_id == "pay_setup_9"
+    assert db.commits >= 1
+
+
+def test_retry_does_not_duplicate_existing_setup_charge(app) -> None:
+    asaas = _ResumeAsaas(
+        payment={"id": "pay_m1", "invoiceUrl": "https://asaas.test/m1"}
+    )
+    sub = _subscription(
+        status="pendente",
+        setup_pago=False,
+        asaas_setup_charge_id="pay_setup_1",  # já rastreada
+        asaas_setup_invoice_url="https://asaas.test/setup",
+    )
+    client, _db = _client(
+        app,
+        planos=[_plano()],
+        asaas=asaas,
+        setup_fee_default=59.9,
+        subscription=sub,
+    )
+
+    resp = client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    )
+
+    assert resp.status_code == 200
+    # Só a leitura da fatura — nenhuma segunda cobrança de setup.
+    assert asaas.calls == [("get_subscription_payment", "sub_asaas_1")]
+    assert sub.asaas_setup_charge_id == "pay_setup_1"
+
+
+def test_plan_change_still_creates_new_subscription(app) -> None:
+    # Troca de plano (plano DIFERENTE do vinculado) segue o fluxo normal de
+    # criação — a retomada vale só para retry do mesmo plano pendente.
+    asaas = _FakeAsaas()
+    sub = _subscription(status="pendente", plano="ate_100")
+    client, _db = _client(
+        app,
+        planos=[_plano(codigo="101_200", preco_mensal=299, limite_pessoas=200)],
+        asaas=asaas,
+        subscription=sub,
+    )
+
+    resp = client.post(
+        "/subscription", json={"plano": "101_200", "cpfCnpj": _CPF}, headers=_AUTH
+    )
+
+    assert resp.status_code == 200
+    assert len(asaas.calls) == 1  # create_checkout chamado (fluxo legítimo)
+    assert asaas.calls[0]["plano"] == "101_200"
+
+
+def test_get_subscription_withholds_reversed_invoice_link(app) -> None:
+    # Cobrança mensal estornada/excluída: o GET não expõe nem tenta recuperar
+    # o link dela — espera o próximo ciclo válido.
+    asaas = _RecoveryAsaas(payment_urls={"pay_m2": "https://asaas.test/m2"})
+    sub = _subscription(
+        status="inadimplente",
+        setup_pago=True,
+        asaas_setup_charge_id=None,
+        asaas_invoice_payment_id="pay_m2",
+        asaas_invoice_url=None,
+        asaas_invoice_reversed=True,
+    )
+    client, db = _client(app, planos=[], asaas=asaas, subscription=sub)
+
+    resp = client.get("/subscription", headers=_AUTH)
+
+    assert resp.status_code == 200
+    assert resp.json()["invoiceUrl"] is None
+    assert asaas.calls == []  # recovery retido pela flag de reversão
+    assert db.commits == 0
 
 
 def test_get_subscription_hides_links_already_settled(app) -> None:

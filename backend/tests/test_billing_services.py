@@ -123,6 +123,101 @@ def test_invoice_link_lookups_stay_offline_without_send_permission() -> None:
 
     assert client.get_subscription_invoice_url("sub_x") is None
     assert client.get_payment_invoice_url("pay_x") is None
+    assert client.get_subscription_payment("sub_x") is None
+    assert (
+        client.create_setup_charge(
+            customer_id="cus_x", valor=59.9, external_reference=None
+        )
+        is None
+    )
+
+
+def _sends_allowed_settings() -> Settings:
+    return Settings(
+        app_env="staging",
+        allow_real_sends=True,
+        asaas_api_url="https://api-sandbox.asaas.com/v3",
+        asaas_api_key="sandbox-key",
+        asaas_setup_fee=0.0,
+    )
+
+
+def test_checkout_survives_invoice_lookup_failure_after_subscription_created(
+    monkeypatch,
+) -> None:
+    """Falha TRANSITÓRIA no lookup da 1ª fatura não pode abortar um checkout
+    cuja assinatura já existe no Asaas — o resultado volta sem link e o
+    callback de rastreio já foi disparado (retry não duplica)."""
+    import httpx
+
+    client = AsaasClient(_sends_allowed_settings())
+    tracked: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(
+        AsaasClient, "_ensure_customer", lambda self, *a, **k: "cus_1"
+    )
+    monkeypatch.setattr(
+        AsaasClient, "_create_subscription", lambda self, *a, **k: {"id": "sub_1"}
+    )
+
+    def _boom(self, *a, **k):
+        raise httpx.ConnectTimeout("timeout")
+
+    monkeypatch.setattr(AsaasClient, "_first_subscription_payment", _boom)
+
+    result = client.create_checkout(
+        nome="Igreja Teste",
+        email="financeiro@example.com",
+        plano="ate_100",
+        valor=199.0,
+        setup_fee=0.0,
+        cpf_cnpj="24971563792",
+        on_subscription_created=lambda c, s: tracked.append((c, s)),
+    )
+
+    assert tracked == [("cus_1", "sub_1")]
+    assert result.subscription_id == "sub_1"
+    assert result.invoice_url is None
+    assert result.invoice_payment_id is None
+    assert result.status == "pendente"
+
+
+def test_checkout_tracks_subscription_before_setup_charge_failure(monkeypatch) -> None:
+    """Se a cobrança de setup falhar DEPOIS da assinatura criada, o erro ainda
+    propaga (502), mas o rastreio já foi persistido pelo callback — o retry
+    retoma em vez de emitir outro POST /subscriptions."""
+    import httpx
+
+    client = AsaasClient(_sends_allowed_settings())
+    tracked: list[tuple[str, str]] = []
+
+    monkeypatch.setattr(
+        AsaasClient, "_ensure_customer", lambda self, *a, **k: "cus_1"
+    )
+    monkeypatch.setattr(
+        AsaasClient, "_create_subscription", lambda self, *a, **k: {"id": "sub_1"}
+    )
+    monkeypatch.setattr(
+        AsaasClient, "_first_subscription_payment", lambda self, *a, **k: None
+    )
+
+    def _boom(self, *a, **k):
+        raise httpx.ConnectError("down")
+
+    monkeypatch.setattr(AsaasClient, "_create_setup_charge", _boom)
+
+    with pytest.raises(AsaasError):
+        client.create_checkout(
+            nome="Igreja Teste",
+            email="financeiro@example.com",
+            plano="ate_100",
+            valor=199.0,
+            setup_fee=59.9,
+            cpf_cnpj="24971563792",
+            on_subscription_created=lambda c, s: tracked.append((c, s)),
+        )
+
+    assert tracked == [("cus_1", "sub_1")]  # rastreio veio ANTES da falha
 
 
 def test_payment_invoice_url_extraction() -> None:

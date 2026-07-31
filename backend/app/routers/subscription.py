@@ -44,6 +44,7 @@ from app.services.asaas import (
     AsaasClient,
     AsaasError,
     get_asaas_client,
+    is_payment_reversal,
     map_payment_status,
     payment_invoice_url,
     verify_webhook_token,
@@ -327,7 +328,9 @@ def _is_stale_cycle_event(sub: Subscription, payment: dict) -> bool:
     return due < sub.proxima_cobranca
 
 
-def _apply_monthly_payment_link(sub: Subscription, payment: dict) -> None:
+def _apply_monthly_payment_link(
+    sub: Subscription, payment: dict, *, reversal: bool = False
+) -> None:
     """Track the CURRENT monthly invoice (id + link) from a payment webhook.
 
     Every billing cycle emits a new payment; the stored link must follow it,
@@ -335,6 +338,8 @@ def _apply_monthly_payment_link(sub: Subscription, payment: dict) -> None:
     Stale-cycle ordering is decided by _is_stale_cycle_event BEFORE any
     mutation — by the time this runs, the event is same-cycle (idempotent
     refresh that may only fill a missing link) or a genuinely newer cycle.
+    ``reversal`` (estorno/exclusão) difere de OVERDUE: a fatura deixa de ser
+    pagável, então o link é retido até um novo ciclo válido zerar a flag.
     """
     incoming_id = str(payment["id"]) if payment.get("id") else None
     if not incoming_id:
@@ -342,16 +347,25 @@ def _apply_monthly_payment_link(sub: Subscription, payment: dict) -> None:
     due = _parse_iso_date(payment.get("dueDate"))
 
     if sub.asaas_invoice_payment_id == incoming_id:
-        if not sub.asaas_invoice_url:
+        if reversal:
+            sub.asaas_invoice_url = None
+            sub.asaas_invoice_reversed = True
+        elif not sub.asaas_invoice_url and not sub.asaas_invoice_reversed:
             sub.asaas_invoice_url = payment_invoice_url(payment)
         if due is not None:
             sub.proxima_cobranca = due
         return
 
     sub.asaas_invoice_payment_id = incoming_id
-    # None quando o Asaas ainda não gerou o link — nunca manter a URL quitada
-    # do ciclo anterior à mostra.
-    sub.asaas_invoice_url = payment_invoice_url(payment)
+    if reversal:
+        # Ciclo novo que já chega estornado: rastreia sem expor link.
+        sub.asaas_invoice_url = None
+        sub.asaas_invoice_reversed = True
+    else:
+        # None quando o Asaas ainda não gerou o link — nunca manter a URL
+        # quitada do ciclo anterior à mostra. Ciclo válido zera a retenção.
+        sub.asaas_invoice_url = payment_invoice_url(payment)
+        sub.asaas_invoice_reversed = False
     if due is not None:
         sub.proxima_cobranca = due
 
@@ -406,6 +420,9 @@ def _recover_missing_invoice_urls(
     monthly_missing = (
         sub.status in ("pendente", "inadimplente")
         and sub.asaas_invoice_url is None
+        # Cobrança estornada/excluída não é recuperável: reapresentar o link
+        # dela não quita nada — espera o próximo ciclo válido.
+        and not sub.asaas_invoice_reversed
         and bool(sub.asaas_invoice_payment_id or sub.asaas_subscription_id)
     )
     setup_missing = (
@@ -482,6 +499,65 @@ def get_subscription(
     return SubscriptionOut.from_model(sub)
 
 
+def _resume_pending_checkout(
+    db: Session,
+    sub: Subscription,
+    asaas: AsaasClient,
+    setup_fee: float,
+    external_reference: str,
+) -> CheckoutResponse:
+    """Retry de um checkout cuja assinatura Asaas JÁ existe e está rastreada.
+
+    Nunca emite outro POST /subscriptions (duplicaria a mensalidade): recupera
+    a fatura corrente por leitura (best-effort) e cria a cobrança de setup
+    somente se ela ainda não existir rastreada.
+    """
+    try:
+        payment = asaas.get_subscription_payment(sub.asaas_subscription_id)
+    except AsaasError:
+        payment = None  # GET /subscription recupera o link depois
+    if payment and payment.get("id"):
+        sub.asaas_invoice_payment_id = str(payment["id"])
+        url = payment_invoice_url(payment)
+        if url:
+            sub.asaas_invoice_url = url
+            sub.asaas_invoice_reversed = False
+        due = _parse_iso_date(payment.get("dueDate"))
+        if due is not None:
+            sub.proxima_cobranca = due
+
+    if (
+        setup_fee > 0
+        and not sub.setup_pago
+        and not sub.asaas_setup_charge_id
+        and sub.asaas_customer_id
+    ):
+        try:
+            charge = asaas.create_setup_charge(
+                customer_id=sub.asaas_customer_id,
+                valor=setup_fee,
+                external_reference=external_reference,
+            )
+        except AsaasError as exc:
+            db.commit()  # preserva o que a retomada já recuperou
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Não foi possível criar o checkout no Asaas",
+            ) from exc
+        if charge is not None:
+            sub.setup_pago = False
+            sub.asaas_setup_charge_id = str(charge["id"])
+            sub.asaas_setup_invoice_url = payment_invoice_url(charge)
+    db.commit()
+
+    return CheckoutResponse(
+        status=sub.status or "pendente",
+        invoiceUrl=sub.asaas_invoice_url,
+        setupInvoiceUrl=sub.asaas_setup_invoice_url if not sub.setup_pago else None,
+        asaasSubscriptionId=sub.asaas_subscription_id,
+    )
+
+
 @router.post("", response_model=CheckoutResponse)
 def create_checkout(
     payload: CheckoutRequest,
@@ -511,6 +587,32 @@ def create_checkout(
 
     setup_fee = 0.0 if sub.setup_pago else get_setup_fee_for_igreja(db, igreja)
 
+    # Retry de checkout do MESMO plano com assinatura Asaas já criada e ainda
+    # pendente: retoma em vez de recriar (outro POST /subscriptions geraria
+    # mensalidade duplicada). Troca de plano (plano diferente) segue o fluxo
+    # normal de criação — semântica preservada.
+    if (
+        sub.asaas_subscription_id
+        and sub.asaas_subscription_id != "sandbox"
+        and sub.plano == payload.plano
+        and sub.status in (None, "pendente")
+    ):
+        return _resume_pending_checkout(
+            db, sub, asaas, setup_fee, str(igreja_uuid)
+        )
+
+    def _track_created_subscription(customer_id: str, subscription_id: str) -> None:
+        # Chamado pelo AsaasClient IMEDIATAMENTE após o POST /subscriptions:
+        # persiste o vínculo antes de qualquer outra chamada remota, para uma
+        # falha posterior (lookup/setup) nunca deixar assinatura viva sem
+        # rastreio — um retry retomaria em vez de duplicar.
+        sub.plano = payload.plano
+        sub.limite = plano_row.limite_pessoas
+        sub.status = "pendente"
+        sub.asaas_customer_id = customer_id
+        sub.asaas_subscription_id = subscription_id
+        db.commit()
+
     try:
         result = asaas.create_checkout(
             nome=current_user.nome,
@@ -520,6 +622,7 @@ def create_checkout(
             setup_fee=setup_fee,
             cpf_cnpj=payload.cpfCnpj,
             external_reference=str(igreja_uuid),
+            on_subscription_created=_track_created_subscription,
         )
     except AsaasError as exc:
         raise HTTPException(
@@ -536,6 +639,7 @@ def create_checkout(
     # they otherwise existed only in the checkout HTTP response.
     sub.asaas_invoice_url = result.invoice_url
     sub.asaas_invoice_payment_id = result.invoice_payment_id
+    sub.asaas_invoice_reversed = False
     if setup_fee > 0:
         sub.setup_pago = False  # paid only once its own webhook confirms it
         sub.asaas_setup_charge_id = result.setup_charge_id
@@ -620,6 +724,7 @@ def asaas_webhook(
     new_status = map_payment_status(raw_status)
 
     payment_id = str(payment["id"]) if payment.get("id") else None
+    reversal = is_payment_reversal(raw_status)
     if payment_id:
         setup_sub = db.execute(
             select(Subscription).where(Subscription.asaas_setup_charge_id == payment_id)
@@ -627,6 +732,16 @@ def asaas_webhook(
         if setup_sub is not None:
             if new_status == "ativa" and not setup_sub.setup_pago:
                 setup_sub.setup_pago = True
+                db.commit()
+            elif reversal:
+                # Estorno/exclusão da taxa de setup: reabre a pendência e
+                # derruba o vínculo — a cobrança revertida não existe mais
+                # para pagamento; o próximo checkout cria (e cobra) uma nova.
+                # Mensalidade, status da assinatura e acesso da igreja ficam
+                # intocados neste trilho.
+                setup_sub.setup_pago = False
+                setup_sub.asaas_setup_charge_id = None
+                setup_sub.asaas_setup_invoice_url = None
                 db.commit()
             return WebhookResponse(received=True, status=new_status)
 
@@ -671,9 +786,9 @@ def asaas_webhook(
         sub.status = new_status
         # Cada ciclo mensal emite uma cobrança nova: acompanha id + link da
         # fatura corrente, senão "Pagar mensalidade" abriria a primeira
-        # fatura já quitada.
+        # fatura já quitada. Estorno/exclusão retém o link (inutilizável).
         if payment:
-            _apply_monthly_payment_link(sub, payment)
+            _apply_monthly_payment_link(sub, payment, reversal=reversal)
         # Reflect subscription billing only onto the igreja access gate. Setup
         # payment events return above and never change this status.
         if new_status in ("ativa", "inadimplente"):

@@ -36,6 +36,11 @@ alter table subscriptions
 alter table subscriptions
   add column if not exists asaas_invoice_payment_id text null;
 
+-- Estorno/exclusão da cobrança mensal corrente: link inutilizável — o GET não
+-- expõe nem recupera até um novo ciclo válido zerar a flag.
+alter table subscriptions
+  add column if not exists asaas_invoice_reversed boolean not null default false;
+
 create unique index if not exists subscriptions_asaas_setup_charge_id_uidx
   on subscriptions (asaas_setup_charge_id)
   where asaas_setup_charge_id is not null;
@@ -78,5 +83,7 @@ comment on column subscriptions.asaas_setup_invoice_url is
   'Link público da cobrança avulsa de setup, persistido para sobreviver a reload.';
 comment on column subscriptions.asaas_invoice_payment_id is
   'ID Asaas da cobrança mensal do ciclo corrente, atualizado a cada webhook de fatura.';
+comment on column subscriptions.asaas_invoice_reversed is
+  'True quando a cobrança mensal corrente foi estornada/excluída; bloqueia exposição e recovery do link até o próximo ciclo.';
 
 commit;

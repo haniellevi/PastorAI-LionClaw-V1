@@ -1187,6 +1187,12 @@ class Subscription(Base):
     # ID Asaas da cobrança mensal do CICLO CORRENTE — atualizado a cada webhook
     # de fatura, para o link nunca apontar para uma mensalidade já quitada.
     asaas_invoice_payment_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # True quando a cobrança mensal corrente foi estornada/excluída no Asaas:
+    # o link dela é inutilizável e o recovery não deve reapresentá-lo; um novo
+    # ciclo válido zera a flag.
+    asaas_invoice_reversed: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
     setup_pago: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false")
     )

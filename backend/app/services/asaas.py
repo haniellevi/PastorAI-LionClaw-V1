@@ -14,6 +14,7 @@ from __future__ import annotations
 import datetime as dt
 import hmac
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import httpx
@@ -40,8 +41,12 @@ _STATUS_MAP = {
     "PAYMENT_CREATED": "pendente",
     "OVERDUE": "inadimplente",
     "PAYMENT_OVERDUE": "inadimplente",
+    # Reversões chegam como evento (PAYMENT_*) ou como payment.status cru
+    # (REFUNDED/DELETED) — ambos derrubam a assinatura para inadimplente.
     "PAYMENT_DELETED": "inadimplente",
     "PAYMENT_REFUNDED": "inadimplente",
+    "DELETED": "inadimplente",
+    "REFUNDED": "inadimplente",
 }
 
 
@@ -50,6 +55,18 @@ def map_payment_status(raw_status: str | None) -> str | None:
     if not raw_status:
         return None
     return _STATUS_MAP.get(raw_status.strip().upper())
+
+
+# Estorno/cancelamento: a cobrança deixa de existir para pagamento — diferente
+# de OVERDUE (atrasada, mas ainda pagável pela mesma fatura).
+_REVERSAL_STATUSES = {"REFUNDED", "PAYMENT_REFUNDED", "DELETED", "PAYMENT_DELETED"}
+
+
+def is_payment_reversal(raw_status: str | None) -> bool:
+    """True quando o evento/status indica estorno ou exclusão da cobrança."""
+    if not raw_status:
+        return False
+    return raw_status.strip().upper() in _REVERSAL_STATUSES
 
 
 def verify_webhook_token(expected: str, provided: str | None) -> bool:
@@ -117,11 +134,18 @@ class AsaasClient:
         setup_fee: float | None = None,
         cpf_cnpj: str | None = None,
         external_reference: str | None = None,
+        on_subscription_created: Callable[[str, str], None] | None = None,
     ) -> CheckoutResult:
         """Create (or reuse) a customer and open a subscription + setup charge.
 
         The setup fee is charged as a one-time payment alongside the recurring
         subscription. Both are created via the official Asaas v3 endpoints.
+
+        ``on_subscription_created(customer_id, subscription_id)`` is invoked
+        IMMEDIATELY after the subscription POST succeeds, before any further
+        remote call — the caller persists the tracking there, so a later
+        failure (invoice lookup, setup charge) can never leave a live Asaas
+        subscription without a local link (a retry would duplicate it).
         """
         if not external_sends_allowed(self._settings):
             log_suppressed("Asaas", "create_checkout")
@@ -157,9 +181,20 @@ class AsaasClient:
                     external_reference=external_reference,
                 )
                 subscription_id = str(sub["id"])
-                monthly_payment = self._first_subscription_payment(
-                    client, headers, subscription_id=subscription_id
-                )
+                if on_subscription_created is not None:
+                    on_subscription_created(customer_id, subscription_id)
+                try:
+                    monthly_payment = self._first_subscription_payment(
+                        client, headers, subscription_id=subscription_id
+                    )
+                except (httpx.HTTPError, ValueError, KeyError):
+                    # Leitura OPCIONAL: falha aqui não pode abortar um checkout
+                    # cuja assinatura já existe no Asaas — o GET /subscription
+                    # recupera o link depois pelos ids persistidos.
+                    logger.warning(
+                        "Asaas first-payment lookup failed; continuing without link"
+                    )
+                    monthly_payment = None
                 setup_charge_id: str | None = None
                 setup_invoice_url: str | None = None
                 if fee and fee > 0:
@@ -196,21 +231,21 @@ class AsaasClient:
             ),
         )
 
-    def get_subscription_invoice_url(self, subscription_id: str) -> str | None:
-        """Re-read the public payment page of a subscription's first charge.
+    def get_subscription_payment(self, subscription_id: str) -> dict | None:
+        """Current/first payment payload of an existing subscription.
 
-        Read-only recovery path (never creates charges): used when the checkout
-        response was lost before persistence. Returns None when Asaas has not
-        generated the payment yet or sends are sandboxed in this environment.
+        Read-only (never creates charges): used by checkout resume and link
+        recovery. Returns None when Asaas has not generated the payment yet or
+        sends are sandboxed in this environment.
         """
         if not external_sends_allowed(self._settings):
-            log_suppressed("Asaas", "get_subscription_invoice_url")
+            log_suppressed("Asaas", "get_subscription_payment")
             return None
         base_url, api_key = self._require_config()
         headers = self._headers(api_key)
         try:
             with httpx.Client(base_url=base_url, timeout=20.0) as client:
-                payment = self._first_subscription_payment(
+                return self._first_subscription_payment(
                     client, headers, subscription_id=subscription_id
                 )
         except httpx.HTTPError as exc:
@@ -221,7 +256,47 @@ class AsaasClient:
         except (ValueError, KeyError) as exc:
             logger.warning("Unexpected Asaas response shape")
             raise AsaasError("Resposta inesperada do Asaas") from exc
-        return payment_invoice_url(payment)
+
+    def get_subscription_invoice_url(self, subscription_id: str) -> str | None:
+        """Public payment page of a subscription's first charge (read-only)."""
+        return payment_invoice_url(self.get_subscription_payment(subscription_id))
+
+    def create_setup_charge(
+        self,
+        *,
+        customer_id: str,
+        valor: float,
+        external_reference: str | None,
+    ) -> dict | None:
+        """One-time setup charge on an EXISTING customer (checkout resume).
+
+        Used when a previous checkout created the subscription but failed
+        before the setup charge existed — the retry must not recreate the
+        subscription, only the missing charge. Returns None when external
+        sends are sandboxed.
+        """
+        if not external_sends_allowed(self._settings):
+            log_suppressed("Asaas", "create_setup_charge")
+            return None
+        if 0 < valor < MIN_UNDEFINED_PAYMENT_VALUE:
+            raise AsaasError("A taxa de setup precisa ser de pelo menos R$ 5,00")
+        base_url, api_key = self._require_config()
+        headers = self._headers(api_key)
+        try:
+            with httpx.Client(base_url=base_url, timeout=20.0) as client:
+                return self._create_setup_charge(
+                    client,
+                    headers,
+                    customer_id=customer_id,
+                    valor=valor,
+                    external_reference=external_reference,
+                )
+        except httpx.HTTPError as exc:
+            logger.warning("Asaas setup charge failed: %s", type(exc).__name__)
+            raise AsaasError("Falha ao criar a cobrança de setup no Asaas") from exc
+        except (ValueError, KeyError) as exc:
+            logger.warning("Unexpected Asaas response shape")
+            raise AsaasError("Resposta inesperada do Asaas") from exc
 
     def get_payment_invoice_url(self, payment_id: str) -> str | None:
         """Re-read the public payment page of an existing one-time charge.

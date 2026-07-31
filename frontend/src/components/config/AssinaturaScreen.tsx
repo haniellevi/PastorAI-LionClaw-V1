@@ -294,7 +294,10 @@ export function AssinaturaScreen() {
         </div>
       ) : null}
 
-      {!showSkeleton && (sub === null || uiState === "past-due") ? (
+      {/* Documento fica visível em TODA situação com ação de checkout:
+          contratação inicial, regularização sem link e troca de plano de
+          assinante ativo (aba de planos) — sem ele o contract() não dispara. */}
+      {!showSkeleton && (sub === null || uiState === "past-due" || tab === "plans") ? (
         <div className="card card-pad" style={{ marginBottom: "var(--s4)" }}>
           <div className="field" style={{ margin: 0, maxWidth: 360 }}>
             <label htmlFor="subscription-cpf-cnpj">CPF ou CNPJ do responsável financeiro</label>
