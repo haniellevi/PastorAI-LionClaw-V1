@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from app.domain.permissions import ADMIN_ONLY
+from app.domain.permissions import ADMIN_ONLY, CENTRAL_ONLY, CENTRAL_ROLE
 
 # admin holds implicit access to every screen (mirrors deps.require_role).
 ADMIN_ROLE = "admin"
@@ -86,6 +86,10 @@ def allowed_screens_for_roles(
     roles, `ADMIN_ONLY` screens (`app.domain.permissions`) — fail-closed even
     if a legacy `role_permissions` row still grants one (mirrors
     `can_access_screen`, checked before the matrix, not after).
+
+    `CENTRAL_ONLY` (ex.: `relatorios`) segue a mesma regra e só é liberada ao
+    `pastor`: o assistente não pode apontar uma tela cujo endpoint responderia
+    403 (REPORT-SOT-1).
     """
     role_set = set(roles)
     if ADMIN_ROLE in role_set:
@@ -98,7 +102,10 @@ def allowed_screens_for_roles(
                 allowed.add(tela)
     # dashboard is available to any authenticated panel user (delta-010).
     allowed.add("dashboard")
-    return allowed - LOCKED_SCREENS - ADMIN_ONLY
+    allowed -= LOCKED_SCREENS | ADMIN_ONLY
+    if CENTRAL_ROLE not in role_set:
+        allowed -= CENTRAL_ONLY
+    return allowed
 
 
 def suggest_screens(texto: str, allowed: Iterable[str]) -> list[str]:

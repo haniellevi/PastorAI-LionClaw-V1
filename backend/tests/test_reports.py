@@ -24,7 +24,9 @@ from sqlalchemy.sql import operators
 
 from app.db.models import AppUser, Celula, CelulaReuniao
 from app.db.session import get_db
-from app.domain.cell_meetings_schedule import report_is_overdue
+from app.domain.cell_meetings_schedule import now_in_sao_paulo, report_is_overdue
+from app.routers import reports as reports_router
+from app.routers.reports import current_iso_week
 from app.services.clerk import get_clerk_client
 from tests.conftest import FakeClerk, make_app_user
 
@@ -433,13 +435,51 @@ def test_week_53_of_a_52_week_year_returns_422(app) -> None:
 
 
 def test_missing_week_defaults_to_current_iso_week(app) -> None:
-    hoje = dt.date.today()
+    hoje = now_in_sao_paulo().date()
     reu = make_reuniao(reuniao_id="r-hoje", data=hoje, relatorio_status="enviado")
     session = _central(cells=[make_cell()], reunioes=[reu])
     resp = _get(app, session)
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["items"][0]["semana"] == week_of(hoje)
+
+
+# ---------------------------------------------------------------------------
+# Semana padrão no fuso do PRODUTO (America/Sao_Paulo), não no fuso do host
+# ---------------------------------------------------------------------------
+# 2026-08-03T00:30Z = domingo 02/08 21:30 em São Paulo. Em UTC a data já virou
+# segunda (semana 32); em São Paulo ainda é domingo (semana 31).
+_MEIA_NOITE_UTC = dt.datetime(2026, 8, 3, 0, 30, tzinfo=dt.timezone.utc)
+
+
+def test_current_iso_week_uses_sao_paulo_not_host_timezone() -> None:
+    assert current_iso_week(_MEIA_NOITE_UTC) == "2026-W31"
+    # Prova de que o caso é discriminante: no fuso do host (UTC) daria W32.
+    assert f"{_MEIA_NOITE_UTC.date().isocalendar()[0]}-W{_MEIA_NOITE_UTC.date().isocalendar()[1]:02d}" == "2026-W32"
+
+
+def test_default_week_endpoint_uses_sao_paulo(app, monkeypatch) -> None:
+    """Sem ``?semana=``, o endpoint resolve a semana em São Paulo.
+
+    Congela o relógio no instante exigido chamando a função REAL com `now`
+    injetado — nada aqui depende da data nem do fuso da máquina.
+    """
+    monkeypatch.setattr(
+        reports_router, "current_iso_week", lambda: current_iso_week(_MEIA_NOITE_UTC)
+    )
+    # Domingo 02/08 (semana 31) entra; segunda 03/08 (semana 32) fica de fora.
+    domingo = make_reuniao(
+        reuniao_id="r-domingo", data=dt.date(2026, 8, 2), relatorio_status="enviado"
+    )
+    segunda = make_reuniao(
+        reuniao_id="r-segunda", data=dt.date(2026, 8, 3), relatorio_status="enviado"
+    )
+    session = _central(cells=[make_cell()], reunioes=[domingo, segunda])
+    resp = _get(app, session)
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert [i["id"] for i in body["items"]] == ["r-domingo"]
+    assert body["items"][0]["semana"] == "2026-W31"
 
 
 # ===========================================================================

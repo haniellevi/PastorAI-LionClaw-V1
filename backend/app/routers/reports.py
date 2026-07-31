@@ -36,7 +36,7 @@ from sqlalchemy.orm import Session
 from app.db.models import Celula, CelulaReuniao
 from app.db.session import get_db
 from app.deps import CurrentUser, require_central
-from app.domain.cell_meetings_schedule import report_is_overdue
+from app.domain.cell_meetings_schedule import now_in_sao_paulo, report_is_overdue
 from app.routers._common import Page, PaginationParams
 from app.services.cell_health_service import (
     ESTADO_COMPARECEU,
@@ -60,10 +60,15 @@ TIPO_DECISAO = "decisao"
 _SEMANA_RE = re.compile(r"^(\d{4})-W(\d{2})$")
 
 
-def current_iso_week(today: dt.date | None = None) -> str:
-    """Return the current ISO week as `YYYY-Www` (e.g. 2026-W24)."""
-    today = today or dt.date.today()
-    year, week, _ = today.isocalendar()
+def current_iso_week(now: dt.datetime | None = None) -> str:
+    """Semana ISO corrente (`YYYY-Www`) em ``America/Sao_Paulo``.
+
+    O fuso é o do PRODUTO, não o do processo: com o host em UTC,
+    ``date.today()`` viraria a semana até 3h antes da meia-noite de Brasília —
+    domingo 21:30 em São Paulo já cairia na semana seguinte. ``now`` é injetável
+    para determinismo nos testes (mesma costura de ``now_in_sao_paulo``).
+    """
+    year, week, _ = now_in_sao_paulo(now).date().isocalendar()
     return f"{year}-W{week:02d}"
 
 

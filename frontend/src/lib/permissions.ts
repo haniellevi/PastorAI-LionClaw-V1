@@ -44,6 +44,22 @@ export const ADMIN_ONLY = [
 /** Telas legadas: deep-link válido, fora do menu (delta-012). */
 export const LEGACY = ["celulas", "relatorios"] as const;
 
+/**
+ * Telas CENTRAL-ONLY: só `pastor` (e `admin`, implícito) — NUNCA outro papel,
+ * mesmo que a matriz PERSISTIDA do tenant conceda. Igual ao ADMIN_ONLY, a regra
+ * é aplicada ANTES da matriz, não depois; linhas já salvas em `role_permissions`
+ * não são apagadas, apenas ignoradas para estas telas.
+ *
+ * `relatorios` lista relatórios de TODAS as células com oferta e observações;
+ * GET /reports exige a Central (`require_central`), então oferecer a tela a
+ * outro papel só renderizaria um 403. Espelha CENTRAL_ONLY de
+ * `backend/app/domain/permissions.py`.
+ */
+export const CENTRAL_ONLY = ["relatorios"] as const;
+
+/** Papel que enxerga as telas CENTRAL_ONLY (espelha CENTRAL_ROLE do backend). */
+export const CENTRAL_ROLE = "pastor";
+
 export const ALL_SCREENS: readonly string[] = [
   ...MENU_SCREENS,
   ...LEGACY,
@@ -51,6 +67,7 @@ export const ALL_SCREENS: readonly string[] = [
 ];
 
 const ADMIN_ONLY_SET = new Set<string>(ADMIN_ONLY);
+const CENTRAL_ONLY_SET = new Set<string>(CENTRAL_ONLY);
 
 /**
  * Matriz default papel -> telas liberadas (seed role_permissions).
@@ -132,6 +149,9 @@ export type PermissionMatrix = Partial<Record<Exclude<Role, "admin">, readonly s
 /**
  * Telas visíveis no menu para um conjunto de papéis acumulados.
  * Admin vê tudo; demais papéis somam suas telas (sem ADMIN_ONLY).
+ *
+ * CENTRAL_ONLY é removido de quem não é `pastor` mesmo quando `perms` é a
+ * matriz customizada do tenant — fail-closed, antes da matriz e não depois.
  */
 export function allowedScreens(
   roles: readonly Role[],
@@ -151,7 +171,14 @@ export function allowedScreens(
     }
   }
 
-  return ALL_SCREENS.filter((screen) => set.has(screen) && !ADMIN_ONLY_SET.has(screen));
+  const isCentral = roles.includes(CENTRAL_ROLE as Role);
+
+  return ALL_SCREENS.filter(
+    (screen) =>
+      set.has(screen) &&
+      !ADMIN_ONLY_SET.has(screen) &&
+      (isCentral || !CENTRAL_ONLY_SET.has(screen)),
+  );
 }
 
 /** Indica se o usuário pode acessar uma tela específica (inclui legadas/admin). */

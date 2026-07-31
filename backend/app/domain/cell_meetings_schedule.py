@@ -102,12 +102,16 @@ def _parse_hora(hora: str | None) -> tuple[int, int] | None:
     return int(match.group(1)), int(match.group(2))
 
 
-def _now_in_sao_paulo(now: dt.datetime | None) -> dt.datetime:
+def now_in_sao_paulo(now: dt.datetime | None = None) -> dt.datetime:
     """Normaliza o relógio injetado para o fuso de São Paulo.
 
     - ``None``  → relógio real em São Paulo (produção);
     - naive     → interpretado como horário local de São Paulo (testes);
     - aware     → convertido para São Paulo.
+
+    Público: é a costura de "agora" do produto. Qualquer regra com data/hora
+    (SLA, semana corrente) deve passar por aqui em vez de usar
+    ``date.today()``/``datetime.now()``, que dependem do fuso do processo.
     """
     if now is None:
         return dt.datetime.now(SAO_PAULO_TZ)
@@ -134,7 +138,7 @@ def meeting_has_passed(
       horário já passou no fuso. SEM ``hora`` (ou malformada), a reunião conta
       como futura durante todo o dia (nunca infere ocorrência sem horário).
     """
-    now_local = _now_in_sao_paulo(now)
+    now_local = now_in_sao_paulo(now)
     today = now_local.date()
     if data < today:
         return True
@@ -166,7 +170,7 @@ def report_is_overdue(
     reunião só conta como ocorrida na virada do dia (logo, atrasada às 02:00 do
     dia seguinte). ``now`` é injetável para determinismo nos testes.
     """
-    now_local = _now_in_sao_paulo(now)
+    now_local = now_in_sao_paulo(now)
     return meeting_has_passed(
         data=data,
         hora=hora,
@@ -187,7 +191,7 @@ def next_meeting_date(
     usa o relógio real. Levanta ``InvalidDiaReuniao`` se o dia não for reconhecido.
     """
     weekday = parse_weekday(dia_reuniao)
-    now_local = _now_in_sao_paulo(now)
+    now_local = now_in_sao_paulo(now)
     today = now_local.date()
 
     days_ahead = (weekday - today.weekday()) % 7
