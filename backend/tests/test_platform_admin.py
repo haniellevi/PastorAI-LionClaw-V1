@@ -1559,6 +1559,42 @@ def test_admin_create_igreja_rejects_setup_override_below_the_minimum(app) -> No
     assert not any(isinstance(obj, Igreja) for obj in db.added)
 
 
+def test_master_price_edit_never_touches_existing_subscriptions(app) -> None:
+    """Decisão do dono (PLAN-CHANGE-SAFETY-1): editar o preço no catálogo NÃO
+    reajusta assinaturas existentes — vale para novas contratações ou troca
+    explícita. O handler altera apenas o Plano (+ auditoria)."""
+    from app.db.models import Subscription as SubscriptionModel
+
+    plano = SimpleNamespace(
+        id="00000000-0000-0000-0000-0000000000f1",
+        codigo="ate_100",
+        nome="Até 100 pessoas",
+        limite_pessoas=100,
+        preco_mensal=199.0,
+        ativo=True,
+        ordem=1,
+    )
+    db = PlatformDB(
+        gate_app_user=make_app_user(), admin_marker="pa1", plano_scalar=plano
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+
+    resp = client.patch(
+        f"/admin/planos/{plano.id}",
+        headers=_AUTH,
+        json={"precoMensal": 299.0},
+    )
+
+    assert resp.status_code == 200
+    assert plano.preco_mensal == 299.0
+    # Nenhuma escrita em Subscription (ou operação de troca) foi disparada.
+    assert not any(isinstance(obj, SubscriptionModel) for obj in db.added)
+    assert all(
+        type(obj).__name__ not in ("Subscription", "BillingPlanChangeOperation")
+        for obj in db.added
+    )
+
+
 def test_admin_patch_rejects_setup_override_below_the_minimum(app) -> None:
     igreja = _igreja_ns(id="00000000-0000-0000-0000-000000000009", setup_fee_override=40.0)
     db = PlatformDB(
