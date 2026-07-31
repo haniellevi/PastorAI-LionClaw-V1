@@ -75,6 +75,9 @@ export const DEFAULT_PERMISSIONS: Record<Exclude<Role, "admin">, readonly string
   // Central de Célula = pastor/admin no MVP (decisão 3.1 / contrato UX §4).
   // Os papéis de líder NÃO veem 'central-celula' (o menu abriria uma tela de
   // "Acesso restrito"); o líder gere sua célula por 'minha-celula'.
+  // 'relatorios' segue a mesma regra: a listagem é tenant-wide e expõe oferta e
+  // observações de TODAS as células (GET /reports exige pastor/admin). O líder
+  // lê o relatório da própria célula por 'minha-celula'.
   lider_g12: [
     "dashboard",
     "inbox",
@@ -88,7 +91,6 @@ export const DEFAULT_PERMISSIONS: Record<Exclude<Role, "admin">, readonly string
     "enviar",
     "calendario",
     "celulas",
-    "relatorios",
   ],
   lider_consol: [
     "dashboard",
@@ -107,7 +109,6 @@ export const DEFAULT_PERMISSIONS: Record<Exclude<Role, "admin">, readonly string
     "capacitacao",
     "calendario",
     "celulas",
-    "relatorios",
   ],
   lider_mult: [
     "dashboard",
@@ -116,14 +117,12 @@ export const DEFAULT_PERMISSIONS: Record<Exclude<Role, "admin">, readonly string
     "enviar",
     "calendario",
     "celulas",
-    "relatorios",
   ],
   operador: [
     "dashboard",
     "inbox",
     "ganhar",
     "celulas",
-    "relatorios",
   ],
   membro: ["dashboard", "minha-celula", "calendario"],
 };

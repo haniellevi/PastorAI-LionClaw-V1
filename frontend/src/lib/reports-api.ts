@@ -1,39 +1,46 @@
 /**
- * Cliente da API de relatórios de célula (telas #relatorios e #central-celula).
- * Consome o backend (sprint-009):
+ * Cliente da API de relatórios de célula (tela #relatorios).
  *
  *   GET /reports?semana=YYYY-Www -> Page<ReportItem>  (api-reports)
  *
- * Relatórios recebidos vêm da tabela `reports` (status=recebido). Células
- * ativas com líder que ainda não entregaram a semana vêm como entradas
- * sintéticas com id=null e status=pendente (RNF-09), para o painel cobrar quem
- * falta. O prazo de SLA do relatório não trafega no payload — é derivado da
- * própria semana (encerramento no domingo 22h), o que faz a status-pill migrar
- * de warn (pendente) para danger (atrasado) quando o prazo estoura, sem reload.
+ * A fonte de verdade é `celula_reuniao` (+ `relatorio_snapshot`): UM item por
+ * REUNIÃO materializada da semana. Célula sem reunião no período não aparece —
+ * não existe mais pendência sintética por célula.
  *
- * A cobrança automática de relatório atrasado é disparada pelo motor de SLA/cron
- * no backend (sprint-008). O botão "Cobrar" do painel aciona a mesma cobrança de
- * forma manual e otimista — fiel ao artifact travado (toast de confirmação).
+ * O SLA NÃO é mais derivado no cliente. O backend classifica cada reunião em
+ * `recebido` (relatório enviado), `pendente` (ainda dentro da carência) ou
+ * `atrasado` (passou `data + hora + 2h` em America/Sao_Paulo). A regra legada de
+ * "domingo 22h" foi removida — ela não correspondia a nenhuma regra do produto.
+ *
+ * O endpoint é restrito a pastor/admin: a listagem é tenant-wide e carrega
+ * oferta e observações de todas as células. O líder lê o relatório da própria
+ * célula pelos endpoints de `cell-meetings`.
  */
 
 import { ApiError, authedFetch, type Page } from "./dashboard-api";
 
 export type { Page } from "./dashboard-api";
 
-/** Projeção de relatório (ReportOut). Pendentes sintéticos têm id=null. */
+/** Status de um relatório, tal como o backend classifica. */
+export type ReportStatus = "recebido" | "pendente" | "atrasado";
+
+/**
+ * Projeção de relatório (ReportOut). `id` é o id da REUNIÃO e existe sempre.
+ * Números, oferta e observações só vêm preenchidos depois do envio.
+ * Não há campo `origem`: o relatório é enviado pelo painel do líder.
+ */
 export interface ReportItem {
-  id: string | null;
+  id: string;
   celulaId: string;
   celulaNome: string | null;
   semana: string;
-  status: string; // recebido | pendente
-  dataReuniao: string | null;
+  status: ReportStatus | string;
+  dataReuniao: string;
   presentes: number | null;
   visitantes: number | null;
   decisoes: number | null;
   oferta: number | null;
   observacoes: string | null;
-  origem: string | null;
 }
 
 export interface ReportSplit {
@@ -41,13 +48,13 @@ export interface ReportSplit {
   pendentes: ReportItem[];
 }
 
-/** Tom da status-pill de SLA do relatório pendente. */
+/** Tom da status-pill de um relatório ainda não enviado. */
 export type ReportSlaTone = "warn" | "danger";
 
 export interface ReportSlaInfo {
   tone: ReportSlaTone;
   label: string;
-  /** true quando o prazo da semana já estourou (warn -> danger). */
+  /** true quando o backend já marcou a reunião como atrasada (SLA de 2h). */
   overdue: boolean;
 }
 
@@ -71,53 +78,34 @@ export async function fetchReports(
 // ---------------------------------------------------------------------------
 // Derivações de UI
 // ---------------------------------------------------------------------------
+export function isReceived(item: ReportItem): boolean {
+  return item.status === "recebido";
+}
+
 export function splitReports(items: ReportItem[]): ReportSplit {
   const recebidos: ReportItem[] = [];
   const pendentes: ReportItem[] = [];
   for (const r of items) {
-    if (r.status === "pendente") pendentes.push(r);
-    else recebidos.push(r);
+    if (isReceived(r)) recebidos.push(r);
+    else pendentes.push(r);
   }
   return { recebidos, pendentes };
 }
 
-/** Segunda-feira (00h local) da semana ISO `YYYY-Www`. */
-function isoWeekMonday(semana: string): Date | null {
-  const match = /^(\d{4})-W(\d{2})$/.exec(semana.trim());
-  if (!match) return null;
-  const year = Number(match[1]);
-  const week = Number(match[2]);
-  if (Number.isNaN(year) || Number.isNaN(week)) return null;
-  // 4 de janeiro está sempre na semana ISO 1.
-  const jan4 = new Date(year, 0, 4);
-  const jan4Dow = (jan4.getDay() + 6) % 7; // 0 = segunda
-  const week1Monday = new Date(year, 0, 4 - jan4Dow);
-  return new Date(
-    week1Monday.getFullYear(),
-    week1Monday.getMonth(),
-    week1Monday.getDate() + (week - 1) * 7,
-  );
-}
-
 /**
- * Prazo do relatório semanal: encerramento no domingo da semana às 22h (local).
- * Derivado da semana ISO, pois o payload de pendentes não traz prazo.
+ * Estado de SLA de um relatório não enviado, LIDO do status do servidor.
+ * `atrasado` (passou data+hora+2h) realça a cobrança; `pendente` é warn.
  */
-export function reportDeadline(semana: string): Date | null {
-  const monday = isoWeekMonday(semana);
-  if (!monday) return null;
-  const sunday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 6, 22, 0, 0);
-  return sunday;
-}
-
-/**
- * Estado de SLA de um relatório pendente. Antes do prazo é `warn` (pendente);
- * depois do prazo vira `danger` (atrasado) — realçando a cobrança na fila.
- */
-export function reportSla(item: ReportItem, now: number = Date.now()): ReportSlaInfo {
-  const deadline = reportDeadline(item.semana);
-  if (deadline && now > deadline.getTime()) {
+export function reportSla(item: ReportItem): ReportSlaInfo {
+  if (item.status === "atrasado") {
     return { tone: "danger", label: "Atrasado", overdue: true };
   }
   return { tone: "warn", label: "Pendente", overdue: false };
+}
+
+/** Data da reunião (`YYYY-MM-DD`) formatada em pt-BR, sem deslocar o fuso. */
+export function formatMeetingDate(dataReuniao: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dataReuniao.trim());
+  if (!match) return dataReuniao;
+  return `${match[3]}/${match[2]}/${match[1]}`;
 }

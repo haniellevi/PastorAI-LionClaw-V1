@@ -1,20 +1,23 @@
 "use client";
 
 /**
- * Tela #relatorios (legada, deep-link — delta-012). Relatórios semanais de
- * célula recebidos pelo WhatsApp e quais células estão pendentes (api-reports).
+ * Tela #relatorios (legada, deep-link — delta-012). Relatórios de célula da
+ * semana: um card com os RECEBIDOS e outro com os que faltam entregar.
  *
- * Layout fiel ao artifact: duas colunas (Recebidos · data-table | Pendentes ·
- * lista com cobrança). As abas Semana atual / Histórico trocam a semana ISO
- * consultada. Relatório pendente cujo prazo de SLA estourou migra a status-pill
- * de warn (Pendente) para danger (Atrasado) e realça a cobrança na fila.
+ * Cada linha é uma REUNIÃO materializada (`celula_reuniao`), nunca uma célula
+ * abstrata: célula sem reunião na semana simplesmente não aparece. As abas
+ * Semana atual / Histórico trocam a semana ISO consultada.
  *
- * "Cobrar" aciona a cobrança do líder (a mesma do motor de SLA/cron, sprint-008)
- * de forma manual e otimista — fiel ao artifact (toast de confirmação).
+ * A status-pill (Pendente / Atrasado) reflete o status classificado pelo
+ * BACKEND — o SLA de 2h após a reunião roda no servidor, em America/Sao_Paulo.
+ * Não há mais cálculo de prazo no cliente.
  *
- * Estados: loading (skeleton) · empty (sem células) · populated · detail (modal).
+ * Acesso restrito a pastor/admin (GET /reports exige a Central); um papel sem
+ * permissão recebe 403 e a tela mostra o banner de erro.
+ *
+ * Estados: loading (skeleton) · empty (sem reuniões) · populated · detail (modal).
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { StatusPill } from "@/components/dashboard/StatusPill";
 import { DataTable, type Column } from "@/components/ui/DataTable";
@@ -24,6 +27,7 @@ import { ApiError } from "@/lib/dashboard-api";
 import { Icon } from "@/lib/icons";
 import {
   fetchReports,
+  formatMeetingDate,
   reportSla,
   splitReports,
   type ReportItem,
@@ -32,11 +36,6 @@ import {
 import { ReportDetailModal } from "./ReportDetailModal";
 
 type Tab = "atual" | "historico";
-
-interface Toast {
-  kind: "ok" | "err";
-  text: string;
-}
 
 /** Semana ISO `YYYY-Www` de uma data (algoritmo ISO-8601). */
 function isoWeekString(input: Date): string {
@@ -59,17 +58,7 @@ export function RelatoriosScreen() {
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("atual");
 
-  const [chargedIds, setChargedIds] = useState<Set<string>>(new Set());
-  const [busyCharge, setBusyCharge] = useState<string | null>(null);
   const [detail, setDetail] = useState<ReportItem | null>(null);
-  const [toast, setToast] = useState<Toast | null>(null);
-
-  // Recalcula o SLA periodicamente para a pílula migrar warn -> danger sem reload.
-  const [, setTick] = useState(0);
-  useEffect(() => {
-    const id = window.setInterval(() => setTick((t) => t + 1), 60_000);
-    return () => window.clearInterval(id);
-  }, []);
 
   const semana = useMemo(() => {
     if (tab === "atual") return undefined;
@@ -112,42 +101,10 @@ export function RelatoriosScreen() {
     void load("initial");
   }, [load]);
 
-  const toastTimer = useRef<number | null>(null);
-  const flashToast = useCallback((t: Toast) => {
-    setToast(t);
-    if (toastTimer.current) window.clearTimeout(toastTimer.current);
-    toastTimer.current = window.setTimeout(() => setToast(null), 3200);
-  }, []);
-  useEffect(
-    () => () => {
-      if (toastTimer.current) window.clearTimeout(toastTimer.current);
-    },
-    [],
-  );
-
   const { recebidos, pendentes } = useMemo(() => splitReports(reports), [reports]);
 
-  const handleCharge = useCallback(
-    async (item: ReportItem) => {
-      setBusyCharge(item.celulaId);
-      try {
-        // Cobrança manual: aciona o mesmo caminho do motor de SLA (sprint-008).
-        // Otimista, fiel ao artifact (sem endpoint dedicado de cobrança manual).
-        await new Promise((resolve) => setTimeout(resolve, 350));
-        setChargedIds((prev) => new Set(prev).add(item.celulaId));
-        flashToast({
-          kind: "ok",
-          text: `Cobrança enviada por WhatsApp à liderança de ${item.celulaNome ?? "célula"}.`,
-        });
-      } finally {
-        setBusyCharge(null);
-      }
-    },
-    [flashToast],
-  );
-
   const showSkeleton = loading && !loaded;
-  const cellsTotal = recebidos.length + pendentes.length;
+  const reunioesTotal = recebidos.length + pendentes.length;
 
   const recebidosColumns: Array<Column<ReportItem>> = useMemo(
     () => [
@@ -155,6 +112,7 @@ export function RelatoriosScreen() {
         header: "Célula",
         cell: (r) => <span className="nm">{r.celulaNome ?? "—"}</span>,
       },
+      { header: "Reunião", cell: (r) => formatMeetingDate(r.dataReuniao) },
       { header: "Presentes", numeric: true, cell: (r) => r.presentes ?? "—" },
       { header: "Visitantes", numeric: true, cell: (r) => r.visitantes ?? "—" },
       {
@@ -225,13 +183,14 @@ export function RelatoriosScreen() {
             </div>
           ))}
         </div>
-      ) : cellsTotal === 0 ? (
+      ) : reunioesTotal === 0 ? (
         <div className="card">
           <div className="empty-state" style={{ padding: "var(--s6)" }}>
             <Icon name="document" />
             <p>
-              <strong>Nenhuma célula ativa nesta semana.</strong> Cadastre células
-              com líder para acompanhar os relatórios semanais.
+              <strong>Nenhuma reunião de célula nesta semana.</strong> Os
+              relatórios aparecem aqui depois que as reuniões forem agendadas
+              pelos líderes.
             </p>
           </div>
         </div>
@@ -240,16 +199,16 @@ export function RelatoriosScreen() {
           <div className="card">
             <div className="panel-title">
               <Icon name="check" /> Recebidos
-              <span className="count">· {recebidos.length} de {cellsTotal} células</span>
+              <span className="count">· {recebidos.length} de {reunioesTotal} reuniões</span>
             </div>
             <DataTable
               columns={recebidosColumns}
               rows={recebidos}
-              rowKey={(r) => r.id ?? r.celulaId}
+              rowKey={(r) => r.id}
               empty={{
                 icon: "document",
                 title: "Nenhum relatório recebido ainda.",
-                hint: "Os relatórios enviados pelo WhatsApp aparecem aqui.",
+                hint: "Os relatórios enviados pelos líderes aparecem aqui.",
               }}
               onRowClick={(r) => setDetail(r)}
             />
@@ -258,38 +217,27 @@ export function RelatoriosScreen() {
           <div className="card">
             <div className="panel-title" style={{ color: pendentes.length ? "var(--warn)" : undefined }}>
               <Icon name="alert" /> Pendentes
-              <span className="count">· {pendentes.length} célula(s)</span>
+              <span className="count">· {pendentes.length} reunião(ões)</span>
             </div>
             {pendentes.length === 0 ? (
               <div className="empty-state" style={{ padding: "var(--s5)" }}>
                 <Icon name="check" />
                 <p>
-                  <strong>Tudo em dia!</strong> Todas as células entregaram o
-                  relatório desta semana.
+                  <strong>Tudo em dia!</strong> Todas as reuniões desta semana já
+                  tiveram o relatório enviado.
                 </p>
               </div>
             ) : (
               <div>
                 {pendentes.map((r) => {
                   const sla = reportSla(r);
-                  const charged = chargedIds.has(r.celulaId);
                   return (
-                    <div className={`list-row${sla.overdue && !charged ? " overdue" : ""}`} key={r.celulaId}>
+                    <div className={`list-row${sla.overdue ? " overdue" : ""}`} key={r.id}>
                       <div style={{ flex: 1 }}>
                         <div className="nm">{r.celulaNome ?? "—"}</div>
-                        <div className="sub">Semana {r.semana}</div>
+                        <div className="sub">Reunião de {formatMeetingDate(r.dataReuniao)}</div>
                       </div>
-                      <StatusPill tone={charged ? "accent" : sla.tone}>
-                        {charged ? "Cobrança enviada" : sla.label}
-                      </StatusPill>
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-primary"
-                        disabled={charged || busyCharge === r.celulaId}
-                        onClick={() => void handleCharge(r)}
-                      >
-                        {busyCharge === r.celulaId ? "…" : charged ? "Cobrado" : "Cobrar"}
-                      </button>
+                      <StatusPill tone={sla.tone}>{sla.label}</StatusPill>
                       <button type="button" className="btn btn-sm" onClick={() => setDetail(r)}>
                         Ver
                       </button>
@@ -303,13 +251,6 @@ export function RelatoriosScreen() {
       )}
 
       {detail ? <ReportDetailModal report={detail} onClose={() => setDetail(null)} /> : null}
-
-      {toast ? (
-        <div className={`toast ${toast.kind}`} role="status">
-          <Icon name={toast.kind === "ok" ? "check" : "alert"} />
-          <span>{toast.text}</span>
-        </div>
-      ) : null}
     </div>
   );
 }

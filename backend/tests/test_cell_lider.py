@@ -1117,6 +1117,26 @@ def test_get_report_404_for_disciple(app) -> None:
     assert resp.status_code == 404
 
 
+def test_leader_keeps_own_report_but_loses_tenant_wide_listing(app) -> None:
+    """REPORT-SOT-1: restringir ``GET /reports`` à Central não pode tirar do líder
+    o relatório da PRÓPRIA reunião.
+
+    O mesmo líder, na mesma sessão: 200 em ``/cell-meetings/{id}/report`` (a sua
+    célula) e 403 na listagem tenant-wide ``/reports``, que expõe oferta e
+    observações de TODAS as células.
+    """
+    reu = make_reuniao(reuniao_id=_REU, oferta_valor=80.0, observacoes="Só minha")
+    session = _leader_session(reunioes=[reu])
+    client = _wire(app, session=session)
+
+    proprio = client.get(_REP_PATH, headers=_AUTH)
+    assert proprio.status_code == 200, proprio.text
+    assert proprio.json()["oferta_valor"] == 80.0
+
+    tenant_wide = client.get("/reports", headers=_AUTH)
+    assert tenant_wide.status_code == 403, tenant_wide.text
+
+
 # ===========================================================================
 # E10/E11 — após enviado, escritas bloqueadas (409); sem reabertura
 # ===========================================================================

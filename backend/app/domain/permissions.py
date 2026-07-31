@@ -34,11 +34,14 @@ DEFAULT_PERMISSIONS: dict[str, frozenset[str]] = {
     ),
     # Central de Célula = pastor/admin no MVP (decisão 3.1). Os papéis de líder
     # NÃO veem 'central-celula'; gerem sua célula por 'minha-celula'.
+    # 'relatorios' também é pastor/admin: a listagem é tenant-wide e expõe oferta
+    # e observações de TODAS as células (GET /reports usa require_central). O
+    # líder lê o relatório da própria célula por 'minha-celula'.
     "lider_g12": frozenset(
         {
             "dashboard", "inbox", "ganhar", "consolidar", "consol-individual",
             "universidade-vida", "capacitacao", "g12", "minha-celula", "enviar",
-            "calendario", "celulas", "relatorios",
+            "calendario", "celulas",
         }
     ),
     "lider_consol": frozenset(
@@ -50,17 +53,16 @@ DEFAULT_PERMISSIONS: dict[str, frozenset[str]] = {
     "lider_celula": frozenset(
         {
             "dashboard", "inbox", "ganhar", "minha-celula", "capacitacao",
-            "calendario", "celulas", "relatorios",
+            "calendario", "celulas",
         }
     ),
     "lider_mult": frozenset(
         {
             "dashboard", "g12", "minha-celula", "enviar", "calendario", "celulas",
-            "relatorios",
         }
     ),
     "operador": frozenset(
-        {"dashboard", "inbox", "ganhar", "celulas", "relatorios"}
+        {"dashboard", "inbox", "ganhar", "celulas"}
     ),
     "membro": frozenset({"dashboard", "minha-celula", "calendario"}),
 }

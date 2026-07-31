@@ -52,6 +52,11 @@ _WEEKDAY_BY_TOKEN: dict[str, int] = {**_FULL_NAMES, **_ABBREVIATIONS}
 # HH:MM (24h) — espelha o CHECK de celulas.horario (PR1).
 _HORA_RE = re.compile(r"^([01][0-9]|2[0-3]):([0-5][0-9])$")
 
+# Carência do relatório: a reunião só fica ATRASADA 2h depois do horário previsto
+# (PRD Minha Célula — Líder §4.4). Decisão do dono em REPORT-SOT-IMPLEMENT-1; ela
+# substitui a regra legada de "domingo 22h" que o frontend derivava no cliente.
+REPORT_SLA_HOURS = 2
+
 
 class InvalidDiaReuniao(ValueError):
     """`dia_reuniao` ausente/vazio ou fora da allowlist fechada (→ 422)."""
@@ -143,6 +148,30 @@ def meeting_has_passed(
         hour=hour, minute=minute, second=0, microsecond=0
     )
     return now_local > meeting_dt
+
+
+def report_is_overdue(
+    *,
+    data: dt.date,
+    hora: str | None = None,
+    now: dt.datetime | None = None,
+) -> bool:
+    """True se o relatório da reunião está ATRASADO: passou ``data + hora + 2h``.
+
+    Carência de ``REPORT_SLA_HOURS`` após o horário previsto (PRD Minha Célula —
+    Líder §4.4), no fuso ``America/Sao_Paulo``. Não duplica a semântica de
+    ocorrência: "a reunião + 2h já passou" é exatamente "a reunião já tinha
+    passado 2h atrás", então a regra reusa ``meeting_has_passed`` com o relógio
+    recuado — inclusive o tratamento de ``hora`` ausente/malformada, em que a
+    reunião só conta como ocorrida na virada do dia (logo, atrasada às 02:00 do
+    dia seguinte). ``now`` é injetável para determinismo nos testes.
+    """
+    now_local = _now_in_sao_paulo(now)
+    return meeting_has_passed(
+        data=data,
+        hora=hora,
+        now=now_local - dt.timedelta(hours=REPORT_SLA_HOURS),
+    )
 
 
 def next_meeting_date(
