@@ -22,10 +22,12 @@ import { ApiError } from "@/lib/dashboard-api";
 import { Icon } from "@/lib/icons";
 import {
   createCheckout,
+  createSetupCharge,
   fetchPlanCatalog,
   fetchSubscription,
   NoSubscriptionError,
   planInfo,
+  recoverInvoice,
   subscriptionUiState,
   type PlanCode,
   type PlanInfo,
@@ -68,6 +70,7 @@ export function AssinaturaScreen() {
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("overview");
   const [checkoutPlan, setCheckoutPlan] = useState<PlanCode | null>(null);
+  const [recovering, setRecovering] = useState<"invoice" | "setup" | null>(null);
   const [cpfCnpj, setCpfCnpj] = useState("");
   const [checkoutLinks, setCheckoutLinks] = useState<{
     monthly: string | null;
@@ -189,6 +192,46 @@ export function AssinaturaScreen() {
     [token, checkoutPlan, cpfCnpj, flashToast, load, handleSessionError],
   );
 
+  // Recuperação da mensalidade REVERTIDA: ação específica do backend
+  // (restore/cobrança avulsa) — nunca o checkout genérico, que criaria outra
+  // assinatura recorrente no Asaas.
+  const recoverReversedInvoice = useCallback(async () => {
+    if (!token || recovering) return;
+    setRecovering("invoice");
+    try {
+      await recoverInvoice(token);
+      flashToast({ kind: "ok", text: "Cobrança de regularização atualizada." });
+      await load("retry");
+    } catch (err) {
+      if (handleSessionError(err)) return;
+      flashToast({
+        kind: "err",
+        text: err instanceof ApiError ? err.message : "Não foi possível recuperar a cobrança.",
+      });
+    } finally {
+      setRecovering(null);
+    }
+  }, [token, recovering, flashToast, load, handleSessionError]);
+
+  // (Re)emissão da taxa de setup em aberto — cobrança avulsa; sem checkout.
+  const emitSetupCharge = useCallback(async () => {
+    if (!token || recovering) return;
+    setRecovering("setup");
+    try {
+      await createSetupCharge(token);
+      flashToast({ kind: "ok", text: "Taxa de setup emitida — use o link de pagamento." });
+      await load("retry");
+    } catch (err) {
+      if (handleSessionError(err)) return;
+      flashToast({
+        kind: "err",
+        text: err instanceof ApiError ? err.message : "Não foi possível emitir a taxa de setup.",
+      });
+    } finally {
+      setRecovering(null);
+    }
+  }, [token, recovering, flashToast, load, handleSessionError]);
+
   const showSkeleton = loading && !loaded;
 
   // Medidor de porte + upgrade automático (estado ativo).
@@ -249,6 +292,27 @@ export function AssinaturaScreen() {
             >
               Regularizar pagamento
             </a>
+          ) : sub.recoveryInvoiceUrl ? (
+            <a
+              className="btn btn-sm btn-primary"
+              href={sub.recoveryInvoiceUrl}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Pagar cobrança de regularização
+            </a>
+          ) : sub.invoiceReversal ? (
+            // Cobrança estornada/excluída: recuperação ESPECÍFICA — nunca o
+            // checkout genérico (criaria outra assinatura recorrente).
+            <button
+              type="button"
+              className="btn btn-sm btn-primary"
+              onClick={() => void recoverReversedInvoice()}
+              disabled={recovering != null}
+              aria-busy={recovering === "invoice" || undefined}
+            >
+              {recovering === "invoice" ? "Recuperando…" : "Recuperar cobrança"}
+            </button>
           ) : (
             <button
               type="button"
@@ -424,6 +488,22 @@ export function AssinaturaScreen() {
                   <span className="mono num">{BRL.format(setupFee)}</span>
                 )}
               </div>
+              {sub.setupRecoveryRequired ? (
+                <div className="config-row">
+                  <span style={{ color: "var(--muted)" }}>
+                    Setup em aberto sem cobrança ativa
+                  </span>
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    onClick={() => void emitSetupCharge()}
+                    disabled={recovering != null}
+                    aria-busy={recovering === "setup" || undefined}
+                  >
+                    {recovering === "setup" ? "Emitindo…" : "Gerar nova taxa de setup"}
+                  </button>
+                </div>
+              ) : null}
               <div className="config-row">
                 <span style={{ color: "var(--muted)" }}>Custo de LLM</span>
                 <span style={{ color: "var(--muted)" }}>Por conta da igreja (BYO)</span>

@@ -40,16 +40,22 @@ from app.db.rls_observability import log_if_not_scoped
 from app.db.session import get_db
 from app.deps import ADMIN_ROLE, CurrentUser, require_owner
 from app.services.asaas import (
+    MONTHLY_RECOVERY_DESCRIPTION,
     SETUP_CHARGE_DESCRIPTION,
     AsaasClient,
     AsaasError,
     get_asaas_client,
-    is_payment_reversal,
     map_payment_status,
     payment_invoice_url,
+    payment_reversal_kind,
     verify_webhook_token,
 )
-from app.services.billing import get_setup_fee_for_igreja
+from app.services.billing import (
+    ensure_payment_operation,
+    find_open_operation,
+    find_operation_for_payment,
+    get_setup_fee_for_igreja,
+)
 from app.services.evolution import EvolutionClient, EvolutionError, get_evolution_client
 
 logger = logging.getLogger("pastorai.subscription")
@@ -71,9 +77,20 @@ class SubscriptionOut(BaseModel):
     # deve criar outra assinatura no Asaas).
     invoiceUrl: str | None = None  # noqa: N815 - mensalidade
     setupInvoiceUrl: str | None = None  # noqa: N815
+    # Motivo da reversão da cobrança mensal corrente ('deleted'|'refunded') —
+    # a UI decide a AÇÃO específica de recuperação por aqui, nunca pela mera
+    # ausência de invoiceUrl.
+    invoiceReversal: str | None = None  # noqa: N815
+    # Link da cobrança avulsa de recuperação mensal, quando emitida.
+    recoveryInvoiceUrl: str | None = None  # noqa: N815
+    # Setup em aberto SEM link pagável, com assinatura já criada: a UI oferece
+    # "Gerar nova taxa de setup" (operação durável — nunca outra assinatura).
+    setupRecoveryRequired: bool = False  # noqa: N815
 
     @classmethod
-    def from_model(cls, s: Subscription) -> "SubscriptionOut":
+    def from_model(
+        cls, s: Subscription, *, recovery_invoice_url: str | None = None
+    ) -> "SubscriptionOut":
         return cls(
             plano=s.plano,
             status=s.status,
@@ -89,6 +106,13 @@ class SubscriptionOut(BaseModel):
                 else None
             ),
             setupInvoiceUrl=s.asaas_setup_invoice_url if not s.setup_pago else None,
+            invoiceReversal=s.asaas_invoice_reversal,
+            recoveryInvoiceUrl=recovery_invoice_url,
+            setupRecoveryRequired=bool(
+                not s.setup_pago
+                and s.asaas_setup_invoice_url is None
+                and s.asaas_subscription_id
+            ),
         )
 
 
@@ -329,7 +353,7 @@ def _is_stale_cycle_event(sub: Subscription, payment: dict) -> bool:
 
 
 def _apply_monthly_payment_link(
-    sub: Subscription, payment: dict, *, reversal: bool = False
+    sub: Subscription, payment: dict, *, reversal: str | None = None
 ) -> None:
     """Track the CURRENT monthly invoice (id + link) from a payment webhook.
 
@@ -338,8 +362,10 @@ def _apply_monthly_payment_link(
     Stale-cycle ordering is decided by _is_stale_cycle_event BEFORE any
     mutation — by the time this runs, the event is same-cycle (idempotent
     refresh that may only fill a missing link) or a genuinely newer cycle.
-    ``reversal`` (estorno/exclusão) difere de OVERDUE: a fatura deixa de ser
-    pagável, então o link é retido até um novo ciclo válido zerar a flag.
+    ``reversal`` ('deleted'|'refunded') difere de OVERDUE: a fatura deixa de
+    ser pagável — o MOTIVO fica persistido para a recuperação explícita
+    (restore para deleted, cobrança avulsa para refunded) e um novo ciclo
+    válido o limpa.
     """
     incoming_id = str(payment["id"]) if payment.get("id") else None
     if not incoming_id:
@@ -349,8 +375,8 @@ def _apply_monthly_payment_link(
     if sub.asaas_invoice_payment_id == incoming_id:
         if reversal:
             sub.asaas_invoice_url = None
-            sub.asaas_invoice_reversed = True
-        elif not sub.asaas_invoice_url and not sub.asaas_invoice_reversed:
+            sub.asaas_invoice_reversal = reversal
+        elif not sub.asaas_invoice_url and not sub.asaas_invoice_reversal:
             sub.asaas_invoice_url = payment_invoice_url(payment)
         if due is not None:
             sub.proxima_cobranca = due
@@ -360,12 +386,12 @@ def _apply_monthly_payment_link(
     if reversal:
         # Ciclo novo que já chega estornado: rastreia sem expor link.
         sub.asaas_invoice_url = None
-        sub.asaas_invoice_reversed = True
+        sub.asaas_invoice_reversal = reversal
     else:
         # None quando o Asaas ainda não gerou o link — nunca manter a URL
-        # quitada do ciclo anterior à mostra. Ciclo válido zera a retenção.
+        # quitada do ciclo anterior à mostra. Ciclo válido limpa a retenção.
         sub.asaas_invoice_url = payment_invoice_url(payment)
-        sub.asaas_invoice_reversed = False
+        sub.asaas_invoice_reversal = None
     if due is not None:
         sub.proxima_cobranca = due
 
@@ -407,6 +433,85 @@ def _reconcile_legacy_setup_charge(
     return WebhookResponse(received=True, status=new_status)
 
 
+def _apply_setup_charge_event(
+    db: Session, setup_sub: Subscription, new_status: str | None, reversal: str | None
+) -> None:
+    """Trilho da cobrança de setup rastreada. Idempotente por convergência.
+
+    Confirmação marca apenas setup_pago; estorno/exclusão reabre a pendência e
+    derruba vínculo+link da cobrança morta (a reemissão é a ação explícita
+    /subscription/setup-charge). Mensalidade, status da assinatura e acesso da
+    igreja ficam intocados neste trilho.
+    """
+    if new_status == "ativa" and not setup_sub.setup_pago:
+        setup_sub.setup_pago = True
+        db.commit()
+    elif reversal:
+        setup_sub.setup_pago = False
+        setup_sub.asaas_setup_charge_id = None
+        setup_sub.asaas_setup_invoice_url = None
+        db.commit()
+
+
+def _apply_operation_event(
+    db: Session, op, payment: dict, new_status: str | None, reversal: str | None
+) -> WebhookResponse:
+    """Evento de cobrança avulsa nascida de OPERAÇÃO durável.
+
+    O propósito (setup | monthly_recovery) vem da operação — nunca é inferido
+    pelo shape do payload. Convergente para eventos duplicados/fora de ordem.
+    """
+    payment_id = str(payment["id"]) if payment.get("id") else None
+    if op.asaas_payment_id is None and payment_id:
+        # O webhook chegou antes da nossa reconciliação: adota o vínculo.
+        op.asaas_payment_id = payment_id
+    if not reversal and not op.invoice_url:
+        url = payment_invoice_url(payment)
+        if url:
+            op.invoice_url = url
+
+    sub = db.execute(
+        select(Subscription).where(Subscription.id == op.subscription_id)
+    ).scalar_one_or_none()
+    if sub is None:
+        db.commit()
+        return WebhookResponse(received=True, status=new_status)
+
+    if op.purpose == "setup":
+        if new_status == "ativa":
+            op.status = "paid"
+            if not sub.setup_pago:
+                sub.setup_pago = True
+            if not sub.asaas_setup_charge_id and op.asaas_payment_id:
+                sub.asaas_setup_charge_id = op.asaas_payment_id
+        elif reversal:
+            op.status = "reversed"
+            op.invoice_url = None
+            sub.setup_pago = False
+            sub.asaas_setup_charge_id = None
+            sub.asaas_setup_invoice_url = None
+        db.commit()
+        return WebhookResponse(received=True, status=new_status)
+
+    # monthly_recovery: quitação regulariza assinatura e acesso (guarda
+    # atômica no UPDATE condicional, como na mensalidade); nova reversão
+    # mantém a dívida sem expor link inválido.
+    if new_status == "ativa":
+        op.status = "paid"
+        sub.status = "ativa"
+        sub.asaas_invoice_reversal = None  # dívida do ciclo revertido quitada
+        db.execute(
+            update(Igreja)
+            .where(Igreja.id == sub.igreja_id, Igreja.status == "inadimplente")
+            .values(status="ativa")
+        )
+    elif reversal:
+        op.status = "reversed"
+        op.invoice_url = None
+    db.commit()
+    return WebhookResponse(received=True, status=new_status)
+
+
 def _recover_missing_invoice_urls(
     db: Session, sub: Subscription, asaas: AsaasClient
 ) -> None:
@@ -420,9 +525,10 @@ def _recover_missing_invoice_urls(
     monthly_missing = (
         sub.status in ("pendente", "inadimplente")
         and sub.asaas_invoice_url is None
-        # Cobrança estornada/excluída não é recuperável: reapresentar o link
-        # dela não quita nada — espera o próximo ciclo válido.
-        and not sub.asaas_invoice_reversed
+        # Cobrança estornada/excluída não é recuperável por aqui: reapresentar
+        # o link dela não quita nada — a recuperação é a AÇÃO explícita
+        # (restore/cobrança avulsa) ou o próximo ciclo válido.
+        and sub.asaas_invoice_reversal is None
         and bool(sub.asaas_invoice_payment_id or sub.asaas_subscription_id)
     )
     setup_missing = (
@@ -496,58 +602,85 @@ def get_subscription(
     # carregados não expiram no commit. A estrutura (seam) substitui a convenção.
     notify_autoupgrade(db, igreja_uuid, evolution)
     db.refresh(sub)
-    return SubscriptionOut.from_model(sub)
+
+    # Cobrança avulsa de recuperação mensal emitida e em aberto: expõe o link
+    # dela (a mensalidade revertida não tem link pagável próprio).
+    recovery_url: str | None = None
+    if sub.asaas_invoice_reversal:
+        recovery_op = find_open_operation(db, sub.id, "monthly_recovery")
+        if recovery_op is not None:
+            recovery_url = recovery_op.invoice_url
+    return SubscriptionOut.from_model(sub, recovery_invoice_url=recovery_url)
 
 
-def _resume_pending_checkout(
+def _ensure_setup_charge(
+    db: Session, sub: Subscription, asaas: AsaasClient, setup_fee: float
+) -> None:
+    """Emite (ou reconcilia) a cobrança de setup como operação durável.
+
+    Todo POST /payments de setup nasce de uma billing_payment_operation com
+    operation_key exclusiva — resposta perdida é reconciliada no retry, nunca
+    repetida às cegas. O espelho em sub.asaas_setup_charge_id/url mantém o
+    trilho existente de webhook e recovery.
+    """
+    if setup_fee <= 0 or sub.setup_pago or sub.asaas_setup_charge_id:
+        return
+    if not sub.asaas_customer_id:
+        return  # sem customer rastreado não há como emitir a cobrança
+    op = ensure_payment_operation(
+        db,
+        asaas,
+        sub=sub,
+        purpose="setup",
+        valor=setup_fee,
+        description=SETUP_CHARGE_DESCRIPTION,
+        customer_id=sub.asaas_customer_id,
+    )
+    if op.asaas_payment_id:
+        sub.setup_pago = False
+        sub.asaas_setup_charge_id = op.asaas_payment_id
+        sub.asaas_setup_invoice_url = op.invoice_url
+        db.commit()
+
+
+def _resume_tracked_checkout(
     db: Session,
     sub: Subscription,
     asaas: AsaasClient,
     setup_fee: float,
-    external_reference: str,
 ) -> CheckoutResponse:
-    """Retry de um checkout cuja assinatura Asaas JÁ existe e está rastreada.
+    """Retry de checkout do MESMO plano com assinatura Asaas JÁ rastreada.
 
-    Nunca emite outro POST /subscriptions (duplicaria a mensalidade): recupera
-    a fatura corrente por leitura (best-effort) e cria a cobrança de setup
-    somente se ela ainda não existir rastreada.
+    Vale para QUALQUER status (pendente, ativa, inadimplente, revertida):
+    nunca emite outro POST /subscriptions — recupera a fatura corrente por
+    leitura (best-effort) e garante a cobrança de setup via operação durável.
     """
     try:
         payment = asaas.get_subscription_payment(sub.asaas_subscription_id)
     except AsaasError:
         payment = None  # GET /subscription recupera o link depois
     if payment and payment.get("id"):
-        sub.asaas_invoice_payment_id = str(payment["id"])
+        incoming_id = str(payment["id"])
         url = payment_invoice_url(payment)
-        if url:
-            sub.asaas_invoice_url = url
-            sub.asaas_invoice_reversed = False
-        due = _parse_iso_date(payment.get("dueDate"))
-        if due is not None:
-            sub.proxima_cobranca = due
+        # Não ressuscita o link de uma cobrança revertida: só adota quando é
+        # outra cobrança ou quando não há reversão pendente.
+        if incoming_id != sub.asaas_invoice_payment_id or not sub.asaas_invoice_reversal:
+            sub.asaas_invoice_payment_id = incoming_id
+            if url:
+                sub.asaas_invoice_url = url
+                sub.asaas_invoice_reversal = None
+            due = _parse_iso_date(payment.get("dueDate"))
+            if due is not None:
+                sub.proxima_cobranca = due
 
-    if (
-        setup_fee > 0
-        and not sub.setup_pago
-        and not sub.asaas_setup_charge_id
-        and sub.asaas_customer_id
-    ):
-        try:
-            charge = asaas.create_setup_charge(
-                customer_id=sub.asaas_customer_id,
-                valor=setup_fee,
-                external_reference=external_reference,
-            )
-        except AsaasError as exc:
-            db.commit()  # preserva o que a retomada já recuperou
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="Não foi possível criar o checkout no Asaas",
-            ) from exc
-        if charge is not None:
-            sub.setup_pago = False
-            sub.asaas_setup_charge_id = str(charge["id"])
-            sub.asaas_setup_invoice_url = payment_invoice_url(charge)
+    try:
+        _ensure_setup_charge(db, sub, asaas, setup_fee)
+    except AsaasError as exc:
+        db.commit()  # preserva o que a retomada já recuperou
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Não foi possível criar o checkout no Asaas",
+        ) from exc
     db.commit()
 
     return CheckoutResponse(
@@ -587,25 +720,23 @@ def create_checkout(
 
     setup_fee = 0.0 if sub.setup_pago else get_setup_fee_for_igreja(db, igreja)
 
-    # Retry de checkout do MESMO plano com assinatura Asaas já criada e ainda
-    # pendente: retoma em vez de recriar (outro POST /subscriptions geraria
-    # mensalidade duplicada). Troca de plano (plano diferente) segue o fluxo
-    # normal de criação — semântica preservada.
+    # INVARIANTE: mesmo plano + assinatura Asaas já rastreada NUNCA executa
+    # outro POST /subscriptions — em qualquer status (pendente, ativa,
+    # inadimplente ou revertida) o caminho é a retomada. Troca de plano
+    # (plano diferente) segue o fluxo de criação — semântica de produto
+    # preservada (risco da recorrência antiga reportado ao dono à parte).
     if (
         sub.asaas_subscription_id
         and sub.asaas_subscription_id != "sandbox"
         and sub.plano == payload.plano
-        and sub.status in (None, "pendente")
     ):
-        return _resume_pending_checkout(
-            db, sub, asaas, setup_fee, str(igreja_uuid)
-        )
+        return _resume_tracked_checkout(db, sub, asaas, setup_fee)
 
     def _track_created_subscription(customer_id: str, subscription_id: str) -> None:
         # Chamado pelo AsaasClient IMEDIATAMENTE após o POST /subscriptions:
         # persiste o vínculo antes de qualquer outra chamada remota, para uma
-        # falha posterior (lookup/setup) nunca deixar assinatura viva sem
-        # rastreio — um retry retomaria em vez de duplicar.
+        # falha posterior nunca deixar assinatura viva sem rastreio — um retry
+        # retomaria em vez de duplicar.
         sub.plano = payload.plano
         sub.limite = plano_row.limite_pessoas
         sub.status = "pendente"
@@ -619,7 +750,6 @@ def create_checkout(
             email=current_user.email,
             plano=payload.plano,
             valor=float(plano_row.preco_mensal),
-            setup_fee=setup_fee,
             cpf_cnpj=payload.cpfCnpj,
             external_reference=str(igreja_uuid),
             on_subscription_created=_track_created_subscription,
@@ -639,22 +769,178 @@ def create_checkout(
     # they otherwise existed only in the checkout HTTP response.
     sub.asaas_invoice_url = result.invoice_url
     sub.asaas_invoice_payment_id = result.invoice_payment_id
-    sub.asaas_invoice_reversed = False
+    sub.asaas_invoice_reversal = None
     if setup_fee > 0:
         sub.setup_pago = False  # paid only once its own webhook confirms it
-        sub.asaas_setup_charge_id = result.setup_charge_id
-        sub.asaas_setup_invoice_url = result.setup_invoice_url
     else:
         sub.setup_pago = True  # no setup charge was configured for this igreja
         sub.asaas_setup_charge_id = None
         sub.asaas_setup_invoice_url = None
     db.commit()
 
+    if setup_fee > 0:
+        # A taxa de setup nasce como operação durável (retry-safe): a
+        # operation_key foi persistida antes do POST — se a resposta se
+        # perder, o retry reconcilia em vez de duplicar a cobrança.
+        try:
+            _ensure_setup_charge(db, sub, asaas, setup_fee)
+        except AsaasError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Não foi possível criar o checkout no Asaas",
+            ) from exc
+
     return CheckoutResponse(
         status=result.status,
         invoiceUrl=result.invoice_url,
-        setupInvoiceUrl=result.setup_invoice_url,
+        setupInvoiceUrl=sub.asaas_setup_invoice_url if not sub.setup_pago else None,
         asaasSubscriptionId=result.subscription_id,
+    )
+
+
+class RecoveryResponse(BaseModel):
+    """Resultado das ações explícitas de recuperação de cobrança."""
+
+    status: str
+    invoiceUrl: str | None = None  # noqa: N815
+    recoveryInvoiceUrl: str | None = None  # noqa: N815
+    setupInvoiceUrl: str | None = None  # noqa: N815
+
+
+@router.post("/recover-invoice", response_model=RecoveryResponse)
+def recover_invoice(
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_owner),
+    asaas: AsaasClient = Depends(get_asaas_client),
+) -> RecoveryResponse:
+    """Ação EXPLÍCITA de recuperação da mensalidade revertida.
+
+    'deleted': restaura a MESMA cobrança pelo endpoint oficial (consultando
+    antes — restore não é tratado como idempotente). 'refunded': emite a
+    cobrança avulsa de recuperação via operação durável. Nunca cria assinatura.
+    """
+    igreja_uuid = uuid.UUID(current_user.igreja_id)
+    sub = db.execute(
+        select(Subscription).where(Subscription.igreja_id == igreja_uuid)
+    ).scalar_one_or_none()
+    if sub is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assinatura não encontrada")
+    if not sub.asaas_invoice_reversal:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="A cobrança mensal atual não está revertida",
+        )
+
+    if sub.asaas_invoice_reversal == "deleted" and sub.asaas_invoice_payment_id:
+        try:
+            current = asaas.get_payment(sub.asaas_invoice_payment_id)
+            if current is not None and current.get("deleted"):
+                # Ainda excluída: restaura o MESMO payment id (sem nova cobrança).
+                asaas.restore_payment(sub.asaas_invoice_payment_id)
+                current = asaas.get_payment(sub.asaas_invoice_payment_id)
+        except AsaasError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Não foi possível recuperar a cobrança no Asaas",
+            ) from exc
+        if current is not None and not current.get("deleted"):
+            sub.asaas_invoice_url = payment_invoice_url(current)
+            sub.asaas_invoice_reversal = None
+            new_status = map_payment_status(current.get("status"))
+            if new_status is not None:
+                sub.status = new_status
+            db.commit()
+        return RecoveryResponse(
+            status=sub.status or "pendente", invoiceUrl=sub.asaas_invoice_url
+        )
+
+    # 'refunded' (ou deleted sem payment id rastreado): cobrança estornada não
+    # volta — emite a cobrança avulsa de RECUPERAÇÃO via operação durável.
+    if not sub.asaas_customer_id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Assinatura sem cliente Asaas rastreado",
+        )
+    plano_row = _plano_ativo_or_422(db, sub.plano)
+    try:
+        op = ensure_payment_operation(
+            db,
+            asaas,
+            sub=sub,
+            purpose="monthly_recovery",
+            valor=float(plano_row.preco_mensal),
+            description=MONTHLY_RECOVERY_DESCRIPTION,
+            customer_id=sub.asaas_customer_id,
+            source_payment_id=sub.asaas_invoice_payment_id,
+        )
+    except AsaasError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Não foi possível recuperar a cobrança no Asaas",
+        ) from exc
+    return RecoveryResponse(
+        status=sub.status or "inadimplente",
+        recoveryInvoiceUrl=op.invoice_url,
+    )
+
+
+@router.post("/setup-charge", response_model=RecoveryResponse)
+def create_setup_charge_action(
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_owner),
+    asaas: AsaasClient = Depends(get_asaas_client),
+) -> RecoveryResponse:
+    """Ação EXPLÍCITA de (re)emissão da taxa de setup em aberto.
+
+    Usada quando o setup está devido mas sem link pagável (ex.: cobrança
+    revertida). Cria/reconcilia SOMENTE uma operação `setup` — nunca chama
+    POST /subscriptions.
+    """
+    igreja_uuid = uuid.UUID(current_user.igreja_id)
+    igreja = db.execute(
+        select(Igreja).where(Igreja.id == igreja_uuid)
+    ).scalar_one_or_none()
+    if igreja is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Igreja não encontrada")
+    sub = db.execute(
+        select(Subscription).where(Subscription.igreja_id == igreja_uuid)
+    ).scalar_one_or_none()
+    if sub is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assinatura não encontrada")
+    if sub.setup_pago:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="A taxa de setup já está quitada",
+        )
+    if sub.asaas_setup_invoice_url:
+        return RecoveryResponse(
+            status=sub.status or "pendente",
+            setupInvoiceUrl=sub.asaas_setup_invoice_url,
+        )
+
+    setup_fee = get_setup_fee_for_igreja(db, igreja)
+    if setup_fee <= 0:
+        # Isenta pela configuração vigente: nada a cobrar.
+        sub.setup_pago = True
+        sub.asaas_setup_charge_id = None
+        sub.asaas_setup_invoice_url = None
+        db.commit()
+        return RecoveryResponse(status=sub.status or "pendente")
+
+    # Reemissão pós-reversão: derruba o espelho antigo para a operação criar a
+    # cobrança substituta (a informação da cobrança revertida vive na operação
+    # anterior e no histórico do webhook).
+    sub.asaas_setup_charge_id = None
+    try:
+        _ensure_setup_charge(db, sub, asaas, setup_fee)
+    except AsaasError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Não foi possível emitir a taxa de setup no Asaas",
+        ) from exc
+    return RecoveryResponse(
+        status=sub.status or "pendente",
+        setupInvoiceUrl=sub.asaas_setup_invoice_url,
     )
 
 
@@ -724,25 +1010,27 @@ def asaas_webhook(
     new_status = map_payment_status(raw_status)
 
     payment_id = str(payment["id"]) if payment.get("id") else None
-    reversal = is_payment_reversal(raw_status)
+    reversal = payment_reversal_kind(raw_status)
+
+    # PROPÓSITO EXPLÍCITO primeiro: cobranças avulsas nascidas de operações
+    # duráveis são resolvidas pela operação (asaas_payment_id ou operation_key
+    # na externalReference) — nunca inferidas pela ausência de
+    # payment.subscription no payload.
+    if payment:
+        op = find_operation_for_payment(
+            db,
+            payment_id=payment_id,
+            external_reference=payment.get("externalReference"),
+        )
+        if op is not None:
+            return _apply_operation_event(db, op, payment, new_status, reversal)
+
     if payment_id:
         setup_sub = db.execute(
             select(Subscription).where(Subscription.asaas_setup_charge_id == payment_id)
         ).scalar_one_or_none()
         if setup_sub is not None:
-            if new_status == "ativa" and not setup_sub.setup_pago:
-                setup_sub.setup_pago = True
-                db.commit()
-            elif reversal:
-                # Estorno/exclusão da taxa de setup: reabre a pendência e
-                # derruba o vínculo — a cobrança revertida não existe mais
-                # para pagamento; o próximo checkout cria (e cobra) uma nova.
-                # Mensalidade, status da assinatura e acesso da igreja ficam
-                # intocados neste trilho.
-                setup_sub.setup_pago = False
-                setup_sub.asaas_setup_charge_id = None
-                setup_sub.asaas_setup_invoice_url = None
-                db.commit()
+            _apply_setup_charge_event(db, setup_sub, new_status, reversal)
             return WebhookResponse(received=True, status=new_status)
 
     # A payment without an Asaas subscription can only be a setup charge.

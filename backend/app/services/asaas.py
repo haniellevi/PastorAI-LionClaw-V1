@@ -27,6 +27,8 @@ MIN_UNDEFINED_PAYMENT_VALUE = 5.0
 # Descrição EXATA da cobrança avulsa de setup — também é o critério de
 # reconciliação de setups legados no webhook (registros pré-migration).
 SETUP_CHARGE_DESCRIPTION = "PastorAI — taxa de setup"
+# Cobrança avulsa que recupera uma mensalidade ESTORNADA (nunca uma assinatura).
+MONTHLY_RECOVERY_DESCRIPTION = "PastorAI — recuperação de mensalidade"
 
 # Map Asaas event/payment status to our subscription_status enum (RF-42).
 _STATUS_MAP = {
@@ -58,15 +60,21 @@ def map_payment_status(raw_status: str | None) -> str | None:
 
 
 # Estorno/cancelamento: a cobrança deixa de existir para pagamento — diferente
-# de OVERDUE (atrasada, mas ainda pagável pela mesma fatura).
-_REVERSAL_STATUSES = {"REFUNDED", "PAYMENT_REFUNDED", "DELETED", "PAYMENT_DELETED"}
+# de OVERDUE (atrasada, mas ainda pagável pela mesma fatura). O TIPO importa:
+# 'deleted' permite restaurar a mesma cobrança; 'refunded' não.
+_REVERSAL_KINDS = {
+    "REFUNDED": "refunded",
+    "PAYMENT_REFUNDED": "refunded",
+    "DELETED": "deleted",
+    "PAYMENT_DELETED": "deleted",
+}
 
 
-def is_payment_reversal(raw_status: str | None) -> bool:
-    """True quando o evento/status indica estorno ou exclusão da cobrança."""
+def payment_reversal_kind(raw_status: str | None) -> str | None:
+    """'refunded' | 'deleted' quando o evento/status indica reversão; senão None."""
     if not raw_status:
-        return False
-    return raw_status.strip().upper() in _REVERSAL_STATUSES
+        return None
+    return _REVERSAL_KINDS.get(raw_status.strip().upper())
 
 
 def verify_webhook_token(expected: str, provided: str | None) -> bool:
@@ -90,13 +98,16 @@ class AsaasError(Exception):
 
 @dataclass(frozen=True)
 class CheckoutResult:
-    """Outcome of creating a subscription checkout."""
+    """Outcome of creating a subscription checkout.
+
+    A taxa de setup NÃO é criada aqui: ela nasce como operação durável
+    (billing_payment_operations) no router, com externalReference exclusiva —
+    retry-safe por reconciliação.
+    """
 
     customer_id: str
     subscription_id: str
-    setup_charge_id: str | None
     invoice_url: str | None
-    setup_invoice_url: str | None
     status: str  # ativa | pendente | inadimplente
     # ID da primeira cobrança mensal (quando o Asaas já a gerou) — persistido
     # para recuperar/atualizar o link por cobrança exata nos ciclos seguintes.
@@ -131,30 +142,25 @@ class AsaasClient:
         plano: str,
         valor: float,
         ciclo: str = "MONTHLY",
-        setup_fee: float | None = None,
         cpf_cnpj: str | None = None,
         external_reference: str | None = None,
         on_subscription_created: Callable[[str, str], None] | None = None,
     ) -> CheckoutResult:
-        """Create (or reuse) a customer and open a subscription + setup charge.
-
-        The setup fee is charged as a one-time payment alongside the recurring
-        subscription. Both are created via the official Asaas v3 endpoints.
+        """Create (or reuse) a customer and open the recurring subscription.
 
         ``on_subscription_created(customer_id, subscription_id)`` is invoked
         IMMEDIATELY after the subscription POST succeeds, before any further
         remote call — the caller persists the tracking there, so a later
-        failure (invoice lookup, setup charge) can never leave a live Asaas
-        subscription without a local link (a retry would duplicate it).
+        failure can never leave a live Asaas subscription without a local link
+        (a retry would duplicate it). A taxa de setup NÃO é criada aqui: o
+        router a emite como operação durável retry-safe.
         """
         if not external_sends_allowed(self._settings):
             log_suppressed("Asaas", "create_checkout")
             return CheckoutResult(
                 customer_id="sandbox",
                 subscription_id="sandbox",
-                setup_charge_id=None,
                 invoice_url=None,
-                setup_invoice_url=None,
                 status="pendente",
                 invoice_payment_id=None,
             )
@@ -162,9 +168,6 @@ class AsaasClient:
             raise AsaasError("CPF ou CNPJ é obrigatório para o checkout")
         base_url, api_key = self._require_config()
         headers = self._headers(api_key)
-        fee = self._settings.asaas_setup_fee if setup_fee is None else setup_fee
-        if 0 < fee < MIN_UNDEFINED_PAYMENT_VALUE:
-            raise AsaasError("A taxa de setup precisa ser de pelo menos R$ 5,00")
 
         try:
             with httpx.Client(base_url=base_url, timeout=20.0) as client:
@@ -195,18 +198,6 @@ class AsaasClient:
                         "Asaas first-payment lookup failed; continuing without link"
                     )
                     monthly_payment = None
-                setup_charge_id: str | None = None
-                setup_invoice_url: str | None = None
-                if fee and fee > 0:
-                    setup_charge = self._create_setup_charge(
-                        client,
-                        headers,
-                        customer_id=customer_id,
-                        valor=fee,
-                        external_reference=external_reference,
-                    )
-                    setup_charge_id = str(setup_charge["id"])
-                    setup_invoice_url = payment_invoice_url(setup_charge)
         except httpx.HTTPError as exc:
             logger.warning("Asaas checkout failed: %s", type(exc).__name__)
             raise AsaasError("Falha ao criar checkout no Asaas") from exc
@@ -220,9 +211,7 @@ class AsaasClient:
         return CheckoutResult(
             customer_id=customer_id,
             subscription_id=subscription_id,
-            setup_charge_id=setup_charge_id,
             invoice_url=payment_invoice_url(monthly_payment),
-            setup_invoice_url=setup_invoice_url,
             status=status,
             invoice_payment_id=(
                 str(monthly_payment["id"])
@@ -261,51 +250,81 @@ class AsaasClient:
         """Public payment page of a subscription's first charge (read-only)."""
         return payment_invoice_url(self.get_subscription_payment(subscription_id))
 
-    def create_setup_charge(
+    def create_one_time_charge(
         self,
         *,
         customer_id: str,
         valor: float,
-        external_reference: str | None,
+        description: str,
+        external_reference: str,
     ) -> dict | None:
-        """One-time setup charge on an EXISTING customer (checkout resume).
+        """One-time charge (setup / recuperação mensal) on an EXISTING customer.
 
-        Used when a previous checkout created the subscription but failed
-        before the setup charge existed — the retry must not recreate the
-        subscription, only the missing charge. Returns None when external
-        sends are sandboxed.
+        SEMPRE chamado por uma operação durável: ``external_reference`` é a
+        operation_key exclusiva persistida antes do POST — o retry reconcilia
+        por ela em vez de repetir a chamada. Returns None when external sends
+        are sandboxed.
         """
         if not external_sends_allowed(self._settings):
-            log_suppressed("Asaas", "create_setup_charge")
+            log_suppressed("Asaas", "create_one_time_charge")
             return None
         if 0 < valor < MIN_UNDEFINED_PAYMENT_VALUE:
-            raise AsaasError("A taxa de setup precisa ser de pelo menos R$ 5,00")
+            raise AsaasError("A cobrança precisa ser de pelo menos R$ 5,00")
         base_url, api_key = self._require_config()
         headers = self._headers(api_key)
         try:
             with httpx.Client(base_url=base_url, timeout=20.0) as client:
-                return self._create_setup_charge(
+                return self._create_one_time_charge(
                     client,
                     headers,
                     customer_id=customer_id,
                     valor=valor,
+                    description=description,
                     external_reference=external_reference,
                 )
         except httpx.HTTPError as exc:
-            logger.warning("Asaas setup charge failed: %s", type(exc).__name__)
-            raise AsaasError("Falha ao criar a cobrança de setup no Asaas") from exc
+            logger.warning("Asaas one-time charge failed: %s", type(exc).__name__)
+            raise AsaasError("Falha ao criar a cobrança no Asaas") from exc
         except (ValueError, KeyError) as exc:
             logger.warning("Unexpected Asaas response shape")
             raise AsaasError("Resposta inesperada do Asaas") from exc
 
-    def get_payment_invoice_url(self, payment_id: str) -> str | None:
-        """Re-read the public payment page of an existing one-time charge.
+    def find_payments_by_external_reference(self, external_reference: str) -> list[dict]:
+        """All payments carrying this externalReference (reconciliation).
 
-        Read-only recovery path for the setup fee — looks up by the stored
-        charge id, never creates a new payment.
+        Read-only: é o caminho de RECONCILIAÇÃO das operações duráveis — uma
+        resposta perdida de POST /payments é resolvida procurando a cobrança
+        pela operation_key, nunca repetindo o POST às cegas.
         """
         if not external_sends_allowed(self._settings):
-            log_suppressed("Asaas", "get_payment_invoice_url")
+            log_suppressed("Asaas", "find_payments_by_external_reference")
+            return []
+        base_url, api_key = self._require_config()
+        headers = self._headers(api_key)
+        try:
+            with httpx.Client(base_url=base_url, timeout=20.0) as client:
+                resp = client.get(
+                    "/payments",
+                    headers=headers,
+                    params={"externalReference": external_reference},
+                )
+                resp.raise_for_status()
+                body = resp.json()
+        except httpx.HTTPError as exc:
+            logger.warning("Asaas payment search failed: %s", type(exc).__name__)
+            raise AsaasError("Falha ao consultar cobranças no Asaas") from exc
+        except (ValueError, KeyError) as exc:
+            logger.warning("Unexpected Asaas response shape")
+            raise AsaasError("Resposta inesperada do Asaas") from exc
+        payments = body.get("data") if isinstance(body, dict) else None
+        if not isinstance(payments, list):
+            return []
+        return [p for p in payments if isinstance(p, dict)]
+
+    def get_payment(self, payment_id: str) -> dict | None:
+        """Full payload of an existing payment (read-only)."""
+        if not external_sends_allowed(self._settings):
+            log_suppressed("Asaas", "get_payment")
             return None
         base_url, api_key = self._require_config()
         headers = self._headers(api_key)
@@ -320,7 +339,36 @@ class AsaasClient:
         except (ValueError, KeyError) as exc:
             logger.warning("Unexpected Asaas response shape")
             raise AsaasError("Resposta inesperada do Asaas") from exc
-        return payment_invoice_url(body if isinstance(body, dict) else None)
+        return body if isinstance(body, dict) else None
+
+    def get_payment_invoice_url(self, payment_id: str) -> str | None:
+        """Public payment page of an existing one-time charge (read-only)."""
+        return payment_invoice_url(self.get_payment(payment_id))
+
+    def restore_payment(self, payment_id: str) -> dict | None:
+        """Restore a DELETED payment via the official endpoint.
+
+        Only meaningful for excluded (not refunded) charges. The caller checks
+        the current payment state first — restore is NOT assumed idempotent.
+        Returns None when external sends are sandboxed.
+        """
+        if not external_sends_allowed(self._settings):
+            log_suppressed("Asaas", "restore_payment")
+            return None
+        base_url, api_key = self._require_config()
+        headers = self._headers(api_key)
+        try:
+            with httpx.Client(base_url=base_url, timeout=20.0) as client:
+                resp = client.post(f"/payments/{payment_id}/restore", headers=headers)
+                resp.raise_for_status()
+                body = resp.json()
+        except httpx.HTTPError as exc:
+            logger.warning("Asaas payment restore failed: %s", type(exc).__name__)
+            raise AsaasError("Falha ao restaurar a cobrança no Asaas") from exc
+        except (ValueError, KeyError) as exc:
+            logger.warning("Unexpected Asaas response shape")
+            raise AsaasError("Resposta inesperada do Asaas") from exc
+        return body if isinstance(body, dict) else None
 
     # ---- helpers ------------------------------------------------------------
     def _ensure_customer(
@@ -393,25 +441,25 @@ class AsaasClient:
         payment = payments[0]
         return payment if isinstance(payment, dict) else None
 
-    def _create_setup_charge(
+    def _create_one_time_charge(
         self,
         client: httpx.Client,
         headers: dict[str, str],
         *,
         customer_id: str,
         valor: float,
-        external_reference: str | None,
+        description: str,
+        external_reference: str,
     ) -> dict:
-        """One-time setup fee charged as a single payment."""
+        """One-time charge (setup / monthly recovery) as a single payment."""
         payload: dict[str, object] = {
             "customer": customer_id,
             "billingType": "UNDEFINED",
             "value": valor,
             "dueDate": dt.date.today().isoformat(),
-            "description": SETUP_CHARGE_DESCRIPTION,
+            "description": description,
+            "externalReference": external_reference,
         }
-        if external_reference:
-            payload["externalReference"] = external_reference
         resp = client.post("/payments", headers=headers, json=payload)
         resp.raise_for_status()
         return resp.json()

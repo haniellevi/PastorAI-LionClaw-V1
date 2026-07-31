@@ -3,11 +3,20 @@ import { act, createElement as h } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { expireSession, fetchPlanCatalog, fetchSubscription, createCheckout } = vi.hoisted(() => ({
+const {
+  expireSession,
+  fetchPlanCatalog,
+  fetchSubscription,
+  createCheckout,
+  recoverInvoice,
+  createSetupCharge,
+} = vi.hoisted(() => ({
   expireSession: vi.fn(),
   fetchPlanCatalog: vi.fn(),
   fetchSubscription: vi.fn(),
   createCheckout: vi.fn(),
+  recoverInvoice: vi.fn(),
+  createSetupCharge: vi.fn(),
 }));
 
 vi.mock("@/lib/auth-context", () => ({
@@ -19,8 +28,10 @@ vi.mock("@/lib/subscription-api", async (importOriginal) => {
   return {
     ...actual,
     createCheckout,
+    createSetupCharge,
     fetchPlanCatalog,
     fetchSubscription,
+    recoverInvoice,
   };
 });
 
@@ -55,6 +66,8 @@ beforeEach(() => {
   fetchPlanCatalog.mockReset();
   fetchSubscription.mockReset();
   createCheckout.mockReset();
+  recoverInvoice.mockReset();
+  createSetupCharge.mockReset();
   fetchSubscription.mockRejectedValue(new NoSubscriptionError());
   fetchPlanCatalog.mockResolvedValue({
     setupFee: 59.9,
@@ -211,6 +224,117 @@ describe("AssinaturaScreen — links do checkout", () => {
       plano: "101_200",
       cpfCnpj: "24971563792",
     });
+  });
+
+  it("mensalidade REVERTIDA usa a ação específica de recuperação, nunca createCheckout", async () => {
+    fetchSubscription.mockResolvedValue({
+      plano: "ate_100",
+      status: "inadimplente",
+      pessoas: 10,
+      limite: 100,
+      proximaCobranca: null,
+      setupPago: true,
+      invoiceUrl: null,
+      setupInvoiceUrl: null,
+      invoiceReversal: "refunded",
+      recoveryInvoiceUrl: null,
+      setupRecoveryRequired: false,
+    });
+    recoverInvoice.mockResolvedValue({
+      status: "inadimplente",
+      invoiceUrl: null,
+      recoveryInvoiceUrl: "https://asaas.test/recovery",
+      setupInvoiceUrl: null,
+    });
+
+    act(() => root.render(h(AssinaturaScreen)));
+    await flush();
+
+    const recuperar = [...container.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Recuperar cobrança"),
+    )!;
+    expect(recuperar).toBeDefined();
+    act(() => recuperar.click());
+    await flush();
+
+    expect(recoverInvoice).toHaveBeenCalledTimes(1);
+    expect(createCheckout).not.toHaveBeenCalled();
+  });
+
+  it("cobrança de regularização emitida vira link direto no aviso de atraso", async () => {
+    fetchSubscription.mockResolvedValue({
+      plano: "ate_100",
+      status: "inadimplente",
+      pessoas: 10,
+      limite: 100,
+      proximaCobranca: null,
+      setupPago: true,
+      invoiceUrl: null,
+      setupInvoiceUrl: null,
+      invoiceReversal: "refunded",
+      recoveryInvoiceUrl: "https://asaas.test/recovery",
+      setupRecoveryRequired: false,
+    });
+
+    act(() => root.render(h(AssinaturaScreen)));
+    await flush();
+
+    const link = [...container.querySelectorAll("a")].find((a) =>
+      a.textContent?.includes("Pagar cobrança de regularização"),
+    );
+    expect(link?.getAttribute("href")).toBe("https://asaas.test/recovery");
+    expect(createCheckout).not.toHaveBeenCalled();
+    expect(recoverInvoice).not.toHaveBeenCalled();
+  });
+
+  it("setup em aberto sem cobrança: 'Gerar nova taxa de setup' emite sem checkout e bloqueia clique duplo", async () => {
+    fetchSubscription.mockResolvedValue({
+      plano: "ate_100",
+      status: "ativa",
+      pessoas: 10,
+      limite: 100,
+      proximaCobranca: null,
+      setupPago: false,
+      invoiceUrl: null,
+      setupInvoiceUrl: null,
+      invoiceReversal: null,
+      recoveryInvoiceUrl: null,
+      setupRecoveryRequired: true,
+    });
+    let resolveCharge: (value: unknown) => void = () => {};
+    createSetupCharge.mockReturnValue(
+      new Promise((resolve) => {
+        resolveCharge = resolve;
+      }),
+    );
+
+    act(() => root.render(h(AssinaturaScreen)));
+    await flush();
+
+    const gerar = [...container.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Gerar nova taxa de setup"),
+    )!;
+    expect(gerar).toBeDefined();
+    act(() => gerar.click());
+    await flush();
+
+    // Em andamento: botão desabilitado — clique duplo não dispara segunda emissão.
+    const emitindo = [...container.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Emitindo…"),
+    )!;
+    expect(emitindo.disabled).toBe(true);
+    act(() => emitindo.click());
+    await flush();
+    expect(createSetupCharge).toHaveBeenCalledTimes(1);
+    expect(createCheckout).not.toHaveBeenCalled();
+
+    resolveCharge({
+      status: "ativa",
+      invoiceUrl: null,
+      recoveryInvoiceUrl: null,
+      setupInvoiceUrl: "https://asaas.test/setup-novo",
+    });
+    await flush();
   });
 
   it("inadimplente sem link: o fallback continua sendo o botão de regularização", async () => {

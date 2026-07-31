@@ -1187,14 +1187,51 @@ class Subscription(Base):
     # ID Asaas da cobrança mensal do CICLO CORRENTE — atualizado a cada webhook
     # de fatura, para o link nunca apontar para uma mensalidade já quitada.
     asaas_invoice_payment_id: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # True quando a cobrança mensal corrente foi estornada/excluída no Asaas:
-    # o link dela é inutilizável e o recovery não deve reapresentá-lo; um novo
-    # ciclo válido zera a flag.
-    asaas_invoice_reversed: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default=text("false")
-    )
+    # Motivo da reversão da cobrança mensal corrente ('deleted'|'refunded',
+    # NULL = sem reversão): o link dela é inutilizável e o recovery não deve
+    # reapresentá-lo. 'deleted' permite restaurar a MESMA cobrança no Asaas;
+    # 'refunded' exige cobrança avulsa de recuperação. Ciclo novo válido limpa.
+    asaas_invoice_reversal: Mapped[str | None] = mapped_column(Text, nullable=True)
     setup_pago: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false")
+    )
+
+
+class BillingPaymentOperation(Base):
+    """Operação durável de cobrança avulsa (setup / recuperação de mensalidade).
+
+    A ``operation_key`` é persistida ANTES do POST /payments e vira a
+    externalReference exclusiva da cobrança no Asaas: um retry reconcilia pela
+    chave (GET /payments?externalReference=...) em vez de repetir o POST às
+    cegas — resposta perdida nunca duplica cobrança. O índice único parcial
+    (subscription_id, purpose) sobre estados abertos faz o claim atômico entre
+    requests concorrentes.
+    """
+
+    __tablename__ = "billing_payment_operations"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    subscription_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("subscriptions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    purpose: Mapped[str] = mapped_column(Text, nullable=False)  # setup | monthly_recovery
+    operation_key: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    # Cobrança original revertida que motivou esta operação (quando houver).
+    source_payment_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    asaas_payment_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # prepared | creating | reconciling | created | paid | reversed | failed
+    status: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'prepared'")
+    )
+    valor: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
+    invoice_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
 
 

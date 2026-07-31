@@ -35,10 +35,16 @@ export interface Subscription {
   limite: number | null;
   proximaCobranca: string | null;
   setupPago: boolean;
-  /** Link da fatura da mensalidade — presente só enquanto `pendente`. */
+  /** Link da fatura da mensalidade — presente enquanto pendente/vencida. */
   invoiceUrl: string | null;
   /** Link da cobrança de setup — presente só enquanto o setup não foi pago. */
   setupInvoiceUrl: string | null;
+  /** Motivo da reversão da cobrança mensal atual ('deleted'|'refunded'). */
+  invoiceReversal: "deleted" | "refunded" | null;
+  /** Link da cobrança avulsa de recuperação mensal, quando emitida. */
+  recoveryInvoiceUrl: string | null;
+  /** Setup devido sem link pagável: a UI oferece gerar nova taxa. */
+  setupRecoveryRequired: boolean;
 }
 
 export interface CheckoutResult {
@@ -144,4 +150,38 @@ export async function createCheckout(
     throw new ApiError(res.status, detail ?? "Não foi possível iniciar o checkout.");
   }
   return (await res.json()) as CheckoutResult;
+}
+
+/** Resultado das ações explícitas de recuperação de cobrança. */
+export interface RecoveryResult {
+  status: string;
+  invoiceUrl: string | null;
+  recoveryInvoiceUrl: string | null;
+  setupInvoiceUrl: string | null;
+}
+
+/** Recupera a mensalidade REVERTIDA (restore da excluída ou cobrança avulsa de
+ * recuperação da estornada) — nunca cria assinatura nem passa por checkout. */
+export async function recoverInvoice(token: string): Promise<RecoveryResult> {
+  const res = await authedFetch(token, "/subscription/recover-invoice", {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível recuperar a cobrança.");
+  }
+  return (await res.json()) as RecoveryResult;
+}
+
+/** (Re)emite a taxa de setup em aberto como cobrança avulsa — nunca cria
+ * assinatura nem passa pelo checkout. */
+export async function createSetupCharge(token: string): Promise<RecoveryResult> {
+  const res = await authedFetch(token, "/subscription/setup-charge", {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível emitir a taxa de setup.");
+  }
+  return (await res.json()) as RecoveryResult;
 }

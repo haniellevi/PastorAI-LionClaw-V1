@@ -33,6 +33,7 @@ _HDR = {"asaas-access-token": _TOKEN}
 
 def _sub(**over):
     base = dict(
+        id="local-sub-1",
         igreja_id=_IGREJA_ID,
         plano="ate_100",
         status="ativa",
@@ -41,7 +42,7 @@ def _sub(**over):
         asaas_setup_charge_id=None,
         asaas_invoice_payment_id=None,
         asaas_invoice_url=None,
-        asaas_invoice_reversed=False,
+        asaas_invoice_reversal=None,
         asaas_setup_invoice_url=None,
         proxima_cobranca=None,
     )
@@ -74,16 +75,36 @@ class _WebhookDb:
     `subscriptions.igreja_id` em ambas as queries.
     """
 
-    def __init__(self, sub=None, igreja=None, legacy_candidates=None) -> None:
+    def __init__(
+        self, sub=None, igreja=None, legacy_candidates=None, operations=None
+    ) -> None:
         self.sub = sub
         self.igreja = igreja
         # Reconciliação de setup legado: assinaturas retornadas pelo select por
         # asaas_customer_id (o fake reaplica o WHERE real da query).
         self.legacy_candidates = legacy_candidates or []
+        # Operações duráveis (setup / monthly_recovery) visíveis ao webhook.
+        self.operations = operations or []
         self.commits = 0
 
     def execute(self, statement, params=None) -> _Result:
         bound = statement.compile().params
+        # Operações duráveis: resolvidas por asaas_payment_id OU operation_key.
+        for key, value in bound.items():
+            if key.startswith("asaas_payment_id") or key.startswith("operation_key"):
+                for op in self.operations:
+                    if str(getattr(op, "asaas_payment_id", None)) == str(value) or str(
+                        getattr(op, "operation_key", None)
+                    ) == str(value):
+                        return _Result(op)
+                return _Result(None)
+        # Subscription por id (dispatch do evento de operação).
+        if not isinstance(statement, Update):
+            sub_id = bound.get("id_1")
+            if sub_id is not None and self.sub is not None and str(sub_id) == str(
+                getattr(self.sub, "id", None)
+            ):
+                return _Result(self.sub)
         if any(key.startswith("asaas_customer_id") for key in bound):
             customer = next(
                 value for key, value in bound.items()
@@ -650,6 +671,110 @@ def test_legacy_setup_rejects_wrong_description_missing_customer_or_ambiguity(
 
 
 # ---------------------------------------------------------------------------
+# Cobranças de OPERAÇÃO durável (setup / monthly_recovery): o propósito vem da
+# operação — nunca do shape do payload.
+# ---------------------------------------------------------------------------
+def _operation(**over):
+    base = dict(
+        subscription_id="local-sub-1",
+        purpose="monthly_recovery",
+        operation_key="pastorai-monthly_recovery-op1",
+        source_payment_id="pay_m2",
+        asaas_payment_id="pay_rec_1",
+        status="created",
+        valor=199.0,
+        invoice_url="https://asaas.test/recovery",
+    )
+    base.update(over)
+    return SimpleNamespace(**base)
+
+
+def test_recovery_charge_confirmation_regularizes_access_not_setup(
+    app, monkeypatch
+) -> None:
+    op = _operation()
+    db = _WebhookDb(
+        sub=_sub(
+            status="inadimplente",
+            setup_pago=False,  # setup segue devido — recovery NÃO o quita
+            asaas_invoice_payment_id="pay_m2",
+            asaas_invoice_url=None,
+            asaas_invoice_reversal="refunded",
+        ),
+        igreja=_igreja("inadimplente"),
+        operations=[op],
+    )
+    client = _client(app, db, monkeypatch)
+    payment = _payment(status="CONFIRMED", subscription=None, payment_id="pay_rec_1")
+    payment["externalReference"] = op.operation_key
+
+    for _ in range(2):  # evento repetido permanece idempotente
+        resp = _post(client, "PAYMENT_CONFIRMED", payment)
+        assert resp.json() == {"received": True, "status": "ativa"}
+        assert op.status == "paid"
+        assert db.sub.status == "ativa"
+        assert db.sub.asaas_invoice_reversal is None  # dívida quitada
+        assert db.igreja.status == "ativa"  # guarda atômica reativa a igreja
+        assert db.sub.setup_pago is False  # recovery NUNCA é confundida com setup
+
+
+def test_recovery_charge_reversal_keeps_debt_without_link(app, monkeypatch) -> None:
+    op = _operation()
+    db = _WebhookDb(
+        sub=_sub(
+            status="inadimplente",
+            asaas_invoice_payment_id="pay_m2",
+            asaas_invoice_url=None,
+            asaas_invoice_reversal="refunded",
+        ),
+        igreja=_igreja("inadimplente"),
+        operations=[op],
+    )
+    client = _client(app, db, monkeypatch)
+    payment = _payment(status="REFUNDED", subscription=None, payment_id="pay_rec_1")
+
+    resp = _post(client, "PAYMENT_REFUNDED", payment)
+
+    assert resp.status_code == 200
+    assert op.status == "reversed"
+    assert op.invoice_url is None  # link inválido não volta para a tela
+    assert db.sub.status == "inadimplente"  # dívida permanece
+    assert db.sub.asaas_invoice_reversal == "refunded"
+    assert db.igreja.status == "inadimplente"
+
+
+def test_setup_operation_resolved_by_operation_key_marks_paid(app, monkeypatch) -> None:
+    # Webhook chega ANTES da nossa reconciliação (op ainda sem payment id):
+    # a operação é resolvida pela operation_key na externalReference.
+    op = _operation(
+        purpose="setup",
+        operation_key="pastorai-setup-op9",
+        asaas_payment_id=None,
+        status="creating",
+        valor=59.9,
+        invoice_url=None,
+        source_payment_id=None,
+    )
+    db = _WebhookDb(
+        sub=_sub(status="pendente", setup_pago=False),
+        igreja=_igreja("aguardando_aprovacao"),
+        operations=[op],
+    )
+    client = _client(app, db, monkeypatch)
+    payment = _payment(status="CONFIRMED", subscription=None, payment_id="pay_setup_9")
+    payment["externalReference"] = "pastorai-setup-op9"
+
+    resp = _post(client, "PAYMENT_CONFIRMED", payment)
+
+    assert resp.json() == {"received": True, "status": "ativa"}
+    assert op.asaas_payment_id == "pay_setup_9"  # vínculo adotado do webhook
+    assert op.status == "paid"
+    assert db.sub.setup_pago is True
+    assert db.sub.status == "pendente"  # mensalidade intocada
+    assert db.igreja.status == "aguardando_aprovacao"  # acesso intocado
+
+
+# ---------------------------------------------------------------------------
 # Reversões (review 4): estorno/exclusão difere de atraso — a cobrança deixa
 # de existir para pagamento.
 # ---------------------------------------------------------------------------
@@ -724,7 +849,7 @@ def test_monthly_refund_withholds_link_until_next_cycle(app, monkeypatch) -> Non
 
     assert refund.json()["status"] == "inadimplente"
     assert db.sub.asaas_invoice_url is None  # link estornado retido
-    assert db.sub.asaas_invoice_reversed is True
+    assert db.sub.asaas_invoice_reversal == "refunded"  # MOTIVO persistido
     assert db.sub.asaas_invoice_payment_id == "pay_m2"
 
     # Novo ciclo VÁLIDO restaura o comportamento normal do link.
@@ -742,7 +867,7 @@ def test_monthly_refund_withholds_link_until_next_cycle(app, monkeypatch) -> Non
     assert created.json()["status"] == "pendente"
     assert db.sub.asaas_invoice_payment_id == "pay_m3"
     assert db.sub.asaas_invoice_url == "https://asaas.test/m3"
-    assert db.sub.asaas_invoice_reversed is False
+    assert db.sub.asaas_invoice_reversal is None  # ciclo novo limpa a retenção
 
 
 def test_monthly_overdue_keeps_the_payable_link(app, monkeypatch) -> None:
@@ -767,7 +892,7 @@ def test_monthly_overdue_keeps_the_payable_link(app, monkeypatch) -> None:
 
     assert resp.json()["status"] == "inadimplente"
     assert db.sub.asaas_invoice_url == "https://asaas.test/m2"
-    assert db.sub.asaas_invoice_reversed is False
+    assert db.sub.asaas_invoice_reversal is None  # OVERDUE não é reversão
 
 
 def test_setup_charge_event_does_not_touch_monthly_link(app, monkeypatch) -> None:

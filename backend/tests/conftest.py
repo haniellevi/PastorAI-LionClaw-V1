@@ -15,6 +15,7 @@ import pytest
 from app.db.models import (
     AgentConversationLog,
     AppUser,
+    BillingPaymentOperation,
     BillingSettings,
     Igreja,
     PasswordResetToken,
@@ -90,6 +91,7 @@ class FakeSession:
         igreja=None,
         billing_settings=None,
         subscription=None,
+        operations: list | None = None,
     ) -> None:
         self.app_user = app_user
         self.roles = roles or []
@@ -113,6 +115,8 @@ class FakeSession:
         )
         # Assinatura existente da igreja (GET /subscription e recovery de links).
         self.subscription = subscription
+        # Operações duráveis de cobrança avulsa (setup / monthly_recovery).
+        self.operations = operations or []
         # Objetos passados a .add() (ex.: Subscription novo no checkout) —
         # permite o teste inspecionar o que o handler gravou (ex.: sub.limite).
         self.added: list = []
@@ -149,6 +153,34 @@ class FakeSession:
             return _FakeResult(scalar=self.billing_settings)
         if entity is Subscription:
             return _FakeResult(scalar=self.subscription)
+        if entity is BillingPaymentOperation:
+            # Operações duráveis de cobrança: filtra o pool (kwarg + added)
+            # pelos binds reais da query (operation_key / asaas_payment_id /
+            # purpose / status aberto).
+            bound = statement.compile().params
+            pool = [
+                *self.operations,
+                *(o for o in self.added if isinstance(o, BillingPaymentOperation)),
+            ]
+            key = next(
+                (v for k, v in bound.items() if k.startswith("operation_key")), None
+            )
+            pay = next(
+                (v for k, v in bound.items() if k.startswith("asaas_payment_id")), None
+            )
+            purpose = next(
+                (v for k, v in bound.items() if k.startswith("purpose")), None
+            )
+            if key is not None:
+                pool = [o for o in pool if o.operation_key == key]
+            if pay is not None:
+                pool = [o for o in pool if str(o.asaas_payment_id) == str(pay)]
+            if purpose is not None:
+                pool = [o for o in pool if o.purpose == purpose]
+            if any(k.startswith("status") for k in bound):
+                open_statuses = ("prepared", "creating", "reconciling", "created")
+                pool = [o for o in pool if o.status in open_statuses]
+            return _FakeResult(scalar=pool[0] if pool else None, scalars_list=pool)
         if entity is AgentConversationLog:
             # GET /subscription passa por notify_autoupgrade; um marcador
             # existente encerra a notificação cedo (já anunciado), mantendo o
@@ -177,6 +209,9 @@ class FakeSession:
         # In-memory: nada a persistir, mas o contador permite asserts de
         # persistência (ex.: recovery de links grava exatamente uma vez).
         self.commits += 1
+
+    def rollback(self) -> None:  # pragma: no cover - in-memory, nothing to undo
+        pass
 
     def close(self) -> None:  # pragma: no cover - nothing to release
         pass

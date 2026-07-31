@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.db.session import get_db
@@ -33,20 +34,27 @@ def _plano(**over):
 class _FakeAsaas:
     def __init__(self) -> None:
         self.calls: list[dict] = []
+        self.charge_calls: list[dict] = []
 
     def create_checkout(self, **kwargs):
         self.calls.append(kwargs)
+        # Espelha o cliente real: o callback rastreia a assinatura ANTES de o
+        # resultado voltar ao router.
+        callback = kwargs.get("on_subscription_created")
+        if callback is not None:
+            callback("cus_1", "sub_1")
         return CheckoutResult(
             customer_id="cus_1",
             subscription_id="sub_1",
-            setup_charge_id="pay_setup_1" if kwargs["setup_fee"] > 0 else None,
             invoice_url="https://asaas.test/monthly",
-            setup_invoice_url=(
-                "https://asaas.test/setup" if kwargs["setup_fee"] > 0 else None
-            ),
             status="pendente",
             invoice_payment_id="pay_m1",
         )
+
+    def create_one_time_charge(self, **kwargs):
+        # Cobrança avulsa emitida pela OPERAÇÃO durável (setup/recovery).
+        self.charge_calls.append(kwargs)
+        return {"id": "pay_setup_1", "invoiceUrl": "https://asaas.test/setup"}
 
 
 class _RecoveryAsaas:
@@ -90,6 +98,7 @@ class _RecoveryAsaas:
 
 def _subscription(**over):
     base = dict(
+        id="00000000-0000-0000-0000-00000000su01",
         igreja_id=make_app_user().igreja_id,
         plano="ate_100",
         status="pendente",
@@ -101,7 +110,7 @@ def _subscription(**over):
         asaas_setup_charge_id="pay_setup_1",
         asaas_invoice_payment_id=None,
         asaas_invoice_url=None,
-        asaas_invoice_reversed=False,
+        asaas_invoice_reversal=None,
         asaas_setup_invoice_url=None,
         setup_pago=False,
     )
@@ -117,6 +126,7 @@ def _client(
     setup_fee_default: float = 0.0,
     setup_fee_override: float | None = None,
     subscription=None,
+    operations=None,
 ) -> tuple[TestClient, FakeSession]:
     igreja = SimpleNamespace(
         id=make_app_user().igreja_id,
@@ -129,6 +139,7 @@ def _client(
         igreja=igreja,
         billing_settings=SimpleNamespace(id=1, setup_fee_default=setup_fee_default),
         subscription=subscription,
+        operations=operations,
     )
     app.dependency_overrides[get_db] = lambda: db
     app.dependency_overrides[get_clerk_client] = lambda: FakeClerk()
@@ -193,7 +204,9 @@ def test_checkout_uses_master_setup_default_and_returns_two_payment_links(app) -
 
     assert resp.status_code == 200
     assert asaas.calls[0]["valor"] == 199.0
-    assert asaas.calls[0]["setup_fee"] == 59.9
+    # A taxa de setup nasce como OPERAÇÃO durável (cobrança avulsa própria).
+    assert asaas.charge_calls[0]["valor"] == 59.9
+    assert asaas.charge_calls[0]["external_reference"].startswith("pastorai-setup-")
     assert resp.json() == {
         "status": "pendente",
         "invoiceUrl": "https://asaas.test/monthly",
@@ -226,7 +239,7 @@ def test_checkout_uses_church_setup_override_before_master_default(app) -> None:
     )
 
     assert resp.status_code == 200
-    assert asaas.calls[0]["setup_fee"] == 19.9
+    assert asaas.charge_calls[0]["valor"] == 19.9
 
 
 def test_zero_church_setup_override_skips_the_setup_charge(app) -> None:
@@ -244,7 +257,7 @@ def test_zero_church_setup_override_skips_the_setup_charge(app) -> None:
     )
 
     assert resp.status_code == 200
-    assert asaas.calls[0]["setup_fee"] == 0.0
+    assert asaas.charge_calls == []  # isenta: nenhuma cobrança de setup emitida
     assert resp.json()["setupInvoiceUrl"] is None
     assert db.added[0].setup_pago is True
     assert db.added[0].asaas_setup_charge_id is None
@@ -438,8 +451,8 @@ class _ResumeAsaas:
         self.calls.append(("get_subscription_payment", subscription_id))
         return self._payment
 
-    def create_setup_charge(self, **kwargs):
-        self.calls.append(("create_setup_charge", kwargs["customer_id"]))
+    def create_one_time_charge(self, **kwargs):
+        self.calls.append(("create_one_time_charge", kwargs["customer_id"]))
         return self._charge
 
 
@@ -502,7 +515,7 @@ def test_retry_resumes_pending_checkout_without_new_subscription(app) -> None:
     }
     assert asaas.calls == [
         ("get_subscription_payment", "sub_asaas_1"),
-        ("create_setup_charge", "cus_1"),
+        ("create_one_time_charge", "cus_1"),
     ]
     assert sub.asaas_invoice_payment_id == "pay_m1"
     assert sub.asaas_setup_charge_id == "pay_setup_9"
@@ -568,16 +581,265 @@ def test_get_subscription_withholds_reversed_invoice_link(app) -> None:
         asaas_setup_charge_id=None,
         asaas_invoice_payment_id="pay_m2",
         asaas_invoice_url=None,
-        asaas_invoice_reversed=True,
+        asaas_invoice_reversal="refunded",
     )
     client, db = _client(app, planos=[], asaas=asaas, subscription=sub)
 
     resp = client.get("/subscription", headers=_AUTH)
 
     assert resp.status_code == 200
-    assert resp.json()["invoiceUrl"] is None
-    assert asaas.calls == []  # recovery retido pela flag de reversão
+    body = resp.json()
+    assert body["invoiceUrl"] is None
+    assert body["invoiceReversal"] == "refunded"  # a UI decide a ação por aqui
+    assert asaas.calls == []  # recovery retido pelo motivo de reversão
     assert db.commits == 0
+
+
+class _RestoreAsaas:
+    """Fake do fluxo deleted→restore: consulta, restaura, consulta de novo.
+
+    Criar assinatura ou cobrança aqui explode o teste — a recuperação de uma
+    cobrança EXCLUÍDA restaura o MESMO payment id, nada além disso.
+    """
+
+    def __init__(self, states: list[dict | None]) -> None:
+        self.calls: list[tuple[str, str]] = []
+        self._states = list(states)
+
+    def get_payment(self, payment_id: str):
+        self.calls.append(("get_payment", payment_id))
+        return self._states.pop(0) if self._states else None
+
+    def restore_payment(self, payment_id: str):
+        self.calls.append(("restore_payment", payment_id))
+        return {"id": payment_id}
+
+    def create_checkout(self, **kwargs):  # pragma: no cover - defesa
+        raise AssertionError("recuperação nunca cria assinatura")
+
+    def create_one_time_charge(self, **kwargs):  # pragma: no cover - defesa
+        raise AssertionError("deleted restaura o mesmo payment, não cria cobrança")
+
+
+class _RecoveryChargeAsaas:
+    """Fake do fluxo refunded→cobrança avulsa de recuperação (via operação)."""
+
+    def __init__(self) -> None:
+        self.posts = 0
+
+    def create_checkout(self, **kwargs):  # pragma: no cover - defesa
+        raise AssertionError("recuperação nunca cria assinatura")
+
+    def create_one_time_charge(self, **kwargs):
+        self.posts += 1
+        assert kwargs["external_reference"].startswith("pastorai-monthly_recovery-")
+        return {"id": "pay_rec_1", "invoiceUrl": "https://asaas.test/recovery"}
+
+
+def test_recover_invoice_deleted_restores_same_payment(app) -> None:
+    asaas = _RestoreAsaas(
+        states=[
+            {"id": "pay_m2", "deleted": True},
+            {
+                "id": "pay_m2",
+                "deleted": False,
+                "status": "PENDING",
+                "invoiceUrl": "https://asaas.test/m2-restored",
+            },
+        ]
+    )
+    sub = _subscription(
+        status="inadimplente",
+        setup_pago=True,
+        asaas_setup_charge_id=None,
+        asaas_invoice_payment_id="pay_m2",
+        asaas_invoice_url=None,
+        asaas_invoice_reversal="deleted",
+    )
+    client, _db = _client(app, planos=[], asaas=asaas, subscription=sub)
+
+    resp = client.post("/subscription/recover-invoice", headers=_AUTH)
+
+    assert resp.status_code == 200
+    assert resp.json()["invoiceUrl"] == "https://asaas.test/m2-restored"
+    # Consulta ANTES de restaurar (restore não é tratado como idempotente) e
+    # consulta de novo depois; restaura o MESMO payment id.
+    assert asaas.calls == [
+        ("get_payment", "pay_m2"),
+        ("restore_payment", "pay_m2"),
+        ("get_payment", "pay_m2"),
+    ]
+    assert sub.asaas_invoice_url == "https://asaas.test/m2-restored"
+    assert sub.asaas_invoice_reversal is None
+    assert sub.status == "pendente"
+
+
+def test_recover_invoice_deleted_already_restored_skips_restore(app) -> None:
+    # O Asaas já mostra a cobrança viva (ex.: restaurada por retry anterior):
+    # nenhum restore repetido.
+    asaas = _RestoreAsaas(
+        states=[
+            {
+                "id": "pay_m2",
+                "deleted": False,
+                "status": "PENDING",
+                "invoiceUrl": "https://asaas.test/m2-alive",
+            }
+        ]
+    )
+    sub = _subscription(
+        status="inadimplente",
+        setup_pago=True,
+        asaas_setup_charge_id=None,
+        asaas_invoice_payment_id="pay_m2",
+        asaas_invoice_url=None,
+        asaas_invoice_reversal="deleted",
+    )
+    client, _db = _client(app, planos=[], asaas=asaas, subscription=sub)
+
+    resp = client.post("/subscription/recover-invoice", headers=_AUTH)
+
+    assert resp.status_code == 200
+    assert asaas.calls == [("get_payment", "pay_m2")]  # zero restore repetido
+    assert sub.asaas_invoice_url == "https://asaas.test/m2-alive"
+
+
+def test_recover_invoice_refunded_emits_recovery_charge_once(app) -> None:
+    asaas = _RecoveryChargeAsaas()
+    sub = _subscription(
+        status="inadimplente",
+        setup_pago=True,
+        asaas_setup_charge_id=None,
+        asaas_invoice_payment_id="pay_m2",
+        asaas_invoice_url=None,
+        asaas_invoice_reversal="refunded",
+    )
+    client, db = _client(app, planos=[_plano()], asaas=asaas, subscription=sub)
+
+    first = client.post("/subscription/recover-invoice", headers=_AUTH)
+    retry = client.post("/subscription/recover-invoice", headers=_AUTH)
+
+    assert first.status_code == 200
+    assert first.json()["recoveryInvoiceUrl"] == "https://asaas.test/recovery"
+    assert retry.status_code == 200
+    assert retry.json()["recoveryInvoiceUrl"] == "https://asaas.test/recovery"
+    # Retry reusa a operação criada — exatamente UMA cobrança de recuperação,
+    # e nenhuma assinatura nova (o fake explode se create_checkout rodar).
+    assert asaas.posts == 1
+    ops = [o for o in db.added if getattr(o, "purpose", None) == "monthly_recovery"]
+    assert len(ops) == 1
+    assert ops[0].valor == 199.0  # preço do plano atual do catálogo
+
+
+def test_recover_invoice_rejects_when_not_reversed(app) -> None:
+    sub = _subscription(status="pendente", asaas_invoice_reversal=None)
+    client, _db = _client(app, planos=[], asaas=_RecoveryChargeAsaas(), subscription=sub)
+
+    resp = client.post("/subscription/recover-invoice", headers=_AUTH)
+
+    assert resp.status_code == 422
+
+
+def test_setup_charge_action_emits_via_operation_once(app) -> None:
+    # Setup revertido de assinante ativo: a ação explícita reemite a taxa como
+    # cobrança avulsa — nunca passa pelo checkout nem cria assinatura.
+    asaas = _FakeAsaas()
+    sub = _subscription(
+        status="ativa",
+        setup_pago=False,
+        asaas_setup_charge_id=None,
+        asaas_setup_invoice_url=None,
+    )
+    client, db = _client(
+        app,
+        planos=[],
+        asaas=asaas,
+        setup_fee_default=59.9,
+        subscription=sub,
+    )
+
+    first = client.post("/subscription/setup-charge", headers=_AUTH)
+    retry = client.post("/subscription/setup-charge", headers=_AUTH)
+
+    assert first.status_code == 200
+    assert first.json()["setupInvoiceUrl"] == "https://asaas.test/setup"
+    assert retry.status_code == 200
+    assert asaas.calls == []  # jamais create_checkout
+    assert len(asaas.charge_calls) == 1  # uma única cobrança emitida
+    assert sub.asaas_setup_charge_id == "pay_setup_1"
+    assert sub.setup_pago is False
+    ops = [o for o in db.added if getattr(o, "purpose", None) == "setup"]
+    assert len(ops) == 1
+
+
+def test_setup_charge_action_rejects_when_already_paid(app) -> None:
+    sub = _subscription(status="ativa", setup_pago=True)
+    client, _db = _client(app, planos=[], asaas=_FakeAsaas(), subscription=sub)
+
+    resp = client.post("/subscription/setup-charge", headers=_AUTH)
+
+    assert resp.status_code == 422
+
+
+def test_get_subscription_exposes_recovery_url_and_setup_flag(app) -> None:
+    from app.db.models import BillingPaymentOperation
+
+    recovery_op = BillingPaymentOperation(
+        subscription_id="00000000-0000-0000-0000-00000000su01",
+        purpose="monthly_recovery",
+        operation_key="pastorai-monthly_recovery-x",
+        status="created",
+        valor=199.0,
+        asaas_payment_id="pay_rec_1",
+        invoice_url="https://asaas.test/recovery",
+    )
+    sub = _subscription(
+        status="inadimplente",
+        setup_pago=False,
+        asaas_setup_charge_id=None,
+        asaas_setup_invoice_url=None,
+        asaas_invoice_payment_id="pay_m2",
+        asaas_invoice_url=None,
+        asaas_invoice_reversal="refunded",
+    )
+    client, _db = _client(
+        app,
+        planos=[],
+        asaas=_RecoveryAsaas(),
+        subscription=sub,
+        operations=[recovery_op],
+    )
+
+    resp = client.get("/subscription", headers=_AUTH)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["recoveryInvoiceUrl"] == "https://asaas.test/recovery"
+    assert body["invoiceReversal"] == "refunded"
+    # Setup devido, sem link pagável e com assinatura criada => a UI oferece
+    # "Gerar nova taxa de setup".
+    assert body["setupRecoveryRequired"] is True
+
+
+@pytest.mark.parametrize("sub_status", [None, "pendente", "ativa", "inadimplente"])
+def test_same_plan_any_status_never_posts_subscription(app, sub_status) -> None:
+    # INVARIANTE 1: mesmo plano + assinatura Asaas rastreada nunca executa
+    # outro POST /subscriptions — _ResumeAsaas explode se create_checkout rodar.
+    asaas = _ResumeAsaas(payment={"id": "pay_m1", "invoiceUrl": "https://asaas.test/m1"})
+    sub = _subscription(
+        status=sub_status,
+        setup_pago=True,
+        asaas_setup_charge_id=None,
+        asaas_setup_invoice_url=None,
+    )
+    client, _db = _client(app, planos=[_plano()], asaas=asaas, subscription=sub)
+
+    resp = client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    )
+
+    assert resp.status_code == 200
+    assert asaas.calls[0] == ("get_subscription_payment", "sub_asaas_1")
 
 
 def test_get_subscription_hides_links_already_settled(app) -> None:

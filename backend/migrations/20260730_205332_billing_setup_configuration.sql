@@ -37,9 +37,58 @@ alter table subscriptions
   add column if not exists asaas_invoice_payment_id text null;
 
 -- Estorno/exclusão da cobrança mensal corrente: link inutilizável — o GET não
--- expõe nem recupera até um novo ciclo válido zerar a flag.
+-- expõe nem recupera até um novo ciclo válido limpar o motivo. O MOTIVO
+-- importa: 'deleted' permite restaurar a MESMA cobrança no Asaas; 'refunded'
+-- exige uma cobrança avulsa de recuperação (nunca outra assinatura).
 alter table subscriptions
-  add column if not exists asaas_invoice_reversed boolean not null default false;
+  add column if not exists asaas_invoice_reversal text null
+    check (asaas_invoice_reversal in ('deleted', 'refunded'));
+
+-- Operações duráveis de cobrança avulsa (setup e recuperação de mensalidade):
+-- a operation_key é persistida ANTES do POST /payments e vira a
+-- externalReference exclusiva da cobrança — retry reconcilia pela chave em vez
+-- de repetir o POST às cegas (resposta perdida nunca duplica cobrança).
+create table if not exists billing_payment_operations (
+  id                uuid primary key default gen_random_uuid(),
+  subscription_id   uuid not null references subscriptions(id) on delete cascade,
+  purpose           text not null check (purpose in ('setup', 'monthly_recovery')),
+  operation_key     text not null unique,
+  source_payment_id text null,
+  asaas_payment_id  text null,
+  status            text not null default 'prepared'
+    check (status in ('prepared','creating','reconciling','created','paid','reversed','failed')),
+  valor             numeric(10,2) not null,
+  invoice_url       text null,
+  created_at        timestamptz not null default now(),
+  updated_at        timestamptz not null default now()
+);
+
+create unique index if not exists billing_payment_operations_asaas_payment_id_uidx
+  on billing_payment_operations (asaas_payment_id)
+  where asaas_payment_id is not null;
+
+-- Claim atômico: no máximo UMA operação em andamento por assinatura+propósito
+-- (dois requests concorrentes não criam duas cobranças).
+create unique index if not exists billing_payment_operations_open_uidx
+  on billing_payment_operations (subscription_id, purpose)
+  where status in ('prepared','creating','reconciling','created');
+
+alter table billing_payment_operations enable row level security;
+
+do $$ begin
+  create policy billing_payment_operations_tenant on billing_payment_operations
+    for all
+    using (
+      subscription_id in (
+        select s.id from subscriptions s where s.igreja_id = current_igreja_id()
+      )
+    )
+    with check (
+      subscription_id in (
+        select s.id from subscriptions s where s.igreja_id = current_igreja_id()
+      )
+    );
+exception when duplicate_object then null; end $$;
 
 create unique index if not exists subscriptions_asaas_setup_charge_id_uidx
   on subscriptions (asaas_setup_charge_id)
@@ -83,7 +132,9 @@ comment on column subscriptions.asaas_setup_invoice_url is
   'Link público da cobrança avulsa de setup, persistido para sobreviver a reload.';
 comment on column subscriptions.asaas_invoice_payment_id is
   'ID Asaas da cobrança mensal do ciclo corrente, atualizado a cada webhook de fatura.';
-comment on column subscriptions.asaas_invoice_reversed is
-  'True quando a cobrança mensal corrente foi estornada/excluída; bloqueia exposição e recovery do link até o próximo ciclo.';
+comment on column subscriptions.asaas_invoice_reversal is
+  'Motivo da reversão da cobrança mensal corrente (deleted|refunded); bloqueia exposição/recovery do link até o próximo ciclo válido ou recuperação explícita.';
+comment on table billing_payment_operations is
+  'Operações duráveis de cobrança avulsa (setup/monthly_recovery): operation_key persistida antes do POST vira externalReference exclusiva — retry reconcilia, nunca repete POST às cegas.';
 
 commit;

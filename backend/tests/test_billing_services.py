@@ -97,7 +97,7 @@ def test_customer_lookup_and_creation_require_the_document() -> None:
     ]
 
 
-def test_checkout_rejects_setup_fee_below_asaas_minimum_before_network() -> None:
+def test_one_time_charge_rejects_value_below_asaas_minimum_before_network() -> None:
     settings = Settings(
         app_env="staging",
         allow_real_sends=True,
@@ -107,26 +107,31 @@ def test_checkout_rejects_setup_fee_below_asaas_minimum_before_network() -> None
     )
 
     with pytest.raises(AsaasError, match=r"pelo menos R\$ 5,00"):
-        AsaasClient(settings).create_checkout(
-            nome="Igreja Teste",
-            email="financeiro@example.com",
-            plano="ate_100",
-            valor=19.9,
-            cpf_cnpj="24971563792",
+        AsaasClient(settings).create_one_time_charge(
+            customer_id="cus_test",
+            valor=3.0,
+            description="PastorAI — taxa de setup",
+            external_reference="pastorai-setup-x",
         )
 
 
 def test_invoice_link_lookups_stay_offline_without_send_permission() -> None:
-    """Recovery de links respeita o outbound guard: fora de produção (sem
-    ALLOW_REAL_SENDS) devolve None sem tocar a rede."""
+    """Recovery/operações respeitam o outbound guard: fora de produção (sem
+    ALLOW_REAL_SENDS) devolvem vazio sem tocar a rede."""
     client = AsaasClient()
 
     assert client.get_subscription_invoice_url("sub_x") is None
     assert client.get_payment_invoice_url("pay_x") is None
     assert client.get_subscription_payment("sub_x") is None
+    assert client.get_payment("pay_x") is None
+    assert client.restore_payment("pay_x") is None
+    assert client.find_payments_by_external_reference("pastorai-setup-x") == []
     assert (
-        client.create_setup_charge(
-            customer_id="cus_x", valor=59.9, external_reference=None
+        client.create_one_time_charge(
+            customer_id="cus_x",
+            valor=59.9,
+            description="PastorAI — taxa de setup",
+            external_reference="pastorai-setup-x",
         )
         is None
     )
@@ -170,7 +175,6 @@ def test_checkout_survives_invoice_lookup_failure_after_subscription_created(
         email="financeiro@example.com",
         plano="ate_100",
         valor=199.0,
-        setup_fee=0.0,
         cpf_cnpj="24971563792",
         on_subscription_created=lambda c, s: tracked.append((c, s)),
     )
@@ -180,44 +184,6 @@ def test_checkout_survives_invoice_lookup_failure_after_subscription_created(
     assert result.invoice_url is None
     assert result.invoice_payment_id is None
     assert result.status == "pendente"
-
-
-def test_checkout_tracks_subscription_before_setup_charge_failure(monkeypatch) -> None:
-    """Se a cobrança de setup falhar DEPOIS da assinatura criada, o erro ainda
-    propaga (502), mas o rastreio já foi persistido pelo callback — o retry
-    retoma em vez de emitir outro POST /subscriptions."""
-    import httpx
-
-    client = AsaasClient(_sends_allowed_settings())
-    tracked: list[tuple[str, str]] = []
-
-    monkeypatch.setattr(
-        AsaasClient, "_ensure_customer", lambda self, *a, **k: "cus_1"
-    )
-    monkeypatch.setattr(
-        AsaasClient, "_create_subscription", lambda self, *a, **k: {"id": "sub_1"}
-    )
-    monkeypatch.setattr(
-        AsaasClient, "_first_subscription_payment", lambda self, *a, **k: None
-    )
-
-    def _boom(self, *a, **k):
-        raise httpx.ConnectError("down")
-
-    monkeypatch.setattr(AsaasClient, "_create_setup_charge", _boom)
-
-    with pytest.raises(AsaasError):
-        client.create_checkout(
-            nome="Igreja Teste",
-            email="financeiro@example.com",
-            plano="ate_100",
-            valor=199.0,
-            setup_fee=59.9,
-            cpf_cnpj="24971563792",
-            on_subscription_created=lambda c, s: tracked.append((c, s)),
-        )
-
-    assert tracked == [("cus_1", "sub_1")]  # rastreio veio ANTES da falha
 
 
 def test_payment_invoice_url_extraction() -> None:
@@ -295,12 +261,13 @@ def test_setup_charge_payload_sets_due_date() -> None:
             calls.append({"path": path, "headers": headers, "json": json})
             return _Response()
 
-    result = AsaasClient()._create_setup_charge(
+    result = AsaasClient()._create_one_time_charge(
         _Client(),
         {"access_token": "test"},
         customer_id="cus_test",
         valor=3.0,
-        external_reference="igreja_1",
+        description="PastorAI — taxa de setup",
+        external_reference="pastorai-setup-op1",
     )
 
     assert result == {"id": "pay_test", "invoiceUrl": "https://asaas.test/setup"}
@@ -314,7 +281,7 @@ def test_setup_charge_payload_sets_due_date() -> None:
                 "value": 3.0,
                 "dueDate": dt.date.today().isoformat(),
                 "description": "PastorAI — taxa de setup",
-                "externalReference": "igreja_1",
+                "externalReference": "pastorai-setup-op1",
             },
         }
     ]
