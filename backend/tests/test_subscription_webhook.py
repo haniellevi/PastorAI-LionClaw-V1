@@ -1088,3 +1088,156 @@ def test_subscription_event_resolves_new_external_reference_via_operation(
     assert resp.status_code == 200
     assert resp.json()["status"] == "ativa"
     assert db.sub.status == "ativa"
+
+
+# ---------------------------------------------------------------------------
+# CORRECTIVE-7 P1: estorno de recuperação mensal PAGA devolve a dívida — com
+# AUTORIDADE (source_payment_id == mensalidade corrente) contra atrasados.
+# ---------------------------------------------------------------------------
+def test_recovery_reversal_after_paid_drops_access_and_reexposes_debt(
+    app, monkeypatch
+) -> None:
+    op = _operation(status="paid", source_payment_id="pay_m2")
+    db = _WebhookDb(
+        sub=_sub(
+            status="ativa",
+            asaas_invoice_payment_id="pay_m2",
+            asaas_invoice_reversal=None,  # quitada pela recovery
+        ),
+        igreja=_igreja("ativa"),
+        operations=[op],
+    )
+    client = _client(app, db, monkeypatch)
+    payment = _payment(status="REFUNDED", subscription=None, payment_id="pay_rec_1")
+
+    resp = _post(client, "PAYMENT_REFUNDED", payment)
+
+    assert resp.status_code == 200
+    assert op.status == "reversed"
+    assert op.invoice_url is None
+    # O dinheiro da recuperação voltou: dívida e bloqueio reaparecem.
+    assert db.sub.status == "inadimplente"
+    assert db.sub.asaas_invoice_reversal == "refunded"  # ação de recovery volta
+    assert db.igreja.status == "inadimplente"
+
+    # Repetição do estorno: operação já reversed — nada re-derruba nem muda.
+    db.igreja.status = "ativa"  # sentinela: um segundo drop seria visível
+    resp2 = _post(client, "PAYMENT_REFUNDED", payment)
+    assert resp2.status_code == 200
+    assert db.igreja.status == "ativa"  # intocada na repetição
+
+
+def test_stale_recovery_reversal_does_not_drop_newer_cycle(app, monkeypatch) -> None:
+    # Recovery ANTIGA (cobria pay_m1) estornada com atraso: a assinatura já
+    # avançou de ciclo (pay_m9 corrente) — o acesso NÃO cai.
+    op = _operation(status="paid", source_payment_id="pay_m1")
+    db = _WebhookDb(
+        sub=_sub(
+            status="ativa",
+            asaas_invoice_payment_id="pay_m9",
+            asaas_invoice_reversal=None,
+        ),
+        igreja=_igreja("ativa"),
+        operations=[op],
+    )
+    client = _client(app, db, monkeypatch)
+    payment = _payment(status="REFUNDED", subscription=None, payment_id="pay_rec_1")
+
+    resp = _post(client, "PAYMENT_REFUNDED", payment)
+
+    assert resp.status_code == 200
+    assert op.status == "reversed"  # a operação antiga é sempre marcada
+    assert db.sub.status == "ativa"  # ciclo novo intocado
+    assert db.sub.asaas_invoice_reversal is None
+    assert db.igreja.status == "ativa"
+
+
+def test_late_confirmation_never_resurrects_reversed_recovery(
+    app, monkeypatch
+) -> None:
+    op = _operation(status="reversed", invoice_url=None, source_payment_id="pay_m2")
+    db = _WebhookDb(
+        sub=_sub(
+            status="inadimplente",
+            asaas_invoice_payment_id="pay_m2",
+            asaas_invoice_reversal="refunded",
+        ),
+        igreja=_igreja("inadimplente"),
+        operations=[op],
+    )
+    client = _client(app, db, monkeypatch)
+    payment = _payment(status="CONFIRMED", subscription=None, payment_id="pay_rec_1")
+
+    resp = _post(client, "PAYMENT_CONFIRMED", payment)
+
+    assert resp.status_code == 200
+    # Confirmação ATRASADA de uma cobrança já estornada não reativa nada.
+    assert op.status == "reversed"
+    assert db.sub.status == "inadimplente"
+    assert db.igreja.status == "inadimplente"
+
+
+# ---------------------------------------------------------------------------
+# CORRECTIVE-7 P2: estorno tardio de setup ANTIGO nunca desfaz o substituto.
+# ---------------------------------------------------------------------------
+def test_stale_setup_reversal_keeps_replacement_paid(app, monkeypatch) -> None:
+    old_setup = _operation(
+        purpose="setup",
+        operation_key="pastorai-setup-opA",
+        asaas_payment_id="pay_sA",
+        status="paid",
+        valor=59.9,
+        source_payment_id=None,
+    )
+    db = _WebhookDb(
+        sub=_sub(
+            status="ativa",
+            setup_pago=True,
+            asaas_setup_charge_id="pay_sB",  # substituto B é o rastreado
+            asaas_setup_invoice_url="https://asaas.test/setup-b",
+        ),
+        igreja=_igreja("ativa"),
+        operations=[old_setup],
+    )
+    client = _client(app, db, monkeypatch)
+    payment = _payment(status="REFUNDED", subscription=None, payment_id="pay_sA")
+
+    for _ in range(2):  # inclusive repetido
+        resp = _post(client, "PAYMENT_REFUNDED", payment)
+        assert resp.status_code == 200
+        assert old_setup.status == "reversed"  # a geração antiga é marcada
+        # O substituto pago permanece intocado.
+        assert db.sub.setup_pago is True
+        assert db.sub.asaas_setup_charge_id == "pay_sB"
+        assert db.sub.asaas_setup_invoice_url == "https://asaas.test/setup-b"
+
+
+def test_setup_reversal_of_current_charge_still_reopens(app, monkeypatch) -> None:
+    current = _operation(
+        purpose="setup",
+        operation_key="pastorai-setup-opC",
+        asaas_payment_id="pay_sC",
+        status="paid",
+        valor=59.9,
+        source_payment_id=None,
+    )
+    db = _WebhookDb(
+        sub=_sub(
+            status="ativa",
+            setup_pago=True,
+            asaas_setup_charge_id="pay_sC",  # a operação É a dona atual
+            asaas_setup_invoice_url="https://asaas.test/setup-c",
+        ),
+        igreja=_igreja("ativa"),
+        operations=[current],
+    )
+    client = _client(app, db, monkeypatch)
+    payment = _payment(status="REFUNDED", subscription=None, payment_id="pay_sC")
+
+    resp = _post(client, "PAYMENT_REFUNDED", payment)
+
+    assert resp.status_code == 200
+    assert current.status == "reversed"
+    assert db.sub.setup_pago is False  # dona atual: pendência reabre
+    assert db.sub.asaas_setup_charge_id is None
+    assert db.sub.asaas_setup_invoice_url is None

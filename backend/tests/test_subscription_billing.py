@@ -12,7 +12,12 @@ from fastapi.testclient import TestClient
 
 from app.db.models import BillingSubscriptionOperation, Subscription
 from app.db.session import get_db
-from app.services.asaas import AsaasError, CheckoutResult, get_asaas_client
+from app.services.asaas import (
+    AsaasError,
+    AsaasRejectedError,
+    CheckoutResult,
+    get_asaas_client,
+)
 from app.services.clerk import get_clerk_client
 from tests.conftest import FakeClerk, FakeSession, make_app_user
 
@@ -1381,3 +1386,56 @@ def test_recover_refunded_without_value_source_fails_without_charge(app) -> None
     # Sem fonte confiável de valor: erro CONTROLADO e nenhuma cobrança criada.
     assert resp.status_code == 409
     assert asaas.posts == 0
+
+
+# ---------------------------------------------------------------------------
+# CORRECTIVE-7 P1: 4xx definitivo volta a `prepared`; adoção reconciliada é
+# atômica (a operação fica ABERTA até o commit conjunto com a Subscription).
+# ---------------------------------------------------------------------------
+class _RejectedThenOkAsaas:
+    """1ª chamada: rejeição DEFINITIVA (4xx) após customer resolvido."""
+
+    def __init__(self) -> None:
+        self.create_calls = 0
+
+    def create_checkout(self, **kwargs):
+        self.create_calls += 1
+        kwargs["on_customer_resolved"]("cus_1")
+        if self.create_calls == 1:
+            raise AsaasRejectedError("O Asaas rejeitou os dados do checkout")
+        kwargs["on_subscription_created"]("cus_1", "sub_asaas_1")
+        return CheckoutResult(
+            customer_id="cus_1",
+            subscription_id="sub_asaas_1",
+            invoice_url="https://asaas.test/m1",
+            status="pendente",
+            invoice_payment_id="pay_m1",
+        )
+
+
+def test_checkout_definitive_rejection_returns_to_prepared_and_allows_retry(
+    app,
+) -> None:
+    asaas = _RejectedThenOkAsaas()
+    client, db = _client(app, planos=[_plano()], asaas=asaas)
+
+    resp = client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    )
+    assert resp.status_code == 502
+    assert "rejeitou" in resp.json()["detail"]
+    op = next(o for o in db.added if isinstance(o, BillingSubscriptionOperation))
+    # 4xx é DEFINITIVO (nada criado): a intenção volta a prepared — sem ficar
+    # presa em reconciling — e o customer resolvido fica preservado.
+    assert op.status == "prepared"
+    assert op.customer_id == "cus_1"
+
+    _adopt_created_sub(db)
+    resp2 = client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    )
+    assert resp2.status_code == 200
+    assert asaas.create_calls == 2  # retry legítimo após correção dos dados
+    assert op.status == "created"
+    created_sub = next(o for o in db.added if isinstance(o, Subscription))
+    assert created_sub.asaas_subscription_id == "sub_asaas_1"  # UMA recorrência

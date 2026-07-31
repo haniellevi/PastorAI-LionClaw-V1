@@ -96,6 +96,16 @@ class AsaasError(Exception):
     """Raised when an Asaas API call fails or the client is misconfigured."""
 
 
+class AsaasRejectedError(AsaasError):
+    """Rejeição DEFINITIVA do Asaas (HTTP 4xx): nada foi criado.
+
+    Diferente do timeout/5xx (resultado ambíguo → reconciliação), uma resposta
+    4xx prova que o recurso não existe no Asaas — o chamador pode devolver a
+    intenção a `prepared` e permitir um retry normal após correção dos dados.
+    Usada apenas no caminho de criação de assinatura (CORRECTIVE-7).
+    """
+
+
 @dataclass(frozen=True)
 class CheckoutResult:
     """Outcome of creating a subscription checkout.
@@ -205,7 +215,18 @@ class AsaasClient:
                         "Asaas first-payment lookup failed; continuing without link"
                     )
                     monthly_payment = None
+        except httpx.HTTPStatusError as exc:
+            code = exc.response.status_code
+            logger.warning("Asaas checkout failed: HTTP %s", code)
+            if 400 <= code < 500:
+                # Resposta DEFINITIVA: o Asaas processou e rejeitou — nada foi
+                # criado. O chamador pode voltar a intenção para `prepared`.
+                raise AsaasRejectedError(
+                    "O Asaas rejeitou os dados do checkout"
+                ) from exc
+            raise AsaasError("Falha ao criar checkout no Asaas") from exc
         except httpx.HTTPError as exc:
+            # Timeout/erro de transporte: resultado AMBÍGUO — só reconciliação.
             logger.warning("Asaas checkout failed: %s", type(exc).__name__)
             raise AsaasError("Falha ao criar checkout no Asaas") from exc
         except (ValueError, KeyError) as exc:

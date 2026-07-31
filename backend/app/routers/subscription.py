@@ -41,6 +41,7 @@ from app.services.asaas import (
     SETUP_CHARGE_DESCRIPTION,
     AsaasClient,
     AsaasError,
+    AsaasRejectedError,
     get_asaas_client,
     map_payment_status,
     payment_invoice_url,
@@ -56,7 +57,6 @@ from app.services.billing import (
     find_open_operation,
     find_operation_for_payment,
     find_subscription_operation_by_key,
-    finish_operation,
     get_setup_fee_for_igreja,
     prepare_subscription_operation,
     reconcile_subscription_operation,
@@ -371,7 +371,7 @@ def _apply_operation_event(
         return WebhookResponse(received=True, status=new_status)
 
     if op.purpose == "setup":
-        if new_status == "ativa":
+        if new_status == "ativa" and op.status != "reversed":
             op.status = "paid"
             if not sub.setup_pago:
                 sub.setup_pago = True
@@ -380,16 +380,22 @@ def _apply_operation_event(
         elif reversal:
             op.status = "reversed"
             op.invoice_url = None
-            sub.setup_pago = False
-            sub.asaas_setup_charge_id = None
-            sub.asaas_setup_invoice_url = None
+            # AUTORIDADE: só reabre a pendência quando ESTA operação é a dona
+            # do setup atualmente rastreado — um estorno atrasado/duplicado de
+            # uma geração ANTIGA nunca desfaz o setup substituto já pago.
+            if op.asaas_payment_id and str(sub.asaas_setup_charge_id) == str(
+                op.asaas_payment_id
+            ):
+                sub.setup_pago = False
+                sub.asaas_setup_charge_id = None
+                sub.asaas_setup_invoice_url = None
         db.commit()
         return WebhookResponse(received=True, status=new_status)
 
     # monthly_recovery: quitação regulariza assinatura e acesso (guarda
-    # atômica no UPDATE condicional, como na mensalidade); nova reversão
-    # mantém a dívida sem expor link inválido.
-    if new_status == "ativa":
+    # atômica no UPDATE condicional, como na mensalidade); reversão de uma
+    # recuperação PAGA devolve a dívida — status, gate e ação de recovery.
+    if new_status == "ativa" and op.status != "reversed":
         op.status = "paid"
         sub.status = "ativa"
         sub.asaas_invoice_reversal = None  # dívida do ciclo revertido quitada
@@ -399,8 +405,29 @@ def _apply_operation_event(
             .values(status="ativa")
         )
     elif reversal:
+        was_paid = op.status == "paid"
         op.status = "reversed"
         op.invoice_url = None
+        # AUTORIDADE: a recuperação estornada só derruba o acesso se ela cobre
+        # a mensalidade ATUALMENTE rastreada (source_payment_id) — o estorno
+        # atrasado de uma recovery de ciclo antigo não toca uma recuperação
+        # posterior já quitada. Idempotente: a repetição chega com a operação
+        # já `reversed` (was_paid=False) e não re-derruba nada.
+        if (
+            was_paid
+            and op.source_payment_id
+            and str(op.source_payment_id) == str(sub.asaas_invoice_payment_id)
+        ):
+            sub.status = "inadimplente"
+            # O dinheiro da recuperação voltou: a dívida reaparece como
+            # 'refunded' (a nova recuperação é sempre outra cobrança avulsa —
+            # nunca o restore da recovery morta).
+            sub.asaas_invoice_reversal = "refunded"
+            db.execute(
+                update(Igreja)
+                .where(Igreja.id == sub.igreja_id, Igreja.status == "ativa")
+                .values(status="inadimplente")
+            )
     db.commit()
     return WebhookResponse(received=True, status=new_status)
 
@@ -656,10 +683,11 @@ def create_checkout(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail="Contratação em reconciliação no Asaas — tente novamente",
             )
-        # Assinatura ENCONTRADA e correspondente ao alvo congelado: adota.
-        # Ordem deliberada — persiste o vínculo na Subscription ANTES de
-        # fechar a operação: um crash no meio deixa a operação aberta (lixo
-        # inofensivo), nunca uma assinatura viva sem rastreio.
+        # Assinatura ENCONTRADA e correspondente ao alvo congelado: ADOÇÃO
+        # ATÔMICA — o vínculo na Subscription e o fechamento da operação vão
+        # no MESMO commit. Antes dele, a operação segue aberta (encontrável):
+        # um crash aqui faz o retry reconciliar e adotar de novo, nunca criar
+        # outra intenção (logo nunca outro POST).
         sub.plano = op.plano
         sub.limite = plano_row.limite_pessoas
         sub.status = "pendente"
@@ -669,14 +697,9 @@ def create_checkout(
         elif remote.get("customer"):
             sub.asaas_customer_id = str(remote["customer"])
         sub.asaas_invoice_reversal = None
+        op.status = "created"
+        op.asaas_subscription_id = str(remote["id"])
         db.commit()
-        finish_operation(
-            db,
-            op,
-            ("creating", "reconciling"),
-            status="created",
-            asaas_subscription_id=str(remote["id"]),
-        )
         return _resume_tracked_checkout(db, sub, asaas, setup_fee)
 
     # prepared: claim ATÔMICO da transição — dois requests que adotaram a
@@ -699,20 +722,17 @@ def create_checkout(
         # Chamado pelo AsaasClient IMEDIATAMENTE após o POST /subscriptions:
         # persiste o vínculo antes de qualquer outra chamada remota, para uma
         # falha posterior nunca deixar assinatura viva sem rastreio — um retry
-        # retomaria em vez de duplicar.
+        # retomaria em vez de duplicar. ATÔMICO: Subscription e operação
+        # fecham no MESMO commit (um crash antes dele deixa a operação aberta
+        # e o retry reconcilia; nunca nasce uma segunda intenção).
         sub.plano = payload.plano
         sub.limite = plano_row.limite_pessoas
         sub.status = "pendente"
         sub.asaas_customer_id = customer_id
         sub.asaas_subscription_id = subscription_id
+        op.status = "created"
+        op.asaas_subscription_id = subscription_id
         db.commit()
-        finish_operation(
-            db,
-            op,
-            ("creating", "reconciling"),
-            status="created",
-            asaas_subscription_id=subscription_id,
-        )
 
     try:
         result = asaas.create_checkout(
@@ -725,11 +745,21 @@ def create_checkout(
             on_customer_resolved=_persist_resolved_customer,
             on_subscription_created=_track_created_subscription,
         )
+    except AsaasRejectedError as exc:
+        # Rejeição DEFINITIVA (HTTP 4xx): o Asaas respondeu e NÃO criou nada —
+        # a intenção volta a `prepared` e o usuário pode corrigir os dados
+        # (CPF/CNPJ, configuração) e tentar de novo. O customer já resolvido
+        # fica persistido e é reutilizado no retry.
+        claim_transition(db, op, "creating", "prepared")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="O Asaas rejeitou o checkout — confira os dados e tente novamente",
+        ) from exc
     except AsaasError as exc:
         if op.customer_id:
             # Customer já existia quando falhou → o erro pertence ao POST da
-            # assinatura (ou veio depois dele): resultado DESCONHECIDO, o
-            # retry deve reconciliar — nunca repetir o POST.
+            # assinatura (ou veio depois dele): resultado AMBÍGUO
+            # (timeout/5xx), o retry deve reconciliar — nunca repetir o POST.
             claim_transition(db, op, "creating", "reconciling")
         else:
             # Falhou ainda no customer: o POST da assinatura comprovadamente

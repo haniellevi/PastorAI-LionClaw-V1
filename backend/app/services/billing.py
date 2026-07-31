@@ -532,14 +532,16 @@ def prepare_subscription_operation(
 def reconcile_subscription_operation(
     db: Session, asaas: AsaasClient, op: BillingSubscriptionOperation
 ) -> dict | None:
-    """Resolve uma criação cujo POST anterior tem resultado DESCONHECIDO.
+    """Localiza a assinatura de uma criação cujo POST tem resultado DESCONHECIDO.
 
-    Busca GET /subscriptions?externalReference=operation_key e adota somente a
-    assinatura que corresponda ao alvo congelado. 0 correspondências mantém
-    `reconciling` (o POST pode nunca ter chegado — mas provar isso é
-    impossível daqui), e NUNCA repete o POST automaticamente. Mais de uma
-    correspondência é ambiguidade real → `failed` para intervenção manual.
-    Retorna o payload adotado ou None.
+    Busca GET /subscriptions?externalReference=operation_key e devolve somente
+    a assinatura que corresponda ao alvo congelado — SEM fechar a operação:
+    ela permanece aberta (encontrável) até o chamador COMMITAR a adoção
+    (vínculo na Subscription local + operação `created`) numa transação única.
+    Um crash entre localizar e adotar deixa a operação aberta e o retry
+    reconcilia de novo — nunca nasce uma segunda intenção (e portanto nunca um
+    segundo POST). 0 correspondências mantém `reconciling` e NUNCA repete o
+    POST automaticamente; mais de uma é ambiguidade real → `failed`.
     """
     matches = [
         s
@@ -547,13 +549,6 @@ def reconcile_subscription_operation(
         if subscription_matches_operation(op, s)
     ]
     if len(matches) == 1:
-        finish_operation(
-            db,
-            op,
-            ("creating", "reconciling"),
-            status="created",
-            asaas_subscription_id=str(matches[0]["id"]),
-        )
         return matches[0]
     if len(matches) > 1:
         finish_operation(db, op, ("creating", "reconciling"), status="failed")

@@ -550,3 +550,45 @@ def test_subscription_matches_operation_requires_frozen_target() -> None:
         op, {**good, "description": "outra"}
     ) is False
     assert subscription_matches_operation(op, {}) is False
+
+
+def test_reconcile_leaves_operation_open_until_adoption() -> None:
+    """CORRECTIVE-7: localizar a assinatura remota NÃO fecha a operação.
+
+    A adoção (vínculo local + created) é do chamador, num commit único; um
+    crash entre localizar e adotar deixa a operação aberta e o retry
+    reconcilia de novo — nunca nasce segunda intenção/POST.
+    """
+    from app.services.billing import reconcile_subscription_operation
+
+    op = _sub_op(status="reconciling")
+    db = _ConfFakeSession(subscription_ops=[op])
+    remote = {
+        "id": "sub_9",
+        "customer": "cus_1",
+        "value": 199.0,
+        "cycle": "MONTHLY",
+        "description": "PastorAI — plano ate_100",
+    }
+
+    class _FinderAsaas:
+        def __init__(self) -> None:
+            self.finds = 0
+
+        def find_subscriptions_by_external_reference(self, ref: str):
+            self.finds += 1
+            return [remote]
+
+    asaas = _FinderAsaas()
+    found = reconcile_subscription_operation(db, asaas, op)
+
+    assert found is remote
+    # Operação segue ABERTA e encontrável — nada de created/asaas id aqui.
+    assert op.status == "reconciling"
+    assert op.asaas_subscription_id is None
+
+    # "Crash" antes da adoção: a repetição localiza de novo, idempotente.
+    found2 = reconcile_subscription_operation(db, asaas, op)
+    assert found2 is remote
+    assert asaas.finds == 2
+    assert op.status == "reconciling"
