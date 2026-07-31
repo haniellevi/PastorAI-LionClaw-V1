@@ -66,13 +66,34 @@ export async function fetchReports(
   semana?: string,
   pageSize = 200,
 ): Promise<Page<ReportItem>> {
-  const query = new URLSearchParams({ page: "1", pageSize: String(pageSize) });
-  if (semana) query.set("semana", semana);
-  const res = await authedFetch(token, `/reports?${query.toString()}`);
-  if (!res.ok) {
-    throw new ApiError(res.status, "Não foi possível carregar os relatórios.");
+  // O backend limita pageSize a 200 (MAX_PAGE_SIZE) e o grão passou a ser a
+  // REUNIÃO, não a célula: como duas reuniões da mesma célula na mesma semana
+  // são suportadas de propósito, uma igreja com bem menos de 200 células pode
+  // estourar o teto. Buscar só a primeira página truncaria silenciosamente a
+  // lista — as contagens e o "Tudo em dia!" sairiam de dado incompleto.
+  // Mesmo laço de `fetchContacts`.
+  const items: ReportItem[] = [];
+  let page = 1;
+  let total = 0;
+  for (;;) {
+    const query = new URLSearchParams({
+      page: String(page),
+      pageSize: String(pageSize),
+    });
+    if (semana) query.set("semana", semana);
+    // Uma página que falha derruba a leitura inteira (o ApiError sobe): melhor
+    // o banner de erro do que a tela exibir metade da semana como se fosse tudo.
+    const res = await authedFetch(token, `/reports?${query.toString()}`);
+    if (!res.ok) {
+      throw new ApiError(res.status, "Não foi possível carregar os relatórios.");
+    }
+    const batch = (await res.json()) as Page<ReportItem>;
+    items.push(...batch.items);
+    total = batch.total;
+    if (batch.items.length === 0 || items.length >= total) break;
+    page += 1;
   }
-  return (await res.json()) as Page<ReportItem>;
+  return { items, page: 1, pageSize, total };
 }
 
 // ---------------------------------------------------------------------------
