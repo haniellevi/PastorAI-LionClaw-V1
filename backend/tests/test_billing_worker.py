@@ -58,6 +58,7 @@ def _sub(**over):
         igreja_id=_IGREJA_A,
         plano="ate_100",
         limite=100,
+        pessoas=None,  # contagem corrente (trigger); testes multi-tier setam
         asaas_subscription_id="sub_asaas_1",
         proxima_cobranca="2026-08-01",
     )
@@ -460,3 +461,107 @@ def test_notification_crash_keeps_pending_for_next_tick(monkeypatch) -> None:
     assert op.status == "completed"  # financeiro intacto
     assert op.notify_status == "pending"  # descobrível no próximo tick
     assert tick.closed is True
+
+
+# ---------------------------------------------------------------------------
+# CORRECTIVE-8 P1: porte cruzou MAIS de um degrau — o worker reavalia após
+# concluir e persegue os degraus restantes no MESMO tick, sem depender de
+# futura mutação de pessoas.
+# ---------------------------------------------------------------------------
+def test_multi_tier_upgrade_chases_second_step_in_same_tick(monkeypatch) -> None:
+    op = _op()  # ate_100 -> 101_200 (criada pelo trigger coalescido)
+    sub = _sub(pessoas=201)  # já cruzou DOIS tiers antes do primeiro tick
+    igreja = SimpleNamespace(id=_IGREJA_A, plano="ate_100")
+    catalogo = [
+        SimpleNamespace(
+            codigo="101_200", nome="101-200", preco_mensal=299.0,
+            limite_pessoas=200, ativo=True,
+        ),
+        SimpleNamespace(
+            codigo="acima_201", nome="201+", preco_mensal=499.0,
+            limite_pessoas=None, ativo=True,
+        ),
+    ]
+    tenant = _WorkerSession(
+        subscription=sub, igreja=igreja, plan_changes=[op], planos=catalogo
+    )
+    asaas = _WorkerAsaas()
+    notified = _spy_notify(monkeypatch)
+
+    completed = run_pending_plan_changes(
+        _Discovery([(op, _IGREJA_A)]),
+        session_factory=_factory_queue([tenant]),
+        asaas=asaas,
+        evolution=object(),
+    )
+
+    assert completed == 1
+    # DOIS PUTs no MESMO id remoto — um por degrau; nenhum POST (fake explode).
+    assert asaas.puts == 2
+    assert asaas.put_targets == ["sub_asaas_1", "sub_asaas_1"]
+    # O degrau final é o alvo correto, com limite do catálogo.
+    assert sub.plano == "acima_201"
+    assert sub.limite is None
+    assert igreja.plano == "acima_201"
+    assert op.status == "completed"
+    followup = next(
+        o
+        for o in tenant.added
+        if isinstance(o, BillingPlanChangeOperation) and o.to_plano == "acima_201"
+    )
+    assert followup.status == "completed"
+    assert followup.origin == "autoupgrade"
+    assert float(followup.to_preco) == 499.0
+    # Notificação por degrau concluído (cada plano tem marcador próprio).
+    assert notified == [_IGREJA_A, _IGREJA_A]
+
+
+def test_open_manual_change_has_precedence_over_autoupgrade(monkeypatch) -> None:
+    # Uma troca MANUAL aberta tem precedência: o processamento da operação de
+    # autoupgrade conflita (PlanChangeConflict) e NADA é atropelado — nem PUT,
+    # nem plano local, nem a operação do assinante.
+    op = _op()  # autoupgrade ate_100 -> 101_200 (do trigger)
+    manual = _op(origin="manual", to_plano="acima_201", notify_status="skipped")
+    sub = _sub(pessoas=201)
+    tenant = _WorkerSession(
+        subscription=sub,
+        igreja=SimpleNamespace(id=_IGREJA_A, plano="ate_100"),
+        plan_changes=[manual, op],  # manual é a operação ABERTA visível
+    )
+    _spy_notify(monkeypatch)
+    asaas = _WorkerAsaas()
+
+    completed = run_pending_plan_changes(
+        _Discovery([(op, _IGREJA_A)]),
+        session_factory=_factory_queue([tenant]),
+        asaas=asaas,
+        evolution=object(),
+    )
+
+    assert completed == 0
+    assert asaas.puts == 0  # nenhuma escrita remota
+    assert sub.plano == "ate_100"  # local intacto
+    assert manual.status == "prepared"  # operação do assinante intocada
+    assert tenant.closed is True
+
+
+def test_inflight_notification_never_marks_sent(monkeypatch) -> None:
+    op = _op(status="completed")
+    sub = _sub(plano="101_200", limite=200)
+    tenant = _WorkerSession(
+        subscription=sub,
+        igreja=SimpleNamespace(id=_IGREJA_A, plano="101_200"),
+        plan_changes=[op],
+    )
+    # Reserva de OUTRO processo sem entrega comprovada: nunca vira 'sent'.
+    _spy_notify(monkeypatch, outcome="inflight")
+
+    completed = run_pending_plan_changes(
+        _Discovery([(op, _IGREJA_A)]),
+        session_factory=_factory_queue([tenant]),
+        asaas=_WorkerAsaas(),
+        evolution=object(),
+    )
+
+    assert completed == 0
+    assert op.notify_status == "pending"  # descobrível no próximo tick

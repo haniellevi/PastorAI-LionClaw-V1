@@ -59,6 +59,7 @@ create table if not exists billing_payment_operations (
     check (status in ('prepared','creating','reconciling','created','paid','reversed','failed')),
   valor             numeric(10,2) not null,
   invoice_url       text null,
+  error             text null,
   created_at        timestamptz not null default now(),
   updated_at        timestamptz not null default now()
 );

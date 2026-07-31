@@ -325,7 +325,18 @@ class AsaasClient:
                 )
                 resp.raise_for_status()
                 body = resp.json()
+        except httpx.HTTPStatusError as exc:
+            code = exc.response.status_code
+            logger.warning("Asaas subscription update failed: HTTP %s", code)
+            if 400 <= code < 500:
+                # DEFINITIVO: o PUT foi processado e rejeitado — o remoto
+                # ficou como estava; o chamador pode fechar a operação.
+                raise AsaasRejectedError(
+                    "O Asaas rejeitou a atualização da assinatura"
+                ) from exc
+            raise AsaasError("Falha ao atualizar a assinatura no Asaas") from exc
         except httpx.HTTPError as exc:
+            # Timeout/transporte: resultado AMBÍGUO — reconciliação por GET.
             logger.warning("Asaas subscription update failed: %s", type(exc).__name__)
             raise AsaasError("Falha ao atualizar a assinatura no Asaas") from exc
         except (ValueError, KeyError) as exc:
@@ -352,7 +363,8 @@ class AsaasClient:
             log_suppressed("Asaas", "create_one_time_charge")
             return None
         if 0 < valor < MIN_UNDEFINED_PAYMENT_VALUE:
-            raise AsaasError("A cobrança precisa ser de pelo menos R$ 5,00")
+            # Validação LOCAL que comprova a não-criação: rejeição definitiva.
+            raise AsaasRejectedError("A cobrança precisa ser de pelo menos R$ 5,00")
         base_url, api_key = self._require_config()
         headers = self._headers(api_key)
         try:
@@ -365,7 +377,17 @@ class AsaasClient:
                     description=description,
                     external_reference=external_reference,
                 )
+        except httpx.HTTPStatusError as exc:
+            code = exc.response.status_code
+            logger.warning("Asaas one-time charge failed: HTTP %s", code)
+            if 400 <= code < 500:
+                # DEFINITIVO: o Asaas processou e rejeitou — nada foi criado.
+                raise AsaasRejectedError(
+                    "O Asaas rejeitou a cobrança"
+                ) from exc
+            raise AsaasError("Falha ao criar a cobrança no Asaas") from exc
         except httpx.HTTPError as exc:
+            # Timeout/transporte: resultado AMBÍGUO — só reconciliação.
             logger.warning("Asaas one-time charge failed: %s", type(exc).__name__)
             raise AsaasError("Falha ao criar a cobrança no Asaas") from exc
         except (ValueError, KeyError) as exc:

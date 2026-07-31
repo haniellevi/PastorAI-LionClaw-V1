@@ -1227,6 +1227,8 @@ class BillingPaymentOperation(Base):
     )
     valor: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
     invoice_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Registro da rejeição DEFINITIVA que fechou a operação como `failed`.
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )

@@ -592,3 +592,69 @@ def test_reconcile_leaves_operation_open_until_adoption() -> None:
     assert found2 is remote
     assert asaas.finds == 2
     assert op.status == "reconciling"
+
+
+# ---------------------------------------------------------------------------
+# CORRECTIVE-8 P1: rejeição DEFINITIVA fecha a operação como failed e LIBERA
+# o slot — nunca fica presa em reconciling.
+# ---------------------------------------------------------------------------
+from app.services.asaas import AsaasRejectedError  # noqa: E402
+
+
+def test_one_time_charge_definitive_rejection_fails_and_frees_slot() -> None:
+    class _RejectingAsaas:
+        def create_one_time_charge(self, **kwargs):
+            raise AsaasRejectedError("A cobrança precisa ser de pelo menos R$ 5,00")
+
+        def find_payments_by_external_reference(self, key):  # pragma: no cover
+            raise AssertionError("rejeição definitiva nunca reconcilia")
+
+    db = FakeSession()
+    with pytest.raises(AsaasRejectedError):
+        _ensure(db, _RejectingAsaas())
+
+    failed = next(
+        o for o in db.added if isinstance(o, BillingPaymentOperation)
+    )
+    assert failed.status == "failed"
+    assert failed.error  # motivo registrado
+
+    # O slot foi LIBERADO: uma nova operação corrigida nasce e completa.
+    ok = _OpsAsaas(charge={"id": "pay_fixed", "invoiceUrl": "u"})
+    op2 = _ensure(db, ok)
+    assert op2 is not failed
+    assert op2.status == "created"
+    assert ok.posts == 1
+
+
+def test_plan_change_definitive_put_rejection_fails_and_frees_claim() -> None:
+    sub = _plan_sub()
+    igreja = SimpleNamespace(id="igreja-1", plano="ate_100")
+    db = FakeSession(igreja=igreja)
+
+    class _RejectingPlanAsaas:
+        def update_subscription(self, subscription_id, *, valor, descricao):
+            raise AsaasRejectedError("O Asaas rejeitou a atualização da assinatura")
+
+        def get_subscription(self, subscription_id):  # pragma: no cover
+            raise AssertionError("rejeição definitiva nunca reconcilia")
+
+    with pytest.raises(AsaasRejectedError):
+        _change(db, _RejectingPlanAsaas(), sub)
+
+    failed = next(
+        o for o in db.added if isinstance(o, BillingPlanChangeOperation)
+    )
+    assert failed.status == "failed"
+    assert failed.error
+    # Plano local INTACTO.
+    assert sub.plano == "ate_100"
+    assert igreja.plano == "ate_100"
+
+    # Claim liberado: a solicitação corrigida completa normalmente.
+    ok = _PlanAsaas()
+    done = _change(db, ok, sub)
+    assert done is not failed
+    assert done.status == "completed"
+    assert sub.plano == "101_200"
+    assert ok.puts == 1

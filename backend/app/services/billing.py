@@ -27,7 +27,12 @@ from app.db.models import (
     Igreja,
     Subscription,
 )
-from app.services.asaas import AsaasClient, AsaasError, payment_invoice_url
+from app.services.asaas import (
+    AsaasClient,
+    AsaasError,
+    AsaasRejectedError,
+    payment_invoice_url,
+)
 
 logger = logging.getLogger("pastorai.billing")
 
@@ -115,6 +120,28 @@ def find_open_operation(
             BillingPaymentOperation.subscription_id == subscription_id,
             BillingPaymentOperation.purpose == purpose,
             BillingPaymentOperation.status.in_(OPEN_OPERATION_STATUSES),
+        )
+    ).scalar_one_or_none()
+
+
+def find_settled_recovery(
+    db: Session, subscription_id, source_payment_id: str
+) -> BillingPaymentOperation | None:
+    """A recuperação PAGA (não revertida) que liquidou esta cobrança-fonte.
+
+    Relação durável source→recovery: quando existe, um estorno
+    duplicado/atrasado da cobrança-fonte já foi compensado — o webhook deve
+    ignorá-lo (a dívida só volta se a PRÓPRIA recovery for revertida, o que
+    move a operação para `reversed` e desfaz esta consulta).
+    """
+    if not source_payment_id:
+        return None
+    return db.execute(
+        select(BillingPaymentOperation).where(
+            BillingPaymentOperation.subscription_id == subscription_id,
+            BillingPaymentOperation.purpose == "monthly_recovery",
+            BillingPaymentOperation.source_payment_id == str(source_payment_id),
+            BillingPaymentOperation.status == "paid",
         )
     ).scalar_one_or_none()
 
@@ -228,6 +255,14 @@ def ensure_payment_operation(
             description=description,
             external_reference=op.operation_key,
         )
+    except AsaasRejectedError as exc:
+        # Rejeição DEFINITIVA (mínimo local / HTTP 4xx): nada foi criado — a
+        # operação fecha como `failed` (erro registrado) e LIBERA o índice
+        # parcial para uma nova operação corrigida. Nunca fica em reconciling.
+        finish_operation(
+            db, op, ("creating",), status="failed", error=str(exc)
+        )
+        raise
     except AsaasError:
         # Resultado ambíguo (o POST pode ter chegado): daqui em diante só
         # reconciliação — nunca outro POST automático.
@@ -412,6 +447,15 @@ def ensure_plan_change_operation(
             valor=float(op.to_preco),
             descricao=f"PastorAI — plano {op.to_plano}",
         )
+    except AsaasRejectedError as exc:
+        # Rejeição DEFINITIVA do PUT (4xx): o remoto ficou como estava — a
+        # operação fecha como `failed` (plano local INTACTO) e o claim único
+        # é liberado para uma solicitação corrigida. O worker não redescobre
+        # operações failed, então não há loop automático.
+        finish_operation(
+            db, op, ("processing",), status="failed", error=str(exc)
+        )
+        raise
     except AsaasError:
         # Ambíguo (o PUT pode ter chegado): plano local fica INTACTO e o
         # retry reconcilia — nunca outro PUT automático imediato.

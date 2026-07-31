@@ -27,6 +27,7 @@ interrompe os demais.
 
 from __future__ import annotations
 
+import datetime as dt
 import logging
 import uuid
 from collections.abc import Callable
@@ -39,6 +40,7 @@ from app.db.models import (
     AgentConversationLog,
     AppUser,
     BillingPlanChangeOperation,
+    Plano,
     Subscription,
     UserRole,
     WhatsappConnection,
@@ -46,14 +48,21 @@ from app.db.models import (
 from app.db.session import get_session_factory
 from app.db.tenant_session import mark_tenant_scoped
 from app.deps import ADMIN_ROLE
+from app.domain.billing import PLAN_ORDER, plan_rank
 from app.services.asaas import AsaasClient, AsaasError
 from app.services.billing import (
     OPEN_PLAN_CHANGE_STATUSES,
+    PlanChangeConflict,
     ensure_plan_change_operation,
 )
 from app.services.evolution import EvolutionClient, EvolutionError
 
 logger = logging.getLogger("pastorai.billing_worker")
+
+# Lease da RESERVA de notificação: uma reserva sem marcador de entrega mais
+# velha que isto é considerada abandonada (crash entre reservar e enviar) e
+# pode ser reivindicada por outro tick.
+NOTIFY_RESERVATION_LEASE = dt.timedelta(minutes=15)
 
 
 def _admin_phones(db: Session, igreja_id: uuid.UUID) -> list[str]:
@@ -84,22 +93,36 @@ def _autoupgrade_event_name(plano: str) -> str:
     return f"subscription_upgrade:{plano}"
 
 
+def _autoupgrade_sent_event_name(plano: str) -> str:
+    """Marcador de ENTREGA comprovada — separado da reserva (CORRECTIVE-8).
+
+    A reserva (`subscription_upgrade:<plano>`) só prova a INTENÇÃO de enviar;
+    este marcador é gravado somente APÓS um `send_text` bem-sucedido. Ambos
+    casam o predicado `subscription\\_upgrade:%` do índice único parcial.
+    """
+    return f"subscription_upgrade:{plano}:sent"
+
+
 def notify_autoupgrade(
     db: Session, igreja_id: uuid.UUID, evolution: EvolutionClient
 ) -> str:
     """Notify the admin once when the plan was promoted by the autoupgrade flow.
 
-    Idempotent: a `subscription_upgrade:<plano>` event in agent_conversation_logs
-    marks a plan as already announced, so repeated calls do not re-notify.
-    Returns the delivery outcome:
+    RESERVA ≠ ENTREGA (CORRECTIVE-8): a reserva
+    (`subscription_upgrade:<plano>`) só prova a intenção; a entrega comprovada
+    grava um segundo marcador (`...:sent`) DEPOIS do `send_text`. Uma reserva
+    sem marcador de entrega e mais velha que ``NOTIFY_RESERVATION_LEASE`` é
+    abandonada (crash entre reservar e enviar) e é reivindicada aqui — a
+    janela de crash nunca finge entrega. Returns the delivery outcome:
 
-      - ``"sent"``    — mensagem emitida agora (ou nada a emitir: sem conexão
-        WhatsApp/telefones, o marcador fica reservado e não há retry a fazer);
-      - ``"already"`` — marcador já existia/perdeu a corrida (outro processo é
-        o dono do anúncio);
-      - ``"skipped"`` — nada a anunciar (sem assinatura ou tier base);
-      - ``"retry"``   — TODOS os envios falharam: a reserva foi liberada e o
-        chamador deve manter a entrega descobrível para uma nova tentativa.
+      - ``"sent"``     — mensagem emitida AGORA (marcador de entrega gravado);
+      - ``"already"``  — entrega COMPROVADA anteriormente (marcador ``:sent``);
+      - ``"inflight"`` — reserva recente de outro processo: não envia nem
+        conclui; o chamador mantém a entrega pendente/descobrível;
+      - ``"skipped"``  — nada a anunciar/entregar (sem assinatura, tier base,
+        ou sem conexão WhatsApp/telefones — reserva liberada);
+      - ``"retry"``    — TODOS os envios falharam: reserva liberada e o
+        chamador deve manter a entrega descobrível para nova tentativa.
 
     SEC-4: a reserva do marcador (`reserve_agent_event`, INSERT + commit
     imediato) acontece ANTES do `send_text` — nunca depois. Se a reserva
@@ -123,19 +146,39 @@ def notify_autoupgrade(
     if sub is None:
         return "skipped"
 
-    evento = _autoupgrade_event_name(sub.plano)
-    already = db.execute(
-        select(AgentConversationLog.id).where(
-            AgentConversationLog.igreja_id == igreja_id,
-            AgentConversationLog.evento == evento,
-        )
-    ).first()
-    if already is not None:
-        return "already"  # saída antecipada barata
-
     # Only notify when there is an upgrade marker to record beyond the base tier.
     if sub.plano == "ate_100":
         return "skipped"
+
+    evento = _autoupgrade_event_name(sub.plano)
+    evento_sent = _autoupgrade_sent_event_name(sub.plano)
+
+    # ENTREGA já comprovada? (marcador :sent) — nunca reenvia.
+    delivered = db.execute(
+        select(AgentConversationLog.id).where(
+            AgentConversationLog.igreja_id == igreja_id,
+            AgentConversationLog.evento == evento_sent,
+        )
+    ).first()
+    if delivered is not None:
+        return "already"
+
+    # Reserva existente SEM entrega: recente = outro processo pode estar
+    # enviando agora (inflight); mais velha que o lease = abandonada por um
+    # crash entre reservar e enviar — reivindica e tenta entregar.
+    reservation = db.execute(
+        select(AgentConversationLog).where(
+            AgentConversationLog.igreja_id == igreja_id,
+            AgentConversationLog.evento == evento,
+        )
+    ).scalar_one_or_none()
+    if reservation is not None:
+        created = getattr(reservation, "created_at", None)
+        now = dt.datetime.now(dt.timezone.utc)
+        if created is None or (now - created) < NOTIFY_RESERVATION_LEASE:
+            return "inflight"
+        release_agent_event(db, reservation)
+        logger.info("Reclaimed an abandoned autoupgrade notification reservation")
 
     # Lidas ANTES da reserva (gap-2): só valores simples sobrevivem até o
     # send, nenhuma query fica pendurada numa transação aberta pelo envio.
@@ -149,8 +192,8 @@ def notify_autoupgrade(
         db, igreja_id=igreja_id, evento=evento, payload={"plano": sub.plano}
     )
     if marker is None:
-        # Perdeu a corrida: outro processo já reserva este marcador.
-        return "already"
+        # Perdeu a corrida AGORA: outro processo acabou de reservar.
+        return "inflight"
 
     texto = (
         "Aviso de assinatura: seu plano foi atualizado automaticamente para "
@@ -172,6 +215,17 @@ def notify_autoupgrade(
         release_agent_event(db, marker)
         return "retry"
 
+    if not attempted:
+        # Sem conexão WhatsApp/telefones: NADA a entregar — a reserva é
+        # liberada e nenhum marcador de entrega é gravado (não finge envio).
+        release_agent_event(db, marker)
+        return "skipped"
+
+    # ENTREGA comprovada: o marcador :sent é a prova durável (idempotente
+    # pelo índice único — um segundo processo não o duplica).
+    reserve_agent_event(
+        db, igreja_id=igreja_id, evento=evento_sent, payload={"plano": sub.plano}
+    )
     return "sent"
 
 
@@ -196,8 +250,11 @@ def _deliver_upgrade_notification(
     except Exception:  # noqa: BLE001 - notificação nunca reverte billing
         logger.exception("Autoupgrade notification failed for igreja %s", igreja_id)
         return False  # segue 'pending': redescoberta no próximo tick
-    if outcome == "retry":
-        return False  # reserva liberada; segue 'pending' para o próximo tick
+    if outcome in ("retry", "inflight"):
+        # retry: envio falhou (reserva liberada). inflight: reserva de outro
+        # processo sem entrega comprovada — NUNCA vira 'sent' por presunção;
+        # o lease reivindica reservas abandonadas no tick seguinte.
+        return False
     op.notify_status = "sent"
     db.commit()
     return outcome == "sent"
@@ -241,7 +298,79 @@ def _process_operation(
     # operação completed permanece com notify_status='pending' e o próximo
     # tick a redescobre. Nunca desfaz a troca já confirmada.
     _deliver_upgrade_notification(db, op, igreja_id, evolution)
+
+    # Multi-tier (CORRECTIVE-8): o porte pode ter cruzado MAIS de um degrau
+    # antes deste upgrade concluir — os triggers repetidos coalesceram na
+    # operação recém-completada, e o UPDATE do plano não dispara o trigger de
+    # pessoas. Reavalia AGORA e persegue os degraus restantes, sem depender
+    # de uma futura mutação de pessoas.
+    _chase_remaining_tiers(db, asaas, evolution, sub, igreja_id)
     return True
+
+
+def _next_ladder_target(db: Session, sub: Subscription) -> Plano | None:
+    """Próximo degrau elegível da escada canônica, com alvo do CATÁLOGO.
+
+    Elegível quando a contagem corrente (mantida pelo trigger em
+    ``sub.pessoas``) excede o limite vigente. O preço/limite congelam do
+    catálogo `planos` do master; plano fora do catálogo não gera operação
+    (nunca inventar preço remoto — mesma regra do trigger).
+    """
+    try:
+        pessoas = int(sub.pessoas) if sub.pessoas is not None else None
+        limite = int(sub.limite) if sub.limite is not None else None
+    except (TypeError, ValueError):
+        return None
+    if pessoas is None or limite is None or pessoas <= limite:
+        return None
+    idx = plan_rank(sub.plano)
+    if idx < 0 or idx + 1 >= len(PLAN_ORDER):
+        return None
+    proximo = PLAN_ORDER[idx + 1]
+    plano_row = db.execute(
+        select(Plano).where(Plano.codigo == proximo)
+    ).scalar_one_or_none()
+    if plano_row is None or plano_row.preco_mensal is None:
+        return None
+    return plano_row
+
+
+def _chase_remaining_tiers(
+    db: Session,
+    asaas: AsaasClient,
+    evolution: EvolutionClient,
+    sub: Subscription,
+    igreja_id: uuid.UUID,
+) -> None:
+    """Cria e processa os degraus RESTANTES após um upgrade concluído.
+
+    Cada follow-up nasce como operação `prepared` própria (claim pelo índice
+    único parcial) e passa pelo MESMO mecanismo durável — PUT na assinatura
+    existente, reconciliação em retry, local só após confirmação. Uma troca
+    manual aberta tem precedência (conflito encerra a perseguição). Loop
+    limitado pela altura da escada.
+    """
+    if not sub.asaas_subscription_id:
+        return  # sem recorrência remota o trigger local já resolve sozinho
+    for _ in range(len(PLAN_ORDER)):
+        alvo = _next_ladder_target(db, sub)
+        if alvo is None:
+            return
+        try:
+            followup = ensure_plan_change_operation(
+                db,
+                asaas,
+                sub=sub,
+                to_plano=alvo.codigo,
+                to_preco=float(alvo.preco_mensal),
+                to_limite=alvo.limite_pessoas,
+                origin="autoupgrade",
+            )
+        except PlanChangeConflict:
+            return  # operação manual aberta é do assinante — nunca atropela
+        if followup.status != "completed":
+            return  # ficou aberta (reconciling): o próximo tick continua
+        _deliver_upgrade_notification(db, followup, igreja_id, evolution)
 
 
 def _retry_pending_notification(

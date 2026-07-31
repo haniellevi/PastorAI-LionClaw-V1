@@ -112,6 +112,29 @@ class _WebhookDb:
                 None,
             )
             return _Result(match)
+        if any(key.startswith("source_payment_id") for key in bound):
+            # find_settled_recovery: recovery PAGA que liquidou a fonte.
+            src = next(
+                value
+                for key, value in bound.items()
+                if key.startswith("source_payment_id")
+            )
+            statuses = [
+                value
+                for key, value in bound.items()
+                if key.startswith("status") and not key.startswith("status_new")
+            ]
+            match = next(
+                (
+                    o
+                    for o in self.operations
+                    if str(getattr(o, "source_payment_id", None)) == str(src)
+                    and getattr(o, "purpose", None) == "monthly_recovery"
+                    and (not statuses or o.status in statuses)
+                ),
+                None,
+            )
+            return _Result(match)
         # Operações duráveis: resolvidas por asaas_payment_id OU operation_key.
         for key, value in bound.items():
             if key.startswith("asaas_payment_id") or key.startswith("operation_key"):
@@ -1241,3 +1264,60 @@ def test_setup_reversal_of_current_charge_still_reopens(app, monkeypatch) -> Non
     assert db.sub.setup_pago is False  # dona atual: pendência reabre
     assert db.sub.asaas_setup_charge_id is None
     assert db.sub.asaas_setup_invoice_url is None
+
+
+# ---------------------------------------------------------------------------
+# CORRECTIVE-8 P1: fonte já LIQUIDADA por recovery paga — estorno duplicado
+# da cobrança-fonte é ignorado; só a reversão da PRÓPRIA recovery reabre.
+# ---------------------------------------------------------------------------
+def test_duplicate_source_refund_after_paid_recovery_is_ignored(
+    app, monkeypatch
+) -> None:
+    settled = _operation(status="paid", source_payment_id="pay_m2")
+    db = _WebhookDb(
+        sub=_sub(
+            status="ativa",
+            asaas_invoice_payment_id="pay_m2",
+            asaas_invoice_reversal=None,  # dívida quitada pela recovery
+        ),
+        igreja=_igreja("ativa"),
+        operations=[settled],
+    )
+    client = _client(app, db, monkeypatch)
+    # Estorno DUPLICADO/atrasado da cobrança-fonte (não da recovery).
+    payment = _payment(status="REFUNDED", payment_id="pay_m2")
+
+    resp = _post(client, "PAYMENT_REFUNDED", payment)
+
+    assert resp.status_code == 200
+    assert resp.json() == {"received": True, "status": None}
+    # NADA muda: sem dívida nova, sem gate, sem segunda recovery possível.
+    assert db.sub.status == "ativa"
+    assert db.sub.asaas_invoice_reversal is None
+    assert db.igreja.status == "ativa"
+    assert db.commits == 0
+
+
+def test_source_refund_counts_again_after_recovery_itself_reversed(
+    app, monkeypatch
+) -> None:
+    # A recovery que liquidava a fonte foi revertida: a guarda deixa de casar
+    # e o estorno da fonte volta a valer (dívida real).
+    dead_recovery = _operation(status="reversed", source_payment_id="pay_m2")
+    db = _WebhookDb(
+        sub=_sub(
+            status="ativa",
+            asaas_invoice_payment_id="pay_m2",
+            asaas_invoice_reversal=None,
+        ),
+        igreja=_igreja("ativa"),
+        operations=[dead_recovery],
+    )
+    client = _client(app, db, monkeypatch)
+    payment = _payment(status="REFUNDED", payment_id="pay_m2")
+
+    resp = _post(client, "PAYMENT_REFUNDED", payment)
+
+    assert resp.status_code == 200
+    assert db.sub.status == "inadimplente"
+    assert db.igreja.status == "inadimplente"

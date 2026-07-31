@@ -56,6 +56,7 @@ from app.services.billing import (
     ensure_plan_change_operation,
     find_open_operation,
     find_operation_for_payment,
+    find_settled_recovery,
     find_subscription_operation_by_key,
     get_setup_fee_for_igreja,
     prepare_subscription_operation,
@@ -1237,6 +1238,20 @@ def asaas_webhook(
     if payment and _is_stale_cycle_event(sub, payment):
         logger.info("Asaas webhook for a previous billing cycle; acknowledged")
         return WebhookResponse(received=True, status=None)
+
+    # Fonte JÁ LIQUIDADA: se uma recuperação PAGA (não revertida) cobre esta
+    # cobrança-fonte, um estorno duplicado/atrasado dela não reabre a dívida —
+    # nem status, nem gate, nem nova recovery. A dívida só volta quando a
+    # PRÓPRIA recuperação é revertida (aí a operação sai de `paid` e esta
+    # guarda deixa de casar).
+    if payment and reversal and payment_id:
+        settled = find_settled_recovery(db, sub.id, payment_id)
+        if settled is not None:
+            logger.info(
+                "Asaas reversal for a source already settled by a paid "
+                "recovery; acknowledged"
+            )
+            return WebhookResponse(received=True, status=None)
 
     if new_status is not None:
         sub.status = new_status
