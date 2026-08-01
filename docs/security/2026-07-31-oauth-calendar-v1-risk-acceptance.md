@@ -24,68 +24,116 @@ no servidor · callback público que **só estaciona** o `code` · `POST
 consome o fluxo atomicamente e só então troca o código · purge no `cron_worker`.
 
 Dois segredos distintos porque eles têm exposições diferentes: o `state` viaja
-ao Google e cai no access log; o `flowSecret` fica em `sessionStorage`
-(particionado por origem) e nunca sai das origens do painel.
+ao Google e cai no access log; o `flowSecret` fica no `localStorage` da própria
+origem do painel e nunca sai dela.
 
-## Retomada por identidade (OAUTH-PWA-IOS-G3)
+## PWA iOS + posse obrigatória do `flowSecret` (G3)
 
 **Decisão do dono, 2026-07-31: PWA iOS instalada é superfície suportada no V1.**
 G3 passa a ser bloqueador de merge.
 
-O desenho acima amarrava a conclusão à continuidade do `sessionStorage`, e numa
-PWA iOS essa continuidade não existe:
+O problema de continuidade é real. Numa PWA iOS:
 
 - sair para `accounts.google.com` é navegação **fora do `scope`** do manifest
   (`"scope": "/"`), então o iOS entrega o link ao Safari. O retorno cai num jar
-  de storage **separado** do da PWA instalada — `sessionStorage` vazio;
+  de storage **separado** do da PWA instalada;
 - mesmo quando o retorno reabre a PWA, o iOS pode tê-la encerrado em segundo
-  plano e relançado com `sessionStorage` zerado;
+  plano e relançado;
 - no caso mais comum a PWA nem é encerrada: fica viva em segundo plano com o
   botão preso em "Abrindo o Google…", e o consentimento conclui noutro app.
 
-**Correção:** `POST /calendar/connect/finish` passa a aceitar `flowSecret`
-**opcional**. Sem ele, a linha é encontrada por `app_user_id` + `igreja_id` do
-Bearer, com `consumed_at IS NULL`, `code_encrypted IS NOT NULL`,
-`expires_at > now()`, `ORDER BY criado_em DESC LIMIT 1 FOR UPDATE`.
+### Tentativa descartada: retomar por identidade
 
-Por que o modelo de ameaça continua o mesmo:
+Uma primeira correção fez o `flowSecret` virar **opcional**, achando a linha por
+`app_user_id` + `igreja_id` do Bearer. **Foi revertida** por
+`PR222-OPTIONAL-SECRET-SECURITY-REVIEW-1`. O raciocínio de que "identidade
+equivale ao segundo segredo" **está errado** e não deve ser reintroduzido:
 
-| Invariante | Como se sustenta sem o `flowSecret` |
+- `app_user_id` + `igreja_id` provam apenas **quem finaliza**. Não provam **qual
+  conta Google consentiu** — nada no fluxo amarra as duas coisas;
+- com isso, a posse de um `state` vivo passava a bastar: um terceiro abre a URL
+  de autorização **original** noutro navegador, consente com a conta Google
+  dele, o callback público estaciona o `code`, e o fluxo **fechava sozinho** na
+  próxima montagem da tela do admin — sem clique, sem marcador de retorno;
+- pior que a versão anterior: abandonar o consentimento deixava de proteger, a
+  janela virava o TTL inteiro, e não havia mais corrida a vencer.
+
+### O que o PKCE cobre — e o que não cobre
+
+PKCE recusa um `code` emitido para **outra** requisição de autorização: o
+`code_challenge` daquela requisição não casa com este `code_verifier` e o Google
+devolve `invalid_grant`.
+
+PKCE **não impede** que alguém abra a URL de autorização **ORIGINAL** deste fluxo
+noutro navegador e consinta com outra conta Google. O `code` sai amarrado ao
+**mesmo** `code_challenge`, então a troca sucede e os tokens são os do terceiro.
+PKCE prova que o `code` pertence a ESTA requisição; nunca prova QUAL conta
+consentiu.
+
+Consequência para o risco **R2** da tabela abaixo: a descrição original ("DoS ...
+o `finish` da vítima falha em `invalid_grant`") **só vale** quando o `code`
+injetado veio de outra requisição. Quando vem da URL original, a troca sucede e o
+efeito é vinculação de conta, não negação de serviço. R2 foi corrigido na tabela.
+
+### Regra vigente
+
+> **Sem posse do `flowSecret`, nenhum fluxo é concluído.**
+
+Ela não tem exceção por superfície, por marcador de rota nem por identidade.
+Concretamente:
+
+| Onde | Regra |
 |---|---|
-| Vínculo com `app_user_id` + `igreja_id` | O `WHERE` **é** a autorização, e as duas colunas vêm do Bearer. O caminho do `flowSecret` acha a linha pelo hash e **compara exatamente as mesmas colunas** logo depois: tudo que a retomada aceita, aquele caminho já aceitaria. |
-| Conclusão por usuário/tenant diferente | Impossível por construção: a busca nunca sai das linhas do próprio chamador. Fluxo alheio não é lido nem queimado. |
-| TTL, uso único, replay | Inalterados — mesmo `_burn`, mesmo `FOR UPDATE`, mesmo `consumed_at`. Uma segunda retomada não encontra a linha consumida. |
-| Callback público sem troca | Inalterado: continua só estacionando. |
-| Nada sensível em URL/log | Nada novo trafega. Ao contrário — a retomada não manda segredo nenhum. |
-| Fail-closed, sem fallback legado | Sem fluxo próprio estacionado, a resposta é 202 e **nada conecta**. Nenhum caminho legado é reintroduzido. |
-| Sem `localStorage` | Nenhum storage novo. O `sessionStorage` vira otimização de precisão, não pré-requisito. |
+| `FinishRequest.flowSecret` | obrigatório, `min_length=1`. Corpo sem segredo morre no schema (422) — nenhuma linha é lida, travada ou consumida |
+| Busca da linha | **exclusivamente** por `flow_secret_hash`. `app_user_id`/`igreja_id` são validação DEPOIS de achar, nunca chave de busca |
+| `_pending_flow_for_user` | removido; um teste falha se o helper voltar a existir |
+| Armazenamento do painel | `localStorage` da própria origem, chave versionada `gcal_flow_v2`, objeto `{secret, expiresAt}` |
+| Prazo | `expiresAt` vem do `/connect` — o mesmo `expires_at` gravado na linha. O cliente não deriva TTL; o servidor revalida no `finish` e é a autoridade final |
+| Limpeza do segredo | ao expirar, concluir, cancelar, levar rejeição terminal (4xx) ou iniciar deliberadamente um fluxo novo |
+| Marcador `ready` + segredo vivo | conclui usando exatamente aquele segredo |
+| Fora do `ready` | **nenhum POST automático** — nem na montagem, nem no `visibilitychange`. Aparece a CTA "Concluir conexão com o Google" e só o clique conclui |
+| Sem segredo vivo | zero POST de `finish`, fail-closed, CTA para reiniciar a conexão |
+| `visibilitychange` | apenas destrava a UI e revela a CTA (a PWA iOS fica viva em segundo plano). Não conclui nada |
+| 202 | preserva o segredo até o TTL e mantém a ação explícita disponível |
+| 409 | terminal: limpa o segredo e oferece reinício |
 
-**Oráculo.** Com `flowSecret` apresentado e não encontrado a resposta segue 409
-— não há queda para a retomada, justamente para não transformar um palpite de
-segredo em sinal. Sem segredo, o 202 só informa ao chamador algo sobre as
-**próprias** linhas.
-
-**Concorrência.** Duas tentativas resolvem para a mais recente que de fato
-voltou do Google (`code_encrypted IS NOT NULL` + `criado_em DESC`); as demais
-morrem no TTL e no purge. Consentimento ainda em voo nunca é sequestrado por uma
-retomada: sem `code` estacionado ele não entra no `WHERE`.
-
-**Frontend.** Uma tentativa de retomada **por montagem**, só quando o admin não
-está conectado — com o segredo local no marcador `ready`, sem segredo em
-qualquer outro caso. Fora do retorno é sondagem: 202/409 são silenciosos e o
-card mostra o CTA normal. Mais um disparo em `visibilitychange`, **apenas** após
-um redirect real ao Google nesta montagem, que é o que destrava a PWA viva em
-segundo plano. Nenhum dos dois é polling: são eventos discretos e contados.
+Custo aceito: numa PWA iOS o admin dá **um toque a mais** ao voltar do Google. É
+o preço de manter a conclusão presa à posse do segredo e a uma ação humana.
 
 Isto **não** altera migration, schema, allowlist de origem, escopos, nem
 qualquer configuração no Google Cloud.
+
+## ACCOUNT_IDENTITY_RISK_PENDING
+
+**Estado: PENDENTE. Não resolvido e não aceito.**
+
+O sistema **ainda não prova qual conta Google realizou o consentimento**. Nem o
+`state`, nem o `flowSecret`, nem o PKCE, nem a identidade Clerk estabelecem esse
+vínculo — todos falam sobre o lado PastorAI do fluxo.
+
+Efeito concreto: quem tiver um `state` vivo e conseguir que o admin conclua o
+fluxo (agora com um clique deliberado, não mais em silêncio) consegue vincular a
+agenda da igreja a uma conta Google de terceiro. A posse obrigatória do
+`flowSecret` reduz a superfície; não fecha a questão da identidade.
+
+O que fecharia — e que **exige decisão própria do dono**, estando **fora** desta
+correção:
+
+1. pedir `openid email` no consentimento e ler a conta que autorizou;
+2. persistir e **exibir** qual conta Google está vinculada, quem vinculou e
+   quando;
+3. exigir confirmação explícita antes de persistir quando a conta mudar.
+
+Enquanto isso não existir: **não declare este risco resolvido nem aceito.**
+Relacionado a R4 (admin conecta a própria agenda pessoal), que é o mesmo buraco
+visto pelo lado do produto.
 
 ## Riscos residuais aceitos
 
 | # | Risco | Decisão |
 |---|---|---|
-| **R1** | Atacante com **leitura do navegador da vítima** obtém `state` + `code_challenge` do histórico e pré-amarra um authorization code, transformando o park em injeção real. **Não é cobertura completa de PKCE.** | **D1 — ACEITO.** Nesse cenário o atacante já alcança o token de sessão e o `sessionStorage`; o PKCE não é o elo mais fraco. Não há correção dentro do OAuth: o `code_challenge` sempre trafega na URL de consentimento. |
-| **R2** | DoS limitado a TTL + reclique: um `state` vazado pode ocupar o first-write do park, e o `finish` da vítima falha em `invalid_grant`. | **D2 — ACEITO.** Exige posse de um `state` vivo; custo para a vítima é um novo clique. |
+| **R1** | Atacante com **leitura do navegador da vítima** obtém `state` + `code_challenge` do histórico e pré-amarra um authorization code, transformando o park em injeção real. **Não é cobertura completa de PKCE.** | **D1 — ACEITO, com o escopo explicitado.** A justificativa vale porque, nesse cenário, o atacante já alcança o token de sessão **e o armazenamento do painel** — inclusive o `flowSecret`. Ela **não** se estende a quem obtém o `state` FORA do navegador da vítima (access log, histórico do Safari sincronizado, aparelho compartilhado): contra esses, a defesa é a posse obrigatória do `flowSecret`, e o resíduo de identidade da conta Google está em **ACCOUNT_IDENTITY_RISK_PENDING**. |
+| **R2** | **CORRIGIDO 2026-07-31.** Um `state` vazado ocupa o first-write do park. Se o `code` veio de OUTRA requisição, o `finish` falha em `invalid_grant` e o efeito é DoS de TTL + reclique. Se veio da URL de autorização **ORIGINAL**, a troca **sucede** e o efeito é **vinculação de conta** — ver a seção do PKCE acima. A redação anterior descrevia só o primeiro caso. | **D2 cobre APENAS a parte de DoS.** A parte de vinculação de conta pertence a **ACCOUNT_IDENTITY_RISK_PENDING** e **NÃO está aceita**. Mitigação vigente: posse obrigatória do `flowSecret` + conclusão por ação humana, que eliminam o caminho silencioso mas não provam a conta Google. |
 | **R3** | Oráculo de 1 bit no destino do redirect (fluxo conhecido × desconhecido). | **D2 — ACEITO.** Só informa "vivo ou morto" a quem já tem o `state`, que sozinho não concede privilégio. |
 | **R4** | Admin legítimo conecta a própria agenda pessoal ("entra em Configurações → Agenda → Conectar"). Zero verificações disparam, em qualquer desenho de `state`. | **D2 — ACEITO.** É limite do modelo de produto (uma agenda por igreja, qualquer admin conecta). Mitigação possível só na UI — exibir qual conta Google, quem conectou e quando — registrada como frente de produto separada, **fora deste V1**. |
 | **R5** | Segredos de fluxo expirado vivem até ~1 tick do cron-worker (300s por padrão) além do TTL. | **D2 — ACEITO.** Knob disponível: um `UPDATE ... SET code_encrypted = NULL, verifier_encrypted = NULL` antes do `DELETE`. Não incluído por padrão. |
@@ -131,7 +179,7 @@ Coordenar exigiria um feature gate no backend que não existe e está fora do V1
 | **G2** | Testes de corrida rodaram sem skip (`RLS_TEST_DATABASE_URL` presente) | pendente |
 | **G4** | Google Cloud Console aceita `code_challenge` S256 | pendente |
 | **G7a/G7b** | Ver ordem acima | a cada deploy |
-| **G3** | Conexão conclui em PWA iOS instalada **sem** continuidade de `sessionStorage` | **BLOQUEADOR DE MERGE** (dono decidiu: PWA iOS está no V1). Correção implementada e coberta por teste; **só passa com iPhone real** — jsdom, simulador e navegador desktop **não** contam |
+| **G3** | Em PWA iOS instalada: o segredo sobrevive ao relançamento no `localStorage` da origem, a CTA "Concluir conexão com o Google" aparece, **um toque** conclui, e nada conclui sozinho | **NÃO PROVADO — bloqueador de merge** (dono decidiu: PWA iOS está no V1). Correção implementada e coberta por teste, mas jsdom, simulador e navegador desktop **NÃO** contam. Só passa com **iPhone real** |
 | **G6** | Parser do `AppShell` verificado | só se `app.*` entrar na allowlist |
 
 ## Frentes separadas, deliberadamente fora deste PR

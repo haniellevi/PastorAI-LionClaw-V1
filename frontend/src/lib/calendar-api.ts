@@ -41,15 +41,22 @@ export async function fetchCalendarStatus(token: string): Promise<CalendarStatus
 export interface ConnectStart {
   authUrl: string;
   flowSecret: string;
+  /**
+   * Instante de expiração do fluxo em epoch ms, derivado do `expires_at` que o
+   * SERVIDOR gravou. O cliente nunca calcula TTL — só descarta o segredo quando
+   * este instante passa. O servidor revalida `expires_at` no `finish` e segue
+   * sendo a autoridade final.
+   */
+  expiresAt: number;
 }
 
 /**
- * Inicia o fluxo OAuth (OAUTH-CALENDAR-V1). Devolve a URL de consentimento e o
- * `flowSecret`, que o card guarda em `sessionStorage` e apresenta depois em
- * `finishConnection`.
+ * Inicia o fluxo OAuth (OAUTH-CALENDAR-V1). Devolve a URL de consentimento, o
+ * `flowSecret` e a expiração real do fluxo.
  *
- * FAIL-CLOSED: um backend antigo responde só `{authUrl}`. Sem `flowSecret` não
- * existe quem conclua o fluxo, então NÃO redirecionamos ao Google — o usuário
+ * FAIL-CLOSED: um backend antigo responde só `{authUrl}` (ou sem `expiresAt`).
+ * Sem segredo não existe quem conclua o fluxo, e sem prazo o painel guardaria um
+ * segredo sem validade. Nos dois casos NÃO redirecionamos ao Google — o usuário
  * consentiria à toa e a conexão nunca completaria.
  */
 export async function fetchConnectUrl(token: string): Promise<ConnectStart> {
@@ -58,15 +65,20 @@ export async function fetchConnectUrl(token: string): Promise<ConnectStart> {
     const detail = await readDetail(res);
     throw new ApiError(res.status, detail ?? "Não foi possível iniciar a conexão com o Google.");
   }
-  const d = (await res.json()) as { authUrl?: string; flowSecret?: string };
+  const d = (await res.json()) as {
+    authUrl?: string;
+    flowSecret?: string;
+    expiresAt?: string;
+  };
   if (!d.authUrl) throw new ApiError(502, "O Google não retornou a URL de consentimento.");
-  if (!d.flowSecret) {
+  const expiresAt = Date.parse(d.expiresAt ?? "");
+  if (!d.flowSecret || !Number.isFinite(expiresAt)) {
     throw new ApiError(
       409,
       "Conexão indisponível no momento. Atualize a página e tente novamente.",
     );
   }
-  return { authUrl: d.authUrl, flowSecret: d.flowSecret };
+  return { authUrl: d.authUrl, flowSecret: d.flowSecret, expiresAt };
 }
 
 export interface FinishResult {
@@ -78,25 +90,26 @@ export interface FinishResult {
 
 /**
  * Conclui o fluxo: consome o flow, troca o code com o `code_verifier` guardado
- * no servidor e persiste a conexão. Só o admin que iniciou consegue concluir.
+ * no servidor e persiste a conexão. Só quem tem o `flowSecret` conclui.
  *
- * `flowSecret` NULO é caminho de primeira classe (OAUTH-PWA-IOS-G3): numa PWA
- * iOS o retorno do Google cai no Safari, cujo storage é um jar separado do da
- * PWA instalada, e a própria PWA pode ser relançada com o `sessionStorage`
- * zerado. Sem segredo, o servidor acha o fluxo pela identidade do Bearer —
- * mesmas colunas que ele compararia de qualquer forma.
+ * O segredo é OBRIGATÓRIO e a guarda abaixo é fail-closed: sem ele não sai
+ * requisição nenhuma. Não existe caminho por identidade — identidade prova
+ * apenas QUEM finaliza, nunca QUAL conta Google consentiu, e um `state` vazado
+ * viraria vinculação silenciosa de conta.
  *
- * 202 = nada a concluir: ou o callback ainda não estacionou o code
- * (reload/back/corrida), ou não existe fluxo pendente meu. É estado recuperável,
- * NÃO consome o fluxo e não deve virar polling.
+ * 202 = o callback ainda não estacionou o code (reload/back/corrida). É estado
+ * recuperável, NÃO consome o fluxo e não deve virar polling.
  */
 export async function finishConnection(
   token: string,
-  flowSecret: string | null,
+  flowSecret: string,
 ): Promise<FinishResult> {
+  if (!flowSecret) {
+    throw new ApiError(409, "Não foi possível concluir a conexão com o Google.");
+  }
   const res = await authedFetch(token, `/calendar/connect/finish`, {
     method: "POST",
-    body: JSON.stringify(flowSecret ? { flowSecret } : {}),
+    body: JSON.stringify({ flowSecret }),
   });
   if (!res.ok) {
     const detail = await readDetail(res);

@@ -8,22 +8,29 @@
  * permite desconectar.
  *
  * OAUTH-CALENDAR-V1 — o consentimento tem DOIS tempos. O `/connect` devolve um
- * `flowSecret` que guardamos em `sessionStorage` (particionado por ORIGEM: um
- * host irmão sob o mesmo domínio não lê nem grava). O callback público volta em
+ * `flowSecret` e a expiração REAL do fluxo. O callback público volta em
  * `#integracoes/callback/ready` ou `.../cancelled`; o `finish` é quem de fato
- * conclui a conexão.
+ * conclui a conexão, e ele EXIGE o segredo.
  *
- * OAUTH-PWA-IOS-G3 — o `sessionStorage` NÃO é pré-requisito. Numa PWA iOS
- * instalada, sair para `accounts.google.com` é navegação fora do `scope` do
- * manifest: o iOS entrega o link ao Safari e o retorno cai num jar de storage
- * separado do da PWA; e mesmo voltando para a PWA, o iOS pode tê-la encerrado
- * em segundo plano e relançado com o `sessionStorage` zerado. Por isso o card
- * faz UMA tentativa de retomada por montagem sempre que o admin não está
- * conectado — com o segredo local quando ele existe, sem segredo nenhum quando
- * não existe. Sem segredo o servidor acha o fluxo pela identidade do Bearer.
+ * PR222-OPTIONAL-SECRET-SECURITY-FIX-1 — duas regras que não se negociam:
  *
- * `cancelled` e o 202 do `finish` são estados RECUPERÁVEIS: mensagem + botão
- * "Tentar novamente". Sem spinner infinito, sem polling, sem repetir o `finish`.
+ * 1. **Sem segredo válido, nenhum POST de `finish`.** Identidade autenticada não
+ *    substitui posse: ela prova quem finaliza, nunca qual conta Google
+ *    consentiu. Concluir por identidade deixava um `state` vazado virar
+ *    vinculação de conta silenciosa — bastava um terceiro abrir a URL de
+ *    autorização original noutro navegador, consentir com a conta dele, e o
+ *    admin abrir esta tela. PKCE não barra isso: o code sai amarrado ao MESMO
+ *    `code_challenge`.
+ * 2. **Fora do marcador `ready`, quem conclui é o usuário.** Nem a montagem nem
+ *    o `visibilitychange` chamam o `finish`; eles só revelam a CTA "Concluir
+ *    conexão com o Google". O `visibilitychange` existe porque numa PWA iOS o
+ *    app fica vivo em segundo plano com o botão preso em "Abrindo o Google…".
+ *
+ * O segredo vive no `localStorage` da PRÓPRIA origem (chave versionada), com o
+ * `expiresAt` que veio do servidor. `localStorage` — e não `sessionStorage` —
+ * porque a PWA iOS pode ser encerrada em segundo plano e relançada; o jar da
+ * origem sobrevive a isso. O storage é limpo ao expirar, concluir, cancelar,
+ * receber rejeição terminal ou iniciar deliberadamente um fluxo novo.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -51,26 +58,64 @@ const ROUTE_BASE = "integracoes";
 const ROUTE_READY = "integracoes/callback/ready";
 const ROUTE_CANCELLED = "integracoes/callback/cancelled";
 
-const FLOW_KEY = "gcal_flow";
+/** Versionada: o formato mudou de string crua em `sessionStorage` para objeto
+ *  com prazo em `localStorage`. Chave nova evita ler lixo do formato antigo. */
+const FLOW_KEY = "gcal_flow_v2";
 
 const MSG_CANCELLED = "A conexão com o Google foi cancelada.";
 const MSG_INCOMPLETE = "A conexão com o Google não foi concluída. Tente novamente.";
+const MSG_PENDING = "Você autorizou no Google? Conclua a conexão para ativar a agenda.";
+const MSG_EXPIRED = "O prazo desta conexão terminou. Comece de novo.";
 
-function readFlowSecret(): string | null {
-  try {
-    return window.sessionStorage.getItem(FLOW_KEY);
-  } catch {
-    return null; // storage indisponível: o fluxo falha fechado
-  }
+interface StoredFlow {
+  secret: string;
+  /** Epoch ms vindo do servidor. O cliente nunca calcula prazo. */
+  expiresAt: number;
 }
 
-function writeFlowSecret(value: string | null): void {
+function clearFlow(): void {
   try {
-    if (value) window.sessionStorage.setItem(FLOW_KEY, value);
-    else window.sessionStorage.removeItem(FLOW_KEY);
+    window.localStorage.removeItem(FLOW_KEY);
   } catch {
     /* storage indisponível */
   }
+}
+
+/** Fluxo guardado e AINDA vivo, ou null. Qualquer coisa fora do formato — ou já
+ *  vencida — é apagada na leitura: segredo sem prazo não fica para trás. */
+function readFlow(): StoredFlow | null {
+  let raw: string | null = null;
+  try {
+    raw = window.localStorage.getItem(FLOW_KEY);
+  } catch {
+    return null; // storage indisponível: o fluxo falha fechado
+  }
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<StoredFlow>;
+    const { secret, expiresAt } = parsed;
+    if (typeof secret === "string" && secret && typeof expiresAt === "number") {
+      if (expiresAt > Date.now()) return { secret, expiresAt };
+    }
+  } catch {
+    /* JSON corrompido cai no clear abaixo */
+  }
+  clearFlow();
+  return null;
+}
+
+function writeFlow(flow: StoredFlow): void {
+  try {
+    window.localStorage.setItem(FLOW_KEY, JSON.stringify(flow));
+  } catch {
+    /* storage indisponível */
+  }
+}
+
+/** Recusa do servidor que não adianta repetir: o fluxo morreu. 5xx e falha de
+ *  rede NÃO entram aqui — ali o segredo ainda vale e a CTA continua útil. */
+function isTerminal(e: unknown): boolean {
+  return e instanceof ApiError && e.status >= 400 && e.status < 500;
 }
 
 interface CalendarConnectCardProps {
@@ -88,21 +133,21 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
   const [calendars, setCalendars] = useState<CalendarOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  /** Saímos para o Google e a página ainda não foi embora — numa PWA iOS ela
+   *  nunca vai. Separado de `busy` só para o rótulo não dizer "Concluindo…". */
+  const [redirecting, setRedirecting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   /** Estado recuperável do retorno do Google (cancelado / não concluído). */
   const [recoverable, setRecoverable] = useState<string | null>(null);
+  /** Há segredo de fluxo vivo nesta origem. Só isto habilita a CTA de conclusão.
+   *  Começa `false` para não tocar em `window` durante o SSR. */
+  const [pending, setPending] = useState(false);
   /** Guarda contra o duplo-invoke do StrictMode: o marcador é lido uma vez. */
   const handledRef = useRef(false);
-  /** A retomada é de uso único por montagem — é isto que impede polling. */
-  const resumedRef = useRef(false);
-  /** Houve um redirect ao Google nesta montagem. Só isso libera a recarga ao
-   *  voltar ao primeiro plano; sem ele, alternar de aba não chama nada. */
+  /** Houve um redirect ao Google nesta montagem. Só isso libera o destrave da UI
+   *  ao voltar ao primeiro plano; sem ele, alternar de aba não faz nada. */
   const startedRef = useRef(false);
-  /** A rota é LIDA pela retomada, não é dependência dela: entrar em `loadStatus`
-   *  faria o `navigate` de volta à base disparar um segundo ciclo de carga. */
-  const routeRef = useRef(route);
-  routeRef.current = route;
 
   const onErr = useCallback(
     (e: unknown) => {
@@ -124,6 +169,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
     }
   }, [token]);
 
+  /** Só LÊ estado. Nunca conclui fluxo — é o que separa carregar de consentir. */
   const loadStatus = useCallback(async () => {
     if (!token) return;
     setLoading(true);
@@ -132,75 +178,111 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
       const s = await fetchCalendarStatus(token);
       setConnected(s.connected);
       setCalendarId(s.calendarId);
+      setPending(!s.connected && readFlow() !== null);
       if (s.connected) {
+        clearFlow();
+        setPending(false);
         await applyCalendars();
-        return;
-      }
-      if (resumedRef.current) return;
-      // `cancelled` é recusa explícita do usuário: nada foi estacionado e
-      // retomar aqui só atrapalharia a mensagem de recuperação.
-      const marker = routeRef.current;
-      if (marker === ROUTE_CANCELLED) return;
-      resumedRef.current = true;
-
-      // Retomada (OAUTH-PWA-IOS-G3). Só no marcador `ready` existe um segredo
-      // local que valha apresentar; fora dele isto é uma SONDAGEM — o 202
-      // ("nada meu pendente") é o caso comum e não pode virar erro na tela.
-      const isReturn = marker === ROUTE_READY;
-      try {
-        const result = await finishConnection(token, isReturn ? readFlowSecret() : null);
-        if (result.status === "conectado") {
-          writeFlowSecret(null);
-          setConnected(true);
-          setCalendarId(result.calendarId);
-          navigate(ROUTE_BASE);
-          await applyCalendars();
-          return;
-        }
-        // 202: NÃO consome o fluxo e NÃO repete a chamada — o usuário decide
-        // pelo CTA, e só quando ele está de fato esperando um retorno.
-        if (isReturn) setRecoverable(MSG_INCOMPLETE);
-      } catch (e) {
-        if (!isReturn) return; // sondagem recusada: segue o fluxo normal
-        writeFlowSecret(null);
-        onErr(e);
-        setRecoverable(MSG_INCOMPLETE);
       }
     } catch (e) {
       onErr(e);
     } finally {
       setLoading(false);
     }
-  }, [token, applyCalendars, navigate, onErr]);
+  }, [token, applyCalendars, onErr]);
 
   useEffect(() => {
     if (isAdmin) void loadStatus();
     else setLoading(false);
   }, [isAdmin, loadStatus]);
 
-  // Marcador de retorno. Só `cancelled` tem tratamento próprio; `ready` é
-  // resolvido pela retomada em `loadStatus`. Roda UMA vez por montagem.
+  /** Conclusão. Recebe o segredo já validado — nunca null, nunca vazio. */
+  const finishWith = useCallback(
+    async (secret: string) => {
+      if (!token) return;
+      setBusy(true);
+      setError(null);
+      try {
+        const result = await finishConnection(token, secret);
+        if (result.status === "conectado") {
+          clearFlow();
+          setPending(false);
+          setRecoverable(null);
+          setConnected(true);
+          setCalendarId(result.calendarId);
+          navigate(ROUTE_BASE);
+          await applyCalendars();
+          return;
+        }
+        // 202: o callback ainda não estacionou o code. NÃO consome o fluxo e
+        // NÃO repete a chamada — o segredo fica até o TTL e a CTA segue à mão.
+        setPending(readFlow() !== null);
+        setRecoverable(MSG_INCOMPLETE);
+      } catch (e) {
+        // Terminal (4xx): o fluxo morreu, descarta o segredo e oferece reinício.
+        if (isTerminal(e)) {
+          clearFlow();
+          setPending(false);
+        }
+        onErr(e);
+        setRecoverable(MSG_INCOMPLETE);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [token, navigate, applyCalendars, onErr],
+  );
+
+  /** Única porta para o `finish`: relê o storage e desiste se não houver segredo
+   *  vivo. É isto que garante que `finishConnection` nunca recebe null. */
+  const finishFromStorage = useCallback(async () => {
+    const flow = readFlow();
+    if (!flow) {
+      setPending(false);
+      setRecoverable(MSG_EXPIRED);
+      return;
+    }
+    await finishWith(flow.secret);
+  }, [finishWith]);
+
+  // Marcadores de retorno, uma vez por montagem.
+  //  * `ready`     — o usuário acabou de consentir; com segredo vivo, conclui.
+  //                  Sem segredo é fail-closed: nada de POST, só reinício.
+  //  * `cancelled` — recusa explícita: descarta o fluxo e oferece reinício.
   useEffect(() => {
-    if (!isAdmin) return;
-    if (route !== ROUTE_CANCELLED) return;
+    if (!isAdmin || !token) return;
+    if (route !== ROUTE_READY && route !== ROUTE_CANCELLED) return;
     if (handledRef.current) return;
     handledRef.current = true;
-    setRecoverable(MSG_CANCELLED);
-  }, [isAdmin, route]);
 
-  // iOS: ir ao Google NÃO desmonta a PWA — ela fica em segundo plano com o
-  // botão preso em "Abrindo o Google…", e o retorno costuma cair no Safari.
-  // Voltar ao primeiro plano refaz a carga (que já embute UMA retomada). Só
-  // dispara depois de um redirect real; não é polling e não roda por troca de
-  // aba comum.
+    if (route === ROUTE_CANCELLED) {
+      clearFlow();
+      setPending(false);
+      setRecoverable(MSG_CANCELLED);
+      return;
+    }
+
+    const flow = readFlow();
+    if (!flow) {
+      setPending(false);
+      setRecoverable(MSG_INCOMPLETE);
+      navigate(ROUTE_BASE);
+      return;
+    }
+    void finishWith(flow.secret);
+  }, [isAdmin, token, route, navigate, finishWith]);
+
+  // iOS: ir ao Google NÃO desmonta a PWA — ela fica em segundo plano com o botão
+  // preso em "Abrindo o Google…", e o retorno costuma cair no Safari. Voltar ao
+  // primeiro plano DESTRAVA a UI e revela a CTA. Não conclui nada sozinho.
   useEffect(() => {
     if (!isAdmin) return;
     const onVisible = () => {
       if (document.visibilityState !== "visible") return;
       if (!startedRef.current) return;
       startedRef.current = false;
-      resumedRef.current = false;
       setBusy(false);
+      setRedirecting(false);
       void loadStatus();
     };
     document.addEventListener("visibilitychange", onVisible);
@@ -210,23 +292,28 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
   const connect = useCallback(async () => {
     if (!token) return;
     setBusy(true);
+    setRedirecting(true);
     setError(null);
+    setRecoverable(null);
+    // Fluxo novo por decisão do usuário: o anterior morre aqui.
+    clearFlow();
+    setPending(false);
     try {
-      const { authUrl, flowSecret } = await fetchConnectUrl(token);
-      // Grava ANTES de sair da página: é a única chance — e num navegador
-      // comum é o que dá precisão ao `finish`. Numa PWA iOS pode não voltar.
-      writeFlowSecret(flowSecret);
+      const { authUrl, flowSecret, expiresAt } = await fetchConnectUrl(token);
+      // Grava ANTES de sair da página: é a única chance.
+      writeFlow({ secret: flowSecret, expiresAt });
+      setPending(true);
       startedRef.current = true;
       window.location.href = authUrl; // redireciona ao consentimento do Google
     } catch (e) {
       onErr(e);
       setBusy(false);
+      setRedirecting(false);
     }
   }, [token, onErr]);
 
-  /** CTA de recuperação: descarta o fluxo velho e começa um NOVO do zero. */
-  const retry = useCallback(async () => {
-    writeFlowSecret(null);
+  /** Reinício: descarta o que houver e começa um fluxo do zero. */
+  const restart = useCallback(async () => {
     setRecoverable(null);
     handledRef.current = false;
     navigate(ROUTE_BASE);
@@ -281,8 +368,8 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
   }, [token, onErr]);
 
   if (!isAdmin) return null;
-  // O estado recuperável precisa aparecer mesmo antes de o status carregar.
-  if (loading && !recoverable) return null;
+  // Os estados de retorno precisam aparecer mesmo antes de o status carregar.
+  if (loading && !recoverable && !pending) return null;
 
   return (
     <div className="card card-pad" style={{ marginBottom: "var(--s4)" }}>
@@ -296,36 +383,64 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
         </p>
       ) : null}
 
-      {recoverable ? (
-        <div style={{ marginTop: "var(--s2)" }}>
-          <p className="sub" role="status" style={{ color: "var(--muted)" }}>
-            {recoverable}
-          </p>
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={() => void retry()}
-            disabled={busy}
-            style={{ marginTop: "var(--s3)" }}
-          >
-            <Icon name="calendar" />
-            <span>{busy ? "Abrindo o Google…" : "Tentar novamente"}</span>
-          </button>
-        </div>
-      ) : !connected ? (
+      {!connected ? (
         <>
-          <p className="sub" style={{ color: "var(--muted)", margin: "var(--s2) 0 var(--s3)" }}>
-            Conecte a agenda do Google da igreja para sincronizar os eventos.
-          </p>
-          <button
-            type="button"
-            className="btn btn-primary"
-            onClick={() => void connect()}
-            disabled={busy}
+          <p
+            className="sub"
+            role={recoverable || pending ? "status" : undefined}
+            style={{ color: "var(--muted)", margin: "var(--s2) 0 var(--s3)" }}
           >
-            <Icon name="calendar" />
-            <span>{busy ? "Abrindo o Google…" : "Conectar Google Agenda"}</span>
-          </button>
+            {recoverable ??
+              (pending
+                ? MSG_PENDING
+                : "Conecte a agenda do Google da igreja para sincronizar os eventos.")}
+          </p>
+
+          {/* Com segredo vivo, a conclusão é do usuário — nunca automática.
+              Sem segredo, o único caminho é começar um fluxo novo. */}
+          {pending ? (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => void finishFromStorage()}
+                disabled={busy}
+              >
+                <Icon name="calendar" />
+                <span>
+                  {redirecting
+                    ? "Abrindo o Google…"
+                    : busy
+                      ? "Concluindo…"
+                      : "Concluir conexão com o Google"}
+                </span>
+              </button>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => void restart()}
+                disabled={busy}
+              >
+                <span>Começar de novo</span>
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => void (recoverable ? restart() : connect())}
+              disabled={busy}
+            >
+              <Icon name="calendar" />
+              <span>
+                {busy
+                  ? "Abrindo o Google…"
+                  : recoverable
+                    ? "Tentar novamente"
+                    : "Conectar Google Agenda"}
+              </span>
+            </button>
+          )}
         </>
       ) : (
         <>

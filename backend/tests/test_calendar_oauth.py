@@ -95,7 +95,6 @@ class _FlowSession:
         app_user=None,
         roles=None,
         flow=None,
-        pending_flow=None,
         sync=None,
         existing_gids=None,
         commit_error: Exception | None = None,
@@ -103,11 +102,10 @@ class _FlowSession:
         self.app_user = app_user
         self.roles = roles or []
         self.flow = flow
-        # Retomada por identidade (OAUTH-PWA-IOS-G3): a linha que a busca SEM
-        # `flowSecret` encontra. Slot próprio para que os testes provem QUAL das
-        # duas consultas o `finish` usou — e que uma nunca devolve a outra.
-        self.pending_flow = pending_flow
-        self.identity_lookups = 0
+        # Quantos SELECT de `calendar_oauth_flows` o endpoint disparou. Um corpo
+        # sem `flowSecret` tem de morrer no schema, com este contador em ZERO —
+        # nada de ler, travar ou consumir fluxo sem posse do segredo.
+        self.flow_lookups = 0
         self.sync = sync
         self.existing_gids = existing_gids or []
         self.commit_error = commit_error
@@ -147,13 +145,13 @@ class _FlowSession:
             return _Res(scalars=self.existing_gids)
         if entity is CalendarOAuthFlow:
             if len(descs) == 1:  # select(CalendarOAuthFlow) — o finish
-                # Discriminar pelo WHERE, não pelo statement inteiro: a lista de
-                # colunas do `select(CalendarOAuthFlow)` cita `flow_secret_hash`
-                # nas DUAS consultas.
-                if "flow_secret_hash" in str(statement.whereclause):
-                    return _Res(scalar=self.flow)
-                self.identity_lookups += 1  # retomada por identidade
-                return _Res(scalar=self.pending_flow)
+                self.flow_lookups += 1
+                # A única busca legítima é pelo hash do segredo. Se algum dia
+                # voltar uma busca por identidade, este assert a denuncia.
+                assert "flow_secret_hash" in str(statement.whereclause), (
+                    "finish só pode localizar o fluxo pelo hash do flowSecret"
+                )
+                return _Res(scalar=self.flow)
             flow = self.flow  # select(return_origin, code_encrypted) — o redirect
             return _Res(
                 first=None
@@ -373,6 +371,14 @@ def test_connect_creates_flow_with_pkce_and_returns_flow_secret(
     assert flow.state_hash == hash_secret(oauth.consent_args["state"])
     assert flow.flow_secret_hash == hash_secret(body["flowSecret"])
     assert body["flowSecret"] != oauth.consent_args["state"]
+
+    # `expiresAt` é o MESMO instante gravado na linha — o painel não deriva TTL.
+    assert dt.datetime.fromisoformat(body["expiresAt"]) == flow.expires_at
+    ttl = get_settings().calendar_oauth_flow_ttl_minutes
+    assert flow.expires_at > dt.datetime.now(dt.timezone.utc)
+    assert flow.expires_at <= dt.datetime.now(dt.timezone.utc) + dt.timedelta(
+        minutes=ttl
+    )
     assert flow.verifier_encrypted
     assert flow.code_encrypted is None
     assert session.commits == 1
@@ -860,148 +866,106 @@ def test_finish_rejection_bodies_are_identical(app, crypto_enabled) -> None:
 
 
 # ---------------------------------------------------------------------------
-# finish sem flowSecret — retomada por identidade (OAUTH-PWA-IOS-G3)
+# finish EXIGE o flowSecret — PR222-OPTIONAL-SECRET-SECURITY-FIX-1
 #
-# Numa PWA iOS o retorno do Google cai no Safari (jar de storage separado) ou a
-# PWA é relançada com o `sessionStorage` zerado. Sem segredo de cliente, a linha
-# é achada pelo `app_user_id` + `igreja_id` do Bearer — as MESMAS colunas que o
-# caminho do `flowSecret` compara depois de achar a linha pelo hash.
+# A retomada por identidade (achar o fluxo por app_user_id + igreja_id, sem
+# segredo) foi REMOVIDA. Ela transformava a posse de um `state` vazado em
+# vinculação de conta SILENCIOSA: bastava um terceiro abrir a URL de autorização
+# ORIGINAL noutro navegador, consentir com a conta Google dele, o callback
+# público estacionar o `code` — e a vítima abrir Integrações. Sem clique, sem
+# marcador de retorno. PKCE não barra isso: o code sai amarrado ao MESMO
+# `code_challenge`, então a troca sucede.
+#
+# Identidade prova apenas QUEM finaliza, nunca QUAL conta Google consentiu.
 # ---------------------------------------------------------------------------
-def _resume(client: TestClient) -> httpx.Response:
-    """`finish` sem `flowSecret` — é o que a PWA envia quando não tem segredo."""
-    return client.post("/calendar/connect/finish", json={}, headers=_AUTH)
+def test_pending_flow_helper_no_longer_exists() -> None:
+    """Nenhum caminho pode achar fluxo só por identidade."""
+    from app.routers import calendar as calendar_router
+
+    assert not hasattr(calendar_router, "_pending_flow_for_user")
 
 
-def test_resume_without_flow_secret_completes_parked_flow(app, crypto_enabled) -> None:
-    """G3: sessionStorage vazio e mesmo assim a conexão conclui."""
+@pytest.mark.parametrize(
+    "body", [{}, {"flowSecret": None}, {"flowSecret": ""}], ids=["ausente", "nulo", "vazio"]
+)
+def test_finish_without_secret_never_touches_the_flow(app, crypto_enabled, body) -> None:
+    """Sem segredo: 422 do schema, sem SELECT, sem lock, sem consumo."""
     app_user = make_app_user()
-    pending = _flow(
+    parked = _flow(app_user_id=uuid.UUID(str(app_user.id)), code_encrypted="x")
+    session = _FlowSession(app_user=app_user, roles=["admin"], flow=parked)
+    oauth = _FakeOAuth(tokens=_tokens())
+    c = _client(app, ["admin"], session=session, oauth=oauth)
+
+    r = c.post("/calendar/connect/finish", json=body, headers=_AUTH)
+
+    assert r.status_code == 422
+    assert session.flow_lookups == 0  # nem leu a tabela
+    assert oauth.exchanges == []
+    assert parked.consumed_at is None
+    assert parked.code_encrypted == "x"
+
+
+def test_finish_with_correct_secret_and_identity_connects(app, crypto_enabled) -> None:
+    """Caminho feliz: posse do segredo + identidade correta conclui."""
+    app_user = make_app_user()
+    flow = _flow(
         app_user_id=uuid.UUID(str(app_user.id)),
         verifier_encrypted=crypto_enabled.encrypt_secret("verifier-real"),
         code_encrypted=crypto_enabled.encrypt_secret("code-real"),
     )
-    session = _FlowSession(app_user=app_user, roles=["admin"], pending_flow=pending)
-    oauth = _FakeOAuth(tokens=_tokens())
-    c = _client(app, ["admin"], session=session, oauth=oauth)
-
-    r = _resume(c)
-
-    assert r.status_code == 200
-    assert r.json()["status"] == "conectado"
-    assert session.identity_lookups == 1
-    assert oauth.exchanges == [("code-real", "verifier-real")]
-    assert pending.consumed_at is not None  # consumo único, igual ao caminho normal
-    assert pending.verifier_encrypted is None
-
-
-def test_resume_replay_finds_nothing_and_does_not_connect(app, crypto_enabled) -> None:
-    """Segunda retomada: a linha já consumida sai do WHERE — 202, sem Google."""
-    app_user = make_app_user()
-    session = _FlowSession(app_user=app_user, roles=["admin"], pending_flow=None)
-    oauth = _FakeOAuth(tokens=_tokens())
-    c = _client(app, ["admin"], session=session, oauth=oauth)
-
-    r = _resume(c)
-
-    assert r.status_code == 202
-    assert r.json() == {
-        "status": "aguardando_callback",
-        "connected": False,
-        "calendarId": None,
-    }
-    assert oauth.exchanges == []
-    assert session.added == []
-
-
-def test_resume_never_reads_the_flow_secret_row(app, crypto_enabled) -> None:
-    """Sem segredo, a busca por hash NÃO acontece: um fluxo alheio fica invisível."""
-    app_user = make_app_user()
-    alheio = _flow(app_user_id=uuid.uuid4(), code_encrypted="x")
-    session = _FlowSession(
-        app_user=app_user, roles=["admin"], flow=alheio, pending_flow=None
-    )
-    oauth = _FakeOAuth(tokens=_tokens())
-    c = _client(app, ["admin"], session=session, oauth=oauth)
-
-    r = _resume(c)
-
-    assert r.status_code == 202
-    assert session.identity_lookups == 1
-    assert oauth.exchanges == []
-    assert alheio.consumed_at is None  # nem queimado: a retomada não o enxerga
-
-
-def test_resume_query_is_scoped_to_caller_and_parked_code(app, crypto_enabled) -> None:
-    """O WHERE é a autorização — as cinco condições precisam estar no SQL."""
-    app_user = make_app_user()
-    session = _FlowSession(app_user=app_user, roles=["admin"], pending_flow=None)
-    seen: list[str] = []
-    original = session.execute
-
-    def _spy(statement, params=None):
-        descs = list(getattr(statement, "column_descriptions", []) or [])
-        if descs and descs[0].get("entity") is CalendarOAuthFlow and len(descs) == 1:
-            seen.append(str(statement.whereclause))
-        return original(statement, params)
-
-    session.execute = _spy  # type: ignore[method-assign]
-    c = _client(app, ["admin"], session=session, oauth=_FakeOAuth(tokens=_tokens()))
-
-    assert _resume(c).status_code == 202
-    assert len(seen) == 1
-    sql = seen[0]
-    assert "app_user_id" in sql
-    assert "igreja_id" in sql
-    assert "consumed_at IS NULL" in sql
-    assert "code_encrypted IS NOT NULL" in sql
-    assert "expires_at >" in sql
-    assert "flow_secret_hash" not in sql
-
-
-def test_resume_requires_admin(app, crypto_enabled) -> None:
-    app_user = make_app_user()
-    pending = _flow(app_user_id=uuid.UUID(str(app_user.id)), code_encrypted="x")
-    session = _FlowSession(
-        app_user=app_user, roles=["lider_celula"], pending_flow=pending
-    )
-    c = _client(app, ["lider_celula"], session=session, oauth=_FakeOAuth())
-    assert _resume(c).status_code == 403
-
-
-def test_resume_requires_auth(app) -> None:
-    c = _client(app, ["admin"], oauth=_FakeOAuth())
-    assert c.post("/calendar/connect/finish", json={}).status_code == 401
-
-
-def test_empty_flow_secret_is_treated_as_absent(app, crypto_enabled) -> None:
-    """String vazia não vira `hash_secret("")`: cai na retomada, não em 409."""
-    app_user = make_app_user()
-    session = _FlowSession(app_user=app_user, roles=["admin"], pending_flow=None)
-    c = _client(app, ["admin"], session=session, oauth=_FakeOAuth(tokens=_tokens()))
-
-    r = c.post(
-        "/calendar/connect/finish", json={"flowSecret": ""}, headers=_AUTH
-    )
-
-    assert r.status_code == 202
-    assert session.identity_lookups == 1
-
-
-def test_unknown_flow_secret_still_409_without_falling_back(app, crypto_enabled) -> None:
-    """Com segredo, o 409 permanece: nada de oráculo por queda para a retomada."""
-    app_user = make_app_user()
-    pending = _flow(app_user_id=uuid.UUID(str(app_user.id)), code_encrypted="x")
-    session = _FlowSession(
-        app_user=app_user, roles=["admin"], flow=None, pending_flow=pending
-    )
+    session = _FlowSession(app_user=app_user, roles=["admin"], flow=flow)
     oauth = _FakeOAuth(tokens=_tokens())
     c = _client(app, ["admin"], session=session, oauth=oauth)
 
     r = _finish(c)
 
-    assert r.status_code == 409
-    assert session.identity_lookups == 0  # segredo apresentado => sem retomada
-    assert oauth.exchanges == []
+    assert r.status_code == 200
+    assert r.json()["status"] == "conectado"
+    assert session.flow_lookups == 1
+    assert oauth.exchanges == [("code-real", "verifier-real")]
+    assert flow.consumed_at is not None
+
+
+# ---------------------------------------------------------------------------
+# REGRESSÃO DE SEGURANÇA — account-linking silencioso
+# ---------------------------------------------------------------------------
+def test_parked_code_is_not_consumed_when_the_panel_has_no_secret(
+    app, crypto_enabled
+) -> None:
+    """A vítima abrir Integrações sem segredo NÃO pode concluir nada.
+
+    Cenário: um terceiro abriu a URL de autorização da vítima noutro navegador,
+    consentiu com OUTRA conta Google, e o callback público estacionou o `code` no
+    fluxo da vítima. A vítima então abre a tela — o painel não tem `flowSecret`
+    (PWA relançada, retorno caído no Safari, storage limpo).
+
+    Exigido, ponto a ponto:
+      * nenhum token trocado com o Google;
+      * nenhum `calendar_sync` criado ou alterado;
+      * o fluxo permanece NÃO consumido, com o `code` intacto (morre no TTL).
+    """
+    app_user = make_app_user()
+    parked = _flow(
+        app_user_id=uuid.UUID(str(app_user.id)),
+        verifier_encrypted=crypto_enabled.encrypt_secret("verifier-da-vitima"),
+        code_encrypted=crypto_enabled.encrypt_secret("code-do-terceiro"),
+    )
+    session = _FlowSession(app_user=app_user, roles=["admin"], flow=parked, sync=None)
+    oauth = _FakeOAuth(tokens=_tokens())
+    c = _client(app, ["admin"], session=session, oauth=oauth)
+
+    r = c.post("/calendar/connect/finish", json={}, headers=_AUTH)
+
+    assert r.status_code == 422
+    assert oauth.exchanges == []  # nenhum token trocado
+    assert oauth.listed_tokens == []  # nem o probe de capacidade
+    assert session.added == []  # nenhum CalendarSync criado
+    assert session.sync is None  # nem alterado
+    assert session.commits == 0  # nada persistido
+    assert parked.consumed_at is None  # fluxo intacto...
+    assert parked.code_encrypted is not None  # ...com o code ainda estacionado
+    assert parked.verifier_encrypted is not None
+    assert session.flow_lookups == 0
 
 
 # ---------------------------------------------------------------------------

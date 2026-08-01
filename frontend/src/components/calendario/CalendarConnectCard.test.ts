@@ -1,15 +1,17 @@
 // @vitest-environment jsdom
 /**
- * OAUTH-CALENDAR-V1 — ciclo de vida do fluxo no card de conexão.
+ * OAUTH-CALENDAR-V1 + PR222-OPTIONAL-SECRET-SECURITY-FIX-1 — ciclo de vida do
+ * fluxo no card de conexão.
  *
  * O que estes testes travam:
- *  - `finish` só é chamado no marcador `.../callback/ready`, e UMA única vez;
- *  - `.../callback/cancelled` não chama `finish` e mostra CTA de recuperação;
- *  - 202 preserva o `flowSecret`, mostra CTA e NÃO vira polling;
- *  - a CTA descarta o fluxo velho e começa um NOVO `/connect`;
- *  - reload antes do callback não destrói nem consome o fluxo local;
- *  - fail-closed: sem `flowSecret` na resposta do `/connect`, não redireciona
- *    ao Google.
+ *  - `finish` NUNCA é chamado sem segredo válido — nem na montagem, nem no
+ *    `visibilitychange`, nem no marcador `ready`;
+ *  - fora do marcador `ready`, quem conclui é o CLIQUE do usuário na CTA
+ *    "Concluir conexão com o Google";
+ *  - o segredo mora no `localStorage` da origem, com o `expiresAt` do servidor,
+ *    e some ao expirar, concluir, cancelar ou levar rejeição terminal;
+ *  - 202 preserva o segredo e mantém a ação explícita disponível;
+ *  - fail-closed: sem `flowSecret`/`expiresAt` no `/connect`, não redireciona.
  *
  * Sem JSX (createElement): o tsconfig do Next usa jsx:"preserve".
  */
@@ -58,7 +60,25 @@ vi.mock("@/lib/calendar-api", async (importOriginal) => {
 
 const { CalendarConnectCard } = await import("./CalendarConnectCard");
 
-const FLOW_KEY = "gcal_flow";
+/** Chave VERSIONADA: o formato passou a ser objeto com prazo, em localStorage. */
+const FLOW_KEY = "gcal_flow_v2";
+const CTA_FINISH = "Concluir conexão com o Google";
+const CTA_CONNECT = "Conectar Google Agenda";
+const CTA_RESTART = "Tentar novamente";
+
+interface StoredFlow {
+  secret: string;
+  expiresAt: number;
+}
+
+function seedFlow(secret = "segredo", expiresAt = Date.now() + 3_600_000): void {
+  window.localStorage.setItem(FLOW_KEY, JSON.stringify({ secret, expiresAt }));
+}
+
+function storedFlow(): StoredFlow | null {
+  const raw = window.localStorage.getItem(FLOW_KEY);
+  return raw ? (JSON.parse(raw) as StoredFlow) : null;
+}
 
 let container: HTMLDivElement;
 let root: Root;
@@ -91,17 +111,18 @@ async function click(el: HTMLElement) {
   });
 }
 
+async function foreground() {
+  await act(async () => {
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
+  window.localStorage.clear();
   window.sessionStorage.clear();
   fetchCalendarStatus.mockResolvedValue({ connected: false, calendarId: null });
   fetchCalendarList.mockResolvedValue([]);
-  // Resposta padrão do servidor à sondagem de retomada: "nada meu pendente".
-  finishConnection.mockResolvedValue({
-    status: "aguardando_callback",
-    connected: false,
-    calendarId: null,
-  });
   hrefWrites = [];
   // jsdom não navega; capturamos a atribuição de href.
   Object.defineProperty(window, "location", {
@@ -134,180 +155,186 @@ afterEach(async () => {
   container.remove();
 });
 
-describe("marcador de retorno", () => {
-  it("fora do marcador, sonda SEM segredo e preserva o fluxo local", async () => {
-    setHash("#integracoes");
-    window.sessionStorage.setItem(FLOW_KEY, "segredo");
+const CONECTADO = { status: "conectado", connected: true, calendarId: "cal@x" };
+const AGUARDANDO = {
+  status: "aguardando_callback",
+  connected: false,
+  calendarId: null,
+};
 
-    await render();
-
-    // O segredo local NÃO é apresentado fora do retorno: a sondagem existe
-    // justamente para o caso em que ele não sobreviveu (PWA iOS).
-    expect(finishConnection).toHaveBeenCalledTimes(1);
-    expect(finishConnection).toHaveBeenCalledWith("tok", null);
-    // reload antes do callback não pode destruir o fluxo local
-    expect(window.sessionStorage.getItem(FLOW_KEY)).toBe("segredo");
-    // 202 fora do retorno é silencioso: nada de erro nem CTA
-    expect(text()).not.toContain("não foi concluída");
-    expect(button("Conectar Google Agenda")).toBeTruthy();
-  });
-
-  it("chama finish UMA vez no marcador ready e limpa no sucesso", async () => {
+describe("marcador ready", () => {
+  it("com segredo válido conclui usando exatamente aquele segredo", async () => {
     setHash("#integracoes/callback/ready");
-    window.sessionStorage.setItem(FLOW_KEY, "segredo");
-    finishConnection.mockResolvedValue({
-      status: "conectado",
-      connected: true,
-      calendarId: "cal@x",
-    });
+    seedFlow("segredo");
+    finishConnection.mockResolvedValue(CONECTADO);
 
     await render();
 
     expect(finishConnection).toHaveBeenCalledTimes(1);
     expect(finishConnection).toHaveBeenCalledWith("tok", "segredo");
-    expect(window.sessionStorage.getItem(FLOW_KEY)).toBeNull();
-  });
-
-  it("ready sem flowSecret local ainda tenta retomar, e só então recupera", async () => {
-    setHash("#integracoes/callback/ready");
-
-    await render();
-
-    // G3: storage vazio não é mais terminal — a retomada por identidade é
-    // tentada. O 202 padrão é que leva ao estado recuperável.
-    expect(finishConnection).toHaveBeenCalledTimes(1);
-    expect(finishConnection).toHaveBeenCalledWith("tok", null);
-    expect(text()).toContain("não foi concluída");
-    expect(button("Tentar novamente")).toBeTruthy();
-  });
-});
-
-/**
- * OAUTH-PWA-IOS-G3 — o roundtrip do Google pode voltar sem `sessionStorage`
- * (Safari tem jar separado do da PWA instalada) ou nem voltar ao contexto que
- * iniciou o fluxo (a PWA fica em segundo plano). Nada aqui usa segredo local.
- */
-describe("retomada em PWA iOS (G3)", () => {
-  const CONECTADO = { status: "conectado", connected: true, calendarId: "cal@x" };
-
-  it("retorno em ready com storage VAZIO conclui a conexão", async () => {
-    setHash("#integracoes/callback/ready");
-    finishConnection.mockResolvedValue(CONECTADO);
-
-    await render();
-
-    expect(finishConnection).toHaveBeenCalledWith("tok", null);
     expect(text()).toContain("Agenda sincronizada");
-    expect(text()).toContain("cal@x");
-    expect(text()).not.toContain("não foi concluída");
+    expect(storedFlow()).toBeNull(); // conclusão limpa o armazenamento
   });
 
-  it("PWA reaberta na base, sem marcador nenhum, conclui a conexão", async () => {
-    setHash("#integracoes");
-    finishConnection.mockResolvedValue(CONECTADO);
-
-    await render();
-
-    expect(finishConnection).toHaveBeenCalledTimes(1);
-    expect(finishConnection).toHaveBeenCalledWith("tok", null);
-    expect(text()).toContain("Agenda sincronizada");
-  });
-
-  it("a sondagem é UMA por montagem, mesmo com o tempo passando", async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true });
-    setHash("#integracoes");
-
-    await render();
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(120_000);
-    });
-
-    expect(finishConnection).toHaveBeenCalledTimes(1); // nada de polling
-    vi.useRealTimers();
-  });
-
-  it("não sonda quando a agenda já está conectada", async () => {
-    setHash("#integracoes");
-    fetchCalendarStatus.mockResolvedValue({ connected: true, calendarId: "cal@x" });
+  it("SEM segredo é fail-closed: zero POST e CTA de reinício", async () => {
+    setHash("#integracoes/callback/ready");
 
     await render();
 
     expect(finishConnection).not.toHaveBeenCalled();
+    expect(text()).toContain("não foi concluída");
+    expect(button(CTA_RESTART)).toBeTruthy();
+    expect(button(CTA_FINISH)).toBeUndefined();
   });
 
-  it("409 na sondagem fora do retorno é silencioso e não descarta o fluxo", async () => {
-    setHash("#integracoes");
-    window.sessionStorage.setItem(FLOW_KEY, "segredo");
-    const { ApiError } = await import("@/lib/calendar-api");
-    finishConnection.mockRejectedValue(new ApiError(409, "Não foi possível concluir."));
+  it("com segredo EXPIRADO não conclui e apaga o armazenamento", async () => {
+    setHash("#integracoes/callback/ready");
+    seedFlow("segredo", Date.now() - 1_000);
 
     await render();
 
-    expect(text()).not.toContain("Não foi possível concluir");
-    expect(text()).not.toContain("não foi concluída");
-    expect(button("Conectar Google Agenda")).toBeTruthy();
-    expect(window.sessionStorage.getItem(FLOW_KEY)).toBe("segredo");
+    expect(finishConnection).not.toHaveBeenCalled();
+    expect(storedFlow()).toBeNull();
+    expect(button(CTA_FINISH)).toBeUndefined();
+  });
+});
+
+describe("fora do marcador ready — conclusão é do usuário", () => {
+  it("segredo válido NÃO dispara finish na montagem; mostra a CTA", async () => {
+    setHash("#integracoes");
+    seedFlow("segredo");
+
+    await render();
+
+    expect(finishConnection).not.toHaveBeenCalled();
+    expect(button(CTA_FINISH)).toBeTruthy();
+    expect(button(CTA_CONNECT)).toBeUndefined();
+    expect(storedFlow()?.secret).toBe("segredo"); // preservado
   });
 
-  it("voltar ao primeiro plano depois do redirect destrava e conclui", async () => {
+  it("o CLIQUE na CTA é que chama finish, com o segredo guardado", async () => {
+    setHash("#integracoes");
+    seedFlow("segredo");
+    finishConnection.mockResolvedValue(CONECTADO);
+
+    await render();
+    await click(button(CTA_FINISH)!);
+
+    expect(finishConnection).toHaveBeenCalledTimes(1);
+    expect(finishConnection).toHaveBeenCalledWith("tok", "segredo");
+    expect(text()).toContain("Agenda sincronizada");
+    expect(storedFlow()).toBeNull();
+  });
+
+  it("PWA relançada com localStorage válido mostra a CTA, sem POST", async () => {
+    // Relançamento: nenhuma rota de retorno, storage veio do disco.
+    setHash("#dashboard");
+    seedFlow("segredo-da-pwa");
+
+    await render();
+
+    expect(finishConnection).not.toHaveBeenCalled();
+    expect(button(CTA_FINISH)).toBeTruthy();
+    expect(storedFlow()?.secret).toBe("segredo-da-pwa");
+  });
+
+  it("armazenamento expirado é removido e nenhum finish acontece", async () => {
+    setHash("#integracoes");
+    seedFlow("velho", Date.now() - 60_000);
+
+    await render();
+
+    expect(finishConnection).not.toHaveBeenCalled();
+    expect(storedFlow()).toBeNull();
+    expect(button(CTA_FINISH)).toBeUndefined();
+    expect(button(CTA_CONNECT)).toBeTruthy();
+  });
+
+  it("armazenamento corrompido é removido e nenhum finish acontece", async () => {
+    setHash("#integracoes");
+    window.localStorage.setItem(FLOW_KEY, "{isto nao e json");
+
+    await render();
+
+    expect(finishConnection).not.toHaveBeenCalled();
+    expect(storedFlow()).toBeNull();
+    expect(button(CTA_CONNECT)).toBeTruthy();
+  });
+});
+
+/**
+ * REGRESSÃO DE SEGURANÇA — sem segredo, o painel não fala com o `finish`.
+ * Era por aqui que um `state` vazado virava vinculação de conta silenciosa.
+ */
+describe("sem segredo — zero POST de finish", () => {
+  it("montagem e visibilitychange não produzem nenhuma chamada", async () => {
+    setHash("#integracoes");
+
+    await render();
+    await foreground();
+
+    expect(finishConnection).not.toHaveBeenCalled();
+    expect(button(CTA_CONNECT)).toBeTruthy();
+  });
+
+  it("visibilitychange após redirect real destrava a UI, mas não conclui", async () => {
     setHash("#integracoes");
     fetchConnectUrl.mockResolvedValue({
       authUrl: "https://accounts.google/x",
       flowSecret: "novo",
+      expiresAt: Date.now() + 3_600_000,
     });
 
     await render();
-    await click(button("Conectar Google Agenda")!);
+    await click(button(CTA_CONNECT)!);
     // iOS: a PWA não navegou — segue viva, com o botão preso em "Abrindo…".
     expect(text()).toContain("Abrindo o Google…");
 
-    finishConnection.mockResolvedValue(CONECTADO);
-    await act(async () => {
-      document.dispatchEvent(new Event("visibilitychange"));
-    });
+    await foreground();
 
-    expect(finishConnection).toHaveBeenCalledWith("tok", null);
-    expect(text()).toContain("Agenda sincronizada");
+    // Destravou e revelou a CTA. NADA foi concluído sozinho.
+    expect(finishConnection).not.toHaveBeenCalled();
+    expect(text()).not.toContain("Abrindo o Google…");
+    expect(button(CTA_FINISH)).toBeTruthy();
   });
 
-  it("voltar ao primeiro plano SEM redirect anterior não chama nada", async () => {
-    setHash("#integracoes");
+  it("nenhuma chamada de finish recebe null, undefined ou vazio", async () => {
+    setHash("#integracoes/callback/ready");
+    seedFlow("segredo");
+    finishConnection.mockResolvedValue(CONECTADO);
 
     await render();
-    const antes = finishConnection.mock.calls.length;
-    await act(async () => {
-      document.dispatchEvent(new Event("visibilitychange"));
-    });
+    await foreground();
 
-    expect(finishConnection).toHaveBeenCalledTimes(antes); // troca de aba comum
+    for (const call of finishConnection.mock.calls) {
+      expect(typeof call[1]).toBe("string");
+      expect(call[1]).toBeTruthy();
+    }
   });
 });
 
 describe("cancelled", () => {
-  it("mostra erro recuperável com CTA e NÃO chama finish", async () => {
+  it("limpa o segredo, mostra CTA de reinício e NÃO chama finish", async () => {
     setHash("#integracoes/callback/cancelled");
-    window.sessionStorage.setItem(FLOW_KEY, "segredo");
+    seedFlow("segredo");
 
     await render();
 
     expect(finishConnection).not.toHaveBeenCalled();
     expect(text()).toContain("cancelada");
-    expect(button("Tentar novamente")).toBeTruthy();
-    // nenhum indicador de carregamento persistente
+    expect(storedFlow()).toBeNull();
+    expect(button(CTA_RESTART)).toBeTruthy();
+    expect(button(CTA_FINISH)).toBeUndefined();
     expect(text()).not.toContain("Abrindo o Google…");
   });
 });
 
 describe("202 — aguardando callback", () => {
-  it("preserva o flowSecret, mostra CTA e não faz polling", async () => {
+  it("preserva o segredo, mantém a ação explícita e não faz polling", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     setHash("#integracoes/callback/ready");
-    window.sessionStorage.setItem(FLOW_KEY, "segredo");
-    finishConnection.mockResolvedValue({
-      status: "aguardando_callback",
-      connected: false,
-      calendarId: null,
-    });
+    seedFlow("segredo");
+    finishConnection.mockResolvedValue(AGUARDANDO);
 
     await render();
     await act(async () => {
@@ -315,45 +342,103 @@ describe("202 — aguardando callback", () => {
     });
 
     expect(finishConnection).toHaveBeenCalledTimes(1); // nada de polling
-    expect(window.sessionStorage.getItem(FLOW_KEY)).toBe("segredo"); // preservado
-    expect(button("Tentar novamente")).toBeTruthy();
+    expect(storedFlow()?.secret).toBe("segredo"); // preservado até o TTL
+    expect(button(CTA_FINISH)).toBeTruthy(); // ação explícita segue à mão
     vi.useRealTimers();
+  });
+
+  it("o segundo clique reusa o MESMO segredo", async () => {
+    setHash("#integracoes");
+    seedFlow("segredo");
+    finishConnection.mockResolvedValue(AGUARDANDO);
+
+    await render();
+    await click(button(CTA_FINISH)!);
+    await click(button(CTA_FINISH)!);
+
+    expect(finishConnection).toHaveBeenCalledTimes(2);
+    expect(finishConnection).toHaveBeenNthCalledWith(2, "tok", "segredo");
+    expect(storedFlow()?.secret).toBe("segredo");
   });
 });
 
-describe("CTA Tentar novamente", () => {
-  it("descarta o fluxo velho e começa um NOVO connect", async () => {
-    setHash("#integracoes/callback/cancelled");
-    window.sessionStorage.setItem(FLOW_KEY, "segredo-velho");
-    fetchConnectUrl.mockResolvedValue({
-      authUrl: "https://accounts.google/x",
-      flowSecret: "segredo-novo",
-    });
+describe("rejeição terminal", () => {
+  it("409 limpa o segredo e oferece reinício", async () => {
+    setHash("#integracoes");
+    seedFlow("segredo");
+    const { ApiError } = await import("@/lib/calendar-api");
+    finishConnection.mockRejectedValue(new ApiError(409, "Não foi possível concluir."));
 
     await render();
-    await click(button("Tentar novamente")!);
+    await click(button(CTA_FINISH)!);
 
-    expect(fetchConnectUrl).toHaveBeenCalledTimes(1);
-    expect(finishConnection).not.toHaveBeenCalled();
-    // o segredo guardado é o NOVO — o velho nunca é reaproveitado
-    expect(window.sessionStorage.getItem(FLOW_KEY)).toBe("segredo-novo");
-    expect(hrefWrites).toEqual(["https://accounts.google/x"]);
+    expect(storedFlow()).toBeNull();
+    expect(button(CTA_FINISH)).toBeUndefined();
+    expect(button(CTA_RESTART)).toBeTruthy();
+  });
+
+  it("5xx NÃO é terminal: o segredo sobrevive para o usuário tentar de novo", async () => {
+    setHash("#integracoes");
+    seedFlow("segredo");
+    const { ApiError } = await import("@/lib/calendar-api");
+    finishConnection.mockRejectedValue(new ApiError(502, "Google fora do ar."));
+
+    await render();
+    await click(button(CTA_FINISH)!);
+
+    expect(storedFlow()?.secret).toBe("segredo");
+    expect(button(CTA_FINISH)).toBeTruthy();
   });
 });
 
 describe("connect", () => {
-  it("grava o flowSecret ANTES de redirecionar ao Google", async () => {
+  it("grava segredo + expiresAt do servidor ANTES de redirecionar", async () => {
     setHash("#integracoes");
+    const expiresAt = Date.now() + 600_000;
     fetchConnectUrl.mockImplementation(async () => {
-      expect(window.sessionStorage.getItem(FLOW_KEY)).toBeNull();
-      return { authUrl: "https://accounts.google/x", flowSecret: "novo" };
+      expect(storedFlow()).toBeNull();
+      return { authUrl: "https://accounts.google/x", flowSecret: "novo", expiresAt };
     });
 
     await render();
-    await click(button("Conectar Google Agenda")!);
+    await click(button(CTA_CONNECT)!);
 
-    expect(window.sessionStorage.getItem(FLOW_KEY)).toBe("novo");
+    expect(storedFlow()).toEqual({ secret: "novo", expiresAt });
     expect(hrefWrites).toEqual(["https://accounts.google/x"]);
+  });
+
+  it("iniciar um fluxo novo descarta deliberadamente o anterior", async () => {
+    setHash("#integracoes");
+    seedFlow("segredo-velho");
+    fetchConnectUrl.mockResolvedValue({
+      authUrl: "https://accounts.google/x",
+      flowSecret: "segredo-novo",
+      expiresAt: Date.now() + 600_000,
+    });
+
+    await render();
+    await click(button("Começar de novo")!);
+
+    expect(fetchConnectUrl).toHaveBeenCalledTimes(1);
+    expect(finishConnection).not.toHaveBeenCalled();
+    expect(storedFlow()?.secret).toBe("segredo-novo"); // o velho nunca volta
+    expect(hrefWrites).toEqual(["https://accounts.google/x"]);
+  });
+
+  it("CTA de reinício depois de cancelar começa um fluxo novo", async () => {
+    setHash("#integracoes/callback/cancelled");
+    seedFlow("segredo-velho");
+    fetchConnectUrl.mockResolvedValue({
+      authUrl: "https://accounts.google/x",
+      flowSecret: "segredo-novo",
+      expiresAt: Date.now() + 600_000,
+    });
+
+    await render();
+    await click(button(CTA_RESTART)!);
+
+    expect(finishConnection).not.toHaveBeenCalled();
+    expect(storedFlow()?.secret).toBe("segredo-novo");
   });
 
   it("fail-closed: sem flowSecret na resposta, NÃO redireciona ao Google", async () => {
@@ -364,10 +449,10 @@ describe("connect", () => {
     );
 
     await render();
-    await click(button("Conectar Google Agenda")!);
+    await click(button(CTA_CONNECT)!);
 
     expect(hrefWrites).toEqual([]); // nenhum consentimento iniciado
-    expect(window.sessionStorage.getItem(FLOW_KEY)).toBeNull();
+    expect(storedFlow()).toBeNull();
     expect(text()).toContain("Conexão indisponível");
   });
 });

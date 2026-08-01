@@ -102,10 +102,20 @@ class GoogleOAuthClient:
     def exchange_code(self, code: str, code_verifier: str) -> OAuthTokens:
         """Troca o ``code`` apresentando o ``code_verifier`` do MESMO fluxo.
 
-        É isto que recusa um código injetado: o Google amarrou o code ao
-        ``code_challenge`` da requisição de autorização, então um code obtido em
-        outro fluxo não casa com este verifier e volta ``invalid_grant`` (400),
-        que ``_token_request`` normaliza em ``GoogleOAuthError``.
+        O que o PKCE cobre: um code obtido em OUTRA requisição de autorização
+        não casa com este verifier — o Google o amarrou ao ``code_challenge``
+        daquela requisição — e volta ``invalid_grant`` (400), que
+        ``_token_request`` normaliza em ``GoogleOAuthError``.
+
+        O que o PKCE **NÃO** cobre: alguém abrir a URL de autorização ORIGINAL
+        deste fluxo noutro navegador e consentir com outra conta Google. O code
+        sai amarrado a ESTE mesmo ``code_challenge``, então a troca sucede e os
+        tokens são os da conta do terceiro. PKCE prova que o code pertence a
+        ESTA requisição — nunca prova QUAL conta consentiu. Quem barra esse
+        caminho é a posse obrigatória do ``flowSecret`` no ``finish``; a
+        identidade da conta Google segue não verificada
+        (ACCOUNT_IDENTITY_RISK_PENDING — ver
+        ``docs/security/2026-07-31-oauth-calendar-v1-risk-acceptance.md``).
         """
         client_id, client_secret, redirect_uri = self._require_config()
         return self._token_request(
