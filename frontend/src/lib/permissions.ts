@@ -150,8 +150,11 @@ export type PermissionMatrix = Partial<Record<Exclude<Role, "admin">, readonly s
  * Telas visíveis no menu para um conjunto de papéis acumulados.
  * Admin vê tudo; demais papéis somam suas telas (sem ADMIN_ONLY).
  *
- * CENTRAL_ONLY é removido de quem não é `pastor` mesmo quando `perms` é a
- * matriz customizada do tenant — fail-closed, antes da matriz e não depois.
+ * CENTRAL_ONLY é filtrado POR PAPEL, antes da união — mesmo ponto de aplicação
+ * de `screens_for_role` no backend. Filtrar depois, olhando só o ator, deixaria
+ * a concessão de um papel não-Central passar por carona: com
+ * `{ pastor: ["inbox"], operador: ["relatorios"] }`, o usuário pastor+operador
+ * herdaria `relatorios` do operador mesmo com a concessão do pastor removida.
  */
 export function allowedScreens(
   roles: readonly Role[],
@@ -165,19 +168,17 @@ export function allowedScreens(
 
   for (const role of roles) {
     if (role === "admin") continue;
+    const isCentral = role === CENTRAL_ROLE;
 
     for (const screen of perms[role] ?? []) {
+      // Só o papel `pastor` pode contribuir com uma tela Central-only.
+      if (!isCentral && CENTRAL_ONLY_SET.has(screen)) continue;
       set.add(screen);
     }
   }
 
-  const isCentral = roles.includes(CENTRAL_ROLE as Role);
-
   return ALL_SCREENS.filter(
-    (screen) =>
-      set.has(screen) &&
-      !ADMIN_ONLY_SET.has(screen) &&
-      (isCentral || !CENTRAL_ONLY_SET.has(screen)),
+    (screen) => set.has(screen) && !ADMIN_ONLY_SET.has(screen),
   );
 }
 

@@ -119,3 +119,67 @@ def test_assistant_still_suggests_relatorios_to_pastor() -> None:
 def test_assistant_admin_keeps_implicit_access() -> None:
     allowed = allowed_screens_for_roles({}, ["admin"])
     assert RELATORIOS in allowed
+
+
+# ---------------------------------------------------------------------------
+# Filtro POR PAPEL, não por ator (finding da 5ª review da PR #221)
+# ---------------------------------------------------------------------------
+# Com o filtro aplicado no ATOR ("o usuário tem pastor?"), a concessão de um
+# papel não-Central passava por carona: bastava acumular pastor + operador para
+# `relatorios` do operador ser aceito, mesmo com a concessão do pastor removida
+# de propósito. O ponto de aplicação é por papel, ANTES da união.
+_MATRIZ_FINDING = {"pastor": {"inbox"}, "operador": {RELATORIOS}}
+_MATRIZ_FINDING_ASSISTENTE = {"pastor": ["inbox"], "operador": [RELATORIOS]}
+
+_MATRIZ_POSITIVA = {"pastor": {RELATORIOS}, "operador": {"inbox"}}
+_MATRIZ_POSITIVA_ASSISTENTE = {"pastor": [RELATORIOS], "operador": ["inbox"]}
+
+
+def test_central_grant_from_non_central_role_does_not_ride_along() -> None:
+    """pastor sem a tela + operador COM a tela → negado nas duas superfícies."""
+    roles = frozenset({"pastor", "operador"})
+    assert can_access_screen(roles, RELATORIOS, _MATRIZ_FINDING) is False
+    assert RELATORIOS not in allowed_screens_for_roles(
+        _MATRIZ_FINDING_ASSISTENTE, ["pastor", "operador"]
+    )
+
+
+def test_role_order_does_not_change_the_verdict() -> None:
+    assert RELATORIOS not in allowed_screens_for_roles(
+        _MATRIZ_FINDING_ASSISTENTE, ["operador", "pastor"]
+    )
+    assert RELATORIOS in allowed_screens_for_roles(
+        _MATRIZ_POSITIVA_ASSISTENTE, ["operador", "pastor"]
+    )
+
+
+def test_central_grant_from_the_pastor_role_is_accepted() -> None:
+    """Caso positivo: a tela vem do PRÓPRIO pastor → liberado."""
+    roles = frozenset({"pastor", "operador"})
+    assert can_access_screen(roles, RELATORIOS, _MATRIZ_POSITIVA) is True
+    assert RELATORIOS in allowed_screens_for_roles(
+        _MATRIZ_POSITIVA_ASSISTENTE, ["pastor", "operador"]
+    )
+
+
+def test_other_screens_of_both_roles_are_still_unioned() -> None:
+    """O filtro só tira a Central-only; o resto dos dois papéis continua somando."""
+    roles = frozenset({"pastor", "operador"})
+    matrix = {"pastor": {"inbox", "celulas"}, "operador": {"ganhar", RELATORIOS}}
+    for tela in ("inbox", "celulas", "ganhar", "dashboard"):
+        assert can_access_screen(roles, tela, matrix) is True, tela
+    assert can_access_screen(roles, RELATORIOS, matrix) is False
+
+    allowed = allowed_screens_for_roles(
+        {"pastor": ["inbox", "celulas"], "operador": ["ganhar", RELATORIOS]},
+        ["pastor", "operador"],
+    )
+    assert {"inbox", "celulas", "ganhar", "dashboard"} <= allowed
+    assert RELATORIOS not in allowed
+
+
+def test_admin_accumulated_keeps_implicit_access() -> None:
+    """admin não passa pelo filtro por papel — acesso implícito continua."""
+    assert RELATORIOS in allowed_screens_for_roles(
+        _MATRIZ_FINDING_ASSISTENTE, ["admin", "operador"]
+    )

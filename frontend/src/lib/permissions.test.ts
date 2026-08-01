@@ -103,3 +103,43 @@ describe("CENTRAL_ONLY — sem regressão nas demais telas", () => {
     expect(canSee("dashboard", ["membro"], { membro: [] })).toBe(true);
   });
 });
+
+describe("CENTRAL_ONLY — filtro POR PAPEL, não por ator", () => {
+  // Com o filtro no ATOR ("o usuário tem pastor?"), a concessão de um papel
+  // não-Central passava por carona: pastor + operador herdava `relatorios` do
+  // operador mesmo com a concessão do pastor removida de propósito. Espelha
+  // backend/tests/test_permissions_central_only.py.
+  const FINDING: PermissionMatrix = { pastor: ["inbox"], operador: [RELATORIOS] };
+  const POSITIVA: PermissionMatrix = { pastor: [RELATORIOS], operador: ["inbox"] };
+
+  it("concessão de papel não-Central não pega carona no pastor", () => {
+    expect(canSee(RELATORIOS, ["pastor", "operador"], FINDING)).toBe(false);
+    expect(allowedScreens(["pastor", "operador"], FINDING)).not.toContain(RELATORIOS);
+  });
+
+  it("a ordem dos papéis não muda o veredito", () => {
+    expect(canSee(RELATORIOS, ["operador", "pastor"], FINDING)).toBe(false);
+    expect(canSee(RELATORIOS, ["operador", "pastor"], POSITIVA)).toBe(true);
+  });
+
+  it("caso positivo: a tela vinda do PRÓPRIO pastor é aceita", () => {
+    expect(canSee(RELATORIOS, ["pastor", "operador"], POSITIVA)).toBe(true);
+    expect(allowedScreens(["pastor", "operador"], POSITIVA)).toContain(RELATORIOS);
+  });
+
+  it("as demais telas dos dois papéis continuam sendo unidas", () => {
+    const matrix: PermissionMatrix = {
+      pastor: ["inbox", "celulas"],
+      operador: ["ganhar", RELATORIOS],
+    };
+    const telas = allowedScreens(["pastor", "operador"], matrix);
+    for (const tela of ["inbox", "celulas", "ganhar", "dashboard"]) {
+      expect(telas).toContain(tela);
+    }
+    expect(telas).not.toContain(RELATORIOS);
+  });
+
+  it("admin acumulado mantém acesso implícito", () => {
+    expect(canSee(RELATORIOS, ["admin", "operador"], FINDING)).toBe(true);
+  });
+});
