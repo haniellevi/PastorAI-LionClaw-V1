@@ -187,6 +187,42 @@ describe("marcador ready", () => {
     expect(button(CTA_FINISH)).toBeUndefined();
   });
 
+  it("conclusão vence leitura de status em voo — sem estado obsoleto", async () => {
+    // F1: `loadStatus` sai antes do `finish`, mas resolve DEPOIS. Sem a época de
+    // mutação, o snapshot velho (connected=false) reescreve por cima do sucesso.
+    setHash("#integracoes/callback/ready");
+    seedFlow("segredo");
+
+    let resolveStatus!: (v: { connected: boolean; calendarId: string | null }) => void;
+    fetchCalendarStatus.mockImplementation(
+      () =>
+        new Promise((res) => {
+          resolveStatus = res;
+        }),
+    );
+    finishConnection.mockResolvedValue(CONECTADO);
+
+    // 1-3: monta, status fica pendente, finish resolve como conectado.
+    await render();
+
+    // 4: a UI já está conectada e o flow saiu do armazenamento.
+    expect(text()).toContain("Agenda sincronizada");
+    expect(text()).toContain("cal@x");
+    expect(storedFlow()).toBeNull();
+
+    // 5: só AGORA o status antigo resolve, dizendo desconectado.
+    await act(async () => {
+      resolveStatus({ connected: false, calendarId: null });
+    });
+
+    // 6: nada regrediu.
+    expect(text()).toContain("Agenda sincronizada");
+    expect(text()).toContain("cal@x");
+    expect(storedFlow()).toBeNull();
+    expect(button(CTA_FINISH)).toBeUndefined();
+    expect(button(CTA_CONNECT)).toBeUndefined();
+  });
+
   it("com segredo EXPIRADO não conclui e apaga o armazenamento", async () => {
     setHash("#integracoes/callback/ready");
     seedFlow("segredo", Date.now() - 1_000);

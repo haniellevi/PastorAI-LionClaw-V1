@@ -13,7 +13,7 @@
 --                          viaja para o Google e cai no access log.
 --   * `flow_secret_hash` — chave que o `finish` AUTENTICADO apresenta. O
 --                          `flowSecret` nunca sai das origens do painel
---                          (sessionStorage, particionado por origem).
+--                          (localStorage, particionado por origem).
 -- Nunca persistir os valores brutos: um dump/backup não pode permitir concluir
 -- nem queimar fluxo alheio.
 --

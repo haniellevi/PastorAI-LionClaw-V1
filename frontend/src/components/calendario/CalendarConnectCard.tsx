@@ -148,6 +148,16 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
   /** Houve um redirect ao Google nesta montagem. Só isso libera o destrave da UI
    *  ao voltar ao primeiro plano; sem ele, alternar de aba não faz nada. */
   const startedRef = useRef(false);
+  /** Época monotônica de MUTAÇÃO do estado da conexão.
+   *
+   *  `loadStatus` captura a época antes do `await` e só escreve se ela ainda for
+   *  a atual. Uma conclusão avança o contador DUAS vezes: ao começar (invalida
+   *  leituras já em voo) e imediatamente antes de aplicar o resultado (invalida
+   *  também as que começaram durante o `finish` e ainda vão resolver). Sem isso,
+   *  um `GET /calendar/status` lento tirado antes da conexão volta depois dela e
+   *  reescreve `connected=false` por cima do sucesso. Um booleano
+   *  `finishingRef` não resolve: a resposta velha chega depois do `finally`. */
+  const mutationEpochRef = useRef(0);
 
   const onErr = useCallback(
     (e: unknown) => {
@@ -172,10 +182,14 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
   /** Só LÊ estado. Nunca conclui fluxo — é o que separa carregar de consentir. */
   const loadStatus = useCallback(async () => {
     if (!token) return;
+    // Fotografia da época ANTES do await: se uma conclusão avançar o contador
+    // enquanto esta leitura está em voo, o snapshot velho não escreve nada.
+    const epoch = mutationEpochRef.current;
     setLoading(true);
     setError(null);
     try {
       const s = await fetchCalendarStatus(token);
+      if (epoch !== mutationEpochRef.current) return; // leitura obsoleta
       setConnected(s.connected);
       setCalendarId(s.calendarId);
       setPending(!s.connected && readFlow() !== null);
@@ -185,6 +199,9 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
         await applyCalendars();
       }
     } catch (e) {
+      // Erro de leitura obsoleta também não fala: viraria alerta espúrio por
+      // cima de uma conexão que deu certo.
+      if (epoch !== mutationEpochRef.current) return;
       onErr(e);
     } finally {
       setLoading(false);
@@ -200,11 +217,17 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
   const finishWith = useCallback(
     async (secret: string) => {
       if (!token) return;
+      // Invalida leituras de status já em voo: foram tiradas ANTES desta
+      // conclusão e não podem sobrescrever o resultado dela.
+      mutationEpochRef.current += 1;
       setBusy(true);
       setError(null);
       try {
         const result = await finishConnection(token, secret);
         if (result.status === "conectado") {
+          // Avança de novo ANTES de aplicar: pega também as leituras que
+          // começaram durante o `finish` e ainda não resolveram.
+          mutationEpochRef.current += 1;
           clearFlow();
           setPending(false);
           setRecoverable(null);
@@ -368,8 +391,10 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
   }, [token, onErr]);
 
   if (!isAdmin) return null;
-  // Os estados de retorno precisam aparecer mesmo antes de o status carregar.
-  if (loading && !recoverable && !pending) return null;
+  // Os estados de retorno precisam aparecer mesmo antes de o status carregar —
+  // e `connected` vindo de uma conclusão vale mesmo com uma leitura de status
+  // ainda em voo, senão o card some justo depois de conectar.
+  if (loading && !recoverable && !pending && !connected) return null;
 
   return (
     <div className="card card-pad" style={{ marginBottom: "var(--s4)" }}>
