@@ -144,6 +144,11 @@ create table if not exists billing_plan_change_operations (
   to_plano              text not null,
   to_preco              numeric(10,2) not null,
   to_limite             integer null,
+  -- Descrição-alvo CONGELADA: dois planos podem ter o mesmo preço, então a
+  -- reconciliação compara valor + descrição para distinguir um PUT aplicado
+  -- de um PUT perdido (o remoto antigo teria o preço igual, mas a descrição
+  -- do plano anterior).
+  to_descricao          text null,
   origin                text not null default 'manual'
     check (origin in ('manual', 'autoupgrade')),
   status                text not null default 'prepared'
@@ -251,10 +256,12 @@ begin
           -- insert em vez de duplicar ou sobrescrever.
           insert into billing_plan_change_operations
             (subscription_id, asaas_subscription_id, from_plano, to_plano,
-             to_preco, to_limite, origin, status, notify_status)
+             to_preco, to_limite, to_descricao, origin, status, notify_status)
           values
             (v_sub.id, v_sub.asaas_subscription_id, v_sub.plano, v_novo_plano,
-             v_novo_preco, v_novo_limite, 'autoupgrade', 'prepared', 'pending')
+             v_novo_preco, v_novo_limite,
+             'PastorAI — plano ' || v_novo_plano,
+             'autoupgrade', 'prepared', 'pending')
           on conflict (subscription_id)
             where status in ('prepared','processing','reconciling')
             do nothing;

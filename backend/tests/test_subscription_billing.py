@@ -1439,3 +1439,113 @@ def test_checkout_definitive_rejection_returns_to_prepared_and_allows_retry(
     assert op.status == "created"
     created_sub = next(o for o in db.added if isinstance(o, Subscription))
     assert created_sub.asaas_subscription_id == "sub_asaas_1"  # UMA recorrência
+
+
+# ---------------------------------------------------------------------------
+# CORRECTIVE-9 P1: downgrade abaixo do porte atual é rejeitado ANTES de criar
+# operação ou tocar o Asaas (o trigger só corrigiria numa mutação de pessoas).
+# ---------------------------------------------------------------------------
+class _NoCallAsaas:
+    """Qualquer chamada aqui é falha do teste: o bloqueio vem antes."""
+
+    def __getattr__(self, name):  # pragma: no cover - defesa
+        raise AssertionError(f"downgrade bloqueado não pode chamar Asaas ({name})")
+
+
+def _downgrade_client(app, *, pessoas: int, limite_alvo, preco=99.0):
+    plano_atual = _plano(codigo="acima_201", preco_mensal=499.0, limite_pessoas=None)
+    plano_alvo = _plano(
+        codigo="ate_100", preco_mensal=preco, limite_pessoas=limite_alvo
+    )
+    sub = _active_sub(plano="acima_201", limite=None, pessoas=pessoas)
+    client, db = _client(
+        app,
+        planos=[plano_atual, plano_alvo],
+        asaas=_NoCallAsaas(),
+        subscription=sub,
+    )
+    db.pessoas_count = pessoas
+    return client, db, sub
+
+
+def test_change_plan_rejects_downgrade_below_current_headcount(app) -> None:
+    client, db, sub = _downgrade_client(app, pessoas=201, limite_alvo=100)
+
+    resp = client.post(
+        "/subscription/change-plan", json={"plano": "ate_100"}, headers=_AUTH
+    )
+
+    assert resp.status_code == 422
+    assert "201" in resp.json()["detail"]
+    # Zero PUT (fake explode), zero operação criada, plano local intacto.
+    assert not [
+        o for o in db.added if isinstance(o, BillingPlanChangeOperation)
+    ]
+    assert sub.plano == "acima_201"
+
+
+def test_change_plan_allows_downgrade_exactly_at_the_limit(app) -> None:
+    client, db, sub = _downgrade_client(app, pessoas=100, limite_alvo=100)
+    # Aqui o fluxo segue: troca o fake por um que aceita o PUT.
+    app.dependency_overrides[get_asaas_client] = lambda: _ChangePlanAsaas()
+
+    resp = client.post(
+        "/subscription/change-plan", json={"plano": "ate_100"}, headers=_AUTH
+    )
+
+    assert resp.status_code == 200  # igualdade é permitida
+    assert sub.plano == "ate_100"
+
+
+def test_change_plan_allows_unlimited_target(app) -> None:
+    plano_atual = _plano(codigo="ate_100", preco_mensal=99.0, limite_pessoas=100)
+    ilimitado = _plano(codigo="acima_201", preco_mensal=499.0, limite_pessoas=None)
+    sub = _active_sub(plano="ate_100", limite=100, pessoas=5000)
+    client, db = _client(
+        app,
+        planos=[plano_atual, ilimitado],
+        asaas=_ChangePlanAsaas(),
+        subscription=sub,
+    )
+    db.pessoas_count = 5000
+
+    resp = client.post(
+        "/subscription/change-plan", json={"plano": "acima_201"}, headers=_AUTH
+    )
+
+    assert resp.status_code == 200  # plano ilimitado nunca é bloqueado
+    assert sub.plano == "acima_201"
+
+
+def test_change_plan_queues_autoupgrade_when_headcount_grew_during_change(
+    app,
+) -> None:
+    # Corrida: o porte subiu enquanto a troca era processada. Concluir a troca
+    # não dispara o trigger de pessoas — o endpoint enfileira a operação de
+    # auto-upgrade (o worker executa; nenhum POST de assinatura acontece).
+    plano_atual = _plano(codigo="ate_100", preco_mensal=99.0, limite_pessoas=100)
+    plano_alvo = _plano(codigo="101_200", preco_mensal=299.0, limite_pessoas=200)
+    sub = _active_sub(plano="acima_201", limite=999999, pessoas=150)
+    client, db = _client(
+        app,
+        planos=[plano_atual, plano_alvo],
+        asaas=_ChangePlanAsaas(),
+        subscription=sub,
+    )
+    db.pessoas_count = 150
+
+    resp = client.post(
+        "/subscription/change-plan", json={"plano": "101_200"}, headers=_AUTH
+    )
+    assert resp.status_code == 200
+    assert sub.plano == "101_200"
+    assert sub.limite == 200
+
+    # Porte cresceu para 250 no meio do caminho: o endpoint registrou a
+    # intenção de subir para o próximo degrau (acima_201) — sem chamar Asaas.
+    sub.pessoas = 250
+    db.pessoas_count = 250
+    resp2 = client.post(
+        "/subscription/change-plan", json={"plano": "101_200"}, headers=_AUTH
+    )
+    assert resp2.status_code == 422  # mesmo plano = no-op (guarda anterior)

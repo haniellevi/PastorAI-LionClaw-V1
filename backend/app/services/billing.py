@@ -32,6 +32,7 @@ from app.services.asaas import (
     AsaasError,
     AsaasRejectedError,
     payment_invoice_url,
+    subscription_description,
 )
 
 logger = logging.getLogger("pastorai.billing")
@@ -342,13 +343,25 @@ def find_open_plan_change(
 def _plan_change_matches_remote(
     op: BillingPlanChangeOperation, remote: dict | None
 ) -> bool:
-    """O estado remoto já reflete o alvo congelado da operação?"""
+    """O estado remoto já reflete o alvo congelado da operação?
+
+    Compara valor E DESCRIÇÃO: dois planos podem ter o mesmo preço mensal (o
+    console master permite), então um PUT perdido por timeout seria
+    indistinguível de um aplicado se só o valor fosse conferido — o remoto
+    antigo já traria o preço-alvo. Com a descrição congelada, preço igual +
+    descrição do plano anterior mantém a operação em `reconciling` e o plano
+    local intacto.
+    """
     if not isinstance(remote, dict):
         return False
     try:
-        return float(remote.get("value")) == float(op.to_preco)
+        value_ok = float(remote.get("value")) == float(op.to_preco)
     except (TypeError, ValueError):
         return False
+    if not value_ok:
+        return False
+    alvo = op.to_descricao or subscription_description(op.to_plano)
+    return remote.get("description") == alvo
 
 
 def _complete_plan_change(
@@ -401,6 +414,8 @@ def ensure_plan_change_operation(
             to_plano=to_plano,
             to_preco=to_preco,
             to_limite=to_limite,
+            # Identidade completa do alvo (com o preço) para a reconciliação.
+            to_descricao=subscription_description(to_plano),
             origin=origin,
             status="prepared",
             # A notificação do auto-upgrade tem entrega DURÁVEL própria; a
@@ -445,7 +460,8 @@ def ensure_plan_change_operation(
         remote = asaas.update_subscription(
             op.asaas_subscription_id,
             valor=float(op.to_preco),
-            descricao=f"PastorAI — plano {op.to_plano}",
+            # MESMA descrição que a reconciliação confere depois.
+            descricao=op.to_descricao or subscription_description(op.to_plano),
         )
     except AsaasRejectedError as exc:
         # Rejeição DEFINITIVA do PUT (4xx): o remoto ficou como estava — a

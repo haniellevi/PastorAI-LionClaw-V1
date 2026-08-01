@@ -247,7 +247,13 @@ def test_worker_retry_reconciles_by_get_without_second_put(monkeypatch) -> None:
     sub = _sub()
     igreja = SimpleNamespace(id=_IGREJA_A, plano="ate_100")
     tenant = _WorkerSession(subscription=sub, igreja=igreja, plan_changes=[op])
-    asaas = _WorkerAsaas(remote={"id": "sub_asaas_1", "value": 299.0})
+    asaas = _WorkerAsaas(
+        remote={
+            "id": "sub_asaas_1",
+            "value": 299.0,
+            "description": "PastorAI — plano 101_200",
+        }
+    )
     notified = _spy_notify(monkeypatch)
 
     completed = run_pending_plan_changes(

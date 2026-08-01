@@ -96,6 +96,17 @@ class AsaasError(Exception):
     """Raised when an Asaas API call fails or the client is misconfigured."""
 
 
+def subscription_description(plano: str) -> str:
+    """Descrição canônica da assinatura recorrente de um plano.
+
+    Fonte ÚNICA: o checkout, a troca de plano e a reconciliação usam a MESMA
+    string — a descrição faz parte da identidade do alvo (dois planos podem
+    ter o mesmo preço, então valor sozinho não distingue um PUT aplicado de
+    um PUT perdido).
+    """
+    return f"PastorAI — plano {plano}"
+
+
 class AsaasRejectedError(AsaasError):
     """Rejeição DEFINITIVA do Asaas (HTTP 4xx): nada foi criado.
 
@@ -197,7 +208,7 @@ class AsaasClient:
                     customer_id=customer_id,
                     valor=valor,
                     ciclo=ciclo,
-                    descricao=f"PastorAI — plano {plano}",
+                    descricao=subscription_description(plano),
                     external_reference=external_reference,
                 )
                 subscription_id = str(sub["id"])

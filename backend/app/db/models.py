@@ -1261,6 +1261,9 @@ class BillingPlanChangeOperation(Base):
     to_plano: Mapped[str] = mapped_column(Text, nullable=False)
     to_preco: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
     to_limite: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Descrição-alvo congelada: identidade do alvo junto do preço (dois planos
+    # podem custar o mesmo — só o preço não distingue PUT aplicado de perdido).
+    to_descricao: Mapped[str | None] = mapped_column(Text, nullable=True)
     origin: Mapped[str] = mapped_column(
         Text, nullable=False, server_default=text("'manual'")
     )

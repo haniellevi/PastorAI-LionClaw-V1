@@ -49,11 +49,12 @@ from app.db.session import get_session_factory
 from app.db.tenant_session import mark_tenant_scoped
 from app.deps import ADMIN_ROLE
 from app.domain.billing import PLAN_ORDER, plan_rank
-from app.services.asaas import AsaasClient, AsaasError
+from app.services.asaas import AsaasClient, AsaasError, subscription_description
 from app.services.billing import (
     OPEN_PLAN_CHANGE_STATUSES,
     PlanChangeConflict,
     ensure_plan_change_operation,
+    find_open_plan_change,
 )
 from app.services.evolution import EvolutionClient, EvolutionError
 
@@ -333,6 +334,44 @@ def _next_ladder_target(db: Session, sub: Subscription) -> Plano | None:
     if plano_row is None or plano_row.preco_mensal is None:
         return None
     return plano_row
+
+
+def queue_autoupgrade_if_over_limit(db: Session, sub: Subscription) -> bool:
+    """Registra a operação de auto-upgrade quando o porte já passou do limite.
+
+    Usado depois de uma troca MANUAL concluída: aplicar o novo plano não
+    dispara o trigger de pessoas, então uma igreja cujo porte subiu durante o
+    processamento (ou que trocou para um plano no limite) ficaria abaixo do
+    porte até a próxima mutação de pessoa. Aqui só a INTENÇÃO é registrada —
+    quem executa o PUT é o cron-worker, pelo trilho durável. Nenhuma chamada
+    externa acontece nesta função. Retorna True quando enfileirou.
+    """
+    if not sub.asaas_subscription_id or sub.asaas_subscription_id == "sandbox":
+        return False
+    alvo = _next_ladder_target(db, sub)
+    if alvo is None:
+        return False
+    if find_open_plan_change(db, sub.id) is not None:
+        return False  # já há uma operação aberta (manual ou de porte)
+    op = BillingPlanChangeOperation(
+        subscription_id=sub.id,
+        asaas_subscription_id=str(sub.asaas_subscription_id),
+        from_plano=sub.plano,
+        to_plano=alvo.codigo,
+        to_preco=float(alvo.preco_mensal),
+        to_limite=alvo.limite_pessoas,
+        to_descricao=subscription_description(alvo.codigo),
+        origin="autoupgrade",
+        status="prepared",
+        notify_status="pending",
+    )
+    db.add(op)
+    try:
+        db.commit()
+    except Exception:  # noqa: BLE001 - claim perdido = já existe uma aberta
+        db.rollback()
+        return False
+    return True
 
 
 def _chase_remaining_tiers(

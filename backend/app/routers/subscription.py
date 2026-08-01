@@ -24,12 +24,13 @@ import uuid
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db.models import (
     Igreja,
+    Pessoa,
     Plano,
     Subscription,
 )
@@ -46,6 +47,7 @@ from app.services.asaas import (
     map_payment_status,
     payment_invoice_url,
     payment_reversal_kind,
+    subscription_description,
     verify_webhook_token,
 )
 from app.services.billing import (
@@ -62,6 +64,7 @@ from app.services.billing import (
     prepare_subscription_operation,
     reconcile_subscription_operation,
 )
+from app.services.billing_worker import queue_autoupgrade_if_over_limit
 
 logger = logging.getLogger("pastorai.subscription")
 
@@ -656,7 +659,7 @@ def create_checkout(
     # operation_key vira a externalReference da assinatura — uma resposta
     # perdida é reconciliada por BUSCA no retry, nunca com um segundo POST (a
     # externalReference localiza, mas não é idempotência de POST no Asaas).
-    descricao = f"PastorAI — plano {payload.plano}"
+    descricao = subscription_description(payload.plano)
     try:
         op = prepare_subscription_operation(
             db,
@@ -821,6 +824,28 @@ class RecoveryResponse(BaseModel):
     invoiceUrl: str | None = None  # noqa: N815
     recoveryInvoiceUrl: str | None = None  # noqa: N815
     setupInvoiceUrl: str | None = None  # noqa: N815
+
+
+def _current_headcount(db: Session, sub: Subscription) -> int:
+    """Porte atual da igreja — contagem canônica, não o espelho defasado.
+
+    `subscriptions.pessoas` é mantido pelo trigger a cada mutação, mas pode
+    estar desatualizado entre eventos; a decisão de bloquear um downgrade lê
+    a tabela `pessoas` diretamente e usa o espelho apenas como piso (nunca
+    aceita um valor MENOR do que o já registrado).
+    """
+    total = db.execute(
+        select(func.count()).select_from(Pessoa).where(Pessoa.igreja_id == sub.igreja_id)
+    ).scalar_one_or_none()
+    try:
+        contagem = int(total) if total is not None else 0
+    except (TypeError, ValueError):
+        contagem = 0
+    try:
+        espelho = int(sub.pessoas) if sub.pessoas is not None else 0
+    except (TypeError, ValueError):
+        espelho = 0
+    return max(contagem, espelho)
 
 
 def _monthly_recovery_amount(sub: Subscription, asaas: AsaasClient) -> float:
@@ -1104,6 +1129,22 @@ def change_plan(
             detail="Há uma cobrança de recuperação em aberto",
         )
 
+    # DOWNGRADE abaixo do porte é rejeitado ANTES de criar operação ou tocar o
+    # Asaas: o trigger de auto-upgrade só dispara em mutação de `pessoas` —
+    # concluir a troca não o invoca —, então uma igreja de 201 ficaria no
+    # preço de 100 até um cadastro qualquer acontecer. Contagem canônica lida
+    # da tabela (a mesma fonte que o trigger mantém em subscriptions.pessoas).
+    pessoas_atual = _current_headcount(db, sub)
+    limite_alvo = plano_row.limite_pessoas  # None = ilimitado (sempre permitido)
+    if limite_alvo is not None and pessoas_atual > int(limite_alvo):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"O plano escolhido atende até {limite_alvo} pessoas e a igreja "
+                f"tem {pessoas_atual}"
+            ),
+        )
+
     try:
         ensure_plan_change_operation(
             db,
@@ -1123,6 +1164,16 @@ def change_plan(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Não foi possível atualizar a assinatura no Asaas — tente novamente",
         ) from exc
+
+    # Corrida: o porte pode ter subido ENQUANTO a troca era processada (e
+    # concluir a troca não dispara o trigger de pessoas). Se o plano recém
+    # aplicado já não cobre a igreja, registra a operação de auto-upgrade
+    # AGORA — o cron-worker a processa pelo trilho durável (PUT in-place,
+    # nunca POST de assinatura). Falha aqui não invalida a troca concluída.
+    try:
+        queue_autoupgrade_if_over_limit(db, sub)
+    except Exception:  # noqa: BLE001 - enfileiramento nunca derruba a resposta
+        logger.exception("Failed to queue autoupgrade after a manual plan change")
 
     return ChangePlanResponse(
         status=sub.status or "ativa",

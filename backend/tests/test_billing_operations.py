@@ -314,7 +314,13 @@ def test_plan_change_put_timeout_keeps_local_plan_and_reconciles_later() -> None
 
     # Retry: GET confirma que o PUT anterior chegou (valor remoto == alvo) —
     # conclui SEM repetir o PUT.
-    confirming = _PlanAsaas(remote={"id": "sub_asaas_1", "value": 299.0})
+    confirming = _PlanAsaas(
+        remote={
+            "id": "sub_asaas_1",
+            "value": 299.0,
+            "description": "PastorAI — plano 101_200",
+        }
+    )
     done = _change(db, confirming, sub)
 
     assert done is op
@@ -401,7 +407,13 @@ def test_concurrent_claim_adopts_winner_for_same_plan() -> None:
     sub = _plan_sub()
     db = _RacyPlanSession()
     # A operação do vencedor está `processing`: o perdedor reconcilia por GET.
-    asaas = _PlanAsaas(remote={"id": "sub_asaas_1", "value": 299.0})
+    asaas = _PlanAsaas(
+        remote={
+            "id": "sub_asaas_1",
+            "value": 299.0,
+            "description": "PastorAI — plano 101_200",
+        }
+    )
 
     op = _change(db, asaas, sub)
 
@@ -658,3 +670,78 @@ def test_plan_change_definitive_put_rejection_fails_and_frees_claim() -> None:
     assert done.status == "completed"
     assert sub.plano == "101_200"
     assert ok.puts == 1
+
+
+# ---------------------------------------------------------------------------
+# CORRECTIVE-9 P1: reconciliação pela IDENTIDADE (preço + descrição). Dois
+# planos podem custar o mesmo — só o valor não distingue PUT aplicado de PUT
+# perdido.
+# ---------------------------------------------------------------------------
+def test_same_price_with_old_description_never_completes_reconcile() -> None:
+    sub = _plan_sub()
+    igreja = SimpleNamespace(id="igreja-1", plano="ate_100")
+    db = FakeSession(igreja=igreja)
+
+    # PUT perdido por timeout: a operação fica reconciling com o alvo congelado.
+    with pytest.raises(AsaasError):
+        _change(db, _PlanAsaas(put_error=True), sub)
+    op = next(o for o in db.added if isinstance(o, BillingPlanChangeOperation))
+    assert op.status == "reconciling"
+    assert op.to_descricao == "PastorAI — plano 101_200"
+
+    # Remoto ANTIGO com o MESMO preço do alvo (planos de preço igual) e a
+    # descrição do plano anterior: NÃO conclui, nada local muda, sem 2º PUT.
+    stale = _PlanAsaas(
+        remote={
+            "id": "sub_asaas_1",
+            "value": 299.0,
+            "description": "PastorAI — plano ate_100",
+        }
+    )
+    with pytest.raises(AsaasError):
+        _change(db, stale, sub)
+
+    assert op.status == "reconciling"
+    assert sub.plano == "ate_100"
+    assert sub.limite == 100
+    assert igreja.plano == "ate_100"
+    assert stale.puts == 0
+    assert stale.gets == 1
+
+    # Com a DESCRIÇÃO-alvo, o mesmo preço conclui — o PUT chegou de fato.
+    applied = _PlanAsaas(
+        remote={
+            "id": "sub_asaas_1",
+            "value": 299.0,
+            "description": "PastorAI — plano 101_200",
+        }
+    )
+    done = _change(db, applied, sub)
+    assert done is op
+    assert done.status == "completed"
+    assert sub.plano == "101_200"
+    assert applied.puts == 0  # concluiu por reconciliação, sem novo PUT
+
+
+def test_put_sends_the_frozen_target_description() -> None:
+    sub = _plan_sub()
+    db = FakeSession(igreja=SimpleNamespace(id="igreja-1", plano="ate_100"))
+
+    class _CapturingAsaas(_PlanAsaas):
+        def __init__(self) -> None:
+            super().__init__()
+            self.descricoes: list[str] = []
+
+        def update_subscription(self, subscription_id, *, valor, descricao):
+            self.descricoes.append(descricao)
+            return super().update_subscription(
+                subscription_id, valor=valor, descricao=descricao
+            )
+
+    asaas = _CapturingAsaas()
+    op = _change(db, asaas, sub)
+
+    # A descrição enviada no PUT é EXATAMENTE a congelada na operação — a
+    # mesma que a reconciliação confere depois.
+    assert asaas.descricoes == ["PastorAI — plano 101_200"]
+    assert op.to_descricao == "PastorAI — plano 101_200"
