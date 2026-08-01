@@ -7,8 +7,10 @@ Asaas rastreada: ele registra UMA operação durável em
 nada mais. Este módulo é quem sincroniza, a cada tick do cron-worker:
 
   1. DESCOBERTA cross-tenant na sessão compartilhada (papel de conexão,
-     BYPASSRLS — só leitura), coletando as operações autoupgrade abertas com a
-     igreja dona (mesmo desenho do sweep de SLA, D3).
+     BYPASSRLS — só leitura), coletando as trocas de plano abertas com a
+     igreja dona (mesmo desenho do sweep de SLA, D3). Trocas `manual` entram
+     junto: sem isso, uma operação cujo request morreu no PUT dependeria de o
+     assinante repetir a solicitação para sair de `reconciling`.
   2. CADA operação é processada numa NOVA sessão tenant-scoped
      (`mark_tenant_scoped`), reutilizando `ensure_plan_change_operation` — o
      MESMO mecanismo durável da troca manual: claim atômico, exatamente um
@@ -53,6 +55,7 @@ from app.services.asaas import AsaasClient, AsaasError, subscription_description
 from app.services.billing import (
     OPEN_PLAN_CHANGE_STATUSES,
     PlanChangeConflict,
+    current_headcount,
     ensure_plan_change_operation,
     find_open_plan_change,
 )
@@ -268,12 +271,13 @@ def _process_operation(
     op_id: uuid.UUID,
     igreja_id: uuid.UUID,
 ) -> bool:
-    """Processa UMA operação de autoupgrade na sessão tenant-scoped.
+    """Processa UMA troca de plano aberta na sessão tenant-scoped.
 
-    Recarrega a operação dentro do tenant (ela pode ter sido concluída por uma
-    troca manual entre a descoberta e o claim) e delega o PUT/reconciliação a
-    `ensure_plan_change_operation` com o ALVO CONGELADO da própria operação —
-    nunca recalculado aqui. Retorna True quando a troca foi concluída.
+    Recarrega a operação dentro do tenant (ela pode ter sido concluída pelo
+    request do assinante entre a descoberta e o claim) e delega o
+    PUT/reconciliação a `ensure_plan_change_operation` com o ALVO CONGELADO da
+    própria operação — nunca recalculado aqui, e a origem é preservada.
+    Retorna True quando a troca foi concluída.
     """
     op = db.get(BillingPlanChangeOperation, op_id)
     if op is None or op.status not in OPEN_PLAN_CHANGE_STATUSES:
@@ -289,7 +293,7 @@ def _process_operation(
         to_plano=op.to_plano,
         to_preco=float(op.to_preco),
         to_limite=op.to_limite,
-        origin="autoupgrade",
+        origin=op.origin,
     )
     if result.status != "completed":
         return False
@@ -312,17 +316,24 @@ def _process_operation(
 def _next_ladder_target(db: Session, sub: Subscription) -> Plano | None:
     """Próximo degrau elegível da escada canônica, com alvo do CATÁLOGO.
 
-    Elegível quando a contagem corrente (mantida pelo trigger em
-    ``sub.pessoas``) excede o limite vigente. O preço/limite congelam do
-    catálogo `planos` do master; plano fora do catálogo não gera operação
-    (nunca inventar preço remoto — mesma regra do trigger).
+    Elegível quando o porte CORRENTE excede o limite vigente. A contagem é
+    relida da tabela `pessoas` (`current_headcount`) e não do espelho
+    ``sub.pessoas`` do objeto em memória: a sessão não expira no commit
+    (``expire_on_commit=False``), então depois de uma troca de plano o espelho
+    ainda carrega o valor lido ANTES da chamada externa — e é exatamente a
+    corrida "o porte subiu durante o PUT" que esta função precisa enxergar. O
+    preço/limite congelam do catálogo `planos` do master; plano fora do
+    catálogo não gera operação (nunca inventar preço remoto — mesma regra do
+    trigger).
     """
     try:
-        pessoas = int(sub.pessoas) if sub.pessoas is not None else None
         limite = int(sub.limite) if sub.limite is not None else None
     except (TypeError, ValueError):
         return None
-    if pessoas is None or limite is None or pessoas <= limite:
+    if limite is None:
+        return None  # plano ilimitado: não há degrau acima
+    pessoas = current_headcount(db, sub)
+    if pessoas <= limite:
         return None
     idx = plan_rank(sub.plano)
     if idx < 0 or idx + 1 >= len(PLAN_ORDER):
@@ -342,9 +353,12 @@ def queue_autoupgrade_if_over_limit(db: Session, sub: Subscription) -> bool:
     Usado depois de uma troca MANUAL concluída: aplicar o novo plano não
     dispara o trigger de pessoas, então uma igreja cujo porte subiu durante o
     processamento (ou que trocou para um plano no limite) ficaria abaixo do
-    porte até a próxima mutação de pessoa. Aqui só a INTENÇÃO é registrada —
-    quem executa o PUT é o cron-worker, pelo trilho durável. Nenhuma chamada
-    externa acontece nesta função. Retorna True quando enfileirou.
+    porte até a próxima mutação de pessoa. O porte vem da releitura canônica
+    feita por `_next_ladder_target` — o espelho em memória é sempre anterior à
+    chamada externa e nunca enxergaria essa corrida. Aqui só a INTENÇÃO é
+    registrada — quem executa o PUT é o cron-worker, pelo trilho durável.
+    Nenhuma chamada externa acontece nesta função. Retorna True quando
+    enfileirou.
     """
     if not sub.asaas_subscription_id or sub.asaas_subscription_id == "sandbox":
         return False
@@ -432,13 +446,19 @@ def run_pending_plan_changes(
     asaas: AsaasClient | None = None,
     evolution: EvolutionClient | None = None,
 ) -> int:
-    """Processa as operações de autoupgrade abertas em todos os tenants.
+    """Processa as trocas de plano abertas em todos os tenants.
 
     Retorna o número de trocas CONCLUÍDAS neste tick. Segue o desenho D3 do
     sweep de SLA: a `session` compartilhada (BYPASSRLS) faz só a DESCOBERTA
     read-only; cada operação roda numa NOVA sessão `mark_tenant_scoped`,
-    fechada ao fim (o role/GUC nunca volta ao pool). Operações `manual` são
-    ignoradas — pertencem ao request do assinante, nunca ao worker.
+    fechada ao fim (o role/GUC nunca volta ao pool).
+
+    Operações `manual` TAMBÉM são processadas: o request do assinante pode ter
+    morrido no meio (timeout do PUT) e, sem o worker, a operação dependeria de
+    ele repetir a solicitação — que as guardas do endpoint podem recusar
+    (porte, inadimplência), prendendo a operação e o slot único da assinatura
+    para sempre. O que continua exclusivo do autoupgrade é a NOTIFICAÇÃO: a
+    troca manual nasce com `notify_status='skipped'`.
     """
     if session_factory is None:
         session_factory = get_session_factory()
@@ -451,10 +471,7 @@ def run_pending_plan_changes(
             Subscription,
             Subscription.id == BillingPlanChangeOperation.subscription_id,
         )
-        .where(
-            BillingPlanChangeOperation.origin == "autoupgrade",
-            BillingPlanChangeOperation.status.in_(OPEN_PLAN_CHANGE_STATUSES),
-        )
+        .where(BillingPlanChangeOperation.status.in_(OPEN_PLAN_CHANGE_STATUSES))
     ).all()
     # Entrega durável: operações já COMPLETED cuja notificação ainda não saiu
     # (falha do Evolution ou crash pós-conclusão) são redescobertas aqui.

@@ -1278,6 +1278,12 @@ class BillingPlanChangeOperation(Base):
         Text, nullable=False, server_default=text("'skipped'")
     )
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Lease da tentativa: marcado no claim para `processing`. Um `processing`
+    # mais velho que o lease é tentativa ABANDONADA (crash entre o claim e o
+    # PUT) e pode ser retomada — sem isso `reconciling` não teria saída.
+    attempt_started_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )

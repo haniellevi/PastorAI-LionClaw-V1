@@ -156,6 +156,12 @@ create table if not exists billing_plan_change_operations (
   notify_status         text not null default 'skipped'
     check (notify_status in ('pending','sent','skipped')),
   error                 text null,
+  -- Lease da tentativa (gravado no claim para 'processing'): um 'processing'
+  -- mais velho que o lease é tentativa ABANDONADA e pode ser retomada. É o que
+  -- dá saída ao estado 'reconciling' — o PUT é idempotente por construção
+  -- (mesma assinatura + preço e descrição congelados), então repeti-lo é
+  -- seguro; sem isso a operação e o slot único ficariam presos para sempre.
+  attempt_started_at    timestamptz null,
   created_at            timestamptz not null default now(),
   updated_at            timestamptz not null default now()
 );

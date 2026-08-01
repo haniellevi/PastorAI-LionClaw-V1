@@ -24,7 +24,10 @@ from app.db.models import BillingPlanChangeOperation, Subscription
 from app.db.tenant_session import TENANT_IGREJA_KEY, TENANT_META_KEY
 from app.services import billing_worker
 from app.services.asaas import AsaasError
-from app.services.billing_worker import run_pending_plan_changes
+from app.services.billing_worker import (
+    queue_autoupgrade_if_over_limit,
+    run_pending_plan_changes,
+)
 
 from tests.conftest import FakeSession, _FakeResult
 
@@ -274,31 +277,63 @@ def test_worker_retry_reconciles_by_get_without_second_put(monkeypatch) -> None:
     assert notified == [_IGREJA_A]
 
 
-def test_worker_divergent_remote_stays_reconciling_without_put(monkeypatch) -> None:
+def test_worker_retries_the_put_when_remote_still_diverges(monkeypatch) -> None:
+    # SELF-AUDIT-10 P1: o GET era a única saída de `reconciling` — e um remoto
+    # divergente nunca mudaria sozinho. Agora o worker repete o PUT
+    # idempotente com os alvos congelados e conclui.
     op = _op(status="reconciling")
     sub = _sub()
-    tenant = _WorkerSession(
-        subscription=sub,
-        igreja=SimpleNamespace(id=_IGREJA_A, plano="ate_100"),
-        plan_changes=[op],
-    )
+    igreja = SimpleNamespace(id=_IGREJA_A, plano="ate_100")
+    tenant = _WorkerSession(subscription=sub, igreja=igreja, plan_changes=[op])
+    asaas = _WorkerAsaas(remote={"id": "sub_asaas_1", "value": 149.0})
     notified = _spy_notify(monkeypatch)
 
     completed = run_pending_plan_changes(
         _Discovery([(op, _IGREJA_A)]),
         session_factory=_factory_queue([tenant]),
-        asaas=_WorkerAsaas(remote={"id": "sub_asaas_1", "value": 149.0}),
+        asaas=asaas,
         evolution=object(),
     )
 
-    assert completed == 0
-    assert op.status == "reconciling"
-    assert sub.plano == "ate_100"
-    assert notified == []
+    assert completed == 1
+    assert asaas.gets == 1  # reconcilia ANTES de escrever
+    assert asaas.puts == 1  # exatamente um PUT, no mesmo id remoto
+    assert asaas.put_targets == ["sub_asaas_1"]
+    assert op.status == "completed"
+    assert sub.plano == "101_200"
+    assert igreja.plano == "101_200"
+    assert notified == [_IGREJA_A]
 
 
-def test_worker_discovery_ignores_manual_and_closed_operations(monkeypatch) -> None:
-    manual = _op(origin="manual", notify_status="skipped")
+def test_worker_processes_a_stuck_manual_plan_change(monkeypatch) -> None:
+    # SELF-AUDIT-10 P1: a troca MANUAL cujo request morreu no PUT dependia de o
+    # assinante repetir a solicitação — que as guardas do endpoint podem
+    # recusar. O worker agora a descobre e conclui; sem notificar (manual nasce
+    # com notify_status='skipped').
+    manual = _op(origin="manual", status="reconciling", notify_status="skipped")
+    sub = _sub()
+    igreja = SimpleNamespace(id=_IGREJA_A, plano="ate_100")
+    tenant = _WorkerSession(subscription=sub, igreja=igreja, plan_changes=[manual])
+    asaas = _WorkerAsaas(remote={"id": "sub_asaas_1", "value": 149.0})
+    notified = _spy_notify(monkeypatch)
+
+    completed = run_pending_plan_changes(
+        _Discovery([(manual, _IGREJA_A)]),
+        session_factory=_factory_queue([tenant]),
+        asaas=asaas,
+        evolution=object(),
+    )
+
+    assert completed == 1
+    assert asaas.puts == 1  # PUT in-place; os métodos de criação explodem
+    assert manual.status == "completed"
+    assert manual.origin == "manual"  # a origem é preservada
+    assert manual.notify_status == "skipped"
+    assert sub.plano == "101_200"
+    assert notified == []  # troca manual NUNCA dispara aviso de auto-upgrade
+
+
+def test_worker_discovery_ignores_closed_operations(monkeypatch) -> None:
     finished = _op(status="completed", notify_status="sent")  # aviso já entregue
     failed = _op(status="failed", notify_status="pending")
     notified = _spy_notify(monkeypatch)
@@ -306,7 +341,7 @@ def test_worker_discovery_ignores_manual_and_closed_operations(monkeypatch) -> N
     factory = _factory_queue([])  # nenhuma sessão tenant deve ser criada
 
     completed = run_pending_plan_changes(
-        _Discovery([(manual, _IGREJA_A), (finished, _IGREJA_A), (failed, _IGREJA_A)]),
+        _Discovery([(finished, _IGREJA_A), (failed, _IGREJA_A)]),
         session_factory=factory,
         asaas=asaas,
         evolution=object(),
@@ -316,7 +351,6 @@ def test_worker_discovery_ignores_manual_and_closed_operations(monkeypatch) -> N
     assert asaas.puts == 0
     assert asaas.gets == 0
     assert notified == []
-    assert manual.status == "prepared"  # a operação do assinante fica INTACTA
 
 
 def test_worker_skips_operation_closed_between_discovery_and_claim(
@@ -571,3 +605,86 @@ def test_inflight_notification_never_marks_sent(monkeypatch) -> None:
 
     assert completed == 0
     assert op.notify_status == "pending"  # descobrível no próximo tick
+
+
+# ---------------------------------------------------------------------------
+# SELF-AUDIT-10 P3: `queue_autoupgrade_if_over_limit` decidia pelo espelho
+# `sub.pessoas` do objeto em memória — que, com `expire_on_commit=False`, é
+# sempre o valor lido ANTES da chamada externa. Isso tornava a função INERTE
+# justamente na corrida que ela existe para cobrir. Agora o porte vem da
+# releitura canônica, e o worker conclui o degrau enfileirado.
+# ---------------------------------------------------------------------------
+def _ladder_catalog():
+    return [
+        SimpleNamespace(
+            codigo="101_200", nome="101-200", preco_mensal=299.0,
+            limite_pessoas=200, ativo=True,
+        ),
+        SimpleNamespace(
+            codigo="acima_201", nome="201+", preco_mensal=499.0,
+            limite_pessoas=None, ativo=True,
+        ),
+    ]
+
+
+def test_queue_autoupgrade_reads_the_canonical_headcount_not_the_stale_mirror(
+) -> None:
+    sub = _sub(plano="101_200", limite=200, pessoas=50)  # espelho DEFASADO
+    db = _WorkerSession(subscription=sub, planos=_ladder_catalog())
+    db.pessoas_count = 250  # verdade canônica na tabela `pessoas`
+
+    assert queue_autoupgrade_if_over_limit(db, sub) is True
+
+    op = next(o for o in db.added if isinstance(o, BillingPlanChangeOperation))
+    assert op.to_plano == "acima_201"
+    assert op.origin == "autoupgrade"
+    assert op.status == "prepared"
+    assert sub.plano == "101_200"  # nada local muda no enfileiramento
+
+
+def test_queue_autoupgrade_stays_quiet_when_the_plan_still_fits() -> None:
+    sub = _sub(plano="101_200", limite=200, pessoas=50)
+    db = _WorkerSession(subscription=sub, planos=_ladder_catalog())
+    db.pessoas_count = 150  # dentro do limite
+
+    assert queue_autoupgrade_if_over_limit(db, sub) is False
+    assert not [o for o in db.added if isinstance(o, BillingPlanChangeOperation)]
+
+
+def test_worker_completes_the_queued_autoupgrade(monkeypatch) -> None:
+    # Ponta a ponta: o endpoint enfileira (releitura canônica) e o worker
+    # conclui pelo trilho durável — PUT in-place, nunca POST.
+    sub = _sub(plano="101_200", limite=200, pessoas=50)
+    igreja = SimpleNamespace(id=_IGREJA_A, plano="101_200")
+    db = _WorkerSession(subscription=sub, igreja=igreja, planos=_ladder_catalog())
+    db.pessoas_count = 250
+    assert queue_autoupgrade_if_over_limit(db, sub) is True
+    enfileirada = next(
+        o for o in db.added if isinstance(o, BillingPlanChangeOperation)
+    )
+
+    tenant = _WorkerSession(
+        subscription=sub,
+        igreja=igreja,
+        plan_changes=[enfileirada],
+        planos=_ladder_catalog(),
+    )
+    tenant.pessoas_count = 250
+    asaas = _WorkerAsaas()
+    notified = _spy_notify(monkeypatch)
+
+    completed = run_pending_plan_changes(
+        _Discovery([(enfileirada, _IGREJA_A)]),
+        session_factory=_factory_queue([tenant]),
+        asaas=asaas,
+        evolution=object(),
+    )
+
+    assert completed == 1
+    assert asaas.puts == 1  # um PUT no id remoto já rastreado
+    assert asaas.put_targets == ["sub_asaas_1"]
+    assert enfileirada.status == "completed"
+    assert sub.plano == "acima_201"
+    assert sub.limite is None
+    assert igreja.plano == "acima_201"
+    assert notified == [_IGREJA_A]

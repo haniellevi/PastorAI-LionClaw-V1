@@ -232,8 +232,12 @@ def test_created_operation_is_reused_without_any_remote_call() -> None:
 # Troca de plano durável (PLAN-CHANGE-SAFETY-1): PUT na assinatura EXISTENTE,
 # vigência no próximo ciclo, retry por reconciliação — nunca 2ª recorrência.
 # ---------------------------------------------------------------------------
+import datetime as dt  # noqa: E402
+
 from app.db.models import BillingPlanChangeOperation, Subscription  # noqa: E402
+from app.services.asaas import AsaasRejectedError  # noqa: E402
 from app.services.billing import (  # noqa: E402
+    PLAN_CHANGE_ATTEMPT_LEASE,
     PlanChangeConflict,
     ensure_plan_change_operation,
 )
@@ -251,14 +255,23 @@ def _plan_sub():
 
 
 class _PlanAsaas:
-    def __init__(self, *, remote: dict | None = None, put_error: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        remote: dict | None = None,
+        put_error: bool = False,
+        put_rejected: bool = False,
+    ) -> None:
         self.puts = 0
         self.gets = 0
         self._remote = remote
         self._put_error = put_error
+        self._put_rejected = put_rejected
 
     def update_subscription(self, subscription_id: str, *, valor: float, descricao: str):
         self.puts += 1
+        if self._put_rejected:
+            raise AsaasRejectedError("O Asaas rejeitou a atualização da assinatura")
         if self._put_error:
             raise AsaasError("timeout ambíguo depois do PUT")
         return {"id": subscription_id, "value": valor, "description": descricao}
@@ -330,7 +343,43 @@ def test_plan_change_put_timeout_keeps_local_plan_and_reconciles_later() -> None
     assert confirming.gets == 1
 
 
-def test_plan_change_divergent_remote_stays_reconciling() -> None:
+def test_plan_change_reconciling_retries_the_same_put_and_completes() -> None:
+    # SELF-AUDIT-10 P1: `reconciling` com remoto DIVERGENTE tinha o GET como
+    # única saída — e o GET nunca mudaria sozinho. A operação (e o slot único
+    # da assinatura) ficavam presos para sempre. O PUT é idempotente por
+    # construção, então o retry controlado o repete com os alvos congelados.
+    sub = _plan_sub()
+    igreja = SimpleNamespace(id="igreja-1", plano="ate_100")
+    op = BillingPlanChangeOperation(
+        subscription_id="local-sub-1",
+        asaas_subscription_id="sub_asaas_1",
+        from_plano="ate_100",
+        to_plano="101_200",
+        to_preco=299.0,
+        to_limite=200,
+        to_descricao="PastorAI — plano 101_200",
+        status="reconciling",
+    )
+    db = FakeSession(plan_changes=[op], igreja=igreja)
+    # Remoto ainda mostra o valor antigo: o GET não conclui nada.
+    asaas = _PlanAsaas(remote={"id": "sub_asaas_1", "value": 199.0})
+
+    done = _change(db, asaas, sub)
+
+    assert done is op
+    assert asaas.gets == 1  # reconciliação SEMPRE antes de escrever
+    assert asaas.puts == 1  # exatamente um PUT no retry
+    assert op.status == "completed"
+    assert sub.plano == "101_200"
+    assert sub.limite == 200
+    assert igreja.plano == "101_200"
+    assert sub.asaas_subscription_id == "sub_asaas_1"  # nunca outra recorrência
+
+
+def test_plan_change_in_flight_attempt_never_gets_a_second_put() -> None:
+    # Duas tentativas concorrentes: a operação está em `processing` com o lease
+    # VIVO (outro processo dentro do PUT). O retry só reconcilia por GET —
+    # jamais dispara um segundo PUT em paralelo.
     sub = _plan_sub()
     op = BillingPlanChangeOperation(
         subscription_id="local-sub-1",
@@ -339,18 +388,115 @@ def test_plan_change_divergent_remote_stays_reconciling() -> None:
         to_plano="101_200",
         to_preco=299.0,
         to_limite=200,
-        status="reconciling",
+        to_descricao="PastorAI — plano 101_200",
+        status="processing",
+        attempt_started_at=dt.datetime.now(dt.timezone.utc),
     )
     db = FakeSession(plan_changes=[op])
-    # Remoto ainda mostra o valor antigo: não conclui, não aplica local.
     asaas = _PlanAsaas(remote={"id": "sub_asaas_1", "value": 199.0})
 
     with pytest.raises(AsaasError):
         _change(db, asaas, sub)
 
-    assert op.status == "reconciling"
-    assert sub.plano == "ate_100"
     assert asaas.puts == 0
+    assert op.status == "processing"  # o dono do claim segue com a posse
+    assert sub.plano == "ate_100"
+
+
+def test_plan_change_abandoned_attempt_is_reclaimed_after_the_lease() -> None:
+    # O processo dono morreu entre o claim e o PUT: `processing` com lease
+    # VENCIDO é tentativa abandonada e volta a ser executável.
+    sub = _plan_sub()
+    igreja = SimpleNamespace(id="igreja-1", plano="ate_100")
+    op = BillingPlanChangeOperation(
+        subscription_id="local-sub-1",
+        asaas_subscription_id="sub_asaas_1",
+        from_plano="ate_100",
+        to_plano="101_200",
+        to_preco=299.0,
+        to_limite=200,
+        to_descricao="PastorAI — plano 101_200",
+        status="processing",
+        attempt_started_at=dt.datetime.now(dt.timezone.utc)
+        - PLAN_CHANGE_ATTEMPT_LEASE
+        - dt.timedelta(seconds=1),
+    )
+    db = FakeSession(plan_changes=[op], igreja=igreja)
+    asaas = _PlanAsaas(remote={"id": "sub_asaas_1", "value": 199.0})
+
+    done = _change(db, asaas, sub)
+
+    assert done.status == "completed"
+    assert asaas.puts == 1
+    assert sub.plano == "101_200"
+
+
+def test_plan_change_retry_definitive_rejection_fails_and_frees_the_slot() -> None:
+    # 4xx no PUT do RETRY é definitivo (o remoto ficou como estava): fecha
+    # `failed`, plano local intacto e o claim único liberado.
+    sub = _plan_sub()
+    igreja = SimpleNamespace(id="igreja-1", plano="ate_100")
+    op = BillingPlanChangeOperation(
+        subscription_id="local-sub-1",
+        asaas_subscription_id="sub_asaas_1",
+        from_plano="ate_100",
+        to_plano="101_200",
+        to_preco=299.0,
+        to_limite=200,
+        to_descricao="PastorAI — plano 101_200",
+        status="reconciling",
+    )
+    db = FakeSession(plan_changes=[op], igreja=igreja)
+    asaas = _PlanAsaas(
+        remote={"id": "sub_asaas_1", "value": 199.0}, put_rejected=True
+    )
+
+    with pytest.raises(AsaasRejectedError):
+        _change(db, asaas, sub)
+
+    assert op.status == "failed"
+    assert op.error
+    assert sub.plano == "ate_100"
+    assert igreja.plano == "ate_100"
+
+
+def test_plan_change_retry_ambiguous_failure_stays_recoverable() -> None:
+    # Timeout/5xx no PUT do RETRY continua AMBÍGUO: volta a `reconciling`
+    # (plano local intacto) e o próximo retry reconcilia de novo — nunca
+    # termina em estado sem saída.
+    sub = _plan_sub()
+    op = BillingPlanChangeOperation(
+        subscription_id="local-sub-1",
+        asaas_subscription_id="sub_asaas_1",
+        from_plano="ate_100",
+        to_plano="101_200",
+        to_preco=299.0,
+        to_limite=200,
+        to_descricao="PastorAI — plano 101_200",
+        status="reconciling",
+    )
+    db = FakeSession(plan_changes=[op])
+    flaky = _PlanAsaas(remote={"id": "sub_asaas_1", "value": 199.0}, put_error=True)
+
+    with pytest.raises(AsaasError):
+        _change(db, flaky, sub)
+
+    assert op.status == "reconciling"
+    assert flaky.puts == 1
+    assert sub.plano == "ate_100"
+
+    # E o retry seguinte conclui pelo GET, agora que o remoto reflete o alvo.
+    applied = _PlanAsaas(
+        remote={
+            "id": "sub_asaas_1",
+            "value": 299.0,
+            "description": "PastorAI — plano 101_200",
+        }
+    )
+    done = _change(db, applied, sub)
+    assert done.status == "completed"
+    assert applied.puts == 0
+    assert sub.plano == "101_200"
 
 
 def test_concurrent_plan_change_to_other_plan_conflicts() -> None:
@@ -610,9 +756,6 @@ def test_reconcile_leaves_operation_open_until_adoption() -> None:
 # CORRECTIVE-8 P1: rejeição DEFINITIVA fecha a operação como failed e LIBERA
 # o slot — nunca fica presa em reconciling.
 # ---------------------------------------------------------------------------
-from app.services.asaas import AsaasRejectedError  # noqa: E402
-
-
 def test_one_time_charge_definitive_rejection_fails_and_frees_slot() -> None:
     class _RejectingAsaas:
         def create_one_time_charge(self, **kwargs):
@@ -690,13 +833,16 @@ def test_same_price_with_old_description_never_completes_reconcile() -> None:
     assert op.to_descricao == "PastorAI — plano 101_200"
 
     # Remoto ANTIGO com o MESMO preço do alvo (planos de preço igual) e a
-    # descrição do plano anterior: NÃO conclui, nada local muda, sem 2º PUT.
+    # descrição do plano anterior: a RECONCILIAÇÃO não conclui nada. Com o PUT
+    # do retry falhando (ambíguo), fica provado que nem o GET nem qualquer
+    # outro caminho aplicou o plano local só porque o preço batia.
     stale = _PlanAsaas(
         remote={
             "id": "sub_asaas_1",
             "value": 299.0,
             "description": "PastorAI — plano ate_100",
-        }
+        },
+        put_error=True,
     )
     with pytest.raises(AsaasError):
         _change(db, stale, sub)
@@ -705,7 +851,6 @@ def test_same_price_with_old_description_never_completes_reconcile() -> None:
     assert sub.plano == "ate_100"
     assert sub.limite == 100
     assert igreja.plano == "ate_100"
-    assert stale.puts == 0
     assert stale.gets == 1
 
     # Com a DESCRIÇÃO-alvo, o mesmo preço conclui — o PUT chegou de fato.

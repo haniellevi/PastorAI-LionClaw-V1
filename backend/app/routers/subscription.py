@@ -24,13 +24,12 @@ import uuid
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import func, select, update
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db.models import (
     Igreja,
-    Pessoa,
     Plano,
     Subscription,
 )
@@ -54,9 +53,11 @@ from app.services.billing import (
     PlanChangeConflict,
     SubscriptionCreateConflict,
     claim_transition,
+    current_headcount,
     ensure_payment_operation,
     ensure_plan_change_operation,
     find_open_operation,
+    find_open_plan_change,
     find_operation_for_payment,
     find_settled_recovery,
     find_subscription_operation_by_key,
@@ -826,28 +827,6 @@ class RecoveryResponse(BaseModel):
     setupInvoiceUrl: str | None = None  # noqa: N815
 
 
-def _current_headcount(db: Session, sub: Subscription) -> int:
-    """Porte atual da igreja — contagem canônica, não o espelho defasado.
-
-    `subscriptions.pessoas` é mantido pelo trigger a cada mutação, mas pode
-    estar desatualizado entre eventos; a decisão de bloquear um downgrade lê
-    a tabela `pessoas` diretamente e usa o espelho apenas como piso (nunca
-    aceita um valor MENOR do que o já registrado).
-    """
-    total = db.execute(
-        select(func.count()).select_from(Pessoa).where(Pessoa.igreja_id == sub.igreja_id)
-    ).scalar_one_or_none()
-    try:
-        contagem = int(total) if total is not None else 0
-    except (TypeError, ValueError):
-        contagem = 0
-    try:
-        espelho = int(sub.pessoas) if sub.pessoas is not None else 0
-    except (TypeError, ValueError):
-        espelho = 0
-    return max(contagem, espelho)
-
-
 def _monthly_recovery_amount(sub: Subscription, asaas: AsaasClient) -> float:
     """Valor da cobrança de recuperação mensal — o CONTRATADO, não o catálogo.
 
@@ -1129,21 +1108,29 @@ def change_plan(
             detail="Há uma cobrança de recuperação em aberto",
         )
 
-    # DOWNGRADE abaixo do porte é rejeitado ANTES de criar operação ou tocar o
-    # Asaas: o trigger de auto-upgrade só dispara em mutação de `pessoas` —
-    # concluir a troca não o invoca —, então uma igreja de 201 ficaria no
-    # preço de 100 até um cadastro qualquer acontecer. Contagem canônica lida
-    # da tabela (a mesma fonte que o trigger mantém em subscriptions.pessoas).
-    pessoas_atual = _current_headcount(db, sub)
-    limite_alvo = plano_row.limite_pessoas  # None = ilimitado (sempre permitido)
-    if limite_alvo is not None and pessoas_atual > int(limite_alvo):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=(
-                f"O plano escolhido atende até {limite_alvo} pessoas e a igreja "
-                f"tem {pessoas_atual}"
-            ),
-        )
+    # A guarda de porte vale para uma troca NOVA. Com uma operação JÁ ABERTA
+    # quem decide é `ensure_plan_change_operation`: mesmo alvo precisa
+    # RECONCILIAR (o PUT pode ter sido aplicado remotamente antes do timeout, e
+    # o crescimento posterior da igreja não pode impedir a leitura desse
+    # resultado — bloquear aqui prenderia a operação e o slot único para
+    # sempre); alvo diferente continua sendo conflito 409.
+    if find_open_plan_change(db, sub.id) is None:
+        # DOWNGRADE abaixo do porte é rejeitado ANTES de criar operação ou
+        # tocar o Asaas: o trigger de auto-upgrade só dispara em mutação de
+        # `pessoas` — concluir a troca não o invoca —, então uma igreja de 201
+        # ficaria no preço de 100 até um cadastro qualquer acontecer. Contagem
+        # canônica lida da tabela (a mesma fonte que o trigger espelha em
+        # subscriptions.pessoas).
+        pessoas_atual = current_headcount(db, sub)
+        limite_alvo = plano_row.limite_pessoas  # None = ilimitado (sempre ok)
+        if limite_alvo is not None and pessoas_atual > int(limite_alvo):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    f"O plano escolhido atende até {limite_alvo} pessoas e a "
+                    f"igreja tem {pessoas_atual}"
+                ),
+            )
 
     try:
         ensure_plan_change_operation(

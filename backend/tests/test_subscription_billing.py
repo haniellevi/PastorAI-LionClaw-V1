@@ -10,7 +10,11 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-from app.db.models import BillingSubscriptionOperation, Subscription
+from app.db.models import (
+    BillingPlanChangeOperation,
+    BillingSubscriptionOperation,
+    Subscription,
+)
 from app.db.session import get_db
 from app.services.asaas import (
     AsaasError,
@@ -1517,22 +1521,98 @@ def test_change_plan_allows_unlimited_target(app) -> None:
     assert sub.plano == "acima_201"
 
 
+# ---------------------------------------------------------------------------
+# SELF-AUDIT-10: a corrida "o porte subiu DURANTE a troca" precisa ser
+# exercitada de verdade — o teste anterior morria num 422 de mesmo-plano antes
+# de alcançar o enfileiramento, e a função lia o espelho `sub.pessoas` do
+# objeto em memória (anterior à chamada externa), o que a tornava inerte.
+# ---------------------------------------------------------------------------
+class _FlakyChangePlanAsaas:
+    """PUT falha (ambíguo) na 1ª vez e conclui na 2ª. Criar assinatura EXPLODE."""
+
+    def __init__(self) -> None:
+        self.puts: list[tuple[str, float, str]] = []
+        self.gets = 0
+
+    def update_subscription(self, subscription_id: str, *, valor: float, descricao: str):
+        self.puts.append((subscription_id, valor, descricao))
+        if len(self.puts) == 1:
+            raise AsaasError("timeout ambíguo depois do PUT")
+        return {"id": subscription_id, "value": valor, "description": descricao}
+
+    def get_subscription(self, subscription_id: str):
+        self.gets += 1
+        return None  # remoto ainda não reflete o alvo
+
+    def create_checkout(self, **kwargs):  # pragma: no cover - defesa
+        raise AssertionError("troca de plano nunca cria assinatura")
+
+    def create_one_time_charge(self, **kwargs):  # pragma: no cover - defesa
+        raise AssertionError("troca de plano nunca emite cobrança")
+
+
+def _race_client(app):
+    planos = [
+        _plano(codigo="ate_100", preco_mensal=99.0, limite_pessoas=100),
+        _plano(codigo="101_200", preco_mensal=299.0, limite_pessoas=200),
+        _plano(codigo="acima_201", preco_mensal=499.0, limite_pessoas=None),
+    ]
+    sub = _active_sub(plano="ate_100", limite=100, pessoas=50)
+    asaas = _FlakyChangePlanAsaas()
+    client, db = _client(app, planos=planos, asaas=asaas, subscription=sub)
+    db.pessoas_count = 50
+    return client, db, sub, asaas
+
+
+def test_change_plan_retry_reconciles_even_after_headcount_passed_the_limit(
+    app,
+) -> None:
+    # Item 4: o retry do MESMO alvo não pode ser barrado pela guarda de porte —
+    # o PUT pode já ter sido aplicado remotamente antes do timeout, e barrar
+    # aqui prenderia a operação (e o slot único) para sempre.
+    client, db, sub, asaas = _race_client(app)
+
+    primeira = client.post(
+        "/subscription/change-plan", json={"plano": "101_200"}, headers=_AUTH
+    )
+    assert primeira.status_code == 502  # ambíguo: plano local intacto
+    assert sub.plano == "ate_100"
+    op = next(o for o in db.added if isinstance(o, BillingPlanChangeOperation))
+    assert op.status == "reconciling"
+
+    # A igreja cresce ALÉM do limite do plano-alvo enquanto a operação está
+    # presa. O retry do mesmo alvo segue reconciliando.
+    db.pessoas_count = 250
+
+    segunda = client.post(
+        "/subscription/change-plan", json={"plano": "101_200"}, headers=_AUTH
+    )
+
+    assert segunda.status_code == 200  # nada de 422 na reconciliação
+    assert asaas.gets == 1  # reconcilia ANTES de reescrever
+    assert len(asaas.puts) == 2  # exatamente um PUT por tentativa
+    assert op.status == "completed"
+    assert sub.plano == "101_200"
+    assert sub.limite == 200
+
+
 def test_change_plan_queues_autoupgrade_when_headcount_grew_during_change(
     app,
 ) -> None:
-    # Corrida: o porte subiu enquanto a troca era processada. Concluir a troca
-    # não dispara o trigger de pessoas — o endpoint enfileira a operação de
-    # auto-upgrade (o worker executa; nenhum POST de assinatura acontece).
-    plano_atual = _plano(codigo="ate_100", preco_mensal=99.0, limite_pessoas=100)
-    plano_alvo = _plano(codigo="101_200", preco_mensal=299.0, limite_pessoas=200)
-    sub = _active_sub(plano="acima_201", limite=999999, pessoas=150)
-    client, db = _client(
-        app,
-        planos=[plano_atual, plano_alvo],
-        asaas=_ChangePlanAsaas(),
-        subscription=sub,
+    # Item 6 (a corrida COMPLETA): porte compatível no início, PUT ambíguo,
+    # porte alterado no banco, retry reconcilia o mesmo alvo, releitura
+    # canônica detecta o excesso e o auto-upgrade é ENFILEIRADO — sem nenhum
+    # POST (o fake explode) e sem depender de uma futura mutação de pessoas.
+    client, db, sub, asaas = _race_client(app)
+
+    assert (
+        client.post(
+            "/subscription/change-plan", json={"plano": "101_200"}, headers=_AUTH
+        ).status_code
+        == 502
     )
-    db.pessoas_count = 150
+    db.pessoas_count = 250  # cresceu durante o PUT; o espelho segue em 50
+    assert sub.pessoas == 50
 
     resp = client.post(
         "/subscription/change-plan", json={"plano": "101_200"}, headers=_AUTH
@@ -1541,11 +1621,15 @@ def test_change_plan_queues_autoupgrade_when_headcount_grew_during_change(
     assert sub.plano == "101_200"
     assert sub.limite == 200
 
-    # Porte cresceu para 250 no meio do caminho: o endpoint registrou a
-    # intenção de subir para o próximo degrau (acima_201) — sem chamar Asaas.
-    sub.pessoas = 250
-    db.pessoas_count = 250
-    resp2 = client.post(
-        "/subscription/change-plan", json={"plano": "101_200"}, headers=_AUTH
-    )
-    assert resp2.status_code == 422  # mesmo plano = no-op (guarda anterior)
+    # O caminho de enfileiramento FOI alcançado: nova operação durável para o
+    # próximo degrau, aberta, do trilho de auto-upgrade.
+    operacoes = [o for o in db.added if isinstance(o, BillingPlanChangeOperation)]
+    assert len(operacoes) == 2
+    enfileirada = operacoes[-1]
+    assert enfileirada.to_plano == "acima_201"
+    assert enfileirada.origin == "autoupgrade"
+    assert enfileirada.status == "prepared"
+    assert enfileirada.notify_status == "pending"
+    assert float(enfileirada.to_preco) == 499.0
+    # Nada além dos dois PUTs da própria troca aconteceu no Asaas.
+    assert len(asaas.puts) == 2

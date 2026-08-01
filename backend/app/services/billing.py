@@ -12,10 +12,11 @@ nunca vira cobrança duplicada.
 
 from __future__ import annotations
 
+import datetime as dt
 import logging
 import uuid
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -25,6 +26,7 @@ from app.db.models import (
     BillingSettings,
     BillingSubscriptionOperation,
     Igreja,
+    Pessoa,
     Subscription,
 )
 from app.services.asaas import (
@@ -43,6 +45,10 @@ OPEN_OPERATION_STATUSES = ("prepared", "creating", "reconciling", "created")
 OPEN_PLAN_CHANGE_STATUSES = ("prepared", "processing", "reconciling")
 # Estados abertos da CRIAÇÃO de assinatura (claim único por Subscription).
 OPEN_SUBSCRIPTION_OP_STATUSES = ("prepared", "creating", "reconciling")
+# Lease da TENTATIVA de PUT: um `processing` mais velho que isto é uma tentativa
+# abandonada (crash entre o claim e o PUT, ou processo morto no meio) e pode ser
+# retomada. Folgado sobre o timeout de 20s do cliente HTTP.
+PLAN_CHANGE_ATTEMPT_LEASE = dt.timedelta(minutes=5)
 
 
 class PlanChangeConflict(Exception):
@@ -53,7 +59,27 @@ class SubscriptionCreateConflict(Exception):
     """Já existe uma criação de assinatura EM ANDAMENTO para outro plano."""
 
 
-def claim_transition(db: Session, op, from_status: str, to_status: str) -> bool:
+def _utcnow() -> dt.datetime:
+    return dt.datetime.now(dt.timezone.utc)
+
+
+def _attempt_lease_alive(op: BillingPlanChangeOperation) -> bool:
+    """Há uma tentativa de PUT EM VOO nesta operação?
+
+    Sem marca de tentativa (linha criada antes desta coluna existir) o lease é
+    tratado como vencido: um `processing` órfão precisa poder ser retomado.
+    """
+    started = op.attempt_started_at
+    if started is None:
+        return False
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=dt.timezone.utc)
+    return _utcnow() - started < PLAN_CHANGE_ATTEMPT_LEASE
+
+
+def claim_transition(
+    db: Session, op, from_status: str, to_status: str, **values
+) -> bool:
     """Transição de estado ATÔMICA de uma operação durável (UPDATE condicional).
 
     O índice único parcial garante uma única LINHA aberta, mas não serializa a
@@ -61,17 +87,20 @@ def claim_transition(db: Session, op, from_status: str, to_status: str) -> bool:
     fariam ambos o POST. Aqui só o rowcount==1 ganha a posse do passo — quem
     perde deve recarregar e RECONCILIAR, nunca chamar a API externa. Também
     protege o resultado do dono: um retry não regride `created` para
-    `reconciling` (o WHERE exige o estado de origem).
+    `reconciling` (o WHERE exige o estado de origem). ``values`` extras são
+    gravados no MESMO UPDATE (ex.: o lease da tentativa).
     """
     result = db.execute(
         update(type(op))
         .where(type(op).id == op.id, type(op).status == from_status)
-        .values(status=to_status)
+        .values(status=to_status, **values)
     )
     db.commit()
     claimed = getattr(result, "rowcount", 0) == 1
     if claimed:
         op.status = to_status
+        for key, value in values.items():
+            setattr(op, key, value)
     return claimed
 
 
@@ -328,6 +357,30 @@ def _reconcile_payment_operation(
     raise AsaasError("Cobrança em reconciliação no Asaas — tente novamente")
 
 
+def current_headcount(db: Session, sub: Subscription) -> int:
+    """Porte atual da igreja — contagem canônica, não o espelho defasado.
+
+    `subscriptions.pessoas` é mantido pelo trigger a cada mutação, mas pode
+    estar desatualizado entre eventos — e o objeto ORM carregado antes de uma
+    chamada externa fica STALE por definição (a sessão não expira no commit).
+    Toda decisão de porte (bloquear downgrade, enfileirar auto-upgrade) lê a
+    tabela `pessoas` diretamente e usa o espelho apenas como piso (nunca aceita
+    um valor MENOR do que o já registrado).
+    """
+    total = db.execute(
+        select(func.count()).select_from(Pessoa).where(Pessoa.igreja_id == sub.igreja_id)
+    ).scalar_one_or_none()
+    try:
+        contagem = int(total) if total is not None else 0
+    except (TypeError, ValueError):
+        contagem = 0
+    try:
+        espelho = int(sub.pessoas) if sub.pessoas is not None else 0
+    except (TypeError, ValueError):
+        espelho = 0
+    return max(contagem, espelho)
+
+
 def find_open_plan_change(
     db: Session, subscription_id
 ) -> BillingPlanChangeOperation | None:
@@ -391,11 +444,16 @@ def ensure_plan_change_operation(
 ) -> BillingPlanChangeOperation:
     """Troca de plano durável: PUT na assinatura Asaas EXISTENTE, retry-safe.
 
-    O alvo (plano/preço/limite) é congelado e persistido ANTES do PUT; um
-    retry com a operação em `processing`/`reconciling` RECONCILIA pelo GET da
-    assinatura (valor remoto == alvo) em vez de repetir o PUT às cegas. O
-    plano/limite locais só mudam após confirmação ou reconciliação. Falha
-    remota preserva o plano atual. Nunca cria outra recorrência.
+    O alvo (plano/preço/limite/descrição) é congelado e persistido ANTES do
+    PUT. Um retry com a operação em `processing`/`reconciling` RECONCILIA
+    primeiro pelo GET da assinatura (valor E descrição remotos == alvo); só se
+    o remoto ainda NÃO refletir o alvo é que o PUT se repete — ele é
+    idempotente por construção (mesma assinatura, alvos congelados,
+    ``updatePendingPayments=false``), e o claim atômico por lease garante um
+    PUT por vez. O plano/limite locais só mudam após confirmação ou
+    reconciliação. Rejeição 4xx fecha como `failed` e libera o slot; falha
+    ambígua preserva o plano atual e mantém a operação recuperável. Nunca cria
+    outra recorrência.
     """
     op = find_open_plan_change(db, sub.id)
 
@@ -444,16 +502,33 @@ def ensure_plan_change_operation(
         if _plan_change_matches_remote(op, remote):
             _complete_plan_change(db, op, sub)
             return op
-        op.status = "reconciling"
-        db.commit()
-        raise AsaasError(
-            "Troca de plano em reconciliação no Asaas — tente novamente"
-        )
-
+        if op.status == "processing" and _attempt_lease_alive(op):
+            # Outro processo está DENTRO do PUT agora: não há o que reconciliar
+            # nem o que repetir — só esperar o desfecho dele.
+            raise AsaasError("Troca de plano em processamento — tente novamente")
+        if op.status == "processing":
+            # Lease vencido = tentativa abandonada (crash entre o claim e o
+            # PUT). Devolve ao pool CONDICIONALMENTE: se o dono concluiu nesse
+            # meio-tempo, o rowcount é 0 e o resultado dele fica preservado.
+            claim_transition(db, op, "processing", "reconciling")
+        # `reconciling` sem match remoto: REPETE o PUT. Ele é idempotente por
+        # construção — mesma assinatura, preço e descrição congelados na
+        # operação e `updatePendingPayments=false` —, então repetir é seguro e
+        # é a ÚNICA saída deste estado: sem isso a operação (e o slot único da
+        # assinatura) ficariam presos para sempre, com toda troca futura em 409.
+        if not claim_transition(
+            db, op, "reconciling", "processing", attempt_started_at=_utcnow()
+        ):
+            db.rollback()
+            raise AsaasError(
+                "Troca de plano em reconciliação no Asaas — tente novamente"
+            )
     # prepared: marca a intenção e faz exatamente UM PUT. Claim ATÔMICO — o
     # worker e um request manual que leram a mesma operação `prepared` nunca
     # fazem dois PUTs: quem perde o rowcount reconcilia no retry.
-    if not claim_transition(db, op, "prepared", "processing"):
+    elif not claim_transition(
+        db, op, "prepared", "processing", attempt_started_at=_utcnow()
+    ):
         db.rollback()
         raise AsaasError("Troca de plano em processamento — tente novamente")
     try:
