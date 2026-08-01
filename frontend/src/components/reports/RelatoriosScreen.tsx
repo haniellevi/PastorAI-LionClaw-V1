@@ -1,18 +1,33 @@
 "use client";
 
 /**
- * Tela #relatorios (legada, deep-link — delta-012). Relatórios semanais de
- * célula recebidos pelo WhatsApp e quais células estão pendentes (api-reports).
+ * Tela #relatorios (legada, deep-link — delta-012). Relatórios de célula da
+ * semana: um card com os RECEBIDOS e outro com os que faltam entregar.
  *
- * Layout fiel ao artifact: duas colunas (Recebidos · data-table | Pendentes ·
- * lista com cobrança). As abas Semana atual / Histórico trocam a semana ISO
- * consultada. Relatório pendente cujo prazo de SLA estourou migra a status-pill
- * de warn (Pendente) para danger (Atrasado) e realça a cobrança na fila.
+ * Cada linha é uma REUNIÃO materializada (`celula_reuniao`), nunca uma célula
+ * abstrata: célula sem reunião na semana simplesmente não aparece. As abas
+ * Semana atual / Histórico trocam a semana ISO consultada — a atual fica a
+ * cargo do backend (sem `?semana=`) e o histórico é derivado em
+ * `America/Sao_Paulo`, nunca no fuso do navegador.
  *
- * "Cobrar" aciona a cobrança do líder (a mesma do motor de SLA/cron, sprint-008)
- * de forma manual e otimista — fiel ao artifact (toast de confirmação).
+ * A status-pill (Pendente / Atrasado) reflete o status classificado pelo
+ * BACKEND — o SLA de 2h após a reunião roda no servidor, em America/Sao_Paulo.
+ * Nada de prazo é calculado no cliente.
  *
- * Estados: loading (skeleton) · empty (sem células) · populated · detail (modal).
+ * Um ÚNICO relógio do produto avança a cada 60s e governa as duas coisas que
+ * dependem do tempo aqui: qual semana o Histórico consulta e quando refazemos a
+ * busca (refresh silencioso, sem skeleton e sem limpar a tela). Vale para as
+ * DUAS abas — histórico não é imutável: a reunião de domingo à noite vence o
+ * SLA depois da meia-noite, e a virada de segunda promove uma semana nova a
+ * histórica.
+ *
+ * Acesso restrito a pastor/admin (GET /reports exige a Central); um papel sem
+ * permissão recebe 403 e a tela mostra o banner de erro.
+ *
+ * O modal de detalhe guarda o ID da reunião, não o objeto: assim ele acompanha
+ * o polling em vez de congelar no status da hora em que foi aberto.
+ *
+ * Estados: loading (skeleton) · empty (sem reuniões) · populated · detail (modal).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -24,6 +39,8 @@ import { ApiError } from "@/lib/dashboard-api";
 import { Icon } from "@/lib/icons";
 import {
   fetchReports,
+  formatMeetingDate,
+  previousIsoWeekInSaoPaulo,
   reportSla,
   splitReports,
   type ReportItem,
@@ -33,22 +50,8 @@ import { ReportDetailModal } from "./ReportDetailModal";
 
 type Tab = "atual" | "historico";
 
-interface Toast {
-  kind: "ok" | "err";
-  text: string;
-}
-
-/** Semana ISO `YYYY-Www` de uma data (algoritmo ISO-8601). */
-function isoWeekString(input: Date): string {
-  const date = new Date(Date.UTC(input.getFullYear(), input.getMonth(), input.getDate()));
-  const day = (date.getUTCDay() + 6) % 7;
-  date.setUTCDate(date.getUTCDate() - day + 3); // quinta-feira da semana
-  const firstThursday = new Date(Date.UTC(date.getUTCFullYear(), 0, 4));
-  const firstDay = (firstThursday.getUTCDay() + 6) % 7;
-  const week =
-    1 + Math.round((date.getTime() - firstThursday.getTime()) / 86400000 / 7 + (firstDay - 3) / 7);
-  return `${date.getUTCFullYear()}-W${String(week).padStart(2, "0")}`;
-}
+/** Intervalo do refetch da semana corrente (ms) — ver o efeito de polling. */
+const REFRESH_MS = 60_000;
 
 export function RelatoriosScreen() {
   const { token, expireSession } = useAuth();
@@ -59,24 +62,29 @@ export function RelatoriosScreen() {
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("atual");
 
-  const [chargedIds, setChargedIds] = useState<Set<string>>(new Set());
-  const [busyCharge, setBusyCharge] = useState<string | null>(null);
-  const [detail, setDetail] = useState<ReportItem | null>(null);
-  const [toast, setToast] = useState<Toast | null>(null);
+  // Guardamos o ID da reunião, não o objeto: o polling troca o array `reports`,
+  // e uma cópia congelada deixaria o modal aberto exibindo o status antigo.
+  const [detailId, setDetailId] = useState<string | null>(null);
 
-  // Recalcula o SLA periodicamente para a pílula migrar warn -> danger sem reload.
-  const [, setTick] = useState(0);
-  useEffect(() => {
-    const id = window.setInterval(() => setTick((t) => t + 1), 60_000);
-    return () => window.clearInterval(id);
-  }, []);
+  // Busca em voo (impede polls concorrentes) e sequência da requisição (impede
+  // que uma resposta atrasada sobrescreva o resultado de uma carga mais nova).
+  const inFlight = useRef(false);
+  const latestRequest = useRef(0);
 
-  const semana = useMemo(() => {
-    if (tab === "atual") return undefined;
-    const prev = new Date();
-    prev.setDate(prev.getDate() - 7);
-    return isoWeekString(prev);
-  }, [tab]);
+  // Relógio do produto: um único instante que avança a cada tick. Dele saem AS
+  // DUAS coisas que dependem do tempo nesta tela — qual semana o Histórico
+  // consulta e quando refazemos a busca. Sem ele, a aba aberta na virada de
+  // segunda-feira continuaria presa na semana e nos status de antes.
+  const [now, setNow] = useState(() => Date.now());
+
+  // Semana atual NÃO manda `?semana=` (o backend resolve a semana corrente em
+  // São Paulo); o histórico manda a semana anterior derivada NO MESMO fuso, a
+  // partir do relógio acima — pelo fuso do navegador, ou com um instante
+  // congelado na montagem, as duas abas acabariam na mesma semana.
+  const semana = useMemo(
+    () => (tab === "atual" ? undefined : previousIsoWeekInSaoPaulo(new Date(now))),
+    [tab, now],
+  );
 
   const handleSessionError = useCallback(
     (err: unknown): boolean => {
@@ -90,64 +98,105 @@ export function RelatoriosScreen() {
   );
 
   const load = useCallback(
-    async (mode: "initial" | "retry") => {
+    async (mode: "initial" | "retry" | "refresh") => {
       if (!token) return;
-      if (mode === "initial") setLoading(true);
-      setError(null);
+      const background = mode === "refresh";
+      // Um poll nunca concorre com uma busca em voo: pula o ciclo e tenta no
+      // próximo. Cargas do usuário (initial/retry) não são puladas.
+      if (background && inFlight.current) return;
+      const requestId = ++latestRequest.current;
+      inFlight.current = true;
+      if (!background) {
+        if (mode === "initial") setLoading(true);
+        setError(null);
+      }
       try {
         const page = await fetchReports(token, semana);
+        // Resposta obsoleta (a semana já mudou, ou uma carga mais nova começou):
+        // não escreve nada — senão o histórico sobrescreveria a semana atual.
+        if (requestId !== latestRequest.current) return;
         setReports(page.items);
         setLoaded(true);
+        setError(null);
       } catch (err) {
         if (handleSessionError(err)) return;
-        setError(err instanceof ApiError ? err.message : "Não foi possível carregar os relatórios.");
+        if (requestId !== latestRequest.current) return;
+        // Falha de poll é silenciosa: mantém na tela os dados já carregados,
+        // sem piscar banner de erro, e tenta de novo no ciclo seguinte.
+        if (!background) {
+          setError(
+            err instanceof ApiError ? err.message : "Não foi possível carregar os relatórios.",
+          );
+        }
       } finally {
-        setLoading(false);
+        if (requestId === latestRequest.current) {
+          inFlight.current = false;
+          if (!background) setLoading(false);
+        }
       }
     },
     [token, semana, handleSessionError],
   );
 
+  // Espelho sempre atual de `load`, para o efeito do tick não precisar dele nas
+  // dependências (senão cada mudança de semana dispararia um refresh extra).
+  // Declarado ANTES do efeito do tick: efeitos rodam na ordem de declaração,
+  // então quando o refresh acontece o `load` já enxerga a semana recalculada.
+  const loadRef = useRef(load);
+  useEffect(() => {
+    loadRef.current = load;
+  });
+
+  // Carga dirigida pelo usuário/contexto: montagem, troca de aba e virada de
+  // semana (quando `semana` muda, `load` muda junto).
   useEffect(() => {
     void load("initial");
   }, [load]);
 
-  const toastTimer = useRef<number | null>(null);
-  const flashToast = useCallback((t: Toast) => {
-    setToast(t);
-    if (toastTimer.current) window.clearTimeout(toastTimer.current);
-    toastTimer.current = window.setTimeout(() => setToast(null), 3200);
+  // ÚNICO relógio da tela: avança o instante a cada 60s. Não busca nada aqui —
+  // só move o tempo, para a semana do Histórico ser recalculada na renderização
+  // antes de qualquer requisição. Morre no unmount.
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), REFRESH_MS);
+    return () => window.clearInterval(id);
   }, []);
-  useEffect(
-    () => () => {
-      if (toastTimer.current) window.clearTimeout(toastTimer.current);
-    },
-    [],
-  );
+
+  // Depois que o tick re-renderizou (semana já recalculada), refaz a busca em
+  // silêncio — nas DUAS abas. O status pendente/atrasado é do BACKEND (SLA de
+  // data+hora+2h em São Paulo) e nada é recalculado aqui; o Histórico também
+  // muda, porque a reunião de domingo à noite vence o SLA depois da meia-noite
+  // e porque a virada de segunda promove uma nova semana a histórica.
+  // Na virada, `load` muda junto e o efeito acima já dispara a busca da semana
+  // nova; a guarda `inFlight` faz este refresh pular o ciclo em vez de duplicar.
+  const skipFirstTick = useRef(true);
+  useEffect(() => {
+    if (skipFirstTick.current) {
+      skipFirstTick.current = false;
+      return;
+    }
+    void loadRef.current("refresh");
+  }, [now]);
 
   const { recebidos, pendentes } = useMemo(() => splitReports(reports), [reports]);
 
-  const handleCharge = useCallback(
-    async (item: ReportItem) => {
-      setBusyCharge(item.celulaId);
-      try {
-        // Cobrança manual: aciona o mesmo caminho do motor de SLA (sprint-008).
-        // Otimista, fiel ao artifact (sem endpoint dedicado de cobrança manual).
-        await new Promise((resolve) => setTimeout(resolve, 350));
-        setChargedIds((prev) => new Set(prev).add(item.celulaId));
-        flashToast({
-          kind: "ok",
-          text: `Cobrança enviada por WhatsApp à liderança de ${item.celulaNome ?? "célula"}.`,
-        });
-      } finally {
-        setBusyCharge(null);
-      }
-    },
-    [flashToast],
+  // O item do modal é DERIVADO do array atual: quando o poll traz a mesma
+  // reunião já enviada (ou atrasada), o modal aberto acompanha na hora.
+  const detail = useMemo(
+    () => (detailId ? reports.find((r) => r.id === detailId) ?? null : null),
+    [detailId, reports],
   );
 
+  // Reunião sumiu do resultado (mudou de semana, foi cancelada): fecha o modal e
+  // esquece o ID — sem isso, um poll futuro que a trouxesse de volta reabriria
+  // o diálogo sozinho.
+  useEffect(() => {
+    if (detailId !== null && !reports.some((r) => r.id === detailId)) {
+      setDetailId(null);
+    }
+  }, [detailId, reports]);
+
   const showSkeleton = loading && !loaded;
-  const cellsTotal = recebidos.length + pendentes.length;
+  const reunioesTotal = recebidos.length + pendentes.length;
 
   const recebidosColumns: Array<Column<ReportItem>> = useMemo(
     () => [
@@ -155,6 +204,7 @@ export function RelatoriosScreen() {
         header: "Célula",
         cell: (r) => <span className="nm">{r.celulaNome ?? "—"}</span>,
       },
+      { header: "Reunião", cell: (r) => formatMeetingDate(r.dataReuniao) },
       { header: "Presentes", numeric: true, cell: (r) => r.presentes ?? "—" },
       { header: "Visitantes", numeric: true, cell: (r) => r.visitantes ?? "—" },
       {
@@ -166,7 +216,7 @@ export function RelatoriosScreen() {
             className="btn btn-sm"
             onClick={(e) => {
               e.stopPropagation();
-              setDetail(r);
+              setDetailId(r.id);
             }}
           >
             Ver
@@ -225,13 +275,14 @@ export function RelatoriosScreen() {
             </div>
           ))}
         </div>
-      ) : cellsTotal === 0 ? (
+      ) : reunioesTotal === 0 ? (
         <div className="card">
           <div className="empty-state" style={{ padding: "var(--s6)" }}>
             <Icon name="document" />
             <p>
-              <strong>Nenhuma célula ativa nesta semana.</strong> Cadastre células
-              com líder para acompanhar os relatórios semanais.
+              <strong>Nenhuma reunião de célula nesta semana.</strong> Os
+              relatórios aparecem aqui depois que as reuniões forem agendadas
+              pelos líderes.
             </p>
           </div>
         </div>
@@ -240,57 +291,46 @@ export function RelatoriosScreen() {
           <div className="card">
             <div className="panel-title">
               <Icon name="check" /> Recebidos
-              <span className="count">· {recebidos.length} de {cellsTotal} células</span>
+              <span className="count">· {recebidos.length} de {reunioesTotal} reuniões</span>
             </div>
             <DataTable
               columns={recebidosColumns}
               rows={recebidos}
-              rowKey={(r) => r.id ?? r.celulaId}
+              rowKey={(r) => r.id}
               empty={{
                 icon: "document",
                 title: "Nenhum relatório recebido ainda.",
-                hint: "Os relatórios enviados pelo WhatsApp aparecem aqui.",
+                hint: "Os relatórios enviados pelos líderes aparecem aqui.",
               }}
-              onRowClick={(r) => setDetail(r)}
+              onRowClick={(r) => setDetailId(r.id)}
             />
           </div>
 
           <div className="card">
             <div className="panel-title" style={{ color: pendentes.length ? "var(--warn)" : undefined }}>
               <Icon name="alert" /> Pendentes
-              <span className="count">· {pendentes.length} célula(s)</span>
+              <span className="count">· {pendentes.length} reunião(ões)</span>
             </div>
             {pendentes.length === 0 ? (
               <div className="empty-state" style={{ padding: "var(--s5)" }}>
                 <Icon name="check" />
                 <p>
-                  <strong>Tudo em dia!</strong> Todas as células entregaram o
-                  relatório desta semana.
+                  <strong>Tudo em dia!</strong> Todas as reuniões desta semana já
+                  tiveram o relatório enviado.
                 </p>
               </div>
             ) : (
               <div>
                 {pendentes.map((r) => {
                   const sla = reportSla(r);
-                  const charged = chargedIds.has(r.celulaId);
                   return (
-                    <div className={`list-row${sla.overdue && !charged ? " overdue" : ""}`} key={r.celulaId}>
+                    <div className={`list-row${sla.overdue ? " overdue" : ""}`} key={r.id}>
                       <div style={{ flex: 1 }}>
                         <div className="nm">{r.celulaNome ?? "—"}</div>
-                        <div className="sub">Semana {r.semana}</div>
+                        <div className="sub">Reunião de {formatMeetingDate(r.dataReuniao)}</div>
                       </div>
-                      <StatusPill tone={charged ? "accent" : sla.tone}>
-                        {charged ? "Cobrança enviada" : sla.label}
-                      </StatusPill>
-                      <button
-                        type="button"
-                        className="btn btn-sm btn-primary"
-                        disabled={charged || busyCharge === r.celulaId}
-                        onClick={() => void handleCharge(r)}
-                      >
-                        {busyCharge === r.celulaId ? "…" : charged ? "Cobrado" : "Cobrar"}
-                      </button>
-                      <button type="button" className="btn btn-sm" onClick={() => setDetail(r)}>
+                      <StatusPill tone={sla.tone}>{sla.label}</StatusPill>
+                      <button type="button" className="btn btn-sm" onClick={() => setDetailId(r.id)}>
                         Ver
                       </button>
                     </div>
@@ -302,14 +342,7 @@ export function RelatoriosScreen() {
         </div>
       )}
 
-      {detail ? <ReportDetailModal report={detail} onClose={() => setDetail(null)} /> : null}
-
-      {toast ? (
-        <div className={`toast ${toast.kind}`} role="status">
-          <Icon name={toast.kind === "ok" ? "check" : "alert"} />
-          <span>{toast.text}</span>
-        </div>
-      ) : null}
+      {detail ? <ReportDetailModal report={detail} onClose={() => setDetailId(null)} /> : null}
     </div>
   );
 }
