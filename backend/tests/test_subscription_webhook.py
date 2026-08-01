@@ -789,6 +789,107 @@ def test_recovery_charge_reversal_keeps_debt_without_link(app, monkeypatch) -> N
     assert db.igreja.status == "inadimplente"
 
 
+# ---------------------------------------------------------------------------
+# REVIEW-10 P1: a recuperação só tem autoridade sobre a SUA cobrança-fonte.
+# ---------------------------------------------------------------------------
+def test_late_payment_of_an_older_recovery_never_settles_the_current_debt(
+    app, monkeypatch
+) -> None:
+    # A recovery do ciclo A ficou em aberto; a assinatura avançou para a
+    # cobrança B, que foi revertida. Pagar A tarde registra o resultado dela e
+    # NADA MAIS: a dívida de B continua, a assinatura segue inadimplente e a
+    # igreja não é reativada.
+    op_a = _operation(
+        operation_key="pastorai-monthly_recovery-a",
+        source_payment_id="pay_m1",  # ciclo ANTIGO
+        asaas_payment_id="pay_rec_a",
+    )
+    db = _WebhookDb(
+        sub=_sub(
+            status="inadimplente",
+            asaas_invoice_payment_id="pay_m2",  # ciclo CORRENTE
+            asaas_invoice_url=None,
+            asaas_invoice_reversal="refunded",
+        ),
+        igreja=_igreja("inadimplente"),
+        operations=[op_a],
+    )
+    client = _client(app, db, monkeypatch)
+    payment = _payment(status="CONFIRMED", subscription=None, payment_id="pay_rec_a")
+
+    for _ in range(2):  # repetição permanece idempotente
+        resp = _post(client, "PAYMENT_CONFIRMED", payment)
+        assert resp.status_code == 200
+        assert op_a.status == "paid"  # resultado histórico da própria operação
+        assert db.sub.asaas_invoice_reversal == "refunded"  # dívida de B intacta
+        assert db.sub.status == "inadimplente"
+        assert db.igreja.status == "inadimplente"
+
+
+def test_payment_of_the_current_source_recovery_settles_and_reactivates(
+    app, monkeypatch
+) -> None:
+    # Contraprova do teste acima: a recovery da fonte CORRENTE quita a dívida,
+    # reativa a assinatura e o gate da igreja.
+    op_b = _operation(
+        operation_key="pastorai-monthly_recovery-b",
+        source_payment_id="pay_m2",
+        asaas_payment_id="pay_rec_b",
+    )
+    db = _WebhookDb(
+        sub=_sub(
+            status="inadimplente",
+            asaas_invoice_payment_id="pay_m2",
+            asaas_invoice_url=None,
+            asaas_invoice_reversal="refunded",
+        ),
+        igreja=_igreja("inadimplente"),
+        operations=[op_b],
+    )
+    client = _client(app, db, monkeypatch)
+    payment = _payment(status="CONFIRMED", subscription=None, payment_id="pay_rec_b")
+
+    resp = _post(client, "PAYMENT_CONFIRMED", payment)
+
+    assert resp.status_code == 200
+    assert op_b.status == "paid"
+    assert db.sub.asaas_invoice_reversal is None
+    assert db.sub.status == "ativa"
+    assert db.igreja.status == "ativa"
+
+
+def test_reversal_of_an_older_recovery_never_touches_the_current_cycle(
+    app, monkeypatch
+) -> None:
+    # Simetria: o estorno de uma recovery paga de ciclo antigo reabre só a
+    # cobrança-fonte dela — nunca derruba um ciclo corrente já regularizado.
+    op_a = _operation(
+        operation_key="pastorai-monthly_recovery-a",
+        source_payment_id="pay_m1",
+        asaas_payment_id="pay_rec_a",
+        status="paid",
+    )
+    db = _WebhookDb(
+        sub=_sub(
+            status="ativa",
+            asaas_invoice_payment_id="pay_m2",  # ciclo corrente, regular
+            asaas_invoice_reversal=None,
+        ),
+        igreja=_igreja("ativa"),
+        operations=[op_a],
+    )
+    client = _client(app, db, monkeypatch)
+    payment = _payment(status="REFUNDED", subscription=None, payment_id="pay_rec_a")
+
+    resp = _post(client, "PAYMENT_REFUNDED", payment)
+
+    assert resp.status_code == 200
+    assert op_a.status == "reversed"
+    assert db.sub.status == "ativa"
+    assert db.sub.asaas_invoice_reversal is None
+    assert db.igreja.status == "ativa"
+
+
 def test_setup_operation_resolved_by_operation_key_marks_paid(app, monkeypatch) -> None:
     # Webhook chega ANTES da nossa reconciliação (op ainda sem payment id):
     # a operação é resolvida pela operation_key na externalReference.

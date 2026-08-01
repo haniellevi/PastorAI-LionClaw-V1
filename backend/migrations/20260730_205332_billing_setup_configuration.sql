@@ -69,9 +69,14 @@ create unique index if not exists billing_payment_operations_asaas_payment_id_ui
   where asaas_payment_id is not null;
 
 -- Claim atômico: no máximo UMA operação em andamento por assinatura+propósito
--- (dois requests concorrentes não criam duas cobranças).
+-- +COBRANÇA-FONTE (dois requests concorrentes não criam duas cobranças). A
+-- fonte entra na chave porque uma recuperação existe para quitar UMA
+-- mensalidade específica: sem ela, a recovery órfã do ciclo A ocuparia o slot
+-- e impediria a recuperação do ciclo B. `coalesce` é necessário porque NULL
+-- não colide com NULL em índice único — o setup (sem fonte) precisa continuar
+-- limitado a uma operação aberta.
 create unique index if not exists billing_payment_operations_open_uidx
-  on billing_payment_operations (subscription_id, purpose)
+  on billing_payment_operations (subscription_id, purpose, coalesce(source_payment_id, ''))
   where status in ('prepared','creating','reconciling','created');
 
 -- Criação INICIAL de assinatura retry-safe (CORRECTIVE-6): a intenção é
@@ -88,11 +93,17 @@ create table if not exists billing_subscription_operations (
   customer_id           text null,
   plano                 text not null,
   valor                 numeric(10,2) not null,
+  -- Limite CONGELADO junto do preço: a adoção de uma intenção antiga não pode
+  -- reler o catálogo (o master pode ter editado ou desativado o plano depois).
+  limite                integer null,
   ciclo                 text not null default 'MONTHLY',
   descricao             text not null,
   asaas_subscription_id text null,
+  -- `superseded`: intenção `prepared` (comprovadamente sem POST remoto)
+  -- substituída porque o assinante escolheu outro plano. É estado TERMINAL —
+  -- libera o índice de claim sem fingir que houve falha no Asaas.
   status                text not null default 'prepared'
-    check (status in ('prepared','creating','reconciling','created','failed')),
+    check (status in ('prepared','creating','reconciling','created','failed','superseded')),
   error                 text null,
   created_at            timestamptz not null default now(),
   updated_at            timestamptz not null default now()

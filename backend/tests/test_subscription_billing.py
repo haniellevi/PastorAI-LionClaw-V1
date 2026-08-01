@@ -138,6 +138,7 @@ def _client(
     subscription=None,
     operations=None,
     plan_changes=None,
+    subscription_ops=None,
 ) -> tuple[TestClient, FakeSession]:
     igreja = SimpleNamespace(
         id=make_app_user().igreja_id,
@@ -152,6 +153,7 @@ def _client(
         subscription=subscription,
         operations=operations,
         plan_changes=plan_changes,
+        subscription_ops=subscription_ops,
     )
     app.dependency_overrides[get_db] = lambda: db
     app.dependency_overrides[get_clerk_client] = lambda: FakeClerk()
@@ -765,6 +767,53 @@ def test_recover_invoice_refunded_emits_recovery_charge_once(app) -> None:
     assert ops[0].valor == 199.0  # preço do plano atual do catálogo
 
 
+def test_recover_invoice_of_new_cycle_is_not_blocked_by_an_older_recovery(
+    app,
+) -> None:
+    # REVIEW-10 P1: a recovery órfã do ciclo A não pode ocupar o slot e impedir
+    # a recuperação do ciclo B — a cobrança-fonte faz parte da identidade do
+    # claim, então B nasce como operação própria.
+    from app.db.models import BillingPaymentOperation
+
+    recovery_a = BillingPaymentOperation(
+        subscription_id="00000000-0000-0000-0000-00000000su01",
+        purpose="monthly_recovery",
+        operation_key="pastorai-monthly_recovery-a",
+        status="created",
+        valor=199.0,
+        source_payment_id="pay_m1",  # ciclo ANTIGO, ainda aberto
+        asaas_payment_id="pay_rec_a",
+        invoice_url="https://asaas.test/recovery-a",
+    )
+    asaas = _RecoveryChargeAsaas()
+    sub = _subscription(
+        status="inadimplente",
+        setup_pago=True,
+        asaas_setup_charge_id=None,
+        asaas_invoice_payment_id="pay_m2",  # ciclo CORRENTE
+        asaas_invoice_url=None,
+        asaas_invoice_reversal="refunded",
+    )
+    client, db = _client(
+        app,
+        planos=[_plano()],
+        asaas=asaas,
+        subscription=sub,
+        operations=[recovery_a],
+    )
+
+    resp = client.post("/subscription/recover-invoice", headers=_AUTH)
+
+    assert resp.status_code == 200
+    assert asaas.posts == 1  # a recuperação de B foi emitida
+    criadas = [
+        o for o in db.added if getattr(o, "purpose", None) == "monthly_recovery"
+    ]
+    assert len(criadas) == 1
+    assert criadas[0].source_payment_id == "pay_m2"  # amarrada à fonte corrente
+    assert recovery_a.status == "created"  # a operação antiga fica intacta
+
+
 def test_recover_invoice_rejects_when_not_reversed(app) -> None:
     sub = _subscription(status="pendente", asaas_invoice_reversal=None)
     client, _db = _client(app, planos=[], asaas=_RecoveryChargeAsaas(), subscription=sub)
@@ -824,6 +873,9 @@ def test_get_subscription_exposes_recovery_url_and_setup_flag(app) -> None:
         operation_key="pastorai-monthly_recovery-x",
         status="created",
         valor=199.0,
+        # A recuperação existe para quitar UMA mensalidade: a fonte é parte da
+        # identidade dela, e só a fonte CORRENTE pode ser exposta.
+        source_payment_id="pay_m2",
         asaas_payment_id="pay_rec_1",
         invoice_url="https://asaas.test/recovery",
     )
@@ -853,6 +905,46 @@ def test_get_subscription_exposes_recovery_url_and_setup_flag(app) -> None:
     # Setup devido, sem link pagável e com assinatura criada => a UI oferece
     # "Gerar nova taxa de setup".
     assert body["setupRecoveryRequired"] is True
+
+
+def test_get_subscription_hides_recovery_url_of_an_older_source(app) -> None:
+    # REVIEW-10 P1: a recuperação do ciclo A ficou aberta enquanto a assinatura
+    # avançou para a cobrança B. O link de A não pode ser apresentado como o
+    # pagamento da dívida de B — ele não quita nada dessa dívida.
+    from app.db.models import BillingPaymentOperation
+
+    recovery_a = BillingPaymentOperation(
+        subscription_id="00000000-0000-0000-0000-00000000su01",
+        purpose="monthly_recovery",
+        operation_key="pastorai-monthly_recovery-a",
+        status="created",
+        valor=199.0,
+        source_payment_id="pay_m1",  # ciclo ANTIGO
+        asaas_payment_id="pay_rec_a",
+        invoice_url="https://asaas.test/recovery-a",
+    )
+    sub = _subscription(
+        status="inadimplente",
+        setup_pago=True,
+        asaas_setup_charge_id=None,
+        asaas_setup_invoice_url=None,
+        asaas_invoice_payment_id="pay_m2",  # ciclo CORRENTE, revertido
+        asaas_invoice_url=None,
+        asaas_invoice_reversal="refunded",
+    )
+    client, _db = _client(
+        app,
+        planos=[],
+        asaas=_RecoveryAsaas(),
+        subscription=sub,
+        operations=[recovery_a],
+    )
+
+    resp = client.get("/subscription", headers=_AUTH)
+
+    assert resp.status_code == 200
+    assert resp.json()["recoveryInvoiceUrl"] is None
+    assert resp.json()["invoiceReversal"] == "refunded"
 
 
 @pytest.mark.parametrize("sub_status", [None, "pendente", "ativa", "inadimplente"])
@@ -1633,3 +1725,210 @@ def test_change_plan_queues_autoupgrade_when_headcount_grew_during_change(
     assert float(enfileirada.to_preco) == 499.0
     # Nada além dos dois PUTs da própria troca aconteceu no Asaas.
     assert len(asaas.puts) == 2
+
+
+# ---------------------------------------------------------------------------
+# REVIEW-10 P1: a intenção de criação com POST AMBÍGUO precisa ser reconciliada
+# ANTES de exigir plano ativo — senão o master desativar o plano no intervalo
+# deixa a assinatura remota cobrando com o registro local não rastreado (e não
+# existe worker que reconcilie criações).
+# ---------------------------------------------------------------------------
+def test_reconciles_open_intent_even_after_the_master_deactivates_the_plan(
+    app,
+) -> None:
+    plano = _plano()
+    asaas = _LostResponseAsaas()
+    client, db = _client(app, planos=[plano], asaas=asaas)
+
+    # 1) POST aceito remotamente, resposta perdida => operação em reconciling.
+    assert client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    ).status_code == 502
+    op = next(o for o in db.added if isinstance(o, BillingSubscriptionOperation))
+    assert op.status == "reconciling"
+    assert op.limite == 100  # limite CONGELADO junto do preço
+
+    # 2) O master desativa o plano ANTES do retry do tenant.
+    plano.ativo = False
+
+    # 3) Retry do mesmo plano: localiza pelo externalReference, valida o alvo
+    #    congelado e adota a MESMA assinatura — zero segundo POST, zero 422.
+    _adopt_created_sub(db)
+    asaas.found = [{
+        "id": "sub_asaas_9",
+        "customer": "cus_1",
+        "value": 199.0,
+        "cycle": "MONTHLY",
+        "description": "PastorAI — plano ate_100",
+    }]
+    resp = client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    )
+
+    assert resp.status_code == 200
+    assert asaas.create_calls == 1  # nenhum POST /subscriptions novo
+    assert op.status == "created"
+    created_sub = next(o for o in db.added if isinstance(o, Subscription))
+    assert created_sub.asaas_subscription_id == "sub_asaas_9"
+    assert created_sub.plano == "ate_100"
+    assert created_sub.limite == 100
+
+
+def test_deactivated_plan_without_open_intent_still_returns_422(app) -> None:
+    # Contraprova: sem nada a reconciliar, uma contratação NOVA continua
+    # exigindo plano ativo — e não toca o Asaas.
+    class _NoCallAsaasCheckout:
+        def __getattr__(self, name):  # pragma: no cover - defesa
+            raise AssertionError(f"plano inativo nao pode chamar o Asaas ({name})")
+
+    client, db = _client(
+        app,
+        planos=[_plano(ativo=False)],
+        asaas=_NoCallAsaasCheckout(),
+    )
+
+    resp = client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    )
+
+    assert resp.status_code == 422
+    assert not [o for o in db.added if isinstance(o, BillingSubscriptionOperation)]
+
+
+def test_adoption_uses_the_frozen_target_not_the_edited_catalog(app) -> None:
+    # O master editou preço e limite DEPOIS da intenção: a adoção usa o alvo
+    # congelado na operação — nunca reinterpreta a contratação antiga.
+    plano = _plano()
+    asaas = _LostResponseAsaas()
+    client, db = _client(app, planos=[plano], asaas=asaas)
+
+    assert client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    ).status_code == 502
+    op = next(o for o in db.added if isinstance(o, BillingSubscriptionOperation))
+    assert float(op.valor) == 199.0
+    assert op.limite == 100
+
+    plano.preco_mensal = 999
+    plano.limite_pessoas = 5
+
+    _adopt_created_sub(db)
+    asaas.found = [{
+        "id": "sub_asaas_9",
+        "customer": "cus_1",
+        "value": 199.0,  # o remoto reflete o valor CONGELADO
+        "cycle": "MONTHLY",
+        "description": "PastorAI — plano ate_100",
+    }]
+    resp = client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    )
+
+    assert resp.status_code == 200
+    created_sub = next(o for o in db.added if isinstance(o, Subscription))
+    assert created_sub.limite == 100  # não o 5 novo do catálogo
+    assert float(op.valor) == 199.0  # nem o preço novo
+
+
+# ---------------------------------------------------------------------------
+# REVIEW-10 P2: intenção `prepared` (comprovadamente sem POST) não pode prender
+# o assinante em 409 quando ele escolhe outro plano.
+# ---------------------------------------------------------------------------
+class _RejectingThenTrackingAsaas:
+    """1o checkout rejeitado (4xx definitivo); o seguinte cria de verdade."""
+
+    def __init__(self) -> None:
+        self.create_calls: list[str] = []
+
+    def create_checkout(self, **kwargs):
+        self.create_calls.append(kwargs["plano"])
+        kwargs["on_customer_resolved"]("cus_1")
+        if len(self.create_calls) == 1:
+            raise AsaasRejectedError("O Asaas rejeitou os dados do checkout")
+        kwargs["on_subscription_created"]("cus_1", "sub_asaas_2")
+        return CheckoutResult(
+            customer_id="cus_1",
+            subscription_id="sub_asaas_2",
+            invoice_url="https://asaas.test/m1",
+            status="pendente",
+            invoice_payment_id="pay_m1",
+        )
+
+
+def test_prepared_intent_is_superseded_when_the_user_picks_another_plan(
+    app,
+) -> None:
+    asaas = _RejectingThenTrackingAsaas()
+    planos = [
+        _plano(),
+        _plano(codigo="101_200", preco_mensal=299, limite_pessoas=200),
+    ]
+    client, db = _client(app, planos=planos, asaas=asaas)
+
+    # 1) Rejeição definitiva: a intenção volta a `prepared` (nada foi criado).
+    assert client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    ).status_code == 502
+    antiga = next(o for o in db.added if isinstance(o, BillingSubscriptionOperation))
+    assert antiga.status == "prepared"
+
+    # 2) O assinante escolhe OUTRO plano: a antiga fecha como terminal com o
+    #    motivo e uma intenção nova nasce para o novo alvo.
+    _adopt_created_sub(db)
+    resp = client.post(
+        "/subscription", json={"plano": "101_200", "cpfCnpj": _CPF}, headers=_AUTH
+    )
+
+    assert resp.status_code == 200
+    assert antiga.status == "superseded"
+    assert "101_200" in (antiga.error or "")
+    intencoes = [
+        o for o in db.added if isinstance(o, BillingSubscriptionOperation)
+    ]
+    assert len(intencoes) == 2
+    nova = intencoes[-1]
+    assert nova.plano == "101_200"
+    assert nova.status == "created"
+    assert nova.limite == 200
+    # Somente UM POST por alvo (o primeiro foi rejeitado sem criar nada).
+    assert asaas.create_calls == ["ate_100", "101_200"]
+
+
+def test_ambiguous_intent_for_another_plan_still_conflicts(app) -> None:
+    # `creating`/`reconciling` podem ter criado a assinatura remotamente: trocar
+    # de alvo abandonaria uma recorrência viva — segue 409, sem POST.
+    class _NoCheckoutAsaas:
+        def create_checkout(self, **kwargs):  # pragma: no cover - defesa
+            raise AssertionError("conflito nunca posta assinatura")
+
+        def find_subscriptions_by_external_reference(self, ref):  # pragma: no cover
+            raise AssertionError("conflito nunca reconcilia outro alvo")
+
+    ambigua = BillingSubscriptionOperation(
+        subscription_id="00000000-0000-0000-0000-00000000su01",
+        operation_key="pastorai-subcreate-amb",
+        plano="ate_100",
+        valor=199.0,
+        limite=100,
+        descricao="PastorAI - plano ate_100",
+        status="reconciling",
+    )
+    sub = _subscription(status=None, asaas_subscription_id=None, setup_pago=False)
+    client, _db = _client(
+        app,
+        planos=[
+            _plano(),
+            _plano(codigo="101_200", preco_mensal=299, limite_pessoas=200),
+        ],
+        asaas=_NoCheckoutAsaas(),
+        subscription=sub,
+        subscription_ops=[ambigua],
+    )
+
+    resp = client.post(
+        "/subscription", json={"plano": "101_200", "cpfCnpj": _CPF}, headers=_AUTH
+    )
+
+    assert resp.status_code == 409
+    assert "ate_100" in resp.json()["detail"]
+    assert ambigua.status == "reconciling"  # intocada

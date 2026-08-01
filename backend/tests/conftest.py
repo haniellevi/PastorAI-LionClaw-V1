@@ -56,6 +56,11 @@ class _FakeScalars:
     def all(self) -> list:
         return list(self._items)
 
+    def first(self):
+        # `find_any_open_operation` aceita mais de uma linha aberta (fontes
+        # diferentes), então usa .scalars().first() em vez de one_or_none.
+        return self._items[0] if self._items else None
+
 
 class _FakeResult:
     def __init__(
@@ -258,8 +263,9 @@ class FakeSession:
             return _FakeResult(scalar=pool[0] if pool else None, scalars_list=pool)
         if entity is BillingPaymentOperation:
             # Operações duráveis de cobrança: filtra o pool (kwarg + added)
-            # pelos binds reais da query (operation_key / asaas_payment_id /
-            # purpose / status aberto).
+            # pelos binds REAIS da query (operation_key / asaas_payment_id /
+            # purpose / cobrança-fonte / status). Os status vêm dos próprios
+            # binds — `find_settled_recovery` procura `paid`, não os abertos.
             bound = statement.compile().params
             pool = [
                 *self.operations,
@@ -280,9 +286,32 @@ class FakeSession:
                 pool = [o for o in pool if str(o.asaas_payment_id) == str(pay)]
             if purpose is not None:
                 pool = [o for o in pool if o.purpose == purpose]
-            if any(k.startswith("status") for k in bound):
-                open_statuses = ("prepared", "creating", "reconciling", "created")
-                pool = [o for o in pool if o.status in open_statuses]
+            # A cobrança-fonte é parte da identidade do claim: `IS NULL` não
+            # gera bind, então o predicado é lido do SQL compilado.
+            src = next(
+                (v for k, v in bound.items() if k.startswith("source_payment_id")),
+                None,
+            )
+            if "source_payment_id IS NULL" in str(statement):
+                pool = [
+                    o for o in pool if getattr(o, "source_payment_id", None) is None
+                ]
+            elif src is not None:
+                pool = [
+                    o
+                    for o in pool
+                    if str(getattr(o, "source_payment_id", None)) == str(src)
+                ]
+            statuses: list[str] = []
+            for skey, svalue in bound.items():
+                if not re.fullmatch(r"status_\d+(_\d+)?", skey):
+                    continue
+                if isinstance(svalue, (list, tuple, set)):
+                    statuses.extend(svalue)
+                else:
+                    statuses.append(svalue)
+            if statuses:
+                pool = [o for o in pool if o.status in statuses]
             return _FakeResult(scalar=pool[0] if pool else None, scalars_list=pool)
         if entity is AgentConversationLog:
             # notify_autoupgrade (hoje chamado só pelo cron-worker) deduplica

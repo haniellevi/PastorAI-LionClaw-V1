@@ -132,6 +132,8 @@ describe("AssinaturaScreen — links do checkout", () => {
       setupPago: false,
       invoiceUrl: "https://asaas.test/mensalidade-persistida",
       setupInvoiceUrl: "https://asaas.test/setup-persistido",
+      hasTrackedSubscription: true,
+      checkoutRequired: false,
     });
 
     act(() => root.render(h(AssinaturaScreen)));
@@ -160,6 +162,8 @@ describe("AssinaturaScreen — links do checkout", () => {
       setupPago: true,
       invoiceUrl: "https://asaas.test/m2-overdue",
       setupInvoiceUrl: null,
+      hasTrackedSubscription: true,
+      checkoutRequired: false,
     });
 
     act(() => root.render(h(AssinaturaScreen)));
@@ -191,6 +195,8 @@ describe("AssinaturaScreen — links do checkout", () => {
       invoiceReversal: null,
       recoveryInvoiceUrl: null,
       setupRecoveryRequired: false,
+      hasTrackedSubscription: true,
+      checkoutRequired: false,
     });
     fetchPlanCatalog.mockResolvedValue({
       setupFee: 0,
@@ -258,6 +264,8 @@ describe("AssinaturaScreen — links do checkout", () => {
       invoiceReversal: null,
       recoveryInvoiceUrl: null,
       setupRecoveryRequired: false,
+      hasTrackedSubscription: true,
+      checkoutRequired: false,
     });
     fetchPlanCatalog.mockResolvedValue({
       setupFee: 59.9,
@@ -299,6 +307,8 @@ describe("AssinaturaScreen — links do checkout", () => {
       invoiceReversal: "refunded",
       recoveryInvoiceUrl: null,
       setupRecoveryRequired: false,
+      hasTrackedSubscription: true,
+      checkoutRequired: false,
     });
     recoverInvoice.mockResolvedValue({
       status: "inadimplente",
@@ -334,6 +344,8 @@ describe("AssinaturaScreen — links do checkout", () => {
       invoiceReversal: "refunded",
       recoveryInvoiceUrl: "https://asaas.test/recovery",
       setupRecoveryRequired: false,
+      hasTrackedSubscription: true,
+      checkoutRequired: false,
     });
 
     act(() => root.render(h(AssinaturaScreen)));
@@ -360,6 +372,8 @@ describe("AssinaturaScreen — links do checkout", () => {
       invoiceReversal: null,
       recoveryInvoiceUrl: null,
       setupRecoveryRequired: true,
+      hasTrackedSubscription: true,
+      checkoutRequired: false,
     });
     let resolveCharge: (value: unknown) => void = () => {};
     createSetupCharge.mockReturnValue(
@@ -407,6 +421,8 @@ describe("AssinaturaScreen — links do checkout", () => {
       setupPago: true,
       invoiceUrl: null,
       setupInvoiceUrl: null,
+      hasTrackedSubscription: true,
+      checkoutRequired: false,
     });
 
     act(() => root.render(h(AssinaturaScreen)));
@@ -429,6 +445,8 @@ describe("AssinaturaScreen — links do checkout", () => {
       setupPago: false,
       invoiceUrl: null,
       setupInvoiceUrl: null,
+      hasTrackedSubscription: true,
+      checkoutRequired: false,
     });
 
     act(() => root.render(h(AssinaturaScreen)));
@@ -439,5 +457,189 @@ describe("AssinaturaScreen — links do checkout", () => {
       "Os links ainda estão sendo preparados pelo Asaas.",
     );
     expect(createCheckout).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// REVIEW-10 P1: checkout inicial que falha ANTES de rastrear a assinatura
+// deixa um placeholder no backend. Sem um sinal semântico, a tela tratava esse
+// registro como assinante: escondia o CPF/CNPJ, marcava "Plano atual" e
+// desabilitava as ações — o usuário ficava sem nenhuma forma de retomar.
+// ---------------------------------------------------------------------------
+describe("AssinaturaScreen — placeholder de checkout falho", () => {
+  function placeholder(over: Record<string, unknown> = {}) {
+    return {
+      plano: "ate_100",
+      status: null,
+      pessoas: null,
+      limite: null,
+      proximaCobranca: null,
+      setupPago: false,
+      invoiceUrl: null,
+      setupInvoiceUrl: null,
+      invoiceReversal: null,
+      recoveryInvoiceUrl: null,
+      setupRecoveryRequired: false,
+      // Registro local existe, mas NÃO há recorrência no Asaas.
+      hasTrackedSubscription: false,
+      checkoutRequired: true,
+      ...over,
+    };
+  }
+
+  function textos(seletor: string) {
+    return [...container.querySelectorAll(seletor)].map((el) => el.textContent ?? "");
+  }
+
+  it("após reload mostra CPF/CNPJ, nenhum 'Plano atual' e a retomada", async () => {
+    fetchSubscription.mockResolvedValue(placeholder());
+    fetchPlanCatalog.mockResolvedValue({
+      setupFee: 59.9,
+      planos: [
+        { code: "ate_100", label: "Até 100 pessoas", limite: 100, preco: 199 },
+        { code: "101_200", label: "101–200 pessoas", limite: 200, preco: 299 },
+      ],
+    });
+
+    act(() => root.render(h(AssinaturaScreen)));
+    await flush();
+
+    // 1) CPF/CNPJ continua visível — o checkout ainda precisa acontecer.
+    expect(container.querySelector("#subscription-cpf-cnpj")).not.toBeNull();
+    // 2) Nada de "Plano atual" para um plano que nunca foi contratado.
+    expect(container.textContent).not.toContain("Plano atual");
+    // 3) Existe ação de retomada, e nenhuma de troca de plano.
+    const botoes = textos("button");
+    expect(botoes.some((t) => t.includes("Retomar contratação"))).toBe(true);
+    expect(botoes.some((t) => t.includes("Mudar plano"))).toBe(false);
+    // 6) Nenhuma UI de assinatura ativa.
+    expect(container.textContent).not.toContain("Aguardando confirmação");
+    expect(container.textContent).not.toContain("Em atraso");
+  });
+
+  it("retomar o mesmo plano chama createCheckout, nunca changePlan", async () => {
+    fetchSubscription.mockResolvedValue(placeholder());
+    createCheckout.mockResolvedValue({
+      status: "pendente",
+      invoiceUrl: "https://asaas.test/m1",
+      setupInvoiceUrl: null,
+      asaasSubscriptionId: "sub_1",
+    });
+
+    act(() => root.render(h(AssinaturaScreen)));
+    await flush();
+
+    setValue(container.querySelector<HTMLInputElement>("#subscription-cpf-cnpj")!, "24971563792");
+    const retomar = [...container.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Retomar contratação"),
+    )!;
+    act(() => retomar.click());
+    await flush();
+
+    expect(createCheckout).toHaveBeenCalledWith("tenant-token", {
+      plano: "ate_100",
+      cpfCnpj: "24971563792",
+    });
+    expect(changePlan).not.toHaveBeenCalled();
+  });
+
+  it("escolher outro plano ativo também passa pelo checkout", async () => {
+    fetchSubscription.mockResolvedValue(placeholder());
+    fetchPlanCatalog.mockResolvedValue({
+      setupFee: 59.9,
+      planos: [
+        { code: "ate_100", label: "Até 100 pessoas", limite: 100, preco: 199 },
+        { code: "101_200", label: "101–200 pessoas", limite: 200, preco: 299 },
+      ],
+    });
+    createCheckout.mockResolvedValue({
+      status: "pendente",
+      invoiceUrl: "https://asaas.test/m1",
+      setupInvoiceUrl: null,
+      asaasSubscriptionId: "sub_2",
+    });
+
+    act(() => root.render(h(AssinaturaScreen)));
+    await flush();
+
+    setValue(container.querySelector<HTMLInputElement>("#subscription-cpf-cnpj")!, "24971563792");
+    const contratar = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent?.trim() === "Contratar",
+    )!;
+    act(() => contratar.click());
+    await flush();
+
+    expect(createCheckout).toHaveBeenCalledWith("tenant-token", {
+      plano: "101_200",
+      cpfCnpj: "24971563792",
+    });
+    expect(changePlan).not.toHaveBeenCalled();
+  });
+
+  it("plano salvo fora do catálogo ativo ainda oferece retomada", async () => {
+    fetchSubscription.mockResolvedValue(placeholder({ plano: "101_200" }));
+    fetchPlanCatalog.mockResolvedValue({
+      setupFee: 59.9,
+      planos: [{ code: "ate_100", label: "Até 100 pessoas", limite: 100, preco: 199 }],
+    });
+    createCheckout.mockResolvedValue({
+      status: "pendente",
+      invoiceUrl: "https://asaas.test/m1",
+      setupInvoiceUrl: null,
+      asaasSubscriptionId: "sub_3",
+    });
+
+    act(() => root.render(h(AssinaturaScreen)));
+    await flush();
+
+    setValue(container.querySelector<HTMLInputElement>("#subscription-cpf-cnpj")!, "24971563792");
+    const retomar = [...container.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Retomar contratação"),
+    )!;
+    expect(retomar).toBeDefined();
+    act(() => retomar.click());
+    await flush();
+
+    expect(createCheckout).toHaveBeenCalledWith("tenant-token", {
+      plano: "101_200",
+      cpfCnpj: "24971563792",
+    });
+  });
+
+  it("assinatura RASTREADA mantém a troca de plano in-place", async () => {
+    fetchSubscription.mockResolvedValue(
+      placeholder({
+        status: "ativa",
+        setupPago: true,
+        pessoas: 10,
+        limite: 100,
+        hasTrackedSubscription: true,
+        checkoutRequired: false,
+      }),
+    );
+    fetchPlanCatalog.mockResolvedValue({
+      setupFee: 0,
+      planos: [
+        { code: "ate_100", label: "Até 100 pessoas", limite: 100, preco: 199 },
+        { code: "101_200", label: "101–200 pessoas", limite: 200, preco: 299 },
+      ],
+    });
+
+    act(() => root.render(h(AssinaturaScreen)));
+    await flush();
+
+    // Assinante abre na visão geral; a tabela de planos vive na outra aba.
+    const abaPlanos = [...container.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Planos por porte"),
+    )!;
+    act(() => abaPlanos.click());
+    await flush();
+
+    const botoes = textos("button");
+    expect(botoes.some((t) => t.includes("Mudar plano"))).toBe(true);
+    expect(botoes.some((t) => t.includes("Retomar contratação"))).toBe(false);
+    expect(container.textContent).toContain("Plano atual");
+    // Assinante não vê o campo de documento (a troca não passa por checkout).
+    expect(container.querySelector("#subscription-cpf-cnpj")).toBeNull();
   });
 });

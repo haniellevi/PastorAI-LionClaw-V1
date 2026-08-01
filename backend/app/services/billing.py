@@ -142,16 +142,48 @@ def get_setup_fee_for_igreja(db: Session, igreja: Igreja) -> float:
 
 
 def find_open_operation(
-    db: Session, subscription_id, purpose: str
+    db: Session, subscription_id, purpose: str, source_payment_id: str | None = None
 ) -> BillingPaymentOperation | None:
-    """A operação em andamento (claim) desta assinatura+propósito, se houver."""
+    """A operação em andamento desta assinatura+propósito+COBRANÇA-FONTE.
+
+    A cobrança-fonte faz parte da identidade do claim, não é metadado: uma
+    recuperação nasce para quitar UMA mensalidade específica. Selecionar só por
+    (assinatura, propósito) faria a recovery do ciclo B adotar a operação órfã
+    do ciclo A — e uma quitação tardia de A regularizaria a dívida de B. O
+    setup não tem fonte (``source_payment_id IS NULL``) e a comparação com
+    ``None`` já o isola.
+    """
     return db.execute(
         select(BillingPaymentOperation).where(
             BillingPaymentOperation.subscription_id == subscription_id,
             BillingPaymentOperation.purpose == purpose,
+            BillingPaymentOperation.source_payment_id.is_(None)
+            if source_payment_id is None
+            else BillingPaymentOperation.source_payment_id == str(source_payment_id),
             BillingPaymentOperation.status.in_(OPEN_OPERATION_STATUSES),
         )
     ).scalar_one_or_none()
+
+
+def find_any_open_operation(
+    db: Session, subscription_id, purpose: str
+) -> BillingPaymentOperation | None:
+    """Qualquer operação aberta do propósito, de QUALQUER cobrança-fonte.
+
+    Só para guardas que perguntam "há pendência financeira deste tipo?" — a
+    troca de plano exige estado limpo. Nunca use para decidir quitação ou
+    reutilização de cobrança: isso é papel de `find_open_operation`, que
+    respeita a autoridade da fonte.
+    """
+    return db.execute(
+        select(BillingPaymentOperation)
+        .where(
+            BillingPaymentOperation.subscription_id == subscription_id,
+            BillingPaymentOperation.purpose == purpose,
+            BillingPaymentOperation.status.in_(OPEN_OPERATION_STATUSES),
+        )
+        .limit(1)
+    ).scalars().first()
 
 
 def find_settled_recovery(
@@ -234,7 +266,7 @@ def ensure_payment_operation(
     POST marca `reconciling`: retries seguintes só reconciliam — nunca um novo
     POST automático.
     """
-    op = find_open_operation(db, sub.id, purpose)
+    op = find_open_operation(db, sub.id, purpose, source_payment_id)
 
     if op is None:
         op = BillingPaymentOperation(
@@ -247,13 +279,15 @@ def ensure_payment_operation(
         )
         db.add(op)
         try:
-            # O índice único parcial (subscription_id, purpose | status aberto)
-            # faz o claim atômico: a corrida perde aqui e adota a operação do
-            # vencedor em vez de criar uma segunda cobrança.
+            # O índice único parcial (subscription_id, purpose, fonte | status
+            # aberto) faz o claim atômico: a corrida perde aqui e adota a
+            # operação do vencedor em vez de criar uma segunda cobrança. A
+            # fonte entra na chave para que uma recovery órfã de ciclo antigo
+            # não bloqueie a recuperação do ciclo corrente.
             db.commit()
         except Exception:
             db.rollback()
-            op = find_open_operation(db, sub.id, purpose)
+            op = find_open_operation(db, sub.id, purpose, source_payment_id)
             if op is None:
                 raise
 
@@ -270,7 +304,7 @@ def ensure_payment_operation(
     # postar; quem perde o rowcount reconcilia em vez de chamar a API.
     if not claim_transition(db, op, "prepared", "creating"):
         db.rollback()
-        current = find_open_operation(db, sub.id, purpose)
+        current = find_open_operation(db, sub.id, purpose, source_payment_id)
         if current is None:
             raise AsaasError("Cobrança em processamento — tente novamente")
         if current.status in ("creating", "reconciling"):
@@ -624,19 +658,42 @@ def prepare_subscription_operation(
     plano: str,
     valor: float,
     descricao: str,
+    limite: int | None = None,
     ciclo: str = "MONTHLY",
 ) -> BillingSubscriptionOperation:
     """Garante UMA intenção durável de criação para esta Subscription.
 
     Persistida ANTES de qualquer chamada externa; o claim é o índice único
-    parcial (subscription_id | status aberto). Uma intenção aberta para OUTRO
-    plano nunca é sobrescrita silenciosamente — conflito explícito.
+    parcial (subscription_id | status aberto). Uma intenção aberta para outro
+    plano só é substituída quando está comprovado que NENHUM POST remoto
+    aconteceu (`prepared`, sem assinatura rastreada) — nesse caso a antiga vira
+    `superseded` por transição ATÔMICA e só o vencedor cria a substituta.
+    `creating`/`reconciling` são ambíguos: o POST pode ter chegado ao Asaas, e
+    trocar de alvo poderia abandonar uma recorrência viva — conflito explícito.
     """
     op = find_open_subscription_operation(db, sub.id)
     if op is not None and op.plano != plano:
-        raise SubscriptionCreateConflict(
-            f"Já existe uma contratação em andamento para o plano {op.plano}"
-        )
+        if op.status != "prepared" or op.asaas_subscription_id:
+            raise SubscriptionCreateConflict(
+                f"Já existe uma contratação em andamento para o plano {op.plano}"
+            )
+        # Substituição SEGURA: a linha antiga não é retargetada silenciosamente
+        # — ela fecha em estado terminal com o motivo, e só quem vencer o
+        # rowcount segue para criar a nova intenção.
+        if claim_transition(
+            db,
+            op,
+            "prepared",
+            "superseded",
+            error=f"Substituída pela contratação do plano {plano}",
+        ):
+            op = None
+        else:
+            op = find_open_subscription_operation(db, sub.id)
+            if op is not None and op.plano != plano:
+                raise SubscriptionCreateConflict(
+                    f"Já existe uma contratação em andamento para o plano {op.plano}"
+                )
     if op is not None:
         return op
     op = BillingSubscriptionOperation(
@@ -645,6 +702,7 @@ def prepare_subscription_operation(
         customer_id=sub.asaas_customer_id,
         plano=plano,
         valor=valor,
+        limite=limite,
         ciclo=ciclo,
         descricao=descricao,
         status="prepared",

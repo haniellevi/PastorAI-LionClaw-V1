@@ -1316,12 +1316,17 @@ class BillingSubscriptionOperation(Base):
     customer_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     plano: Mapped[str] = mapped_column(Text, nullable=False)
     valor: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
+    # Limite congelado junto do preço: a adoção de uma intenção antiga nunca
+    # relê o catálogo (o master pode ter editado ou desativado o plano depois).
+    limite: Mapped[int | None] = mapped_column(Integer, nullable=True)
     ciclo: Mapped[str] = mapped_column(
         Text, nullable=False, server_default=text("'MONTHLY'")
     )
     descricao: Mapped[str] = mapped_column(Text, nullable=False)
     asaas_subscription_id: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # prepared | creating | reconciling | created | failed
+    # prepared | creating | reconciling | created | failed | superseded
+    # `superseded` = intenção `prepared` (sem POST remoto) trocada por outro
+    # plano escolhido pelo assinante — terminal, libera o claim.
     status: Mapped[str] = mapped_column(
         Text, nullable=False, server_default=text("'prepared'")
     )

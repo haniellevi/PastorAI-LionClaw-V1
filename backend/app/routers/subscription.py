@@ -56,8 +56,10 @@ from app.services.billing import (
     current_headcount,
     ensure_payment_operation,
     ensure_plan_change_operation,
+    find_any_open_operation,
     find_open_operation,
     find_open_plan_change,
+    find_open_subscription_operation,
     find_operation_for_payment,
     find_settled_recovery,
     find_subscription_operation_by_key,
@@ -95,11 +97,22 @@ class SubscriptionOut(BaseModel):
     # Setup em aberto SEM link pagável, com assinatura já criada: a UI oferece
     # "Gerar nova taxa de setup" (operação durável — nunca outra assinatura).
     setupRecoveryRequired: bool = False  # noqa: N815
+    # SINAL SEMÂNTICO EXPLÍCITO da contratação: `false` significa que existe
+    # apenas o registro local placeholder (criado antes do POST no Asaas, que
+    # falhou) — não há recorrência remota alguma. A UI NUNCA deve inferir
+    # "assinante" da mera existência do objeto, e o id remoto não é exposto só
+    # para ela adivinhar. Com `false`, a tela é a de contratação inicial:
+    # CPF/CNPJ visível, sem "Plano atual", sem troca de plano, com retomada.
+    hasTrackedSubscription: bool = False  # noqa: N815
+    checkoutRequired: bool = False  # noqa: N815
 
     @classmethod
     def from_model(
         cls, s: Subscription, *, recovery_invoice_url: str | None = None
     ) -> "SubscriptionOut":
+        rastreada = bool(
+            s.asaas_subscription_id and s.asaas_subscription_id != "sandbox"
+        )
         return cls(
             plano=s.plano,
             status=s.status,
@@ -122,6 +135,8 @@ class SubscriptionOut(BaseModel):
                 and s.asaas_setup_invoice_url is None
                 and s.asaas_subscription_id
             ),
+            hasTrackedSubscription=rastreada,
+            checkoutRequired=not rastreada,
         )
 
 
@@ -401,14 +416,25 @@ def _apply_operation_event(
     # atômica no UPDATE condicional, como na mensalidade); reversão de uma
     # recuperação PAGA devolve a dívida — status, gate e ação de recovery.
     if new_status == "ativa" and op.status != "reversed":
+        # A operação SEMPRE registra o próprio resultado histórico.
         op.status = "paid"
-        sub.status = "ativa"
-        sub.asaas_invoice_reversal = None  # dívida do ciclo revertido quitada
-        db.execute(
-            update(Igreja)
-            .where(Igreja.id == sub.igreja_id, Igreja.status == "inadimplente")
-            .values(status="ativa")
-        )
+        # AUTORIDADE (simétrica à da reversão): só a recuperação da cobrança
+        # ATUALMENTE rastreada quita a dívida do ciclo e reativa o acesso. Uma
+        # recovery do ciclo A que ficou em aberto enquanto a assinatura avançou
+        # para a cobrança B, se paga depois, não pode limpar a reversão de B
+        # nem reativar assinatura/igreja — ela nunca cobriu essa dívida.
+        if (
+            op.source_payment_id
+            and str(op.source_payment_id) == str(sub.asaas_invoice_payment_id)
+            and sub.asaas_invoice_reversal is not None
+        ):
+            sub.status = "ativa"
+            sub.asaas_invoice_reversal = None  # dívida do ciclo revertido quitada
+            db.execute(
+                update(Igreja)
+                .where(Igreja.id == sub.igreja_id, Igreja.status == "inadimplente")
+                .values(status="ativa")
+            )
     elif reversal:
         was_paid = op.status == "paid"
         op.status = "reversed"
@@ -525,10 +551,14 @@ def get_subscription(
     _recover_missing_invoice_urls(db, sub, asaas)
 
     # Cobrança avulsa de recuperação mensal emitida e em aberto: expõe o link
-    # dela (a mensalidade revertida não tem link pagável próprio).
+    # dela (a mensalidade revertida não tem link pagável próprio). Só a
+    # recuperação da cobrança-fonte ATUAL é exposta — uma recovery órfã de
+    # ciclo antigo não pode ser apresentada como o pagamento da dívida de hoje.
     recovery_url: str | None = None
     if sub.asaas_invoice_reversal:
-        recovery_op = find_open_operation(db, sub.id, "monthly_recovery")
+        recovery_op = find_open_operation(
+            db, sub.id, "monthly_recovery", sub.asaas_invoice_payment_id
+        )
         if recovery_op is not None:
             recovery_url = recovery_op.invoice_url
     return SubscriptionOut.from_model(sub, recovery_invoice_url=recovery_url)
@@ -612,6 +642,53 @@ def _resume_tracked_checkout(
     )
 
 
+def _adopt_open_subscription_intent(
+    db: Session,
+    sub: Subscription,
+    asaas: AsaasClient,
+    op,
+    setup_fee: float,
+) -> CheckoutResponse:
+    """Reconcilia e ADOTA a assinatura de uma intenção com POST ambíguo.
+
+    Tudo vem do alvo CONGELADO na operação (plano, limite) — nunca do catálogo
+    atual: entre o POST perdido e o retry o master pode ter editado o preço ou
+    desativado o plano, e reinterpretar uma intenção antiga com valores novos
+    reescreveria o que o assinante contratou. Nenhum POST /subscriptions
+    acontece aqui: só o GET por externalReference.
+    """
+    try:
+        remote = reconcile_subscription_operation(db, asaas, op)
+    except AsaasError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Não foi possível criar o checkout no Asaas",
+        ) from exc
+    if remote is None:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Contratação em reconciliação no Asaas — tente novamente",
+        )
+    # Assinatura ENCONTRADA e correspondente ao alvo congelado: ADOÇÃO ATÔMICA
+    # — o vínculo na Subscription e o fechamento da operação vão no MESMO
+    # commit. Antes dele, a operação segue aberta (encontrável): um crash aqui
+    # faz o retry reconciliar e adotar de novo, nunca criar outra intenção
+    # (logo nunca outro POST).
+    sub.plano = op.plano
+    sub.limite = op.limite
+    sub.status = "pendente"
+    sub.asaas_subscription_id = str(remote["id"])
+    if op.customer_id:
+        sub.asaas_customer_id = op.customer_id
+    elif remote.get("customer"):
+        sub.asaas_customer_id = str(remote["customer"])
+    sub.asaas_invoice_reversal = None
+    op.status = "created"
+    op.asaas_subscription_id = str(remote["id"])
+    db.commit()
+    return _resume_tracked_checkout(db, sub, asaas, setup_fee)
+
+
 @router.post("", response_model=CheckoutResponse)
 def create_checkout(
     payload: CheckoutRequest,
@@ -622,9 +699,10 @@ def create_checkout(
     """Create an Asaas checkout (subscription + one-time setup fee).
 
     Preço e limite vêm do catálogo `planos` (fonte editada pelo master), não de
-    valores fixos no código — ver _plano_ativo_or_422.
+    valores fixos no código — ver _plano_ativo_or_422. A exigência de plano
+    ATIVO vale apenas para uma contratação realmente nova: retomada e
+    reconciliação usam o alvo CONGELADO (ver abaixo).
     """
-    plano_row = _plano_ativo_or_422(db, payload.plano)
     igreja_uuid = uuid.UUID(current_user.igreja_id)
     igreja = db.execute(
         select(Igreja).where(Igreja.id == igreja_uuid)
@@ -649,12 +727,32 @@ def create_checkout(
     # inadimplente ou revertida) o caminho é a retomada. Troca de plano
     # (plano diferente) segue o fluxo de criação — semântica de produto
     # preservada (risco da recorrência antiga reportado ao dono à parte).
+    # A retomada NÃO consulta o catálogo: um plano desativado pelo master
+    # depois da contratação (grandfathering) não pode travar o assinante.
     if (
         sub.asaas_subscription_id
         and sub.asaas_subscription_id != "sandbox"
         and sub.plano == payload.plano
     ):
         return _resume_tracked_checkout(db, sub, asaas, setup_fee)
+
+    # RECONCILIAÇÃO ANTES DO CATÁLOGO: se o POST anterior pode ter criado a
+    # assinatura no Asaas (`creating`/`reconciling`), o retry do MESMO plano
+    # precisa poder adotá-la mesmo que o master tenha desativado o plano nesse
+    # intervalo — senão a recorrência remota segue cobrando com o registro
+    # local não rastreado, e não existe worker que reconcilie criações.
+    aberta = find_open_subscription_operation(db, sub.id)
+    if (
+        aberta is not None
+        and aberta.plano == payload.plano
+        and aberta.status in ("creating", "reconciling")
+    ):
+        return _adopt_open_subscription_intent(db, sub, asaas, aberta, setup_fee)
+
+    # Contratação realmente NOVA (inclui uma intenção `prepared`, que
+    # comprovadamente não postou nada e por isso não tem o que adotar): aqui
+    # sim o plano precisa estar ATIVO no catálogo.
+    plano_row = _plano_ativo_or_422(db, payload.plano)
 
     # A INTENÇÃO durável nasce (ou é adotada) ANTES do POST /subscriptions: a
     # operation_key vira a externalReference da assinatura — uma resposta
@@ -667,6 +765,7 @@ def create_checkout(
             sub=sub,
             plano=payload.plano,
             valor=float(plano_row.preco_mensal),
+            limite=plano_row.limite_pessoas,
             descricao=descricao,
         )
     except SubscriptionCreateConflict as exc:
@@ -675,37 +774,8 @@ def create_checkout(
         ) from exc
 
     if op.status in ("creating", "reconciling"):
-        # Resultado do POST anterior é DESCONHECIDO: só reconciliação.
-        try:
-            remote = reconcile_subscription_operation(db, asaas, op)
-        except AsaasError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="Não foi possível criar o checkout no Asaas",
-            ) from exc
-        if remote is None:
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="Contratação em reconciliação no Asaas — tente novamente",
-            )
-        # Assinatura ENCONTRADA e correspondente ao alvo congelado: ADOÇÃO
-        # ATÔMICA — o vínculo na Subscription e o fechamento da operação vão
-        # no MESMO commit. Antes dele, a operação segue aberta (encontrável):
-        # um crash aqui faz o retry reconciliar e adotar de novo, nunca criar
-        # outra intenção (logo nunca outro POST).
-        sub.plano = op.plano
-        sub.limite = plano_row.limite_pessoas
-        sub.status = "pendente"
-        sub.asaas_subscription_id = str(remote["id"])
-        if op.customer_id:
-            sub.asaas_customer_id = op.customer_id
-        elif remote.get("customer"):
-            sub.asaas_customer_id = str(remote["customer"])
-        sub.asaas_invoice_reversal = None
-        op.status = "created"
-        op.asaas_subscription_id = str(remote["id"])
-        db.commit()
-        return _resume_tracked_checkout(db, sub, asaas, setup_fee)
+        # Corrida: outro request avançou a MESMA intenção enquanto líamos.
+        return _adopt_open_subscription_intent(db, sub, asaas, op, setup_fee)
 
     # prepared: claim ATÔMICO da transição — dois requests que adotaram a
     # mesma intenção nunca fazem dois POSTs.
@@ -1102,7 +1172,7 @@ def change_plan(
             status_code=status.HTTP_409_CONFLICT,
             detail="Quite a taxa de setup antes de mudar de plano",
         )
-    if find_open_operation(db, sub.id, "monthly_recovery") is not None:
+    if find_any_open_operation(db, sub.id, "monthly_recovery") is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Há uma cobrança de recuperação em aberto",

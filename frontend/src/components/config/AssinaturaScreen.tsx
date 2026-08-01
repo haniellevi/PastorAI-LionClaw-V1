@@ -26,6 +26,7 @@ import {
   createSetupCharge,
   fetchPlanCatalog,
   fetchSubscription,
+  isPlaceholderSubscription,
   NoSubscriptionError,
   planInfo,
   recoverInvoice,
@@ -122,6 +123,12 @@ export function AssinaturaScreen() {
       if (subResult.status === "fulfilled") {
         const value = subResult.value;
         setSub(value);
+        // Placeholder de checkout falho não é assinatura: a igreja ainda
+        // precisa contratar, então a tela abre direto na contratação (mesmo
+        // destino de quando o GET devolve 404).
+        if (isPlaceholderSubscription(value)) {
+          setTab("plans");
+        }
         // Reconstrói o painel "Conclua as cobranças" a partir dos links
         // persistidos na assinatura — sobrevive a reload sem depender do
         // estado do checkout. Pendente sem link ainda mostra o painel com o
@@ -263,12 +270,27 @@ export function AssinaturaScreen() {
 
   const showSkeleton = loading && !loaded;
 
+  // Contratação inicial INCOMPLETA: existe o registro local (placeholder
+  // gravado antes do POST no Asaas), mas nenhuma recorrência rastreada. A tela
+  // precisa continuar sendo a de contratação — com CPF/CNPJ e ação de
+  // retomada —, nunca a de assinante.
+  const placeholder = isPlaceholderSubscription(sub);
+  // Só uma assinatura RASTREADA conta como assinante para a UI.
+  const assinante = sub != null && !placeholder;
+  // O plano salvo no placeholder pode ter saído do catálogo ativo: ainda
+  // assim precisa existir uma ação de retomada (o backend reconcilia a
+  // intenção congelada; sem intenção recuperável ele devolve 422 e o
+  // assinante escolhe um plano ativo).
+  const planoSalvoForaDoCatalogo =
+    placeholder && sub != null && !catalog.some((p) => p.code === sub.plano);
+
   // Medidor de porte + upgrade automático (estado ativo).
   // `current` pode ficar undefined se o master desativou o plano do assinante
   // (grandfathering): a igreja continua com ele, só some do catálogo ativo.
-  const current = sub ? planInfo(catalog, sub.plano) : undefined;
+  const current = assinante && sub ? planInfo(catalog, sub.plano) : undefined;
   // Troca de plano exige estado LIMPO: ativa, setup quitado, sem reversão.
   const planChangeBlocked =
+    assinante &&
     sub != null &&
     (uiState !== "active" || !sub.setupPago || sub.invoiceReversal != null);
   const pessoas = sub?.pessoas ?? 0;
@@ -394,7 +416,7 @@ export function AssinaturaScreen() {
       {/* Documento SÓ quando um checkout real pode acontecer: contratação
           inicial ou regularização sem link. Troca de plano de assinante
           atualiza a assinatura existente e NÃO pede CPF/CNPJ. */}
-      {!showSkeleton && (sub === null || uiState === "past-due") ? (
+      {!showSkeleton && (sub === null || placeholder || uiState === "past-due") ? (
         <div className="card card-pad" style={{ marginBottom: "var(--s4)" }}>
           <div className="field" style={{ margin: 0, maxWidth: 360 }}>
             <label htmlFor="subscription-cpf-cnpj">CPF ou CNPJ do responsável financeiro</label>
@@ -450,7 +472,9 @@ export function AssinaturaScreen() {
           </div>
         </div>
       ) : tab === "overview" ? (
-        sub ? (
+        // Só assinatura RASTREADA renderiza o painel de assinante — um
+        // placeholder cai no vazio de "nenhum plano contratado".
+        assinante && sub ? (
           <div className="grid-2" style={{ alignItems: "start" }}>
             <div className="card card-pad">
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -590,12 +614,34 @@ export function AssinaturaScreen() {
               </div>
             </div>
           ) : null}
-          {sub && planChangeBlocked ? (
+          {assinante && planChangeBlocked ? (
             <div className="card-pad" style={{ borderBottom: "1px solid var(--border)" }}>
               <p className="sub" style={{ color: "var(--muted)", margin: 0 }}>
                 Regularize as cobranças pendentes (mensalidade e taxa de setup)
                 para poder mudar de plano.
               </p>
+            </div>
+          ) : null}
+          {/* O plano salvo no placeholder saiu do catálogo ativo: a retomada
+              precisa continuar disponível — o backend reconcilia a intenção
+              congelada e, se não houver nada recuperável, devolve 422 para o
+              assinante escolher um plano ativo da tabela. */}
+          {planoSalvoForaDoCatalogo && sub ? (
+            <div className="card-pad" style={{ borderBottom: "1px solid var(--border)" }}>
+              <p className="sub" style={{ color: "var(--muted)", marginTop: 0 }}>
+                A contratação do plano <strong>{sub.plano}</strong> ficou incompleta e
+                esse plano não está mais no catálogo. Você pode retomá-la ou escolher
+                um dos planos abaixo.
+              </p>
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={() => void contract(sub.plano)}
+                disabled={checkoutPlan != null}
+                aria-busy={checkoutPlan === sub.plano || undefined}
+              >
+                {checkoutPlan === sub.plano ? "Abrindo…" : "Retomar contratação"}
+              </button>
             </div>
           ) : null}
           <table className="data-table">
@@ -610,7 +656,13 @@ export function AssinaturaScreen() {
             </thead>
             <tbody>
               {catalog.map((plan) => {
-                const isCurrent = sub?.plano === plan.code;
+                // "Plano atual" só existe com assinatura RASTREADA: o plano
+                // gravado num placeholder de checkout falho não foi contratado.
+                const isCurrent = assinante && sub?.plano === plan.code;
+                // O plano do placeholder é o de RETOMADA — todos os outros
+                // continuam contratáveis (o backend substitui a intenção
+                // `prepared` com segurança, ou devolve 409 se for ambígua).
+                const retomar = placeholder && sub?.plano === plan.code;
                 return (
                   <tr key={plan.code}>
                     <td className="nm">{plan.label}</td>
@@ -620,7 +672,7 @@ export function AssinaturaScreen() {
                     <td>
                       {isCurrent ? (
                         <StatusPill tone="accent">Plano atual</StatusPill>
-                      ) : sub ? (
+                      ) : assinante ? (
                         // Assinante: troca ATUALIZA a assinatura existente
                         // (sem CPF, sem checkout) após confirmação explícita.
                         <button
@@ -644,7 +696,11 @@ export function AssinaturaScreen() {
                           disabled={checkoutPlan != null}
                           aria-busy={checkoutPlan === plan.code || undefined}
                         >
-                          {checkoutPlan === plan.code ? "Abrindo…" : "Contratar"}
+                          {checkoutPlan === plan.code
+                            ? "Abrindo…"
+                            : retomar
+                              ? "Retomar contratação"
+                              : "Contratar"}
                         </button>
                       )}
                     </td>

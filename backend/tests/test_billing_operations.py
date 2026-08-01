@@ -575,9 +575,11 @@ def test_concurrent_claim_adopts_winner_for_same_plan() -> None:
 import uuid  # noqa: E402
 
 from app.services.billing import (  # noqa: E402
+    SubscriptionCreateConflict,
     claim_transition,
     find_subscription_operation_by_key,
     finish_operation,
+    prepare_subscription_operation,
     subscription_matches_operation,
 )
 from app.db.models import BillingSubscriptionOperation  # noqa: E402
@@ -890,3 +892,120 @@ def test_put_sends_the_frozen_target_description() -> None:
     # mesma que a reconciliação confere depois.
     assert asaas.descricoes == ["PastorAI — plano 101_200"]
     assert op.to_descricao == "PastorAI — plano 101_200"
+
+
+# ---------------------------------------------------------------------------
+# REVIEW-10 P2: substituição de intenção `prepared` — atômica e sem retarget
+# silencioso da mesma linha.
+# ---------------------------------------------------------------------------
+def _intent_sub():
+    return SimpleNamespace(id="local-sub-1", asaas_customer_id="cus_1")
+
+
+def _prepared_intent(plano="ate_100", **over):
+    fields = dict(
+        id=uuid.uuid4(),
+        subscription_id="local-sub-1",
+        operation_key=f"pastorai-subcreate-{plano}",
+        plano=plano,
+        valor=199.0,
+        limite=100,
+        descricao=f"PastorAI - plano {plano}",
+        status="prepared",
+    )
+    fields.update(over)
+    return BillingSubscriptionOperation(**fields)
+
+
+def _prepare(db, sub, plano, valor, limite):
+    return prepare_subscription_operation(
+        db,
+        sub=sub,
+        plano=plano,
+        valor=valor,
+        limite=limite,
+        descricao=f"PastorAI - plano {plano}",
+    )
+
+
+def test_prepared_intent_of_another_plan_is_closed_with_a_reason() -> None:
+    antiga = _prepared_intent()
+    db = _ConfFakeSession(subscription_ops=[antiga])
+
+    nova = _prepare(db, _intent_sub(), "101_200", 299.0, 200)
+
+    assert antiga.status == "superseded"  # terminal, não retargetada
+    assert antiga.plano == "ate_100"  # a linha antiga guarda o alvo original
+    assert "101_200" in (antiga.error or "")
+    assert nova is not antiga
+    assert nova.plano == "101_200"
+    assert nova.limite == 200
+    assert nova.status == "prepared"
+
+
+def test_supersede_race_keeps_a_single_open_intent() -> None:
+    # Duas solicitações concorrentes para o MESMO novo plano: o claim atômico
+    # (rowcount) elege um vencedor; o perdedor adota a intenção dele em vez de
+    # abrir uma segunda.
+    antiga = _prepared_intent()
+    db = _ConfFakeSession(subscription_ops=[antiga])
+
+    primeira = _prepare(db, _intent_sub(), "101_200", 299.0, 200)
+    segunda = _prepare(db, _intent_sub(), "101_200", 299.0, 200)
+
+    assert primeira is segunda  # uma só intenção sobrevive
+    abertas = [
+        o
+        for o in [antiga, *db.added]
+        if isinstance(o, BillingSubscriptionOperation)
+        and o.status in ("prepared", "creating", "reconciling")
+    ]
+    assert len(abertas) == 1
+
+
+def test_supersede_claim_is_atomic_only_one_winner() -> None:
+    # Prova direta do gargalo: dois processos que leram a MESMA linha
+    # `prepared` — só um consegue fechá-la.
+    antiga = _prepared_intent()
+    db = _ConfFakeSession(subscription_ops=[antiga])
+
+    primeiro = claim_transition(db, antiga, "prepared", "superseded", error="a")
+    segundo = claim_transition(db, antiga, "prepared", "superseded", error="b")
+
+    assert primeiro is True
+    assert segundo is False  # perdeu o rowcount
+    assert antiga.error == "a"  # o motivo do vencedor permanece
+
+
+def test_ambiguous_intent_of_another_plan_raises_conflict() -> None:
+    for estado in ("creating", "reconciling"):
+        ambigua = _prepared_intent(status=estado)
+        db = _ConfFakeSession(subscription_ops=[ambigua])
+        with pytest.raises(SubscriptionCreateConflict):
+            _prepare(db, _intent_sub(), "101_200", 299.0, 200)
+        assert ambigua.status == estado  # intocada
+
+
+def test_prepared_intent_with_tracked_remote_is_never_superseded() -> None:
+    # Defesa extra: `prepared` com assinatura remota rastreada (estado que só
+    # existiria por reconciliação parcial) nunca é substituída.
+    rastreada = _prepared_intent(asaas_subscription_id="sub_asaas_1")
+    db = _ConfFakeSession(subscription_ops=[rastreada])
+
+    with pytest.raises(SubscriptionCreateConflict):
+        _prepare(db, _intent_sub(), "101_200", 299.0, 200)
+
+    assert rastreada.status == "prepared"
+
+
+def test_same_plan_prepared_intent_is_reused() -> None:
+    antiga = _prepared_intent()
+    db = _ConfFakeSession(subscription_ops=[antiga])
+
+    mesma = _prepare(db, _intent_sub(), "ate_100", 199.0, 100)
+
+    assert mesma is antiga
+    assert antiga.status == "prepared"
+    assert not [
+        o for o in db.added if isinstance(o, BillingSubscriptionOperation)
+    ]

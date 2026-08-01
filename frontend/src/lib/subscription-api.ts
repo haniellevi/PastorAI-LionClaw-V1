@@ -45,6 +45,20 @@ export interface Subscription {
   recoveryInvoiceUrl: string | null;
   /** Setup devido sem link pagável: a UI oferece gerar nova taxa. */
   setupRecoveryRequired: boolean;
+  /**
+   * Existe recorrência RASTREADA no Asaas. `false` = só o registro local
+   * placeholder (criado antes de um POST que falhou): a igreja ainda NÃO
+   * contratou. Sinal semântico explícito — a UI nunca deduz "assinante" da
+   * mera existência do objeto, e o id remoto não é exposto para ela inferir.
+   */
+  hasTrackedSubscription: boolean;
+  /** Espelho de conveniência: a tela de contratação inicial ainda é devida. */
+  checkoutRequired: boolean;
+}
+
+/** Registro local sem recorrência no Asaas: contratação inicial incompleta. */
+export function isPlaceholderSubscription(sub: Subscription | null): boolean {
+  return sub !== null && !sub.hasTrackedSubscription;
 }
 
 export interface CheckoutResult {
@@ -106,6 +120,9 @@ export async function fetchPlanCatalog(token: string): Promise<PlanCatalog> {
 /** Indica o estado de UI a partir do status da assinatura. */
 export function subscriptionUiState(sub: Subscription | null): SubscriptionUiState {
   if (!sub) return "plans";
+  // Placeholder de checkout falho: não há assinatura para exibir estado — a
+  // tela é a de contratação, exatamente como quando não existe registro algum.
+  if (!sub.hasTrackedSubscription) return "plans";
   switch (sub.status) {
     case "ativa":
       return "active";
