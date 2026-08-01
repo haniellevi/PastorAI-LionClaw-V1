@@ -80,16 +80,23 @@ export interface FinishResult {
  * Conclui o fluxo: consome o flow, troca o code com o `code_verifier` guardado
  * no servidor e persiste a conexão. Só o admin que iniciou consegue concluir.
  *
- * 202 = o callback ainda não estacionou o code (reload/back/corrida). É estado
- * recuperável, NÃO consome o fluxo e não deve virar polling.
+ * `flowSecret` NULO é caminho de primeira classe (OAUTH-PWA-IOS-G3): numa PWA
+ * iOS o retorno do Google cai no Safari, cujo storage é um jar separado do da
+ * PWA instalada, e a própria PWA pode ser relançada com o `sessionStorage`
+ * zerado. Sem segredo, o servidor acha o fluxo pela identidade do Bearer —
+ * mesmas colunas que ele compararia de qualquer forma.
+ *
+ * 202 = nada a concluir: ou o callback ainda não estacionou o code
+ * (reload/back/corrida), ou não existe fluxo pendente meu. É estado recuperável,
+ * NÃO consome o fluxo e não deve virar polling.
  */
 export async function finishConnection(
   token: string,
-  flowSecret: string,
+  flowSecret: string | null,
 ): Promise<FinishResult> {
   const res = await authedFetch(token, `/calendar/connect/finish`, {
     method: "POST",
-    body: JSON.stringify({ flowSecret }),
+    body: JSON.stringify(flowSecret ? { flowSecret } : {}),
   });
   if (!res.ok) {
     const detail = await readDetail(res);

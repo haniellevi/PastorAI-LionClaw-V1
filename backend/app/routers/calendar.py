@@ -11,7 +11,9 @@ OAuth web flow (offline → refresh_token) com **PKCE S256** e estado no servido
    sessão, não fala com o Google, não grava ``calendar_sync``.
 3. ``POST /calendar/connect/finish`` (admin, Bearer) apresenta o ``flowSecret``,
    compara ``app_user_id`` + ``igreja_id``, **consome** o fluxo e só então troca
-   o ``code`` com o ``code_verifier``.
+   o ``code`` com o ``code_verifier``. O ``flowSecret`` é OPCIONAL: sem ele a
+   linha é achada pela identidade autenticada (OAUTH-PWA-IOS-G3), porque numa
+   PWA iOS o retorno do Google cai noutro jar de storage.
 
 Essa separação é o que fecha o account-linking CSRF: um consentimento iniciado
 por alguém só conclui na sessão de quem o iniciou.
@@ -105,7 +107,20 @@ class ConnectUrlOut(BaseModel):
 
 
 class FinishRequest(BaseModel):
-    flowSecret: str = Field(min_length=1, max_length=400)  # noqa: N815
+    """OAUTH-PWA-IOS-G3: o ``flowSecret`` é OPCIONAL por desenho.
+
+    Numa PWA iOS instalada, sair para ``accounts.google.com`` é navegação fora
+    do ``scope`` do manifest: o iOS entrega o link ao Safari, e o retorno cai num
+    jar de storage **separado** do da PWA. Mesmo quando o retorno reabre a PWA,
+    o iOS pode tê-la encerrado em segundo plano e relançado com
+    ``sessionStorage`` zerado. Em ambos os casos não existe segredo de cliente
+    para apresentar — e o consentimento já aconteceu.
+
+    Sem segredo, a linha é encontrada pela IDENTIDADE autenticada, que este
+    endpoint já exigia de qualquer forma (ver ``_pending_flow_for_user``).
+    """
+
+    flowSecret: str | None = Field(default=None, max_length=400)  # noqa: N815
 
 
 class FinishOut(BaseModel):
@@ -364,6 +379,42 @@ def _finish_rejected() -> HTTPException:
     )
 
 
+def _pending_flow_for_user(
+    db: Session,
+    *,
+    app_user_id: uuid.UUID,
+    igreja_id: uuid.UUID,
+    now: dt.datetime,
+) -> CalendarOAuthFlow | None:
+    """Fluxo PRÓPRIO, vivo e com ``code`` já estacionado — retomada sem segredo.
+
+    O ``WHERE`` **é** a autorização: as duas colunas de identidade vêm do Bearer,
+    nunca do cliente. Isto não afrouxa nada — o caminho do ``flowSecret`` acha a
+    linha pelo hash e em seguida compara exatamente ``app_user_id`` +
+    ``igreja_id``. Tudo que esta consulta aceita, aquele caminho também aceitaria;
+    o que muda é só COMO a linha é encontrada, e a chave passa a ser a sessão
+    Clerk em vez de um segredo que o iOS pode ter descartado.
+
+    ``code_encrypted IS NOT NULL`` impede que uma retomada sequestre um
+    consentimento ainda em voo, e ``criado_em DESC`` faz duas tentativas
+    concorrentes resolverem para a mais recente que de fato voltou do Google —
+    as demais morrem no TTL e no purge.
+    """
+    return db.execute(
+        select(CalendarOAuthFlow)
+        .where(
+            CalendarOAuthFlow.app_user_id == app_user_id,
+            CalendarOAuthFlow.igreja_id == igreja_id,
+            CalendarOAuthFlow.consumed_at.is_(None),
+            CalendarOAuthFlow.code_encrypted.is_not(None),
+            CalendarOAuthFlow.expires_at > now,
+        )
+        .order_by(CalendarOAuthFlow.criado_em.desc())
+        .limit(1)
+        .with_for_update()
+    ).scalar_one_or_none()
+
+
 @router.post("/connect/finish", response_model=FinishOut)
 def finish_connection(
     payload: FinishRequest,
@@ -374,34 +425,54 @@ def finish_connection(
 ) -> FinishOut:
     """Consome o fluxo e persiste a conexão. Só o iniciador conclui.
 
-    Ordem obrigatória: identidade ANTES de qualquer sinal sobre o estado do
-    fluxo (senão o 202 vira oráculo de existência), e queima ANTES da troca com
-    o Google (o commit solta o lock antes da chamada de 15s).
-    """
-    flow = db.execute(
-        select(CalendarOAuthFlow)
-        .where(CalendarOAuthFlow.flow_secret_hash == hash_secret(payload.flowSecret))
-        .with_for_update()
-    ).scalar_one_or_none()
-    if flow is None:
-        raise _finish_rejected()
+    Duas formas de apontar a linha, a MESMA autorização nas duas:
 
+    * com ``flowSecret`` — caminho preciso do navegador que iniciou o fluxo.
+      Identidade é conferida ANTES de qualquer sinal sobre o estado do fluxo,
+      senão o 202 vira oráculo de existência sobre fluxo alheio.
+    * sem ``flowSecret`` — retomada por identidade (OAUTH-PWA-IOS-G3), para
+      quando o roundtrip do Google volta noutro contexto de navegação ou a PWA
+      é relançada sem ``sessionStorage``. Aqui não há oráculo possível: a busca
+      já nasce restrita às linhas do próprio ``app_user_id`` + ``igreja_id``.
+
+    Em ambos, a queima vem ANTES da troca com o Google — o commit solta o lock
+    antes da chamada de 15s.
+    """
     now = dt.datetime.now(dt.timezone.utc)
     igreja_uuid = uuid.UUID(current_user.igreja_id)
-    if flow.app_user_id != uuid.UUID(current_user.app_user_id):
-        _burn(db, flow, now)
-        raise _finish_rejected()
-    if flow.igreja_id != igreja_uuid:
-        _burn(db, flow, now)
-        raise _finish_rejected()
-    if flow.consumed_at is not None:
-        db.rollback()
-        raise _finish_rejected()
-    if flow.expires_at <= now:
-        _burn(db, flow, now)
-        raise _finish_rejected()
-    if not flow.code_encrypted:
-        # Callback ainda não estacionou (reload/back/corrida). NÃO consome.
+    user_uuid = uuid.UUID(current_user.app_user_id)
+
+    if payload.flowSecret:
+        flow = db.execute(
+            select(CalendarOAuthFlow)
+            .where(
+                CalendarOAuthFlow.flow_secret_hash == hash_secret(payload.flowSecret)
+            )
+            .with_for_update()
+        ).scalar_one_or_none()
+        if flow is None:
+            raise _finish_rejected()
+        if flow.app_user_id != user_uuid:
+            _burn(db, flow, now)
+            raise _finish_rejected()
+        if flow.igreja_id != igreja_uuid:
+            _burn(db, flow, now)
+            raise _finish_rejected()
+        if flow.consumed_at is not None:
+            db.rollback()
+            raise _finish_rejected()
+        if flow.expires_at <= now:
+            _burn(db, flow, now)
+            raise _finish_rejected()
+    else:
+        flow = _pending_flow_for_user(
+            db, app_user_id=user_uuid, igreja_id=igreja_uuid, now=now
+        )
+
+    if flow is None or not flow.code_encrypted:
+        # Com segredo: o callback ainda não estacionou (reload/back/corrida).
+        # Sem segredo: nada meu pendente — é a resposta da sondagem que a PWA
+        # faz ao abrir. NÃO consome, não conecta, não vira erro na tela.
         db.rollback()
         response.status_code = status.HTTP_202_ACCEPTED
         return FinishOut(status="aguardando_callback", connected=False)

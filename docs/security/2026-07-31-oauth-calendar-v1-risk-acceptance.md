@@ -27,6 +27,59 @@ Dois segredos distintos porque eles têm exposições diferentes: o `state` viaj
 ao Google e cai no access log; o `flowSecret` fica em `sessionStorage`
 (particionado por origem) e nunca sai das origens do painel.
 
+## Retomada por identidade (OAUTH-PWA-IOS-G3)
+
+**Decisão do dono, 2026-07-31: PWA iOS instalada é superfície suportada no V1.**
+G3 passa a ser bloqueador de merge.
+
+O desenho acima amarrava a conclusão à continuidade do `sessionStorage`, e numa
+PWA iOS essa continuidade não existe:
+
+- sair para `accounts.google.com` é navegação **fora do `scope`** do manifest
+  (`"scope": "/"`), então o iOS entrega o link ao Safari. O retorno cai num jar
+  de storage **separado** do da PWA instalada — `sessionStorage` vazio;
+- mesmo quando o retorno reabre a PWA, o iOS pode tê-la encerrado em segundo
+  plano e relançado com `sessionStorage` zerado;
+- no caso mais comum a PWA nem é encerrada: fica viva em segundo plano com o
+  botão preso em "Abrindo o Google…", e o consentimento conclui noutro app.
+
+**Correção:** `POST /calendar/connect/finish` passa a aceitar `flowSecret`
+**opcional**. Sem ele, a linha é encontrada por `app_user_id` + `igreja_id` do
+Bearer, com `consumed_at IS NULL`, `code_encrypted IS NOT NULL`,
+`expires_at > now()`, `ORDER BY criado_em DESC LIMIT 1 FOR UPDATE`.
+
+Por que o modelo de ameaça continua o mesmo:
+
+| Invariante | Como se sustenta sem o `flowSecret` |
+|---|---|
+| Vínculo com `app_user_id` + `igreja_id` | O `WHERE` **é** a autorização, e as duas colunas vêm do Bearer. O caminho do `flowSecret` acha a linha pelo hash e **compara exatamente as mesmas colunas** logo depois: tudo que a retomada aceita, aquele caminho já aceitaria. |
+| Conclusão por usuário/tenant diferente | Impossível por construção: a busca nunca sai das linhas do próprio chamador. Fluxo alheio não é lido nem queimado. |
+| TTL, uso único, replay | Inalterados — mesmo `_burn`, mesmo `FOR UPDATE`, mesmo `consumed_at`. Uma segunda retomada não encontra a linha consumida. |
+| Callback público sem troca | Inalterado: continua só estacionando. |
+| Nada sensível em URL/log | Nada novo trafega. Ao contrário — a retomada não manda segredo nenhum. |
+| Fail-closed, sem fallback legado | Sem fluxo próprio estacionado, a resposta é 202 e **nada conecta**. Nenhum caminho legado é reintroduzido. |
+| Sem `localStorage` | Nenhum storage novo. O `sessionStorage` vira otimização de precisão, não pré-requisito. |
+
+**Oráculo.** Com `flowSecret` apresentado e não encontrado a resposta segue 409
+— não há queda para a retomada, justamente para não transformar um palpite de
+segredo em sinal. Sem segredo, o 202 só informa ao chamador algo sobre as
+**próprias** linhas.
+
+**Concorrência.** Duas tentativas resolvem para a mais recente que de fato
+voltou do Google (`code_encrypted IS NOT NULL` + `criado_em DESC`); as demais
+morrem no TTL e no purge. Consentimento ainda em voo nunca é sequestrado por uma
+retomada: sem `code` estacionado ele não entra no `WHERE`.
+
+**Frontend.** Uma tentativa de retomada **por montagem**, só quando o admin não
+está conectado — com o segredo local no marcador `ready`, sem segredo em
+qualquer outro caso. Fora do retorno é sondagem: 202/409 são silenciosos e o
+card mostra o CTA normal. Mais um disparo em `visibilitychange`, **apenas** após
+um redirect real ao Google nesta montagem, que é o que destrava a PWA viva em
+segundo plano. Nenhum dos dois é polling: são eventos discretos e contados.
+
+Isto **não** altera migration, schema, allowlist de origem, escopos, nem
+qualquer configuração no Google Cloud.
+
 ## Riscos residuais aceitos
 
 | # | Risco | Decisão |
@@ -78,7 +131,7 @@ Coordenar exigiria um feature gate no backend que não existe e está fora do V1
 | **G2** | Testes de corrida rodaram sem skip (`RLS_TEST_DATABASE_URL` presente) | pendente |
 | **G4** | Google Cloud Console aceita `code_challenge` S256 | pendente |
 | **G7a/G7b** | Ver ordem acima | a cada deploy |
-| **G3** | Continuidade de `sessionStorage` no roundtrip em PWA iOS instalada | só se PWA iOS estiver no V1 |
+| **G3** | Conexão conclui em PWA iOS instalada **sem** continuidade de `sessionStorage` | **BLOQUEADOR DE MERGE** (dono decidiu: PWA iOS está no V1). Correção implementada e coberta por teste; **só passa com iPhone real** — jsdom, simulador e navegador desktop **não** contam |
 | **G6** | Parser do `AppShell` verificado | só se `app.*` entrar na allowlist |
 
 ## Frentes separadas, deliberadamente fora deste PR

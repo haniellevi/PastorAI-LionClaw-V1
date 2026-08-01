@@ -96,6 +96,12 @@ beforeEach(() => {
   window.sessionStorage.clear();
   fetchCalendarStatus.mockResolvedValue({ connected: false, calendarId: null });
   fetchCalendarList.mockResolvedValue([]);
+  // Resposta padrão do servidor à sondagem de retomada: "nada meu pendente".
+  finishConnection.mockResolvedValue({
+    status: "aguardando_callback",
+    connected: false,
+    calendarId: null,
+  });
   hrefWrites = [];
   // jsdom não navega; capturamos a atribuição de href.
   Object.defineProperty(window, "location", {
@@ -129,15 +135,21 @@ afterEach(async () => {
 });
 
 describe("marcador de retorno", () => {
-  it("não chama finish fora do marcador ready", async () => {
+  it("fora do marcador, sonda SEM segredo e preserva o fluxo local", async () => {
     setHash("#integracoes");
     window.sessionStorage.setItem(FLOW_KEY, "segredo");
 
     await render();
 
-    expect(finishConnection).not.toHaveBeenCalled();
+    // O segredo local NÃO é apresentado fora do retorno: a sondagem existe
+    // justamente para o caso em que ele não sobreviveu (PWA iOS).
+    expect(finishConnection).toHaveBeenCalledTimes(1);
+    expect(finishConnection).toHaveBeenCalledWith("tok", null);
     // reload antes do callback não pode destruir o fluxo local
     expect(window.sessionStorage.getItem(FLOW_KEY)).toBe("segredo");
+    // 202 fora do retorno é silencioso: nada de erro nem CTA
+    expect(text()).not.toContain("não foi concluída");
+    expect(button("Conectar Google Agenda")).toBeTruthy();
   });
 
   it("chama finish UMA vez no marcador ready e limpa no sucesso", async () => {
@@ -156,14 +168,118 @@ describe("marcador de retorno", () => {
     expect(window.sessionStorage.getItem(FLOW_KEY)).toBeNull();
   });
 
-  it("ready sem flowSecret local mostra estado recuperável, sem chamar finish", async () => {
+  it("ready sem flowSecret local ainda tenta retomar, e só então recupera", async () => {
     setHash("#integracoes/callback/ready");
 
     await render();
 
-    expect(finishConnection).not.toHaveBeenCalled();
+    // G3: storage vazio não é mais terminal — a retomada por identidade é
+    // tentada. O 202 padrão é que leva ao estado recuperável.
+    expect(finishConnection).toHaveBeenCalledTimes(1);
+    expect(finishConnection).toHaveBeenCalledWith("tok", null);
     expect(text()).toContain("não foi concluída");
     expect(button("Tentar novamente")).toBeTruthy();
+  });
+});
+
+/**
+ * OAUTH-PWA-IOS-G3 — o roundtrip do Google pode voltar sem `sessionStorage`
+ * (Safari tem jar separado do da PWA instalada) ou nem voltar ao contexto que
+ * iniciou o fluxo (a PWA fica em segundo plano). Nada aqui usa segredo local.
+ */
+describe("retomada em PWA iOS (G3)", () => {
+  const CONECTADO = { status: "conectado", connected: true, calendarId: "cal@x" };
+
+  it("retorno em ready com storage VAZIO conclui a conexão", async () => {
+    setHash("#integracoes/callback/ready");
+    finishConnection.mockResolvedValue(CONECTADO);
+
+    await render();
+
+    expect(finishConnection).toHaveBeenCalledWith("tok", null);
+    expect(text()).toContain("Agenda sincronizada");
+    expect(text()).toContain("cal@x");
+    expect(text()).not.toContain("não foi concluída");
+  });
+
+  it("PWA reaberta na base, sem marcador nenhum, conclui a conexão", async () => {
+    setHash("#integracoes");
+    finishConnection.mockResolvedValue(CONECTADO);
+
+    await render();
+
+    expect(finishConnection).toHaveBeenCalledTimes(1);
+    expect(finishConnection).toHaveBeenCalledWith("tok", null);
+    expect(text()).toContain("Agenda sincronizada");
+  });
+
+  it("a sondagem é UMA por montagem, mesmo com o tempo passando", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    setHash("#integracoes");
+
+    await render();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(120_000);
+    });
+
+    expect(finishConnection).toHaveBeenCalledTimes(1); // nada de polling
+    vi.useRealTimers();
+  });
+
+  it("não sonda quando a agenda já está conectada", async () => {
+    setHash("#integracoes");
+    fetchCalendarStatus.mockResolvedValue({ connected: true, calendarId: "cal@x" });
+
+    await render();
+
+    expect(finishConnection).not.toHaveBeenCalled();
+  });
+
+  it("409 na sondagem fora do retorno é silencioso e não descarta o fluxo", async () => {
+    setHash("#integracoes");
+    window.sessionStorage.setItem(FLOW_KEY, "segredo");
+    const { ApiError } = await import("@/lib/calendar-api");
+    finishConnection.mockRejectedValue(new ApiError(409, "Não foi possível concluir."));
+
+    await render();
+
+    expect(text()).not.toContain("Não foi possível concluir");
+    expect(text()).not.toContain("não foi concluída");
+    expect(button("Conectar Google Agenda")).toBeTruthy();
+    expect(window.sessionStorage.getItem(FLOW_KEY)).toBe("segredo");
+  });
+
+  it("voltar ao primeiro plano depois do redirect destrava e conclui", async () => {
+    setHash("#integracoes");
+    fetchConnectUrl.mockResolvedValue({
+      authUrl: "https://accounts.google/x",
+      flowSecret: "novo",
+    });
+
+    await render();
+    await click(button("Conectar Google Agenda")!);
+    // iOS: a PWA não navegou — segue viva, com o botão preso em "Abrindo…".
+    expect(text()).toContain("Abrindo o Google…");
+
+    finishConnection.mockResolvedValue(CONECTADO);
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+
+    expect(finishConnection).toHaveBeenCalledWith("tok", null);
+    expect(text()).toContain("Agenda sincronizada");
+  });
+
+  it("voltar ao primeiro plano SEM redirect anterior não chama nada", async () => {
+    setHash("#integracoes");
+
+    await render();
+    const antes = finishConnection.mock.calls.length;
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+
+    expect(finishConnection).toHaveBeenCalledTimes(antes); // troca de aba comum
   });
 });
 

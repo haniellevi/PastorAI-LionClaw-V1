@@ -10,8 +10,17 @@
  * OAUTH-CALENDAR-V1 — o consentimento tem DOIS tempos. O `/connect` devolve um
  * `flowSecret` que guardamos em `sessionStorage` (particionado por ORIGEM: um
  * host irmão sob o mesmo domínio não lê nem grava). O callback público volta em
- * `#integracoes/callback/ready` ou `.../cancelled`; só `ready` chama o `finish`,
- * que é quem de fato conclui a conexão.
+ * `#integracoes/callback/ready` ou `.../cancelled`; o `finish` é quem de fato
+ * conclui a conexão.
+ *
+ * OAUTH-PWA-IOS-G3 — o `sessionStorage` NÃO é pré-requisito. Numa PWA iOS
+ * instalada, sair para `accounts.google.com` é navegação fora do `scope` do
+ * manifest: o iOS entrega o link ao Safari e o retorno cai num jar de storage
+ * separado do da PWA; e mesmo voltando para a PWA, o iOS pode tê-la encerrado
+ * em segundo plano e relançado com o `sessionStorage` zerado. Por isso o card
+ * faz UMA tentativa de retomada por montagem sempre que o admin não está
+ * conectado — com o segredo local quando ele existe, sem segredo nenhum quando
+ * não existe. Sem segredo o servidor acha o fluxo pela identidade do Bearer.
  *
  * `cancelled` e o 202 do `finish` são estados RECUPERÁVEIS: mensagem + botão
  * "Tentar novamente". Sem spinner infinito, sem polling, sem repetir o `finish`.
@@ -83,8 +92,17 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
   const [error, setError] = useState<string | null>(null);
   /** Estado recuperável do retorno do Google (cancelado / não concluído). */
   const [recoverable, setRecoverable] = useState<string | null>(null);
-  /** Guarda contra o duplo-invoke do StrictMode: o `finish` é de uso único. */
+  /** Guarda contra o duplo-invoke do StrictMode: o marcador é lido uma vez. */
   const handledRef = useRef(false);
+  /** A retomada é de uso único por montagem — é isto que impede polling. */
+  const resumedRef = useRef(false);
+  /** Houve um redirect ao Google nesta montagem. Só isso libera a recarga ao
+   *  voltar ao primeiro plano; sem ele, alternar de aba não chama nada. */
+  const startedRef = useRef(false);
+  /** A rota é LIDA pela retomada, não é dependência dela: entrar em `loadStatus`
+   *  faria o `navigate` de volta à base disparar um segundo ciclo de carga. */
+  const routeRef = useRef(route);
+  routeRef.current = route;
 
   const onErr = useCallback(
     (e: unknown) => {
@@ -97,6 +115,15 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
     [expireSession],
   );
 
+  const applyCalendars = useCallback(async () => {
+    if (!token) return;
+    try {
+      setCalendars(await fetchCalendarList(token));
+    } catch {
+      /* a lista é best-effort: a conexão segue válida sem ela */
+    }
+  }, [token]);
+
   const loadStatus = useCallback(async () => {
     if (!token) return;
     setLoading(true);
@@ -106,61 +133,79 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
       setConnected(s.connected);
       setCalendarId(s.calendarId);
       if (s.connected) {
-        try {
-          setCalendars(await fetchCalendarList(token));
-        } catch {
-          /* a lista é best-effort: a conexão segue válida sem ela */
+        await applyCalendars();
+        return;
+      }
+      if (resumedRef.current) return;
+      // `cancelled` é recusa explícita do usuário: nada foi estacionado e
+      // retomar aqui só atrapalharia a mensagem de recuperação.
+      const marker = routeRef.current;
+      if (marker === ROUTE_CANCELLED) return;
+      resumedRef.current = true;
+
+      // Retomada (OAUTH-PWA-IOS-G3). Só no marcador `ready` existe um segredo
+      // local que valha apresentar; fora dele isto é uma SONDAGEM — o 202
+      // ("nada meu pendente") é o caso comum e não pode virar erro na tela.
+      const isReturn = marker === ROUTE_READY;
+      try {
+        const result = await finishConnection(token, isReturn ? readFlowSecret() : null);
+        if (result.status === "conectado") {
+          writeFlowSecret(null);
+          setConnected(true);
+          setCalendarId(result.calendarId);
+          navigate(ROUTE_BASE);
+          await applyCalendars();
+          return;
         }
+        // 202: NÃO consome o fluxo e NÃO repete a chamada — o usuário decide
+        // pelo CTA, e só quando ele está de fato esperando um retorno.
+        if (isReturn) setRecoverable(MSG_INCOMPLETE);
+      } catch (e) {
+        if (!isReturn) return; // sondagem recusada: segue o fluxo normal
+        writeFlowSecret(null);
+        onErr(e);
+        setRecoverable(MSG_INCOMPLETE);
       }
     } catch (e) {
       onErr(e);
     } finally {
       setLoading(false);
     }
-  }, [token, onErr]);
+  }, [token, applyCalendars, navigate, onErr]);
 
   useEffect(() => {
     if (isAdmin) void loadStatus();
     else setLoading(false);
   }, [isAdmin, loadStatus]);
 
-  // Retorno do Google. Roda UMA vez por montagem; nunca faz polling.
+  // Marcador de retorno. Só `cancelled` tem tratamento próprio; `ready` é
+  // resolvido pela retomada em `loadStatus`. Roda UMA vez por montagem.
   useEffect(() => {
-    if (!isAdmin || !token) return;
-    if (route !== ROUTE_READY && route !== ROUTE_CANCELLED) return;
+    if (!isAdmin) return;
+    if (route !== ROUTE_CANCELLED) return;
     if (handledRef.current) return;
     handledRef.current = true;
+    setRecoverable(MSG_CANCELLED);
+  }, [isAdmin, route]);
 
-    if (route === ROUTE_CANCELLED) {
-      setRecoverable(MSG_CANCELLED);
-      return;
-    }
-
-    const flowSecret = readFlowSecret();
-    if (!flowSecret) {
-      setRecoverable(MSG_INCOMPLETE);
-      return;
-    }
-
-    void (async () => {
-      try {
-        const result = await finishConnection(token, flowSecret);
-        if (result.status === "conectado") {
-          writeFlowSecret(null);
-          navigate(ROUTE_BASE);
-          await loadStatus();
-          return;
-        }
-        // 202: o callback ainda não estacionou o code. NÃO consome o fluxo e
-        // NÃO repete a chamada — o usuário decide pelo CTA.
-        setRecoverable(MSG_INCOMPLETE);
-      } catch (e) {
-        writeFlowSecret(null);
-        onErr(e);
-        setRecoverable(MSG_INCOMPLETE);
-      }
-    })();
-  }, [isAdmin, token, route, navigate, loadStatus, onErr]);
+  // iOS: ir ao Google NÃO desmonta a PWA — ela fica em segundo plano com o
+  // botão preso em "Abrindo o Google…", e o retorno costuma cair no Safari.
+  // Voltar ao primeiro plano refaz a carga (que já embute UMA retomada). Só
+  // dispara depois de um redirect real; não é polling e não roda por troca de
+  // aba comum.
+  useEffect(() => {
+    if (!isAdmin) return;
+    const onVisible = () => {
+      if (document.visibilityState !== "visible") return;
+      if (!startedRef.current) return;
+      startedRef.current = false;
+      resumedRef.current = false;
+      setBusy(false);
+      void loadStatus();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [isAdmin, loadStatus]);
 
   const connect = useCallback(async () => {
     if (!token) return;
@@ -168,8 +213,10 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
     setError(null);
     try {
       const { authUrl, flowSecret } = await fetchConnectUrl(token);
-      // Grava ANTES de sair da página: é a única chance.
+      // Grava ANTES de sair da página: é a única chance — e num navegador
+      // comum é o que dá precisão ao `finish`. Numa PWA iOS pode não voltar.
       writeFlowSecret(flowSecret);
+      startedRef.current = true;
       window.location.href = authUrl; // redireciona ao consentimento do Google
     } catch (e) {
       onErr(e);
