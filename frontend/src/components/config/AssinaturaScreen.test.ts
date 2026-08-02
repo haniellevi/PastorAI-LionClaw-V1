@@ -88,6 +88,38 @@ afterEach(() => {
 });
 
 describe("AssinaturaScreen — links do checkout", () => {
+  it("mostra a taxa congelada no contrato mesmo se o catálogo mudou", async () => {
+    fetchSubscription.mockResolvedValue({
+      plano: "ate_100",
+      status: "ativa",
+      pessoas: 10,
+      limite: 100,
+      proximaCobranca: null,
+      setupPago: false,
+      setupFeeContracted: 59.9,
+      invoiceUrl: null,
+      setupInvoiceUrl: "https://asaas.test/setup",
+      invoiceReversal: null,
+      recoveryInvoiceUrl: null,
+      setupRecoveryRequired: false,
+      hasTrackedSubscription: true,
+      checkoutRequired: false,
+    });
+    fetchPlanCatalog.mockResolvedValue({
+      setupFee: 0,
+      planos: [{ code: "ate_100", label: "Até 100 pessoas", limite: 100, preco: 199 }],
+    });
+
+    act(() => root.render(h(AssinaturaScreen)));
+    await flush();
+
+    const detalhes = [...container.querySelectorAll(".config-row")].find((row) =>
+      row.textContent?.includes("Taxa de setup"),
+    );
+    expect(detalhes?.textContent).toContain("R$ 60");
+    expect(detalhes?.textContent).not.toContain("R$ 0");
+  });
+
   it("exibe links separados de mensalidade e setup depois da contratação", async () => {
     createCheckout.mockResolvedValue({
       status: "pendente",

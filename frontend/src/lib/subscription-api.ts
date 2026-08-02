@@ -35,6 +35,8 @@ export interface Subscription {
   limite: number | null;
   proximaCobranca: string | null;
   setupPago: boolean;
+  /** Taxa congelada no checkout; null apenas para contratos legados. */
+  setupFeeContracted: number | null;
   /** Link da fatura da mensalidade — presente enquanto pendente/vencida. */
   invoiceUrl: string | null;
   /** Link da cobrança de setup — presente só enquanto o setup não foi pago. */

@@ -81,15 +81,18 @@ def test_trigger_coalesces_repeats_and_respects_open_manual_operation() -> None:
     assert "do nothing" in body
 
 
-def test_target_price_is_frozen_from_master_catalog() -> None:
+def test_target_price_and_limit_are_frozen_from_master_catalog() -> None:
     body = _fn_body()
     assert "from planos" in body
     assert "preco_mensal" in body
+    assert "limite_pessoas" in body
     # Plano fora do catálogo não gera operação (nunca inventar preço remoto).
     assert "v_novo_preco is not null" in body
     # Nenhum preço hardcoded no trigger.
     for hardcoded in ("199", "299", "499"):
         assert hardcoded not in body
+    assert "v_novo_limite := 200" not in body
+    assert "v_novo_limite := 999999" not in body
 
 
 def test_creation_claim_leases_and_setup_fee_are_persisted() -> None:

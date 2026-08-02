@@ -333,6 +333,22 @@ def test_get_subscription_returns_persisted_payment_links(app) -> None:
     assert asaas.calls == []  # nada a recuperar => nenhuma chamada externa
 
 
+def test_get_subscription_exposes_the_setup_fee_frozen_at_checkout(app) -> None:
+    asaas = _RecoveryAsaas()
+    sub = _subscription(
+        setup_pago=False,
+        setup_fee_contracted=59.9,
+        asaas_invoice_url="https://asaas.test/monthly",
+        asaas_setup_invoice_url="https://asaas.test/setup",
+    )
+    client, _db = _client(app, planos=[], asaas=asaas, subscription=sub)
+
+    response = client.get("/subscription", headers=_AUTH)
+
+    assert response.status_code == 200
+    assert response.json()["setupFeeContracted"] == 59.9
+
+
 def test_get_subscription_recovers_monthly_link_by_subscription_id(app) -> None:
     asaas = _RecoveryAsaas(monthly_url="https://asaas.test/recovered-monthly")
     sub = _subscription(

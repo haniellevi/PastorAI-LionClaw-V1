@@ -542,7 +542,9 @@ export function AssinaturaScreen() {
                 {sub.setupPago ? (
                   <StatusPill tone="ok">Pago</StatusPill>
                 ) : (
-                  <span className="mono num">{BRL.format(setupFee)}</span>
+                  <span className="mono num">
+                    {BRL.format(sub.setupFeeContracted ?? setupFee)}
+                  </span>
                 )}
               </div>
               {sub.setupRecoveryRequired ? (

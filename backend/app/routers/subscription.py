@@ -82,6 +82,9 @@ class SubscriptionOut(BaseModel):
     limite: int | None = None
     proximaCobranca: str | None = None  # noqa: N815
     setupPago: bool  # noqa: N815
+    # Valor congelado na contratação. NULL existe apenas para contratos legados;
+    # a UI usa o catálogo atual somente como fallback nesses registros antigos.
+    setupFeeContracted: float | None = None  # noqa: N815
     # Links persistidos do checkout, expostos apenas enquanto a cobrança
     # correspondente ainda está em aberto — a tela reconstrói o painel de
     # pagamento após reload sem criar novas cobranças. A fatura VENCIDA
@@ -123,6 +126,11 @@ class SubscriptionOut(BaseModel):
             if s.proxima_cobranca
             else None,
             setupPago=s.setup_pago,
+            setupFeeContracted=(
+                float(getattr(s, "setup_fee_contracted", None))
+                if getattr(s, "setup_fee_contracted", None) is not None
+                else None
+            ),
             invoiceUrl=(
                 s.asaas_invoice_url
                 if s.status in ("pendente", "inadimplente")

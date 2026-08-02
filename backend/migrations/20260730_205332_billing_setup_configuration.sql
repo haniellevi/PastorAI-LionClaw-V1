@@ -260,33 +260,34 @@ begin
     -- promove plano em escada
     if v_sub.plano = 'ate_100' then
       v_novo_plano := '101_200';
-      v_novo_limite := 200;
     elsif v_sub.plano = '101_200' then
       v_novo_plano := 'acima_201';
-      v_novo_limite := 999999;
     else
       v_novo_plano := v_sub.plano;
       v_novo_limite := v_sub.limite;
     end if;
 
     if v_novo_plano <> v_sub.plano then
-      if v_sub.asaas_subscription_id is null then
-        -- Sem assinatura Asaas rastreada não há recorrência remota: o
-        -- upgrade local imediato (comportamento original de 0004) permanece.
-        update subscriptions
-          set plano = v_novo_plano,
-              limite = v_novo_limite
-          where igreja_id = new.igreja_id;
-        update igrejas set plano = v_novo_plano where id = new.igreja_id;
-      else
-        -- Preço alvo do catálogo do master. Plano fora do catálogo não gera
-        -- operação (nunca escrever um preço inventado no Asaas); o gatilho
-        -- reavalia no próximo INSERT/UPDATE de pessoas.
-        select p.preco_mensal into v_novo_preco
-          from planos p
-          where p.codigo = v_novo_plano;
+      -- Preço E limite vêm da mesma fotografia do catálogo do master. Nunca
+      -- congelar thresholds hardcoded: o master pode editar o porte de cada
+      -- degrau, e o worker precisa receber exatamente esse limite.
+      select p.preco_mensal, p.limite_pessoas
+        into v_novo_preco, v_novo_limite
+        from planos p
+        where p.codigo = v_novo_plano;
 
-        if v_novo_preco is not null then
+      -- Plano fora do catálogo não gera promoção nem operação. O gatilho
+      -- reavalia na próxima mutação de pessoas.
+      if v_novo_preco is not null then
+        if v_sub.asaas_subscription_id is null then
+          -- Sem assinatura Asaas rastreada não há recorrência remota: o
+          -- upgrade local imediato (comportamento original de 0004) permanece.
+          update subscriptions
+            set plano = v_novo_plano,
+                limite = v_novo_limite
+            where igreja_id = new.igreja_id;
+          update igrejas set plano = v_novo_plano where id = new.igreja_id;
+        else
           -- Repetições do gatilho coalescem na operação aberta, e uma troca
           -- MANUAL em andamento tem precedência: o índice único parcial
           -- (subscription_id | status aberto) faz o ON CONFLICT ignorar o
