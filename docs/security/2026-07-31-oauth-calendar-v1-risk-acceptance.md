@@ -127,9 +127,9 @@ autorizou antes de persistir qualquer token:
    mesmo padrão de `app/routers/auth.py`) e grava em
    `calendar_oauth_flows.expected_email`. O e-mail vive só no corpo: nunca em
    query string, nunca em log.
-2. `build_consent_url` recebe `login_hint`. É **UX apenas** — pré-seleciona a
-   conta na tela do Google. Não é prova de nada: o usuário pode trocar de conta
-   lá, e um terceiro pode reusar a URL.
+2. `build_consent_url` **não** recebe o e-mail declarado nem envia
+   `login_hint`. Assim o endereço não entra no histórico do navegador nem em
+   logs de URL. O usuário escolhe a conta diretamente na tela do Google.
 3. Escopos ganham `openid email`, e o `finish`, **depois da queima e da troca**,
    chama `fetch_userinfo`. Falha fechada em tudo: erro de transporte, corpo
    não-JSON, `sub`/`email` vazios, ou `email_verified` que não seja exatamente

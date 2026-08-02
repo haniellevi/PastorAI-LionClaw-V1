@@ -355,13 +355,9 @@ def connect(
     flow_secret = new_secret()
     verifier, challenge = new_pkce_pair()
     try:
-        # `login_hint` é UX: pré-seleciona a conta na tela do Google. NÃO é
-        # prova — o usuário pode trocar de conta lá, e é justamente isso que o
-        # `finish` detecta comparando o userinfo com `expected_email`.
         url = oauth.build_consent_url(
             state=state,
             code_challenge=challenge,
-            login_hint=payload.expectedGoogleEmail,
         )
     except GoogleOAuthError as exc:
         raise HTTPException(

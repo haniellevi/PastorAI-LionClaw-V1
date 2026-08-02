@@ -95,19 +95,16 @@ class GoogleOAuthClient:
         )
 
     # ---- flow --------------------------------------------------------------
-    def build_consent_url(
-        self, *, state: str, code_challenge: str, login_hint: str | None = None
-    ) -> str:
+    def build_consent_url(self, *, state: str, code_challenge: str) -> str:
         """URL de consentimento com PKCE S256.
 
         ``state`` é opaco para esta classe (e para o Google): é a chave da linha
         de ``calendar_oauth_flows``. Só o ``code_challenge`` viaja — o verifier
         correspondente fica cifrado no servidor.
 
-        ``login_hint`` é **UX apenas**: pré-seleciona a conta na tela do Google e
-        poupa o admin de trocar de conta à mão. **Não é prova de identidade** —
-        o usuário pode ignorá-lo e consentir com outra conta, e um terceiro pode
-        reusar a URL. Quem prova é o ``fetch_userinfo`` no ``finish``.
+        O e-mail declarado não entra nesta URL: query strings ficam no histórico
+        do navegador e em logs de requisição. A identidade é verificada apenas
+        pelo ``fetch_userinfo`` no ``finish``.
         """
         client_id, _, redirect_uri = self._require_config()
         params = {
@@ -122,8 +119,6 @@ class GoogleOAuthClient:
             "code_challenge": code_challenge,
             "code_challenge_method": "S256",
         }
-        if login_hint:
-            params["login_hint"] = login_hint
         return f"{self._settings.google_oauth_auth_url}?{urlencode(params)}"
 
     def exchange_code(self, code: str, code_verifier: str) -> OAuthTokens:

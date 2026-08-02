@@ -229,11 +229,10 @@ class _FakeOAuth:
         self.list_events_args = None
         self.listed_tokens: list[str] = []
 
-    def build_consent_url(self, *, state, code_challenge, login_hint=None):
+    def build_consent_url(self, *, state, code_challenge):
         self.consent_args = {
             "state": state,
             "code_challenge": code_challenge,
-            "login_hint": login_hint,
         }
         return f"{self._consent}?state={state}&code_challenge={code_challenge}"
 
@@ -487,7 +486,7 @@ def test_connect_returns_503_without_google_config(app, crypto_enabled) -> None:
     """Kill switch operacional: sem client_id não começa fluxo nenhum."""
 
     class _Unconfigured(_FakeOAuth):
-        def build_consent_url(self, *, state, code_challenge, login_hint=None):
+        def build_consent_url(self, *, state, code_challenge):
             raise GoogleOAuthError("Google OAuth não está configurado")
 
     session = _FlowSession(app_user=make_app_user(), roles=["admin"])
@@ -1500,11 +1499,13 @@ def test_connect_normalizes_declared_email(app, crypto_enabled) -> None:
 
     assert len(session.added) == 1
     assert session.added[0].expected_email == _EMAIL
-    assert oauth.consent_args["login_hint"] == _EMAIL
+    assert "login_hint" not in oauth.consent_args
 
 
-def test_consent_url_carries_openid_email_and_login_hint(app, crypto_enabled) -> None:
-    """Sem `openid email` não há userinfo; `login_hint` é só UX."""
+def test_consent_url_carries_identity_scopes_but_not_declared_email(
+    app, crypto_enabled
+) -> None:
+    """Userinfo exige os escopos; o e-mail declarado nunca entra na URL."""
     from app.services.google_oauth import _SCOPES  # noqa: PLC0415 - leitura local
 
     session = _FlowSession(app_user=make_app_user(), roles=["admin"])
@@ -1515,7 +1516,7 @@ def test_consent_url_carries_openid_email_and_login_hint(app, crypto_enabled) ->
 
     assert "openid" in _SCOPES.split()
     assert "email" in _SCOPES.split()
-    assert oauth.consent_args["login_hint"] == _EMAIL
+    assert "login_hint" not in oauth.consent_args
 
 
 def _identity_flow(app_user, crypto, **kw):
