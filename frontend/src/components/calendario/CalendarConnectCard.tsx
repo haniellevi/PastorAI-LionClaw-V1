@@ -231,6 +231,29 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
     }
   }, [token, applyCalendars, onErr]);
 
+  /** Recompõe apenas o snapshot da conexão após um finish sem sucesso.
+   *
+   * O finish invalida a leitura inicial para ela não sobrescrever um sucesso.
+   * Se o servidor recusar o fluxo, porém, a conexão anterior continua válida;
+   * uma leitura NOVA precisa restaurá-la sem apagar o erro/mismatch exibido.
+   */
+  const restoreStatusAfterUnsuccessfulFinish = useCallback(async () => {
+    if (!token) return;
+    const epoch = mutationEpochRef.current;
+    try {
+      const s = await fetchCalendarStatus(token);
+      if (epoch !== mutationEpochRef.current) return;
+      setConnected(s.connected);
+      setCalendarId(s.calendarId);
+      setGoogleAccountEmail(s.googleAccountEmail);
+      if (s.connected) await applyCalendars();
+    } catch (e) {
+      // O erro original do finish continua sendo a mensagem acionável. Só uma
+      // expiração de sessão precisa furar esse best-effort silencioso.
+      if (e instanceof SessionExpiredError) expireSession();
+    }
+  }, [token, applyCalendars, expireSession]);
+
   useEffect(() => {
     if (isAdmin) void loadStatus();
     else setLoading(false);
@@ -268,6 +291,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
         // NÃO repete a chamada — o segredo fica até o TTL e a CTA segue à mão.
         setPending(readFlow() !== null);
         setRecoverable(MSG_INCOMPLETE);
+        await restoreStatusAfterUnsuccessfulFinish();
       } catch (e) {
         // Conta divergente: terminal e acionável. O servidor não escreveu nada —
         // a conexão anterior, se havia, continua exatamente como estava.
@@ -277,6 +301,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
           setRecoverable(null);
           setChanging(false);
           setMismatch({ expected: e.expected, verified: e.verified });
+          await restoreStatusAfterUnsuccessfulFinish();
           return;
         }
         // Terminal (4xx): o fluxo morreu, descarta o segredo e oferece reinício.
@@ -286,11 +311,20 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
         }
         onErr(e);
         setRecoverable(MSG_INCOMPLETE);
+        if (!(e instanceof SessionExpiredError)) {
+          await restoreStatusAfterUnsuccessfulFinish();
+        }
       } finally {
         setBusy(false);
       }
     },
-    [token, navigate, applyCalendars, onErr],
+    [
+      token,
+      navigate,
+      applyCalendars,
+      onErr,
+      restoreStatusAfterUnsuccessfulFinish,
+    ],
   );
 
   /** Única porta para o `finish`: relê o storage e desiste se não houver segredo

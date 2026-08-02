@@ -398,6 +398,44 @@ describe("conta divergente", () => {
     expect(fetchConnectUrl).not.toHaveBeenCalled();
     expect(finishConnection).toHaveBeenCalledTimes(1); // só a do marcador
   });
+
+  it("falha do finish restaura a conexão anterior apesar do status inicial obsoleto", async () => {
+    setHash("#integracoes/callback/ready");
+    seedFlow("segredo");
+    const { GoogleAccountMismatchError } = await import("@/lib/calendar-api");
+    let resolveInitial!: (value: typeof DESCONECTADO) => void;
+    fetchCalendarStatus
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveInitial = resolve;
+          }),
+      )
+      .mockResolvedValueOnce({
+        connected: true,
+        calendarId: "agenda-antiga@x",
+        googleAccountEmail: EMAIL,
+      });
+    finishConnection.mockRejectedValue(
+      new GoogleAccountMismatchError(EMAIL, OUTRO_EMAIL),
+    );
+
+    await render();
+
+    expect(fetchCalendarStatus).toHaveBeenCalledTimes(2);
+    expect(text()).toContain("Nada foi alterado");
+    await click(button(CTA_RESTART)!);
+    expect(text()).toContain("Conectado como");
+    expect(text()).toContain(EMAIL);
+    expect(text()).toContain("agenda-antiga@x");
+
+    // A resposta inicial nasceu antes do finish e continua sem autoridade.
+    await act(async () => {
+      resolveInitial(DESCONECTADO);
+    });
+    expect(text()).toContain("Conectado como");
+    expect(text()).toContain("agenda-antiga@x");
+  });
 });
 
 describe("marcador ready", () => {
