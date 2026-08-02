@@ -86,6 +86,7 @@ def test_target_price_and_limit_are_frozen_from_master_catalog() -> None:
     assert "from planos" in body
     assert "preco_mensal" in body
     assert "limite_pessoas" in body
+    assert "p.ativo is true" in body
     # Plano fora do catálogo não gera operação (nunca inventar preço remoto).
     assert "v_novo_preco is not null" in body
     # Nenhum preço hardcoded no trigger.

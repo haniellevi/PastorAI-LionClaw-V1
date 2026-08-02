@@ -274,7 +274,8 @@ begin
       select p.preco_mensal, p.limite_pessoas
         into v_novo_preco, v_novo_limite
         from planos p
-        where p.codigo = v_novo_plano;
+        where p.codigo = v_novo_plano
+          and p.ativo is true;
 
       -- Plano fora do catálogo não gera promoção nem operação. O gatilho
       -- reavalia na próxima mutação de pessoas.

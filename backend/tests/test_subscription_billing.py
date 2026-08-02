@@ -936,6 +936,34 @@ def test_setup_reissue_uses_reversed_operation_amount_not_current_fee(app) -> No
     assert sub.setup_pago is False
 
 
+def test_setup_reissue_without_operation_uses_contracted_fee_not_current_fee(app) -> None:
+    # Crash/rejeição depois de congelar o contrato, antes de criar a operação:
+    # a configuração de novas vendas mudou, mas esta obrigação continua 59,90.
+    asaas = _FakeAsaas()
+    sub = _subscription(
+        status="ativa",
+        setup_pago=False,
+        setup_fee_contracted=59.9,
+        asaas_setup_charge_id=None,
+        asaas_setup_invoice_url=None,
+    )
+    client, _db = _client(
+        app,
+        planos=[],
+        asaas=asaas,
+        setup_fee_default=0.0,
+        subscription=sub,
+        operations=[],
+    )
+
+    resp = client.post("/subscription/setup-charge", headers=_AUTH)
+
+    assert resp.status_code == 200
+    assert len(asaas.charge_calls) == 1
+    assert asaas.charge_calls[0]["valor"] == 59.9
+    assert sub.setup_pago is False
+
+
 def test_setup_charge_action_rejects_when_already_paid(app) -> None:
     sub = _subscription(status="ativa", setup_pago=True)
     client, _db = _client(app, planos=[], asaas=_FakeAsaas(), subscription=sub)
@@ -1519,6 +1547,43 @@ def test_adoption_uses_the_setup_fee_frozen_before_the_lost_response(app) -> Non
     assert len(asaas.charge_calls) == 1
     assert asaas.charge_calls[0]["valor"] == 59.9
     assert created_sub.setup_fee_contracted == 59.9
+
+
+def test_adoption_of_zero_fee_checkout_marks_setup_as_paid(app) -> None:
+    asaas = _LostResponseAsaas()
+    client, db = _client(
+        app,
+        planos=[_plano()],
+        asaas=asaas,
+        setup_fee_default=0.0,
+    )
+
+    assert client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    ).status_code == 502
+    created_sub = next(o for o in db.added if isinstance(o, Subscription))
+    assert not created_sub.setup_pago
+    assert float(created_sub.setup_fee_contracted) == 0.0
+
+    _adopt_created_sub(db)
+    asaas.found = [{
+        "id": "sub_asaas_zero_setup",
+        "customer": "cus_1",
+        "value": 199.0,
+        "cycle": "MONTHLY",
+        "description": "PastorAI — plano ate_100",
+    }]
+
+    response = client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    )
+
+    assert response.status_code == 200
+    assert created_sub.setup_pago is True
+    assert asaas.charge_calls == []
+    assert client.get("/subscription", headers=_AUTH).json()[
+        "setupRecoveryRequired"
+    ] is False
 
 
 def test_abandoned_subscription_claim_is_reconciled_then_retried(app) -> None:

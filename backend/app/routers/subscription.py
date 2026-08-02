@@ -583,7 +583,15 @@ def _ensure_setup_charge(
     repetida às cegas. O espelho em sub.asaas_setup_charge_id/url mantém o
     trilho existente de webhook e recovery.
     """
-    if setup_fee <= 0 or sub.setup_pago or sub.asaas_setup_charge_id:
+    if sub.setup_pago or sub.asaas_setup_charge_id:
+        return
+    if setup_fee <= 0:
+        # A obrigação contratada é isenta. Isto também cobre adoção/retomada
+        # depois de resposta perdida: não existe cobrança a criar, mas o
+        # placeholder não pode continuar parecendo devedor de setup.
+        sub.setup_pago = True
+        sub.asaas_setup_charge_id = None
+        sub.asaas_setup_invoice_url = None
         return
     if not sub.asaas_customer_id:
         return  # sem customer rastreado não há como emitir a cobrança
@@ -1111,10 +1119,15 @@ def create_setup_charge_action(
         )
 
     reversed_setup = find_latest_reversed_setup_operation(db, sub.id)
+    contracted_setup = getattr(sub, "setup_fee_contracted", None)
     setup_fee = (
         float(reversed_setup.valor)
         if reversed_setup is not None
-        else get_setup_fee_for_igreja(db, igreja)
+        else (
+            float(contracted_setup)
+            if contracted_setup is not None
+            else get_setup_fee_for_igreja(db, igreja)
+        )
     )
     if setup_fee <= 0:
         # Isenta pela configuração vigente: nada a cobrar.
