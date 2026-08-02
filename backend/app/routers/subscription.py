@@ -349,6 +349,10 @@ def _reconcile_legacy_setup_charge(
     if len(candidatas) != 1:
         return None
     legada = candidatas[0]
+    if str(getattr(legada, "asaas_setup_reversed_payment_id", "")) == payment_id:
+        # A cobrança já foi adotada e depois revertida. Confirmação atrasada não
+        # ressuscita obrigação morta nem remove a nova pendência de setup.
+        return WebhookResponse(received=True, status=None)
     legada.asaas_setup_charge_id = payment_id
     legada.setup_pago = True
     db.commit()
@@ -370,6 +374,11 @@ def _apply_setup_charge_event(
         db.commit()
     elif reversal:
         setup_sub.setup_pago = False
+        setup_sub.asaas_setup_reversed_payment_id = (
+            str(setup_sub.asaas_setup_charge_id)
+            if setup_sub.asaas_setup_charge_id
+            else None
+        )
         setup_sub.asaas_setup_charge_id = None
         setup_sub.asaas_setup_invoice_url = None
         db.commit()

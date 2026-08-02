@@ -172,6 +172,7 @@ export function AssinaturaScreen() {
   }, [load]);
 
   const uiState = useMemo(() => subscriptionUiState(sub), [sub]);
+  const hasOutstandingRecovery = Boolean(sub?.recoveryInvoiceUrl);
 
   const contract = useCallback(
     async (plano: PlanCode) => {
@@ -292,7 +293,10 @@ export function AssinaturaScreen() {
   const planChangeBlocked =
     assinante &&
     sub != null &&
-    (uiState !== "active" || !sub.setupPago || sub.invoiceReversal != null);
+    (uiState !== "active" ||
+      !sub.setupPago ||
+      sub.invoiceReversal != null ||
+      hasOutstandingRecovery);
   const pessoas = sub?.pessoas ?? 0;
   const limite = sub?.limite ?? current?.limite ?? null;
   const pct = limite ? Math.min(100, Math.round((pessoas / limite) * 100)) : 0;
@@ -328,6 +332,27 @@ export function AssinaturaScreen() {
         </div>
       ) : null}
 
+      {/* A dívida de um ciclo anterior é uma barreira própria. O ciclo atual
+          pode já estar ativo; ainda assim o link que destrava a igreja precisa
+          permanecer visível e a troca de plano continua bloqueada. */}
+      {sub?.recoveryInvoiceUrl ? (
+        <div className="error-banner" role="alert" style={{ marginBottom: "var(--s4)" }}>
+          <Icon name="alert" />
+          <span>
+            <strong>Regularização anterior pendente.</strong> Conclua essa cobrança
+            para liberar o acesso da igreja.
+          </span>
+          <a
+            className="btn btn-sm btn-primary"
+            href={sub.recoveryInvoiceUrl}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Pagar cobrança de regularização
+          </a>
+        </div>
+      ) : null}
+
       {/* Estado inadimplente: CTA de regularização. Com o link da fatura
           vencida persistido, regularizar é ABRIR a fatura atual — nunca um
           novo checkout, que criaria outra assinatura recorrente no Asaas. */}
@@ -347,16 +372,7 @@ export function AssinaturaScreen() {
             >
               Regularizar pagamento
             </a>
-          ) : sub.recoveryInvoiceUrl ? (
-            <a
-              className="btn btn-sm btn-primary"
-              href={sub.recoveryInvoiceUrl}
-              target="_blank"
-              rel="noreferrer"
-            >
-              Pagar cobrança de regularização
-            </a>
-          ) : sub.invoiceReversal ? (
+          ) : sub.invoiceReversal && !sub.recoveryInvoiceUrl ? (
             // Cobrança estornada/excluída: recuperação ESPECÍFICA — nunca o
             // checkout genérico (criaria outra assinatura recorrente).
             <button

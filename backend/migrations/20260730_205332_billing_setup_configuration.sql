@@ -23,6 +23,11 @@ alter table igrejas
 alter table subscriptions
   add column if not exists asaas_setup_charge_id text null;
 
+-- Tombstone da última cobrança de setup revertida. Sem ele, uma confirmação
+-- atrasada da mesma cobrança legada poderia ser adotada de novo após o estorno.
+alter table subscriptions
+  add column if not exists asaas_setup_reversed_payment_id text null;
+
 -- Taxa congelada na contratação. NULL identifica assinaturas legadas, que
 -- ainda usam o fallback de configuração até uma intenção nova ser criada.
 alter table subscriptions
@@ -366,6 +371,8 @@ comment on column igrejas.setup_fee_override is
   'Taxa de setup específica da igreja definida pelo master. NULL usa billing_settings.setup_fee_default.';
 comment on column subscriptions.asaas_setup_charge_id is
   'ID Asaas da cobrança avulsa de setup, usado para distinguir seu webhook da mensalidade.';
+comment on column subscriptions.asaas_setup_reversed_payment_id is
+  'Último ID Asaas de setup revertido; impede confirmação atrasada de readotar uma cobrança morta.';
 comment on column subscriptions.setup_fee_contracted is
   'Taxa de setup congelada quando a intenção de contratação nasceu; resume nunca relê a configuração atual.';
 comment on column subscriptions.asaas_invoice_url is

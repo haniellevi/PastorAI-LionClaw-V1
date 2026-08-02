@@ -391,6 +391,36 @@ describe("AssinaturaScreen — links do checkout", () => {
     expect(recoverInvoice).not.toHaveBeenCalled();
   });
 
+  it("ciclo atual ativo ainda mostra a regularização anterior que bloqueia acesso", async () => {
+    fetchSubscription.mockResolvedValue({
+      plano: "ate_100",
+      status: "ativa",
+      pessoas: 10,
+      limite: 100,
+      proximaCobranca: null,
+      setupPago: true,
+      invoiceUrl: null,
+      setupInvoiceUrl: null,
+      invoiceReversal: null,
+      recoveryInvoiceUrl: "https://asaas.test/recovery-anterior",
+      setupRecoveryRequired: false,
+      hasTrackedSubscription: true,
+      checkoutRequired: false,
+    });
+
+    act(() => root.render(h(AssinaturaScreen)));
+    await flush();
+
+    const link = [...container.querySelectorAll("a")].find((a) =>
+      a.textContent?.includes("Pagar cobrança de regularização"),
+    );
+    expect(link?.getAttribute("href")).toBe("https://asaas.test/recovery-anterior");
+    expect(container.textContent).toContain("Regularização anterior pendente");
+    expect(container.textContent).not.toContain("Trocar para");
+    expect(createCheckout).not.toHaveBeenCalled();
+    expect(changePlan).not.toHaveBeenCalled();
+  });
+
   it("setup em aberto sem cobrança: 'Gerar nova taxa de setup' emite sem checkout e bloqueia clique duplo", async () => {
     fetchSubscription.mockResolvedValue({
       plano: "ate_100",

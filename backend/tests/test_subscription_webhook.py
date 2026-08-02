@@ -41,6 +41,7 @@ def _sub(**over):
         setup_pago=True,
         asaas_subscription_id="sub_asaas_1",
         asaas_setup_charge_id=None,
+        asaas_setup_reversed_payment_id=None,
         asaas_invoice_payment_id=None,
         asaas_invoice_url=None,
         asaas_invoice_reversal=None,
@@ -720,6 +721,22 @@ def test_legacy_setup_pending_event_does_not_mark_paid(app, monkeypatch) -> None
     assert resp.json() == {"received": True, "status": None}
     assert legada.setup_pago is False
     assert legada.asaas_setup_charge_id is None
+    assert db.commits == 0
+
+
+def test_delayed_legacy_confirmation_cannot_readopt_reversed_setup(
+    app, monkeypatch
+) -> None:
+    legada = _legacy_sub(asaas_setup_reversed_payment_id="pay_leg_1")
+    db = _WebhookDb(sub=None, igreja=_igreja("ativa"), legacy_candidates=[legada])
+    client = _client(app, db, monkeypatch)
+
+    resp = _post(client, "PAYMENT_CONFIRMED", _legacy_payment())
+
+    assert resp.json() == {"received": True, "status": None}
+    assert legada.setup_pago is False
+    assert legada.asaas_setup_charge_id is None
+    assert legada.asaas_setup_reversed_payment_id == "pay_leg_1"
     assert db.commits == 0
 
 
