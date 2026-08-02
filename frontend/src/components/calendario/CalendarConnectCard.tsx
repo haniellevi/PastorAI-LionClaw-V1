@@ -109,11 +109,16 @@ function readFlow(): StoredFlow | null {
   return null;
 }
 
-function writeFlow(flow: StoredFlow): void {
+/** Grava e confirma a leitura. Alguns navegadores aceitam a chamada mas não
+ * persistem quando o armazenamento está bloqueado; sem confirmação não há
+ * posse recuperável e o consentimento não pode começar. */
+function writeFlow(flow: StoredFlow): boolean {
   try {
-    window.localStorage.setItem(FLOW_KEY, JSON.stringify(flow));
+    const serialized = JSON.stringify(flow);
+    window.localStorage.setItem(FLOW_KEY, serialized);
+    return window.localStorage.getItem(FLOW_KEY) === serialized;
   } catch {
-    /* storage indisponível */
+    return false;
   }
 }
 
@@ -208,10 +213,12 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
       setConnected(s.connected);
       setCalendarId(s.calendarId);
       setGoogleAccountEmail(s.googleAccountEmail);
-      setPending(!s.connected && readFlow() !== null);
+      // Um fluxo novo pode coexistir com a conexão ANTIGA enquanto o admin
+      // troca/registra a conta. O status continua connected=true até o finish;
+      // por isso a posse pendente é independente do snapshot do servidor.
+      const pendingFlow = readFlow() !== null;
+      setPending(pendingFlow);
       if (s.connected) {
-        clearFlow();
-        setPending(false);
         await applyCalendars();
       }
     } catch (e) {
@@ -365,7 +372,14 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
         declaredEmail,
       );
       // Grava ANTES de sair da página: é a única chance.
-      writeFlow({ secret: flowSecret, expiresAt });
+      if (!writeFlow({ secret: flowSecret, expiresAt })) {
+        setError(
+          "Este navegador não permitiu guardar a conexão. Libere o armazenamento do site e tente novamente.",
+        );
+        setBusy(false);
+        setRedirecting(false);
+        return;
+      }
       setPending(true);
       startedRef.current = true;
       window.location.href = authUrl; // redireciona ao consentimento do Google
@@ -515,7 +529,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
             <span>Tentar novamente</span>
           </button>
         </div>
-      ) : !connected ? (
+      ) : !connected || pending ? (
         <>
           <p
             className="sub"

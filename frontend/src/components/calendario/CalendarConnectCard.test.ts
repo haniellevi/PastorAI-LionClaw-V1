@@ -196,6 +196,7 @@ afterEach(async () => {
   await act(async () => {
     root?.unmount();
   });
+  vi.restoreAllMocks();
   container.remove();
 });
 
@@ -247,6 +248,25 @@ describe("conta Google declarada", () => {
     expect(storedFlow()).toBeNull();
     expect(text()).toContain("Conexão indisponível");
   });
+
+  it("fail-closed: armazenamento indisponível NÃO redireciona ao Google", async () => {
+    setHash("#integracoes");
+    fetchConnectUrl.mockResolvedValue(START);
+    const setItem = vi
+      .spyOn(Storage.prototype, "setItem")
+      .mockImplementationOnce(() => undefined);
+
+    await render();
+    await typeEmail(EMAIL);
+    await click(button(CTA_CONNECT)!);
+
+    expect(fetchConnectUrl).toHaveBeenCalledTimes(1);
+    expect(hrefWrites).toEqual([]);
+    expect(storedFlow()).toBeNull();
+    expect(button(CTA_FINISH)).toBeUndefined();
+    expect(text()).toContain("não permitiu guardar a conexão");
+    setItem.mockRestore();
+  });
 });
 
 describe("identidade conectada", () => {
@@ -290,6 +310,32 @@ describe("identidade conectada", () => {
 
     await click(button(CTA_SWITCH)!);
     expect(fetchConnectUrl).toHaveBeenCalledWith("tok", OUTRO_EMAIL);
+  });
+
+  it("preserva e revela a troca pendente quando o status ainda mostra a conta antiga", async () => {
+    setHash("#integracoes");
+    fetchCalendarStatus.mockResolvedValue({
+      connected: true,
+      calendarId: "cal@x",
+      googleAccountEmail: EMAIL,
+    });
+    fetchConnectUrl.mockResolvedValue(START);
+
+    await render();
+    await click(button(CTA_SWITCH)!);
+    await typeEmail(OUTRO_EMAIL);
+    await click(button(CTA_SWITCH)!);
+
+    expect(storedFlow()).toEqual({ secret: "novo", expiresAt: START.expiresAt });
+
+    // PWA volta ao primeiro plano antes do finish. O GET ainda descreve a
+    // conta antiga, mas não pode apagar nem esconder o fluxo novo.
+    await foreground();
+
+    expect(storedFlow()).toEqual({ secret: "novo", expiresAt: START.expiresAt });
+    expect(button(CTA_FINISH)).toBeTruthy();
+    expect(text()).toContain("Conclua a conexão");
+    expect(finishConnection).not.toHaveBeenCalled();
   });
 
   it("conexão legada continua conectada e oferece registrar a conta", async () => {
