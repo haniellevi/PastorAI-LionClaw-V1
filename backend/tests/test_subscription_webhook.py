@@ -1483,6 +1483,41 @@ def test_duplicate_old_recovery_reversal_does_not_duplicate_reopened_debt(
     assert len(replacements) == 1
 
 
+def test_deleted_unpaid_old_recovery_reopens_a_payable_intent(app, monkeypatch) -> None:
+    op = _operation(
+        status="created",
+        source_payment_id="pay_m1",
+        asaas_payment_id="pay_rec_unpaid",
+        invoice_url="https://asaas.test/recovery-unpaid",
+    )
+    db = _WebhookDb(
+        sub=_sub(
+            status="ativa",
+            asaas_invoice_payment_id="pay_m9",
+            asaas_invoice_reversal=None,
+        ),
+        igreja=_igreja("inadimplente"),
+        operations=[op],
+    )
+    client = _client(app, db, monkeypatch)
+    payment = _payment(
+        status="DELETED", subscription=None, payment_id="pay_rec_unpaid"
+    )
+
+    resp = _post(client, "PAYMENT_DELETED", payment)
+
+    assert resp.status_code == 200
+    assert op.status == "reversed"
+    replacement = [candidate for candidate in db.operations if candidate is not op]
+    assert len(replacement) == 1
+    assert replacement[0].status == "prepared"
+    assert replacement[0].source_payment_id == "pay_m1"
+    assert replacement[0].valor == op.valor
+    assert db.sub.status == "ativa"
+    assert db.sub.asaas_invoice_reversal is None
+    assert db.igreja.status == "inadimplente"
+
+
 def test_late_confirmation_never_resurrects_reversed_recovery(
     app, monkeypatch
 ) -> None:

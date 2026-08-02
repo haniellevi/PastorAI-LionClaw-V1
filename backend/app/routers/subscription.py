@@ -472,7 +472,10 @@ def _apply_operation_event(
                 .values(status="ativa")
             )
     elif reversal:
-        was_paid = op.status == "paid"
+        # Tanto uma recovery paga depois estornada quanto uma cobrança aberta
+        # depois excluída devolvem a fonte ao estado "sem pagamento possível".
+        # Só a repetição de uma operação já reversed não reabre outra intenção.
+        should_reopen = op.status != "reversed"
         op.status = "reversed"
         op.invoice_url = None
         # A recuperação estornada reabre a dívida da SUA fonte em operação
@@ -480,7 +483,7 @@ def _apply_operation_event(
         # sob a autoridade de `asaas_invoice_payment_id`. A linha da operação é
         # travada por find_operation_for_payment, então repetição concorrente
         # observa `reversed` e não cria outra intenção.
-        if was_paid and op.source_payment_id:
+        if should_reopen and op.source_payment_id:
             # O dinheiro voltou, portanto a dívida da FONTE reaparece mesmo se
             # o ciclo mensal atual já avançou. Registra uma nova intenção
             # durável, ainda sem chamada externa: o dono materializa a cobrança

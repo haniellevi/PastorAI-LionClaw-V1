@@ -97,6 +97,7 @@ def test_target_price_and_limit_are_frozen_from_master_catalog() -> None:
     # Percorre a escada até um plano ativo que comporte o total; não para no
     # degrau intermediário inativo ou já pequeno demais.
     assert "p.limite_pessoas is null or v_total <= p.limite_pessoas" in body
+    assert "p.codigo in ('ate_100', '101_200', 'acima_201')" in body
     assert "order by case p.codigo" in body
     assert "limit 1" in body
 

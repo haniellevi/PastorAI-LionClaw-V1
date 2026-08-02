@@ -268,6 +268,7 @@ begin
       into v_novo_plano, v_novo_preco, v_novo_limite
       from planos p
       where p.ativo is true
+        and p.codigo in ('ate_100', '101_200', 'acima_201')
         and p.preco_mensal is not null
         and (p.limite_pessoas is null or v_total <= p.limite_pessoas)
         and case p.codigo
