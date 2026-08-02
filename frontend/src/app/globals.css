@@ -309,8 +309,11 @@ a {
 }
 
 .login-main {
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s5);
   padding: 44px 40px;
 }
 .login-card {
@@ -324,6 +327,26 @@ a {
   color: var(--muted);
   margin-top: 6px;
   margin-bottom: var(--s5);
+}
+
+.login-legal-links {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s2);
+  width: 100%;
+  max-width: 380px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.login-legal-links a {
+  color: var(--muted);
+  text-underline-offset: 3px;
+}
+
+.login-legal-links a:hover {
+  color: var(--accent);
 }
 
 /* ---------- FORM-FIELD ---------- */
