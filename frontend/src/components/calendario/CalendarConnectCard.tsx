@@ -580,7 +580,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
             <span>Tentar novamente</span>
           </button>
         </div>
-      ) : !connected || pending ? (
+      ) : recoverable || !connected || pending ? (
         <>
           <p
             className="sub"

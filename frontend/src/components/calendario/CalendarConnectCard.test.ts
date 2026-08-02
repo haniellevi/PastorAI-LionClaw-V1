@@ -654,6 +654,23 @@ describe("cancelled", () => {
     expect(text()).not.toContain("Abrindo o Google…");
   });
 
+  it("mostra cancelamento e reinício mesmo com a conta anterior conectada", async () => {
+    setHash("#integracoes/callback/cancelled");
+    seedFlow("segredo");
+    fetchCalendarStatus.mockResolvedValue({
+      connected: true,
+      calendarId: "cal@x",
+      googleAccountEmail: EMAIL,
+    });
+
+    await render();
+
+    expect(text()).toContain("cancelada");
+    expect(button(CTA_RESTART)).toBeTruthy();
+    expect(button(CTA_FINISH)).toBeUndefined();
+    expect(storedFlow()?.secret).toBe("segredo");
+  });
+
   it("reiniciar depois de cancelar exige declarar a conta de novo", async () => {
     setHash("#integracoes/callback/cancelled");
     seedFlow("segredo-velho");
