@@ -45,6 +45,8 @@ export interface Subscription {
   invoiceReversal: "deleted" | "refunded" | null;
   /** Link da cobrança avulsa de recuperação mensal, quando emitida. */
   recoveryInvoiceUrl: string | null;
+  /** Dívida de recuperação aberta, inclusive antes de existir link pagável. */
+  recoveryRequired: boolean;
   /** Setup devido sem link pagável: a UI oferece gerar nova taxa. */
   setupRecoveryRequired: boolean;
   /**

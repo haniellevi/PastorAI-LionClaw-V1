@@ -172,7 +172,9 @@ export function AssinaturaScreen() {
   }, [load]);
 
   const uiState = useMemo(() => subscriptionUiState(sub), [sub]);
-  const hasOutstandingRecovery = Boolean(sub?.recoveryInvoiceUrl);
+  const hasOutstandingRecovery = Boolean(
+    sub?.recoveryInvoiceUrl || sub?.recoveryRequired,
+  );
 
   const contract = useCallback(
     async (plano: PlanCode) => {
@@ -335,21 +337,33 @@ export function AssinaturaScreen() {
       {/* A dívida de um ciclo anterior é uma barreira própria. O ciclo atual
           pode já estar ativo; ainda assim o link que destrava a igreja precisa
           permanecer visível e a troca de plano continua bloqueada. */}
-      {sub?.recoveryInvoiceUrl ? (
+      {hasOutstandingRecovery && sub ? (
         <div className="error-banner" role="alert" style={{ marginBottom: "var(--s4)" }}>
           <Icon name="alert" />
           <span>
             <strong>Regularização anterior pendente.</strong> Conclua essa cobrança
             para liberar o acesso da igreja.
           </span>
-          <a
-            className="btn btn-sm btn-primary"
-            href={sub.recoveryInvoiceUrl}
-            target="_blank"
-            rel="noreferrer"
-          >
-            Pagar cobrança de regularização
-          </a>
+          {sub.recoveryInvoiceUrl ? (
+            <a
+              className="btn btn-sm btn-primary"
+              href={sub.recoveryInvoiceUrl}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Pagar cobrança de regularização
+            </a>
+          ) : (
+            <button
+              type="button"
+              className="btn btn-sm btn-primary"
+              onClick={() => void recoverReversedInvoice()}
+              disabled={recovering != null}
+              aria-busy={recovering === "invoice" || undefined}
+            >
+              {recovering === "invoice" ? "Preparando…" : "Gerar cobrança de regularização"}
+            </button>
+          )}
         </div>
       ) : null}
 
@@ -372,7 +386,7 @@ export function AssinaturaScreen() {
             >
               Regularizar pagamento
             </a>
-          ) : sub.invoiceReversal && !sub.recoveryInvoiceUrl ? (
+          ) : sub.invoiceReversal && !hasOutstandingRecovery ? (
             // Cobrança estornada/excluída: recuperação ESPECÍFICA — nunca o
             // checkout genérico (criaria outra assinatura recorrente).
             <button

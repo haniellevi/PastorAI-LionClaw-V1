@@ -870,6 +870,40 @@ def test_recover_invoice_rejects_when_not_reversed(app) -> None:
     assert resp.status_code == 422
 
 
+def test_recover_invoice_materializes_reopened_debt_from_an_older_cycle(app) -> None:
+    from app.db.models import BillingPaymentOperation
+
+    reopened = BillingPaymentOperation(
+        subscription_id="00000000-0000-0000-0000-00000000su01",
+        purpose="monthly_recovery",
+        operation_key="pastorai-monthly_recovery-reopened-a",
+        status="prepared",
+        valor=149.0,
+        source_payment_id="pay_m1",
+    )
+    sub = _subscription(
+        status="ativa",
+        asaas_invoice_payment_id="pay_m2",
+        asaas_invoice_reversal=None,
+    )
+    asaas = _RecoveryChargeAsaas()
+    client, _db = _client(
+        app,
+        planos=[],
+        asaas=asaas,
+        subscription=sub,
+        operations=[reopened],
+    )
+
+    resp = client.post("/subscription/recover-invoice", headers=_AUTH)
+
+    assert resp.status_code == 200
+    assert resp.json()["recoveryInvoiceUrl"] == "https://asaas.test/recovery"
+    assert asaas.posts == 1
+    assert reopened.source_payment_id == "pay_m1"
+    assert float(reopened.valor) == 149.0
+
+
 def test_setup_charge_action_emits_via_operation_once(app) -> None:
     # Setup revertido de assinante ativo: a ação explícita reemite a taxa como
     # cobrança avulsa — nunca passa pelo checkout nem cria assinatura.
@@ -1011,6 +1045,7 @@ def test_get_subscription_exposes_recovery_url_and_setup_flag(app) -> None:
     assert resp.status_code == 200
     body = resp.json()
     assert body["recoveryInvoiceUrl"] == "https://asaas.test/recovery"
+    assert body["recoveryRequired"] is True
     assert body["invoiceReversal"] == "refunded"
     # Setup devido, sem link pagável e com assinatura criada => a UI oferece
     # "Gerar nova taxa de setup".
@@ -1056,6 +1091,38 @@ def test_get_subscription_keeps_older_recovery_visible_as_a_real_debt(app) -> No
     assert resp.status_code == 200
     assert resp.json()["recoveryInvoiceUrl"] == "https://asaas.test/recovery-a"
     assert resp.json()["invoiceReversal"] == "refunded"
+
+
+def test_get_subscription_exposes_reopened_debt_before_it_has_a_link(app) -> None:
+    from app.db.models import BillingPaymentOperation
+
+    reopened = BillingPaymentOperation(
+        subscription_id="00000000-0000-0000-0000-00000000su01",
+        purpose="monthly_recovery",
+        operation_key="pastorai-monthly_recovery-reopened-a",
+        status="prepared",
+        valor=199.0,
+        source_payment_id="pay_m1",
+        invoice_url=None,
+    )
+    sub = _subscription(
+        status="ativa",
+        asaas_invoice_payment_id="pay_m2",
+        asaas_invoice_reversal=None,
+    )
+    client, _db = _client(
+        app,
+        planos=[],
+        asaas=_RecoveryAsaas(),
+        subscription=sub,
+        operations=[reopened],
+    )
+
+    resp = client.get("/subscription", headers=_AUTH)
+
+    assert resp.status_code == 200
+    assert resp.json()["recoveryRequired"] is True
+    assert resp.json()["recoveryInvoiceUrl"] is None
 
 
 @pytest.mark.parametrize("sub_status", [None, "pendente", "ativa", "inadimplente"])

@@ -262,25 +262,34 @@ begin
   update subscriptions set pessoas = v_total where igreja_id = new.igreja_id;
 
   if v_sub.limite is not null and v_total > v_sub.limite then
-    -- promove plano em escada
-    if v_sub.plano = 'ate_100' then
-      v_novo_plano := '101_200';
-    elsif v_sub.plano = '101_200' then
-      v_novo_plano := 'acima_201';
-    else
-      v_novo_plano := v_sub.plano;
-      v_novo_limite := v_sub.limite;
-    end if;
+    -- Primeiro degrau ATIVO acima do atual que comporte o porte. Um degrau
+    -- inativo ou com limite já ultrapassado não pode interromper a escada.
+    select p.codigo, p.preco_mensal, p.limite_pessoas
+      into v_novo_plano, v_novo_preco, v_novo_limite
+      from planos p
+      where p.ativo is true
+        and p.preco_mensal is not null
+        and (p.limite_pessoas is null or v_total <= p.limite_pessoas)
+        and case p.codigo
+              when 'ate_100' then 1
+              when '101_200' then 2
+              when 'acima_201' then 3
+              else 999
+            end > case v_sub.plano
+              when 'ate_100' then 1
+              when '101_200' then 2
+              when 'acima_201' then 3
+              else 999
+            end
+      order by case p.codigo
+        when 'ate_100' then 1
+        when '101_200' then 2
+        when 'acima_201' then 3
+        else 999
+      end
+      limit 1;
 
-    if v_novo_plano <> v_sub.plano then
-      -- Preço E limite vêm da mesma fotografia do catálogo do master. Nunca
-      -- congelar thresholds hardcoded: o master pode editar o porte de cada
-      -- degrau, e o worker precisa receber exatamente esse limite.
-      select p.preco_mensal, p.limite_pessoas
-        into v_novo_preco, v_novo_limite
-        from planos p
-        where p.codigo = v_novo_plano
-          and p.ativo is true;
+    if v_novo_plano is not null then
 
       -- Plano fora do catálogo não gera promoção nem operação. O gatilho
       -- reavalia na próxima mutação de pessoas.

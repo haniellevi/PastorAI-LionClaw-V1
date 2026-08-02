@@ -29,6 +29,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db.models import (
+    BillingPaymentOperation,
     Igreja,
     Plano,
     Subscription,
@@ -98,6 +99,9 @@ class SubscriptionOut(BaseModel):
     invoiceReversal: str | None = None  # noqa: N815
     # Link da cobrança avulsa de recuperação mensal, quando emitida.
     recoveryInvoiceUrl: str | None = None  # noqa: N815
+    # Há dívida de recuperação aberta, mesmo antes de a cobrança substituta
+    # ganhar URL. A UI oferece a ação explícita que a materializa/reconcilia.
+    recoveryRequired: bool = False  # noqa: N815
     # Setup em aberto SEM link pagável, com assinatura já criada: a UI oferece
     # "Gerar nova taxa de setup" (operação durável — nunca outra assinatura).
     setupRecoveryRequired: bool = False  # noqa: N815
@@ -112,7 +116,11 @@ class SubscriptionOut(BaseModel):
 
     @classmethod
     def from_model(
-        cls, s: Subscription, *, recovery_invoice_url: str | None = None
+        cls,
+        s: Subscription,
+        *,
+        recovery_invoice_url: str | None = None,
+        recovery_required: bool = False,
     ) -> "SubscriptionOut":
         rastreada = bool(
             s.asaas_subscription_id and s.asaas_subscription_id != "sandbox"
@@ -139,6 +147,7 @@ class SubscriptionOut(BaseModel):
             setupInvoiceUrl=s.asaas_setup_invoice_url if not s.setup_pago else None,
             invoiceReversal=s.asaas_invoice_reversal,
             recoveryInvoiceUrl=recovery_invoice_url,
+            recoveryRequired=recovery_required,
             setupRecoveryRequired=bool(
                 not s.setup_pago
                 and s.asaas_setup_invoice_url is None
@@ -466,26 +475,36 @@ def _apply_operation_event(
         was_paid = op.status == "paid"
         op.status = "reversed"
         op.invoice_url = None
-        # AUTORIDADE: a recuperação estornada só derruba o acesso se ela cobre
-        # a mensalidade ATUALMENTE rastreada (source_payment_id) — o estorno
-        # atrasado de uma recovery de ciclo antigo não toca uma recuperação
-        # posterior já quitada. Idempotente: a repetição chega com a operação
-        # já `reversed` (was_paid=False) e não re-derruba nada.
-        if (
-            was_paid
-            and op.source_payment_id
-            and str(op.source_payment_id) == str(sub.asaas_invoice_payment_id)
-        ):
-            sub.status = "inadimplente"
-            # O dinheiro da recuperação voltou: a dívida reaparece como
-            # 'refunded' (a nova recuperação é sempre outra cobrança avulsa —
-            # nunca o restore da recovery morta).
-            sub.asaas_invoice_reversal = "refunded"
+        # A recuperação estornada reabre a dívida da SUA fonte em operação
+        # separada, mesmo se o ciclo avançou. Só o snapshot mensal corrente fica
+        # sob a autoridade de `asaas_invoice_payment_id`. A linha da operação é
+        # travada por find_operation_for_payment, então repetição concorrente
+        # observa `reversed` e não cria outra intenção.
+        if was_paid and op.source_payment_id:
+            # O dinheiro voltou, portanto a dívida da FONTE reaparece mesmo se
+            # o ciclo mensal atual já avançou. Registra uma nova intenção
+            # durável, ainda sem chamada externa: o dono materializa a cobrança
+            # explicitamente em /recover-invoice.
+            db.add(
+                BillingPaymentOperation(
+                    subscription_id=sub.id,
+                    purpose="monthly_recovery",
+                    operation_key=f"pastorai-monthly_recovery-{uuid.uuid4()}",
+                    source_payment_id=str(op.source_payment_id),
+                    status="prepared",
+                    valor=op.valor,
+                )
+            )
             db.execute(
                 update(Igreja)
                 .where(Igreja.id == sub.igreja_id, Igreja.status == "ativa")
                 .values(status="inadimplente")
             )
+            if str(op.source_payment_id) == str(sub.asaas_invoice_payment_id):
+                sub.status = "inadimplente"
+                # Só a fonte corrente ocupa o snapshot corrente; a dívida de
+                # ciclo antigo vive na operação preparada acima.
+                sub.asaas_invoice_reversal = "refunded"
     db.commit()
     return WebhookResponse(received=True, status=new_status)
 
@@ -585,7 +604,11 @@ def get_subscription(
     recovery_op = find_any_open_operation(db, sub.id, "monthly_recovery")
     if recovery_op is not None:
         recovery_url = recovery_op.invoice_url
-    return SubscriptionOut.from_model(sub, recovery_invoice_url=recovery_url)
+    return SubscriptionOut.from_model(
+        sub,
+        recovery_invoice_url=recovery_url,
+        recovery_required=recovery_op is not None,
+    )
 
 
 def _ensure_setup_charge(
@@ -1037,13 +1060,30 @@ def recover_invoice(
     ).scalar_one_or_none()
     if sub is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assinatura não encontrada")
-    if not sub.asaas_invoice_reversal:
+    # Se o ciclo CORRENTE está revertido, sua fonte tem precedência absoluta:
+    # uma dívida antiga aberta não pode capturar a ação destinada ao ciclo novo.
+    # Sem reversão corrente, a ação materializa a dívida antiga reaberta.
+    open_recovery = (
+        find_open_operation(
+            db,
+            sub.id,
+            "monthly_recovery",
+            sub.asaas_invoice_payment_id,
+        )
+        if sub.asaas_invoice_reversal
+        else find_any_open_operation(db, sub.id, "monthly_recovery")
+    )
+    if not sub.asaas_invoice_reversal and open_recovery is None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="A cobrança mensal atual não está revertida",
         )
 
-    if sub.asaas_invoice_reversal == "deleted" and sub.asaas_invoice_payment_id:
+    if (
+        open_recovery is None
+        and sub.asaas_invoice_reversal == "deleted"
+        and sub.asaas_invoice_payment_id
+    ):
         try:
             current = asaas.get_payment(sub.asaas_invoice_payment_id)
             if current is not None and current.get("deleted"):
@@ -1076,7 +1116,16 @@ def recover_invoice(
     # Valor da recuperação = o CONTRATADO desta assinatura, nunca o preço
     # atual do catálogo: um plano desativado pelo master (grandfathering) não
     # pode bloquear a recuperação (422) nem reajustar o assinante por fora.
-    valor = _monthly_recovery_amount(sub, asaas)
+    valor = (
+        float(open_recovery.valor)
+        if open_recovery is not None
+        else _monthly_recovery_amount(sub, asaas)
+    )
+    source_payment_id = (
+        open_recovery.source_payment_id
+        if open_recovery is not None
+        else sub.asaas_invoice_payment_id
+    )
     try:
         op = ensure_payment_operation(
             db,
@@ -1086,7 +1135,7 @@ def recover_invoice(
             valor=valor,
             description=MONTHLY_RECOVERY_DESCRIPTION,
             customer_id=sub.asaas_customer_id,
-            source_payment_id=sub.asaas_invoice_payment_id,
+            source_payment_id=source_payment_id,
         )
     except AsaasError as exc:
         raise HTTPException(

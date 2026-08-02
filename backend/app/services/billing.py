@@ -257,15 +257,17 @@ def find_operation_for_payment(
         op = db.execute(
             select(BillingPaymentOperation).where(
                 BillingPaymentOperation.asaas_payment_id == payment_id
-            )
+            ).with_for_update()
         ).scalar_one_or_none()
         if op is not None:
             return op
     if external_reference:
         return db.execute(
-            select(BillingPaymentOperation).where(
+            select(BillingPaymentOperation)
+            .where(
                 BillingPaymentOperation.operation_key == str(external_reference)
             )
+            .with_for_update()
         ).scalar_one_or_none()
     return None
 

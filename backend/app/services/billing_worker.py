@@ -352,13 +352,16 @@ def _next_ladder_target(db: Session, sub: Subscription) -> Plano | None:
     idx = plan_rank(sub.plano)
     if idx < 0 or idx + 1 >= len(PLAN_ORDER):
         return None
-    proximo = PLAN_ORDER[idx + 1]
-    plano_row = db.execute(
-        select(Plano).where(Plano.codigo == proximo, Plano.ativo.is_(True))
-    ).scalar_one_or_none()
-    if plano_row is None or plano_row.preco_mensal is None:
-        return None
-    return plano_row
+    for proximo in PLAN_ORDER[idx + 1 :]:
+        plano_row = db.execute(
+            select(Plano).where(Plano.codigo == proximo, Plano.ativo.is_(True))
+        ).scalar_one_or_none()
+        if plano_row is None or plano_row.preco_mensal is None:
+            continue
+        alvo_limite = plano_row.limite_pessoas
+        if alvo_limite is None or pessoas <= int(alvo_limite):
+            return plano_row
+    return None
 
 
 def queue_autoupgrade_if_over_limit(db: Session, sub: Subscription) -> bool:

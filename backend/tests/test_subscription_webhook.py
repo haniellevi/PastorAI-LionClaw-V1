@@ -99,6 +99,9 @@ class _WebhookDb:
         self.subscription_create_ops = subscription_create_ops or []
         self.commits = 0
 
+    def add(self, obj) -> None:
+        self.operations.append(obj)
+
     def execute(self, statement, params=None) -> _Result:
         bound = statement.compile().params
         descriptions = getattr(statement, "column_descriptions", None)
@@ -904,7 +907,7 @@ def test_payment_of_the_current_source_recovery_settles_and_reactivates(
     assert db.igreja.status == "ativa"
 
 
-def test_reversal_of_an_older_recovery_never_touches_the_current_cycle(
+def test_reversal_of_an_older_recovery_reopens_its_debt_without_rewriting_current_cycle(
     app, monkeypatch
 ) -> None:
     # Simetria: o estorno de uma recovery paga de ciclo antigo reabre só a
@@ -933,7 +936,12 @@ def test_reversal_of_an_older_recovery_never_touches_the_current_cycle(
     assert op_a.status == "reversed"
     assert db.sub.status == "ativa"
     assert db.sub.asaas_invoice_reversal is None
-    assert db.igreja.status == "ativa"
+    assert db.igreja.status == "inadimplente"
+    replacement = [o for o in db.operations if o is not op_a]
+    assert len(replacement) == 1
+    assert replacement[0].status == "prepared"
+    assert replacement[0].source_payment_id == "pay_m1"
+    assert replacement[0].valor == op_a.valor
 
 
 def test_setup_operation_resolved_by_operation_key_marks_paid(app, monkeypatch) -> None:
@@ -1444,9 +1452,11 @@ def test_recovery_reversal_after_paid_drops_access_and_reexposes_debt(
     assert db.igreja.status == "ativa"  # intocada na repetição
 
 
-def test_stale_recovery_reversal_does_not_drop_newer_cycle(app, monkeypatch) -> None:
-    # Recovery ANTIGA (cobria pay_m1) estornada com atraso: a assinatura já
-    # avançou de ciclo (pay_m9 corrente) — o acesso NÃO cai.
+def test_duplicate_old_recovery_reversal_does_not_duplicate_reopened_debt(
+    app, monkeypatch
+) -> None:
+    # Recovery ANTIGA estornada: a dívida reabre uma vez, sem reescrever o
+    # snapshot corrente e sem duplicar a intenção no webhook repetido.
     op = _operation(status="paid", source_payment_id="pay_m1")
     db = _WebhookDb(
         sub=_sub(
@@ -1461,12 +1471,16 @@ def test_stale_recovery_reversal_does_not_drop_newer_cycle(app, monkeypatch) -> 
     payment = _payment(status="REFUNDED", subscription=None, payment_id="pay_rec_1")
 
     resp = _post(client, "PAYMENT_REFUNDED", payment)
+    resp2 = _post(client, "PAYMENT_REFUNDED", payment)
 
     assert resp.status_code == 200
+    assert resp2.status_code == 200
     assert op.status == "reversed"  # a operação antiga é sempre marcada
     assert db.sub.status == "ativa"  # ciclo novo intocado
     assert db.sub.asaas_invoice_reversal is None
-    assert db.igreja.status == "ativa"
+    assert db.igreja.status == "inadimplente"
+    replacements = [o for o in db.operations if o is not op]
+    assert len(replacements) == 1
 
 
 def test_late_confirmation_never_resurrects_reversed_recovery(

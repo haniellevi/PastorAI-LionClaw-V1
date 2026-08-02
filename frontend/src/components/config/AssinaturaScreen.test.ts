@@ -403,6 +403,7 @@ describe("AssinaturaScreen — links do checkout", () => {
       setupInvoiceUrl: null,
       invoiceReversal: null,
       recoveryInvoiceUrl: "https://asaas.test/recovery-anterior",
+      recoveryRequired: true,
       setupRecoveryRequired: false,
       hasTrackedSubscription: true,
       checkoutRequired: false,
@@ -419,6 +420,43 @@ describe("AssinaturaScreen — links do checkout", () => {
     expect(container.textContent).not.toContain("Trocar para");
     expect(createCheckout).not.toHaveBeenCalled();
     expect(changePlan).not.toHaveBeenCalled();
+  });
+
+  it("dívida antiga reaberta sem link oferece gerar a cobrança explicitamente", async () => {
+    fetchSubscription.mockResolvedValue({
+      plano: "ate_100",
+      status: "ativa",
+      pessoas: 10,
+      limite: 100,
+      proximaCobranca: null,
+      setupPago: true,
+      invoiceUrl: null,
+      setupInvoiceUrl: null,
+      invoiceReversal: null,
+      recoveryInvoiceUrl: null,
+      recoveryRequired: true,
+      setupRecoveryRequired: false,
+      hasTrackedSubscription: true,
+      checkoutRequired: false,
+    });
+    recoverInvoice.mockResolvedValue({
+      status: "ativa",
+      invoiceUrl: null,
+      recoveryInvoiceUrl: "https://asaas.test/recovery-reemitida",
+      setupInvoiceUrl: null,
+    });
+
+    act(() => root.render(h(AssinaturaScreen)));
+    await flush();
+    const action = [...container.querySelectorAll("button")].find((b) =>
+      b.textContent?.includes("Gerar cobrança de regularização"),
+    );
+    expect(action).toBeDefined();
+    act(() => action!.click());
+    await flush();
+
+    expect(recoverInvoice).toHaveBeenCalledWith("tenant-token");
+    expect(createCheckout).not.toHaveBeenCalled();
   });
 
   it("setup em aberto sem cobrança: 'Gerar nova taxa de setup' emite sem checkout e bloqueia clique duplo", async () => {
