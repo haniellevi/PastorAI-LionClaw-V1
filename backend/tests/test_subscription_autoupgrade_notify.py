@@ -243,6 +243,31 @@ def test_first_call_notifies_and_reserves_marker() -> None:
     assert (_IGREJA, evento) in session.reserved_markers
 
 
+def test_retry_uses_frozen_target_in_message_and_markers() -> None:
+    """Assinatura já avançou, mas o aviso pertence ao degrau concluído."""
+    admin = _admin(_IGREJA)
+    session = FakeSubscriptionSession(
+        subscription=Subscription(igreja_id=_IGREJA, plano="acima_201"),
+        connection=WhatsappConnection(igreja_id=_IGREJA, instance="igreja-1"),
+        **admin,
+    )
+    evo = FakeEvolution()
+
+    result = notify_autoupgrade(
+        session, _IGREJA, evo, plano="101_200"
+    )
+
+    assert result == "sent"
+    assert "'101_200'" in evo.sent[0][2]
+    assert "'acima_201'" not in evo.sent[0][2]
+    assert (_IGREJA, _autoupgrade_event_name("101_200")) in session.reserved_markers
+    assert (
+        _IGREJA,
+        _autoupgrade_sent_event_name("101_200"),
+    ) in session.reserved_markers
+    assert (_IGREJA, _autoupgrade_event_name("acima_201")) not in session.reserved_markers
+
+
 def test_second_call_is_idempotent_no_resend() -> None:
     # Entrega COMPROVADA anteriormente = marcador :sent (não a mera reserva).
     evento_sent = _autoupgrade_sent_event_name("comunidade")

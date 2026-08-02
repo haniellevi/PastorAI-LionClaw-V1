@@ -108,7 +108,11 @@ def _autoupgrade_sent_event_name(plano: str) -> str:
 
 
 def notify_autoupgrade(
-    db: Session, igreja_id: uuid.UUID, evolution: EvolutionClient
+    db: Session,
+    igreja_id: uuid.UUID,
+    evolution: EvolutionClient,
+    *,
+    plano: str | None = None,
 ) -> str:
     """Notify the admin once when the plan was promoted by the autoupgrade flow.
 
@@ -150,12 +154,17 @@ def notify_autoupgrade(
     if sub is None:
         return "skipped"
 
+    # O worker passa o alvo congelado da operação. O fallback mantém a chamada
+    # direta legada, mas retry de uma operação nunca deriva do plano corrente:
+    # ele pode já ter avançado para outro degrau no mesmo tick.
+    target_plano = plano or sub.plano
+
     # Only notify when there is an upgrade marker to record beyond the base tier.
-    if sub.plano == "ate_100":
+    if target_plano == "ate_100":
         return "skipped"
 
-    evento = _autoupgrade_event_name(sub.plano)
-    evento_sent = _autoupgrade_sent_event_name(sub.plano)
+    evento = _autoupgrade_event_name(target_plano)
+    evento_sent = _autoupgrade_sent_event_name(target_plano)
 
     # ENTREGA já comprovada? (marcador :sent) — nunca reenvia.
     delivered = db.execute(
@@ -193,7 +202,7 @@ def notify_autoupgrade(
     phones = _admin_phones(db, igreja_id)
 
     marker = reserve_agent_event(
-        db, igreja_id=igreja_id, evento=evento, payload={"plano": sub.plano}
+        db, igreja_id=igreja_id, evento=evento, payload={"plano": target_plano}
     )
     if marker is None:
         # Perdeu a corrida AGORA: outro processo acabou de reservar.
@@ -201,7 +210,7 @@ def notify_autoupgrade(
 
     texto = (
         "Aviso de assinatura: seu plano foi atualizado automaticamente para "
-        f"'{sub.plano}' por aumento do número de pessoas. 🙏"
+        f"'{target_plano}' por aumento do número de pessoas. 🙏"
     )
     attempted = False
     sent_any = False
@@ -228,7 +237,10 @@ def notify_autoupgrade(
     # ENTREGA comprovada: o marcador :sent é a prova durável (idempotente
     # pelo índice único — um segundo processo não o duplica).
     reserve_agent_event(
-        db, igreja_id=igreja_id, evento=evento_sent, payload={"plano": sub.plano}
+        db,
+        igreja_id=igreja_id,
+        evento=evento_sent,
+        payload={"plano": target_plano},
     )
     return "sent"
 
@@ -250,7 +262,9 @@ def _deliver_upgrade_notification(
     if op.notify_status != "pending":
         return False
     try:
-        outcome = notify_autoupgrade(db, igreja_id, evolution)
+        outcome = notify_autoupgrade(
+            db, igreja_id, evolution, plano=op.to_plano
+        )
     except Exception:  # noqa: BLE001 - notificação nunca reverte billing
         logger.exception("Autoupgrade notification failed for igreja %s", igreja_id)
         return False  # segue 'pending': redescoberta no próximo tick

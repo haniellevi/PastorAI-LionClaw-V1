@@ -177,7 +177,8 @@ def _spy_notify(monkeypatch, outcome: str = "sent") -> list:
     monkeypatch.setattr(
         billing_worker,
         "notify_autoupgrade",
-        lambda db, igreja_id, evolution: calls.append(igreja_id) or outcome,
+        lambda db, igreja_id, evolution, *, plano=None: calls.append(igreja_id)
+        or outcome,
     )
     return calls
 
@@ -482,7 +483,7 @@ def test_notification_crash_keeps_pending_for_next_tick(monkeypatch) -> None:
     op = _op(status="completed")
     sub = _sub(plano="101_200", limite=200)
 
-    def _boom(db, igreja_id, evolution):
+    def _boom(db, igreja_id, evolution, *, plano=None):
         raise RuntimeError("evolution indisponível")
 
     monkeypatch.setattr(billing_worker, "notify_autoupgrade", _boom)
@@ -501,6 +502,37 @@ def test_notification_crash_keeps_pending_for_next_tick(monkeypatch) -> None:
     assert op.status == "completed"  # financeiro intacto
     assert op.notify_status == "pending"  # descobrível no próximo tick
     assert tick.closed is True
+
+
+def test_retried_notification_uses_the_completed_operation_target(
+    monkeypatch,
+) -> None:
+    """O plano corrente pode já estar um degrau à frente do aviso pendente."""
+    op = _op(status="completed", to_plano="101_200", notify_status="pending")
+    sub = _sub(plano="acima_201", limite=None)
+    seen: list[tuple[uuid.UUID, str | None]] = []
+
+    def _notify(db, igreja_id, evolution, *, plano=None):
+        seen.append((igreja_id, plano))
+        return "sent"
+
+    monkeypatch.setattr(billing_worker, "notify_autoupgrade", _notify)
+    tick = _WorkerSession(
+        subscription=sub,
+        igreja=SimpleNamespace(id=_IGREJA_A, plano="acima_201"),
+        plan_changes=[op],
+    )
+
+    completed = run_pending_plan_changes(
+        _Discovery([(op, _IGREJA_A)]),
+        session_factory=_factory_queue([tick]),
+        asaas=_WorkerAsaas(),
+        evolution=object(),
+    )
+
+    assert completed == 0
+    assert seen == [(_IGREJA_A, "101_200")]
+    assert op.notify_status == "sent"
 
 
 # ---------------------------------------------------------------------------
