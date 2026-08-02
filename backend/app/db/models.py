@@ -1195,6 +1195,11 @@ class Subscription(Base):
     setup_pago: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false")
     )
+    # Taxa vigente quando a contratação durável nasceu. Resume/reconciliação
+    # nunca reprecificam o contrato a partir da configuração atual do master.
+    setup_fee_contracted: Mapped[float | None] = mapped_column(
+        Numeric(10, 2), nullable=True
+    )
 
 
 class BillingPaymentOperation(Base):
@@ -1229,6 +1234,11 @@ class BillingPaymentOperation(Base):
     invoice_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Registro da rejeição DEFINITIVA que fechou a operação como `failed`.
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Lease do POST /payments: permite recuperar um claim abandonado somente
+    # depois de reconciliar por externalReference e esperar a tentativa morrer.
+    attempt_started_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
@@ -1323,6 +1333,8 @@ class BillingSubscriptionOperation(Base):
         Text, nullable=False, server_default=text("'MONTHLY'")
     )
     descricao: Mapped[str] = mapped_column(Text, nullable=False)
+    # Taxa de setup congelada junto do alvo da contratação.
+    setup_fee: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
     asaas_subscription_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     # prepared | creating | reconciling | created | failed | superseded
     # `superseded` = intenção `prepared` (sem POST remoto) trocada por outro
@@ -1331,6 +1343,11 @@ class BillingSubscriptionOperation(Base):
         Text, nullable=False, server_default=text("'prepared'")
     )
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Lease do POST /subscriptions; zero matches só volta a prepared depois
+    # deste prazo, quando não existe mais request HTTP possivelmente em voo.
+    attempt_started_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )

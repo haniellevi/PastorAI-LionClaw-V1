@@ -5,6 +5,7 @@ limite — não mais os dicts hardcoded que existiam em app/domain/billing.py.
 
 from __future__ import annotations
 
+import datetime as dt
 from types import SimpleNamespace
 
 import pytest
@@ -23,6 +24,7 @@ from app.services.asaas import (
     CheckoutResult,
     get_asaas_client,
 )
+from app.services.billing import CREATE_ATTEMPT_LEASE
 from app.services.clerk import get_clerk_client
 from tests.conftest import FakeClerk, FakeSession, make_app_user
 
@@ -279,6 +281,33 @@ def test_zero_church_setup_override_skips_the_setup_charge(app) -> None:
     assert db.added[0].asaas_setup_charge_id is None
     assert db.added[0].asaas_setup_invoice_url is None
     assert db.added[0].asaas_invoice_url == "https://asaas.test/monthly"
+
+
+def test_new_contract_does_not_recharge_setup_already_paid(app) -> None:
+    asaas = _FakeAsaas()
+    sub = _subscription(
+        asaas_subscription_id=None,
+        asaas_setup_charge_id=None,
+        setup_pago=True,
+    )
+    client, db = _client(
+        app,
+        planos=[_plano()],
+        asaas=asaas,
+        setup_fee_default=59.9,
+        subscription=sub,
+    )
+
+    response = client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    )
+
+    assert response.status_code == 200
+    assert asaas.charge_calls == []
+    op = next(o for o in db.added if isinstance(o, BillingSubscriptionOperation))
+    assert float(op.setup_fee) == 0.0
+    assert float(sub.setup_fee_contracted) == 0.0
+    assert sub.setup_pago is True
 
 
 # ---------------------------------------------------------------------------
@@ -1338,6 +1367,7 @@ class _LostResponseAsaas:
     def __init__(self) -> None:
         self.create_calls = 0
         self.find_calls = 0
+        self.charge_calls: list[dict] = []
         self.found: list[dict] = []
 
     def create_checkout(self, **kwargs):
@@ -1349,6 +1379,16 @@ class _LostResponseAsaas:
         self.find_calls += 1
         assert ref.startswith("pastorai-subcreate-")
         return list(self.found)
+
+    def find_payments_by_external_reference(self, ref: str) -> list[dict]:
+        return []
+
+    def create_one_time_charge(self, **kwargs):
+        self.charge_calls.append(dict(kwargs))
+        return {
+            "id": "pay_setup_frozen",
+            "invoiceUrl": "https://asaas.test/setup-frozen",
+        }
 
     def get_subscription_payment(self, subscription_id: str):
         return {
@@ -1425,6 +1465,117 @@ def test_checkout_reconcile_zero_matches_stays_reconciling_without_post(app) -> 
     assert op.status == "reconciling"
     created_sub = next(o for o in db.added if isinstance(o, Subscription))
     assert created_sub.asaas_subscription_id is None
+
+
+def test_adoption_uses_the_setup_fee_frozen_before_the_lost_response(app) -> None:
+    asaas = _LostResponseAsaas()
+    client, db = _client(
+        app,
+        planos=[_plano()],
+        asaas=asaas,
+        setup_fee_default=59.9,
+    )
+
+    assert client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    ).status_code == 502
+    op = next(o for o in db.added if isinstance(o, BillingSubscriptionOperation))
+    created_sub = next(o for o in db.added if isinstance(o, Subscription))
+    assert float(op.setup_fee) == 59.9
+    assert float(created_sub.setup_fee_contracted) == 59.9
+
+    _adopt_created_sub(db)
+    db.billing_settings.setup_fee_default = 0.0
+    asaas.found = [{
+        "id": "sub_asaas_frozen",
+        "customer": "cus_1",
+        "value": 199.0,
+        "cycle": "MONTHLY",
+        "description": "PastorAI — plano ate_100",
+    }]
+
+    response = client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    )
+
+    assert response.status_code == 200
+    assert asaas.create_calls == 1
+    assert len(asaas.charge_calls) == 1
+    assert asaas.charge_calls[0]["valor"] == 59.9
+    assert created_sub.setup_fee_contracted == 59.9
+
+
+def test_abandoned_subscription_claim_is_reconciled_then_retried(app) -> None:
+    op = BillingSubscriptionOperation(
+        subscription_id="00000000-0000-0000-0000-00000000su01",
+        operation_key="pastorai-subcreate-abandoned",
+        customer_id="cus_1",
+        plano="ate_100",
+        valor=199.0,
+        limite=100,
+        setup_fee=0.0,
+        ciclo="MONTHLY",
+        descricao="PastorAI — plano ate_100",
+        status="creating",
+        attempt_started_at=(
+            dt.datetime.now(dt.timezone.utc)
+            - CREATE_ATTEMPT_LEASE
+            - dt.timedelta(seconds=1)
+        ),
+    )
+
+    class _ReclaimingAsaas:
+        def __init__(self) -> None:
+            self.find_calls = 0
+            self.create_calls = 0
+
+        def find_subscriptions_by_external_reference(self, ref: str):
+            self.find_calls += 1
+            return []
+
+        def create_checkout(self, **kwargs):
+            self.create_calls += 1
+            kwargs["on_customer_resolved"]("cus_1")
+            kwargs["on_subscription_created"]("cus_1", "sub_reclaimed")
+            return CheckoutResult(
+                status="pendente",
+                customer_id="cus_1",
+                subscription_id="sub_reclaimed",
+                invoice_url="https://asaas.test/reclaimed",
+                invoice_payment_id="pay_reclaimed",
+            )
+
+    asaas = _ReclaimingAsaas()
+    sub = _subscription(
+        asaas_subscription_id=None,
+        asaas_setup_charge_id=None,
+        setup_pago=False,
+    )
+    client, db = _client(
+        app,
+        planos=[_plano()],
+        asaas=asaas,
+        subscription=sub,
+        subscription_ops=[op],
+    )
+
+    first = client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    )
+    assert first.status_code == 502
+    assert op.status == "prepared"
+    assert op.attempt_started_at is None
+    assert asaas.find_calls == 1
+    assert asaas.create_calls == 0
+
+    second = client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    )
+    assert second.status_code == 200
+    assert asaas.create_calls == 1
+    assert op.status == "created"
+    assert op.attempt_started_at is None
+    assert sub.asaas_subscription_id == "sub_reclaimed"
 
 
 class _CustomerFailAsaas:

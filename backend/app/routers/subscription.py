@@ -721,7 +721,13 @@ def create_checkout(
         # (server_default) antes de qualquer chamada externa.
         db.commit()
 
-    setup_fee = 0.0 if sub.setup_pago else get_setup_fee_for_igreja(db, igreja)
+    contracted_setup_fee = getattr(sub, "setup_fee_contracted", None)
+    if sub.setup_pago:
+        setup_fee = 0.0
+    elif contracted_setup_fee is not None:
+        setup_fee = float(contracted_setup_fee)
+    else:
+        setup_fee = get_setup_fee_for_igreja(db, igreja)
 
     # INVARIANTE: mesmo plano + assinatura Asaas já rastreada NUNCA executa
     # outro POST /subscriptions — em qualquer status (pendente, ativa,
@@ -748,7 +754,14 @@ def create_checkout(
         and aberta.plano == payload.plano
         and aberta.status in ("creating", "reconciling")
     ):
-        return _adopt_open_subscription_intent(db, sub, asaas, aberta, setup_fee)
+        frozen_setup = (
+            float(aberta.setup_fee)
+            if aberta.setup_fee is not None
+            else setup_fee
+        )
+        return _adopt_open_subscription_intent(
+            db, sub, asaas, aberta, frozen_setup
+        )
 
     # Contratação realmente NOVA (inclui uma intenção `prepared`, que
     # comprovadamente não postou nada e por isso não tem o que adotar): aqui
@@ -768,6 +781,7 @@ def create_checkout(
             valor=float(plano_row.preco_mensal),
             limite=plano_row.limite_pessoas,
             descricao=descricao,
+            setup_fee=setup_fee,
         )
     except SubscriptionCreateConflict as exc:
         raise HTTPException(
@@ -776,11 +790,24 @@ def create_checkout(
 
     if op.status in ("creating", "reconciling"):
         # Corrida: outro request avançou a MESMA intenção enquanto líamos.
-        return _adopt_open_subscription_intent(db, sub, asaas, op, setup_fee)
+        frozen_setup = (
+            float(op.setup_fee) if op.setup_fee is not None else setup_fee
+        )
+        return _adopt_open_subscription_intent(
+            db, sub, asaas, op, frozen_setup
+        )
+
+    setup_fee = float(op.setup_fee) if op.setup_fee is not None else setup_fee
 
     # prepared: claim ATÔMICO da transição — dois requests que adotaram a
     # mesma intenção nunca fazem dois POSTs.
-    if not claim_transition(db, op, "prepared", "creating"):
+    if not claim_transition(
+        db,
+        op,
+        "prepared",
+        "creating",
+        attempt_started_at=dt.datetime.now(dt.timezone.utc),
+    ):
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Contratação em processamento — tente novamente",
@@ -807,7 +834,9 @@ def create_checkout(
             db.rollback()
             sub.asaas_customer_id = previous_sub_customer
             op.customer_id = previous_op_customer
-            claim_transition(db, op, "creating", "prepared")
+            claim_transition(
+                db, op, "creating", "prepared", attempt_started_at=None
+            )
             raise AsaasError("Falha ao persistir o customer resolvido") from exc
 
     def _track_created_subscription(customer_id: str, subscription_id: str) -> None:
@@ -824,6 +853,7 @@ def create_checkout(
         sub.asaas_subscription_id = subscription_id
         op.status = "created"
         op.asaas_subscription_id = subscription_id
+        op.attempt_started_at = None
         db.commit()
 
     try:
@@ -842,7 +872,9 @@ def create_checkout(
         # a intenção volta a `prepared` e o usuário pode corrigir os dados
         # (CPF/CNPJ, configuração) e tentar de novo. O customer já resolvido
         # fica persistido e é reutilizado no retry.
-        claim_transition(db, op, "creating", "prepared")
+        claim_transition(
+            db, op, "creating", "prepared", attempt_started_at=None
+        )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="O Asaas rejeitou o checkout — confira os dados e tente novamente",
@@ -851,7 +883,9 @@ def create_checkout(
         if customer_persist_failed:
             # A própria callback já restaurou `prepared`; mantém a classificação
             # pré-POST mesmo se a operação carregava um customer de retry antigo.
-            claim_transition(db, op, "creating", "prepared")
+            claim_transition(
+                db, op, "creating", "prepared", attempt_started_at=None
+            )
         elif op.customer_id:
             # Customer já existia quando falhou → o erro pertence ao POST da
             # assinatura (ou veio depois dele): resultado AMBÍGUO
@@ -860,7 +894,9 @@ def create_checkout(
         else:
             # Falhou ainda no customer: o POST da assinatura comprovadamente
             # não aconteceu — a intenção volta a `prepared` para o retry.
-            claim_transition(db, op, "creating", "prepared")
+            claim_transition(
+                db, op, "creating", "prepared", attempt_started_at=None
+            )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Não foi possível criar o checkout no Asaas",
@@ -869,7 +905,9 @@ def create_checkout(
     if result.subscription_id == "sandbox":
         # Guard de sandbox: nenhuma chamada externa aconteceu — a intenção
         # volta a `prepared` (nada a reconciliar).
-        claim_transition(db, op, "creating", "prepared")
+        claim_transition(
+            db, op, "creating", "prepared", attempt_started_at=None
+        )
 
     sub.plano = payload.plano
     sub.limite = plano_row.limite_pessoas

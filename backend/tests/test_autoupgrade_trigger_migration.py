@@ -90,3 +90,11 @@ def test_target_price_is_frozen_from_master_catalog() -> None:
     # Nenhum preço hardcoded no trigger.
     for hardcoded in ("199", "299", "499"):
         assert hardcoded not in body
+
+
+def test_creation_claim_leases_and_setup_fee_are_persisted() -> None:
+    sql = _pr_sql()
+    assert "setup_fee_contracted" in sql
+    assert "setup_fee             numeric(10,2)" in sql
+    # Duas colunas em CREATE TABLE e duas garantias forward-compatible em ALTER.
+    assert sql.count("attempt_started_at") >= 4

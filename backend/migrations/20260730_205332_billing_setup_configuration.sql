@@ -23,6 +23,12 @@ alter table igrejas
 alter table subscriptions
   add column if not exists asaas_setup_charge_id text null;
 
+-- Taxa congelada na contratação. NULL identifica assinaturas legadas, que
+-- ainda usam o fallback de configuração até uma intenção nova ser criada.
+alter table subscriptions
+  add column if not exists setup_fee_contracted numeric(10,2) null
+    check (setup_fee_contracted = 0 or setup_fee_contracted >= 5);
+
 -- Links públicos de pagamento (mensalidade e setup) devolvidos pelo checkout.
 -- Persistidos para a tela de Assinatura recuperá-los após reload.
 alter table subscriptions
@@ -60,9 +66,13 @@ create table if not exists billing_payment_operations (
   valor             numeric(10,2) not null,
   invoice_url       text null,
   error             text null,
+  attempt_started_at timestamptz null,
   created_at        timestamptz not null default now(),
   updated_at        timestamptz not null default now()
 );
+
+alter table billing_payment_operations
+  add column if not exists attempt_started_at timestamptz null;
 
 create unique index if not exists billing_payment_operations_asaas_payment_id_uidx
   on billing_payment_operations (asaas_payment_id)
@@ -98,6 +108,8 @@ create table if not exists billing_subscription_operations (
   limite                integer null,
   ciclo                 text not null default 'MONTHLY',
   descricao             text not null,
+  setup_fee             numeric(10,2) null
+    check (setup_fee = 0 or setup_fee >= 5),
   asaas_subscription_id text null,
   -- `superseded`: intenção `prepared` (comprovadamente sem POST remoto)
   -- substituída porque o assinante escolheu outro plano. É estado TERMINAL —
@@ -105,9 +117,16 @@ create table if not exists billing_subscription_operations (
   status                text not null default 'prepared'
     check (status in ('prepared','creating','reconciling','created','failed','superseded')),
   error                 text null,
+  attempt_started_at    timestamptz null,
   created_at            timestamptz not null default now(),
   updated_at            timestamptz not null default now()
 );
+
+alter table billing_subscription_operations
+  add column if not exists setup_fee numeric(10,2) null
+    check (setup_fee = 0 or setup_fee >= 5);
+alter table billing_subscription_operations
+  add column if not exists attempt_started_at timestamptz null;
 
 -- Claim atômico: no máximo UMA criação de assinatura em andamento por
 -- Subscription local.
@@ -345,6 +364,8 @@ comment on column igrejas.setup_fee_override is
   'Taxa de setup específica da igreja definida pelo master. NULL usa billing_settings.setup_fee_default.';
 comment on column subscriptions.asaas_setup_charge_id is
   'ID Asaas da cobrança avulsa de setup, usado para distinguir seu webhook da mensalidade.';
+comment on column subscriptions.setup_fee_contracted is
+  'Taxa de setup congelada quando a intenção de contratação nasceu; resume nunca relê a configuração atual.';
 comment on column subscriptions.asaas_invoice_url is
   'Link público da primeira fatura da mensalidade, persistido para sobreviver a reload.';
 comment on column subscriptions.asaas_setup_invoice_url is

@@ -15,7 +15,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.db.models import BillingPaymentOperation
 from app.services.asaas import AsaasError
-from app.services.billing import ensure_payment_operation
+from app.services.billing import CREATE_ATTEMPT_LEASE, ensure_payment_operation
 from tests.conftest import FakeSession
 
 
@@ -157,6 +157,40 @@ def test_reconcile_zero_matches_stays_reconciling_without_post() -> None:
 
     assert stuck.status == "reconciling"  # falha segura, sem POST automático
     assert asaas.posts == 0
+
+
+def test_abandoned_payment_claim_is_reconciled_then_retried_once() -> None:
+    import datetime as dt
+
+    abandoned = BillingPaymentOperation(
+        subscription_id="local-sub-1",
+        purpose="setup",
+        operation_key="pastorai-setup-abandoned",
+        status="creating",
+        valor=59.9,
+        attempt_started_at=(
+            dt.datetime.now(dt.timezone.utc)
+            - CREATE_ATTEMPT_LEASE
+            - dt.timedelta(seconds=1)
+        ),
+    )
+    db = FakeSession(operations=[abandoned])
+    asaas = _OpsAsaas(
+        found=[],
+        charge={
+            "id": "pay_reclaimed",
+            "invoiceUrl": "https://asaas.test/reclaimed",
+        },
+    )
+
+    resolved = _ensure(db, asaas)
+
+    assert resolved is abandoned
+    assert asaas.finds == 1
+    assert asaas.posts == 1
+    assert abandoned.status == "created"
+    assert abandoned.asaas_payment_id == "pay_reclaimed"
+    assert abandoned.attempt_started_at is None
 
 
 def test_reconcile_multiple_matches_fails_safe() -> None:

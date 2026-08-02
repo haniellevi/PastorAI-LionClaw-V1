@@ -49,6 +49,10 @@ OPEN_SUBSCRIPTION_OP_STATUSES = ("prepared", "creating", "reconciling")
 # abandonada (crash entre o claim e o PUT, ou processo morto no meio) e pode ser
 # retomada. Folgado sobre o timeout de 20s do cliente HTTP.
 PLAN_CHANGE_ATTEMPT_LEASE = dt.timedelta(minutes=5)
+# POSTs de criação também são ambíguos, mas um processo morto não pode ocupar
+# o slot para sempre. Após este lease, uma reconciliação com zero matches pode
+# devolver o claim a prepared e permitir uma nova tentativa controlada.
+CREATE_ATTEMPT_LEASE = dt.timedelta(minutes=5)
 
 
 class PlanChangeConflict(Exception):
@@ -75,6 +79,18 @@ def _attempt_lease_alive(op: BillingPlanChangeOperation) -> bool:
     if started.tzinfo is None:
         started = started.replace(tzinfo=dt.timezone.utc)
     return _utcnow() - started < PLAN_CHANGE_ATTEMPT_LEASE
+
+
+def _create_attempt_lease_alive(op) -> bool:
+    """Ainda pode existir um POST de criação em voo para esta operação?"""
+    started = getattr(op, "attempt_started_at", None)
+    if started is None:
+        # Legado sem relógio é AMBÍGUO, não comprovadamente abandonado. Falhar
+        # fechado evita repetir um POST que pode ter criado recurso remoto.
+        return True
+    if started.tzinfo is None:
+        started = started.replace(tzinfo=dt.timezone.utc)
+    return _utcnow() - started < CREATE_ATTEMPT_LEASE
 
 
 def claim_transition(
@@ -316,14 +332,18 @@ def ensure_payment_operation(
         return op  # cobrança já existe e está rastreada
 
     if op.status in ("creating", "reconciling"):
-        return _reconcile_payment_operation(
+        op = _reconcile_payment_operation(
             db, asaas, op, description=description, customer_id=customer_id
         )
+        if op.status != "prepared":
+            return op
 
     # prepared: ainda não houve POST. O claim da transição é ATÔMICO — dois
     # requests que adotaram a MESMA operação `prepared` não podem ambos
     # postar; quem perde o rowcount reconcilia em vez de chamar a API.
-    if not claim_transition(db, op, "prepared", "creating"):
+    if not claim_transition(
+        db, op, "prepared", "creating", attempt_started_at=_utcnow()
+    ):
         db.rollback()
         current = find_open_operation(db, sub.id, purpose, source_payment_id)
         if current is None:
@@ -345,7 +365,12 @@ def ensure_payment_operation(
         # operação fecha como `failed` (erro registrado) e LIBERA o índice
         # parcial para uma nova operação corrigida. Nunca fica em reconciling.
         finish_operation(
-            db, op, ("creating",), status="failed", error=str(exc)
+            db,
+            op,
+            ("creating",),
+            status="failed",
+            error=str(exc),
+            attempt_started_at=None,
         )
         raise
     except AsaasError:
@@ -356,7 +381,9 @@ def ensure_payment_operation(
     if charge is None:
         # Sandbox (sends bloqueados): nada foi criado — a operação volta a
         # `prepared` e pode tentar de novo quando os envios forem permitidos.
-        claim_transition(db, op, "creating", "prepared")
+        claim_transition(
+            db, op, "creating", "prepared", attempt_started_at=None
+        )
         return op
     # Resultado REAL do POST: gravado mesmo se um retry concorrente rebaixou o
     # estado para `reconciling` enquanto a chamada corria.
@@ -367,6 +394,7 @@ def ensure_payment_operation(
         status="created",
         asaas_payment_id=str(charge["id"]),
         invoice_url=payment_invoice_url(charge),
+        attempt_started_at=None,
     )
     return op
 
@@ -399,15 +427,32 @@ def _reconcile_payment_operation(
             status="created",
             asaas_payment_id=str(matches[0]["id"]),
             invoice_url=payment_invoice_url(matches[0]),
+            attempt_started_at=None,
         )
         return op
     if len(matches) > 1:
-        finish_operation(db, op, ("creating", "reconciling"), status="failed")
+        finish_operation(
+            db,
+            op,
+            ("creating", "reconciling"),
+            status="failed",
+            attempt_started_at=None,
+        )
         logger.warning("Billing operation ambiguous on reconcile; marked failed")
         raise AsaasError("Reconciliação ambígua da cobrança — intervenção manual")
     # 0 correspondências: mantém reconciling e falha com segurança — o próximo
     # retry reconcilia de novo (sem POST automático). Condicional: nunca
     # regride um `created` gravado pelo dono do POST em paralelo.
+    if not _create_attempt_lease_alive(op):
+        current_status = op.status
+        if claim_transition(
+            db,
+            op,
+            current_status,
+            "prepared",
+            attempt_started_at=None,
+        ):
+            return op
     claim_transition(db, op, "creating", "reconciling")
     raise AsaasError("Cobrança em reconciliação no Asaas — tente novamente")
 
@@ -680,6 +725,7 @@ def prepare_subscription_operation(
     valor: float,
     descricao: str,
     limite: int | None = None,
+    setup_fee: float | None = None,
     ciclo: str = "MONTHLY",
 ) -> BillingSubscriptionOperation:
     """Garante UMA intenção durável de criação para esta Subscription.
@@ -716,6 +762,11 @@ def prepare_subscription_operation(
                     f"Já existe uma contratação em andamento para o plano {op.plano}"
                 )
     if op is not None:
+        frozen_setup = op.setup_fee if op.setup_fee is not None else setup_fee
+        if op.setup_fee is None:
+            op.setup_fee = frozen_setup
+        sub.setup_fee_contracted = frozen_setup
+        db.commit()
         return op
     op = BillingSubscriptionOperation(
         subscription_id=sub.id,
@@ -724,10 +775,12 @@ def prepare_subscription_operation(
         plano=plano,
         valor=valor,
         limite=limite,
+        setup_fee=setup_fee,
         ciclo=ciclo,
         descricao=descricao,
         status="prepared",
     )
+    sub.setup_fee_contracted = setup_fee
     db.add(op)
     try:
         db.commit()
@@ -765,10 +818,26 @@ def reconcile_subscription_operation(
     if len(matches) == 1:
         return matches[0]
     if len(matches) > 1:
-        finish_operation(db, op, ("creating", "reconciling"), status="failed")
+        finish_operation(
+            db,
+            op,
+            ("creating", "reconciling"),
+            status="failed",
+            attempt_started_at=None,
+        )
         logger.warning("Subscription create ambiguous on reconcile; marked failed")
         raise AsaasError(
             "Reconciliação ambígua da assinatura — intervenção manual"
         )
+    if not _create_attempt_lease_alive(op):
+        current_status = op.status
+        claim_transition(
+            db,
+            op,
+            current_status,
+            "prepared",
+            attempt_started_at=None,
+        )
+        return None
     claim_transition(db, op, "creating", "reconciling")
     return None
