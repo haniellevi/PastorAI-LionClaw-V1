@@ -351,6 +351,13 @@ def test_production_boot_accepts_a_valid_allowlist() -> None:
     _prod().assert_production_ready()  # não levanta
 
 
+def test_production_boot_rejects_return_origin_outside_cors() -> None:
+    with pytest.raises(RuntimeError, match="must also be CORS-enabled"):
+        _prod(
+            calendar_oauth_return_origins="https://return.example.com"
+        ).assert_production_ready()
+
+
 def test_production_boot_fails_on_empty_return_origins() -> None:
     with pytest.raises(RuntimeError, match="CALENDAR_OAUTH_RETURN_ORIGINS"):
         _prod(calendar_oauth_return_origins="").assert_production_ready()

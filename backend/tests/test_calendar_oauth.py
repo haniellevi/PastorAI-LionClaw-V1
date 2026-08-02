@@ -390,6 +390,24 @@ def test_connect_rejects_origin_outside_allowlist(app, crypto_enabled) -> None:
     assert session.added == []
 
 
+def test_connect_rejects_allowlisted_origin_that_is_not_cors_enabled(
+    app, crypto_enabled, monkeypatch
+) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(
+        settings, "calendar_oauth_return_origins", "https://return.example.com"
+    )
+    session = _FlowSession(app_user=make_app_user(), roles=["admin"])
+    c = _client(app, ["admin"], session=session, oauth=_FakeOAuth())
+
+    r = _connect(
+        c, headers={**_AUTH, "Origin": "https://return.example.com"}
+    )
+
+    assert r.status_code == 400
+    assert session.added == []
+
+
 def test_connect_rejects_master_console_even_if_allowlisted(
     app, crypto_enabled, monkeypatch
 ) -> None:

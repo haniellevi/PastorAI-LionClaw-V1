@@ -334,14 +334,16 @@ def connect(
 
     A origem de retorno vem do header ``Origin`` e é validada por IGUALDADE
     EXATA contra ``calendar_oauth_return_origins`` — nunca ``Referer``, nunca
-    path do cliente, nunca ``cors_origins`` (que inclui a própria API e o
-    console master). Origem ausente ou fora da lista falha fechada em 400.
+    path do cliente. A allowlist de retorno é mais restrita, mas também precisa
+    pertencer a ``cors_origins``; do contrário o navegador nem conseguiria
+    chamar este POST. Origem ausente ou fora de qualquer lista falha em 400.
     """
     settings = get_settings()
     origin = (request.headers.get("origin") or "").strip().rstrip("/")
     if (
         not origin
         or origin not in settings.calendar_oauth_return_origin_allowlist
+        or origin not in settings.cors_origins
         or _is_master_console_origin(origin)
     ):
         raise HTTPException(

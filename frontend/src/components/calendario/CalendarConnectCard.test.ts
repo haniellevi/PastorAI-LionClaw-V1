@@ -640,7 +640,7 @@ describe("sem segredo — zero POST de finish", () => {
 });
 
 describe("cancelled", () => {
-  it("limpa o segredo, mostra CTA de reinício e NÃO chama finish", async () => {
+  it("preserva fluxo não correlacionado, mostra reinício e NÃO chama finish", async () => {
     setHash("#integracoes/callback/cancelled");
     seedFlow("segredo");
 
@@ -648,7 +648,7 @@ describe("cancelled", () => {
 
     expect(finishConnection).not.toHaveBeenCalled();
     expect(text()).toContain("cancelada");
-    expect(storedFlow()).toBeNull();
+    expect(storedFlow()?.secret).toBe("segredo");
     expect(button(CTA_RESTART)).toBeTruthy();
     expect(button(CTA_FINISH)).toBeUndefined();
     expect(text()).not.toContain("Abrindo o Google…");

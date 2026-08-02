@@ -180,10 +180,10 @@ class Settings(BaseSettings):
     )
 
     # ---- OAuth Calendar V1: origens de retorno do consentimento -------------
-    # Conceito SEPARADO de `cors_origins`. Aquela responde "quem pode chamar a
-    # API" e inclui `app_base_url` (api.*) e o derivado `painel.*` (console
-    # master); esta responde "quem hospeda o card de Integrações" e é a ÚNICA
-    # fonte do destino do redirect do callback.
+    # Conceito SEPARADO, mas necessariamente SUBCONJUNTO de `cors_origins`.
+    # Aquela responde "quem pode chamar a API"; esta responde "quem hospeda o
+    # card de Integrações" e é a ÚNICA fonte do redirect do callback. Uma origem
+    # de retorno fora do CORS nunca conseguiria iniciar o fluxo no navegador.
     #
     # CSV e não `list[str]`: pydantic-settings parseia campos complexos vindos do
     # env como JSON, o que obrigaria `["https://..."]` no `.env` e quebraria a
@@ -358,6 +358,7 @@ class Settings(BaseSettings):
                 "CALENDAR_OAUTH_RETURN_ORIGINS must list at least one origin"
             )
         api_origin = self.app_base_url.rstrip("/")
+        cors_allowlist = set(self.cors_origins)
         for origin in sorted(allowlist):
             if not _is_valid_production_origin(origin):
                 problems.append(
@@ -367,6 +368,11 @@ class Settings(BaseSettings):
             if origin == api_origin:
                 problems.append(
                     "CALENDAR_OAUTH_RETURN_ORIGINS must not include the API origin"
+                )
+            if origin not in cors_allowlist:
+                problems.append(
+                    "CALENDAR_OAUTH_RETURN_ORIGINS entries must also be "
+                    f"CORS-enabled: {origin!r}"
                 )
             if (urlparse(origin).hostname or "").lower().startswith("painel."):
                 problems.append(

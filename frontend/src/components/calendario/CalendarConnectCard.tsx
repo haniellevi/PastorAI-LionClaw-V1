@@ -351,7 +351,9 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
   // Marcadores de retorno, uma vez por montagem.
   //  * `ready`     — o usuário acabou de consentir; com segredo vivo, conclui.
   //                  Sem segredo é fail-closed: nada de POST, só reinício.
-  //  * `cancelled` — recusa explícita: descarta o fluxo e oferece reinício.
+  //  * `cancelled` — oferece reinício, mas preserva o fluxo guardado. O callback
+  //                  é público e não carrega correlação suficiente para provar
+  //                  que o marcador pertence ao fluxo atualmente no storage.
   useEffect(() => {
     if (!isAdmin || !token) return;
     if (route !== ROUTE_READY && route !== ROUTE_CANCELLED) return;
@@ -359,7 +361,6 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
     handledRef.current = true;
 
     if (route === ROUTE_CANCELLED) {
-      clearFlow();
       setPending(false);
       setRecoverable(MSG_CANCELLED);
       return;
@@ -537,6 +538,11 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
     </>
   );
 
+  // Um `cancelled` público não prova que o fluxo guardado foi cancelado. Ele é
+  // preservado contra DoS, mas não oferecemos `finish` para um marcador sem
+  // correlação; a única ação visível é iniciar um fluxo novo, que o substitui.
+  const canFinishPending = pending && recoverable !== MSG_CANCELLED;
+
   return (
     <div className="card card-pad" style={{ marginBottom: "var(--s4)" }}>
       <div className="panel-title">
@@ -587,7 +593,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
 
           {/* Com segredo vivo, a conclusão é do usuário — nunca automática.
               Sem segredo, o caminho é declarar a conta e começar um fluxo. */}
-          {pending ? (
+          {canFinishPending ? (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
               <button
                 type="button"
