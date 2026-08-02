@@ -24,7 +24,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import Update
 
 from app.config import get_settings
-from app.db.models import BillingSubscriptionOperation
+from app.db.models import BillingPaymentOperation, BillingSubscriptionOperation
 from app.db.session import get_db
 
 _IGREJA_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
@@ -64,7 +64,10 @@ class _Result:
         return self._scalar
 
     def scalars(self):
-        return SimpleNamespace(all=lambda: list(self._scalars_list))
+        return SimpleNamespace(
+            all=lambda: list(self._scalars_list),
+            first=lambda: self._scalar,
+        )
 
 
 class _WebhookDb:
@@ -120,9 +123,10 @@ class _WebhookDb:
                 if key.startswith("source_payment_id")
             )
             statuses = [
-                value
+                item
                 for key, value in bound.items()
                 if key.startswith("status") and not key.startswith("status_new")
+                for item in (value if isinstance(value, (list, tuple)) else [value])
             ]
             match = next(
                 (
@@ -130,6 +134,31 @@ class _WebhookDb:
                     for o in self.operations
                     if str(getattr(o, "source_payment_id", None)) == str(src)
                     and getattr(o, "purpose", None) == "monthly_recovery"
+                    and (not statuses or o.status in statuses)
+                ),
+                None,
+            )
+            return _Result(match)
+        if entity is BillingPaymentOperation and not any(
+            key.startswith("asaas_payment_id") or key.startswith("operation_key")
+            for key in bound
+        ):
+            # find_any_open_operation: pendência do propósito em qualquer
+            # cobrança-fonte (usada somente como barreira financeira).
+            purpose = next(
+                (v for k, v in bound.items() if k.startswith("purpose")), None
+            )
+            statuses = [
+                item
+                for key, value in bound.items()
+                if key.startswith("status")
+                for item in (value if isinstance(value, (list, tuple)) else [value])
+            ]
+            match = next(
+                (
+                    o
+                    for o in self.operations
+                    if getattr(o, "purpose", None) == purpose
                     and (not statuses or o.status in statuses)
                 ),
                 None,
@@ -1022,7 +1051,9 @@ def test_monthly_refund_blocks_delayed_confirmation_of_same_payment(
     assert db.commits == commits_after_refund
 
 
-def test_new_cycle_cannot_hide_or_settle_prior_recovery_debt(app, monkeypatch) -> None:
+def test_new_cycle_tracks_its_state_without_settling_prior_recovery_debt(
+    app, monkeypatch
+) -> None:
     recovery_a = _operation(
         operation_key="pastorai-monthly_recovery-a-open",
         source_payment_id="pay_m2",
@@ -1056,14 +1087,110 @@ def test_new_cycle_cannot_hide_or_settle_prior_recovery_debt(app, monkeypatch) -
                 invoice_url="https://asaas.test/m3",
             ),
         )
-        assert resp.json()["status"] is None
+        assert resp.json()["status"] in ("pendente", "ativa")
 
     assert recovery_a.status == "created"
+    assert db.sub.status == "ativa"  # snapshot correto do ciclo B
+    assert db.sub.asaas_invoice_payment_id == "pay_m3"
+    assert db.sub.asaas_invoice_reversal is None
+    assert db.igreja.status == "inadimplente"
+    assert db.commits == 2
+
+    # A recuperação de A agora pode reavaliar B: como B está ativa e não há
+    # outra dívida, só neste momento o gate é liberado.
+    recovery_payment = _payment(
+        status="CONFIRMED", subscription=None, payment_id="pay_rec_a_open"
+    )
+    recovery_payment["externalReference"] = recovery_a.operation_key
+    settled = _post(client, "PAYMENT_CONFIRMED", recovery_payment)
+
+    assert settled.json()["status"] == "ativa"
+    assert recovery_a.status == "paid"
+    assert db.sub.status == "ativa"
+    assert db.igreja.status == "ativa"
+
+
+def test_new_cycle_cannot_erase_reversal_before_recovery_is_durable(
+    app, monkeypatch
+) -> None:
+    db = _WebhookDb(
+        sub=_sub(
+            status="inadimplente",
+            asaas_invoice_payment_id="pay_m2",
+            asaas_invoice_reversal="refunded",
+            proxima_cobranca=dt.date(2026, 8, 1),
+        ),
+        igreja=_igreja("inadimplente"),
+    )
+    client = _client(app, db, monkeypatch)
+
+    resp = _post(
+        client,
+        "PAYMENT_CONFIRMED",
+        _payment(
+            status="CONFIRMED",
+            payment_id="pay_m3",
+            due_date="2026-09-01",
+            invoice_url="https://asaas.test/m3",
+        ),
+    )
+
+    assert resp.json()["status"] is None
     assert db.sub.status == "inadimplente"
     assert db.sub.asaas_invoice_payment_id == "pay_m2"
     assert db.sub.asaas_invoice_reversal == "refunded"
     assert db.igreja.status == "inadimplente"
     assert db.commits == 0
+
+
+def test_new_cycle_overdue_remains_blocked_after_prior_recovery_is_paid(
+    app, monkeypatch
+) -> None:
+    recovery_a = _operation(
+        operation_key="pastorai-monthly_recovery-a-overdue",
+        source_payment_id="pay_m2",
+        asaas_payment_id="pay_rec_a_overdue",
+        status="created",
+    )
+    db = _WebhookDb(
+        sub=_sub(
+            status="inadimplente",
+            asaas_invoice_payment_id="pay_m2",
+            asaas_invoice_reversal="refunded",
+            proxima_cobranca=dt.date(2026, 8, 1),
+        ),
+        igreja=_igreja("inadimplente"),
+        operations=[recovery_a],
+    )
+    client = _client(app, db, monkeypatch)
+
+    overdue = _post(
+        client,
+        "PAYMENT_OVERDUE",
+        _payment(
+            status="OVERDUE",
+            payment_id="pay_m3",
+            due_date="2026-09-01",
+            invoice_url="https://asaas.test/m3",
+        ),
+    )
+
+    assert overdue.json()["status"] == "inadimplente"
+    assert db.sub.asaas_invoice_payment_id == "pay_m3"
+    assert db.sub.asaas_invoice_url == "https://asaas.test/m3"
+    assert db.sub.status == "inadimplente"
+
+    recovery_payment = _payment(
+        status="CONFIRMED", subscription=None, payment_id="pay_rec_a_overdue"
+    )
+    recovery_payment["externalReference"] = recovery_a.operation_key
+    settled = _post(client, "PAYMENT_CONFIRMED", recovery_payment)
+
+    assert settled.json()["status"] == "ativa"
+    assert recovery_a.status == "paid"
+    assert db.sub.status == "inadimplente"  # B continua vencida
+    assert db.sub.asaas_invoice_payment_id == "pay_m3"
+    assert db.igreja.status == "inadimplente"
 
 
 def test_monthly_overdue_keeps_the_payable_link(app, monkeypatch) -> None:

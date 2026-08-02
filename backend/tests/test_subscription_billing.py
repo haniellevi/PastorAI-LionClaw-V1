@@ -1016,10 +1016,11 @@ def test_get_subscription_exposes_recovery_url_and_setup_flag(app) -> None:
     assert body["setupRecoveryRequired"] is True
 
 
-def test_get_subscription_hides_recovery_url_of_an_older_source(app) -> None:
-    # REVIEW-10 P1: a recuperação do ciclo A ficou aberta enquanto a assinatura
-    # avançou para a cobrança B. O link de A não pode ser apresentado como o
-    # pagamento da dívida de B — ele não quita nada dessa dívida.
+def test_get_subscription_keeps_older_recovery_visible_as_a_real_debt(app) -> None:
+    # A recuperação do ciclo A ficou aberta enquanto a assinatura avançou para
+    # B. Ela não quita B, mas continua sendo uma dívida real e uma barreira de
+    # acesso; escondê-la tornaria impossível regularizar A. Depois de A paga, a
+    # UI passa à pendência corrente de B.
     from app.db.models import BillingPaymentOperation
 
     recovery_a = BillingPaymentOperation(
@@ -1052,7 +1053,7 @@ def test_get_subscription_hides_recovery_url_of_an_older_source(app) -> None:
     resp = client.get("/subscription", headers=_AUTH)
 
     assert resp.status_code == 200
-    assert resp.json()["recoveryInvoiceUrl"] is None
+    assert resp.json()["recoveryInvoiceUrl"] == "https://asaas.test/recovery-a"
     assert resp.json()["invoiceReversal"] == "refunded"
 
 

@@ -421,17 +421,16 @@ def _apply_operation_event(
         db.commit()
         return WebhookResponse(received=True, status=new_status)
 
-    # monthly_recovery: quitação regulariza assinatura e acesso (guarda
-    # atômica no UPDATE condicional, como na mensalidade); reversão de uma
-    # recuperação PAGA devolve a dívida — status, gate e ação de recovery.
+    # monthly_recovery: quitação remove somente a dívida da SUA fonte. O ciclo
+    # mensal pode ter avançado enquanto a recuperação estava aberta; nesse
+    # caso o status atual é preservado e o gate só reabre se não restar outra
+    # recuperação nem reversão e a cobrança corrente já estiver ativa.
     if new_status == "ativa" and op.status != "reversed":
         # A operação SEMPRE registra o próprio resultado histórico.
         op.status = "paid"
         # AUTORIDADE (simétrica à da reversão): só a recuperação da cobrança
-        # ATUALMENTE rastreada quita a dívida do ciclo e reativa o acesso. Uma
-        # recovery do ciclo A que ficou em aberto enquanto a assinatura avançou
-        # para a cobrança B, se paga depois, não pode limpar a reversão de B
-        # nem reativar assinatura/igreja — ela nunca cobriu essa dívida.
+        # ATUALMENTE rastreada limpa a reversão desse ciclo. Uma recovery de A
+        # paga depois do avanço para B nunca altera o status/reversão de B.
         if (
             op.source_payment_id
             and str(op.source_payment_id) == str(sub.asaas_invoice_payment_id)
@@ -439,6 +438,16 @@ def _apply_operation_event(
         ):
             sub.status = "ativa"
             sub.asaas_invoice_reversal = None  # dívida do ciclo revertido quitada
+
+        # A própria operação já está `paid`, então deixa de aparecer na busca
+        # por operações abertas (o execute faz autoflush no SQLAlchemy real).
+        # Reavalia o estado CORRENTE: B ativa + nenhuma dívida restante libera;
+        # B pendente/vencida/revertida continua bloqueada.
+        if (
+            sub.status == "ativa"
+            and sub.asaas_invoice_reversal is None
+            and find_any_open_operation(db, sub.id, "monthly_recovery") is None
+        ):
             db.execute(
                 update(Igreja)
                 .where(Igreja.id == sub.igreja_id, Igreja.status == "inadimplente")
@@ -561,15 +570,12 @@ def get_subscription(
 
     # Cobrança avulsa de recuperação mensal emitida e em aberto: expõe o link
     # dela (a mensalidade revertida não tem link pagável próprio). Só a
-    # recuperação da cobrança-fonte ATUAL é exposta — uma recovery órfã de
-    # ciclo antigo não pode ser apresentada como o pagamento da dívida de hoje.
+    # uma recuperação aberta continua exposta mesmo se a recorrência já
+    # avançou para outro ciclo: ela ainda é uma barreira financeira real.
     recovery_url: str | None = None
-    if sub.asaas_invoice_reversal:
-        recovery_op = find_open_operation(
-            db, sub.id, "monthly_recovery", sub.asaas_invoice_payment_id
-        )
-        if recovery_op is not None:
-            recovery_url = recovery_op.invoice_url
+    recovery_op = find_any_open_operation(db, sub.id, "monthly_recovery")
+    if recovery_op is not None:
+        recovery_url = recovery_op.invoice_url
     return SubscriptionOut.from_model(sub, recovery_invoice_url=recovery_url)
 
 
@@ -1425,20 +1431,24 @@ def asaas_webhook(
         logger.info("Asaas webhook for unknown subscription; acknowledged")
         return WebhookResponse(received=True, status=None)
 
-    # DÍVIDA REVERTIDA é barreira de acesso até a recuperação EXPLÍCITA.
-    # Eventos mensais não têm autoridade para apagá-la:
-    # - confirmação atrasada da MESMA cobrança não supera refund/delete;
-    # - cobrança de ciclo NOVO não esconde a recovery do ciclo anterior;
-    # - evento de assinatura sem payment também não reativa o tenant.
-    # A confirmação da operação `monthly_recovery` retorna acima e é o único
-    # caminho que limpa a reversão e restaura o acesso.
+    # Recuperação aberta é uma barreira separada do snapshot do ciclo mensal.
+    # Assim B pode avançar e preservar seu próprio status/link, enquanto a
+    # dívida de A continua bloqueando acesso até a quitação explícita.
+    open_recovery = find_any_open_operation(db, sub.id, "monthly_recovery")
+
+    # DÍVIDA REVERTIDA da cobrança corrente não aceita uma confirmação
+    # atrasada da MESMA cobrança. Já um payment id realmente mais novo precisa
+    # ser rastreado (inclusive OVERDUE/REFUNDED), sem superar `open_recovery`.
     if sub.asaas_invoice_reversal:
         current_payment_id = sub.asaas_invoice_payment_id
         blocked_payment = bool(
             payment
             and (
-                payment_id != current_payment_id
-                or reversal is None
+                # Confirmação atrasada da própria fatura revertida.
+                (payment_id == current_payment_id and reversal is None)
+                # Antes de existir a operação durável de recovery, não há
+                # outro registro que preserve a dívida ao avançar para B.
+                or (payment_id != current_payment_id and open_recovery is None)
             )
         )
         blocked_subscription_confirmation = not payment and new_status == "ativa"
@@ -1479,12 +1489,23 @@ def asaas_webhook(
             _apply_monthly_payment_link(sub, payment, reversal=reversal)
         # Reflect subscription billing only onto the igreja access gate. Setup
         # payment events return above and never change this status.
-        if new_status in ("ativa", "inadimplente"):
-            expected = "inadimplente" if new_status == "ativa" else "ativa"
+        if new_status == "ativa":
+            # Pagamento do ciclo novo não quita uma recovery anterior. O
+            # snapshot fica ativo, mas o gate só abre sem nenhuma dívida.
+            if sub.asaas_invoice_reversal is None and open_recovery is None:
+                db.execute(
+                    update(Igreja)
+                    .where(
+                        Igreja.id == sub.igreja_id,
+                        Igreja.status == "inadimplente",
+                    )
+                    .values(status="ativa")
+                )
+        elif new_status == "inadimplente":
             db.execute(
                 update(Igreja)
-                .where(Igreja.id == sub.igreja_id, Igreja.status == expected)
-                .values(status=new_status)
+                .where(Igreja.id == sub.igreja_id, Igreja.status == "ativa")
+                .values(status="inadimplente")
             )
         db.commit()
 
