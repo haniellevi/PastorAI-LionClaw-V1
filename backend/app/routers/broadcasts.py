@@ -9,9 +9,11 @@ POST contract:
     -> {status, enviados, ignoradosOptout, agendadoPara}
 
 Opt-out / no-consent people are always excluded (RF-38) and counted in
-`ignoradosOptout`. When the cleared reach is zero (e.g. everyone opted out), the
-send is blocked: the broadcast is recorded as `rascunho` and `enviados=0`. Sends
-go out through the official WhatsApp number (Evolution).
+`ignoradosOptout`. Archived people (W3) are excluded too, but are NOT counted as
+opt-out — they simply are not part of the church's audience anymore. When the
+cleared reach is zero (e.g. everyone opted out), the send is blocked: the
+broadcast is recorded as `rascunho` and `enviados=0`. Sends go out through the
+official WhatsApp number (Evolution).
 """
 
 from __future__ import annotations
@@ -161,12 +163,18 @@ def create_broadcast(
     """Resolve the audience (honoring opt-out) and send or schedule it.
 
     - Opt-out / no-consent people are excluded and counted (RF-38).
+    - Archived people are excluded and NOT counted as opt-out (W3).
     - Zero cleared reach blocks the send (recorded as rascunho, enviados=0).
     - modo=agora sends now; modo=agendado stores the schedule (agendadoPara).
     """
     igreja_uuid = uuid.UUID(current_user.igreja_id)
 
-    people = db.execute(select(Pessoa)).scalars().all()
+    # Pessoa arquivada (W3) está FORA da audiência: não recebe e não conta como
+    # opt-out — ela nem chega a ser candidata. `arquivada_em IS NULL` = ativa
+    # (ver models.Pessoa). O escopo por tenant continua vindo da RLS.
+    people = db.execute(
+        select(Pessoa).where(Pessoa.arquivada_em.is_(None))
+    ).scalars().all()
     # Segmento "lider" é derivado: quem lidera célula ATIVA (celulas.lider_id),
     # não o tipo manual (regra 2026-07-06).
     leader_ids = {
