@@ -22,7 +22,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.sql.dml import Update
 
 from app.config import Settings, get_settings
-from app.db.models import AppUser, CalendarOAuthFlow, CalendarSync, Event
+from app.db.models import AppUser, CalendarOAuthFlow, CalendarSync, Event, Igreja
 from app.db.session import get_db
 from app.services.calendar_oauth_flows import hash_secret
 from app.services.clerk import get_clerk_client
@@ -114,6 +114,7 @@ class _FlowSession:
         # sem `flowSecret` tem de morrer no schema, com este contador em ZERO —
         # nada de ler, travar ou consumir fluxo sem posse do segredo.
         self.flow_lookups = 0
+        self.identity_locks = 0
         self.sync = sync
         self.existing_gids = existing_gids or []
         self.commit_error = commit_error
@@ -146,6 +147,10 @@ class _FlowSession:
         entity = descs[0].get("entity")
         if entity is AppUser:
             return _Res(scalar=self.app_user)
+        if entity is Igreja:
+            assert statement._for_update_arg is not None
+            self.identity_locks += 1
+            return _Res(scalar=SimpleNamespace(id=uuid.UUID(_IGREJA)))
         if entity is CalendarSync:
             return _Res(scalar=self.sync)
         if entity is Event:
@@ -381,6 +386,24 @@ def test_connect_rejects_origin_outside_allowlist(app, crypto_enabled) -> None:
     session = _FlowSession(app_user=make_app_user(), roles=["admin"])
     c = _client(app, ["admin"], session=session, oauth=_FakeOAuth())
     r = _connect(c, headers={**_AUTH, "Origin": "https://painel.igreja12.com.br"})
+    assert r.status_code == 400
+    assert session.added == []
+
+
+def test_connect_rejects_master_console_even_if_allowlisted(
+    app, crypto_enabled, monkeypatch
+) -> None:
+    """Erro de configuração não transforma o console master em retorno válido."""
+    monkeypatch.setattr(
+        get_settings(),
+        "calendar_oauth_return_origins",
+        "https://admin.igreja12.com.br,https://painel.igreja12.com.br",
+    )
+    session = _FlowSession(app_user=make_app_user(), roles=["admin"])
+    c = _client(app, ["admin"], session=session, oauth=_FakeOAuth())
+
+    r = _connect(c, headers={**_AUTH, "Origin": "https://painel.igreja12.com.br"})
+
     assert r.status_code == 400
     assert session.added == []
 
@@ -896,6 +919,31 @@ def test_finish_reconnection_without_refresh_token_preserves_existing(
     assert sync.refresh_token_encrypted == "refresh-antigo"  # preservado
     assert sync.access_token_encrypted != "access-antigo"  # access atualizado
     assert session.added == []  # reusou a linha existente
+
+
+def test_finish_locks_identity_before_deciding_refresh_token(
+    app, crypto_enabled
+) -> None:
+    """O probe externo só começa depois de serializar a identidade da igreja."""
+    app_user = make_app_user()
+    flow = _identity_flow(app_user, crypto_enabled)
+    sync = _sync()
+    session = _FlowSession(app_user=app_user, roles=["admin"], flow=flow, sync=sync)
+
+    class _AssertingOAuth(_FakeOAuth):
+        def list_calendars(self, token):
+            assert session.identity_locks == 1
+            return super().list_calendars(token)
+
+    c = _client(
+        app,
+        ["admin"],
+        session=session,
+        oauth=_AssertingOAuth(tokens=_tokens(refresh=None)),
+    )
+
+    assert _finish(c).status_code == 200
+    assert session.identity_locks == 1
 
 
 def test_finish_rejection_bodies_are_identical(app, crypto_enabled) -> None:

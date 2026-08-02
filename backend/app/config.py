@@ -368,6 +368,11 @@ class Settings(BaseSettings):
                 problems.append(
                     "CALENDAR_OAUTH_RETURN_ORIGINS must not include the API origin"
                 )
+            if (urlparse(origin).hostname or "").lower().startswith("painel."):
+                problems.append(
+                    "CALENDAR_OAUTH_RETURN_ORIGINS must not include the painel.* "
+                    "master-console origin"
+                )
 
         if problems:
             raise RuntimeError(

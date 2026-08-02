@@ -372,3 +372,10 @@ def test_production_boot_rejects_the_api_origin() -> None:
         _prod(
             calendar_oauth_return_origins="https://api.igreja12.com.br"
         ).assert_production_ready()
+
+
+def test_production_boot_rejects_the_master_console_return_origin() -> None:
+    with pytest.raises(RuntimeError, match=r"painel\.\*"):
+        _prod(
+            calendar_oauth_return_origins="https://painel.igreja12.com.br"
+        ).assert_production_ready()

@@ -68,6 +68,7 @@ from app.db.models import (
     CalendarOAuthFlow,
     CalendarSync,
     Event,
+    Igreja,
 )
 from app.db.session import get_db
 from app.deps import CurrentUser, require_role
@@ -115,12 +116,13 @@ _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 def _return_url(origin: str, marker: str) -> str:
     """URL de retorno para uma origem JÁ validada contra a allowlist."""
     host = urlparse(origin).hostname or ""
-    path = (
-        _RETURN_PATH_ADMIN
-        if host.startswith(("admin.", "painel."))
-        else _RETURN_PATH_APP
-    )
+    path = _RETURN_PATH_ADMIN if host.startswith("admin.") else _RETURN_PATH_APP
     return f"{origin}{path}{marker}"
+
+
+def _is_master_console_origin(origin: str) -> bool:
+    """O console ``painel.*`` não hospeda o card que conclui o OAuth."""
+    return (urlparse(origin).hostname or "").lower().startswith("painel.")
 
 
 # ---------------------------------------------------------------------------
@@ -242,6 +244,20 @@ def _sync_for(db: Session, igreja_id: uuid.UUID) -> CalendarSync | None:
     ).scalar_one_or_none()
 
 
+def _locked_sync_for(db: Session, igreja_id: uuid.UUID) -> CalendarSync | None:
+    """Serializa toda decisão de identidade, inclusive a primeira conexão.
+
+    Travar a igreja, e não só ``calendar_sync``, cobre também o caso em que a
+    linha de sync ainda não existe. O lock permanece até o commit final.
+    """
+    igreja = db.execute(
+        select(Igreja).where(Igreja.id == igreja_id).with_for_update()
+    ).scalar_one_or_none()
+    if igreja is None:
+        raise _finish_rejected()
+    return _sync_for(db, igreja_id)
+
+
 def _connected(sync: CalendarSync | None) -> bool:
     return sync is not None and bool(sync.refresh_token_encrypted)
 
@@ -317,7 +333,11 @@ def connect(
     """
     settings = get_settings()
     origin = (request.headers.get("origin") or "").strip().rstrip("/")
-    if not origin or origin not in settings.calendar_oauth_return_origin_allowlist:
+    if (
+        not origin
+        or origin not in settings.calendar_oauth_return_origin_allowlist
+        or _is_master_console_origin(origin)
+    ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Origem não autorizada para conectar a agenda",
@@ -533,7 +553,10 @@ def finish_connection(
             },
         )
 
-    sync = _sync_for(db, igreja_uuid)
+    # A decisão de preservar/trocar identidade e refresh token precisa observar
+    # o último estado commitado. Sem este lock, dois finishes concorrentes
+    # podem combinar a identidade de um fluxo com o refresh token do outro.
+    sync = _locked_sync_for(db, igreja_uuid)
     previous_sub = (sync.google_account_sub or "") if sync else ""
     # Continuidade é decidida pelo `sub`, NUNCA pelo e-mail: e-mail troca de dono.
     same_identity = bool(previous_sub) and previous_sub == identity.sub
