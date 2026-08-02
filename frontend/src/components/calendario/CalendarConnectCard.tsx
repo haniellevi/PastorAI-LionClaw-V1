@@ -29,8 +29,9 @@
  * O segredo vive no `localStorage` da PRÓPRIA origem (chave versionada), com o
  * `expiresAt` que veio do servidor. `localStorage` — e não `sessionStorage` —
  * porque a PWA iOS pode ser encerrada em segundo plano e relançada; o jar da
- * origem sobrevive a isso. O storage é limpo ao expirar, concluir, cancelar,
- * receber rejeição terminal ou iniciar deliberadamente um fluxo novo.
+ * origem sobrevive a isso. O storage é limpo ao concluir, cancelar, receber
+ * rejeição terminal do servidor ou iniciar deliberadamente um fluxo novo. O
+ * relógio do cliente não decide expiração: pode estar adiantado ou atrasado.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -66,7 +67,7 @@ const FLOW_KEY = "gcal_flow_v2";
 const MSG_CANCELLED = "A conexão com o Google foi cancelada.";
 const MSG_INCOMPLETE = "A conexão com o Google não foi concluída. Tente novamente.";
 const MSG_PENDING = "Você autorizou no Google? Conclua a conexão para ativar a agenda.";
-const MSG_EXPIRED = "O prazo desta conexão terminou. Comece de novo.";
+const MSG_UNAVAILABLE = "Os dados desta conexão não estão mais disponíveis. Comece de novo.";
 const MSG_LEGACY = "Conta Google não registrada.";
 
 /** Mesma checagem pragmática do backend — só evita a viagem inútil. */
@@ -86,8 +87,11 @@ function clearFlow(): void {
   }
 }
 
-/** Fluxo guardado e AINDA vivo, ou null. Qualquer coisa fora do formato — ou já
- *  vencida — é apagada na leitura: segredo sem prazo não fica para trás. */
+/** Fluxo guardado e estruturalmente válido, ou null.
+ *
+ * `expiresAt` valida o formato retornado pelo backend, mas o relógio local NÃO
+ * decide se o fluxo morreu: um celular adiantado descartaria um segredo que o
+ * servidor ainda aceita. O `/finish` é a autoridade do TTL. */
 function readFlow(): StoredFlow | null {
   let raw: string | null = null;
   try {
@@ -99,8 +103,13 @@ function readFlow(): StoredFlow | null {
   try {
     const parsed = JSON.parse(raw) as Partial<StoredFlow>;
     const { secret, expiresAt } = parsed;
-    if (typeof secret === "string" && secret && typeof expiresAt === "number") {
-      if (expiresAt > Date.now()) return { secret, expiresAt };
+    if (
+      typeof secret === "string" &&
+      secret &&
+      typeof expiresAt === "number" &&
+      Number.isFinite(expiresAt)
+    ) {
+      return { secret, expiresAt };
     }
   } catch {
     /* JSON corrompido cai no clear abaixo */
@@ -328,12 +337,12 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
   );
 
   /** Única porta para o `finish`: relê o storage e desiste se não houver segredo
-   *  vivo. É isto que garante que `finishConnection` nunca recebe null. */
+   *  bem formado. A validade temporal é decidida pelo servidor. */
   const finishFromStorage = useCallback(async () => {
     const flow = readFlow();
     if (!flow) {
       setPending(false);
-      setRecoverable(MSG_EXPIRED);
+      setRecoverable(MSG_UNAVAILABLE);
       return;
     }
     await finishWith(flow.secret);

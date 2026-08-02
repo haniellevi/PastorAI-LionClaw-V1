@@ -512,15 +512,19 @@ describe("marcador ready", () => {
     expect(button(CTA_FINISH)).toBeUndefined();
   });
 
-  it("com segredo EXPIRADO não conclui e apaga o armazenamento", async () => {
+  it("deixa o servidor validar o prazo mesmo se o relógio local estiver adiantado", async () => {
     setHash("#integracoes/callback/ready");
     seedFlow("segredo", Date.now() - 1_000);
+    // O timestamp parece vencido apenas para o dispositivo; o servidor, cuja
+    // hora criou o TTL, ainda aceita o fluxo.
+    finishConnection.mockResolvedValue(CONECTADO);
 
     await render();
 
-    expect(finishConnection).not.toHaveBeenCalled();
+    expect(finishConnection).toHaveBeenCalledWith("tok", "segredo");
     expect(storedFlow()).toBeNull();
     expect(button(CTA_FINISH)).toBeUndefined();
+    expect(text()).toContain("Agenda sincronizada");
   });
 });
 
@@ -563,16 +567,16 @@ describe("fora do marcador ready — conclusão é do usuário", () => {
     expect(storedFlow()?.secret).toBe("segredo-da-pwa");
   });
 
-  it("armazenamento expirado é removido e nenhum finish acontece", async () => {
+  it("prazo aparentemente vencido continua disponível para validação do servidor", async () => {
     setHash("#integracoes");
     seedFlow("velho", Date.now() - 60_000);
 
     await render();
 
     expect(finishConnection).not.toHaveBeenCalled();
-    expect(storedFlow()).toBeNull();
-    expect(button(CTA_FINISH)).toBeUndefined();
-    expect(button(CTA_CONNECT)).toBeTruthy();
+    expect(storedFlow()?.secret).toBe("velho");
+    expect(button(CTA_FINISH)).toBeTruthy();
+    expect(button(CTA_CONNECT)).toBeUndefined();
   });
 
   it("armazenamento corrompido é removido e nenhum finish acontece", async () => {
