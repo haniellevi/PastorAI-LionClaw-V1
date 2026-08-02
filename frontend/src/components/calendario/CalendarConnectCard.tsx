@@ -61,9 +61,10 @@ const ROUTE_BASE = "integracoes";
 const ROUTE_READY = "integracoes/callback/ready";
 const ROUTE_CANCELLED = "integracoes/callback/cancelled";
 
-/** Versionada: o formato mudou de string crua em `sessionStorage` para objeto
- *  com prazo em `localStorage`. Chave nova evita ler lixo do formato antigo. */
-const FLOW_KEY = "gcal_flow_v2";
+/** Versionada e vinculada ao usuário do app. Um navegador pode trocar de conta
+ *  enquanto o consentimento está pendente; sem esse vínculo, a conta seguinte
+ *  poderia consumir e invalidar o segredo da anterior. */
+const FLOW_KEY_PREFIX = "gcal_flow_v3";
 
 const MSG_CANCELLED = "A conexão com o Google foi cancelada.";
 const MSG_INCOMPLETE = "A conexão com o Google não foi concluída. Tente novamente.";
@@ -80,9 +81,13 @@ interface StoredFlow {
   expiresAt: number;
 }
 
-function clearFlow(): void {
+function flowKey(appUserId: string): string {
+  return `${FLOW_KEY_PREFIX}:${appUserId}`;
+}
+
+function clearFlow(appUserId: string): void {
   try {
-    window.localStorage.removeItem(FLOW_KEY);
+    window.localStorage.removeItem(flowKey(appUserId));
   } catch {
     /* storage indisponível */
   }
@@ -93,10 +98,10 @@ function clearFlow(): void {
  * `expiresAt` valida o formato retornado pelo backend, mas o relógio local NÃO
  * decide se o fluxo morreu: um celular adiantado descartaria um segredo que o
  * servidor ainda aceita. O `/finish` é a autoridade do TTL. */
-function readFlow(): StoredFlow | null {
+function readFlow(appUserId: string): StoredFlow | null {
   let raw: string | null = null;
   try {
-    raw = window.localStorage.getItem(FLOW_KEY);
+    raw = window.localStorage.getItem(flowKey(appUserId));
   } catch {
     return null; // storage indisponível: o fluxo falha fechado
   }
@@ -115,18 +120,19 @@ function readFlow(): StoredFlow | null {
   } catch {
     /* JSON corrompido cai no clear abaixo */
   }
-  clearFlow();
+  clearFlow(appUserId);
   return null;
 }
 
 /** Grava e confirma a leitura. Alguns navegadores aceitam a chamada mas não
  * persistem quando o armazenamento está bloqueado; sem confirmação não há
  * posse recuperável e o consentimento não pode começar. */
-function writeFlow(flow: StoredFlow): boolean {
+function writeFlow(appUserId: string, flow: StoredFlow): boolean {
   try {
     const serialized = JSON.stringify(flow);
-    window.localStorage.setItem(FLOW_KEY, serialized);
-    return window.localStorage.getItem(FLOW_KEY) === serialized;
+    const key = flowKey(appUserId);
+    window.localStorage.setItem(key, serialized);
+    return window.localStorage.getItem(key) === serialized;
   } catch {
     return false;
   }
@@ -146,6 +152,7 @@ interface CalendarConnectCardProps {
 
 export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
   const { user, token, expireSession } = useAuth();
+  const appUserId = user?.appUserId ?? null;
   const isAdmin = user ? canManageCalendar(user.roles) : false;
   const [route, navigate] = useHashRoute();
 
@@ -212,11 +219,11 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
 
   /** Só LÊ estado. Nunca conclui fluxo — é o que separa carregar de consentir. */
   const loadStatus = useCallback(async () => {
-    if (!token) return;
+    if (!token || !appUserId) return;
     // A posse do fluxo é local e independe da disponibilidade do endpoint de
     // status. Revele a CTA antes da rede: uma falha transitória não pode fazer
     // a PWA oferecer um fluxo novo que substituiria o consentimento válido.
-    setPending(readFlow() !== null);
+    setPending(readFlow(appUserId) !== null);
     // Fotografia da época ANTES do await: se uma conclusão avançar o contador
     // enquanto esta leitura está em voo, o snapshot velho não escreve nada.
     const epoch = mutationEpochRef.current;
@@ -239,7 +246,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
     } finally {
       setLoading(false);
     }
-  }, [token, applyCalendars, onErr]);
+  }, [token, appUserId, applyCalendars, onErr]);
 
   /** Recompõe apenas o snapshot da conexão após um finish sem sucesso.
    *
@@ -272,7 +279,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
   /** Conclusão. Recebe o segredo já validado — nunca null, nunca vazio. */
   const finishWith = useCallback(
     async (secret: string) => {
-      if (!token) return;
+      if (!token || !appUserId) return;
       // Invalida leituras de status já em voo: foram tiradas ANTES desta
       // conclusão e não podem sobrescrever o resultado dela.
       mutationEpochRef.current += 1;
@@ -284,7 +291,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
           // Avança de novo ANTES de aplicar: pega também as leituras que
           // começaram durante o `finish` e ainda não resolveram.
           mutationEpochRef.current += 1;
-          clearFlow();
+          clearFlow(appUserId);
           setPending(false);
           setRecoverable(null);
           setMismatch(null);
@@ -299,14 +306,14 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
         }
         // 202: o callback ainda não estacionou o code. NÃO consome o fluxo e
         // NÃO repete a chamada — o segredo fica até o TTL e a CTA segue à mão.
-        setPending(readFlow() !== null);
+        setPending(readFlow(appUserId) !== null);
         setRecoverable(MSG_INCOMPLETE);
         await restoreStatusAfterUnsuccessfulFinish();
       } catch (e) {
         // Conta divergente: terminal e acionável. O servidor não escreveu nada —
         // a conexão anterior, se havia, continua exatamente como estava.
         if (e instanceof GoogleAccountMismatchError) {
-          clearFlow();
+          clearFlow(appUserId);
           setPending(false);
           setRecoverable(null);
           setChanging(false);
@@ -317,7 +324,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
         // Só 409 é terminal para o fluxo; autorização/validação pré-handler
         // preserva o segredo para nova tentativa dentro do TTL.
         if (makesFlowUnusable(e)) {
-          clearFlow();
+          clearFlow(appUserId);
           setPending(false);
         }
         onErr(e);
@@ -331,6 +338,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
     },
     [
       token,
+      appUserId,
       navigate,
       applyCalendars,
       onErr,
@@ -341,14 +349,15 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
   /** Única porta para o `finish`: relê o storage e desiste se não houver segredo
    *  bem formado. A validade temporal é decidida pelo servidor. */
   const finishFromStorage = useCallback(async () => {
-    const flow = readFlow();
+    if (!appUserId) return;
+    const flow = readFlow(appUserId);
     if (!flow) {
       setPending(false);
       setRecoverable(MSG_UNAVAILABLE);
       return;
     }
     await finishWith(flow.secret);
-  }, [finishWith]);
+  }, [appUserId, finishWith]);
 
   // Marcadores de retorno, uma vez por montagem.
   //  * `ready`     — o usuário acabou de consentir; com segredo vivo, conclui.
@@ -357,7 +366,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
   //                  é público e não carrega correlação suficiente para provar
   //                  que o marcador pertence ao fluxo atualmente no storage.
   useEffect(() => {
-    if (!isAdmin || !token) return;
+    if (!isAdmin || !token || !appUserId) return;
     if (route !== ROUTE_READY && route !== ROUTE_CANCELLED) return;
     if (handledRef.current) return;
     handledRef.current = true;
@@ -368,7 +377,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
       return;
     }
 
-    const flow = readFlow();
+    const flow = readFlow(appUserId);
     if (!flow) {
       setPending(false);
       setRecoverable(MSG_INCOMPLETE);
@@ -376,7 +385,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
       return;
     }
     void finishWith(flow.secret);
-  }, [isAdmin, token, route, navigate, finishWith]);
+  }, [isAdmin, token, appUserId, route, navigate, finishWith]);
 
   // iOS: ir ao Google NÃO desmonta a PWA — ela fica em segundo plano com o botão
   // preso em "Abrindo o Google…", e o retorno costuma cair no Safari. Voltar ao
@@ -400,7 +409,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
   const emailValid = EMAIL_RE.test(declaredEmail);
 
   const connect = useCallback(async () => {
-    if (!token) return;
+    if (!token || !appUserId) return;
     // Fail-closed no cliente: sem conta declarada não existe contra o que o
     // backend comparar, então nem inicia.
     if (!emailValid) return;
@@ -410,7 +419,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
     setRecoverable(null);
     setMismatch(null);
     // Fluxo novo por decisão do usuário: o anterior morre aqui.
-    clearFlow();
+    clearFlow(appUserId);
     setPending(false);
     try {
       const { authUrl, flowSecret, expiresAt } = await fetchConnectUrl(
@@ -418,7 +427,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
         declaredEmail,
       );
       // Grava ANTES de sair da página: é a única chance.
-      if (!writeFlow({ secret: flowSecret, expiresAt })) {
+      if (!writeFlow(appUserId, { secret: flowSecret, expiresAt })) {
         setError(
           "Este navegador não permitiu guardar a conexão. Libere o armazenamento do site e tente novamente.",
         );
@@ -434,18 +443,18 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
       setBusy(false);
       setRedirecting(false);
     }
-  }, [token, emailValid, declaredEmail, onErr]);
+  }, [token, appUserId, emailValid, declaredEmail, onErr]);
 
   /** Reinício: descarta o que houver e volta ao formulário de conta. */
   const restart = useCallback(() => {
-    clearFlow();
+    if (appUserId) clearFlow(appUserId);
     setPending(false);
     setRecoverable(null);
     setMismatch(null);
     setError(null);
     handledRef.current = false;
     navigate(ROUTE_BASE);
-  }, [navigate]);
+  }, [appUserId, navigate]);
 
   const pick = useCallback(
     async (id: string) => {

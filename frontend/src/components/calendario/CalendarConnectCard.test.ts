@@ -31,7 +31,7 @@ const expireSession = vi.fn();
 // Objeto ESTÁVEL entre renders: um novo objeto a cada chamada faz os
 // useCallback/useEffect que dependem dele reexecutarem em laço.
 const authValue = {
-  user: { roles: ["admin"] as string[] },
+  user: { roles: ["admin"] as string[], appUserId: "app-user-1" },
   token: "tok",
   expireSession,
 };
@@ -63,7 +63,7 @@ vi.mock("@/lib/calendar-api", async (importOriginal) => {
 const { CalendarConnectCard } = await import("./CalendarConnectCard");
 
 /** Chave VERSIONADA: objeto com prazo, em localStorage. */
-const FLOW_KEY = "gcal_flow_v2";
+const FLOW_KEY_PREFIX = "gcal_flow_v3";
 const CTA_FINISH = "Concluir conexão com o Google";
 const CTA_CONNECT = "Conectar Google Agenda";
 const CTA_RESTART = "Tentar novamente";
@@ -78,12 +78,20 @@ interface StoredFlow {
   expiresAt: number;
 }
 
-function seedFlow(secret = "segredo", expiresAt = Date.now() + 3_600_000): void {
-  window.localStorage.setItem(FLOW_KEY, JSON.stringify({ secret, expiresAt }));
+function flowKey(appUserId = authValue.user.appUserId): string {
+  return `${FLOW_KEY_PREFIX}:${appUserId}`;
 }
 
-function storedFlow(): StoredFlow | null {
-  const raw = window.localStorage.getItem(FLOW_KEY);
+function seedFlow(
+  secret = "segredo",
+  expiresAt = Date.now() + 3_600_000,
+  appUserId = authValue.user.appUserId,
+): void {
+  window.localStorage.setItem(flowKey(appUserId), JSON.stringify({ secret, expiresAt }));
+}
+
+function storedFlow(appUserId = authValue.user.appUserId): StoredFlow | null {
+  const raw = window.localStorage.getItem(flowKey(appUserId));
   return raw ? (JSON.parse(raw) as StoredFlow) : null;
 }
 
@@ -439,6 +447,20 @@ describe("conta divergente", () => {
 });
 
 describe("marcador ready", () => {
+  it("não consome o fluxo de outro usuário no mesmo navegador", async () => {
+    setHash("#integracoes/callback/ready");
+    seedFlow("segredo-de-outro-admin", Date.now() + 3_600_000, "app-user-2");
+
+    await render();
+
+    expect(finishConnection).not.toHaveBeenCalled();
+    expect(storedFlow("app-user-2")?.secret).toBe("segredo-de-outro-admin");
+    expect(storedFlow()).toBeNull();
+    expect(text()).toContain("não foi concluída");
+    expect(button(CTA_RESTART)).toBeTruthy();
+    expect(button(CTA_FINISH)).toBeUndefined();
+  });
+
   it("com segredo válido conclui e atualiza a conta exibida", async () => {
     setHash("#integracoes/callback/ready");
     seedFlow("segredo");
@@ -581,7 +603,7 @@ describe("fora do marcador ready — conclusão é do usuário", () => {
 
   it("armazenamento corrompido é removido e nenhum finish acontece", async () => {
     setHash("#integracoes");
-    window.localStorage.setItem(FLOW_KEY, "{isto nao e json");
+    window.localStorage.setItem(flowKey(), "{isto nao e json");
 
     await render();
 
