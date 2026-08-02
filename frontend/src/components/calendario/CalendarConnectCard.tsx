@@ -213,6 +213,10 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
   /** Só LÊ estado. Nunca conclui fluxo — é o que separa carregar de consentir. */
   const loadStatus = useCallback(async () => {
     if (!token) return;
+    // A posse do fluxo é local e independe da disponibilidade do endpoint de
+    // status. Revele a CTA antes da rede: uma falha transitória não pode fazer
+    // a PWA oferecer um fluxo novo que substituiria o consentimento válido.
+    setPending(readFlow() !== null);
     // Fotografia da época ANTES do await: se uma conclusão avançar o contador
     // enquanto esta leitura está em voo, o snapshot velho não escreve nada.
     const epoch = mutationEpochRef.current;
@@ -224,11 +228,6 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
       setConnected(s.connected);
       setCalendarId(s.calendarId);
       setGoogleAccountEmail(s.googleAccountEmail);
-      // Um fluxo novo pode coexistir com a conexão ANTIGA enquanto o admin
-      // troca/registra a conta. O status continua connected=true até o finish;
-      // por isso a posse pendente é independente do snapshot do servidor.
-      const pendingFlow = readFlow() !== null;
-      setPending(pendingFlow);
       if (s.connected) {
         await applyCalendars();
       }

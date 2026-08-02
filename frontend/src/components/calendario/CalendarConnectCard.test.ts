@@ -770,4 +770,17 @@ describe("iniciar um fluxo novo", () => {
     expect(storedFlow()?.secret).toBe("segredo-novo");
     expect(finishConnection).not.toHaveBeenCalled();
   });
+
+  it("falha transitória do status ainda revela o fluxo salvo, sem substituí-lo", async () => {
+    setHash("#integracoes");
+    seedFlow("segredo");
+    fetchCalendarStatus.mockRejectedValue(new Error("status indisponível"));
+
+    await render();
+
+    expect(storedFlow()?.secret).toBe("segredo");
+    expect(button(CTA_FINISH)).toBeTruthy();
+    expect(button(CTA_CONNECT)).toBeUndefined();
+    expect(finishConnection).not.toHaveBeenCalled();
+  });
 });
