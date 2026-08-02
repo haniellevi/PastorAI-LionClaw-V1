@@ -6,6 +6,7 @@ limite — não mais os dicts hardcoded que existiam em app/domain/billing.py.
 from __future__ import annotations
 
 import datetime as dt
+import uuid
 from types import SimpleNamespace
 
 import pytest
@@ -1136,6 +1137,49 @@ def test_change_plan_updates_existing_subscription_in_place(app) -> None:
     assert sub.limite == 200
     assert sub.asaas_subscription_id == "sub_asaas_1"
     assert db.igreja.plano == "101_200"  # reflexo no cadastro da igreja
+
+
+def test_late_plan_change_completion_cannot_overwrite_a_newer_plan() -> None:
+    from app.services.billing import _complete_plan_change
+
+    op_id = uuid.UUID("00000000-0000-0000-0000-00000000c901")
+    stale = BillingPlanChangeOperation(
+        id=op_id,
+        subscription_id="00000000-0000-0000-0000-00000000su01",
+        asaas_subscription_id="sub_asaas_1",
+        from_plano="ate_100",
+        to_plano="101_200",
+        to_preco=299.0,
+        to_limite=200,
+        status="processing",
+    )
+    # O worker já concluiu a operação antiga e uma segunda troca já gravou o
+    # plano mais novo enquanto a resposta do primeiro PUT estava em voo.
+    current = BillingPlanChangeOperation(
+        id=op_id,
+        subscription_id=stale.subscription_id,
+        asaas_subscription_id="sub_asaas_1",
+        from_plano="ate_100",
+        to_plano="101_200",
+        to_preco=299.0,
+        to_limite=200,
+        status="completed",
+    )
+    sub = _subscription(plano="acima_201", limite=500)
+    igreja = SimpleNamespace(id=sub.igreja_id, plano="acima_201")
+    db = FakeSession(
+        igreja=igreja,
+        subscription=sub,
+        plan_changes=[current],
+    )
+
+    applied = _complete_plan_change(db, stale, sub)
+
+    assert applied is False
+    assert sub.plano == "acima_201"
+    assert sub.limite == 500
+    assert igreja.plano == "acima_201"
+    assert current.status == "completed"
 
 
 def test_change_plan_rejects_same_plan_as_noop(app) -> None:

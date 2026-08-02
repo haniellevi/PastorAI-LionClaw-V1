@@ -519,8 +519,26 @@ def _plan_change_matches_remote(
 
 def _complete_plan_change(
     db: Session, op: BillingPlanChangeOperation, sub: Subscription
-) -> None:
-    """Aplica o plano local SOMENTE após confirmação/reconciliação remota."""
+) -> bool:
+    """Aplica o alvo somente se ``op`` ainda for a troca autoritativa.
+
+    A chamada externa pode ficar em voo enquanto o worker reconcilia a mesma
+    operação, libera o slot e uma troca mais nova conclui. O UPDATE condicional
+    fecha a operação velha e reserva a aplicação local na MESMA transação; se
+    ela já fechou, a resposta atrasada não escreve plano nem entitlement.
+    """
+    claimed = db.execute(
+        update(BillingPlanChangeOperation)
+        .where(
+            BillingPlanChangeOperation.id == op.id,
+            BillingPlanChangeOperation.status.in_(("processing", "reconciling")),
+        )
+        .values(status="completed", attempt_started_at=None)
+    )
+    if getattr(claimed, "rowcount", 0) != 1:
+        db.rollback()
+        return False
+
     sub.plano = op.to_plano
     sub.limite = op.to_limite
     igreja = db.execute(
@@ -529,7 +547,9 @@ def _complete_plan_change(
     if igreja is not None:
         igreja.plano = op.to_plano
     op.status = "completed"
+    op.attempt_started_at = None
     db.commit()
+    return True
 
 
 def ensure_plan_change_operation(
