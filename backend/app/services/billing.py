@@ -186,6 +186,27 @@ def find_any_open_operation(
     ).scalars().first()
 
 
+def find_latest_reversed_setup_operation(
+    db: Session, subscription_id
+) -> BillingPaymentOperation | None:
+    """Última cobrança de setup revertida, fonte do valor contratado.
+
+    O master pode alterar ou isentar a taxa depois da contratação. Uma
+    reemissão substitui a cobrança revertida e, portanto, herda o ``valor``
+    congelado nela — nunca reprecifica um contrato existente.
+    """
+    return db.execute(
+        select(BillingPaymentOperation)
+        .where(
+            BillingPaymentOperation.subscription_id == subscription_id,
+            BillingPaymentOperation.purpose == "setup",
+            BillingPaymentOperation.status == "reversed",
+        )
+        .order_by(BillingPaymentOperation.created_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+
+
 def find_settled_recovery(
     db: Session, subscription_id, source_payment_id: str
 ) -> BillingPaymentOperation | None:

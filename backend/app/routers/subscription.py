@@ -57,6 +57,7 @@ from app.services.billing import (
     ensure_payment_operation,
     ensure_plan_change_operation,
     find_any_open_operation,
+    find_latest_reversed_setup_operation,
     find_open_operation,
     find_open_plan_change,
     find_open_subscription_operation,
@@ -785,13 +786,29 @@ def create_checkout(
             detail="Contratação em processamento — tente novamente",
         )
 
+    customer_persist_failed = False
+
     def _persist_resolved_customer(customer_id: str) -> None:
+        nonlocal customer_persist_failed
         # Chamado ANTES do POST /subscriptions: com o customer persistido,
         # uma falha ambígua adiante é sabidamente do POST da assinatura (e
         # vira reconciliação — nunca um novo POST às cegas).
+        previous_sub_customer = sub.asaas_customer_id
+        previous_op_customer = op.customer_id
         sub.asaas_customer_id = customer_id
         op.customer_id = customer_id
-        db.commit()
+        try:
+            db.commit()
+        except Exception as exc:
+            # O POST /subscriptions ainda NÃO aconteceu. O commit falhou, então
+            # esta intenção é comprovadamente reutilizável; classificá-la como
+            # ambígua a prenderia em reconciling para sempre.
+            customer_persist_failed = True
+            db.rollback()
+            sub.asaas_customer_id = previous_sub_customer
+            op.customer_id = previous_op_customer
+            claim_transition(db, op, "creating", "prepared")
+            raise AsaasError("Falha ao persistir o customer resolvido") from exc
 
     def _track_created_subscription(customer_id: str, subscription_id: str) -> None:
         # Chamado pelo AsaasClient IMEDIATAMENTE após o POST /subscriptions:
@@ -831,7 +848,11 @@ def create_checkout(
             detail="O Asaas rejeitou o checkout — confira os dados e tente novamente",
         ) from exc
     except AsaasError as exc:
-        if op.customer_id:
+        if customer_persist_failed:
+            # A própria callback já restaurou `prepared`; mantém a classificação
+            # pré-POST mesmo se a operação carregava um customer de retry antigo.
+            claim_transition(db, op, "creating", "prepared")
+        elif op.customer_id:
             # Customer já existia quando falhou → o erro pertence ao POST da
             # assinatura (ou veio depois dele): resultado AMBÍGUO
             # (timeout/5xx), o retry deve reconciliar — nunca repetir o POST.
@@ -1043,7 +1064,12 @@ def create_setup_charge_action(
             setupInvoiceUrl=sub.asaas_setup_invoice_url,
         )
 
-    setup_fee = get_setup_fee_for_igreja(db, igreja)
+    reversed_setup = find_latest_reversed_setup_operation(db, sub.id)
+    setup_fee = (
+        float(reversed_setup.valor)
+        if reversed_setup is not None
+        else get_setup_fee_for_igreja(db, igreja)
+    )
     if setup_fee <= 0:
         # Isenta pela configuração vigente: nada a cobrar.
         sub.setup_pago = True

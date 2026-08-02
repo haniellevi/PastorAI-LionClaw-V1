@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.db.models import (
+    BillingPaymentOperation,
     BillingPlanChangeOperation,
     BillingSubscriptionOperation,
     Subscription,
@@ -855,6 +856,41 @@ def test_setup_charge_action_emits_via_operation_once(app) -> None:
     assert len(ops) == 1
 
 
+def test_setup_reissue_uses_reversed_operation_amount_not_current_fee(app) -> None:
+    # Contrato nasceu em 59,90; depois o master isentou novas contratações.
+    # Reemitir a cobrança revertida não pode perdoar nem reprecificar a dívida.
+    reversed_setup = BillingPaymentOperation(
+        subscription_id="00000000-0000-0000-0000-00000000su01",
+        purpose="setup",
+        operation_key="pastorai-setup-original",
+        status="reversed",
+        valor=59.9,
+        asaas_payment_id="pay_setup_old",
+    )
+    asaas = _FakeAsaas()
+    sub = _subscription(
+        status="ativa",
+        setup_pago=False,
+        asaas_setup_charge_id=None,
+        asaas_setup_invoice_url=None,
+    )
+    client, _db = _client(
+        app,
+        planos=[],
+        asaas=asaas,
+        setup_fee_default=0.0,
+        subscription=sub,
+        operations=[reversed_setup],
+    )
+
+    resp = client.post("/subscription/setup-charge", headers=_AUTH)
+
+    assert resp.status_code == 200
+    assert len(asaas.charge_calls) == 1
+    assert asaas.charge_calls[0]["valor"] == 59.9
+    assert sub.setup_pago is False
+
+
 def test_setup_charge_action_rejects_when_already_paid(app) -> None:
     sub = _subscription(status="ativa", setup_pago=True)
     client, _db = _client(app, planos=[], asaas=_FakeAsaas(), subscription=sub)
@@ -1435,6 +1471,62 @@ def test_checkout_customer_failure_returns_to_prepared_and_allows_retry_post(
     assert asaas.create_calls == 2
     assert op.status == "created"
     assert op.asaas_subscription_id == "sub_asaas_1"
+
+
+class _CustomerPersistRetryAsaas:
+    """Customer existe, mas o primeiro commit local falha antes da assinatura."""
+
+    def __init__(self) -> None:
+        self.create_calls = 0
+
+    def create_checkout(self, **kwargs):
+        self.create_calls += 1
+        kwargs["on_customer_resolved"]("cus_1")
+        kwargs["on_subscription_created"]("cus_1", "sub_asaas_1")
+        return CheckoutResult(
+            customer_id="cus_1",
+            subscription_id="sub_asaas_1",
+            invoice_url="https://asaas.test/m1",
+            status="pendente",
+            invoice_payment_id="pay_m1",
+        )
+
+
+def test_customer_persistence_failure_returns_intent_to_prepared(app) -> None:
+    asaas = _CustomerPersistRetryAsaas()
+    client, db = _client(app, planos=[_plano()], asaas=asaas)
+    original_commit = db.commit
+
+    def fail_customer_commit_once() -> None:
+        # sub placeholder, prepare op e claim já fizeram três commits. O quarto
+        # é a callback que persiste o customer antes do POST /subscriptions.
+        if db.commits == 3:
+            db.commits += 1
+            raise RuntimeError("falha transitória no commit do customer")
+        original_commit()
+
+    db.commit = fail_customer_commit_once  # type: ignore[method-assign]
+
+    first = client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    )
+
+    assert first.status_code == 502
+    op = next(o for o in db.added if isinstance(o, BillingSubscriptionOperation))
+    assert op.status == "prepared"
+    assert op.customer_id is None
+    created_sub = next(o for o in db.added if isinstance(o, Subscription))
+    assert created_sub.asaas_subscription_id is None
+
+    _adopt_created_sub(db)
+    second = client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    )
+
+    assert second.status_code == 200
+    assert asaas.create_calls == 2
+    assert op.status == "created"
+    assert created_sub.asaas_subscription_id == "sub_asaas_1"
 
 
 # ---------------------------------------------------------------------------

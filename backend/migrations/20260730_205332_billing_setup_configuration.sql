@@ -217,6 +217,7 @@ comment on table billing_plan_change_operations is
 create or replace function fn_subscription_autoupgrade()
 returns trigger
 language plpgsql
+security definer
 set search_path = public, pg_temp
 as $$
 declare

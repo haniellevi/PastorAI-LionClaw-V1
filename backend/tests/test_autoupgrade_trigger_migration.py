@@ -46,6 +46,9 @@ def test_historical_0004_remains_untouched() -> None:
 
 def test_trigger_is_redefined_in_the_pr_migration() -> None:
     body = _fn_body()
+    # A função já era SECURITY DEFINER desde a migration de branding: o tenant
+    # não possui UPDATE(plano) em igrejas e a redefinição não pode rebaixá-la.
+    assert "security definer" in body
     assert "set search_path = public, pg_temp" in body  # endurecimento de 0006
     assert "insert into billing_plan_change_operations" in body
     # A operação nasce com a entrega da notificação PENDENTE (durável).
