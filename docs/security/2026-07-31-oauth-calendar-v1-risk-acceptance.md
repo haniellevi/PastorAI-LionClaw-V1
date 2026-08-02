@@ -197,9 +197,10 @@ guardando **apenas** `secret` + `expiresAt`.
 
 O risco **R4** permanece, agora por comportamento e não por cegueira: um admin
 pode **deliberadamente** declarar e conectar a própria conta pessoal. A diferença
-é que isso passou a ser **visível** — a conta fica registrada e exibida, com
-autor e data. Continua limite do modelo de produto (uma agenda por igreja,
-qualquer admin conecta).
+é que a conta Google verificada passa a ser registrada e **exibida no painel**.
+Quem realizou a conexão e quando ficam registrados **no banco para auditoria,
+mas não são exibidos no V1**. Continua sendo limite do modelo de produto (uma
+agenda por igreja, qualquer admin conecta).
 
 ### EXTERNAL_CONFIG_PENDING
 
@@ -222,7 +223,7 @@ Nada aqui foi exercitado contra o Google real. Antes de qualquer promoção:
 | **R1** | Atacante com **leitura do navegador da vítima** obtém `state` + `code_challenge` do histórico e pré-amarra um authorization code, transformando o park em injeção real. **Não é cobertura completa de PKCE.** | **D1 — ACEITO, com o escopo explicitado.** A justificativa vale porque, nesse cenário, o atacante já alcança o token de sessão **e o armazenamento do painel** — inclusive o `flowSecret`. Ela **não** se estende a quem obtém o `state` FORA do navegador da vítima (access log, histórico do Safari sincronizado, aparelho compartilhado): contra esses, a defesa é a posse obrigatória do `flowSecret`, e o resíduo de identidade da conta Google está em **ACCOUNT_IDENTITY_RISK_PENDING**. |
 | **R2** | **CORRIGIDO 2026-07-31.** Um `state` vazado ocupa o first-write do park. Se o `code` veio de OUTRA requisição, o `finish` falha em `invalid_grant` e o efeito é DoS de TTL + reclique. Se veio da URL de autorização **ORIGINAL**, a troca **sucede** e o efeito é **vinculação de conta** — ver a seção do PKCE acima. A redação anterior descrevia só o primeiro caso. | **D2 cobre APENAS a parte de DoS.** A parte de vinculação de conta pertence a **ACCOUNT_IDENTITY_RISK_PENDING** e **NÃO está aceita**. Mitigação vigente: posse obrigatória do `flowSecret` + conclusão por ação humana, que eliminam o caminho silencioso mas não provam a conta Google. |
 | **R3** | Oráculo de 1 bit no destino do redirect (fluxo conhecido × desconhecido). | **D2 — ACEITO.** Só informa "vivo ou morto" a quem já tem o `state`, que sozinho não concede privilégio. |
-| **R4** | Admin legítimo conecta a própria agenda pessoal ("entra em Configurações → Agenda → Conectar"). Zero verificações disparam, em qualquer desenho de `state`. | **D2 — ACEITO.** É limite do modelo de produto (uma agenda por igreja, qualquer admin conecta). **ATUALIZADO 2026-08-01:** a mitigação de UI foi implementada — a conta Google verificada, quem conectou e quando ficam registrados e exibidos. O risco COMPORTAMENTAL permanece (o admin pode deliberadamente declarar e conectar a conta pessoal), mas deixou de ser invisível. |
+| **R4** | Admin legítimo conecta a própria agenda pessoal ("entra em Configurações → Agenda → Conectar"). Zero verificações disparam, em qualquer desenho de `state`. | **D2 — ACEITO.** É limite do modelo de produto (uma agenda por igreja, qualquer admin conecta). **ATUALIZADO 2026-08-01:** a conta Google verificada fica registrada e **exibida no painel**; quem conectou e quando ficam registrados **no banco para auditoria, mas não são exibidos no V1**. O risco COMPORTAMENTAL permanece (o admin pode deliberadamente declarar e conectar a conta pessoal), embora a conta conectada tenha deixado de ser invisível. |
 | **R5** | Segredos de fluxo expirado vivem até ~1 tick do cron-worker (300s por padrão) além do TTL. | **D2 — ACEITO.** Knob disponível: um `UPDATE ... SET code_encrypted = NULL, verifier_encrypted = NULL` antes do `DELETE`. Não incluído por padrão. |
 | **R6** | **Retenção indeterminada** de `verifier`/`code` cifrados num rollback de backend em que o cron-worker novo **não** permaneça. | **CONDICIONAL — NÃO COBERTO POR D2.** Só precisa de decisão se essa via de rollback for exercida. Nesse caso: limpeza explícita (`delete from calendar_oauth_flows where expires_at <= now();`) **ou** aceite próprio de R6. |
 
