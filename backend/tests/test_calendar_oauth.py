@@ -1099,6 +1099,30 @@ def test_status_connected(app) -> None:
     }
 
 
+def test_list_calendars_holds_identity_lock_through_google_call(
+    app, crypto_enabled
+) -> None:
+    sync = _connected_sync(crypto_enabled)
+    session = _FlowSession(app_user=make_app_user(), roles=["admin"], sync=sync)
+
+    class _AssertingOAuth(_FakeOAuth):
+        def list_calendars(self, token):
+            assert session.identity_locks == 1
+            assert session.commits == 0
+            return super().list_calendars(token)
+
+    c = _client(
+        app,
+        ["admin"],
+        session=session,
+        oauth=_AssertingOAuth(tokens=_tokens(refresh=None)),
+    )
+
+    assert c.get("/calendar/list", headers=_AUTH).status_code == 200
+    assert session.identity_locks == 1
+    assert session.commits == 1
+
+
 def test_select_calendar_sets_id(app) -> None:
     sync = _sync(refresh_token_encrypted="enc", google_calendar_id=None)
     session = _FlowSession(app_user=make_app_user(), roles=["admin"], sync=sync)
@@ -1106,6 +1130,7 @@ def test_select_calendar_sets_id(app) -> None:
     r = c.put("/calendar", json={"calendarId": "cal@new"}, headers=_AUTH)
     assert r.status_code == 200
     assert sync.google_calendar_id == "cal@new"
+    assert session.identity_locks == 1
     assert session.commits == 1
 
 
@@ -1120,6 +1145,7 @@ def test_disconnect_deletes(app) -> None:
     session = _FlowSession(app_user=make_app_user(), roles=["admin"], sync=sync)
     c = _client(app, ["admin"], session=session)
     assert c.delete("/calendar", headers=_AUTH).status_code == 204
+    assert session.identity_locks == 1
     assert session.deleted == [sync]
 
 
@@ -1163,8 +1189,18 @@ def test_import_preview_not_connected_returns_409(app) -> None:
 
 def test_import_preview_returns_events_without_persisting(app, crypto_enabled) -> None:
     sync = _connected_sync(crypto_enabled)
-    oauth = _import_oauth([_preview_ev("g1")])
     session = _FlowSession(app_user=make_app_user(), roles=["pastor"], sync=sync)
+
+    class _AssertingOAuth(_FakeOAuth):
+        def list_events(self, token, calendar_id, time_min, time_max, **kwargs):
+            # O refresh não pode commitar e soltar o lock antes desta leitura.
+            assert session.identity_locks == 1
+            assert session.commits == 0
+            return super().list_events(
+                token, calendar_id, time_min, time_max, **kwargs
+            )
+
+    oauth = _AssertingOAuth(tokens=_tokens(refresh=None), events=[_preview_ev("g1")])
     c = _client(app, ["pastor"], session=session, oauth=oauth)
 
     r = c.get("/calendar/import/preview", headers=_AUTH)
@@ -1173,6 +1209,8 @@ def test_import_preview_returns_events_without_persisting(app, crypto_enabled) -
     assert r.json()["events"][0]["googleEventId"] == "g1"
     assert oauth.refreshed is True
     assert oauth.list_events_args[1] == "cal@x"
+    assert session.identity_locks == 1
+    assert session.commits == 1
     assert session.added == []
 
 
@@ -1185,6 +1223,8 @@ def test_import_creates_pending_google_events(app, crypto_enabled) -> None:
     body = c.post("/calendar/import", headers=_AUTH).json()
 
     assert body["created"] == 2
+    assert session.identity_locks == 1
+    assert session.commits == 1
     for ev in session.added:
         assert ev.status == "a_confirmar"
         assert ev.origem == "google"

@@ -275,7 +275,13 @@ def _parse_date(value: str | None) -> dt.date | None:
 def _valid_access_token(
     db: Session, sync: CalendarSync, oauth: GoogleOAuthClient
 ) -> str:
-    """Return a usable access token, refreshing it when missing/expired."""
+    """Return a usable token without ending the caller's identity lock.
+
+    Every caller that can reach Google first locks the stable ``igrejas`` row.
+    A commit here would release that lock before the Google operation finishes,
+    allowing a concurrent ``connect/finish`` to switch accounts mid-request.
+    The endpoint commits only after its Google call (and any import) completes.
+    """
     now = dt.datetime.now(dt.timezone.utc)
     if (
         sync.access_token_encrypted
@@ -306,7 +312,7 @@ def _valid_access_token(
     sync.access_token_encrypted = encrypt_secret(tokens.access_token)
     sync.access_token_expira_em = now + dt.timedelta(seconds=tokens.expires_in)
     sync.atualizado_em = now
-    db.commit()
+    db.flush()
     return tokens.access_token
 
 
@@ -641,7 +647,8 @@ def list_calendars(
     oauth: GoogleOAuthClient = Depends(get_google_oauth_client),
 ) -> CalendarListOut:
     """List the connected account's calendars so the admin can pick one."""
-    sync = _sync_for(db, uuid.UUID(current_user.igreja_id))
+    igreja_uuid = uuid.UUID(current_user.igreja_id)
+    sync = _locked_sync_for(db, igreja_uuid)
     if not _connected(sync):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Agenda não conectada"
@@ -653,6 +660,7 @@ def list_calendars(
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
         ) from exc
+    db.commit()
     return CalendarListOut(calendars=[CalendarItem(**c) for c in cals])
 
 
@@ -670,7 +678,8 @@ def import_preview(
     written to ``events``. Defaults to a safe forward window (now → +90d) when
     the range is omitted. 409 when the igreja has no calendar connected.
     """
-    sync = _sync_for(db, uuid.UUID(current_user.igreja_id))
+    igreja_uuid = uuid.UUID(current_user.igreja_id)
+    sync = _locked_sync_for(db, igreja_uuid)
     if not _connected(sync):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Agenda não conectada"
@@ -688,6 +697,7 @@ def import_preview(
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
         ) from exc
+    db.commit()
     return ImportPreviewOut(
         calendarId=calendar_id,
         events=[PreviewEventItem(**e) for e in events],
@@ -712,7 +722,7 @@ def import_events(
     conectada; 502 em falha do Google.
     """
     igreja_uuid = uuid.UUID(current_user.igreja_id)
-    sync = _sync_for(db, igreja_uuid)
+    sync = _locked_sync_for(db, igreja_uuid)
     if not _connected(sync):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Agenda não conectada"
@@ -797,7 +807,7 @@ def select_calendar(
     current_user: CurrentUser = Depends(require_role(["admin"])),
 ) -> StatusOut:
     """Set which calendar (id) this igreja syncs with."""
-    sync = _sync_for(db, uuid.UUID(current_user.igreja_id))
+    sync = _locked_sync_for(db, uuid.UUID(current_user.igreja_id))
     if not _connected(sync):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Agenda não conectada"
@@ -818,7 +828,7 @@ def disconnect(
     current_user: CurrentUser = Depends(require_role(["admin"])),
 ) -> None:
     """Disconnect the igreja's Google Calendar (drops stored tokens)."""
-    sync = _sync_for(db, uuid.UUID(current_user.igreja_id))
+    sync = _locked_sync_for(db, uuid.UUID(current_user.igreja_id))
     if sync is not None:
         db.delete(sync)
         db.commit()
