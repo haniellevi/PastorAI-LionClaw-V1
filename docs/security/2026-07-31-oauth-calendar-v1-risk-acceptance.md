@@ -103,30 +103,117 @@ o preço de manter a conclusão presa à posse do segredo e a uma ação humana.
 Isto **não** altera migration, schema, allowlist de origem, escopos, nem
 qualquer configuração no Google Cloud.
 
-## ACCOUNT_IDENTITY_RISK_PENDING
+## Binding de identidade Google (ACCOUNT_IDENTITY_RISK)
 
-**Estado: PENDENTE. Não resolvido e não aceito.**
+**Estado: IMPLEMENTADO, aguardando revisão e gates externos.**
+**NÃO é "resolvido em produção".** Nada foi aplicado, deployado ou executado
+contra o Google.
 
-O sistema **ainda não prova qual conta Google realizou o consentimento**. Nem o
-`state`, nem o `flowSecret`, nem o PKCE, nem a identidade Clerk estabelecem esse
-vínculo — todos falam sobre o lado PastorAI do fluxo.
+### O que estava aberto
 
-Efeito concreto: quem tiver um `state` vivo e conseguir que o admin conclua o
-fluxo (agora com um clique deliberado, não mais em silêncio) consegue vincular a
-agenda da igreja a uma conta Google de terceiro. A posse obrigatória do
-`flowSecret` reduz a superfície; não fecha a questão da identidade.
+`state`, `flowSecret`, PKCE e a identidade Clerk falam todos do lado PastorAI.
+Nenhum deles diz **qual conta Google** consentiu. PKCE, em particular, não impede
+que alguém abra a URL de autorização **ORIGINAL** noutro navegador e consinta com
+outra conta: o `code` sai amarrado ao MESMO `code_challenge`, então a troca
+sucede e os tokens são os do terceiro.
 
-O que fecharia — e que **exige decisão própria do dono**, estando **fora** desta
-correção:
+### Desenho implementado (Desenho A)
 
-1. pedir `openid email` no consentimento e ler a conta que autorizou;
-2. persistir e **exibir** qual conta Google está vinculada, quem vinculou e
-   quando;
-3. exigir confirmação explícita antes de persistir quando a conta mudar.
+O admin **declara** a conta antes de sair, e o servidor **verifica** quem de fato
+autorizou antes de persistir qualquer token:
 
-Enquanto isso não existir: **não declare este risco resolvido nem aceito.**
-Relacionado a R4 (admin conecta a própria agenda pessoal), que é o mesmo buraco
-visto pelo lado do produto.
+1. `POST /calendar/connect` recebe `{"expectedGoogleEmail": "..."}`, normaliza
+   (trim + lowercase, regex pragmática — sem `EmailStr`, sem `email-validator`,
+   mesmo padrão de `app/routers/auth.py`) e grava em
+   `calendar_oauth_flows.expected_email`. O e-mail vive só no corpo: nunca em
+   query string, nunca em log.
+2. `build_consent_url` recebe `login_hint`. É **UX apenas** — pré-seleciona a
+   conta na tela do Google. Não é prova de nada: o usuário pode trocar de conta
+   lá, e um terceiro pode reusar a URL.
+3. Escopos ganham `openid email`, e o `finish`, **depois da queima e da troca**,
+   chama `fetch_userinfo`. Falha fechada em tudo: erro de transporte, corpo
+   não-JSON, `sub`/`email` vazios, ou `email_verified` que não seja exatamente
+   `True`.
+4. Só então compara `verified_email == expected_email`.
+
+### Ordem no `finish` (o que veio antes continua igual)
+
+Preservados: busca **exclusivamente** por `flow_secret_hash`; validação de
+`app_user_id` e `igreja_id`; 202 sem `code`, sem consumir; **queima antes** da
+chamada externa; `code` trocado uma única vez; `flowSecret` obrigatório.
+
+Depois da queima: `exchange_code` → `fetch_userinfo` → `email_verified` →
+comparação com o declarado → regras de continuidade por `sub` → probe
+`list_calendars` → **só então** persistir tokens e identidade.
+
+### Regras de continuidade — a chave é o `sub`, nunca o e-mail
+
+E-mail troca de dono; `sub` não. `calendar_sync.google_account_sub` define a
+identidade anterior:
+
+| Situação | Refresh token | `google_calendar_id` |
+|---|---|---|
+| Primeira conexão (sem linha) | **exige** novo | nasce nulo |
+| Conexão legada (`sub` NULL) | **exige** novo | zerado |
+| Troca para `sub` diferente | **exige** novo | zerado — a seleção era da outra conta |
+| Reconexão com o MESMO `sub` | pode preservar o anterior | preservado |
+
+`prompt=consent` **não** é usado como presunção de que veio refresh token novo.
+Qualquer rejeição deixa refresh e access tokens anteriores intactos.
+
+### Rejeições
+
+- **E-mail divergente** → 409 com detalhe estruturado
+  `{"code": "conta_divergente", "expected": ..., "verified": ...}`. É a **única**
+  recusa com detalhe: sem saber qual conta autorizou, o admin não tem como
+  corrigir. Nenhuma escrita em `calendar_sync`, conexão anterior integralmente
+  intacta, tokens novos morrem em memória, fluxo permanece consumido (um segundo
+  `finish` não troca nada de novo).
+- **Mesmo e-mail declarado com `sub` diferente** → 409 terminal com mensagem
+  acionável, **sem revelar o `sub`**. Conexão anterior intacta.
+- **Fluxo sem `expected_email`** (legado, criado antes do binding) → 409
+  fail-closed, sem sequer tentar a troca.
+- Todo o resto continua na recusa genérica, sem oráculo de causa.
+
+Nem e-mail, nem `sub`, nem token entram em log — no sucesso ou na recusa.
+
+### Superfície de resposta
+
+`finish` (200) e `GET /calendar/status` passam a devolver `googleAccountEmail`.
+Nunca o `sub`, nunca token. Conexão legada continua `connected=true` com
+`googleAccountEmail=null`.
+
+### Painel
+
+Campo de e-mail obrigatório antes de iniciar; "Conectado como &lt;conta&gt;" quando
+há identidade; "Trocar conta Google" com aviso explícito antes do redirect
+quando o e-mail digitado diverge do atual; "Conta Google não registrada" +
+"Registrar conta Google" no legado, **sem exigir desconexão** — a conexão antiga
+segue válida até uma nova concluir com sucesso. Conta divergente mostra as duas
+contas, diz que nada foi alterado e oferece reinício. O `gcal_flow_v2` continua
+guardando **apenas** `secret` + `expiresAt`.
+
+### O que este binding NÃO resolve
+
+O risco **R4** permanece, agora por comportamento e não por cegueira: um admin
+pode **deliberadamente** declarar e conectar a própria conta pessoal. A diferença
+é que isso passou a ser **visível** — a conta fica registrada e exibida, com
+autor e data. Continua limite do modelo de produto (uma agenda por igreja,
+qualquer admin conecta).
+
+### EXTERNAL_CONFIG_PENDING
+
+Nada aqui foi exercitado contra o Google real. Antes de qualquer promoção:
+
+1. **Google Cloud Console** — o OAuth client precisa aceitar os escopos
+   `openid email` na tela de consentimento. Não verificado.
+2. **Endpoint de userinfo** — o default
+   `https://openidconnect.googleapis.com/v1/userinfo` (setting
+   `GOOGLE_OAUTH_USERINFO_URL`) nunca foi chamado por este código em ambiente
+   real. Os testes usam `MockTransport`.
+3. **Migration** `20260801_031500_calendar_account_identity_binding.sql` **não
+   aplicada** em lugar nenhum.
+4. **G3, G4 e G7a/G7b continuam NÃO EXECUTADOS.**
 
 ## Riscos residuais aceitos
 
@@ -135,7 +222,7 @@ visto pelo lado do produto.
 | **R1** | Atacante com **leitura do navegador da vítima** obtém `state` + `code_challenge` do histórico e pré-amarra um authorization code, transformando o park em injeção real. **Não é cobertura completa de PKCE.** | **D1 — ACEITO, com o escopo explicitado.** A justificativa vale porque, nesse cenário, o atacante já alcança o token de sessão **e o armazenamento do painel** — inclusive o `flowSecret`. Ela **não** se estende a quem obtém o `state` FORA do navegador da vítima (access log, histórico do Safari sincronizado, aparelho compartilhado): contra esses, a defesa é a posse obrigatória do `flowSecret`, e o resíduo de identidade da conta Google está em **ACCOUNT_IDENTITY_RISK_PENDING**. |
 | **R2** | **CORRIGIDO 2026-07-31.** Um `state` vazado ocupa o first-write do park. Se o `code` veio de OUTRA requisição, o `finish` falha em `invalid_grant` e o efeito é DoS de TTL + reclique. Se veio da URL de autorização **ORIGINAL**, a troca **sucede** e o efeito é **vinculação de conta** — ver a seção do PKCE acima. A redação anterior descrevia só o primeiro caso. | **D2 cobre APENAS a parte de DoS.** A parte de vinculação de conta pertence a **ACCOUNT_IDENTITY_RISK_PENDING** e **NÃO está aceita**. Mitigação vigente: posse obrigatória do `flowSecret` + conclusão por ação humana, que eliminam o caminho silencioso mas não provam a conta Google. |
 | **R3** | Oráculo de 1 bit no destino do redirect (fluxo conhecido × desconhecido). | **D2 — ACEITO.** Só informa "vivo ou morto" a quem já tem o `state`, que sozinho não concede privilégio. |
-| **R4** | Admin legítimo conecta a própria agenda pessoal ("entra em Configurações → Agenda → Conectar"). Zero verificações disparam, em qualquer desenho de `state`. | **D2 — ACEITO.** É limite do modelo de produto (uma agenda por igreja, qualquer admin conecta). Mitigação possível só na UI — exibir qual conta Google, quem conectou e quando — registrada como frente de produto separada, **fora deste V1**. |
+| **R4** | Admin legítimo conecta a própria agenda pessoal ("entra em Configurações → Agenda → Conectar"). Zero verificações disparam, em qualquer desenho de `state`. | **D2 — ACEITO.** É limite do modelo de produto (uma agenda por igreja, qualquer admin conecta). **ATUALIZADO 2026-08-01:** a mitigação de UI foi implementada — a conta Google verificada, quem conectou e quando ficam registrados e exibidos. O risco COMPORTAMENTAL permanece (o admin pode deliberadamente declarar e conectar a conta pessoal), mas deixou de ser invisível. |
 | **R5** | Segredos de fluxo expirado vivem até ~1 tick do cron-worker (300s por padrão) além do TTL. | **D2 — ACEITO.** Knob disponível: um `UPDATE ... SET code_encrypted = NULL, verifier_encrypted = NULL` antes do `DELETE`. Não incluído por padrão. |
 | **R6** | **Retenção indeterminada** de `verifier`/`code` cifrados num rollback de backend em que o cron-worker novo **não** permaneça. | **CONDICIONAL — NÃO COBERTO POR D2.** Só precisa de decisão se essa via de rollback for exercida. Nesse caso: limpeza explícita (`delete from calendar_oauth_flows where expires_at <= now();`) **ou** aceite próprio de R6. |
 
@@ -180,6 +267,9 @@ Coordenar exigiria um feature gate no backend que não existe e está fora do V1
 | **G4** | Google Cloud Console aceita `code_challenge` S256 | pendente |
 | **G7a/G7b** | Ver ordem acima | a cada deploy |
 | **G3** | Em PWA iOS instalada: o segredo sobrevive ao relançamento no `localStorage` da origem, a CTA "Concluir conexão com o Google" aparece, **um toque** conclui, e nada conclui sozinho | **NÃO PROVADO — bloqueador de merge** (dono decidiu: PWA iOS está no V1). Correção implementada e coberta por teste, mas jsdom, simulador e navegador desktop **NÃO** contam. Só passa com **iPhone real** |
+| **G8** | Google Cloud Console aceita os escopos `openid email` na tela de consentimento | **NÃO EXECUTADO** — ver EXTERNAL_CONFIG_PENDING |
+| **G9** | `GET` real ao endpoint de userinfo devolve `sub` + `email` + `email_verified=true` | **NÃO EXECUTADO** — os testes usam `MockTransport` |
+| **G1c** | `calendar_sync`/`calendar_oauth_flows`: colunas novas presentes e GRANTs inalterados após a migration | pendente — só após aplicar `20260801_031500` |
 | **G6** | Parser do `AppShell` verificado | só se `app.*` entrar na allowlist |
 
 ## Frentes separadas, deliberadamente fora deste PR

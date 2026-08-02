@@ -1,17 +1,19 @@
 // @vitest-environment jsdom
 /**
- * OAUTH-CALENDAR-V1 + PR222-OPTIONAL-SECRET-SECURITY-FIX-1 — ciclo de vida do
- * fluxo no card de conexão.
+ * OAUTH-CALENDAR-V1 + posse obrigatória do `flowSecret` + binding de identidade
+ * — ciclo de vida do fluxo no card de conexão.
  *
  * O que estes testes travam:
  *  - `finish` NUNCA é chamado sem segredo válido — nem na montagem, nem no
  *    `visibilitychange`, nem no marcador `ready`;
- *  - fora do marcador `ready`, quem conclui é o CLIQUE do usuário na CTA
- *    "Concluir conexão com o Google";
- *  - o segredo mora no `localStorage` da origem, com o `expiresAt` do servidor,
- *    e some ao expirar, concluir, cancelar ou levar rejeição terminal;
- *  - 202 preserva o segredo e mantém a ação explícita disponível;
- *  - fail-closed: sem `flowSecret`/`expiresAt` no `/connect`, não redireciona.
+ *  - fora do marcador `ready`, quem conclui é o CLIQUE do usuário;
+ *  - `/connect` só sai com a conta Google DECLARADA, normalizada;
+ *  - a conta conectada é exibida, a troca avisa antes, e o legado (sem conta
+ *    registrada) continua conectado e ganha CTA de registro;
+ *  - conta divergente limpa o segredo e mostra as DUAS contas, sem alterar nada;
+ *  - o segredo mora no `localStorage` da origem, com o `expiresAt` do servidor;
+ *  - a época de mutação impede que uma leitura de status atrasada desfaça uma
+ *    conexão recém-concluída.
  *
  * Sem JSX (createElement): o tsconfig do Next usa jsx:"preserve".
  */
@@ -60,11 +62,16 @@ vi.mock("@/lib/calendar-api", async (importOriginal) => {
 
 const { CalendarConnectCard } = await import("./CalendarConnectCard");
 
-/** Chave VERSIONADA: o formato passou a ser objeto com prazo, em localStorage. */
+/** Chave VERSIONADA: objeto com prazo, em localStorage. */
 const FLOW_KEY = "gcal_flow_v2";
 const CTA_FINISH = "Concluir conexão com o Google";
 const CTA_CONNECT = "Conectar Google Agenda";
 const CTA_RESTART = "Tentar novamente";
+const CTA_SWITCH = "Trocar conta Google";
+const CTA_REGISTER = "Registrar conta Google";
+
+const EMAIL = "agenda@igreja12.com.br";
+const OUTRO_EMAIL = "pessoal@gmail.com";
 
 interface StoredFlow {
   secret: string;
@@ -105,6 +112,24 @@ function button(label: string): HTMLButtonElement | undefined {
   ) as HTMLButtonElement | undefined;
 }
 
+function emailField(): HTMLInputElement | null {
+  return container.querySelector('input[type="email"]');
+}
+
+/** Input controlado do React: precisa do setter nativo para o onChange rodar. */
+async function typeEmail(value: string) {
+  const el = emailField();
+  if (!el) throw new Error("campo de e-mail não está na tela");
+  const setter = Object.getOwnPropertyDescriptor(
+    window.HTMLInputElement.prototype,
+    "value",
+  )!.set!;
+  await act(async () => {
+    setter.call(el, value);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
 async function click(el: HTMLElement) {
   await act(async () => {
     el.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -117,11 +142,30 @@ async function foreground() {
   });
 }
 
+const DESCONECTADO = { connected: false, calendarId: null, googleAccountEmail: null };
+const CONECTADO = {
+  status: "conectado",
+  connected: true,
+  calendarId: "cal@x",
+  googleAccountEmail: EMAIL,
+};
+const AGUARDANDO = {
+  status: "aguardando_callback",
+  connected: false,
+  calendarId: null,
+  googleAccountEmail: null,
+};
+const START = {
+  authUrl: "https://accounts.google/x",
+  flowSecret: "novo",
+  expiresAt: Date.now() + 600_000,
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
   window.localStorage.clear();
   window.sessionStorage.clear();
-  fetchCalendarStatus.mockResolvedValue({ connected: false, calendarId: null });
+  fetchCalendarStatus.mockResolvedValue(DESCONECTADO);
   fetchCalendarList.mockResolvedValue([]);
   hrefWrites = [];
   // jsdom não navega; capturamos a atribuição de href.
@@ -155,15 +199,163 @@ afterEach(async () => {
   container.remove();
 });
 
-const CONECTADO = { status: "conectado", connected: true, calendarId: "cal@x" };
-const AGUARDANDO = {
-  status: "aguardando_callback",
-  connected: false,
-  calendarId: null,
-};
+describe("conta Google declarada", () => {
+  it("sem e-mail válido o botão fica travado e nada é iniciado", async () => {
+    setHash("#integracoes");
+
+    await render();
+
+    expect(emailField()).toBeTruthy();
+    expect(button(CTA_CONNECT)?.disabled).toBe(true);
+    await click(button(CTA_CONNECT)!);
+    expect(fetchConnectUrl).not.toHaveBeenCalled();
+
+    // E-mail malformado continua travando.
+    await typeEmail("sem-arroba");
+    expect(button(CTA_CONNECT)?.disabled).toBe(true);
+    await click(button(CTA_CONNECT)!);
+    expect(fetchConnectUrl).not.toHaveBeenCalled();
+    expect(hrefWrites).toEqual([]);
+  });
+
+  it("envia a conta NORMALIZADA para o /connect", async () => {
+    setHash("#integracoes");
+    fetchConnectUrl.mockResolvedValue(START);
+
+    await render();
+    await typeEmail("  Agenda@Igreja12.COM.BR  ");
+    await click(button(CTA_CONNECT)!);
+
+    expect(fetchConnectUrl).toHaveBeenCalledTimes(1);
+    expect(fetchConnectUrl).toHaveBeenCalledWith("tok", EMAIL);
+    expect(storedFlow()).toEqual({ secret: "novo", expiresAt: START.expiresAt });
+    expect(hrefWrites).toEqual(["https://accounts.google/x"]);
+  });
+
+  it("fail-closed: sem flowSecret na resposta, NÃO redireciona ao Google", async () => {
+    setHash("#integracoes");
+    const { ApiError } = await import("@/lib/calendar-api");
+    fetchConnectUrl.mockRejectedValue(
+      new ApiError(409, "Conexão indisponível no momento. Atualize a página e tente novamente."),
+    );
+
+    await render();
+    await typeEmail(EMAIL);
+    await click(button(CTA_CONNECT)!);
+
+    expect(hrefWrites).toEqual([]); // nenhum consentimento iniciado
+    expect(storedFlow()).toBeNull();
+    expect(text()).toContain("Conexão indisponível");
+  });
+});
+
+describe("identidade conectada", () => {
+  it("mostra a conta Google conectada", async () => {
+    setHash("#integracoes");
+    fetchCalendarStatus.mockResolvedValue({
+      connected: true,
+      calendarId: "cal@x",
+      googleAccountEmail: EMAIL,
+    });
+
+    await render();
+
+    expect(text()).toContain("Conectado como");
+    expect(text()).toContain(EMAIL);
+    expect(button(CTA_SWITCH)).toBeTruthy();
+    expect(emailField()).toBeNull(); // o formulário só abre no clique
+  });
+
+  it("trocar de conta avisa ANTES de redirecionar", async () => {
+    setHash("#integracoes");
+    fetchCalendarStatus.mockResolvedValue({
+      connected: true,
+      calendarId: "cal@x",
+      googleAccountEmail: EMAIL,
+    });
+    fetchConnectUrl.mockResolvedValue(START);
+
+    await render();
+    await click(button(CTA_SWITCH)!);
+    // O campo abre já preenchido com a conta atual: sem aviso enquanto for ela.
+    expect(emailField()?.value).toBe(EMAIL);
+    expect(text()).not.toContain("TROCA a conta conectada");
+
+    await typeEmail(OUTRO_EMAIL);
+
+    expect(text()).toContain("TROCA a conta conectada");
+    expect(text()).toContain(EMAIL);
+    expect(text()).toContain(OUTRO_EMAIL);
+    expect(fetchConnectUrl).not.toHaveBeenCalled(); // só avisou
+
+    await click(button(CTA_SWITCH)!);
+    expect(fetchConnectUrl).toHaveBeenCalledWith("tok", OUTRO_EMAIL);
+  });
+
+  it("conexão legada continua conectada e oferece registrar a conta", async () => {
+    setHash("#integracoes");
+    fetchCalendarStatus.mockResolvedValue({
+      connected: true,
+      calendarId: "cal@x",
+      googleAccountEmail: null,
+    });
+    fetchConnectUrl.mockResolvedValue(START);
+
+    await render();
+
+    expect(text()).toContain("Conta Google não registrada");
+    expect(text()).toContain("Agenda sincronizada"); // segue conectada
+    expect(button(CTA_REGISTER)).toBeTruthy();
+    expect(button(CTA_SWITCH)).toBeUndefined();
+
+    await click(button(CTA_REGISTER)!);
+    await typeEmail(EMAIL);
+    // Sem conta anterior conhecida não há o que "trocar" — nenhum aviso.
+    expect(text()).not.toContain("TROCA a conta conectada");
+    await click(button(CTA_REGISTER)!);
+
+    expect(fetchConnectUrl).toHaveBeenCalledWith("tok", EMAIL);
+  });
+});
+
+describe("conta divergente", () => {
+  it("limpa o segredo, mostra as DUAS contas e não altera nada", async () => {
+    setHash("#integracoes/callback/ready");
+    seedFlow("segredo");
+    const { GoogleAccountMismatchError } = await import("@/lib/calendar-api");
+    finishConnection.mockRejectedValue(
+      new GoogleAccountMismatchError(EMAIL, OUTRO_EMAIL),
+    );
+
+    await render();
+
+    expect(storedFlow()).toBeNull();
+    expect(text()).toContain(EMAIL);
+    expect(text()).toContain(OUTRO_EMAIL);
+    expect(text()).toContain("Nada foi alterado");
+    expect(button(CTA_RESTART)).toBeTruthy();
+    expect(button(CTA_FINISH)).toBeUndefined();
+  });
+
+  it("reiniciar volta ao formulário de conta, sem POST automático", async () => {
+    setHash("#integracoes/callback/ready");
+    seedFlow("segredo");
+    const { GoogleAccountMismatchError } = await import("@/lib/calendar-api");
+    finishConnection.mockRejectedValue(
+      new GoogleAccountMismatchError(EMAIL, OUTRO_EMAIL),
+    );
+
+    await render();
+    await click(button(CTA_RESTART)!);
+
+    expect(emailField()).toBeTruthy();
+    expect(fetchConnectUrl).not.toHaveBeenCalled();
+    expect(finishConnection).toHaveBeenCalledTimes(1); // só a do marcador
+  });
+});
 
 describe("marcador ready", () => {
-  it("com segredo válido conclui usando exatamente aquele segredo", async () => {
+  it("com segredo válido conclui e atualiza a conta exibida", async () => {
     setHash("#integracoes/callback/ready");
     seedFlow("segredo");
     finishConnection.mockResolvedValue(CONECTADO);
@@ -172,8 +364,57 @@ describe("marcador ready", () => {
 
     expect(finishConnection).toHaveBeenCalledTimes(1);
     expect(finishConnection).toHaveBeenCalledWith("tok", "segredo");
+    expect(text()).toContain("Conectado como");
+    expect(text()).toContain(EMAIL);
+    expect(storedFlow()).toBeNull();
+  });
+
+  it("troca de identidade chega com calendarId nulo e a UI aguenta", async () => {
+    setHash("#integracoes/callback/ready");
+    seedFlow("segredo");
+    finishConnection.mockResolvedValue({
+      status: "conectado",
+      connected: true,
+      calendarId: null,
+      googleAccountEmail: OUTRO_EMAIL,
+    });
+
+    await render();
+
+    expect(text()).toContain(OUTRO_EMAIL);
+    expect(text()).toContain("selecione abaixo"); // sem agenda herdada
+  });
+
+  it("conclusão vence leitura de status em voo — sem estado obsoleto", async () => {
+    // F1: `loadStatus` sai antes do `finish`, mas resolve DEPOIS. Sem a época de
+    // mutação, o snapshot velho (connected=false) reescreve por cima do sucesso.
+    setHash("#integracoes/callback/ready");
+    seedFlow("segredo");
+
+    let resolveStatus!: (v: typeof DESCONECTADO) => void;
+    fetchCalendarStatus.mockImplementation(
+      () =>
+        new Promise((res) => {
+          resolveStatus = res;
+        }),
+    );
+    finishConnection.mockResolvedValue(CONECTADO);
+
+    await render();
+
     expect(text()).toContain("Agenda sincronizada");
-    expect(storedFlow()).toBeNull(); // conclusão limpa o armazenamento
+    expect(text()).toContain("cal@x");
+    expect(storedFlow()).toBeNull();
+
+    await act(async () => {
+      resolveStatus(DESCONECTADO);
+    });
+
+    expect(text()).toContain("Agenda sincronizada");
+    expect(text()).toContain("cal@x");
+    expect(storedFlow()).toBeNull();
+    expect(button(CTA_FINISH)).toBeUndefined();
+    expect(button(CTA_CONNECT)).toBeUndefined();
   });
 
   it("SEM segredo é fail-closed: zero POST e CTA de reinício", async () => {
@@ -185,42 +426,6 @@ describe("marcador ready", () => {
     expect(text()).toContain("não foi concluída");
     expect(button(CTA_RESTART)).toBeTruthy();
     expect(button(CTA_FINISH)).toBeUndefined();
-  });
-
-  it("conclusão vence leitura de status em voo — sem estado obsoleto", async () => {
-    // F1: `loadStatus` sai antes do `finish`, mas resolve DEPOIS. Sem a época de
-    // mutação, o snapshot velho (connected=false) reescreve por cima do sucesso.
-    setHash("#integracoes/callback/ready");
-    seedFlow("segredo");
-
-    let resolveStatus!: (v: { connected: boolean; calendarId: string | null }) => void;
-    fetchCalendarStatus.mockImplementation(
-      () =>
-        new Promise((res) => {
-          resolveStatus = res;
-        }),
-    );
-    finishConnection.mockResolvedValue(CONECTADO);
-
-    // 1-3: monta, status fica pendente, finish resolve como conectado.
-    await render();
-
-    // 4: a UI já está conectada e o flow saiu do armazenamento.
-    expect(text()).toContain("Agenda sincronizada");
-    expect(text()).toContain("cal@x");
-    expect(storedFlow()).toBeNull();
-
-    // 5: só AGORA o status antigo resolve, dizendo desconectado.
-    await act(async () => {
-      resolveStatus({ connected: false, calendarId: null });
-    });
-
-    // 6: nada regrediu.
-    expect(text()).toContain("Agenda sincronizada");
-    expect(text()).toContain("cal@x");
-    expect(storedFlow()).toBeNull();
-    expect(button(CTA_FINISH)).toBeUndefined();
-    expect(button(CTA_CONNECT)).toBeUndefined();
   });
 
   it("com segredo EXPIRADO não conclui e apaga o armazenamento", async () => {
@@ -315,13 +520,10 @@ describe("sem segredo — zero POST de finish", () => {
 
   it("visibilitychange após redirect real destrava a UI, mas não conclui", async () => {
     setHash("#integracoes");
-    fetchConnectUrl.mockResolvedValue({
-      authUrl: "https://accounts.google/x",
-      flowSecret: "novo",
-      expiresAt: Date.now() + 3_600_000,
-    });
+    fetchConnectUrl.mockResolvedValue(START);
 
     await render();
+    await typeEmail(EMAIL);
     await click(button(CTA_CONNECT)!);
     // iOS: a PWA não navegou — segue viva, com o botão preso em "Abrindo…".
     expect(text()).toContain("Abrindo o Google…");
@@ -362,6 +564,20 @@ describe("cancelled", () => {
     expect(button(CTA_RESTART)).toBeTruthy();
     expect(button(CTA_FINISH)).toBeUndefined();
     expect(text()).not.toContain("Abrindo o Google…");
+  });
+
+  it("reiniciar depois de cancelar exige declarar a conta de novo", async () => {
+    setHash("#integracoes/callback/cancelled");
+    seedFlow("segredo-velho");
+    fetchConnectUrl.mockResolvedValue({ ...START, flowSecret: "segredo-novo" });
+
+    await render();
+    await typeEmail(EMAIL);
+    await click(button(CTA_RESTART)!);
+
+    expect(finishConnection).not.toHaveBeenCalled();
+    expect(fetchConnectUrl).toHaveBeenCalledWith("tok", EMAIL);
+    expect(storedFlow()?.secret).toBe("segredo-novo"); // o velho nunca volta
   });
 });
 
@@ -427,68 +643,25 @@ describe("rejeição terminal", () => {
   });
 });
 
-describe("connect", () => {
-  it("grava segredo + expiresAt do servidor ANTES de redirecionar", async () => {
-    setHash("#integracoes");
-    const expiresAt = Date.now() + 600_000;
-    fetchConnectUrl.mockImplementation(async () => {
-      expect(storedFlow()).toBeNull();
-      return { authUrl: "https://accounts.google/x", flowSecret: "novo", expiresAt };
-    });
-
-    await render();
-    await click(button(CTA_CONNECT)!);
-
-    expect(storedFlow()).toEqual({ secret: "novo", expiresAt });
-    expect(hrefWrites).toEqual(["https://accounts.google/x"]);
-  });
-
-  it("iniciar um fluxo novo descarta deliberadamente o anterior", async () => {
+describe("iniciar um fluxo novo", () => {
+  it("'Começar de novo' descarta o segredo e pede a conta outra vez", async () => {
     setHash("#integracoes");
     seedFlow("segredo-velho");
-    fetchConnectUrl.mockResolvedValue({
-      authUrl: "https://accounts.google/x",
-      flowSecret: "segredo-novo",
-      expiresAt: Date.now() + 600_000,
-    });
+    fetchConnectUrl.mockResolvedValue({ ...START, flowSecret: "segredo-novo" });
 
     await render();
     await click(button("Começar de novo")!);
 
-    expect(fetchConnectUrl).toHaveBeenCalledTimes(1);
-    expect(finishConnection).not.toHaveBeenCalled();
-    expect(storedFlow()?.secret).toBe("segredo-novo"); // o velho nunca volta
-    expect(hrefWrites).toEqual(["https://accounts.google/x"]);
-  });
+    // O velho morreu na hora e o formulário voltou.
+    expect(storedFlow()).toBeNull();
+    expect(emailField()).toBeTruthy();
+    expect(fetchConnectUrl).not.toHaveBeenCalled();
 
-  it("CTA de reinício depois de cancelar começa um fluxo novo", async () => {
-    setHash("#integracoes/callback/cancelled");
-    seedFlow("segredo-velho");
-    fetchConnectUrl.mockResolvedValue({
-      authUrl: "https://accounts.google/x",
-      flowSecret: "segredo-novo",
-      expiresAt: Date.now() + 600_000,
-    });
-
-    await render();
-    await click(button(CTA_RESTART)!);
-
-    expect(finishConnection).not.toHaveBeenCalled();
-    expect(storedFlow()?.secret).toBe("segredo-novo");
-  });
-
-  it("fail-closed: sem flowSecret na resposta, NÃO redireciona ao Google", async () => {
-    setHash("#integracoes");
-    const { ApiError } = await import("@/lib/calendar-api");
-    fetchConnectUrl.mockRejectedValue(
-      new ApiError(409, "Conexão indisponível no momento. Atualize a página e tente novamente."),
-    );
-
-    await render();
+    await typeEmail(EMAIL);
     await click(button(CTA_CONNECT)!);
 
-    expect(hrefWrites).toEqual([]); // nenhum consentimento iniciado
-    expect(storedFlow()).toBeNull();
-    expect(text()).toContain("Conexão indisponível");
+    expect(fetchConnectUrl).toHaveBeenCalledWith("tok", EMAIL);
+    expect(storedFlow()?.secret).toBe("segredo-novo");
+    expect(finishConnection).not.toHaveBeenCalled();
   });
 });

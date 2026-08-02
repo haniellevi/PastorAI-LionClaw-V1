@@ -37,6 +37,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import {
   ApiError,
+  GoogleAccountMismatchError,
   SessionExpiredError,
   canManageCalendar,
   disconnectCalendar,
@@ -66,6 +67,10 @@ const MSG_CANCELLED = "A conexão com o Google foi cancelada.";
 const MSG_INCOMPLETE = "A conexão com o Google não foi concluída. Tente novamente.";
 const MSG_PENDING = "Você autorizou no Google? Conclua a conexão para ativar a agenda.";
 const MSG_EXPIRED = "O prazo desta conexão terminou. Comece de novo.";
+const MSG_LEGACY = "Conta Google não registrada.";
+
+/** Mesma checagem pragmática do backend — só evita a viagem inútil. */
+const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
 interface StoredFlow {
   secret: string;
@@ -143,6 +148,16 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
   /** Há segredo de fluxo vivo nesta origem. Só isto habilita a CTA de conclusão.
    *  Começa `false` para não tocar em `window` durante o SSR. */
   const [pending, setPending] = useState(false);
+  /** Conta Google VERIFICADA hoje conectada. `null` = conexão legada. */
+  const [googleAccountEmail, setGoogleAccountEmail] = useState<string | null>(null);
+  /** Conta que o admin declara que vai conectar — vai no corpo do `/connect`. */
+  const [emailInput, setEmailInput] = useState("");
+  /** Formulário de conta aberto sobre uma conexão existente (trocar/registrar). */
+  const [changing, setChanging] = useState(false);
+  /** Quem autorizou não é quem foi declarado. Estado terminal e acionável. */
+  const [mismatch, setMismatch] = useState<
+    { expected: string; verified: string } | null
+  >(null);
   /** Guarda contra o duplo-invoke do StrictMode: o marcador é lido uma vez. */
   const handledRef = useRef(false);
   /** Houve um redirect ao Google nesta montagem. Só isso libera o destrave da UI
@@ -192,6 +207,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
       if (epoch !== mutationEpochRef.current) return; // leitura obsoleta
       setConnected(s.connected);
       setCalendarId(s.calendarId);
+      setGoogleAccountEmail(s.googleAccountEmail);
       setPending(!s.connected && readFlow() !== null);
       if (s.connected) {
         clearFlow();
@@ -231,8 +247,12 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
           clearFlow();
           setPending(false);
           setRecoverable(null);
+          setMismatch(null);
+          setChanging(false);
+          setEmailInput("");
           setConnected(true);
           setCalendarId(result.calendarId);
+          setGoogleAccountEmail(result.googleAccountEmail);
           navigate(ROUTE_BASE);
           await applyCalendars();
           return;
@@ -242,6 +262,16 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
         setPending(readFlow() !== null);
         setRecoverable(MSG_INCOMPLETE);
       } catch (e) {
+        // Conta divergente: terminal e acionável. O servidor não escreveu nada —
+        // a conexão anterior, se havia, continua exatamente como estava.
+        if (e instanceof GoogleAccountMismatchError) {
+          clearFlow();
+          setPending(false);
+          setRecoverable(null);
+          setChanging(false);
+          setMismatch({ expected: e.expected, verified: e.verified });
+          return;
+        }
         // Terminal (4xx): o fluxo morreu, descarta o segredo e oferece reinício.
         if (isTerminal(e)) {
           clearFlow();
@@ -312,17 +342,28 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
     return () => document.removeEventListener("visibilitychange", onVisible);
   }, [isAdmin, loadStatus]);
 
+  /** Conta declarada, normalizada como o backend normaliza. */
+  const declaredEmail = emailInput.trim().toLowerCase();
+  const emailValid = EMAIL_RE.test(declaredEmail);
+
   const connect = useCallback(async () => {
     if (!token) return;
+    // Fail-closed no cliente: sem conta declarada não existe contra o que o
+    // backend comparar, então nem inicia.
+    if (!emailValid) return;
     setBusy(true);
     setRedirecting(true);
     setError(null);
     setRecoverable(null);
+    setMismatch(null);
     // Fluxo novo por decisão do usuário: o anterior morre aqui.
     clearFlow();
     setPending(false);
     try {
-      const { authUrl, flowSecret, expiresAt } = await fetchConnectUrl(token);
+      const { authUrl, flowSecret, expiresAt } = await fetchConnectUrl(
+        token,
+        declaredEmail,
+      );
       // Grava ANTES de sair da página: é a única chance.
       writeFlow({ secret: flowSecret, expiresAt });
       setPending(true);
@@ -333,15 +374,18 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
       setBusy(false);
       setRedirecting(false);
     }
-  }, [token, onErr]);
+  }, [token, emailValid, declaredEmail, onErr]);
 
-  /** Reinício: descarta o que houver e começa um fluxo do zero. */
-  const restart = useCallback(async () => {
+  /** Reinício: descarta o que houver e volta ao formulário de conta. */
+  const restart = useCallback(() => {
+    clearFlow();
+    setPending(false);
     setRecoverable(null);
+    setMismatch(null);
+    setError(null);
     handledRef.current = false;
     navigate(ROUTE_BASE);
-    await connect();
-  }, [navigate, connect]);
+  }, [navigate]);
 
   const pick = useCallback(
     async (id: string) => {
@@ -379,9 +423,12 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
     setBusy(true);
     setError(null);
     try {
+      mutationEpochRef.current += 1;
       await disconnectCalendar(token);
       setConnected(false);
       setCalendarId(null);
+      setGoogleAccountEmail(null);
+      setChanging(false);
       setCalendars([]);
     } catch (e) {
       onErr(e);
@@ -394,7 +441,44 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
   // Os estados de retorno precisam aparecer mesmo antes de o status carregar —
   // e `connected` vindo de uma conclusão vale mesmo com uma leitura de status
   // ainda em voo, senão o card some justo depois de conectar.
-  if (loading && !recoverable && !pending && !connected) return null;
+  if (loading && !recoverable && !pending && !connected && !mismatch) return null;
+
+  /** Bloco inline reusado nos três pontos que pedem a conta declarada. */
+  const accountForm = (label: string, cta: string) => (
+    <>
+      <label style={{ display: "block", marginTop: "var(--s3)" }}>
+        <span className="sub" style={{ color: "var(--muted)" }}>{label}</span>
+        <input
+          className="input"
+          type="email"
+          value={emailInput}
+          onChange={(e) => setEmailInput(e.target.value)}
+          placeholder="agenda@suaigreja.com.br"
+          autoComplete="email"
+          disabled={busy}
+          aria-label={label}
+          style={{ display: "block", marginTop: "var(--s1)", width: "100%" }}
+        />
+      </label>
+
+      {googleAccountEmail && emailValid && declaredEmail !== googleAccountEmail ? (
+        <p className="sub" role="status" style={{ color: "var(--warn)", marginTop: "var(--s2)" }}>
+          Isto TROCA a conta conectada: de {googleAccountEmail} para {declaredEmail}.
+        </p>
+      ) : null}
+
+      <button
+        type="button"
+        className="btn btn-primary"
+        onClick={() => void connect()}
+        disabled={busy || !emailValid}
+        style={{ marginTop: "var(--s3)" }}
+      >
+        <Icon name="calendar" />
+        <span>{redirecting ? "Abrindo o Google…" : cta}</span>
+      </button>
+    </>
+  );
 
   return (
     <div className="card card-pad" style={{ marginBottom: "var(--s4)" }}>
@@ -408,7 +492,30 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
         </p>
       ) : null}
 
-      {!connected ? (
+      {mismatch ? (
+        /* Conta divergente: o servidor NÃO escreveu nada. Mostrar as duas
+           contas é o que torna o erro corrigível. */
+        <div style={{ marginTop: "var(--s2)" }}>
+          <p className="sub" role="alert" style={{ color: "var(--danger)" }}>
+            A conta que autorizou no Google não é a que você informou.
+          </p>
+          <p className="sub" style={{ color: "var(--muted)", marginTop: "var(--s2)" }}>
+            Você informou <strong>{mismatch.expected}</strong> e quem autorizou foi{" "}
+            <strong>{mismatch.verified}</strong>. Nada foi alterado — a conexão da
+            igreja continua exatamente como estava.
+          </p>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={restart}
+            disabled={busy}
+            style={{ marginTop: "var(--s3)" }}
+          >
+            <Icon name="calendar" />
+            <span>Tentar novamente</span>
+          </button>
+        </div>
+      ) : !connected ? (
         <>
           <p
             className="sub"
@@ -422,7 +529,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
           </p>
 
           {/* Com segredo vivo, a conclusão é do usuário — nunca automática.
-              Sem segredo, o único caminho é começar um fluxo novo. */}
+              Sem segredo, o caminho é declarar a conta e começar um fluxo. */}
           {pending ? (
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
               <button
@@ -443,33 +550,58 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
               <button
                 type="button"
                 className="btn"
-                onClick={() => void restart()}
+                onClick={restart}
                 disabled={busy}
               >
                 <span>Começar de novo</span>
               </button>
             </div>
           ) : (
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={() => void (recoverable ? restart() : connect())}
-              disabled={busy}
-            >
-              <Icon name="calendar" />
-              <span>
-                {busy
-                  ? "Abrindo o Google…"
-                  : recoverable
-                    ? "Tentar novamente"
-                    : "Conectar Google Agenda"}
-              </span>
-            </button>
+            accountForm(
+              "Qual conta Google será conectada? Informe o e-mail exato.",
+              recoverable ? "Tentar novamente" : "Conectar Google Agenda",
+            )
           )}
         </>
       ) : (
         <>
+          {/* Identidade primeiro: é ela que responde "de quem é esta agenda?".
+              `null` = conexão legada, anterior ao binding — segue válida, mas o
+              admin pode registrar a conta sem desconectar nada. */}
           <div className="conn-row" style={{ marginTop: "var(--s2)" }}>
+            <span style={{ color: "var(--muted)" }}>
+              {googleAccountEmail ? "Conectado como" : MSG_LEGACY}
+            </span>
+            {googleAccountEmail ? (
+              <span className="pill accent">{googleAccountEmail}</span>
+            ) : null}
+          </div>
+
+          {changing ? (
+            accountForm(
+              googleAccountEmail
+                ? "Qual conta Google passará a valer? Informe o e-mail exato."
+                : "Qual conta Google está conectada? Informe o e-mail exato.",
+              googleAccountEmail ? "Trocar conta Google" : "Registrar conta Google",
+            )
+          ) : (
+            <button
+              type="button"
+              className="btn"
+              onClick={() => {
+                setEmailInput(googleAccountEmail ?? "");
+                setChanging(true);
+              }}
+              disabled={busy || importing}
+              style={{ marginTop: "var(--s2)" }}
+            >
+              <span>
+                {googleAccountEmail ? "Trocar conta Google" : "Registrar conta Google"}
+              </span>
+            </button>
+          )}
+
+          <div className="conn-row" style={{ marginTop: "var(--s3)" }}>
             <span style={{ color: "var(--muted)" }}>Agenda sincronizada</span>
             <span className="pill accent">{calendarId ?? "selecione abaixo"}</span>
           </div>

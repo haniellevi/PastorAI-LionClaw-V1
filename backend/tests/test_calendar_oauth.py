@@ -11,6 +11,8 @@ substituído por um MockTransport.
 from __future__ import annotations
 
 import datetime as dt
+import logging
+import re
 import uuid
 from types import SimpleNamespace
 
@@ -25,6 +27,7 @@ from app.db.session import get_db
 from app.services.calendar_oauth_flows import hash_secret
 from app.services.clerk import get_clerk_client
 from app.services.google_oauth import (
+    GoogleIdentity,
     GoogleOAuthClient,
     GoogleOAuthError,
     OAuthTokens,
@@ -39,6 +42,11 @@ _ORIGIN = "https://admin.igreja12.com.br"
 _ORIGIN_HEADERS = {**_AUTH, "Origin": _ORIGIN}
 _STATE = "state-opaco-do-fluxo"
 _FLOW_SECRET = "flow-secret-do-painel"
+# Conta declarada pelo admin no /connect e a identidade que o userinfo devolve.
+_EMAIL = "agenda@igreja12.com.br"
+_SUB = "google-sub-da-conta-da-igreja"
+_OUTRO_EMAIL = "pessoal@gmail.com"
+_OUTRO_SUB = "google-sub-de-outra-conta"
 
 
 @pytest.fixture(autouse=True)
@@ -194,6 +202,8 @@ class _FakeOAuth:
         events=None,
         exchange_error: Exception | None = None,
         list_error: Exception | None = None,
+        identity: GoogleIdentity | None = None,
+        userinfo_error: Exception | None = None,
     ) -> None:
         self._consent = consent
         self._tokens = tokens
@@ -203,15 +213,30 @@ class _FakeOAuth:
         self._events = events or []
         self._exchange_error = exchange_error
         self._list_error = list_error
+        self._identity = identity or GoogleIdentity(
+            sub=_SUB, email=_EMAIL, email_verified=True
+        )
+        self._userinfo_error = userinfo_error
+        self.userinfo_tokens: list[str] = []
         self.refreshed = False
         self.exchanges: list[tuple[str, str]] = []
         self.consent_args: dict | None = None
         self.list_events_args = None
         self.listed_tokens: list[str] = []
 
-    def build_consent_url(self, *, state, code_challenge):
-        self.consent_args = {"state": state, "code_challenge": code_challenge}
+    def build_consent_url(self, *, state, code_challenge, login_hint=None):
+        self.consent_args = {
+            "state": state,
+            "code_challenge": code_challenge,
+            "login_hint": login_hint,
+        }
         return f"{self._consent}?state={state}&code_challenge={code_challenge}"
+
+    def fetch_userinfo(self, access_token):
+        self.userinfo_tokens.append(access_token)
+        if self._userinfo_error is not None:
+            raise self._userinfo_error
+        return self._identity
 
     def exchange_code(self, code, code_verifier):
         self.exchanges.append((code, code_verifier))
@@ -240,6 +265,9 @@ class _NoGoogleOAuth(_FakeOAuth):
     def exchange_code(self, code, code_verifier):  # pragma: no cover - deve falhar
         raise AssertionError("o callback público NUNCA pode trocar o code")
 
+    def fetch_userinfo(self, access_token):  # pragma: no cover - deve falhar
+        raise AssertionError("o callback público NUNCA pode chamar o Google")
+
     def list_calendars(self, token):  # pragma: no cover - deve falhar
         raise AssertionError("o callback público NUNCA pode chamar o Google")
 
@@ -253,6 +281,7 @@ def _flow(
     consumed_at=None,
     expired: bool = False,
     return_origin: str = _ORIGIN,
+    expected_email: str | None = _EMAIL,
 ) -> SimpleNamespace:
     now = dt.datetime.now(dt.timezone.utc)
     return SimpleNamespace(
@@ -261,6 +290,7 @@ def _flow(
         igreja_id=uuid.UUID(igreja_id),
         app_user_id=app_user_id,
         return_origin=return_origin,
+        expected_email=expected_email,
         verifier_encrypted=verifier_encrypted,
         code_encrypted=code_encrypted,
         expires_at=(
@@ -268,6 +298,32 @@ def _flow(
         ),
         consumed_at=consumed_at,
         atualizado_em=now,
+    )
+
+
+def _sync(
+    *,
+    refresh_token_encrypted: str | None = "refresh-antigo",
+    access_token_encrypted: str | None = "access-antigo",
+    google_calendar_id: str | None = "cal@x",
+    google_account_email: str | None = _EMAIL,
+    google_account_sub: str | None = _SUB,
+) -> SimpleNamespace:
+    """Linha de `calendar_sync` como o finish a enxerga.
+
+    `google_account_sub=None` modela a conexão LEGADA: existe token, mas não há
+    identidade registrada — e é por isso que ela exige refresh_token novo.
+    """
+    return SimpleNamespace(
+        refresh_token_encrypted=refresh_token_encrypted,
+        access_token_encrypted=access_token_encrypted,
+        access_token_expira_em=None,
+        google_calendar_id=google_calendar_id,
+        google_account_email=google_account_email,
+        google_account_sub=google_account_sub,
+        connected_by_app_user_id=None,
+        connected_em=None,
+        atualizado_em=None,
     )
 
 
@@ -292,20 +348,31 @@ def _public_client(app, session, oauth=None) -> TestClient:
 # ---------------------------------------------------------------------------
 # connect — allowlist de origem
 # ---------------------------------------------------------------------------
+def _connect(client: TestClient, *, headers=None, email: str | None = _EMAIL):
+    """POST /calendar/connect — o e-mail declarado viaja só no CORPO."""
+    body = {} if email is None else {"expectedGoogleEmail": email}
+    return client.post(
+        "/calendar/connect",
+        json=body,
+        headers=_ORIGIN_HEADERS if headers is None else headers,
+    )
+
+
 def test_connect_requires_auth(app) -> None:
     c = _client(app, ["admin"], oauth=_FakeOAuth())
-    assert c.get("/calendar/connect").status_code == 401
+    r = c.post("/calendar/connect", json={"expectedGoogleEmail": _EMAIL})
+    assert r.status_code == 401
 
 
 def test_connect_forbidden_for_non_admin(app) -> None:
     c = _client(app, ["lider_celula"], oauth=_FakeOAuth())
-    assert c.get("/calendar/connect", headers=_ORIGIN_HEADERS).status_code == 403
+    assert _connect(c).status_code == 403
 
 
 def test_connect_rejects_missing_origin(app, crypto_enabled) -> None:
     session = _FlowSession(app_user=make_app_user(), roles=["admin"])
     c = _client(app, ["admin"], session=session, oauth=_FakeOAuth())
-    assert c.get("/calendar/connect", headers=_AUTH).status_code == 400
+    assert _connect(c, headers=_AUTH).status_code == 400
     assert session.added == []
 
 
@@ -313,10 +380,7 @@ def test_connect_rejects_origin_outside_allowlist(app, crypto_enabled) -> None:
     """`painel.*` é o console master — não hospeda o card de Integrações."""
     session = _FlowSession(app_user=make_app_user(), roles=["admin"])
     c = _client(app, ["admin"], session=session, oauth=_FakeOAuth())
-    r = c.get(
-        "/calendar/connect",
-        headers={**_AUTH, "Origin": "https://painel.igreja12.com.br"},
-    )
+    r = _connect(c, headers={**_AUTH, "Origin": "https://painel.igreja12.com.br"})
     assert r.status_code == 400
     assert session.added == []
 
@@ -325,10 +389,7 @@ def test_connect_rejects_api_origin(app, crypto_enabled) -> None:
     """`cors_origins` inclui a API; esta allowlist é outra coisa."""
     session = _FlowSession(app_user=make_app_user(), roles=["admin"])
     c = _client(app, ["admin"], session=session, oauth=_FakeOAuth())
-    r = c.get(
-        "/calendar/connect",
-        headers={**_AUTH, "Origin": "https://api.igreja12.com.br"},
-    )
+    r = _connect(c, headers={**_AUTH, "Origin": "https://api.igreja12.com.br"})
     assert r.status_code == 400
     assert session.added == []
 
@@ -337,10 +398,7 @@ def test_connect_rejects_origin_by_prefix_similarity(app, crypto_enabled) -> Non
     """Igualdade EXATA: um domínio que só *começa* igual não passa."""
     session = _FlowSession(app_user=make_app_user(), roles=["admin"])
     c = _client(app, ["admin"], session=session, oauth=_FakeOAuth())
-    r = c.get(
-        "/calendar/connect",
-        headers={**_AUTH, "Origin": "https://admin.igreja12.com.br.evil.com"},
-    )
+    r = _connect(c, headers={**_AUTH, "Origin": "https://admin.igreja12.com.br.evil.com"})
     assert r.status_code == 400
     assert session.added == []
 
@@ -353,7 +411,7 @@ def test_connect_creates_flow_with_pkce_and_returns_flow_secret(
     oauth = _FakeOAuth()
     c = _client(app, ["admin"], session=session, oauth=oauth)
 
-    r = c.get("/calendar/connect", headers=_ORIGIN_HEADERS)
+    r = _connect(c)
 
     assert r.status_code == 200
     body = r.json()
@@ -388,12 +446,12 @@ def test_connect_returns_503_without_google_config(app, crypto_enabled) -> None:
     """Kill switch operacional: sem client_id não começa fluxo nenhum."""
 
     class _Unconfigured(_FakeOAuth):
-        def build_consent_url(self, *, state, code_challenge):
+        def build_consent_url(self, *, state, code_challenge, login_hint=None):
             raise GoogleOAuthError("Google OAuth não está configurado")
 
     session = _FlowSession(app_user=make_app_user(), roles=["admin"])
     c = _client(app, ["admin"], session=session, oauth=_Unconfigured())
-    assert c.get("/calendar/connect", headers=_ORIGIN_HEADERS).status_code == 503
+    assert _connect(c).status_code == 503
     assert session.added == []
 
 
@@ -733,7 +791,12 @@ def test_finish_persists_encrypted_tokens(app, crypto_enabled) -> None:
     r = _finish(c)
 
     assert r.status_code == 200
-    assert r.json() == {"status": "conectado", "connected": True, "calendarId": None}
+    assert r.json() == {
+        "status": "conectado",
+        "connected": True,
+        "calendarId": None,
+        "googleAccountEmail": _EMAIL,
+    }
     assert len(session.added) == 1
     sync = session.added[0]
     assert sync.refresh_token_encrypted and sync.refresh_token_encrypted != "rt"
@@ -820,13 +883,7 @@ def test_finish_reconnection_without_refresh_token_preserves_existing(
         verifier_encrypted=crypto_enabled.encrypt_secret("v"),
         code_encrypted=crypto_enabled.encrypt_secret("c"),
     )
-    sync = SimpleNamespace(
-        refresh_token_encrypted="refresh-antigo",
-        access_token_encrypted="access-antigo",
-        access_token_expira_em=None,
-        google_calendar_id="cal@x",
-        atualizado_em=None,
-    )
+    sync = _sync()
     session = _FlowSession(app_user=app_user, roles=["admin"], flow=flow, sync=sync)
     c = _client(
         app, ["admin"], session=session, oauth=_FakeOAuth(tokens=_tokens(refresh=None))
@@ -976,23 +1033,26 @@ def test_status_not_connected(app) -> None:
     c = _client(app, ["admin"], session=session)
     r = c.get("/calendar/status", headers=_AUTH)
     assert r.status_code == 200
-    assert r.json() == {"connected": False, "calendarId": None}
+    assert r.json() == {
+        "connected": False,
+        "calendarId": None,
+        "googleAccountEmail": None,
+    }
 
 
 def test_status_connected(app) -> None:
-    sync = SimpleNamespace(refresh_token_encrypted="enc", google_calendar_id="cal@x")
+    sync = _sync(refresh_token_encrypted="enc")
     session = _FlowSession(app_user=make_app_user(), roles=["admin"], sync=sync)
     c = _client(app, ["admin"], session=session)
     assert c.get("/calendar/status", headers=_AUTH).json() == {
         "connected": True,
         "calendarId": "cal@x",
+        "googleAccountEmail": _EMAIL,
     }
 
 
 def test_select_calendar_sets_id(app) -> None:
-    sync = SimpleNamespace(
-        refresh_token_encrypted="enc", google_calendar_id=None, atualizado_em=None
-    )
+    sync = _sync(refresh_token_encrypted="enc", google_calendar_id=None)
     session = _FlowSession(app_user=make_app_user(), roles=["admin"], sync=sync)
     c = _client(app, ["admin"], session=session)
     r = c.put("/calendar", json={"calendarId": "cal@new"}, headers=_AUTH)
@@ -1008,7 +1068,7 @@ def test_select_calendar_requires_connection(app) -> None:
 
 
 def test_disconnect_deletes(app) -> None:
-    sync = SimpleNamespace(refresh_token_encrypted="enc")
+    sync = _sync(refresh_token_encrypted="enc")
     session = _FlowSession(app_user=make_app_user(), roles=["admin"], sync=sync)
     c = _client(app, ["admin"], session=session)
     assert c.delete("/calendar", headers=_AUTH).status_code == 204
@@ -1019,12 +1079,10 @@ def test_disconnect_deletes(app) -> None:
 # import/preview + import (inalterados pelo V1)
 # ---------------------------------------------------------------------------
 def _connected_sync(crypto, *, calendar_id="cal@x"):
-    return SimpleNamespace(
+    return _sync(
         refresh_token_encrypted=crypto.encrypt_secret("rt"),
         access_token_encrypted=None,
-        access_token_expira_em=None,
         google_calendar_id=calendar_id,
-        atualizado_em=None,
     )
 
 
@@ -1291,3 +1349,453 @@ def test_list_events_http_error_is_controlled(monkeypatch) -> None:
     oauth = GoogleOAuthClient(settings=Settings(session_jwt_secret="x" * 32))
     with pytest.raises(GoogleOAuthError):
         oauth.list_events("tok", "primary", "t0", "t1")
+
+
+# ---------------------------------------------------------------------------
+# ACCOUNT IDENTITY BINDING — a conta Google que consentiu é VERIFICADA
+#
+# `state`, `flowSecret` e PKCE falam todos do lado PastorAI. Nenhum deles impede
+# que alguém abra a URL de autorização ORIGINAL noutro navegador e consinta com
+# outra conta: o code sai amarrado ao MESMO `code_challenge` e a troca sucede.
+# O que fecha isso é o par (e-mail declarado no /connect, e-mail verificado no
+# userinfo) — e a continuidade decidida pelo `sub`, nunca pelo e-mail.
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize(
+    "email",
+    [None, "", "   ", "sem-arroba", "a@b", "@dominio.com", "conta@dominio"],
+    ids=[
+        "ausente",
+        "vazio",
+        "espacos",
+        "sem-arroba",
+        "sem-tld",
+        "sem-local",
+        "sem-ponto",
+    ],
+)
+def test_connect_rejects_missing_or_invalid_email(app, crypto_enabled, email) -> None:
+    """Sem conta declarada não existe contra o que comparar => 422, zero flow."""
+    session = _FlowSession(app_user=make_app_user(), roles=["admin"])
+    oauth = _FakeOAuth()
+    c = _client(app, ["admin"], session=session, oauth=oauth)
+
+    assert _connect(c, email=email).status_code == 422
+    assert session.added == []
+    assert oauth.consent_args is None  # nem chegou a montar a URL
+
+
+def test_connect_normalizes_declared_email(app, crypto_enabled) -> None:
+    """Trim + lowercase na borda: a comparação no finish é mecânica."""
+    session = _FlowSession(app_user=make_app_user(), roles=["admin"])
+    oauth = _FakeOAuth()
+    c = _client(app, ["admin"], session=session, oauth=oauth)
+
+    assert _connect(c, email="  Agenda@Igreja12.COM.BR  ").status_code == 200
+
+    assert len(session.added) == 1
+    assert session.added[0].expected_email == _EMAIL
+    assert oauth.consent_args["login_hint"] == _EMAIL
+
+
+def test_consent_url_carries_openid_email_and_login_hint(app, crypto_enabled) -> None:
+    """Sem `openid email` não há userinfo; `login_hint` é só UX."""
+    from app.services.google_oauth import _SCOPES  # noqa: PLC0415 - leitura local
+
+    session = _FlowSession(app_user=make_app_user(), roles=["admin"])
+    oauth = _FakeOAuth()
+    c = _client(app, ["admin"], session=session, oauth=oauth)
+
+    assert _connect(c).status_code == 200
+
+    assert "openid" in _SCOPES.split()
+    assert "email" in _SCOPES.split()
+    assert oauth.consent_args["login_hint"] == _EMAIL
+
+
+def _identity_flow(app_user, crypto, **kw):
+    return _flow(
+        app_user_id=uuid.UUID(str(app_user.id)),
+        verifier_encrypted=crypto.encrypt_secret("v"),
+        code_encrypted=crypto.encrypt_secret("c"),
+        **kw,
+    )
+
+
+def test_first_connection_with_match_persists_identity(app, crypto_enabled) -> None:
+    """Match => tokens + e-mail + sub + autor + data. Nunca antes disso."""
+    app_user = make_app_user()
+    flow = _identity_flow(app_user, crypto_enabled)
+    session = _FlowSession(app_user=app_user, roles=["admin"], flow=flow, sync=None)
+    oauth = _FakeOAuth(tokens=_tokens())
+    c = _client(app, ["admin"], session=session, oauth=oauth)
+
+    r = _finish(c)
+
+    assert r.status_code == 200
+    assert r.json()["googleAccountEmail"] == _EMAIL
+    assert oauth.userinfo_tokens == ["at"]  # userinfo foi de fato consultado
+    assert len(session.added) == 1
+    sync = session.added[0]
+    assert sync.google_account_email == _EMAIL
+    assert sync.google_account_sub == _SUB
+    assert sync.connected_by_app_user_id == uuid.UUID(str(app_user.id))
+    assert sync.connected_em is not None
+    assert sync.refresh_token_encrypted and sync.refresh_token_encrypted != "rt"
+
+
+def test_original_url_used_by_another_account_is_rejected(app, crypto_enabled) -> None:
+    """O ataque que o PKCE NÃO cobre: outra conta consentiu na URL original."""
+    app_user = make_app_user()
+    flow = _identity_flow(app_user, crypto_enabled)
+    session = _FlowSession(app_user=app_user, roles=["admin"], flow=flow, sync=None)
+    oauth = _FakeOAuth(
+        tokens=_tokens(),
+        identity=GoogleIdentity(
+            sub=_OUTRO_SUB, email=_OUTRO_EMAIL, email_verified=True
+        ),
+    )
+    c = _client(app, ["admin"], session=session, oauth=oauth)
+
+    r = _finish(c)
+
+    assert r.status_code == 409
+    assert r.json()["detail"] == {
+        "code": "conta_divergente",
+        "expected": _EMAIL,
+        "verified": _OUTRO_EMAIL,
+    }
+    assert session.added == []  # nenhum CalendarSync
+    assert session.commits == 1  # só o commit da queima do fluxo
+    assert flow.consumed_at is not None
+
+
+def test_mismatch_preserves_the_previous_connection(app, crypto_enabled) -> None:
+    """A conexão que já existia sai INTACTA de uma tentativa divergente."""
+    app_user = make_app_user()
+    flow = _identity_flow(app_user, crypto_enabled)
+    sync = _sync()
+    session = _FlowSession(app_user=app_user, roles=["admin"], flow=flow, sync=sync)
+    oauth = _FakeOAuth(
+        tokens=_tokens(refresh="refresh-do-terceiro"),
+        identity=GoogleIdentity(
+            sub=_OUTRO_SUB, email=_OUTRO_EMAIL, email_verified=True
+        ),
+    )
+    c = _client(app, ["admin"], session=session, oauth=oauth)
+
+    assert _finish(c).status_code == 409
+
+    assert sync.refresh_token_encrypted == "refresh-antigo"
+    assert sync.access_token_encrypted == "access-antigo"
+    assert sync.google_account_email == _EMAIL
+    assert sync.google_account_sub == _SUB
+    assert sync.google_calendar_id == "cal@x"
+
+
+def test_double_finish_after_mismatch_does_not_exchange_again(
+    app, crypto_enabled
+) -> None:
+    """O fluxo já foi queimado: a segunda tentativa não fala com o Google."""
+    app_user = make_app_user()
+    flow = _identity_flow(app_user, crypto_enabled)
+    session = _FlowSession(app_user=app_user, roles=["admin"], flow=flow, sync=None)
+    oauth = _FakeOAuth(
+        tokens=_tokens(),
+        identity=GoogleIdentity(
+            sub=_OUTRO_SUB, email=_OUTRO_EMAIL, email_verified=True
+        ),
+    )
+    c = _client(app, ["admin"], session=session, oauth=oauth)
+
+    assert _finish(c).status_code == 409
+    assert len(oauth.exchanges) == 1
+
+    assert _finish(c).status_code == 409
+    assert len(oauth.exchanges) == 1  # nenhuma segunda troca
+    assert session.added == []
+
+
+def test_unverified_email_is_rejected_without_persisting(app, crypto_enabled) -> None:
+    """`email_verified` que não seja True não prova posse do endereço."""
+    app_user = make_app_user()
+    flow = _identity_flow(app_user, crypto_enabled)
+    session = _FlowSession(app_user=app_user, roles=["admin"], flow=flow, sync=None)
+    oauth = _FakeOAuth(
+        tokens=_tokens(),
+        userinfo_error=GoogleOAuthError("A conta Google não tem o e-mail verificado"),
+    )
+    c = _client(app, ["admin"], session=session, oauth=oauth)
+
+    r = _finish(c)
+
+    assert r.status_code == 409
+    # Recusa genérica: não vira oráculo sobre o estado da conta de terceiro.
+    assert r.json()["detail"] == "Não foi possível concluir a conexão com o Google."
+    assert session.added == []
+
+
+def test_userinfo_failure_is_rejected_without_persisting(app, crypto_enabled) -> None:
+    app_user = make_app_user()
+    flow = _identity_flow(app_user, crypto_enabled)
+    session = _FlowSession(app_user=app_user, roles=["admin"], flow=flow, sync=None)
+    oauth = _FakeOAuth(
+        tokens=_tokens(), userinfo_error=GoogleOAuthError("Falha ao identificar")
+    )
+    c = _client(app, ["admin"], session=session, oauth=oauth)
+
+    assert _finish(c).status_code == 409
+    assert session.added == []
+
+
+def test_same_account_same_sub_reconnects(app, crypto_enabled) -> None:
+    """Mesma identidade: reconecta e PRESERVA a agenda escolhida."""
+    app_user = make_app_user()
+    flow = _identity_flow(app_user, crypto_enabled)
+    sync = _sync()
+    session = _FlowSession(app_user=app_user, roles=["admin"], flow=flow, sync=sync)
+    c = _client(app, ["admin"], session=session, oauth=_FakeOAuth(tokens=_tokens()))
+
+    r = _finish(c)
+
+    assert r.status_code == 200
+    assert r.json()["calendarId"] == "cal@x"  # seleção mantida
+    assert sync.google_account_sub == _SUB
+    assert session.added == []
+
+
+def test_same_email_with_different_sub_is_rejected(app, crypto_enabled) -> None:
+    """Endereço reciclado por outra conta Google: terminal, sem revelar o sub."""
+    app_user = make_app_user()
+    flow = _identity_flow(app_user, crypto_enabled)
+    sync = _sync()
+    session = _FlowSession(app_user=app_user, roles=["admin"], flow=flow, sync=sync)
+    oauth = _FakeOAuth(
+        tokens=_tokens(refresh="rt-novo"),
+        identity=GoogleIdentity(sub=_OUTRO_SUB, email=_EMAIL, email_verified=True),
+    )
+    c = _client(app, ["admin"], session=session, oauth=oauth)
+
+    r = _finish(c)
+
+    assert r.status_code == 409
+    detail = r.json()["detail"]
+    assert isinstance(detail, str)
+    assert _OUTRO_SUB not in detail and _SUB not in detail
+    assert sync.refresh_token_encrypted == "refresh-antigo"  # intacta
+    assert sync.google_account_sub == _SUB
+
+
+def test_switching_account_requires_match_and_clears_calendar(
+    app, crypto_enabled
+) -> None:
+    """Troca declarada + verificada: aceita, e a agenda da conta antiga sai."""
+    app_user = make_app_user()
+    flow = _identity_flow(app_user, crypto_enabled, expected_email=_OUTRO_EMAIL)
+    sync = _sync()
+    session = _FlowSession(app_user=app_user, roles=["admin"], flow=flow, sync=sync)
+    oauth = _FakeOAuth(
+        tokens=_tokens(refresh="rt-da-conta-nova"),
+        identity=GoogleIdentity(
+            sub=_OUTRO_SUB, email=_OUTRO_EMAIL, email_verified=True
+        ),
+    )
+    c = _client(app, ["admin"], session=session, oauth=oauth)
+
+    r = _finish(c)
+
+    assert r.status_code == 200
+    assert r.json()["googleAccountEmail"] == _OUTRO_EMAIL
+    assert r.json()["calendarId"] is None
+    assert sync.google_calendar_id is None  # não herda seleção alheia
+    assert sync.google_account_sub == _OUTRO_SUB
+    assert sync.refresh_token_encrypted != "refresh-antigo"
+
+
+def test_switching_account_without_new_refresh_token_is_rejected(
+    app, crypto_enabled
+) -> None:
+    """Refresh token de OUTRA identidade nunca é reaproveitado."""
+    app_user = make_app_user()
+    flow = _identity_flow(app_user, crypto_enabled, expected_email=_OUTRO_EMAIL)
+    sync = _sync()
+    session = _FlowSession(app_user=app_user, roles=["admin"], flow=flow, sync=sync)
+    oauth = _FakeOAuth(
+        tokens=_tokens(refresh=None),
+        identity=GoogleIdentity(
+            sub=_OUTRO_SUB, email=_OUTRO_EMAIL, email_verified=True
+        ),
+    )
+    c = _client(app, ["admin"], session=session, oauth=oauth)
+
+    assert _finish(c).status_code == 409
+    assert sync.refresh_token_encrypted == "refresh-antigo"
+    assert sync.google_account_sub == _SUB
+    assert oauth.listed_tokens == []  # nem chegou ao probe
+
+
+def test_legacy_connection_requires_new_refresh_and_records_identity(
+    app, crypto_enabled
+) -> None:
+    """Conexão sem `sub` registrado: identidade anterior é DESCONHECIDA."""
+    app_user = make_app_user()
+    flow = _identity_flow(app_user, crypto_enabled)
+    legado = _sync(google_account_email=None, google_account_sub=None)
+    session = _FlowSession(app_user=app_user, roles=["admin"], flow=flow, sync=legado)
+    c = _client(
+        app, ["admin"], session=session, oauth=_FakeOAuth(tokens=_tokens(refresh=None))
+    )
+
+    assert _finish(c).status_code == 409  # sem refresh novo, não passa
+    assert legado.refresh_token_encrypted == "refresh-antigo"
+
+    # Agora com refresh novo: registra identidade e descarta a agenda antiga.
+    flow2 = _identity_flow(app_user, crypto_enabled)
+    legado2 = _sync(google_account_email=None, google_account_sub=None)
+    session2 = _FlowSession(
+        app_user=app_user, roles=["admin"], flow=flow2, sync=legado2
+    )
+    c2 = _client(
+        app,
+        ["admin"],
+        session=session2,
+        oauth=_FakeOAuth(tokens=_tokens(refresh="novo")),
+    )
+
+    r = _finish(c2)
+
+    assert r.status_code == 200
+    assert legado2.google_account_email == _EMAIL
+    assert legado2.google_account_sub == _SUB
+    assert legado2.google_calendar_id is None
+
+
+def test_flow_without_expected_email_fails_closed(app, crypto_enabled) -> None:
+    """Fluxo legado (criado antes do binding): não há o que comparar."""
+    app_user = make_app_user()
+    flow = _identity_flow(app_user, crypto_enabled, expected_email=None)
+    session = _FlowSession(app_user=app_user, roles=["admin"], flow=flow, sync=None)
+    oauth = _FakeOAuth(tokens=_tokens())
+    c = _client(app, ["admin"], session=session, oauth=oauth)
+
+    assert _finish(c).status_code == 409
+    assert oauth.exchanges == []  # nem tenta trocar
+    assert session.added == []
+    assert flow.consumed_at is not None  # queimado: nunca vai poder concluir
+
+
+def test_status_never_echoes_sub_or_tokens(app, crypto_enabled) -> None:
+    sync = _sync(refresh_token_encrypted="enc")
+    session = _FlowSession(app_user=make_app_user(), roles=["admin"], sync=sync)
+    c = _client(app, ["admin"], session=session)
+
+    body = c.get("/calendar/status", headers=_AUTH).text
+
+    assert _EMAIL in body
+    assert _SUB not in body
+    assert "refresh" not in body and "access" not in body
+
+
+def test_status_reports_null_email_for_legacy_connection(app, crypto_enabled) -> None:
+    """Conexão legada segue `connected=true`, com identidade NULA."""
+    sync = _sync(
+        refresh_token_encrypted="enc",
+        google_account_email=None,
+        google_account_sub=None,
+    )
+    session = _FlowSession(app_user=make_app_user(), roles=["admin"], sync=sync)
+    c = _client(app, ["admin"], session=session)
+
+    assert c.get("/calendar/status", headers=_AUTH).json() == {
+        "connected": True,
+        "calendarId": "cal@x",
+        "googleAccountEmail": None,
+    }
+
+
+def test_finish_logs_no_identity_or_token(app, crypto_enabled, caplog) -> None:
+    """Nem e-mail, nem sub, nem token entram em log — no sucesso e na recusa."""
+    app_user = make_app_user()
+
+    with caplog.at_level(logging.DEBUG):
+        # `_client` sobrescreve os overrides do app — um cliente por vez.
+        flow = _identity_flow(app_user, crypto_enabled)
+        session = _FlowSession(app_user=app_user, roles=["admin"], flow=flow, sync=None)
+        c = _client(app, ["admin"], session=session, oauth=_FakeOAuth(tokens=_tokens()))
+        assert _finish(c).status_code == 200
+
+        flow2 = _identity_flow(app_user, crypto_enabled)
+        session2 = _FlowSession(
+            app_user=app_user, roles=["admin"], flow=flow2, sync=None
+        )
+        c2 = _client(
+            app,
+            ["admin"],
+            session=session2,
+            oauth=_FakeOAuth(
+                tokens=_tokens(),
+                identity=GoogleIdentity(
+                    sub=_OUTRO_SUB, email=_OUTRO_EMAIL, email_verified=True
+                ),
+            ),
+        )
+        assert _finish(c2).status_code == 409
+
+    texto = caplog.text
+    for proibido in (_EMAIL, _OUTRO_EMAIL, _SUB, _OUTRO_SUB, "flow-secret-do-painel"):
+        assert proibido not in texto
+    # Tokens do dublê são curtos ("at"/"rt"); checa como palavra isolada.
+    assert not re.search(r"\b(at|rt)\b", texto)
+
+
+# ---------------------------------------------------------------------------
+# fetch_userinfo — contrato contra o transporte real (MockTransport)
+# ---------------------------------------------------------------------------
+def test_fetch_userinfo_returns_normalized_identity(monkeypatch) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers["Authorization"] == "Bearer at"
+        return httpx.Response(
+            200,
+            json={
+                "sub": "123",
+                "email": "  Conta@Dominio.COM ",
+                "email_verified": True,
+            },
+        )
+
+    _use_transport(monkeypatch, handler)
+    identity = _configured_client().fetch_userinfo("at")
+
+    assert identity == GoogleIdentity(
+        sub="123", email="conta@dominio.com", email_verified=True
+    )
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"sub": "123", "email": "a@b.com"},  # email_verified ausente
+        {"sub": "123", "email": "a@b.com", "email_verified": False},
+        {"sub": "123", "email": "a@b.com", "email_verified": "true"},  # string
+        {"sub": "", "email": "a@b.com", "email_verified": True},
+        {"sub": "123", "email": "", "email_verified": True},
+        {"email": "a@b.com", "email_verified": True},  # sem sub
+    ],
+    ids=[
+        "sem-verified",
+        "verified-false",
+        "verified-string",
+        "sub-vazio",
+        "email-vazio",
+        "sem-sub",
+    ],
+)
+def test_fetch_userinfo_fails_closed(monkeypatch, body) -> None:
+    _use_transport(monkeypatch, lambda request: httpx.Response(200, json=body))
+    with pytest.raises(GoogleOAuthError):
+        _configured_client().fetch_userinfo("at")
+
+
+def test_fetch_userinfo_http_error_is_controlled(monkeypatch) -> None:
+    _use_transport(monkeypatch, lambda request: httpx.Response(401, json={"e": "x"}))
+    with pytest.raises(GoogleOAuthError):
+        _configured_client().fetch_userinfo("at")

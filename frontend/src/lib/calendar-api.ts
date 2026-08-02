@@ -10,12 +10,32 @@
  */
 
 import { SessionExpiredError } from "./api";
-import { ApiError, authedFetch, readDetail } from "./dashboard-api";
+import { ApiError, authedFetch, isRecord, readDetail } from "./dashboard-api";
 import type { Role } from "./roles";
+
+/**
+ * A conta Google que autorizou não é a que o admin declarou.
+ *
+ * Erro próprio porque é o único caso com detalhe estruturado: o painel precisa
+ * mostrar as DUAS contas para o admin corrigir. `ApiError` reduziria tudo a uma
+ * string.
+ */
+export class GoogleAccountMismatchError extends Error {
+  readonly expected: string;
+  readonly verified: string;
+  constructor(expected: string, verified: string) {
+    super("A conta Google que autorizou não é a que você informou.");
+    this.name = "GoogleAccountMismatchError";
+    this.expected = expected;
+    this.verified = verified;
+  }
+}
 
 export interface CalendarStatus {
   connected: boolean;
   calendarId: string | null;
+  /** E-mail verificado da conta conectada; `null` em conexão legada. */
+  googleAccountEmail: string | null;
 }
 
 export interface CalendarOption {
@@ -34,8 +54,16 @@ export async function fetchCalendarStatus(token: string): Promise<CalendarStatus
   if (!res.ok) {
     throw new ApiError(res.status, "Não foi possível carregar a conexão da agenda.");
   }
-  const d = (await res.json()) as { connected?: boolean; calendarId?: string | null };
-  return { connected: Boolean(d.connected), calendarId: d.calendarId ?? null };
+  const d = (await res.json()) as {
+    connected?: boolean;
+    calendarId?: string | null;
+    googleAccountEmail?: string | null;
+  };
+  return {
+    connected: Boolean(d.connected),
+    calendarId: d.calendarId ?? null,
+    googleAccountEmail: d.googleAccountEmail ?? null,
+  };
 }
 
 export interface ConnectStart {
@@ -54,13 +82,23 @@ export interface ConnectStart {
  * Inicia o fluxo OAuth (OAUTH-CALENDAR-V1). Devolve a URL de consentimento, o
  * `flowSecret` e a expiração real do fluxo.
  *
+ * `expectedGoogleEmail` é a conta que o admin DECLARA que vai conectar. Vai no
+ * corpo (POST), nunca em query string, e é contra ela que o backend compara o
+ * e-mail verificado no userinfo antes de persistir qualquer token.
+ *
  * FAIL-CLOSED: um backend antigo responde só `{authUrl}` (ou sem `expiresAt`).
  * Sem segredo não existe quem conclua o fluxo, e sem prazo o painel guardaria um
  * segredo sem validade. Nos dois casos NÃO redirecionamos ao Google — o usuário
  * consentiria à toa e a conexão nunca completaria.
  */
-export async function fetchConnectUrl(token: string): Promise<ConnectStart> {
-  const res = await authedFetch(token, `/calendar/connect`);
+export async function fetchConnectUrl(
+  token: string,
+  expectedGoogleEmail: string,
+): Promise<ConnectStart> {
+  const res = await authedFetch(token, `/calendar/connect`, {
+    method: "POST",
+    body: JSON.stringify({ expectedGoogleEmail }),
+  });
   if (!res.ok) {
     const detail = await readDetail(res);
     throw new ApiError(res.status, detail ?? "Não foi possível iniciar a conexão com o Google.");
@@ -86,6 +124,8 @@ export interface FinishResult {
   status: "conectado" | "aguardando_callback";
   connected: boolean;
   calendarId: string | null;
+  /** E-mail verificado da conta conectada; `null` enquanto não há conexão. */
+  googleAccountEmail: string | null;
 }
 
 /**
@@ -112,18 +152,44 @@ export async function finishConnection(
     body: JSON.stringify({ flowSecret }),
   });
   if (!res.ok) {
-    const detail = await readDetail(res);
-    throw new ApiError(res.status, detail ?? "Não foi possível concluir a conexão com o Google.");
+    // O corpo é lido UMA vez. `readDetail` não serve aqui: ele reduz o detail a
+    // string/message e jogaria fora `expected`/`verified` da conta divergente.
+    let detail: unknown = null;
+    try {
+      detail = ((await res.json()) as { detail?: unknown }).detail;
+    } catch {
+      /* corpo não-JSON */
+    }
+    if (
+      isRecord(detail) &&
+      detail.code === "conta_divergente" &&
+      typeof detail.expected === "string" &&
+      typeof detail.verified === "string"
+    ) {
+      throw new GoogleAccountMismatchError(detail.expected, detail.verified);
+    }
+    const message =
+      typeof detail === "string"
+        ? detail
+        : isRecord(detail) && typeof detail.message === "string"
+          ? detail.message
+          : null;
+    throw new ApiError(
+      res.status,
+      message ?? "Não foi possível concluir a conexão com o Google.",
+    );
   }
   const d = (await res.json()) as {
     status?: string;
     connected?: boolean;
     calendarId?: string | null;
+    googleAccountEmail?: string | null;
   };
   return {
     status: d.status === "conectado" ? "conectado" : "aguardando_callback",
     connected: Boolean(d.connected),
     calendarId: d.calendarId ?? null,
+    googleAccountEmail: d.googleAccountEmail ?? null,
   };
 }
 
@@ -149,8 +215,16 @@ export async function selectCalendar(
     const detail = await readDetail(res);
     throw new ApiError(res.status, detail ?? "Não foi possível selecionar a agenda.");
   }
-  const d = (await res.json()) as { connected?: boolean; calendarId?: string | null };
-  return { connected: Boolean(d.connected), calendarId: d.calendarId ?? null };
+  const d = (await res.json()) as {
+    connected?: boolean;
+    calendarId?: string | null;
+    googleAccountEmail?: string | null;
+  };
+  return {
+    connected: Boolean(d.connected),
+    calendarId: d.calendarId ?? null,
+    googleAccountEmail: d.googleAccountEmail ?? null,
+  };
 }
 
 export async function disconnectCalendar(token: string): Promise<void> {

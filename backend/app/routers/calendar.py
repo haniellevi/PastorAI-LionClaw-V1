@@ -3,18 +3,20 @@
 OAuth web flow (offline → refresh_token) com **PKCE S256** e estado no servidor
 (OAUTH-CALENDAR-V1). O consentimento é concluído em DOIS tempos:
 
-1. ``GET /calendar/connect`` (admin) cria uma linha em ``calendar_oauth_flows``
-   com o ``code_verifier`` cifrado e devolve a URL de consentimento, um
-   ``flowSecret`` e o ``expiresAt`` REAL da linha. O painel guarda segredo e
-   prazo no ``localStorage`` da PRÓPRIA origem (host irmão não lê nem grava) —
-   ``localStorage``, e não ``sessionStorage``, porque uma PWA iOS pode ser
-   encerrada em segundo plano e relançada.
+1. ``POST /calendar/connect`` (admin) recebe o e-mail Google que o admin DECLARA
+   que vai conectar, cria uma linha em ``calendar_oauth_flows`` com o
+   ``code_verifier`` cifrado e o ``expected_email`` normalizado, e devolve a URL
+   de consentimento, um ``flowSecret`` e o ``expiresAt`` REAL da linha. O painel
+   guarda segredo e prazo no ``localStorage`` da PRÓPRIA origem (host irmão não
+   lê nem grava) — ``localStorage``, e não ``sessionStorage``, porque uma PWA iOS
+   pode ser encerrada em segundo plano e relançada.
 2. ``GET /calendar/callback`` é PÚBLICO e só **estaciona** o ``code``. Não lê
    sessão, não fala com o Google, não grava ``calendar_sync``.
 3. ``POST /calendar/connect/finish`` (admin, Bearer) apresenta o ``flowSecret``,
-   compara ``app_user_id`` + ``igreja_id``, **consome** o fluxo e só então troca
-   o ``code`` com o ``code_verifier``. O ``flowSecret`` é **OBRIGATÓRIO**: sem
-   posse dele nenhum fluxo é concluído, em nenhuma superfície.
+   compara ``app_user_id`` + ``igreja_id``, **consome** o fluxo, troca o ``code``
+   e então **verifica no Google QUAL conta consentiu** (userinfo). Só persiste se
+   o e-mail verificado bater com o declarado. O ``flowSecret`` é **OBRIGATÓRIO**:
+   sem posse dele nenhum fluxo é concluído, em nenhuma superfície.
 
 Essa separação é o que fecha o account-linking CSRF: um consentimento iniciado
 por alguém só conclui na sessão de quem o iniciou.
@@ -23,6 +25,12 @@ Identidade autenticada **não substitui** o segredo. ``app_user_id`` +
 ``igreja_id`` provam apenas QUEM finaliza, nunca QUAL conta Google consentiu;
 achar o fluxo só por eles deixaria um ``state`` vazado virar vinculação de conta
 silenciosa na próxima montagem da tela, sem clique nenhum do admin.
+
+E o segredo, sozinho, também não prova a conta Google: PKCE não impede que
+alguém abra a URL de autorização ORIGINAL noutro navegador e consinta com outra
+conta — o ``code`` sai amarrado ao MESMO ``code_challenge`` e a troca sucede.
+Por isso o ``expected_email`` + userinfo: sem os dois, "conectado" significaria
+apenas "alguém autorizou alguma conta".
 
 ATENÇÃO: o callback é anônimo e usa ``get_db``, que não aplica tenant context —
 roda no papel de conexão com BYPASSRLS. **RLS não é defesa do callback**; a
@@ -36,6 +44,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import re
 import uuid
 from urllib.parse import urlparse
 
@@ -87,8 +96,20 @@ _MARKER_CANCELLED = "cancelled"
 _RETURN_PATH_ADMIN = "/#integracoes/callback/"
 _RETURN_PATH_APP = "/gestao#integracoes/callback/"
 
-# Mesmo corpo para TODA rejeição do finish — sem oráculo de causa.
+# Mesmo corpo para TODA rejeição do finish — sem oráculo de causa. A ÚNICA
+# exceção é a divergência de conta, que precisa ser acionável: o admin tem de
+# saber que autorizou a conta errada, e qual.
 _FINISH_GENERIC = "Não foi possível concluir a conexão com o Google."
+_MISMATCH_CODE = "conta_divergente"
+# Mesma conta declarada, `sub` diferente do já conectado. Nunca revela o sub.
+_REIDENTIFIED = (
+    "Esse endereço agora pertence a outra conta Google. Desconecte a agenda "
+    "atual antes de conectar esta conta."
+)
+
+# Checagem pragmática de formato (evita a dependência email-validator), igual à
+# de app/routers/auth.py.
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 def _return_url(origin: str, marker: str) -> str:
@@ -105,6 +126,26 @@ def _return_url(origin: str, marker: str) -> str:
 # ---------------------------------------------------------------------------
 # Schemas
 # ---------------------------------------------------------------------------
+class ConnectRequest(BaseModel):
+    """Conta Google que o admin DECLARA antes de sair para o consentimento.
+
+    É a intenção explícita contra a qual o ``finish`` compara o e-mail verificado
+    no userinfo. Sem ela, "conectado" significaria só "alguém autorizou alguma
+    conta". Normalizada aqui (trim + lowercase) para que a comparação lá seja
+    mecânica, e nunca em query string nem em log.
+    """
+
+    expectedGoogleEmail: str = Field(min_length=3, max_length=320)  # noqa: N815
+
+    @field_validator("expectedGoogleEmail")
+    @classmethod
+    def _normalize_email(cls, value: str) -> str:
+        value = value.strip().lower()
+        if not _EMAIL_RE.match(value):
+            raise ValueError("E-mail inválido")
+        return value
+
+
 class ConnectUrlOut(BaseModel):
     authUrl: str  # noqa: N815 - external contract camelCase
     # Segredo do fluxo, distinto do `state`. O painel guarda no localStorage da
@@ -133,11 +174,15 @@ class FinishOut(BaseModel):
     status: str
     connected: bool
     calendarId: str | None = None  # noqa: N815
+    # E-mail VERIFICADO da conta conectada. `None` em conexão legada (anterior ao
+    # binding). Nunca o `sub`, nunca token.
+    googleAccountEmail: str | None = None  # noqa: N815
 
 
 class StatusOut(BaseModel):
     connected: bool
     calendarId: str | None = None  # noqa: N815
+    googleAccountEmail: str | None = None  # noqa: N815
 
 
 class CalendarItem(BaseModel):
@@ -252,14 +297,18 @@ def _valid_access_token(
 # ---------------------------------------------------------------------------
 # Endpoints (admin only, tenant-scoped) — except the public callback
 # ---------------------------------------------------------------------------
-@router.get("/connect", response_model=ConnectUrlOut)
+@router.post("/connect", response_model=ConnectUrlOut)
 def connect(
+    payload: ConnectRequest,
     request: Request,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(require_role(["admin"])),
     oauth: GoogleOAuthClient = Depends(get_google_oauth_client),
 ) -> ConnectUrlOut:
     """Cria o fluxo OAuth e devolve a URL de consentimento + o ``flowSecret``.
+
+    POST (não GET) porque agora carrega corpo: o e-mail Google declarado, que
+    fica só no corpo — nunca em query string, nunca em log.
 
     A origem de retorno vem do header ``Origin`` e é validada por IGUALDADE
     EXATA contra ``calendar_oauth_return_origins`` — nunca ``Referer``, nunca
@@ -278,7 +327,14 @@ def connect(
     flow_secret = new_secret()
     verifier, challenge = new_pkce_pair()
     try:
-        url = oauth.build_consent_url(state=state, code_challenge=challenge)
+        # `login_hint` é UX: pré-seleciona a conta na tela do Google. NÃO é
+        # prova — o usuário pode trocar de conta lá, e é justamente isso que o
+        # `finish` detecta comparando o userinfo com `expected_email`.
+        url = oauth.build_consent_url(
+            state=state,
+            code_challenge=challenge,
+            login_hint=payload.expectedGoogleEmail,
+        )
     except GoogleOAuthError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(exc)
@@ -299,6 +355,7 @@ def connect(
             app_user_id=uuid.UUID(current_user.app_user_id),
             return_origin=origin,
             verifier_encrypted=encrypt_secret(verifier),
+            expected_email=payload.expectedGoogleEmail,
             expires_at=expires_at,
         )
     )
@@ -439,17 +496,67 @@ def finish_connection(
         response.status_code = status.HTTP_202_ACCEPTED
         return FinishOut(status="aguardando_callback", connected=False)
 
+    # Lidos ANTES da queima: o commit do `_burn` expira os atributos do objeto.
+    expected_email = (flow.expected_email or "").strip().lower()
     try:
         code = decrypt_secret(flow.code_encrypted)
         verifier = decrypt_secret(flow.verifier_encrypted or "")
     except (SecretDecryptionError, ValueError) as exc:
         _burn(db, flow, now)
         raise _finish_rejected() from exc
+    if not expected_email:
+        # Fluxo legado, criado antes do binding de identidade. Não há contra o
+        # que comparar => fail-closed. Queima porque nunca vai poder concluir.
+        _burn(db, flow, now)
+        raise _finish_rejected()
 
     _burn(db, flow, now)
 
     try:
         tokens = oauth.exchange_code(code, verifier)
+        # Quem de fato consentiu. Só isto distingue "a conta que o admin quis" de
+        # "alguma conta que autorizou usando esta URL".
+        identity = oauth.fetch_userinfo(tokens.access_token)
+    except GoogleOAuthError as exc:
+        raise _finish_rejected() from exc
+
+    if identity.email != expected_email:
+        # ÚNICA rejeição com detalhe: sem saber qual conta autorizou, o admin não
+        # tem como corrigir. Nada foi escrito e a conexão anterior segue intacta;
+        # os tokens novos morrem aqui, em memória.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": _MISMATCH_CODE,
+                "expected": expected_email,
+                "verified": identity.email,
+            },
+        )
+
+    sync = _sync_for(db, igreja_uuid)
+    previous_sub = (sync.google_account_sub or "") if sync else ""
+    # Continuidade é decidida pelo `sub`, NUNCA pelo e-mail: e-mail troca de dono.
+    same_identity = bool(previous_sub) and previous_sub == identity.sub
+
+    if (
+        sync is not None
+        and previous_sub
+        and not same_identity
+        and (sync.google_account_email or "") == identity.email
+    ):
+        # Mesmo endereço, conta Google diferente. Terminal e acionável, sem
+        # revelar o `sub`. A conexão anterior fica intacta.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=_REIDENTIFIED
+        )
+
+    # Refresh token de outra identidade NUNCA é reaproveitado. Preservar só vale
+    # quando o `sub` é o mesmo — `prompt=consent` não é garantia de token novo.
+    can_preserve = same_identity and bool(sync and sync.refresh_token_encrypted)
+    if not tokens.refresh_token and not can_preserve:
+        raise _finish_rejected()
+
+    try:
         # PROBE de capacidade: `connected` passa a significar "verificadamente
         # utilizável". O campo `scope` da resposta do token NÃO é usado como
         # condição — sua semântica não é garantida e ausência não reprova.
@@ -457,23 +564,30 @@ def finish_connection(
     except GoogleOAuthError as exc:
         raise _finish_rejected() from exc
 
-    sync = _sync_for(db, igreja_uuid)
-    if not tokens.refresh_token and not (sync and sync.refresh_token_encrypted):
-        # Primeira conexão sem refresh_token: nada de linha meia-conectada.
-        raise _finish_rejected()
-
     if sync is None:
         sync = CalendarSync(igreja_id=igreja_uuid)
         db.add(sync)
     if tokens.refresh_token:
         sync.refresh_token_encrypted = encrypt_secret(tokens.refresh_token)
+    if not same_identity:
+        # Identidade desconhecida ou trocada: a agenda escolhida pertencia à
+        # conta anterior e não pode ser herdada.
+        sync.google_calendar_id = None
+    sync.google_account_email = identity.email
+    sync.google_account_sub = identity.sub
+    sync.connected_by_app_user_id = uuid.UUID(current_user.app_user_id)
+    sync.connected_em = now
     sync.access_token_encrypted = encrypt_secret(tokens.access_token)
     sync.access_token_expira_em = now + dt.timedelta(seconds=tokens.expires_in)
     sync.atualizado_em = now
     db.commit()
+    # Sem e-mail, sem `sub`, sem token na linha de log.
     logger.info("Google Calendar connected for an igreja (scope=%s)", tokens.scope)
     return FinishOut(
-        status="conectado", connected=True, calendarId=sync.google_calendar_id
+        status="conectado",
+        connected=True,
+        calendarId=sync.google_calendar_id,
+        googleAccountEmail=sync.google_account_email,
     )
 
 
@@ -482,11 +596,19 @@ def get_status(
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(require_role(["admin"])),
 ) -> StatusOut:
-    """Whether the igreja has a connected calendar (no secret echoed)."""
+    """Whether the igreja has a connected calendar (no secret echoed).
+
+    ``googleAccountEmail`` é `None` em conexão legada — anterior ao binding de
+    identidade. O `sub` e os tokens nunca saem daqui.
+    """
     sync = _sync_for(db, uuid.UUID(current_user.igreja_id))
     if not _connected(sync):
         return StatusOut(connected=False)
-    return StatusOut(connected=True, calendarId=sync.google_calendar_id)
+    return StatusOut(
+        connected=True,
+        calendarId=sync.google_calendar_id,
+        googleAccountEmail=sync.google_account_email,
+    )
 
 
 @router.get("/list", response_model=CalendarListOut)
@@ -660,7 +782,11 @@ def select_calendar(
     sync.google_calendar_id = payload.calendarId
     sync.atualizado_em = dt.datetime.now(dt.timezone.utc)
     db.commit()
-    return StatusOut(connected=True, calendarId=sync.google_calendar_id)
+    return StatusOut(
+        connected=True,
+        calendarId=sync.google_calendar_id,
+        googleAccountEmail=sync.google_account_email,
+    )
 
 
 @router.delete("", status_code=status.HTTP_204_NO_CONTENT)

@@ -173,6 +173,11 @@ class Settings(BaseSettings):
         default="https://accounts.google.com/o/oauth2/v2/auth"
     )
     google_oauth_token_url: str = Field(default="https://oauth2.googleapis.com/token")
+    # Endpoint OIDC de userinfo — é ele que diz QUAL conta Google consentiu.
+    # Default = o publicado no discovery document do Google.
+    google_oauth_userinfo_url: str = Field(
+        default="https://openidconnect.googleapis.com/v1/userinfo"
+    )
 
     # ---- OAuth Calendar V1: origens de retorno do consentimento -------------
     # Conceito SEPARADO de `cors_origins`. Aquela responde "quem pode chamar a

@@ -1359,6 +1359,21 @@ class CalendarSync(Base):
     access_token_expira_em: Mapped[dt.datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Identidade Google VERIFICADA no `finish` (userinfo), não declarada.
+    # `google_account_sub` é o identificador estável da conta: é ele que decide
+    # continuidade (preservar refresh token, preservar a agenda escolhida). O
+    # e-mail muda; o sub não. NULL nas duas colunas = conexão legada, feita antes
+    # do binding de identidade.
+    google_account_email: Mapped[str | None] = mapped_column(Text, nullable=True)
+    google_account_sub: Mapped[str | None] = mapped_column(Text, nullable=True)
+    connected_by_app_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("app_users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    connected_em: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     criado_em: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
@@ -1402,6 +1417,11 @@ class CalendarOAuthFlow(Base):
     # Origem validada contra a allowlist no /connect; o callback redireciona
     # para ela. Nunca derivada de Referer nem de campo do cliente.
     return_origin: Mapped[str] = mapped_column(Text, nullable=False)
+    # Conta Google que o admin DECLAROU antes do redirect, normalizada. O
+    # `finish` compara o e-mail verificado no userinfo contra este valor. Nullable
+    # no schema só por causa de fluxos legados criados antes do binding — a
+    # aplicação sempre grava, e um NULL falha fechado no `finish`.
+    expected_email: Mapped[str | None] = mapped_column(Text, nullable=True)
     verifier_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
     code_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
     expires_at: Mapped[dt.datetime] = mapped_column(

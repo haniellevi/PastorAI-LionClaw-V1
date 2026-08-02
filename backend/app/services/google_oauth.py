@@ -25,8 +25,12 @@ from app.config import Settings, get_settings
 
 logger = logging.getLogger("pastorai.gcal_oauth")
 
-# Read/write events + read the calendar list (to let the admin pick one).
+# `openid email` são o que permite ao `finish` provar QUAL conta consentiu, via
+# userinfo. Sem eles não existe binding de identidade — só a intenção declarada.
+# Depois, read/write de eventos + leitura da lista de agendas (para o admin
+# escolher uma).
 _SCOPES = (
+    "openid email "
     "https://www.googleapis.com/auth/calendar.events "
     "https://www.googleapis.com/auth/calendar.readonly"
 )
@@ -53,6 +57,20 @@ class OAuthTokens:
     scope: str | None = None
 
 
+@dataclass(frozen=True)
+class GoogleIdentity:
+    """Conta Google que de fato consentiu, lida do endpoint OIDC de userinfo.
+
+    ``sub`` é o identificador estável da conta — o e-mail muda, o ``sub`` não.
+    É por ele que a continuidade de uma conexão é decidida; o e-mail serve para
+    comparar com o que o admin declarou e para exibir no painel.
+    """
+
+    sub: str
+    email: str
+    email_verified: bool
+
+
 class GoogleOAuthClient:
     """Thin client around Google's OAuth + calendarList endpoints."""
 
@@ -77,12 +95,19 @@ class GoogleOAuthClient:
         )
 
     # ---- flow --------------------------------------------------------------
-    def build_consent_url(self, *, state: str, code_challenge: str) -> str:
+    def build_consent_url(
+        self, *, state: str, code_challenge: str, login_hint: str | None = None
+    ) -> str:
         """URL de consentimento com PKCE S256.
 
         ``state`` é opaco para esta classe (e para o Google): é a chave da linha
         de ``calendar_oauth_flows``. Só o ``code_challenge`` viaja — o verifier
         correspondente fica cifrado no servidor.
+
+        ``login_hint`` é **UX apenas**: pré-seleciona a conta na tela do Google e
+        poupa o admin de trocar de conta à mão. **Não é prova de identidade** —
+        o usuário pode ignorá-lo e consentir com outra conta, e um terceiro pode
+        reusar a URL. Quem prova é o ``fetch_userinfo`` no ``finish``.
         """
         client_id, _, redirect_uri = self._require_config()
         params = {
@@ -97,6 +122,8 @@ class GoogleOAuthClient:
             "code_challenge": code_challenge,
             "code_challenge_method": "S256",
         }
+        if login_hint:
+            params["login_hint"] = login_hint
         return f"{self._settings.google_oauth_auth_url}?{urlencode(params)}"
 
     def exchange_code(self, code: str, code_verifier: str) -> OAuthTokens:
@@ -112,10 +139,9 @@ class GoogleOAuthClient:
         sai amarrado a ESTE mesmo ``code_challenge``, então a troca sucede e os
         tokens são os da conta do terceiro. PKCE prova que o code pertence a
         ESTA requisição — nunca prova QUAL conta consentiu. Quem barra esse
-        caminho é a posse obrigatória do ``flowSecret`` no ``finish``; a
-        identidade da conta Google segue não verificada
-        (ACCOUNT_IDENTITY_RISK_PENDING — ver
-        ``docs/security/2026-07-31-oauth-calendar-v1-risk-acceptance.md``).
+        caminho é a posse obrigatória do ``flowSecret`` no ``finish`` MAIS a
+        comparação de identidade contra o e-mail declarado pelo admin, feita com
+        ``fetch_userinfo`` logo depois desta troca.
         """
         client_id, client_secret, redirect_uri = self._require_config()
         return self._token_request(
@@ -161,6 +187,38 @@ class GoogleOAuthClient:
             expires_in=int(body.get("expires_in") or 3600),
             scope=str(scope) if scope else None,
         )
+
+    def fetch_userinfo(self, access_token: str) -> GoogleIdentity:
+        """Conta Google que consentiu, pelo endpoint OIDC de userinfo.
+
+        É a única prova de identidade do fluxo. Falha FECHADA em tudo: erro de
+        transporte, corpo não-JSON, ``sub``/``email`` vazios, ou
+        ``email_verified`` que não seja exatamente ``True`` (um e-mail não
+        verificado no Google não prova posse do endereço). Nada de ``email``,
+        ``sub`` ou token entra em log — nem em caminho de erro.
+        """
+        try:
+            with httpx.Client(timeout=15.0) as client:
+                resp = client.get(
+                    self._settings.google_oauth_userinfo_url,
+                    headers={"Authorization": f"Bearer {access_token}"},
+                )
+                resp.raise_for_status()
+                body = resp.json()
+        except httpx.HTTPError as exc:
+            logger.warning("Google userinfo failed: %s", type(exc).__name__)
+            raise GoogleOAuthError("Falha ao identificar a conta Google") from exc
+        except ValueError as exc:
+            raise GoogleOAuthError("Resposta inesperada do Google (userinfo)") from exc
+        if not isinstance(body, dict):
+            raise GoogleOAuthError("Resposta inesperada do Google (userinfo)")
+        sub = str(body.get("sub") or "").strip()
+        email = str(body.get("email") or "").strip().lower()
+        if not sub or not email:
+            raise GoogleOAuthError("Google não identificou a conta que autorizou")
+        if body.get("email_verified") is not True:
+            raise GoogleOAuthError("A conta Google não tem o e-mail verificado")
+        return GoogleIdentity(sub=sub, email=email, email_verified=True)
 
     def list_events(
         self,
