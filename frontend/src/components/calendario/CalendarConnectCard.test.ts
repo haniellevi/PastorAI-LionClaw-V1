@@ -729,6 +729,24 @@ describe("rejeição terminal", () => {
     expect(storedFlow()?.secret).toBe("segredo");
     expect(button(CTA_FINISH)).toBeTruthy();
   });
+
+  it.each([403, 422])(
+    "%i pré-handler NÃO apaga um fluxo que o servidor ainda não consumiu",
+    async (status) => {
+      setHash("#integracoes");
+      seedFlow("segredo");
+      const { ApiError } = await import("@/lib/calendar-api");
+      finishConnection.mockRejectedValue(
+        new ApiError(status, "Acesso temporariamente indisponível."),
+      );
+
+      await render();
+      await click(button(CTA_FINISH)!);
+
+      expect(storedFlow()?.secret).toBe("segredo");
+      expect(button(CTA_FINISH)).toBeTruthy();
+    },
+  );
 });
 
 describe("iniciar um fluxo novo", () => {

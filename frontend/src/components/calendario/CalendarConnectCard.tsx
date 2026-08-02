@@ -29,8 +29,9 @@
  * O segredo vive no `localStorage` da PRÓPRIA origem (chave versionada), com o
  * `expiresAt` que veio do servidor. `localStorage` — e não `sessionStorage` —
  * porque a PWA iOS pode ser encerrada em segundo plano e relançada; o jar da
- * origem sobrevive a isso. O storage é limpo ao concluir, cancelar, receber
- * rejeição terminal do servidor ou iniciar deliberadamente um fluxo novo. O
+ * origem sobrevive a isso. O storage é limpo ao concluir, receber o 409 do
+ * `finish` (fluxo inutilizável) ou iniciar deliberadamente um fluxo novo. Um
+ * marcador público `cancelled` e falhas 401/403/422 preservam o segredo. O
  * relógio do cliente não decide expiração: pode estar adiantado ou atrasado.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -131,10 +132,11 @@ function writeFlow(flow: StoredFlow): boolean {
   }
 }
 
-/** Recusa do servidor que não adianta repetir: o fluxo morreu. 5xx e falha de
- *  rede NÃO entram aqui — ali o segredo ainda vale e a CTA continua útil. */
-function isTerminal(e: unknown): boolean {
-  return e instanceof ApiError && e.status >= 400 && e.status < 500;
+/** Só o 409 do handler prova que o fluxo morreu/foi consumido. 401/403 podem
+ * acontecer antes do handler (sessão, billing, papel) e 422 antes de consultar
+ * a linha; nesses casos o segredo continua necessário e válido até o TTL. */
+function makesFlowUnusable(e: unknown): boolean {
+  return e instanceof ApiError && e.status === 409;
 }
 
 interface CalendarConnectCardProps {
@@ -313,8 +315,9 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
           await restoreStatusAfterUnsuccessfulFinish();
           return;
         }
-        // Terminal (4xx): o fluxo morreu, descarta o segredo e oferece reinício.
-        if (isTerminal(e)) {
+        // Só 409 é terminal para o fluxo; autorização/validação pré-handler
+        // preserva o segredo para nova tentativa dentro do TTL.
+        if (makesFlowUnusable(e)) {
           clearFlow();
           setPending(false);
         }
