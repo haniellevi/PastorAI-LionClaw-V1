@@ -1425,6 +1425,30 @@ def asaas_webhook(
         logger.info("Asaas webhook for unknown subscription; acknowledged")
         return WebhookResponse(received=True, status=None)
 
+    # DÍVIDA REVERTIDA é barreira de acesso até a recuperação EXPLÍCITA.
+    # Eventos mensais não têm autoridade para apagá-la:
+    # - confirmação atrasada da MESMA cobrança não supera refund/delete;
+    # - cobrança de ciclo NOVO não esconde a recovery do ciclo anterior;
+    # - evento de assinatura sem payment também não reativa o tenant.
+    # A confirmação da operação `monthly_recovery` retorna acima e é o único
+    # caminho que limpa a reversão e restaura o acesso.
+    if sub.asaas_invoice_reversal:
+        current_payment_id = sub.asaas_invoice_payment_id
+        blocked_payment = bool(
+            payment
+            and (
+                payment_id != current_payment_id
+                or reversal is None
+            )
+        )
+        blocked_subscription_confirmation = not payment and new_status == "ativa"
+        if blocked_payment or blocked_subscription_confirmation:
+            logger.info(
+                "Asaas billing event cannot supersede an unresolved reversal; "
+                "acknowledged"
+            )
+            return WebhookResponse(received=True, status=None)
+
     # Veto de ciclo ANTES de qualquer mutação: um evento atrasado/duplicado de
     # fatura de ciclo anterior é reconhecido e ignorado por inteiro — nem
     # status, nem link/payment id, nem acesso da igreja, nem commit.

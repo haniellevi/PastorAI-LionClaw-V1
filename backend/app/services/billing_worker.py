@@ -354,7 +354,7 @@ def _next_ladder_target(db: Session, sub: Subscription) -> Plano | None:
         return None
     proximo = PLAN_ORDER[idx + 1]
     plano_row = db.execute(
-        select(Plano).where(Plano.codigo == proximo)
+        select(Plano).where(Plano.codigo == proximo, Plano.ativo.is_(True))
     ).scalar_one_or_none()
     if plano_row is None or plano_row.preco_mensal is None:
         return None

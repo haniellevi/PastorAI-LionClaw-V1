@@ -683,6 +683,17 @@ def test_queue_autoupgrade_stays_quiet_when_the_plan_still_fits() -> None:
     assert not [o for o in db.added if isinstance(o, BillingPlanChangeOperation)]
 
 
+def test_queue_autoupgrade_skips_inactive_next_tier() -> None:
+    sub = _sub(plano="101_200", limite=200, pessoas=250)
+    catalog = _ladder_catalog()
+    catalog[-1].ativo = False
+    db = _WorkerSession(subscription=sub, planos=catalog)
+    db.pessoas_count = 250
+
+    assert queue_autoupgrade_if_over_limit(db, sub) is False
+    assert not [o for o in db.added if isinstance(o, BillingPlanChangeOperation)]
+
+
 def test_worker_completes_the_queued_autoupgrade(monkeypatch) -> None:
     # Ponta a ponta: o endpoint enfileira (releitura canônica) e o worker
     # conclui pelo trilho durável — PUT in-place, nunca POST.

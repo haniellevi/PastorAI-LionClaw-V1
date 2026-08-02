@@ -971,7 +971,9 @@ def test_setup_delete_clears_the_dead_charge_even_if_unpaid(app, monkeypatch) ->
     # Próximo checkout volta a criar (e cobrar) a taxa: nada ficou "pago".
 
 
-def test_monthly_refund_withholds_link_until_next_cycle(app, monkeypatch) -> None:
+def test_monthly_refund_blocks_delayed_confirmation_of_same_payment(
+    app, monkeypatch
+) -> None:
     db = _WebhookDb(
         sub=_sub(
             status="ativa",
@@ -999,22 +1001,69 @@ def test_monthly_refund_withholds_link_until_next_cycle(app, monkeypatch) -> Non
     assert db.sub.asaas_invoice_reversal == "refunded"  # MOTIVO persistido
     assert db.sub.asaas_invoice_payment_id == "pay_m2"
 
-    # Novo ciclo VÁLIDO restaura o comportamento normal do link.
-    created = _post(
+    commits_after_refund = db.commits
+    delayed = _post(
         client,
-        "PAYMENT_CREATED",
+        "PAYMENT_CONFIRMED",
         _payment(
-            status="PENDING",
-            payment_id="pay_m3",
-            due_date="2026-09-01",
-            invoice_url="https://asaas.test/m3",
+            status="CONFIRMED",
+            payment_id="pay_m2",
+            due_date="2026-08-01",
+            invoice_url="https://asaas.test/m2",
         ),
     )
 
-    assert created.json()["status"] == "pendente"
-    assert db.sub.asaas_invoice_payment_id == "pay_m3"
-    assert db.sub.asaas_invoice_url == "https://asaas.test/m3"
-    assert db.sub.asaas_invoice_reversal is None  # ciclo novo limpa a retenção
+    assert delayed.json()["status"] is None
+    assert db.sub.status == "inadimplente"
+    assert db.sub.asaas_invoice_payment_id == "pay_m2"
+    assert db.sub.asaas_invoice_url is None
+    assert db.sub.asaas_invoice_reversal == "refunded"
+    assert db.igreja.status == "inadimplente"
+    assert db.commits == commits_after_refund
+
+
+def test_new_cycle_cannot_hide_or_settle_prior_recovery_debt(app, monkeypatch) -> None:
+    recovery_a = _operation(
+        operation_key="pastorai-monthly_recovery-a-open",
+        source_payment_id="pay_m2",
+        asaas_payment_id="pay_rec_a_open",
+        status="created",
+    )
+    db = _WebhookDb(
+        sub=_sub(
+            status="inadimplente",
+            asaas_invoice_payment_id="pay_m2",
+            asaas_invoice_url=None,
+            asaas_invoice_reversal="refunded",
+            proxima_cobranca=dt.date(2026, 8, 1),
+        ),
+        igreja=_igreja("inadimplente"),
+        operations=[recovery_a],
+    )
+    client = _client(app, db, monkeypatch)
+
+    for event, raw_status in (
+        ("PAYMENT_CREATED", "PENDING"),
+        ("PAYMENT_CONFIRMED", "CONFIRMED"),
+    ):
+        resp = _post(
+            client,
+            event,
+            _payment(
+                status=raw_status,
+                payment_id="pay_m3",
+                due_date="2026-09-01",
+                invoice_url="https://asaas.test/m3",
+            ),
+        )
+        assert resp.json()["status"] is None
+
+    assert recovery_a.status == "created"
+    assert db.sub.status == "inadimplente"
+    assert db.sub.asaas_invoice_payment_id == "pay_m2"
+    assert db.sub.asaas_invoice_reversal == "refunded"
+    assert db.igreja.status == "inadimplente"
+    assert db.commits == 0
 
 
 def test_monthly_overdue_keeps_the_payable_link(app, monkeypatch) -> None:
