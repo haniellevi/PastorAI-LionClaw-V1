@@ -1523,19 +1523,54 @@ def asaas_webhook(
             .where(Subscription.asaas_subscription_id == str(asaas_sub_id))
             .with_for_update()
         ).scalar_one_or_none()
-    if sub is None and not payment:
-        external_ref = subscription.get("externalReference")
+    if sub is None:
+        # O webhook pode vencer a callback do POST /subscriptions: nesse
+        # intervalo o id remoto ainda não está na Subscription local, mas a
+        # operation_key já foi persistida e é a externalReference do recurso.
+        # Isso vale tanto para eventos da assinatura quanto para payments
+        # recorrentes dela; cobranças avulsas já retornaram acima.
+        external_ref = (
+            payment.get("externalReference")
+            if payment
+            else subscription.get("externalReference")
+        )
         if external_ref:
             # Formato novo (CORRECTIVE-6): a externalReference é a
             # operation_key da intenção durável de criação.
             create_op = find_subscription_operation_by_key(db, str(external_ref))
             if create_op is not None:
-                sub = db.execute(
+                candidate = db.execute(
                     select(Subscription).where(
                         Subscription.id == create_op.subscription_id
-                    )
+                    ).with_for_update()
                 ).scalar_one_or_none()
-            else:
+                tracked_remote = getattr(create_op, "asaas_subscription_id", None)
+                remote_matches = bool(
+                    candidate is not None
+                    and asaas_sub_id
+                    and (not tracked_remote or str(tracked_remote) == str(asaas_sub_id))
+                )
+                if remote_matches:
+                    sub = candidate
+                    sub.plano = create_op.plano
+                    sub.limite = create_op.limite
+                    sub.asaas_subscription_id = str(asaas_sub_id)
+                    if getattr(create_op, "customer_id", None):
+                        sub.asaas_customer_id = create_op.customer_id
+                    frozen_setup = getattr(create_op, "setup_fee", None)
+                    if frozen_setup is not None:
+                        sub.setup_fee_contracted = frozen_setup
+                        if float(frozen_setup) == 0:
+                            sub.setup_pago = True
+                    create_op.asaas_subscription_id = str(asaas_sub_id)
+                    create_op.status = "created"
+                    create_op.attempt_started_at = None
+                elif candidate is not None:
+                    logger.warning(
+                        "Asaas webhook creation intent does not match remote "
+                        "subscription id; acknowledged"
+                    )
+            elif not payment:
                 # Compat: assinaturas antigas carregam o igreja_id.
                 try:
                     igreja_uuid = uuid.UUID(str(external_ref))

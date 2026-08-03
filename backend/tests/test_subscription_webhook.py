@@ -1427,7 +1427,15 @@ def test_subscription_event_resolves_new_external_reference_via_operation(
 ) -> None:
     sub = _sub(status="pendente", setup_pago=True)
     create_op = SimpleNamespace(
-        operation_key="pastorai-subcreate-k1", subscription_id=sub.id
+        operation_key="pastorai-subcreate-k1",
+        subscription_id=sub.id,
+        plano="ate_100",
+        limite=100,
+        customer_id="cus_1",
+        setup_fee=0.0,
+        asaas_subscription_id=None,
+        status="reconciling",
+        attempt_started_at=None,
     )
     db = _WebhookDb(
         sub=sub, igreja=_igreja("ativa"), subscription_create_ops=[create_op]
@@ -1452,6 +1460,56 @@ def test_subscription_event_resolves_new_external_reference_via_operation(
     assert resp.status_code == 200
     assert resp.json()["status"] == "ativa"
     assert db.sub.status == "ativa"
+
+
+def test_early_payment_resolves_creation_intent_and_persists_paid_snapshot(
+    app, monkeypatch
+) -> None:
+    sub = _sub(
+        status="pendente",
+        setup_pago=False,
+        asaas_subscription_id=None,
+        asaas_invoice_payment_id=None,
+    )
+    create_op = SimpleNamespace(
+        operation_key="pastorai-subcreate-early-payment",
+        subscription_id=sub.id,
+        plano="ate_100",
+        limite=100,
+        customer_id="cus_early",
+        setup_fee=0.0,
+        asaas_subscription_id=None,
+        status="creating",
+        attempt_started_at=dt.datetime.now(dt.timezone.utc),
+    )
+    db = _WebhookDb(
+        sub=sub,
+        igreja=_igreja("inadimplente"),
+        subscription_create_ops=[create_op],
+    )
+    client = _client(app, db, monkeypatch)
+
+    payment = _payment(
+        status="CONFIRMED",
+        external_ref=create_op.operation_key,
+        subscription="sub_asaas_early",
+        payment_id="pay_early",
+        due_date="2026-08-01",
+        invoice_url="https://asaas.test/pay-early",
+    )
+    payment["customer"] = "cus_early"
+    resp = _post(client, "PAYMENT_CONFIRMED", payment)
+
+    assert resp.json()["status"] == "ativa"
+    assert sub.status == "ativa"
+    assert sub.asaas_subscription_id == "sub_asaas_early"
+    assert sub.asaas_customer_id == "cus_early"
+    assert sub.asaas_invoice_payment_id == "pay_early"
+    assert sub.setup_pago is True
+    assert create_op.status == "created"
+    assert create_op.asaas_subscription_id == "sub_asaas_early"
+    assert db.igreja.status == "ativa"
+    assert db.commits == 1
 
 
 # ---------------------------------------------------------------------------

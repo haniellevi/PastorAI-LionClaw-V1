@@ -1196,6 +1196,29 @@ class _RejectedChangePlanAsaas(_ChangePlanAsaas):
         raise AsaasRejectedError("Plano rejeitado definitivamente pelo Asaas")
 
 
+class _SupersededChangePlanAsaas(_ChangePlanAsaas):
+    """A resposta do PUT antigo volta após uma troca mais nova concluir."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.db = None
+        self.sub = None
+
+    def update_subscription(self, subscription_id: str, *, valor: float, descricao: str):
+        self.puts.append((subscription_id, valor, descricao))
+        assert self.db is not None and self.sub is not None
+        old = next(
+            o
+            for o in self.db.added
+            if isinstance(o, BillingPlanChangeOperation)
+        )
+        old.status = "completed"  # o worker já fechou o claim antigo
+        self.sub.plano = "acima_201"
+        self.sub.limite = None
+        self.db.igreja.plano = "acima_201"
+        return {"id": subscription_id, "value": valor, "description": descricao}
+
+
 def _active_sub(**over):
     base = dict(
         status="ativa",
@@ -1399,6 +1422,30 @@ def test_rejected_manual_change_requeues_growth_autoupgrade(app) -> None:
     assert automatic.status == "prepared"
     assert automatic.origin == "autoupgrade"
     assert automatic.to_plano == "acima_201"
+
+
+def test_superseded_delayed_plan_change_returns_conflict_not_false_success(app) -> None:
+    asaas = _SupersededChangePlanAsaas()
+    sub = _active_sub(pessoas=50, limite=100)
+    client, db = _client(
+        app,
+        planos=[_plano(codigo="101_200", preco_mensal=299, limite_pessoas=200)],
+        asaas=asaas,
+        subscription=sub,
+    )
+    db.pessoas_count = 50
+    asaas.db = db
+    asaas.sub = sub
+
+    resp = client.post(
+        "/subscription/change-plan", json={"plano": "101_200"}, headers=_AUTH
+    )
+
+    assert resp.status_code == 409
+    assert "superada" in resp.json()["detail"]
+    assert sub.plano == "acima_201"
+    assert sub.limite is None
+    assert db.igreja.plano == "acima_201"
 
 
 def test_change_plan_conflicts_with_open_change_to_other_plan(app) -> None:

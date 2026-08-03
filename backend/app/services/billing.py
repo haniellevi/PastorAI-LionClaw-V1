@@ -622,7 +622,10 @@ def ensure_plan_change_operation(
         # de qualquer nova escrita remota.
         remote = asaas.get_subscription(op.asaas_subscription_id)
         if _plan_change_matches_remote(op, remote):
-            _complete_plan_change(db, op, sub)
+            if not _complete_plan_change(db, op, sub):
+                raise PlanChangeConflict(
+                    "A troca foi superada por uma alteração mais recente — recarregue"
+                )
             return op
         if op.status == "processing" and _attempt_lease_alive(op):
             # Outro processo está DENTRO do PUT agora: não há o que reconciliar
@@ -677,9 +680,15 @@ def ensure_plan_change_operation(
     if remote is None:
         # Sandbox (sends bloqueados): não há remoto a confirmar — completa
         # localmente para o fluxo de desenvolvimento seguir utilizável.
-        _complete_plan_change(db, op, sub)
+        if not _complete_plan_change(db, op, sub):
+            raise PlanChangeConflict(
+                "A troca foi superada por uma alteração mais recente — recarregue"
+            )
         return op
-    _complete_plan_change(db, op, sub)
+    if not _complete_plan_change(db, op, sub):
+        raise PlanChangeConflict(
+            "A troca foi superada por uma alteração mais recente — recarregue"
+        )
     return op
 
 
@@ -707,7 +716,7 @@ def find_subscription_operation_by_key(
     return db.execute(
         select(BillingSubscriptionOperation).where(
             BillingSubscriptionOperation.operation_key == str(operation_key)
-        )
+        ).with_for_update()
     ).scalar_one_or_none()
 
 
