@@ -33,7 +33,9 @@ from app.services.asaas import (
     AsaasClient,
     AsaasError,
     AsaasRejectedError,
+    map_payment_status,
     payment_invoice_url,
+    payment_reversal_kind,
     subscription_description,
 )
 
@@ -335,7 +337,12 @@ def ensure_payment_operation(
 
     if op.status in ("creating", "reconciling"):
         op = _reconcile_payment_operation(
-            db, asaas, op, description=description, customer_id=customer_id
+            db,
+            asaas,
+            op,
+            sub=sub,
+            description=description,
+            customer_id=customer_id,
         )
         if op.status != "prepared":
             return op
@@ -406,6 +413,7 @@ def _reconcile_payment_operation(
     asaas: AsaasClient,
     op: BillingPaymentOperation,
     *,
+    sub: Subscription,
     description: str,
     customer_id: str,
 ) -> BillingPaymentOperation:
@@ -422,15 +430,36 @@ def _reconcile_payment_operation(
         and (not p.get("customer") or str(p.get("customer")) == str(customer_id))
     ]
     if len(matches) == 1:
-        finish_operation(
-            db,
-            op,
-            ("creating", "reconciling"),
-            status="created",
-            asaas_payment_id=str(matches[0]["id"]),
-            invoice_url=payment_invoice_url(matches[0]),
-            attempt_started_at=None,
+        payment = matches[0]
+        mapped_status = map_payment_status(payment.get("status"))
+        reversal = payment_reversal_kind(payment.get("status"))
+        operation_status = (
+            "paid"
+            if mapped_status == "ativa"
+            else "reversed"
+            if reversal
+            else "created"
         )
+        # Adoção + efeito financeiro precisam ser UMA transação. Trava na
+        # mesma ordem do webhook (operação -> assinatura); se outro dono já
+        # concluiu, o status recarregado impede sobrescrever seu resultado.
+        db.refresh(op, with_for_update=True)
+        if op.status not in ("creating", "reconciling"):
+            return op
+        db.refresh(sub, with_for_update=True)
+        op.status = operation_status
+        op.asaas_payment_id = str(payment["id"])
+        op.invoice_url = None if reversal else payment_invoice_url(payment)
+        op.attempt_started_at = None
+        if operation_status in ("paid", "reversed"):
+            _apply_reconciled_payment_state(
+                db,
+                sub=sub,
+                op=op,
+                payment=payment,
+                operation_status=operation_status,
+            )
+        db.commit()
         return op
     if len(matches) > 1:
         finish_operation(
@@ -457,6 +486,75 @@ def _reconcile_payment_operation(
             return op
     claim_transition(db, op, "creating", "reconciling")
     raise AsaasError("Cobrança em reconciliação no Asaas — tente novamente")
+
+
+def _apply_reconciled_payment_state(
+    db: Session,
+    *,
+    sub: Subscription,
+    op: BillingPaymentOperation,
+    payment: dict,
+    operation_status: str,
+) -> None:
+    """Aplica ao produto o status autoritativo lido na reconciliação.
+
+    O chamador já travou operação e assinatura na mesma ordem usada pelo
+    webhook. Esta função só deriva as mutações; a adoção e todos os efeitos
+    são comitados atomicamente pelo chamador.
+    """
+    payment_id = str(payment["id"])
+
+    if op.purpose == "setup":
+        if operation_status == "paid":
+            sub.setup_pago = True
+            sub.asaas_setup_charge_id = payment_id
+            sub.asaas_setup_invoice_url = None
+        else:
+            sub.setup_pago = False
+            sub.asaas_setup_reversed_payment_id = payment_id
+            if str(sub.asaas_setup_charge_id) == payment_id:
+                sub.asaas_setup_charge_id = None
+            sub.asaas_setup_invoice_url = None
+        return
+
+    if operation_status == "paid":
+        if (
+            op.source_payment_id
+            and str(op.source_payment_id) == str(sub.asaas_invoice_payment_id)
+            and sub.asaas_invoice_reversal is not None
+        ):
+            sub.status = "ativa"
+            sub.asaas_invoice_reversal = None
+        if (
+            sub.status == "ativa"
+            and sub.asaas_invoice_reversal is None
+            and find_any_open_operation(db, sub.id, "monthly_recovery") is None
+        ):
+            db.execute(
+                update(Igreja)
+                .where(Igreja.id == sub.igreja_id, Igreja.status == "inadimplente")
+                .values(status="ativa")
+            )
+    else:
+        if op.source_payment_id:
+            db.add(
+                BillingPaymentOperation(
+                    subscription_id=sub.id,
+                    purpose="monthly_recovery",
+                    operation_key=f"pastorai-monthly_recovery-{uuid.uuid4()}",
+                    source_payment_id=str(op.source_payment_id),
+                    status="prepared",
+                    valor=op.valor,
+                )
+            )
+            db.execute(
+                update(Igreja)
+                .where(Igreja.id == sub.igreja_id, Igreja.status == "ativa")
+                .values(status="inadimplente")
+            )
+            if str(op.source_payment_id) == str(sub.asaas_invoice_payment_id):
+                sub.status = "inadimplente"
+                sub.asaas_invoice_reversal = "refunded"
 
 
 def current_headcount(db: Session, sub: Subscription) -> int:

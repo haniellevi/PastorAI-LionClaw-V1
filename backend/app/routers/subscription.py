@@ -411,7 +411,9 @@ def _apply_operation_event(
             op.invoice_url = url
 
     sub = db.execute(
-        select(Subscription).where(Subscription.id == op.subscription_id)
+        select(Subscription)
+        .where(Subscription.id == op.subscription_id)
+        .with_for_update()
     ).scalar_one_or_none()
     if sub is None:
         db.commit()
@@ -650,9 +652,13 @@ def _ensure_setup_charge(
         customer_id=sub.asaas_customer_id,
     )
     if op.asaas_payment_id:
-        sub.setup_pago = False
         sub.asaas_setup_charge_id = op.asaas_payment_id
-        sub.asaas_setup_invoice_url = op.invoice_url
+        if op.status == "paid":
+            sub.setup_pago = True
+            sub.asaas_setup_invoice_url = None
+        else:
+            sub.setup_pago = False
+            sub.asaas_setup_invoice_url = op.invoice_url
         db.commit()
 
 
@@ -1249,7 +1255,7 @@ def recover_invoice(
         ) from exc
     return RecoveryResponse(
         status=sub.status or "inadimplente",
-        recoveryInvoiceUrl=op.invoice_url,
+        recoveryInvoiceUrl=op.invoice_url if op.status != "paid" else None,
     )
 
 

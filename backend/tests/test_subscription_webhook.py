@@ -99,6 +99,7 @@ class _WebhookDb:
         self.subscription_create_ops = subscription_create_ops or []
         self.commits = 0
         self.flushes = 0
+        self.subscription_locks = 0
 
     def add(self, obj) -> None:
         self.operations.append(obj)
@@ -184,6 +185,8 @@ class _WebhookDb:
             if sub_id is not None and self.sub is not None and str(sub_id) == str(
                 getattr(self.sub, "id", None)
             ):
+                if getattr(statement, "_for_update_arg", None) is not None:
+                    self.subscription_locks += 1
                 return _Result(self.sub)
         if any(key.startswith("asaas_customer_id") for key in bound):
             customer = next(
@@ -997,6 +1000,7 @@ def test_payment_of_the_current_source_recovery_settles_and_reactivates(
     assert db.sub.status == "ativa"
     assert db.igreja.status == "ativa"
     assert db.flushes == 1  # autoflush=False: quitação foi ao DB antes do probe
+    assert db.subscription_locks == 1
 
 
 def test_reversal_of_an_older_recovery_reopens_its_debt_without_rewriting_current_cycle(
