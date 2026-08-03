@@ -193,12 +193,17 @@ class FinishOut(BaseModel):
     # E-mail VERIFICADO da conta conectada. `None` em conexão legada (anterior ao
     # binding). Nunca o `sub`, nunca token.
     googleAccountEmail: str | None = None  # noqa: N815
+    # Revisão opaca da conexão atual. O cliente a devolve ao escolher uma
+    # agenda, para que uma escolha iniciada sob outra conta não sobreviva a uma
+    # troca concorrente de identidade.
+    connectionVersion: dt.datetime | None = None  # noqa: N815
 
 
 class StatusOut(BaseModel):
     connected: bool
     calendarId: str | None = None  # noqa: N815
     googleAccountEmail: str | None = None  # noqa: N815
+    connectionVersion: dt.datetime | None = None  # noqa: N815
 
 
 class CalendarItem(BaseModel):
@@ -213,6 +218,9 @@ class CalendarListOut(BaseModel):
 
 class SelectCalendarRequest(BaseModel):
     calendarId: str = Field(min_length=1, max_length=300)  # noqa: N815
+    # Opcional só para devolver 409 acionável a clientes antigos. Sem uma
+    # revisão que bata com a conexão travada, esta request nunca escreve.
+    connectionVersion: dt.datetime | None = None  # noqa: N815
 
 
 class PreviewEventItem(BaseModel):
@@ -566,6 +574,7 @@ def finish_connection(
                 connected=True,
                 calendarId=sync.google_calendar_id,
                 googleAccountEmail=sync.google_account_email,
+                connectionVersion=sync.connected_em,
             )
             db.rollback()  # só leitura; libera as duas travas
             return result
@@ -695,6 +704,7 @@ def finish_connection(
         connected=True,
         calendarId=sync.google_calendar_id,
         googleAccountEmail=sync.google_account_email,
+        connectionVersion=sync.connected_em,
     )
 
 
@@ -715,6 +725,7 @@ def get_status(
         connected=True,
         calendarId=sync.google_calendar_id,
         googleAccountEmail=sync.google_account_email,
+        connectionVersion=sync.connected_em,
     )
 
 
@@ -884,11 +895,25 @@ def select_calendar(
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(require_role(["admin"])),
 ) -> StatusOut:
-    """Set which calendar (id) this igreja syncs with."""
+    """Set a calendar only for the exact Google connection the admin saw.
+
+    The igreja row is locked before comparing the opaque connection revision.
+    Thus a request from account A that waits behind a finish switching to B is
+    rejected after the lock is released instead of storing A's calendar under B.
+    """
     sync = _locked_sync_for(db, uuid.UUID(current_user.igreja_id))
     if not _connected(sync):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Agenda não conectada"
+        )
+    if (
+        sync.connected_em is None
+        or payload.connectionVersion is None
+        or payload.connectionVersion != sync.connected_em
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A conexão da agenda mudou. Atualize a página e selecione novamente.",
         )
     sync.google_calendar_id = payload.calendarId
     sync.atualizado_em = dt.datetime.now(dt.timezone.utc)
@@ -897,6 +922,7 @@ def select_calendar(
         connected=True,
         calendarId=sync.google_calendar_id,
         googleAccountEmail=sync.google_account_email,
+        connectionVersion=sync.connected_em,
     )
 
 

@@ -2,10 +2,11 @@
  * Cliente da conexão com o Google Agenda (módulo de Eventos, Fase 1).
  *
  * Contratos (app/routers/calendar.py) — todos admin-only, exceto o callback:
- *   GET    /calendar/status   -> { connected, calendarId }
+ *   GET    /calendar/status   -> { connected, calendarId, connectionVersion }
  *   GET    /calendar/connect  -> { authUrl }   (redireciona o navegador ao Google)
  *   GET    /calendar/list     -> { calendars: [{ id, summary, primary }] }
- *   PUT    /calendar          -> { connected, calendarId }   (escolher a agenda)
+ *   PUT    /calendar          -> { connected, calendarId, connectionVersion }
+ *                               (escolher a agenda sob uma conexão específica)
  *   DELETE /calendar          -> 204                          (desconectar)
  */
 
@@ -50,6 +51,8 @@ export interface CalendarStatus {
   calendarId: string | null;
   /** E-mail verificado da conta conectada; `null` em conexão legada. */
   googleAccountEmail: string | null;
+  /** Revisão opaca da conexão que precisa acompanhar a seleção da agenda. */
+  connectionVersion: string | null;
 }
 
 export interface CalendarOption {
@@ -72,11 +75,16 @@ export async function fetchCalendarStatus(token: string): Promise<CalendarStatus
     connected?: boolean;
     calendarId?: string | null;
     googleAccountEmail?: string | null;
+    connectionVersion?: string | null;
   };
   return {
     connected: Boolean(d.connected),
     calendarId: d.calendarId ?? null,
     googleAccountEmail: d.googleAccountEmail ?? null,
+    connectionVersion:
+      typeof d.connectionVersion === "string" && d.connectionVersion.length > 0
+        ? d.connectionVersion
+        : null,
   };
 }
 
@@ -140,6 +148,8 @@ export interface FinishResult {
   calendarId: string | null;
   /** E-mail verificado da conta conectada; `null` enquanto não há conexão. */
   googleAccountEmail: string | null;
+  /** Revisão opaca da conexão criada/confirmada pelo finish. */
+  connectionVersion: string | null;
 }
 
 /**
@@ -205,6 +215,7 @@ export async function finishConnection(
     connected?: boolean;
     calendarId?: string | null;
     googleAccountEmail?: string | null;
+    connectionVersion?: string | null;
   };
   return {
     status:
@@ -216,6 +227,10 @@ export async function finishConnection(
     connected: Boolean(d.connected),
     calendarId: d.calendarId ?? null,
     googleAccountEmail: d.googleAccountEmail ?? null,
+    connectionVersion:
+      typeof d.connectionVersion === "string" && d.connectionVersion.length > 0
+        ? d.connectionVersion
+        : null,
   };
 }
 
@@ -232,10 +247,11 @@ export async function fetchCalendarList(token: string): Promise<CalendarOption[]
 export async function selectCalendar(
   token: string,
   calendarId: string,
+  connectionVersion: string,
 ): Promise<CalendarStatus> {
   const res = await authedFetch(token, `/calendar`, {
     method: "PUT",
-    body: JSON.stringify({ calendarId }),
+    body: JSON.stringify({ calendarId, connectionVersion }),
   });
   if (!res.ok) {
     const detail = await readDetail(res);
@@ -245,11 +261,16 @@ export async function selectCalendar(
     connected?: boolean;
     calendarId?: string | null;
     googleAccountEmail?: string | null;
+    connectionVersion?: string | null;
   };
   return {
     connected: Boolean(d.connected),
     calendarId: d.calendarId ?? null,
     googleAccountEmail: d.googleAccountEmail ?? null,
+    connectionVersion:
+      typeof d.connectionVersion === "string" && d.connectionVersion.length > 0
+        ? d.connectionVersion
+        : null,
   };
 }
 

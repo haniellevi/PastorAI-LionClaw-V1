@@ -13,7 +13,7 @@ import uuid
 from collections.abc import Iterator
 
 import pytest
-from fastapi import Response
+from fastapi import HTTPException, Response
 from sqlalchemy import create_engine, select, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -22,7 +22,13 @@ import app.db.session  # noqa: F401 - registra o listener de sessão de produç�
 from app.config import get_settings
 from app.db.models import AppUser, Base, CalendarOAuthFlow, CalendarSync, Igreja
 from app.deps import CurrentUser
-from app.routers.calendar import FinishRequest, callback, finish_connection
+from app.routers.calendar import (
+    FinishRequest,
+    SelectCalendarRequest,
+    callback,
+    finish_connection,
+    select_calendar,
+)
 from app.services.calendar_oauth_flows import (
     _COMPLETED_REPLAY_GRACE,
     _IN_FLIGHT_FINISH_GRACE,
@@ -41,6 +47,8 @@ _STATE = "estado-opaco-concorrente"
 _FLOW_SECRET = "segredo-concorrente-do-finish"
 _EMAIL = "agenda@igreja12.com.br"
 _SUB = "google-sub-da-conta"
+_OTHER_EMAIL = "outra-agenda@igreja12.com.br"
+_OTHER_SUB = "google-sub-da-outra-conta"
 _ORIGIN = "https://admin.igreja12.com.br"
 
 _CALLBACK_AUDIT_SQL = """
@@ -116,13 +124,16 @@ def _seed(
     crypto,
     *,
     code: str | None,
+    expected_email: str = _EMAIL,
     expires_at: dt.datetime | None = None,
     consumed_at: dt.datetime | None = None,
     finish_result: str | None = None,
     finished_at: dt.datetime | None = None,
+    sync_connected_em: dt.datetime | None = None,
 ) -> None:
     session = factory()
     try:
+        now = dt.datetime.now(dt.timezone.utc)
         session.add(Igreja(id=_IGREJA, nome="Igreja OAuth"))
         session.flush()
         session.add(
@@ -144,16 +155,30 @@ def _seed(
                 igreja_id=_IGREJA,
                 app_user_id=_APP_USER,
                 return_origin=_ORIGIN,
-                expected_email=_EMAIL,
+                expected_email=expected_email,
                 verifier_encrypted=crypto.encrypt_secret("verifier"),
                 code_encrypted=crypto.encrypt_secret(code) if code else None,
                 expires_at=expires_at
-                or (dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=10)),
+                or (now + dt.timedelta(minutes=10)),
                 consumed_at=consumed_at,
                 finish_result=finish_result,
                 finished_at=finished_at,
             )
         )
+        if sync_connected_em is not None:
+            session.add(
+                CalendarSync(
+                    igreja_id=_IGREJA,
+                    google_calendar_id="calendar-da-conta-a",
+                    refresh_token_encrypted=crypto.encrypt_secret("refresh-a"),
+                    access_token_encrypted=crypto.encrypt_secret("access-a"),
+                    access_token_expira_em=now + dt.timedelta(hours=1),
+                    google_account_email=_EMAIL,
+                    google_account_sub=_SUB,
+                    connected_by_app_user_id=_APP_USER,
+                    connected_em=sync_connected_em,
+                )
+            )
         session.commit()
     finally:
         session.close()
@@ -210,9 +235,20 @@ def test_concurrent_callbacks_are_first_write_wins(
 class _BlockingOAuth:
     """Segura a primeira troca depois da queima para abrir a janela de replay."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        identity: GoogleIdentity | None = None,
+        block_probe: bool = False,
+    ) -> None:
         self.entered = threading.Event()
         self.release = threading.Event()
+        self.probe_entered = threading.Event()
+        self.probe_release = threading.Event()
+        self._block_probe = block_probe
+        self._identity = identity or GoogleIdentity(
+            sub=_SUB, email=_EMAIL, email_verified=True
+        )
         self._lock = threading.Lock()
         self.exchanges = 0
 
@@ -232,10 +268,13 @@ class _BlockingOAuth:
 
     def fetch_userinfo(self, access_token: str) -> GoogleIdentity:
         assert access_token == "access"
-        return GoogleIdentity(sub=_SUB, email=_EMAIL, email_verified=True)
+        return self._identity
 
     def list_calendars(self, access_token: str) -> list[dict]:
         assert access_token == "access"
+        if self._block_probe:
+            self.probe_entered.set()
+            assert self.probe_release.wait(timeout=20), "teste não liberou o probe"
         return [{"id": "primary", "summary": "Principal", "primary": True}]
 
 
@@ -317,6 +356,95 @@ def test_concurrent_finish_exchanges_once_and_replay_is_processing(
     assert response.status_code == 200
     assert replay.status == "conectado"
     assert oauth.exchanges == 1
+
+
+def test_stale_calendar_selection_waiting_behind_account_switch_is_rejected(
+    engine_fx: Engine, crypto_enabled
+) -> None:
+    """Uma seleção de A não pode ser persistida sob B depois do row lock."""
+    factory = _factory(engine_fx)
+    connection_a = dt.datetime.now(dt.timezone.utc)
+    _seed(
+        factory,
+        crypto_enabled,
+        code="code-pronto",
+        expected_email=_OTHER_EMAIL,
+        sync_connected_em=connection_a,
+    )
+    oauth = _BlockingOAuth(
+        identity=GoogleIdentity(
+            sub=_OTHER_SUB, email=_OTHER_EMAIL, email_verified=True
+        ),
+        block_probe=True,
+    )
+    outcomes: dict[str, int] = {}
+    errors: dict[str, Exception] = {}
+
+    def finish_worker() -> None:
+        session = factory()
+        response = Response()
+        try:
+            finish_connection(
+                FinishRequest(flowSecret=_FLOW_SECRET),
+                response=response,
+                db=session,
+                current_user=_user(),
+                oauth=oauth,
+            )
+            outcomes["finish"] = response.status_code
+        except Exception as exc:  # torna uma falha de thread observável
+            errors["finish"] = exc
+        finally:
+            session.close()
+
+    def select_worker() -> None:
+        session = factory()
+        try:
+            select_calendar(
+                SelectCalendarRequest(
+                    calendarId="calendar-da-conta-a",
+                    connectionVersion=connection_a,
+                ),
+                db=session,
+                current_user=_user(),
+            )
+            outcomes["select"] = 200
+        except HTTPException as exc:
+            outcomes["select"] = exc.status_code
+        except Exception as exc:  # torna uma falha de thread observável
+            errors["select"] = exc
+        finally:
+            session.close()
+
+    finish = threading.Thread(target=finish_worker)
+    finish.start()
+    assert oauth.entered.wait(timeout=20), "finish não chegou à troca OAuth"
+    # Libera a troca; o probe abaixo é chamado JÁ sob o lock da igreja.
+    oauth.release.set()
+    assert oauth.probe_entered.wait(timeout=20), "finish não segurou a conexão B"
+
+    selection = threading.Thread(target=select_worker)
+    selection.start()
+    # A seleção foi enviada com a revisão de A e está atrás do lock do finish B.
+    selection.join(timeout=0.2)
+    assert selection.is_alive(), "seleção não esperou o lock da troca de conta"
+
+    oauth.probe_release.set()
+    finish.join(timeout=20)
+    selection.join(timeout=20)
+
+    assert not finish.is_alive()
+    assert not selection.is_alive()
+    assert errors == {}
+    assert outcomes == {"finish": 200, "select": 409}
+
+    with factory() as session:
+        sync = session.execute(select(CalendarSync)).scalar_one()
+        assert sync.google_account_email == _OTHER_EMAIL
+        assert sync.google_account_sub == _OTHER_SUB
+        assert sync.connected_em != connection_a
+        # A seleção de A jamais atravessou para a conexão B.
+        assert sync.google_calendar_id is None
 
 
 def test_expiry_purge_keeps_an_inflight_finish_until_it_commits(

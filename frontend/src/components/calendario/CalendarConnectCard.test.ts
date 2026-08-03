@@ -44,6 +44,7 @@ const fetchConnectUrl = vi.fn();
 const finishConnection = vi.fn();
 const fetchCalendarStatus = vi.fn();
 const fetchCalendarList = vi.fn();
+const selectCalendar = vi.fn();
 
 vi.mock("@/lib/calendar-api", async (importOriginal) => {
   // Mantém as classes de erro reais: o card faz `instanceof`.
@@ -55,7 +56,7 @@ vi.mock("@/lib/calendar-api", async (importOriginal) => {
     fetchCalendarStatus: (...args: unknown[]) => fetchCalendarStatus(...args),
     fetchCalendarList: (...args: unknown[]) => fetchCalendarList(...args),
     disconnectCalendar: vi.fn(),
-    selectCalendar: vi.fn(),
+    selectCalendar: (...args: unknown[]) => selectCalendar(...args),
     importEvents: vi.fn(),
   };
 });
@@ -148,30 +149,53 @@ async function click(el: HTMLElement) {
   });
 }
 
+async function chooseCalendar(value: string) {
+  const el = container.querySelector("select");
+  if (!el) throw new Error("seletor de agenda não está na tela");
+  const setter = Object.getOwnPropertyDescriptor(
+    window.HTMLSelectElement.prototype,
+    "value",
+  )!.set!;
+  await act(async () => {
+    setter.call(el, value);
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+    await Promise.resolve();
+  });
+}
+
 async function foreground() {
   await act(async () => {
     document.dispatchEvent(new Event("visibilitychange"));
   });
 }
 
-const DESCONECTADO = { connected: false, calendarId: null, googleAccountEmail: null };
+const CONNECTION_VERSION = "2026-08-03T12:00:00+00:00";
+const DESCONECTADO = {
+  connected: false,
+  calendarId: null,
+  googleAccountEmail: null,
+  connectionVersion: null,
+};
 const CONECTADO = {
   status: "conectado",
   connected: true,
   calendarId: "cal@x",
   googleAccountEmail: EMAIL,
+  connectionVersion: CONNECTION_VERSION,
 };
 const AGUARDANDO = {
   status: "aguardando_callback",
   connected: false,
   calendarId: null,
   googleAccountEmail: null,
+  connectionVersion: null,
 };
 const PROCESSANDO = {
   status: "processando",
   connected: false,
   calendarId: null,
   googleAccountEmail: null,
+  connectionVersion: null,
 };
 const START = {
   authUrl: "https://accounts.google/x",
@@ -287,6 +311,36 @@ describe("conta Google declarada", () => {
     expect(button(CTA_FINISH)).toBeUndefined();
     expect(text()).toContain("não permitiu guardar a conexão");
     setItem.mockRestore();
+  });
+});
+
+describe("seleção de agenda", () => {
+  it("devolve ao servidor a revisão da conexão exibida", async () => {
+    setHash("#integracoes");
+    fetchCalendarStatus.mockResolvedValue({
+      connected: true,
+      calendarId: null,
+      googleAccountEmail: EMAIL,
+      connectionVersion: CONNECTION_VERSION,
+    });
+    fetchCalendarList.mockResolvedValue([
+      { id: "calendar@igreja", summary: "Agenda da igreja", primary: true },
+    ]);
+    selectCalendar.mockResolvedValue({
+      connected: true,
+      calendarId: "calendar@igreja",
+      googleAccountEmail: EMAIL,
+      connectionVersion: CONNECTION_VERSION,
+    });
+
+    await render();
+    await chooseCalendar("calendar@igreja");
+
+    expect(selectCalendar).toHaveBeenCalledWith(
+      "tok",
+      "calendar@igreja",
+      CONNECTION_VERSION,
+    );
   });
 });
 

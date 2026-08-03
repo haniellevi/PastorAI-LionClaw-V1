@@ -21,6 +21,7 @@ import {
   GoogleAccountReidentifiedError,
   fetchConnectUrl,
   finishConnection,
+  selectCalendar,
 } from "./calendar-api";
 
 const EMAIL = "agenda@igreja12.com.br";
@@ -141,6 +142,7 @@ describe("finishConnection — segredo obrigatório", () => {
         connected: true,
         calendarId: "cal@x",
         googleAccountEmail: EMAIL,
+        connectionVersion: "2026-08-03T12:00:00+00:00",
       }),
     );
 
@@ -151,6 +153,7 @@ describe("finishConnection — segredo obrigatório", () => {
       connected: true,
       calendarId: "cal@x",
       googleAccountEmail: EMAIL,
+      connectionVersion: "2026-08-03T12:00:00+00:00",
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
@@ -175,6 +178,30 @@ describe("finishConnection — segredo obrigatório", () => {
 
     expect(r.status).toBe("processando");
     expect(r.connected).toBe(false);
+  });
+});
+
+describe("selectCalendar — conexão específica", () => {
+  it("envia a revisão da conexão junto da agenda escolhida", async () => {
+    const connectionVersion = "2026-08-03T12:00:00+00:00";
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        connected: true,
+        calendarId: "cal@x",
+        googleAccountEmail: EMAIL,
+        connectionVersion,
+      }),
+    );
+
+    const result = await selectCalendar("tok", "cal@x", connectionVersion);
+
+    expect(result.connectionVersion).toBe(connectionVersion);
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(init.method).toBe("PUT");
+    expect(JSON.parse(init.body as string)).toEqual({
+      calendarId: "cal@x",
+      connectionVersion,
+    });
   });
 });
 

@@ -167,6 +167,8 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
 
   const [connected, setConnected] = useState(false);
   const [calendarId, setCalendarId] = useState<string | null>(null);
+  /** Revisão da conexão à qual a agenda exibida pertence. */
+  const [calendarConnectionVersion, setCalendarConnectionVersion] = useState<string | null>(null);
   const [calendars, setCalendars] = useState<CalendarOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -248,8 +250,11 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
       setConnected(s.connected);
       setCalendarId(s.calendarId);
       setGoogleAccountEmail(s.googleAccountEmail);
+      setCalendarConnectionVersion(s.connectionVersion);
       if (s.connected) {
         await applyCalendars(epoch);
+      } else {
+        setCalendars([]);
       }
     } catch (e) {
       // Erro de leitura obsoleta também não fala: viraria alerta espúrio por
@@ -278,7 +283,9 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
       setConnected(s.connected);
       setCalendarId(s.calendarId);
       setGoogleAccountEmail(s.googleAccountEmail);
+      setCalendarConnectionVersion(s.connectionVersion);
       if (s.connected) await applyCalendars(epoch);
+      else setCalendars([]);
       return s;
     } catch (e) {
       // O erro original do finish continua sendo a mensagem acionável. Só uma
@@ -336,6 +343,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
           setConnected(true);
           setCalendarId(result.calendarId);
           setGoogleAccountEmail(result.googleAccountEmail);
+          setCalendarConnectionVersion(result.connectionVersion);
           // O snapshot atual pertence à identidade anterior. Limpe antes do
           // best-effort da conta nova: se `/calendar/list` falhar, nenhuma
           // agenda antiga pode continuar selecionável sob a identidade nova.
@@ -515,18 +523,28 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
   const pick = useCallback(
     async (id: string) => {
       if (!token || !id) return;
+      if (!calendarConnectionVersion) {
+        setError("Reconecte a agenda do Google antes de selecionar outra agenda.");
+        return;
+      }
+      const epoch = mutationEpochRef.current;
       setBusy(true);
       setError(null);
       try {
-        const s = await selectCalendar(token, id);
+        const s = await selectCalendar(token, id, calendarConnectionVersion);
+        if (epoch !== mutationEpochRef.current) return;
         setCalendarId(s.calendarId);
+        setCalendarConnectionVersion(s.connectionVersion);
       } catch (e) {
+        if (epoch !== mutationEpochRef.current) return;
+        if (e instanceof ApiError && e.status === 409) await loadStatus();
+        if (epoch !== mutationEpochRef.current) return;
         onErr(e);
       } finally {
         setBusy(false);
       }
     },
-    [token, onErr],
+    [token, calendarConnectionVersion, loadStatus, onErr],
   );
 
   const runImport = useCallback(async () => {
@@ -553,6 +571,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
       setConnected(false);
       setCalendarId(null);
       setGoogleAccountEmail(null);
+      setCalendarConnectionVersion(null);
       setChanging(false);
       setReidentified(null);
       setCalendars([]);

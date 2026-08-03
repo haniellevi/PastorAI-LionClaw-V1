@@ -825,6 +825,7 @@ def test_finish_replay_of_this_completed_flow_returns_durable_result(
         "connected": True,
         "calendarId": "cal@x",
         "googleAccountEmail": _EMAIL,
+        "connectionVersion": finished_at.isoformat().replace("+00:00", "Z"),
     }
     assert oauth.exchanges == []
     assert session.rollbacks == 1
@@ -956,14 +957,15 @@ def test_finish_persists_encrypted_tokens(app, crypto_enabled) -> None:
     r = _finish(c)
 
     assert r.status_code == 200
+    assert len(session.added) == 1
+    sync = session.added[0]
     assert r.json() == {
         "status": "conectado",
         "connected": True,
         "calendarId": None,
         "googleAccountEmail": _EMAIL,
+        "connectionVersion": sync.connected_em.isoformat().replace("+00:00", "Z"),
     }
-    assert len(session.added) == 1
-    sync = session.added[0]
     assert sync.refresh_token_encrypted and sync.refresh_token_encrypted != "rt"
     assert sync.access_token_encrypted and sync.access_token_encrypted != "at"
     assert flow.finish_result == "connected"
@@ -1231,17 +1233,21 @@ def test_status_not_connected(app) -> None:
         "connected": False,
         "calendarId": None,
         "googleAccountEmail": None,
+        "connectionVersion": None,
     }
 
 
 def test_status_connected(app) -> None:
     sync = _sync(refresh_token_encrypted="enc")
+    connected_at = dt.datetime.now(dt.timezone.utc)
+    sync.connected_em = connected_at
     session = _FlowSession(app_user=make_app_user(), roles=["admin"], sync=sync)
     c = _client(app, ["admin"], session=session)
     assert c.get("/calendar/status", headers=_AUTH).json() == {
         "connected": True,
         "calendarId": "cal@x",
         "googleAccountEmail": _EMAIL,
+        "connectionVersion": connected_at.isoformat().replace("+00:00", "Z"),
     }
 
 
@@ -1271,13 +1277,45 @@ def test_list_calendars_holds_identity_lock_through_google_call(
 
 def test_select_calendar_sets_id(app) -> None:
     sync = _sync(refresh_token_encrypted="enc", google_calendar_id=None)
+    connected_at = dt.datetime.now(dt.timezone.utc)
+    sync.connected_em = connected_at
     session = _FlowSession(app_user=make_app_user(), roles=["admin"], sync=sync)
     c = _client(app, ["admin"], session=session)
-    r = c.put("/calendar", json={"calendarId": "cal@new"}, headers=_AUTH)
+    r = c.put(
+        "/calendar",
+        json={"calendarId": "cal@new", "connectionVersion": connected_at.isoformat()},
+        headers=_AUTH,
+    )
     assert r.status_code == 200
     assert sync.google_calendar_id == "cal@new"
+    assert r.json()["connectionVersion"] == connected_at.isoformat().replace(
+        "+00:00", "Z"
+    )
     assert session.identity_locks == 1
     assert session.commits == 1
+
+
+def test_select_calendar_rejects_a_stale_connection_version(app) -> None:
+    """Uma escolha de A não pode escrever após a conexão ter virado B."""
+    old_connection = dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=1)
+    current_connection = dt.datetime.now(dt.timezone.utc)
+    sync = _sync(refresh_token_encrypted="enc", google_calendar_id="calendar-b")
+    sync.connected_em = current_connection
+    session = _FlowSession(app_user=make_app_user(), roles=["admin"], sync=sync)
+    c = _client(app, ["admin"], session=session)
+
+    r = c.put(
+        "/calendar",
+        json={
+            "calendarId": "calendar-a",
+            "connectionVersion": old_connection.isoformat(),
+        },
+        headers=_AUTH,
+    )
+
+    assert r.status_code == 409
+    assert sync.google_calendar_id == "calendar-b"
+    assert session.commits == 0
 
 
 def test_select_calendar_requires_connection(app) -> None:
@@ -1951,6 +1989,7 @@ def test_status_reports_null_email_for_legacy_connection(app, crypto_enabled) ->
         "connected": True,
         "calendarId": "cal@x",
         "googleAccountEmail": None,
+        "connectionVersion": None,
     }
 
 
