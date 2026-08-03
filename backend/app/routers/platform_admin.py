@@ -730,6 +730,7 @@ def aprovar_igreja(
         nome=igreja.nome,
         status=igreja.status,
         plano=igreja.plano,
+        setupFeeOverride=igreja.setup_fee_override,
         membros=membros,
         pessoas=pessoas,
         createdAt=igreja.created_at.isoformat() if igreja.created_at else None,

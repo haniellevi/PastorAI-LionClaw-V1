@@ -675,7 +675,12 @@ _IG_ID = "00000000-0000-0000-0000-000000000009"
 
 def test_admin_aprova_igreja_pendente(app) -> None:
     igreja = SimpleNamespace(
-        id=_IG_ID, nome="Igreja Y", status="aguardando_aprovacao", plano=None, created_at=None
+        id=_IG_ID,
+        nome="Igreja Y",
+        status="aguardando_aprovacao",
+        plano=None,
+        setup_fee_override=29.9,
+        created_at=None,
     )
     db = PlatformDB(
         gate_app_user=make_app_user(), admin_marker="pa1", igreja_scalar=igreja
@@ -684,6 +689,7 @@ def test_admin_aprova_igreja_pendente(app) -> None:
     resp = client.post(f"/admin/igrejas/{_IG_ID}/aprovar", headers=_AUTH)
     assert resp.status_code == 200
     assert resp.json()["status"] == "ativa"
+    assert resp.json()["setupFeeOverride"] == 29.9
     assert igreja.status == "ativa"
     assert db.committed is True
     # Cascata: semeou a matriz role_permissions (defaults).

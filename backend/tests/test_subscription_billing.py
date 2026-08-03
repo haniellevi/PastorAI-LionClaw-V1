@@ -756,6 +756,99 @@ def test_retry_does_not_duplicate_existing_setup_charge(app) -> None:
     assert sub.asaas_setup_charge_id == "pay_setup_1"
 
 
+def test_retry_reconciles_a_tracked_setup_paid_without_webhook(app) -> None:
+    op = BillingPaymentOperation(
+        subscription_id="00000000-0000-0000-0000-00000000su01",
+        purpose="setup",
+        operation_key="pastorai-setup-tracked-paid",
+        status="created",
+        valor=59.9,
+        asaas_payment_id="pay_setup_1",
+        invoice_url="https://asaas.test/setup",
+    )
+    asaas = _ResumeAsaas(
+        payment={"id": "pay_m1", "invoiceUrl": "https://asaas.test/m1"},
+        exact_payment={
+            "id": "pay_setup_1",
+            "status": "CONFIRMED",
+            "value": 59.9,
+        },
+    )
+    sub = _subscription(
+        setup_pago=False,
+        asaas_setup_charge_id="pay_setup_1",
+        asaas_setup_invoice_url="https://asaas.test/setup",
+    )
+    client, _db = _client(
+        app,
+        planos=[_plano()],
+        asaas=asaas,
+        setup_fee_default=59.9,
+        subscription=sub,
+        operations=[op],
+    )
+
+    resp = client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    )
+
+    assert resp.status_code == 200
+    assert op.status == "paid"
+    assert sub.setup_pago is True
+    assert sub.asaas_setup_invoice_url is None
+    assert asaas.calls == [
+        ("get_subscription_payment", "sub_asaas_1"),
+        ("get_payment", "pay_setup_1"),
+    ]
+
+
+def test_retry_reconciles_a_tracked_setup_reversed_without_webhook(app) -> None:
+    op = BillingPaymentOperation(
+        subscription_id="00000000-0000-0000-0000-00000000su01",
+        purpose="setup",
+        operation_key="pastorai-setup-tracked-reversed",
+        status="created",
+        valor=59.9,
+        asaas_payment_id="pay_setup_1",
+        invoice_url="https://asaas.test/setup",
+    )
+    asaas = _ResumeAsaas(
+        payment={"id": "pay_m1", "invoiceUrl": "https://asaas.test/m1"},
+        exact_payment={
+            "id": "pay_setup_1",
+            "status": "REFUNDED",
+            "value": 59.9,
+        },
+    )
+    sub = _subscription(
+        setup_pago=True,
+        asaas_setup_charge_id="pay_setup_1",
+        asaas_setup_invoice_url="https://asaas.test/setup",
+    )
+    client, _db = _client(
+        app,
+        planos=[_plano()],
+        asaas=asaas,
+        setup_fee_default=59.9,
+        subscription=sub,
+        operations=[op],
+    )
+
+    resp = client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    )
+
+    assert resp.status_code == 200
+    assert op.status == "reversed"
+    assert sub.setup_pago is False
+    assert sub.asaas_setup_charge_id is None
+    assert sub.asaas_setup_invoice_url is None
+    assert asaas.calls == [
+        ("get_subscription_payment", "sub_asaas_1"),
+        ("get_payment", "pay_setup_1"),
+    ]
+
+
 def test_retry_selects_current_payment_and_applies_confirmation(app) -> None:
     asaas = _ResumeAsaas(
         payment={

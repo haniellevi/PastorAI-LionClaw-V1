@@ -650,9 +650,22 @@ def _ensure_setup_charge(
     repetida às cegas. O espelho em sub.asaas_setup_charge_id/url mantém o
     trilho existente de webhook e recovery.
     """
-    if sub.setup_pago or sub.asaas_setup_charge_id:
+    # Uma cobrança já rastreada pode ter mudado no Asaas sem o webhook chegar.
+    # Só atravessa o serviço quando existe a operação durável dona do mesmo
+    # payment; ids legados sem operação continuam fail-closed, sem novo POST.
+    tracked_op: BillingPaymentOperation | None = None
+    if sub.asaas_setup_charge_id:
+        tracked_op = find_open_operation(db, sub.id, "setup", None)
+        if (
+            tracked_op is None
+            or not tracked_op.asaas_payment_id
+            or str(tracked_op.asaas_payment_id)
+            != str(sub.asaas_setup_charge_id)
+        ):
+            return
+    elif sub.setup_pago:
         return
-    if setup_fee <= 0:
+    if tracked_op is None and setup_fee <= 0:
         # A obrigação contratada é isenta. Isto também cobre adoção/retomada
         # depois de resposta perdida: não existe cobrança a criar, mas o
         # placeholder não pode continuar parecendo devedor de setup.
@@ -667,11 +680,16 @@ def _ensure_setup_charge(
         asaas,
         sub=sub,
         purpose="setup",
-        valor=setup_fee,
+        valor=float(tracked_op.valor) if tracked_op is not None else setup_fee,
         description=SETUP_CHARGE_DESCRIPTION,
         customer_id=sub.asaas_customer_id,
     )
-    if op.asaas_payment_id:
+    if op.status == "reversed":
+        sub.setup_pago = False
+        sub.asaas_setup_charge_id = None
+        sub.asaas_setup_invoice_url = None
+        db.commit()
+    elif op.asaas_payment_id:
         sub.asaas_setup_charge_id = op.asaas_payment_id
         if op.status == "paid":
             sub.setup_pago = True
