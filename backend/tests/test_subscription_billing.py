@@ -600,6 +600,45 @@ def test_checkout_result_preserves_confirmation_after_creation_callback(app) -> 
     assert resp.json()["status"] == "ativa"
 
 
+class _ReversalAfterCallbackAsaas:
+    """Simula delete/refund entre a callback e a persistência final."""
+
+    def __init__(self) -> None:
+        self.db = None
+
+    def create_checkout(self, **kwargs):
+        kwargs["on_subscription_created"]("cus_1", "sub_1")
+        tracked = next(o for o in self.db.added if isinstance(o, Subscription))
+        tracked.status = "inadimplente"
+        tracked.asaas_invoice_payment_id = "pay_m1"
+        tracked.asaas_invoice_url = "https://asaas.test/m1-deleted"
+        tracked.asaas_invoice_reversal = "deleted"
+        return CheckoutResult(
+            customer_id="cus_1",
+            subscription_id="sub_1",
+            invoice_url="https://asaas.test/m1-stale",
+            status="pendente",
+            invoice_payment_id="pay_m1",
+        )
+
+
+def test_checkout_result_preserves_reversal_after_creation_callback(app) -> None:
+    asaas = _ReversalAfterCallbackAsaas()
+    client, db = _client(app, planos=[_plano()], asaas=asaas)
+    asaas.db = db
+
+    resp = client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    )
+
+    assert resp.status_code == 200
+    tracked = next(o for o in db.added if isinstance(o, Subscription))
+    assert tracked.status == "inadimplente"
+    assert tracked.asaas_invoice_payment_id == "pay_m1"
+    assert tracked.asaas_invoice_url == "https://asaas.test/m1-deleted"
+    assert tracked.asaas_invoice_reversal == "deleted"
+
+
 def test_retry_resumes_pending_checkout_without_new_subscription(app) -> None:
     # Retry do MESMO plano com assinatura já vinculada: recupera fatura e cria
     # só a cobrança de setup que faltava — nenhum novo POST /subscriptions.
@@ -985,6 +1024,100 @@ def test_recover_invoice_deleted_already_restored_skips_restore(app) -> None:
     assert resp.status_code == 200
     assert asaas.calls == [("get_payment", "pay_m2")]  # zero restore repetido
     assert sub.asaas_invoice_url == "https://asaas.test/m2-alive"
+
+
+def test_recover_deleted_does_not_overwrite_a_newer_billing_cycle(app) -> None:
+    asaas = _RestoreAsaas(
+        states=[
+            {"id": "pay_a", "deleted": True},
+            {
+                "id": "pay_a",
+                "deleted": False,
+                "status": "PENDING",
+                "invoiceUrl": "https://asaas.test/a-restored",
+            },
+        ]
+    )
+    sub = _subscription(
+        status="inadimplente",
+        setup_pago=True,
+        asaas_invoice_payment_id="pay_a",
+        asaas_invoice_url=None,
+        asaas_invoice_reversal="deleted",
+    )
+    staged = BillingPaymentOperation(
+        subscription_id=sub.id,
+        purpose="monthly_recovery",
+        operation_key="pastorai-monthly_recovery-a-race",
+        source_payment_id="pay_a",
+        status="prepared",
+        valor=199.0,
+    )
+    client, db = _client(
+        app, planos=[], asaas=asaas, subscription=sub, operations=[staged]
+    )
+
+    def cycle_b_won(obj, with_for_update) -> None:
+        if obj is sub:
+            sub.status = "ativa"
+            sub.asaas_invoice_payment_id = "pay_b"
+            sub.asaas_invoice_url = "https://asaas.test/b"
+            sub.asaas_invoice_reversal = None
+
+    db.refresh_callback = cycle_b_won
+    resp = client.post("/subscription/recover-invoice", headers=_AUTH)
+
+    assert resp.status_code == 200
+    assert resp.json()["invoiceUrl"] == "https://asaas.test/b"
+    assert sub.status == "ativa"
+    assert sub.asaas_invoice_payment_id == "pay_b"
+    assert sub.asaas_invoice_url == "https://asaas.test/b"
+    assert sub.asaas_invoice_reversal is None
+    assert staged.status == "prepared"  # a barreira de A não foi falsamente fechada
+    assert any(obj is sub and lock is True for obj, lock in db.refresh_calls)
+
+
+def test_recover_deleted_confirmed_reopens_the_church_gate(app) -> None:
+    asaas = _RestoreAsaas(
+        states=[
+            {"id": "pay_m2", "deleted": True},
+            {
+                "id": "pay_m2",
+                "deleted": False,
+                "status": "CONFIRMED",
+                "invoiceUrl": "https://asaas.test/m2-paid",
+            },
+        ]
+    )
+    sub = _subscription(
+        status="inadimplente",
+        setup_pago=True,
+        asaas_invoice_payment_id="pay_m2",
+        asaas_invoice_url=None,
+        asaas_invoice_reversal="deleted",
+    )
+    staged = BillingPaymentOperation(
+        subscription_id=sub.id,
+        purpose="monthly_recovery",
+        operation_key="pastorai-monthly-recovery-confirmed-restore",
+        source_payment_id="pay_m2",
+        status="prepared",
+        valor=199.0,
+    )
+    client, db = _client(
+        app, planos=[], asaas=asaas, subscription=sub, operations=[staged]
+    )
+    db.igreja.status = "inadimplente"
+
+    resp = client.post("/subscription/recover-invoice", headers=_AUTH)
+
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ativa"
+    assert sub.status == "ativa"
+    assert sub.asaas_invoice_reversal is None
+    assert staged.status == "failed"
+    assert db.flushes == 1
+    assert db.igreja.status == "ativa"
 
 
 def test_recover_invoice_refunded_emits_recovery_charge_once(app) -> None:
@@ -2019,7 +2152,7 @@ def test_adoption_of_zero_fee_checkout_marks_setup_as_paid(app) -> None:
     ] is False
 
 
-def test_abandoned_subscription_claim_is_reconciled_then_retried(app) -> None:
+def test_abandoned_subscription_claim_stays_reconciling_without_second_post(app) -> None:
     op = BillingSubscriptionOperation(
         subscription_id="00000000-0000-0000-0000-00000000su01",
         operation_key="pastorai-subcreate-abandoned",
@@ -2077,19 +2210,18 @@ def test_abandoned_subscription_claim_is_reconciled_then_retried(app) -> None:
         "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
     )
     assert first.status_code == 502
-    assert op.status == "prepared"
-    assert op.attempt_started_at is None
+    assert op.status == "reconciling"
     assert asaas.find_calls == 1
     assert asaas.create_calls == 0
 
     second = client.post(
         "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
     )
-    assert second.status_code == 200
-    assert asaas.create_calls == 1
-    assert op.status == "created"
-    assert op.attempt_started_at is None
-    assert sub.asaas_subscription_id == "sub_reclaimed"
+    assert second.status_code == 502
+    assert asaas.find_calls == 2
+    assert asaas.create_calls == 0
+    assert op.status == "reconciling"
+    assert sub.asaas_subscription_id is None
 
 
 class _CustomerFailAsaas:

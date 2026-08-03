@@ -961,15 +961,10 @@ def reconcile_subscription_operation(
         raise AsaasError(
             "Reconciliação ambígua da assinatura — intervenção manual"
         )
-    if not _create_attempt_lease_alive(op):
-        current_status = op.status
-        claim_transition(
-            db,
-            op,
-            current_status,
-            "prepared",
-            attempt_started_at=None,
-        )
-        return None
+    # Ausência temporária na busca NÃO prova que o POST remoto falhou. A
+    # externalReference localiza, mas não torna POST /subscriptions idempotente;
+    # portanto uma criação ambígua jamais volta automaticamente a `prepared`.
+    # Mantê-la em reconciling exige intervenção/reconciliação posterior e evita
+    # uma segunda assinatura recorrente viva.
     claim_transition(db, op, "creating", "reconciling")
     return None

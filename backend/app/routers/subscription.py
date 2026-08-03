@@ -951,7 +951,7 @@ def create_checkout(
 
     def _apply_created_subscription(
         customer_id: str, subscription_id: str, incoming_status: str
-    ) -> None:
+    ) -> bool:
         # Mesma ordem de locks do webhook de criação: operação antes da
         # Subscription. Se o webhook venceu a callback, refresh traz o estado
         # autoritativo e evita rebaixá-lo para o snapshot provisório do POST.
@@ -970,6 +970,7 @@ def create_checkout(
         op.status = "created"
         op.asaas_subscription_id = subscription_id
         op.attempt_started_at = None
+        return preserve_payment_status
 
     def _persist_resolved_customer(customer_id: str) -> None:
         nonlocal customer_persist_failed
@@ -1060,14 +1061,23 @@ def create_checkout(
 
     # O webhook também pode chegar entre a callback acima e o retorno final do
     # cliente; relê sob os mesmos locks antes de aplicar o snapshot do POST.
-    _apply_created_subscription(
+    preserve_payment_snapshot = _apply_created_subscription(
         result.customer_id, result.subscription_id, result.status
     )
     # Persist the payment links so the pending screen survives a reload —
     # they otherwise existed only in the checkout HTTP response.
-    sub.asaas_invoice_url = result.invoice_url
-    sub.asaas_invoice_payment_id = result.invoice_payment_id
-    sub.asaas_invoice_reversal = None
+    if not preserve_payment_snapshot:
+        sub.asaas_invoice_url = result.invoice_url
+        sub.asaas_invoice_payment_id = result.invoice_payment_id
+        sub.asaas_invoice_reversal = None
+    elif sub.asaas_invoice_reversal is None:
+        # Confirmação/overdue sem reversão já é autoritativa, mas o webhook pode
+        # não trazer links. Apenas completa campos ausentes; nunca substitui o
+        # snapshot mais novo nem apaga uma reversão.
+        sub.asaas_invoice_url = sub.asaas_invoice_url or result.invoice_url
+        sub.asaas_invoice_payment_id = (
+            sub.asaas_invoice_payment_id or result.invoice_payment_id
+        )
     if setup_fee > 0:
         sub.setup_pago = False  # paid only once its own webhook confirms it
     else:
@@ -1219,17 +1229,31 @@ def recover_invoice(
         sub.asaas_invoice_reversal == "deleted"
         and sub.asaas_invoice_payment_id
     ):
+        source_payment_id = str(sub.asaas_invoice_payment_id)
         try:
-            current = asaas.get_payment(sub.asaas_invoice_payment_id)
+            current = asaas.get_payment(source_payment_id)
             if current is not None and current.get("deleted"):
                 # Ainda excluída: restaura o MESMO payment id (sem nova cobrança).
-                asaas.restore_payment(sub.asaas_invoice_payment_id)
-                current = asaas.get_payment(sub.asaas_invoice_payment_id)
+                asaas.restore_payment(source_payment_id)
+                current = asaas.get_payment(source_payment_id)
         except AsaasError as exc:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
                 detail="Não foi possível recuperar a cobrança no Asaas",
             ) from exc
+
+        # As chamadas remotas cedem tempo para o ciclo avançar por webhook.
+        # Releitura sob lock impede a resposta de A de sobrescrever B; também
+        # preserva uma confirmação/reversão mais recente da própria A.
+        db.refresh(sub, with_for_update=True)
+        if (
+            str(sub.asaas_invoice_payment_id) != source_payment_id
+            or sub.asaas_invoice_reversal != "deleted"
+        ):
+            return RecoveryResponse(
+                status=sub.status or "pendente", invoiceUrl=sub.asaas_invoice_url
+            )
+
         if current is not None and not current.get("deleted"):
             sub.asaas_invoice_url = payment_invoice_url(current)
             sub.asaas_invoice_reversal = None
@@ -1242,6 +1266,23 @@ def recover_invoice(
             if open_recovery is not None:
                 open_recovery.status = "failed"
                 open_recovery.error = "source payment restored"
+                # autoflush=False: a consulta de dívida abaixo precisa enxergar
+                # que esta barreira já foi encerrada.
+                db.flush()
+            if (
+                new_status == "ativa"
+                and find_any_open_operation(
+                    db, sub.id, "monthly_recovery"
+                ) is None
+            ):
+                db.execute(
+                    update(Igreja)
+                    .where(
+                        Igreja.id == sub.igreja_id,
+                        Igreja.status == "inadimplente",
+                    )
+                    .values(status="ativa")
+                )
             db.commit()
         return RecoveryResponse(
             status=sub.status or "pendente", invoiceUrl=sub.asaas_invoice_url
