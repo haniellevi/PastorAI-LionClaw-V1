@@ -15,7 +15,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.db.models import BillingPaymentOperation
 from app.services.asaas import AsaasError, MONTHLY_RECOVERY_DESCRIPTION
-from app.services.billing import CREATE_ATTEMPT_LEASE, ensure_payment_operation
+from app.services.billing import ensure_payment_operation
 from tests.conftest import FakeSession
 
 
@@ -253,7 +253,7 @@ def test_reconcile_zero_matches_stays_reconciling_without_post() -> None:
     assert asaas.posts == 0
 
 
-def test_abandoned_payment_claim_is_reconciled_then_retried_once() -> None:
+def test_abandoned_payment_claim_stays_reconciling_without_second_post() -> None:
     import datetime as dt
 
     abandoned = BillingPaymentOperation(
@@ -264,7 +264,7 @@ def test_abandoned_payment_claim_is_reconciled_then_retried_once() -> None:
         valor=59.9,
         attempt_started_at=(
             dt.datetime.now(dt.timezone.utc)
-            - CREATE_ATTEMPT_LEASE
+            - dt.timedelta(minutes=10)
             - dt.timedelta(seconds=1)
         ),
     )
@@ -277,14 +277,15 @@ def test_abandoned_payment_claim_is_reconciled_then_retried_once() -> None:
         },
     )
 
-    resolved = _ensure(db, asaas)
+    with pytest.raises(AsaasError):
+        _ensure(db, asaas)
+    with pytest.raises(AsaasError):
+        _ensure(db, asaas)
 
-    assert resolved is abandoned
-    assert asaas.finds == 1
-    assert asaas.posts == 1
-    assert abandoned.status == "created"
-    assert abandoned.asaas_payment_id == "pay_reclaimed"
-    assert abandoned.attempt_started_at is None
+    assert asaas.finds == 2
+    assert asaas.posts == 0
+    assert abandoned.status == "reconciling"
+    assert abandoned.asaas_payment_id is None
 
 
 def test_reconcile_multiple_matches_fails_safe() -> None:

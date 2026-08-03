@@ -51,10 +51,6 @@ OPEN_SUBSCRIPTION_OP_STATUSES = ("prepared", "creating", "reconciling")
 # abandonada (crash entre o claim e o PUT, ou processo morto no meio) e pode ser
 # retomada. Folgado sobre o timeout de 20s do cliente HTTP.
 PLAN_CHANGE_ATTEMPT_LEASE = dt.timedelta(minutes=5)
-# POSTs de criação também são ambíguos, mas um processo morto não pode ocupar
-# o slot para sempre. Após este lease, uma reconciliação com zero matches pode
-# devolver o claim a prepared e permitir uma nova tentativa controlada.
-CREATE_ATTEMPT_LEASE = dt.timedelta(minutes=5)
 
 
 class PlanChangeConflict(Exception):
@@ -81,18 +77,6 @@ def _attempt_lease_alive(op: BillingPlanChangeOperation) -> bool:
     if started.tzinfo is None:
         started = started.replace(tzinfo=dt.timezone.utc)
     return _utcnow() - started < PLAN_CHANGE_ATTEMPT_LEASE
-
-
-def _create_attempt_lease_alive(op) -> bool:
-    """Ainda pode existir um POST de criação em voo para esta operação?"""
-    started = getattr(op, "attempt_started_at", None)
-    if started is None:
-        # Legado sem relógio é AMBÍGUO, não comprovadamente abandonado. Falhar
-        # fechado evita repetir um POST que pode ter criado recurso remoto.
-        return True
-    if started.tzinfo is None:
-        started = started.replace(tzinfo=dt.timezone.utc)
-    return _utcnow() - started < CREATE_ATTEMPT_LEASE
 
 
 def claim_transition(
@@ -477,16 +461,9 @@ def _reconcile_payment_operation(
     # 0 correspondências: mantém reconciling e falha com segurança — o próximo
     # retry reconcilia de novo (sem POST automático). Condicional: nunca
     # regride um `created` gravado pelo dono do POST em paralelo.
-    if not _create_attempt_lease_alive(op):
-        current_status = op.status
-        if claim_transition(
-            db,
-            op,
-            current_status,
-            "prepared",
-            attempt_started_at=None,
-        ):
-            return op
+    # Lease vencido só prova que o processo local terminou; não prova que o
+    # POST /payments foi rejeitado. Busca vazia pode ser atraso de consistência,
+    # então a intenção ambígua permanece reconciling e nunca repete o POST.
     claim_transition(db, op, "creating", "reconciling")
     raise AsaasError("Cobrança em reconciliação no Asaas — tente novamente")
 

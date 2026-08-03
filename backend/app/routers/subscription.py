@@ -1078,9 +1078,9 @@ def create_checkout(
         sub.asaas_invoice_payment_id = (
             sub.asaas_invoice_payment_id or result.invoice_payment_id
         )
-    if setup_fee > 0:
+    if setup_fee > 0 and not sub.setup_pago:
         sub.setup_pago = False  # paid only once its own webhook confirms it
-    else:
+    elif setup_fee <= 0:
         sub.setup_pago = True  # no setup charge was configured for this igreja
         sub.asaas_setup_charge_id = None
         sub.asaas_setup_invoice_url = None

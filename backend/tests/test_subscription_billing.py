@@ -25,7 +25,6 @@ from app.services.asaas import (
     CheckoutResult,
     get_asaas_client,
 )
-from app.services.billing import CREATE_ATTEMPT_LEASE
 from app.services.clerk import get_clerk_client
 from tests.conftest import FakeClerk, FakeSession, make_app_user
 
@@ -598,6 +597,48 @@ def test_checkout_result_preserves_confirmation_after_creation_callback(app) -> 
     tracked = next(o for o in db.added if isinstance(o, Subscription))
     assert tracked.status == "ativa"
     assert resp.json()["status"] == "ativa"
+
+
+class _SetupConfirmedAfterCallbackAsaas:
+    """Simula confirmação do setup por retry concorrente antes do retorno."""
+
+    def __init__(self) -> None:
+        self.db = None
+
+    def create_checkout(self, **kwargs):
+        kwargs["on_subscription_created"]("cus_1", "sub_1")
+        tracked = next(o for o in self.db.added if isinstance(o, Subscription))
+        tracked.setup_pago = True
+        tracked.asaas_setup_charge_id = "pay_setup_concurrent"
+        tracked.asaas_setup_invoice_url = None
+        return CheckoutResult(
+            customer_id="cus_1",
+            subscription_id="sub_1",
+            invoice_url="https://asaas.test/m1",
+            status="pendente",
+            invoice_payment_id="pay_m1",
+        )
+
+    def create_one_time_charge(self, **kwargs):  # pragma: no cover - defesa
+        raise AssertionError("setup já confirmado não pode emitir outra cobrança")
+
+
+def test_checkout_finalization_preserves_concurrent_setup_confirmation(app) -> None:
+    asaas = _SetupConfirmedAfterCallbackAsaas()
+    client, db = _client(
+        app, planos=[_plano()], asaas=asaas, setup_fee_default=59.9
+    )
+    asaas.db = db
+
+    resp = client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    )
+
+    assert resp.status_code == 200
+    tracked = next(o for o in db.added if isinstance(o, Subscription))
+    assert tracked.setup_pago is True
+    assert tracked.asaas_setup_charge_id == "pay_setup_concurrent"
+    assert resp.json()["setupInvoiceUrl"] is None
 
 
 class _ReversalAfterCallbackAsaas:
@@ -2166,7 +2207,7 @@ def test_abandoned_subscription_claim_stays_reconciling_without_second_post(app)
         status="creating",
         attempt_started_at=(
             dt.datetime.now(dt.timezone.utc)
-            - CREATE_ATTEMPT_LEASE
+            - dt.timedelta(minutes=10)
             - dt.timedelta(seconds=1)
         ),
     )
