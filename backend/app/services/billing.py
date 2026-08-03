@@ -617,9 +617,9 @@ def current_headcount(db: Session, sub: Subscription) -> int:
     `subscriptions.pessoas` é mantido pelo trigger a cada mutação, mas pode
     estar desatualizado entre eventos — e o objeto ORM carregado antes de uma
     chamada externa fica STALE por definição (a sessão não expira no commit).
-    Toda decisão de porte (bloquear downgrade, enfileirar auto-upgrade) lê a
-    tabela `pessoas` diretamente e usa o espelho apenas como piso (nunca aceita
-    um valor MENOR do que o já registrado).
+    Toda decisão de porte (bloquear downgrade, enfileirar auto-upgrade) usa
+    somente a tabela `pessoas`: o espelho não pode substituir nem aumentos nem
+    reduções que já aconteceram na fonte canônica.
     """
     total = db.execute(
         select(func.count()).select_from(Pessoa).where(Pessoa.igreja_id == sub.igreja_id)
@@ -628,11 +628,7 @@ def current_headcount(db: Session, sub: Subscription) -> int:
         contagem = int(total) if total is not None else 0
     except (TypeError, ValueError):
         contagem = 0
-    try:
-        espelho = int(sub.pessoas) if sub.pessoas is not None else 0
-    except (TypeError, ValueError):
-        espelho = 0
-    return max(contagem, espelho)
+    return contagem
 
 
 def find_open_plan_change(

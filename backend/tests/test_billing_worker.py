@@ -626,6 +626,7 @@ def test_multi_tier_upgrade_chases_second_step_in_same_tick(monkeypatch) -> None
     tenant = _WorkerSession(
         subscription=sub, igreja=igreja, plan_changes=[op], planos=catalogo
     )
+    tenant.pessoas_count = 201
     asaas = _WorkerAsaas()
     notified = _spy_notify(monkeypatch)
 
@@ -747,6 +748,16 @@ def test_queue_autoupgrade_stays_quiet_when_the_plan_still_fits() -> None:
     sub = _sub(plano="101_200", limite=200, pessoas=50)
     db = _WorkerSession(subscription=sub, planos=_ladder_catalog())
     db.pessoas_count = 150  # dentro do limite
+
+    assert queue_autoupgrade_if_over_limit(db, sub) is False
+    assert not [o for o in db.added if isinstance(o, BillingPlanChangeOperation)]
+
+
+def test_queue_autoupgrade_accepts_a_canonical_decrease_over_a_stale_mirror(
+) -> None:
+    sub = _sub(plano="101_200", limite=200, pessoas=250)  # espelho antigo
+    db = _WorkerSession(subscription=sub, planos=_ladder_catalog())
+    db.pessoas_count = 50  # pessoas foram removidas na fonte canônica
 
     assert queue_autoupgrade_if_over_limit(db, sub) is False
     assert not [o for o in db.added if isinstance(o, BillingPlanChangeOperation)]

@@ -1360,8 +1360,10 @@ def test_recover_invoice_deleted_restores_same_payment(app) -> None:
     assert sub.asaas_invoice_url == "https://asaas.test/m2-restored"
     assert sub.asaas_invoice_reversal is None
     assert sub.status == "pendente"
-    assert staged.status == "failed"
-    assert staged.error == "source payment restored"
+    assert staged.status == "created"
+    assert staged.asaas_payment_id == "pay_m2"
+    assert staged.invoice_url == "https://asaas.test/m2-restored"
+    assert staged.error is None
 
 
 def test_recover_invoice_deleted_already_restored_skips_restore(app) -> None:
@@ -1477,7 +1479,12 @@ def test_recover_deleted_does_not_overwrite_a_newer_billing_cycle(app) -> None:
         valor=199.0,
     )
     client, db = _client(
-        app, planos=[], asaas=asaas, subscription=sub, operations=[staged]
+        app,
+        planos=[],
+        asaas=asaas,
+        subscription=sub,
+        operations=[staged],
+        igreja_status="inadimplente",
     )
 
     def cycle_b_won(obj, with_for_update) -> None:
@@ -1496,11 +1503,19 @@ def test_recover_deleted_does_not_overwrite_a_newer_billing_cycle(app) -> None:
     assert sub.asaas_invoice_payment_id == "pay_b"
     assert sub.asaas_invoice_url == "https://asaas.test/b"
     assert sub.asaas_invoice_reversal is None
-    # A restauração de A é real mesmo após o avanço para B: sua barreira fecha
-    # e não pode virar uma cobrança avulsa duplicada no próximo retry.
-    assert staged.status == "failed"
-    assert staged.error == "source payment restored"
+    # A restauração de A é real mesmo após o avanço para B, mas PENDING ainda
+    # é dívida: a operação fica aberta e seu link continua visível sem tocar B.
+    assert staged.status == "created"
+    assert staged.asaas_payment_id == "pay_a"
+    assert staged.error is None
     assert staged.invoice_url == "https://asaas.test/a-restored"
+    view = client.get("/subscription", headers=_AUTH)
+    assert view.status_code == 200
+    # B já está ativa; a visão pública não oferece novamente sua fatura paga.
+    assert view.json()["invoiceUrl"] is None
+    assert view.json()["recoveryInvoiceUrl"] == "https://asaas.test/a-restored"
+    assert view.json()["recoveryRequired"] is True
+    assert db.igreja.status == "inadimplente"
     assert db.refresh_calls[:2] == [(staged, True), (sub, True)]
     assert db.commits == 1
 
@@ -1543,8 +1558,70 @@ def test_recover_deleted_confirmed_reopens_the_church_gate(app) -> None:
     assert resp.json()["status"] == "ativa"
     assert sub.status == "ativa"
     assert sub.asaas_invoice_reversal is None
-    assert staged.status == "failed"
+    assert staged.status == "paid"
+    assert staged.asaas_payment_id == "pay_m2"
     assert db.flushes == 1
+    assert db.igreja.status == "ativa"
+
+
+def test_recover_deleted_confirmed_old_cycle_reopens_gate_without_overwriting_b(
+    app,
+) -> None:
+    asaas = _RestoreAsaas(
+        states=[
+            {"id": "pay_a", "deleted": True},
+            {
+                "id": "pay_a",
+                "deleted": False,
+                "status": "CONFIRMED",
+                "invoiceUrl": "https://asaas.test/a-paid",
+            },
+        ]
+    )
+    sub = _subscription(
+        status="inadimplente",
+        setup_pago=True,
+        asaas_invoice_payment_id="pay_a",
+        asaas_invoice_url=None,
+        asaas_invoice_reversal="deleted",
+    )
+    staged = BillingPaymentOperation(
+        subscription_id=sub.id,
+        purpose="monthly_recovery",
+        operation_key="pastorai-monthly-recovery-a-confirmed-race",
+        source_payment_id="pay_a",
+        status="prepared",
+        valor=199.0,
+    )
+    client, db = _client(
+        app,
+        planos=[],
+        asaas=asaas,
+        subscription=sub,
+        operations=[staged],
+        igreja_status="inadimplente",
+    )
+
+    def cycle_b_won(obj, with_for_update) -> None:
+        if obj is sub:
+            sub.status = "pendente"
+            sub.asaas_invoice_payment_id = "pay_b"
+            sub.asaas_invoice_url = "https://asaas.test/b"
+            sub.asaas_invoice_reversal = None
+
+    db.refresh_callback = cycle_b_won
+    resp = client.post("/subscription/recover-invoice", headers=_AUTH)
+
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "pendente"
+    assert resp.json()["invoiceUrl"] == "https://asaas.test/b"
+    assert resp.json()["recoveryInvoiceUrl"] is None
+    assert sub.status == "pendente"
+    assert sub.asaas_invoice_payment_id == "pay_b"
+    assert sub.asaas_invoice_url == "https://asaas.test/b"
+    assert staged.status == "paid"
+    assert staged.asaas_payment_id == "pay_a"
+    assert staged.invoice_url == "https://asaas.test/a-paid"
     assert db.igreja.status == "ativa"
 
 

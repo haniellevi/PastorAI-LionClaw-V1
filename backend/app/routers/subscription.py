@@ -1410,17 +1410,38 @@ def recover_invoice(
             and open_recovery.status in OPEN_OPERATION_STATUSES
             and str(open_recovery.source_payment_id) == source_payment_id
         ):
-            # A barreira representava a dívida da cobrança-fonte, não uma
-            # cobrança nova. Restaurar a própria fonte encerra essa dívida
-            # mesmo se, durante a chamada remota, o snapshot avançou para B.
-            open_recovery.status = "failed"
-            open_recovery.error = "source payment restored"
+            # A própria cobrança-fonte voltou a ser a forma de regularização.
+            # Vinculá-la à operação mantém seu link descobrível mesmo se o
+            # snapshot mensal avançou para B; só a confirmação encerra a
+            # barreira. Webhooks posteriores também resolvem a operação pelo
+            # id original restaurado.
+            open_recovery.asaas_payment_id = source_payment_id
+            open_recovery.status = (
+                "paid" if source_status == "ativa" else "created"
+            )
+            open_recovery.error = None
             open_recovery.invoice_url = payment_invoice_url(current)
             db.flush()
         if (
             str(sub.asaas_invoice_payment_id) != source_payment_id
             or sub.asaas_invoice_reversal != "deleted"
         ):
+            if (
+                source_status == "ativa"
+                and sub.status in ("ativa", "pendente")
+                and sub.asaas_invoice_reversal is None
+                and find_any_open_operation(
+                    db, sub.id, "monthly_recovery"
+                ) is None
+            ):
+                db.execute(
+                    update(Igreja)
+                    .where(
+                        Igreja.id == sub.igreja_id,
+                        Igreja.status == "inadimplente",
+                    )
+                    .values(status="ativa")
+                )
             if (source_restored and open_recovery is not None) or staged_reversal:
                 db.commit()
             return RecoveryResponse(
