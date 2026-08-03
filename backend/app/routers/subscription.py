@@ -622,10 +622,9 @@ def _recover_missing_invoice_urls(
         and sub.asaas_invoice_reversal is None
         and bool(sub.asaas_invoice_payment_id or sub.asaas_subscription_id)
     )
-    setup_tracked = (
-        not sub.setup_pago
-        and bool(sub.asaas_setup_charge_id)
-    )
+    # O payment continua sendo a autoridade também depois da confirmação
+    # local: um refund/delete cujo webhook se perdeu precisa reabrir o setup.
+    setup_tracked = bool(sub.asaas_setup_charge_id)
     if not monthly_missing and not setup_tracked:
         return
 
@@ -668,8 +667,8 @@ def get_subscription(
     Nenhuma notificação nem sincronização de autoupgrade acontece aqui — isso
     é papel do cron-worker (billing_worker.run_pending_plan_changes). A única
     interação externa possível é a leitura do payment já rastreado: recupera
-    link mensal ausente e reconcilia setup ainda marcado como não pago, sem
-    jamais criar cobrança ou assinatura.
+    link mensal ausente e reconcilia o setup inclusive após confirmação local,
+    para detectar reversão perdida, sem jamais criar cobrança ou assinatura.
     """
     # Sinal de observabilidade (PR1 / feat-004) ligado a este caminho HTTP de
     # amostra do seam: se a sessão marcada por get_current_user NÃO estiver
@@ -975,12 +974,15 @@ def create_checkout(
         db.commit()
 
     contracted_setup_fee = getattr(sub, "setup_fee_contracted", None)
-    if sub.setup_pago:
-        setup_fee = 0.0
-    elif contracted_setup_fee is not None:
-        setup_fee = float(contracted_setup_fee)
+    # `setup_pago` é estado, não preço contratual. Uma confirmação pode ser
+    # revertida enquanto a retomada consulta a mensalidade; preservar o valor
+    # permite que `_ensure_setup_charge` reemita a obrigação correta depois do
+    # refresh, enquanto seu próprio guard evita cobrar um setup ainda pago.
+    if contracted_setup_fee is not None:
+        contractual_setup_fee = float(contracted_setup_fee)
     else:
-        setup_fee = get_setup_fee_for_igreja(db, igreja)
+        contractual_setup_fee = get_setup_fee_for_igreja(db, igreja)
+    setup_fee = 0.0 if sub.setup_pago else contractual_setup_fee
 
     # INVARIANTE: mesmo plano + assinatura Asaas já rastreada NUNCA executa
     # outro POST /subscriptions — em qualquer status (pendente, ativa,
@@ -994,7 +996,9 @@ def create_checkout(
         and sub.asaas_subscription_id != "sandbox"
         and sub.plano == payload.plano
     ):
-        return _resume_tracked_checkout(db, sub, asaas, setup_fee)
+        return _resume_tracked_checkout(
+            db, sub, asaas, contractual_setup_fee
+        )
 
     # RECONCILIAÇÃO ANTES DO CATÁLOGO: se o POST anterior pode ter criado a
     # assinatura no Asaas (`creating`/`reconciling`), o retry do MESMO plano

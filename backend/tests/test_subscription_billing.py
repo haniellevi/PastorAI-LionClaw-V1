@@ -715,6 +715,51 @@ def test_get_subscription_polls_setup_refund_even_with_persisted_url(app) -> Non
     assert asaas.calls == [("get_payment", "pay_setup_1")]
 
 
+def test_get_subscription_reconciles_refund_after_setup_was_locally_paid(
+    app,
+) -> None:
+    operation = BillingPaymentOperation(
+        subscription_id="00000000-0000-0000-0000-00000000su01",
+        purpose="setup",
+        operation_key="pastorai-setup-paid-then-refunded",
+        status="paid",
+        valor=59.9,
+        asaas_payment_id="pay_setup_1",
+        invoice_url=None,
+    )
+    asaas = _RecoveryAsaas(
+        setup_payment={
+            "id": "pay_setup_1",
+            "status": "REFUNDED",
+            "value": 59.9,
+        }
+    )
+    sub = _subscription(
+        status="ativa",
+        setup_pago=True,
+        setup_fee_contracted=59.9,
+        asaas_setup_charge_id="pay_setup_1",
+        asaas_setup_invoice_url=None,
+    )
+    client, _db = _client(
+        app,
+        planos=[],
+        asaas=asaas,
+        subscription=sub,
+        operations=[operation],
+    )
+
+    resp = client.get("/subscription", headers=_AUTH)
+
+    assert resp.status_code == 200
+    assert resp.json()["setupPago"] is False
+    assert resp.json()["setupRecoveryRequired"] is True
+    assert operation.status == "reversed"
+    assert sub.asaas_setup_charge_id is None
+    assert sub.asaas_setup_invoice_url is None
+    assert asaas.calls == [("get_payment", "pay_setup_1")]
+
+
 class _TrackingFailAsaas:
     """create_checkout que rastreia a assinatura via callback e ENTÃO falha —
     simula lookup/setup quebrando depois do POST /subscriptions real."""
@@ -1073,6 +1118,74 @@ def test_retry_reconciles_a_tracked_setup_reversed_without_webhook(app) -> None:
         ("get_subscription_payment", "sub_asaas_1"),
         ("get_payment", "pay_setup_1"),
     ]
+
+
+def test_paid_setup_retry_preserves_fee_if_refund_wins_during_monthly_lookup(
+    app,
+) -> None:
+    old_setup = BillingPaymentOperation(
+        subscription_id="00000000-0000-0000-0000-00000000su01",
+        purpose="setup",
+        operation_key="pastorai-setup-paid-before-race",
+        status="paid",
+        valor=59.9,
+        asaas_payment_id="pay_setup_old",
+        invoice_url=None,
+    )
+    asaas = _ResumeAsaas(
+        payment={
+            "id": "pay_m1",
+            "status": "PENDING",
+            "invoiceUrl": "https://asaas.test/m1",
+        },
+        charge={
+            "id": "pay_setup_new",
+            "invoiceUrl": "https://asaas.test/setup-new",
+        },
+    )
+    sub = _subscription(
+        status="pendente",
+        setup_pago=True,
+        setup_fee_contracted=59.9,
+        asaas_setup_charge_id="pay_setup_old",
+        asaas_setup_invoice_url=None,
+        asaas_invoice_payment_id="pay_m1",
+        asaas_invoice_url="https://asaas.test/m1",
+    )
+    client, db = _client(
+        app,
+        planos=[_plano()],
+        asaas=asaas,
+        setup_fee_default=0.0,
+        subscription=sub,
+        operations=[old_setup],
+    )
+
+    def refund_won(obj, with_for_update) -> None:
+        if obj is sub:
+            old_setup.status = "reversed"
+            sub.setup_pago = False
+            sub.asaas_setup_charge_id = None
+            sub.asaas_setup_invoice_url = None
+
+    db.refresh_callback = refund_won
+    resp = client.post(
+        "/subscription", json={"plano": "ate_100"}, headers=_AUTH
+    )
+
+    assert resp.status_code == 200
+    assert ("create_one_time_charge", "cus_1") in asaas.calls
+    replacement = next(
+        op
+        for op in db.added
+        if isinstance(op, BillingPaymentOperation) and op is not old_setup
+    )
+    assert float(replacement.valor) == 59.9
+    assert replacement.status == "created"
+    assert replacement.asaas_payment_id == "pay_setup_new"
+    assert sub.setup_pago is False
+    assert sub.asaas_setup_charge_id == "pay_setup_new"
+    assert sub.asaas_setup_invoice_url == "https://asaas.test/setup-new"
 
 
 def test_retry_selects_current_payment_and_applies_confirmation(app) -> None:
@@ -1701,6 +1814,7 @@ def test_delinquent_owner_can_load_billing_screen_for_recovery(app) -> None:
     sub = _subscription(
         status="inadimplente",
         setup_pago=True,
+        asaas_setup_charge_id=None,
         asaas_invoice_payment_id="pay_m2",
         asaas_invoice_url="https://asaas.test/m2",
         asaas_invoice_reversal=None,
@@ -2521,7 +2635,7 @@ def test_get_subscription_hides_links_already_settled(app) -> None:
     body = resp.json()
     assert body["invoiceUrl"] is None
     assert body["setupInvoiceUrl"] is None
-    assert asaas.calls == []
+    assert asaas.calls == [("get_payment", "pay_setup_1")]
 
 
 def test_checkout_rejects_plano_desconhecido(app) -> None:
@@ -2611,9 +2725,9 @@ def test_list_planos_forbidden_for_non_owner_admin(app) -> None:
 
 
 # ---------------------------------------------------------------------------
-# AUTOUPGRADE-BILLING-WORKER-1: GET /subscription é leitura pura — nenhuma
-# chamada externa nem notificação como efeito colateral. A sincronização do
-# auto-upgrade (e sua notificação) pertence ao cron-worker.
+# AUTOUPGRADE-BILLING-WORKER-1: sem payment pendente de reconciliação, o GET é
+# leitura pura e nunca notifica. Setup com ID rastreado é a exceção deliberada:
+# uma leitura autoritativa detecta reversão cujo webhook se perdeu.
 # ---------------------------------------------------------------------------
 def test_get_subscription_makes_no_external_call_nor_notification(app) -> None:
     class _BoomAsaas:
@@ -2626,6 +2740,7 @@ def test_get_subscription_makes_no_external_call_nor_notification(app) -> None:
         status="pendente",
         asaas_invoice_url="https://asaas.test/i/abc",
         setup_pago=True,
+        asaas_setup_charge_id=None,
     )
     client, db = _client(app, planos=[_plano()], asaas=_BoomAsaas(), subscription=sub)
 
