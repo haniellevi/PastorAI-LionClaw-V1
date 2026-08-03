@@ -1045,6 +1045,47 @@ def _monthly_recovery_amount(sub: Subscription, asaas: AsaasClient) -> float:
     )
 
 
+def _stage_monthly_recovery_from_webhook(
+    db: Session, sub: Subscription, payment: dict, payment_id: str
+) -> BillingPaymentOperation | None:
+    """Persiste a dívida da fatura revertida sem chamar o Asaas.
+
+    O payment do webhook é a fonte contratual mais precisa para o valor da
+    própria fatura. A intenção nasce na MESMA transação que fecha o acesso e
+    ocupa o claim por cobrança-fonte; a ação explícita do owner apenas
+    materializa essa intenção depois. Assim um ciclo novo pode atualizar seu
+    snapshot sem apagar nem perder a dívida anterior.
+    """
+    existing = find_open_operation(
+        db, sub.id, "monthly_recovery", payment_id
+    )
+    if existing is not None:
+        return existing
+    try:
+        valor = float(payment["value"])
+        if valor <= 0:
+            raise ValueError("non-positive payment value")
+    except (KeyError, TypeError, ValueError):
+        # O payload oficial de payment contém `value`. Falhar fechado sem
+        # inventar preço: a reversão continua bloqueando o acesso e não será
+        # superada por um ciclo novo enquanto a dívida não for representável.
+        logger.error(
+            "Asaas monthly reversal without a valid payment value; recovery "
+            "intent was not staged"
+        )
+        return None
+    op = BillingPaymentOperation(
+        subscription_id=sub.id,
+        purpose="monthly_recovery",
+        operation_key=f"pastorai-monthly_recovery-{uuid.uuid4()}",
+        source_payment_id=payment_id,
+        status="prepared",
+        valor=valor,
+    )
+    db.add(op)
+    return op
+
+
 @router.post("/recover-invoice", response_model=RecoveryResponse)
 def recover_invoice(
     db: Session = Depends(get_db),
@@ -1083,8 +1124,7 @@ def recover_invoice(
         )
 
     if (
-        open_recovery is None
-        and sub.asaas_invoice_reversal == "deleted"
+        sub.asaas_invoice_reversal == "deleted"
         and sub.asaas_invoice_payment_id
     ):
         try:
@@ -1104,6 +1144,12 @@ def recover_invoice(
             new_status = map_payment_status(current.get("status"))
             if new_status is not None:
                 sub.status = new_status
+            # A intenção criada pelo webhook serviu como barreira durável; a
+            # restauração da cobrança-fonte a encerra sem marcá-la como paga
+            # (uma reversão futura do mesmo payment precisa poder reabrir).
+            if open_recovery is not None:
+                open_recovery.status = "failed"
+                open_recovery.error = "source payment restored"
             db.commit()
         return RecoveryResponse(
             status=sub.status or "pendente", invoiceUrl=sub.asaas_invoice_url
@@ -1368,7 +1414,17 @@ def change_plan(
             status_code=status.HTTP_409_CONFLICT, detail=str(exc)
         ) from exc
     except AsaasError as exc:
-        # Plano local permanece INTACTO; a operação fica reconciliável.
+        # Plano local permanece INTACTO. Uma rejeição 4xx fecha a operação
+        # manual como failed; nesse caso o crescimento ocorrido enquanto ela
+        # ocupava o claim precisa ser reavaliado agora, pois o trigger da
+        # pessoa foi suprimido por ON CONFLICT e não voltará sozinho.
+        if find_open_plan_change(db, sub.id) is None:
+            try:
+                queue_autoupgrade_if_over_limit(db, sub)
+            except Exception:  # noqa: BLE001 - não mascara o erro original
+                logger.exception(
+                    "Failed to queue autoupgrade after rejected manual plan change"
+                )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Não foi possível atualizar a assinatura no Asaas — tente novamente",
@@ -1463,7 +1519,9 @@ def asaas_webhook(
     sub: Subscription | None = None
     if asaas_sub_id:
         sub = db.execute(
-            select(Subscription).where(Subscription.asaas_subscription_id == str(asaas_sub_id))
+            select(Subscription)
+            .where(Subscription.asaas_subscription_id == str(asaas_sub_id))
+            .with_for_update()
         ).scalar_one_or_none()
     if sub is None and not payment:
         external_ref = subscription.get("externalReference")
@@ -1507,8 +1565,8 @@ def asaas_webhook(
             and (
                 # Confirmação atrasada da própria fatura revertida.
                 (payment_id == current_payment_id and reversal is None)
-                # Antes de existir a operação durável de recovery, não há
-                # outro registro que preserve a dívida ao avançar para B.
+                # Payload legado/malformado sem valor não permitiu criar a
+                # intenção durável: nesse caso ainda falhamos fechado.
                 or (payment_id != current_payment_id and open_recovery is None)
             )
         )
@@ -1548,6 +1606,12 @@ def asaas_webhook(
         # fatura já quitada. Estorno/exclusão retém o link (inutilizável).
         if payment:
             _apply_monthly_payment_link(sub, payment, reversal=reversal)
+            if reversal and payment_id:
+                staged = _stage_monthly_recovery_from_webhook(
+                    db, sub, payment, payment_id
+                )
+                if staged is not None:
+                    open_recovery = staged
         # Reflect subscription billing only onto the igreja access gate. Setup
         # payment events return above and never change this status.
         if new_status == "ativa":

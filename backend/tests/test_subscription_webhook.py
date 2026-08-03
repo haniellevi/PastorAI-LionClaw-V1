@@ -243,6 +243,7 @@ def _payment(
     payment_id: str = "pay_1",
     due_date: str | None = None,
     invoice_url: str | None = None,
+    value: float | None = None,
 ) -> dict:
     p: dict = {"id": payment_id}
     if status is not None:
@@ -255,6 +256,8 @@ def _payment(
         p["dueDate"] = due_date
     if invoice_url is not None:
         p["invoiceUrl"] = invoice_url
+    if value is not None:
+        p["value"] = value
     return p
 
 
@@ -1135,7 +1138,7 @@ def test_new_cycle_tracks_its_state_without_settling_prior_recovery_debt(
     assert db.igreja.status == "ativa"
 
 
-def test_new_cycle_cannot_erase_reversal_before_recovery_is_durable(
+def test_refund_stages_debt_before_new_overdue_cycle_and_recovery_cannot_unlock(
     app, monkeypatch
 ) -> None:
     db = _WebhookDb(
@@ -1149,23 +1152,59 @@ def test_new_cycle_cannot_erase_reversal_before_recovery_is_durable(
     )
     client = _client(app, db, monkeypatch)
 
-    resp = _post(
+    refund = _post(
         client,
-        "PAYMENT_CONFIRMED",
+        "PAYMENT_REFUNDED",
         _payment(
-            status="CONFIRMED",
+            status="REFUNDED",
+            payment_id="pay_m2",
+            due_date="2026-08-01",
+            value=199.0,
+        ),
+    )
+
+    assert refund.json()["status"] == "inadimplente"
+    recovery_a = next(
+        o
+        for o in db.operations
+        if getattr(o, "purpose", None) == "monthly_recovery"
+    )
+    assert recovery_a.status == "prepared"
+    assert recovery_a.source_payment_id == "pay_m2"
+    assert float(recovery_a.valor) == 199.0
+
+    overdue_b = _post(
+        client,
+        "PAYMENT_OVERDUE",
+        _payment(
+            status="OVERDUE",
             payment_id="pay_m3",
             due_date="2026-09-01",
             invoice_url="https://asaas.test/m3",
         ),
     )
 
-    assert resp.json()["status"] is None
+    assert overdue_b.json()["status"] == "inadimplente"
     assert db.sub.status == "inadimplente"
-    assert db.sub.asaas_invoice_payment_id == "pay_m2"
-    assert db.sub.asaas_invoice_reversal == "refunded"
+    assert db.sub.asaas_invoice_payment_id == "pay_m3"
+    assert db.sub.asaas_invoice_reversal is None
     assert db.igreja.status == "inadimplente"
-    assert db.commits == 0
+
+    # Mesmo após a cobrança de recuperação de A ser paga, B continua vencida:
+    # a confirmação tardia não pode reativar o tenant.
+    recovery_a.status = "created"
+    recovery_a.asaas_payment_id = "pay_rec_a"
+    paid_a = _payment(
+        status="CONFIRMED", subscription=None, payment_id="pay_rec_a"
+    )
+    paid_a["externalReference"] = recovery_a.operation_key
+    settled = _post(client, "PAYMENT_CONFIRMED", paid_a)
+
+    assert settled.json()["status"] == "ativa"
+    assert recovery_a.status == "paid"
+    assert db.sub.status == "inadimplente"
+    assert db.sub.asaas_invoice_payment_id == "pay_m3"
+    assert db.igreja.status == "inadimplente"
 
 
 def test_new_cycle_overdue_remains_blocked_after_prior_recovery_is_paid(

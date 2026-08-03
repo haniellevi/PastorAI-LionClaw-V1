@@ -739,7 +739,21 @@ def test_recover_invoice_deleted_restores_same_payment(app) -> None:
         asaas_invoice_url=None,
         asaas_invoice_reversal="deleted",
     )
-    client, _db = _client(app, planos=[], asaas=asaas, subscription=sub)
+    staged = BillingPaymentOperation(
+        subscription_id=sub.id,
+        purpose="monthly_recovery",
+        operation_key="pastorai-monthly_recovery-deleted-m2",
+        source_payment_id="pay_m2",
+        status="prepared",
+        valor=199.0,
+    )
+    client, _db = _client(
+        app,
+        planos=[],
+        asaas=asaas,
+        subscription=sub,
+        operations=[staged],
+    )
 
     resp = client.post("/subscription/recover-invoice", headers=_AUTH)
 
@@ -755,6 +769,8 @@ def test_recover_invoice_deleted_restores_same_payment(app) -> None:
     assert sub.asaas_invoice_url == "https://asaas.test/m2-restored"
     assert sub.asaas_invoice_reversal is None
     assert sub.status == "pendente"
+    assert staged.status == "failed"
+    assert staged.error == "source payment restored"
 
 
 def test_recover_invoice_deleted_already_restored_skips_restore(app) -> None:
@@ -1166,6 +1182,20 @@ class _ChangePlanAsaas:
         raise AssertionError("troca de plano nunca cria assinatura")
 
 
+class _RejectedChangePlanAsaas(_ChangePlanAsaas):
+    """Rejeição definitiva depois de o porte crescer durante o PUT."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.db = None
+
+    def update_subscription(self, subscription_id: str, *, valor: float, descricao: str):
+        self.puts.append((subscription_id, valor, descricao))
+        assert self.db is not None
+        self.db.pessoas_count = 250
+        raise AsaasRejectedError("Plano rejeitado definitivamente pelo Asaas")
+
+
 def _active_sub(**over):
     base = dict(
         status="ativa",
@@ -1337,6 +1367,38 @@ def test_change_plan_remote_failure_keeps_local_plan(app) -> None:
     assert sub.plano == "ate_100"  # plano local intacto
     op = next(o for o in db.added if isinstance(o, BillingPlanChangeOperation))
     assert op.status == "reconciling"  # retry reconciliará por GET
+
+
+def test_rejected_manual_change_requeues_growth_autoupgrade(app) -> None:
+    asaas = _RejectedChangePlanAsaas()
+    sub = _active_sub(pessoas=50, limite=100)
+    planos = [
+        _plano(codigo="ate_100", preco_mensal=199, limite_pessoas=100),
+        _plano(codigo="101_200", preco_mensal=299, limite_pessoas=200),
+        _plano(codigo="acima_201", preco_mensal=499, limite_pessoas=None),
+    ]
+    client, db = _client(
+        app, planos=planos, asaas=asaas, subscription=sub
+    )
+    db.pessoas_count = 50
+    asaas.db = db
+
+    resp = client.post(
+        "/subscription/change-plan", json={"plano": "101_200"}, headers=_AUTH
+    )
+
+    assert resp.status_code == 502
+    assert sub.plano == "ate_100"
+    changes = [
+        o for o in db.added if isinstance(o, BillingPlanChangeOperation)
+    ]
+    assert len(changes) == 2
+    manual, automatic = changes
+    assert manual.status == "failed"
+    assert manual.origin == "manual"
+    assert automatic.status == "prepared"
+    assert automatic.origin == "autoupgrade"
+    assert automatic.to_plano == "acima_201"
 
 
 def test_change_plan_conflicts_with_open_change_to_other_plan(app) -> None:
