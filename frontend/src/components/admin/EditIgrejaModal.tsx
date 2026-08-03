@@ -16,7 +16,8 @@ import { useState } from "react";
 
 import { Dialog as DsDialog } from "@/components/ds/Dialog";
 import { Button } from "@/components/ui/Button";
-import type { AdminIgreja, UpdateIgrejaInput } from "@/lib/admin-api";
+import { Field } from "@/components/ui/Field";
+import { isInvalidSetupFee, type AdminIgreja, type UpdateIgrejaInput } from "@/lib/admin-api";
 import type { PlanoOption } from "./CreateIgrejaModal";
 
 const STATUSES = [
@@ -54,6 +55,10 @@ export function EditIgrejaModal({
   const [nome, setNome] = useState(igreja.nome);
   const [status, setStatus] = useState(igreja.status);
   const [plano, setPlano] = useState(igreja.plano ?? "");
+  const [setupFeeOverride, setSetupFeeOverride] = useState(
+    igreja.setupFeeOverride == null ? "" : String(igreja.setupFeeOverride),
+  );
+  const [setupFeeError, setSetupFeeError] = useState<string | null>(null);
 
   const base = planos && planos.length ? planos : FALLBACK_PLANOS;
   // Garante que o plano atual apareça no seletor mesmo se já estiver inativo
@@ -65,11 +70,21 @@ export function EditIgrejaModal({
 
   const submit = () => {
     const input: UpdateIgrejaInput = {};
+    const setupFeeValue =
+      setupFeeOverride.trim() === "" ? null : Number(setupFeeOverride);
+    if (setupFeeValue !== null && isInvalidSetupFee(setupFeeValue)) {
+      setSetupFeeError("Taxa de setup deve ser R$ 0,00 (isenta) ou de pelo menos R$ 5,00.");
+      return;
+    }
+    setSetupFeeError(null);
     const nomeT = nome.trim();
     if (nomeT && nomeT !== igreja.nome) input.nome = nomeT;
     if (status !== igreja.status) input.status = status;
     // Só envia plano quando há um valor (o backend não aceita limpar plano).
     if (plano && plano !== (igreja.plano ?? "")) input.plano = plano;
+    if (setupFeeValue !== igreja.setupFeeOverride) {
+      input.setupFeeOverride = setupFeeValue;
+    }
     if (Object.keys(input).length === 0) {
       onClose();
       return;
@@ -126,6 +141,21 @@ export function EditIgrejaModal({
             data-autofocus=""
           />
         </div>
+
+        <Field
+          label="Taxa de setup personalizada (R$)"
+          type="number"
+          min={0}
+          step="0.01"
+          value={setupFeeOverride}
+          onChange={(event) => {
+            setSetupFeeOverride(event.target.value);
+            setSetupFeeError(null);
+          }}
+          placeholder="Use a taxa padrão"
+          helper="Deixe vazio para remover a exceção e usar a taxa padrão do master."
+          error={setupFeeError ?? undefined}
+        />
 
         <div className="field">
           <label htmlFor="ei-status">Status</label>

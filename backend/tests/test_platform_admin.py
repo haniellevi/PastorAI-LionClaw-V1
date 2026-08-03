@@ -17,6 +17,7 @@ from app.db.models import (
     AgentConfig,
     AgentConfigRequest,
     AppUser,
+    BillingSettings,
     Igreja,
     LlmCredential,
     Pessoa,
@@ -99,6 +100,7 @@ class PlatformDB:
         orchestrator=None,
         agent_request=None,
         agent_request_rows=None,
+        billing_settings=None,
     ) -> None:
         self.gate_app_user = gate_app_user
         self.admin_marker = admin_marker
@@ -125,6 +127,14 @@ class PlatformDB:
         self.orchestrator = orchestrator
         self.agent_request = agent_request
         self.agent_request_rows = agent_request_rows or []
+        self.billing_settings = (
+            billing_settings
+            if billing_settings is not None
+            else SimpleNamespace(id=1, setup_fee_default=0.0)
+        )
+        for igreja in [*self.igrejas, self.igreja_scalar]:
+            if igreja is not None and not hasattr(igreja, "setup_fee_override"):
+                igreja.setup_fee_override = None
         self.added: list = []
         self.deleted: list = []
         self.committed = False
@@ -153,6 +163,8 @@ class PlatformDB:
             return _Result(scalar=self.admin_marker)
         if ent is Igreja:
             return _Result(scalar=self.igreja_scalar, scalars=self.igrejas)
+        if ent is BillingSettings:
+            return _Result(scalar=self.billing_settings)
         if ent is Plano:
             return _Result(scalar=self.plano_scalar, scalars=self.planos)
         if ent is PlatformAuditLog:
@@ -355,6 +367,24 @@ def test_admin_create_succeeds_even_if_email_fails(app) -> None:
     assert db.committed is True
 
 
+def test_admin_create_persists_optional_setup_override(app) -> None:
+    db = PlatformDB(gate_app_user=make_app_user(), admin_marker="pa1")
+    client = _wire(app, db=db, clerk=FakeClerk(), mailer=FakeMailer())
+    resp = client.post(
+        "/admin/igrejas",
+        headers=_AUTH,
+        json={
+            "nome": "Nova Igreja",
+            "setupFeeOverride": 39.9,
+            "admin": {"nome": "Pastor Novo", "email": "pastor@nova.org"},
+        },
+    )
+
+    assert resp.status_code == 201
+    criada = next(obj for obj in db.added if isinstance(obj, Igreja))
+    assert criada.setup_fee_override == 39.9
+
+
 # ---------------------------------------------------------------------------
 # PATCH /admin/igrejas/{id} (status/plano)
 # ---------------------------------------------------------------------------
@@ -403,6 +433,39 @@ def test_admin_patch_updates_status(app) -> None:
     assert resp.json()["status"] == "suspensa"
     assert igreja.status == "suspensa"
     assert db.committed is True
+
+
+def test_admin_patch_sets_and_clears_setup_override(app) -> None:
+    igreja = SimpleNamespace(
+        id="00000000-0000-0000-0000-000000000009",
+        nome="Igreja X",
+        status="ativa",
+        plano=None,
+        created_at=None,
+        setup_fee_override=None,
+    )
+    db = PlatformDB(
+        gate_app_user=make_app_user(), admin_marker="pa1", igreja_scalar=igreja
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+
+    custom = client.patch(
+        "/admin/igrejas/00000000-0000-0000-0000-000000000009",
+        headers=_AUTH,
+        json={"setupFeeOverride": 29.9},
+    )
+    assert custom.status_code == 200
+    assert custom.json()["setupFeeOverride"] == 29.9
+    assert igreja.setup_fee_override == 29.9
+
+    cleared = client.patch(
+        "/admin/igrejas/00000000-0000-0000-0000-000000000009",
+        headers=_AUTH,
+        json={"setupFeeOverride": None},
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["setupFeeOverride"] is None
+    assert igreja.setup_fee_override is None
 
 
 # ---------------------------------------------------------------------------
@@ -612,7 +675,12 @@ _IG_ID = "00000000-0000-0000-0000-000000000009"
 
 def test_admin_aprova_igreja_pendente(app) -> None:
     igreja = SimpleNamespace(
-        id=_IG_ID, nome="Igreja Y", status="aguardando_aprovacao", plano=None, created_at=None
+        id=_IG_ID,
+        nome="Igreja Y",
+        status="aguardando_aprovacao",
+        plano=None,
+        setup_fee_override=29.9,
+        created_at=None,
     )
     db = PlatformDB(
         gate_app_user=make_app_user(), admin_marker="pa1", igreja_scalar=igreja
@@ -621,6 +689,7 @@ def test_admin_aprova_igreja_pendente(app) -> None:
     resp = client.post(f"/admin/igrejas/{_IG_ID}/aprovar", headers=_AUTH)
     assert resp.status_code == 200
     assert resp.json()["status"] == "ativa"
+    assert resp.json()["setupFeeOverride"] == 29.9
     assert igreja.status == "ativa"
     assert db.committed is True
     # Cascata: semeou a matriz role_permissions (defaults).
@@ -866,7 +935,7 @@ def test_admin_delete_igreja_writes_audit(app) -> None:
 def _igreja_ns(**over):
     base = dict(
         id="ig-1", nome="Igreja X", status="ativa", plano=None, created_at=None,
-        dono_id=None,
+        dono_id=None, setup_fee_override=None,
     )
     base.update(over)
     return SimpleNamespace(**base)
@@ -1362,3 +1431,188 @@ def test_admin_agente_requests_blocks_non_master(app) -> None:
         ).status_code
         == 403
     )
+
+
+# ---------------------------------------------------------------------------
+# Cobrança — taxa padrão controlada pelo console master
+# ---------------------------------------------------------------------------
+def test_admin_billing_settings_reads_the_master_default(app) -> None:
+    db = PlatformDB(
+        gate_app_user=make_app_user(),
+        admin_marker="pa1",
+        billing_settings=SimpleNamespace(id=1, setup_fee_default=59.9),
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+
+    resp = client.get("/admin/billing/settings", headers=_AUTH)
+
+    assert resp.status_code == 200
+    assert resp.json() == {"setupFeePadrao": 59.9}
+
+
+def test_admin_billing_settings_updates_only_the_master_default(app) -> None:
+    settings = SimpleNamespace(id=1, setup_fee_default=20.0)
+    db = PlatformDB(
+        gate_app_user=make_app_user(),
+        admin_marker="pa1",
+        billing_settings=settings,
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+
+    resp = client.put(
+        "/admin/billing/settings",
+        headers=_AUTH,
+        json={"setupFeePadrao": 59.9},
+    )
+
+    assert resp.status_code == 200
+    assert resp.json() == {"setupFeePadrao": 59.9}
+    assert settings.setup_fee_default == 59.9
+    assert any(
+        isinstance(obj, PlatformAuditLog) and obj.acao == "billing_setup_padrao_editar"
+        for obj in db.added
+    )
+
+
+# ---------------------------------------------------------------------------
+# Regra canônica da taxa de setup: R$ 0,00 (isenta) ou pelo menos R$ 5,00 —
+# o Asaas rejeita cobranças avulsas de R$ 0,01 a R$ 4,99, então um default (ou
+# exceção por igreja) nessa faixa quebraria o checkout de todo tenant herdeiro.
+# ---------------------------------------------------------------------------
+def test_admin_billing_settings_accepts_zero_and_the_asaas_minimum(app) -> None:
+    settings = SimpleNamespace(id=1, setup_fee_default=20.0)
+    db = PlatformDB(
+        gate_app_user=make_app_user(), admin_marker="pa1", billing_settings=settings
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+
+    zero = client.put("/admin/billing/settings", headers=_AUTH, json={"setupFeePadrao": 0})
+    assert zero.status_code == 200
+    assert settings.setup_fee_default == 0
+
+    minimum = client.put(
+        "/admin/billing/settings", headers=_AUTH, json={"setupFeePadrao": 5}
+    )
+    assert minimum.status_code == 200
+    assert settings.setup_fee_default == 5
+
+
+def test_admin_billing_settings_rejects_nonzero_fee_below_the_minimum(app) -> None:
+    settings = SimpleNamespace(id=1, setup_fee_default=20.0)
+    db = PlatformDB(
+        gate_app_user=make_app_user(), admin_marker="pa1", billing_settings=settings
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+
+    below = client.put(
+        "/admin/billing/settings", headers=_AUTH, json={"setupFeePadrao": 4.99}
+    )
+    negative = client.put(
+        "/admin/billing/settings", headers=_AUTH, json={"setupFeePadrao": -1}
+    )
+
+    assert below.status_code == 422
+    assert negative.status_code == 422
+    assert settings.setup_fee_default == 20.0  # nada persistido
+
+
+def test_admin_create_igreja_accepts_zero_and_minimum_setup_override(app) -> None:
+    db = PlatformDB(gate_app_user=make_app_user(), admin_marker="pa1")
+    client = _wire(app, db=db, clerk=FakeClerk(), mailer=FakeMailer())
+
+    zero = client.post(
+        "/admin/igrejas",
+        headers=_AUTH,
+        json={
+            "nome": "Igreja Isenta",
+            "setupFeeOverride": 0,
+            "admin": {"nome": "Pastor Zero", "email": "zero@nova.org"},
+        },
+    )
+    minimum = client.post(
+        "/admin/igrejas",
+        headers=_AUTH,
+        json={
+            "nome": "Igreja Mínima",
+            "setupFeeOverride": 5,
+            "admin": {"nome": "Pastor Mínimo", "email": "minimo@nova.org"},
+        },
+    )
+
+    assert zero.status_code == 201
+    assert minimum.status_code == 201
+    overrides = [
+        obj.setup_fee_override for obj in db.added if isinstance(obj, Igreja)
+    ]
+    assert overrides == [0, 5]
+
+
+def test_admin_create_igreja_rejects_setup_override_below_the_minimum(app) -> None:
+    db = PlatformDB(gate_app_user=make_app_user(), admin_marker="pa1")
+    client = _wire(app, db=db, clerk=FakeClerk(), mailer=FakeMailer())
+
+    resp = client.post(
+        "/admin/igrejas",
+        headers=_AUTH,
+        json={
+            "nome": "Nova Igreja",
+            "setupFeeOverride": 4.99,
+            "admin": {"nome": "Pastor Novo", "email": "pastor@nova.org"},
+        },
+    )
+
+    assert resp.status_code == 422
+    assert not any(isinstance(obj, Igreja) for obj in db.added)
+
+
+def test_master_price_edit_never_touches_existing_subscriptions(app) -> None:
+    """Decisão do dono (PLAN-CHANGE-SAFETY-1): editar o preço no catálogo NÃO
+    reajusta assinaturas existentes — vale para novas contratações ou troca
+    explícita. O handler altera apenas o Plano (+ auditoria)."""
+    from app.db.models import Subscription as SubscriptionModel
+
+    plano = SimpleNamespace(
+        id="00000000-0000-0000-0000-0000000000f1",
+        codigo="ate_100",
+        nome="Até 100 pessoas",
+        limite_pessoas=100,
+        preco_mensal=199.0,
+        ativo=True,
+        ordem=1,
+    )
+    db = PlatformDB(
+        gate_app_user=make_app_user(), admin_marker="pa1", plano_scalar=plano
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+
+    resp = client.patch(
+        f"/admin/planos/{plano.id}",
+        headers=_AUTH,
+        json={"precoMensal": 299.0},
+    )
+
+    assert resp.status_code == 200
+    assert plano.preco_mensal == 299.0
+    # Nenhuma escrita em Subscription (ou operação de troca) foi disparada.
+    assert not any(isinstance(obj, SubscriptionModel) for obj in db.added)
+    assert all(
+        type(obj).__name__ not in ("Subscription", "BillingPlanChangeOperation")
+        for obj in db.added
+    )
+
+
+def test_admin_patch_rejects_setup_override_below_the_minimum(app) -> None:
+    igreja = _igreja_ns(id="00000000-0000-0000-0000-000000000009", setup_fee_override=40.0)
+    db = PlatformDB(
+        gate_app_user=make_app_user(), admin_marker="pa1", igreja_scalar=igreja
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+
+    resp = client.patch(
+        "/admin/igrejas/00000000-0000-0000-0000-000000000009",
+        headers=_AUTH,
+        json={"setupFeeOverride": 4.99},
+    )
+
+    assert resp.status_code == 422
+    assert igreja.setup_fee_override == 40.0  # exceção intocada

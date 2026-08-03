@@ -55,6 +55,11 @@ class Igreja(Base):
         String, nullable=False, server_default=text("'ativa'")
     )
     plano: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Valor excepcional de setup definido pelo master para esta igreja. NULL
+    # significa usar a taxa padrão global de cobrança.
+    setup_fee_override: Mapped[float | None] = mapped_column(
+        Numeric(10, 2), nullable=True
+    )
     # #4: dono (admin principal) — único admin que enxerga/gerencia a Assinatura.
     # FK -> app_users (definido adiante); SET NULL no delete. NULL = sem dono.
     dono_id: Mapped[uuid.UUID | None] = mapped_column(
@@ -1172,8 +1177,188 @@ class Subscription(Base):
     proxima_cobranca: Mapped[dt.date | None] = mapped_column(Date, nullable=True)
     asaas_customer_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     asaas_subscription_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Pagamento avulso da taxa de setup. O webhook usa este id para não
+    # confundir a confirmação mensal com a confirmação do setup.
+    asaas_setup_charge_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Última cobrança de setup conhecida como estornada/excluída. Mantida mesmo
+    # após limpar o vínculo atual para uma confirmação atrasada não readotar a
+    # cobrança morta pelo caminho de compatibilidade legado.
+    asaas_setup_reversed_payment_id: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )
+    # Links públicos de pagamento devolvidos pelo Asaas no checkout. Persistidos
+    # para a tela de Assinatura sobreviver a reload sem recriar cobranças.
+    asaas_invoice_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    asaas_setup_invoice_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # ID Asaas da cobrança mensal do CICLO CORRENTE — atualizado a cada webhook
+    # de fatura, para o link nunca apontar para uma mensalidade já quitada.
+    asaas_invoice_payment_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Motivo da reversão da cobrança mensal corrente ('deleted'|'refunded',
+    # NULL = sem reversão): o link dela é inutilizável e o recovery não deve
+    # reapresentá-lo. 'deleted' permite restaurar a MESMA cobrança no Asaas;
+    # 'refunded' exige cobrança avulsa de recuperação. Ciclo novo válido limpa.
+    asaas_invoice_reversal: Mapped[str | None] = mapped_column(Text, nullable=True)
     setup_pago: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false")
+    )
+    # Taxa vigente quando a contratação durável nasceu. Resume/reconciliação
+    # nunca reprecificam o contrato a partir da configuração atual do master.
+    setup_fee_contracted: Mapped[float | None] = mapped_column(
+        Numeric(10, 2), nullable=True
+    )
+
+
+class BillingPaymentOperation(Base):
+    """Operação durável de cobrança avulsa (setup / recuperação de mensalidade).
+
+    A ``operation_key`` é persistida ANTES do POST /payments e vira a
+    externalReference exclusiva da cobrança no Asaas: um retry reconcilia pela
+    chave (GET /payments?externalReference=...) em vez de repetir o POST às
+    cegas — resposta perdida nunca duplica cobrança. O índice único parcial
+    (subscription_id, purpose) sobre estados abertos faz o claim atômico entre
+    requests concorrentes.
+    """
+
+    __tablename__ = "billing_payment_operations"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    subscription_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("subscriptions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    purpose: Mapped[str] = mapped_column(Text, nullable=False)  # setup | monthly_recovery
+    operation_key: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    # Cobrança original revertida que motivou esta operação (quando houver).
+    source_payment_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    asaas_payment_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # prepared | creating | reconciling | created | paid | reversed | failed
+    status: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'prepared'")
+    )
+    valor: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
+    invoice_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Registro da rejeição DEFINITIVA que fechou a operação como `failed`.
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Lease do POST /payments: permite recuperar um claim abandonado somente
+    # depois de reconciliar por externalReference e esperar a tentativa morrer.
+    attempt_started_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+
+class BillingPlanChangeOperation(Base):
+    """Troca de plano durável: PUT na assinatura Asaas EXISTENTE.
+
+    Decisão de produto (PLAN-CHANGE-SAFETY-1): nunca criar segunda recorrência;
+    vigência no próximo ciclo; cobranças já emitidas intocadas
+    (updatePendingPayments=false). O alvo (plano/preço/limite) é CONGELADO na
+    solicitação e persistido antes do PUT — retry reconcilia pelo GET da
+    assinatura, nunca repete o PUT às cegas. ``origin='autoupgrade'`` reserva o
+    mesmo trilho para o gatilho de porte quando existir worker de billing.
+    """
+
+    __tablename__ = "billing_plan_change_operations"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    subscription_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("subscriptions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    asaas_subscription_id: Mapped[str] = mapped_column(Text, nullable=False)
+    from_plano: Mapped[str] = mapped_column(Text, nullable=False)
+    to_plano: Mapped[str] = mapped_column(Text, nullable=False)
+    to_preco: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
+    to_limite: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Descrição-alvo congelada: identidade do alvo junto do preço (dois planos
+    # podem custar o mesmo — só o preço não distingue PUT aplicado de perdido).
+    to_descricao: Mapped[str | None] = mapped_column(Text, nullable=True)
+    origin: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'manual'")
+    )
+    # prepared | processing | reconciling | completed | failed
+    status: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'prepared'")
+    )
+    # pending | sent | skipped — separa a conclusão FINANCEIRA da entrega da
+    # notificação de upgrade: 'pending' fica descobrível pelo cron-worker até
+    # o envio; operações manuais nascem 'skipped'.
+    notify_status: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'skipped'")
+    )
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Lease da tentativa: marcado no claim para `processing`. Um `processing`
+    # mais velho que o lease é tentativa ABANDONADA (crash entre o claim e o
+    # PUT) e pode ser retomada — sem isso `reconciling` não teria saída.
+    attempt_started_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+
+class BillingSubscriptionOperation(Base):
+    """Intenção durável de criação da assinatura recorrente (CORRECTIVE-6).
+
+    Persistida ANTES do POST /subscriptions; a ``operation_key`` vira a
+    ``externalReference`` da assinatura. A externalReference NÃO é garantia de
+    idempotência do POST — serve para LOCALIZAR e reconciliar: resposta
+    perdida marca ``reconciling`` e o retry adota somente uma assinatura cujo
+    customer/valor/ciclo/descrição batam com o alvo congelado. Nunca há
+    segundo POST automático.
+    """
+
+    __tablename__ = "billing_subscription_operations"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    subscription_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("subscriptions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    operation_key: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
+    # Persistido assim que o customer é resolvido — ANTES do POST da assinatura.
+    customer_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    plano: Mapped[str] = mapped_column(Text, nullable=False)
+    valor: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
+    # Limite congelado junto do preço: a adoção de uma intenção antiga nunca
+    # relê o catálogo (o master pode ter editado ou desativado o plano depois).
+    limite: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    ciclo: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'MONTHLY'")
+    )
+    descricao: Mapped[str] = mapped_column(Text, nullable=False)
+    # Taxa de setup congelada junto do alvo da contratação.
+    setup_fee: Mapped[float | None] = mapped_column(Numeric(10, 2), nullable=True)
+    asaas_subscription_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # prepared | creating | reconciling | created | failed | superseded
+    # `superseded` = intenção `prepared` (sem POST remoto) trocada por outro
+    # plano escolhido pelo assinante — terminal, libera o claim.
+    status: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'prepared'")
+    )
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Lease do POST /subscriptions; zero matches só volta a prepared depois
+    # deste prazo, quando não existe mais request HTTP possivelmente em voo.
+    attempt_started_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
 
 
@@ -1653,6 +1838,24 @@ class Plano(Base):
         Integer, nullable=False, server_default=text("0")
     )
     created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+
+class BillingSettings(Base):
+    """Configuração global de cobrança definida pelo console master.
+
+    Há uma única linha (``id=1``). ``setup_fee_default`` nulo mantém o valor
+    legado de ambiente até o master salvar a taxa no painel.
+    """
+
+    __tablename__ = "billing_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    setup_fee_default: Mapped[float | None] = mapped_column(
+        Numeric(10, 2), nullable=True
+    )
+    updated_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
 

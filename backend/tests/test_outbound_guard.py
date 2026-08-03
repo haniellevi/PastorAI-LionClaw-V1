@@ -151,7 +151,7 @@ def test_create_checkout_blocked(monkeypatch) -> None:
     )
     assert result.subscription_id == "sandbox"
     assert result.status == "pendente"
-    assert result.setup_charge_id is None
+    assert result.invoice_url is None
 
 
 def test_send_invite_blocked(monkeypatch) -> None:

@@ -78,6 +78,45 @@ def test_login_blocked_for_suspended_church(app) -> None:
     assert detail["igrejaStatus"] == "suspensa"
 
 
+def test_delinquent_owner_can_login_and_restore_session_for_recovery(app) -> None:
+    user = make_app_user(igreja_status="inadimplente")
+    client = _client(
+        app,
+        session=FakeSession(app_user=user, roles=["admin"]),
+        clerk=FakeClerk(login_result=("token_xyz", "clerk_user_1")),
+    )
+
+    login = client.post(
+        "/auth/login",
+        json={"email": "pastor@igrejapiloto.com", "password": "secret"},
+    )
+    me = client.get("/auth/me", headers={"Authorization": "Bearer token_xyz"})
+
+    assert login.status_code == 200
+    assert me.status_code == 200
+    assert me.json()["isOwner"] is True
+
+
+def test_delinquent_non_owner_remains_blocked_at_login(app) -> None:
+    user = make_app_user(
+        igreja_status="inadimplente",
+        dono_id="00000000-0000-0000-0000-000000000099",
+    )
+    client = _client(
+        app,
+        session=FakeSession(app_user=user, roles=["admin"]),
+        clerk=FakeClerk(login_result=("token_xyz", "clerk_user_1")),
+    )
+
+    resp = client.post(
+        "/auth/login",
+        json={"email": "pastor@igrejapiloto.com", "password": "secret"},
+    )
+
+    assert resp.status_code == 403
+    assert resp.json()["detail"]["error"] == "billing_blocked"
+
+
 def test_login_blocked_for_revoked_user(app) -> None:
     # A revoked user gets no token; generic 401 does not disclose the state.
     user = make_app_user(status="revogado")

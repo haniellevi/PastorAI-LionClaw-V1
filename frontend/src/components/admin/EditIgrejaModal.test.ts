@@ -30,6 +30,7 @@ const igreja: AdminIgreja = {
   nome: "Igreja Central",
   status: "ativa",
   plano: "ate_100",
+  setupFeeOverride: null,
   membros: 42,
   pessoas: 120,
   createdAt: null,
@@ -110,6 +111,36 @@ describe("EditIgrejaModal — W4B (DsDialog)", () => {
 
     expect(onSubmit).toHaveBeenCalledTimes(1);
     expect(onSubmit).toHaveBeenCalledWith({ status: "suspensa" });
+  });
+
+  it("envia a exceção de setup e permite limpar para voltar ao padrão", () => {
+    const onSubmit = vi.fn<(i: UpdateIgrejaInput) => void>();
+    render({ igreja: { ...igreja, setupFeeOverride: 40 }, onSubmit });
+
+    const setupInput = container.querySelector<HTMLInputElement>('input[type="number"]')!;
+    setValue(setupInput, "25.5");
+    submitForm();
+    expect(onSubmit).toHaveBeenLastCalledWith({ setupFeeOverride: 25.5 });
+
+    render({ igreja: { ...igreja, setupFeeOverride: 40 }, onSubmit });
+    const resetInput = container.querySelector<HTMLInputElement>('input[type="number"]')!;
+    setValue(resetInput, "");
+    submitForm();
+    expect(onSubmit).toHaveBeenLastCalledWith({ setupFeeOverride: null });
+  });
+
+  it("rejeita exceção de setup entre R$ 0,01 e R$ 4,99", () => {
+    const onSubmit = vi.fn<(i: UpdateIgrejaInput) => void>();
+    render({ onSubmit });
+
+    const setupInput = container.querySelector<HTMLInputElement>('input[type="number"]')!;
+    setValue(setupInput, "4.99");
+    submitForm();
+
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect(container.textContent).toContain(
+      "Taxa de setup deve ser R$ 0,00 (isenta) ou de pelo menos R$ 5,00.",
+    );
   });
 
   it("sem nenhuma alteração, submit apenas fecha (não chama onSubmit)", () => {

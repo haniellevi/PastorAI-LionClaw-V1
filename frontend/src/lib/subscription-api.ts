@@ -2,8 +2,8 @@
  * Cliente da API de assinatura Asaas (tela #assinatura).
  * Consome o backend (sprint-009 / US-34..36):
  *
- *   GET  /subscription          -> { plano, status, pessoas, limite, proximaCobranca, setupPago }
- *   POST /subscription          -> { status, invoiceUrl, asaasSubscriptionId }   (checkout)
+ *   GET  /subscription          -> { plano, status, ..., setupPago, invoiceUrl, setupInvoiceUrl }
+ *   POST /subscription          -> { status, invoiceUrl, setupInvoiceUrl, asaasSubscriptionId }
  *   GET  /subscription/planos   -> { planos: PlanInfo[], setupFee }             (catálogo)
  *
  * O upgrade automático por porte é feito pelo trigger `trg_subscription_autoupgrade`
@@ -35,11 +35,40 @@ export interface Subscription {
   limite: number | null;
   proximaCobranca: string | null;
   setupPago: boolean;
+  /** Taxa congelada no checkout; null apenas para contratos legados. */
+  setupFeeContracted: number | null;
+  /** Link da fatura da mensalidade — presente enquanto pendente/vencida. */
+  invoiceUrl: string | null;
+  /** Link da cobrança de setup — presente só enquanto o setup não foi pago. */
+  setupInvoiceUrl: string | null;
+  /** Motivo da reversão da cobrança mensal atual ('deleted'|'refunded'). */
+  invoiceReversal: "deleted" | "refunded" | null;
+  /** Link da cobrança avulsa de recuperação mensal, quando emitida. */
+  recoveryInvoiceUrl: string | null;
+  /** Dívida de recuperação aberta, inclusive antes de existir link pagável. */
+  recoveryRequired: boolean;
+  /** Setup devido sem link pagável: a UI oferece gerar nova taxa. */
+  setupRecoveryRequired: boolean;
+  /**
+   * Existe recorrência RASTREADA no Asaas. `false` = só o registro local
+   * placeholder (criado antes de um POST que falhou): a igreja ainda NÃO
+   * contratou. Sinal semântico explícito — a UI nunca deduz "assinante" da
+   * mera existência do objeto, e o id remoto não é exposto para ela inferir.
+   */
+  hasTrackedSubscription: boolean;
+  /** Espelho de conveniência: a tela de contratação inicial ainda é devida. */
+  checkoutRequired: boolean;
+}
+
+/** Registro local sem recorrência no Asaas: contratação inicial incompleta. */
+export function isPlaceholderSubscription(sub: Subscription | null): boolean {
+  return sub !== null && !sub.hasTrackedSubscription;
 }
 
 export interface CheckoutResult {
   status: string;
   invoiceUrl: string | null;
+  setupInvoiceUrl: string | null;
   asaasSubscriptionId: string | null;
 }
 
@@ -95,6 +124,9 @@ export async function fetchPlanCatalog(token: string): Promise<PlanCatalog> {
 /** Indica o estado de UI a partir do status da assinatura. */
 export function subscriptionUiState(sub: Subscription | null): SubscriptionUiState {
   if (!sub) return "plans";
+  // Placeholder de checkout falho: não há assinatura para exibir estado — a
+  // tela é a de contratação, exatamente como quando não existe registro algum.
+  if (!sub.hasTrackedSubscription) return "plans";
   switch (sub.status) {
     case "ativa":
       return "active";
@@ -132,11 +164,84 @@ export async function createCheckout(
 ): Promise<CheckoutResult> {
   const res = await authedFetch(token, "/subscription", {
     method: "POST",
-    body: JSON.stringify({ plano: payload.plano, cpfCnpj: payload.cpfCnpj ?? null }),
+    body: JSON.stringify(payload),
   });
   if (!res.ok) {
     const detail = await readDetail(res);
     throw new ApiError(res.status, detail ?? "Não foi possível iniciar o checkout.");
   }
   return (await res.json()) as CheckoutResult;
+}
+
+/** Retoma somente a recorrência Asaas já rastreada. Este endpoint aceita
+ * igreja inadimplente, mas nunca cria uma nova assinatura. */
+export async function resumeSubscription(token: string): Promise<CheckoutResult> {
+  const res = await authedFetch(token, "/subscription/resume", {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível atualizar a cobrança.");
+  }
+  return (await res.json()) as CheckoutResult;
+}
+
+/** Resultado das ações explícitas de recuperação de cobrança. */
+export interface RecoveryResult {
+  status: string;
+  invoiceUrl: string | null;
+  recoveryInvoiceUrl: string | null;
+  setupInvoiceUrl: string | null;
+}
+
+/** Recupera a mensalidade REVERTIDA (restore da excluída ou cobrança avulsa de
+ * recuperação da estornada) — nunca cria assinatura nem passa por checkout. */
+export async function recoverInvoice(token: string): Promise<RecoveryResult> {
+  const res = await authedFetch(token, "/subscription/recover-invoice", {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível recuperar a cobrança.");
+  }
+  return (await res.json()) as RecoveryResult;
+}
+
+/** Resultado da troca de plano (assinatura Asaas atualizada in-place). */
+export interface ChangePlanResult {
+  status: string;
+  plano: PlanCode;
+  precoMensal: number;
+  /** Sempre "proximo_ciclo": cobranças já emitidas não mudam. */
+  vigencia: string;
+}
+
+/** Troca o plano ATUALIZANDO a assinatura Asaas existente (nunca cria outra
+ * recorrência). Vale a partir do próximo ciclo; não pede CPF/CNPJ. */
+export async function changePlan(
+  token: string,
+  payload: { plano: PlanCode },
+): Promise<ChangePlanResult> {
+  const res = await authedFetch(token, "/subscription/change-plan", {
+    method: "POST",
+    body: JSON.stringify({ plano: payload.plano }),
+  });
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível mudar o plano.");
+  }
+  return (await res.json()) as ChangePlanResult;
+}
+
+/** (Re)emite a taxa de setup em aberto como cobrança avulsa — nunca cria
+ * assinatura nem passa pelo checkout. */
+export async function createSetupCharge(token: string): Promise<RecoveryResult> {
+  const res = await authedFetch(token, "/subscription/setup-charge", {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível emitir a taxa de setup.");
+  }
+  return (await res.json()) as RecoveryResult;
 }
