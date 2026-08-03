@@ -199,8 +199,6 @@ class _WebhookDb:
                 s
                 for s in self.legacy_candidates
                 if str(getattr(s, "asaas_customer_id", None)) == str(customer)
-                and not s.setup_pago
-                and s.asaas_setup_charge_id is None
             ]
             return _Result(matches[0] if matches else None, scalars_list=matches)
         if isinstance(statement, Update):
@@ -788,13 +786,14 @@ def _legacy_payment(**over) -> dict:
 
 
 def _legacy_sub(**over):
-    return _sub(
+    values = dict(
         status="pendente",
         setup_pago=False,
         asaas_setup_charge_id=None,
         asaas_customer_id="cus_leg_1",
-        **over,
     )
+    values.update(over)
+    return _sub(**values)
 
 
 def test_legacy_setup_confirmation_marks_paid(app, monkeypatch) -> None:
@@ -876,6 +875,12 @@ def test_legacy_setup_rejects_wrong_description_missing_customer_or_ambiguity(
         (_legacy_payment(description="Outra cobrança"), [_legacy_sub()]),
         # Payload sem customer.
         ({k: v for k, v in _legacy_payment().items() if k != "customer"}, [_legacy_sub()]),
+        # Payment novo tem externalReference; se a operação não casar, nunca
+        # pode cair no fallback histórico sem identidade por igreja.
+        (
+            _legacy_payment(externalReference="pastorai-setup-outra-operacao"),
+            [_legacy_sub()],
+        ),
         # Duas candidatas com o mesmo customer: ambíguo, nada muda.
         (_legacy_payment(), [_legacy_sub(), _legacy_sub()]),
     ]:
@@ -888,6 +893,39 @@ def test_legacy_setup_rejects_wrong_description_missing_customer_or_ambiguity(
         assert all(c.setup_pago is False for c in candidatas)
         assert all(c.asaas_setup_charge_id is None for c in candidatas)
         assert db.commits == 0
+
+
+def test_legacy_setup_declines_customer_shared_by_multiple_churches(
+    app, monkeypatch
+) -> None:
+    # O Asaas reutiliza customer por CPF/CNPJ. Mesmo que só B esteja com setup
+    # aberto, o payment legado sem externalReference pode pertencer a A; o
+    # customer compartilhado não autoriza mutar nenhuma das duas igrejas.
+    igreja_a = _legacy_sub(
+        id="sub-a",
+        setup_pago=True,
+        asaas_setup_charge_id="pay_setup_a_current",
+    )
+    igreja_b = _legacy_sub(id="sub-b")
+    db = _WebhookDb(
+        sub=None,
+        igreja=_igreja("ativa"),
+        legacy_candidates=[igreja_a, igreja_b],
+    )
+    client = _client(app, db, monkeypatch)
+
+    resp = _post(
+        client,
+        "PAYMENT_CONFIRMED",
+        _legacy_payment(id="pay_setup_a_legacy"),
+    )
+
+    assert resp.json() == {"received": True, "status": None}
+    assert igreja_a.setup_pago is True
+    assert igreja_a.asaas_setup_charge_id == "pay_setup_a_current"
+    assert igreja_b.setup_pago is False
+    assert igreja_b.asaas_setup_charge_id is None
+    assert db.commits == 0
 
 
 # ---------------------------------------------------------------------------
@@ -936,6 +974,42 @@ def test_recovery_charge_confirmation_regularizes_access_not_setup(
         assert db.sub.asaas_invoice_reversal is None  # dívida quitada
         assert db.igreja.status == "ativa"  # guarda atômica reativa a igreja
         assert db.sub.setup_pago is False  # recovery NUNCA é confundida com setup
+
+
+@pytest.mark.parametrize("conflicting_id", ["pay_duplicate", None])
+def test_operation_key_cannot_rebind_a_different_payment(
+    app, monkeypatch, conflicting_id
+) -> None:
+    op = _operation(
+        asaas_payment_id="pay_rec_1",
+        operation_key="pastorai-monthly_recovery-op1",
+    )
+    db = _WebhookDb(
+        sub=_sub(
+            status="inadimplente",
+            asaas_invoice_payment_id="pay_m2",
+            asaas_invoice_reversal="refunded",
+        ),
+        igreja=_igreja("inadimplente"),
+        operations=[op],
+    )
+    client = _client(app, db, monkeypatch)
+    duplicate = _payment(
+        status="CONFIRMED",
+        subscription=None,
+        payment_id=conflicting_id,
+    )
+    duplicate["externalReference"] = op.operation_key
+
+    resp = _post(client, "PAYMENT_CONFIRMED", duplicate)
+
+    assert resp.json() == {"received": True, "status": None}
+    assert op.asaas_payment_id == "pay_rec_1"
+    assert op.status == "created"
+    assert db.sub.status == "inadimplente"
+    assert db.sub.asaas_invoice_reversal == "refunded"
+    assert db.igreja.status == "inadimplente"
+    assert db.commits == 0
 
 
 def test_recovery_charge_reversal_keeps_debt_without_link(app, monkeypatch) -> None:

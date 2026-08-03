@@ -344,30 +344,33 @@ def _reconcile_legacy_setup_charge(
     confirmação chegaria aqui como "one-time payment desconhecido" e o tenant
     ficaria devendo setup para sempre. Reconciliação ESTRITA — só marca pago
     quando TODAS as condições fecham: é confirmação, a descrição é exatamente a
-    da cobrança de setup, há customer no payload e existe UMA ÚNICA assinatura
-    candidata (mesmo customer, setup em aberto, sem charge id rastreado).
-    Qualquer ambiguidade é apenas reconhecida, sem mutação. Nunca altera
-    mensalidade, status da assinatura ou acesso da igreja.
+    da cobrança de setup, o payment histórico não tem externalReference e o
+    customer pertence a UMA ÚNICA assinatura local no total. Só então valida
+    setup em aberto e ausência de charge id. Customer compartilhado por
+    CPF/CNPJ é ambíguo mesmo que apenas uma igreja esteja devendo setup.
+    Qualquer ambiguidade é reconhecida sem mutação. Nunca altera mensalidade,
+    status da assinatura ou acesso da igreja.
     """
     if (
         payment_id is None
         or (new_status != "ativa" and reversal is None)
         or payment.get("description") != SETUP_CHARGE_DESCRIPTION
         or not payment.get("customer")
+        or payment.get("externalReference")
     ):
         return None
-    candidatas = db.execute(
+    assinaturas_do_customer = db.execute(
         select(Subscription)
         .where(
             Subscription.asaas_customer_id == str(payment["customer"]),
-            Subscription.setup_pago.is_(False),
-            Subscription.asaas_setup_charge_id.is_(None),
         )
         .with_for_update()
     ).scalars().all()
-    if len(candidatas) != 1:
+    if len(assinaturas_do_customer) != 1:
         return None
-    legada = candidatas[0]
+    legada = assinaturas_do_customer[0]
+    if legada.setup_pago or legada.asaas_setup_charge_id is not None:
+        return None
     if reversal:
         # Reversão pode chegar ANTES da primeira confirmação/adopção. Persiste
         # o payment id como tombstone para a confirmação atrasada não marcar a

@@ -248,13 +248,26 @@ def find_operation_for_payment(
         if op is not None:
             return op
     if external_reference:
-        return db.execute(
+        op = db.execute(
             select(BillingPaymentOperation)
             .where(
                 BillingPaymentOperation.operation_key == str(external_reference)
             )
             .with_for_update()
         ).scalar_one_or_none()
+        # A operation_key localiza uma intenção, não autoriza rebind. Se ela
+        # já pertence a outro payment, este webhook é um duplicado remoto
+        # conflitante e não pode alterar a operação original.
+        if (
+            op is not None
+            and op.asaas_payment_id
+            and (
+                payment_id is None
+                or str(op.asaas_payment_id) != str(payment_id)
+            )
+        ):
+            return None
+        return op
     return None
 
 
