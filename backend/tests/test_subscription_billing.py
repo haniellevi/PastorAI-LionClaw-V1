@@ -2683,6 +2683,30 @@ class _RejectedThenOkAsaas:
         )
 
 
+class _RejectedThenCustomerFailAsaas:
+    """4xx definitivo, depois falha pré-POST com customer antigo persistido."""
+
+    def __init__(self) -> None:
+        self.create_calls = 0
+
+    def create_checkout(self, **kwargs):
+        self.create_calls += 1
+        if self.create_calls == 1:
+            kwargs["on_customer_resolved"]("cus_1")
+            raise AsaasRejectedError("O Asaas rejeitou os dados do checkout")
+        if self.create_calls == 2:
+            raise AsaasError("timeout ao procurar customer")
+        kwargs["on_customer_resolved"]("cus_1")
+        kwargs["on_subscription_created"]("cus_1", "sub_asaas_1")
+        return CheckoutResult(
+            customer_id="cus_1",
+            subscription_id="sub_asaas_1",
+            invoice_url="https://asaas.test/m1",
+            status="pendente",
+            invoice_payment_id="pay_m1",
+        )
+
+
 def test_checkout_definitive_rejection_returns_to_prepared_and_allows_retry(
     app,
 ) -> None:
@@ -2709,6 +2733,37 @@ def test_checkout_definitive_rejection_returns_to_prepared_and_allows_retry(
     assert op.status == "created"
     created_sub = next(o for o in db.added if isinstance(o, Subscription))
     assert created_sub.asaas_subscription_id == "sub_asaas_1"  # UMA recorrência
+
+
+def test_pre_post_retry_failure_ignores_customer_from_a_previous_attempt(
+    app,
+) -> None:
+    asaas = _RejectedThenCustomerFailAsaas()
+    client, db = _client(app, planos=[_plano()], asaas=asaas)
+
+    first = client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    )
+    assert first.status_code == 502
+    op = next(o for o in db.added if isinstance(o, BillingSubscriptionOperation))
+    assert op.status == "prepared"
+    assert op.customer_id == "cus_1"
+
+    _adopt_created_sub(db)
+    second = client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    )
+    assert second.status_code == 502
+    # A callback não rodou nesta tentativa: nenhum POST de assinatura ocorreu.
+    assert op.status == "prepared"
+    assert op.customer_id == "cus_1"
+
+    third = client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    )
+    assert third.status_code == 200
+    assert op.status == "created"
+    assert asaas.create_calls == 3
 
 
 # ---------------------------------------------------------------------------

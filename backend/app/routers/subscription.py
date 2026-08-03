@@ -1003,6 +1003,7 @@ def create_checkout(
         )
 
     customer_persist_failed = False
+    customer_resolved_this_attempt = False
 
     def _apply_created_subscription(
         customer_id: str, subscription_id: str, incoming_status: str
@@ -1028,10 +1029,11 @@ def create_checkout(
         return preserve_payment_status
 
     def _persist_resolved_customer(customer_id: str) -> None:
-        nonlocal customer_persist_failed
+        nonlocal customer_persist_failed, customer_resolved_this_attempt
         # Chamado ANTES do POST /subscriptions: com o customer persistido,
         # uma falha ambígua adiante é sabidamente do POST da assinatura (e
         # vira reconciliação — nunca um novo POST às cegas).
+        customer_resolved_this_attempt = True
         previous_sub_customer = sub.asaas_customer_id
         previous_op_customer = op.customer_id
         sub.asaas_customer_id = customer_id
@@ -1091,10 +1093,10 @@ def create_checkout(
             claim_transition(
                 db, op, "creating", "prepared", attempt_started_at=None
             )
-        elif op.customer_id:
-            # Customer já existia quando falhou → o erro pertence ao POST da
-            # assinatura (ou veio depois dele): resultado AMBÍGUO
-            # (timeout/5xx), o retry deve reconciliar — nunca repetir o POST.
+        elif customer_resolved_this_attempt:
+            # A callback desta tentativa rodou antes do POST. Só isso prova
+            # que a falha pertence à criação da assinatura (ou veio depois):
+            # customer_id persistido por tentativa anterior não é evidência.
             claim_transition(db, op, "creating", "reconciling")
         else:
             # Falhou ainda no customer: o POST da assinatura comprovadamente
