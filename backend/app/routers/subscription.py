@@ -662,6 +662,50 @@ def _recover_missing_invoice_urls(
         db.commit()
 
 
+def _reconcile_open_recovery_payment(
+    db: Session, sub: Subscription, asaas: AsaasClient
+) -> None:
+    """Converge a cobrança avulsa rastreada sem emitir uma nova cobrança."""
+    recovery_op = find_any_open_operation(db, sub.id, "monthly_recovery")
+    if recovery_op is None or not recovery_op.asaas_payment_id:
+        return
+
+    payment_id = str(recovery_op.asaas_payment_id)
+    try:
+        payment = asaas.get_payment(payment_id)
+    except AsaasError:
+        logger.warning("Asaas recovery reconciliation failed; keeping snapshot")
+        return
+    if not payment or str(payment.get("id")) != payment_id:
+        return
+
+    # A chamada externa ocorre sem lock. Recarrega a operação pelo payment id
+    # sob o mesmo lock do webhook antes de aplicar o snapshot remoto.
+    current_op = find_operation_for_payment(
+        db,
+        payment_id=payment_id,
+        external_reference=None,
+    )
+    if (
+        current_op is None
+        or current_op.purpose != "monthly_recovery"
+        or str(current_op.subscription_id) != str(sub.id)
+    ):
+        return
+
+    reversal = (
+        "deleted"
+        if payment.get("deleted")
+        else payment_reversal_kind(payment.get("status"))
+    )
+    new_status = (
+        "inadimplente"
+        if reversal
+        else map_payment_status(payment.get("status"))
+    )
+    _apply_operation_event(db, current_op, payment, new_status, reversal)
+
+
 @router.get("", response_model=SubscriptionOut)
 def get_subscription(
     db: Session = Depends(get_db),
@@ -672,9 +716,9 @@ def get_subscription(
 
     Nenhuma notificação nem sincronização de autoupgrade acontece aqui — isso
     é papel do cron-worker (billing_worker.run_pending_plan_changes). A única
-    interação externa possível é a leitura do payment já rastreado: recupera
-    link mensal ausente e reconcilia o setup inclusive após confirmação local,
-    para detectar reversão perdida, sem jamais criar cobrança ou assinatura.
+    interação externa possível é a leitura de payments já rastreados: converge
+    mensalidade, setup e recovery quando um webhook se perde, sem jamais criar
+    cobrança ou assinatura.
     """
     # Sinal de observabilidade (PR1 / feat-004) ligado a este caminho HTTP de
     # amostra do seam: se a sessão marcada por get_current_user NÃO estiver
@@ -696,6 +740,10 @@ def get_subscription(
     # Reconcilia somente ids já armazenados, sem nunca criar cobrança nova.
     # Falha do Asaas não derruba a leitura.
     _recover_missing_invoice_urls(db, sub, asaas)
+
+    # Cobrança avulsa emitida continua autoritativa mesmo com link persistido:
+    # confirmação/reversão cujo webhook se perdeu precisa convergir antes da UI.
+    _reconcile_open_recovery_payment(db, sub, asaas)
 
     # Cobrança avulsa de recuperação mensal emitida e em aberto: expõe o link
     # dela (a mensalidade revertida não tem link pagável próprio). Só a

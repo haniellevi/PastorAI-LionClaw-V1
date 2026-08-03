@@ -2177,6 +2177,120 @@ def test_get_subscription_exposes_recovery_url_and_setup_flag(app) -> None:
     assert body["setupRecoveryRequired"] is True
 
 
+def test_get_subscription_reconciles_confirmed_open_recovery(app) -> None:
+    recovery_op = BillingPaymentOperation(
+        subscription_id="00000000-0000-0000-0000-00000000su01",
+        purpose="monthly_recovery",
+        operation_key="pastorai-monthly_recovery-confirmed",
+        status="created",
+        valor=199.0,
+        source_payment_id="pay_m2",
+        asaas_payment_id="pay_rec_1",
+        invoice_url="https://asaas.test/recovery",
+    )
+    sub = _subscription(
+        status="inadimplente",
+        setup_pago=True,
+        asaas_setup_charge_id=None,
+        asaas_invoice_payment_id="pay_m2",
+        asaas_invoice_url=None,
+        asaas_invoice_reversal="refunded",
+    )
+    asaas = _RecoveryAsaas(
+        payment_payloads={
+            "pay_rec_1": {
+                "id": "pay_rec_1",
+                "status": "CONFIRMED",
+                "invoiceUrl": "https://asaas.test/recovery",
+            }
+        }
+    )
+    client, db = _client(
+        app,
+        planos=[],
+        asaas=asaas,
+        subscription=sub,
+        operations=[recovery_op],
+        igreja_status="inadimplente",
+    )
+
+    resp = client.get("/subscription", headers=_AUTH)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "ativa"
+    assert body["invoiceReversal"] is None
+    assert body["recoveryRequired"] is False
+    assert body["recoveryInvoiceUrl"] is None
+    assert recovery_op.status == "paid"
+    assert db.igreja.status == "ativa"
+    assert asaas.calls == [
+        ("get_payment", "pay_m2"),
+        ("get_payment", "pay_rec_1"),
+    ]
+
+
+@pytest.mark.parametrize(
+    "remote_payload",
+    [
+        {"id": "pay_rec_1", "status": "REFUNDED"},
+        {"id": "pay_rec_1", "status": "PENDING", "deleted": True},
+    ],
+)
+def test_get_subscription_reconciles_reversed_open_recovery(
+    app, remote_payload
+) -> None:
+    recovery_op = BillingPaymentOperation(
+        subscription_id="00000000-0000-0000-0000-00000000su01",
+        purpose="monthly_recovery",
+        operation_key="pastorai-monthly_recovery-reversed",
+        status="created",
+        valor=199.0,
+        source_payment_id="pay_m2",
+        asaas_payment_id="pay_rec_1",
+        invoice_url="https://asaas.test/recovery-dead",
+    )
+    sub = _subscription(
+        status="inadimplente",
+        setup_pago=True,
+        asaas_setup_charge_id=None,
+        asaas_invoice_payment_id="pay_m2",
+        asaas_invoice_url=None,
+        asaas_invoice_reversal="refunded",
+    )
+    asaas = _RecoveryAsaas(
+        payment_payloads={"pay_rec_1": remote_payload}
+    )
+    client, db = _client(
+        app,
+        planos=[],
+        asaas=asaas,
+        subscription=sub,
+        operations=[recovery_op],
+        igreja_status="inadimplente",
+    )
+
+    resp = client.get("/subscription", headers=_AUTH)
+
+    assert resp.status_code == 200
+    assert resp.json()["recoveryRequired"] is True
+    assert resp.json()["recoveryInvoiceUrl"] is None
+    assert recovery_op.status == "reversed"
+    reopened = [
+        op
+        for op in db.added
+        if isinstance(op, BillingPaymentOperation)
+        and op.purpose == "monthly_recovery"
+    ]
+    assert len(reopened) == 1
+    assert reopened[0].status == "prepared"
+    assert reopened[0].source_payment_id == "pay_m2"
+    assert asaas.calls == [
+        ("get_payment", "pay_m2"),
+        ("get_payment", "pay_rec_1"),
+    ]
+
+
 def test_get_subscription_keeps_older_recovery_visible_as_a_real_debt(app) -> None:
     # A recuperação do ciclo A ficou aberta enquanto a assinatura avançou para
     # B. Ela não quita B, mas continua sendo uma dívida real e uma barreira de
