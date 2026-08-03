@@ -1,5 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+const PUBLIC_LEGAL_PATHS = new Set(["/privacidade", "/termos"]);
+
 /**
  * Roteia as três superfícies por subdomínio (mesmo deployment):
  *
@@ -19,6 +21,12 @@ export function middleware(req: NextRequest) {
   const rawHost = req.headers.get("host") ?? "";
   const host = (rawHost.split(":")[0] ?? "").toLowerCase();
   const { pathname } = req.nextUrl;
+
+  // Documentos públicos existem na raiz em todas as três superfícies. Sem
+  // esta exceção, admin./painel. reescreveriam para rotas inexistentes.
+  if (PUBLIC_LEGAL_PATHS.has(pathname)) {
+    return NextResponse.next();
+  }
 
   // painel.<dominio>/… → serve o console master (rota interna /admin) na raiz.
   if (host.startsWith("painel.") && !pathname.startsWith("/admin")) {
