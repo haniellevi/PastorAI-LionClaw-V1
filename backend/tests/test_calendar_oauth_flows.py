@@ -100,6 +100,8 @@ def test_purge_removes_expired_flows() -> None:
     assert purge_expired_flows(session, now=_NOW) == 3
     where_sql = str(session.executed[0].whereclause)
     assert "calendar_oauth_flows.expires_at" in where_sql
+    assert "calendar_oauth_flows.consumed_at" in where_sql
+    assert "calendar_oauth_flows.finish_result" in where_sql
 
 
 def test_purge_leaves_live_flows() -> None:

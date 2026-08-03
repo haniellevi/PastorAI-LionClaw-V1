@@ -17,7 +17,7 @@ import datetime as dt
 import hashlib
 import secrets
 
-from sqlalchemy import delete
+from sqlalchemy import delete, or_
 from sqlalchemy.orm import Session
 
 from app.db.models import CalendarOAuthFlow
@@ -27,6 +27,12 @@ from app.db.models import CalendarOAuthFlow
 _SECRET_BYTES = 32
 # RFC 7636 §4.1 exige verifier entre 43 e 128 chars; 64 bytes url-safe dá 86.
 _VERIFIER_BYTES = 64
+# O ``finish`` faz até três chamadas externas de 15 s (token, userinfo e probe
+# da agenda) depois de consumir o fluxo. O cron não pode apagar a linha nesse
+# intervalo: o commit final precisa gravar o resultado durável. Cinco minutos
+# dão margem ampla para essas chamadas e ainda limitam a retenção de um finish
+# interrompido, cujos segredos já foram anulados em ``_burn``.
+_IN_FLIGHT_FINISH_GRACE = dt.timedelta(minutes=5)
 
 
 def new_secret() -> str:
@@ -57,11 +63,25 @@ def purge_expired_flows(session: Session, *, now: dt.datetime) -> int:
     """Apaga fluxos OAuth expirados e devolve o rowcount.
 
     NÃO faz commit: a transação pertence ao chamador. Idempotente — rodar de
-    novo sobre o mesmo estado remove zero linhas. O DELETE leva junto
-    ``verifier_encrypted`` e ``code_encrypted``, então não há passe separado de
-    anulação de segredos.
+    novo sobre o mesmo estado remove zero linhas. Um flow já consumido cujo
+    ``finish_result`` ainda é NULL está em processamento: ele sobrevive por uma
+    janela curta depois do TTL para que o ``finish`` termine de gravar seu
+    resultado. Após essa janela, um request interrompido volta a ser coletável.
+    O DELETE leva junto ``verifier_encrypted`` e ``code_encrypted``, então não
+    há passe separado de anulação de segredos.
     """
+    stale_in_flight_before = now - _IN_FLIGHT_FINISH_GRACE
     result = session.execute(
-        delete(CalendarOAuthFlow).where(CalendarOAuthFlow.expires_at <= now)
+        delete(CalendarOAuthFlow).where(
+            CalendarOAuthFlow.expires_at <= now,
+            or_(
+                # Nunca foi consumido, ou já terminou: o TTL normal vale.
+                CalendarOAuthFlow.consumed_at.is_(None),
+                CalendarOAuthFlow.finish_result.is_not(None),
+                # Consumo sem resultado é finish em voo (ou crash). Retém só a
+                # margem necessária para as chamadas externas, nunca para sempre.
+                CalendarOAuthFlow.consumed_at <= stale_in_flight_before,
+            ),
+        )
     )
     return result.rowcount or 0

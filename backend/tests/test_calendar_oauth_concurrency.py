@@ -23,7 +23,11 @@ from app.config import get_settings
 from app.db.models import AppUser, Base, CalendarOAuthFlow, CalendarSync, Igreja
 from app.deps import CurrentUser
 from app.routers.calendar import FinishRequest, callback, finish_connection
-from app.services.calendar_oauth_flows import hash_secret
+from app.services.calendar_oauth_flows import (
+    _IN_FLIGHT_FINISH_GRACE,
+    hash_secret,
+    purge_expired_flows,
+)
 from app.services.google_oauth import GoogleIdentity, OAuthTokens
 from tests.conftest_rls import rls_database_url  # noqa: F401 - fixture do pytest
 
@@ -111,6 +115,8 @@ def _seed(
     crypto,
     *,
     code: str | None,
+    expires_at: dt.datetime | None = None,
+    consumed_at: dt.datetime | None = None,
 ) -> None:
     session = factory()
     try:
@@ -138,8 +144,9 @@ def _seed(
                 expected_email=_EMAIL,
                 verifier_encrypted=crypto.encrypt_secret("verifier"),
                 code_encrypted=crypto.encrypt_secret(code) if code else None,
-                expires_at=dt.datetime.now(dt.timezone.utc)
-                + dt.timedelta(minutes=10),
+                expires_at=expires_at
+                or (dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=10)),
+                consumed_at=consumed_at,
             )
         )
         session.commit()
@@ -294,3 +301,77 @@ def test_concurrent_finish_exchanges_once_and_replay_is_processing(
     assert response.status_code == 200
     assert replay.status == "conectado"
     assert oauth.exchanges == 1
+
+
+def test_expiry_purge_keeps_an_inflight_finish_until_it_commits(
+    engine_fx: Engine, crypto_enabled
+) -> None:
+    """O cron não pode apagar a linha entre `_burn` e o commit final do finish."""
+    factory = _factory(engine_fx)
+    _seed(factory, crypto_enabled, code="code-pronto")
+    oauth = _BlockingOAuth()
+    outcomes: dict[str, tuple[int, str]] = {}
+    errors: dict[str, Exception] = {}
+
+    def worker() -> None:
+        session = factory()
+        response = Response()
+        try:
+            result = finish_connection(
+                FinishRequest(flowSecret=_FLOW_SECRET),
+                response=response,
+                db=session,
+                current_user=_user(),
+                oauth=oauth,
+            )
+            outcomes["finish"] = (response.status_code, result.status)
+        except Exception as exc:  # prova que o purge não causa StaleDataError
+            errors["finish"] = exc
+        finally:
+            session.close()
+
+    finish = threading.Thread(target=worker)
+    finish.start()
+    assert oauth.entered.wait(timeout=20), "finish não chegou à troca OAuth"
+
+    try:
+        # `_burn` já commitou e soltou a linha. Simula o relógio ultrapassando o
+        # TTL durante a chamada ao Google, exatamente a janela do finding.
+        with factory() as session:
+            flow = session.execute(select(CalendarOAuthFlow)).scalar_one()
+            flow.expires_at = dt.datetime.now(dt.timezone.utc) - dt.timedelta(seconds=1)
+            session.commit()
+
+        with factory() as session:
+            assert purge_expired_flows(session, now=dt.datetime.now(dt.timezone.utc)) == 0
+            session.commit()
+            assert session.execute(select(CalendarOAuthFlow)).scalar_one().finish_result is None
+    finally:
+        oauth.release.set()
+        finish.join(timeout=20)
+
+    assert not finish.is_alive()
+    assert errors == {}
+    assert outcomes["finish"] == (200, "conectado")
+
+
+def test_expiry_purge_collects_an_abandoned_inflight_finish_after_grace(
+    engine_fx: Engine, crypto_enabled
+) -> None:
+    """A proteção é limitada: crash após `_burn` não retém a linha para sempre."""
+    factory = _factory(engine_fx)
+    now = dt.datetime.now(dt.timezone.utc)
+    _seed(
+        factory,
+        crypto_enabled,
+        code=None,
+        expires_at=now - dt.timedelta(seconds=1),
+        consumed_at=now - _IN_FLIGHT_FINISH_GRACE - dt.timedelta(seconds=1),
+    )
+
+    with factory() as session:
+        assert purge_expired_flows(session, now=now) == 1
+        session.commit()
+
+    with factory() as session:
+        assert session.execute(select(CalendarOAuthFlow)).scalar_one_or_none() is None
