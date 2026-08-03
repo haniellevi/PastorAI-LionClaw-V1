@@ -160,7 +160,7 @@ class SubscriptionOut(BaseModel):
 
 class CheckoutRequest(BaseModel):
     plano: str
-    cpfCnpj: str = Field(max_length=20)  # noqa: N815
+    cpfCnpj: str | None = Field(default=None, max_length=20)  # noqa: N815
 
     @field_validator("plano")
     @classmethod
@@ -174,7 +174,11 @@ class CheckoutRequest(BaseModel):
 
     @field_validator("cpfCnpj")
     @classmethod
-    def _cpf_cnpj(cls, value: str) -> str:
+    def _cpf_cnpj(cls, value: str | None) -> str | None:
+        # Retomar uma assinatura já rastreada só consulta a cobrança corrente;
+        # o documento é obrigatório apenas quando um checkout novo pode nascer.
+        if value is None:
+            return None
         digits = re.sub(r"\D", "", value)
         if len(digits) == 11 and _cpf_is_valid(digits):
             return digits
@@ -834,6 +838,11 @@ def create_checkout(
         select(Subscription).where(Subscription.igreja_id == igreja_uuid)
     ).scalar_one_or_none()
     if sub is None:
+        if payload.cpfCnpj is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="CPF ou CNPJ obrigatório para iniciar o checkout",
+            )
         sub = Subscription(igreja_id=igreja_uuid, plano=payload.plano)
         db.add(sub)
         # Persistida JÁ: a intenção durável de criação referencia sub.id
@@ -880,6 +889,12 @@ def create_checkout(
         )
         return _adopt_open_subscription_intent(
             db, sub, asaas, aberta, frozen_setup
+        )
+
+    if payload.cpfCnpj is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="CPF ou CNPJ obrigatório para iniciar o checkout",
         )
 
     # Contratação realmente NOVA (inclui uma intenção `prepared`, que
@@ -934,6 +949,28 @@ def create_checkout(
 
     customer_persist_failed = False
 
+    def _apply_created_subscription(
+        customer_id: str, subscription_id: str, incoming_status: str
+    ) -> None:
+        # Mesma ordem de locks do webhook de criação: operação antes da
+        # Subscription. Se o webhook venceu a callback, refresh traz o estado
+        # autoritativo e evita rebaixá-lo para o snapshot provisório do POST.
+        db.refresh(op, with_for_update=True)
+        db.refresh(sub, with_for_update=True)
+        preserve_payment_status = (
+            sub.asaas_subscription_id == subscription_id
+            and sub.status in ("ativa", "inadimplente")
+        )
+        sub.plano = payload.plano
+        sub.limite = plano_row.limite_pessoas
+        if not preserve_payment_status:
+            sub.status = incoming_status
+        sub.asaas_customer_id = customer_id
+        sub.asaas_subscription_id = subscription_id
+        op.status = "created"
+        op.asaas_subscription_id = subscription_id
+        op.attempt_started_at = None
+
     def _persist_resolved_customer(customer_id: str) -> None:
         nonlocal customer_persist_failed
         # Chamado ANTES do POST /subscriptions: com o customer persistido,
@@ -965,14 +1002,7 @@ def create_checkout(
         # retomaria em vez de duplicar. ATÔMICO: Subscription e operação
         # fecham no MESMO commit (um crash antes dele deixa a operação aberta
         # e o retry reconcilia; nunca nasce uma segunda intenção).
-        sub.plano = payload.plano
-        sub.limite = plano_row.limite_pessoas
-        sub.status = "pendente"
-        sub.asaas_customer_id = customer_id
-        sub.asaas_subscription_id = subscription_id
-        op.status = "created"
-        op.asaas_subscription_id = subscription_id
-        op.attempt_started_at = None
+        _apply_created_subscription(customer_id, subscription_id, "pendente")
         db.commit()
 
     try:
@@ -1028,11 +1058,11 @@ def create_checkout(
             db, op, "creating", "prepared", attempt_started_at=None
         )
 
-    sub.plano = payload.plano
-    sub.limite = plano_row.limite_pessoas
-    sub.status = result.status
-    sub.asaas_customer_id = result.customer_id
-    sub.asaas_subscription_id = result.subscription_id
+    # O webhook também pode chegar entre a callback acima e o retorno final do
+    # cliente; relê sob os mesmos locks antes de aplicar o snapshot do POST.
+    _apply_created_subscription(
+        result.customer_id, result.subscription_id, result.status
+    )
     # Persist the payment links so the pending screen survives a reload —
     # they otherwise existed only in the checkout HTTP response.
     sub.asaas_invoice_url = result.invoice_url
@@ -1059,7 +1089,7 @@ def create_checkout(
             ) from exc
 
     return CheckoutResponse(
-        status=result.status,
+        status=sub.status or result.status,
         invoiceUrl=result.invoice_url,
         setupInvoiceUrl=sub.asaas_setup_invoice_url if not sub.setup_pago else None,
         asaasSubscriptionId=result.subscription_id,

@@ -207,6 +207,28 @@ export function AssinaturaScreen() {
     [token, checkoutPlan, cpfCnpj, flashToast, load, handleSessionError],
   );
 
+  const resumeTrackedCheckout = useCallback(
+    async (plano: PlanCode) => {
+      if (!token || checkoutPlan) return;
+      setCheckoutPlan(plano);
+      try {
+        const result = await createCheckout(token, { plano });
+        setCheckoutLinks({ monthly: result.invoiceUrl, setup: result.setupInvoiceUrl });
+        flashToast({ kind: "ok", text: "Cobrança atualizada — use o link de pagamento." });
+        await load("retry");
+      } catch (err) {
+        if (handleSessionError(err)) return;
+        flashToast({
+          kind: "err",
+          text: err instanceof ApiError ? err.message : "Não foi possível atualizar a cobrança.",
+        });
+      } finally {
+        setCheckoutPlan(null);
+      }
+    },
+    [token, checkoutPlan, flashToast, load, handleSessionError],
+  );
+
   // Recuperação da mensalidade REVERTIDA: ação específica do backend
   // (restore/cobrança avulsa) — nunca o checkout genérico, que criaria outra
   // assinatura recorrente no Asaas.
@@ -402,7 +424,7 @@ export function AssinaturaScreen() {
             <button
               type="button"
               className="btn btn-sm btn-primary"
-              onClick={() => void contract(sub.plano)}
+              onClick={() => void resumeTrackedCheckout(sub.plano)}
               disabled={checkoutPlan != null}
               aria-busy={checkoutPlan != null || undefined}
             >
@@ -444,9 +466,9 @@ export function AssinaturaScreen() {
       ) : null}
 
       {/* Documento SÓ quando um checkout real pode acontecer: contratação
-          inicial ou regularização sem link. Troca de plano de assinante
-          atualiza a assinatura existente e NÃO pede CPF/CNPJ. */}
-      {!showSkeleton && (sub === null || placeholder || uiState === "past-due") ? (
+          inicial ou retomada de um placeholder não rastreado. Assinatura já
+          rastreada e troca de plano não pedem CPF/CNPJ. */}
+      {!showSkeleton && (sub === null || placeholder) ? (
         <div className="card card-pad" style={{ marginBottom: "var(--s4)" }}>
           <div className="field" style={{ margin: 0, maxWidth: 360 }}>
             <label htmlFor="subscription-cpf-cnpj">CPF ou CNPJ do responsável financeiro</label>

@@ -511,7 +511,13 @@ describe("AssinaturaScreen — links do checkout", () => {
     await flush();
   });
 
-  it("inadimplente sem link: o fallback continua sendo o botão de regularização", async () => {
+  it("inadimplente sem link retoma a fatura rastreada sem exigir documento", async () => {
+    createCheckout.mockResolvedValue({
+      status: "inadimplente",
+      invoiceUrl: "https://asaas.test/m2-recuperada",
+      setupInvoiceUrl: null,
+      asaasSubscriptionId: "sub_asaas_1",
+    });
     fetchSubscription.mockResolvedValue({
       plano: "ate_100",
       status: "inadimplente",
@@ -532,7 +538,14 @@ describe("AssinaturaScreen — links do checkout", () => {
       button.textContent?.includes("Regularizar pagamento"),
     );
     expect(botaoRegularizar).toBeDefined();
-    expect(createCheckout).not.toHaveBeenCalled();
+    expect(container.querySelector("#subscription-cpf-cnpj")).toBeNull();
+
+    act(() => botaoRegularizar!.click());
+    await flush();
+
+    expect(createCheckout).toHaveBeenCalledWith("tenant-token", {
+      plano: "ate_100",
+    });
   });
 
   it("assinatura pendente sem links ainda mostra o painel com o aviso do Asaas", async () => {

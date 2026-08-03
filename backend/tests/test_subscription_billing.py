@@ -544,6 +544,62 @@ def test_checkout_persists_tracking_even_when_client_fails_after_creation(app) -
     assert db.commits >= 1  # rastreio comitado apesar do 502
 
 
+def test_creation_callback_preserves_confirmation_that_arrived_first(app) -> None:
+    # O webhook confirma a cobrança entre o POST remoto e a callback local.
+    # A callback relê sob lock e não pode rebaixar o estado autoritativo.
+    client, db = _client(app, planos=[_plano()], asaas=_TrackingFailAsaas())
+
+    def webhook_won(obj, with_for_update) -> None:
+        if isinstance(obj, Subscription):
+            obj.asaas_subscription_id = "sub_1"
+            obj.status = "ativa"
+
+    db.refresh_callback = webhook_won
+    resp = client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    )
+
+    assert resp.status_code == 502  # processo parou depois da callback
+    tracked = next(o for o in db.added if isinstance(o, Subscription))
+    assert tracked.status == "ativa"
+    assert tracked.asaas_subscription_id == "sub_1"
+    assert any(obj is tracked and lock is True for obj, lock in db.refresh_calls)
+
+
+class _WebhookAfterCallbackAsaas:
+    """Simula confirmação entre a callback de rastreio e o retorno final."""
+
+    def __init__(self) -> None:
+        self.db = None
+
+    def create_checkout(self, **kwargs):
+        kwargs["on_subscription_created"]("cus_1", "sub_1")
+        tracked = next(o for o in self.db.added if isinstance(o, Subscription))
+        tracked.status = "ativa"
+        return CheckoutResult(
+            customer_id="cus_1",
+            subscription_id="sub_1",
+            invoice_url="https://asaas.test/m1",
+            status="pendente",
+            invoice_payment_id="pay_m1",
+        )
+
+
+def test_checkout_result_preserves_confirmation_after_creation_callback(app) -> None:
+    asaas = _WebhookAfterCallbackAsaas()
+    client, db = _client(app, planos=[_plano()], asaas=asaas)
+    asaas.db = db
+
+    resp = client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    )
+
+    assert resp.status_code == 200
+    tracked = next(o for o in db.added if isinstance(o, Subscription))
+    assert tracked.status == "ativa"
+    assert resp.json()["status"] == "ativa"
+
+
 def test_retry_resumes_pending_checkout_without_new_subscription(app) -> None:
     # Retry do MESMO plano com assinatura já vinculada: recupera fatura e cria
     # só a cobrança de setup que faltava — nenhum novo POST /subscriptions.
@@ -1288,6 +1344,34 @@ def test_same_plan_any_status_never_posts_subscription(app, sub_status) -> None:
 
     assert resp.status_code == 200
     assert asaas.calls[0] == ("get_subscription_payment", "sub_asaas_1")
+
+
+def test_same_tracked_plan_resumes_without_billing_document(app) -> None:
+    asaas = _ResumeAsaas(
+        payment={"id": "pay_m2", "invoiceUrl": "https://asaas.test/m2"}
+    )
+    sub = _subscription(status="inadimplente", setup_pago=True)
+    client, _db = _client(app, planos=[_plano()], asaas=asaas, subscription=sub)
+
+    resp = client.post(
+        "/subscription", json={"plano": "ate_100"}, headers=_AUTH
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["invoiceUrl"] == "https://asaas.test/m2"
+    assert asaas.calls[0] == ("get_subscription_payment", "sub_asaas_1")
+
+
+def test_new_checkout_without_billing_document_is_rejected_before_mutation(app) -> None:
+    client, db = _client(app, planos=[_plano()], asaas=_NoCallAsaas())
+
+    resp = client.post(
+        "/subscription", json={"plano": "ate_100"}, headers=_AUTH
+    )
+
+    assert resp.status_code == 422
+    assert "CPF ou CNPJ" in resp.json()["detail"]
+    assert not [o for o in db.added if isinstance(o, Subscription)]
 
 
 class _ChangePlanAsaas:

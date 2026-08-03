@@ -160,11 +160,11 @@ export async function fetchSubscription(token: string): Promise<Subscription> {
 
 export async function createCheckout(
   token: string,
-  payload: { plano: PlanCode; cpfCnpj: string },
+  payload: { plano: PlanCode; cpfCnpj?: string },
 ): Promise<CheckoutResult> {
   const res = await authedFetch(token, "/subscription", {
     method: "POST",
-    body: JSON.stringify({ plano: payload.plano, cpfCnpj: payload.cpfCnpj }),
+    body: JSON.stringify(payload),
   });
   if (!res.ok) {
     const detail = await readDetail(res);
