@@ -215,7 +215,7 @@ class AsaasClient:
                 if on_subscription_created is not None:
                     on_subscription_created(customer_id, subscription_id)
                 try:
-                    monthly_payment = self._first_subscription_payment(
+                    monthly_payment = self._latest_subscription_payment(
                         client, headers, subscription_id=subscription_id
                     )
                 except (httpx.HTTPError, ValueError, KeyError):
@@ -260,7 +260,7 @@ class AsaasClient:
         )
 
     def get_subscription_payment(self, subscription_id: str) -> dict | None:
-        """Current/first payment payload of an existing subscription.
+        """Most recent payment payload of an existing subscription.
 
         Read-only (never creates charges): used by checkout resume and link
         recovery. Returns None when Asaas has not generated the payment yet or
@@ -273,7 +273,7 @@ class AsaasClient:
         headers = self._headers(api_key)
         try:
             with httpx.Client(base_url=base_url, timeout=20.0) as client:
-                return self._first_subscription_payment(
+                return self._latest_subscription_payment(
                     client, headers, subscription_id=subscription_id
                 )
         except httpx.HTTPError as exc:
@@ -571,26 +571,49 @@ class AsaasClient:
         resp.raise_for_status()
         return resp.json()
 
-    def _first_subscription_payment(
+    def _latest_subscription_payment(
         self,
         client: httpx.Client,
         headers: dict[str, str],
         *,
         subscription_id: str,
     ) -> dict | None:
-        """Return the first generated payment for a new subscription, if ready."""
-        resp = client.get(
-            f"/subscriptions/{subscription_id}/payments",
-            headers=headers,
-            params={"limit": 1},
-        )
-        resp.raise_for_status()
-        body = resp.json()
-        payments = body.get("data") if isinstance(body, dict) else None
-        if not isinstance(payments, list) or not payments:
-            return None
-        payment = payments[0]
-        return payment if isinstance(payment, dict) else None
+        """Return the newest generated payment, scanning every Asaas page.
+
+        The endpoint is paginated and does not promise that ``data[0]`` is the
+        current billing cycle.  Checkout resume therefore orders the complete
+        result locally by due date (then creation date/id as deterministic
+        tie-breakers) instead of accidentally reviving the first settled bill.
+        """
+        offset = 0
+        latest: dict | None = None
+        latest_key: tuple[str, str, str] | None = None
+        while True:
+            resp = client.get(
+                f"/subscriptions/{subscription_id}/payments",
+                headers=headers,
+                params={"limit": 100, "offset": offset},
+            )
+            resp.raise_for_status()
+            body = resp.json()
+            payments = body.get("data") if isinstance(body, dict) else None
+            if not isinstance(payments, list) or not payments:
+                break
+            for payment in payments:
+                if not isinstance(payment, dict):
+                    continue
+                key = (
+                    str(payment.get("dueDate") or ""),
+                    str(payment.get("dateCreated") or ""),
+                    str(payment.get("id") or ""),
+                )
+                if latest_key is None or key > latest_key:
+                    latest = payment
+                    latest_key = key
+            if not bool(body.get("hasMore")):
+                break
+            offset += len(payments)
+        return latest
 
     def _create_one_time_charge(
         self,

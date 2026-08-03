@@ -154,6 +154,7 @@ class FakeSession:
         """
         entity = statement.entity_description.get("entity")
         pools = {
+            Igreja: [self.igreja] if self.igreja is not None else [],
             BillingPaymentOperation: self.operations,
             BillingPlanChangeOperation: self.plan_changes,
             BillingSubscriptionOperation: self.subscription_ops,
@@ -184,7 +185,7 @@ class FakeSession:
         for obj in pool:
             if where_id is not None and str(obj.id) != str(where_id):
                 continue
-            if where_statuses and obj.status not in where_statuses:
+            if where_statuses and getattr(obj, "status", None) not in where_statuses:
                 continue
             for key, value in set_values.items():
                 setattr(obj, key, value)

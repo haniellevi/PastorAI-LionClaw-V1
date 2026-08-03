@@ -174,7 +174,7 @@ def test_checkout_survives_invoice_lookup_failure_after_subscription_created(
     def _boom(self, *a, **k):
         raise httpx.ConnectTimeout("timeout")
 
-    monkeypatch.setattr(AsaasClient, "_first_subscription_payment", _boom)
+    monkeypatch.setattr(AsaasClient, "_latest_subscription_payment", _boom)
 
     result = client.create_checkout(
         nome="Igreja Teste",
@@ -190,6 +190,56 @@ def test_checkout_survives_invoice_lookup_failure_after_subscription_created(
     assert result.invoice_url is None
     assert result.invoice_payment_id is None
     assert result.status == "pendente"
+
+
+def test_subscription_payment_lookup_returns_newest_cycle_across_pages() -> None:
+    calls: list[dict] = []
+    pages = {
+        0: {
+            "data": [
+                {"id": "pay_old", "dueDate": "2026-06-30", "status": "RECEIVED"},
+                {"id": "pay_current", "dueDate": "2026-08-31", "status": "OVERDUE"},
+            ],
+            "hasMore": True,
+        },
+        2: {
+            "data": [
+                {"id": "pay_middle", "dueDate": "2026-07-31", "status": "RECEIVED"}
+            ],
+            "hasMore": False,
+        },
+    }
+
+    class _Response:
+        def __init__(self, body: dict) -> None:
+            self._body = body
+
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self) -> dict:
+            return self._body
+
+    class _Client:
+        def get(self, path: str, *, headers: dict, params: dict) -> _Response:
+            calls.append({"path": path, "headers": headers, "params": params})
+            return _Response(pages[params["offset"]])
+
+    payment = AsaasClient()._latest_subscription_payment(
+        _Client(),
+        {"access_token": "test"},
+        subscription_id="sub_1",
+    )
+
+    assert payment == {
+        "id": "pay_current",
+        "dueDate": "2026-08-31",
+        "status": "OVERDUE",
+    }
+    assert [call["params"] for call in calls] == [
+        {"limit": 100, "offset": 0},
+        {"limit": 100, "offset": 2},
+    ]
 
 
 def test_payment_invoice_url_extraction() -> None:

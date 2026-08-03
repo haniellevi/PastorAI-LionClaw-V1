@@ -665,22 +665,64 @@ def _resume_tracked_checkout(
     leitura (best-effort) e garante a cobrança de setup via operação durável.
     """
     try:
+        # A consulta paginada seleciona explicitamente o ciclo mais novo. Isso
+        # também cobre um webhook PAYMENT_CREATED perdido: o id local pode
+        # ainda apontar para a mensalidade anterior já quitada.
         payment = asaas.get_subscription_payment(sub.asaas_subscription_id)
     except AsaasError:
-        payment = None  # GET /subscription recupera o link depois
+        payment = None
+    if payment is None and sub.asaas_invoice_payment_id:
+        try:
+            # Fallback exato: se a listagem estiver temporariamente vazia mas
+            # já há um id rastreado, ainda é possível recuperar seu snapshot.
+            payment = asaas.get_payment(sub.asaas_invoice_payment_id)
+        except AsaasError:
+            payment = None  # GET /subscription recupera o link depois
     if payment and payment.get("id"):
         incoming_id = str(payment["id"])
-        url = payment_invoice_url(payment)
-        # Não ressuscita o link de uma cobrança revertida: só adota quando é
-        # outra cobrança ou quando não há reversão pendente.
-        if incoming_id != sub.asaas_invoice_payment_id or not sub.asaas_invoice_reversal:
-            sub.asaas_invoice_payment_id = incoming_id
-            if url:
-                sub.asaas_invoice_url = url
-                sub.asaas_invoice_reversal = None
-            due = _parse_iso_date(payment.get("dueDate"))
-            if due is not None:
-                sub.proxima_cobranca = due
+        new_status = map_payment_status(payment.get("status"))
+        reversal = payment_reversal_kind(payment.get("status"))
+        open_recovery = find_any_open_operation(db, sub.id, "monthly_recovery")
+        blocked_by_unresolved_reversal = bool(
+            sub.asaas_invoice_reversal
+            and (
+                (incoming_id == sub.asaas_invoice_payment_id and reversal is None)
+                or (incoming_id != sub.asaas_invoice_payment_id and open_recovery is None)
+            )
+        )
+        if (
+            not blocked_by_unresolved_reversal
+            and not _is_stale_cycle_event(sub, payment)
+            and not (
+                reversal
+                and find_settled_recovery(db, sub.id, incoming_id) is not None
+            )
+        ):
+            _apply_monthly_payment_link(sub, payment, reversal=reversal)
+            if new_status is not None:
+                sub.status = new_status
+            if new_status is not None and reversal:
+                staged = _stage_monthly_recovery(
+                    db, sub, payment, incoming_id
+                )
+                if staged is not None:
+                    open_recovery = staged
+            if new_status == "ativa":
+                if sub.asaas_invoice_reversal is None and open_recovery is None:
+                    db.execute(
+                        update(Igreja)
+                        .where(
+                            Igreja.id == sub.igreja_id,
+                            Igreja.status == "inadimplente",
+                        )
+                        .values(status="ativa")
+                    )
+            elif new_status == "inadimplente":
+                db.execute(
+                    update(Igreja)
+                    .where(Igreja.id == sub.igreja_id, Igreja.status == "ativa")
+                    .values(status="inadimplente")
+                )
 
     try:
         _ensure_setup_charge(db, sub, asaas, setup_fee)
@@ -1045,7 +1087,7 @@ def _monthly_recovery_amount(sub: Subscription, asaas: AsaasClient) -> float:
     )
 
 
-def _stage_monthly_recovery_from_webhook(
+def _stage_monthly_recovery(
     db: Session, sub: Subscription, payment: dict, payment_id: str
 ) -> BillingPaymentOperation | None:
     """Persiste a dívida da fatura revertida sem chamar o Asaas.
@@ -1625,7 +1667,7 @@ def asaas_webhook(
                     "paid recovery; acknowledged"
                 )
                 return WebhookResponse(received=True, status=None)
-            staged = _stage_monthly_recovery_from_webhook(
+            staged = _stage_monthly_recovery(
                 db, sub, payment, payment_id
             )
             if staged is not None:
@@ -1661,7 +1703,7 @@ def asaas_webhook(
         if payment:
             _apply_monthly_payment_link(sub, payment, reversal=reversal)
             if reversal and payment_id:
-                staged = _stage_monthly_recovery_from_webhook(
+                staged = _stage_monthly_recovery(
                     db, sub, payment, payment_id
                 )
                 if staged is not None:

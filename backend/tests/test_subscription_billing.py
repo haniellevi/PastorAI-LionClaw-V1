@@ -147,6 +147,7 @@ def _client(
     igreja = SimpleNamespace(
         id=make_app_user().igreja_id,
         setup_fee_override=setup_fee_override,
+        status="ativa",
     )
     db = FakeSession(
         app_user=make_app_user(),
@@ -501,9 +502,10 @@ class _TrackingFailAsaas:
 class _ResumeAsaas:
     """Fake do caminho de RETOMADA: proíbe recriar a assinatura."""
 
-    def __init__(self, *, payment=None, charge=None) -> None:
+    def __init__(self, *, payment=None, exact_payment=None, charge=None) -> None:
         self.calls: list[tuple[str, str]] = []
         self._payment = payment
+        self._exact_payment = exact_payment
         self._charge = charge
 
     def create_checkout(self, **kwargs):  # pragma: no cover - defesa do teste
@@ -512,6 +514,10 @@ class _ResumeAsaas:
     def get_subscription_payment(self, subscription_id: str):
         self.calls.append(("get_subscription_payment", subscription_id))
         return self._payment
+
+    def get_payment(self, payment_id: str):
+        self.calls.append(("get_payment", payment_id))
+        return self._exact_payment
 
     def create_one_time_charge(self, **kwargs):
         self.calls.append(("create_one_time_charge", kwargs["customer_id"]))
@@ -611,6 +617,63 @@ def test_retry_does_not_duplicate_existing_setup_charge(app) -> None:
     # Só a leitura da fatura — nenhuma segunda cobrança de setup.
     assert asaas.calls == [("get_subscription_payment", "sub_asaas_1")]
     assert sub.asaas_setup_charge_id == "pay_setup_1"
+
+
+def test_retry_selects_current_payment_and_applies_confirmation(app) -> None:
+    asaas = _ResumeAsaas(
+        payment={
+            "id": "pay_current",
+            "invoiceUrl": "https://asaas.test/current",
+            "dueDate": "2026-08-31",
+            "status": "CONFIRMED",
+        },
+    )
+    sub = _subscription(
+        status="pendente",
+        setup_pago=True,
+        asaas_invoice_payment_id="pay_current",
+        asaas_invoice_url=None,
+    )
+    client, db = _client(app, planos=[_plano()], asaas=asaas, subscription=sub)
+    db.igreja.status = "inadimplente"
+
+    resp = client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ativa"
+    assert resp.json()["invoiceUrl"] == "https://asaas.test/current"
+    assert asaas.calls == [("get_subscription_payment", "sub_asaas_1")]
+    assert sub.status == "ativa"
+    assert sub.proxima_cobranca == dt.date(2026, 8, 31)
+    assert db.igreja.status == "ativa"
+
+
+def test_retry_applies_current_overdue_status_and_closes_gate(app) -> None:
+    asaas = _ResumeAsaas(
+        payment={
+            "id": "pay_current",
+            "invoiceUrl": "https://asaas.test/current",
+            "dueDate": "2026-08-31",
+            "status": "OVERDUE",
+        }
+    )
+    sub = _subscription(
+        status="pendente",
+        setup_pago=True,
+        asaas_invoice_payment_id="pay_current",
+    )
+    client, db = _client(app, planos=[_plano()], asaas=asaas, subscription=sub)
+
+    resp = client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "inadimplente"
+    assert sub.status == "inadimplente"
+    assert db.igreja.status == "inadimplente"
 
 
 def test_plan_change_still_creates_new_subscription(app) -> None:
