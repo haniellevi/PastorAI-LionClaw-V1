@@ -363,7 +363,7 @@ def test_new_contract_does_not_recharge_setup_already_paid(app) -> None:
 # perdeu, o backend o recupera pelos ids Asaas já armazenados, sem NUNCA criar
 # outra assinatura ou taxa de setup.
 # ---------------------------------------------------------------------------
-def test_get_subscription_returns_persisted_payment_links(app) -> None:
+def test_get_subscription_keeps_persisted_links_and_polls_tracked_setup(app) -> None:
     asaas = _RecoveryAsaas()
     sub = _subscription(
         asaas_invoice_url="https://asaas.test/monthly",
@@ -377,7 +377,9 @@ def test_get_subscription_returns_persisted_payment_links(app) -> None:
     body = resp.json()
     assert body["invoiceUrl"] == "https://asaas.test/monthly"
     assert body["setupInvoiceUrl"] == "https://asaas.test/setup"
-    assert asaas.calls == []  # nada a recuperar => nenhuma chamada externa
+    # Mensalidade com link não é consultada. Setup ainda não pago é consultado
+    # pelo id mesmo com link, para convergir confirmação/reversão sem webhook.
+    assert asaas.calls == [("get_payment", "pay_setup_1")]
 
 
 def test_get_subscription_exposes_the_setup_fee_frozen_at_checkout(app) -> None:
@@ -658,6 +660,59 @@ def test_get_subscription_applies_setup_refund_while_recovering_link(app) -> Non
     assert resp.json()["setupInvoiceUrl"] is None
     assert sub.asaas_setup_charge_id is None
     assert sub.asaas_setup_reversed_payment_id == "pay_setup_1"
+
+
+def test_get_subscription_polls_setup_confirmation_even_with_persisted_url(
+    app,
+) -> None:
+    asaas = _RecoveryAsaas(
+        setup_payment={
+            "id": "pay_setup_1",
+            "status": "CONFIRMED",
+            "invoiceUrl": "https://asaas.test/setup-paid",
+        }
+    )
+    sub = _subscription(
+        asaas_invoice_url="https://asaas.test/monthly",
+        setup_pago=False,
+        asaas_setup_charge_id="pay_setup_1",
+        asaas_setup_invoice_url="https://asaas.test/setup-stale",
+    )
+    client, _db = _client(app, planos=[], asaas=asaas, subscription=sub)
+
+    resp = client.get("/subscription", headers=_AUTH)
+
+    assert resp.status_code == 200
+    assert resp.json()["setupPago"] is True
+    assert resp.json()["setupInvoiceUrl"] is None
+    assert sub.setup_pago is True
+    assert asaas.calls == [("get_payment", "pay_setup_1")]
+
+
+def test_get_subscription_polls_setup_refund_even_with_persisted_url(app) -> None:
+    asaas = _RecoveryAsaas(
+        setup_payment={
+            "id": "pay_setup_1",
+            "status": "REFUNDED",
+            "invoiceUrl": "https://asaas.test/setup-dead",
+        }
+    )
+    sub = _subscription(
+        asaas_invoice_url="https://asaas.test/monthly",
+        setup_pago=False,
+        asaas_setup_charge_id="pay_setup_1",
+        asaas_setup_invoice_url="https://asaas.test/setup-stale",
+    )
+    client, _db = _client(app, planos=[], asaas=asaas, subscription=sub)
+
+    resp = client.get("/subscription", headers=_AUTH)
+
+    assert resp.status_code == 200
+    assert resp.json()["setupPago"] is False
+    assert resp.json()["setupInvoiceUrl"] is None
+    assert sub.asaas_setup_charge_id is None
+    assert sub.asaas_setup_reversed_payment_id == "pay_setup_1"
+    assert asaas.calls == [("get_payment", "pay_setup_1")]
 
 
 class _TrackingFailAsaas:
@@ -1337,6 +1392,61 @@ def test_recover_invoice_deleted_already_restored_skips_restore(app) -> None:
     assert resp.status_code == 200
     assert asaas.calls == [("get_payment", "pay_m2")]  # zero restore repetido
     assert sub.asaas_invoice_url == "https://asaas.test/m2-alive"
+
+
+def test_recover_deleted_preserves_refund_seen_after_restore(app) -> None:
+    asaas = _RestoreAsaas(
+        states=[
+            {"id": "pay_m2", "deleted": True},
+            {
+                "id": "pay_m2",
+                "deleted": False,
+                "status": "REFUNDED",
+                "invoiceUrl": "https://asaas.test/m2-dead",
+                "value": 199.0,
+            },
+        ]
+    )
+    sub = _subscription(
+        status="inadimplente",
+        setup_pago=True,
+        asaas_setup_charge_id=None,
+        asaas_invoice_payment_id="pay_m2",
+        asaas_invoice_url=None,
+        asaas_invoice_reversal="deleted",
+    )
+    staged = BillingPaymentOperation(
+        subscription_id=sub.id,
+        purpose="monthly_recovery",
+        operation_key="pastorai-monthly-recovery-refund-after-restore",
+        source_payment_id="pay_m2",
+        status="prepared",
+        valor=199.0,
+    )
+    client, db = _client(
+        app,
+        planos=[],
+        asaas=asaas,
+        subscription=sub,
+        operations=[staged],
+        igreja_status="inadimplente",
+    )
+
+    resp = client.post("/subscription/recover-invoice", headers=_AUTH)
+
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "inadimplente"
+    assert resp.json()["invoiceUrl"] is None
+    assert sub.asaas_invoice_reversal == "refunded"
+    assert sub.asaas_invoice_url is None
+    assert staged.status == "prepared"
+    assert staged.error is None
+    assert db.igreja.status == "inadimplente"
+    assert asaas.calls == [
+        ("get_payment", "pay_m2"),
+        ("restore_payment", "pay_m2"),
+        ("get_payment", "pay_m2"),
+    ]
 
 
 def test_recover_deleted_does_not_overwrite_a_newer_billing_cycle(app) -> None:

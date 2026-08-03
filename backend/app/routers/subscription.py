@@ -606,12 +606,12 @@ def _apply_recovered_setup_payment(
 def _recover_missing_invoice_urls(
     db: Session, sub: Subscription, asaas: AsaasClient
 ) -> None:
-    """Best-effort: re-resolve payment links lost before persistence existed.
+    """Best-effort: reconcile tracked payments and recover missing links.
 
     Only READS the Asaas API by the ids already stored on the subscription —
     never creates another subscription or setup charge. When Asaas has not
     generated the link yet (or is unavailable), the subscription read keeps
-    returning null links instead of failing the whole screen.
+    returning its last safe snapshot instead of failing the whole screen.
     """
     monthly_missing = (
         sub.status in ("pendente", "inadimplente")
@@ -622,12 +622,11 @@ def _recover_missing_invoice_urls(
         and sub.asaas_invoice_reversal is None
         and bool(sub.asaas_invoice_payment_id or sub.asaas_subscription_id)
     )
-    setup_missing = (
+    setup_tracked = (
         not sub.setup_pago
-        and sub.asaas_setup_invoice_url is None
         and bool(sub.asaas_setup_charge_id)
     )
-    if not monthly_missing and not setup_missing:
+    if not monthly_missing and not setup_tracked:
         return
 
     changed = False
@@ -646,14 +645,14 @@ def _recover_missing_invoice_urls(
                 changed = (
                     _apply_monthly_payment_snapshot(db, sub, payment) or changed
                 )
-        if setup_missing:
+        if setup_tracked:
             payment = asaas.get_payment(sub.asaas_setup_charge_id)
             if payment:
                 changed = (
                     _apply_recovered_setup_payment(db, sub, payment) or changed
                 )
     except AsaasError:
-        logger.warning("Asaas link recovery failed; keeping null links")
+        logger.warning("Asaas payment reconciliation failed; keeping snapshot")
     if changed:
         db.commit()
 
@@ -668,9 +667,9 @@ def get_subscription(
 
     Nenhuma notificação nem sincronização de autoupgrade acontece aqui — isso
     é papel do cron-worker (billing_worker.run_pending_plan_changes). A única
-    interação externa possível é a RECUPERAÇÃO read-only de um link de fatura
-    ausente pelos ids já rastreados; com os links persistidos presentes, esta
-    rota não faz nenhuma chamada externa.
+    interação externa possível é a leitura do payment já rastreado: recupera
+    link mensal ausente e reconcilia setup ainda marcado como não pago, sem
+    jamais criar cobrança ou assinatura.
     """
     # Sinal de observabilidade (PR1 / feat-004) ligado a este caminho HTTP de
     # amostra do seam: se a sessão marcada por get_current_user NÃO estiver
@@ -689,9 +688,8 @@ def get_subscription(
             detail="Assinatura não encontrada",
         )
 
-    # Cobrança pendente sem link persistido (checkout antigo ou Asaas ainda
-    # gerando a fatura): tenta recuperar pelos ids já armazenados, sem nunca
-    # criar cobrança nova. Falha do Asaas não derruba a leitura.
+    # Reconcilia somente ids já armazenados, sem nunca criar cobrança nova.
+    # Falha do Asaas não derruba a leitura.
     _recover_missing_invoice_urls(db, sub, asaas)
 
     # Cobrança avulsa de recuperação mensal emitida e em aberto: expõe o link
@@ -1383,7 +1381,29 @@ def recover_invoice(
         if open_recovery is not None:
             db.refresh(open_recovery, with_for_update=True)
         db.refresh(sub, with_for_update=True)
-        source_restored = current is not None and not current.get("deleted")
+        source_reversal = (
+            "deleted"
+            if current is not None and current.get("deleted")
+            else payment_reversal_kind(current.get("status"))
+            if current is not None
+            else None
+        )
+        source_status = (
+            map_payment_status(current.get("status"))
+            if current is not None and source_reversal is None
+            else None
+        )
+        source_restored = current is not None and source_status is not None
+        staged_reversal = False
+        if (
+            source_reversal is not None
+            and current is not None
+            and open_recovery is None
+        ):
+            open_recovery = _stage_monthly_recovery(
+                db, sub, current, source_payment_id
+            )
+            staged_reversal = open_recovery is not None
         if (
             source_restored
             and open_recovery is not None
@@ -1401,20 +1421,36 @@ def recover_invoice(
             str(sub.asaas_invoice_payment_id) != source_payment_id
             or sub.asaas_invoice_reversal != "deleted"
         ):
-            if source_restored and open_recovery is not None:
+            if (source_restored and open_recovery is not None) or staged_reversal:
                 db.commit()
             return RecoveryResponse(
                 status=sub.status or "pendente", invoiceUrl=sub.asaas_invoice_url
             )
 
+        if source_reversal is not None:
+            # `deleted=false` não significa cobrança viva: REFUNDED/DELETED no
+            # status continuam sendo reversões. Mantém a dívida e nunca expõe
+            # o link morto como regularização.
+            sub.status = "inadimplente"
+            sub.asaas_invoice_url = None
+            sub.asaas_invoice_reversal = source_reversal
+            db.execute(
+                update(Igreja)
+                .where(
+                    Igreja.id == sub.igreja_id,
+                    Igreja.status == "ativa",
+                )
+                .values(status="inadimplente")
+            )
+            db.commit()
+            return RecoveryResponse(status="inadimplente", invoiceUrl=None)
+
         if source_restored:
             sub.asaas_invoice_url = payment_invoice_url(current)
             sub.asaas_invoice_reversal = None
-            new_status = map_payment_status(current.get("status"))
-            if new_status is not None:
-                sub.status = new_status
+            sub.status = source_status
             if (
-                new_status == "ativa"
+                source_status == "ativa"
                 and find_any_open_operation(
                     db, sub.id, "monthly_recovery"
                 ) is None
