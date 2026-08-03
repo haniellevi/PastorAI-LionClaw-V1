@@ -967,6 +967,8 @@ def create_checkout(
         )
 
     setup_fee = float(op.setup_fee) if op.setup_fee is not None else setup_fee
+    checkout_value = float(op.valor)
+    checkout_limit = op.limite
 
     # prepared: claim ATÔMICO da transição — dois requests que adotaram a
     # mesma intenção nunca fazem dois POSTs.
@@ -997,7 +999,7 @@ def create_checkout(
             and sub.status in ("ativa", "inadimplente")
         )
         sub.plano = payload.plano
-        sub.limite = plano_row.limite_pessoas
+        sub.limite = checkout_limit
         if not preserve_payment_status:
             sub.status = incoming_status
         sub.asaas_customer_id = customer_id
@@ -1046,7 +1048,7 @@ def create_checkout(
             nome=current_user.nome,
             email=current_user.email,
             plano=payload.plano,
-            valor=float(plano_row.preco_mensal),
+            valor=checkout_value,
             cpf_cnpj=payload.cpfCnpj,
             external_reference=op.operation_key,
             on_customer_resolved=_persist_resolved_customer,

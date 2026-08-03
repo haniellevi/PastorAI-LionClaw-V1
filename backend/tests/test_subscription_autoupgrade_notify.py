@@ -32,6 +32,7 @@ from app.services.evolution import EvolutionError
 
 _IGREJA = uuid.UUID("00000000-0000-0000-0000-0000000000a1")
 _OTHER_IGREJA = uuid.UUID("00000000-0000-0000-0000-0000000000a2")
+_OPERATION_ID = uuid.UUID("00000000-0000-0000-0000-0000000000b1")
 
 
 class _FakeScalars:
@@ -222,8 +223,9 @@ def test_autoupgrade_event_name_matches_idempotency_marker_pattern() -> None:
     índice único parcial (agent_conversation_logs_idem_marker_uidx) — senão o
     INSERT do marcador não fica protegido pela constraint de banco."""
     for plano in ("ate_100", "ate_500", "comunidade", "plano-com-hifen"):
-        assert _autoupgrade_event_name(plano).startswith("subscription_upgrade:")
-        assert _autoupgrade_event_name(plano) == f"subscription_upgrade:{plano}"
+        event = _autoupgrade_event_name(plano, _OPERATION_ID)
+        assert event.startswith("subscription_upgrade:")
+        assert event == f"subscription_upgrade:{_OPERATION_ID}:{plano}"
 
 
 def test_first_call_notifies_and_reserves_marker() -> None:
@@ -235,11 +237,13 @@ def test_first_call_notifies_and_reserves_marker() -> None:
     )
     evo = FakeEvolution()
 
-    result = notify_autoupgrade(session, _IGREJA, evo)
+    result = notify_autoupgrade(
+        session, _IGREJA, evo, operation_id=_OPERATION_ID
+    )
 
     assert result == "sent"
     assert len(evo.sent) == 1
-    evento = _autoupgrade_event_name("comunidade")
+    evento = _autoupgrade_event_name("comunidade", _OPERATION_ID)
     assert (_IGREJA, evento) in session.reserved_markers
 
 
@@ -254,23 +258,33 @@ def test_retry_uses_frozen_target_in_message_and_markers() -> None:
     evo = FakeEvolution()
 
     result = notify_autoupgrade(
-        session, _IGREJA, evo, plano="101_200"
+        session,
+        _IGREJA,
+        evo,
+        plano="101_200",
+        operation_id=_OPERATION_ID,
     )
 
     assert result == "sent"
     assert "'101_200'" in evo.sent[0][2]
     assert "'acima_201'" not in evo.sent[0][2]
-    assert (_IGREJA, _autoupgrade_event_name("101_200")) in session.reserved_markers
     assert (
         _IGREJA,
-        _autoupgrade_sent_event_name("101_200"),
+        _autoupgrade_event_name("101_200", _OPERATION_ID),
     ) in session.reserved_markers
-    assert (_IGREJA, _autoupgrade_event_name("acima_201")) not in session.reserved_markers
+    assert (
+        _IGREJA,
+        _autoupgrade_sent_event_name("101_200", _OPERATION_ID),
+    ) in session.reserved_markers
+    assert (
+        _IGREJA,
+        _autoupgrade_event_name("acima_201", _OPERATION_ID),
+    ) not in session.reserved_markers
 
 
 def test_second_call_is_idempotent_no_resend() -> None:
     # Entrega COMPROVADA anteriormente = marcador :sent (não a mera reserva).
-    evento_sent = _autoupgrade_sent_event_name("comunidade")
+    evento_sent = _autoupgrade_sent_event_name("comunidade", _OPERATION_ID)
     admin = _admin(_IGREJA)
     session = FakeSubscriptionSession(
         subscription=Subscription(igreja_id=_IGREJA, plano="comunidade"),
@@ -280,17 +294,48 @@ def test_second_call_is_idempotent_no_resend() -> None:
     )
     evo = FakeEvolution()
 
-    result = notify_autoupgrade(session, _IGREJA, evo)
+    result = notify_autoupgrade(
+        session, _IGREJA, evo, operation_id=_OPERATION_ID
+    )
 
     assert result == "already"
     assert evo.sent == []
+
+
+def test_new_operation_to_the_same_plan_sends_a_new_notice() -> None:
+    admin = _admin(_IGREJA)
+    session = FakeSubscriptionSession(
+        subscription=Subscription(igreja_id=_IGREJA, plano="comunidade"),
+        connection=WhatsappConnection(igreja_id=_IGREJA, instance="igreja-1"),
+        **admin,
+    )
+    evo = FakeEvolution()
+    first_id = uuid.uuid4()
+    second_id = uuid.uuid4()
+
+    assert notify_autoupgrade(
+        session, _IGREJA, evo, plano="comunidade", operation_id=first_id
+    ) == "sent"
+    assert notify_autoupgrade(
+        session, _IGREJA, evo, plano="comunidade", operation_id=second_id
+    ) == "sent"
+
+    assert len(evo.sent) == 2
+    assert (
+        _IGREJA,
+        _autoupgrade_sent_event_name("comunidade", first_id),
+    ) in session.reserved_markers
+    assert (
+        _IGREJA,
+        _autoupgrade_sent_event_name("comunidade", second_id),
+    ) in session.reserved_markers
 
 
 def test_concurrent_reservation_loses_never_sends() -> None:
     """SEC-4: outro processo já reservou o MESMO marcador ANTES da checagem
     barata (SELECT) enxergar — a checagem não vê a corrida, a reserva atômica
     fecha o gap."""
-    evento = _autoupgrade_event_name("comunidade")
+    evento = _autoupgrade_event_name("comunidade", _OPERATION_ID)
     admin = _admin(_IGREJA)
     session = FakeSubscriptionSession(
         subscription=Subscription(igreja_id=_IGREJA, plano="comunidade"),
@@ -300,7 +345,9 @@ def test_concurrent_reservation_loses_never_sends() -> None:
     )
     evo = FakeEvolution()
 
-    result = notify_autoupgrade(session, _IGREJA, evo)
+    result = notify_autoupgrade(
+        session, _IGREJA, evo, operation_id=_OPERATION_ID
+    )
 
     # Reserva RECENTE sem entrega comprovada: outro processo pode estar
     # enviando AGORA — não envia, não conclui, não finge entrega.
@@ -319,7 +366,9 @@ def test_send_failure_releases_marker_for_retry() -> None:
     )
     evo = FakeEvolution(fail=True)
 
-    result = notify_autoupgrade(session, _IGREJA, evo)
+    result = notify_autoupgrade(
+        session, _IGREJA, evo, operation_id=_OPERATION_ID
+    )
 
     assert result == "retry"
     assert evo.sent == []
@@ -340,7 +389,9 @@ def test_notify_does_not_query_or_hold_transaction_during_send() -> None:
     )
     evo = FakeEvolution(event_log=session.event_log)
 
-    result = notify_autoupgrade(session, _IGREJA, evo)
+    result = notify_autoupgrade(
+        session, _IGREJA, evo, operation_id=_OPERATION_ID
+    )
 
     assert result == "sent"
     assert evo.sent  # o teste teria um event_log incompleto se nada tivesse enviado
@@ -363,7 +414,9 @@ def test_same_plano_different_igreja_both_notify() -> None:
         **admin_a,
     )
     evo_a = FakeEvolution()
-    assert notify_autoupgrade(session, _IGREJA, evo_a) == "sent"
+    assert notify_autoupgrade(
+        session, _IGREJA, evo_a, operation_id=_OPERATION_ID
+    ) == "sent"
 
     admin_b = _admin(_OTHER_IGREJA)
     session.subscription = Subscription(igreja_id=_OTHER_IGREJA, plano="comunidade")
@@ -372,10 +425,12 @@ def test_same_plano_different_igreja_both_notify() -> None:
     session.users = admin_b["users"]
     session.pessoas = admin_b["pessoas"]
     evo_b = FakeEvolution()
-    assert notify_autoupgrade(session, _OTHER_IGREJA, evo_b) == "sent"
+    assert notify_autoupgrade(
+        session, _OTHER_IGREJA, evo_b, operation_id=_OPERATION_ID
+    ) == "sent"
 
-    evento = _autoupgrade_event_name("comunidade")
-    evento_sent = _autoupgrade_sent_event_name("comunidade")
+    evento = _autoupgrade_event_name("comunidade", _OPERATION_ID)
+    evento_sent = _autoupgrade_sent_event_name("comunidade", _OPERATION_ID)
     assert session.reserved_markers == {
         (_IGREJA, evento),
         (_IGREJA, evento_sent),
@@ -392,7 +447,7 @@ def test_abandoned_reservation_is_reclaimed_after_lease() -> None:
     """
     import datetime as dt
 
-    evento = _autoupgrade_event_name("comunidade")
+    evento = _autoupgrade_event_name("comunidade", _OPERATION_ID)
     stale = dt.datetime.now(dt.timezone.utc) - dt.timedelta(minutes=30)
     admin = _admin(_IGREJA)
     session = FakeSubscriptionSession(
@@ -403,11 +458,13 @@ def test_abandoned_reservation_is_reclaimed_after_lease() -> None:
     )
     evo = FakeEvolution()
 
-    result = notify_autoupgrade(session, _IGREJA, evo)
+    result = notify_autoupgrade(
+        session, _IGREJA, evo, operation_id=_OPERATION_ID
+    )
 
     assert result == "sent"
     assert len(evo.sent) == 1  # a mensagem SAIU desta vez
-    evento_sent = _autoupgrade_sent_event_name("comunidade")
+    evento_sent = _autoupgrade_sent_event_name("comunidade", _OPERATION_ID)
     assert (_IGREJA, evento_sent) in session.reserved_markers  # entrega provada
 
 
@@ -422,7 +479,9 @@ def test_no_recipients_releases_reservation_without_fake_delivery() -> None:
     )
     evo = FakeEvolution()
 
-    result = notify_autoupgrade(session, _IGREJA, evo)
+    result = notify_autoupgrade(
+        session, _IGREJA, evo, operation_id=_OPERATION_ID
+    )
 
     assert result == "skipped"
     assert evo.sent == []

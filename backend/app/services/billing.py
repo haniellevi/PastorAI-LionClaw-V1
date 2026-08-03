@@ -317,7 +317,22 @@ def ensure_payment_operation(
                 raise
 
     if op.status == "created" and op.asaas_payment_id:
-        return op  # cobrança já existe e está rastreada
+        # Webhook pode ter sido perdido depois de a cobrança rastreada ser
+        # paga/revertida. O retry é também o caminho explícito de reparo:
+        # relê o payment exato e converge o produto sem emitir novo POST.
+        payment = asaas.get_payment(str(op.asaas_payment_id))
+        if payment is None:
+            return op
+        operation_status, _reversal = _payment_operation_status(payment)
+        if operation_status != "created":
+            return _apply_payment_operation_snapshot(
+                db,
+                op,
+                sub=sub,
+                payment=payment,
+                expected_statuses=("created",),
+            )
+        return op
 
     if op.status in ("creating", "reconciling"):
         op = _reconcile_payment_operation(
@@ -392,6 +407,61 @@ def ensure_payment_operation(
     return op
 
 
+def _payment_operation_status(payment: dict) -> tuple[str, str | None]:
+    reversal = (
+        "deleted"
+        if payment.get("deleted")
+        else payment_reversal_kind(payment.get("status"))
+    )
+    mapped_status = (
+        "inadimplente"
+        if reversal
+        else map_payment_status(payment.get("status"))
+    )
+    operation_status = (
+        "reversed"
+        if reversal
+        else "paid"
+        if mapped_status == "ativa"
+        else "created"
+    )
+    return operation_status, reversal
+
+
+def _apply_payment_operation_snapshot(
+    db: Session,
+    op: BillingPaymentOperation,
+    *,
+    sub: Subscription,
+    payment: dict,
+    expected_statuses: tuple[str, ...],
+) -> BillingPaymentOperation:
+    operation_status, reversal = _payment_operation_status(payment)
+    # Mesma ordem do webhook: operação -> assinatura. Se o webhook ou outro
+    # retry venceu a leitura externa, o status recarregado impede regressão.
+    db.refresh(op, with_for_update=True)
+    if op.status not in expected_statuses:
+        return op
+    db.refresh(sub, with_for_update=True)
+    op.status = operation_status
+    op.asaas_payment_id = str(payment["id"])
+    op.invoice_url = None if reversal else payment_invoice_url(payment)
+    op.attempt_started_at = None
+    if operation_status in ("paid", "reversed"):
+        # autoflush=False: o probe de operações abertas precisa enxergar o
+        # novo estado desta própria linha dentro da transação atômica.
+        db.flush()
+        _apply_reconciled_payment_state(
+            db,
+            sub=sub,
+            op=op,
+            payment=payment,
+            operation_status=operation_status,
+        )
+    db.commit()
+    return op
+
+
 def _reconcile_payment_operation(
     db: Session,
     asaas: AsaasClient,
@@ -415,47 +485,13 @@ def _reconcile_payment_operation(
     ]
     if len(matches) == 1:
         payment = matches[0]
-        reversal = (
-            "deleted"
-            if payment.get("deleted")
-            else payment_reversal_kind(payment.get("status"))
+        return _apply_payment_operation_snapshot(
+            db,
+            op,
+            sub=sub,
+            payment=payment,
+            expected_statuses=("creating", "reconciling"),
         )
-        mapped_status = (
-            "inadimplente"
-            if reversal
-            else map_payment_status(payment.get("status"))
-        )
-        operation_status = (
-            "reversed"
-            if reversal
-            else "paid"
-            if mapped_status == "ativa"
-            else "created"
-        )
-        # Adoção + efeito financeiro precisam ser UMA transação. Trava na
-        # mesma ordem do webhook (operação -> assinatura); se outro dono já
-        # concluiu, o status recarregado impede sobrescrever seu resultado.
-        db.refresh(op, with_for_update=True)
-        if op.status not in ("creating", "reconciling"):
-            return op
-        db.refresh(sub, with_for_update=True)
-        op.status = operation_status
-        op.asaas_payment_id = str(payment["id"])
-        op.invoice_url = None if reversal else payment_invoice_url(payment)
-        op.attempt_started_at = None
-        if operation_status in ("paid", "reversed"):
-            # autoflush=False: o probe de operações abertas precisa enxergar o
-            # novo estado desta própria linha dentro da transação atômica.
-            db.flush()
-            _apply_reconciled_payment_state(
-                db,
-                sub=sub,
-                op=op,
-                payment=payment,
-                operation_status=operation_status,
-            )
-        db.commit()
-        return op
     if len(matches) > 1:
         finish_operation(
             db,

@@ -93,23 +93,28 @@ def _admin_phones(db: Session, igreja_id: uuid.UUID) -> list[str]:
     return phones
 
 
-def _autoupgrade_event_name(plano: str) -> str:
+def _autoupgrade_event_name(
+    plano: str, operation_id: uuid.UUID | str
+) -> str:
     """Stable dedupe key for one autoupgrade notification (SEC-4).
 
     Must match the `subscription\\_upgrade:%` predicate of the partial unique
     index `agent_conversation_logs_idem_marker_uidx`.
     """
-    return f"subscription_upgrade:{plano}"
+    return f"subscription_upgrade:{operation_id}:{plano}"
 
 
-def _autoupgrade_sent_event_name(plano: str) -> str:
+def _autoupgrade_sent_event_name(
+    plano: str, operation_id: uuid.UUID | str
+) -> str:
     """Marcador de ENTREGA comprovada — separado da reserva (CORRECTIVE-8).
 
-    A reserva (`subscription_upgrade:<plano>`) só prova a INTENÇÃO de enviar;
-    este marcador é gravado somente APÓS um `send_text` bem-sucedido. Ambos
-    casam o predicado `subscription\\_upgrade:%` do índice único parcial.
+    A reserva (`subscription_upgrade:<operation_id>:<plano>`) só prova a
+    INTENÇÃO de enviar; este marcador é gravado somente APÓS um `send_text`
+    bem-sucedido. Ambos casam o predicado `subscription\\_upgrade:%` do índice
+    único parcial.
     """
-    return f"subscription_upgrade:{plano}:sent"
+    return f"subscription_upgrade:{operation_id}:{plano}:sent"
 
 
 def notify_autoupgrade(
@@ -118,6 +123,7 @@ def notify_autoupgrade(
     evolution: EvolutionClient,
     *,
     plano: str | None = None,
+    operation_id: uuid.UUID | str,
 ) -> str:
     """Notify the admin once when the plan was promoted by the autoupgrade flow.
 
@@ -168,8 +174,8 @@ def notify_autoupgrade(
     if target_plano == "ate_100":
         return "skipped"
 
-    evento = _autoupgrade_event_name(target_plano)
-    evento_sent = _autoupgrade_sent_event_name(target_plano)
+    evento = _autoupgrade_event_name(target_plano, operation_id)
+    evento_sent = _autoupgrade_sent_event_name(target_plano, operation_id)
 
     # ENTREGA já comprovada? (marcador :sent) — nunca reenvia.
     delivered = db.execute(
@@ -207,7 +213,10 @@ def notify_autoupgrade(
     phones = _admin_phones(db, igreja_id)
 
     marker = reserve_agent_event(
-        db, igreja_id=igreja_id, evento=evento, payload={"plano": target_plano}
+        db,
+        igreja_id=igreja_id,
+        evento=evento,
+        payload={"plano": target_plano, "operation_id": str(operation_id)},
     )
     if marker is None:
         # Perdeu a corrida AGORA: outro processo acabou de reservar.
@@ -245,7 +254,7 @@ def notify_autoupgrade(
         db,
         igreja_id=igreja_id,
         evento=evento_sent,
-        payload={"plano": target_plano},
+        payload={"plano": target_plano, "operation_id": str(operation_id)},
     )
     return "sent"
 
@@ -268,7 +277,11 @@ def _deliver_upgrade_notification(
         return False
     try:
         outcome = notify_autoupgrade(
-            db, igreja_id, evolution, plano=op.to_plano
+            db,
+            igreja_id,
+            evolution,
+            plano=op.to_plano,
+            operation_id=op.id,
         )
     except Exception:  # noqa: BLE001 - notificação nunca reverte billing
         logger.exception("Autoupgrade notification failed for igreja %s", igreja_id)

@@ -183,12 +183,12 @@ def _factory_queue(sessions: list[_WorkerSession]):
 
 def _spy_notify(monkeypatch, outcome: str = "sent") -> list:
     calls: list = []
-    monkeypatch.setattr(
-        billing_worker,
-        "notify_autoupgrade",
-        lambda db, igreja_id, evolution, *, plano=None: calls.append(igreja_id)
-        or outcome,
-    )
+
+    def _notify(db, igreja_id, evolution, *, plano=None, operation_id=None):
+        calls.append(igreja_id)
+        return outcome
+
+    monkeypatch.setattr(billing_worker, "notify_autoupgrade", _notify)
     return calls
 
 
@@ -552,7 +552,7 @@ def test_notification_crash_keeps_pending_for_next_tick(monkeypatch) -> None:
     op = _op(status="completed")
     sub = _sub(plano="101_200", limite=200)
 
-    def _boom(db, igreja_id, evolution, *, plano=None):
+    def _boom(db, igreja_id, evolution, *, plano=None, operation_id=None):
         raise RuntimeError("evolution indisponível")
 
     monkeypatch.setattr(billing_worker, "notify_autoupgrade", _boom)
@@ -579,10 +579,10 @@ def test_retried_notification_uses_the_completed_operation_target(
     """O plano corrente pode já estar um degrau à frente do aviso pendente."""
     op = _op(status="completed", to_plano="101_200", notify_status="pending")
     sub = _sub(plano="acima_201", limite=None)
-    seen: list[tuple[uuid.UUID, str | None]] = []
+    seen: list[tuple[uuid.UUID, str | None, uuid.UUID | str | None]] = []
 
-    def _notify(db, igreja_id, evolution, *, plano=None):
-        seen.append((igreja_id, plano))
+    def _notify(db, igreja_id, evolution, *, plano=None, operation_id=None):
+        seen.append((igreja_id, plano, operation_id))
         return "sent"
 
     monkeypatch.setattr(billing_worker, "notify_autoupgrade", _notify)
@@ -600,7 +600,7 @@ def test_retried_notification_uses_the_completed_operation_target(
     )
 
     assert completed == 0
-    assert seen == [(_IGREJA_A, "101_200")]
+    assert seen == [(_IGREJA_A, "101_200", op.id)]
     assert op.notify_status == "sent"
 
 

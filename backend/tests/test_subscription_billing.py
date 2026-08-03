@@ -965,6 +965,13 @@ class _RecoveryChargeAsaas:
         self._subscription_value = subscription_value
 
     def get_payment(self, payment_id: str):
+        if payment_id == "pay_rec_1":
+            return {
+                "id": payment_id,
+                "value": self._payment_value,
+                "status": "PENDING",
+                "invoiceUrl": "https://asaas.test/recovery",
+            }
         if self._payment_value is None:
             return None
         return {"id": payment_id, "value": self._payment_value, "status": "REFUNDED"}
@@ -2913,9 +2920,11 @@ class _RejectingThenTrackingAsaas:
 
     def __init__(self) -> None:
         self.create_calls: list[str] = []
+        self.values: list[float] = []
 
     def create_checkout(self, **kwargs):
         self.create_calls.append(kwargs["plano"])
+        self.values.append(kwargs["valor"])
         kwargs["on_customer_resolved"]("cus_1")
         if len(self.create_calls) == 1:
             raise AsaasRejectedError("O Asaas rejeitou os dados do checkout")
@@ -2966,6 +2975,36 @@ def test_prepared_intent_is_superseded_when_the_user_picks_another_plan(
     assert nova.limite == 200
     # Somente UM POST por alvo (o primeiro foi rejeitado sem criar nada).
     assert asaas.create_calls == ["ate_100", "101_200"]
+
+
+def test_prepared_retry_uses_the_intent_price_and_limit_after_catalog_edit(
+    app,
+) -> None:
+    asaas = _RejectingThenTrackingAsaas()
+    plano = _plano(preco_mensal=199, limite_pessoas=100)
+    client, db = _client(app, planos=[plano], asaas=asaas)
+
+    first = client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    )
+    assert first.status_code == 502
+    op = next(o for o in db.added if isinstance(o, BillingSubscriptionOperation))
+    assert op.status == "prepared"
+    assert op.limite == 100
+    _adopt_created_sub(db)
+
+    plano.preco_mensal = 999
+    plano.limite_pessoas = 5
+    second = client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    )
+
+    assert second.status_code == 200
+    assert asaas.values == [199.0, 199.0]
+    tracked = next(o for o in db.added if isinstance(o, Subscription))
+    assert tracked.limite == 100
+    assert float(op.valor) == 199.0
+    assert op.limite == 100
 
 
 def test_ambiguous_intent_for_another_plan_still_conflicts(app) -> None:

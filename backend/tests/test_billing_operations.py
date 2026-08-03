@@ -32,12 +32,15 @@ class _OpsAsaas:
         charge: dict | None = None,
         post_error: bool = False,
         found: list[dict] | None = None,
+        tracked: dict | None = None,
     ) -> None:
         self.posts = 0
         self.finds = 0
+        self.gets = 0
         self._charge = charge
         self._post_error = post_error
         self._found = found or []
+        self._tracked = tracked
 
     def create_one_time_charge(self, **kwargs):
         self.posts += 1
@@ -48,6 +51,10 @@ class _OpsAsaas:
     def find_payments_by_external_reference(self, external_reference: str):
         self.finds += 1
         return [dict(p) for p in self._found]
+
+    def get_payment(self, payment_id: str):
+        self.gets += 1
+        return dict(self._tracked) if self._tracked is not None else None
 
 
 _DESC = "PastorAI — taxa de setup"
@@ -232,6 +239,93 @@ def test_reconcile_confirmed_recovery_settles_debt_without_webhook() -> None:
     assert sub.asaas_invoice_reversal is None
     assert igreja.status == "ativa"
     assert db.flushes == 1
+    assert asaas.posts == 0
+
+
+def test_created_setup_retry_repairs_a_missed_confirmation_webhook() -> None:
+    sub = SimpleNamespace(
+        id="local-sub-1",
+        igreja_id="igreja-1",
+        setup_pago=False,
+        asaas_setup_charge_id="pay_setup_created",
+        asaas_setup_reversed_payment_id=None,
+        asaas_setup_invoice_url="https://asaas.test/setup",
+    )
+    op = BillingPaymentOperation(
+        subscription_id=sub.id,
+        purpose="setup",
+        operation_key="pastorai-setup-created",
+        status="created",
+        valor=59.9,
+        asaas_payment_id="pay_setup_created",
+        invoice_url="https://asaas.test/setup",
+    )
+    db = FakeSession(
+        subscription=sub,
+        igreja=SimpleNamespace(id="igreja-1", status="ativa"),
+        operations=[op],
+    )
+    asaas = _OpsAsaas(
+        tracked={
+            "id": "pay_setup_created",
+            "status": "CONFIRMED",
+            "value": 59.9,
+        }
+    )
+
+    resolved = _ensure(db, asaas, sub=sub)
+
+    assert resolved.status == "paid"
+    assert sub.setup_pago is True
+    assert sub.asaas_setup_invoice_url is None
+    assert asaas.gets == 1
+    assert asaas.posts == 0
+
+
+def test_created_recovery_retry_reopens_gate_after_missed_webhook() -> None:
+    sub = SimpleNamespace(
+        id="local-sub-1",
+        igreja_id="igreja-1",
+        status="inadimplente",
+        asaas_invoice_payment_id="pay_source",
+        asaas_invoice_reversal="refunded",
+    )
+    op = BillingPaymentOperation(
+        subscription_id=sub.id,
+        purpose="monthly_recovery",
+        operation_key="pastorai-monthly-recovery-created",
+        source_payment_id="pay_source",
+        status="created",
+        valor=199.0,
+        asaas_payment_id="pay_recovery_created",
+        invoice_url="https://asaas.test/recovery",
+    )
+    igreja = SimpleNamespace(id="igreja-1", status="inadimplente")
+    db = FakeSession(subscription=sub, igreja=igreja, operations=[op])
+    asaas = _OpsAsaas(
+        tracked={
+            "id": "pay_recovery_created",
+            "status": "RECEIVED",
+            "value": 199.0,
+        }
+    )
+
+    resolved = ensure_payment_operation(
+        db,
+        asaas,
+        sub=sub,
+        purpose="monthly_recovery",
+        valor=199.0,
+        description=MONTHLY_RECOVERY_DESCRIPTION,
+        customer_id="cus_1",
+        source_payment_id="pay_source",
+    )
+
+    assert resolved.status == "paid"
+    assert sub.status == "ativa"
+    assert sub.asaas_invoice_reversal is None
+    assert igreja.status == "ativa"
+    assert asaas.gets == 1
     assert asaas.posts == 0
 
 
