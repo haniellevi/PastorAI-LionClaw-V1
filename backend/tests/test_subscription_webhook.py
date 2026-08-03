@@ -220,6 +220,8 @@ class _WebhookDb:
                 if key.startswith("asaas_setup_charge_id") and str(value) == str(
                     sub.asaas_setup_charge_id
                 ):
+                    if getattr(statement, "_for_update_arg", None) is not None:
+                        self.subscription_locks += 1
                     return _Result(sub)
                 if key.startswith("asaas_subscription_id") and str(value) == str(
                     sub.asaas_subscription_id
@@ -427,6 +429,7 @@ def test_setup_confirmed_only_marks_the_tracked_setup_charge_paid(app, monkeypat
     assert db.sub.status == "pendente"
     assert db.igreja.status == "aguardando_aprovacao"
     assert db.commits == 1
+    assert db.subscription_locks == 1
 
 
 def test_pending_setup_payment_does_not_unlock_the_setup(app, monkeypatch) -> None:
@@ -1125,6 +1128,7 @@ def test_setup_refund_reopens_the_pending_setup(app, monkeypatch) -> None:
     assert db.sub.status == "ativa"  # mensalidade intocada
     assert db.igreja.status == "ativa"  # acesso intocado
     assert db.commits == 1
+    assert db.subscription_locks == 1
 
 
 def test_setup_delete_clears_the_dead_charge_even_if_unpaid(app, monkeypatch) -> None:

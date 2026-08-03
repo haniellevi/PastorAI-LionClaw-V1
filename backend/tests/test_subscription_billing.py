@@ -83,13 +83,57 @@ class _RecoveryAsaas:
         monthly_url: str | None = None,
         setup_url: str | None = None,
         payment_urls: dict[str, str] | None = None,
+        monthly_payment: dict | None = None,
+        setup_payment: dict | None = None,
+        payment_payloads: dict[str, dict] | None = None,
         unavailable: bool = False,
     ) -> None:
         self.calls: list[tuple[str, str]] = []
         self._monthly_url = monthly_url
         self._setup_url = setup_url
         self._payment_urls = payment_urls or {}
+        self._monthly_payment = monthly_payment
+        self._setup_payment = setup_payment
+        self._payment_payloads = payment_payloads or {}
         self._unavailable = unavailable
+
+    def get_subscription_payment(self, subscription_id: str):
+        self.calls.append(("get_subscription_payment", subscription_id))
+        if self._unavailable:
+            raise AsaasError("Asaas indisponível")
+        if self._monthly_payment is not None:
+            return self._monthly_payment
+        if self._monthly_url is None:
+            return None
+        return {
+            "id": "pay_m1",
+            "status": "PENDING",
+            "invoiceUrl": self._monthly_url,
+        }
+
+    def get_payment(self, payment_id: str):
+        self.calls.append(("get_payment", payment_id))
+        if self._unavailable:
+            raise AsaasError("Asaas indisponível")
+        if payment_id in self._payment_payloads:
+            return self._payment_payloads[payment_id]
+        if self._setup_payment is not None and str(
+            self._setup_payment.get("id")
+        ) == str(payment_id):
+            return self._setup_payment
+        if payment_id in self._payment_urls:
+            return {
+                "id": payment_id,
+                "status": "PENDING",
+                "invoiceUrl": self._payment_urls[payment_id],
+            }
+        if self._setup_url is None:
+            return None
+        return {
+            "id": payment_id,
+            "status": "PENDING",
+            "invoiceUrl": self._setup_url,
+        }
 
     def get_subscription_invoice_url(self, subscription_id: str) -> str | None:
         self.calls.append(("get_subscription_invoice_url", subscription_id))
@@ -365,7 +409,7 @@ def test_get_subscription_recovers_monthly_link_by_subscription_id(app) -> None:
     assert resp.status_code == 200
     assert resp.json()["invoiceUrl"] == "https://asaas.test/recovered-monthly"
     assert sub.asaas_invoice_url == "https://asaas.test/recovered-monthly"
-    assert asaas.calls == [("get_subscription_invoice_url", "sub_asaas_1")]
+    assert asaas.calls == [("get_subscription_payment", "sub_asaas_1")]
     assert db.commits == 1  # link recuperado é persistido
 
 
@@ -390,7 +434,7 @@ def test_get_subscription_recovers_by_exact_monthly_payment_id(app) -> None:
     assert sub.asaas_invoice_url == "https://asaas.test/m2"
     # Somente a consulta pelo id exato — a busca pela primeira cobrança da
     # assinatura fica restrita a registros legados sem payment id.
-    assert asaas.calls == [("get_payment_invoice_url", "pay_m2")]
+    assert asaas.calls == [("get_payment", "pay_m2")]
     assert db.commits == 1
 
 
@@ -408,7 +452,7 @@ def test_get_subscription_recovers_setup_link_by_charge_id(app) -> None:
     assert resp.status_code == 200
     assert resp.json()["setupInvoiceUrl"] == "https://asaas.test/recovered-setup"
     assert sub.asaas_setup_invoice_url == "https://asaas.test/recovered-setup"
-    assert asaas.calls == [("get_payment_invoice_url", "pay_setup_1")]
+    assert asaas.calls == [("get_payment", "pay_setup_1")]
     assert db.commits == 1
 
 
@@ -443,8 +487,8 @@ def test_link_recovery_never_creates_new_charges(app) -> None:
     # Somente consultas por id — _RecoveryAsaas.create_checkout levantaria
     # AssertionError se o recovery tentasse criar qualquer cobrança.
     assert asaas.calls == [
-        ("get_subscription_invoice_url", "sub_asaas_1"),
-        ("get_payment_invoice_url", "pay_setup_1"),
+        ("get_subscription_payment", "sub_asaas_1"),
+        ("get_payment", "pay_setup_1"),
     ]
 
 
@@ -469,7 +513,15 @@ def test_get_subscription_returns_invoice_url_when_overdue(app) -> None:
 
 
 def test_get_subscription_recovers_overdue_url_by_current_payment_id(app) -> None:
-    asaas = _RecoveryAsaas(payment_urls={"pay_m2": "https://asaas.test/m2-overdue"})
+    asaas = _RecoveryAsaas(
+        payment_payloads={
+            "pay_m2": {
+                "id": "pay_m2",
+                "status": "OVERDUE",
+                "invoiceUrl": "https://asaas.test/m2-overdue",
+            }
+        }
+    )
     sub = _subscription(
         status="inadimplente",
         setup_pago=True,
@@ -485,8 +537,125 @@ def test_get_subscription_recovers_overdue_url_by_current_payment_id(app) -> Non
     assert resp.status_code == 200
     assert resp.json()["invoiceUrl"] == "https://asaas.test/m2-overdue"
     assert sub.asaas_invoice_url == "https://asaas.test/m2-overdue"
-    assert asaas.calls == [("get_payment_invoice_url", "pay_m2")]
+    assert asaas.calls == [("get_payment", "pay_m2")]
     assert db.commits == 1
+
+
+def test_get_subscription_applies_monthly_confirmation_while_recovering_link(
+    app,
+) -> None:
+    asaas = _RecoveryAsaas(
+        payment_payloads={
+            "pay_m2": {
+                "id": "pay_m2",
+                "status": "CONFIRMED",
+                "invoiceUrl": "https://asaas.test/m2-paid",
+                "value": 199,
+            }
+        }
+    )
+    sub = _subscription(
+        status="pendente",
+        setup_pago=True,
+        asaas_setup_charge_id=None,
+        asaas_invoice_payment_id="pay_m2",
+        asaas_invoice_url=None,
+    )
+    client, db = _client(app, planos=[], asaas=asaas, subscription=sub)
+    db.igreja.status = "inadimplente"
+
+    resp = client.get("/subscription", headers=_AUTH)
+
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ativa"
+    assert resp.json()["invoiceUrl"] is None  # cobrança já quitada
+    assert sub.status == "ativa"
+    assert db.igreja.status == "ativa"
+
+
+def test_get_subscription_applies_monthly_refund_while_recovering_link(
+    app,
+) -> None:
+    asaas = _RecoveryAsaas(
+        payment_payloads={
+            "pay_m2": {
+                "id": "pay_m2",
+                "status": "REFUNDED",
+                "invoiceUrl": "https://asaas.test/m2-dead",
+                "value": 199,
+            }
+        }
+    )
+    sub = _subscription(
+        status="pendente",
+        setup_pago=True,
+        asaas_setup_charge_id=None,
+        asaas_invoice_payment_id="pay_m2",
+        asaas_invoice_url=None,
+    )
+    client, db = _client(app, planos=[], asaas=asaas, subscription=sub)
+
+    resp = client.get("/subscription", headers=_AUTH)
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "inadimplente"
+    assert body["invoiceUrl"] is None
+    assert body["invoiceReversal"] == "refunded"
+    assert body["recoveryRequired"] is True
+    assert sub.status == "inadimplente"
+    assert db.igreja.status == "inadimplente"
+
+
+def test_get_subscription_applies_setup_confirmation_while_recovering_link(
+    app,
+) -> None:
+    asaas = _RecoveryAsaas(
+        setup_payment={
+            "id": "pay_setup_1",
+            "status": "CONFIRMED",
+            "invoiceUrl": "https://asaas.test/setup-paid",
+        }
+    )
+    sub = _subscription(
+        asaas_invoice_url="https://asaas.test/monthly",
+        setup_pago=False,
+        asaas_setup_charge_id="pay_setup_1",
+        asaas_setup_invoice_url=None,
+    )
+    client, _db = _client(app, planos=[], asaas=asaas, subscription=sub)
+
+    resp = client.get("/subscription", headers=_AUTH)
+
+    assert resp.status_code == 200
+    assert resp.json()["setupPago"] is True
+    assert resp.json()["setupInvoiceUrl"] is None
+    assert sub.setup_pago is True
+
+
+def test_get_subscription_applies_setup_refund_while_recovering_link(app) -> None:
+    asaas = _RecoveryAsaas(
+        setup_payment={
+            "id": "pay_setup_1",
+            "status": "REFUNDED",
+            "invoiceUrl": "https://asaas.test/setup-dead",
+        }
+    )
+    sub = _subscription(
+        asaas_invoice_url="https://asaas.test/monthly",
+        setup_pago=False,
+        asaas_setup_charge_id="pay_setup_1",
+        asaas_setup_invoice_url=None,
+    )
+    client, _db = _client(app, planos=[], asaas=asaas, subscription=sub)
+
+    resp = client.get("/subscription", headers=_AUTH)
+
+    assert resp.status_code == 200
+    assert resp.json()["setupPago"] is False
+    assert resp.json()["setupInvoiceUrl"] is None
+    assert sub.asaas_setup_charge_id is None
+    assert sub.asaas_setup_reversed_payment_id == "pay_setup_1"
 
 
 class _TrackingFailAsaas:

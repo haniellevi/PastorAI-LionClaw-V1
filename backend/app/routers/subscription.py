@@ -538,6 +538,47 @@ def _apply_operation_event(
     return WebhookResponse(received=True, status=new_status)
 
 
+def _apply_recovered_setup_payment(
+    db: Session, sub: Subscription, payment: dict
+) -> bool:
+    """Converge um snapshot de setup sem criar ou substituir cobrança."""
+    payment_id = str(payment["id"]) if payment.get("id") else None
+    if payment_id is None or payment_id != str(sub.asaas_setup_charge_id):
+        return False
+    reversal = (
+        "deleted"
+        if payment.get("deleted")
+        else payment_reversal_kind(payment.get("status"))
+    )
+    new_status = (
+        "inadimplente" if reversal else map_payment_status(payment.get("status"))
+    )
+    op = find_operation_for_payment(
+        db,
+        payment_id=payment_id,
+        external_reference=payment.get("externalReference"),
+    )
+    if op is not None:
+        _apply_operation_event(db, op, payment, new_status, reversal)
+    else:
+        db.refresh(sub, with_for_update=True)
+        if payment_id != str(sub.asaas_setup_charge_id):
+            return False
+        _apply_setup_charge_event(db, sub, new_status, reversal)
+
+    if reversal or new_status == "ativa":
+        return True
+    url = payment_invoice_url(payment)
+    if (
+        url
+        and not sub.setup_pago
+        and payment_id == str(sub.asaas_setup_charge_id)
+    ):
+        sub.asaas_setup_invoice_url = url
+        return True
+    return op is not None
+
+
 def _recover_missing_invoice_urls(
     db: Session, sub: Subscription, asaas: AsaasClient
 ) -> None:
@@ -570,19 +611,23 @@ def _recover_missing_invoice_urls(
         if monthly_missing:
             if sub.asaas_invoice_payment_id:
                 # Cobrança mensal do ciclo corrente — consulta pelo id exato.
-                url = asaas.get_payment_invoice_url(sub.asaas_invoice_payment_id)
+                payment = asaas.get_payment(sub.asaas_invoice_payment_id)
             else:
                 # Compat: registro anterior à coluna do payment id — cai na
                 # primeira cobrança da assinatura.
-                url = asaas.get_subscription_invoice_url(sub.asaas_subscription_id)
-            if url:
-                sub.asaas_invoice_url = url
-                changed = True
+                payment = asaas.get_subscription_payment(
+                    sub.asaas_subscription_id
+                )
+            if payment:
+                changed = (
+                    _apply_monthly_payment_snapshot(db, sub, payment) or changed
+                )
         if setup_missing:
-            url = asaas.get_payment_invoice_url(sub.asaas_setup_charge_id)
-            if url:
-                sub.asaas_setup_invoice_url = url
-                changed = True
+            payment = asaas.get_payment(sub.asaas_setup_charge_id)
+            if payment:
+                changed = (
+                    _apply_recovered_setup_payment(db, sub, payment) or changed
+                )
     except AsaasError:
         logger.warning("Asaas link recovery failed; keeping null links")
     if changed:
@@ -700,6 +745,72 @@ def _ensure_setup_charge(
         db.commit()
 
 
+def _apply_monthly_payment_snapshot(
+    db: Session, sub: Subscription, payment: dict
+) -> bool:
+    """Converge um snapshot mensal lido do Asaas sob lock da assinatura."""
+    if not payment.get("id"):
+        return False
+    # O GET externo ocorre sem lock. A releitura serializa este snapshot com
+    # webhooks e outros retries antes de qualquer decisão ou mutação local.
+    db.refresh(sub, with_for_update=True)
+    incoming_id = str(payment["id"])
+    reversal = (
+        "deleted"
+        if payment.get("deleted")
+        else payment_reversal_kind(payment.get("status"))
+    )
+    new_status = (
+        "inadimplente" if reversal else map_payment_status(payment.get("status"))
+    )
+    open_recovery = find_any_open_operation(db, sub.id, "monthly_recovery")
+    same_cycle = incoming_id == sub.asaas_invoice_payment_id
+    blocked_by_unresolved_reversal = bool(
+        sub.asaas_invoice_reversal
+        and (
+            (same_cycle and reversal is None)
+            or (not same_cycle and open_recovery is None)
+        )
+    )
+    if (
+        blocked_by_unresolved_reversal
+        or _is_stale_cycle_event(sub, payment)
+        or (
+            reversal
+            and find_settled_recovery(db, sub.id, incoming_id) is not None
+        )
+    ):
+        return False
+
+    _apply_monthly_payment_link(sub, payment, reversal=reversal)
+    pending_after_confirmation = bool(
+        new_status == "pendente" and same_cycle and sub.status == "ativa"
+    )
+    if new_status is not None and not pending_after_confirmation:
+        sub.status = new_status
+    if new_status is not None and reversal:
+        staged = _stage_monthly_recovery(db, sub, payment, incoming_id)
+        if staged is not None:
+            open_recovery = staged
+    if new_status == "ativa":
+        if sub.asaas_invoice_reversal is None and open_recovery is None:
+            db.execute(
+                update(Igreja)
+                .where(
+                    Igreja.id == sub.igreja_id,
+                    Igreja.status == "inadimplente",
+                )
+                .values(status="ativa")
+            )
+    elif new_status == "inadimplente":
+        db.execute(
+            update(Igreja)
+            .where(Igreja.id == sub.igreja_id, Igreja.status == "ativa")
+            .values(status="inadimplente")
+        )
+    return True
+
+
 def _resume_tracked_checkout(
     db: Session,
     sub: Subscription,
@@ -726,69 +837,8 @@ def _resume_tracked_checkout(
             payment = asaas.get_payment(sub.asaas_invoice_payment_id)
         except AsaasError:
             payment = None  # GET /subscription recupera o link depois
-    if payment and payment.get("id"):
-        # O GET ao Asaas ocorre sem lock e pode demorar. Recarrega o snapshot
-        # local já sob row lock: webhook que confirmou durante a chamada fica
-        # visível aqui; webhook posterior espera este commit e vence depois.
-        db.refresh(sub, with_for_update=True)
-        incoming_id = str(payment["id"])
-        reversal = (
-            "deleted"
-            if payment.get("deleted")
-            else payment_reversal_kind(payment.get("status"))
-        )
-        new_status = (
-            "inadimplente"
-            if reversal
-            else map_payment_status(payment.get("status"))
-        )
-        open_recovery = find_any_open_operation(db, sub.id, "monthly_recovery")
-        same_cycle = incoming_id == sub.asaas_invoice_payment_id
-        blocked_by_unresolved_reversal = bool(
-            sub.asaas_invoice_reversal
-            and (
-                (same_cycle and reversal is None)
-                or (not same_cycle and open_recovery is None)
-            )
-        )
-        if (
-            not blocked_by_unresolved_reversal
-            and not _is_stale_cycle_event(sub, payment)
-            and not (
-                reversal
-                and find_settled_recovery(db, sub.id, incoming_id) is not None
-            )
-        ):
-            _apply_monthly_payment_link(sub, payment, reversal=reversal)
-            pending_after_confirmation = bool(
-                new_status == "pendente"
-                and same_cycle
-                and sub.status == "ativa"
-            )
-            if new_status is not None and not pending_after_confirmation:
-                sub.status = new_status
-            if new_status is not None and reversal:
-                staged = _stage_monthly_recovery(
-                    db, sub, payment, incoming_id
-                )
-                if staged is not None:
-                    open_recovery = staged
-            if new_status == "ativa":
-                if sub.asaas_invoice_reversal is None and open_recovery is None:
-                    db.execute(
-                        update(Igreja)
-                        .where(
-                            Igreja.id == sub.igreja_id,
-                            Igreja.status == "inadimplente",
-                        )
-                        .values(status="ativa")
-                    )
-            elif new_status == "inadimplente":
-                db.execute(
-                    update(Igreja)
-                    .where(Igreja.id == sub.igreja_id, Igreja.status == "ativa")
-                    .values(status="inadimplente")
-                )
+    if payment:
+        _apply_monthly_payment_snapshot(db, sub, payment)
 
     try:
         _ensure_setup_charge(db, sub, asaas, setup_fee)
@@ -1697,7 +1747,9 @@ def asaas_webhook(
 
     if payment_id:
         setup_sub = db.execute(
-            select(Subscription).where(Subscription.asaas_setup_charge_id == payment_id)
+            select(Subscription)
+            .where(Subscription.asaas_setup_charge_id == payment_id)
+            .with_for_update()
         ).scalar_one_or_none()
         if setup_sub is not None:
             _apply_setup_charge_event(db, setup_sub, new_status, reversal)
