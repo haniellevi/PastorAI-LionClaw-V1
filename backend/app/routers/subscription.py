@@ -613,33 +613,39 @@ def _recover_missing_invoice_urls(
     generated the link yet (or is unavailable), the subscription read keeps
     returning its last safe snapshot instead of failing the whole screen.
     """
-    monthly_missing = (
-        sub.status in ("pendente", "inadimplente")
+    monthly_tracked = bool(sub.asaas_invoice_payment_id)
+    legacy_monthly_missing = (
+        not monthly_tracked
+        and sub.status in ("pendente", "inadimplente")
         and sub.asaas_invoice_url is None
         # Cobrança estornada/excluída não é recuperável por aqui: reapresentar
         # o link dela não quita nada — a recuperação é a AÇÃO explícita
         # (restore/cobrança avulsa) ou o próximo ciclo válido.
         and sub.asaas_invoice_reversal is None
-        and bool(sub.asaas_invoice_payment_id or sub.asaas_subscription_id)
+        and bool(sub.asaas_subscription_id)
     )
     # O payment continua sendo a autoridade também depois da confirmação
     # local: um refund/delete cujo webhook se perdeu precisa reabrir o setup.
     setup_tracked = bool(sub.asaas_setup_charge_id)
-    if not monthly_missing and not setup_tracked:
+    if not monthly_tracked and not legacy_monthly_missing and not setup_tracked:
         return
 
     changed = False
     try:
-        if monthly_missing:
-            if sub.asaas_invoice_payment_id:
-                # Cobrança mensal do ciclo corrente — consulta pelo id exato.
-                payment = asaas.get_payment(sub.asaas_invoice_payment_id)
-            else:
-                # Compat: registro anterior à coluna do payment id — cai na
-                # primeira cobrança da assinatura.
-                payment = asaas.get_subscription_payment(
-                    sub.asaas_subscription_id
+        if monthly_tracked:
+            # O payment continua autoritativo mesmo com URL presente ou estado
+            # local ativo: confirmação/refund/delete podem ter perdido webhook.
+            payment = asaas.get_payment(sub.asaas_invoice_payment_id)
+            if payment:
+                changed = (
+                    _apply_monthly_payment_snapshot(db, sub, payment) or changed
                 )
+        elif legacy_monthly_missing:
+            # Compat: registro anterior à coluna do payment id — cai na
+            # primeira cobrança da assinatura apenas para recuperar o link.
+            payment = asaas.get_subscription_payment(
+                sub.asaas_subscription_id
+            )
             if payment:
                 changed = (
                     _apply_monthly_payment_snapshot(db, sub, payment) or changed

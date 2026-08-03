@@ -513,7 +513,7 @@ def test_get_subscription_returns_invoice_url_when_overdue(app) -> None:
 
     assert resp.status_code == 200
     assert resp.json()["invoiceUrl"] == "https://asaas.test/m2-overdue"
-    assert asaas.calls == []
+    assert asaas.calls == [("get_payment", "pay_m2")]
 
 
 def test_get_subscription_recovers_overdue_url_by_current_payment_id(app) -> None:
@@ -609,6 +609,69 @@ def test_get_subscription_applies_monthly_refund_while_recovering_link(
     assert body["recoveryRequired"] is True
     assert sub.status == "inadimplente"
     assert db.igreja.status == "inadimplente"
+
+
+def test_get_subscription_polls_confirmation_even_with_monthly_url(app) -> None:
+    asaas = _RecoveryAsaas(
+        payment_payloads={
+            "pay_m2": {
+                "id": "pay_m2",
+                "status": "CONFIRMED",
+                "invoiceUrl": "https://asaas.test/m2-paid",
+                "value": 199.0,
+            }
+        }
+    )
+    sub = _subscription(
+        status="pendente",
+        setup_pago=True,
+        asaas_setup_charge_id=None,
+        asaas_invoice_payment_id="pay_m2",
+        asaas_invoice_url="https://asaas.test/m2",
+    )
+    client, _db = _client(app, planos=[], asaas=asaas, subscription=sub)
+
+    resp = client.get("/subscription", headers=_AUTH)
+
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ativa"
+    assert resp.json()["invoiceUrl"] is None
+    assert sub.status == "ativa"
+    assert asaas.calls == [("get_payment", "pay_m2")]
+
+
+def test_get_subscription_polls_refund_after_monthly_was_locally_active(
+    app,
+) -> None:
+    asaas = _RecoveryAsaas(
+        payment_payloads={
+            "pay_m2": {
+                "id": "pay_m2",
+                "status": "REFUNDED",
+                "invoiceUrl": "https://asaas.test/m2-dead",
+                "value": 199.0,
+            }
+        }
+    )
+    sub = _subscription(
+        status="ativa",
+        setup_pago=True,
+        asaas_setup_charge_id=None,
+        asaas_invoice_payment_id="pay_m2",
+        asaas_invoice_url=None,
+    )
+    client, db = _client(app, planos=[], asaas=asaas, subscription=sub)
+
+    resp = client.get("/subscription", headers=_AUTH)
+
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "inadimplente"
+    assert resp.json()["invoiceReversal"] == "refunded"
+    assert resp.json()["recoveryRequired"] is True
+    assert sub.status == "inadimplente"
+    assert sub.asaas_invoice_url is None
+    assert db.igreja.status == "inadimplente"
+    assert asaas.calls == [("get_payment", "pay_m2")]
 
 
 def test_get_subscription_applies_setup_confirmation_while_recovering_link(
@@ -1332,8 +1395,8 @@ def test_plan_change_still_creates_new_subscription(app) -> None:
 
 
 def test_get_subscription_withholds_reversed_invoice_link(app) -> None:
-    # Cobrança mensal estornada/excluída: o GET não expõe nem tenta recuperar
-    # o link dela — espera o próximo ciclo válido.
+    # Cobrança mensal estornada/excluída: o GET não expõe o link dela,
+    # mas ainda consulta o payment autoritativo para detectar uma mudança real.
     asaas = _RecoveryAsaas(payment_urls={"pay_m2": "https://asaas.test/m2"})
     sub = _subscription(
         status="inadimplente",
@@ -1351,7 +1414,7 @@ def test_get_subscription_withholds_reversed_invoice_link(app) -> None:
     body = resp.json()
     assert body["invoiceUrl"] is None
     assert body["invoiceReversal"] == "refunded"  # a UI decide a ação por aqui
-    assert asaas.calls == []  # recovery retido pelo motivo de reversão
+    assert asaas.calls == [("get_payment", "pay_m2")]
     assert db.commits == 0
 
 
@@ -1815,7 +1878,7 @@ def test_delinquent_owner_can_load_billing_screen_for_recovery(app) -> None:
         status="inadimplente",
         setup_pago=True,
         asaas_setup_charge_id=None,
-        asaas_invoice_payment_id="pay_m2",
+        asaas_invoice_payment_id=None,
         asaas_invoice_url="https://asaas.test/m2",
         asaas_invoice_reversal=None,
     )
@@ -2801,6 +2864,15 @@ class _LostResponseAsaas:
     def get_subscription_payment(self, subscription_id: str):
         return {
             "id": "pay_m1",
+            "status": "PENDING",
+            "invoiceUrl": "https://asaas.test/m1",
+            "dueDate": "2026-08-01",
+        }
+
+    def get_payment(self, payment_id: str):
+        assert payment_id == "pay_m1"
+        return {
+            "id": payment_id,
             "status": "PENDING",
             "invoiceUrl": "https://asaas.test/m1",
             "dueDate": "2026-08-01",
