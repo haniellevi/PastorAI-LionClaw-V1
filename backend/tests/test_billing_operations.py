@@ -139,6 +139,7 @@ def test_reconcile_confirmed_setup_applies_paid_state_without_webhook() -> None:
     assert op.asaas_payment_id == "pay_setup_confirmed"
     assert sub.setup_pago is True
     assert sub.asaas_setup_charge_id == "pay_setup_confirmed"
+    assert db.flushes == 1
     assert asaas.posts == 0
 
 
@@ -188,6 +189,7 @@ def test_reconcile_confirmed_recovery_settles_debt_without_webhook() -> None:
     assert sub.status == "ativa"
     assert sub.asaas_invoice_reversal is None
     assert igreja.status == "ativa"
+    assert db.flushes == 1
     assert asaas.posts == 0
 
 

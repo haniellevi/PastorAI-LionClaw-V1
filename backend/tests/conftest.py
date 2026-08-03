@@ -143,6 +143,7 @@ class FakeSession:
         # permite o teste inspecionar o que o handler gravou (ex.: sub.limite).
         self.added: list = []
         self.commits = 0
+        self.flushes = 0
         self.refresh_calls: list[tuple[object, object]] = []
         self.refresh_callback = None
 
@@ -347,6 +348,9 @@ class FakeSession:
         # In-memory: nada a persistir, mas o contador permite asserts de
         # persistência (ex.: recovery de links grava exatamente uma vez).
         self.commits += 1
+
+    def flush(self) -> None:
+        self.flushes += 1
 
     def rollback(self) -> None:  # pragma: no cover - in-memory, nothing to undo
         pass

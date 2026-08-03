@@ -452,6 +452,9 @@ def _reconcile_payment_operation(
         op.invoice_url = None if reversal else payment_invoice_url(payment)
         op.attempt_started_at = None
         if operation_status in ("paid", "reversed"):
+            # autoflush=False: o probe de operações abertas precisa enxergar o
+            # novo estado desta própria linha dentro da transação atômica.
+            db.flush()
             _apply_reconciled_payment_state(
                 db,
                 sub=sub,
