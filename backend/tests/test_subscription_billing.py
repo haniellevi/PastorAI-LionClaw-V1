@@ -1536,6 +1536,42 @@ def test_same_tracked_plan_resumes_without_billing_document(app) -> None:
     assert asaas.calls[0] == ("get_subscription_payment", "sub_asaas_1")
 
 
+def test_resume_treats_deleted_flag_as_reversal_even_with_pending_status(app) -> None:
+    asaas = _ResumeAsaas(
+        payment={
+            "id": "pay_m2",
+            "status": "PENDING",
+            "deleted": True,
+            "invoiceUrl": "https://asaas.test/dead",
+            "dueDate": "2026-08-10",
+            "value": 199.0,
+        }
+    )
+    sub = _subscription(
+        status="ativa",
+        setup_pago=True,
+        asaas_invoice_payment_id="pay_m2",
+        asaas_invoice_url="https://asaas.test/dead",
+        asaas_invoice_reversal=None,
+    )
+    client, db = _client(app, planos=[_plano()], asaas=asaas, subscription=sub)
+
+    resp = client.post(
+        "/subscription", json={"plano": "ate_100"}, headers=_AUTH
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "inadimplente"
+    assert resp.json()["invoiceUrl"] is None
+    assert sub.status == "inadimplente"
+    assert sub.asaas_invoice_reversal == "deleted"
+    assert db.igreja.status == "inadimplente"
+    recovery = next(
+        op for op in db.added if getattr(op, "purpose", None) == "monthly_recovery"
+    )
+    assert recovery.source_payment_id == "pay_m2"
+
+
 def test_new_checkout_without_billing_document_is_rejected_before_mutation(app) -> None:
     client, db = _client(app, planos=[_plano()], asaas=_NoCallAsaas())
 

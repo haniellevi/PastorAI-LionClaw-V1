@@ -415,13 +415,21 @@ def _reconcile_payment_operation(
     ]
     if len(matches) == 1:
         payment = matches[0]
-        mapped_status = map_payment_status(payment.get("status"))
-        reversal = payment_reversal_kind(payment.get("status"))
-        operation_status = (
-            "paid"
-            if mapped_status == "ativa"
-            else "reversed"
+        reversal = (
+            "deleted"
+            if payment.get("deleted")
+            else payment_reversal_kind(payment.get("status"))
+        )
+        mapped_status = (
+            "inadimplente"
             if reversal
+            else map_payment_status(payment.get("status"))
+        )
+        operation_status = (
+            "reversed"
+            if reversal
+            else "paid"
+            if mapped_status == "ativa"
             else "created"
         )
         # Adoção + efeito financeiro precisam ser UMA transação. Trava na

@@ -837,6 +837,30 @@ def test_delayed_legacy_confirmation_cannot_readopt_reversed_setup(
     assert db.commits == 0
 
 
+def test_legacy_reversal_before_confirmation_persists_tombstone(
+    app, monkeypatch
+) -> None:
+    legada = _legacy_sub()
+    db = _WebhookDb(sub=None, igreja=_igreja("ativa"), legacy_candidates=[legada])
+    client = _client(app, db, monkeypatch)
+    deleted = _legacy_payment(status="PENDING")
+    deleted["deleted"] = True
+
+    reversed_resp = _post(client, "PAYMENT_DELETED", deleted)
+
+    assert reversed_resp.json()["status"] == "inadimplente"
+    assert legada.setup_pago is False
+    assert legada.asaas_setup_charge_id is None
+    assert legada.asaas_setup_reversed_payment_id == "pay_leg_1"
+    assert db.commits == 1
+
+    confirmed_resp = _post(client, "PAYMENT_CONFIRMED", _legacy_payment())
+    assert confirmed_resp.json() == {"received": True, "status": None}
+    assert legada.setup_pago is False
+    assert legada.asaas_setup_charge_id is None
+    assert db.commits == 1
+
+
 def test_legacy_setup_rejects_wrong_description_missing_customer_or_ambiguity(
     app, monkeypatch
 ) -> None:

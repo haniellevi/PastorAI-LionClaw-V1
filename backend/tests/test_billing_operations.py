@@ -140,6 +140,48 @@ def test_reconcile_confirmed_setup_applies_paid_state_without_webhook() -> None:
     assert sub.setup_pago is True
     assert sub.asaas_setup_charge_id == "pay_setup_confirmed"
     assert db.flushes == 1
+
+
+def test_reconcile_deleted_flag_takes_precedence_over_pending_status() -> None:
+    sub = SimpleNamespace(
+        id="local-sub-1",
+        igreja_id="igreja-1",
+        setup_pago=False,
+        asaas_setup_charge_id=None,
+        asaas_setup_reversed_payment_id=None,
+        asaas_setup_invoice_url=None,
+    )
+    op = BillingPaymentOperation(
+        subscription_id=sub.id,
+        purpose="setup",
+        operation_key="pastorai-setup-deleted",
+        status="reconciling",
+        valor=59.9,
+    )
+    db = FakeSession(
+        subscription=sub,
+        igreja=SimpleNamespace(id="igreja-1", status="ativa"),
+        operations=[op],
+    )
+    asaas = _OpsAsaas(
+        found=[{
+            "id": "pay_setup_deleted",
+            "value": 59.9,
+            "description": _DESC,
+            "customer": "cus_1",
+            "status": "PENDING",
+            "deleted": True,
+            "invoiceUrl": "https://asaas.test/dead",
+        }]
+    )
+
+    resolved = _ensure(db, asaas, sub=sub)
+
+    assert resolved.status == "reversed"
+    assert resolved.invoice_url is None
+    assert sub.setup_pago is False
+    assert sub.asaas_setup_reversed_payment_id == "pay_setup_deleted"
+    assert sub.asaas_setup_invoice_url is None
     assert asaas.posts == 0
 
 

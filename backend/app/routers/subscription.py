@@ -332,7 +332,11 @@ def _apply_monthly_payment_link(
 
 
 def _reconcile_legacy_setup_charge(
-    db: Session, payment: dict, payment_id: str | None, new_status: str | None
+    db: Session,
+    payment: dict,
+    payment_id: str | None,
+    new_status: str | None,
+    reversal: str | None,
 ) -> WebhookResponse | None:
     """Setup pago por checkout ANTERIOR à migration (sem charge id rastreado).
 
@@ -347,7 +351,7 @@ def _reconcile_legacy_setup_charge(
     """
     if (
         payment_id is None
-        or new_status != "ativa"
+        or (new_status != "ativa" and reversal is None)
         or payment.get("description") != SETUP_CHARGE_DESCRIPTION
         or not payment.get("customer")
     ):
@@ -362,6 +366,16 @@ def _reconcile_legacy_setup_charge(
     if len(candidatas) != 1:
         return None
     legada = candidatas[0]
+    if reversal:
+        # Reversão pode chegar ANTES da primeira confirmação/adopção. Persiste
+        # o payment id como tombstone para a confirmação atrasada não marcar a
+        # cobrança morta como paga.
+        legada.setup_pago = False
+        legada.asaas_setup_reversed_payment_id = payment_id
+        legada.asaas_setup_charge_id = None
+        legada.asaas_setup_invoice_url = None
+        db.commit()
+        return WebhookResponse(received=True, status=new_status)
     if str(getattr(legada, "asaas_setup_reversed_payment_id", "")) == payment_id:
         # A cobrança já foi adotada e depois revertida. Confirmação atrasada não
         # ressuscita obrigação morta nem remove a nova pendência de setup.
@@ -698,8 +712,16 @@ def _resume_tracked_checkout(
         # visível aqui; webhook posterior espera este commit e vence depois.
         db.refresh(sub, with_for_update=True)
         incoming_id = str(payment["id"])
-        new_status = map_payment_status(payment.get("status"))
-        reversal = payment_reversal_kind(payment.get("status"))
+        reversal = (
+            "deleted"
+            if payment.get("deleted")
+            else payment_reversal_kind(payment.get("status"))
+        )
+        new_status = (
+            "inadimplente"
+            if reversal
+            else map_payment_status(payment.get("status"))
+        )
         open_recovery = find_any_open_operation(db, sub.id, "monthly_recovery")
         same_cycle = incoming_id == sub.asaas_invoice_payment_id
         blocked_by_unresolved_reversal = bool(
@@ -1657,7 +1679,9 @@ def asaas_webhook(
     # Never use its externalReference as authority for a monthly status
     # transition; that would let another one-time charge alter access.
     if payment and not payment.get("subscription"):
-        legacy = _reconcile_legacy_setup_charge(db, payment, payment_id, new_status)
+        legacy = _reconcile_legacy_setup_charge(
+            db, payment, payment_id, new_status, reversal
+        )
         if legacy is not None:
             return legacy
         logger.info("Asaas webhook for unknown one-time payment; acknowledged")
