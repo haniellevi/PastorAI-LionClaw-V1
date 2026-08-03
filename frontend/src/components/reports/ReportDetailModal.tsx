@@ -1,15 +1,18 @@
 "use client";
 
 /**
- * Detalhe de um relatório de célula (api-reports). Modal somente-leitura aberto
- * pela ação "Ver" em #relatorios e #central-celula. Relatórios pendentes não
- * têm dados de reunião (id=null) — mostramos o estado pendente com a célula e a
- * semana, sem inventar números.
+ * Detalhe de um relatório de reunião de célula (api-reports). Modal somente
+ * leitura aberto pela ação "Ver" em #relatorios.
+ *
+ * Reunião sem relatório enviado (pendente/atrasado) não tem números — mostramos
+ * o estado, a célula e a data, sem inventar valores. NÃO existe campo de origem:
+ * o relatório é enviado pelo líder no painel, então qualquer rótulo fixo de
+ * "WhatsApp" seria falso.
  */
 import { StatusPill } from "@/components/dashboard/StatusPill";
 import { Dialog as DsDialog } from "@/components/ds/Dialog";
 import { Icon } from "@/lib/icons";
-import type { ReportItem } from "@/lib/reports-api";
+import { formatMeetingDate, isReceived, type ReportItem } from "@/lib/reports-api";
 
 function fmtOferta(value: number | null): string {
   if (value == null) return "—";
@@ -23,7 +26,8 @@ export function ReportDetailModal({
   report: ReportItem;
   onClose: () => void;
 }) {
-  const recebido = report.status !== "pendente";
+  const recebido = isReceived(report);
+  const atrasado = report.status === "atrasado";
 
   // Somente-leitura: fechar sem restrição (Esc/backdrop/botão do DsDialog).
   return (
@@ -32,10 +36,10 @@ export function ReportDetailModal({
         <div className="detail-head">
           <div>
             <h3>{report.celulaNome ?? "Célula"}</h3>
-            <div className="sub mono">Semana {report.semana}</div>
+            <div className="sub mono">Reunião de {formatMeetingDate(report.dataReuniao)}</div>
           </div>
-          <StatusPill tone={recebido ? "ok" : "warn"}>
-            {recebido ? "Recebido" : "Pendente"}
+          <StatusPill tone={recebido ? "ok" : atrasado ? "danger" : "warn"}>
+            {recebido ? "Recebido" : atrasado ? "Atrasado" : "Pendente"}
           </StatusPill>
         </div>
 
@@ -59,19 +63,15 @@ export function ReportDetailModal({
             </div>
             <div>
               <dt>Data da reunião</dt>
-              <dd>{report.dataReuniao ?? "—"}</dd>
-            </div>
-            <div>
-              <dt>Origem</dt>
-              <dd>{report.origem ?? "WhatsApp"}</dd>
+              <dd>{formatMeetingDate(report.dataReuniao)}</dd>
             </div>
           </dl>
         ) : (
           <div className="empty-state" style={{ padding: "var(--s5)" }}>
             <Icon name="clock" />
             <p>
-              <strong>Relatório ainda não recebido.</strong> O líder envia o
-              relatório semanal pelo WhatsApp oficial.
+              <strong>Relatório ainda não enviado.</strong> O líder envia o
+              relatório desta reunião pelo painel Minha Célula.
             </p>
           </div>
         )}

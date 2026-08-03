@@ -127,7 +127,7 @@ def test_purge_helper_does_not_commit() -> None:
 # ---------------------------------------------------------------------------
 @pytest.fixture
 def stub_tick(monkeypatch):
-    """Neutraliza o sweep de SLA e os crons; conta se eles rodaram."""
+    """Neutraliza SLA, crons e billing; conta os dois fluxos sob teste."""
     calls = {"sla": 0, "crons": 0}
 
     def _sla(session, engine, now, session_factory=None):
@@ -140,6 +140,11 @@ def stub_tick(monkeypatch):
 
     monkeypatch.setattr(cw, "run_all_igrejas", _sla)
     monkeypatch.setattr(cw, "run_due_crons", _crons)
+    monkeypatch.setattr(
+        cw,
+        "run_pending_plan_changes",
+        lambda session, session_factory=None: 0,
+    )
     return calls
 
 
@@ -295,7 +300,12 @@ def test_tick_reports_purged_counter(stub_tick) -> None:
     worker = _worker([_PurgeSession(rowcount=2), _SharedSession()])
     counters = worker.tick(now=_NOW)
     # A chave é a assinatura que o gate G7a procura no log do worker.
-    assert set(counters) == {"sla_handled", "crons_run", "oauth_flows_purged"}
+    assert set(counters) == {
+        "sla_handled",
+        "crons_run",
+        "oauth_flows_purged",
+        "plan_changes_completed",
+    }
 
 
 # ---------------------------------------------------------------------------

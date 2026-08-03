@@ -10,6 +10,7 @@
  * aqui dentro da LoginScreen, que é o que a raiz renderiza quando não há sessão.
  */
 import { useEffect, useState, type FormEvent } from "react";
+import Link from "next/link";
 
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
@@ -545,6 +546,11 @@ export function LoginScreen() {
               )}
             </form>
           )}
+          <nav className="login-legal-links" aria-label="Informações legais">
+            <Link href="/privacidade">Privacidade</Link>
+            <span aria-hidden="true">·</span>
+            <Link href="/termos">Termos de Uso</Link>
+          </nav>
         </main>
       </div>
     </section>

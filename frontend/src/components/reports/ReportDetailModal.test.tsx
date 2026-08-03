@@ -38,7 +38,6 @@ const report: ReportItem = {
   decisoes: 1,
   oferta: 50,
   observacoes: "Tudo certo.",
-  origem: "WhatsApp",
 };
 
 beforeEach(() => {
@@ -85,9 +84,9 @@ function fire(el: Element, type: "click" | "mousedown") {
     el.dispatchEvent(new MouseEvent(type, { bubbles: true }));
   });
 }
-function renderModal(onClose: () => void) {
+function renderModal(onClose: () => void, item: ReportItem = report) {
   act(() => {
-    root.render(<ReportDetailModal report={report} onClose={onClose} />);
+    root.render(<ReportDetailModal report={item} onClose={onClose} />);
   });
 }
 
@@ -151,5 +150,56 @@ describe("ReportDetailModal — DsDialog acessível (somente-leitura)", () => {
     });
     expect(tab.defaultPrevented).toBe(true);
     expect(panel().contains(document.activeElement)).toBe(true);
+  });
+});
+
+describe("ReportDetailModal — contrato honesto (REPORT-SOT-IMPLEMENT-1)", () => {
+  it("NÃO exibe origem falsa: sem rótulo 'Origem' e sem 'WhatsApp'", () => {
+    renderModal(vi.fn());
+    const text = container.textContent ?? "";
+    expect(text).not.toContain("WhatsApp");
+    expect(text).not.toContain("Origem");
+  });
+
+  it("recebido mostra os números reais do snapshot e a data da reunião", () => {
+    renderModal(vi.fn());
+    const text = container.textContent ?? "";
+    expect(text).toContain("Recebido");
+    expect(text).toContain("Presentes");
+    expect(text).toContain("12");
+    expect(text).toContain("15/07/2026");
+  });
+
+  it("pendente não inventa números e aponta o painel, não o WhatsApp", () => {
+    renderModal(vi.fn(), {
+      ...report,
+      status: "pendente",
+      presentes: null,
+      visitantes: null,
+      decisoes: null,
+      oferta: null,
+      observacoes: null,
+    });
+    const text = container.textContent ?? "";
+    expect(text).toContain("Pendente");
+    expect(text).toContain("Relatório ainda não enviado.");
+    expect(text).toContain("Minha Célula");
+    expect(text).not.toContain("WhatsApp");
+    expect(text).not.toContain("Presentes");
+  });
+
+  it("atrasado usa o rótulo Atrasado e também não mostra números", () => {
+    renderModal(vi.fn(), {
+      ...report,
+      status: "atrasado",
+      presentes: null,
+      visitantes: null,
+      decisoes: null,
+      oferta: null,
+      observacoes: null,
+    });
+    const text = container.textContent ?? "";
+    expect(text).toContain("Atrasado");
+    expect(text).not.toContain("Presentes");
   });
 });

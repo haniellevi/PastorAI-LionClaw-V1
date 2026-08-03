@@ -20,6 +20,7 @@ export interface AdminIgreja {
   nome: string;
   status: string;
   plano: string | null;
+  setupFeeOverride: number | null;
   membros: number;
   pessoas: number;
   createdAt: string | null;
@@ -51,6 +52,8 @@ export interface AdminIgrejaDetail {
   plano: string | null;
   createdAt: string | null;
   mensalidade: number | null;
+  setupFeeOverride: number | null;
+  setupFeeAplicavel: number;
   membros: number;
   pessoas: number;
   celulas: number;
@@ -155,6 +158,7 @@ export async function listIgrejas(token: string): Promise<AdminIgreja[]> {
 export interface CreateIgrejaInput {
   nome: string;
   plano: string | null;
+  setupFeeOverride: number | null;
   admin: { nome: string; email: string };
 }
 
@@ -168,6 +172,21 @@ export interface UpdateIgrejaInput {
   nome?: string;
   status?: string;
   plano?: string;
+  setupFeeOverride?: number | null;
+}
+
+export interface AdminBillingSettings {
+  setupFeePadrao: number;
+}
+
+/** Menor cobrança avulsa aceita pelo Asaas — a taxa de setup é R$ 0,00 ou ≥ R$ 5,00. */
+export const MIN_SETUP_FEE_BRL = 5;
+
+/** True quando o valor viola a regra "R$ 0,00 ou pelo menos R$ 5,00". */
+export function isInvalidSetupFee(value: number): boolean {
+  return (
+    !Number.isFinite(value) || value < 0 || (value > 0 && value < MIN_SETUP_FEE_BRL)
+  );
 }
 
 export interface AdminIgrejaAdmin {
@@ -255,6 +274,39 @@ export async function updateIgreja(
   }
   if (!res.ok) await throwMutationError(res, "Não foi possível atualizar a igreja.");
   return asJson<AdminIgreja>(res);
+}
+
+/** Taxa padrão de setup, definida pelo master para igrejas sem exceção. */
+export async function fetchBillingSettings(token: string): Promise<AdminBillingSettings> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/admin/billing/settings`, { headers: authHeaders(token) });
+  } catch {
+    throw new AdminAuthError("network", "Falha de conexão com o servidor.");
+  }
+  if (res.status === 401) throw new AdminSessionExpiredError();
+  if (res.status === 403) throw new AdminAuthError("forbidden", "Acesso negado.");
+  if (!res.ok) throw new AdminAuthError("network", "Não foi possível carregar a cobrança.");
+  return asJson<AdminBillingSettings>(res);
+}
+
+/** Atualiza a taxa padrão sem alterar as exceções já definidas por igreja. */
+export async function updateBillingSettings(
+  token: string,
+  input: AdminBillingSettings,
+): Promise<AdminBillingSettings> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/admin/billing/settings`, {
+      method: "PUT",
+      headers: jsonHeaders(token),
+      body: JSON.stringify(input),
+    });
+  } catch {
+    throw new AdminAuthError("network", "Falha de conexão com o servidor.");
+  }
+  if (!res.ok) await throwMutationError(res, "Não foi possível atualizar a cobrança.");
+  return asJson<AdminBillingSettings>(res);
 }
 
 /** Métricas globais da plataforma (total/status/plano/MRR/custo de IA). */

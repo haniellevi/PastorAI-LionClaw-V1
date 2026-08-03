@@ -1,0 +1,399 @@
+-- ============================================================================
+-- PastorAI — BILLING-SANDBOX-1: origem de preço controlada pelo master.
+--
+-- - `planos.preco_mensal` continua sendo a fonte da mensalidade.
+-- - `billing_settings.setup_fee_default` guarda a taxa padrão de setup.
+-- - `igrejas.setup_fee_override` permite exceção por igreja (NULL = padrão).
+-- - `subscriptions.asaas_setup_charge_id` identifica a cobrança avulsa no
+--   webhook, separando-a da mensalidade recorrente.
+--
+-- A linha inicial de billing_settings usa NULL para preservar o valor legado
+-- de ambiente até o master salvar explicitamente a taxa no painel.
+-- Aplicar manualmente no Supabase, conforme backend/migrations/README.md.
+-- ============================================================================
+
+begin;
+
+-- Regra canônica da taxa de setup: R$ 0,00 (isenta) ou pelo menos R$ 5,00 —
+-- o Asaas rejeita cobranças avulsas entre R$ 0,01 e R$ 4,99.
+alter table igrejas
+  add column if not exists setup_fee_override numeric(10,2) null
+    check (setup_fee_override = 0 or setup_fee_override >= 5);
+
+alter table subscriptions
+  add column if not exists asaas_setup_charge_id text null;
+
+-- Tombstone da última cobrança de setup revertida. Sem ele, uma confirmação
+-- atrasada da mesma cobrança legada poderia ser adotada de novo após o estorno.
+alter table subscriptions
+  add column if not exists asaas_setup_reversed_payment_id text null;
+
+-- Taxa congelada na contratação. NULL identifica assinaturas legadas, que
+-- ainda usam o fallback de configuração até uma intenção nova ser criada.
+alter table subscriptions
+  add column if not exists setup_fee_contracted numeric(10,2) null
+    check (setup_fee_contracted = 0 or setup_fee_contracted >= 5);
+
+-- Links públicos de pagamento (mensalidade e setup) devolvidos pelo checkout.
+-- Persistidos para a tela de Assinatura recuperá-los após reload.
+alter table subscriptions
+  add column if not exists asaas_invoice_url text null;
+
+alter table subscriptions
+  add column if not exists asaas_setup_invoice_url text null;
+
+-- Cobrança mensal do ciclo corrente: cada webhook de fatura atualiza id + URL,
+-- para o link nunca apontar para uma mensalidade já quitada de ciclo anterior.
+alter table subscriptions
+  add column if not exists asaas_invoice_payment_id text null;
+
+-- Estorno/exclusão da cobrança mensal corrente: link inutilizável — o GET não
+-- expõe nem recupera até um novo ciclo válido limpar o motivo. O MOTIVO
+-- importa: 'deleted' permite restaurar a MESMA cobrança no Asaas; 'refunded'
+-- exige uma cobrança avulsa de recuperação (nunca outra assinatura).
+alter table subscriptions
+  add column if not exists asaas_invoice_reversal text null
+    check (asaas_invoice_reversal in ('deleted', 'refunded'));
+
+-- Operações duráveis de cobrança avulsa (setup e recuperação de mensalidade):
+-- a operation_key é persistida ANTES do POST /payments e vira a
+-- externalReference exclusiva da cobrança — retry reconcilia pela chave em vez
+-- de repetir o POST às cegas (resposta perdida nunca duplica cobrança).
+create table if not exists billing_payment_operations (
+  id                uuid primary key default gen_random_uuid(),
+  subscription_id   uuid not null references subscriptions(id) on delete cascade,
+  purpose           text not null check (purpose in ('setup', 'monthly_recovery')),
+  operation_key     text not null unique,
+  source_payment_id text null,
+  asaas_payment_id  text null,
+  status            text not null default 'prepared'
+    check (status in ('prepared','creating','reconciling','created','paid','reversed','failed')),
+  valor             numeric(10,2) not null,
+  invoice_url       text null,
+  error             text null,
+  attempt_started_at timestamptz null,
+  created_at        timestamptz not null default now(),
+  updated_at        timestamptz not null default now()
+);
+
+alter table billing_payment_operations
+  add column if not exists attempt_started_at timestamptz null;
+
+create unique index if not exists billing_payment_operations_asaas_payment_id_uidx
+  on billing_payment_operations (asaas_payment_id)
+  where asaas_payment_id is not null;
+
+-- Claim atômico: no máximo UMA operação em andamento por assinatura+propósito
+-- +COBRANÇA-FONTE (dois requests concorrentes não criam duas cobranças). A
+-- fonte entra na chave porque uma recuperação existe para quitar UMA
+-- mensalidade específica: sem ela, a recovery órfã do ciclo A ocuparia o slot
+-- e impediria a recuperação do ciclo B. `coalesce` é necessário porque NULL
+-- não colide com NULL em índice único — o setup (sem fonte) precisa continuar
+-- limitado a uma operação aberta.
+create unique index if not exists billing_payment_operations_open_uidx
+  on billing_payment_operations (subscription_id, purpose, coalesce(source_payment_id, ''))
+  where status in ('prepared','creating','reconciling','created');
+
+-- Criação INICIAL de assinatura retry-safe (CORRECTIVE-6): a intenção é
+-- persistida ANTES do POST /subscriptions e a operation_key vira a
+-- externalReference da assinatura. Resposta perdida → `reconciling`; o retry
+-- procura GET /subscriptions?externalReference= e ADOTA somente a assinatura
+-- que corresponda a customer/valor/ciclo/descrição congelados — nunca repete
+-- o POST às cegas (a externalReference NÃO é garantia de idempotência do
+-- POST no Asaas; serve para localizar e reconciliar).
+create table if not exists billing_subscription_operations (
+  id                    uuid primary key default gen_random_uuid(),
+  subscription_id       uuid not null references subscriptions(id) on delete cascade,
+  operation_key         text not null unique,
+  customer_id           text null,
+  plano                 text not null,
+  valor                 numeric(10,2) not null,
+  -- Limite CONGELADO junto do preço: a adoção de uma intenção antiga não pode
+  -- reler o catálogo (o master pode ter editado ou desativado o plano depois).
+  limite                integer null,
+  ciclo                 text not null default 'MONTHLY',
+  descricao             text not null,
+  setup_fee             numeric(10,2) null
+    check (setup_fee = 0 or setup_fee >= 5),
+  asaas_subscription_id text null,
+  -- `superseded`: intenção `prepared` (comprovadamente sem POST remoto)
+  -- substituída porque o assinante escolheu outro plano. É estado TERMINAL —
+  -- libera o índice de claim sem fingir que houve falha no Asaas.
+  status                text not null default 'prepared'
+    check (status in ('prepared','creating','reconciling','created','failed','superseded')),
+  error                 text null,
+  attempt_started_at    timestamptz null,
+  created_at            timestamptz not null default now(),
+  updated_at            timestamptz not null default now()
+);
+
+alter table billing_subscription_operations
+  add column if not exists setup_fee numeric(10,2) null
+    check (setup_fee = 0 or setup_fee >= 5);
+alter table billing_subscription_operations
+  add column if not exists attempt_started_at timestamptz null;
+
+-- Claim atômico: no máximo UMA criação de assinatura em andamento por
+-- Subscription local.
+create unique index if not exists billing_subscription_operations_open_uidx
+  on billing_subscription_operations (subscription_id)
+  where status in ('prepared','creating','reconciling');
+
+create unique index if not exists billing_subscription_operations_asaas_id_uidx
+  on billing_subscription_operations (asaas_subscription_id)
+  where asaas_subscription_id is not null;
+
+alter table billing_subscription_operations enable row level security;
+
+do $$ begin
+  create policy billing_subscription_operations_tenant on billing_subscription_operations
+    for all
+    using (
+      subscription_id in (
+        select s.id from subscriptions s where s.igreja_id = current_igreja_id()
+      )
+    )
+    with check (
+      subscription_id in (
+        select s.id from subscriptions s where s.igreja_id = current_igreja_id()
+      )
+    );
+exception when duplicate_object then null; end $$;
+
+comment on table billing_subscription_operations is
+  'Intenções duráveis de criação de assinatura: operation_key persistida antes do POST /subscriptions vira externalReference — retry reconcilia por busca, nunca repete o POST às cegas.';
+
+-- Troca de plano (decisão do dono, PLAN-CHANGE-SAFETY-1): atualiza a
+-- assinatura Asaas EXISTENTE (PUT, updatePendingPayments=false, vigência no
+-- próximo ciclo) — nunca cria segunda recorrência. A operação congela o alvo
+-- antes do PUT; retry reconcilia por GET /subscriptions/{id}. `origin`
+-- reserva o mesmo trilho para o auto-upgrade quando houver worker de billing.
+-- `notify_status` separa a conclusão FINANCEIRA da entrega da notificação:
+-- 'pending' fica descobrível pelo cron-worker até o envio ('sent'); operações
+-- manuais nascem 'skipped' (não notificam).
+create table if not exists billing_plan_change_operations (
+  id                    uuid primary key default gen_random_uuid(),
+  subscription_id       uuid not null references subscriptions(id) on delete cascade,
+  asaas_subscription_id text not null,
+  from_plano            text not null,
+  to_plano              text not null,
+  to_preco              numeric(10,2) not null,
+  to_limite             integer null,
+  -- Descrição-alvo CONGELADA: dois planos podem ter o mesmo preço, então a
+  -- reconciliação compara valor + descrição para distinguir um PUT aplicado
+  -- de um PUT perdido (o remoto antigo teria o preço igual, mas a descrição
+  -- do plano anterior).
+  to_descricao          text null,
+  origin                text not null default 'manual'
+    check (origin in ('manual', 'autoupgrade')),
+  status                text not null default 'prepared'
+    check (status in ('prepared','processing','reconciling','completed','failed')),
+  notify_status         text not null default 'skipped'
+    check (notify_status in ('pending','sent','skipped')),
+  error                 text null,
+  -- Lease da tentativa (gravado no claim para 'processing'): um 'processing'
+  -- mais velho que o lease é tentativa ABANDONADA e pode ser retomada. É o que
+  -- dá saída ao estado 'reconciling' — o PUT é idempotente por construção
+  -- (mesma assinatura + preço e descrição congelados), então repeti-lo é
+  -- seguro; sem isso a operação e o slot único ficariam presos para sempre.
+  attempt_started_at    timestamptz null,
+  created_at            timestamptz not null default now(),
+  updated_at            timestamptz not null default now()
+);
+
+-- Claim atômico: no máximo UMA troca em andamento por assinatura.
+create unique index if not exists billing_plan_change_operations_open_uidx
+  on billing_plan_change_operations (subscription_id)
+  where status in ('prepared','processing','reconciling');
+
+alter table billing_plan_change_operations enable row level security;
+
+do $$ begin
+  create policy billing_plan_change_operations_tenant on billing_plan_change_operations
+    for all
+    using (
+      subscription_id in (
+        select s.id from subscriptions s where s.igreja_id = current_igreja_id()
+      )
+    )
+    with check (
+      subscription_id in (
+        select s.id from subscriptions s where s.igreja_id = current_igreja_id()
+      )
+    );
+exception when duplicate_object then null; end $$;
+
+comment on table billing_plan_change_operations is
+  'Trocas de plano duráveis: PUT na assinatura Asaas existente (nunca nova recorrência), vigência no próximo ciclo, retry por reconciliação.';
+
+-- ----------------------------------------------------------------------------
+-- Auto-upgrade sincronizado (AUTOUPGRADE-BILLING-WORKER-1): o trigger deixa de
+-- promover o plano local diretamente quando há assinatura Asaas rastreada — em
+-- vez disso registra UMA operação durável (origin='autoupgrade') que o
+-- cron-worker processa via PUT /subscriptions/{id} com
+-- updatePendingPayments=false. O trigger NUNCA chama rede, NUNCA cria segunda
+-- recorrência nem setup, e plano/limite/rótulo locais só mudam após a
+-- confirmação remota (feita pelo worker). Sem vínculo Asaas não existe
+-- recorrência a sincronizar: o upgrade local imediato é preservado.
+-- Escada e thresholds preservados de 0004; preço alvo congelado do catálogo
+-- `planos` (fonte única editada pelo master) no momento do gatilho.
+-- ----------------------------------------------------------------------------
+create or replace function fn_subscription_autoupgrade()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_total int;
+  v_sub   subscriptions%rowtype;
+  v_novo_plano  text;
+  v_novo_limite int;
+  v_novo_preco  numeric(10,2);
+begin
+  select * into v_sub from subscriptions where igreja_id = new.igreja_id;
+  if not found then
+    return new;
+  end if;
+
+  select count(*) into v_total from pessoas where igreja_id = new.igreja_id;
+
+  -- atualiza contagem corrente de pessoas
+  update subscriptions set pessoas = v_total where igreja_id = new.igreja_id;
+
+  if v_sub.limite is not null and v_total > v_sub.limite then
+    -- Primeiro degrau ATIVO acima do atual que comporte o porte. Um degrau
+    -- inativo ou com limite já ultrapassado não pode interromper a escada.
+    select p.codigo, p.preco_mensal, p.limite_pessoas
+      into v_novo_plano, v_novo_preco, v_novo_limite
+      from planos p
+      where p.ativo is true
+        and p.codigo in ('ate_100', '101_200', 'acima_201')
+        and p.preco_mensal is not null
+        and (p.limite_pessoas is null or v_total <= p.limite_pessoas)
+        and case p.codigo
+              when 'ate_100' then 1
+              when '101_200' then 2
+              when 'acima_201' then 3
+              else 999
+            end > case v_sub.plano
+              when 'ate_100' then 1
+              when '101_200' then 2
+              when 'acima_201' then 3
+              else 999
+            end
+      order by case p.codigo
+        when 'ate_100' then 1
+        when '101_200' then 2
+        when 'acima_201' then 3
+        else 999
+      end
+      limit 1;
+
+    if v_novo_plano is not null then
+
+      -- Plano fora do catálogo não gera promoção nem operação. O gatilho
+      -- reavalia na próxima mutação de pessoas.
+      if v_novo_preco is not null then
+        if v_sub.asaas_subscription_id is null then
+          -- Sem assinatura Asaas rastreada não há recorrência remota: o
+          -- upgrade local imediato (comportamento original de 0004) permanece.
+          update subscriptions
+            set plano = v_novo_plano,
+                limite = v_novo_limite
+            where igreja_id = new.igreja_id;
+          update igrejas set plano = v_novo_plano where id = new.igreja_id;
+        else
+          -- Repetições do gatilho coalescem na operação aberta, e uma troca
+          -- MANUAL em andamento tem precedência: o índice único parcial
+          -- (subscription_id | status aberto) faz o ON CONFLICT ignorar o
+          -- insert em vez de duplicar ou sobrescrever.
+          insert into billing_plan_change_operations
+            (subscription_id, asaas_subscription_id, from_plano, to_plano,
+             to_preco, to_limite, to_descricao, origin, status, notify_status)
+          values
+            (v_sub.id, v_sub.asaas_subscription_id, v_sub.plano, v_novo_plano,
+             v_novo_preco, v_novo_limite,
+             'PastorAI — plano ' || v_novo_plano,
+             'autoupgrade', 'prepared', 'pending')
+          on conflict (subscription_id)
+            where status in ('prepared','processing','reconciling')
+            do nothing;
+        end if;
+      end if;
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
+
+alter table billing_payment_operations enable row level security;
+
+do $$ begin
+  create policy billing_payment_operations_tenant on billing_payment_operations
+    for all
+    using (
+      subscription_id in (
+        select s.id from subscriptions s where s.igreja_id = current_igreja_id()
+      )
+    )
+    with check (
+      subscription_id in (
+        select s.id from subscriptions s where s.igreja_id = current_igreja_id()
+      )
+    );
+exception when duplicate_object then null; end $$;
+
+create unique index if not exists subscriptions_asaas_setup_charge_id_uidx
+  on subscriptions (asaas_setup_charge_id)
+  where asaas_setup_charge_id is not null;
+
+create table if not exists billing_settings (
+  id                integer primary key check (id = 1),
+  setup_fee_default numeric(10,2) null
+    check (setup_fee_default = 0 or setup_fee_default >= 5),
+  updated_at        timestamptz not null default now()
+);
+
+alter table billing_settings enable row level security;
+
+do $$ begin
+  create policy billing_settings_select on billing_settings
+    for select
+    using (true);
+exception when duplicate_object then null; end $$;
+
+do $$ begin
+  revoke insert, update, delete on table billing_settings from authenticated;
+exception when undefined_object then null; end $$;
+do $$ begin
+  revoke insert, update, delete on table billing_settings from anon;
+exception when undefined_object then null; end $$;
+
+insert into billing_settings (id, setup_fee_default)
+values (1, null)
+on conflict (id) do nothing;
+
+comment on table billing_settings is
+  'Taxa padrão de setup da plataforma. Editada apenas pelo console master; NULL preserva o fallback legado de ambiente.';
+comment on column igrejas.setup_fee_override is
+  'Taxa de setup específica da igreja definida pelo master. NULL usa billing_settings.setup_fee_default.';
+comment on column subscriptions.asaas_setup_charge_id is
+  'ID Asaas da cobrança avulsa de setup, usado para distinguir seu webhook da mensalidade.';
+comment on column subscriptions.asaas_setup_reversed_payment_id is
+  'Último ID Asaas de setup revertido; impede confirmação atrasada de readotar uma cobrança morta.';
+comment on column subscriptions.setup_fee_contracted is
+  'Taxa de setup congelada quando a intenção de contratação nasceu; resume nunca relê a configuração atual.';
+comment on column subscriptions.asaas_invoice_url is
+  'Link público da primeira fatura da mensalidade, persistido para sobreviver a reload.';
+comment on column subscriptions.asaas_setup_invoice_url is
+  'Link público da cobrança avulsa de setup, persistido para sobreviver a reload.';
+comment on column subscriptions.asaas_invoice_payment_id is
+  'ID Asaas da cobrança mensal do ciclo corrente, atualizado a cada webhook de fatura.';
+comment on column subscriptions.asaas_invoice_reversal is
+  'Motivo da reversão da cobrança mensal corrente (deleted|refunded); bloqueia exposição/recovery do link até o próximo ciclo válido ou recuperação explícita.';
+comment on table billing_payment_operations is
+  'Operações duráveis de cobrança avulsa (setup/monthly_recovery): operation_key persistida antes do POST vira externalReference exclusiva — retry reconcilia, nunca repete POST às cegas.';
+
+commit;

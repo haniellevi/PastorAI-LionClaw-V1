@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 
-from app.domain.permissions import ADMIN_ONLY
+from app.domain.permissions import ADMIN_ONLY, CENTRAL_ONLY, CENTRAL_ROLE
 
 # admin holds implicit access to every screen (mirrors deps.require_role).
 ADMIN_ROLE = "admin"
@@ -86,6 +86,14 @@ def allowed_screens_for_roles(
     roles, `ADMIN_ONLY` screens (`app.domain.permissions`) — fail-closed even
     if a legacy `role_permissions` row still grants one (mirrors
     `can_access_screen`, checked before the matrix, not after).
+
+    `CENTRAL_ONLY` (ex.: `relatorios`) segue a mesma regra e só é liberada ao
+    `pastor`: o assistente não pode apontar uma tela cujo endpoint responderia
+    403 (REPORT-SOT-1). O filtro é POR PAPEL, antes da união — mesmo ponto de
+    aplicação de `screens_for_role`. Olhar só o ator deixaria a concessão de um
+    papel não-Central passar por carona: com `{pastor: [inbox],
+    operador: [relatorios]}`, o usuário pastor+operador herdaria `relatorios`
+    do operador mesmo com a concessão do pastor removida.
     """
     role_set = set(roles)
     if ADMIN_ROLE in role_set:
@@ -93,9 +101,14 @@ def allowed_screens_for_roles(
 
     allowed: set[str] = set()
     for role in role_set:
+        is_central = role == CENTRAL_ROLE
         for tela in role_to_screens.get(role, ()):  # type: ignore[arg-type]
-            if tela in KNOWN_SCREENS:
-                allowed.add(tela)
+            if tela not in KNOWN_SCREENS:
+                continue
+            # Só o papel `pastor` contribui com uma tela Central-only.
+            if not is_central and tela in CENTRAL_ONLY:
+                continue
+            allowed.add(tela)
     # dashboard is available to any authenticated panel user (delta-010).
     allowed.add("dashboard")
     return allowed - LOCKED_SCREENS - ADMIN_ONLY

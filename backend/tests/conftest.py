@@ -12,7 +12,21 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.db.models import AppUser, PasswordResetToken, Plano, RolePermission
+from sqlalchemy.sql.dml import Update as _SqlUpdate
+
+from app.db.models import (
+    AgentConversationLog,
+    AppUser,
+    BillingPaymentOperation,
+    BillingPlanChangeOperation,
+    BillingSettings,
+    BillingSubscriptionOperation,
+    Igreja,
+    PasswordResetToken,
+    Plano,
+    RolePermission,
+    Subscription,
+)
 from app.services.clerk import ClerkAuthError, ClerkIdentity
 
 
@@ -42,13 +56,23 @@ class _FakeScalars:
     def all(self) -> list:
         return list(self._items)
 
+    def first(self):
+        # `find_any_open_operation` aceita mais de uma linha aberta (fontes
+        # diferentes), então usa .scalars().first() em vez de one_or_none.
+        return self._items[0] if self._items else None
+
 
 class _FakeResult:
-    def __init__(self, scalar=None, scalars_list=None, rows=None, one_row=None) -> None:
+    def __init__(
+        self, scalar=None, scalars_list=None, rows=None, one_row=None, rowcount=0
+    ) -> None:
         self._scalar = scalar
         self._scalars_list = scalars_list or []
         self._rows = rows or []
         self._one_row = one_row
+        # UPDATEs condicionais (claim_transition/finish_operation) decidem a
+        # posse do passo pelo rowcount — o dispatch de Update o preenche.
+        self.rowcount = rowcount
 
     def scalar_one_or_none(self):
         return self._scalar
@@ -63,6 +87,10 @@ class _FakeResult:
         # Usado pelo probe read-only de observabilidade (rls_observability).
         return self._one_row
 
+    def first(self):
+        # Usado pelo dedupe de notificação (notify_autoupgrade).
+        return self._rows[0] if self._rows else self._one_row
+
 
 class FakeSession:
     """Minimal session: routes selects by entity, ignores set_config text."""
@@ -74,6 +102,12 @@ class FakeSession:
         role_permissions: list[tuple[str, str]] | None = None,
         reset_token=None,
         planos: list | None = None,
+        igreja=None,
+        billing_settings=None,
+        subscription=None,
+        operations: list | None = None,
+        plan_changes: list | None = None,
+        subscription_ops: list | None = None,
     ) -> None:
         self.app_user = app_user
         self.roles = roles or []
@@ -86,11 +120,90 @@ class FakeSession:
         # WHERE compilado de verdade (ver _plano_query_filters), não confia
         # cegamente no shape da query.
         self.planos = planos or []
+        # Checkout resolve a taxa de setup pela igreja e pela configuração
+        # global do master. Defaults explícitos deixam os testes isolados da
+        # variável de ambiente legada.
+        self.igreja = igreja if igreja is not None else getattr(app_user, "igreja", None)
+        self.billing_settings = (
+            billing_settings
+            if billing_settings is not None
+            else SimpleNamespace(id=1, setup_fee_default=0.0)
+        )
+        # Assinatura existente da igreja (GET /subscription e recovery de links).
+        self.subscription = subscription
+        # Operações duráveis de cobrança avulsa (setup / monthly_recovery).
+        self.operations = operations or []
+        # Operações duráveis de TROCA DE PLANO (PUT na assinatura existente).
+        self.plan_changes = plan_changes or []
+        # Intenções duráveis de CRIAÇÃO de assinatura (CORRECTIVE-6).
+        self.subscription_ops = subscription_ops or []
+        # Contagem canônica de `pessoas` da igreja (guarda de downgrade).
+        self.pessoas_count = 0
         # Objetos passados a .add() (ex.: Subscription novo no checkout) —
         # permite o teste inspecionar o que o handler gravou (ex.: sub.limite).
         self.added: list = []
+        self.commits = 0
+        self.flushes = 0
+        self.refresh_calls: list[tuple[object, object]] = []
+        self.refresh_callback = None
+
+    def _apply_conditional_update(self, statement) -> _FakeResult:
+        """Aplica um UPDATE condicional de operação durável no pool em memória.
+
+        As transições de estado (claim_transition/finish_operation) decidem a
+        posse do passo pelo rowcount REAL: o fake lê os binds compilados —
+        nomes puros são o SET; sufixados (`id_1`, `status_1`, expanding IN) são
+        o WHERE — e só muta quem satisfaz id+status.
+        """
+        entity = statement.entity_description.get("entity")
+        pools = {
+            Igreja: [self.igreja] if self.igreja is not None else [],
+            BillingPaymentOperation: self.operations,
+            BillingPlanChangeOperation: self.plan_changes,
+            BillingSubscriptionOperation: self.subscription_ops,
+        }
+        if entity not in pools:
+            # Outros UPDATEs (ex.: gate da igreja no webhook) seguem inertes,
+            # como antes deste dispatch existir.
+            return _FakeResult()
+        pool = [
+            *pools[entity],
+            *(o for o in self.added if isinstance(o, entity)),
+        ]
+        params = statement.compile().params
+        set_values = {
+            k: v for k, v in params.items() if re.fullmatch(r"[a-z_]+[a-z]", k)
+        }
+        where_id = next(
+            (v for k, v in params.items() if re.fullmatch(r"id_\d+", k)), None
+        )
+        where_statuses: list[str] = []
+        for key, value in params.items():
+            if re.fullmatch(r"status_\d+(_\d+)?", key):
+                if isinstance(value, (list, tuple, set)):
+                    where_statuses.extend(value)
+                else:
+                    where_statuses.append(value)
+        rowcount = 0
+        for obj in pool:
+            if where_id is not None and str(obj.id) != str(where_id):
+                continue
+            if where_statuses and getattr(obj, "status", None) not in where_statuses:
+                continue
+            for key, value in set_values.items():
+                setattr(obj, key, value)
+            rowcount += 1
+        return _FakeResult(rowcount=rowcount)
 
     def execute(self, statement, params=None) -> _FakeResult:
+        if isinstance(statement, _SqlUpdate):
+            return self._apply_conditional_update(statement)
+        # Contagem canônica de pessoas (guarda de downgrade por porte): o
+        # select é `func.count()` com FROM em `pessoas` — sem entidade no
+        # column_descriptions, então é reconhecido pelo texto compilado.
+        sql_text = str(statement)
+        if "count(" in sql_text.lower() and "pessoas" in sql_text.lower():
+            return _FakeResult(scalar=self.pessoas_count)
         descriptions = getattr(statement, "column_descriptions", None)
         if not descriptions:
             # Cláusula text(): set_config(...) da RLS OU o probe read-only de
@@ -115,6 +228,101 @@ class FakeSession:
             return _FakeResult(rows=self.role_permissions)
         if entity is PasswordResetToken:
             return _FakeResult(scalar=self.reset_token)
+        if entity is Igreja:
+            return _FakeResult(scalar=self.igreja)
+        if entity is BillingSettings:
+            return _FakeResult(scalar=self.billing_settings)
+        if entity is Subscription:
+            return _FakeResult(scalar=self.subscription)
+        if entity is BillingPlanChangeOperation:
+            pool = [
+                *self.plan_changes,
+                *(
+                    o
+                    for o in self.added
+                    if isinstance(o, BillingPlanChangeOperation)
+                ),
+            ]
+            open_statuses = ("prepared", "processing", "reconciling")
+            pool = [o for o in pool if o.status in open_statuses]
+            return _FakeResult(scalar=pool[0] if pool else None, scalars_list=pool)
+        if entity is BillingSubscriptionOperation:
+            bound = statement.compile().params
+            pool = [
+                *self.subscription_ops,
+                *(
+                    o
+                    for o in self.added
+                    if isinstance(o, BillingSubscriptionOperation)
+                ),
+            ]
+            key = next(
+                (v for k, v in bound.items() if k.startswith("operation_key")), None
+            )
+            if key is not None:
+                pool = [o for o in pool if o.operation_key == str(key)]
+            elif any(k.startswith("status") for k in bound):
+                open_statuses = ("prepared", "creating", "reconciling")
+                pool = [o for o in pool if o.status in open_statuses]
+            return _FakeResult(scalar=pool[0] if pool else None, scalars_list=pool)
+        if entity is BillingPaymentOperation:
+            # Operações duráveis de cobrança: filtra o pool (kwarg + added)
+            # pelos binds REAIS da query (operation_key / asaas_payment_id /
+            # purpose / cobrança-fonte / status). Os status vêm dos próprios
+            # binds — `find_settled_recovery` procura `paid`, não os abertos.
+            bound = statement.compile().params
+            pool = [
+                *self.operations,
+                *(o for o in self.added if isinstance(o, BillingPaymentOperation)),
+            ]
+            key = next(
+                (v for k, v in bound.items() if k.startswith("operation_key")), None
+            )
+            pay = next(
+                (v for k, v in bound.items() if k.startswith("asaas_payment_id")), None
+            )
+            purpose = next(
+                (v for k, v in bound.items() if k.startswith("purpose")), None
+            )
+            if key is not None:
+                pool = [o for o in pool if o.operation_key == key]
+            if pay is not None:
+                pool = [o for o in pool if str(o.asaas_payment_id) == str(pay)]
+            if purpose is not None:
+                pool = [o for o in pool if o.purpose == purpose]
+            # A cobrança-fonte é parte da identidade do claim: `IS NULL` não
+            # gera bind, então o predicado é lido do SQL compilado.
+            src = next(
+                (v for k, v in bound.items() if k.startswith("source_payment_id")),
+                None,
+            )
+            if "source_payment_id IS NULL" in str(statement):
+                pool = [
+                    o for o in pool if getattr(o, "source_payment_id", None) is None
+                ]
+            elif src is not None:
+                pool = [
+                    o
+                    for o in pool
+                    if str(getattr(o, "source_payment_id", None)) == str(src)
+                ]
+            statuses: list[str] = []
+            for skey, svalue in bound.items():
+                if not re.fullmatch(r"status_\d+(_\d+)?", skey):
+                    continue
+                if isinstance(svalue, (list, tuple, set)):
+                    statuses.extend(svalue)
+                else:
+                    statuses.append(svalue)
+            if statuses:
+                pool = [o for o in pool if o.status in statuses]
+            return _FakeResult(scalar=pool[0] if pool else None, scalars_list=pool)
+        if entity is AgentConversationLog:
+            # notify_autoupgrade (hoje chamado só pelo cron-worker) deduplica
+            # por um marcador em agent_conversation_logs; devolver um marcador
+            # existente encerra a notificação cedo, mantendo o teste offline
+            # sem WhatsApp.
+            return _FakeResult(rows=[("ja-notificado",)])
         if entity is Plano:
             codigo, ativo_required = _plano_query_filters(statement)
             candidatos = self.planos
@@ -131,10 +339,20 @@ class FakeSession:
     def add(self, obj) -> None:
         self.added.append(obj)
 
-    def refresh(self, obj) -> None:  # pragma: no cover - object is already "live"
-        pass
+    def refresh(self, obj, *, with_for_update=None) -> None:
+        self.refresh_calls.append((obj, with_for_update))
+        if self.refresh_callback is not None:
+            self.refresh_callback(obj, with_for_update)
 
-    def commit(self) -> None:  # pragma: no cover - in-memory, nothing to persist
+    def commit(self) -> None:
+        # In-memory: nada a persistir, mas o contador permite asserts de
+        # persistência (ex.: recovery de links grava exatamente uma vez).
+        self.commits += 1
+
+    def flush(self) -> None:
+        self.flushes += 1
+
+    def rollback(self) -> None:  # pragma: no cover - in-memory, nothing to undo
         pass
 
     def close(self) -> None:  # pragma: no cover - nothing to release
@@ -225,6 +443,7 @@ def make_app_user(
         status=igreja_status,
         dono_id=dono_id,
         logo_path=None,
+        setup_fee_override=None,
     )
     return SimpleNamespace(
         id="00000000-0000-0000-0000-0000000000a1",

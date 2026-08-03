@@ -32,6 +32,7 @@ from app.config import get_settings
 from app.db.models import Cron
 from app.db.session import get_session_factory
 from app.db.tenant_session import mark_cross_tenant
+from app.services.billing_worker import run_pending_plan_changes
 from app.services.calendar_oauth_flows import purge_expired_flows
 from app.services.sla_engine import SlaEngine, run_all_igrejas
 
@@ -226,12 +227,24 @@ class CronWorker:
             crons_run = run_due_crons(
                 session, engine=self._engine, now=now, last_run=self._last_run
             )
+            # Auto-upgrade de plano (billing): fronteira de erro PRÓPRIA — uma
+            # falha aqui nunca impede o sweep de SLA nem os crons do tick, e
+            # vice-versa. A descoberta usa a mesma sessão compartilhada; o
+            # processamento abre sessões tenant-scoped próprias (D3).
+            try:
+                plan_changes = run_pending_plan_changes(
+                    session, session_factory=self._session_factory
+                )
+            except Exception:  # noqa: BLE001 - billing não derruba o tick
+                logger.exception("Autoupgrade plan-change pass failed")
+                plan_changes = 0
         finally:
             session.close()
         return {
             "sla_handled": sla_handled,
             "crons_run": crons_run,
             "oauth_flows_purged": oauth_flows_purged,
+            "plan_changes_completed": plan_changes,
         }
 
     def run(self) -> None:
@@ -245,9 +258,11 @@ class CronWorker:
                 # que o gate G7a usa para provar que o worker está no artefato
                 # novo. Não remover.
                 logger.info(
-                    "Cron tick done (sla=%d, crons=%d, oauth_flows_purged=%d)",
+                    "Cron tick done (sla=%d, crons=%d, plan_changes=%d, "
+                    "oauth_flows_purged=%d)",
                     counters["sla_handled"],
                     counters["crons_run"],
+                    counters["plan_changes_completed"],
                     counters["oauth_flows_purged"],
                 )
             except Exception:  # noqa: BLE001 - never let a tick kill the loop

@@ -6,7 +6,8 @@ resolves the linked igreja and returns a session token plus the churchId.
 Security:
   - Invalid credentials return a single generic error that never reveals
     whether the email exists (US-01).
-  - A suspended/delinquent igreja blocks login with a billing notice (US-35).
+  - A suspended igreja blocks login; a delinquent owner receives a restricted
+    session so the debt can be recovered (US-35).
   - A valid Clerk account with no linked app_user is rejected clearly (US-02).
 """
 
@@ -29,6 +30,7 @@ from app.deps import (
     BLOCKING_IGREJA_STATUSES,
     REVOKED_USER_STATUS,
     CurrentUser,
+    get_billing_recovery_user,
     get_current_user,
 )
 from app.domain.phone import normalize_phone, phone_suffix
@@ -226,7 +228,12 @@ def login(
         raise _unauthorized() from None
 
     igreja_status = app_user.igreja.status if app_user.igreja else None
-    if igreja_status in BLOCKING_IGREJA_STATUSES:
+    delinquent_owner = bool(
+        igreja_status == "inadimplente"
+        and app_user.igreja
+        and app_user.igreja.dono_id == app_user.id
+    )
+    if igreja_status in BLOCKING_IGREJA_STATUSES and not delinquent_owner:
         pending = igreja_status == "aguardando_aprovacao"
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -515,7 +522,9 @@ def activate(
 
 
 @router.get("/me", response_model=MeResponse)
-def me(current_user: CurrentUser = Depends(get_current_user)) -> MeResponse:
+def me(
+    current_user: CurrentUser = Depends(get_billing_recovery_user),
+) -> MeResponse:
     """Return the resolved identity for the current session token."""
     return MeResponse(
         appUserId=current_user.app_user_id,
