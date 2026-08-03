@@ -10,6 +10,7 @@ from app.config import Settings
 from app.services.asaas import (
     AsaasClient,
     AsaasError,
+    _sao_paulo_today,
     map_payment_status,
     payment_invoice_url,
     verify_webhook_token,
@@ -254,10 +255,21 @@ def test_payment_invoice_url_extraction() -> None:
     assert payment_invoice_url(None) is None
 
 
-def test_subscription_payload_sets_first_due_date() -> None:
+def test_asaas_billing_date_uses_the_sao_paulo_calendar_day() -> None:
+    # 01:30 UTC de 04/08 ainda é 22:30 de 03/08 no fuso do produto.
+    instant = dt.datetime(2026, 8, 4, 1, 30, tzinfo=dt.UTC)
+
+    assert _sao_paulo_today(instant) == dt.date(2026, 8, 3)
+
+
+def test_subscription_payload_sets_first_due_date(monkeypatch) -> None:
     """Asaas exige a data da primeira cobrança ao criar uma assinatura."""
 
     calls: list[dict] = []
+    billing_date = dt.date(2030, 1, 2)
+    monkeypatch.setattr(
+        "app.services.asaas._sao_paulo_today", lambda: billing_date
+    )
 
     class _Response:
         def raise_for_status(self) -> None:
@@ -292,7 +304,7 @@ def test_subscription_payload_sets_first_due_date() -> None:
                 "billingType": "UNDEFINED",
                 "value": 19.9,
                 "cycle": "MONTHLY",
-                "nextDueDate": dt.date.today().isoformat(),
+                "nextDueDate": billing_date.isoformat(),
                 "description": "Plano de teste",
                 "externalReference": "sandbox-ref",
             },
@@ -300,10 +312,14 @@ def test_subscription_payload_sets_first_due_date() -> None:
     ]
 
 
-def test_setup_charge_payload_sets_due_date() -> None:
+def test_setup_charge_payload_sets_due_date(monkeypatch) -> None:
     """A taxa avulsa também exige a data de vencimento no Asaas."""
 
     calls: list[dict] = []
+    billing_date = dt.date(2030, 1, 2)
+    monkeypatch.setattr(
+        "app.services.asaas._sao_paulo_today", lambda: billing_date
+    )
 
     class _Response:
         def raise_for_status(self) -> None:
@@ -335,7 +351,7 @@ def test_setup_charge_payload_sets_due_date() -> None:
                 "customer": "cus_test",
                 "billingType": "UNDEFINED",
                 "value": 3.0,
-                "dueDate": dt.date.today().isoformat(),
+                "dueDate": billing_date.isoformat(),
                 "description": "PastorAI — taxa de setup",
                 "externalReference": "pastorai-setup-op1",
             },

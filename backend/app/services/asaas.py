@@ -16,6 +16,7 @@ import hmac
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
+from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -29,6 +30,13 @@ MIN_UNDEFINED_PAYMENT_VALUE = 5.0
 SETUP_CHARGE_DESCRIPTION = "PastorAI — taxa de setup"
 # Cobrança avulsa que recupera uma mensalidade ESTORNADA (nunca uma assinatura).
 MONTHLY_RECOVERY_DESCRIPTION = "PastorAI — recuperação de mensalidade"
+_SAO_PAULO_TZ = ZoneInfo("America/Sao_Paulo")
+
+
+def _sao_paulo_today(now: dt.datetime | None = None) -> dt.date:
+    """Data civil do produto, independente do fuso configurado no host."""
+    instant = now or dt.datetime.now(_SAO_PAULO_TZ)
+    return instant.astimezone(_SAO_PAULO_TZ).date()
 
 # Map Asaas event/payment status to our subscription_status enum (RF-42).
 _STATUS_MAP = {
@@ -562,7 +570,7 @@ class AsaasClient:
             "cycle": ciclo,
             # A primeira cobrança precisa de uma data explícita no contrato do
             # Asaas. Hoje preserva o checkout imediato esperado pelo produto.
-            "nextDueDate": dt.date.today().isoformat(),
+            "nextDueDate": _sao_paulo_today().isoformat(),
             "description": descricao,
         }
         if external_reference:
@@ -630,7 +638,7 @@ class AsaasClient:
             "customer": customer_id,
             "billingType": "UNDEFINED",
             "value": valor,
-            "dueDate": dt.date.today().isoformat(),
+            "dueDate": _sao_paulo_today().isoformat(),
             "description": description,
             "externalReference": external_reference,
         }
