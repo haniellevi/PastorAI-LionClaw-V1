@@ -98,6 +98,7 @@ class _WebhookDb:
         # Intenções duráveis de criação de assinatura (externalReference nova).
         self.subscription_create_ops = subscription_create_ops or []
         self.commits = 0
+        self.flushes = 0
 
     def add(self, obj) -> None:
         self.operations.append(obj)
@@ -225,6 +226,9 @@ class _WebhookDb:
 
     def commit(self) -> None:
         self.commits += 1
+
+    def flush(self) -> None:
+        self.flushes += 1
 
     def close(self) -> None:  # pragma: no cover - nothing to release
         pass
@@ -992,6 +996,7 @@ def test_payment_of_the_current_source_recovery_settles_and_reactivates(
     assert db.sub.asaas_invoice_reversal is None
     assert db.sub.status == "ativa"
     assert db.igreja.status == "ativa"
+    assert db.flushes == 1  # autoflush=False: quitação foi ao DB antes do probe
 
 
 def test_reversal_of_an_older_recovery_reopens_its_debt_without_rewriting_current_cycle(

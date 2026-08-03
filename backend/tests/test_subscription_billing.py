@@ -676,6 +676,71 @@ def test_retry_applies_current_overdue_status_and_closes_gate(app) -> None:
     assert db.igreja.status == "inadimplente"
 
 
+def test_retry_never_regresses_a_concurrent_confirmation_to_pending(app) -> None:
+    asaas = _ResumeAsaas(
+        payment={
+            "id": "pay_current",
+            "invoiceUrl": "https://asaas.test/current",
+            "dueDate": "2026-08-31",
+            "status": "PENDING",
+        }
+    )
+    sub = _subscription(
+        status="pendente",
+        setup_pago=True,
+        asaas_invoice_payment_id="pay_current",
+    )
+    client, db = _client(app, planos=[_plano()], asaas=asaas, subscription=sub)
+
+    def _concurrent_webhook_snapshot(obj, with_for_update) -> None:
+        assert with_for_update is True
+        obj.status = "ativa"
+        obj.asaas_invoice_payment_id = "pay_current"
+        db.igreja.status = "ativa"
+
+    db.refresh_callback = _concurrent_webhook_snapshot
+
+    resp = client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ativa"
+    assert sub.status == "ativa"
+    assert db.igreja.status == "ativa"
+    assert db.refresh_calls == [(sub, True)]
+
+
+def test_retry_still_adopts_pending_snapshot_from_a_new_billing_cycle(app) -> None:
+    asaas = _ResumeAsaas(
+        payment={
+            "id": "pay_august",
+            "invoiceUrl": "https://asaas.test/august",
+            "dueDate": "2026-08-31",
+            "status": "PENDING",
+        }
+    )
+    sub = _subscription(
+        status="ativa",
+        setup_pago=True,
+        asaas_invoice_payment_id="pay_july",
+        asaas_invoice_url="https://asaas.test/july",
+        proxima_cobranca=dt.date(2026, 7, 31),
+    )
+    client, db = _client(app, planos=[_plano()], asaas=asaas, subscription=sub)
+
+    resp = client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "pendente"
+    assert sub.status == "pendente"
+    assert sub.asaas_invoice_payment_id == "pay_august"
+    assert sub.asaas_invoice_url == "https://asaas.test/august"
+    assert db.igreja.status == "ativa"  # PENDING não é inadimplência
+
+
 def test_plan_change_still_creates_new_subscription(app) -> None:
     # Troca de plano (plano DIFERENTE do vinculado) segue o fluxo normal de
     # criação — a retomada vale só para retry do mesmo plano pendente.

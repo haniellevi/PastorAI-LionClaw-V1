@@ -457,8 +457,12 @@ def _apply_operation_event(
             sub.status = "ativa"
             sub.asaas_invoice_reversal = None  # dívida do ciclo revertido quitada
 
+        # A sessão de produção usa autoflush=False. Persiste o estado `paid`
+        # antes da consulta, senão a própria operação ainda aparece no banco
+        # como aberta e impede a reativação que sua quitação deveria liberar.
+        db.flush()
         # A própria operação já está `paid`, então deixa de aparecer na busca
-        # por operações abertas (o execute faz autoflush no SQLAlchemy real).
+        # por operações abertas.
         # Reavalia o estado CORRENTE: B ativa + nenhuma dívida restante libera;
         # B pendente/vencida/revertida continua bloqueada.
         if (
@@ -679,15 +683,20 @@ def _resume_tracked_checkout(
         except AsaasError:
             payment = None  # GET /subscription recupera o link depois
     if payment and payment.get("id"):
+        # O GET ao Asaas ocorre sem lock e pode demorar. Recarrega o snapshot
+        # local já sob row lock: webhook que confirmou durante a chamada fica
+        # visível aqui; webhook posterior espera este commit e vence depois.
+        db.refresh(sub, with_for_update=True)
         incoming_id = str(payment["id"])
         new_status = map_payment_status(payment.get("status"))
         reversal = payment_reversal_kind(payment.get("status"))
         open_recovery = find_any_open_operation(db, sub.id, "monthly_recovery")
+        same_cycle = incoming_id == sub.asaas_invoice_payment_id
         blocked_by_unresolved_reversal = bool(
             sub.asaas_invoice_reversal
             and (
-                (incoming_id == sub.asaas_invoice_payment_id and reversal is None)
-                or (incoming_id != sub.asaas_invoice_payment_id and open_recovery is None)
+                (same_cycle and reversal is None)
+                or (not same_cycle and open_recovery is None)
             )
         )
         if (
@@ -699,7 +708,12 @@ def _resume_tracked_checkout(
             )
         ):
             _apply_monthly_payment_link(sub, payment, reversal=reversal)
-            if new_status is not None:
+            pending_after_confirmation = bool(
+                new_status == "pendente"
+                and same_cycle
+                and sub.status == "ativa"
+            )
+            if new_status is not None and not pending_after_confirmation:
                 sub.status = new_status
             if new_status is not None and reversal:
                 staged = _stage_monthly_recovery(

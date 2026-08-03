@@ -143,6 +143,8 @@ class FakeSession:
         # permite o teste inspecionar o que o handler gravou (ex.: sub.limite).
         self.added: list = []
         self.commits = 0
+        self.refresh_calls: list[tuple[object, object]] = []
+        self.refresh_callback = None
 
     def _apply_conditional_update(self, statement) -> _FakeResult:
         """Aplica um UPDATE condicional de operação durável no pool em memória.
@@ -336,8 +338,10 @@ class FakeSession:
     def add(self, obj) -> None:
         self.added.append(obj)
 
-    def refresh(self, obj) -> None:  # pragma: no cover - object is already "live"
-        pass
+    def refresh(self, obj, *, with_for_update=None) -> None:
+        self.refresh_calls.append((obj, with_for_update))
+        if self.refresh_callback is not None:
+            self.refresh_callback(obj, with_for_update)
 
     def commit(self) -> None:
         # In-memory: nada a persistir, mas o contador permite asserts de
