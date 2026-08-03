@@ -1110,7 +1110,8 @@ def test_setup_delete_clears_the_dead_charge_even_if_unpaid(app, monkeypatch) ->
         igreja=_igreja("ativa"),
     )
     client = _client(app, db, monkeypatch)
-    payment = _payment(status="DELETED", subscription=None, payment_id="pay_setup_1")
+    payment = _payment(status="PENDING", subscription=None, payment_id="pay_setup_1")
+    payment["deleted"] = True
 
     resp = _post(client, "PAYMENT_DELETED", payment)
 
@@ -1119,6 +1120,37 @@ def test_setup_delete_clears_the_dead_charge_even_if_unpaid(app, monkeypatch) ->
     assert db.sub.asaas_setup_charge_id is None
     assert db.sub.asaas_setup_invoice_url is None
     # Próximo checkout volta a criar (e cobrar) a taxa: nada ficou "pago".
+
+
+def test_monthly_delete_event_overrides_pending_payment_status(app, monkeypatch) -> None:
+    db = _WebhookDb(
+        sub=_sub(
+            status="ativa",
+            asaas_invoice_payment_id="pay_m2",
+            asaas_invoice_url="https://asaas.test/m2",
+        ),
+        igreja=_igreja("ativa"),
+    )
+    client = _client(app, db, monkeypatch)
+    payment = _payment(
+        status="PENDING",
+        payment_id="pay_m2",
+        invoice_url="https://asaas.test/m2",
+        value=199.0,
+    )
+    payment["deleted"] = True
+
+    resp = _post(client, "PAYMENT_DELETED", payment)
+
+    assert resp.json()["status"] == "inadimplente"
+    assert db.sub.status == "inadimplente"
+    assert db.sub.asaas_invoice_reversal == "deleted"
+    assert db.igreja.status == "inadimplente"
+    recovery = next(
+        op for op in db.operations if op.purpose == "monthly_recovery"
+    )
+    assert recovery.source_payment_id == "pay_m2"
+    assert recovery.status == "prepared"
 
 
 def test_monthly_refund_blocks_delayed_confirmation_of_same_payment(

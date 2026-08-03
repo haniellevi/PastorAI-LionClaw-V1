@@ -453,10 +453,11 @@ def _reconcile_payment_operation(
             db,
             op,
             ("creating", "reconciling"),
-            status="failed",
+            status="reconciling",
+            error="Múltiplas cobranças encontradas; revisão manual obrigatória",
             attempt_started_at=None,
         )
-        logger.warning("Billing operation ambiguous on reconcile; marked failed")
+        logger.warning("Billing operation ambiguous on reconcile; kept blocking")
         raise AsaasError("Reconciliação ambígua da cobrança — intervenção manual")
     # 0 correspondências: mantém reconciling e falha com segurança — o próximo
     # retry reconcilia de novo (sem POST automático). Condicional: nunca
@@ -931,10 +932,11 @@ def reconcile_subscription_operation(
             db,
             op,
             ("creating", "reconciling"),
-            status="failed",
+            status="reconciling",
+            error="Múltiplas assinaturas encontradas; revisão manual obrigatória",
             attempt_started_at=None,
         )
-        logger.warning("Subscription create ambiguous on reconcile; marked failed")
+        logger.warning("Subscription create ambiguous on reconcile; kept blocking")
         raise AsaasError(
             "Reconciliação ambígua da assinatura — intervenção manual"
         )

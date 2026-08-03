@@ -2162,6 +2162,37 @@ def test_checkout_reconcile_zero_matches_stays_reconciling_without_post(app) -> 
     assert created_sub.asaas_subscription_id is None
 
 
+def test_checkout_reconcile_multiple_matches_stays_blocking(app) -> None:
+    asaas = _LostResponseAsaas()
+    client, db = _client(app, planos=[_plano()], asaas=asaas)
+
+    assert client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    ).status_code == 502
+    _adopt_created_sub(db)
+    match = {
+        "id": "sub_asaas_a",
+        "customer": "cus_1",
+        "value": 199.0,
+        "cycle": "MONTHLY",
+        "description": "PastorAI — plano ate_100",
+    }
+    asaas.found = [match, {**match, "id": "sub_asaas_b"}]
+
+    for _ in range(2):
+        assert client.post(
+            "/subscription",
+            json={"plano": "ate_100", "cpfCnpj": _CPF},
+            headers=_AUTH,
+        ).status_code == 502
+
+    op = next(o for o in db.added if isinstance(o, BillingSubscriptionOperation))
+    assert op.status == "reconciling"
+    assert "revisão manual" in (op.error or "")
+    assert asaas.find_calls == 2
+    assert asaas.create_calls == 1
+
+
 def test_adoption_uses_the_setup_fee_frozen_before_the_lost_response(app) -> None:
     asaas = _LostResponseAsaas()
     client, db = _client(

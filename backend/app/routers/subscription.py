@@ -1623,10 +1623,14 @@ def asaas_webhook(
     subscription = payload.subscription or {}
     obj = payment or subscription
     raw_status = obj.get("status") or payload.event
-    new_status = map_payment_status(raw_status)
+    event_reversal = payment_reversal_kind(payload.event)
+    deleted_flag = "deleted" if payment.get("deleted") else None
+    reversal = event_reversal or deleted_flag or payment_reversal_kind(raw_status)
+    # Em PAYMENT_DELETED o objeto payment pode continuar PENDING/OVERDUE; o
+    # evento/flag é a autoridade da reversão e precisa fechar o gate.
+    new_status = "inadimplente" if reversal else map_payment_status(raw_status)
 
     payment_id = str(payment["id"]) if payment.get("id") else None
-    reversal = payment_reversal_kind(raw_status)
 
     # PROPÓSITO EXPLÍCITO primeiro: cobranças avulsas nascidas de operações
     # duráveis são resolvidas pela operação (asaas_payment_id ou operation_key

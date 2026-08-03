@@ -288,7 +288,7 @@ def test_abandoned_payment_claim_stays_reconciling_without_second_post() -> None
     assert abandoned.asaas_payment_id is None
 
 
-def test_reconcile_multiple_matches_fails_safe() -> None:
+def test_reconcile_multiple_matches_stays_blocking_without_new_post() -> None:
     match = {
         "id": "pay_a",
         "value": 59.9,
@@ -307,8 +307,12 @@ def test_reconcile_multiple_matches_fails_safe() -> None:
 
     with pytest.raises(AsaasError):
         _ensure(db, asaas)
+    with pytest.raises(AsaasError):
+        _ensure(db, asaas)
 
-    assert op.status == "failed"  # registrado; nada criado
+    assert op.status == "reconciling"
+    assert "revisão manual" in (op.error or "")
+    assert asaas.finds == 2
     assert asaas.posts == 0
 
 
