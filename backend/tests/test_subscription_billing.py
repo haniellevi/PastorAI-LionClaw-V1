@@ -678,6 +678,7 @@ def test_checkout_result_preserves_reversal_after_creation_callback(app) -> None
     assert tracked.asaas_invoice_payment_id == "pay_m1"
     assert tracked.asaas_invoice_url == "https://asaas.test/m1-deleted"
     assert tracked.asaas_invoice_reversal == "deleted"
+    assert resp.json()["invoiceUrl"] is None
 
 
 def test_retry_resumes_pending_checkout_without_new_subscription(app) -> None:

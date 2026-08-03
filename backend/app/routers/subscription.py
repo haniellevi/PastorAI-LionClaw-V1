@@ -1133,7 +1133,11 @@ def create_checkout(
 
     return CheckoutResponse(
         status=sub.status or result.status,
-        invoiceUrl=result.invoice_url,
+        invoiceUrl=(
+            sub.asaas_invoice_url
+            if sub.asaas_invoice_reversal is None
+            else None
+        ),
         setupInvoiceUrl=sub.asaas_setup_invoice_url if not sub.setup_pago else None,
         asaasSubscriptionId=result.subscription_id,
     )
