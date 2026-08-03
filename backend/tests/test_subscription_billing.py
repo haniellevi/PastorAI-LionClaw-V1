@@ -2096,6 +2096,50 @@ def test_checkout_lost_response_reconciles_without_second_post(app) -> None:
     assert resp2.json()["invoiceUrl"] == "https://asaas.test/m1"
 
 
+def test_reconciled_adoption_preserves_webhook_that_won_during_lookup(app) -> None:
+    asaas = _LostResponseAsaas()
+    client, db = _client(app, planos=[_plano()], asaas=asaas)
+
+    assert client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    ).status_code == 502
+    _adopt_created_sub(db)
+    sub = db.subscription
+    op = next(o for o in db.added if isinstance(o, BillingSubscriptionOperation))
+    remote = {
+        "id": "sub_asaas_9",
+        "customer": "cus_1",
+        "value": 199.0,
+        "cycle": "MONTHLY",
+        "description": "PastorAI — plano ate_100",
+    }
+
+    def lookup_after_webhook(ref: str):
+        # Enquanto o retry esperava o GET, o webhook resolveu a intenção e
+        # confirmou a primeira cobrança no banco.
+        op.status = "created"
+        op.asaas_subscription_id = "sub_asaas_9"
+        sub.asaas_subscription_id = "sub_asaas_9"
+        sub.asaas_invoice_payment_id = "pay_m1"
+        sub.asaas_invoice_url = "https://asaas.test/m1-confirmed"
+        sub.status = "ativa"
+        sub.asaas_invoice_reversal = None
+        return [remote]
+
+    asaas.find_subscriptions_by_external_reference = lookup_after_webhook
+    resp = client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    )
+
+    assert resp.status_code == 200
+    assert sub.status == "ativa"
+    assert sub.asaas_invoice_payment_id == "pay_m1"
+    assert sub.asaas_invoice_url == "https://asaas.test/m1-confirmed"
+    assert op.status == "created"
+    assert any(obj is op and lock is True for obj, lock in db.refresh_calls)
+    assert any(obj is sub and lock is True for obj, lock in db.refresh_calls)
+
+
 def test_checkout_reconcile_zero_matches_stays_reconciling_without_post(app) -> None:
     asaas = _LostResponseAsaas()
     client, db = _client(app, planos=[_plano()], asaas=asaas)

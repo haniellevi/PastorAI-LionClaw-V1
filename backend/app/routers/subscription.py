@@ -798,17 +798,28 @@ def _adopt_open_subscription_intent(
     # commit. Antes dele, a operação segue aberta (encontrável): um crash aqui
     # faz o retry reconciliar e adotar de novo, nunca criar outra intenção
     # (logo nunca outro POST).
+    remote_id = str(remote["id"])
+    # O GET ao Asaas cede tempo para o webhook vencer. Recarrega na mesma
+    # ordem de locks do webhook e preserva o snapshot financeiro que ele já
+    # tenha confirmado/revertido para esta mesma assinatura remota.
+    db.refresh(op, with_for_update=True)
+    db.refresh(sub, with_for_update=True)
+    preserve_payment_snapshot = (
+        sub.asaas_subscription_id == remote_id
+        and sub.status in ("ativa", "inadimplente")
+    )
     sub.plano = op.plano
     sub.limite = op.limite
-    sub.status = "pendente"
-    sub.asaas_subscription_id = str(remote["id"])
+    if not preserve_payment_snapshot:
+        sub.status = "pendente"
+        sub.asaas_invoice_reversal = None
+    sub.asaas_subscription_id = remote_id
     if op.customer_id:
         sub.asaas_customer_id = op.customer_id
     elif remote.get("customer"):
         sub.asaas_customer_id = str(remote["customer"])
-    sub.asaas_invoice_reversal = None
     op.status = "created"
-    op.asaas_subscription_id = str(remote["id"])
+    op.asaas_subscription_id = remote_id
     db.commit()
     return _resume_tracked_checkout(db, sub, asaas, setup_fee)
 
