@@ -156,6 +156,25 @@ describe("finishConnection — segredo obrigatório", () => {
     expect(init.method).toBe("POST");
     expect(JSON.parse(init.body as string)).toEqual({ flowSecret: "segredo" });
   });
+
+  it("preserva o estado processando devolvido pelo replay durável", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(
+        {
+          status: "processando",
+          connected: false,
+          calendarId: null,
+          googleAccountEmail: null,
+        },
+        202,
+      ),
+    );
+
+    const r = await finishConnection("tok", "segredo");
+
+    expect(r.status).toBe("processando");
+    expect(r.connected).toBe(false);
+  });
 });
 
 describe("finishConnection — conta divergente", () => {

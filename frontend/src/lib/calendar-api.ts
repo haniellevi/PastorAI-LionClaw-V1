@@ -120,8 +120,8 @@ export async function fetchConnectUrl(
 }
 
 export interface FinishResult {
-  /** `conectado` (HTTP 200) ou `aguardando_callback` (HTTP 202). */
-  status: "conectado" | "aguardando_callback";
+  /** `conectado` (200), ou callback/finish ainda pendente (202). */
+  status: "conectado" | "aguardando_callback" | "processando";
   connected: boolean;
   calendarId: string | null;
   /** E-mail verificado da conta conectada; `null` enquanto não há conexão. */
@@ -137,8 +137,8 @@ export interface FinishResult {
  * apenas QUEM finaliza, nunca QUAL conta Google consentiu, e um `state` vazado
  * viraria vinculação silenciosa de conta.
  *
- * 202 = o callback ainda não estacionou o code (reload/back/corrida). É estado
- * recuperável, NÃO consome o fluxo e não deve virar polling.
+ * 202 = callback ainda não estacionou o code OU outro finish do mesmo fluxo
+ * ainda está processando. É recuperável e não deve virar polling.
  */
 export async function finishConnection(
   token: string,
@@ -186,7 +186,12 @@ export async function finishConnection(
     googleAccountEmail?: string | null;
   };
   return {
-    status: d.status === "conectado" ? "conectado" : "aguardando_callback",
+    status:
+      d.status === "conectado"
+        ? "conectado"
+        : d.status === "processando"
+          ? "processando"
+          : "aguardando_callback",
     connected: Boolean(d.connected),
     calendarId: d.calendarId ?? null,
     googleAccountEmail: d.googleAccountEmail ?? null,

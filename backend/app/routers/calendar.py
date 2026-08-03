@@ -171,7 +171,7 @@ class FinishRequest(BaseModel):
 
 
 class FinishOut(BaseModel):
-    """200 = conectado; 202 = callback ainda não estacionou o code."""
+    """200 = conectado; 202 = callback pendente ou finish em processamento."""
 
     status: str
     connected: bool
@@ -456,12 +456,29 @@ def callback(
         return RedirectResponse(url=_return_url(fallback, _MARKER_CANCELLED))
 
 
-def _burn(db: Session, flow: CalendarOAuthFlow, now: dt.datetime) -> None:
+def _burn(
+    db: Session,
+    flow: CalendarOAuthFlow,
+    now: dt.datetime,
+    *,
+    finish_result: str | None = None,
+) -> None:
     """Consome o fluxo e apaga os segredos, no MESMO update. Commit solta o lock."""
     flow.consumed_at = now
     flow.verifier_encrypted = None
     flow.code_encrypted = None
+    flow.finish_result = finish_result
+    flow.finished_at = now if finish_result else None
     flow.atualizado_em = now
+    db.commit()
+
+
+def _mark_finish_failed(db: Session, flow: CalendarOAuthFlow) -> None:
+    """Fecha durablemente um finish já consumido que não produziu conexão."""
+    finished_at = dt.datetime.now(dt.timezone.utc)
+    flow.finish_result = "failed"
+    flow.finished_at = finished_at
+    flow.atualizado_em = finished_at
     db.commit()
 
 
@@ -490,7 +507,9 @@ def finish_connection(
 
     Ordem obrigatória: identidade ANTES de qualquer sinal sobre o estado do
     fluxo (senão o 202 vira oráculo de existência), e queima ANTES da troca com
-    o Google (o commit solta o lock antes da chamada de 15s).
+    o Google (o commit solta o lock antes da chamada de 15s). O resultado final
+    fica gravado no próprio fluxo para tornar um replay do MESMO segredo seguro
+    depois de uma resposta HTTP perdida.
     """
     flow = db.execute(
         select(CalendarOAuthFlow)
@@ -503,16 +522,44 @@ def finish_connection(
     now = dt.datetime.now(dt.timezone.utc)
     igreja_uuid = uuid.UUID(current_user.igreja_id)
     if flow.app_user_id != uuid.UUID(current_user.app_user_id):
-        _burn(db, flow, now)
+        _burn(db, flow, now, finish_result="failed")
         raise _finish_rejected()
     if flow.igreja_id != igreja_uuid:
-        _burn(db, flow, now)
+        _burn(db, flow, now, finish_result="failed")
+        raise _finish_rejected()
+
+    # Replay depois de resposta HTTP perdida: só um resultado DURÁVEL deste
+    # mesmo fluxo pode comprovar sucesso. O e-mail/connected antigos não bastam.
+    if flow.finish_result == "connected":
+        sync = _locked_sync_for(db, igreja_uuid)
+        if (
+            sync is not None
+            and flow.finished_at is not None
+            and sync.connected_em == flow.finished_at
+            and (sync.google_account_email or "") == (flow.expected_email or "")
+        ):
+            result = FinishOut(
+                status="conectado",
+                connected=True,
+                calendarId=sync.google_calendar_id,
+                googleAccountEmail=sync.google_account_email,
+            )
+            db.rollback()  # só leitura; libera as duas travas
+            return result
+        db.rollback()
+        raise _finish_rejected()
+    if flow.finish_result == "failed":
+        db.rollback()
         raise _finish_rejected()
     if flow.consumed_at is not None:
         db.rollback()
-        raise _finish_rejected()
+        # A primeira request queimou o fluxo e ainda está processando (ou foi
+        # interrompida). Não declare falha nem sucesso: preserve o segredo para
+        # um replay posterior até o TTL/purge.
+        response.status_code = status.HTTP_202_ACCEPTED
+        return FinishOut(status="processando", connected=False)
     if flow.expires_at <= now:
-        _burn(db, flow, now)
+        _burn(db, flow, now, finish_result="failed")
         raise _finish_rejected()
     if not flow.code_encrypted:
         # Callback ainda não estacionou (reload/back/corrida). NÃO consome.
@@ -526,12 +573,12 @@ def finish_connection(
         code = decrypt_secret(flow.code_encrypted)
         verifier = decrypt_secret(flow.verifier_encrypted or "")
     except (SecretDecryptionError, ValueError) as exc:
-        _burn(db, flow, now)
+        _burn(db, flow, now, finish_result="failed")
         raise _finish_rejected() from exc
     if not expected_email:
         # Fluxo legado, criado antes do binding de identidade. Não há contra o
         # que comparar => fail-closed. Queima porque nunca vai poder concluir.
-        _burn(db, flow, now)
+        _burn(db, flow, now, finish_result="failed")
         raise _finish_rejected()
 
     _burn(db, flow, now)
@@ -542,12 +589,14 @@ def finish_connection(
         # "alguma conta que autorizou usando esta URL".
         identity = oauth.fetch_userinfo(tokens.access_token)
     except GoogleOAuthError as exc:
+        _mark_finish_failed(db, flow)
         raise _finish_rejected() from exc
 
     if identity.email != expected_email:
         # ÚNICA rejeição com detalhe: sem saber qual conta autorizou, o admin não
         # tem como corrigir. Nada foi escrito e a conexão anterior segue intacta;
         # os tokens novos morrem aqui, em memória.
+        _mark_finish_failed(db, flow)
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={
@@ -573,6 +622,7 @@ def finish_connection(
     ):
         # Mesmo endereço, conta Google diferente. Terminal e acionável, sem
         # revelar o `sub`. A conexão anterior fica intacta.
+        _mark_finish_failed(db, flow)
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail=_REIDENTIFIED
         )
@@ -581,6 +631,7 @@ def finish_connection(
     # quando o `sub` é o mesmo — `prompt=consent` não é garantia de token novo.
     can_preserve = same_identity and bool(sync and sync.refresh_token_encrypted)
     if not tokens.refresh_token and not can_preserve:
+        _mark_finish_failed(db, flow)
         raise _finish_rejected()
 
     try:
@@ -589,6 +640,7 @@ def finish_connection(
         # condição — sua semântica não é garantida e ausência não reprova.
         oauth.list_calendars(tokens.access_token)
     except GoogleOAuthError as exc:
+        _mark_finish_failed(db, flow)
         raise _finish_rejected() from exc
 
     if sync is None:
@@ -603,10 +655,14 @@ def finish_connection(
     sync.google_account_email = identity.email
     sync.google_account_sub = identity.sub
     sync.connected_by_app_user_id = uuid.UUID(current_user.app_user_id)
-    sync.connected_em = now
+    completed_at = dt.datetime.now(dt.timezone.utc)
+    sync.connected_em = completed_at
     sync.access_token_encrypted = encrypt_secret(tokens.access_token)
     sync.access_token_expira_em = now + dt.timedelta(seconds=tokens.expires_in)
     sync.atualizado_em = now
+    flow.finish_result = "connected"
+    flow.finished_at = completed_at
+    flow.atualizado_em = completed_at
     db.commit()
     # Sem e-mail, sem `sub`, sem token na linha de log.
     logger.info("Google Calendar connected for an igreja (scope=%s)", tokens.scope)

@@ -286,6 +286,8 @@ def _flow(
     expired: bool = False,
     return_origin: str = _ORIGIN,
     expected_email: str | None = _EMAIL,
+    finish_result: str | None = None,
+    finished_at: dt.datetime | None = None,
 ) -> SimpleNamespace:
     now = dt.datetime.now(dt.timezone.utc)
     return SimpleNamespace(
@@ -301,6 +303,8 @@ def _flow(
             now - dt.timedelta(minutes=1) if expired else now + dt.timedelta(minutes=9)
         ),
         consumed_at=consumed_at,
+        finish_result=finish_result,
+        finished_at=finished_at,
         atualizado_em=now,
     )
 
@@ -734,12 +738,94 @@ def test_finish_rejects_other_igreja(app, crypto_enabled) -> None:
     assert flow.consumed_at is not None
 
 
-def test_finish_replay_is_rejected(app, crypto_enabled) -> None:
+def test_finish_replay_while_processing_is_recoverable(app, crypto_enabled) -> None:
     app_user = make_app_user()
     flow = _flow(
         app_user_id=uuid.UUID(str(app_user.id)),
         code_encrypted="x",
         consumed_at=dt.datetime.now(dt.timezone.utc),
+    )
+    session = _FlowSession(app_user=app_user, roles=["admin"], flow=flow)
+    oauth = _FakeOAuth(tokens=_tokens())
+    c = _client(app, ["admin"], session=session, oauth=oauth)
+
+    r = _finish(c)
+
+    assert r.status_code == 202
+    assert r.json()["status"] == "processando"
+    assert r.json()["connected"] is False
+    assert oauth.exchanges == []
+
+
+def test_finish_replay_of_this_completed_flow_returns_durable_result(
+    app, crypto_enabled
+) -> None:
+    app_user = make_app_user()
+    finished_at = dt.datetime.now(dt.timezone.utc)
+    flow = _flow(
+        app_user_id=uuid.UUID(str(app_user.id)),
+        code_encrypted=None,
+        verifier_encrypted=None,
+        consumed_at=finished_at - dt.timedelta(seconds=1),
+        finish_result="connected",
+        finished_at=finished_at,
+    )
+    sync = _sync()
+    sync.connected_em = finished_at
+    session = _FlowSession(
+        app_user=app_user, roles=["admin"], flow=flow, sync=sync
+    )
+    oauth = _FakeOAuth(tokens=_tokens())
+    c = _client(app, ["admin"], session=session, oauth=oauth)
+
+    r = _finish(c)
+
+    assert r.status_code == 200
+    assert r.json() == {
+        "status": "conectado",
+        "connected": True,
+        "calendarId": "cal@x",
+        "googleAccountEmail": _EMAIL,
+    }
+    assert oauth.exchanges == []
+    assert session.rollbacks == 1
+
+
+def test_finish_replay_does_not_claim_old_same_email_connection(
+    app, crypto_enabled
+) -> None:
+    app_user = make_app_user()
+    finished_at = dt.datetime.now(dt.timezone.utc)
+    flow = _flow(
+        app_user_id=uuid.UUID(str(app_user.id)),
+        code_encrypted=None,
+        verifier_encrypted=None,
+        consumed_at=finished_at - dt.timedelta(seconds=1),
+        finish_result="connected",
+        finished_at=finished_at,
+    )
+    sync = _sync()  # mesmo e-mail, mas versão anterior da conexão
+    sync.connected_em = finished_at - dt.timedelta(minutes=5)
+    session = _FlowSession(
+        app_user=app_user, roles=["admin"], flow=flow, sync=sync
+    )
+    oauth = _FakeOAuth(tokens=_tokens())
+    c = _client(app, ["admin"], session=session, oauth=oauth)
+
+    assert _finish(c).status_code == 409
+    assert oauth.exchanges == []
+
+
+def test_finish_replay_of_failed_flow_is_rejected(app, crypto_enabled) -> None:
+    app_user = make_app_user()
+    finished_at = dt.datetime.now(dt.timezone.utc)
+    flow = _flow(
+        app_user_id=uuid.UUID(str(app_user.id)),
+        code_encrypted=None,
+        verifier_encrypted=None,
+        consumed_at=finished_at - dt.timedelta(seconds=1),
+        finish_result="failed",
+        finished_at=finished_at,
     )
     session = _FlowSession(app_user=app_user, roles=["admin"], flow=flow)
     oauth = _FakeOAuth(tokens=_tokens())
@@ -841,6 +927,8 @@ def test_finish_persists_encrypted_tokens(app, crypto_enabled) -> None:
     sync = session.added[0]
     assert sync.refresh_token_encrypted and sync.refresh_token_encrypted != "rt"
     assert sync.access_token_encrypted and sync.access_token_encrypted != "at"
+    assert flow.finish_result == "connected"
+    assert flow.finished_at == sync.connected_em
 
 
 def test_finish_google_failure_does_not_write(app, crypto_enabled) -> None:
@@ -859,6 +947,8 @@ def test_finish_google_failure_does_not_write(app, crypto_enabled) -> None:
     assert _finish(c).status_code == 409
     assert session.added == []  # nada em calendar_sync
     assert flow.consumed_at is not None  # o fluxo morreu junto
+    assert flow.finish_result == "failed"
+    assert flow.finished_at is not None
 
 
 def test_finish_rejects_when_calendar_list_forbidden(app, crypto_enabled) -> None:
@@ -1572,8 +1662,10 @@ def test_original_url_used_by_another_account_is_rejected(app, crypto_enabled) -
         "verified": _OUTRO_EMAIL,
     }
     assert session.added == []  # nenhum CalendarSync
-    assert session.commits == 1  # só o commit da queima do fluxo
+    # queima antes do Google + resultado terminal durável depois do userinfo
+    assert session.commits == 2
     assert flow.consumed_at is not None
+    assert flow.finish_result == "failed"
 
 
 def test_mismatch_preserves_the_previous_connection(app, crypto_enabled) -> None:

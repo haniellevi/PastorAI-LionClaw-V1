@@ -76,7 +76,6 @@ const OUTRO_EMAIL = "pessoal@gmail.com";
 interface StoredFlow {
   secret: string;
   expiresAt: number;
-  expectedEmail?: string;
 }
 
 function flowKey(appUserId = authValue.user.appUserId): string {
@@ -87,11 +86,10 @@ function seedFlow(
   secret = "segredo",
   expiresAt = Date.now() + 3_600_000,
   appUserId = authValue.user.appUserId,
-  expectedEmail?: string,
 ): void {
   window.localStorage.setItem(
     flowKey(appUserId),
-    JSON.stringify({ secret, expiresAt, ...(expectedEmail ? { expectedEmail } : {}) }),
+    JSON.stringify({ secret, expiresAt }),
   );
 }
 
@@ -164,6 +162,12 @@ const CONECTADO = {
 };
 const AGUARDANDO = {
   status: "aguardando_callback",
+  connected: false,
+  calendarId: null,
+  googleAccountEmail: null,
+};
+const PROCESSANDO = {
+  status: "processando",
   connected: false,
   calendarId: null,
   googleAccountEmail: null,
@@ -245,7 +249,6 @@ describe("conta Google declarada", () => {
     expect(storedFlow()).toEqual({
       secret: "novo",
       expiresAt: START.expiresAt,
-      expectedEmail: EMAIL,
     });
     expect(hrefWrites).toEqual(["https://accounts.google/x"]);
   });
@@ -346,7 +349,6 @@ describe("identidade conectada", () => {
     expect(storedFlow()).toEqual({
       secret: "novo",
       expiresAt: START.expiresAt,
-      expectedEmail: OUTRO_EMAIL,
     });
 
     // PWA volta ao primeiro plano antes do finish. O GET ainda descreve a
@@ -356,7 +358,6 @@ describe("identidade conectada", () => {
     expect(storedFlow()).toEqual({
       secret: "novo",
       expiresAt: START.expiresAt,
-      expectedEmail: OUTRO_EMAIL,
     });
     expect(button(CTA_FINISH)).toBeTruthy();
     expect(text()).toContain("Conclua a conexão");
@@ -566,12 +567,7 @@ describe("marcador ready", () => {
     await render();
     expect(fetchCalendarList).toHaveBeenCalledTimes(1); // lista de A em voo
 
-    seedFlow(
-      "segredo",
-      Date.now() + 3_600_000,
-      authValue.user.appUserId,
-      OUTRO_EMAIL,
-    );
+    seedFlow("segredo");
     finishConnection.mockResolvedValue({
       status: "conectado",
       connected: true,
@@ -596,35 +592,54 @@ describe("marcador ready", () => {
     expect(text()).not.toContain("Agenda da conta A");
   });
 
-  it("reconcilia resposta perdida do finish com a identidade verificada no servidor", async () => {
+  it("reconcilia resposta perdida repetindo o mesmo fluxo no servidor", async () => {
     setHash("#integracoes/callback/ready");
-    seedFlow(
-      "segredo",
-      Date.now() + 3_600_000,
-      authValue.user.appUserId,
-      OUTRO_EMAIL,
-    );
+    seedFlow("segredo");
     const { ApiError } = await import("@/lib/calendar-api");
-    finishConnection.mockRejectedValue(new ApiError(502, "Resposta perdida."));
-    fetchCalendarStatus.mockResolvedValue({
-      connected: true,
-      calendarId: "agenda-nova@x",
-      googleAccountEmail: OUTRO_EMAIL,
-    });
+    finishConnection
+      .mockRejectedValueOnce(new ApiError(502, "Resposta perdida."))
+      .mockResolvedValueOnce({
+        status: "conectado",
+        connected: true,
+        calendarId: "agenda-nova@x",
+        googleAccountEmail: OUTRO_EMAIL,
+      });
     fetchCalendarList.mockResolvedValue([
       { id: "agenda-nova@x", summary: "Agenda da conta B", primary: true },
     ]);
 
     await render();
 
-    expect(finishConnection).toHaveBeenCalledWith("tok", "segredo");
-    expect(fetchCalendarStatus).toHaveBeenCalled();
+    expect(finishConnection).toHaveBeenCalledTimes(2);
+    expect(finishConnection).toHaveBeenNthCalledWith(1, "tok", "segredo");
+    expect(finishConnection).toHaveBeenNthCalledWith(2, "tok", "segredo");
     expect(storedFlow()).toBeNull();
     expect(text()).toContain("Conectado como");
     expect(text()).toContain(OUTRO_EMAIL);
     expect(text()).toContain("Agenda da conta B");
     expect(text()).not.toContain("não foi concluída");
     expect(button(CTA_RESTART)).toBeUndefined();
+  });
+
+  it("não presume sucesso pela conexão antiga da mesma conta", async () => {
+    setHash("#integracoes/callback/ready");
+    seedFlow("segredo");
+    fetchCalendarStatus.mockResolvedValue({
+      connected: true,
+      calendarId: "agenda-antiga@x",
+      googleAccountEmail: EMAIL,
+    });
+    const { ApiError } = await import("@/lib/calendar-api");
+    finishConnection
+      .mockRejectedValueOnce(new ApiError(502, "Resposta perdida."))
+      .mockResolvedValueOnce(PROCESSANDO);
+
+    await render();
+
+    expect(finishConnection).toHaveBeenCalledTimes(2);
+    expect(storedFlow()?.secret).toBe("segredo");
+    expect(button(CTA_FINISH)).toBeTruthy();
+    expect(text()).toContain("não foi concluída");
   });
 
   it("conclusão vence leitura de status em voo — sem estado obsoleto", async () => {
@@ -901,6 +916,7 @@ describe("rejeição terminal", () => {
     await render();
     await click(button(CTA_FINISH)!);
 
+    expect(finishConnection).toHaveBeenCalledTimes(2);
     expect(storedFlow()?.secret).toBe("segredo");
     expect(button(CTA_FINISH)).toBeTruthy();
   });
@@ -909,12 +925,7 @@ describe("rejeição terminal", () => {
     "%i pré-handler NÃO apaga um fluxo que o servidor ainda não consumiu",
     async (status) => {
       setHash("#integracoes");
-      seedFlow(
-        "segredo",
-        Date.now() + 3_600_000,
-        authValue.user.appUserId,
-        EMAIL,
-      );
+      seedFlow("segredo");
       fetchCalendarStatus.mockResolvedValue({
         connected: true,
         calendarId: "cal@x",
@@ -928,6 +939,7 @@ describe("rejeição terminal", () => {
       await render();
       await click(button(CTA_FINISH)!);
 
+      expect(finishConnection).toHaveBeenCalledTimes(1);
       expect(storedFlow()?.secret).toBe("segredo");
       expect(button(CTA_FINISH)).toBeTruthy();
     },

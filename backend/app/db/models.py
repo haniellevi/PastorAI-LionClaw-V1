@@ -1585,6 +1585,12 @@ class CalendarOAuthFlow(Base):
     """
 
     __tablename__ = "calendar_oauth_flows"
+    __table_args__ = (
+        CheckConstraint(
+            "finish_result is null or finish_result in ('connected', 'failed')",
+            name="ck_calendar_oauth_flows_finish_result",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     state_hash: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
@@ -1613,6 +1619,13 @@ class CalendarOAuthFlow(Base):
         DateTime(timezone=True), nullable=False
     )
     consumed_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # Resultado durável do finish. NULL com consumed_at preenchido significa
+    # processamento em curso (ou request interrompido); replay nunca adivinha
+    # sucesso pelo estado antigo de calendar_sync.
+    finish_result: Mapped[str | None] = mapped_column(Text, nullable=True)
+    finished_at: Mapped[dt.datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
     criado_em: Mapped[dt.datetime] = mapped_column(

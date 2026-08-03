@@ -21,7 +21,8 @@ permitia account-linking CSRF em duas direções:
 `flow_secret_hash` **separados** · PKCE S256 com `code_verifier` cifrado apenas
 no servidor · callback público que **só estaciona** o `code` · `POST
 /calendar/connect/finish` autenticado que compara `app_user_id` + `igreja_id`,
-consome o fluxo atomicamente e só então troca o código · purge no `cron_worker`.
+consome o fluxo atomicamente e só então troca o código · resultado terminal
+durável no próprio fluxo para replay seguro · purge no `cron_worker`.
 
 Dois segredos distintos porque eles têm exposições diferentes: o `state` viaja
 ao Google e cai no access log; o `flowSecret` fica no `localStorage` da própria
@@ -87,14 +88,14 @@ Concretamente:
 | `FinishRequest.flowSecret` | obrigatório, `min_length=1`. Corpo sem segredo morre no schema (422) — nenhuma linha é lida, travada ou consumida |
 | Busca da linha | **exclusivamente** por `flow_secret_hash`. `app_user_id`/`igreja_id` são validação DEPOIS de achar, nunca chave de busca |
 | `_pending_flow_for_user` | removido; um teste falha se o helper voltar a existir |
-| Armazenamento do painel | `localStorage` da própria origem, chave versionada `gcal_flow_v2`, objeto `{secret, expiresAt}` |
+| Armazenamento do painel | `localStorage` da própria origem, chave versionada `gcal_flow_v3`, objeto `{secret, expiresAt}` |
 | Prazo | `expiresAt` vem do `/connect` — o mesmo `expires_at` gravado na linha. O cliente não deriva TTL; o servidor revalida no `finish` e é a autoridade final |
-| Limpeza do segredo | ao expirar, concluir, cancelar, levar rejeição terminal (4xx) ou iniciar deliberadamente um fluxo novo |
+| Limpeza do segredo | ao concluir, receber 409 terminal ou iniciar deliberadamente um fluxo novo. Cancelamento, 401/403/422 e 202 preservam; expiração é decidida pelo servidor |
 | Marcador `ready` + segredo vivo | conclui usando exatamente aquele segredo |
 | Fora do `ready` | **nenhum POST automático** — nem na montagem, nem no `visibilitychange`. Aparece a CTA "Concluir conexão com o Google" e só o clique conclui |
 | Sem segredo vivo | zero POST de `finish`, fail-closed, CTA para reiniciar a conexão |
 | `visibilitychange` | apenas destrava a UI e revela a CTA (a PWA iOS fica viva em segundo plano). Não conclui nada |
-| 202 | preserva o segredo até o TTL e mantém a ação explícita disponível |
+| 202 | callback ainda pendente ou outro finish processando; preserva o segredo até o TTL e mantém a ação explícita disponível |
 | 409 | terminal: limpa o segredo e oferece reinício |
 
 Custo aceito: numa PWA iOS o admin dá **um toque a mais** ao voltar do Google. É
@@ -146,6 +147,25 @@ Depois da queima: `exchange_code` → `fetch_userinfo` → `email_verified` →
 comparação com o declarado → regras de continuidade por `sub` → probe
 `list_calendars` → **só então** persistir tokens e identidade.
 
+### Resposta perdida e replay durável
+
+O estado anterior de `calendar_sync` — inclusive `connected=true` com o mesmo
+e-mail — **não prova** que o finish atual terminou. Depois da queima, o fluxo
+registra `finish_result` (`connected`/`failed`) e `finished_at`. No sucesso,
+`finished_at` é exatamente a versão gravada em `calendar_sync.connected_em`.
+
+Um replay do mesmo `flowSecret`:
+
+- devolve 200 apenas se o resultado deste fluxo é `connected` **e** sua versão
+  ainda coincide com a conexão atual;
+- devolve 409 se o resultado é `failed` ou se outra conexão o substituiu;
+- devolve 202 `processando` quando a primeira request queimou o fluxo mas ainda
+  não gravou resultado terminal.
+
+O painel, diante de falha de transporte/5xx, repete o mesmo segredo **uma única
+vez**. Nunca infere sucesso por e-mail nem faz polling. Se receber 202, conserva
+o segredo e deixa a próxima tentativa como ação explícita do usuário.
+
 ### Regras de continuidade — a chave é o `sub`, nunca o e-mail
 
 E-mail troca de dono; `sub` não. `calendar_sync.google_account_sub` define a
@@ -190,7 +210,7 @@ há identidade; "Trocar conta Google" com aviso explícito antes do redirect
 quando o e-mail digitado diverge do atual; "Conta Google não registrada" +
 "Registrar conta Google" no legado, **sem exigir desconexão** — a conexão antiga
 segue válida até uma nova concluir com sucesso. Conta divergente mostra as duas
-contas, diz que nada foi alterado e oferece reinício. O `gcal_flow_v2` continua
+contas, diz que nada foi alterado e oferece reinício. O `gcal_flow_v3` continua
 guardando **apenas** `secret` + `expiresAt`.
 
 ### O que este binding NÃO resolve
@@ -263,8 +283,8 @@ Coordenar exigiria um feature gate no backend que não existe e está fora do V1
 | Gate | Conteúdo | Estado |
 |---|---|---|
 | **G1a** | `has_table_privilege('authenticated','public.calendar_sync', 'INSERT'/'UPDATE')` | **DEV: PASS** (`true`/`true`). **PROD: pendente** — não autoriza deploy nem migration |
-| **G1b** | `calendar_oauth_flows`: SELECT/INSERT/UPDATE `true`, **DELETE `false`**, `anon` SELECT `false` | pendente — só após a migration aplicada em DEV |
-| **G2** | Testes de corrida rodaram sem skip (`RLS_TEST_DATABASE_URL` presente) | pendente |
+| **G1b** | `calendar_oauth_flows`: SELECT/INSERT/UPDATE `true`, **DELETE `false`**, `anon` SELECT `false` | **DEV: PASS**. PROD: pendente |
+| **G2** | Testes de corrida rodaram sem skip (`RLS_TEST_DATABASE_URL` presente) | suíte PostgreSQL real adicionada ao job obrigatório; **aguardando execução CI no SHA final** |
 | **G4** | Google Cloud Console aceita `code_challenge` S256 | pendente |
 | **G7a/G7b** | Ver ordem acima | a cada deploy |
 | **G3** | Em PWA iOS instalada: o segredo sobrevive ao relançamento no `localStorage` da origem, a CTA "Concluir conexão com o Google" aparece, **um toque** conclui, e nada conclui sozinho | **NÃO PROVADO — bloqueador de merge** (dono decidiu: PWA iOS está no V1). Correção implementada e coberta por teste, mas jsdom, simulador e navegador desktop **NÃO** contam. Só passa com **iPhone real** |

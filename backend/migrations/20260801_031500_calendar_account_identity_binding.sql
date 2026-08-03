@@ -41,10 +41,29 @@ begin;
 alter table calendar_oauth_flows
   add column if not exists expected_email text null;
 
+-- Resultado durável para reconciliar resposta HTTP perdida sem inferir
+-- sucesso pela conexão anterior. consumed_at preenchido + result NULL é
+-- processamento em curso; o replay devolve 202 e preserva o flowSecret.
+alter table calendar_oauth_flows
+  add column if not exists finish_result text null
+    constraint ck_calendar_oauth_flows_finish_result
+    check (finish_result in ('connected', 'failed'));
+
+alter table calendar_oauth_flows
+  add column if not exists finished_at timestamptz null;
+
 comment on column calendar_oauth_flows.expected_email is
   'Conta Google que o admin declarou antes do consentimento, normalizada '
   '(trim + lowercase). O finish compara o e-mail verificado no userinfo contra '
   'este valor. NULL = fluxo legado anterior ao binding; falha fechado no finish.';
+
+comment on column calendar_oauth_flows.finish_result is
+  'Resultado durável do finish (connected|failed). NULL após consumo significa '
+  'processamento em curso; permite replay idempotente após resposta perdida.';
+
+comment on column calendar_oauth_flows.finished_at is
+  'Versão da conexão produzida por este fluxo; coincide com '
+  'calendar_sync.connected_em quando finish_result=connected.';
 
 -- ---- calendar_sync: a identidade que de fato autorizou ---------------------
 alter table calendar_sync
