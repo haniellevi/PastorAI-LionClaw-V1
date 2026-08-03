@@ -209,4 +209,4 @@ def test_delinquent_non_owner_cannot_recover_billing(protected_app) -> None:
         "/billing-owner", headers={"Authorization": "Bearer good"}
     )
     assert resp.status_code == 403
-    assert "dono" in resp.json()["detail"]
+    assert resp.json()["detail"]["error"] == "billing_blocked"

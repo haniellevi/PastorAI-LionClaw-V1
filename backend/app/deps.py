@@ -143,7 +143,7 @@ def _resolve_current_user(
     db: Session,
     clerk: ClerkClient,
     *,
-    allow_delinquent: bool,
+    allow_delinquent_owner: bool,
 ) -> CurrentUser:
     """Authenticate the request and resolve tenant + accumulated roles.
 
@@ -193,9 +193,13 @@ def _resolve_current_user(
     _reject_session_predating_password_change(app_user, identity)
 
     igreja_status = app_user.igreja.status if app_user.igreja else None
-    if igreja_status in BLOCKING_IGREJA_STATUSES and not (
-        allow_delinquent and igreja_status == "inadimplente"
-    ):
+    delinquent_owner = bool(
+        allow_delinquent_owner
+        and igreja_status == "inadimplente"
+        and app_user.igreja
+        and app_user.igreja.dono_id == app_user.id
+    )
+    if igreja_status in BLOCKING_IGREJA_STATUSES and not delinquent_owner:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={
@@ -251,7 +255,7 @@ def get_current_user(
 ) -> CurrentUser:
     """Authenticate a principal for ordinary protected application access."""
     return _resolve_current_user(
-        authorization, db, clerk, allow_delinquent=False
+        authorization, db, clerk, allow_delinquent_owner=False
     )
 
 
@@ -262,12 +266,12 @@ def get_billing_recovery_user(
 ) -> CurrentUser:
     """Authenticate billing recovery while keeping every other block intact.
 
-    A delinquent church may reach only endpoints that explicitly depend on
-    this function. Suspended and not-yet-approved churches remain blocked, as
-    do revoked/unlinked users and invalid sessions.
+    The owner of a delinquent church may reach only endpoints that explicitly
+    depend on this function. Suspended and not-yet-approved churches remain
+    blocked, as do non-owners, revoked/unlinked users and invalid sessions.
     """
     return _resolve_current_user(
-        authorization, db, clerk, allow_delinquent=True
+        authorization, db, clerk, allow_delinquent_owner=True
     )
 
 

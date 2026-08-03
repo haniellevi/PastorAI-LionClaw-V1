@@ -661,7 +661,7 @@ def _recover_missing_invoice_urls(
 @router.get("", response_model=SubscriptionOut)
 def get_subscription(
     db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(require_owner),
+    current_user: CurrentUser = Depends(require_billing_recovery_owner),
     asaas: AsaasClient = Depends(get_asaas_client),
 ) -> SubscriptionOut:
     """Return the tenant's subscription (read-only view).
@@ -1612,7 +1612,7 @@ def create_setup_charge_action(
 @router.get("/planos", response_model=PlanCatalogOut)
 def list_planos_disponiveis(
     db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(require_owner),
+    current_user: CurrentUser = Depends(require_billing_recovery_owner),
 ) -> PlanCatalogOut:
     """Catálogo de planos ATIVOS (tabela `planos`, editada pelo master) + taxa de
     setup vigente — a tela de Assinatura da igreja usa isto em vez de um

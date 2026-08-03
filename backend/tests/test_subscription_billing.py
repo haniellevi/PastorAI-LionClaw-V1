@@ -1510,6 +1510,30 @@ def test_recover_invoice_rechecks_a_concurrent_settlement_before_post(app) -> No
     ]
 
 
+def test_delinquent_owner_can_load_billing_screen_for_recovery(app) -> None:
+    sub = _subscription(
+        status="inadimplente",
+        setup_pago=True,
+        asaas_invoice_payment_id="pay_m2",
+        asaas_invoice_url="https://asaas.test/m2",
+        asaas_invoice_reversal=None,
+    )
+    client, _db = _client(
+        app,
+        planos=[_plano()],
+        subscription=sub,
+        igreja_status="inadimplente",
+    )
+
+    subscription = client.get("/subscription", headers=_AUTH)
+    catalog = client.get("/subscription/planos", headers=_AUTH)
+
+    assert subscription.status_code == 200
+    assert subscription.json()["invoiceUrl"] == "https://asaas.test/m2"
+    assert catalog.status_code == 200
+    assert catalog.json()["planos"][0]["codigo"] == "ate_100"
+
+
 def test_recover_invoice_of_new_cycle_is_not_blocked_by_an_older_recovery(
     app,
 ) -> None:
