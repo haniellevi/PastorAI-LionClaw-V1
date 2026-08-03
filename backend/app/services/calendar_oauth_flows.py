@@ -17,7 +17,7 @@ import datetime as dt
 import hashlib
 import secrets
 
-from sqlalchemy import delete, or_
+from sqlalchemy import and_, delete, or_
 from sqlalchemy.orm import Session
 
 from app.db.models import CalendarOAuthFlow
@@ -33,6 +33,12 @@ _VERIFIER_BYTES = 64
 # dão margem ampla para essas chamadas e ainda limitam a retenção de um finish
 # interrompido, cujos segredos já foram anulados em ``_burn``.
 _IN_FLIGHT_FINISH_GRACE = dt.timedelta(minutes=5)
+# A PWA pode ficar suspensa ou offline depois de o servidor concluir o finish e
+# antes de receber a resposta. Retemos somente o resultado `connected` por um
+# dia, baseado em `finished_at` (não no TTL do consentimento), para que o mesmo
+# flowSecret ainda possa pedir a confirmação durável. A linha já não contém
+# code, verifier nem tokens nessa fase.
+_COMPLETED_REPLAY_GRACE = dt.timedelta(days=1)
 
 
 def new_secret() -> str:
@@ -66,21 +72,37 @@ def purge_expired_flows(session: Session, *, now: dt.datetime) -> int:
     novo sobre o mesmo estado remove zero linhas. Um flow já consumido cujo
     ``finish_result`` ainda é NULL está em processamento: ele sobrevive por uma
     janela curta depois do TTL para que o ``finish`` termine de gravar seu
-    resultado. Após essa janela, um request interrompido volta a ser coletável.
-    O DELETE leva junto ``verifier_encrypted`` e ``code_encrypted``, então não
-    há passe separado de anulação de segredos.
+    resultado. Um resultado ``connected`` sobrevive por uma janela maior,
+    calculada de ``finished_at``, para reconciliar resposta HTTP perdida numa
+    PWA suspensa/offline. Após cada margem, a linha volta a ser coletável. O
+    DELETE leva junto ``verifier_encrypted`` e ``code_encrypted``, então não há
+    passe separado de anulação de segredos.
     """
     stale_in_flight_before = now - _IN_FLIGHT_FINISH_GRACE
+    stale_completed_replay_before = now - _COMPLETED_REPLAY_GRACE
     result = session.execute(
         delete(CalendarOAuthFlow).where(
             CalendarOAuthFlow.expires_at <= now,
             or_(
-                # Nunca foi consumido, ou já terminou: o TTL normal vale.
+                # Nunca foi consumido: o TTL normal vale.
                 CalendarOAuthFlow.consumed_at.is_(None),
-                CalendarOAuthFlow.finish_result.is_not(None),
+                # Falha é terminal; não há resposta positiva para reconciliar.
+                CalendarOAuthFlow.finish_result == "failed",
+                # Sucesso só sai depois da janela de replay. Um finished_at
+                # ausente é estado inválido/legado e não pode reter para sempre.
+                and_(
+                    CalendarOAuthFlow.finish_result == "connected",
+                    or_(
+                        CalendarOAuthFlow.finished_at.is_(None),
+                        CalendarOAuthFlow.finished_at <= stale_completed_replay_before,
+                    ),
+                ),
                 # Consumo sem resultado é finish em voo (ou crash). Retém só a
                 # margem necessária para as chamadas externas, nunca para sempre.
-                CalendarOAuthFlow.consumed_at <= stale_in_flight_before,
+                and_(
+                    CalendarOAuthFlow.finish_result.is_(None),
+                    CalendarOAuthFlow.consumed_at <= stale_in_flight_before,
+                ),
             ),
         )
     )

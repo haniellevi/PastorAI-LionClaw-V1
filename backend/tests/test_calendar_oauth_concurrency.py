@@ -24,6 +24,7 @@ from app.db.models import AppUser, Base, CalendarOAuthFlow, CalendarSync, Igreja
 from app.deps import CurrentUser
 from app.routers.calendar import FinishRequest, callback, finish_connection
 from app.services.calendar_oauth_flows import (
+    _COMPLETED_REPLAY_GRACE,
     _IN_FLIGHT_FINISH_GRACE,
     hash_secret,
     purge_expired_flows,
@@ -117,6 +118,8 @@ def _seed(
     code: str | None,
     expires_at: dt.datetime | None = None,
     consumed_at: dt.datetime | None = None,
+    finish_result: str | None = None,
+    finished_at: dt.datetime | None = None,
 ) -> None:
     session = factory()
     try:
@@ -147,6 +150,8 @@ def _seed(
                 expires_at=expires_at
                 or (dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=10)),
                 consumed_at=consumed_at,
+                finish_result=finish_result,
+                finished_at=finished_at,
             )
         )
         session.commit()
@@ -287,6 +292,17 @@ def test_concurrent_finish_exchanges_once_and_replay_is_processing(
         assert sync.google_account_email == _EMAIL
         assert sync.google_account_sub == _SUB
 
+    # O consentimento já expirou, mas a resposta do finish se perdeu enquanto a
+    # PWA estava offline: o cron preserva a prova durável deste MESMO segredo.
+    with factory() as session:
+        flow = session.execute(select(CalendarOAuthFlow)).scalar_one()
+        flow.expires_at = dt.datetime.now(dt.timezone.utc) - dt.timedelta(seconds=1)
+        session.commit()
+
+    with factory() as session:
+        assert purge_expired_flows(session, now=dt.datetime.now(dt.timezone.utc)) == 0
+        session.commit()
+
     # Depois do commit, o mesmo segredo devolve a prova durável sem falar com o
     # Google uma segunda vez.
     with factory() as session:
@@ -367,6 +383,31 @@ def test_expiry_purge_collects_an_abandoned_inflight_finish_after_grace(
         code=None,
         expires_at=now - dt.timedelta(seconds=1),
         consumed_at=now - _IN_FLIGHT_FINISH_GRACE - dt.timedelta(seconds=1),
+    )
+
+    with factory() as session:
+        assert purge_expired_flows(session, now=now) == 1
+        session.commit()
+
+    with factory() as session:
+        assert session.execute(select(CalendarOAuthFlow)).scalar_one_or_none() is None
+
+
+def test_expiry_purge_collects_completed_replay_after_grace(
+    engine_fx: Engine, crypto_enabled
+) -> None:
+    """A confirmação durável sobrevive à PWA offline, mas não indefinidamente."""
+    factory = _factory(engine_fx)
+    now = dt.datetime.now(dt.timezone.utc)
+    finished_at = now - _COMPLETED_REPLAY_GRACE - dt.timedelta(seconds=1)
+    _seed(
+        factory,
+        crypto_enabled,
+        code=None,
+        expires_at=now - dt.timedelta(seconds=1),
+        consumed_at=finished_at,
+        finish_result="connected",
+        finished_at=finished_at,
     )
 
     with factory() as session:
