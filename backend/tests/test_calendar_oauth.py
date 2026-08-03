@@ -165,11 +165,16 @@ class _FlowSession:
                     "finish só pode localizar o fluxo pelo hash do flowSecret"
                 )
                 return _Res(scalar=self.flow)
-            flow = self.flow  # select(return_origin, code_encrypted) — o redirect
+            flow = self.flow  # select(...) — o redirect
             return _Res(
                 first=None
                 if flow is None
-                else (flow.return_origin, flow.code_encrypted)
+                else (
+                    flow.return_origin,
+                    flow.code_encrypted,
+                    flow.consumed_at,
+                    flow.finish_result,
+                )
             )
         return _Res(scalars=self.roles)
 
@@ -582,6 +587,40 @@ def test_callback_duplicate_park_is_ignored(app, crypto_enabled) -> None:
 
     assert flow.code_encrypted == parked
     assert r2.headers["location"].endswith("#integracoes/callback/ready")
+
+
+@pytest.mark.parametrize(
+    ("return_origin", "expected"),
+    [
+        (_ORIGIN, "https://admin.igreja12.com.br/#integracoes"),
+        ("https://app.x.com", "https://app.x.com/gestao#integracoes"),
+    ],
+)
+@pytest.mark.parametrize(
+    "callback_params",
+    [{"code": "repetido"}, {"error": "access_denied"}],
+    ids=["code", "error"],
+)
+def test_callback_completed_replay_returns_to_integrations_without_marker(
+    app, crypto_enabled, return_origin, expected, callback_params
+) -> None:
+    """Callback repetido não pode anunciar falso cancelamento pós-sucesso."""
+    app_user = make_app_user()
+    finished_at = dt.datetime.now(dt.timezone.utc)
+    flow = _flow(
+        app_user_id=uuid.UUID(str(app_user.id)),
+        return_origin=return_origin,
+        verifier_encrypted=None,
+        consumed_at=finished_at - dt.timedelta(seconds=1),
+        finish_result="connected",
+        finished_at=finished_at,
+    )
+    c = _public_client(app, _FlowSession(flow=flow))
+
+    r = _callback(c, state=_STATE, **callback_params)
+
+    assert r.headers["location"] == expected
+    assert flow.code_encrypted is None
 
 
 def test_callback_expired_flow_is_noop(app, crypto_enabled) -> None:
@@ -1778,8 +1817,12 @@ def test_same_email_with_different_sub_is_rejected(app, crypto_enabled) -> None:
 
     assert r.status_code == 409
     detail = r.json()["detail"]
-    assert isinstance(detail, str)
-    assert _OUTRO_SUB not in detail and _SUB not in detail
+    assert detail == {
+        "code": "conta_reidentificada",
+        "message": "Esse endereço agora pertence a outra conta Google. "
+        "Desconecte a agenda atual antes de conectar esta conta.",
+    }
+    assert _OUTRO_SUB not in str(detail) and _SUB not in str(detail)
     assert sync.refresh_token_encrypted == "refresh-antigo"  # intacta
     assert sync.google_account_sub == _SUB
 

@@ -40,6 +40,7 @@ import { useAuth } from "@/lib/auth-context";
 import {
   ApiError,
   GoogleAccountMismatchError,
+  GoogleAccountReidentifiedError,
   SessionExpiredError,
   canManageCalendar,
   disconnectCalendar,
@@ -189,6 +190,9 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
   const [mismatch, setMismatch] = useState<
     { expected: string; verified: string } | null
   >(null);
+  /** Mesmo e-mail, mas outra identidade Google. A conexão anterior fica válida
+   * e os controles dela precisam permanecer acessíveis para a desconexão. */
+  const [reidentified, setReidentified] = useState<string | null>(null);
   /** Guarda contra o duplo-invoke do StrictMode: o marcador é lido uma vez. */
   const handledRef = useRef(false);
   /** Houve um redirect ao Google nesta montagem. Só isso libera o destrave da UI
@@ -309,6 +313,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
           // 4xx e sessão expirada são definitivos e não entram aqui.
           if (
             firstError instanceof GoogleAccountMismatchError ||
+            firstError instanceof GoogleAccountReidentifiedError ||
             firstError instanceof SessionExpiredError ||
             !shouldReconcileFinishFailure(firstError)
           ) {
@@ -325,6 +330,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
           setPending(false);
           setRecoverable(null);
           setMismatch(null);
+          setReidentified(null);
           setChanging(false);
           setEmailInput("");
           setConnected(true);
@@ -344,12 +350,26 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
         setRecoverable(MSG_INCOMPLETE);
         await restoreStatusAfterUnsuccessfulFinish();
       } catch (e) {
+        // Mesmo e-mail, `sub` diferente: o backend preservou a conexão atual e
+        // exige desconectá-la antes. Não transforme isso em estado recuperável,
+        // pois ele esconderia justamente o botão de desconectar.
+        if (e instanceof GoogleAccountReidentifiedError) {
+          clearFlow(appUserId);
+          setPending(false);
+          setRecoverable(null);
+          setMismatch(null);
+          setChanging(false);
+          setReidentified(e.message);
+          await restoreStatusAfterUnsuccessfulFinish();
+          return;
+        }
         // Conta divergente: terminal e acionável. O servidor não escreveu nada —
         // a conexão anterior, se havia, continua exatamente como estava.
         if (e instanceof GoogleAccountMismatchError) {
           clearFlow(appUserId);
           setPending(false);
           setRecoverable(null);
+          setReidentified(null);
           setChanging(false);
           setMismatch({ expected: e.expected, verified: e.verified });
           await restoreStatusAfterUnsuccessfulFinish();
@@ -452,6 +472,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
     setError(null);
     setRecoverable(null);
     setMismatch(null);
+    setReidentified(null);
     // Fluxo novo por decisão do usuário: o anterior morre aqui.
     clearFlow(appUserId);
     setPending(false);
@@ -485,6 +506,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
     setPending(false);
     setRecoverable(null);
     setMismatch(null);
+    setReidentified(null);
     setError(null);
     handledRef.current = false;
     navigate(ROUTE_BASE);
@@ -532,6 +554,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
       setCalendarId(null);
       setGoogleAccountEmail(null);
       setChanging(false);
+      setReidentified(null);
       setCalendars([]);
     } catch (e) {
       onErr(e);
@@ -544,7 +567,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
   // Os estados de retorno precisam aparecer mesmo antes de o status carregar —
   // e `connected` vindo de uma conclusão vale mesmo com uma leitura de status
   // ainda em voo, senão o card some justo depois de conectar.
-  if (loading && !recoverable && !pending && !connected && !mismatch) return null;
+  if (loading && !recoverable && !pending && !connected && !mismatch && !reidentified) return null;
 
   /** Bloco inline reusado nos três pontos que pedem a conta declarada. */
   const accountForm = (label: string, cta: string) => (
@@ -597,6 +620,12 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
       {error ? (
         <p className="sub" role="alert" style={{ color: "var(--danger)", marginTop: "var(--s2)" }}>
           {error}
+        </p>
+      ) : null}
+
+      {reidentified ? (
+        <p className="sub" role="alert" style={{ color: "var(--danger)", marginTop: "var(--s2)" }}>
+          {reidentified}
         </p>
       ) : null}
 
@@ -692,7 +721,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
                 : "Qual conta Google está conectada? Informe o e-mail exato.",
               googleAccountEmail ? "Trocar conta Google" : "Registrar conta Google",
             )
-          ) : (
+          ) : !reidentified ? (
             <button
               type="button"
               className="btn"
@@ -707,7 +736,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
                 {googleAccountEmail ? "Trocar conta Google" : "Registrar conta Google"}
               </span>
             </button>
-          )}
+          ) : null}
 
           <div className="conn-row" style={{ marginTop: "var(--s3)" }}>
             <span style={{ color: "var(--muted)" }}>Agenda sincronizada</span>

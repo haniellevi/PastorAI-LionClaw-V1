@@ -31,6 +31,20 @@ export class GoogleAccountMismatchError extends Error {
   }
 }
 
+/**
+ * O mesmo endereço Google agora representa outra identidade (`sub`).
+ *
+ * A API nunca expõe o `sub`; o tipo separado permite manter os controles da
+ * conexão atual visíveis para que o admin consiga desconectá-la antes de tentar
+ * novamente.
+ */
+export class GoogleAccountReidentifiedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "GoogleAccountReidentifiedError";
+  }
+}
+
 export interface CalendarStatus {
   connected: boolean;
   calendarId: string | null;
@@ -167,6 +181,13 @@ export async function finishConnection(
       typeof detail.verified === "string"
     ) {
       throw new GoogleAccountMismatchError(detail.expected, detail.verified);
+    }
+    if (
+      isRecord(detail) &&
+      detail.code === "conta_reidentificada" &&
+      typeof detail.message === "string"
+    ) {
+      throw new GoogleAccountReidentifiedError(detail.message);
     }
     const message =
       typeof detail === "string"

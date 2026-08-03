@@ -69,6 +69,7 @@ const CTA_CONNECT = "Conectar Google Agenda";
 const CTA_RESTART = "Tentar novamente";
 const CTA_SWITCH = "Trocar conta Google";
 const CTA_REGISTER = "Registrar conta Google";
+const CTA_DISCONNECT = "Desconectar";
 
 const EMAIL = "agenda@igreja12.com.br";
 const OUTRO_EMAIL = "pessoal@gmail.com";
@@ -461,6 +462,34 @@ describe("conta divergente", () => {
     });
     expect(text()).toContain("Conectado como");
     expect(text()).toContain("agenda-antiga@x");
+  });
+});
+
+describe("conta reidentificada", () => {
+  it("mantém a desconexão acessível e não oferece nova tentativa antes dela", async () => {
+    setHash("#integracoes/callback/ready");
+    seedFlow("segredo");
+    const { GoogleAccountReidentifiedError } = await import("@/lib/calendar-api");
+    fetchCalendarStatus.mockResolvedValue({
+      connected: true,
+      calendarId: "agenda-antiga@x",
+      googleAccountEmail: EMAIL,
+    });
+    finishConnection.mockRejectedValue(
+      new GoogleAccountReidentifiedError(
+        "Esse endereço agora pertence a outra conta Google. Desconecte a agenda atual antes de conectar esta conta.",
+      ),
+    );
+
+    await render();
+
+    expect(storedFlow()).toBeNull();
+    expect(text()).toContain("Desconecte a agenda atual antes de conectar esta conta.");
+    expect(text()).toContain("Conectado como");
+    expect(button(CTA_DISCONNECT)).toBeTruthy();
+    expect(button(CTA_SWITCH)).toBeUndefined();
+    expect(button(CTA_RESTART)).toBeUndefined();
+    expect(finishConnection).toHaveBeenCalledTimes(1);
   });
 });
 

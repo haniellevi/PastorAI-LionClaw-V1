@@ -96,12 +96,15 @@ _MARKER_CANCELLED = "cancelled"
 # ("admin.<domínio> → /gestao"); se aquela tabela mudar, esta constante muda.
 _RETURN_PATH_ADMIN = "/#integracoes/callback/"
 _RETURN_PATH_APP = "/gestao#integracoes/callback/"
+_INTEGRATIONS_PATH_ADMIN = "/#integracoes"
+_INTEGRATIONS_PATH_APP = "/gestao#integracoes"
 
 # Mesmo corpo para TODA rejeição do finish — sem oráculo de causa. A ÚNICA
 # exceção é a divergência de conta, que precisa ser acionável: o admin tem de
 # saber que autorizou a conta errada, e qual.
 _FINISH_GENERIC = "Não foi possível concluir a conexão com o Google."
 _MISMATCH_CODE = "conta_divergente"
+_REIDENTIFIED_CODE = "conta_reidentificada"
 # Mesma conta declarada, `sub` diferente do já conectado. Nunca revela o sub.
 _REIDENTIFIED = (
     "Esse endereço agora pertence a outra conta Google. Desconecte a agenda "
@@ -118,6 +121,17 @@ def _return_url(origin: str, marker: str) -> str:
     host = urlparse(origin).hostname or ""
     path = _RETURN_PATH_ADMIN if host.startswith("admin.") else _RETURN_PATH_APP
     return f"{origin}{path}{marker}"
+
+
+def _integrations_url(origin: str) -> str:
+    """Tela base de Integrações para uma origem JÁ validada."""
+    host = urlparse(origin).hostname or ""
+    path = (
+        _INTEGRATIONS_PATH_ADMIN
+        if host.startswith("admin.")
+        else _INTEGRATIONS_PATH_APP
+    )
+    return f"{origin}{path}"
 
 
 def _is_master_console_origin(origin: str) -> bool:
@@ -390,20 +404,29 @@ def connect(
 
 
 def _flow_redirect(db: Session, state_hash: str, fallback: str) -> RedirectResponse:
-    """Redirect de leitura pura: `ready` se já há code estacionado, senão `cancelled`.
+    """Redirect de leitura pura para callback repetido ou interrompido.
 
     Um ``error`` que chegue DEPOIS de um park legítimo devolve ``ready`` — nunca
     ``cancelled`` — para que um ``state`` vazado não consiga cancelar visualmente
     um fluxo que já está pronto para ser concluído.
+
+    Um fluxo que já terminou com sucesso não tem mais code nem segredo para o
+    frontend concluir. Repetir o callback dele volta direto para Integrações:
+    emitir ``cancelled`` nessa situação esconderia uma conexão que já existe.
     """
     row = db.execute(
-        select(CalendarOAuthFlow.return_origin, CalendarOAuthFlow.code_encrypted).where(
-            CalendarOAuthFlow.state_hash == state_hash
-        )
+        select(
+            CalendarOAuthFlow.return_origin,
+            CalendarOAuthFlow.code_encrypted,
+            CalendarOAuthFlow.consumed_at,
+            CalendarOAuthFlow.finish_result,
+        ).where(CalendarOAuthFlow.state_hash == state_hash)
     ).first()
     if row is None:
         return RedirectResponse(url=_return_url(fallback, _MARKER_CANCELLED))
-    origin, parked = row
+    origin, parked, consumed_at, finish_result = row
+    if consumed_at is not None and finish_result == "connected":
+        return RedirectResponse(url=_integrations_url(origin))
     marker = _MARKER_READY if parked else _MARKER_CANCELLED
     return RedirectResponse(url=_return_url(origin, marker))
 
@@ -624,7 +647,8 @@ def finish_connection(
         # revelar o `sub`. A conexão anterior fica intacta.
         _mark_finish_failed(db, flow)
         raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=_REIDENTIFIED
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": _REIDENTIFIED_CODE, "message": _REIDENTIFIED},
         )
 
     # Refresh token de outra identidade NUNCA é reaproveitado. Preservar só vale

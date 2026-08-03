@@ -18,6 +18,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ApiError,
   GoogleAccountMismatchError,
+  GoogleAccountReidentifiedError,
   fetchConnectUrl,
   finishConnection,
 } from "./calendar-api";
@@ -209,5 +210,24 @@ describe("finishConnection — conta divergente", () => {
     expect(err).toBeInstanceOf(ApiError);
     expect(err).not.toBeInstanceOf(GoogleAccountMismatchError);
     expect((err as ApiError).message).toContain("outra conta");
+  });
+
+  it("409 de identidade reatribuída vira erro tipado sem expor o sub", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(
+        {
+          detail: {
+            code: "conta_reidentificada",
+            message: "Esse endereço agora pertence a outra conta Google.",
+          },
+        },
+        409,
+      ),
+    );
+
+    const err = await finishConnection("tok", "segredo").catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(GoogleAccountReidentifiedError);
+    expect((err as GoogleAccountReidentifiedError).message).toContain("outra conta");
   });
 });
