@@ -76,6 +76,7 @@ const OUTRO_EMAIL = "pessoal@gmail.com";
 interface StoredFlow {
   secret: string;
   expiresAt: number;
+  expectedEmail?: string;
 }
 
 function flowKey(appUserId = authValue.user.appUserId): string {
@@ -86,8 +87,12 @@ function seedFlow(
   secret = "segredo",
   expiresAt = Date.now() + 3_600_000,
   appUserId = authValue.user.appUserId,
+  expectedEmail?: string,
 ): void {
-  window.localStorage.setItem(flowKey(appUserId), JSON.stringify({ secret, expiresAt }));
+  window.localStorage.setItem(
+    flowKey(appUserId),
+    JSON.stringify({ secret, expiresAt, ...(expectedEmail ? { expectedEmail } : {}) }),
+  );
 }
 
 function storedFlow(appUserId = authValue.user.appUserId): StoredFlow | null {
@@ -237,7 +242,11 @@ describe("conta Google declarada", () => {
 
     expect(fetchConnectUrl).toHaveBeenCalledTimes(1);
     expect(fetchConnectUrl).toHaveBeenCalledWith("tok", EMAIL);
-    expect(storedFlow()).toEqual({ secret: "novo", expiresAt: START.expiresAt });
+    expect(storedFlow()).toEqual({
+      secret: "novo",
+      expiresAt: START.expiresAt,
+      expectedEmail: EMAIL,
+    });
     expect(hrefWrites).toEqual(["https://accounts.google/x"]);
   });
 
@@ -334,13 +343,21 @@ describe("identidade conectada", () => {
     await typeEmail(OUTRO_EMAIL);
     await click(button(CTA_SWITCH)!);
 
-    expect(storedFlow()).toEqual({ secret: "novo", expiresAt: START.expiresAt });
+    expect(storedFlow()).toEqual({
+      secret: "novo",
+      expiresAt: START.expiresAt,
+      expectedEmail: OUTRO_EMAIL,
+    });
 
     // PWA volta ao primeiro plano antes do finish. O GET ainda descreve a
     // conta antiga, mas não pode apagar nem esconder o fluxo novo.
     await foreground();
 
-    expect(storedFlow()).toEqual({ secret: "novo", expiresAt: START.expiresAt });
+    expect(storedFlow()).toEqual({
+      secret: "novo",
+      expiresAt: START.expiresAt,
+      expectedEmail: OUTRO_EMAIL,
+    });
     expect(button(CTA_FINISH)).toBeTruthy();
     expect(text()).toContain("Conclua a conexão");
     expect(finishConnection).not.toHaveBeenCalled();
@@ -525,6 +542,89 @@ describe("marcador ready", () => {
     expect(text()).toContain(OUTRO_EMAIL);
     expect(text()).not.toContain("Agenda da conta A");
     expect(container.querySelector("select")).toBeNull();
+  });
+
+  it("descarta resposta da lista antiga que chega depois da troca de identidade", async () => {
+    setHash("#integracoes");
+    fetchCalendarStatus.mockResolvedValue({
+      connected: true,
+      calendarId: "agenda-antiga@x",
+      googleAccountEmail: EMAIL,
+    });
+    let resolveOldList!: (value: Array<{ id: string; summary: string; primary: boolean }>) => void;
+    fetchCalendarList
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveOldList = resolve;
+          }),
+      )
+      .mockResolvedValueOnce([
+        { id: "agenda-nova@x", summary: "Agenda da conta B", primary: true },
+      ]);
+
+    await render();
+    expect(fetchCalendarList).toHaveBeenCalledTimes(1); // lista de A em voo
+
+    seedFlow(
+      "segredo",
+      Date.now() + 3_600_000,
+      authValue.user.appUserId,
+      OUTRO_EMAIL,
+    );
+    finishConnection.mockResolvedValue({
+      status: "conectado",
+      connected: true,
+      calendarId: "agenda-nova@x",
+      googleAccountEmail: OUTRO_EMAIL,
+    });
+
+    await act(async () => {
+      setHash("#integracoes/callback/ready");
+    });
+
+    expect(text()).toContain("Agenda da conta B");
+    expect(text()).not.toContain("Agenda da conta A");
+
+    await act(async () => {
+      resolveOldList([
+        { id: "agenda-antiga@x", summary: "Agenda da conta A", primary: true },
+      ]);
+    });
+
+    expect(text()).toContain("Agenda da conta B");
+    expect(text()).not.toContain("Agenda da conta A");
+  });
+
+  it("reconcilia resposta perdida do finish com a identidade verificada no servidor", async () => {
+    setHash("#integracoes/callback/ready");
+    seedFlow(
+      "segredo",
+      Date.now() + 3_600_000,
+      authValue.user.appUserId,
+      OUTRO_EMAIL,
+    );
+    const { ApiError } = await import("@/lib/calendar-api");
+    finishConnection.mockRejectedValue(new ApiError(502, "Resposta perdida."));
+    fetchCalendarStatus.mockResolvedValue({
+      connected: true,
+      calendarId: "agenda-nova@x",
+      googleAccountEmail: OUTRO_EMAIL,
+    });
+    fetchCalendarList.mockResolvedValue([
+      { id: "agenda-nova@x", summary: "Agenda da conta B", primary: true },
+    ]);
+
+    await render();
+
+    expect(finishConnection).toHaveBeenCalledWith("tok", "segredo");
+    expect(fetchCalendarStatus).toHaveBeenCalled();
+    expect(storedFlow()).toBeNull();
+    expect(text()).toContain("Conectado como");
+    expect(text()).toContain(OUTRO_EMAIL);
+    expect(text()).toContain("Agenda da conta B");
+    expect(text()).not.toContain("não foi concluída");
+    expect(button(CTA_RESTART)).toBeUndefined();
   });
 
   it("conclusão vence leitura de status em voo — sem estado obsoleto", async () => {
@@ -809,7 +909,17 @@ describe("rejeição terminal", () => {
     "%i pré-handler NÃO apaga um fluxo que o servidor ainda não consumiu",
     async (status) => {
       setHash("#integracoes");
-      seedFlow("segredo");
+      seedFlow(
+        "segredo",
+        Date.now() + 3_600_000,
+        authValue.user.appUserId,
+        EMAIL,
+      );
+      fetchCalendarStatus.mockResolvedValue({
+        connected: true,
+        calendarId: "cal@x",
+        googleAccountEmail: EMAIL,
+      });
       const { ApiError } = await import("@/lib/calendar-api");
       finishConnection.mockRejectedValue(
         new ApiError(status, "Acesso temporariamente indisponível."),

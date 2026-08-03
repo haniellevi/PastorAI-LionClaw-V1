@@ -50,6 +50,7 @@ import {
   importEvents,
   selectCalendar,
   type CalendarOption,
+  type CalendarStatus,
   type ImportResult,
 } from "@/lib/calendar-api";
 import { Icon } from "@/lib/icons";
@@ -79,6 +80,8 @@ interface StoredFlow {
   secret: string;
   /** Epoch ms vindo do servidor. O cliente nunca calcula prazo. */
   expiresAt: number;
+  /** Identidade declarada, usada só para reconciliar resposta perdida. */
+  expectedEmail?: string;
 }
 
 function flowKey(appUserId: string): string {
@@ -115,7 +118,11 @@ function readFlow(appUserId: string): StoredFlow | null {
       typeof expiresAt === "number" &&
       Number.isFinite(expiresAt)
     ) {
-      return { secret, expiresAt };
+      const expectedEmail =
+        typeof parsed.expectedEmail === "string" && EMAIL_RE.test(parsed.expectedEmail)
+          ? parsed.expectedEmail.trim().toLowerCase()
+          : undefined;
+      return expectedEmail ? { secret, expiresAt, expectedEmail } : { secret, expiresAt };
     }
   } catch {
     /* JSON corrompido cai no clear abaixo */
@@ -143,6 +150,12 @@ function writeFlow(appUserId: string, flow: StoredFlow): boolean {
  * a linha; nesses casos o segredo continua necessário e válido até o TTL. */
 function makesFlowUnusable(e: unknown): boolean {
   return e instanceof ApiError && e.status === 409;
+}
+
+/** Só falhas sem resposta confiável pedem reconciliação. Erros 4xx pré-handler
+ * provam que o finish não chegou a executar e precisam preservar o fluxo. */
+function shouldReconcileFinishFailure(e: unknown): boolean {
+  return !(e instanceof ApiError) || e.status === 409 || e.status >= 500;
 }
 
 interface CalendarConnectCardProps {
@@ -208,10 +221,11 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
     [expireSession],
   );
 
-  const applyCalendars = useCallback(async () => {
+  const applyCalendars = useCallback(async (epoch: number) => {
     if (!token) return;
     try {
-      setCalendars(await fetchCalendarList(token));
+      const items = await fetchCalendarList(token);
+      if (epoch === mutationEpochRef.current) setCalendars(items);
     } catch {
       /* a lista é best-effort: a conexão segue válida sem ela */
     }
@@ -236,7 +250,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
       setCalendarId(s.calendarId);
       setGoogleAccountEmail(s.googleAccountEmail);
       if (s.connected) {
-        await applyCalendars();
+        await applyCalendars(epoch);
       }
     } catch (e) {
       // Erro de leitura obsoleta também não fala: viraria alerta espúrio por
@@ -254,20 +268,24 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
    * Se o servidor recusar o fluxo, porém, a conexão anterior continua válida;
    * uma leitura NOVA precisa restaurá-la sem apagar o erro/mismatch exibido.
    */
-  const restoreStatusAfterUnsuccessfulFinish = useCallback(async () => {
-    if (!token) return;
+  const restoreStatusAfterUnsuccessfulFinish = useCallback(async (): Promise<
+    CalendarStatus | null
+  > => {
+    if (!token) return null;
     const epoch = mutationEpochRef.current;
     try {
       const s = await fetchCalendarStatus(token);
-      if (epoch !== mutationEpochRef.current) return;
+      if (epoch !== mutationEpochRef.current) return null;
       setConnected(s.connected);
       setCalendarId(s.calendarId);
       setGoogleAccountEmail(s.googleAccountEmail);
-      if (s.connected) await applyCalendars();
+      if (s.connected) await applyCalendars(epoch);
+      return s;
     } catch (e) {
       // O erro original do finish continua sendo a mensagem acionável. Só uma
       // expiração de sessão precisa furar esse best-effort silencioso.
       if (e instanceof SessionExpiredError) expireSession();
+      return null;
     }
   }, [token, applyCalendars, expireSession]);
 
@@ -278,7 +296,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
 
   /** Conclusão. Recebe o segredo já validado — nunca null, nunca vazio. */
   const finishWith = useCallback(
-    async (secret: string) => {
+    async (flow: StoredFlow) => {
       if (!token || !appUserId) return;
       // Invalida leituras de status já em voo: foram tiradas ANTES desta
       // conclusão e não podem sobrescrever o resultado dela.
@@ -286,11 +304,12 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
       setBusy(true);
       setError(null);
       try {
-        const result = await finishConnection(token, secret);
+        const result = await finishConnection(token, flow.secret);
         if (result.status === "conectado") {
           // Avança de novo ANTES de aplicar: pega também as leituras que
           // começaram durante o `finish` e ainda não resolveram.
           mutationEpochRef.current += 1;
+          const successEpoch = mutationEpochRef.current;
           clearFlow(appUserId);
           setPending(false);
           setRecoverable(null);
@@ -305,7 +324,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
           // agenda antiga pode continuar selecionável sob a identidade nova.
           setCalendars([]);
           navigate(ROUTE_BASE);
-          await applyCalendars();
+          await applyCalendars(successEpoch);
           return;
         }
         // 202: o callback ainda não estacionou o code. NÃO consome o fluxo e
@@ -331,11 +350,32 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
           clearFlow(appUserId);
           setPending(false);
         }
+        if (!(e instanceof SessionExpiredError)) {
+          const shouldReconcile = shouldReconcileFinishFailure(e);
+          // Uma resposta perdida pode esconder um commit bem-sucedido. Esvazie
+          // primeiro o snapshot anterior e reconcilie pela identidade
+          // verificada que o usuário declarou ao iniciar o fluxo.
+          if (shouldReconcile) setCalendars([]);
+          const status = await restoreStatusAfterUnsuccessfulFinish();
+          if (
+            shouldReconcile &&
+            status?.connected &&
+            flow.expectedEmail &&
+            status.googleAccountEmail?.trim().toLowerCase() === flow.expectedEmail
+          ) {
+            clearFlow(appUserId);
+            setPending(false);
+            setRecoverable(null);
+            setMismatch(null);
+            setChanging(false);
+            setEmailInput("");
+            setError(null);
+            navigate(ROUTE_BASE);
+            return;
+          }
+        }
         onErr(e);
         setRecoverable(MSG_INCOMPLETE);
-        if (!(e instanceof SessionExpiredError)) {
-          await restoreStatusAfterUnsuccessfulFinish();
-        }
       } finally {
         setBusy(false);
       }
@@ -360,7 +400,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
       setRecoverable(MSG_UNAVAILABLE);
       return;
     }
-    await finishWith(flow.secret);
+    await finishWith(flow);
   }, [appUserId, finishWith]);
 
   // Marcadores de retorno, uma vez por montagem.
@@ -388,7 +428,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
       navigate(ROUTE_BASE);
       return;
     }
-    void finishWith(flow.secret);
+    void finishWith(flow);
   }, [isAdmin, token, appUserId, route, navigate, finishWith]);
 
   // iOS: ir ao Google NÃO desmonta a PWA — ela fica em segundo plano com o botão
@@ -431,7 +471,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
         declaredEmail,
       );
       // Grava ANTES de sair da página: é a única chance.
-      if (!writeFlow(appUserId, { secret: flowSecret, expiresAt })) {
+      if (!writeFlow(appUserId, { secret: flowSecret, expiresAt, expectedEmail: declaredEmail })) {
         setError(
           "Este navegador não permitiu guardar a conexão. Libere o armazenamento do site e tente novamente.",
         );
