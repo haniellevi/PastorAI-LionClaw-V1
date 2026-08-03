@@ -51,7 +51,12 @@ from app.db.session import get_session_factory
 from app.db.tenant_session import mark_tenant_scoped
 from app.deps import ADMIN_ROLE
 from app.domain.billing import PLAN_ORDER, plan_rank
-from app.services.asaas import AsaasClient, AsaasError, subscription_description
+from app.services.asaas import (
+    AsaasClient,
+    AsaasError,
+    AsaasRejectedError,
+    subscription_description,
+)
 from app.services.billing import (
     OPEN_PLAN_CHANGE_STATUSES,
     PlanChangeConflict,
@@ -300,15 +305,26 @@ def _process_operation(
     if sub is None:
         return False
 
-    result = ensure_plan_change_operation(
-        db,
-        asaas,
-        sub=sub,
-        to_plano=op.to_plano,
-        to_preco=float(op.to_preco),
-        to_limite=op.to_limite,
-        origin=op.origin,
-    )
+    try:
+        result = ensure_plan_change_operation(
+            db,
+            asaas,
+            sub=sub,
+            to_plano=op.to_plano,
+            to_preco=float(op.to_preco),
+            to_limite=op.to_limite,
+            origin=op.origin,
+        )
+    except AsaasRejectedError:
+        # Um request manual pode morrer e deixar seu claim para o worker. Se
+        # o porte cresceu nesse intervalo, o trigger da pessoa tentou criar o
+        # auto-upgrade, mas perdeu no índice único para a operação manual. A
+        # rejeição 4xx fecha essa operação como failed; reavaliar AGORA é a
+        # única forma de não perder para sempre a intenção de porte. Operação
+        # de autoupgrade rejeitada não é reaberta em loop.
+        if op.origin == "manual":
+            queue_autoupgrade_if_over_limit(db, sub)
+        raise
     if result.status != "completed":
         return False
 

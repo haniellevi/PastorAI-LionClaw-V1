@@ -23,7 +23,7 @@ from types import SimpleNamespace
 from app.db.models import BillingPlanChangeOperation, Subscription
 from app.db.tenant_session import TENANT_IGREJA_KEY, TENANT_META_KEY
 from app.services import billing_worker
-from app.services.asaas import AsaasError
+from app.services.asaas import AsaasError, AsaasRejectedError
 from app.services.billing_worker import (
     queue_autoupgrade_if_over_limit,
     run_pending_plan_changes,
@@ -72,16 +72,25 @@ def _sub(**over):
 class _WorkerAsaas:
     """Asaas do worker: só PUT/GET existem — qualquer criação EXPLODE."""
 
-    def __init__(self, *, remote: dict | None = None, put_error: bool = False) -> None:
+    def __init__(
+        self,
+        *,
+        remote: dict | None = None,
+        put_error: bool = False,
+        put_rejected: bool = False,
+    ) -> None:
         self.puts = 0
         self.gets = 0
         self.put_targets: list[str] = []
         self._remote = remote
         self._put_error = put_error
+        self._put_rejected = put_rejected
 
     def update_subscription(self, subscription_id: str, *, valor: float, descricao: str):
         self.puts += 1
         self.put_targets.append(subscription_id)
+        if self._put_rejected:
+            raise AsaasRejectedError("Plano rejeitado definitivamente pelo Asaas")
         if self._put_error:
             raise AsaasError("timeout ambíguo depois do PUT")
         return {"id": subscription_id, "value": valor, "description": descricao}
@@ -332,6 +341,66 @@ def test_worker_processes_a_stuck_manual_plan_change(monkeypatch) -> None:
     assert manual.notify_status == "skipped"
     assert sub.plano == "101_200"
     assert notified == []  # troca manual NUNCA dispara aviso de auto-upgrade
+
+
+def test_worker_requeues_growth_after_rejected_stuck_manual_change(
+    monkeypatch,
+) -> None:
+    manual = _op(origin="manual", status="prepared", notify_status="skipped")
+    sub = _sub(plano="ate_100", limite=100, pessoas=50)
+    igreja = SimpleNamespace(id=_IGREJA_A, plano="ate_100")
+    tenant = _WorkerSession(
+        subscription=sub,
+        igreja=igreja,
+        plan_changes=[manual],
+        planos=_ladder_catalog(),
+    )
+    tenant.pessoas_count = 250  # cresceu enquanto o claim manual estava aberto
+    notified = _spy_notify(monkeypatch)
+
+    completed = run_pending_plan_changes(
+        _Discovery([(manual, _IGREJA_A)]),
+        session_factory=_factory_queue([tenant]),
+        asaas=_WorkerAsaas(put_rejected=True),
+        evolution=object(),
+    )
+
+    assert completed == 0
+    assert manual.status == "failed"
+    queued = [
+        o
+        for o in tenant.added
+        if isinstance(o, BillingPlanChangeOperation) and o.origin == "autoupgrade"
+    ]
+    assert len(queued) == 1
+    assert queued[0].status == "prepared"
+    assert queued[0].to_plano == "acima_201"
+    assert sub.plano == "ate_100"
+    assert igreja.plano == "ate_100"
+    assert notified == []
+
+
+def test_worker_does_not_loop_a_rejected_autoupgrade(monkeypatch) -> None:
+    automatic = _op(origin="autoupgrade", status="prepared")
+    sub = _sub(plano="ate_100", limite=100, pessoas=250)
+    tenant = _WorkerSession(
+        subscription=sub,
+        igreja=SimpleNamespace(id=_IGREJA_A, plano="ate_100"),
+        plan_changes=[automatic],
+        planos=_ladder_catalog(),
+    )
+    tenant.pessoas_count = 250
+    _spy_notify(monkeypatch)
+
+    run_pending_plan_changes(
+        _Discovery([(automatic, _IGREJA_A)]),
+        session_factory=_factory_queue([tenant]),
+        asaas=_WorkerAsaas(put_rejected=True),
+        evolution=object(),
+    )
+
+    assert automatic.status == "failed"
+    assert not [o for o in tenant.added if isinstance(o, BillingPlanChangeOperation)]
 
 
 def test_worker_discovery_ignores_closed_operations(monkeypatch) -> None:
