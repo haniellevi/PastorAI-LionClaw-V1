@@ -327,6 +327,24 @@ export function AssinaturaScreen() {
   const over = limite != null && pessoas >= limite;
   const currentIndex = current ? catalog.findIndex((p) => p.code === current.code) : -1;
   const nextPlan = currentIndex >= 0 ? catalog[currentIndex + 1] ?? null : null;
+  const frozenCheckoutRecovery = planoSalvoForaDoCatalogo && sub ? (
+    <div className="card-pad" style={{ borderBottom: "1px solid var(--border)" }}>
+      <p className="sub" style={{ color: "var(--muted)", marginTop: 0 }}>
+        A contratação do plano <strong>{sub.plano}</strong> ficou incompleta e esse
+        plano não está mais no catálogo. Você pode retomá-la
+        {catalog.length > 0 ? " ou escolher um dos planos abaixo" : ""}.
+      </p>
+      <button
+        type="button"
+        className="btn btn-sm"
+        onClick={() => void contract(sub.plano)}
+        disabled={checkoutPlan != null}
+        aria-busy={checkoutPlan === sub.plano || undefined}
+      >
+        {checkoutPlan === sub.plano ? "Abrindo…" : "Retomar contratação"}
+      </button>
+    </div>
+  ) : null;
 
   return (
     <div className="screen" key="assinatura">
@@ -631,10 +649,17 @@ export function AssinaturaScreen() {
           </div>
         )
       ) : catalog.length === 0 ? (
-        <div className="empty-state" style={{ padding: "var(--s6)" }}>
-          <Icon name="card" />
-          <p>Nenhum plano disponível no momento.</p>
-        </div>
+        <>
+          {frozenCheckoutRecovery ? (
+            <div className="card" style={{ marginBottom: "var(--s4)" }}>
+              {frozenCheckoutRecovery}
+            </div>
+          ) : null}
+          <div className="empty-state" style={{ padding: "var(--s6)" }}>
+            <Icon name="card" />
+            <p>Nenhum plano disponível no momento.</p>
+          </div>
+        </>
       ) : (
         <div className="card">
           <div className="panel-title">Planos por porte da igreja</div>
@@ -676,28 +701,7 @@ export function AssinaturaScreen() {
               </p>
             </div>
           ) : null}
-          {/* O plano salvo no placeholder saiu do catálogo ativo: a retomada
-              precisa continuar disponível — o backend reconcilia a intenção
-              congelada e, se não houver nada recuperável, devolve 422 para o
-              assinante escolher um plano ativo da tabela. */}
-          {planoSalvoForaDoCatalogo && sub ? (
-            <div className="card-pad" style={{ borderBottom: "1px solid var(--border)" }}>
-              <p className="sub" style={{ color: "var(--muted)", marginTop: 0 }}>
-                A contratação do plano <strong>{sub.plano}</strong> ficou incompleta e
-                esse plano não está mais no catálogo. Você pode retomá-la ou escolher
-                um dos planos abaixo.
-              </p>
-              <button
-                type="button"
-                className="btn btn-sm"
-                onClick={() => void contract(sub.plano)}
-                disabled={checkoutPlan != null}
-                aria-busy={checkoutPlan === sub.plano || undefined}
-              >
-                {checkoutPlan === sub.plano ? "Abrindo…" : "Retomar contratação"}
-              </button>
-            </div>
-          ) : null}
+          {frozenCheckoutRecovery}
           <table className="data-table">
             <thead>
               <tr>

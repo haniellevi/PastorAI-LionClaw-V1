@@ -719,6 +719,36 @@ describe("AssinaturaScreen — placeholder de checkout falho", () => {
     });
   });
 
+  it("catálogo ativo vazio não esconde a retomada da intenção congelada", async () => {
+    fetchSubscription.mockResolvedValue(placeholder({ plano: "101_200" }));
+    fetchPlanCatalog.mockResolvedValue({ setupFee: 59.9, planos: [] });
+    createCheckout.mockResolvedValue({
+      status: "pendente",
+      invoiceUrl: "https://asaas.test/m1",
+      setupInvoiceUrl: null,
+      asaasSubscriptionId: "sub_4",
+    });
+
+    act(() => root.render(h(AssinaturaScreen)));
+    await flush();
+
+    expect(container.textContent).toContain("Nenhum plano disponível no momento.");
+    expect(container.querySelector("#subscription-cpf-cnpj")).not.toBeNull();
+    setValue(container.querySelector<HTMLInputElement>("#subscription-cpf-cnpj")!, "24971563792");
+    const retomar = [...container.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Retomar contratação"),
+    )!;
+    expect(retomar).toBeDefined();
+    act(() => retomar.click());
+    await flush();
+
+    expect(createCheckout).toHaveBeenCalledWith("tenant-token", {
+      plano: "101_200",
+      cpfCnpj: "24971563792",
+    });
+    expect(changePlan).not.toHaveBeenCalled();
+  });
+
   it("assinatura RASTREADA mantém a troca de plano in-place", async () => {
     fetchSubscription.mockResolvedValue(
       placeholder({
