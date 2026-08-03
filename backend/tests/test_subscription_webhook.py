@@ -189,6 +189,8 @@ class _WebhookDb:
                     self.subscription_locks += 1
                 return _Result(self.sub)
         if any(key.startswith("asaas_customer_id") for key in bound):
+            if getattr(statement, "_for_update_arg", None) is not None:
+                self.subscription_locks += 1
             customer = next(
                 value for key, value in bound.items()
                 if key.startswith("asaas_customer_id")
@@ -805,6 +807,7 @@ def test_legacy_setup_confirmation_marks_paid(app, monkeypatch) -> None:
     assert legada.status == "pendente"  # mensalidade intocada
     assert db.igreja.status == "ativa"  # acesso intocado
     assert db.commits == 1
+    assert db.subscription_locks == 1
 
 
 def test_legacy_setup_pending_event_does_not_mark_paid(app, monkeypatch) -> None:
@@ -853,6 +856,7 @@ def test_legacy_reversal_before_confirmation_persists_tombstone(
     assert legada.asaas_setup_charge_id is None
     assert legada.asaas_setup_reversed_payment_id == "pay_leg_1"
     assert db.commits == 1
+    assert db.subscription_locks == 1
 
     confirmed_resp = _post(client, "PAYMENT_CONFIRMED", _legacy_payment())
     assert confirmed_resp.json() == {"received": True, "status": None}

@@ -1898,6 +1898,38 @@ def test_change_plan_conflicts_with_open_change_to_other_plan(app) -> None:
     assert resp.status_code == 409
 
 
+def test_change_plan_retry_returns_the_frozen_operation_price(app) -> None:
+    open_change = BillingPlanChangeOperation(
+        subscription_id="00000000-0000-0000-0000-00000000su01",
+        asaas_subscription_id="sub_asaas_1",
+        from_plano="ate_100",
+        to_plano="101_200",
+        to_preco=299.0,
+        to_limite=200,
+        to_descricao="PastorAI — plano 101_200",
+        status="reconciling",
+    )
+    asaas = _ChangePlanAsaas()
+    client, _db = _client(
+        app,
+        # O catálogo foi editado depois de a operação congelar seu alvo.
+        planos=[_plano(codigo="101_200", preco_mensal=399, limite_pessoas=200)],
+        asaas=asaas,
+        subscription=_active_sub(),
+        plan_changes=[open_change],
+    )
+
+    resp = client.post(
+        "/subscription/change-plan", json={"plano": "101_200"}, headers=_AUTH
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["precoMensal"] == 299.0
+    assert asaas.puts == [
+        ("sub_asaas_1", 299.0, "PastorAI — plano 101_200")
+    ]
+
+
 def test_get_subscription_hides_links_already_settled(app) -> None:
     # Assinatura ativa com setup pago: links persistidos não voltam na leitura
     # (nada em aberto para pagar).

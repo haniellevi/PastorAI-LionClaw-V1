@@ -357,11 +357,13 @@ def _reconcile_legacy_setup_charge(
     ):
         return None
     candidatas = db.execute(
-        select(Subscription).where(
+        select(Subscription)
+        .where(
             Subscription.asaas_customer_id == str(payment["customer"]),
             Subscription.setup_pago.is_(False),
             Subscription.asaas_setup_charge_id.is_(None),
         )
+        .with_for_update()
     ).scalars().all()
     if len(candidatas) != 1:
         return None
@@ -1571,7 +1573,7 @@ def change_plan(
             )
 
     try:
-        ensure_plan_change_operation(
+        completed_change = ensure_plan_change_operation(
             db,
             asaas,
             sub=sub,
@@ -1613,7 +1615,7 @@ def change_plan(
     return ChangePlanResponse(
         status=sub.status or "ativa",
         plano=sub.plano,
-        precoMensal=float(plano_row.preco_mensal),
+        precoMensal=float(completed_change.to_preco),
     )
 
 
