@@ -321,6 +321,8 @@ def _sync(
     google_calendar_id: str | None = "cal@x",
     google_account_email: str | None = _EMAIL,
     google_account_sub: str | None = _SUB,
+    connected_em: dt.datetime | None = None,
+    atualizado_em: dt.datetime | None = None,
 ) -> SimpleNamespace:
     """Linha de `calendar_sync` como o finish a enxerga.
 
@@ -335,8 +337,8 @@ def _sync(
         google_account_email=google_account_email,
         google_account_sub=google_account_sub,
         connected_by_app_user_id=None,
-        connected_em=None,
-        atualizado_em=None,
+        connected_em=connected_em,
+        atualizado_em=atualizado_em,
     )
 
 
@@ -620,6 +622,29 @@ def test_callback_completed_replay_returns_to_integrations_without_marker(
     r = _callback(c, state=_STATE, **callback_params)
 
     assert r.headers["location"] == expected
+    assert flow.code_encrypted is None
+
+
+@pytest.mark.parametrize(
+    "callback_params",
+    [{"code": "repetido"}, {"error": "access_denied"}],
+    ids=["code", "error"],
+)
+def test_callback_processing_replay_returns_ready(
+    app, crypto_enabled, callback_params
+) -> None:
+    """Callback duplicado não pode anunciar cancelamento durante o finish."""
+    app_user = make_app_user()
+    flow = _flow(
+        app_user_id=uuid.UUID(str(app_user.id)),
+        verifier_encrypted=None,
+        consumed_at=dt.datetime.now(dt.timezone.utc),
+    )
+    c = _public_client(app, _FlowSession(flow=flow))
+
+    r = _callback(c, state=_STATE, **callback_params)
+
+    assert r.headers["location"].endswith("#integracoes/callback/ready")
     assert flow.code_encrypted is None
 
 
@@ -1292,6 +1317,53 @@ def test_select_calendar_sets_id(app) -> None:
         "+00:00", "Z"
     )
     assert session.identity_locks == 1
+    assert session.commits == 1
+
+
+def test_select_calendar_allows_legacy_connection_with_current_row_revision(
+    app,
+) -> None:
+    """Rows anteriores a `connected_em` continuam podendo escolher agenda."""
+    legacy_revision = dt.datetime(2026, 7, 31, 12, tzinfo=dt.timezone.utc)
+    sync = _sync(
+        refresh_token_encrypted="enc",
+        google_account_email=None,
+        google_account_sub=None,
+        atualizado_em=legacy_revision,
+    )
+    session = _FlowSession(app_user=make_app_user(), roles=["admin"], sync=sync)
+    c = _client(app, ["admin"], session=session)
+
+    r = c.put(
+        "/calendar",
+        json={
+            "calendarId": "cal@new",
+            "connectionVersion": legacy_revision.isoformat(),
+        },
+        headers=_AUTH,
+    )
+
+    assert r.status_code == 200
+    assert sync.google_calendar_id == "cal@new"
+    assert r.json()["connectionVersion"] == sync.atualizado_em.isoformat().replace(
+        "+00:00", "Z"
+    )
+    assert r.json()["connectionVersion"] != legacy_revision.isoformat().replace(
+        "+00:00", "Z"
+    )
+    assert session.commits == 1
+
+    stale = c.put(
+        "/calendar",
+        json={
+            "calendarId": "cal@stale",
+            "connectionVersion": legacy_revision.isoformat(),
+        },
+        headers=_AUTH,
+    )
+
+    assert stale.status_code == 409
+    assert sync.google_calendar_id == "cal@new"
     assert session.commits == 1
 
 
@@ -1977,10 +2049,12 @@ def test_status_never_echoes_sub_or_tokens(app, crypto_enabled) -> None:
 
 def test_status_reports_null_email_for_legacy_connection(app, crypto_enabled) -> None:
     """Conexão legada segue `connected=true`, com identidade NULA."""
+    legacy_revision = dt.datetime(2026, 7, 31, 12, tzinfo=dt.timezone.utc)
     sync = _sync(
         refresh_token_encrypted="enc",
         google_account_email=None,
         google_account_sub=None,
+        atualizado_em=legacy_revision,
     )
     session = _FlowSession(app_user=make_app_user(), roles=["admin"], sync=sync)
     c = _client(app, ["admin"], session=session)
@@ -1989,7 +2063,7 @@ def test_status_reports_null_email_for_legacy_connection(app, crypto_enabled) ->
         "connected": True,
         "calendarId": "cal@x",
         "googleAccountEmail": None,
-        "connectionVersion": None,
+        "connectionVersion": legacy_revision.isoformat().replace("+00:00", "Z"),
     }
 
 

@@ -284,6 +284,18 @@ def _connected(sync: CalendarSync | None) -> bool:
     return sync is not None and bool(sync.refresh_token_encrypted)
 
 
+def _selection_version(sync: CalendarSync | None) -> dt.datetime | None:
+    """Return the opaque revision that authorizes a calendar selection.
+
+    New connections carry ``connected_em``, which changes whenever the Google
+    identity changes.  Older valid rows predate that column and therefore use
+    their already-persisted ``atualizado_em`` as a safe row revision instead.
+    """
+    if sync is None:
+        return None
+    return sync.connected_em or sync.atualizado_em
+
+
 def _parse_date(value: str | None) -> dt.date | None:
     """Parse a preview ``'YYYY-MM-DD'`` into a date, or None when absent/invalid."""
     if not value:
@@ -433,8 +445,14 @@ def _flow_redirect(db: Session, state_hash: str, fallback: str) -> RedirectRespo
     if row is None:
         return RedirectResponse(url=_return_url(fallback, _MARKER_CANCELLED))
     origin, parked, consumed_at, finish_result = row
-    if consumed_at is not None and finish_result == "connected":
-        return RedirectResponse(url=_integrations_url(origin))
+    if consumed_at is not None:
+        if finish_result == "connected":
+            return RedirectResponse(url=_integrations_url(origin))
+        if finish_result is None:
+            # `_burn()` committed, but the first `/finish` is still exchanging
+            # the code (or its HTTP response was interrupted).  It remains a
+            # recoverable processing state, never a cancellation.
+            return RedirectResponse(url=_return_url(origin, _MARKER_READY))
     marker = _MARKER_READY if parked else _MARKER_CANCELLED
     return RedirectResponse(url=_return_url(origin, marker))
 
@@ -574,7 +592,7 @@ def finish_connection(
                 connected=True,
                 calendarId=sync.google_calendar_id,
                 googleAccountEmail=sync.google_account_email,
-                connectionVersion=sync.connected_em,
+                connectionVersion=_selection_version(sync),
             )
             db.rollback()  # só leitura; libera as duas travas
             return result
@@ -704,7 +722,7 @@ def finish_connection(
         connected=True,
         calendarId=sync.google_calendar_id,
         googleAccountEmail=sync.google_account_email,
-        connectionVersion=sync.connected_em,
+        connectionVersion=_selection_version(sync),
     )
 
 
@@ -725,7 +743,7 @@ def get_status(
         connected=True,
         calendarId=sync.google_calendar_id,
         googleAccountEmail=sync.google_account_email,
-        connectionVersion=sync.connected_em,
+        connectionVersion=_selection_version(sync),
     )
 
 
@@ -906,10 +924,11 @@ def select_calendar(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Agenda não conectada"
         )
+    selection_version = _selection_version(sync)
     if (
-        sync.connected_em is None
+        selection_version is None
         or payload.connectionVersion is None
-        or payload.connectionVersion != sync.connected_em
+        or payload.connectionVersion != selection_version
     ):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -922,7 +941,7 @@ def select_calendar(
         connected=True,
         calendarId=sync.google_calendar_id,
         googleAccountEmail=sync.google_account_email,
-        connectionVersion=sync.connected_em,
+        connectionVersion=_selection_version(sync),
     )
 
 
