@@ -8,6 +8,7 @@ const {
   fetchPlanCatalog,
   fetchSubscription,
   createCheckout,
+  resumeSubscription,
   recoverInvoice,
   createSetupCharge,
   changePlan,
@@ -16,6 +17,7 @@ const {
   fetchPlanCatalog: vi.fn(),
   fetchSubscription: vi.fn(),
   createCheckout: vi.fn(),
+  resumeSubscription: vi.fn(),
   recoverInvoice: vi.fn(),
   createSetupCharge: vi.fn(),
   changePlan: vi.fn(),
@@ -31,6 +33,7 @@ vi.mock("@/lib/subscription-api", async (importOriginal) => {
     ...actual,
     changePlan,
     createCheckout,
+    resumeSubscription,
     createSetupCharge,
     fetchPlanCatalog,
     fetchSubscription,
@@ -69,6 +72,7 @@ beforeEach(() => {
   fetchPlanCatalog.mockReset();
   fetchSubscription.mockReset();
   createCheckout.mockReset();
+  resumeSubscription.mockReset();
   recoverInvoice.mockReset();
   createSetupCharge.mockReset();
   changePlan.mockReset();
@@ -512,7 +516,7 @@ describe("AssinaturaScreen — links do checkout", () => {
   });
 
   it("inadimplente sem link retoma a fatura rastreada sem exigir documento", async () => {
-    createCheckout.mockResolvedValue({
+    resumeSubscription.mockResolvedValue({
       status: "inadimplente",
       invoiceUrl: "https://asaas.test/m2-recuperada",
       setupInvoiceUrl: null,
@@ -543,9 +547,8 @@ describe("AssinaturaScreen — links do checkout", () => {
     act(() => botaoRegularizar!.click());
     await flush();
 
-    expect(createCheckout).toHaveBeenCalledWith("tenant-token", {
-      plano: "ate_100",
-    });
+    expect(resumeSubscription).toHaveBeenCalledWith("tenant-token");
+    expect(createCheckout).not.toHaveBeenCalled();
   });
 
   it("assinatura pendente sem links ainda mostra o painel com o aviso do Asaas", async () => {

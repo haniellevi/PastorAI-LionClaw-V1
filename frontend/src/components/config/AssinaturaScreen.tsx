@@ -30,6 +30,7 @@ import {
   NoSubscriptionError,
   planInfo,
   recoverInvoice,
+  resumeSubscription,
   subscriptionUiState,
   type PlanCode,
   type PlanInfo,
@@ -212,7 +213,7 @@ export function AssinaturaScreen() {
       if (!token || checkoutPlan) return;
       setCheckoutPlan(plano);
       try {
-        const result = await createCheckout(token, { plano });
+        const result = await resumeSubscription(token);
         setCheckoutLinks({ monthly: result.invoiceUrl, setup: result.setupInvoiceUrl });
         flashToast({ kind: "ok", text: "Cobrança atualizada — use o link de pagamento." });
         await load("retry");

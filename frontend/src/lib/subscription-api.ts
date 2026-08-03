@@ -173,6 +173,19 @@ export async function createCheckout(
   return (await res.json()) as CheckoutResult;
 }
 
+/** Retoma somente a recorrência Asaas já rastreada. Este endpoint aceita
+ * igreja inadimplente, mas nunca cria uma nova assinatura. */
+export async function resumeSubscription(token: string): Promise<CheckoutResult> {
+  const res = await authedFetch(token, "/subscription/resume", {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível atualizar a cobrança.");
+  }
+  return (await res.json()) as CheckoutResult;
+}
+
 /** Resultado das ações explícitas de recuperação de cobrança. */
 export interface RecoveryResult {
   status: string;

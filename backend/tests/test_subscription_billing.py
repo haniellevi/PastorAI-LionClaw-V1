@@ -70,6 +70,21 @@ class _FakeAsaas:
         return {"id": "pay_setup_1", "invoiceUrl": "https://asaas.test/setup"}
 
 
+class _SandboxCheckoutAsaas:
+    def __init__(self) -> None:
+        self.create_calls = 0
+
+    def create_checkout(self, **kwargs):
+        self.create_calls += 1
+        return CheckoutResult(
+            customer_id="sandbox",
+            subscription_id="sandbox",
+            invoice_url=None,
+            status="pendente",
+            invoice_payment_id=None,
+        )
+
+
 class _RecoveryAsaas:
     """Fake do caminho de RECUPERAÇÃO de links (GET /subscription).
 
@@ -230,6 +245,45 @@ def test_checkout_charges_price_and_saves_limit_from_planos_table(app) -> None:
     added_subs = [o for o in db.added if isinstance(o, Subscription)]
     assert len(added_subs) == 1  # a intenção durável também entra em db.added
     assert added_subs[0].limite == 150
+
+
+def test_sandbox_checkout_keeps_one_retryable_prepared_intent(app) -> None:
+    asaas = _SandboxCheckoutAsaas()
+    sub = _subscription(
+        status=None,
+        asaas_customer_id=None,
+        asaas_subscription_id=None,
+        asaas_setup_charge_id=None,
+        setup_fee_contracted=0.0,
+        setup_pago=False,
+    )
+    client, db = _client(
+        app,
+        planos=[_plano()],
+        asaas=asaas,
+        subscription=sub,
+        setup_fee_default=0.0,
+    )
+
+    first = client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    )
+    second = client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["asaasSubscriptionId"] is None
+    assert second.json()["asaasSubscriptionId"] is None
+    operations = [
+        op for op in db.added if isinstance(op, BillingSubscriptionOperation)
+    ]
+    assert len(operations) == 1
+    assert operations[0].status == "prepared"
+    assert operations[0].asaas_subscription_id is None
+    assert sub.asaas_subscription_id is None
+    assert asaas.create_calls == 2
 
 
 def test_checkout_uses_price_of_requested_plano_not_another_active_one(app) -> None:
@@ -1896,6 +1950,60 @@ def test_delinquent_owner_can_load_billing_screen_for_recovery(app) -> None:
     assert subscription.json()["invoiceUrl"] == "https://asaas.test/m2"
     assert catalog.status_code == 200
     assert catalog.json()["planos"][0]["codigo"] == "ate_100"
+
+
+def test_delinquent_owner_can_resume_only_the_tracked_subscription(app) -> None:
+    asaas = _ResumeAsaas(
+        payment={
+            "id": "pay_m2",
+            "status": "PENDING",
+            "invoiceUrl": "https://asaas.test/m2-recovered",
+        }
+    )
+    sub = _subscription(
+        status="inadimplente",
+        setup_pago=True,
+        asaas_setup_charge_id=None,
+        asaas_invoice_payment_id="pay_m2",
+        asaas_invoice_url=None,
+        asaas_invoice_reversal=None,
+    )
+    client, _db = _client(
+        app,
+        planos=[],
+        asaas=asaas,
+        subscription=sub,
+        igreja_status="inadimplente",
+    )
+
+    resp = client.post("/subscription/resume", headers=_AUTH)
+
+    assert resp.status_code == 200
+    assert resp.json()["invoiceUrl"] == "https://asaas.test/m2-recovered"
+    assert asaas.calls == [
+        ("get_subscription_payment", "sub_asaas_1"),
+    ]
+
+
+def test_delinquent_resume_never_creates_an_untracked_subscription(app) -> None:
+    asaas = _ResumeAsaas()
+    sub = _subscription(
+        status="inadimplente",
+        asaas_subscription_id=None,
+        asaas_invoice_payment_id=None,
+    )
+    client, _db = _client(
+        app,
+        planos=[],
+        asaas=asaas,
+        subscription=sub,
+        igreja_status="inadimplente",
+    )
+
+    resp = client.post("/subscription/resume", headers=_AUTH)
+
+    assert resp.status_code == 409
+    assert asaas.calls == []
 
 
 def test_recover_invoice_of_new_cycle_is_not_blocked_by_an_older_recovery(

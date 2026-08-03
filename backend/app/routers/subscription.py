@@ -1241,9 +1241,16 @@ def create_checkout(
 
     if result.subscription_id == "sandbox":
         # Guard de sandbox: nenhuma chamada externa aconteceu — a intenção
-        # volta a `prepared` (nada a reconciliar).
+        # volta a `prepared` (nada a reconciliar). Não aplique o id sintético
+        # na Subscription nem feche a operação como se houvesse recurso remoto.
         claim_transition(
             db, op, "creating", "prepared", attempt_started_at=None
+        )
+        return CheckoutResponse(
+            status=sub.status or result.status,
+            invoiceUrl=None,
+            setupInvoiceUrl=None,
+            asaasSubscriptionId=None,
         )
 
     # O webhook também pode chegar entre a callback acima e o retorno final do
@@ -1295,6 +1302,40 @@ def create_checkout(
         setupInvoiceUrl=sub.asaas_setup_invoice_url if not sub.setup_pago else None,
         asaasSubscriptionId=result.subscription_id,
     )
+
+
+@router.post("/resume", response_model=CheckoutResponse)
+def resume_tracked_checkout(
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_billing_recovery_owner),
+    asaas: AsaasClient = Depends(get_asaas_client),
+) -> CheckoutResponse:
+    """Recupera cobranças da recorrência existente sem criar assinatura."""
+    igreja_uuid = uuid.UUID(current_user.igreja_id)
+    igreja = db.execute(
+        select(Igreja).where(Igreja.id == igreja_uuid)
+    ).scalar_one_or_none()
+    sub = db.execute(
+        select(Subscription).where(Subscription.igreja_id == igreja_uuid)
+    ).scalar_one_or_none()
+    if (
+        igreja is None
+        or sub is None
+        or not sub.asaas_subscription_id
+        or sub.asaas_subscription_id == "sandbox"
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Assinatura rastreada não encontrada para regularização",
+        )
+
+    contracted_setup_fee = getattr(sub, "setup_fee_contracted", None)
+    setup_fee = (
+        float(contracted_setup_fee)
+        if contracted_setup_fee is not None
+        else get_setup_fee_for_igreja(db, igreja)
+    )
+    return _resume_tracked_checkout(db, sub, asaas, setup_fee)
 
 
 class RecoveryResponse(BaseModel):
