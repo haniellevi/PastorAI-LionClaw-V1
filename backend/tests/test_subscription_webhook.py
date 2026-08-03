@@ -620,6 +620,90 @@ def test_old_overdue_after_new_cycle_confirmed_changes_nothing(app, monkeypatch)
     assert db.commits == 0
 
 
+@pytest.mark.parametrize(
+    ("event", "raw_status"),
+    [
+        ("PAYMENT_REFUNDED", "REFUNDED"),
+        ("PAYMENT_DELETED", "DELETED"),
+    ],
+)
+def test_old_cycle_reversal_stages_debt_without_replacing_current_snapshot(
+    app, monkeypatch, event, raw_status
+) -> None:
+    db = _WebhookDb(
+        sub=_sub(
+            status="ativa",
+            asaas_invoice_payment_id="pay_b",
+            asaas_invoice_url="https://asaas.test/b",
+            asaas_invoice_reversal=None,
+            proxima_cobranca=dt.date(2026, 9, 1),
+        ),
+        igreja=_igreja("ativa"),
+    )
+    client = _client(app, db, monkeypatch)
+
+    resp = _post(
+        client,
+        event,
+        _payment(
+            status=raw_status,
+            payment_id="pay_a",
+            due_date="2026-08-01",
+            value=199.0,
+        ),
+    )
+
+    assert resp.json()["status"] == "inadimplente"
+    debt_a = next(
+        o
+        for o in db.operations
+        if getattr(o, "purpose", None) == "monthly_recovery"
+    )
+    assert debt_a.status == "prepared"
+    assert debt_a.source_payment_id == "pay_a"
+    assert float(debt_a.valor) == 199.0
+    # B continua sendo a fotografia mensal autoritativa.
+    assert db.sub.status == "ativa"
+    assert db.sub.asaas_invoice_payment_id == "pay_b"
+    assert db.sub.asaas_invoice_url == "https://asaas.test/b"
+    assert db.sub.asaas_invoice_reversal is None
+    assert db.sub.proxima_cobranca == dt.date(2026, 9, 1)
+    assert db.igreja.status == "inadimplente"
+    assert db.commits == 1
+
+
+def test_old_cycle_reversal_already_settled_is_ignored(app, monkeypatch) -> None:
+    settled_a = _operation(status="paid", source_payment_id="pay_a")
+    db = _WebhookDb(
+        sub=_sub(
+            status="ativa",
+            asaas_invoice_payment_id="pay_b",
+            asaas_invoice_url="https://asaas.test/b",
+            proxima_cobranca=dt.date(2026, 9, 1),
+        ),
+        igreja=_igreja("ativa"),
+        operations=[settled_a],
+    )
+    client = _client(app, db, monkeypatch)
+
+    resp = _post(
+        client,
+        "PAYMENT_REFUNDED",
+        _payment(
+            status="REFUNDED",
+            payment_id="pay_a",
+            due_date="2026-08-01",
+            value=199.0,
+        ),
+    )
+
+    assert resp.json()["status"] is None
+    assert db.operations == [settled_a]
+    assert db.sub.asaas_invoice_payment_id == "pay_b"
+    assert db.igreja.status == "ativa"
+    assert db.commits == 0
+
+
 def test_different_payment_without_duedate_cannot_regress_tracked_cycle(
     app, monkeypatch
 ) -> None:

@@ -1613,10 +1613,29 @@ def asaas_webhook(
             )
             return WebhookResponse(received=True, status=None)
 
-    # Veto de ciclo ANTES de qualquer mutação: um evento atrasado/duplicado de
-    # fatura de ciclo anterior é reconhecido e ignorado por inteiro — nem
-    # status, nem link/payment id, nem acesso da igreja, nem commit.
+    # Veto de ciclo ANTES de qualquer mutação do SNAPSHOT atual. Uma reversão
+    # tardia do ciclo A, porém, é dívida nova: persiste recovery por fonte e
+    # fecha o gate sem substituir status/id/link/data do ciclo B.
     if payment and _is_stale_cycle_event(sub, payment):
+        if reversal and payment_id:
+            settled = find_settled_recovery(db, sub.id, payment_id)
+            if settled is not None:
+                logger.info(
+                    "Asaas stale reversal for a source already settled by a "
+                    "paid recovery; acknowledged"
+                )
+                return WebhookResponse(received=True, status=None)
+            staged = _stage_monthly_recovery_from_webhook(
+                db, sub, payment, payment_id
+            )
+            if staged is not None:
+                db.execute(
+                    update(Igreja)
+                    .where(Igreja.id == sub.igreja_id, Igreja.status == "ativa")
+                    .values(status="inadimplente")
+                )
+                db.commit()
+                return WebhookResponse(received=True, status=new_status)
         logger.info("Asaas webhook for a previous billing cycle; acknowledged")
         return WebhookResponse(received=True, status=None)
 
