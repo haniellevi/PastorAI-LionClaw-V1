@@ -138,10 +138,12 @@ def _reject_session_predating_password_change(
         )
 
 
-def get_current_user(
-    authorization: str | None = Header(default=None),
-    db: Session = Depends(get_db),
-    clerk: ClerkClient = Depends(get_clerk_client),
+def _resolve_current_user(
+    authorization: str | None,
+    db: Session,
+    clerk: ClerkClient,
+    *,
+    allow_delinquent: bool,
 ) -> CurrentUser:
     """Authenticate the request and resolve tenant + accumulated roles.
 
@@ -191,7 +193,9 @@ def get_current_user(
     _reject_session_predating_password_change(app_user, identity)
 
     igreja_status = app_user.igreja.status if app_user.igreja else None
-    if igreja_status in BLOCKING_IGREJA_STATUSES:
+    if igreja_status in BLOCKING_IGREJA_STATUSES and not (
+        allow_delinquent and igreja_status == "inadimplente"
+    ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={
@@ -237,6 +241,33 @@ def get_current_user(
         is_owner=is_owner,
         igreja_nome=app_user.igreja.nome if app_user.igreja else None,
         igreja_logo_path=app_user.igreja.logo_path if app_user.igreja else None,
+    )
+
+
+def get_current_user(
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+    clerk: ClerkClient = Depends(get_clerk_client),
+) -> CurrentUser:
+    """Authenticate a principal for ordinary protected application access."""
+    return _resolve_current_user(
+        authorization, db, clerk, allow_delinquent=False
+    )
+
+
+def get_billing_recovery_user(
+    authorization: str | None = Header(default=None),
+    db: Session = Depends(get_db),
+    clerk: ClerkClient = Depends(get_clerk_client),
+) -> CurrentUser:
+    """Authenticate billing recovery while keeping every other block intact.
+
+    A delinquent church may reach only endpoints that explicitly depend on
+    this function. Suspended and not-yet-approved churches remain blocked, as
+    do revoked/unlinked users and invalid sessions.
+    """
+    return _resolve_current_user(
+        authorization, db, clerk, allow_delinquent=True
     )
 
 
@@ -330,6 +361,15 @@ def get_current_cell_for_leader(
     return cell
 
 
+def _assert_owner(current_user: CurrentUser) -> CurrentUser:
+    if not current_user.is_owner:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Apenas o dono da igreja pode acessar a assinatura",
+        )
+    return current_user
+
+
 def require_owner(
     current_user: CurrentUser = Depends(get_current_user),
 ) -> CurrentUser:
@@ -339,12 +379,14 @@ def require_owner(
     donos) recebem 403. Se a igreja está sem dono (dono_id NULL), ninguém passa
     até o master reatribuir o dono pelo console.
     """
-    if not current_user.is_owner:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Apenas o dono da igreja pode acessar a assinatura",
-        )
-    return current_user
+    return _assert_owner(current_user)
+
+
+def require_billing_recovery_owner(
+    current_user: CurrentUser = Depends(get_billing_recovery_user),
+) -> CurrentUser:
+    """Owner-only carve-out for explicit debt recovery endpoints."""
+    return _assert_owner(current_user)
 
 
 def require_screen(screen: str):

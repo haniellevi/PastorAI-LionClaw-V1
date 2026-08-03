@@ -36,7 +36,7 @@ from app.db.models import (
 )
 from app.db.rls_observability import log_if_not_scoped
 from app.db.session import get_db
-from app.deps import CurrentUser, require_owner
+from app.deps import CurrentUser, require_billing_recovery_owner, require_owner
 from app.services.asaas import (
     MONTHLY_RECOVERY_DESCRIPTION,
     SETUP_CHARGE_DESCRIPTION,
@@ -51,6 +51,7 @@ from app.services.asaas import (
     verify_webhook_token,
 )
 from app.services.billing import (
+    OPEN_OPERATION_STATUSES,
     PlanChangeConflict,
     SubscriptionCreateConflict,
     claim_transition,
@@ -1325,7 +1326,7 @@ def _stage_monthly_recovery(
 @router.post("/recover-invoice", response_model=RecoveryResponse)
 def recover_invoice(
     db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(require_owner),
+    current_user: CurrentUser = Depends(require_billing_recovery_owner),
     asaas: AsaasClient = Depends(get_asaas_client),
 ) -> RecoveryResponse:
     """Ação EXPLÍCITA de recuperação da mensalidade revertida.
@@ -1376,33 +1377,42 @@ def recover_invoice(
                 detail="Não foi possível recuperar a cobrança no Asaas",
             ) from exc
 
-        # As chamadas remotas cedem tempo para o ciclo avançar por webhook.
-        # Releitura sob lock impede a resposta de A de sobrescrever B; também
-        # preserva uma confirmação/reversão mais recente da própria A.
+        # Mesma ordem de locks do webhook: operação -> assinatura. As chamadas
+        # remotas cedem tempo para o ciclo avançar; a releitura impede a
+        # resposta de A de sobrescrever B.
+        if open_recovery is not None:
+            db.refresh(open_recovery, with_for_update=True)
         db.refresh(sub, with_for_update=True)
+        source_restored = current is not None and not current.get("deleted")
+        if (
+            source_restored
+            and open_recovery is not None
+            and open_recovery.status in OPEN_OPERATION_STATUSES
+            and str(open_recovery.source_payment_id) == source_payment_id
+        ):
+            # A barreira representava a dívida da cobrança-fonte, não uma
+            # cobrança nova. Restaurar a própria fonte encerra essa dívida
+            # mesmo se, durante a chamada remota, o snapshot avançou para B.
+            open_recovery.status = "failed"
+            open_recovery.error = "source payment restored"
+            open_recovery.invoice_url = payment_invoice_url(current)
+            db.flush()
         if (
             str(sub.asaas_invoice_payment_id) != source_payment_id
             or sub.asaas_invoice_reversal != "deleted"
         ):
+            if source_restored and open_recovery is not None:
+                db.commit()
             return RecoveryResponse(
                 status=sub.status or "pendente", invoiceUrl=sub.asaas_invoice_url
             )
 
-        if current is not None and not current.get("deleted"):
+        if source_restored:
             sub.asaas_invoice_url = payment_invoice_url(current)
             sub.asaas_invoice_reversal = None
             new_status = map_payment_status(current.get("status"))
             if new_status is not None:
                 sub.status = new_status
-            # A intenção criada pelo webhook serviu como barreira durável; a
-            # restauração da cobrança-fonte a encerra sem marcá-la como paga
-            # (uma reversão futura do mesmo payment precisa poder reabrir).
-            if open_recovery is not None:
-                open_recovery.status = "failed"
-                open_recovery.error = "source payment restored"
-                # autoflush=False: a consulta de dívida abaixo precisa enxergar
-                # que esta barreira já foi encerrada.
-                db.flush()
             if (
                 new_status == "ativa"
                 and find_any_open_operation(
@@ -1424,11 +1434,6 @@ def recover_invoice(
 
     # 'refunded' (ou deleted sem payment id rastreado): cobrança estornada não
     # volta — emite a cobrança avulsa de RECUPERAÇÃO via operação durável.
-    if not sub.asaas_customer_id:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Assinatura sem cliente Asaas rastreado",
-        )
     # Valor da recuperação = o CONTRATADO desta assinatura, nunca o preço
     # atual do catálogo: um plano desativado pelo master (grandfathering) não
     # pode bloquear a recuperação (422) nem reajustar o assinante por fora.
@@ -1442,6 +1447,40 @@ def recover_invoice(
         if open_recovery is not None
         else sub.asaas_invoice_payment_id
     )
+
+    # A leitura remota usada para derivar o valor abre uma janela para o
+    # webhook quitar a recovery existente. Revalida sob os mesmos locks do
+    # webhook (operação -> assinatura) antes de materializar qualquer POST.
+    if open_recovery is not None:
+        db.refresh(open_recovery, with_for_update=True)
+    db.refresh(sub, with_for_update=True)
+    if source_payment_id and find_settled_recovery(
+        db, sub.id, str(source_payment_id)
+    ) is not None:
+        return RecoveryResponse(status=sub.status or "ativa")
+
+    locked_recovery = find_open_operation(
+        db,
+        sub.id,
+        "monthly_recovery",
+        source_payment_id,
+    )
+    if locked_recovery is None and (
+        not sub.asaas_invoice_reversal
+        or str(sub.asaas_invoice_payment_id) != str(source_payment_id)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="A cobrança mensal já foi regularizada",
+        )
+    if locked_recovery is not None:
+        valor = float(locked_recovery.valor)
+
+    if not sub.asaas_customer_id:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Assinatura sem cliente Asaas rastreado",
+        )
     try:
         op = ensure_payment_operation(
             db,
@@ -1467,7 +1506,7 @@ def recover_invoice(
 @router.post("/setup-charge", response_model=RecoveryResponse)
 def create_setup_charge_action(
     db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(require_owner),
+    current_user: CurrentUser = Depends(require_billing_recovery_owner),
     asaas: AsaasClient = Depends(get_asaas_client),
 ) -> RecoveryResponse:
     """Ação EXPLÍCITA de (re)emissão da taxa de setup em aberto.
@@ -1509,6 +1548,38 @@ def create_setup_charge_action(
             else get_setup_fee_for_igreja(db, igreja)
         )
     )
+
+    # O webhook trava operação -> assinatura. Repete a ordem antes de limpar
+    # qualquer espelho: uma confirmação concorrente torna a reemissão inválida.
+    tracked_setup_id = sub.asaas_setup_charge_id
+    tracked_setup_op = (
+        find_operation_for_payment(
+            db,
+            payment_id=str(tracked_setup_id),
+            external_reference=None,
+        )
+        if tracked_setup_id
+        else None
+    )
+    db.refresh(sub, with_for_update=True)
+    if sub.setup_pago:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="A taxa de setup já está quitada",
+        )
+    if sub.asaas_setup_invoice_url:
+        return RecoveryResponse(
+            status=sub.status or "pendente",
+            setupInvoiceUrl=sub.asaas_setup_invoice_url,
+        )
+    if (
+        sub.asaas_setup_charge_id
+        and str(sub.asaas_setup_charge_id) != str(tracked_setup_id)
+    ):
+        # Outra ação já instalou uma cobrança substituta enquanto esta request
+        # calculava o valor. Nunca apaga nem duplica a vencedora.
+        return RecoveryResponse(status=sub.status or "pendente")
+
     if setup_fee <= 0:
         # Isenta pela configuração vigente: nada a cobrar.
         sub.setup_pago = True
@@ -1517,10 +1588,14 @@ def create_setup_charge_action(
         db.commit()
         return RecoveryResponse(status=sub.status or "pendente")
 
-    # Reemissão pós-reversão: derruba o espelho antigo para a operação criar a
-    # cobrança substituta (a informação da cobrança revertida vive na operação
-    # anterior e no histórico do webhook).
-    sub.asaas_setup_charge_id = None
+    # Só derruba um espelho comprovadamente revertido. Uma cobrança rastreada
+    # ainda aberta é reconciliada por _ensure_setup_charge, nunca substituída.
+    if (
+        tracked_setup_op is not None
+        and tracked_setup_op.status == "reversed"
+        and str(sub.asaas_setup_charge_id) == str(tracked_setup_op.asaas_payment_id)
+    ):
+        sub.asaas_setup_charge_id = None
     try:
         _ensure_setup_charge(db, sub, asaas, setup_fee)
     except AsaasError as exc:

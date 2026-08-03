@@ -186,14 +186,16 @@ def _client(
     operations=None,
     plan_changes=None,
     subscription_ops=None,
+    igreja_status: str = "ativa",
 ) -> tuple[TestClient, FakeSession]:
+    app_user = make_app_user(igreja_status=igreja_status)
     igreja = SimpleNamespace(
-        id=make_app_user().igreja_id,
+        id=app_user.igreja_id,
         setup_fee_override=setup_fee_override,
-        status="ativa",
+        status=igreja_status,
     )
     db = FakeSession(
-        app_user=make_app_user(),
+        app_user=app_user,
         roles=["admin"],
         planos=planos,
         igreja=igreja,
@@ -1384,8 +1386,13 @@ def test_recover_deleted_does_not_overwrite_a_newer_billing_cycle(app) -> None:
     assert sub.asaas_invoice_payment_id == "pay_b"
     assert sub.asaas_invoice_url == "https://asaas.test/b"
     assert sub.asaas_invoice_reversal is None
-    assert staged.status == "prepared"  # a barreira de A não foi falsamente fechada
-    assert any(obj is sub and lock is True for obj, lock in db.refresh_calls)
+    # A restauração de A é real mesmo após o avanço para B: sua barreira fecha
+    # e não pode virar uma cobrança avulsa duplicada no próximo retry.
+    assert staged.status == "failed"
+    assert staged.error == "source payment restored"
+    assert staged.invoice_url == "https://asaas.test/a-restored"
+    assert db.refresh_calls[:2] == [(staged, True), (sub, True)]
+    assert db.commits == 1
 
 
 def test_recover_deleted_confirmed_reopens_the_church_gate(app) -> None:
@@ -1456,6 +1463,51 @@ def test_recover_invoice_refunded_emits_recovery_charge_once(app) -> None:
     ops = [o for o in db.added if getattr(o, "purpose", None) == "monthly_recovery"]
     assert len(ops) == 1
     assert ops[0].valor == 199.0  # preço do plano atual do catálogo
+
+
+def test_recover_invoice_rechecks_a_concurrent_settlement_before_post(app) -> None:
+    asaas = _RecoveryChargeAsaas()
+    sub = _subscription(
+        status="inadimplente",
+        setup_pago=True,
+        asaas_invoice_payment_id="pay_m2",
+        asaas_invoice_reversal="refunded",
+    )
+    open_recovery = BillingPaymentOperation(
+        subscription_id=sub.id,
+        purpose="monthly_recovery",
+        operation_key="pastorai-monthly_recovery-race-paid",
+        source_payment_id="pay_m2",
+        status="prepared",
+        valor=199.0,
+    )
+    client, db = _client(
+        app,
+        planos=[],
+        asaas=asaas,
+        subscription=sub,
+        operations=[open_recovery],
+        igreja_status="inadimplente",
+    )
+
+    def webhook_won(obj, with_for_update) -> None:
+        if obj is open_recovery:
+            open_recovery.status = "paid"
+            sub.status = "ativa"
+            sub.asaas_invoice_reversal = None
+
+    db.refresh_callback = webhook_won
+    resp = client.post("/subscription/recover-invoice", headers=_AUTH)
+
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ativa"
+    assert asaas.posts == 0
+    assert db.refresh_calls[:2] == [(open_recovery, True), (sub, True)]
+    assert not [
+        obj
+        for obj in db.added
+        if getattr(obj, "purpose", None) == "monthly_recovery"
+    ]
 
 
 def test_recover_invoice_of_new_cycle_is_not_blocked_by_an_older_recovery(
@@ -1578,6 +1630,47 @@ def test_setup_charge_action_emits_via_operation_once(app) -> None:
     assert sub.setup_pago is False
     ops = [o for o in db.added if getattr(o, "purpose", None) == "setup"]
     assert len(ops) == 1
+
+
+def test_setup_charge_rechecks_concurrent_confirmation_before_reissue(app) -> None:
+    asaas = _FakeAsaas()
+    sub = _subscription(
+        status="ativa",
+        setup_pago=False,
+        asaas_setup_charge_id="pay_setup_race",
+        asaas_setup_invoice_url=None,
+    )
+    operation = BillingPaymentOperation(
+        subscription_id=sub.id,
+        purpose="setup",
+        operation_key="pastorai-setup-race-confirmed",
+        source_payment_id=None,
+        asaas_payment_id="pay_setup_race",
+        status="created",
+        valor=59.9,
+    )
+    client, db = _client(
+        app,
+        planos=[],
+        asaas=asaas,
+        setup_fee_default=59.9,
+        subscription=sub,
+        operations=[operation],
+    )
+
+    def webhook_won(obj, with_for_update) -> None:
+        if obj is sub:
+            operation.status = "paid"
+            sub.setup_pago = True
+
+    db.refresh_callback = webhook_won
+    resp = client.post("/subscription/setup-charge", headers=_AUTH)
+
+    assert resp.status_code == 422
+    assert "quitada" in resp.json()["detail"]
+    assert asaas.charge_calls == []
+    assert sub.asaas_setup_charge_id == "pay_setup_race"
+    assert db.refresh_calls == [(sub, True)]
 
 
 def test_setup_reissue_uses_reversed_operation_amount_not_current_fee(app) -> None:
