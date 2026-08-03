@@ -39,6 +39,7 @@ def _sub(**over):
         plano="ate_100",
         status="ativa",
         setup_pago=True,
+        asaas_customer_id="cus_1",
         asaas_subscription_id="sub_asaas_1",
         asaas_setup_charge_id=None,
         asaas_setup_reversed_payment_id=None,
@@ -1158,13 +1159,20 @@ def test_setup_operation_resolved_by_operation_key_marks_paid(app, monkeypatch) 
         source_payment_id=None,
     )
     db = _WebhookDb(
-        sub=_sub(status="pendente", setup_pago=False),
+        sub=_sub(
+            status="pendente",
+            setup_pago=False,
+            asaas_customer_id="cus_1",
+        ),
         igreja=_igreja("aguardando_aprovacao"),
         operations=[op],
     )
     client = _client(app, db, monkeypatch)
     payment = _payment(status="CONFIRMED", subscription=None, payment_id="pay_setup_9")
     payment["externalReference"] = "pastorai-setup-op9"
+    payment["value"] = 59.9
+    payment["description"] = "PastorAI — taxa de setup"
+    payment["customer"] = "cus_1"
 
     resp = _post(client, "PAYMENT_CONFIRMED", payment)
 
@@ -1174,6 +1182,63 @@ def test_setup_operation_resolved_by_operation_key_marks_paid(app, monkeypatch) 
     assert db.sub.setup_pago is True
     assert db.sub.status == "pendente"  # mensalidade intocada
     assert db.igreja.status == "aguardando_aprovacao"  # acesso intocado
+
+
+@pytest.mark.parametrize(
+    ("field", "conflicting"),
+    [
+        ("value", 10.0),
+        ("description", "Outra cobrança"),
+        ("customer", "cus_2"),
+        ("customer", None),
+    ],
+)
+def test_unbound_payment_operation_rejects_conflicting_snapshot(
+    app, monkeypatch, field, conflicting
+) -> None:
+    op = _operation(
+        purpose="setup",
+        operation_key="pastorai-setup-unbound",
+        asaas_payment_id=None,
+        status="creating",
+        valor=59.9,
+        invoice_url=None,
+        source_payment_id=None,
+    )
+    db = _WebhookDb(
+        sub=_sub(
+            status="pendente",
+            setup_pago=False,
+            asaas_customer_id="cus_1",
+        ),
+        igreja=_igreja("aguardando_aprovacao"),
+        operations=[op],
+    )
+    client = _client(app, db, monkeypatch)
+    payment = _payment(
+        status="CONFIRMED",
+        subscription=None,
+        payment_id="pay_conflicting",
+        value=59.9,
+    )
+    payment.update(
+        {
+            "externalReference": op.operation_key,
+            "description": "PastorAI — taxa de setup",
+            "customer": "cus_1",
+            field: conflicting,
+        }
+    )
+
+    resp = _post(client, "PAYMENT_CONFIRMED", payment)
+
+    assert resp.json() == {"received": True, "status": None}
+    assert op.asaas_payment_id is None
+    assert op.status == "creating"
+    assert db.sub.setup_pago is False
+    assert db.sub.status == "pendente"
+    assert db.igreja.status == "aguardando_aprovacao"
+    assert db.commits == 0
 
 
 # ---------------------------------------------------------------------------
@@ -1663,6 +1728,9 @@ def test_subscription_event_resolves_new_external_reference_via_operation(
         plano="ate_100",
         limite=100,
         customer_id="cus_1",
+        valor=199.0,
+        ciclo="MONTHLY",
+        descricao="PastorAI — plano ate_100",
         setup_fee=0.0,
         asaas_subscription_id=None,
         status="reconciling",
@@ -1683,6 +1751,10 @@ def test_subscription_event_resolves_new_external_reference_via_operation(
                 "id": "sub_asaas_9",
                 "status": "ACTIVE",
                 "externalReference": "pastorai-subcreate-k1",
+                "customer": "cus_1",
+                "value": 199.0,
+                "cycle": "MONTHLY",
+                "description": "PastorAI — plano ate_100",
             },
         },
         headers=_HDR,
@@ -1693,7 +1765,63 @@ def test_subscription_event_resolves_new_external_reference_via_operation(
     assert db.sub.status == "ativa"
 
 
-def test_early_payment_resolves_creation_intent_and_persists_paid_snapshot(
+def test_subscription_event_rejects_contract_that_differs_from_frozen_intent(
+    app, monkeypatch
+) -> None:
+    sub = _sub(
+        status="pendente",
+        setup_pago=False,
+        asaas_subscription_id=None,
+    )
+    create_op = SimpleNamespace(
+        operation_key="pastorai-subcreate-mismatch",
+        subscription_id=sub.id,
+        plano="ate_100",
+        limite=100,
+        customer_id="cus_1",
+        valor=199.0,
+        ciclo="MONTHLY",
+        descricao="PastorAI — plano ate_100",
+        setup_fee=59.9,
+        asaas_subscription_id=None,
+        status="reconciling",
+        attempt_started_at=None,
+    )
+    db = _WebhookDb(
+        sub=sub,
+        igreja=_igreja("aguardando_aprovacao"),
+        subscription_create_ops=[create_op],
+    )
+    client = _client(app, db, monkeypatch)
+
+    resp = client.post(
+        "/subscription/webhook",
+        json={
+            "event": "SUBSCRIPTION_UPDATED",
+            "subscription": {
+                "id": "sub_conflicting",
+                "status": "ACTIVE",
+                "externalReference": create_op.operation_key,
+                "customer": "cus_1",
+                "value": 999.0,
+                "cycle": "MONTHLY",
+                "description": "PastorAI — plano ate_100",
+            },
+        },
+        headers=_HDR,
+    )
+
+    assert resp.json() == {"received": True, "status": None}
+    assert sub.asaas_subscription_id is None
+    assert sub.status == "pendente"
+    assert sub.setup_pago is False
+    assert create_op.asaas_subscription_id is None
+    assert create_op.status == "reconciling"
+    assert db.igreja.status == "aguardando_aprovacao"
+    assert db.commits == 0
+
+
+def test_early_payment_cannot_close_an_unbound_creation_intent(
     app, monkeypatch
 ) -> None:
     sub = _sub(
@@ -1708,6 +1836,9 @@ def test_early_payment_resolves_creation_intent_and_persists_paid_snapshot(
         plano="ate_100",
         limite=100,
         customer_id="cus_early",
+        valor=199.0,
+        ciclo="MONTHLY",
+        descricao="PastorAI — plano ate_100",
         setup_fee=0.0,
         asaas_subscription_id=None,
         status="creating",
@@ -1729,18 +1860,19 @@ def test_early_payment_resolves_creation_intent_and_persists_paid_snapshot(
         invoice_url="https://asaas.test/pay-early",
     )
     payment["customer"] = "cus_early"
+    payment["value"] = 199.0
+    payment["description"] = "PastorAI — plano ate_100"
     resp = _post(client, "PAYMENT_CONFIRMED", payment)
 
-    assert resp.json()["status"] == "ativa"
-    assert sub.status == "ativa"
-    assert sub.asaas_subscription_id == "sub_asaas_early"
-    assert sub.asaas_customer_id == "cus_early"
-    assert sub.asaas_invoice_payment_id == "pay_early"
-    assert sub.setup_pago is True
-    assert create_op.status == "created"
-    assert create_op.asaas_subscription_id == "sub_asaas_early"
-    assert db.igreja.status == "ativa"
-    assert db.commits == 1
+    assert resp.json() == {"received": True, "status": None}
+    assert sub.status == "pendente"
+    assert sub.asaas_subscription_id is None
+    assert sub.asaas_invoice_payment_id is None
+    assert sub.setup_pago is False
+    assert create_op.status == "creating"
+    assert create_op.asaas_subscription_id is None
+    assert db.igreja.status == "inadimplente"
+    assert db.commits == 0
 
 
 # ---------------------------------------------------------------------------

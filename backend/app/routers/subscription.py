@@ -66,8 +66,10 @@ from app.services.billing import (
     find_settled_recovery,
     find_subscription_operation_by_key,
     get_setup_fee_for_igreja,
+    payment_matches_operation,
     prepare_subscription_operation,
     reconcile_subscription_operation,
+    subscription_matches_operation,
 )
 from app.services.billing_worker import queue_autoupgrade_if_over_limit
 
@@ -425,22 +427,40 @@ def _apply_operation_event(
     pelo shape do payload. Convergente para eventos duplicados/fora de ordem.
     """
     payment_id = str(payment["id"]) if payment.get("id") else None
-    if op.asaas_payment_id is None and payment_id:
-        # O webhook chegou antes da nossa reconciliação: adota o vínculo.
-        op.asaas_payment_id = payment_id
-    if not reversal and not op.invoice_url:
-        url = payment_invoice_url(payment)
-        if url:
-            op.invoice_url = url
-
     sub = db.execute(
         select(Subscription)
         .where(Subscription.id == op.subscription_id)
         .with_for_update()
     ).scalar_one_or_none()
     if sub is None:
-        db.commit()
-        return WebhookResponse(received=True, status=new_status)
+        return WebhookResponse(received=True, status=None)
+
+    if op.asaas_payment_id is None:
+        expected_description = (
+            SETUP_CHARGE_DESCRIPTION
+            if op.purpose == "setup"
+            else MONTHLY_RECOVERY_DESCRIPTION
+            if op.purpose == "monthly_recovery"
+            else ""
+        )
+        if not payment_matches_operation(
+            op,
+            payment,
+            description=expected_description,
+            customer_id=getattr(sub, "asaas_customer_id", None),
+        ):
+            logger.warning(
+                "Asaas webhook does not match unbound payment operation; "
+                "acknowledged"
+            )
+            return WebhookResponse(received=True, status=None)
+        # O webhook validado chegou antes da reconciliação: adota o vínculo.
+        op.asaas_payment_id = payment_id
+
+    if not reversal and not op.invoice_url:
+        url = payment_invoice_url(payment)
+        if url:
+            op.invoice_url = url
 
     if op.purpose == "setup":
         if new_status == "ativa" and op.status != "reversed":
@@ -1804,6 +1824,7 @@ def asaas_webhook(
                     candidate is not None
                     and asaas_sub_id
                     and (not tracked_remote or str(tracked_remote) == str(asaas_sub_id))
+                    and subscription_matches_operation(create_op, subscription)
                 )
                 if remote_matches:
                     sub = candidate

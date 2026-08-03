@@ -974,6 +974,9 @@ def test_subscription_matches_operation_requires_frozen_target() -> None:
     assert subscription_matches_operation(op, good) is True
     assert subscription_matches_operation(op, {**good, "value": 149.0}) is False
     assert subscription_matches_operation(op, {**good, "customer": "cus_2"}) is False
+    assert subscription_matches_operation(
+        op, {k: v for k, v in good.items() if k != "customer"}
+    ) is False
     assert subscription_matches_operation(op, {**good, "cycle": "YEARLY"}) is False
     assert subscription_matches_operation(
         op, {**good, "description": "outra"}

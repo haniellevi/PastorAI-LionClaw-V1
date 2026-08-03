@@ -271,15 +271,27 @@ def find_operation_for_payment(
     return None
 
 
-def _matches_operation(op: BillingPaymentOperation, payment: dict, *, description: str) -> bool:
-    """Uma cobrança encontrada na reconciliação só é adotada se os dados batem."""
+def payment_matches_operation(
+    op: BillingPaymentOperation,
+    payment: dict,
+    *,
+    description: str,
+    customer_id: str | None,
+) -> bool:
+    """A cobrança bate integralmente com o alvo congelado da operação?"""
     try:
         value_ok = float(payment.get("value")) == float(op.valor)
     except (TypeError, ValueError):
         value_ok = False
+    customer_ok = bool(
+        customer_id
+        and payment.get("customer")
+        and str(payment.get("customer")) == str(customer_id)
+    )
     return bool(
         payment.get("id")
         and value_ok
+        and customer_ok
         and payment.get("description") == description
     )
 
@@ -493,8 +505,12 @@ def _reconcile_payment_operation(
     matches = [
         p
         for p in asaas.find_payments_by_external_reference(op.operation_key)
-        if _matches_operation(op, p, description=description)
-        and (not p.get("customer") or str(p.get("customer")) == str(customer_id))
+        if payment_matches_operation(
+            op,
+            p,
+            description=description,
+            customer_id=customer_id,
+        )
     ]
     if len(matches) == 1:
         payment = matches[0]
@@ -870,10 +886,10 @@ def subscription_matches_operation(
         value_ok = float(remote.get("value")) == float(op.valor)
     except (TypeError, ValueError):
         value_ok = False
-    customer_ok = (
-        not op.customer_id
-        or not remote.get("customer")
-        or str(remote.get("customer")) == str(op.customer_id)
+    customer_ok = bool(
+        op.customer_id
+        and remote.get("customer")
+        and str(remote.get("customer")) == str(op.customer_id)
     )
     cycle_ok = str(remote.get("cycle") or "").upper() == str(op.ciclo).upper()
     return bool(
