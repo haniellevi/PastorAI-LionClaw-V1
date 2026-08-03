@@ -300,6 +300,10 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
           setConnected(true);
           setCalendarId(result.calendarId);
           setGoogleAccountEmail(result.googleAccountEmail);
+          // O snapshot atual pertence à identidade anterior. Limpe antes do
+          // best-effort da conta nova: se `/calendar/list` falhar, nenhuma
+          // agenda antiga pode continuar selecionável sob a identidade nova.
+          setCalendars([]);
           navigate(ROUTE_BASE);
           await applyCalendars();
           return;

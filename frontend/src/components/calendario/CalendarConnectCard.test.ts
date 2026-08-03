@@ -491,6 +491,42 @@ describe("marcador ready", () => {
     expect(text()).toContain("selecione abaixo"); // sem agenda herdada
   });
 
+  it("troca de identidade remove agendas antigas mesmo se a lista nova falhar", async () => {
+    setHash("#integracoes");
+    fetchCalendarStatus.mockResolvedValue({
+      connected: true,
+      calendarId: "agenda-antiga@x",
+      googleAccountEmail: EMAIL,
+    });
+    fetchCalendarList
+      .mockResolvedValueOnce([
+        { id: "agenda-antiga@x", summary: "Agenda da conta A", primary: true },
+      ])
+      .mockRejectedValueOnce(new Error("Google indisponível"));
+
+    await render();
+
+    expect(text()).toContain("Agenda da conta A");
+    expect(container.querySelector("select")).toBeTruthy();
+
+    seedFlow("segredo");
+    finishConnection.mockResolvedValue({
+      status: "conectado",
+      connected: true,
+      calendarId: null,
+      googleAccountEmail: OUTRO_EMAIL,
+    });
+
+    await act(async () => {
+      setHash("#integracoes/callback/ready");
+    });
+
+    expect(finishConnection).toHaveBeenCalledWith("tok", "segredo");
+    expect(text()).toContain(OUTRO_EMAIL);
+    expect(text()).not.toContain("Agenda da conta A");
+    expect(container.querySelector("select")).toBeNull();
+  });
+
   it("conclusão vence leitura de status em voo — sem estado obsoleto", async () => {
     // F1: `loadStatus` sai antes do `finish`, mas resolve DEPOIS. Sem a época de
     // mutação, o snapshot velho (connected=false) reescreve por cima do sucesso.
