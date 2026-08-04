@@ -225,8 +225,15 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
   const applyCalendars = useCallback(async (epoch: number) => {
     if (!token) return;
     try {
-      const items = await fetchCalendarList(token);
-      if (epoch === mutationEpochRef.current) setCalendars(items);
+      const list = await fetchCalendarList(token);
+      if (epoch !== mutationEpochRef.current) return;
+      setCalendars(list.calendars);
+      // Listar pode ter renovado o access token e, numa conexão legada, isso
+      // avança a própria revisão. Adote a que veio COM a lista: a de
+      // `/calendar/status` já nasceu velha nesse caso, e a seleção seguinte
+      // tomaria 409 sem troca de identidade. Backend antigo devolve `null` —
+      // aí a revisão anterior continua valendo em vez de ser apagada.
+      if (list.connectionVersion) setCalendarConnectionVersion(list.connectionVersion);
     } catch {
       /* a lista é best-effort: a conexão segue válida sem ela */
     }
@@ -527,6 +534,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
         setError("Reconecte a agenda do Google antes de selecionar outra agenda.");
         return;
       }
+      mutationEpochRef.current += 1;
       const epoch = mutationEpochRef.current;
       setBusy(true);
       setError(null);
@@ -549,10 +557,17 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
 
   const runImport = useCallback(async () => {
     if (!token) return;
+    mutationEpochRef.current += 1;
+    const epoch = mutationEpochRef.current;
     setImporting(true);
     setError(null);
     try {
       const result = await importEvents(token);
+      // Importar também renova o token e avança a revisão legada. Sem adotá-la,
+      // uma seleção de agenda feita depois da importação levaria 409.
+      if (result.connectionVersion && epoch === mutationEpochRef.current) {
+        setCalendarConnectionVersion(result.connectionVersion);
+      }
       onImported?.(result);
     } catch (e) {
       onErr(e);
@@ -769,7 +784,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
                 className="input"
                 value={calendarId ?? ""}
                 onChange={(e) => void pick(e.target.value)}
-                disabled={busy}
+                disabled={busy || importing}
                 style={{ display: "block", marginTop: "var(--s1)", width: "100%" }}
               >
                 <option value="" disabled>

@@ -20,6 +20,7 @@ import {
   GoogleAccountMismatchError,
   GoogleAccountReidentifiedError,
   fetchConnectUrl,
+  fetchImportPreview,
   finishConnection,
   selectCalendar,
 } from "./calendar-api";
@@ -202,6 +203,31 @@ describe("selectCalendar — conexão específica", () => {
       calendarId: "cal@x",
       connectionVersion,
     });
+  });
+});
+
+describe("fetchImportPreview — revisão da conexão", () => {
+  it("devolve a versão retornada depois da renovação e preserva a janela", async () => {
+    const connectionVersion = "2026-08-03T12:01:00+00:00";
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        calendarId: "cal@x",
+        events: [],
+        connectionVersion,
+      }),
+    );
+
+    const result = await fetchImportPreview(
+      "tok",
+      "2026-08-03T00:00:00Z",
+      "2026-08-04T00:00:00Z",
+    );
+
+    expect(result.connectionVersion).toBe(connectionVersion);
+    const [request] = fetchMock.mock.calls[0] ?? [];
+    expect(request).toContain(
+      "/calendar/import/preview?timeMin=2026-08-03T00%3A00%3A00Z&timeMax=2026-08-04T00%3A00%3A00Z",
+    );
   });
 });
 

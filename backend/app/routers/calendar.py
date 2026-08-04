@@ -214,6 +214,11 @@ class CalendarItem(BaseModel):
 
 class CalendarListOut(BaseModel):
     calendars: list[CalendarItem]
+    # Revisão da conexão DEPOIS da manutenção de token feita por esta chamada.
+    # Sem ela, uma conexão legada (revisão = `atualizado_em`) que renova o access
+    # token ao listar deixaria o cliente com a revisão anterior e a seleção
+    # seguinte levaria 409 sem que a identidade Google tivesse mudado.
+    connectionVersion: dt.datetime | None = None  # noqa: N815
 
 
 class SelectCalendarRequest(BaseModel):
@@ -236,6 +241,9 @@ class PreviewEventItem(BaseModel):
 class ImportPreviewOut(BaseModel):
     calendarId: str  # noqa: N815
     events: list[PreviewEventItem]
+    # Mesma razão de `CalendarListOut`: este endpoint também renova o token e
+    # comita, portanto também pode avançar a revisão da conexão.
+    connectionVersion: dt.datetime | None = None  # noqa: N815
 
 
 # EVT-6 PR6.2 — eventos importados do Google nascem pendentes de confirmação,
@@ -255,6 +263,8 @@ class ImportResultOut(BaseModel):
     created: int
     skipped: int
     events: list[ImportResultItem]
+    # Mesma razão de `CalendarListOut`: importar renova o token e comita.
+    connectionVersion: dt.datetime | None = None  # noqa: N815
 
 
 # ---------------------------------------------------------------------------
@@ -768,7 +778,10 @@ def list_calendars(
             status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
         ) from exc
     db.commit()
-    return CalendarListOut(calendars=[CalendarItem(**c) for c in cals])
+    return CalendarListOut(
+        calendars=[CalendarItem(**c) for c in cals],
+        connectionVersion=_selection_version(sync),
+    )
 
 
 @router.get("/import/preview", response_model=ImportPreviewOut)
@@ -808,6 +821,7 @@ def import_preview(
     return ImportPreviewOut(
         calendarId=calendar_id,
         events=[PreviewEventItem(**e) for e in events],
+        connectionVersion=_selection_version(sync),
     )
 
 
@@ -896,6 +910,7 @@ def import_events(
     return ImportResultOut(
         created=len(created),
         skipped=skipped,
+        connectionVersion=_selection_version(sync),
         events=[
             ImportResultItem(
                 id=str(e.id),
