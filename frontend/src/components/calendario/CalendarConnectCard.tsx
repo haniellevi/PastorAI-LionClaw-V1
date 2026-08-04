@@ -222,7 +222,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
     [expireSession],
   );
 
-  const applyCalendars = useCallback(async (epoch: number) => {
+  const applyCalendars = useCallback(async (epoch: number, adoptVersion = true) => {
     if (!token) return;
     try {
       const list = await fetchCalendarList(token);
@@ -233,7 +233,11 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
       // `/calendar/status` já nasceu velha nesse caso, e a seleção seguinte
       // tomaria 409 sem troca de identidade. Backend antigo devolve `null` —
       // aí a revisão anterior continua valendo em vez de ser apagada.
-      if (list.connectionVersion) setCalendarConnectionVersion(list.connectionVersion);
+      // O reload pós-importação NÃO adota: a revisão devolvida pela
+      // importação é mais fresca que qualquer lista gerada antes dela.
+      if (adoptVersion && list.connectionVersion) {
+        setCalendarConnectionVersion(list.connectionVersion);
+      }
     } catch {
       /* a lista é best-effort: a conexão segue válida sem ela */
     }
@@ -572,9 +576,15 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
     } catch (e) {
       onErr(e);
     } finally {
+      // A época avançou ao começar, então uma lista em voo vinda do
+      // `loadStatus` já nasceu descartada. Sem este reload, o seletor ficava
+      // vazio/obsoleto até o próximo status ou reload da página. Best-effort
+      // e guardado pela época: se outra mutação veio depois, ele se descarta.
+      // Sem adotar a revisão da lista: a da importação é a mais fresca.
+      await applyCalendars(epoch, false);
       setImporting(false);
     }
-  }, [token, onErr, onImported]);
+  }, [token, applyCalendars, onErr, onImported]);
 
   const disconnect = useCallback(async () => {
     if (!token) return;

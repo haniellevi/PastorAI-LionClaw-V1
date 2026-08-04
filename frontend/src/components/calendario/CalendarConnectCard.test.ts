@@ -466,6 +466,65 @@ describe("seleção de agenda", () => {
       });
     });
   });
+
+  it("importação recarrega a lista invalidada em voo e descarta a resposta atrasada", async () => {
+    setHash("#integracoes");
+    fetchCalendarStatus.mockResolvedValue({
+      connected: true,
+      calendarId: null,
+      googleAccountEmail: EMAIL,
+      connectionVersion: CONNECTION_VERSION,
+    });
+    // A lista do loadStatus fica em voo: o card continua visível porque o
+    // status já marcou `connected`, e a importação avança a época antes de a
+    // lista resolver — a resposta atrasada nasce descartada. Sem o reload no
+    // finally da importação, o seletor ficava vazio/obsoleto até o próximo
+    // status ou reload da página.
+    let resolveStaleList!: (value: {
+      calendars: Array<{ id: string; summary: string; primary: boolean }>;
+      connectionVersion: string | null;
+    }) => void;
+    fetchCalendarList
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveStaleList = resolve;
+          }),
+      )
+      .mockResolvedValue({
+        calendars: [
+          { id: "calendar@igreja", summary: "Agenda da igreja", primary: true },
+        ],
+        connectionVersion: REFRESHED_CONNECTION_VERSION,
+      });
+    importEvents.mockResolvedValue({
+      created: 1,
+      skipped: 0,
+      connectionVersion: REFRESHED_CONNECTION_VERSION,
+    });
+
+    await render();
+    expect(fetchCalendarList).toHaveBeenCalledTimes(1); // lista em voo
+    expect(container.querySelector("select")).toBeNull(); // ainda vazia
+
+    await click(button("Importar eventos do Google")!);
+
+    // O reload no finally da importação repõe o seletor na hora.
+    expect(fetchCalendarList).toHaveBeenCalledTimes(2);
+    expect(text()).toContain("Agenda da igreja");
+
+    // A resposta atrasada da época anterior continua descartada.
+    await act(async () => {
+      resolveStaleList({
+        calendars: [
+          { id: "agenda-velha@x", summary: "Agenda velha", primary: true },
+        ],
+        connectionVersion: CONNECTION_VERSION,
+      });
+    });
+    expect(text()).toContain("Agenda da igreja");
+    expect(text()).not.toContain("Agenda velha");
+  });
 });
 
 describe("identidade conectada", () => {
