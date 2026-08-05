@@ -52,6 +52,7 @@ class AsyncBroadcastSession:
         self.connection = connection
         self.added: list[object] = []
         self.commits = 0
+        self._broadcast_rows: dict[uuid.UUID, tuple[object, object, object]] = {}
 
     def execute(self, statement, params=None):
         descriptions = list(getattr(statement, "column_descriptions", []) or [])
@@ -103,10 +104,22 @@ class AsyncBroadcastSession:
         for value in self.added:
             if getattr(value, "id", None) is None:
                 value.id = uuid.uuid4()
+            if isinstance(value, Broadcast):
+                self._broadcast_rows[value.id] = (
+                    value.proxima_execucao,
+                    value.claim_ate,
+                    value.claim_por,
+                )
 
     def refresh(self, value) -> None:
         if getattr(value, "id", None) is None:
             value.id = uuid.uuid4()
+        if isinstance(value, Broadcast) and value.id in self._broadcast_rows:
+            (
+                value.proxima_execucao,
+                value.claim_ate,
+                value.claim_por,
+            ) = self._broadcast_rows[value.id]
 
     def commit(self) -> None:
         self.commits += 1

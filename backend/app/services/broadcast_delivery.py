@@ -367,6 +367,9 @@ def materialize_immediate_broadcast(
     broadcast.proxima_execucao = None
     broadcast.claim_ate = None
     broadcast.claim_por = None
+    # The router refreshes ``broadcast`` before committing. Persist the reset
+    # first so refresh cannot restore the original due slot from the database.
+    session.flush()
     return execution.id
 
 
