@@ -120,7 +120,8 @@ class BroadcastWorker:
         self._running = False
         self._inside_run = False
         self._last_heartbeat_monotonic = 0.0
-        self._heartbeat_ready = False
+        self._heartbeat_available = False
+        self._advertise_ready = False
 
     @property
     def enabled(self) -> bool:
@@ -133,14 +134,16 @@ class BroadcastWorker:
 
     def _should_continue(self) -> bool:
         if self._inside_run:
+            if not self._running:
+                return False
             now = time.monotonic()
             if now - self._last_heartbeat_monotonic >= min(
                 10, self._tick_seconds
             ):
-                self._publish_heartbeat()
+                self._publish_heartbeat(ready=self._advertise_ready)
         if not self._inside_run:
             return True
-        return self._running and (not self._enabled or self._heartbeat_ready)
+        return self._running and (not self._enabled or self._heartbeat_available)
 
     def tick(self, now: dt.datetime | None = None) -> BroadcastCycleStats:
         """Run one persistent delivery cycle, or a zero-work idle tick."""
@@ -168,21 +171,21 @@ class BroadcastWorker:
             self._sleeper(step)
             remaining -= step
 
-    def _publish_heartbeat(self, *, ready: bool | None = None) -> bool:
-        advertised_ready = self._enabled if ready is None else ready
+    def _publish_heartbeat(self, *, ready: bool) -> bool:
         if self._heartbeat_publisher is None:
-            self._heartbeat_ready = not self._enabled
-            return self._heartbeat_ready
+            self._heartbeat_available = not self._enabled
+            return self._heartbeat_available
         ttl = max(30, self._tick_seconds * 3)
         try:
-            self._heartbeat_publisher(advertised_ready, ttl)
-            self._heartbeat_ready = not self._enabled or advertised_ready
+            self._heartbeat_publisher(ready, ttl)
+            self._heartbeat_available = True
         except Exception:  # noqa: BLE001 - heartbeat failure must fail closed in API
-            self._heartbeat_ready = False
+            self._heartbeat_available = False
+            self._advertise_ready = False
             logger.exception("Broadcast worker heartbeat publish failed")
         finally:
             self._last_heartbeat_monotonic = time.monotonic()
-        return self._heartbeat_ready
+        return self._heartbeat_available
 
     def run(self) -> None:
         """Stay alive until SIGTERM/SIGINT, processing only when boot-enabled."""
@@ -202,10 +205,14 @@ class BroadcastWorker:
 
         try:
             while self._running:
-                heartbeat_ready = self._publish_heartbeat()
-                if self._enabled and heartbeat_ready:
+                heartbeat_available = self._publish_heartbeat(
+                    ready=self._advertise_ready
+                )
+                if self._enabled and heartbeat_available:
                     try:
                         counters = self.tick()
+                        self._advertise_ready = True
+                        self._publish_heartbeat(ready=True)
                         logger.info(
                             "Broadcast tick done reaped=%d materialized=%d actions=%d",
                             counters.reaped,
@@ -214,6 +221,7 @@ class BroadcastWorker:
                         )
                     except Exception:  # noqa: BLE001 - one tick cannot kill worker
                         logger.exception("Broadcast worker tick failed")
+                        self._advertise_ready = False
                         self._publish_heartbeat(ready=False)
                 elif self._enabled:
                     logger.error(
@@ -226,6 +234,8 @@ class BroadcastWorker:
                         logger.info("Broadcast worker idle heartbeat")
                 self._sleep_interruptibly()
         finally:
+            self._advertise_ready = False
+            self._publish_heartbeat(ready=False)
             self._inside_run = False
             logger.info("Broadcast worker stopped")
 

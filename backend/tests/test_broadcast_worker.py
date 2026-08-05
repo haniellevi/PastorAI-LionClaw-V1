@@ -73,7 +73,7 @@ def test_disabled_worker_stays_alive_and_exits_only_on_stop(caplog) -> None:
     assert "Broadcast worker stopped" in caplog.text
 
 
-def test_worker_publishes_ready_heartbeat_before_enabled_tick() -> None:
+def test_worker_publishes_ready_only_after_successful_tick() -> None:
     heartbeats = []
     holder = {}
 
@@ -96,7 +96,7 @@ def test_worker_publishes_ready_heartbeat_before_enabled_tick() -> None:
 
     worker.run()
 
-    assert heartbeats == [(True, 30)]
+    assert heartbeats == [(False, 30), (True, 30), (False, 30)]
 
 
 def test_enabled_worker_pauses_dispatch_when_heartbeat_fails(caplog) -> None:
@@ -131,24 +131,30 @@ def test_enabled_worker_pauses_dispatch_when_heartbeat_fails(caplog) -> None:
     assert "dispatch paused: heartbeat unavailable" in caplog.text
 
 
-def test_failed_tick_marks_worker_heartbeat_unready(caplog) -> None:
+def test_failed_tick_stays_unready_until_a_later_tick_succeeds(caplog) -> None:
     caplog.set_level(logging.ERROR)
     heartbeats = []
     holder = {}
+    cycles = {"count": 0}
 
     def publish(ready, ttl):
         heartbeats.append((ready, ttl))
 
     def sleeper(_seconds):
-        holder["worker"].stop()
+        if cycles["count"] == 2:
+            holder["worker"].stop()
+
+    def runner(*args, **kwargs):
+        cycles["count"] += 1
+        if cycles["count"] == 1:
+            raise RuntimeError("database unavailable")
+        return BroadcastCycleStats()
 
     worker = BroadcastWorker(
         settings=_settings(True),
         session_factory=lambda: object(),
         evolution=object(),
-        cycle_runner=lambda *args, **kwargs: (_ for _ in ()).throw(
-            RuntimeError("database unavailable")
-        ),
+        cycle_runner=runner,
         sleeper=sleeper,
         tick_seconds=1,
         heartbeat_publisher=publish,
@@ -157,7 +163,13 @@ def test_failed_tick_marks_worker_heartbeat_unready(caplog) -> None:
 
     worker.run()
 
-    assert heartbeats == [(True, 30), (False, 30)]
+    assert heartbeats == [
+        (False, 30),
+        (False, 30),
+        (False, 30),
+        (True, 30),
+        (False, 30),
+    ]
     assert "Broadcast worker tick failed" in caplog.text
 
 
