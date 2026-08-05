@@ -988,8 +988,12 @@ def dispatch_pending_deliveries(
                 worker_id=worker_id,
                 max_attempts=max_attempts,
             )
-            if send_interval_ms > 0 and can_continue():
-                sleeper(send_interval_ms / 1000)
+            if send_interval_ms > 0:
+                remaining_seconds = send_interval_ms / 1000
+                while remaining_seconds > 0 and can_continue():
+                    step_seconds = min(1.0, remaining_seconds)
+                    sleeper(step_seconds)
+                    remaining_seconds -= step_seconds
 
         if not progressed_this_round:
             break

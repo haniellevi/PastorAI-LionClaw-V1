@@ -305,6 +305,40 @@ def test_ambiguous_result_is_never_retried(monkeypatch) -> None:
     assert state["status"] == "desconhecido"
 
 
+def test_long_send_interval_keeps_liveness_callback_active(monkeypatch) -> None:
+    state = _install_in_memory_dispatch(monkeypatch)
+    evolution = _SequenceEvolution([BroadcastSendResult("aceito")])
+    clock = {"seconds": 0.0, "last_heartbeat": 0.0}
+    heartbeat_times: list[float] = []
+    sleep_steps: list[float] = []
+
+    def sleeper(seconds: float) -> None:
+        sleep_steps.append(seconds)
+        clock["seconds"] += seconds
+
+    def should_continue() -> bool:
+        if clock["seconds"] - clock["last_heartbeat"] >= 10:
+            clock["last_heartbeat"] = clock["seconds"]
+            heartbeat_times.append(clock["seconds"])
+        return True
+
+    actions = delivery.dispatch_pending_deliveries(
+        lambda: None,
+        evolution,
+        now=dt.datetime(2026, 8, 5, tzinfo=UTC),
+        worker_id="worker-1",
+        limit=1,
+        send_interval_ms=60_000,
+        should_continue=should_continue,
+        sleeper=sleeper,
+    )
+
+    assert actions == 1
+    assert sum(sleep_steps) == 60
+    assert max(sleep_steps) <= 1
+    assert heartbeat_times == [10, 20, 30, 40, 50]
+
+
 def test_optout_between_safe_failure_and_retry_suppresses(monkeypatch) -> None:
     igreja_id = uuid.uuid4()
     state = {"status": "pendente", "attempts": 0}
