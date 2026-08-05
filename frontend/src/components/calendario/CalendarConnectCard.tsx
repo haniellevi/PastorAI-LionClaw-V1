@@ -222,11 +222,32 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
     [expireSession],
   );
 
-  const applyCalendars = useCallback(async (epoch: number) => {
+  const applyCalendars = useCallback(async (epoch: number, adoptVersion = true) => {
     if (!token) return;
     try {
-      const items = await fetchCalendarList(token);
-      if (epoch === mutationEpochRef.current) setCalendars(items);
+      const list = await fetchCalendarList(token);
+      if (epoch !== mutationEpochRef.current) return;
+      setCalendars(list.calendars);
+      if (list.connection) {
+        // Lista + identidade vêm da mesma linha bloqueada no backend. Aplicar o
+        // snapshot inteiro impede combinar conta A de um /status antigo com a
+        // revisão/lista da conta B após reconexão concorrente.
+        setConnected(list.connection.connected);
+        setCalendarId(list.connection.calendarId);
+        setGoogleAccountEmail(list.connection.googleAccountEmail);
+        setCalendarConnectionVersion(list.connection.connectionVersion);
+        return;
+      }
+      // Listar pode ter renovado o access token e, numa conexão legada, isso
+      // avança a própria revisão. Adote a que veio COM a lista: a de
+      // `/calendar/status` já nasceu velha nesse caso, e a seleção seguinte
+      // tomaria 409 sem troca de identidade. Backend antigo devolve `null` —
+      // aí a revisão anterior continua valendo em vez de ser apagada.
+      // O reload pós-importação NÃO adota: a revisão devolvida pela
+      // importação é mais fresca que qualquer lista gerada antes dela.
+      if (adoptVersion && list.connectionVersion) {
+        setCalendarConnectionVersion(list.connectionVersion);
+      }
     } catch {
       /* a lista é best-effort: a conexão segue válida sem ela */
     }
@@ -527,6 +548,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
         setError("Reconecte a agenda do Google antes de selecionar outra agenda.");
         return;
       }
+      mutationEpochRef.current += 1;
       const epoch = mutationEpochRef.current;
       setBusy(true);
       setError(null);
@@ -549,17 +571,34 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
 
   const runImport = useCallback(async () => {
     if (!token) return;
+    mutationEpochRef.current += 1;
+    const epoch = mutationEpochRef.current;
+    let importSucceeded = false;
     setImporting(true);
     setError(null);
     try {
       const result = await importEvents(token);
+      importSucceeded = true;
+      // Importar também renova o token e avança a revisão legada. Sem adotá-la,
+      // uma seleção de agenda feita depois da importação levaria 409.
+      if (result.connectionVersion && epoch === mutationEpochRef.current) {
+        setCalendarConnectionVersion(result.connectionVersion);
+      }
       onImported?.(result);
     } catch (e) {
       onErr(e);
     } finally {
+      // A época avançou ao começar, então uma lista em voo vinda do
+      // `loadStatus` já nasceu descartada. Sem este reload, o seletor ficava
+      // vazio/obsoleto até o próximo status ou reload da página. Best-effort
+      // e guardado pela época: se outra mutação veio depois, ele se descarta.
+      // Em sucesso, a revisão da importação é a mais fresca. Em falha, porém,
+      // a própria listagem pode renovar o token legado e avançar a revisão;
+      // nesse caso ela precisa ser adotada para a próxima seleção não dar 409.
+      await applyCalendars(epoch, !importSucceeded);
       setImporting(false);
     }
-  }, [token, onErr, onImported]);
+  }, [token, applyCalendars, onErr, onImported]);
 
   const disconnect = useCallback(async () => {
     if (!token) return;
@@ -769,7 +808,7 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
                 className="input"
                 value={calendarId ?? ""}
                 onChange={(e) => void pick(e.target.value)}
-                disabled={busy}
+                disabled={busy || importing}
                 style={{ display: "block", marginTop: "var(--s1)", width: "100%" }}
               >
                 <option value="" disabled>

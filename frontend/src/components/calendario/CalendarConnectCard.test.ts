@@ -45,6 +45,7 @@ const finishConnection = vi.fn();
 const fetchCalendarStatus = vi.fn();
 const fetchCalendarList = vi.fn();
 const selectCalendar = vi.fn();
+const importEvents = vi.fn();
 
 vi.mock("@/lib/calendar-api", async (importOriginal) => {
   // Mantém as classes de erro reais: o card faz `instanceof`.
@@ -57,7 +58,7 @@ vi.mock("@/lib/calendar-api", async (importOriginal) => {
     fetchCalendarList: (...args: unknown[]) => fetchCalendarList(...args),
     disconnectCalendar: vi.fn(),
     selectCalendar: (...args: unknown[]) => selectCalendar(...args),
-    importEvents: vi.fn(),
+    importEvents,
   };
 });
 
@@ -170,6 +171,7 @@ async function foreground() {
 }
 
 const CONNECTION_VERSION = "2026-08-03T12:00:00+00:00";
+const REFRESHED_CONNECTION_VERSION = "2026-08-03T12:01:00+00:00";
 const DESCONECTADO = {
   connected: false,
   calendarId: null,
@@ -208,7 +210,7 @@ beforeEach(() => {
   window.localStorage.clear();
   window.sessionStorage.clear();
   fetchCalendarStatus.mockResolvedValue(DESCONECTADO);
-  fetchCalendarList.mockResolvedValue([]);
+  fetchCalendarList.mockResolvedValue({ calendars: [], connectionVersion: null });
   hrefWrites = [];
   // jsdom não navega; capturamos a atribuição de href.
   Object.defineProperty(window, "location", {
@@ -323,14 +325,15 @@ describe("seleção de agenda", () => {
       googleAccountEmail: EMAIL,
       connectionVersion: CONNECTION_VERSION,
     });
-    fetchCalendarList.mockResolvedValue([
-      { id: "calendar@igreja", summary: "Agenda da igreja", primary: true },
-    ]);
+    fetchCalendarList.mockResolvedValue({
+      calendars: [{ id: "calendar@igreja", summary: "Agenda da igreja", primary: true }],
+      connectionVersion: REFRESHED_CONNECTION_VERSION,
+    });
     selectCalendar.mockResolvedValue({
       connected: true,
       calendarId: "calendar@igreja",
       googleAccountEmail: EMAIL,
-      connectionVersion: CONNECTION_VERSION,
+      connectionVersion: REFRESHED_CONNECTION_VERSION,
     });
 
     await render();
@@ -339,7 +342,265 @@ describe("seleção de agenda", () => {
     expect(selectCalendar).toHaveBeenCalledWith(
       "tok",
       "calendar@igreja",
-      CONNECTION_VERSION,
+      REFRESHED_CONNECTION_VERSION,
+    );
+  });
+
+  it("usa a revisão retornada pela importação na seleção seguinte", async () => {
+    setHash("#integracoes");
+    fetchCalendarStatus.mockResolvedValue({
+      connected: true,
+      calendarId: null,
+      googleAccountEmail: EMAIL,
+      connectionVersion: CONNECTION_VERSION,
+    });
+    fetchCalendarList.mockResolvedValue({
+      calendars: [{ id: "calendar@igreja", summary: "Agenda da igreja", primary: true }],
+      connectionVersion: CONNECTION_VERSION,
+    });
+    importEvents.mockResolvedValue({
+      created: 1,
+      skipped: 0,
+      connectionVersion: REFRESHED_CONNECTION_VERSION,
+    });
+    selectCalendar.mockResolvedValue({
+      connected: true,
+      calendarId: "calendar@igreja",
+      googleAccountEmail: EMAIL,
+      connectionVersion: REFRESHED_CONNECTION_VERSION,
+    });
+
+    await render();
+    await click(button("Importar eventos do Google")!);
+    await chooseCalendar("calendar@igreja");
+
+    expect(importEvents).toHaveBeenCalledWith("tok");
+    expect(selectCalendar).toHaveBeenCalledWith(
+      "tok",
+      "calendar@igreja",
+      REFRESHED_CONNECTION_VERSION,
+    );
+  });
+
+  it("desabilita a seleção enquanto a importação está em andamento", async () => {
+    setHash("#integracoes");
+    fetchCalendarStatus.mockResolvedValue({
+      connected: true,
+      calendarId: null,
+      googleAccountEmail: EMAIL,
+      connectionVersion: CONNECTION_VERSION,
+    });
+    fetchCalendarList.mockResolvedValue({
+      calendars: [
+        { id: "calendar@igreja", summary: "Agenda da igreja", primary: true },
+        { id: "calendar@jovens", summary: "Agenda de jovens", primary: false },
+      ],
+      connectionVersion: CONNECTION_VERSION,
+    });
+
+    let resolveImport!: (result: { created: number; skipped: number; connectionVersion: string }) => void;
+    const importResult = new Promise<{ created: number; skipped: number; connectionVersion: string }>(
+      (resolve) => {
+        resolveImport = resolve;
+      },
+    );
+    importEvents.mockReturnValue(importResult);
+    selectCalendar.mockResolvedValue({
+      connected: true,
+      calendarId: "calendar@igreja",
+      googleAccountEmail: EMAIL,
+      connectionVersion: CONNECTION_VERSION,
+    });
+
+    await render();
+    await click(button("Importar eventos do Google")!);
+    expect(container.querySelector("select")).toHaveProperty("disabled", true);
+    expect(selectCalendar).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveImport({
+        created: 1,
+        skipped: 0,
+        connectionVersion: REFRESHED_CONNECTION_VERSION,
+      });
+      await importResult;
+    });
+  });
+
+  it("desabilita a importação enquanto a seleção está em andamento", async () => {
+    setHash("#integracoes");
+    fetchCalendarStatus.mockResolvedValue({
+      connected: true,
+      calendarId: null,
+      googleAccountEmail: EMAIL,
+      connectionVersion: CONNECTION_VERSION,
+    });
+    fetchCalendarList.mockResolvedValue({
+      calendars: [{ id: "calendar@igreja", summary: "Agenda da igreja", primary: true }],
+      connectionVersion: CONNECTION_VERSION,
+    });
+    let resolveSelection!: (result: {
+      connected: boolean;
+      calendarId: string;
+      googleAccountEmail: string;
+      connectionVersion: string;
+    }) => void;
+    selectCalendar.mockReturnValue(
+      new Promise((resolve) => {
+        resolveSelection = resolve;
+      }),
+    );
+
+    await render();
+    await chooseCalendar("calendar@igreja");
+    expect(button("Importar eventos do Google")).toHaveProperty("disabled", true);
+    await click(button("Importar eventos do Google")!);
+    expect(importEvents).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveSelection({
+        connected: true,
+        calendarId: "calendar@igreja",
+        googleAccountEmail: EMAIL,
+        connectionVersion: REFRESHED_CONNECTION_VERSION,
+      });
+    });
+  });
+
+  it("importação recarrega a lista invalidada em voo e descarta a resposta atrasada", async () => {
+    setHash("#integracoes");
+    fetchCalendarStatus.mockResolvedValue({
+      connected: true,
+      calendarId: null,
+      googleAccountEmail: EMAIL,
+      connectionVersion: CONNECTION_VERSION,
+    });
+    // A lista do loadStatus fica em voo: o card continua visível porque o
+    // status já marcou `connected`, e a importação avança a época antes de a
+    // lista resolver — a resposta atrasada nasce descartada. Sem o reload no
+    // finally da importação, o seletor ficava vazio/obsoleto até o próximo
+    // status ou reload da página.
+    let resolveStaleList!: (value: {
+      calendars: Array<{ id: string; summary: string; primary: boolean }>;
+      connectionVersion: string | null;
+    }) => void;
+    fetchCalendarList
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveStaleList = resolve;
+          }),
+      )
+      .mockResolvedValue({
+        calendars: [
+          { id: "calendar@igreja", summary: "Agenda da igreja", primary: true },
+        ],
+        connectionVersion: REFRESHED_CONNECTION_VERSION,
+      });
+    importEvents.mockResolvedValue({
+      created: 1,
+      skipped: 0,
+      connectionVersion: REFRESHED_CONNECTION_VERSION,
+    });
+
+    await render();
+    expect(fetchCalendarList).toHaveBeenCalledTimes(1); // lista em voo
+    expect(container.querySelector("select")).toBeNull(); // ainda vazia
+
+    await click(button("Importar eventos do Google")!);
+
+    // O reload no finally da importação repõe o seletor na hora.
+    expect(fetchCalendarList).toHaveBeenCalledTimes(2);
+    expect(text()).toContain("Agenda da igreja");
+
+    // A resposta atrasada da época anterior continua descartada.
+    await act(async () => {
+      resolveStaleList({
+        calendars: [
+          { id: "agenda-velha@x", summary: "Agenda velha", primary: true },
+        ],
+        connectionVersion: CONNECTION_VERSION,
+      });
+    });
+    expect(text()).toContain("Agenda da igreja");
+    expect(text()).not.toContain("Agenda velha");
+  });
+
+  it("adota a revisão renovada pela lista depois de uma importação com falha", async () => {
+    setHash("#integracoes");
+    fetchCalendarStatus.mockResolvedValue({
+      connected: true,
+      calendarId: null,
+      googleAccountEmail: EMAIL,
+      connectionVersion: CONNECTION_VERSION,
+    });
+    fetchCalendarList
+      .mockResolvedValueOnce({
+        calendars: [
+          { id: "calendar@igreja", summary: "Agenda da igreja", primary: true },
+        ],
+        connectionVersion: CONNECTION_VERSION,
+      })
+      .mockResolvedValueOnce({
+        calendars: [
+          { id: "calendar@igreja", summary: "Agenda da igreja", primary: true },
+        ],
+        connectionVersion: REFRESHED_CONNECTION_VERSION,
+      });
+    importEvents.mockRejectedValue(new Error("falha de importação"));
+    selectCalendar.mockResolvedValue({
+      connected: true,
+      calendarId: "calendar@igreja",
+      googleAccountEmail: EMAIL,
+      connectionVersion: REFRESHED_CONNECTION_VERSION,
+    });
+
+    await render();
+    await click(button("Importar eventos do Google")!);
+    await chooseCalendar("calendar@igreja");
+
+    expect(fetchCalendarList).toHaveBeenCalledTimes(2);
+    expect(selectCalendar).toHaveBeenCalledWith(
+      "tok",
+      "calendar@igreja",
+      REFRESHED_CONNECTION_VERSION,
+    );
+  });
+
+  it("aplica identidade e revisão da mesma lista após reconexão concorrente", async () => {
+    setHash("#integracoes");
+    fetchCalendarStatus.mockResolvedValue({
+      connected: true,
+      calendarId: "agenda-a",
+      googleAccountEmail: EMAIL,
+      connectionVersion: CONNECTION_VERSION,
+    });
+    fetchCalendarList.mockResolvedValue({
+      calendars: [{ id: "agenda-b", summary: "Agenda B", primary: true }],
+      connectionVersion: REFRESHED_CONNECTION_VERSION,
+      connection: {
+        connected: true,
+        calendarId: "agenda-b",
+        googleAccountEmail: OUTRO_EMAIL,
+        connectionVersion: REFRESHED_CONNECTION_VERSION,
+      },
+    });
+    selectCalendar.mockResolvedValue({
+      connected: true,
+      calendarId: "agenda-b",
+      googleAccountEmail: OUTRO_EMAIL,
+      connectionVersion: REFRESHED_CONNECTION_VERSION,
+    });
+
+    await render();
+    expect(text()).toContain(OUTRO_EMAIL);
+    expect(text()).not.toContain(EMAIL);
+    await chooseCalendar("agenda-b");
+
+    expect(selectCalendar).toHaveBeenCalledWith(
+      "tok",
+      "agenda-b",
+      REFRESHED_CONNECTION_VERSION,
     );
   });
 });
@@ -600,9 +861,12 @@ describe("marcador ready", () => {
       googleAccountEmail: EMAIL,
     });
     fetchCalendarList
-      .mockResolvedValueOnce([
-        { id: "agenda-antiga@x", summary: "Agenda da conta A", primary: true },
-      ])
+      .mockResolvedValueOnce({
+        calendars: [
+          { id: "agenda-antiga@x", summary: "Agenda da conta A", primary: true },
+        ],
+        connectionVersion: null,
+      })
       .mockRejectedValueOnce(new Error("Google indisponível"));
 
     await render();
@@ -635,7 +899,10 @@ describe("marcador ready", () => {
       calendarId: "agenda-antiga@x",
       googleAccountEmail: EMAIL,
     });
-    let resolveOldList!: (value: Array<{ id: string; summary: string; primary: boolean }>) => void;
+    let resolveOldList!: (value: {
+      calendars: Array<{ id: string; summary: string; primary: boolean }>;
+      connectionVersion: string | null;
+    }) => void;
     fetchCalendarList
       .mockImplementationOnce(
         () =>
@@ -643,9 +910,12 @@ describe("marcador ready", () => {
             resolveOldList = resolve;
           }),
       )
-      .mockResolvedValueOnce([
-        { id: "agenda-nova@x", summary: "Agenda da conta B", primary: true },
-      ]);
+      .mockResolvedValueOnce({
+        calendars: [
+          { id: "agenda-nova@x", summary: "Agenda da conta B", primary: true },
+        ],
+        connectionVersion: null,
+      });
 
     await render();
     expect(fetchCalendarList).toHaveBeenCalledTimes(1); // lista de A em voo
@@ -666,9 +936,12 @@ describe("marcador ready", () => {
     expect(text()).not.toContain("Agenda da conta A");
 
     await act(async () => {
-      resolveOldList([
-        { id: "agenda-antiga@x", summary: "Agenda da conta A", primary: true },
-      ]);
+      resolveOldList({
+        calendars: [
+          { id: "agenda-antiga@x", summary: "Agenda da conta A", primary: true },
+        ],
+        connectionVersion: null,
+      });
     });
 
     expect(text()).toContain("Agenda da conta B");
@@ -687,9 +960,10 @@ describe("marcador ready", () => {
         calendarId: "agenda-nova@x",
         googleAccountEmail: OUTRO_EMAIL,
       });
-    fetchCalendarList.mockResolvedValue([
-      { id: "agenda-nova@x", summary: "Agenda da conta B", primary: true },
-    ]);
+    fetchCalendarList.mockResolvedValue({
+      calendars: [{ id: "agenda-nova@x", summary: "Agenda da conta B", primary: true }],
+      connectionVersion: null,
+    });
 
     await render();
 

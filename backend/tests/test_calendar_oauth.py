@@ -1300,6 +1300,35 @@ def test_list_calendars_holds_identity_lock_through_google_call(
     assert session.commits == 1
 
 
+def test_list_calendars_returns_revision_after_legacy_refresh(app, crypto_enabled) -> None:
+    old_revision = dt.datetime(2026, 7, 31, 12, tzinfo=dt.timezone.utc)
+    sync = _connected_sync(crypto_enabled)
+    sync.google_account_email = None
+    sync.google_account_sub = None
+    sync.connected_em = None
+    sync.atualizado_em = old_revision
+    session = _FlowSession(app_user=make_app_user(), roles=["admin"], sync=sync)
+    c = _client(
+        app,
+        ["admin"],
+        session=session,
+        oauth=_FakeOAuth(tokens=_tokens(refresh=None)),
+    )
+
+    body = c.get("/calendar/list", headers=_AUTH).json()
+
+    assert body["connectionVersion"] == sync.atualizado_em.isoformat().replace(
+        "+00:00", "Z"
+    )
+    assert body["connectionVersion"] != old_revision.isoformat().replace("+00:00", "Z")
+    assert body["connection"] == {
+        "connected": True,
+        "calendarId": sync.google_calendar_id,
+        "googleAccountEmail": None,
+        "connectionVersion": body["connectionVersion"],
+    }
+
+
 def test_select_calendar_sets_id(app) -> None:
     sync = _sync(refresh_token_encrypted="enc", google_calendar_id=None)
     connected_at = dt.datetime.now(dt.timezone.utc)
@@ -1470,6 +1499,29 @@ def test_import_preview_returns_events_without_persisting(app, crypto_enabled) -
     assert session.added == []
 
 
+def test_import_preview_returns_revision_after_legacy_refresh(app, crypto_enabled) -> None:
+    old_revision = dt.datetime(2026, 7, 31, 12, tzinfo=dt.timezone.utc)
+    sync = _connected_sync(crypto_enabled)
+    sync.google_account_email = None
+    sync.google_account_sub = None
+    sync.connected_em = None
+    sync.atualizado_em = old_revision
+    session = _FlowSession(app_user=make_app_user(), roles=["pastor"], sync=sync)
+    c = _client(
+        app,
+        ["pastor"],
+        session=session,
+        oauth=_FakeOAuth(tokens=_tokens(refresh=None), events=[_preview_ev("g1")]),
+    )
+
+    body = c.get("/calendar/import/preview", headers=_AUTH).json()
+
+    assert body["connectionVersion"] == sync.atualizado_em.isoformat().replace(
+        "+00:00", "Z"
+    )
+    assert body["connectionVersion"] != old_revision.isoformat().replace("+00:00", "Z")
+
+
 def test_import_creates_pending_google_events(app, crypto_enabled) -> None:
     sync = _connected_sync(crypto_enabled)
     oauth = _import_oauth([_preview_ev("g1"), _preview_ev("g2", hora=None)])
@@ -1485,6 +1537,29 @@ def test_import_creates_pending_google_events(app, crypto_enabled) -> None:
         assert ev.status == "a_confirmar"
         assert ev.origem == "google"
         assert ev.igreja_id == uuid.UUID(_IGREJA)
+
+
+def test_import_returns_revision_after_legacy_refresh(app, crypto_enabled) -> None:
+    old_revision = dt.datetime(2026, 7, 31, 12, tzinfo=dt.timezone.utc)
+    sync = _connected_sync(crypto_enabled)
+    sync.google_account_email = None
+    sync.google_account_sub = None
+    sync.connected_em = None
+    sync.atualizado_em = old_revision
+    session = _FlowSession(app_user=make_app_user(), roles=["pastor"], sync=sync)
+    c = _client(
+        app,
+        ["pastor"],
+        session=session,
+        oauth=_import_oauth([_preview_ev("g1")]),
+    )
+
+    body = c.post("/calendar/import", headers=_AUTH).json()
+
+    assert body["connectionVersion"] == sync.atualizado_em.isoformat().replace(
+        "+00:00", "Z"
+    )
+    assert body["connectionVersion"] != old_revision.isoformat().replace("+00:00", "Z")
 
 
 def test_import_skips_already_imported(app, crypto_enabled) -> None:

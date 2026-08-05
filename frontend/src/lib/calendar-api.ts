@@ -4,7 +4,9 @@
  * Contratos (app/routers/calendar.py) — todos admin-only, exceto o callback:
  *   GET    /calendar/status   -> { connected, calendarId, connectionVersion }
  *   GET    /calendar/connect  -> { authUrl }   (redireciona o navegador ao Google)
- *   GET    /calendar/list     -> { calendars: [{ id, summary, primary }] }
+ *   GET    /calendar/list     -> { calendars: [{ id, summary, primary }],
+ *                                 connectionVersion }
+ *   GET    /calendar/import/preview -> { calendarId, events, connectionVersion }
  *   PUT    /calendar          -> { connected, calendarId, connectionVersion }
  *                               (escolher a agenda sob uma conexão específica)
  *   DELETE /calendar          -> 204                          (desconectar)
@@ -234,14 +236,112 @@ export async function finishConnection(
   };
 }
 
-export async function fetchCalendarList(token: string): Promise<CalendarOption[]> {
+export interface CalendarList {
+  calendars: CalendarOption[];
+  /**
+   * Revisão da conexão APÓS a manutenção de token feita por esta chamada.
+   *
+   * Listar agendas pode renovar o access token, e numa conexão legada a revisão
+   * é o próprio `atualizado_em` da linha — que a renovação avança. Sem ler a
+   * revisão daqui, o painel guardaria a de `/calendar/status` e a seleção
+   * seguinte tomaria 409 sem que a identidade Google tivesse mudado.
+   *
+   * `null` quando o backend é anterior a este campo: o chamador então mantém a
+   * revisão que já tinha, em vez de apagá-la.
+   */
+  connectionVersion: string | null;
+  /** Snapshot atômico da conexão que originou esta lista (backend novo). */
+  connection: CalendarStatus | null;
+}
+
+export async function fetchCalendarList(token: string): Promise<CalendarList> {
   const res = await authedFetch(token, `/calendar/list`);
   if (!res.ok) {
     const detail = await readDetail(res);
     throw new ApiError(res.status, detail ?? "Não foi possível listar as agendas.");
   }
-  const d = (await res.json()) as { calendars?: CalendarOption[] };
-  return d.calendars ?? [];
+  const d = (await res.json()) as {
+    calendars?: CalendarOption[];
+    connectionVersion?: string | null;
+    connection?: {
+      connected?: boolean;
+      calendarId?: string | null;
+      googleAccountEmail?: string | null;
+      connectionVersion?: string | null;
+    } | null;
+  };
+  const connection = d.connection && typeof d.connection === "object"
+    ? {
+        connected: Boolean(d.connection.connected),
+        calendarId: d.connection.calendarId ?? null,
+        googleAccountEmail: d.connection.googleAccountEmail ?? null,
+        connectionVersion:
+          typeof d.connection.connectionVersion === "string" &&
+          d.connection.connectionVersion.length > 0
+            ? d.connection.connectionVersion
+            : null,
+      }
+    : null;
+  return {
+    calendars: d.calendars ?? [],
+    connectionVersion:
+      typeof d.connectionVersion === "string" && d.connectionVersion.length > 0
+        ? d.connectionVersion
+        : null,
+    connection,
+  };
+}
+
+export interface ImportPreviewEvent {
+  googleEventId: string;
+  titulo: string | null;
+  descricao: string | null;
+  data: string | null;
+  hora: string | null;
+  fim: string | null;
+  recorrente: boolean;
+}
+
+export interface ImportPreview {
+  calendarId: string;
+  events: ImportPreviewEvent[];
+  /** Revisão da conexão depois da eventual renovação do token. */
+  connectionVersion: string | null;
+}
+
+/**
+ * Pré-visualiza eventos do Google sem persistir eventos locais. A resposta
+ * também carrega a revisão observada depois da manutenção do token, para que
+ * qualquer consumidor que mantenha uma versão de conexão possa adotá-la antes
+ * da próxima mutação protegida.
+ */
+export async function fetchImportPreview(
+  token: string,
+  timeMin?: string,
+  timeMax?: string,
+): Promise<ImportPreview> {
+  const params = new URLSearchParams();
+  if (timeMin) params.set("timeMin", timeMin);
+  if (timeMax) params.set("timeMax", timeMax);
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  const res = await authedFetch(token, `/calendar/import/preview${suffix}`);
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível pré-visualizar os eventos.");
+  }
+  const d = (await res.json()) as {
+    calendarId?: string;
+    events?: ImportPreviewEvent[];
+    connectionVersion?: string | null;
+  };
+  return {
+    calendarId: d.calendarId ?? "primary",
+    events: d.events ?? [],
+    connectionVersion:
+      typeof d.connectionVersion === "string" && d.connectionVersion.length > 0
+        ? d.connectionVersion
+        : null,
+  };
 }
 
 export async function selectCalendar(
@@ -286,6 +386,8 @@ export async function disconnectCalendar(token: string): Promise<void> {
 export interface ImportResult {
   created: number;
   skipped: number;
+  /** Revisão da conexão após a importação, que também renova o token. */
+  connectionVersion: string | null;
 }
 
 /**
@@ -303,8 +405,19 @@ export async function importEvents(token: string): Promise<ImportResult> {
     const detail = await readDetail(res);
     throw new ApiError(res.status, detail ?? "Não foi possível importar os eventos.");
   }
-  const d = (await res.json()) as { created?: number; skipped?: number };
-  return { created: d.created ?? 0, skipped: d.skipped ?? 0 };
+  const d = (await res.json()) as {
+    created?: number;
+    skipped?: number;
+    connectionVersion?: string | null;
+  };
+  return {
+    created: d.created ?? 0,
+    skipped: d.skipped ?? 0,
+    connectionVersion:
+      typeof d.connectionVersion === "string" && d.connectionVersion.length > 0
+        ? d.connectionVersion
+        : null,
+  };
 }
 
 // EVT-7 PR2 — destinatários de alerta da Agenda -----------------------------
