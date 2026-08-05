@@ -1321,6 +1321,12 @@ def test_list_calendars_returns_revision_after_legacy_refresh(app, crypto_enable
         "+00:00", "Z"
     )
     assert body["connectionVersion"] != old_revision.isoformat().replace("+00:00", "Z")
+    assert body["connection"] == {
+        "connected": True,
+        "calendarId": sync.google_calendar_id,
+        "googleAccountEmail": None,
+        "connectionVersion": body["connectionVersion"],
+    }
 
 
 def test_select_calendar_sets_id(app) -> None:

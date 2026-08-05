@@ -250,6 +250,8 @@ export interface CalendarList {
    * revisão que já tinha, em vez de apagá-la.
    */
   connectionVersion: string | null;
+  /** Snapshot atômico da conexão que originou esta lista (backend novo). */
+  connection: CalendarStatus | null;
 }
 
 export async function fetchCalendarList(token: string): Promise<CalendarList> {
@@ -261,13 +263,32 @@ export async function fetchCalendarList(token: string): Promise<CalendarList> {
   const d = (await res.json()) as {
     calendars?: CalendarOption[];
     connectionVersion?: string | null;
+    connection?: {
+      connected?: boolean;
+      calendarId?: string | null;
+      googleAccountEmail?: string | null;
+      connectionVersion?: string | null;
+    } | null;
   };
+  const connection = d.connection && typeof d.connection === "object"
+    ? {
+        connected: Boolean(d.connection.connected),
+        calendarId: d.connection.calendarId ?? null,
+        googleAccountEmail: d.connection.googleAccountEmail ?? null,
+        connectionVersion:
+          typeof d.connection.connectionVersion === "string" &&
+          d.connection.connectionVersion.length > 0
+            ? d.connection.connectionVersion
+            : null,
+      }
+    : null;
   return {
     calendars: d.calendars ?? [],
     connectionVersion:
       typeof d.connectionVersion === "string" && d.connectionVersion.length > 0
         ? d.connectionVersion
         : null,
+    connection,
   };
 }
 

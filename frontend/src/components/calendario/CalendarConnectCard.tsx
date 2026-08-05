@@ -228,6 +228,16 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
       const list = await fetchCalendarList(token);
       if (epoch !== mutationEpochRef.current) return;
       setCalendars(list.calendars);
+      if (list.connection) {
+        // Lista + identidade vêm da mesma linha bloqueada no backend. Aplicar o
+        // snapshot inteiro impede combinar conta A de um /status antigo com a
+        // revisão/lista da conta B após reconexão concorrente.
+        setConnected(list.connection.connected);
+        setCalendarId(list.connection.calendarId);
+        setGoogleAccountEmail(list.connection.googleAccountEmail);
+        setCalendarConnectionVersion(list.connection.connectionVersion);
+        return;
+      }
       // Listar pode ter renovado o access token e, numa conexão legada, isso
       // avança a própria revisão. Adote a que veio COM a lista: a de
       // `/calendar/status` já nasceu velha nesse caso, e a seleção seguinte

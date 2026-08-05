@@ -566,6 +566,43 @@ describe("seleção de agenda", () => {
       REFRESHED_CONNECTION_VERSION,
     );
   });
+
+  it("aplica identidade e revisão da mesma lista após reconexão concorrente", async () => {
+    setHash("#integracoes");
+    fetchCalendarStatus.mockResolvedValue({
+      connected: true,
+      calendarId: "agenda-a",
+      googleAccountEmail: EMAIL,
+      connectionVersion: CONNECTION_VERSION,
+    });
+    fetchCalendarList.mockResolvedValue({
+      calendars: [{ id: "agenda-b", summary: "Agenda B", primary: true }],
+      connectionVersion: REFRESHED_CONNECTION_VERSION,
+      connection: {
+        connected: true,
+        calendarId: "agenda-b",
+        googleAccountEmail: OUTRO_EMAIL,
+        connectionVersion: REFRESHED_CONNECTION_VERSION,
+      },
+    });
+    selectCalendar.mockResolvedValue({
+      connected: true,
+      calendarId: "agenda-b",
+      googleAccountEmail: OUTRO_EMAIL,
+      connectionVersion: REFRESHED_CONNECTION_VERSION,
+    });
+
+    await render();
+    expect(text()).toContain(OUTRO_EMAIL);
+    expect(text()).not.toContain(EMAIL);
+    await chooseCalendar("agenda-b");
+
+    expect(selectCalendar).toHaveBeenCalledWith(
+      "tok",
+      "agenda-b",
+      REFRESHED_CONNECTION_VERSION,
+    );
+  });
 });
 
 describe("identidade conectada", () => {

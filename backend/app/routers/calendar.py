@@ -219,6 +219,10 @@ class CalendarListOut(BaseModel):
     # token ao listar deixaria o cliente com a revisão anterior e a seleção
     # seguinte levaria 409 sem que a identidade Google tivesse mudado.
     connectionVersion: dt.datetime | None = None  # noqa: N815
+    # Snapshot atômico da MESMA linha bloqueada que originou a lista. O cliente
+    # não pode combinar a identidade de um /status antigo com a revisão/lista
+    # de uma reconexão concorrente feita por outro admin.
+    connection: StatusOut | None = None
 
 
 class SelectCalendarRequest(BaseModel):
@@ -777,10 +781,20 @@ def list_calendars(
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
         ) from exc
+    # Monte o snapshot enquanto o lock ainda está ativo; depois do commit a
+    # instância ORM expira e uma leitura tardia poderia enxergar outra conexão.
+    connection_version = _selection_version(sync)
+    connection = StatusOut(
+        connected=True,
+        calendarId=sync.google_calendar_id,
+        googleAccountEmail=sync.google_account_email,
+        connectionVersion=connection_version,
+    )
     db.commit()
     return CalendarListOut(
         calendars=[CalendarItem(**c) for c in cals],
-        connectionVersion=_selection_version(sync),
+        connectionVersion=connection_version,
+        connection=connection,
     )
 
 
