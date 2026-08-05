@@ -103,4 +103,16 @@ describe("broadcastStatusLabel", () => {
 
     expect(broadcastStatusLabel(item)).toBe("Enviado · 7");
   });
+
+  it("mantém a recorrência agendada após uma execução concluída", () => {
+    const item = historyItem({
+      status: "agendado",
+      repeticao: "weekly",
+      proximaExecucao: "2026-08-12T12:00:00Z",
+      resultadoUltimaExecucao: "enviado",
+      entregasAceitas: 7,
+    });
+
+    expect(broadcastStatusLabel(item)).toBe("Agendado · Semanalmente");
+  });
 });

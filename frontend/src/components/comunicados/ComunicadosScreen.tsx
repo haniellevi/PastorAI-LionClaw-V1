@@ -58,6 +58,9 @@ const STEP_LABEL: Record<Step, string> = {
 
 function statusTone(broadcast: BroadcastItem): PillTone {
   if (broadcast.precisaRevisao) return "danger";
+  if (broadcast.status === "agendado" && broadcast.proximaExecucao) {
+    return "accent";
+  }
   const status = broadcast.resultadoUltimaExecucao ?? broadcast.status;
   if (status === "processando") return "accent";
   switch (status) {

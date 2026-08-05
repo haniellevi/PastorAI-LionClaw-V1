@@ -170,6 +170,9 @@ export function repeatLabel(repeticao: string | null | undefined): string {
 /** Human-readable status for both ledger-backed and legacy history rows. */
 export function broadcastStatusLabel(broadcast: BroadcastItem): string {
   if (broadcast.precisaRevisao) return "Revisão necessária";
+  if (broadcast.status === "agendado" && broadcast.proximaExecucao) {
+    return `Agendado · ${repeatLabel(broadcast.repeticao)}`;
+  }
   const status = broadcast.resultadoUltimaExecucao ?? broadcast.status;
   if (status === "processando") {
     return `Processando · ${broadcast.entregasPendentes} pendente(s)`;

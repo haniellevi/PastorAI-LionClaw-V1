@@ -99,6 +99,49 @@ def test_worker_publishes_ready_only_after_successful_tick() -> None:
     assert heartbeats == [(False, 30), (True, 30), (False, 30)]
 
 
+def test_next_tick_is_unready_until_it_succeeds(caplog) -> None:
+    caplog.set_level(logging.ERROR)
+    heartbeats = []
+    holder = {}
+    cycles = {"count": 0}
+
+    def publish(ready, ttl):
+        heartbeats.append((ready, ttl))
+
+    def runner(*args, **kwargs):
+        cycles["count"] += 1
+        if cycles["count"] == 2:
+            assert heartbeats[-1] == (False, 30)
+            raise RuntimeError("database unavailable")
+        return BroadcastCycleStats()
+
+    def sleeper(_seconds):
+        if cycles["count"] == 2:
+            holder["worker"].stop()
+
+    worker = BroadcastWorker(
+        settings=_settings(True),
+        session_factory=lambda: object(),
+        evolution=object(),
+        cycle_runner=runner,
+        sleeper=sleeper,
+        tick_seconds=1,
+        heartbeat_publisher=publish,
+    )
+    holder["worker"] = worker
+
+    worker.run()
+
+    assert heartbeats == [
+        (False, 30),
+        (True, 30),
+        (False, 30),
+        (False, 30),
+        (False, 30),
+    ]
+    assert "Broadcast worker tick failed" in caplog.text
+
+
 def test_enabled_worker_pauses_dispatch_when_heartbeat_fails(caplog) -> None:
     caplog.set_level(logging.ERROR)
     holder = {}

@@ -205,9 +205,10 @@ class BroadcastWorker:
 
         try:
             while self._running:
-                heartbeat_available = self._publish_heartbeat(
-                    ready=self._advertise_ready
-                )
+                # A heartbeat published before work is liveness only. The
+                # worker becomes ready again only after this cycle succeeds.
+                self._advertise_ready = False
+                heartbeat_available = self._publish_heartbeat(ready=False)
                 if self._enabled and heartbeat_available:
                     try:
                         counters = self.tick()
