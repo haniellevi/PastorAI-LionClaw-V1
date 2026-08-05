@@ -95,9 +95,16 @@ Já registradas em PROD em 2026-08-05:
 - `calendar_oauth_flows_pkce_20260731`;
 - `calendar_account_identity_binding_20260801`;
 - `broadcast_delivery_20260805`;
-- `calendar_fk_indexes_20260805`.
+- `calendar_fk_indexes_20260805`;
+- `security_definer_execute_hardening_20260805`.
 
 A migration de broadcasts não ativa broadcasts legados e não faz backfill.
+
+Após o hardening, o advisor de segurança mantém um único `WARN` intencional:
+`authenticated` pode executar `current_igreja_id()`, pois as policies RLS
+`tenant_isolation` dependem dessa função. `anon` não pode executá-la; as funções
+de trigger `fn_subscription_autoupgrade()` e `rls_auto_enable()` também não são
+executáveis por `anon` nem `authenticated`.
 
 ## 5. Deploy reproduzível do backend
 
