@@ -1,14 +1,14 @@
 # ============================================================================
 # PastorAI — stack de produção (VPS Hostinger · Docker Compose puro)
 # ----------------------------------------------------------------------------
-# Sobe 6 serviços por padrão e 1 serviço opt-in:
+# Sobe 7 serviços por padrão:
 #   redis              cache da Evolution (db 1) + fila do worker do app (db 0)
 #   evolution-postgres banco INTERNO da Evolution (NÃO é o banco do app)
 #   evolution-api      WhatsApp (Evolution API v2)
 #   backend            FastAPI (usa o Supabase via DATABASE_URL, externo)
 #   queue-worker       processa webhooks do WhatsApp → banco + agente
 #   cron-worker        motor de SLA + crons
-#   broadcast-worker   profile "broadcast"; agenda/fan-out persistente
+#   broadcast-worker   sempre ativo; fica ocioso enquanto as flags estão false
 #
 # O banco do APP é o Supabase (gerenciado, externo). O frontend vai na Vercel.
 #
@@ -180,13 +180,11 @@ services:
     command: ["python", "-m", "app.workers.cron_worker"]
 
   # --------------------------------------------------------------------------
-  # Worker de broadcasts — opt-in para impedir promessa silenciosa de agenda.
-  # Só ativar depois da migration e com BROADCAST_ASYNC_ENABLED=true tanto no
-  # backend quanto neste processo:
-  #   docker compose --profile broadcast up -d --build backend broadcast-worker
+  # Worker de broadcasts — obrigatório e monitorado por heartbeat no Redis.
+  # Com as flags false ele permanece ocioso; ao ativá-las, recrie backend e
+  # worker juntos para que capabilities só libere agenda com heartbeat fresco.
   # --------------------------------------------------------------------------
   broadcast-worker:
-    profiles: ["broadcast"]
     build:
       context: ../backend
     image: pastorai-backend:latest

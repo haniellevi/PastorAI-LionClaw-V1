@@ -33,7 +33,8 @@ CALENDAR_OAUTH_RETURN_ORIGINS=https://admin.igreja12.com.br
 - `ALLOW_REAL_SENDS=false` bloqueia WhatsApp, Asaas, Brevo, LLM e Google até
   os smokes de saúde/login terminarem.
 - `BROADCAST_ASYNC_ENABLED=false` mantém o worker persistente inativo e faz
-  novos agendamentos falharem antes de serem persistidos.
+  qualquer novo comunicado falhar antes de ser persistido; não existe fallback
+  síncrono capaz de contornar o ledger/heartbeat.
 - A ativação de cada flag exige recriar backend e worker; elas são lidas no boot.
 
 ## 3. Variáveis secretas e integrações
@@ -135,7 +136,9 @@ confirmar que `IP:8000` e `IP:8080` recusam conexão externa.
 
 ## 6. Worker persistente de broadcasts
 
-O serviço está no profile `broadcast` e não sobe no Compose padrão.
+O serviço sobe no Compose padrão e fica ocioso enquanto as duas flags estão
+desligadas. Ele publica heartbeat no Redis; a API só aceita `202` para envio
+assíncrono/agendamento quando esse heartbeat está fresco.
 
 Pré-condições:
 
@@ -151,14 +154,16 @@ Ativação:
 ```bash
 cd /opt/pastorai-lionclaw/deploy
 docker compose config --quiet
-docker compose --profile broadcast up -d --build backend broadcast-worker
-docker compose --profile broadcast ps
+docker compose up -d --build backend broadcast-worker
+docker compose ps backend broadcast-worker
 ```
 
 O ledger considera `aceito` apenas HTTP 2xx da Evolution. Resultado ambíguo
 vira `desconhecido` e não recebe retry automático. O reaper de lease também
 quarentena como `desconhecido`; nunca reenvia uma tentativa que possa ter
-atravessado a rede.
+atravessado a rede. Falhas comprovadamente anteriores ao envio usam backoff
+exponencial e respeitam `Retry-After`; indisponibilidade da Evolution não
+consome o orçamento de retry.
 
 ## 7. Deploy do frontend
 

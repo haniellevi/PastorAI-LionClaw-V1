@@ -19,7 +19,10 @@ from __future__ import annotations
 import hashlib
 import hmac
 import logging
+import math
+from datetime import datetime, timezone
 from dataclasses import dataclass
+from email.utils import parsedate_to_datetime
 
 import httpx
 
@@ -99,6 +102,28 @@ class BroadcastSendResult:
 
     status: str
     error_class: str | None = None
+    retry_after_seconds: int | None = None
+    consume_retry_budget: bool = True
+
+
+def _retry_after_seconds(response: httpx.Response) -> int | None:
+    """Parse numeric or HTTP-date Retry-After without trusting the body."""
+    raw = response.headers.get("Retry-After", "").strip()
+    if raw.isdigit():
+        return min(86400, max(1, int(raw)))
+    try:
+        retry_at = parsedate_to_datetime(raw)
+        if retry_at.tzinfo is None:
+            retry_at = retry_at.replace(tzinfo=timezone.utc)
+        date_header = response.headers.get("Date", "").strip()
+        reference = parsedate_to_datetime(date_header) if date_header else None
+        if reference is None:
+            reference = datetime.now(timezone.utc)
+        elif reference.tzinfo is None:
+            reference = reference.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return min(86400, max(1, math.ceil((retry_at - reference).total_seconds())))
 
 
 def verify_webhook_signature(secret: str, payload: bytes, signature: str | None) -> bool:
@@ -289,7 +314,7 @@ class EvolutionClient:
         """
         if not external_sends_allowed(self._settings):
             log_suppressed("WhatsApp", "send_text")
-            return True
+            return False
         base_url, api_key = self._require_config()
         headers = self._headers(api_key)
         try:
@@ -316,8 +341,8 @@ class EvolutionClient:
         bodies are deliberately neither stored nor logged because providers may
         echo recipient data in them.
 
-        The existing :meth:`send_text` contract remains unchanged for every
-        non-broadcast call site.
+        The classified path is separate from :meth:`send_text`, whose boolean
+        is false when the outbound guard suppresses a real send.
         """
         if not external_sends_allowed(self._settings):
             log_suppressed("WhatsApp", "broadcast_send_text")
@@ -331,7 +356,9 @@ class EvolutionClient:
             # Configuration is checked before opening a socket: definitely no
             # message left this process, so a bounded retry is safe.
             return BroadcastSendResult(
-                status="falhou_retentavel", error_class="configuracao_ausente"
+                status="falhou_retentavel",
+                error_class="configuracao_ausente",
+                consume_retry_budget=False,
             )
 
         headers = self._headers(api_key)
@@ -348,7 +375,10 @@ class EvolutionClient:
             logger.warning("Evolution broadcast sendText returned HTTP %s", code)
             if code == 429:
                 return BroadcastSendResult(
-                    status="falhou_retentavel", error_class=f"http_{code}"
+                    status="falhou_retentavel",
+                    error_class=f"http_{code}",
+                    retry_after_seconds=_retry_after_seconds(exc.response),
+                    consume_retry_budget=False,
                 )
             if code == 408 or code >= 500:
                 # Evolution/proxy may have accepted the request before failing.
@@ -366,6 +396,7 @@ class EvolutionClient:
             return BroadcastSendResult(
                 status="falhou_retentavel",
                 error_class=_transport_error_class(exc),
+                consume_retry_budget=False,
             )
         except (
             httpx.ReadTimeout,
@@ -451,7 +482,7 @@ class EvolutionClient:
         """
         if not external_sends_allowed(self._settings):
             log_suppressed("WhatsApp", "send_media")
-            return True
+            return False
         base_url, api_key = self._require_config()
         headers = self._headers(api_key)
         body: dict[str, object] = {

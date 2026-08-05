@@ -508,11 +508,15 @@ def run_agent_for_message(session_factory: Any, outcome: IngestionOutcome) -> No
 
     # Single exit: send the orchestrator reply through the official number.
     try:
-        EvolutionClient().send_text(
+        sent = EvolutionClient().send_text(
             outcome.instance, outcome.telefone, result.response
         )
     except EvolutionError:
         logger.warning("Failed to send agent reply via Evolution")
+        return
+    if sent is False:
+        # Outbound guard suppression is not a delivery and must not create a
+        # phantom outgoing message in the conversation history.
         return
 
     # Persist the outbound message and refresh the conversation snapshot.

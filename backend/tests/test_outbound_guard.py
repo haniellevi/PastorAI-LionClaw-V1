@@ -113,7 +113,7 @@ def test_default_settings_block_sends() -> None:
 # ---------------------------------------------------------------------------
 def test_send_text_blocked(monkeypatch) -> None:
     _block_network(monkeypatch)
-    assert EvolutionClient(_settings()).send_text("igreja-1", "5511999990000", "oi") is True
+    assert EvolutionClient(_settings()).send_text("igreja-1", "5511999990000", "oi") is False
 
 
 def test_send_media_blocked(monkeypatch) -> None:
@@ -121,7 +121,7 @@ def test_send_media_blocked(monkeypatch) -> None:
     ok = EvolutionClient(_settings()).send_media(
         "igreja-1", "5511999990000", mediatype="image", media_base64="Zm9v"
     )
-    assert ok is True
+    assert ok is False
 
 
 def test_set_webhook_blocked(monkeypatch) -> None:
@@ -220,7 +220,7 @@ def test_send_text_blocked_in_production_without_activation(monkeypatch) -> None
     _block_network(monkeypatch)
     assert EvolutionClient(_settings(app_env="production")).send_text(
         "igreja-1", "5599", "oi"
-    ) is True
+    ) is False
 
 
 def test_send_text_allowed_in_production_with_activation(monkeypatch) -> None:

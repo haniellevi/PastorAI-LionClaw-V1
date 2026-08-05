@@ -48,6 +48,10 @@ def test_migration_has_durable_dedupe_claim_and_reaper_indexes() -> None:
     assert "idx_broadcast_entregas_pessoa" in sql
     assert "idx_broadcast_entregas_trabalho" in sql
     assert "idx_broadcast_entregas_lease" in sql
+    assert "broadcasts_igreja_idempotency_uq" in sql
+    assert "idx_broadcast_entregas_retry_due" in sql
+    assert "next_attempt_at" in sql
+    assert "retry_budget_used" in sql
     assert "where status = 'em_envio'" in sql
 
 

@@ -142,7 +142,7 @@ Marque **todos** antes de considerar staging pronto:
 
 ## Guard de envios (B2)
 
-Fora de produção, os efeitos externos reais ficam **desligados por padrão** por
+Em todos os ambientes, os efeitos externos reais ficam **desligados por padrão** por
 um guard na camada de serviço (`app/services/outbound_guard.py`). Viram **no-op
 logado** (`[SANDBOX] …`), retornando um valor neutro — o fluxo continua, nada sai
 para o mundo: `send_text`, `send_media`, `set_webhook`, `connect`/`reconnect`/
@@ -150,9 +150,9 @@ para o mundo: `send_text`, `send_media`, `set_webhook`, `connect`/`reconnect`/
 `send_password_reset` (Brevo), `LLMClient.complete` (OpenAI) e `create_event`/
 `delete_event` (Google Calendar).
 
-Trava dupla: `external_sends_enabled = is_production or ALLOW_REAL_SENDS`. Em
-produção é sempre permitido; em staging/dev só com `ALLOW_REAL_SENDS=true` — e
-**apenas com credenciais sandbox** (Asaas sandbox, Evolution/Brevo de teste).
+Trava única e explícita: `external_sends_enabled = ALLOW_REAL_SENDS`. Produção,
+staging e desenvolvimento só executam efeitos externos quando o operador muda
+`ALLOW_REAL_SENDS=true`; em staging/dev use apenas credenciais sandbox.
 
 Permanecem sempre ativos (auth/infra do próprio ambiente, senão staging não
 funciona): login/identidade Clerk, OAuth do Google, Supabase Storage, leituras da

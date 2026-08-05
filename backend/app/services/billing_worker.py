@@ -232,8 +232,8 @@ def notify_autoupgrade(
         for phone in phones:
             attempted = True
             try:
-                evolution.send_text(instance, phone, texto)
-                sent_any = True
+                if evolution.send_text(instance, phone, texto) is not False:
+                    sent_any = True
             except EvolutionError:
                 logger.warning("Autoupgrade notification failed to an admin")
 

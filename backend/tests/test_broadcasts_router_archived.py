@@ -12,8 +12,8 @@ alguém remover o filtro de app/routers/broadcasts.py, o fake volta a entregar
 todo mundo e os testes de arquivamento quebram.
 
 Contrato coberto:
-  - ativa consentida e compatível entra no alcance e recebe mensagem;
-  - arquivada consentida e compatível não entra nem recebe;
+  - ativa consentida e compatível entra no snapshot durável;
+  - arquivada consentida e compatível não entra no snapshot;
   - arquivada que lidera célula ativa também não entra pelo segmento "lider";
   - opt-out de pessoa ATIVA continua contado em ignoradosOptout;
   - audiência só de arquivados => alcance 0, bloqueado, ignoradosOptout 0.
@@ -29,27 +29,44 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.routers.broadcasts as broadcasts_router
-from app.db.models import AppUser, Broadcast, Celula, Pessoa, WhatsappConnection
+from app.db.models import (
+    AppUser,
+    Broadcast,
+    BroadcastEntrega,
+    BroadcastExecucao,
+    Celula,
+    Pessoa,
+    WhatsappConnection,
+)
 from app.db.session import get_db
 from app.services.clerk import get_clerk_client
 from app.services.evolution import get_evolution_client
 from tests.conftest import FakeClerk, make_app_user
 
-_AUTH = {"Authorization": "Bearer good"}
+_AUTH = {
+    "Authorization": "Bearer good",
+    "Idempotency-Key": "00000000-0000-4000-8000-0000000000b1",
+}
 _BID = "00000000-0000-0000-0000-0000000000b1"
 _INSTANCE = "igreja-piloto"
 
 
 @pytest.fixture(autouse=True)
-def _enable_synchronous_send_for_legacy_contract(monkeypatch) -> None:
-    """Exercise the legacy synchronous path behind the explicit send gate."""
+def _enable_safe_async_dispatch(monkeypatch) -> None:
+    """Exercise audience filtering through the durable async snapshot."""
     monkeypatch.setattr(
         broadcasts_router,
         "get_settings",
         lambda: SimpleNamespace(
-            broadcast_async_enabled=False,
+            broadcast_async_enabled=True,
             external_sends_enabled=True,
+            redis_url="redis://test/0",
         ),
+    )
+    monkeypatch.setattr(
+        broadcasts_router,
+        "broadcast_worker_ready",
+        lambda _url: True,
     )
 
 
@@ -112,8 +129,13 @@ class BroadcastSession:
     def add(self, obj) -> None:
         self.added.append(obj)
 
+    def add_all(self, objects) -> None:
+        self.added.extend(objects)
+
     def flush(self) -> None:
-        pass
+        for obj in self.added:
+            if getattr(obj, "id", None) is None:
+                obj.id = uuid.uuid4()
 
     def refresh(self, obj) -> None:
         # O DB atribuiria o id no flush (server_default gen_random_uuid).
@@ -186,6 +208,14 @@ def _post(client, *, segmentos=("todos",)):
     )
 
 
+def _delivery_phones(session: BroadcastSession) -> list[str]:
+    return [
+        row.telefone
+        for row in session.added
+        if isinstance(row, BroadcastEntrega)
+    ]
+
+
 # ---------------------------------------------------------------------------
 # 1. Pessoa ativa continua entrando (a correção não pode encolher o alcance real)
 # ---------------------------------------------------------------------------
@@ -195,12 +225,14 @@ def test_pessoa_ativa_consentida_entra_na_audiencia(app) -> None:
 
     resp = _post(client)
 
-    assert resp.status_code == 200
+    assert resp.status_code == 202
     body = resp.json()
-    assert body["status"] == "enviado"
-    assert body["enviados"] == 1
+    assert body["status"] == "enfileirado"
+    assert body["enviados"] == 0
+    assert body["alcancePrevisto"] == 1
     assert body["ignoradosOptout"] == 0
-    assert evolution.sent == [(_INSTANCE, "11911111111", "Nos vemos às 19h.")]
+    assert evolution.sent == []
+    assert _delivery_phones(session) == ["11911111111"]
     assert session.added[0].alcance == 1
     assert session.committed is True
 
@@ -215,13 +247,15 @@ def test_pessoa_arquivada_consentida_fica_fora(app) -> None:
 
     resp = _post(client)
 
-    assert resp.status_code == 200
+    assert resp.status_code == 202
     body = resp.json()
-    assert body["enviados"] == 1
+    assert body["enviados"] == 0
+    assert body["alcancePrevisto"] == 1
     # Arquivada não é opt-out: ela não pertence mais à audiência.
     assert body["ignoradosOptout"] == 0
     assert session.added[0].alcance == 1
-    assert [phone for _, phone, _ in evolution.sent] == ["11911111111"]
+    assert evolution.sent == []
+    assert _delivery_phones(session) == ["11911111111"]
 
 
 # ---------------------------------------------------------------------------
@@ -242,11 +276,13 @@ def test_pessoa_arquivada_que_lideraria_celula_fica_fora(app) -> None:
 
     resp = _post(client, segmentos=("lider",))
 
-    assert resp.status_code == 200
+    assert resp.status_code == 202
     body = resp.json()
-    assert body["enviados"] == 1
+    assert body["enviados"] == 0
+    assert body["alcancePrevisto"] == 1
     assert body["ignoradosOptout"] == 0
-    assert [phone for _, phone, _ in evolution.sent] == ["11933333333"]
+    assert evolution.sent == []
+    assert _delivery_phones(session) == ["11933333333"]
     assert session.added[0].alcance == 1
 
 
@@ -266,13 +302,15 @@ def test_optout_de_pessoa_ativa_continua_contado(app) -> None:
 
     resp = _post(client)
 
-    assert resp.status_code == 200
+    assert resp.status_code == 202
     body = resp.json()
-    assert body["enviados"] == 1
+    assert body["enviados"] == 0
+    assert body["alcancePrevisto"] == 1
     # 2 = os dois ATIVOS barrados. A arquivada com optout não infla o contador.
     assert body["ignoradosOptout"] == 2
     assert session.added[0].ignorados_optout == 2
-    assert [phone for _, phone, _ in evolution.sent] == ["11911111111"]
+    assert evolution.sent == []
+    assert _delivery_phones(session) == ["11911111111"]
 
 
 # ---------------------------------------------------------------------------
@@ -302,11 +340,12 @@ def test_audiencia_so_de_arquivados_bloqueia_com_alcance_zero(app) -> None:
 def test_nenhuma_mensagem_enviada_para_pessoa_arquivada(app) -> None:
     arquivada = _pessoa(telefone="11922222222", arquivada_em=_ARQUIVADA_EM)
     pessoas = [_pessoa(telefone="11911111111"), arquivada]
-    client, _session, evolution = _wire(app, pessoas=pessoas)
+    client, session, evolution = _wire(app, pessoas=pessoas)
 
     _post(client)
 
     assert "11922222222" not in [phone for _, phone, _ in evolution.sent]
+    assert "11922222222" not in _delivery_phones(session)
 
 
 # ---------------------------------------------------------------------------

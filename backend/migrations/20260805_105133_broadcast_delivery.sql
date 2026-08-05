@@ -17,6 +17,12 @@ alter table broadcasts
   add column if not exists claim_ate timestamptz null;
 alter table broadcasts
   add column if not exists claim_por text null;
+alter table broadcasts
+  add column if not exists idempotency_key text null;
+
+create unique index if not exists broadcasts_igreja_idempotency_uq
+  on broadcasts (igreja_id, idempotency_key)
+  where idempotency_key is not null;
 
 -- NOT VALID preserva linhas legadas com hora fora do contrato sem permitir que
 -- novas escritas inválidas passem. 23:59 é válido; 24:00 não é.
@@ -78,7 +84,9 @@ create table if not exists broadcast_entregas (
   telefone             text not null,
   status               text not null default 'pendente',
   tentativas           integer not null default 0,
+  retry_budget_used    integer not null default 0,
   lease_ate            timestamptz null,
+  next_attempt_at      timestamptz null,
   claim_por            text null,
   ultimo_erro_classe   text null,
   criado_em            timestamptz not null default now(),
@@ -93,6 +101,7 @@ create table if not exists broadcast_entregas (
     'suprimido'
   )),
   constraint broadcast_entregas_tentativas_chk check (tentativas >= 0),
+  constraint broadcast_entregas_retry_budget_chk check (retry_budget_used >= 0),
   constraint broadcast_entregas_execucao_telefone_uq
     unique (execucao_id, telefone)
 );
@@ -114,6 +123,9 @@ create index if not exists idx_broadcast_entregas_trabalho
 create index if not exists idx_broadcast_entregas_lease
   on broadcast_entregas (lease_ate)
   where status = 'em_envio';
+create index if not exists idx_broadcast_entregas_retry_due
+  on broadcast_entregas (igreja_id, next_attempt_at)
+  where status = 'falhou_retentavel';
 create index if not exists idx_broadcast_entregas_criado
   on broadcast_entregas (criado_em);
 
@@ -153,6 +165,12 @@ comment on table broadcast_entregas is
   'Ledger por destinatário; aceito=HTTP 2xx, desconhecido nunca tem retry automático.';
 comment on column broadcast_entregas.telefone is
   'Snapshot para deduplicação; PII proibida em logs e corpos de erro.';
+comment on column broadcasts.idempotency_key is
+  'Chave opaca do cliente; única por igreja para impedir fan-out duplicado.';
+comment on column broadcast_entregas.next_attempt_at is
+  'Próxima tentativa segura após backoff; NULL para estados não-retentáveis.';
+comment on column broadcast_entregas.retry_budget_used is
+  'Falhas retentáveis que consomem orçamento; indisponibilidade pré-envio não consome.';
 
 -- Intencionalmente SEM UPDATE de broadcasts: nenhum legado é ativado.
 

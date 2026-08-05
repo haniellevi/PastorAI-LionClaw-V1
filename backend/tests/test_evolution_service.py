@@ -170,12 +170,35 @@ def test_broadcast_send_classifies_2xx_as_provider_accepted(monkeypatch) -> None
 
 def test_broadcast_send_retries_provider_throttling(monkeypatch) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(429, json={"error": "ignored"})
+        return httpx.Response(
+            429,
+            headers={"Retry-After": "75"},
+            json={"error": "ignored"},
+        )
 
     _use_transport(monkeypatch, handler)
     result = EvolutionClient(_settings()).send_text_classificado("i", "5511", "x")
     assert result.status == "falhou_retentavel"
     assert result.error_class == "http_429"
+    assert result.retry_after_seconds == 75
+    assert result.consume_retry_budget is False
+
+
+def test_broadcast_send_honors_http_date_retry_after(monkeypatch) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            429,
+            headers={
+                "Date": "Wed, 05 Aug 2026 12:00:00 GMT",
+                "Retry-After": "Wed, 05 Aug 2026 13:00:00 GMT",
+            },
+            json={"error": "ignored"},
+        )
+
+    _use_transport(monkeypatch, handler)
+    result = EvolutionClient(_settings()).send_text_classificado("i", "5511", "x")
+    assert result.retry_after_seconds == 3600
+    assert result.consume_retry_budget is False
 
 
 def test_broadcast_send_quarantines_http_request_timeout(monkeypatch) -> None:
@@ -218,6 +241,7 @@ def test_broadcast_send_connect_error_is_safe_to_retry(monkeypatch) -> None:
     result = EvolutionClient(_settings()).send_text_classificado("i", "5511", "x")
     assert result.status == "falhou_retentavel"
     assert result.error_class == "connect_error"
+    assert result.consume_retry_budget is False
 
 
 def test_broadcast_send_read_timeout_is_ambiguous(monkeypatch) -> None:

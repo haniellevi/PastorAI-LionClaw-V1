@@ -151,6 +151,9 @@ class _ScalarResult:
     def scalar_one(self):
         return self.value
 
+    def all(self):
+        return self.value
+
 
 class _FinalizeSession:
     def __init__(self, *, remaining: int) -> None:
@@ -191,6 +194,25 @@ def test_open_execution_does_not_mark_broadcast_sent() -> None:
         now=dt.datetime(2026, 8, 5, tzinfo=UTC),
     ) is False
     assert len(session.statements) == 1
+
+
+def test_terminal_result_never_calls_failures_sent() -> None:
+    assert delivery.execution_result_status({"aceito": 2}) == "enviado"
+    assert delivery.execution_result_status(
+        {"aceito": 1, "falhou_permanente": 1}
+    ) == "parcial"
+    assert delivery.execution_result_status({"desconhecido": 2}) == "desconhecido"
+    assert delivery.execution_result_status({"falhou_permanente": 2}) == "falhou"
+    assert delivery.execution_result_status({"suprimido": 2}) == "suprimido"
+    assert delivery.execution_result_status({}) == "concluido_sem_destinatarios"
+
+
+def test_retry_delay_is_exponential_and_honors_provider_floor() -> None:
+    assert delivery.retry_delay_seconds(1) == 30
+    assert delivery.retry_delay_seconds(2) == 60
+    assert delivery.retry_delay_seconds(3, 300) == 300
+    assert delivery.retry_delay_seconds(3, 3600) == 3600
+    assert delivery.retry_delay_seconds(99) == 1800
 
 
 class _SequenceEvolution:

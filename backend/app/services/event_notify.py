@@ -115,8 +115,8 @@ def notify_event_confirmed(
     sent = 0
     for phone in phones:
         try:
-            client.send_text(instance, phone, texto)
-            sent += 1
+            if client.send_text(instance, phone, texto) is not False:
+                sent += 1
         except EvolutionError:
             logger.warning("Agenda notify: falha ao enviar aviso de evento")
 

@@ -40,6 +40,12 @@ export interface BroadcastItem {
   repeticao: string | null;
   proximaExecucao: string | null;
   precisaRevisao: boolean;
+  resultadoUltimaExecucao: string | null;
+  entregasAceitas: number;
+  entregasFalhas: number;
+  entregasDesconhecidas: number;
+  entregasSuprimidas: number;
+  entregasPendentes: number;
 }
 
 export type BroadcastRepeat = "once" | "daily" | "weekly" | "biweekly" | "monthly";
@@ -73,6 +79,49 @@ export interface BroadcastResult {
 export interface BroadcastCapabilities {
   agendamentoDisponivel: boolean;
   motivo: "despacho_indisponivel" | "envios_externos_desabilitados" | null;
+}
+
+export interface BroadcastResultFeedback {
+  kind: "ok" | "err";
+  text: string;
+}
+
+/** Human feedback that never presents an adverse ledger result as success. */
+export function broadcastResultFeedback(
+  result: BroadcastResult,
+): BroadcastResultFeedback {
+  switch (result.status) {
+    case "agendado":
+      return {
+        kind: "ok",
+        text: `Comunicado agendado. ${result.ignoradosOptout} ignorado(s) por opt-out.`,
+      };
+    case "enfileirado":
+      return {
+        kind: "ok",
+        text: `Comunicado enfileirado para ${result.alcancePrevisto ?? 0} contato(s). O histórico será atualizado após o processamento.`,
+      };
+    case "enviado":
+      return {
+        kind: "ok",
+        text: `Comunicado enviado a ${result.enviados} contato(s). ${result.ignoradosOptout} ignorado(s).`,
+      };
+    case "parcial":
+      return {
+        kind: "err",
+        text: `Comunicado concluído parcialmente: ${result.enviados} envio(s) aceito(s). Consulte o histórico.`,
+      };
+    case "falhou":
+      return { kind: "err", text: "O comunicado falhou. Consulte o histórico antes de tentar novamente." };
+    case "desconhecido":
+      return { kind: "err", text: "O resultado do comunicado é desconhecido. Não reenvie antes de conferir o histórico." };
+    case "suprimido":
+      return { kind: "err", text: "O comunicado foi suprimido pelas travas de segurança e não foi enviado." };
+    case "concluido_sem_destinatarios":
+      return { kind: "err", text: "O comunicado foi concluído sem destinatários elegíveis." };
+    default:
+      return { kind: "err", text: "O comunicado terminou com um resultado inesperado. Consulte o histórico." };
+  }
 }
 
 /** Definição de um segmento selecionável (token reconhecido pelo backend). */
@@ -163,9 +212,11 @@ export async function fetchBroadcastCapabilities(
 export async function createBroadcast(
   token: string,
   input: CreateBroadcastInput,
+  idempotencyKey: string,
 ): Promise<BroadcastResult> {
   const res = await authedFetch(token, `/broadcasts`, {
     method: "POST",
+    headers: { "Idempotency-Key": idempotencyKey },
     body: JSON.stringify({
       titulo: input.titulo,
       mensagem: input.mensagem,

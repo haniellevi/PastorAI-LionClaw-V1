@@ -18,7 +18,7 @@ import re
 import time
 import uuid
 from collections import defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -50,6 +50,9 @@ DEFAULT_MAX_ATTEMPTS = 3
 DEFAULT_DELIVERY_LEASE_SECONDS = 120
 DEFAULT_BROADCAST_CLAIM_SECONDS = 60
 DEFAULT_SEND_INTERVAL_MS = 1000
+DEFAULT_RETRY_BASE_SECONDS = 30
+MAX_RETRY_DELAY_SECONDS = 1800
+MAX_PROVIDER_RETRY_AFTER_SECONDS = 86400
 
 DELIVERY_STATUSES = frozenset(
     {
@@ -73,6 +76,16 @@ SessionFactory = Callable[[], Session]
 class ResolvedRecipient:
     pessoa_id: uuid.UUID
     telefone: str
+
+
+@dataclass(frozen=True)
+class ResolvedAudience:
+    recipients: list[ResolvedRecipient]
+    ignored_optout: int
+
+    @property
+    def reach(self) -> int:
+        return len(self.recipients)
 
 
 @dataclass(frozen=True)
@@ -101,6 +114,42 @@ class BroadcastCycleStats:
 
 def utc_now() -> dt.datetime:
     return dt.datetime.now(UTC)
+
+
+def retry_delay_seconds(
+    retry_number: int, provider_retry_after: int | None = None
+) -> int:
+    """Exponential retry delay, honoring a larger provider Retry-After."""
+    exponent = max(0, retry_number - 1)
+    local_delay = min(
+        MAX_RETRY_DELAY_SECONDS,
+        DEFAULT_RETRY_BASE_SECONDS * (2**exponent),
+    )
+    provider_delay = min(
+        MAX_PROVIDER_RETRY_AFTER_SECONDS,
+        max(0, int(provider_retry_after or 0)),
+    )
+    return max(local_delay, provider_delay)
+
+
+def execution_result_status(status_counts: Mapping[str, int]) -> str:
+    """Return one truthful terminal label derived from the delivery ledger."""
+    accepted = int(status_counts.get("aceito", 0))
+    unknown = int(status_counts.get("desconhecido", 0))
+    suppressed = int(status_counts.get("suprimido", 0))
+    failed = int(status_counts.get("falhou_permanente", 0))
+    total = accepted + unknown + suppressed + failed
+    if total == 0:
+        return "concluido_sem_destinatarios"
+    if accepted and (unknown or suppressed or failed):
+        return "parcial"
+    if accepted:
+        return "enviado"
+    if unknown:
+        return "desconhecido"
+    if failed:
+        return "falhou"
+    return "suprimido"
 
 
 def _as_utc(value: dt.datetime) -> dt.datetime:
@@ -225,10 +274,38 @@ def recipient_phone_for_delivery(
     return phone, None
 
 
+def resolve_recipient_snapshot(
+    people: list[Any], leader_ids: set[uuid.UUID], segmentos: list[str]
+) -> ResolvedAudience:
+    """Resolve one immutable recipient snapshot from already-read people."""
+    normalized_segments = normalize_segments(segmentos)
+    recipients: list[ResolvedRecipient] = []
+    seen_phones: set[str] = set()
+    ignored_optout = 0
+    for person in people:
+        candidate = RecipientCandidate(
+            telefone=person.telefone,
+            tipo=person.tipo,
+            optout=person.optout,
+            consentimento=person.consentimento,
+            lidera_celula=person.id in leader_ids,
+        )
+        if not matches_segments(candidate, normalized_segments):
+            continue
+        phone, reason = recipient_delivery_phone(person)
+        if reason in {"optout", "sem_consentimento"}:
+            ignored_optout += 1
+        if phone is None or phone in seen_phones:
+            continue
+        seen_phones.add(phone)
+        recipients.append(ResolvedRecipient(person.id, phone))
+    return ResolvedAudience(recipients, ignored_optout)
+
+
 def _resolve_recipients(
     session: Session, igreja_id: uuid.UUID, segmentos: list[str]
 ) -> list[ResolvedRecipient]:
-    """Resolve the live audience while the occurrence is materialized."""
+    """Resolve the live audience while a scheduled occurrence is materialized."""
     people = session.execute(
         select(Pessoa).where(
             Pessoa.igreja_id == igreja_id,
@@ -245,25 +322,52 @@ def _resolve_recipients(
             )
         ).scalars().all()
     }
-    normalized_segments = normalize_segments(segmentos)
-    recipients: list[ResolvedRecipient] = []
-    seen_phones: set[str] = set()
-    for person in people:
-        candidate = RecipientCandidate(
-            telefone=person.telefone,
-            tipo=person.tipo,
-            optout=person.optout,
-            consentimento=person.consentimento,
-            lidera_celula=person.id in leader_ids,
-        )
-        if not matches_segments(candidate, normalized_segments):
-            continue
-        phone, _reason = recipient_delivery_phone(person)
-        if phone is None or phone in seen_phones:
-            continue
-        seen_phones.add(phone)
-        recipients.append(ResolvedRecipient(person.id, phone))
-    return recipients
+    return resolve_recipient_snapshot(people, leader_ids, segmentos).recipients
+
+
+def materialize_immediate_broadcast(
+    session: Session,
+    broadcast: Broadcast,
+    recipients: list[ResolvedRecipient],
+    *,
+    now: dt.datetime,
+) -> uuid.UUID:
+    """Persist the reviewed send-now audience before returning to the caller.
+
+    Scheduled occurrences intentionally resolve their audience when due. A
+    send-now request is different: recipients must be exactly those reviewed
+    in the request, so the worker only dispatches this durable snapshot.
+    """
+    if broadcast.id is None:
+        raise ValueError("broadcast must be flushed before materialization")
+
+    slot_date, slot_time = nominal_slot(now)
+    execution = BroadcastExecucao(
+        igreja_id=broadcast.igreja_id,
+        broadcast_id=broadcast.id,
+        seq=1,
+        data_nominal=slot_date,
+        hora_nominal=slot_time,
+    )
+    session.add(execution)
+    session.flush()
+    session.add_all(
+        [
+            BroadcastEntrega(
+                igreja_id=broadcast.igreja_id,
+                execucao_id=execution.id,
+                pessoa_id=recipient.pessoa_id,
+                telefone=recipient.telefone,
+                status="pendente",
+            )
+            for recipient in recipients
+        ]
+    )
+    # Prevent the due-broadcast sweep from resolving this audience again.
+    broadcast.proxima_execucao = None
+    broadcast.claim_ate = None
+    broadcast.claim_por = None
+    return execution.id
 
 
 def _discover_due_broadcasts(
@@ -372,6 +476,8 @@ def _materialize_one(
         execution.iniciada_em = now
         execution.finalizada_em = now
         if following is None:
+            # ``broadcast_status`` describes lifecycle only. The truthful
+            # delivery result is derived from this execution's ledger.
             broadcast.status = "enviado"
 
     execution_id = execution.id
@@ -461,6 +567,8 @@ def _finalize_execution_if_done(
             Broadcast.status == "agendado",
             Broadcast.proxima_execucao.is_(None),
         )
+        # Keep the enum as a lifecycle state. API/UI derive the truthful
+        # terminal outcome from ``broadcast_entregas``.
         .values(status="enviado")
     )
     return True
@@ -491,11 +599,12 @@ def _expire_retry_budget(
         .where(
             BroadcastEntrega.igreja_id == igreja_id,
             BroadcastEntrega.status == "falhou_retentavel",
-            BroadcastEntrega.tentativas >= max_attempts,
+            BroadcastEntrega.retry_budget_used >= max_attempts,
         )
         .values(
             status="falhou_permanente",
             lease_ate=None,
+            next_attempt_at=None,
             claim_por=None,
             atualizado_em=now,
         )
@@ -553,6 +662,7 @@ def _reap_tenant_deliveries(
             status="desconhecido",
             ultimo_erro_classe="lease_expirado",
             lease_ate=None,
+            next_attempt_at=None,
             claim_por=None,
             atualizado_em=now,
         )
@@ -650,7 +760,11 @@ def _claim_next_delivery(
                     BroadcastEntrega.status == "pendente",
                     and_(
                         BroadcastEntrega.status == "falhou_retentavel",
-                        BroadcastEntrega.tentativas < max_attempts,
+                        BroadcastEntrega.retry_budget_used < max_attempts,
+                        or_(
+                            BroadcastEntrega.next_attempt_at.is_(None),
+                            BroadcastEntrega.next_attempt_at <= now,
+                        ),
                     ),
                 ),
             )
@@ -682,6 +796,7 @@ def _claim_next_delivery(
             delivery.status = "suprimido"
             delivery.ultimo_erro_classe = suppression_reason
             delivery.lease_ate = None
+            delivery.next_attempt_at = None
             delivery.claim_por = None
             delivery.atualizado_em = now
             session.flush()
@@ -706,6 +821,7 @@ def _claim_next_delivery(
         delivery.status = "em_envio"
         delivery.tentativas += 1
         delivery.lease_ate = lease_until
+        delivery.next_attempt_at = None
         delivery.claim_por = worker_id
         delivery.ultimo_erro_classe = None
         delivery.atualizado_em = now
@@ -767,15 +883,23 @@ def _record_delivery_result(
         error_class = result.error_class
         if result.status not in DELIVERY_STATUSES:
             error_class = "resultado_invalido"
-        if (
-            final_status == "falhou_retentavel"
-            and delivery.tentativas >= max_attempts
-        ):
-            final_status = "falhou_permanente"
+        next_attempt_at: dt.datetime | None = None
+        if final_status == "falhou_retentavel":
+            if result.consume_retry_budget:
+                delivery.retry_budget_used += 1
+            if delivery.retry_budget_used >= max_attempts:
+                final_status = "falhou_permanente"
+            else:
+                delay = retry_delay_seconds(
+                    delivery.tentativas,
+                    result.retry_after_seconds,
+                )
+                next_attempt_at = now + dt.timedelta(seconds=delay)
 
         delivery.status = final_status
         delivery.ultimo_erro_classe = error_class
         delivery.lease_ate = None
+        delivery.next_attempt_at = next_attempt_at
         delivery.claim_por = None
         delivery.atualizado_em = now
         execution_id = delivery.execucao_id

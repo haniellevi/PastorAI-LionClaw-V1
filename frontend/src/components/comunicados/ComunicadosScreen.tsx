@@ -23,6 +23,7 @@ import { SessionExpiredError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import {
   SEGMENTS,
+  broadcastResultFeedback,
   countSegment,
   createBroadcast,
   fetchBroadcastCapabilities,
@@ -55,9 +56,16 @@ const STEP_LABEL: Record<Step, string> = {
 
 function statusTone(broadcast: BroadcastItem): PillTone {
   if (broadcast.precisaRevisao) return "danger";
-  switch (broadcast.status) {
+  const status = broadcast.resultadoUltimaExecucao ?? broadcast.status;
+  if (status === "processando") return "accent";
+  switch (status) {
     case "enviado":
       return "ok";
+    case "parcial":
+    case "desconhecido":
+      return "warn";
+    case "falhou":
+      return "danger";
     case "agendado":
       return "accent";
     case "rascunho":
@@ -70,10 +78,23 @@ function statusTone(broadcast: BroadcastItem): PillTone {
 
 function statusLabel(b: BroadcastItem): string {
   if (b.precisaRevisao) return "Revisão necessária";
-  if (b.status === "enviado") return `Enviado · ${b.alcance ?? 0}`;
-  if (b.status === "agendado") return `Agendado · ${repeatLabel(b.repeticao)}`;
-  if (b.status === "rascunho") return "Bloqueado · opt-out";
-  return b.status ?? "—";
+  const status = b.resultadoUltimaExecucao ?? b.status;
+  if (status === "processando") {
+    return `Processando · ${b.entregasPendentes} pendente(s)`;
+  }
+  if (status === "enviado") return `Enviado · ${b.entregasAceitas}`;
+  if (status === "parcial") {
+    return `Parcial · ${b.entregasAceitas} aceito(s), ${b.entregasFalhas + b.entregasDesconhecidas + b.entregasSuprimidas} não entregue(s)`;
+  }
+  if (status === "desconhecido") {
+    return `Resultado desconhecido · ${b.entregasDesconhecidas}`;
+  }
+  if (status === "falhou") return `Falhou · ${b.entregasFalhas}`;
+  if (status === "suprimido") return `Suprimido · ${b.entregasSuprimidas}`;
+  if (status === "concluido_sem_destinatarios") return "Concluído · sem destinatários";
+  if (status === "agendado") return `Agendado · ${repeatLabel(b.repeticao)}`;
+  if (status === "rascunho") return "Bloqueado · opt-out";
+  return status ?? "—";
 }
 
 export function ComunicadosScreen() {
@@ -149,6 +170,7 @@ export function ComunicadosScreen() {
   }, [load]);
 
   const toastTimer = useRef<number | null>(null);
+  const pendingRequest = useRef<{ fingerprint: string; key: string } | null>(null);
   const flashToast = useCallback((t: Toast) => {
     setToast(t);
     if (toastTimer.current) window.clearTimeout(toastTimer.current);
@@ -179,10 +201,11 @@ export function ComunicadosScreen() {
   // ---- regras de envio ----------------------------------------------------
   const externalSendsBlocked =
     capabilities?.motivo === "envios_externos_desabilitados";
+  const dispatcherUnavailable = capabilities?.motivo === "despacho_indisponivel";
   const scheduleAvailable = capabilities?.agendamentoDisponivel === true;
   const whatsappOffline = conn === "offline";
   const sendNowBlocked =
-    !scheduleOn && (whatsappOffline || externalSendsBlocked);
+    !scheduleOn && (whatsappOffline || externalSendsBlocked || dispatcherUnavailable);
 
   const schedulePast = useMemo(() => {
     if (!scheduleOn || !data) return false;
@@ -200,6 +223,7 @@ export function ComunicadosScreen() {
     !sendNowBlocked;
 
   const resetWizard = useCallback(() => {
+    pendingRequest.current = null;
     setStep("compose");
     setTitulo("");
     setMensagem("");
@@ -216,13 +240,23 @@ export function ComunicadosScreen() {
     setSubmitting(true);
     setBlocked(null);
     try {
-      const result = await createBroadcast(token, {
+      const input = {
         titulo: titulo.trim(),
         mensagem: mensagem.trim(),
         segmentos: selectedTokens,
         modo: scheduleOn ? "agendado" : "agora",
         agendamento: scheduleOn ? { data, hora, repeticao } : null,
-      });
+      } as const;
+      const fingerprint = JSON.stringify(input);
+      if (pendingRequest.current?.fingerprint !== fingerprint) {
+        pendingRequest.current = { fingerprint, key: crypto.randomUUID() };
+      }
+      const result = await createBroadcast(
+        token,
+        input,
+        pendingRequest.current.key,
+      );
+      pendingRequest.current = null;
 
       if (result.status === "bloqueado") {
         setBlocked(result);
@@ -236,15 +270,7 @@ export function ComunicadosScreen() {
       } catch {
         /* histórico opcional */
       }
-      flashToast({
-        kind: "ok",
-        text:
-          result.status === "agendado"
-            ? `Comunicado agendado. ${result.ignoradosOptout} ignorado(s) por opt-out.`
-            : result.status === "enfileirado"
-              ? `Comunicado enfileirado para ${result.alcancePrevisto ?? 0} contato(s). O histórico será atualizado após o processamento.`
-            : `Comunicado enviado a ${result.enviados} contato(s). ${result.ignoradosOptout} ignorado(s).`,
-      });
+      flashToast(broadcastResultFeedback(result));
       resetWizard();
     } catch (err) {
       if (handleSessionError(err)) return;

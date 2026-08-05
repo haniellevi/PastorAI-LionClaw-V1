@@ -6,6 +6,7 @@ import logging
 from types import SimpleNamespace
 
 from app.services.broadcast_delivery import BroadcastCycleStats
+from app.services.broadcast_health import broadcast_worker_ready
 from app.workers.broadcast_worker import BroadcastWorker
 
 
@@ -42,6 +43,10 @@ def test_disabled_worker_tick_is_idle_without_db_or_cycle() -> None:
     assert calls == 0
 
 
+def test_invalid_redis_url_is_controlled_unavailable() -> None:
+    assert broadcast_worker_ready("not-a-redis-url") is False
+
+
 def test_disabled_worker_stays_alive_and_exits_only_on_stop(caplog) -> None:
     caplog.set_level(logging.INFO)
     holder = {}
@@ -57,6 +62,7 @@ def test_disabled_worker_stays_alive_and_exits_only_on_stop(caplog) -> None:
         evolution=object(),
         sleeper=sleeper,
         tick_seconds=1,
+        heartbeat_publisher=lambda *_args: None,
     )
     holder["worker"] = worker
 
@@ -65,6 +71,64 @@ def test_disabled_worker_stays_alive_and_exits_only_on_stop(caplog) -> None:
     assert "Broadcast worker OCIOSO" in caplog.text
     assert caplog.text.count("Broadcast worker OCIOSO") == 1
     assert "Broadcast worker stopped" in caplog.text
+
+
+def test_worker_publishes_ready_heartbeat_before_enabled_tick() -> None:
+    heartbeats = []
+    holder = {}
+
+    def publish(enabled, ttl):
+        heartbeats.append((enabled, ttl))
+
+    def sleeper(_seconds):
+        holder["worker"].stop()
+
+    worker = BroadcastWorker(
+        settings=_settings(True),
+        session_factory=lambda: object(),
+        evolution=object(),
+        cycle_runner=lambda *args, **kwargs: BroadcastCycleStats(),
+        sleeper=sleeper,
+        tick_seconds=1,
+        heartbeat_publisher=publish,
+    )
+    holder["worker"] = worker
+
+    worker.run()
+
+    assert heartbeats == [(True, 30)]
+
+
+def test_enabled_worker_pauses_dispatch_when_heartbeat_fails(caplog) -> None:
+    caplog.set_level(logging.ERROR)
+    holder = {}
+    cycles = 0
+
+    def publish(_enabled, _ttl):
+        raise RuntimeError("redis unavailable")
+
+    def runner(*args, **kwargs):  # pragma: no cover - must stay unused
+        nonlocal cycles
+        cycles += 1
+
+    def sleeper(_seconds):
+        holder["worker"].stop()
+
+    worker = BroadcastWorker(
+        settings=_settings(True),
+        session_factory=lambda: object(),
+        evolution=object(),
+        cycle_runner=runner,
+        sleeper=sleeper,
+        tick_seconds=1,
+        heartbeat_publisher=publish,
+    )
+    holder["worker"] = worker
+
+    worker.run()
+
+    assert cycles == 0
+    assert "dispatch paused: heartbeat unavailable" in caplog.text
 
 
 def test_enabled_worker_runs_persistent_cycle_with_configured_limits() -> None:

@@ -19,6 +19,7 @@ from app.services.broadcast_delivery import (
     BroadcastCycleStats,
     run_delivery_cycle,
 )
+from app.services.broadcast_health import publish_broadcast_worker_heartbeat
 from app.services.evolution import EvolutionClient
 
 logger = logging.getLogger("pastorai.broadcast_worker")
@@ -46,6 +47,7 @@ class BroadcastWorker:
         sleeper: Callable[[float], None] = time.sleep,
         worker_id: str | None = None,
         tick_seconds: int | None = None,
+        heartbeat_publisher: Callable[[bool, int], None] | None = None,
     ) -> None:
         boot_settings = settings or get_settings()
         self._enabled = bool(
@@ -105,8 +107,20 @@ class BroadcastWorker:
         self._worker_id = worker_id or (
             f"broadcast-{os.getpid()}-{uuid.uuid4().hex[:8]}"
         )
+        redis_url = str(getattr(boot_settings, "redis_url", "") or "")
+        self._heartbeat_publisher = heartbeat_publisher
+        if self._heartbeat_publisher is None and redis_url:
+            self._heartbeat_publisher = lambda enabled, ttl: (
+                publish_broadcast_worker_heartbeat(
+                    redis_url,
+                    enabled=enabled,
+                    ttl_seconds=ttl,
+                )
+            )
         self._running = False
         self._inside_run = False
+        self._last_heartbeat_monotonic = 0.0
+        self._heartbeat_ready = False
 
     @property
     def enabled(self) -> bool:
@@ -118,7 +132,15 @@ class BroadcastWorker:
         self._running = False
 
     def _should_continue(self) -> bool:
-        return self._running if self._inside_run else True
+        if self._inside_run:
+            now = time.monotonic()
+            if now - self._last_heartbeat_monotonic >= min(
+                10, self._tick_seconds
+            ):
+                self._publish_heartbeat()
+        if not self._inside_run:
+            return True
+        return self._running and (not self._enabled or self._heartbeat_ready)
 
     def tick(self, now: dt.datetime | None = None) -> BroadcastCycleStats:
         """Run one persistent delivery cycle, or a zero-work idle tick."""
@@ -146,6 +168,21 @@ class BroadcastWorker:
             self._sleeper(step)
             remaining -= step
 
+    def _publish_heartbeat(self) -> bool:
+        if self._heartbeat_publisher is None:
+            self._heartbeat_ready = not self._enabled
+            return self._heartbeat_ready
+        ttl = max(30, self._tick_seconds * 3)
+        try:
+            self._heartbeat_publisher(self._enabled, ttl)
+            self._heartbeat_ready = True
+        except Exception:  # noqa: BLE001 - heartbeat failure must fail closed in API
+            self._heartbeat_ready = False
+            logger.exception("Broadcast worker heartbeat publish failed")
+        finally:
+            self._last_heartbeat_monotonic = time.monotonic()
+        return self._heartbeat_ready
+
     def run(self) -> None:
         """Stay alive until SIGTERM/SIGINT, processing only when boot-enabled."""
         self._running = True
@@ -164,7 +201,8 @@ class BroadcastWorker:
 
         try:
             while self._running:
-                if self._enabled:
+                heartbeat_ready = self._publish_heartbeat()
+                if self._enabled and heartbeat_ready:
                     try:
                         counters = self.tick()
                         logger.info(
@@ -175,6 +213,10 @@ class BroadcastWorker:
                         )
                     except Exception:  # noqa: BLE001 - one tick cannot kill worker
                         logger.exception("Broadcast worker tick failed")
+                elif self._enabled:
+                    logger.error(
+                        "Broadcast dispatch paused: heartbeat unavailable"
+                    )
                 else:
                     idle_ticks += 1
                     heartbeat_every = max(1, 60 // self._tick_seconds)

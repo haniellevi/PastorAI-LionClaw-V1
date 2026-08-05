@@ -522,13 +522,18 @@ def send_message(
     # saber quem é); no banco guardamos o texto limpo + autor_nome.
     author = current_user.chat_nome or current_user.nome
     try:
-        evolution.send_text(
+        sent = evolution.send_text(
             conn.instance, conv.telefone, _author_caption(author, payload.texto)
         )
     except EvolutionError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
         ) from exc
+    if sent is False:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Envios externos ainda não habilitados.",
+        )
 
     msg = Message(
         igreja_id=uuid.UUID(current_user.igreja_id),
@@ -612,7 +617,7 @@ def send_media_message(
     # legenda, envia o nome); no banco guardamos a legenda limpa + autor_nome.
     author = current_user.chat_nome or current_user.nome
     try:
-        evolution.send_media(
+        sent = evolution.send_media(
             conn.instance,
             conv.telefone,
             mediatype=mediatype_for_tipo(tipo),
@@ -625,6 +630,11 @@ def send_media_message(
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
         ) from exc
+    if sent is False:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Envios externos ainda não habilitados.",
+        )
 
     msg = Message(
         igreja_id=uuid.UUID(current_user.igreja_id),

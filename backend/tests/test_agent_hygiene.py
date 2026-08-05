@@ -250,6 +250,59 @@ def test_worker_nao_envia_auto_resposta_para_sem_interesse(monkeypatch) -> None:
     )
 
 
+def test_worker_nao_persiste_resposta_suprimida_pelo_guard(monkeypatch) -> None:
+    import app.agent.runtime as runtime
+    import app.services.evolution as evo
+    from app.workers import queue_worker as qw
+
+    cid, pid, gid = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    conv = SimpleNamespace(id=cid, pessoa_id=pid, igreja_id=gid, estado="ia")
+    pessoa = SimpleNamespace(id=pid, optout=False, sem_interesse=False, tipo="contato")
+    cred = SimpleNamespace(validado=True, ativo=True, provedor="openai", api_key_encrypted="x")
+    config = SimpleNamespace(ativo=True, comportamento=None)
+    session = _WorkerAgentSession(conv, pessoa, cred, config)
+    factory_calls = 0
+
+    def session_factory():
+        nonlocal factory_calls
+        factory_calls += 1
+        return session
+
+    monkeypatch.setattr(qw, "mark_tenant_scoped", lambda *a, **k: None)
+    monkeypatch.setattr(qw, "log_if_not_scoped", lambda *a, **k: None)
+    monkeypatch.setattr(
+        runtime,
+        "process_inbound_message",
+        lambda *a, **k: SimpleNamespace(
+            handled=True,
+            suppressed=False,
+            response="Resposta que não pode sair",
+        ),
+    )
+
+    class _SuppressedEvolution:
+        def send_text(self, *a, **k):
+            return False
+
+    monkeypatch.setattr(evo, "EvolutionClient", lambda *a, **k: _SuppressedEvolution())
+
+    outcome = qw.IngestionOutcome(
+        result=qw.IngestionResult.REGISTERED,
+        conversation_id=cid,
+        instance="inst-1",
+        telefone="5511999999999",
+        texto="olá",
+        inbound=True,
+        igreja_id=gid,
+    )
+
+    qw.run_agent_for_message(session_factory, outcome)
+
+    assert factory_calls == 1
+    assert session.committed is False
+    assert session.added == []
+
+
 # ---- (e) AgentConfig.ativo=false pausa o agente (Missão 7B-3) --------------
 class _ConfigInactiveSession:
     """Conversa+pessoa normais, credencial BYO válida, AgentConfig.ativo=false."""

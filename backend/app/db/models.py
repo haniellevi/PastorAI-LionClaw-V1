@@ -1413,6 +1413,13 @@ class Broadcast(Base):
                 "status = 'agendado' AND proxima_execucao IS NOT NULL"
             ),
         ),
+        Index(
+            "broadcasts_igreja_idempotency_uq",
+            "igreja_id",
+            "idempotency_key",
+            unique=True,
+            postgresql_where=text("idempotency_key IS NOT NULL"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
@@ -1430,6 +1437,7 @@ class Broadcast(Base):
     repeticao: Mapped[str | None] = mapped_column(String, nullable=True)
     alcance: Mapped[int | None] = mapped_column(Integer, nullable=True)
     ignorados_optout: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    idempotency_key: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str | None] = mapped_column(String, nullable=True)
     # NULL deliberately keeps every legacy scheduled row inactive. Only a new
     # request made with the async gate enabled receives a due instant.
@@ -1525,6 +1533,10 @@ class BroadcastEntrega(Base):
             name="broadcast_entregas_status_chk",
         ),
         CheckConstraint("tentativas >= 0", name="broadcast_entregas_tentativas_chk"),
+        CheckConstraint(
+            "retry_budget_used >= 0",
+            name="broadcast_entregas_retry_budget_chk",
+        ),
         UniqueConstraint(
             "execucao_id", "telefone", name="broadcast_entregas_execucao_telefone_uq"
         ),
@@ -1555,6 +1567,12 @@ class BroadcastEntrega(Base):
             "lease_ate",
             postgresql_where=text("status = 'em_envio'"),
         ),
+        Index(
+            "idx_broadcast_entregas_retry_due",
+            "igreja_id",
+            "next_attempt_at",
+            postgresql_where=text("status = 'falhou_retentavel'"),
+        ),
         Index("idx_broadcast_entregas_criado", "criado_em"),
     )
 
@@ -1582,7 +1600,13 @@ class BroadcastEntrega(Base):
     tentativas: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default=text("0")
     )
+    retry_budget_used: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
     lease_ate: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    next_attempt_at: Mapped[dt.datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
     claim_por: Mapped[str | None] = mapped_column(Text, nullable=True)
