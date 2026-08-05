@@ -2,8 +2,8 @@
 
 Garante que, fora de produção e sem override, os métodos de efeito externo
 (WhatsApp, cobrança, e-mail, LLM, calendário) NÃO tocam a rede — retornam um
-valor neutro e logam ``[SANDBOX]`` sem expor segredo —, enquanto em produção (ou
-com ``ALLOW_REAL_SENDS=true``) o comportamento real é preservado.
+valor neutro e logam ``[OUTBOUND_DISABLED]`` sem expor segredo. Qualquer ambiente
+só toca a rede com ``ALLOW_REAL_SENDS=true``.
 """
 
 from __future__ import annotations
@@ -12,9 +12,9 @@ import httpx
 import pytest
 
 from app.config import Settings
-from app.services.asaas import AsaasClient
-from app.services.brevo import BrevoClient
-from app.services.evolution import EvolutionClient
+from app.services.asaas import AsaasClient, AsaasError
+from app.services.brevo import BrevoClient, BrevoError
+from app.services.evolution import EvolutionClient, EvolutionError
 from app.services.google_calendar import GoogleCalendarClient, GoogleCalendarError
 from app.services.llm import LLMClient
 from app.services.outbound_guard import external_sends_allowed
@@ -85,13 +85,13 @@ def _capture_network(monkeypatch, response: httpx.Response) -> list[httpx.Reques
 @pytest.mark.parametrize(
     "app_env,allow,expected",
     [
-        ("production", False, True),   # prod permite por padrão
+        ("production", False, False),  # prod também exige ativação explícita
         ("production", True, True),
         ("staging", False, False),     # não-prod bloqueia por padrão
         ("staging", True, True),       # override explícito
         ("development", False, False),
         ("development", True, True),
-        ("PRODUCTION", False, True),   # case-insensitive
+        ("PRODUCTION", False, False),  # case-insensitive
     ],
 )
 def test_external_sends_enabled_matrix(app_env, allow, expected) -> None:
@@ -113,7 +113,7 @@ def test_default_settings_block_sends() -> None:
 # ---------------------------------------------------------------------------
 def test_send_text_blocked(monkeypatch) -> None:
     _block_network(monkeypatch)
-    assert EvolutionClient(_settings()).send_text("igreja-1", "5511999990000", "oi") is True
+    assert EvolutionClient(_settings()).send_text("igreja-1", "5511999990000", "oi") is False
 
 
 def test_send_media_blocked(monkeypatch) -> None:
@@ -121,7 +121,7 @@ def test_send_media_blocked(monkeypatch) -> None:
     ok = EvolutionClient(_settings()).send_media(
         "igreja-1", "5511999990000", mediatype="image", media_base64="Zm9v"
     )
-    assert ok is True
+    assert ok is False
 
 
 def test_set_webhook_blocked(monkeypatch) -> None:
@@ -144,6 +144,26 @@ def test_disconnect_blocked(monkeypatch) -> None:
     assert EvolutionClient(_settings()).disconnect("igreja-1").status == "offline"
 
 
+@pytest.mark.parametrize(
+    "operation",
+    [
+        lambda client: client.connect("igreja-1"),
+        lambda client: client.reconnect("igreja-1"),
+        lambda client: client.disconnect("igreja-1"),
+        lambda client: client.set_webhook("igreja-1"),
+    ],
+    ids=["connect", "reconnect", "disconnect", "set-webhook"],
+)
+def test_evolution_mutations_fail_closed_in_production(
+    monkeypatch, operation
+) -> None:
+    _block_network(monkeypatch)
+    client = EvolutionClient(_settings(app_env="production"))
+
+    with pytest.raises(EvolutionError, match="desabilitadas"):
+        operation(client)
+
+
 def test_create_checkout_blocked(monkeypatch) -> None:
     _block_network(monkeypatch)
     result = AsaasClient(_settings()).create_checkout(
@@ -152,6 +172,38 @@ def test_create_checkout_blocked(monkeypatch) -> None:
     assert result.subscription_id == "sandbox"
     assert result.status == "pendente"
     assert result.invoice_url is None
+
+
+@pytest.mark.parametrize(
+    "operation",
+    [
+        lambda client: client.create_checkout(
+            nome="Igreja Teste",
+            email="t@x.com",
+            plano="ate_100",
+            valor=49.9,
+        ),
+        lambda client: client.update_subscription(
+            "sub_1", valor=99.9, descricao="PastorAI — plano ate_100"
+        ),
+        lambda client: client.create_one_time_charge(
+            customer_id="cus_1",
+            valor=1000.0,
+            description="PastorAI — taxa de setup",
+            external_reference="op_1",
+        ),
+        lambda client: client.restore_payment("pay_1"),
+    ],
+    ids=["checkout", "plan-change", "one-time-charge", "restore-payment"],
+)
+def test_asaas_mutations_fail_closed_in_production(
+    monkeypatch, operation
+) -> None:
+    _block_network(monkeypatch)
+    client = AsaasClient(_settings(app_env="production"))
+
+    with pytest.raises(AsaasError, match="desabilitadas"):
+        operation(client)
 
 
 def test_send_invite_blocked(monkeypatch) -> None:
@@ -172,6 +224,26 @@ def test_send_password_reset_blocked(monkeypatch) -> None:
         )
         == ""
     )
+
+
+@pytest.mark.parametrize(
+    "operation",
+    [
+        lambda client: client.send_invite(
+            to_email="t@x.com", nome="T", activation_link="http://x/a"
+        ),
+        lambda client: client.send_password_reset(
+            to_email="t@x.com", reset_link="http://x/r"
+        ),
+    ],
+    ids=["invite", "password-reset"],
+)
+def test_brevo_sends_fail_closed_in_production(monkeypatch, operation) -> None:
+    _block_network(monkeypatch)
+    client = BrevoClient(_settings(app_env="production"))
+
+    with pytest.raises(BrevoError, match="desabilitado"):
+        operation(client)
 
 
 def test_create_event_blocked_raises(monkeypatch) -> None:
@@ -205,7 +277,7 @@ def test_llm_complete_blocked(monkeypatch) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 3) Override e produção preservam o comportamento real
+# 3) O override explícito preserva o comportamento real
 # ---------------------------------------------------------------------------
 def test_send_text_allowed_with_override(monkeypatch) -> None:
     seen = _capture_network(monkeypatch, httpx.Response(200, json={"key": {"id": "X"}}))
@@ -216,9 +288,18 @@ def test_send_text_allowed_with_override(monkeypatch) -> None:
     assert len(seen) == 1 and seen[0].url.path.endswith("/message/sendText/igreja-1")
 
 
-def test_send_text_allowed_in_production(monkeypatch) -> None:
+def test_send_text_blocked_in_production_without_activation(monkeypatch) -> None:
+    _block_network(monkeypatch)
+    assert EvolutionClient(_settings(app_env="production")).send_text(
+        "igreja-1", "5599", "oi"
+    ) is False
+
+
+def test_send_text_allowed_in_production_with_activation(monkeypatch) -> None:
     seen = _capture_network(monkeypatch, httpx.Response(200, json={}))
-    EvolutionClient(_settings(app_env="production")).send_text("igreja-1", "5599", "oi")
+    EvolutionClient(_settings(app_env="production", allow_real_sends=True)).send_text(
+        "igreja-1", "5599", "oi"
+    )
     assert len(seen) == 1
 
 
@@ -243,7 +324,7 @@ def test_sandbox_log_has_no_secret_or_pii(monkeypatch, caplog) -> None:
             to_email="alguem@real.com", nome="N", activation_link="http://x/a"
         )
     blob = "\n".join(r.getMessage() for r in caplog.records)
-    assert "[SANDBOX]" in blob
+    assert "[OUTBOUND_DISABLED]" in blob
     assert "send_text" in blob
     # nem telefone, nem e-mail, nem chaves de API vazam para o log:
     for leak in ("5511999990000", "texto secreto", "alguem@real.com",

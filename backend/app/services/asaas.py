@@ -149,6 +149,14 @@ class AsaasClient:
     def __init__(self, settings: Settings | None = None) -> None:
         self._settings = settings or get_settings()
 
+    def _suppress_or_reject_mutation(self, action: str) -> None:
+        """Keep sandbox no-ops out of production financial state changes."""
+        log_suppressed("Asaas", action)
+        if self._settings.is_production:
+            raise AsaasError(
+                "Operações de cobrança estão desabilitadas pelo gate de produção"
+            )
+
     def _require_config(self) -> tuple[str, str]:
         base_url = self._settings.asaas_api_url
         api_key = self._settings.asaas_api_key
@@ -190,7 +198,7 @@ class AsaasClient:
         router a emite como operação durável retry-safe.
         """
         if not external_sends_allowed(self._settings):
-            log_suppressed("Asaas", "create_checkout")
+            self._suppress_or_reject_mutation("create_checkout")
             return CheckoutResult(
                 customer_id="sandbox",
                 subscription_id="sandbox",
@@ -324,11 +332,11 @@ class AsaasClient:
 
         PUT /subscriptions/{id} com ``updatePendingPayments=false``: cobranças
         já emitidas ficam intocadas e o novo valor vale a partir do próximo
-        ciclo — nunca cria outra recorrência. Returns None when external sends
-        are sandboxed.
+        ciclo — nunca cria outra recorrência. Em staging/dev retorna None
+        quando sandboxed; em produção com o gate fechado falha fechado.
         """
         if not external_sends_allowed(self._settings):
-            log_suppressed("Asaas", "update_subscription")
+            self._suppress_or_reject_mutation("update_subscription")
             return None
         base_url, api_key = self._require_config()
         headers = self._headers(api_key)
@@ -375,11 +383,11 @@ class AsaasClient:
 
         SEMPRE chamado por uma operação durável: ``external_reference`` é a
         operation_key exclusiva persistida antes do POST — o retry reconcilia
-        por ela em vez de repetir a chamada. Returns None when external sends
-        are sandboxed.
+        por ela em vez de repetir a chamada. Em staging/dev retorna None
+        quando sandboxed; em produção com o gate fechado falha fechado.
         """
         if not external_sends_allowed(self._settings):
-            log_suppressed("Asaas", "create_one_time_charge")
+            self._suppress_or_reject_mutation("create_one_time_charge")
             return None
         if 0 < valor < MIN_UNDEFINED_PAYMENT_VALUE:
             # Validação LOCAL que comprova a não-criação: rejeição definitiva.
@@ -509,10 +517,11 @@ class AsaasClient:
 
         Only meaningful for excluded (not refunded) charges. The caller checks
         the current payment state first — restore is NOT assumed idempotent.
-        Returns None when external sends are sandboxed.
+        Em staging/dev retorna None quando sandboxed; em produção com o gate
+        fechado falha fechado.
         """
         if not external_sends_allowed(self._settings):
-            log_suppressed("Asaas", "restore_payment")
+            self._suppress_or_reject_mutation("restore_payment")
             return None
         base_url, api_key = self._require_config()
         headers = self._headers(api_key)

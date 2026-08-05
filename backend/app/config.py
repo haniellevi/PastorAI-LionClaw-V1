@@ -66,9 +66,9 @@ class Settings(BaseSettings):
     frontend_url: str = Field(default="http://localhost:3000")
 
     # ---- Guard de envios externos (B2) --------------------------------------
-    # Fora de produção, efeitos REAIS (WhatsApp, cobrança, e-mail, LLM, agenda)
-    # ficam DESLIGADOS por padrão. Este flag liga-os explicitamente — use apenas
-    # com credenciais de SANDBOX, nunca de produção. Ver external_sends_enabled.
+    # Efeitos REAIS (WhatsApp, cobrança, e-mail, LLM, agenda) ficam DESLIGADOS
+    # por padrão em TODOS os ambientes. Produção também exige opt-in explícito:
+    # isso permite validar login/saúde antes de liberar qualquer saída externa.
     allow_real_sends: bool = Field(default=False)
 
     # ---- Agenda: aviso de confirmação (EVT-7 PR1) ---------------------------
@@ -127,6 +127,19 @@ class Settings(BaseSettings):
 
     # ---- Worker / Filas (RNF-17) --------------------------------------------
     redis_url: str = Field(default="redis://localhost:6379/0")
+
+    # ---- Broadcast persistente (BROADCAST-DELIVERY-1) -----------------------
+    # Gate de rollout lido no boot. Enquanto false, "agora" preserva o fluxo
+    # sincrono legado e "agendado" falha com 503 antes de persistir. O worker
+    # dedicado pode permanecer desligado/ocioso sem prometer entregas.
+    broadcast_async_enabled: bool = Field(default=False)
+    broadcast_worker_tick_seconds: int = Field(default=10, ge=1, le=3600)
+    broadcast_max_broadcasts_por_ciclo: int = Field(default=20, ge=1, le=1000)
+    broadcast_max_entregas_por_ciclo: int = Field(default=200, ge=1, le=10000)
+    broadcast_max_tentativas: int = Field(default=3, ge=1, le=20)
+    broadcast_claim_seconds: int = Field(default=60, ge=1, le=3600)
+    broadcast_entrega_lease_seconds: int = Field(default=120, ge=1, le=3600)
+    broadcast_send_interval_ms: int = Field(default=1000, ge=0, le=60000)
 
     # ---- Agente Orquestrador / LLM BYO (US-08/US-27 / delta-034) ------------
     # Default OpenAI key is optional: each igreja brings its own encrypted key.
@@ -246,12 +259,13 @@ class Settings(BaseSettings):
     def external_sends_enabled(self) -> bool:
         """Se efeitos externos reais podem disparar (guard B2).
 
-        Produção permite; fora de produção fica bloqueado por padrão, a menos
-        que ``ALLOW_REAL_SENDS`` seja ligado explicitamente (só com credenciais
-        sandbox). É a trava dupla que protege local/staging de enviar WhatsApp,
-        cobrar, mandar e-mail, gastar token de LLM ou mexer no Google Calendar.
+        Todos os ambientes ficam bloqueados por padrão. Somente
+        ``ALLOW_REAL_SENDS=true`` libera WhatsApp, cobrança, e-mail, LLM e
+        Google Calendar. Em produção isso funciona como gate operacional de
+        ativação depois dos smokes de login/saúde; mutações financeiras
+        bloqueadas falham fechado, sem simular sucesso local.
         """
-        return self.is_production or self.allow_real_sends
+        return self.allow_real_sends
 
     @property
     def effective_jwks_url(self) -> str:

@@ -236,7 +236,7 @@ def test_evolution_failure_does_not_break_and_leaves_notificado_em_null() -> Non
 # ---------------------------------------------------------------------------
 def test_outbound_guard_not_bypassed(monkeypatch) -> None:
     """Com um EvolutionClient REAL e ambiente não-produção, o envio é suprimido
-    pelo guard (send_text simula sucesso sem rede). Se o guard fosse contornado, o
+    pelo guard e retorna False. Se o guard fosse contornado, o
     transport bloqueante abaixo levantaria — provando que o único caminho de envio
     é o send_text guardado.
     """
@@ -263,9 +263,10 @@ def test_outbound_guard_not_bypassed(monkeypatch) -> None:
     event = _event()
     session = _session_with_recipient()
     # sem injetar evolution → usa EvolutionClient(settings) real (guardado).
-    assert notify_event_confirmed(session, event, settings=settings) is True
-    # guard suprimiu a rede, mas o envio "simulado" contou como sucesso.
-    assert event.notificado_em is not None
+    assert notify_event_confirmed(session, event, settings=settings) is False
+    # Supressão não é entrega: o evento continua elegível para uma tentativa
+    # real quando o gate operacional for ativado.
+    assert event.notificado_em is None
 
 
 # ---------------------------------------------------------------------------

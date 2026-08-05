@@ -51,6 +51,7 @@ from app.services.evolution import (
     EvolutionError,
     get_evolution_client,
 )
+from app.services.outbound_guard import external_sends_allowed, log_suppressed
 from app.services.storage import (
     StorageError,
     SupabaseStorage,
@@ -522,13 +523,18 @@ def send_message(
     # saber quem é); no banco guardamos o texto limpo + autor_nome.
     author = current_user.chat_nome or current_user.nome
     try:
-        evolution.send_text(
+        sent = evolution.send_text(
             conn.instance, conv.telefone, _author_caption(author, payload.texto)
         )
     except EvolutionError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
         ) from exc
+    if sent is False:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Envios externos ainda não habilitados.",
+        )
 
     msg = Message(
         igreja_id=uuid.UUID(current_user.igreja_id),
@@ -597,6 +603,16 @@ def send_media_message(
 
     tipo = kind_for_mime(payload.mime)
 
+    # O Storage também é um efeito externo. Com o gate fechado, interrompa
+    # antes do upload; caso contrário a Evolution recusaria o envio depois e o
+    # objeto ficaria órfão, sem Message apontando para ele.
+    if not external_sends_allowed():
+        log_suppressed("WhatsApp", "send_media_upload")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Envios externos ainda não habilitados.",
+        )
+
     # Storage primeiro (ponteiro), depois despacho. Se o upload falhar, nada é
     # enviado; se o envio falhar, não persistimos linha "enviada" fantasma.
     try:
@@ -612,7 +628,7 @@ def send_media_message(
     # legenda, envia o nome); no banco guardamos a legenda limpa + autor_nome.
     author = current_user.chat_nome or current_user.nome
     try:
-        evolution.send_media(
+        sent = evolution.send_media(
             conn.instance,
             conv.telefone,
             mediatype=mediatype_for_tipo(tipo),
@@ -625,6 +641,11 @@ def send_media_message(
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
         ) from exc
+    if sent is False:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Envios externos ainda não habilitados.",
+        )
 
     msg = Message(
         igreja_id=uuid.UUID(current_user.igreja_id),

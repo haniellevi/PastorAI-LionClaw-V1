@@ -359,8 +359,8 @@ class SlaEngine:
             for phone in recipients:
                 attempted = True
                 try:
-                    self._evolution.send_text(instance, phone, texto)
-                    sent_to.append(phone)
+                    if self._evolution.send_text(instance, phone, texto) is not False:
+                        sent_to.append(phone)
                 except EvolutionError:
                     logger.warning(
                         "SLA dispatch failed to send (%s) for %s",

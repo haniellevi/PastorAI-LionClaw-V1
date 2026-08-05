@@ -48,6 +48,15 @@ class BrevoClient:
     def __init__(self, settings: Settings | None = None) -> None:
         self._settings = settings or get_settings()
 
+    def _suppress_or_reject_send(self, action: str) -> None:
+        """Keep non-prod sandboxing, but never fake an e-mail in production."""
+        log_suppressed("Brevo", action)
+        if self._settings.is_production:
+            raise BrevoError(
+                "Envio de e-mail desabilitado em produção; "
+                "ative ALLOW_REAL_SENDS para enviar"
+            )
+
     def _require_config(self) -> tuple[str, str, str, str]:
         base_url = self._settings.brevo_api_url
         api_key = self._settings.brevo_api_key
@@ -60,7 +69,7 @@ class BrevoClient:
     def send_invite(self, *, to_email: str, nome: str, activation_link: str) -> str:
         """Send the activation email; returns the Brevo message id."""
         if not external_sends_allowed(self._settings):
-            log_suppressed("Brevo", "send_invite")
+            self._suppress_or_reject_send("send_invite")
             return ""
         base_url, api_key, from_email, from_name = self._require_config()
         headers = {
@@ -90,7 +99,7 @@ class BrevoClient:
     def send_password_reset(self, *, to_email: str, reset_link: str) -> str:
         """Send the password-reset email; returns the Brevo message id."""
         if not external_sends_allowed(self._settings):
-            log_suppressed("Brevo", "send_password_reset")
+            self._suppress_or_reject_send("send_password_reset")
             return ""
         base_url, api_key, from_email, from_name = self._require_config()
         headers = {

@@ -11,7 +11,7 @@
  *  - opt-out/sem consentimento são removidos; alcance 0 bloqueia o envio
  *    (status=bloqueado) com a contagem de ignorados;
  *  - agendamento no passado é bloqueado;
- *  - WhatsApp offline impede "enviar agora" e sugere agendar;
+ *  - WhatsApp offline/reconectando impede "enviar agora" e sugere agendar;
  *  - segmento sem pessoas avisa no passo segment; histórico vazio usa empty-state.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -23,12 +23,17 @@ import { SessionExpiredError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import {
   SEGMENTS,
+  broadcastStatusLabel,
+  broadcastResultFeedback,
   countSegment,
   createBroadcast,
+  fetchBroadcastCapabilities,
   fetchBroadcasts,
+  isSendNowConnectionUnavailable,
   repeatLabel,
   resolveRecipients,
   type BroadcastItem,
+  type BroadcastCapabilities,
   type BroadcastRepeat,
   type BroadcastResult,
 } from "@/lib/broadcasts-api";
@@ -51,10 +56,21 @@ const STEP_LABEL: Record<Step, string> = {
   review: "Revisão",
 };
 
-function statusTone(status: string | null): PillTone {
+function statusTone(broadcast: BroadcastItem): PillTone {
+  if (broadcast.precisaRevisao) return "danger";
+  if (broadcast.status === "agendado" && broadcast.proximaExecucao) {
+    return "accent";
+  }
+  const status = broadcast.resultadoUltimaExecucao ?? broadcast.status;
+  if (status === "processando") return "accent";
   switch (status) {
     case "enviado":
       return "ok";
+    case "parcial":
+    case "desconhecido":
+      return "warn";
+    case "falhou":
+      return "danger";
     case "agendado":
       return "accent";
     case "rascunho":
@@ -65,18 +81,13 @@ function statusTone(status: string | null): PillTone {
   }
 }
 
-function statusLabel(b: BroadcastItem): string {
-  if (b.status === "enviado") return `Enviado · ${b.alcance ?? 0}`;
-  if (b.status === "agendado") return `Agendado · ${repeatLabel(b.repeticao)}`;
-  if (b.status === "rascunho") return "Bloqueado · opt-out";
-  return b.status ?? "—";
-}
-
 export function ComunicadosScreen() {
   const { token, expireSession } = useAuth();
 
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [history, setHistory] = useState<BroadcastItem[]>([]);
+  const [capabilities, setCapabilities] =
+    useState<BroadcastCapabilities | null>(null);
   const [conn, setConn] = useState<ConnState>("unknown");
   const [loading, setLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
@@ -112,12 +123,14 @@ export function ComunicadosScreen() {
       if (mode === "initial") setLoading(true);
       setError(null);
       try {
-        const [contactPage, broadcastPage] = await Promise.all([
+        const [contactPage, broadcastPage, rollout] = await Promise.all([
           fetchContacts(token),
           fetchBroadcasts(token),
+          fetchBroadcastCapabilities(token),
         ]);
         setContacts(contactPage.items);
         setHistory(broadcastPage.items);
+        setCapabilities(rollout);
         setLoaded(true);
         // Status do WhatsApp é admin-only: 403/erro não bloqueia a tela.
         try {
@@ -141,6 +154,7 @@ export function ComunicadosScreen() {
   }, [load]);
 
   const toastTimer = useRef<number | null>(null);
+  const pendingRequest = useRef<{ fingerprint: string; key: string } | null>(null);
   const flashToast = useCallback((t: Toast) => {
     setToast(t);
     if (toastTimer.current) window.clearTimeout(toastTimer.current);
@@ -169,8 +183,14 @@ export function ComunicadosScreen() {
   }, []);
 
   // ---- regras de envio ----------------------------------------------------
-  const whatsappOffline = conn === "offline";
-  const sendNowBlocked = !scheduleOn && whatsappOffline;
+  const externalSendsBlocked =
+    capabilities?.motivo === "envios_externos_desabilitados";
+  const dispatcherUnavailable = capabilities?.motivo === "despacho_indisponivel";
+  const scheduleAvailable = capabilities?.agendamentoDisponivel === true;
+  const whatsappUnavailable = isSendNowConnectionUnavailable(conn);
+  const sendNowBlocked =
+    !scheduleOn &&
+    (whatsappUnavailable || externalSendsBlocked || dispatcherUnavailable);
 
   const schedulePast = useMemo(() => {
     if (!scheduleOn || !data) return false;
@@ -183,9 +203,12 @@ export function ComunicadosScreen() {
     selectedTokens.length > 0 &&
     recipients.length > 0 &&
     (!scheduleOn || (Boolean(data) && !schedulePast)) &&
+    (!scheduleOn || scheduleAvailable) &&
+    !externalSendsBlocked &&
     !sendNowBlocked;
 
   const resetWizard = useCallback(() => {
+    pendingRequest.current = null;
     setStep("compose");
     setTitulo("");
     setMensagem("");
@@ -202,13 +225,23 @@ export function ComunicadosScreen() {
     setSubmitting(true);
     setBlocked(null);
     try {
-      const result = await createBroadcast(token, {
+      const input = {
         titulo: titulo.trim(),
         mensagem: mensagem.trim(),
         segmentos: selectedTokens,
         modo: scheduleOn ? "agendado" : "agora",
         agendamento: scheduleOn ? { data, hora, repeticao } : null,
-      });
+      } as const;
+      const fingerprint = JSON.stringify(input);
+      if (pendingRequest.current?.fingerprint !== fingerprint) {
+        pendingRequest.current = { fingerprint, key: crypto.randomUUID() };
+      }
+      const result = await createBroadcast(
+        token,
+        input,
+        pendingRequest.current.key,
+      );
+      pendingRequest.current = null;
 
       if (result.status === "bloqueado") {
         setBlocked(result);
@@ -222,13 +255,7 @@ export function ComunicadosScreen() {
       } catch {
         /* histórico opcional */
       }
-      flashToast({
-        kind: "ok",
-        text:
-          result.status === "agendado"
-            ? `Comunicado agendado. ${result.ignoradosOptout} ignorado(s) por opt-out.`
-            : `Comunicado enviado a ${result.enviados} contato(s). ${result.ignoradosOptout} ignorado(s).`,
-      });
+      flashToast(broadcastResultFeedback(result));
       resetWizard();
     } catch (err) {
       if (handleSessionError(err)) return;
@@ -283,6 +310,21 @@ export function ComunicadosScreen() {
 
       <div className="grid-2" style={{ alignItems: "start" }}>
         <div className="card card-pad">
+          {externalSendsBlocked ? (
+            <div
+              className="degraded-banner"
+              role="status"
+              style={{ borderRadius: "var(--r-md)", marginBottom: "var(--s4)" }}
+            >
+              <Icon name="alert" />
+              <span>
+                Envios temporariamente desativados durante a validação de
+                produção. Você pode consultar o histórico, mas ainda não pode
+                disparar mensagens.
+              </span>
+            </div>
+          ) : null}
+
           {/* steps */}
           <ol className="bc-steps" aria-label="Etapas do comunicado">
             {(["compose", "segment", "review"] as Step[]).map((s, i) => (
@@ -402,6 +444,7 @@ export function ComunicadosScreen() {
                   <Toggle
                     label="Agendar envio"
                     checked={scheduleOn}
+                    disabled={!scheduleAvailable || externalSendsBlocked}
                     onChange={(on) => setScheduleOn(on)}
                   />
                 </div>
@@ -409,8 +452,17 @@ export function ComunicadosScreen() {
                   <div className="degraded-banner" role="alert" style={{ borderRadius: "var(--r-md)", marginTop: "var(--s3)" }}>
                     <Icon name="alert" />
                     <span>
-                      WhatsApp offline: não é possível enviar agora. Ative
-                      &ldquo;Agendar envio&rdquo; ou reconecte o número.
+                      {externalSendsBlocked
+                        ? "Os envios externos ainda não foram liberados."
+                        : dispatcherUnavailable
+                          ? "O serviço seguro de envios está indisponível no momento."
+                          : conn === "reconectando"
+                            ? scheduleAvailable
+                              ? "WhatsApp reconectando: aguarde ficar online ou agende o envio."
+                              : "WhatsApp reconectando: aguarde ficar online para enviar."
+                            : scheduleAvailable
+                              ? "WhatsApp offline: reconecte o número ou agende o envio."
+                              : "WhatsApp offline: reconecte o número para enviar."}
                     </span>
                   </div>
                 ) : null}
@@ -516,7 +568,11 @@ export function ComunicadosScreen() {
                 <button
                   type="button"
                   className="btn btn-primary"
-                  disabled={submitting}
+                  disabled={
+                    submitting ||
+                    externalSendsBlocked ||
+                    (scheduleOn && !scheduleAvailable)
+                  }
                   aria-busy={submitting || undefined}
                   onClick={() => void handleSubmit()}
                 >
@@ -560,7 +616,9 @@ export function ComunicadosScreen() {
                         .join(", ")}
                     </div>
                   </div>
-                  <StatusPill tone={statusTone(b.status)}>{statusLabel(b)}</StatusPill>
+                  <StatusPill tone={statusTone(b)}>
+                    {broadcastStatusLabel(b)}
+                  </StatusPill>
                 </div>
               ))}
             </div>

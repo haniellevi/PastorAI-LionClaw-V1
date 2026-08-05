@@ -5,8 +5,11 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import uuid
 from types import SimpleNamespace
 
+import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app.config import get_settings
@@ -132,6 +135,62 @@ def test_send_media_rejects_missing_fields(app) -> None:
     client = _client(app, roles=["admin"])
     resp = client.post(_CONV_MEDIA, json={"mime": "image/png"}, headers=_AUTH)
     assert resp.status_code == 422
+
+
+def test_send_media_guard_blocks_before_storage_upload(monkeypatch) -> None:
+    """Gate fechado não pode deixar objeto órfão no Supabase Storage."""
+    from app.routers import conversations
+
+    app_user_id = uuid.uuid4()
+    igreja_id = uuid.uuid4()
+    conv = SimpleNamespace(
+        id=uuid.uuid4(),
+        estado="humano",
+        assumido_por=app_user_id,
+        telefone="5511999990000",
+    )
+    connection = SimpleNamespace(status="online", instance="igreja-1")
+
+    class _Result:
+        def scalar_one_or_none(self):
+            return connection
+
+    class _DB:
+        def execute(self, _query):
+            return _Result()
+
+    class _ForbiddenStorage:
+        def upload(self, *args, **kwargs):  # pragma: no cover - must not run
+            raise AssertionError("Storage não deve ser tocado com gate fechado")
+
+    class _ForbiddenEvolution:
+        def send_media(self, *args, **kwargs):  # pragma: no cover - must not run
+            raise AssertionError("Evolution não deve ser tocada com gate fechado")
+
+    monkeypatch.setattr(
+        conversations, "_get_conversation_for_update", lambda *_args: conv
+    )
+    monkeypatch.setattr(
+        conversations, "_authorize_conversation_view", lambda *_args: None
+    )
+    monkeypatch.setattr(conversations, "external_sends_allowed", lambda: False)
+
+    with pytest.raises(HTTPException) as exc_info:
+        conversations.send_media_message(
+            str(conv.id),
+            conversations.SendMediaRequest(mime="image/png", base64="Zm9v"),
+            db=_DB(),
+            current_user=SimpleNamespace(
+                igreja_id=str(igreja_id),
+                app_user_id=str(app_user_id),
+                chat_nome=None,
+                nome="Pastor Teste",
+            ),
+            evolution=_ForbiddenEvolution(),
+            storage=_ForbiddenStorage(),
+        )
+
+    assert exc_info.value.status_code == 503
 
 
 # ---- MessageOut carrega o nome de quem respondeu (Parte A) -----------------

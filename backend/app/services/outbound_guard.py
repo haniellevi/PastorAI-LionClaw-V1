@@ -1,9 +1,9 @@
-"""Guard de efeitos externos reais em ambientes não-produção (B2).
+"""Guard de efeitos externos reais (B2).
 
 Efeitos externos — enviar WhatsApp (Evolution), cobrar (Asaas), e-mail (Brevo),
 gastar token de LLM e criar/editar evento no Google Calendar — NÃO devem
-disparar de local/staging. Produção permite; fora de produção fica bloqueado por
-padrão, a menos que ``ALLOW_REAL_SENDS=true`` (apenas com credenciais sandbox).
+disparar antes de uma ativação operacional explícita. Todos os ambientes,
+inclusive produção, ficam bloqueados até ``ALLOW_REAL_SENDS=true``.
 
 O guard age na CAMADA DE SERVIÇO de propósito: alguns envios são disparados de
 forma autônoma (worker do agente, cron de SLA) sem passar por nenhum router —
@@ -31,5 +31,5 @@ def external_sends_allowed(settings: Settings | None = None) -> bool:
 
 
 def log_suppressed(channel: str, action: str) -> None:
-    """Registra, sem segredo nem PII, um efeito externo suprimido fora de prod."""
-    logger.info("[SANDBOX] %s suprimido em nao-producao: %s", channel, action)
+    """Registra, sem segredo nem PII, um efeito externo suprimido pelo gate."""
+    logger.info("[OUTBOUND_DISABLED] %s suprimido: %s", channel, action)

@@ -1,4 +1,10 @@
-# PROD/DEV — Runbook operacional (ambientes, deploy, comandos)
+# ARQUIVO HISTÓRICO — NÃO EXECUTAR
+
+Este documento descreve a VPS antiga e o processo usado em 2026-06-30. O
+runbook vigente é [PRODUCTION-RUNBOOK.md](PRODUCTION-RUNBOOK.md). Não copie IPs,
+flags ou comandos deste arquivo para a produção atual.
+
+# PROD/DEV — Runbook operacional histórico (ambientes, deploy, comandos)
 
 Estado operacional **real** dos ambientes do PastorAI / Igreja 12 e o processo de
 deploy de cada camada, como executado na promoção da **Agenda MVP (EVT-1..5)** em
@@ -42,16 +48,17 @@ O MESMO deployment Vercel serve **três subdomínios**, roteados por Host no
 - CORS do backend deriva `admin.` e `painel.` de `app.` automaticamente
   (`config.py::cors_origins`).
 
-⚠️ **Envios externos em produção:** como `external_sends_enabled = is_production OR
-allow_real_sends`, em prod (`is_production=true`) **os envios reais estão ligados**
-independente de `ALLOW_REAL_SENDS`. WhatsApp/e-mail/cobrança/Google podem disparar
-de verdade. Fora de prod, ficam travados por padrão (guard B2).
+⚠️ **Envios externos em produção:** `external_sends_enabled = ALLOW_REAL_SENDS`.
+O primeiro deploy usa `ALLOW_REAL_SENDS=false`; WhatsApp/e-mail/LLM/Google ficam
+suprimidos. Mutações financeiras Asaas, conexão Evolution e envios Brevo falham
+fechado, sem confirmar mudanças locais, conexão ou e-mail inexistentes. A
+liberação para `true` é um gate operacional separado após os smokes.
 
 ---
 
 ## 2. Infra de produção (VPS)
 
-- **VPS:** Hostinger, `2.25.167.107` (Ubuntu, KVM).
+- **VPS:** Hostinger, `76.13.234.127` (`srv1728329.hstgr.cloud`, Campinas).
 - **Caminho real do projeto:** `/opt/pastorai-lionclaw` (⚠️ **não** `/opt/pastorai`).
 - **A VPS NÃO tem `.git`** — o código não é versionado lá; deploy é por **cópia/tarball**
   do backend versionado (ver §3).

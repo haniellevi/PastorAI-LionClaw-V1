@@ -19,7 +19,10 @@ from __future__ import annotations
 import hashlib
 import hmac
 import logging
+import math
+from datetime import datetime, timezone
 from dataclasses import dataclass
+from email.utils import parsedate_to_datetime
 
 import httpx
 
@@ -37,6 +40,17 @@ _STATE_MAP = {
     "closed": "offline",
     "disconnected": "offline",
 }
+
+
+def _transport_error_class(exc: httpx.HTTPError) -> str:
+    """Return a stable, non-PII technical class for ledger/audit use."""
+    name = type(exc).__name__
+    chars: list[str] = []
+    for index, char in enumerate(name):
+        if char.isupper() and index:
+            chars.append("_")
+        chars.append(char.lower())
+    return "".join(chars)
 
 
 def map_connection_state(raw_state: str | None) -> str:
@@ -77,6 +91,41 @@ class ConnectionResult:
     pairing_code: str | None = None  # numeric pairing code (connect with number)
 
 
+@dataclass(frozen=True)
+class BroadcastSendResult:
+    """Classified outcome of one broadcast ``sendText`` call.
+
+    ``aceito`` means only HTTP 2xx from Evolution. Results that may have
+    crossed the network boundary are ``desconhecido`` so the broadcast worker
+    never retries them automatically.
+    """
+
+    status: str
+    error_class: str | None = None
+    retry_after_seconds: int | None = None
+    consume_retry_budget: bool = True
+
+
+def _retry_after_seconds(response: httpx.Response) -> int | None:
+    """Parse numeric or HTTP-date Retry-After without trusting the body."""
+    raw = response.headers.get("Retry-After", "").strip()
+    if raw.isdigit():
+        return min(86400, max(1, int(raw)))
+    try:
+        retry_at = parsedate_to_datetime(raw)
+        if retry_at.tzinfo is None:
+            retry_at = retry_at.replace(tzinfo=timezone.utc)
+        date_header = response.headers.get("Date", "").strip()
+        reference = parsedate_to_datetime(date_header) if date_header else None
+        if reference is None:
+            reference = datetime.now(timezone.utc)
+        elif reference.tzinfo is None:
+            reference = reference.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return min(86400, max(1, math.ceil((retry_at - reference).total_seconds())))
+
+
 def verify_webhook_signature(secret: str, payload: bytes, signature: str | None) -> bool:
     """Validate an inbound webhook HMAC-SHA256 signature in constant time.
 
@@ -110,6 +159,15 @@ class EvolutionClient:
     def __init__(self, settings: Settings | None = None) -> None:
         self._settings = settings or get_settings()
 
+    def _suppress_or_reject_mutation(self, action: str) -> None:
+        """Keep non-prod simulation, but prevent false local state in prod."""
+        log_suppressed("WhatsApp", action)
+        if self._settings.is_production:
+            raise EvolutionError(
+                "Operações da Evolution desabilitadas em produção; "
+                "ative ALLOW_REAL_SENDS para alterar a conexão"
+            )
+
     def _require_config(self) -> tuple[str, str]:
         base_url = self._settings.evolution_api_url
         api_key = self._settings.evolution_api_key
@@ -130,7 +188,7 @@ class EvolutionClient:
         the fallback when QR scanning fails.
         """
         if not external_sends_allowed(self._settings):
-            log_suppressed("WhatsApp", "connect")
+            self._suppress_or_reject_mutation("connect")
             return ConnectionResult(status="offline")
         base_url, api_key = self._require_config()
         headers = self._headers(api_key)
@@ -164,7 +222,7 @@ class EvolutionClient:
     def reconnect(self, instance: str, numero: str | None = None) -> ConnectionResult:
         """Restart an instance and return a fresh QR/pairing code + state.
 
-        Evolution v2.3.7 answers ``PUT /instance/restart`` with 404 when the
+        Evolution v2.1.1 answers ``PUT /instance/restart`` with 404 when the
         instance has no live socket yet, so the restart is best-effort: its
         failure is logged but never aborts the reconnect. The instance is
         (re)created if missing and ``/instance/connect`` still yields a fresh QR
@@ -172,7 +230,7 @@ class EvolutionClient:
         ``numero`` is given a numeric pairing code is requested instead of a QR.
         """
         if not external_sends_allowed(self._settings):
-            log_suppressed("WhatsApp", "reconnect")
+            self._suppress_or_reject_mutation("reconnect")
             return ConnectionResult(status="offline")
         base_url, api_key = self._require_config()
         headers = self._headers(api_key)
@@ -182,7 +240,7 @@ class EvolutionClient:
                 # Ensure the instance exists so a never-connected igreja can pair.
                 self._ensure_instance(client, headers, instance)
                 # Restart drops the current socket so connect yields a fresh QR.
-                # A 404/failure here is expected on v2.3.7 and must not hide the
+                # A 404/failure here is expected on v2.1.1 and must not hide the
                 # QR from the admin — log it and fall through to connect.
                 try:
                     restart = client.put(
@@ -238,7 +296,7 @@ class EvolutionClient:
         logged-out instance is treated as success (idempotent). Returns offline.
         """
         if not external_sends_allowed(self._settings):
-            log_suppressed("WhatsApp", "disconnect")
+            self._suppress_or_reject_mutation("disconnect")
             return ConnectionResult(status="offline")
         base_url, api_key = self._require_config()
         headers = self._headers(api_key)
@@ -265,7 +323,7 @@ class EvolutionClient:
         """
         if not external_sends_allowed(self._settings):
             log_suppressed("WhatsApp", "send_text")
-            return True
+            return False
         base_url, api_key = self._require_config()
         headers = self._headers(api_key)
         try:
@@ -280,6 +338,106 @@ class EvolutionClient:
             logger.warning("Evolution sendText failed: %s", type(exc).__name__)
             raise EvolutionError("Falha ao enviar mensagem pela Evolution API") from exc
         return True
+
+    def send_text_classificado(
+        self, instance: str, telefone: str, texto: str
+    ) -> BroadcastSendResult:
+        """Send one broadcast message and preserve retry-safety information.
+
+        Only failures proven to happen before a request can be accepted by the
+        provider are retryable. Read/write failures, HTTP 5xx, and any unknown
+        transport outcome are ambiguous and therefore quarantined. Response
+        bodies are deliberately neither stored nor logged because providers may
+        echo recipient data in them.
+
+        The classified path is separate from :meth:`send_text`, whose boolean
+        is false when the outbound guard suppresses a real send.
+        """
+        if not external_sends_allowed(self._settings):
+            log_suppressed("WhatsApp", "broadcast_send_text")
+            return BroadcastSendResult(
+                status="suprimido", error_class="envio_externo_bloqueado"
+            )
+
+        try:
+            base_url, api_key = self._require_config()
+        except EvolutionError:
+            # Configuration is checked before opening a socket: definitely no
+            # message left this process, so a bounded retry is safe.
+            return BroadcastSendResult(
+                status="falhou_retentavel",
+                error_class="configuracao_ausente",
+                consume_retry_budget=False,
+            )
+
+        headers = self._headers(api_key)
+        try:
+            with httpx.Client(base_url=base_url, timeout=15.0) as client:
+                response = client.post(
+                    f"/message/sendText/{instance}",
+                    headers=headers,
+                    json={"number": telefone, "text": texto},
+                )
+                response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            code = exc.response.status_code
+            logger.warning("Evolution broadcast sendText returned HTTP %s", code)
+            if code == 429:
+                return BroadcastSendResult(
+                    status="falhou_retentavel",
+                    error_class=f"http_{code}",
+                    retry_after_seconds=_retry_after_seconds(exc.response),
+                    consume_retry_budget=False,
+                )
+            if code == 408 or code >= 500:
+                # Evolution/proxy may have accepted the request before failing.
+                return BroadcastSendResult(
+                    status="desconhecido", error_class=f"http_{code}"
+                )
+            return BroadcastSendResult(
+                status="falhou_permanente", error_class=f"http_{code}"
+            )
+        except (httpx.ConnectTimeout, httpx.ConnectError, httpx.PoolTimeout) as exc:
+            logger.warning(
+                "Evolution broadcast sendText failed before send: %s",
+                type(exc).__name__,
+            )
+            return BroadcastSendResult(
+                status="falhou_retentavel",
+                error_class=_transport_error_class(exc),
+                consume_retry_budget=False,
+            )
+        except (
+            httpx.ReadTimeout,
+            httpx.WriteTimeout,
+            httpx.ReadError,
+            httpx.WriteError,
+            httpx.RemoteProtocolError,
+        ) as exc:
+            logger.warning(
+                "Evolution broadcast sendText has ambiguous outcome: %s",
+                type(exc).__name__,
+            )
+            return BroadcastSendResult(
+                status="desconhecido", error_class=_transport_error_class(exc)
+            )
+        except httpx.HTTPError as exc:
+            # Conservative default: an unclassified transport failure may have
+            # happened after bytes left the process.
+            logger.warning(
+                "Evolution broadcast sendText has unclassified outcome: %s",
+                type(exc).__name__,
+            )
+            return BroadcastSendResult(
+                status="desconhecido", error_class=_transport_error_class(exc)
+            )
+        return BroadcastSendResult(status="aceito")
+
+    def send_text_classified(
+        self, instance: str, telefone: str, texto: str
+    ) -> BroadcastSendResult:
+        """English alias for :meth:`send_text_classificado`."""
+        return self.send_text_classificado(instance, telefone, texto)
 
     def get_media_base64(
         self, instance: str, key: dict[str, object]
@@ -333,7 +491,7 @@ class EvolutionClient:
         """
         if not external_sends_allowed(self._settings):
             log_suppressed("WhatsApp", "send_media")
-            return True
+            return False
         base_url, api_key = self._require_config()
         headers = self._headers(api_key)
         body: dict[str, object] = {
@@ -372,7 +530,7 @@ class EvolutionClient:
         back to the flat body for older shapes. Returns True when registered.
         """
         if not external_sends_allowed(self._settings):
-            log_suppressed("WhatsApp", "set_webhook")
+            self._suppress_or_reject_mutation("set_webhook")
             return True
         callback = (self._settings.evolution_webhook_callback_url or "").strip()
         if not callback:

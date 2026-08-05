@@ -1,0 +1,26 @@
+# Não copiar para a imagem (build leve + sem segredos)
+.venv/
+venv/
+env/
+ENV/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.log
+
+# Segredos — NUNCA na imagem
+.env
+.env.*
+
+# Testes não precisam ir pra runtime
+tests/
+
+# Artefatos diversos
+.git/
+.gitignore
+*.md
