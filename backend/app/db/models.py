@@ -1544,6 +1544,90 @@ class CalendarSync(Base):
     access_token_expira_em: Mapped[dt.datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    # Identidade Google VERIFICADA no `finish` (userinfo), não declarada.
+    # `google_account_sub` é o identificador estável da conta: é ele que decide
+    # continuidade (preservar refresh token, preservar a agenda escolhida). O
+    # e-mail muda; o sub não. NULL nas duas colunas = conexão legada, feita antes
+    # do binding de identidade.
+    google_account_email: Mapped[str | None] = mapped_column(Text, nullable=True)
+    google_account_sub: Mapped[str | None] = mapped_column(Text, nullable=True)
+    connected_by_app_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("app_users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    connected_em: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    criado_em: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    atualizado_em: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+
+class CalendarOAuthFlow(Base):
+    """Fluxo OAuth do Google Calendar em voo (OAUTH-CALENDAR-V1).
+
+    Uma linha por clique em "Conectar", com TTL curto. Substitui o ``state`` JWT
+    auto-contido: o callback público só ESTACIONA o ``code`` aqui e quem troca é
+    ``POST /calendar/connect/finish``, autenticado, comparando ``app_user_id`` +
+    ``igreja_id`` antes de consumir a linha.
+
+    Guarda os HASHES de dois segredos DISTINTOS, nunca os valores:
+    ``state_hash`` é a chave que o callback PÚBLICO apresenta (o ``state`` viaja
+    ao Google e cai no access log); ``flow_secret_hash`` é a chave do ``finish``
+    AUTENTICADO (o ``flowSecret`` nunca sai das origens do painel).
+
+    ``verifier_encrypted`` (PKCE) e ``code_encrypted`` são anulados no mesmo
+    UPDATE do consumo — retenção certa é zero.
+    """
+
+    __tablename__ = "calendar_oauth_flows"
+    __table_args__ = (
+        CheckConstraint(
+            "finish_result is null or finish_result in ('connected', 'failed')",
+            name="ck_calendar_oauth_flows_finish_result",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    state_hash: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    flow_secret_hash: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    igreja_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("igrejas.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    app_user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("app_users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    # Origem validada contra a allowlist no /connect; o callback redireciona
+    # para ela. Nunca derivada de Referer nem de campo do cliente.
+    return_origin: Mapped[str] = mapped_column(Text, nullable=False)
+    # Conta Google que o admin DECLAROU antes do redirect, normalizada. O
+    # `finish` compara o e-mail verificado no userinfo contra este valor. Nullable
+    # no schema só por causa de fluxos legados criados antes do binding — a
+    # aplicação sempre grava, e um NULL falha fechado no `finish`.
+    expected_email: Mapped[str | None] = mapped_column(Text, nullable=True)
+    verifier_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    code_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    expires_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    consumed_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # Resultado durável do finish. NULL com consumed_at preenchido significa
+    # processamento em curso (ou request interrompido); replay nunca adivinha
+    # sucesso pelo estado antigo de calendar_sync.
+    finish_result: Mapped[str | None] = mapped_column(Text, nullable=True)
+    finished_at: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     criado_em: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )

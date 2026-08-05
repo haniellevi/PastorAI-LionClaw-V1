@@ -5,16 +5,19 @@ pinned issuer, required claims, normalized error) into
 ``ClerkClient.verify_purpose_token`` and made the Google Calendar OAuth
 ``state`` reuse it instead of decoding independently. This file covers the
 follow-up: ``verify_session_token``/``verify_reset_token``/
-``verify_invite_token`` now delegate to the same policy too, so all four
-purpose-scoped JWTs (session, reset, invite, OAuth state) share one
-implementation.
+``verify_invite_token`` now delegate to the same policy too, so the
+purpose-scoped JWTs (session, reset, invite) share one implementation.
 
-Exercises, against the REAL ``ClerkClient``/``GoogleOAuthClient`` (no fakes):
-valid roundtrip, expired, wrong issuer, missing required claim — for each of
-session/reset/invite (OAuth-state equivalents already live in
-``test_calendar_oauth.py``) — plus cross-token isolation across all four:
-a token minted for one purpose must never verify under another's issuer, even
-though all four are signed with the same secret.
+OAUTH-CALENDAR-V1 removeu o ``state`` do Google dessa família: ele virou um
+segredo OPACO, sem assinatura e sem verificador (ver
+``test_oauth_state_is_no_longer_a_signed_token`` abaixo e
+``app/services/calendar_oauth_flows.py``).
+
+Exercises, against the REAL ``ClerkClient`` (no fakes): valid roundtrip,
+expired, wrong issuer, missing required claim — for each of
+session/reset/invite — plus cross-token isolation: a token minted for one
+purpose must never verify under another's issuer, even though all three are
+signed with the same secret.
 """
 
 from __future__ import annotations
@@ -26,21 +29,15 @@ import pytest
 
 from app.config import Settings
 from app.services.clerk import ClerkAuthError, ClerkClient
-from app.services.google_oauth import GoogleOAuthClient, GoogleOAuthError
 
 _SECRET = "s" * 40
 _SETTINGS = Settings(session_jwt_secret=_SECRET)
 
 _RESET_JTI = "11111111-1111-1111-1111-111111111111"
-_IGREJA = "00000000-0000-0000-0000-000000000001"
 
 
 def _clerk() -> ClerkClient:
     return ClerkClient(settings=_SETTINGS)
-
-
-def _oauth() -> GoogleOAuthClient:
-    return GoogleOAuthClient(settings=_SETTINGS)
 
 
 def _craft(
@@ -141,15 +138,13 @@ def test_invite_token_missing_sub_is_rejected() -> None:
 # cross-token isolation — a token minted for one purpose must never verify
 # under another purpose's verifier, even though all four share the secret.
 # ---------------------------------------------------------------------------
-def test_session_token_cannot_be_used_as_reset_invite_or_state() -> None:
+def test_session_token_cannot_be_used_as_reset_or_invite() -> None:
     clerk = _clerk()
     token = clerk._mint_session_token("clerk_user_1")  # noqa: SLF001
     with pytest.raises(ClerkAuthError):
         clerk.verify_reset_token(token)
     with pytest.raises(ClerkAuthError):
         clerk.verify_invite_token(token)
-    with pytest.raises(GoogleOAuthError):
-        _oauth().verify_state(token)
 
 
 def test_reset_token_cannot_be_used_as_session_or_invite() -> None:
@@ -170,15 +165,21 @@ def test_invite_token_cannot_be_used_as_session_or_reset() -> None:
         clerk.verify_reset_token(token)
 
 
-def test_oauth_state_cannot_be_used_as_reset_or_invite() -> None:
-    # state → session cross-check already covered by
-    # test_calendar_oauth.py::test_oauth_state_cannot_be_used_as_session_token
-    state = _oauth().sign_state(_IGREJA)
-    clerk = _clerk()
-    with pytest.raises(ClerkAuthError):
-        clerk.verify_reset_token(state)
-    with pytest.raises(ClerkAuthError):
-        clerk.verify_invite_token(state)
+def test_oauth_state_is_no_longer_a_signed_token() -> None:
+    """OAUTH-CALENDAR-V1 tirou o ``state`` da família de JWTs de propósito.
+
+    Ele virou um segredo OPACO que só indexa uma linha de
+    ``calendar_oauth_flows``; não é assinado com o segredo de sessão e não tem
+    verificador. A classe inteira de confusão entre propósitos deixou de
+    existir para ele — por isso não há mais cross-check aqui, e sim esta
+    asserção de que os métodos antigos sumiram (se voltarem, alguém
+    reintroduziu um token assinado sem revisar o modelo de ameaça).
+    """
+    from app.services import google_oauth
+
+    assert not hasattr(google_oauth.GoogleOAuthClient, "sign_state")
+    assert not hasattr(google_oauth.GoogleOAuthClient, "verify_state")
+    assert not hasattr(google_oauth, "_STATE_ISSUER")
 
 
 # ---------------------------------------------------------------------------

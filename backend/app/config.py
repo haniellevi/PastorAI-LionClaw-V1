@@ -173,6 +173,24 @@ class Settings(BaseSettings):
         default="https://accounts.google.com/o/oauth2/v2/auth"
     )
     google_oauth_token_url: str = Field(default="https://oauth2.googleapis.com/token")
+    # Endpoint OIDC de userinfo — é ele que diz QUAL conta Google consentiu.
+    # Default = o publicado no discovery document do Google.
+    google_oauth_userinfo_url: str = Field(
+        default="https://openidconnect.googleapis.com/v1/userinfo"
+    )
+
+    # ---- OAuth Calendar V1: origens de retorno do consentimento -------------
+    # Conceito SEPARADO, mas necessariamente SUBCONJUNTO de `cors_origins`.
+    # Aquela responde "quem pode chamar a API"; esta responde "quem hospeda o
+    # card de Integrações" e é a ÚNICA fonte do redirect do callback. Uma origem
+    # de retorno fora do CORS nunca conseguiria iniciar o fluxo no navegador.
+    #
+    # CSV e não `list[str]`: pydantic-settings parseia campos complexos vindos do
+    # env como JSON, o que obrigaria `["https://..."]` no `.env` e quebraria a
+    # convenção KEY=VALUE do arquivo inteiro.
+    calendar_oauth_return_origins: str = Field(default="")
+    # TTL de um fluxo OAuth em voo (minutos). Paridade com o TTL do state antigo.
+    calendar_oauth_flow_ttl_minutes: int = Field(default=10, ge=1)
 
     # ---- SLA engine + cron worker (O5) --------------------------------------
     # Seconds between cron_worker ticks (SLA scan + cron dispatch).
@@ -245,6 +263,20 @@ class Settings(BaseSettings):
         return ""
 
     @property
+    def calendar_oauth_return_origin_allowlist(self) -> frozenset[str]:
+        """Origens que podem receber o retorno do OAuth do Google Calendar.
+
+        CSV; espaços em volta e barra final são normalizados. A validação no
+        ``/calendar/connect`` é por IGUALDADE EXATA contra este conjunto — nunca
+        prefixo, sufixo de domínio, ``Referer`` ou campo do cliente.
+        """
+        return frozenset(
+            origin.strip().rstrip("/")
+            for origin in self.calendar_oauth_return_origins.split(",")
+            if origin.strip()
+        )
+
+    @property
     def effective_session_secret(self) -> str:
         """Secret used to sign/verify PastorAI's own session JWTs.
 
@@ -315,6 +347,37 @@ class Settings(BaseSettings):
                 problems.append(
                     f"{name} must be an explicit https URL "
                     "(no wildcard/localhost/loopback/path/query)"
+                )
+
+        # OAUTH-CALENDAR-V1: a allowlist de retorno é a única fonte do destino do
+        # redirect do callback. Vazia em produção = fluxo OAuth ligado sem destino
+        # válido, então falha fechada no boot em vez de 400 silencioso por request.
+        allowlist = self.calendar_oauth_return_origin_allowlist
+        if not allowlist:
+            problems.append(
+                "CALENDAR_OAUTH_RETURN_ORIGINS must list at least one origin"
+            )
+        api_origin = self.app_base_url.rstrip("/")
+        cors_allowlist = set(self.cors_origins)
+        for origin in sorted(allowlist):
+            if not _is_valid_production_origin(origin):
+                problems.append(
+                    f"CALENDAR_OAUTH_RETURN_ORIGINS entry {origin!r} must be an "
+                    "explicit https URL (no wildcard/localhost/loopback/path/query)"
+                )
+            if origin == api_origin:
+                problems.append(
+                    "CALENDAR_OAUTH_RETURN_ORIGINS must not include the API origin"
+                )
+            if origin not in cors_allowlist:
+                problems.append(
+                    "CALENDAR_OAUTH_RETURN_ORIGINS entries must also be "
+                    f"CORS-enabled: {origin!r}"
+                )
+            if (urlparse(origin).hostname or "").lower().startswith("painel."):
+                problems.append(
+                    "CALENDAR_OAUTH_RETURN_ORIGINS must not include the painel.* "
+                    "master-console origin"
                 )
 
         if problems:

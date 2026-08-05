@@ -2,20 +2,59 @@
  * Cliente da conexão com o Google Agenda (módulo de Eventos, Fase 1).
  *
  * Contratos (app/routers/calendar.py) — todos admin-only, exceto o callback:
- *   GET    /calendar/status   -> { connected, calendarId }
+ *   GET    /calendar/status   -> { connected, calendarId, connectionVersion }
  *   GET    /calendar/connect  -> { authUrl }   (redireciona o navegador ao Google)
- *   GET    /calendar/list     -> { calendars: [{ id, summary, primary }] }
- *   PUT    /calendar          -> { connected, calendarId }   (escolher a agenda)
+ *   GET    /calendar/list     -> { calendars: [{ id, summary, primary }],
+ *                                 connectionVersion }
+ *   GET    /calendar/import/preview -> { calendarId, events, connectionVersion }
+ *   PUT    /calendar          -> { connected, calendarId, connectionVersion }
+ *                               (escolher a agenda sob uma conexão específica)
  *   DELETE /calendar          -> 204                          (desconectar)
  */
 
 import { SessionExpiredError } from "./api";
-import { ApiError, authedFetch, readDetail } from "./dashboard-api";
+import { ApiError, authedFetch, isRecord, readDetail } from "./dashboard-api";
 import type { Role } from "./roles";
+
+/**
+ * A conta Google que autorizou não é a que o admin declarou.
+ *
+ * Erro próprio porque é o único caso com detalhe estruturado: o painel precisa
+ * mostrar as DUAS contas para o admin corrigir. `ApiError` reduziria tudo a uma
+ * string.
+ */
+export class GoogleAccountMismatchError extends Error {
+  readonly expected: string;
+  readonly verified: string;
+  constructor(expected: string, verified: string) {
+    super("A conta Google que autorizou não é a que você informou.");
+    this.name = "GoogleAccountMismatchError";
+    this.expected = expected;
+    this.verified = verified;
+  }
+}
+
+/**
+ * O mesmo endereço Google agora representa outra identidade (`sub`).
+ *
+ * A API nunca expõe o `sub`; o tipo separado permite manter os controles da
+ * conexão atual visíveis para que o admin consiga desconectá-la antes de tentar
+ * novamente.
+ */
+export class GoogleAccountReidentifiedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "GoogleAccountReidentifiedError";
+  }
+}
 
 export interface CalendarStatus {
   connected: boolean;
   calendarId: string | null;
+  /** E-mail verificado da conta conectada; `null` em conexão legada. */
+  googleAccountEmail: string | null;
+  /** Revisão opaca da conexão que precisa acompanhar a seleção da agenda. */
+  connectionVersion: string | null;
 }
 
 export interface CalendarOption {
@@ -34,45 +73,305 @@ export async function fetchCalendarStatus(token: string): Promise<CalendarStatus
   if (!res.ok) {
     throw new ApiError(res.status, "Não foi possível carregar a conexão da agenda.");
   }
-  const d = (await res.json()) as { connected?: boolean; calendarId?: string | null };
-  return { connected: Boolean(d.connected), calendarId: d.calendarId ?? null };
+  const d = (await res.json()) as {
+    connected?: boolean;
+    calendarId?: string | null;
+    googleAccountEmail?: string | null;
+    connectionVersion?: string | null;
+  };
+  return {
+    connected: Boolean(d.connected),
+    calendarId: d.calendarId ?? null,
+    googleAccountEmail: d.googleAccountEmail ?? null,
+    connectionVersion:
+      typeof d.connectionVersion === "string" && d.connectionVersion.length > 0
+        ? d.connectionVersion
+        : null,
+  };
 }
 
-export async function fetchConnectUrl(token: string): Promise<string> {
-  const res = await authedFetch(token, `/calendar/connect`);
+export interface ConnectStart {
+  authUrl: string;
+  flowSecret: string;
+  /**
+   * Instante de expiração do fluxo em epoch ms, derivado do `expires_at` que o
+   * SERVIDOR gravou. O cliente nunca calcula TTL — só descarta o segredo quando
+   * este instante passa. O servidor revalida `expires_at` no `finish` e segue
+   * sendo a autoridade final.
+   */
+  expiresAt: number;
+}
+
+/**
+ * Inicia o fluxo OAuth (OAUTH-CALENDAR-V1). Devolve a URL de consentimento, o
+ * `flowSecret` e a expiração real do fluxo.
+ *
+ * `expectedGoogleEmail` é a conta que o admin DECLARA que vai conectar. Vai no
+ * corpo (POST), nunca em query string, e é contra ela que o backend compara o
+ * e-mail verificado no userinfo antes de persistir qualquer token.
+ *
+ * FAIL-CLOSED: um backend antigo responde só `{authUrl}` (ou sem `expiresAt`).
+ * Sem segredo não existe quem conclua o fluxo, e sem prazo o painel guardaria um
+ * segredo sem validade. Nos dois casos NÃO redirecionamos ao Google — o usuário
+ * consentiria à toa e a conexão nunca completaria.
+ */
+export async function fetchConnectUrl(
+  token: string,
+  expectedGoogleEmail: string,
+): Promise<ConnectStart> {
+  const res = await authedFetch(token, `/calendar/connect`, {
+    method: "POST",
+    body: JSON.stringify({ expectedGoogleEmail }),
+  });
   if (!res.ok) {
     const detail = await readDetail(res);
     throw new ApiError(res.status, detail ?? "Não foi possível iniciar a conexão com o Google.");
   }
-  const d = (await res.json()) as { authUrl?: string };
+  const d = (await res.json()) as {
+    authUrl?: string;
+    flowSecret?: string;
+    expiresAt?: string;
+  };
   if (!d.authUrl) throw new ApiError(502, "O Google não retornou a URL de consentimento.");
-  return d.authUrl;
+  const expiresAt = Date.parse(d.expiresAt ?? "");
+  if (!d.flowSecret || !Number.isFinite(expiresAt)) {
+    throw new ApiError(
+      409,
+      "Conexão indisponível no momento. Atualize a página e tente novamente.",
+    );
+  }
+  return { authUrl: d.authUrl, flowSecret: d.flowSecret, expiresAt };
 }
 
-export async function fetchCalendarList(token: string): Promise<CalendarOption[]> {
+export interface FinishResult {
+  /** `conectado` (200), ou callback/finish ainda pendente (202). */
+  status: "conectado" | "aguardando_callback" | "processando";
+  connected: boolean;
+  calendarId: string | null;
+  /** E-mail verificado da conta conectada; `null` enquanto não há conexão. */
+  googleAccountEmail: string | null;
+  /** Revisão opaca da conexão criada/confirmada pelo finish. */
+  connectionVersion: string | null;
+}
+
+/**
+ * Conclui o fluxo: consome o flow, troca o code com o `code_verifier` guardado
+ * no servidor e persiste a conexão. Só quem tem o `flowSecret` conclui.
+ *
+ * O segredo é OBRIGATÓRIO e a guarda abaixo é fail-closed: sem ele não sai
+ * requisição nenhuma. Não existe caminho por identidade — identidade prova
+ * apenas QUEM finaliza, nunca QUAL conta Google consentiu, e um `state` vazado
+ * viraria vinculação silenciosa de conta.
+ *
+ * 202 = callback ainda não estacionou o code OU outro finish do mesmo fluxo
+ * ainda está processando. É recuperável e não deve virar polling.
+ */
+export async function finishConnection(
+  token: string,
+  flowSecret: string,
+): Promise<FinishResult> {
+  if (!flowSecret) {
+    throw new ApiError(409, "Não foi possível concluir a conexão com o Google.");
+  }
+  const res = await authedFetch(token, `/calendar/connect/finish`, {
+    method: "POST",
+    body: JSON.stringify({ flowSecret }),
+  });
+  if (!res.ok) {
+    // O corpo é lido UMA vez. `readDetail` não serve aqui: ele reduz o detail a
+    // string/message e jogaria fora `expected`/`verified` da conta divergente.
+    let detail: unknown = null;
+    try {
+      detail = ((await res.json()) as { detail?: unknown }).detail;
+    } catch {
+      /* corpo não-JSON */
+    }
+    if (
+      isRecord(detail) &&
+      detail.code === "conta_divergente" &&
+      typeof detail.expected === "string" &&
+      typeof detail.verified === "string"
+    ) {
+      throw new GoogleAccountMismatchError(detail.expected, detail.verified);
+    }
+    if (
+      isRecord(detail) &&
+      detail.code === "conta_reidentificada" &&
+      typeof detail.message === "string"
+    ) {
+      throw new GoogleAccountReidentifiedError(detail.message);
+    }
+    const message =
+      typeof detail === "string"
+        ? detail
+        : isRecord(detail) && typeof detail.message === "string"
+          ? detail.message
+          : null;
+    throw new ApiError(
+      res.status,
+      message ?? "Não foi possível concluir a conexão com o Google.",
+    );
+  }
+  const d = (await res.json()) as {
+    status?: string;
+    connected?: boolean;
+    calendarId?: string | null;
+    googleAccountEmail?: string | null;
+    connectionVersion?: string | null;
+  };
+  return {
+    status:
+      d.status === "conectado"
+        ? "conectado"
+        : d.status === "processando"
+          ? "processando"
+          : "aguardando_callback",
+    connected: Boolean(d.connected),
+    calendarId: d.calendarId ?? null,
+    googleAccountEmail: d.googleAccountEmail ?? null,
+    connectionVersion:
+      typeof d.connectionVersion === "string" && d.connectionVersion.length > 0
+        ? d.connectionVersion
+        : null,
+  };
+}
+
+export interface CalendarList {
+  calendars: CalendarOption[];
+  /**
+   * Revisão da conexão APÓS a manutenção de token feita por esta chamada.
+   *
+   * Listar agendas pode renovar o access token, e numa conexão legada a revisão
+   * é o próprio `atualizado_em` da linha — que a renovação avança. Sem ler a
+   * revisão daqui, o painel guardaria a de `/calendar/status` e a seleção
+   * seguinte tomaria 409 sem que a identidade Google tivesse mudado.
+   *
+   * `null` quando o backend é anterior a este campo: o chamador então mantém a
+   * revisão que já tinha, em vez de apagá-la.
+   */
+  connectionVersion: string | null;
+  /** Snapshot atômico da conexão que originou esta lista (backend novo). */
+  connection: CalendarStatus | null;
+}
+
+export async function fetchCalendarList(token: string): Promise<CalendarList> {
   const res = await authedFetch(token, `/calendar/list`);
   if (!res.ok) {
     const detail = await readDetail(res);
     throw new ApiError(res.status, detail ?? "Não foi possível listar as agendas.");
   }
-  const d = (await res.json()) as { calendars?: CalendarOption[] };
-  return d.calendars ?? [];
+  const d = (await res.json()) as {
+    calendars?: CalendarOption[];
+    connectionVersion?: string | null;
+    connection?: {
+      connected?: boolean;
+      calendarId?: string | null;
+      googleAccountEmail?: string | null;
+      connectionVersion?: string | null;
+    } | null;
+  };
+  const connection = d.connection && typeof d.connection === "object"
+    ? {
+        connected: Boolean(d.connection.connected),
+        calendarId: d.connection.calendarId ?? null,
+        googleAccountEmail: d.connection.googleAccountEmail ?? null,
+        connectionVersion:
+          typeof d.connection.connectionVersion === "string" &&
+          d.connection.connectionVersion.length > 0
+            ? d.connection.connectionVersion
+            : null,
+      }
+    : null;
+  return {
+    calendars: d.calendars ?? [],
+    connectionVersion:
+      typeof d.connectionVersion === "string" && d.connectionVersion.length > 0
+        ? d.connectionVersion
+        : null,
+    connection,
+  };
+}
+
+export interface ImportPreviewEvent {
+  googleEventId: string;
+  titulo: string | null;
+  descricao: string | null;
+  data: string | null;
+  hora: string | null;
+  fim: string | null;
+  recorrente: boolean;
+}
+
+export interface ImportPreview {
+  calendarId: string;
+  events: ImportPreviewEvent[];
+  /** Revisão da conexão depois da eventual renovação do token. */
+  connectionVersion: string | null;
+}
+
+/**
+ * Pré-visualiza eventos do Google sem persistir eventos locais. A resposta
+ * também carrega a revisão observada depois da manutenção do token, para que
+ * qualquer consumidor que mantenha uma versão de conexão possa adotá-la antes
+ * da próxima mutação protegida.
+ */
+export async function fetchImportPreview(
+  token: string,
+  timeMin?: string,
+  timeMax?: string,
+): Promise<ImportPreview> {
+  const params = new URLSearchParams();
+  if (timeMin) params.set("timeMin", timeMin);
+  if (timeMax) params.set("timeMax", timeMax);
+  const suffix = params.toString() ? `?${params.toString()}` : "";
+  const res = await authedFetch(token, `/calendar/import/preview${suffix}`);
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível pré-visualizar os eventos.");
+  }
+  const d = (await res.json()) as {
+    calendarId?: string;
+    events?: ImportPreviewEvent[];
+    connectionVersion?: string | null;
+  };
+  return {
+    calendarId: d.calendarId ?? "primary",
+    events: d.events ?? [],
+    connectionVersion:
+      typeof d.connectionVersion === "string" && d.connectionVersion.length > 0
+        ? d.connectionVersion
+        : null,
+  };
 }
 
 export async function selectCalendar(
   token: string,
   calendarId: string,
+  connectionVersion: string,
 ): Promise<CalendarStatus> {
   const res = await authedFetch(token, `/calendar`, {
     method: "PUT",
-    body: JSON.stringify({ calendarId }),
+    body: JSON.stringify({ calendarId, connectionVersion }),
   });
   if (!res.ok) {
     const detail = await readDetail(res);
     throw new ApiError(res.status, detail ?? "Não foi possível selecionar a agenda.");
   }
-  const d = (await res.json()) as { connected?: boolean; calendarId?: string | null };
-  return { connected: Boolean(d.connected), calendarId: d.calendarId ?? null };
+  const d = (await res.json()) as {
+    connected?: boolean;
+    calendarId?: string | null;
+    googleAccountEmail?: string | null;
+    connectionVersion?: string | null;
+  };
+  return {
+    connected: Boolean(d.connected),
+    calendarId: d.calendarId ?? null,
+    googleAccountEmail: d.googleAccountEmail ?? null,
+    connectionVersion:
+      typeof d.connectionVersion === "string" && d.connectionVersion.length > 0
+        ? d.connectionVersion
+        : null,
+  };
 }
 
 export async function disconnectCalendar(token: string): Promise<void> {
@@ -87,6 +386,8 @@ export async function disconnectCalendar(token: string): Promise<void> {
 export interface ImportResult {
   created: number;
   skipped: number;
+  /** Revisão da conexão após a importação, que também renova o token. */
+  connectionVersion: string | null;
 }
 
 /**
@@ -104,8 +405,19 @@ export async function importEvents(token: string): Promise<ImportResult> {
     const detail = await readDetail(res);
     throw new ApiError(res.status, detail ?? "Não foi possível importar os eventos.");
   }
-  const d = (await res.json()) as { created?: number; skipped?: number };
-  return { created: d.created ?? 0, skipped: d.skipped ?? 0 };
+  const d = (await res.json()) as {
+    created?: number;
+    skipped?: number;
+    connectionVersion?: string | null;
+  };
+  return {
+    created: d.created ?? 0,
+    skipped: d.skipped ?? 0,
+    connectionVersion:
+      typeof d.connectionVersion === "string" && d.connectionVersion.length > 0
+        ? d.connectionVersion
+        : null,
+  };
 }
 
 // EVT-7 PR2 — destinatários de alerta da Agenda -----------------------------
