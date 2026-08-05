@@ -12,7 +12,7 @@ import httpx
 import pytest
 
 from app.config import Settings
-from app.services.asaas import AsaasClient
+from app.services.asaas import AsaasClient, AsaasError
 from app.services.brevo import BrevoClient
 from app.services.evolution import EvolutionClient
 from app.services.google_calendar import GoogleCalendarClient, GoogleCalendarError
@@ -152,6 +152,38 @@ def test_create_checkout_blocked(monkeypatch) -> None:
     assert result.subscription_id == "sandbox"
     assert result.status == "pendente"
     assert result.invoice_url is None
+
+
+@pytest.mark.parametrize(
+    "operation",
+    [
+        lambda client: client.create_checkout(
+            nome="Igreja Teste",
+            email="t@x.com",
+            plano="ate_100",
+            valor=49.9,
+        ),
+        lambda client: client.update_subscription(
+            "sub_1", valor=99.9, descricao="PastorAI — plano ate_100"
+        ),
+        lambda client: client.create_one_time_charge(
+            customer_id="cus_1",
+            valor=1000.0,
+            description="PastorAI — taxa de setup",
+            external_reference="op_1",
+        ),
+        lambda client: client.restore_payment("pay_1"),
+    ],
+    ids=["checkout", "plan-change", "one-time-charge", "restore-payment"],
+)
+def test_asaas_mutations_fail_closed_in_production(
+    monkeypatch, operation
+) -> None:
+    _block_network(monkeypatch)
+    client = AsaasClient(_settings(app_env="production"))
+
+    with pytest.raises(AsaasError, match="desabilitadas"):
+        operation(client)
 
 
 def test_send_invite_blocked(monkeypatch) -> None:

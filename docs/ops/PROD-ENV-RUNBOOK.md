@@ -48,16 +48,16 @@ O MESMO deployment Vercel serve **três subdomínios**, roteados por Host no
 - CORS do backend deriva `admin.` e `painel.` de `app.` automaticamente
   (`config.py::cors_origins`).
 
-⚠️ **Envios externos em produção:** como `external_sends_enabled = is_production OR
-allow_real_sends`, em prod (`is_production=true`) **os envios reais estão ligados**
-independente de `ALLOW_REAL_SENDS`. WhatsApp/e-mail/cobrança/Google podem disparar
-de verdade. Fora de prod, ficam travados por padrão (guard B2).
+⚠️ **Envios externos em produção:** `external_sends_enabled = ALLOW_REAL_SENDS`.
+O primeiro deploy usa `ALLOW_REAL_SENDS=false`; WhatsApp/e-mail/LLM/Google ficam
+suprimidos e mutações financeiras Asaas falham fechado, sem confirmar mudanças
+locais. A liberação para `true` é um gate operacional separado após os smokes.
 
 ---
 
 ## 2. Infra de produção (VPS)
 
-- **VPS:** Hostinger, `2.25.167.107` (Ubuntu, KVM).
+- **VPS:** Hostinger, `76.13.234.127` (`srv1728329.hstgr.cloud`, Campinas).
 - **Caminho real do projeto:** `/opt/pastorai-lionclaw` (⚠️ **não** `/opt/pastorai`).
 - **A VPS NÃO tem `.git`** — o código não é versionado lá; deploy é por **cópia/tarball**
   do backend versionado (ver §3).

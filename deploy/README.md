@@ -1,8 +1,8 @@
 # Deploy do PastorAI na VPS (Docker Compose)
 
-Stack: **VPS Hostinger** roda Evolution + backend + workers + Redis. O **banco** é o Supabase (externo) e o **frontend** vai na Vercel. HTTPS/domínio entram numa etapa posterior — pro primeiro teste usamos `http://IP:porta`.
+Stack: **VPS Hostinger** roda Evolution + backend + workers + Redis. O **banco** é o Supabase (externo) e o **frontend** vai na Vercel. Em produção, 8000/8080 ficam presos ao localhost e o acesso público passa por HTTPS/Nginx.
 
-> VPS atual: `2.25.167.107` (Ubuntu, KVM 1 / 4GB).
+> VPS atual: `76.13.234.127` (`srv1728329.hstgr.cloud`, Campinas). O procedimento canônico de produção está em [`docs/ops/PRODUCTION-RUNBOOK.md`](../docs/ops/PRODUCTION-RUNBOOK.md).
 
 ---
 
@@ -10,8 +10,8 @@ Stack: **VPS Hostinger** roda Evolution + backend + workers + Redis. O **banco**
 
 Pelo terminal (Windows tem `ssh` nativo) ou pelo **Browser Terminal** no painel da Hostinger:
 
-```bash
-ssh root@2.25.167.107
+```powershell
+ssh -i $env:USERPROFILE\.ssh\pastorai_vps root@76.13.234.127
 ```
 
 ## 2. Instalar Docker (uma vez)
@@ -31,18 +31,15 @@ free -h   # deve mostrar 2.0Gi de swap
 
 ## 4. Trazer o código pra VPS
 
-```bash
-cd /opt
-git clone https://github.com/haniellevi/pastorai-lionclaw-v1.git pastorai
-cd pastorai/deploy
-```
+Produção recebe um tarball do SHA revisado em `/opt/pastorai-releases/<sha>`;
+não execute `git clone`/`git pull` na VPS. Preserve o `.env` existente e siga o
+procedimento de release/rollback do runbook canônico.
 
 ## 5. Configurar as variáveis
 
-```bash
-cp .env.example .env
-nano .env        # preencha os <<...>>
-```
+Nunca sobrescreva um `.env` existente. Em primeira instalação, copie o template,
+preencha os valores diretamente no console da VPS e mantenha o arquivo com modo
+`600`; em upgrades, preserve o arquivo já validado.
 
 Gere os segredos rápidos:
 
@@ -65,15 +62,24 @@ docker compose logs -f evolution-api      # Ctrl+C quando ver "Server running"
 
 Conectar o número (2 caminhos):
 
-**A) Pela UI (mais fácil):** abra no navegador `http://2.25.167.107:8080/manager`, entre com a `EVOLUTION_API_KEY`, crie uma instância (ex.: `filadelfia`) e **escaneie o QR** com o WhatsApp da igreja (Aparelhos conectados → Conectar aparelho).
+**A) Pela UI (mais fácil):** como a porta 8080 não é pública, abra um túnel no
+PowerShell local e mantenha essa janela aberta:
+
+```powershell
+ssh -i $env:USERPROFILE\.ssh\pastorai_vps -L 8080:127.0.0.1:8080 root@76.13.234.127
+```
+
+Depois abra `http://127.0.0.1:8080/manager`, entre com a
+`EVOLUTION_API_KEY`, crie a instância e **escaneie o QR** com o WhatsApp da
+igreja (Aparelhos conectados → Conectar aparelho).
 
 **B) Pela API:**
 ```bash
-curl -X POST http://2.25.167.107:8080/instance/create \
+curl -X POST http://127.0.0.1:8080/instance/create \
   -H "apikey: $EVOLUTION_API_KEY" -H "Content-Type: application/json" \
   -d '{"instanceName":"filadelfia","integration":"WHATSAPP-BAILEYS","qrcode":true}'
 # pegue o campo base64 do QR e escaneie, ou:
-curl http://2.25.167.107:8080/instance/connect/filadelfia -H "apikey: $EVOLUTION_API_KEY"
+curl http://127.0.0.1:8080/instance/connect/filadelfia -H "apikey: $EVOLUTION_API_KEY"
 ```
 
 ✅ Quando o WhatsApp aparecer como conectado, a Evolution está no ar.
@@ -97,7 +103,7 @@ docker compose ps           # todos "running/healthy" (inclui queue-worker!)
 docker compose logs -f backend
 ```
 
-Teste o backend: `curl http://2.25.167.107:8000/health` → `{"status":"ok"}`.
+Na VPS, teste o backend: `curl http://127.0.0.1:8000/health` → `{"status":"ok"}`.
 
 > 🔎 **Diagnóstico do recebimento de WhatsApp.** Se mensagens não entram nem são
 > respondidas, confira nesta ordem:

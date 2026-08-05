@@ -31,7 +31,8 @@ CALENDAR_OAUTH_RETURN_ORIGINS=https://admin.igreja12.com.br
 ```
 
 - `ALLOW_REAL_SENDS=false` bloqueia WhatsApp, Asaas, Brevo, LLM e Google até
-  os smokes de saúde/login terminarem.
+  os smokes de saúde/login terminarem. Em produção, mutações de billing Asaas
+  retornam erro controlado e não alteram plano/assinatura localmente.
 - `BROADCAST_ASYNC_ENABLED=false` mantém o worker persistente inativo e faz
   qualquer novo comunicado falhar antes de ser persistido; não existe fallback
   síncrono capaz de contornar o ledger/heartbeat.

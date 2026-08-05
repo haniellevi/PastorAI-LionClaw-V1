@@ -262,7 +262,8 @@ class Settings(BaseSettings):
         Todos os ambientes ficam bloqueados por padrão. Somente
         ``ALLOW_REAL_SENDS=true`` libera WhatsApp, cobrança, e-mail, LLM e
         Google Calendar. Em produção isso funciona como gate operacional de
-        ativação depois dos smokes de login/saúde.
+        ativação depois dos smokes de login/saúde; mutações financeiras
+        bloqueadas falham fechado, sem simular sucesso local.
         """
         return self.allow_real_sends
 
