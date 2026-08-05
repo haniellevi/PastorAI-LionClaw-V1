@@ -23,6 +23,7 @@ import { SessionExpiredError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import {
   SEGMENTS,
+  broadcastStatusLabel,
   broadcastResultFeedback,
   countSegment,
   createBroadcast,
@@ -75,27 +76,6 @@ function statusTone(broadcast: BroadcastItem): PillTone {
     default:
       return "muted";
   }
-}
-
-function statusLabel(b: BroadcastItem): string {
-  if (b.precisaRevisao) return "Revisão necessária";
-  const status = b.resultadoUltimaExecucao ?? b.status;
-  if (status === "processando") {
-    return `Processando · ${b.entregasPendentes} pendente(s)`;
-  }
-  if (status === "enviado") return `Enviado · ${b.entregasAceitas}`;
-  if (status === "parcial") {
-    return `Parcial · ${b.entregasAceitas} aceito(s), ${b.entregasFalhas + b.entregasDesconhecidas + b.entregasSuprimidas} não entregue(s)`;
-  }
-  if (status === "desconhecido") {
-    return `Resultado desconhecido · ${b.entregasDesconhecidas}`;
-  }
-  if (status === "falhou") return `Falhou · ${b.entregasFalhas}`;
-  if (status === "suprimido") return `Suprimido · ${b.entregasSuprimidas}`;
-  if (status === "concluido_sem_destinatarios") return "Concluído · sem destinatários";
-  if (status === "agendado") return `Agendado · ${repeatLabel(b.repeticao)}`;
-  if (status === "rascunho") return "Bloqueado · opt-out";
-  return status ?? "—";
 }
 
 export function ComunicadosScreen() {
@@ -633,7 +613,9 @@ export function ComunicadosScreen() {
                         .join(", ")}
                     </div>
                   </div>
-                  <StatusPill tone={statusTone(b)}>{statusLabel(b)}</StatusPill>
+                  <StatusPill tone={statusTone(b)}>
+                    {broadcastStatusLabel(b)}
+                  </StatusPill>
                 </div>
               ))}
             </div>

@@ -167,6 +167,41 @@ export function repeatLabel(repeticao: string | null | undefined): string {
   return REPEAT_LABEL[repeticao as BroadcastRepeat] ?? repeticao;
 }
 
+/** Human-readable status for both ledger-backed and legacy history rows. */
+export function broadcastStatusLabel(broadcast: BroadcastItem): string {
+  if (broadcast.precisaRevisao) return "Revisão necessária";
+  const status = broadcast.resultadoUltimaExecucao ?? broadcast.status;
+  if (status === "processando") {
+    return `Processando · ${broadcast.entregasPendentes} pendente(s)`;
+  }
+  if (status === "enviado") {
+    const sent = broadcast.resultadoUltimaExecucao
+      ? broadcast.entregasAceitas
+      : (broadcast.alcance ?? 0);
+    return `Enviado · ${sent}`;
+  }
+  if (status === "parcial") {
+    const notDelivered =
+      broadcast.entregasFalhas +
+      broadcast.entregasDesconhecidas +
+      broadcast.entregasSuprimidas;
+    return `Parcial · ${broadcast.entregasAceitas} aceito(s), ${notDelivered} não entregue(s)`;
+  }
+  if (status === "desconhecido") {
+    return `Resultado desconhecido · ${broadcast.entregasDesconhecidas}`;
+  }
+  if (status === "falhou") return `Falhou · ${broadcast.entregasFalhas}`;
+  if (status === "suprimido") return `Suprimido · ${broadcast.entregasSuprimidas}`;
+  if (status === "concluido_sem_destinatarios") {
+    return "Concluído · sem destinatários";
+  }
+  if (status === "agendado") {
+    return `Agendado · ${repeatLabel(broadcast.repeticao)}`;
+  }
+  if (status === "rascunho") return "Bloqueado · opt-out";
+  return status ?? "—";
+}
+
 /** True quando o contato pertence a algum dos segmentos selecionados. */
 export function matchesSegments(contact: Contact, tokens: string[]): boolean {
   if (tokens.includes("todos")) return true;

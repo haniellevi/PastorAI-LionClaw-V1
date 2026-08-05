@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   broadcastResultFeedback,
+  broadcastStatusLabel,
   isSendNowConnectionUnavailable,
+  type BroadcastItem,
   type BroadcastResult,
 } from "./broadcasts-api";
 
@@ -15,6 +17,33 @@ function result(status: string, enviados = 0): BroadcastResult {
     agendadoPara: null,
     execucaoId: "execution-1",
     alcancePrevisto: 3,
+  };
+}
+
+function historyItem(
+  overrides: Partial<BroadcastItem> = {},
+): BroadcastItem {
+  return {
+    id: "broadcast-1",
+    titulo: "Aviso",
+    mensagem: "Mensagem",
+    segmentos: ["todos"],
+    modo: "agora",
+    status: "enviado",
+    alcance: 12,
+    ignoradosOptout: 0,
+    data: null,
+    hora: null,
+    repeticao: null,
+    proximaExecucao: null,
+    precisaRevisao: false,
+    resultadoUltimaExecucao: null,
+    entregasAceitas: 0,
+    entregasFalhas: 0,
+    entregasDesconhecidas: 0,
+    entregasSuprimidas: 0,
+    entregasPendentes: 0,
+    ...overrides,
   };
 }
 
@@ -59,4 +88,19 @@ describe("isSendNowConnectionUnavailable", () => {
       expect(isSendNowConnectionUnavailable(status)).toBe(false);
     },
   );
+});
+
+describe("broadcastStatusLabel", () => {
+  it("preserva o alcance de comunicados enviados antes do ledger", () => {
+    expect(broadcastStatusLabel(historyItem())).toBe("Enviado · 12");
+  });
+
+  it("usa as entregas aceitas quando existe resultado do ledger", () => {
+    const item = historyItem({
+      resultadoUltimaExecucao: "enviado",
+      entregasAceitas: 7,
+    });
+
+    expect(broadcastStatusLabel(item)).toBe("Enviado · 7");
+  });
 });
