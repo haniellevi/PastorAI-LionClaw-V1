@@ -465,16 +465,6 @@ export function ComunicadosScreen() {
                     onChange={(on) => setScheduleOn(on)}
                   />
                 </div>
-                {!externalSendsBlocked && !scheduleAvailable ? (
-                  <div
-                    className="helper"
-                    role="status"
-                    style={{ marginTop: "var(--s2)" }}
-                  >
-                    Agendamento ainda indisponível; o envio imediato permanece
-                    disponível quando o WhatsApp estiver online.
-                  </div>
-                ) : null}
                 {sendNowBlocked ? (
                   <div className="degraded-banner" role="alert" style={{ borderRadius: "var(--r-md)", marginTop: "var(--s3)" }}>
                     <Icon name="alert" />

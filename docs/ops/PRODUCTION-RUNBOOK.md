@@ -194,14 +194,17 @@ Validar também:
 
 - CORS para `app.`, `admin.` e `painel.`;
 - login com usuário que exista na instância Clerk DEV;
-- recuperação de senha e recebimento pelo Brevo;
+- recuperação de senha retorna resposta neutra e não envia e-mail (supressão
+  esperada enquanto o gate estiver fechado);
 - isolamento das portas 8000/8080;
 - ausência de placeholders no `.env`;
 - frontend sem referências ao Supabase DEV ou localhost.
 
 Somente após esses smokes decidir o gate separado
 `ALLOW_REAL_SENDS=true`. A leitura do QR da Evolution e qualquer canário de
-e-mail/WhatsApp/cobrança ocorrem em uma janela controlada.
+e-mail/WhatsApp/cobrança ocorrem em uma janela controlada. O recebimento real
+do e-mail de recuperação pelo Brevo pertence a esse canário pós-gate, usando
+uma conta de teste e um único envio observado.
 
 ## 9. Rollback
 
