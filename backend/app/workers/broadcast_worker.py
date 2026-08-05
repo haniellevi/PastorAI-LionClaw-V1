@@ -168,14 +168,15 @@ class BroadcastWorker:
             self._sleeper(step)
             remaining -= step
 
-    def _publish_heartbeat(self) -> bool:
+    def _publish_heartbeat(self, *, ready: bool | None = None) -> bool:
+        advertised_ready = self._enabled if ready is None else ready
         if self._heartbeat_publisher is None:
             self._heartbeat_ready = not self._enabled
             return self._heartbeat_ready
         ttl = max(30, self._tick_seconds * 3)
         try:
-            self._heartbeat_publisher(self._enabled, ttl)
-            self._heartbeat_ready = True
+            self._heartbeat_publisher(advertised_ready, ttl)
+            self._heartbeat_ready = not self._enabled or advertised_ready
         except Exception:  # noqa: BLE001 - heartbeat failure must fail closed in API
             self._heartbeat_ready = False
             logger.exception("Broadcast worker heartbeat publish failed")
@@ -213,6 +214,7 @@ class BroadcastWorker:
                         )
                     except Exception:  # noqa: BLE001 - one tick cannot kill worker
                         logger.exception("Broadcast worker tick failed")
+                        self._publish_heartbeat(ready=False)
                 elif self._enabled:
                     logger.error(
                         "Broadcast dispatch paused: heartbeat unavailable"

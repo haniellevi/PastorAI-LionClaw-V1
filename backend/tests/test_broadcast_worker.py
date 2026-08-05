@@ -131,6 +131,36 @@ def test_enabled_worker_pauses_dispatch_when_heartbeat_fails(caplog) -> None:
     assert "dispatch paused: heartbeat unavailable" in caplog.text
 
 
+def test_failed_tick_marks_worker_heartbeat_unready(caplog) -> None:
+    caplog.set_level(logging.ERROR)
+    heartbeats = []
+    holder = {}
+
+    def publish(ready, ttl):
+        heartbeats.append((ready, ttl))
+
+    def sleeper(_seconds):
+        holder["worker"].stop()
+
+    worker = BroadcastWorker(
+        settings=_settings(True),
+        session_factory=lambda: object(),
+        evolution=object(),
+        cycle_runner=lambda *args, **kwargs: (_ for _ in ()).throw(
+            RuntimeError("database unavailable")
+        ),
+        sleeper=sleeper,
+        tick_seconds=1,
+        heartbeat_publisher=publish,
+    )
+    holder["worker"] = worker
+
+    worker.run()
+
+    assert heartbeats == [(True, 30), (False, 30)]
+    assert "Broadcast worker tick failed" in caplog.text
+
+
 def test_enabled_worker_runs_persistent_cycle_with_configured_limits() -> None:
     seen = {}
 
