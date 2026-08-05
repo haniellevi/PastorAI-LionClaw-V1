@@ -145,8 +145,9 @@ Marque **todos** antes de considerar staging pronto:
 Em todos os ambientes, os efeitos externos reais ficam **desligados por padrão** por
 um guard na camada de serviço (`app/services/outbound_guard.py`). Em staging/dev,
 viram **no-op logado** (`[OUTBOUND_DISABLED] …`) e retornam um valor neutro. Em
-produção com o gate fechado, mutações financeiras Asaas falham fechado para nunca
-simular sucesso local; os demais canais continuam suprimidos sem efeito externo.
+produção com o gate fechado, mutações financeiras Asaas, conexão Evolution e
+envios Brevo falham fechado para nunca simular sucesso local; os demais canais
+continuam suprimidos sem efeito externo.
 
 Trava única e explícita: `external_sends_enabled = ALLOW_REAL_SENDS`. Produção,
 staging e desenvolvimento só executam efeitos externos quando o operador muda

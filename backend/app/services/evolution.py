@@ -159,6 +159,15 @@ class EvolutionClient:
     def __init__(self, settings: Settings | None = None) -> None:
         self._settings = settings or get_settings()
 
+    def _suppress_or_reject_mutation(self, action: str) -> None:
+        """Keep non-prod simulation, but prevent false local state in prod."""
+        log_suppressed("WhatsApp", action)
+        if self._settings.is_production:
+            raise EvolutionError(
+                "Operações da Evolution desabilitadas em produção; "
+                "ative ALLOW_REAL_SENDS para alterar a conexão"
+            )
+
     def _require_config(self) -> tuple[str, str]:
         base_url = self._settings.evolution_api_url
         api_key = self._settings.evolution_api_key
@@ -179,7 +188,7 @@ class EvolutionClient:
         the fallback when QR scanning fails.
         """
         if not external_sends_allowed(self._settings):
-            log_suppressed("WhatsApp", "connect")
+            self._suppress_or_reject_mutation("connect")
             return ConnectionResult(status="offline")
         base_url, api_key = self._require_config()
         headers = self._headers(api_key)
@@ -221,7 +230,7 @@ class EvolutionClient:
         ``numero`` is given a numeric pairing code is requested instead of a QR.
         """
         if not external_sends_allowed(self._settings):
-            log_suppressed("WhatsApp", "reconnect")
+            self._suppress_or_reject_mutation("reconnect")
             return ConnectionResult(status="offline")
         base_url, api_key = self._require_config()
         headers = self._headers(api_key)
@@ -287,7 +296,7 @@ class EvolutionClient:
         logged-out instance is treated as success (idempotent). Returns offline.
         """
         if not external_sends_allowed(self._settings):
-            log_suppressed("WhatsApp", "disconnect")
+            self._suppress_or_reject_mutation("disconnect")
             return ConnectionResult(status="offline")
         base_url, api_key = self._require_config()
         headers = self._headers(api_key)
@@ -521,7 +530,7 @@ class EvolutionClient:
         back to the flat body for older shapes. Returns True when registered.
         """
         if not external_sends_allowed(self._settings):
-            log_suppressed("WhatsApp", "set_webhook")
+            self._suppress_or_reject_mutation("set_webhook")
             return True
         callback = (self._settings.evolution_webhook_callback_url or "").strip()
         if not callback:

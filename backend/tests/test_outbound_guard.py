@@ -13,8 +13,8 @@ import pytest
 
 from app.config import Settings
 from app.services.asaas import AsaasClient, AsaasError
-from app.services.brevo import BrevoClient
-from app.services.evolution import EvolutionClient
+from app.services.brevo import BrevoClient, BrevoError
+from app.services.evolution import EvolutionClient, EvolutionError
 from app.services.google_calendar import GoogleCalendarClient, GoogleCalendarError
 from app.services.llm import LLMClient
 from app.services.outbound_guard import external_sends_allowed
@@ -144,6 +144,26 @@ def test_disconnect_blocked(monkeypatch) -> None:
     assert EvolutionClient(_settings()).disconnect("igreja-1").status == "offline"
 
 
+@pytest.mark.parametrize(
+    "operation",
+    [
+        lambda client: client.connect("igreja-1"),
+        lambda client: client.reconnect("igreja-1"),
+        lambda client: client.disconnect("igreja-1"),
+        lambda client: client.set_webhook("igreja-1"),
+    ],
+    ids=["connect", "reconnect", "disconnect", "set-webhook"],
+)
+def test_evolution_mutations_fail_closed_in_production(
+    monkeypatch, operation
+) -> None:
+    _block_network(monkeypatch)
+    client = EvolutionClient(_settings(app_env="production"))
+
+    with pytest.raises(EvolutionError, match="desabilitadas"):
+        operation(client)
+
+
 def test_create_checkout_blocked(monkeypatch) -> None:
     _block_network(monkeypatch)
     result = AsaasClient(_settings()).create_checkout(
@@ -204,6 +224,26 @@ def test_send_password_reset_blocked(monkeypatch) -> None:
         )
         == ""
     )
+
+
+@pytest.mark.parametrize(
+    "operation",
+    [
+        lambda client: client.send_invite(
+            to_email="t@x.com", nome="T", activation_link="http://x/a"
+        ),
+        lambda client: client.send_password_reset(
+            to_email="t@x.com", reset_link="http://x/r"
+        ),
+    ],
+    ids=["invite", "password-reset"],
+)
+def test_brevo_sends_fail_closed_in_production(monkeypatch, operation) -> None:
+    _block_network(monkeypatch)
+    client = BrevoClient(_settings(app_env="production"))
+
+    with pytest.raises(BrevoError, match="desabilitado"):
+        operation(client)
 
 
 def test_create_event_blocked_raises(monkeypatch) -> None:

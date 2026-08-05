@@ -50,8 +50,9 @@ O MESMO deployment Vercel serve **três subdomínios**, roteados por Host no
 
 ⚠️ **Envios externos em produção:** `external_sends_enabled = ALLOW_REAL_SENDS`.
 O primeiro deploy usa `ALLOW_REAL_SENDS=false`; WhatsApp/e-mail/LLM/Google ficam
-suprimidos e mutações financeiras Asaas falham fechado, sem confirmar mudanças
-locais. A liberação para `true` é um gate operacional separado após os smokes.
+suprimidos. Mutações financeiras Asaas, conexão Evolution e envios Brevo falham
+fechado, sem confirmar mudanças locais, conexão ou e-mail inexistentes. A
+liberação para `true` é um gate operacional separado após os smokes.
 
 ---
 
