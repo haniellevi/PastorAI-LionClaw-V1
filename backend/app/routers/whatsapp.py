@@ -289,7 +289,7 @@ def post_connection(
                 detail="Já existe um número conectado para esta igreja",
             ) from exc
 
-    # Evolution v2.3.7 IGNORA o número quando a instância já está em "connecting"
+    # Evolution v2.1.1 IGNORA o número quando a instância já está em "connecting"
     # (devolve só o QR atual, sem pairingCode); por isso o pedido de código SEMPRE
     # passa por reconnect — que dá um restart best-effort para resetar a sessão
     # antes do connect com número. O caminho QR nunca envia número (nem reaproveita

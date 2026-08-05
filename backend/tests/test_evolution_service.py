@@ -501,7 +501,7 @@ def test_reconnect_survives_restart_transport_error_with_number(monkeypatch) -> 
 
 
 def test_reconnect_with_number_resets_session_before_pairing(monkeypatch) -> None:
-    # Evolution v2.3.7 só emite pairingCode se a sessão foi RESETADA antes do
+    # Evolution v2.1.1 só emite pairingCode se a sessão foi RESETADA antes do
     # connect com número; numa instância já em "connecting" ele ignora o número e
     # devolve só o QR. reconnect faz o restart primeiro — este teste falha se o
     # caminho voltar a usar connect direto (sem reset), pegando o QR silenciosamente.

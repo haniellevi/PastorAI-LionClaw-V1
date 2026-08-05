@@ -222,7 +222,7 @@ class EvolutionClient:
     def reconnect(self, instance: str, numero: str | None = None) -> ConnectionResult:
         """Restart an instance and return a fresh QR/pairing code + state.
 
-        Evolution v2.3.7 answers ``PUT /instance/restart`` with 404 when the
+        Evolution v2.1.1 answers ``PUT /instance/restart`` with 404 when the
         instance has no live socket yet, so the restart is best-effort: its
         failure is logged but never aborts the reconnect. The instance is
         (re)created if missing and ``/instance/connect`` still yields a fresh QR
@@ -240,7 +240,7 @@ class EvolutionClient:
                 # Ensure the instance exists so a never-connected igreja can pair.
                 self._ensure_instance(client, headers, instance)
                 # Restart drops the current socket so connect yields a fresh QR.
-                # A 404/failure here is expected on v2.3.7 and must not hide the
+                # A 404/failure here is expected on v2.1.1 and must not hide the
                 # QR from the admin — log it and fall through to connect.
                 try:
                     restart = client.put(
