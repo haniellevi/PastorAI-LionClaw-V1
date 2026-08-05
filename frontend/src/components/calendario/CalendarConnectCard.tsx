@@ -563,10 +563,12 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
     if (!token) return;
     mutationEpochRef.current += 1;
     const epoch = mutationEpochRef.current;
+    let importSucceeded = false;
     setImporting(true);
     setError(null);
     try {
       const result = await importEvents(token);
+      importSucceeded = true;
       // Importar também renova o token e avança a revisão legada. Sem adotá-la,
       // uma seleção de agenda feita depois da importação levaria 409.
       if (result.connectionVersion && epoch === mutationEpochRef.current) {
@@ -580,8 +582,10 @@ export function CalendarConnectCard({ onImported }: CalendarConnectCardProps) {
       // `loadStatus` já nasceu descartada. Sem este reload, o seletor ficava
       // vazio/obsoleto até o próximo status ou reload da página. Best-effort
       // e guardado pela época: se outra mutação veio depois, ele se descarta.
-      // Sem adotar a revisão da lista: a da importação é a mais fresca.
-      await applyCalendars(epoch, false);
+      // Em sucesso, a revisão da importação é a mais fresca. Em falha, porém,
+      // a própria listagem pode renovar o token legado e avançar a revisão;
+      // nesse caso ela precisa ser adotada para a próxima seleção não dar 409.
+      await applyCalendars(epoch, !importSucceeded);
       setImporting(false);
     }
   }, [token, applyCalendars, onErr, onImported]);

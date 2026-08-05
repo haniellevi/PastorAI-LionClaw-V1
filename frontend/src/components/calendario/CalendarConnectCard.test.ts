@@ -525,6 +525,47 @@ describe("seleção de agenda", () => {
     expect(text()).toContain("Agenda da igreja");
     expect(text()).not.toContain("Agenda velha");
   });
+
+  it("adota a revisão renovada pela lista depois de uma importação com falha", async () => {
+    setHash("#integracoes");
+    fetchCalendarStatus.mockResolvedValue({
+      connected: true,
+      calendarId: null,
+      googleAccountEmail: EMAIL,
+      connectionVersion: CONNECTION_VERSION,
+    });
+    fetchCalendarList
+      .mockResolvedValueOnce({
+        calendars: [
+          { id: "calendar@igreja", summary: "Agenda da igreja", primary: true },
+        ],
+        connectionVersion: CONNECTION_VERSION,
+      })
+      .mockResolvedValueOnce({
+        calendars: [
+          { id: "calendar@igreja", summary: "Agenda da igreja", primary: true },
+        ],
+        connectionVersion: REFRESHED_CONNECTION_VERSION,
+      });
+    importEvents.mockRejectedValue(new Error("falha de importação"));
+    selectCalendar.mockResolvedValue({
+      connected: true,
+      calendarId: "calendar@igreja",
+      googleAccountEmail: EMAIL,
+      connectionVersion: REFRESHED_CONNECTION_VERSION,
+    });
+
+    await render();
+    await click(button("Importar eventos do Google")!);
+    await chooseCalendar("calendar@igreja");
+
+    expect(fetchCalendarList).toHaveBeenCalledTimes(2);
+    expect(selectCalendar).toHaveBeenCalledWith(
+      "tok",
+      "calendar@igreja",
+      REFRESHED_CONNECTION_VERSION,
+    );
+  });
 });
 
 describe("identidade conectada", () => {
