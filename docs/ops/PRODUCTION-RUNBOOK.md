@@ -1,8 +1,8 @@
 # PastorAI V1 — runbook canônico de produção
 
 Atualizado em 2026-08-05. Este é o procedimento operacional vigente para o
-Igreja 12. Não contém segredos; valores reais ficam somente nos provedores e em
-`/opt/pastorai-lionclaw/deploy/.env`.
+Igreja 12. Não contém segredos; valores reais ficam somente nos provedores e no
+`.env` do release ativo, acessível por `/opt/pastorai-current/deploy/.env`.
 
 ## 1. Alvos oficiais
 
@@ -11,7 +11,8 @@ Igreja 12. Não contém segredos; valores reais ficam somente nos provedores e e
 | Supabase | `pffafnchtxbimpwyaczq` |
 | VPS Hostinger | `76.13.234.127` — `srv1728329.hstgr.cloud` — Campinas |
 | Backend público | `https://api.igreja12.com.br` |
-| Projeto na VPS | `/opt/pastorai-lionclaw` |
+| Releases na VPS | `/opt/pastorai-releases/<sha>` |
+| Release ativo | `/opt/pastorai-current` (symlink para um release imutável) |
 | Frontend Vercel | projeto `pastorai-frontend`, escopo `raniel-levis-projects` |
 | Frontends públicos | `app.`, `admin.` e `painel.igreja12.com.br` |
 
@@ -92,10 +93,11 @@ Já registradas em PROD em 2026-08-05:
 
 - `billing_setup_configuration_20260730`;
 - `calendar_oauth_flows_pkce_20260731`;
-- `calendar_account_identity_binding_20260801`.
+- `calendar_account_identity_binding_20260801`;
+- `broadcast_delivery_20260805`;
+- `calendar_fk_indexes_20260805`.
 
-A migration de broadcasts só pode ser aplicada depois de o PR correspondente
-estar revisado e mergeado. Ela não ativa broadcasts legados e não faz backfill.
+A migration de broadcasts não ativa broadcasts legados e não faz backfill.
 
 ## 5. Deploy reproduzível do backend
 
@@ -110,24 +112,30 @@ git fetch origin
 git worktree add --detach <diretorio-temporario> <SHA_EXATO_DE_MAIN>
 ```
 
-Antes de substituir arquivos na VPS:
+Na VPS, cada SHA recebe um diretório novo. O diretório legado
+`/opt/pastorai-lionclaw` é apenas rollback histórico e não é o alvo de novos
+deploys. Antes de ativar um release:
 
-- criar backup de `backend/` e `deploy/docker-compose.yml`;
-- preservar `deploy/.env`;
+- extrair o tarball em `/opt/pastorai-releases/<sha>`;
+- copiar o `.env` do release ativo para o candidato, sem imprimi-lo;
+- manter ambos os arquivos com modo `600`;
 - não copiar `.git`, caches, testes, arquivos `.env*` nem dependências locais;
 - não remover volumes `redis_data`, `evolution_pg_data` ou
   `evolution_instances`.
 
-Na VPS:
+Validar e subir pelo caminho exato do candidato. Só depois do health local
+trocar o symlink estável:
 
 ```bash
-cd /opt/pastorai-lionclaw/deploy
+PASTORAI_RELEASE_SHA=<sha-exato-de-main>
+cd "/opt/pastorai-releases/${PASTORAI_RELEASE_SHA}/deploy"
 chmod 600 .env
 docker compose config --quiet
 docker compose build backend
 docker compose up -d
 docker compose ps
 curl -fsS http://127.0.0.1:8000/health
+ln -sfn "/opt/pastorai-releases/${PASTORAI_RELEASE_SHA}" /opt/pastorai-current
 ```
 
 Portas públicas proibidas:
@@ -156,7 +164,7 @@ Pré-condições:
 Ativação:
 
 ```bash
-cd /opt/pastorai-lionclaw/deploy
+cd /opt/pastorai-current/deploy
 docker compose config --quiet
 docker compose up -d --build backend queue-worker cron-worker broadcast-worker
 docker compose ps backend queue-worker cron-worker broadcast-worker
@@ -212,8 +220,9 @@ uma conta de teste e um único envio observado.
 
 ## 9. Rollback
 
-- Backend: restaurar o backup do código/Compose e recriar os containers; nunca
-  restaurar ou apagar `deploy/.env` e volumes por engano.
+- Backend: apontar `/opt/pastorai-current` para o SHA anterior e recriar os
+  containers a partir desse release; nunca restaurar ou apagar `deploy/.env` e
+  volumes por engano.
 - Frontend: promover o deployment Vercel anterior.
 - Banco: migrations aditivas não são revertidas automaticamente. Corrigir por
   nova migration revisada; não executar rollback destrutivo improvisado.
