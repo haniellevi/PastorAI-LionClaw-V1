@@ -1,13 +1,14 @@
 # ============================================================================
 # PastorAI — stack de produção (VPS Hostinger · Docker Compose puro)
 # ----------------------------------------------------------------------------
-# Sobe 6 serviços:
+# Sobe 6 serviços por padrão e 1 serviço opt-in:
 #   redis              cache da Evolution (db 1) + fila do worker do app (db 0)
 #   evolution-postgres banco INTERNO da Evolution (NÃO é o banco do app)
 #   evolution-api      WhatsApp (Evolution API v2)
 #   backend            FastAPI (usa o Supabase via DATABASE_URL, externo)
 #   queue-worker       processa webhooks do WhatsApp → banco + agente
 #   cron-worker        motor de SLA + crons
+#   broadcast-worker   profile "broadcast"; agenda/fan-out persistente
 #
 # O banco do APP é o Supabase (gerenciado, externo). O frontend vai na Vercel.
 #
@@ -60,11 +61,11 @@ services:
   # Evolution API v2 (canal WhatsApp oficial da igreja)
   # --------------------------------------------------------------------------
   evolution-api:
-    image: atendai/evolution-api:v2.1.1
+    image: evoapicloud/evolution-api:v2.1.1
     container_name: pastorai_evolution
     restart: always
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     depends_on:
       evolution-postgres:
         condition: service_healthy
@@ -112,7 +113,7 @@ services:
     container_name: pastorai_backend
     restart: always
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     depends_on:
       redis:
         condition: service_healthy
@@ -127,6 +128,18 @@ services:
       # endereço interno em que a Evolution alcança o backend nesta rede.
       EVOLUTION_WEBHOOK_CALLBACK_URL: http://backend:8000/whatsapp/webhook
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=3).status==200 else 1)",
+        ]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
 
   # --------------------------------------------------------------------------
   # Worker de fila — drena webhooks do WhatsApp (Redis) → Postgres + agente
@@ -165,6 +178,29 @@ services:
       REDIS_URL: redis://redis:6379/0
       EVOLUTION_API_URL: http://evolution-api:8080
     command: ["python", "-m", "app.workers.cron_worker"]
+
+  # --------------------------------------------------------------------------
+  # Worker de broadcasts — opt-in para impedir promessa silenciosa de agenda.
+  # Só ativar depois da migration e com BROADCAST_ASYNC_ENABLED=true tanto no
+  # backend quanto neste processo:
+  #   docker compose --profile broadcast up -d --build backend broadcast-worker
+  # --------------------------------------------------------------------------
+  broadcast-worker:
+    profiles: ["broadcast"]
+    build:
+      context: ../backend
+    image: pastorai-backend:latest
+    container_name: pastorai_broadcast_worker
+    restart: always
+    depends_on:
+      redis:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      EVOLUTION_API_URL: http://evolution-api:8080
+    command: ["python", "-m", "app.workers.broadcast_worker"]
 
 volumes:
   redis_data:

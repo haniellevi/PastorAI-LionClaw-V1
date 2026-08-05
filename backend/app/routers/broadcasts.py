@@ -20,18 +20,21 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import re
 import uuid
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.db.models import Broadcast, Celula, Pessoa, WhatsappConnection
 from app.db.session import get_db
 from app.deps import CurrentUser, require_screen
 from app.domain.broadcast import RecipientCandidate, resolve_audience
 from app.routers._common import Page, PaginationParams
+from app.services.broadcast_delivery import scheduled_instant, utc_now
 from app.services.evolution import EvolutionClient, EvolutionError, get_evolution_client
 
 logger = logging.getLogger("pastorai.broadcasts")
@@ -40,12 +43,25 @@ router = APIRouter(prefix="/broadcasts", tags=["broadcasts"])
 
 VALID_MODOS = {"agora", "agendado"}
 VALID_REPETICOES = {"once", "daily", "weekly", "biweekly", "monthly"}
+_TIME_RE = re.compile(r"^([01][0-9]|2[0-3]):[0-5][0-9]$")
 
 
 class ScheduleIn(BaseModel):
     data: dt.date
     hora: str | None = Field(default=None, max_length=10)
     repeticao: str | None = Field(default=None)
+
+    @field_validator("hora")
+    @classmethod
+    def _hora(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        if not value:
+            return None
+        if not _TIME_RE.fullmatch(value):
+            raise ValueError("hora deve estar no formato HH:MM (00:00 a 23:59)")
+        return value
 
     @field_validator("repeticao")
     @classmethod
@@ -82,6 +98,13 @@ class BroadcastResponse(BaseModel):
     enviados: int
     ignoradosOptout: int  # noqa: N815
     agendadoPara: str | None = None  # noqa: N815
+    execucaoId: str | None = None  # noqa: N815
+    alcancePrevisto: int | None = None  # noqa: N815
+
+
+class BroadcastCapabilities(BaseModel):
+    agendamentoDisponivel: bool  # noqa: N815
+    motivo: str | None = None
 
 
 class BroadcastOut(BaseModel):
@@ -96,6 +119,8 @@ class BroadcastOut(BaseModel):
     data: dt.date | None = None
     hora: str | None = None
     repeticao: str | None = None
+    proximaExecucao: dt.datetime | None = None  # noqa: N815
+    precisaRevisao: bool = False  # noqa: N815
 
     @classmethod
     def from_model(cls, b: Broadcast) -> "BroadcastOut":
@@ -111,6 +136,8 @@ class BroadcastOut(BaseModel):
             data=b.data,
             hora=b.hora,
             repeticao=b.repeticao,
+            proximaExecucao=b.proxima_execucao,
+            precisaRevisao=(b.status == "agendado" and b.proxima_execucao is None),
         )
 
 
@@ -118,7 +145,18 @@ def _instance(db: Session, igreja_id: uuid.UUID) -> str | None:
     conn = db.execute(
         select(WhatsappConnection).where(WhatsappConnection.igreja_id == igreja_id)
     ).scalar_one_or_none()
-    return conn.instance if conn else None
+    if conn is None or conn.status != "online" or not conn.instance:
+        return None
+    return conn.instance
+
+
+def _rollout_state() -> tuple[bool, bool]:
+    """Return the boot-time async and outbound gates."""
+    settings = get_settings()
+    return (
+        bool(getattr(settings, "broadcast_async_enabled", False)),
+        bool(getattr(settings, "external_sends_enabled", False)),
+    )
 
 
 def _scheduled_for(agendamento: ScheduleIn | None) -> str | None:
@@ -153,9 +191,31 @@ def list_broadcasts(
     )
 
 
+@router.get("/capabilities", response_model=BroadcastCapabilities)
+def broadcast_capabilities(
+    current_user: CurrentUser = Depends(require_screen("comunicados")),
+) -> BroadcastCapabilities:
+    """Expose the backend rollout gate as the single UI source of truth."""
+    async_enabled, sends_enabled = _rollout_state()
+    enabled = async_enabled and sends_enabled
+    return BroadcastCapabilities(
+        agendamentoDisponivel=enabled,
+        motivo=(
+            None
+            if enabled
+            else (
+                "envios_externos_desabilitados"
+                if not sends_enabled
+                else "despacho_indisponivel"
+            )
+        ),
+    )
+
+
 @router.post("", response_model=BroadcastResponse)
 def create_broadcast(
     payload: CreateBroadcastRequest,
+    response: Response,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(require_screen("comunicados")),
     evolution: EvolutionClient = Depends(get_evolution_client),
@@ -167,6 +227,45 @@ def create_broadcast(
     - Zero cleared reach blocks the send (recorded as rascunho, enviados=0).
     - modo=agora sends now; modo=agendado stores the schedule (agendadoPara).
     """
+    async_enabled, sends_enabled = _rollout_state()
+    if not sends_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Envios externos ainda não habilitados.",
+        )
+    if payload.modo == "agendado" and not async_enabled:
+        # Must happen before any broadcast write: accepting an agenda without a
+        # live dispatcher would be a silent promise the system cannot keep.
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Agendamento de comunicados ainda não habilitado.",
+        )
+
+    now = utc_now()
+    next_execution: dt.datetime | None = None
+    if payload.modo == "agendado":
+        if payload.agendamento is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Data do agendamento é obrigatória.",
+            )
+        try:
+            next_execution = scheduled_instant(
+                payload.agendamento.data, payload.agendamento.hora
+            )
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=str(exc),
+            ) from exc
+        if next_execution <= now:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Data e hora do agendamento já passaram.",
+            )
+    elif async_enabled:
+        next_execution = now
+
     igreja_uuid = uuid.UUID(current_user.igreja_id)
 
     # Pessoa arquivada (W3) está FORA da audiência: não recebe e não conta como
@@ -206,14 +305,20 @@ def create_broadcast(
         modo=payload.modo,
         data=payload.agendamento.data if payload.agendamento else None,
         hora=payload.agendamento.hora if payload.agendamento else None,
-        repeticao=payload.agendamento.repeticao if payload.agendamento else None,
+        repeticao=(
+            (payload.agendamento.repeticao or "once")
+            if payload.agendamento
+            else "once"
+        ),
         ignorados_optout=audience.ignored_optout,
+        proxima_execucao=next_execution,
     )
 
     # Zero cleared reach -> blocked (e.g. everyone opted out). RF-38.
     if audience.reach == 0:
         broadcast.alcance = 0
         broadcast.status = "rascunho"
+        broadcast.proxima_execucao = None
         db.add(broadcast)
         db.flush()
         db.refresh(broadcast)
@@ -227,35 +332,48 @@ def create_broadcast(
             enviados=0,
             ignoradosOptout=audience.ignored_optout,
             agendadoPara=scheduled_for,
+            alcancePrevisto=0,
         )
 
-    if payload.modo == "agendado":
+    # Immediate sends require a currently online official instance in both
+    # rollout modes. Scheduled sends may wait for a later reconnection.
+    instance: str | None = None
+    if payload.modo == "agora":
+        instance = _instance(db, igreja_uuid)
+        if instance is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Nenhum número oficial conectado. Reconecte o WhatsApp.",
+            )
+
+    if async_enabled:
         broadcast.alcance = audience.reach
         broadcast.status = "agendado"
         db.add(broadcast)
         db.flush()
         db.refresh(broadcast)
         db.commit()
+        response.status_code = status.HTTP_202_ACCEPTED
         return BroadcastResponse(
             id=str(broadcast.id),
-            status="agendado",
+            status="agendado" if payload.modo == "agendado" else "enfileirado",
             enviados=0,
             ignoradosOptout=audience.ignored_optout,
-            agendadoPara=scheduled_for,
+            agendadoPara=(scheduled_for if payload.modo == "agendado" else None),
+            execucaoId=None,
+            alcancePrevisto=audience.reach,
         )
 
-    # modo=agora -> dispatch through the official number.
-    instance = _instance(db, igreja_uuid)
+    # ponytail: fallback de rollout — remover em BROADCAST-FLAG-CLEANUP-1.
+    # With the async flag off, modo=agora preserves the existing synchronous
+    # response contract until the dedicated worker is activated.
     sent = 0
-    if instance:
-        for phone in audience.recipients:
-            try:
-                evolution.send_text(instance, phone, payload.mensagem)
-                sent += 1
-            except EvolutionError:
-                logger.warning("Broadcast send failed to a recipient")
-    else:
-        logger.info("No official WhatsApp instance; broadcast recorded only")
+    for phone in audience.recipients:
+        try:
+            evolution.send_text(instance, phone, payload.mensagem)
+            sent += 1
+        except EvolutionError:
+            logger.warning("Broadcast send failed to a recipient")
 
     broadcast.alcance = audience.reach
     broadcast.status = "enviado"
@@ -270,4 +388,5 @@ def create_broadcast(
         enviados=sent,
         ignoradosOptout=audience.ignored_optout,
         agendadoPara=None,
+        alcancePrevisto=audience.reach,
     )

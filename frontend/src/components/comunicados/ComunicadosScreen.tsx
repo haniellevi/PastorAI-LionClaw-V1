@@ -25,10 +25,12 @@ import {
   SEGMENTS,
   countSegment,
   createBroadcast,
+  fetchBroadcastCapabilities,
   fetchBroadcasts,
   repeatLabel,
   resolveRecipients,
   type BroadcastItem,
+  type BroadcastCapabilities,
   type BroadcastRepeat,
   type BroadcastResult,
 } from "@/lib/broadcasts-api";
@@ -51,8 +53,9 @@ const STEP_LABEL: Record<Step, string> = {
   review: "Revisão",
 };
 
-function statusTone(status: string | null): PillTone {
-  switch (status) {
+function statusTone(broadcast: BroadcastItem): PillTone {
+  if (broadcast.precisaRevisao) return "danger";
+  switch (broadcast.status) {
     case "enviado":
       return "ok";
     case "agendado":
@@ -66,6 +69,7 @@ function statusTone(status: string | null): PillTone {
 }
 
 function statusLabel(b: BroadcastItem): string {
+  if (b.precisaRevisao) return "Revisão necessária";
   if (b.status === "enviado") return `Enviado · ${b.alcance ?? 0}`;
   if (b.status === "agendado") return `Agendado · ${repeatLabel(b.repeticao)}`;
   if (b.status === "rascunho") return "Bloqueado · opt-out";
@@ -77,6 +81,8 @@ export function ComunicadosScreen() {
 
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [history, setHistory] = useState<BroadcastItem[]>([]);
+  const [capabilities, setCapabilities] =
+    useState<BroadcastCapabilities | null>(null);
   const [conn, setConn] = useState<ConnState>("unknown");
   const [loading, setLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
@@ -112,12 +118,14 @@ export function ComunicadosScreen() {
       if (mode === "initial") setLoading(true);
       setError(null);
       try {
-        const [contactPage, broadcastPage] = await Promise.all([
+        const [contactPage, broadcastPage, rollout] = await Promise.all([
           fetchContacts(token),
           fetchBroadcasts(token),
+          fetchBroadcastCapabilities(token),
         ]);
         setContacts(contactPage.items);
         setHistory(broadcastPage.items);
+        setCapabilities(rollout);
         setLoaded(true);
         // Status do WhatsApp é admin-only: 403/erro não bloqueia a tela.
         try {
@@ -169,8 +177,12 @@ export function ComunicadosScreen() {
   }, []);
 
   // ---- regras de envio ----------------------------------------------------
+  const externalSendsBlocked =
+    capabilities?.motivo === "envios_externos_desabilitados";
+  const scheduleAvailable = capabilities?.agendamentoDisponivel === true;
   const whatsappOffline = conn === "offline";
-  const sendNowBlocked = !scheduleOn && whatsappOffline;
+  const sendNowBlocked =
+    !scheduleOn && (whatsappOffline || externalSendsBlocked);
 
   const schedulePast = useMemo(() => {
     if (!scheduleOn || !data) return false;
@@ -183,6 +195,8 @@ export function ComunicadosScreen() {
     selectedTokens.length > 0 &&
     recipients.length > 0 &&
     (!scheduleOn || (Boolean(data) && !schedulePast)) &&
+    (!scheduleOn || scheduleAvailable) &&
+    !externalSendsBlocked &&
     !sendNowBlocked;
 
   const resetWizard = useCallback(() => {
@@ -227,6 +241,8 @@ export function ComunicadosScreen() {
         text:
           result.status === "agendado"
             ? `Comunicado agendado. ${result.ignoradosOptout} ignorado(s) por opt-out.`
+            : result.status === "enfileirado"
+              ? `Comunicado enfileirado para ${result.alcancePrevisto ?? 0} contato(s). O histórico será atualizado após o processamento.`
             : `Comunicado enviado a ${result.enviados} contato(s). ${result.ignoradosOptout} ignorado(s).`,
       });
       resetWizard();
@@ -283,6 +299,21 @@ export function ComunicadosScreen() {
 
       <div className="grid-2" style={{ alignItems: "start" }}>
         <div className="card card-pad">
+          {externalSendsBlocked ? (
+            <div
+              className="degraded-banner"
+              role="status"
+              style={{ borderRadius: "var(--r-md)", marginBottom: "var(--s4)" }}
+            >
+              <Icon name="alert" />
+              <span>
+                Envios temporariamente desativados durante a validação de
+                produção. Você pode consultar o histórico, mas ainda não pode
+                disparar mensagens.
+              </span>
+            </div>
+          ) : null}
+
           {/* steps */}
           <ol className="bc-steps" aria-label="Etapas do comunicado">
             {(["compose", "segment", "review"] as Step[]).map((s, i) => (
@@ -402,15 +433,29 @@ export function ComunicadosScreen() {
                   <Toggle
                     label="Agendar envio"
                     checked={scheduleOn}
+                    disabled={!scheduleAvailable || externalSendsBlocked}
                     onChange={(on) => setScheduleOn(on)}
                   />
                 </div>
+                {!externalSendsBlocked && !scheduleAvailable ? (
+                  <div
+                    className="helper"
+                    role="status"
+                    style={{ marginTop: "var(--s2)" }}
+                  >
+                    Agendamento ainda indisponível; o envio imediato permanece
+                    disponível quando o WhatsApp estiver online.
+                  </div>
+                ) : null}
                 {sendNowBlocked ? (
                   <div className="degraded-banner" role="alert" style={{ borderRadius: "var(--r-md)", marginTop: "var(--s3)" }}>
                     <Icon name="alert" />
                     <span>
-                      WhatsApp offline: não é possível enviar agora. Ative
-                      &ldquo;Agendar envio&rdquo; ou reconecte o número.
+                      {externalSendsBlocked
+                        ? "Os envios externos ainda não foram liberados."
+                        : scheduleAvailable
+                          ? "WhatsApp offline: reconecte o número ou agende o envio."
+                          : "WhatsApp offline: reconecte o número para enviar."}
                     </span>
                   </div>
                 ) : null}
@@ -516,7 +561,11 @@ export function ComunicadosScreen() {
                 <button
                   type="button"
                   className="btn btn-primary"
-                  disabled={submitting}
+                  disabled={
+                    submitting ||
+                    externalSendsBlocked ||
+                    (scheduleOn && !scheduleAvailable)
+                  }
                   aria-busy={submitting || undefined}
                   onClick={() => void handleSubmit()}
                 >
@@ -560,7 +609,7 @@ export function ComunicadosScreen() {
                         .join(", ")}
                     </div>
                   </div>
-                  <StatusPill tone={statusTone(b.status)}>{statusLabel(b)}</StatusPill>
+                  <StatusPill tone={statusTone(b)}>{statusLabel(b)}</StatusPill>
                 </div>
               ))}
             </div>

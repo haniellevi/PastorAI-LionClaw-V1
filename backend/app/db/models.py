@@ -1393,9 +1393,27 @@ class Report(Base):
 
 
 class Broadcast(Base):
-    """Segmented broadcast/communication (RF-38). Honors opt-out at send time."""
+    """Segmented broadcast/communication (RF-38).
+
+    ``status`` continues to describe only the schedule lifecycle
+    (rascunho/agendado/enviado). Delivery state lives in
+    :class:`BroadcastExecucao` and :class:`BroadcastEntrega`.
+    """
 
     __tablename__ = "broadcasts"
+    __table_args__ = (
+        CheckConstraint(
+            "hora IS NULL OR hora ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$'",
+            name="broadcasts_hora_chk",
+        ),
+        Index(
+            "idx_broadcasts_agenda_ativa",
+            "proxima_execucao",
+            postgresql_where=text(
+                "status = 'agendado' AND proxima_execucao IS NOT NULL"
+            ),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     igreja_id: Mapped[uuid.UUID] = mapped_column(
@@ -1413,7 +1431,167 @@ class Broadcast(Base):
     alcance: Mapped[int | None] = mapped_column(Integer, nullable=True)
     ignorados_optout: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str | None] = mapped_column(String, nullable=True)
+    # NULL deliberately keeps every legacy scheduled row inactive. Only a new
+    # request made with the async gate enabled receives a due instant.
+    proxima_execucao: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    claim_ate: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    claim_por: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+
+class BroadcastExecucao(Base):
+    """One materialized occurrence of a broadcast schedule.
+
+    An occurrence is kept even when no recipient is eligible, so history can
+    distinguish "ran with an empty audience" from "never ran". Its result is
+    derived from the delivery ledger rather than duplicated in counters here.
+    """
+
+    __tablename__ = "broadcast_execucoes"
+    __table_args__ = (
+        CheckConstraint("seq > 0", name="broadcast_execucoes_seq_chk"),
+        CheckConstraint(
+            "hora_nominal IS NULL OR "
+            "hora_nominal ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$'",
+            name="broadcast_execucoes_hora_chk",
+        ),
+        UniqueConstraint(
+            "broadcast_id", "seq", name="broadcast_execucoes_seq_uq"
+        ),
+        Index(
+            "broadcast_execucoes_slot_uq",
+            "igreja_id",
+            "broadcast_id",
+            "data_nominal",
+            text("coalesce(hora_nominal, '')"),
+            unique=True,
+        ),
+        Index("idx_broadcast_execucoes_igreja", "igreja_id"),
+        Index(
+            "idx_broadcast_execucoes_abertas",
+            "igreja_id",
+            "criado_em",
+            postgresql_where=text("finalizada_em IS NULL"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    igreja_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("igrejas.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    broadcast_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("broadcasts.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    seq: Mapped[int] = mapped_column(Integer, nullable=False)
+    data_nominal: Mapped[dt.date] = mapped_column(Date, nullable=False)
+    hora_nominal: Mapped[str | None] = mapped_column(Text, nullable=True)
+    iniciada_em: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    finalizada_em: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    lease_ate: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    claim_por: Mapped[str | None] = mapped_column(Text, nullable=True)
+    criado_em: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+
+class BroadcastEntrega(Base):
+    """Durable per-recipient ledger for a broadcast occurrence.
+
+    ``aceito`` means only that Evolution returned HTTP 2xx. Ambiguous results
+    are quarantined as ``desconhecido`` and are never retried automatically.
+    """
+
+    __tablename__ = "broadcast_entregas"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pendente','em_envio','aceito','falhou_retentavel',"
+            "'falhou_permanente','desconhecido','suprimido')",
+            name="broadcast_entregas_status_chk",
+        ),
+        CheckConstraint("tentativas >= 0", name="broadcast_entregas_tentativas_chk"),
+        UniqueConstraint(
+            "execucao_id", "telefone", name="broadcast_entregas_execucao_telefone_uq"
+        ),
+        Index(
+            "broadcast_entregas_execucao_pessoa_uq",
+            "execucao_id",
+            "pessoa_id",
+            unique=True,
+            postgresql_where=text("pessoa_id IS NOT NULL"),
+        ),
+        Index(
+            "idx_broadcast_entregas_pessoa",
+            "pessoa_id",
+            postgresql_where=text("pessoa_id IS NOT NULL"),
+        ),
+        Index("idx_broadcast_entregas_igreja", "igreja_id"),
+        Index(
+            "idx_broadcast_entregas_trabalho",
+            "igreja_id",
+            "execucao_id",
+            "status",
+            postgresql_where=text(
+                "status IN ('pendente','em_envio','falhou_retentavel')"
+            ),
+        ),
+        Index(
+            "idx_broadcast_entregas_lease",
+            "lease_ate",
+            postgresql_where=text("status = 'em_envio'"),
+        ),
+        Index("idx_broadcast_entregas_criado", "criado_em"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    igreja_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("igrejas.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    execucao_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("broadcast_execucoes.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    pessoa_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("pessoas.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    # Snapshot/dedupe key. Never include it in logs.
+    telefone: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'pendente'")
+    )
+    tentativas: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
+    lease_ate: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    claim_por: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Technical class only (for example read_timeout/http_401); never a body.
+    ultimo_erro_classe: Mapped[str | None] = mapped_column(Text, nullable=True)
+    criado_em: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+    atualizado_em: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
 
@@ -1530,6 +1708,13 @@ class CalendarSync(Base):
     """
 
     __tablename__ = "calendar_sync"
+    __table_args__ = (
+        Index(
+            "idx_calendar_sync_connected_by_app_user",
+            "connected_by_app_user_id",
+            postgresql_where=text("connected_by_app_user_id IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     igreja_id: Mapped[uuid.UUID] = mapped_column(
@@ -1590,6 +1775,8 @@ class CalendarOAuthFlow(Base):
             "finish_result is null or finish_result in ('connected', 'failed')",
             name="ck_calendar_oauth_flows_finish_result",
         ),
+        Index("idx_calendar_oauth_flows_igreja", "igreja_id"),
+        Index("idx_calendar_oauth_flows_app_user", "app_user_id"),
     )
 
     id: Mapped[uuid.UUID] = _uuid_pk()

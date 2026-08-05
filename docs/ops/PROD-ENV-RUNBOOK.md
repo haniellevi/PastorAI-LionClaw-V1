@@ -1,4 +1,10 @@
-# PROD/DEV — Runbook operacional (ambientes, deploy, comandos)
+# ARQUIVO HISTÓRICO — NÃO EXECUTAR
+
+Este documento descreve a VPS antiga e o processo usado em 2026-06-30. O
+runbook vigente é [PRODUCTION-RUNBOOK.md](PRODUCTION-RUNBOOK.md). Não copie IPs,
+flags ou comandos deste arquivo para a produção atual.
+
+# PROD/DEV — Runbook operacional histórico (ambientes, deploy, comandos)
 
 Estado operacional **real** dos ambientes do PastorAI / Igreja 12 e o processo de
 deploy de cada camada, como executado na promoção da **Agenda MVP (EVT-1..5)** em

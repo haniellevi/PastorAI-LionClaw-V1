@@ -3,6 +3,7 @@
  * Consome o backend (sprint-009):
  *
  *   GET  /broadcasts                  -> Page<BroadcastItem>     (histórico)
+ *   GET  /broadcasts/capabilities     -> BroadcastCapabilities  (rollout)
  *   POST /broadcasts {titulo,mensagem,segmentos,modo,agendamento?}
  *        -> { id, status, enviados, ignoradosOptout, agendadoPara }
  *
@@ -37,6 +38,8 @@ export interface BroadcastItem {
   data: string | null;
   hora: string | null;
   repeticao: string | null;
+  proximaExecucao: string | null;
+  precisaRevisao: boolean;
 }
 
 export type BroadcastRepeat = "once" | "daily" | "weekly" | "biweekly" | "monthly";
@@ -55,13 +58,21 @@ export interface CreateBroadcastInput {
   agendamento?: BroadcastSchedule | null;
 }
 
-/** Resultado de POST /broadcasts. status=bloqueado quando alcance=0. */
+/** Resultado de POST /broadcasts. O 202 assíncrono retorna status=enfileirado. */
 export interface BroadcastResult {
   id: string;
-  status: string; // enviado | agendado | bloqueado
+  status: string; // enviado | agendado | enfileirado | bloqueado
   enviados: number;
   ignoradosOptout: number;
   agendadoPara: string | null;
+  execucaoId: string | null;
+  alcancePrevisto: number | null;
+}
+
+/** Disponibilidade operacional controlada pelo backend/worker. */
+export interface BroadcastCapabilities {
+  agendamentoDisponivel: boolean;
+  motivo: "despacho_indisponivel" | "envios_externos_desabilitados" | null;
 }
 
 /** Definição de um segmento selecionável (token reconhecido pelo backend). */
@@ -128,6 +139,22 @@ export async function fetchBroadcasts(
     throw new ApiError(res.status, "Não foi possível carregar os comunicados.");
   }
   return (await res.json()) as Page<BroadcastItem>;
+}
+
+export async function fetchBroadcastCapabilities(
+  token: string,
+): Promise<BroadcastCapabilities> {
+  const res = await authedFetch(token, `/broadcasts/capabilities`);
+  if (res.status === 403) {
+    throw new ApiError(403, "Acesso restrito à comunicação da igreja.");
+  }
+  if (!res.ok) {
+    throw new ApiError(
+      res.status,
+      "Não foi possível confirmar a disponibilidade dos envios.",
+    );
+  }
+  return (await res.json()) as BroadcastCapabilities;
 }
 
 // ---------------------------------------------------------------------------

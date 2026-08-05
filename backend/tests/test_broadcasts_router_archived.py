@@ -25,8 +25,10 @@ import datetime as dt
 import uuid
 from types import SimpleNamespace
 
+import pytest
 from fastapi.testclient import TestClient
 
+import app.routers.broadcasts as broadcasts_router
 from app.db.models import AppUser, Broadcast, Celula, Pessoa, WhatsappConnection
 from app.db.session import get_db
 from app.services.clerk import get_clerk_client
@@ -36,6 +38,19 @@ from tests.conftest import FakeClerk, make_app_user
 _AUTH = {"Authorization": "Bearer good"}
 _BID = "00000000-0000-0000-0000-0000000000b1"
 _INSTANCE = "igreja-piloto"
+
+
+@pytest.fixture(autouse=True)
+def _enable_synchronous_send_for_legacy_contract(monkeypatch) -> None:
+    """Exercise the legacy synchronous path behind the explicit send gate."""
+    monkeypatch.setattr(
+        broadcasts_router,
+        "get_settings",
+        lambda: SimpleNamespace(
+            broadcast_async_enabled=False,
+            external_sends_enabled=True,
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -89,7 +104,7 @@ class BroadcastSession:
         if ent is Celula:
             return _R(scalars=self.leader_ids)
         if ent is WhatsappConnection:
-            return _R(scalar=SimpleNamespace(instance=_INSTANCE))
+            return _R(scalar=SimpleNamespace(instance=_INSTANCE, status="online"))
         if ent is Broadcast:
             return _R(scalars=[])
         return _R(scalars=self.roles)

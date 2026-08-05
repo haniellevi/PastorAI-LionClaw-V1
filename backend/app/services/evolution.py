@@ -39,6 +39,17 @@ _STATE_MAP = {
 }
 
 
+def _transport_error_class(exc: httpx.HTTPError) -> str:
+    """Return a stable, non-PII technical class for ledger/audit use."""
+    name = type(exc).__name__
+    chars: list[str] = []
+    for index, char in enumerate(name):
+        if char.isupper() and index:
+            chars.append("_")
+        chars.append(char.lower())
+    return "".join(chars)
+
+
 def map_connection_state(raw_state: str | None) -> str:
     """Translate an Evolution connection state into a whatsapp_status value."""
     if not raw_state:
@@ -75,6 +86,19 @@ class ConnectionResult:
     qr: str | None = None
     numero: str | None = None
     pairing_code: str | None = None  # numeric pairing code (connect with number)
+
+
+@dataclass(frozen=True)
+class BroadcastSendResult:
+    """Classified outcome of one broadcast ``sendText`` call.
+
+    ``aceito`` means only HTTP 2xx from Evolution. Results that may have
+    crossed the network boundary are ``desconhecido`` so the broadcast worker
+    never retries them automatically.
+    """
+
+    status: str
+    error_class: str | None = None
 
 
 def verify_webhook_signature(secret: str, payload: bytes, signature: str | None) -> bool:
@@ -280,6 +304,100 @@ class EvolutionClient:
             logger.warning("Evolution sendText failed: %s", type(exc).__name__)
             raise EvolutionError("Falha ao enviar mensagem pela Evolution API") from exc
         return True
+
+    def send_text_classificado(
+        self, instance: str, telefone: str, texto: str
+    ) -> BroadcastSendResult:
+        """Send one broadcast message and preserve retry-safety information.
+
+        Only failures proven to happen before a request can be accepted by the
+        provider are retryable. Read/write failures, HTTP 5xx, and any unknown
+        transport outcome are ambiguous and therefore quarantined. Response
+        bodies are deliberately neither stored nor logged because providers may
+        echo recipient data in them.
+
+        The existing :meth:`send_text` contract remains unchanged for every
+        non-broadcast call site.
+        """
+        if not external_sends_allowed(self._settings):
+            log_suppressed("WhatsApp", "broadcast_send_text")
+            return BroadcastSendResult(
+                status="suprimido", error_class="envio_externo_bloqueado"
+            )
+
+        try:
+            base_url, api_key = self._require_config()
+        except EvolutionError:
+            # Configuration is checked before opening a socket: definitely no
+            # message left this process, so a bounded retry is safe.
+            return BroadcastSendResult(
+                status="falhou_retentavel", error_class="configuracao_ausente"
+            )
+
+        headers = self._headers(api_key)
+        try:
+            with httpx.Client(base_url=base_url, timeout=15.0) as client:
+                response = client.post(
+                    f"/message/sendText/{instance}",
+                    headers=headers,
+                    json={"number": telefone, "text": texto},
+                )
+                response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            code = exc.response.status_code
+            logger.warning("Evolution broadcast sendText returned HTTP %s", code)
+            if code == 429:
+                return BroadcastSendResult(
+                    status="falhou_retentavel", error_class=f"http_{code}"
+                )
+            if code == 408 or code >= 500:
+                # Evolution/proxy may have accepted the request before failing.
+                return BroadcastSendResult(
+                    status="desconhecido", error_class=f"http_{code}"
+                )
+            return BroadcastSendResult(
+                status="falhou_permanente", error_class=f"http_{code}"
+            )
+        except (httpx.ConnectTimeout, httpx.ConnectError, httpx.PoolTimeout) as exc:
+            logger.warning(
+                "Evolution broadcast sendText failed before send: %s",
+                type(exc).__name__,
+            )
+            return BroadcastSendResult(
+                status="falhou_retentavel",
+                error_class=_transport_error_class(exc),
+            )
+        except (
+            httpx.ReadTimeout,
+            httpx.WriteTimeout,
+            httpx.ReadError,
+            httpx.WriteError,
+            httpx.RemoteProtocolError,
+        ) as exc:
+            logger.warning(
+                "Evolution broadcast sendText has ambiguous outcome: %s",
+                type(exc).__name__,
+            )
+            return BroadcastSendResult(
+                status="desconhecido", error_class=_transport_error_class(exc)
+            )
+        except httpx.HTTPError as exc:
+            # Conservative default: an unclassified transport failure may have
+            # happened after bytes left the process.
+            logger.warning(
+                "Evolution broadcast sendText has unclassified outcome: %s",
+                type(exc).__name__,
+            )
+            return BroadcastSendResult(
+                status="desconhecido", error_class=_transport_error_class(exc)
+            )
+        return BroadcastSendResult(status="aceito")
+
+    def send_text_classified(
+        self, instance: str, telefone: str, texto: str
+    ) -> BroadcastSendResult:
+        """English alias for :meth:`send_text_classificado`."""
+        return self.send_text_classificado(instance, telefone, texto)
 
     def get_media_base64(
         self, instance: str, key: dict[str, object]

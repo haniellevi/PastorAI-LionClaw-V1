@@ -2,8 +2,8 @@
 
 Garante que, fora de produção e sem override, os métodos de efeito externo
 (WhatsApp, cobrança, e-mail, LLM, calendário) NÃO tocam a rede — retornam um
-valor neutro e logam ``[SANDBOX]`` sem expor segredo —, enquanto em produção (ou
-com ``ALLOW_REAL_SENDS=true``) o comportamento real é preservado.
+valor neutro e logam ``[OUTBOUND_DISABLED]`` sem expor segredo. Qualquer ambiente
+só toca a rede com ``ALLOW_REAL_SENDS=true``.
 """
 
 from __future__ import annotations
@@ -85,13 +85,13 @@ def _capture_network(monkeypatch, response: httpx.Response) -> list[httpx.Reques
 @pytest.mark.parametrize(
     "app_env,allow,expected",
     [
-        ("production", False, True),   # prod permite por padrão
+        ("production", False, False),  # prod também exige ativação explícita
         ("production", True, True),
         ("staging", False, False),     # não-prod bloqueia por padrão
         ("staging", True, True),       # override explícito
         ("development", False, False),
         ("development", True, True),
-        ("PRODUCTION", False, True),   # case-insensitive
+        ("PRODUCTION", False, False),  # case-insensitive
     ],
 )
 def test_external_sends_enabled_matrix(app_env, allow, expected) -> None:
@@ -205,7 +205,7 @@ def test_llm_complete_blocked(monkeypatch) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 3) Override e produção preservam o comportamento real
+# 3) O override explícito preserva o comportamento real
 # ---------------------------------------------------------------------------
 def test_send_text_allowed_with_override(monkeypatch) -> None:
     seen = _capture_network(monkeypatch, httpx.Response(200, json={"key": {"id": "X"}}))
@@ -216,9 +216,18 @@ def test_send_text_allowed_with_override(monkeypatch) -> None:
     assert len(seen) == 1 and seen[0].url.path.endswith("/message/sendText/igreja-1")
 
 
-def test_send_text_allowed_in_production(monkeypatch) -> None:
+def test_send_text_blocked_in_production_without_activation(monkeypatch) -> None:
+    _block_network(monkeypatch)
+    assert EvolutionClient(_settings(app_env="production")).send_text(
+        "igreja-1", "5599", "oi"
+    ) is True
+
+
+def test_send_text_allowed_in_production_with_activation(monkeypatch) -> None:
     seen = _capture_network(monkeypatch, httpx.Response(200, json={}))
-    EvolutionClient(_settings(app_env="production")).send_text("igreja-1", "5599", "oi")
+    EvolutionClient(_settings(app_env="production", allow_real_sends=True)).send_text(
+        "igreja-1", "5599", "oi"
+    )
     assert len(seen) == 1
 
 
@@ -243,7 +252,7 @@ def test_sandbox_log_has_no_secret_or_pii(monkeypatch, caplog) -> None:
             to_email="alguem@real.com", nome="N", activation_link="http://x/a"
         )
     blob = "\n".join(r.getMessage() for r in caplog.records)
-    assert "[SANDBOX]" in blob
+    assert "[OUTBOUND_DISABLED]" in blob
     assert "send_text" in blob
     # nem telefone, nem e-mail, nem chaves de API vazam para o log:
     for leak in ("5511999990000", "texto secreto", "alguem@real.com",

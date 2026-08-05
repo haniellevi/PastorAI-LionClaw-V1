@@ -155,6 +155,103 @@ def test_disconnect_raises_on_server_error(monkeypatch) -> None:
         EvolutionClient(_settings()).disconnect("igreja-1")
 
 
+# ---- broadcast sendText classification ------------------------------------
+def test_broadcast_send_classifies_2xx_as_provider_accepted(monkeypatch) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(201, json={"key": {"id": "provider-id"}})
+
+    _use_transport(monkeypatch, handler)
+    result = EvolutionClient(_settings()).send_text_classificado(
+        "igreja-1", "5511999990000", "aviso"
+    )
+    assert result.status == "aceito"
+    assert result.error_class is None
+
+
+def test_broadcast_send_retries_provider_throttling(monkeypatch) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(429, json={"error": "ignored"})
+
+    _use_transport(monkeypatch, handler)
+    result = EvolutionClient(_settings()).send_text_classificado("i", "5511", "x")
+    assert result.status == "falhou_retentavel"
+    assert result.error_class == "http_429"
+
+
+def test_broadcast_send_quarantines_http_request_timeout(monkeypatch) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(408, json={"error": "ignored"})
+
+    _use_transport(monkeypatch, handler)
+    result = EvolutionClient(_settings()).send_text_classificado("i", "5511", "x")
+    assert result.status == "desconhecido"
+    assert result.error_class == "http_408"
+
+
+@pytest.mark.parametrize("code", [400, 401, 404])
+def test_broadcast_send_classifies_non_retryable_4xx(monkeypatch, code) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(code, json={"error": "ignored"})
+
+    _use_transport(monkeypatch, handler)
+    result = EvolutionClient(_settings()).send_text_classificado("i", "5511", "x")
+    assert result.status == "falhou_permanente"
+    assert result.error_class == f"http_{code}"
+
+
+@pytest.mark.parametrize("code", [500, 502, 503, 504])
+def test_broadcast_send_quarantines_all_5xx(monkeypatch, code) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(code, json={"error": "ignored"})
+
+    _use_transport(monkeypatch, handler)
+    result = EvolutionClient(_settings()).send_text_classificado("i", "5511", "x")
+    assert result.status == "desconhecido"
+    assert result.error_class == f"http_{code}"
+
+
+def test_broadcast_send_connect_error_is_safe_to_retry(monkeypatch) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("offline", request=request)
+
+    _use_transport(monkeypatch, handler)
+    result = EvolutionClient(_settings()).send_text_classificado("i", "5511", "x")
+    assert result.status == "falhou_retentavel"
+    assert result.error_class == "connect_error"
+
+
+def test_broadcast_send_read_timeout_is_ambiguous(monkeypatch) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("unknown", request=request)
+
+    _use_transport(monkeypatch, handler)
+    result = EvolutionClient(_settings()).send_text_classificado("i", "5511", "x")
+    assert result.status == "desconhecido"
+    assert result.error_class == "read_timeout"
+
+
+def test_broadcast_send_suppressed_by_outbound_guard_never_uses_network(
+    monkeypatch,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:  # pragma: no cover
+        raise AssertionError("network must stay blocked")
+
+    _use_transport(monkeypatch, handler)
+    result = EvolutionClient(_settings(allow_real_sends=False)).send_text_classificado(
+        "i", "5511", "x"
+    )
+    assert result.status == "suprimido"
+    assert result.error_class == "envio_externo_bloqueado"
+
+
+def test_existing_send_text_contract_is_preserved(monkeypatch) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={})
+
+    _use_transport(monkeypatch, handler)
+    assert EvolutionClient(_settings()).send_text("i", "5511", "x") is True
+
+
 # ---- media: receive (getBase64) + send (sendMedia) — Etapa 2 --------------
 def test_get_media_base64_returns_data_and_mime(monkeypatch) -> None:
     seen: dict = {}
