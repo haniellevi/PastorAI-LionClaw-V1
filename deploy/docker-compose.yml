@@ -181,8 +181,9 @@ services:
 
   # --------------------------------------------------------------------------
   # Worker de broadcasts — obrigatório e monitorado por heartbeat no Redis.
-  # Com as flags false ele permanece ocioso; ao ativá-las, recrie backend e
-  # worker juntos para que capabilities só libere agenda com heartbeat fresco.
+  # Com as flags false ele permanece ocioso; ao ativá-las, recrie backend,
+  # queue-worker, cron-worker e broadcast-worker juntos. As configurações ficam
+  # em cache por processo e capabilities exige heartbeat fresco.
   # --------------------------------------------------------------------------
   broadcast-worker:
     build:

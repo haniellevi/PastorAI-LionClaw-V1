@@ -37,7 +37,9 @@ CALENDAR_OAUTH_RETURN_ORIGINS=https://admin.igreja12.com.br
 - `BROADCAST_ASYNC_ENABLED=false` mantém o worker persistente inativo e faz
   qualquer novo comunicado falhar antes de ser persistido; não existe fallback
   síncrono capaz de contornar o ledger/heartbeat.
-- A ativação de cada flag exige recriar backend e worker; elas são lidas no boot.
+- A ativação de cada flag exige recriar todos os processos da aplicação que a
+  consomem (`backend`, `queue-worker`, `cron-worker` e `broadcast-worker`); elas
+  são lidas no boot e ficam em cache por processo.
 
 ## 3. Variáveis secretas e integrações
 
@@ -156,8 +158,8 @@ Ativação:
 ```bash
 cd /opt/pastorai-lionclaw/deploy
 docker compose config --quiet
-docker compose up -d --build backend broadcast-worker
-docker compose ps backend broadcast-worker
+docker compose up -d --build backend queue-worker cron-worker broadcast-worker
+docker compose ps backend queue-worker cron-worker broadcast-worker
 ```
 
 O ledger considera `aceito` apenas HTTP 2xx da Evolution. Resultado ambíguo
