@@ -22,11 +22,14 @@ def test_anon_cannot_execute_any_security_definer_helper() -> None:
         "revoke execute on function public.current_igreja_id() "
         "from public, anon"
     ) in sql
-    for function in ("fn_subscription_autoupgrade", "rls_auto_enable"):
-        assert (
-            f"revoke execute on function public.{function}() "
-            "from public, anon, authenticated"
-        ) in sql
+    assert (
+        "revoke execute on function public.fn_subscription_autoupgrade() "
+        "from public, anon, authenticated"
+    ) in sql
+    assert (
+        "'revoke execute on function public.rls_auto_enable() ' "
+        "'from public, anon, authenticated'"
+    ) in sql
 
 
 def test_authenticated_keeps_only_the_rls_tenant_helper() -> None:
@@ -44,3 +47,8 @@ def test_trigger_helpers_remain_available_only_for_maintenance_role() -> None:
         assert (
             f"grant execute on function public.{function}() to service_role"
         ) in sql
+
+
+def test_optional_operational_event_trigger_is_guarded_for_fresh_databases() -> None:
+    sql = _sql()
+    assert "if to_regprocedure('public.rls_auto_enable()') is not null then" in sql
