@@ -11,7 +11,7 @@
  *  - opt-out/sem consentimento são removidos; alcance 0 bloqueia o envio
  *    (status=bloqueado) com a contagem de ignorados;
  *  - agendamento no passado é bloqueado;
- *  - WhatsApp offline impede "enviar agora" e sugere agendar;
+ *  - WhatsApp offline/reconectando impede "enviar agora" e sugere agendar;
  *  - segmento sem pessoas avisa no passo segment; histórico vazio usa empty-state.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -28,6 +28,7 @@ import {
   createBroadcast,
   fetchBroadcastCapabilities,
   fetchBroadcasts,
+  isSendNowConnectionUnavailable,
   repeatLabel,
   resolveRecipients,
   type BroadcastItem,
@@ -203,9 +204,10 @@ export function ComunicadosScreen() {
     capabilities?.motivo === "envios_externos_desabilitados";
   const dispatcherUnavailable = capabilities?.motivo === "despacho_indisponivel";
   const scheduleAvailable = capabilities?.agendamentoDisponivel === true;
-  const whatsappOffline = conn === "offline";
+  const whatsappUnavailable = isSendNowConnectionUnavailable(conn);
   const sendNowBlocked =
-    !scheduleOn && (whatsappOffline || externalSendsBlocked || dispatcherUnavailable);
+    !scheduleOn &&
+    (whatsappUnavailable || externalSendsBlocked || dispatcherUnavailable);
 
   const schedulePast = useMemo(() => {
     if (!scheduleOn || !data) return false;
@@ -479,9 +481,15 @@ export function ComunicadosScreen() {
                     <span>
                       {externalSendsBlocked
                         ? "Os envios externos ainda não foram liberados."
-                        : scheduleAvailable
-                          ? "WhatsApp offline: reconecte o número ou agende o envio."
-                          : "WhatsApp offline: reconecte o número para enviar."}
+                        : dispatcherUnavailable
+                          ? "O serviço seguro de envios está indisponível no momento."
+                          : conn === "reconectando"
+                            ? scheduleAvailable
+                              ? "WhatsApp reconectando: aguarde ficar online ou agende o envio."
+                              : "WhatsApp reconectando: aguarde ficar online para enviar."
+                            : scheduleAvailable
+                              ? "WhatsApp offline: reconecte o número ou agende o envio."
+                              : "WhatsApp offline: reconecte o número para enviar."}
                     </span>
                   </div>
                 ) : null}

@@ -86,6 +86,19 @@ export interface BroadcastResultFeedback {
   text: string;
 }
 
+export type BroadcastConnectionStatus =
+  | "online"
+  | "offline"
+  | "reconectando"
+  | "unknown";
+
+/** Explicitly unavailable states; unknown still falls back to backend validation. */
+export function isSendNowConnectionUnavailable(
+  status: BroadcastConnectionStatus,
+): boolean {
+  return status === "offline" || status === "reconectando";
+}
+
 /** Human feedback that never presents an adverse ledger result as success. */
 export function broadcastResultFeedback(
   result: BroadcastResult,

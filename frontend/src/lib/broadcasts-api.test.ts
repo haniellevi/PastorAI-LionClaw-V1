@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   broadcastResultFeedback,
+  isSendNowConnectionUnavailable,
   type BroadcastResult,
 } from "./broadcasts-api";
 
@@ -42,4 +43,20 @@ describe("broadcastResultFeedback", () => {
       "Não reenvie",
     );
   });
+});
+
+describe("isSendNowConnectionUnavailable", () => {
+  it.each(["offline", "reconectando"] as const)(
+    "bloqueia envio imediato quando o WhatsApp está %s",
+    (status) => {
+      expect(isSendNowConnectionUnavailable(status)).toBe(true);
+    },
+  );
+
+  it.each(["online", "unknown"] as const)(
+    "mantém %s para validação normal do backend",
+    (status) => {
+      expect(isSendNowConnectionUnavailable(status)).toBe(false);
+    },
+  );
 });
