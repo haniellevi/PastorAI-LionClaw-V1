@@ -61,7 +61,7 @@ services:
   # Evolution API v2 (canal WhatsApp oficial da igreja)
   # --------------------------------------------------------------------------
   evolution-api:
-    image: evoapicloud/evolution-api:v2.1.1
+    image: evoapicloud/evolution-api:v2.3.7
     container_name: pastorai_evolution
     restart: always
     ports:
