@@ -148,6 +148,7 @@ export function AppShell() {
         user={user}
         route={resolvedBase}
         crossSurface={adminHref ? { href: adminHref, label: "Admin" } : null}
+        crossSurfacePlacement="after"
         collapsed={collapsed}
         mobileOpen={mobileOpen}
         onNavigate={navigate}
