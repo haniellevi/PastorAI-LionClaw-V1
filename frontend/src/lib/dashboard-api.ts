@@ -16,8 +16,47 @@
  */
 
 import { SessionExpiredError } from "./api";
+import { AuthedResponseCache } from "./authed-response-cache";
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(/\/$/, "");
+const responseCache = new AuthedResponseCache();
+const inFlightReads = new Map<string, Promise<Response>>();
+
+/**
+ * Somente leituras aquecidas pela navegação entram no cache. Manter uma lista
+ * explícita evita alterar a semântica de telas administrativas, polling e
+ * outros GETs que precisam refletir o servidor imediatamente.
+ */
+function cacheTtl(path: string): number {
+  if (path.startsWith("/conversations?page=")) return 15_000;
+  if (path.startsWith("/events?page=")) return 60_000;
+  if (path.startsWith("/pipeline?")) return 30_000;
+  if (path.startsWith("/work-queue?")) return 30_000;
+  if (path.startsWith("/team/lookup?")) return 30_000;
+  if (path.startsWith("/cells?")) return 30_000;
+  if (path === "/dashboard/overview") return 30_000;
+  return 0;
+}
+
+/** Invalida leituras recentes após refresh explícito, polling ou troca de sessão. */
+export function clearAuthedResponseCache(token?: string, pathPrefixes?: string[]): void {
+  responseCache.clear(token, pathPrefixes);
+  if (!token) {
+    inFlightReads.clear();
+    return;
+  }
+  const tokenPrefix = `${token}\u0000`;
+  for (const key of inFlightReads.keys()) {
+    if (!key.startsWith(tokenPrefix)) continue;
+    const path = key.slice(tokenPrefix.length);
+    if (pathPrefixes?.length && !pathPrefixes.some((prefix) => path.startsWith(prefix))) {
+      continue;
+    }
+    // Não cancela a requisição já enviada, mas impede que um refresh explícito
+    // espere por ela ou que seu finally remova uma requisição nova do mapa.
+    inFlightReads.delete(key);
+  }
+}
 
 export interface Page<T> {
   items: T[];
@@ -114,16 +153,58 @@ export async function authedFetch(
   path: string,
   init?: RequestInit,
 ): Promise<Response> {
+  const method = (init?.method ?? "GET").toUpperCase();
+  const cacheMode = init?.cache;
+  const cacheEnabled = process.env.NODE_ENV !== "test";
+  const ttlMs = cacheTtl(path);
+  const cacheable =
+    cacheEnabled && ttlMs > 0 && method === "GET" && !init?.body && !init?.headers;
+
+  if (cacheEnabled && method !== "GET") {
+    // Uma mutação pode alterar qualquer leitura da tela atual. O cache é curto,
+    // mas invalidar agora evita mostrar um snapshot antigo após salvar/excluir.
+    clearAuthedResponseCache(token);
+  }
+
+  if (cacheable && cacheMode !== "reload" && cacheMode !== "no-store") {
+    const cached = responseCache.get(token, path);
+    if (cached) return cached;
+  }
+
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}${path}`, {
-      ...init,
-      headers: {
-        ...(init?.body ? { "Content-Type": "application/json" } : {}),
-        Authorization: `Bearer ${token}`,
-        ...(init?.headers ?? {}),
-      },
-    });
+    const request = () =>
+      fetch(`${API_BASE}${path}`, {
+        ...init,
+        headers: {
+          ...(init?.body ? { "Content-Type": "application/json" } : {}),
+          Authorization: `Bearer ${token}`,
+          ...(init?.headers ?? {}),
+        },
+      });
+
+    if (cacheable && cacheMode !== "no-store") {
+      const key = `${token}\u0000${path}`;
+      let pending = inFlightReads.get(key);
+      if (!pending) {
+        pending = request()
+          .then((response) => {
+            responseCache.set(token, path, response, ttlMs);
+            return response;
+          })
+          .finally(() => {
+            // Um refresh pode ter removido esta promessa e iniciado outra com
+            // a mesma chave. A antiga nunca deve apagar a nova ao terminar.
+            if (inFlightReads.get(key) === pending) inFlightReads.delete(key);
+          });
+        inFlightReads.set(key, pending);
+      }
+      // Cada consumidor recebe seu próprio body; o Response original fica só
+      // como fonte das cópias e nunca é consumido diretamente.
+      res = (await pending).clone();
+    } else {
+      res = await request();
+    }
   } catch {
     throw new ApiError(0, "Falha de conexão. Verifique sua internet e tente novamente.");
   }

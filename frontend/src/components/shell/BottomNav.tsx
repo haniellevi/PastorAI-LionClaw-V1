@@ -41,11 +41,13 @@ export function BottomNav({
   route,
   onMore,
   menuOpen,
+  onPreload,
 }: {
   /** Rota já resolvida pelo AppShell (mesma fonte que Sidebar/Topbar). */
   route: string;
   onMore: () => void;
   menuOpen: boolean;
+  onPreload?: (target: string) => void;
 }) {
   const { user } = useAuth();
   const { matrix } = usePermissions();
@@ -69,6 +71,9 @@ export function BottomNav({
             href={`#${it.target}`}
             className={`bn-item${active ? " active" : ""}`}
             aria-current={active ? "page" : undefined}
+            onPointerDown={() => onPreload?.(it.target)}
+            onMouseEnter={() => onPreload?.(it.target)}
+            onFocus={() => onPreload?.(it.target)}
           >
             <Icon name={it.icon} />
             <span>{it.label}</span>
@@ -80,6 +85,9 @@ export function BottomNav({
           href={`#${journey.target}`}
           className={`bn-item${journey.active || route === journey.target ? " active" : ""}`}
           aria-current={journey.active || route === journey.target ? "page" : undefined}
+          onPointerDown={() => onPreload?.(journey.target)}
+          onMouseEnter={() => onPreload?.(journey.target)}
+          onFocus={() => onPreload?.(journey.target)}
         >
           <Icon name={journey.icon} />
           <span>{journey.label}</span>

@@ -122,6 +122,72 @@ function writeToken(token: string | null) {
   }
 }
 
+function routeBase(route: string): string {
+  return route.replace(/^#/, "").split("/")[0] ?? "";
+}
+
+function isLoggedOutRoute(route: string): boolean {
+  return (
+    !route ||
+    route === "login" ||
+    route === "esqueci-senha" ||
+    route === "ativar" ||
+    route === "redefinir-senha"
+  );
+}
+
+function requestedAuthenticatedRoute(fallback: string): string {
+  const current = routeBase(window.location.hash);
+  if (!isLoggedOutRoute(current)) return current;
+  try {
+    const saved = routeBase(window.localStorage.getItem(RETURN_KEY) ?? "");
+    if (!isLoggedOutRoute(saved)) return saved;
+  } catch {
+    /* localStorage indisponível: usa o destino padrão */
+  }
+  return fallback;
+}
+
+function preloadRoute(route: string): void {
+  switch (route) {
+    case "dashboard":
+      void import("@/components/dashboard/DashboardScreen");
+      break;
+    case "inbox":
+      void import("@/components/inbox/InboxScreen");
+      break;
+    case "calendario":
+      void import("@/components/calendario/CalendarioScreen");
+      break;
+    case "ganhar":
+      void import("@/components/contacts/GanharScreen");
+      break;
+    case "minha-celula":
+      void import("@/components/minha-celula/MinhaCelulaEntry");
+      break;
+    case "setup":
+      void import("@/components/config/SetupChecklistScreen");
+      break;
+    case "contatos":
+      void import("@/components/contacts/ContatosScreen");
+      break;
+    case "whatsapp":
+      void import("@/components/whatsapp/WhatsappScreen");
+      break;
+  }
+}
+
+/** Evita a cascata sessão → shell → tela sem baixar conteúdo de outras rotas. */
+function preloadAuthenticatedSurface(): void {
+  if (window.location.pathname.startsWith("/gestao")) {
+    void import("@/components/shell/AdminAppShell");
+    preloadRoute(requestedAuthenticatedRoute("setup"));
+    return;
+  }
+  void import("@/components/shell/AppShell");
+  preloadRoute(requestedAuthenticatedRoute("dashboard"));
+}
+
 function toSessionUser(me: MeResult): SessionUser {
   return {
     appUserId: me.appUserId,
@@ -150,6 +216,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
     tokenRef.current = token;
+    preloadAuthenticatedSurface();
     fetchMe(token)
       .then((me) => {
         if (!active) return;
@@ -170,6 +237,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (email: string, password: string) => {
     const { token } = await apiLogin(email, password);
+    preloadAuthenticatedSurface();
     let me: MeResult;
     try {
       me = await fetchMe(token);
