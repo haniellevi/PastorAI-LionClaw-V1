@@ -57,12 +57,17 @@ def test_invite_uses_shared_brand_layout_and_plain_text(monkeypatch) -> None:
     assert payload["to"] == [{"email": "raniel@example.com", "name": "Raniel <Admin>"}]
     assert "<!doctype html>" in payload["htmlContent"]
     assert "Gestão pastoral inteligente" in payload["htmlContent"]
+    assert "/brand/diamante-simbolo-128.png" in payload["htmlContent"]
+    assert "#092038" in payload["htmlContent"]
+    assert "#2b5cb4" in payload["htmlContent"]
     assert "Ativar meu acesso" in payload["htmlContent"]
     assert "Raniel &lt;Admin&gt;" in payload["htmlContent"]
     assert "Raniel <Admin>" not in payload["htmlContent"]
     assert link in payload["textContent"]
     assert 'href="https://app.igreja12.com.br/privacidade"' in payload["htmlContent"]
     assert 'href="https://app.igreja12.com.br/termos"' in payload["htmlContent"]
+    for legacy_green in ("#0d9488", "#0f766e", "#0b3a35", "#5eead4", "#082220"):
+        assert legacy_green not in payload["htmlContent"].lower()
 
 
 def test_password_reset_explains_expiry_and_single_use(monkeypatch) -> None:

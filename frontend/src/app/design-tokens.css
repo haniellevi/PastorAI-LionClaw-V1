@@ -2,9 +2,9 @@
  * Igreja 12 — Design tokens "Diamante Lapidado" (Gate 5 · fundação).
  * Fonte de verdade: DESIGN.md §3–§9 + docs/design/IDENTIDADE-VISUAL-DIAMANTE-LAPIDADO-IGREJA12.md.
  *
- * ADITIVO: nenhum token legado do globals.css muda de valor aqui. As telas de
- * negócio continuam no vocabulário antigo (--accent teal etc.) até os PRs de
- * migração; os primitives novos (components/ds/*) usam somente estes tokens.
+ * MIGRAÇÃO GLOBAL: os nomes legados do globals.css permanecem por compatibilidade,
+ * mas agora apontam para estes tokens canônicos. Primitives novos continuam usando
+ * diretamente este vocabulário para evitar uma segunda identidade visual.
  *
  * Mapeamento legado → novo (aplicar na migração de cada tela, quando seguro):
  *   --accent/--accent-dark  → --action-primary / --action-primary-hover
@@ -14,9 +14,7 @@
  *   --bg                    → --surface-canvas
  *   --fg / --muted          → --text-primary / --text-secondary
  *   --border                → --border-subtle
- *   --border-strong         → --border-emphasis (nome novo: o token legado
- *                             --border-strong continua existindo com o valor
- *                             teal do globals.css — a fundação NÃO o sobrescreve)
+ *   --border-strong         → --border-emphasis
  *   --r-sm (10px)           → --radius-control (mesmo valor)
  *   --s1..--s7              → escala mantida; novo passo --s8 (64px)
  * Regra definitiva: action-primary = diamond-700; hover = diamond-900;

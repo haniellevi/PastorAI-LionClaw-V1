@@ -16,8 +16,8 @@ import "@fontsource/jetbrains-mono/400.css";
 import "@fontsource/jetbrains-mono/500.css";
 
 import "./globals.css";
-// Fundação "Diamante Lapidado" (Gate 6): tokens semânticos + primitives ds-*.
-// Aditivos — nenhum token legado muda de valor; telas não migradas não mudam.
+// Fundação "Diamante Lapidado": tokens semânticos + primitives ds-*.
+// O globals.css mantém aliases compatíveis, todos alinhados a esta fundação.
 import "./design-tokens.css";
 import "./ds.css";
 

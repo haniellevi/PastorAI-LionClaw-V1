@@ -17,7 +17,7 @@ export interface NavItem {
   locked?: boolean;
   /** Badge numérico (ex.: pendências de chat). */
   badge?: string;
-  /** Cor do bloco do ícone (protótipo). Default = teal do tema. */
+  /** Intensidade azul do bloco do ícone dentro da paleta Diamante Lapidado. */
   accent?: "rose" | "amber" | "green" | "indigo" | "whats";
 }
 
