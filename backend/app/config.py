@@ -144,7 +144,8 @@ class Settings(BaseSettings):
     # ---- Agente Orquestrador / LLM BYO (US-08/US-27 / delta-034) ------------
     # Default OpenAI key is optional: each igreja brings its own encrypted key.
     openai_api_key: str = Field(default="")
-    # LangGraph checkpoint store (RNF-08/15). Empty -> in-memory checkpointer.
+    # Reserved for a future durable LangGraph saver. A configured URL currently
+    # emits a warning; the runtime stays stateless and never falls back to RAM.
     agent_graph_checkpoint_url: str = Field(default="")
     # Default model used by the orchestrator when an igreja has not overridden it.
     agent_default_model: str = Field(default="gpt-4o-mini")
