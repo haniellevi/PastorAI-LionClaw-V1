@@ -39,8 +39,8 @@ O prompt do gate final foi registrado em `2026-08-08 08:09:48 -03:00`. Para a
 revisão de publicação, o Graphify do backend foi atualizado novamente após as
 alterações e após a integração com `main`:
 
-- backend: manifesto/relatório de `2026-08-08`, 6.852 nós, 23.585 arestas e
-  261 comunidades;
+- backend: manifesto/relatório de `2026-08-08`, 6.853 nós, 23.586 arestas e
+  256 comunidades;
 - diagnóstico: zero endpoints ausentes ou pendentes, zero self-loops e zero
   arestas duplicadas/colapsadas;
 - raiz validada: o diretório `backend/` deste worktree integrado;
