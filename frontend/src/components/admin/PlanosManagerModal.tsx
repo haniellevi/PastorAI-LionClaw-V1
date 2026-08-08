@@ -275,6 +275,7 @@ export function PlanosManagerModal({
               value={form.preco}
               onChange={(e) => setForm({ ...form, preco: e.target.value })}
               placeholder="199"
+              helper="R$ 0,00 cria um plano de cortesia, disponível somente para atribuição pelo master."
             />
             <Field
               label="Limite de membros"
@@ -392,6 +393,7 @@ export function PlanosManagerModal({
                             {p.nome}
                             <div className="sub" style={{ color: "var(--muted)" }}>
                               {p.codigo}
+                              {p.precoMensal === 0 ? " · cortesia (somente master)" : ""}
                               {p.ativo ? "" : " · inativo"}
                             </div>
                           </td>

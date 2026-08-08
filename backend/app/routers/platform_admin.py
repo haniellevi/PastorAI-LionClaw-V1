@@ -51,7 +51,11 @@ from app.deps import PlatformAdminUser, get_platform_admin
 from app.domain.permissions import DEFAULT_PERMISSIONS
 from app.services.asaas import MIN_UNDEFINED_PAYMENT_VALUE
 from app.services.brevo import BrevoClient, BrevoError, get_brevo_client
-from app.services.billing import get_setup_fee_default, get_setup_fee_for_igreja
+from app.services.billing import (
+    get_setup_fee_default,
+    get_setup_fee_for_igreja,
+    is_complimentary_plan,
+)
 from app.services.clerk import ClerkAuthError, ClerkClient, get_clerk_client
 from app.services.rate_limit import RateLimiter, get_rate_limiter
 
@@ -543,6 +547,21 @@ def update_igreja(
 
     if payload.plano is not None:
         _validate_plano_or_422(db, payload.plano)
+        target_plan = db.execute(
+            select(Plano).where(Plano.codigo == payload.plano)
+        ).scalar_one_or_none()
+        if is_complimentary_plan(target_plan) and payload.plano != igreja.plano:
+            existing_subscription = db.execute(
+                select(Subscription).where(Subscription.igreja_id == ig_uuid)
+            ).scalar_one_or_none()
+            if existing_subscription is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        "Esta igreja já possui uma assinatura. Cancele e concilie "
+                        "a assinatura Asaas antes de conceder um plano de cortesia."
+                    ),
+                )
 
     antes = {
         "nome": igreja.nome,
@@ -1826,6 +1845,18 @@ def update_plano(
     if "limitePessoas" in fields:  # null explícito = ilimitado
         plano.limite_pessoas = payload.limitePessoas
     if "precoMensal" in fields and payload.precoMensal is not None:
+        changes_billing_mode = (
+            (float(plano.preco_mensal) == 0.0)
+            != (float(payload.precoMensal) == 0.0)
+        )
+        if changes_billing_mode and _igrejas_no_plano(db, plano.codigo) > 0:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Não altere um plano em uso entre pago e cortesia. "
+                    "Crie outro plano e migre apenas igrejas sem assinatura."
+                ),
+            )
         plano.preco_mensal = payload.precoMensal
     if "ativo" in fields and payload.ativo is not None:
         plano.ativo = payload.ativo

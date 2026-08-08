@@ -92,6 +92,47 @@ afterEach(() => {
 });
 
 describe("AssinaturaScreen — links do checkout", () => {
+  it("mostra cortesia ativa sem CPF, cobrança ou troca pelo tenant", async () => {
+    fetchSubscription.mockResolvedValue({
+      plano: "teste_free",
+      status: "ativa",
+      pessoas: 7,
+      limite: 50,
+      proximaCobranca: null,
+      setupPago: true,
+      setupFeeContracted: 0,
+      invoiceUrl: null,
+      setupInvoiceUrl: null,
+      invoiceReversal: null,
+      recoveryInvoiceUrl: null,
+      recoveryRequired: false,
+      setupRecoveryRequired: false,
+      hasTrackedSubscription: false,
+      checkoutRequired: false,
+      isComplimentary: true,
+    });
+    fetchPlanCatalog.mockResolvedValue({
+      setupFee: 59.9,
+      planos: [
+        { code: "teste_free", label: "Cortesia de testes", limite: 50, preco: 0 },
+        { code: "ate_100", label: "Até 100 pessoas", limite: 100, preco: 199 },
+      ],
+    });
+
+    act(() => root.render(h(AssinaturaScreen)));
+    await flush();
+
+    expect(container.textContent).toContain("Cortesia da plataforma · sem cobrança");
+    expect(container.textContent).toContain("Sem cobrança");
+    expect(container.textContent).toContain("Isento");
+    expect(container.textContent).toContain(
+      "Este plano de cortesia é gerenciado pelo administrador da plataforma.",
+    );
+    expect(container.querySelector("#subscription-cpf-cnpj")).toBeNull();
+    expect(createCheckout).not.toHaveBeenCalled();
+    expect(changePlan).not.toHaveBeenCalled();
+  });
+
   it("mostra a taxa congelada no contrato mesmo se o catálogo mudou", async () => {
     fetchSubscription.mockResolvedValue({
       plano: "ate_100",

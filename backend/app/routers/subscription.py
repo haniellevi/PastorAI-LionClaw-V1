@@ -54,8 +54,10 @@ from app.services.billing import (
     OPEN_OPERATION_STATUSES,
     PlanChangeConflict,
     SubscriptionCreateConflict,
+    assigned_complimentary_plan,
     claim_transition,
     current_headcount,
+    current_headcount_for_igreja,
     ensure_payment_operation,
     ensure_plan_change_operation,
     find_any_open_operation,
@@ -67,6 +69,7 @@ from app.services.billing import (
     find_settled_recovery,
     find_subscription_operation_by_key,
     get_setup_fee_for_igreja,
+    is_complimentary_plan,
     payment_matches_operation,
     prepare_subscription_operation,
     reconcile_subscription_operation,
@@ -117,6 +120,9 @@ class SubscriptionOut(BaseModel):
     # CPF/CNPJ visível, sem "Plano atual", sem troca de plano, com retomada.
     hasTrackedSubscription: bool = False  # noqa: N815
     checkoutRequired: bool = False  # noqa: N815
+    # Plano de cortesia concedido pelo master. Não há recorrência no Asaas e
+    # nenhuma ação financeira deve ser oferecida ao tenant.
+    isComplimentary: bool = False  # noqa: N815
 
     @classmethod
     def from_model(
@@ -159,6 +165,7 @@ class SubscriptionOut(BaseModel):
             ),
             hasTrackedSubscription=rastreada,
             checkoutRequired=not rastreada,
+            isComplimentary=False,
         )
 
 
@@ -734,6 +741,22 @@ def get_subscription(
         select(Subscription).where(Subscription.igreja_id == igreja_uuid)
     ).scalar_one_or_none()
     if sub is None:
+        igreja = db.execute(
+            select(Igreja).where(Igreja.id == igreja_uuid)
+        ).scalar_one_or_none()
+        plano_cortesia = assigned_complimentary_plan(db, igreja)
+        if plano_cortesia is not None:
+            return SubscriptionOut(
+                plano=plano_cortesia.codigo,
+                status="ativa",
+                pessoas=current_headcount_for_igreja(db, igreja_uuid),
+                limite=plano_cortesia.limite_pessoas,
+                setupPago=True,
+                setupFeeContracted=0.0,
+                hasTrackedSubscription=False,
+                checkoutRequired=False,
+                isComplimentary=True,
+            )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Assinatura não encontrada",
@@ -1018,6 +1041,18 @@ def create_checkout(
     ).scalar_one_or_none()
     if igreja is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Igreja não encontrada")
+
+    # Cortesia é concessão administrativa, não um produto de autosserviço. A
+    # checagem acontece antes de criar o placeholder local, garantindo zero
+    # mutação e zero chamada ao Asaas mesmo em request manual.
+    requested_plan = db.execute(
+        select(Plano).where(Plano.codigo == payload.plano)
+    ).scalar_one_or_none()
+    if is_complimentary_plan(requested_plan):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Plano de cortesia só pode ser atribuído pelo administrador da plataforma",
+        )
 
     sub = db.execute(
         select(Subscription).where(Subscription.igreja_id == igreja_uuid)
@@ -1785,6 +1820,19 @@ def list_planos_disponiveis(
     rows = db.execute(
         select(Plano).where(Plano.ativo.is_(True)).order_by(Plano.ordem, Plano.codigo)
     ).scalars().all()
+    igreja_uuid = uuid.UUID(current_user.igreja_id)
+    igreja = db.execute(
+        select(Igreja).where(Igreja.id == igreja_uuid)
+    ).scalar_one_or_none()
+    if igreja is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Igreja não encontrada")
+    # Planos gratuitos não são ofertados para contratação. A única exceção é
+    # o plano já concedido a esta igreja, exibido apenas como plano atual.
+    rows = [
+        p
+        for p in rows
+        if not is_complimentary_plan(p) or p.codigo == igreja.plano
+    ]
     planos = [
         PlanoPublicOut(
             codigo=p.codigo,
@@ -1794,12 +1842,6 @@ def list_planos_disponiveis(
         )
         for p in rows
     ]
-    igreja_uuid = uuid.UUID(current_user.igreja_id)
-    igreja = db.execute(
-        select(Igreja).where(Igreja.id == igreja_uuid)
-    ).scalar_one_or_none()
-    if igreja is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Igreja não encontrada")
     return PlanCatalogOut(planos=planos, setupFee=get_setup_fee_for_igreja(db, igreja))
 
 
@@ -1840,6 +1882,11 @@ def change_plan(
     Não solicita CPF/CNPJ (o cliente Asaas já existe).
     """
     plano_row = _plano_ativo_or_422(db, payload.plano)
+    if is_complimentary_plan(plano_row):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Plano de cortesia só pode ser atribuído pelo administrador da plataforma",
+        )
     igreja_uuid = uuid.UUID(current_user.igreja_id)
     sub = db.execute(
         select(Subscription).where(Subscription.igreja_id == igreja_uuid)

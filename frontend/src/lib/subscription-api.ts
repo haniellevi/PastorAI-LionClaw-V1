@@ -59,11 +59,13 @@ export interface Subscription {
   hasTrackedSubscription: boolean;
   /** Espelho de conveniência: a tela de contratação inicial ainda é devida. */
   checkoutRequired: boolean;
+  /** Cortesia concedida pelo master; não existe cobrança ou recorrência Asaas. */
+  isComplimentary?: boolean;
 }
 
 /** Registro local sem recorrência no Asaas: contratação inicial incompleta. */
 export function isPlaceholderSubscription(sub: Subscription | null): boolean {
-  return sub !== null && !sub.hasTrackedSubscription;
+  return sub !== null && sub.checkoutRequired;
 }
 
 export interface CheckoutResult {
@@ -127,7 +129,7 @@ export function subscriptionUiState(sub: Subscription | null): SubscriptionUiSta
   if (!sub) return "plans";
   // Placeholder de checkout falho: não há assinatura para exibir estado — a
   // tela é a de contratação, exatamente como quando não existe registro algum.
-  if (!sub.hasTrackedSubscription) return "plans";
+  if (sub.checkoutRequired) return "plans";
   switch (sub.status) {
     case "ativa":
       return "active";

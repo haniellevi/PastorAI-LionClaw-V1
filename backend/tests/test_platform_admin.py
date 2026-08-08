@@ -26,6 +26,7 @@ from app.db.models import (
     PlatformAuditLog,
     PlatformOrchestrator,
     RolePermission,
+    Subscription,
     UserRole,
 )
 from app.db.session import get_db
@@ -101,6 +102,7 @@ class PlatformDB:
         agent_request=None,
         agent_request_rows=None,
         billing_settings=None,
+        subscription=None,
     ) -> None:
         self.gate_app_user = gate_app_user
         self.admin_marker = admin_marker
@@ -132,6 +134,7 @@ class PlatformDB:
             if billing_settings is not None
             else SimpleNamespace(id=1, setup_fee_default=0.0)
         )
+        self.subscription = subscription
         for igreja in [*self.igrejas, self.igreja_scalar]:
             if igreja is not None and not hasattr(igreja, "setup_fee_override"):
                 igreja.setup_fee_override = None
@@ -165,6 +168,8 @@ class PlatformDB:
             return _Result(scalar=self.igreja_scalar, scalars=self.igrejas)
         if ent is BillingSettings:
             return _Result(scalar=self.billing_settings)
+        if ent is Subscription:
+            return _Result(scalar=self.subscription)
         if ent is Plano:
             return _Result(scalar=self.plano_scalar, scalars=self.planos)
         if ent is PlatformAuditLog:
@@ -433,6 +438,67 @@ def test_admin_patch_updates_status(app) -> None:
     assert resp.json()["status"] == "suspensa"
     assert igreja.status == "suspensa"
     assert db.committed is True
+
+
+def test_admin_assigns_complimentary_plan_when_church_has_no_subscription(app) -> None:
+    igreja = SimpleNamespace(
+        id="00000000-0000-0000-0000-000000000009",
+        nome="Igreja de Teste",
+        status="ativa",
+        plano=None,
+        created_at=None,
+    )
+    free_plan = _plano_ns(
+        id="free-1", codigo="teste_free", nome="Cortesia", preco_mensal=0
+    )
+    db = PlatformDB(
+        gate_app_user=make_app_user(),
+        admin_marker="pa1",
+        igreja_scalar=igreja,
+        plano_scalar=free_plan,
+        plano_precos_rows=[("teste_free", 0)],
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+
+    resp = client.patch(
+        "/admin/igrejas/00000000-0000-0000-0000-000000000009",
+        headers=_AUTH,
+        json={"plano": "teste_free"},
+    )
+
+    assert resp.status_code == 200
+    assert igreja.plano == "teste_free"
+
+
+def test_admin_rejects_complimentary_plan_when_subscription_exists(app) -> None:
+    igreja = SimpleNamespace(
+        id="00000000-0000-0000-0000-000000000009",
+        nome="Igreja Pagante",
+        status="ativa",
+        plano="ate_100",
+        created_at=None,
+    )
+    free_plan = _plano_ns(
+        id="free-1", codigo="teste_free", nome="Cortesia", preco_mensal=0
+    )
+    db = PlatformDB(
+        gate_app_user=make_app_user(),
+        admin_marker="pa1",
+        igreja_scalar=igreja,
+        plano_scalar=free_plan,
+        plano_precos_rows=[("ate_100", 199), ("teste_free", 0)],
+        subscription=SimpleNamespace(id="sub-existing"),
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+
+    resp = client.patch(
+        "/admin/igrejas/00000000-0000-0000-0000-000000000009",
+        headers=_AUTH,
+        json={"plano": "teste_free"},
+    )
+
+    assert resp.status_code == 409
+    assert igreja.plano == "ate_100"
 
 
 def test_admin_patch_sets_and_clears_setup_override(app) -> None:
@@ -839,6 +905,24 @@ def test_admin_updates_plano_price(app) -> None:
     assert resp.json()["precoMensal"] == 249
     assert plano.preco_mensal == 249
     assert db.committed is True
+
+
+def test_admin_cannot_convert_in_use_paid_plan_to_complimentary(app) -> None:
+    plano = _plano_ns(preco_mensal=199)
+    db = PlatformDB(
+        gate_app_user=make_app_user(),
+        admin_marker="pa1",
+        plano_scalar=plano,
+        count_value=2,
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+
+    resp = client.patch(
+        f"/admin/planos/{_PLANO_ID}", headers=_AUTH, json={"precoMensal": 0}
+    )
+
+    assert resp.status_code == 409
+    assert plano.preco_mensal == 199
 
 
 def test_admin_update_plano_404(app) -> None:

@@ -17,6 +17,7 @@ from app.db.models import (
     AppUser,
     Igreja,
     LlmCredential,
+    Plano,
     Subscription,
     UserRole,
     WhatsappConnection,
@@ -64,6 +65,7 @@ class SetupSession:
         whatsapp=None,
         credential=None,
         subscription=None,
+        plano=None,
     ) -> None:
         self.app_user = app_user or make_app_user()
         self.roles = roles if roles is not None else ["admin"]
@@ -73,6 +75,7 @@ class SetupSession:
         self.whatsapp = whatsapp
         self.credential = credential
         self.subscription = subscription
+        self.plano = plano
 
     def execute(self, statement, params=None) -> _R:
         descs = list(getattr(statement, "column_descriptions", []) or [])
@@ -89,6 +92,8 @@ class SetupSession:
             return _R(scalar=self.credential)
         if ent is Subscription:
             return _R(scalar=self.subscription)
+        if ent is Plano:
+            return _R(scalar=self.plano)
         sql = str(statement)
         if "FROM app_users" in sql:
             return _R(scalar_one=self.team_count)
@@ -109,8 +114,8 @@ def _wire(app, *, session: SetupSession) -> TestClient:
     return TestClient(app)
 
 
-def _igreja(*, logo_path=None):
-    return SimpleNamespace(id=_IGREJA, logo_path=logo_path)
+def _igreja(*, logo_path=None, plano=None):
+    return SimpleNamespace(id=_IGREJA, logo_path=logo_path, plano=plano)
 
 
 def _owner_session(**kwargs) -> SetupSession:
@@ -210,6 +215,18 @@ def test_assinatura_done_only_when_status_ativa(app) -> None:
 
     ativa = _owner_session(subscription=SimpleNamespace(status="ativa"))
     resp = _wire(app, session=ativa).get("/setup/checklist", headers=_AUTH)
+    item = next(i for i in resp.json()["items"] if i["id"] == "assinatura")
+    assert item["done"] is True
+
+
+def test_assinatura_done_for_master_assigned_complimentary_plan(app) -> None:
+    session = _owner_session(
+        igreja=_igreja(plano="teste_free"),
+        plano=SimpleNamespace(codigo="teste_free", preco_mensal=0),
+    )
+
+    resp = _wire(app, session=session).get("/setup/checklist", headers=_AUTH)
+
     item = next(i for i in resp.json()["items"] if i["id"] == "assinatura")
     assert item["done"] is True
 

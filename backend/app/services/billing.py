@@ -27,6 +27,7 @@ from app.db.models import (
     BillingSubscriptionOperation,
     Igreja,
     Pessoa,
+    Plano,
     Subscription,
 )
 from app.services.asaas import (
@@ -147,6 +148,39 @@ def get_setup_fee_for_igreja(db: Session, igreja: Igreja) -> float:
     if igreja.setup_fee_override is not None:
         return float(igreja.setup_fee_override)
     return get_setup_fee_default(db)
+
+
+def is_complimentary_plan(plano: Plano | None) -> bool:
+    """A zero-priced plan is a master-granted entitlement, never a checkout.
+
+    ``preco_mensal`` is constrained to non-negative values by the admin API.
+    Keeping the rule on the catalog avoids a second per-tenant exemption flag
+    and makes MRR naturally remain zero for test churches.
+    """
+    if plano is None or plano.preco_mensal is None:
+        return False
+    try:
+        return float(plano.preco_mensal) == 0.0
+    except (TypeError, ValueError):
+        return False
+
+
+def assigned_complimentary_plan(
+    db: Session, igreja: Igreja | None
+) -> Plano | None:
+    """Return the complimentary plan assigned by the platform master, if any.
+
+    Inactive plans remain valid for already-assigned churches (grandfathering),
+    matching the existing paid-plan semantics.  Inactive only prevents new
+    assignments in the UI; it must not silently revoke an existing grant.
+    """
+    plan_code = getattr(igreja, "plano", None) if igreja is not None else None
+    if not plan_code:
+        return None
+    plano = db.execute(
+        select(Plano).where(Plano.codigo == plan_code)
+    ).scalar_one_or_none()
+    return plano if is_complimentary_plan(plano) else None
 
 
 def find_open_operation(
@@ -617,8 +651,8 @@ def _apply_reconciled_payment_state(
                 sub.asaas_invoice_reversal = "refunded"
 
 
-def current_headcount(db: Session, sub: Subscription) -> int:
-    """Porte faturável — membros ativos, não todos os cadastros de pessoas.
+def current_headcount_for_igreja(db: Session, igreja_id) -> int:
+    """Porte faturável da igreja — membros ativos, não todos os cadastros.
 
     A coluna legada ``subscriptions.pessoas`` espelha esta contagem, mas pode
     estar desatualizada entre eventos — e o objeto ORM carregado antes de uma
@@ -631,7 +665,7 @@ def current_headcount(db: Session, sub: Subscription) -> int:
         select(func.count())
         .select_from(Pessoa)
         .where(
-            Pessoa.igreja_id == sub.igreja_id,
+            Pessoa.igreja_id == igreja_id,
             Pessoa.tipo.in_(BILLABLE_MEMBER_TYPES),
             Pessoa.sem_interesse.is_(False),
             Pessoa.arquivada_em.is_(None),
@@ -642,6 +676,11 @@ def current_headcount(db: Session, sub: Subscription) -> int:
     except (TypeError, ValueError):
         contagem = 0
     return contagem
+
+
+def current_headcount(db: Session, sub: Subscription) -> int:
+    """Compatibility wrapper for billing paths that already hold a subscription."""
+    return current_headcount_for_igreja(db, sub.igreja_id)
 
 
 def find_open_plan_change(

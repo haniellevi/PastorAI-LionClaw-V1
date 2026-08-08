@@ -301,7 +301,9 @@ export function AssinaturaScreen() {
   // precisa continuar sendo a de contratação — com CPF/CNPJ e ação de
   // retomada —, nunca a de assinante.
   const placeholder = isPlaceholderSubscription(sub);
-  // Só uma assinatura RASTREADA conta como assinante para a UI.
+  const complimentary = Boolean(sub?.isComplimentary);
+  // Assinatura Asaas rastreada OU cortesia concedida pelo master contam como
+  // acesso ativo. Placeholder continua sendo contratação incompleta.
   const assinante = sub != null && !placeholder;
   // O plano salvo no placeholder pode ter saído do catálogo ativo: ainda
   // assim precisa existir uma ação de retomada (o backend reconcilia a
@@ -318,7 +320,8 @@ export function AssinaturaScreen() {
   const planChangeBlocked =
     assinante &&
     sub != null &&
-    (uiState !== "active" ||
+    (complimentary ||
+      uiState !== "active" ||
       !sub.setupPago ||
       sub.invoiceReversal != null ||
       hasOutstandingRecovery);
@@ -328,7 +331,11 @@ export function AssinaturaScreen() {
   const pct = limite ? Math.min(100, Math.round((membros / limite) * 100)) : 0;
   const over = limite != null && membros >= limite;
   const currentIndex = current ? catalog.findIndex((p) => p.code === current.code) : -1;
-  const nextPlan = currentIndex >= 0 ? catalog[currentIndex + 1] ?? null : null;
+  const nextPlan = complimentary
+    ? null
+    : currentIndex >= 0
+      ? catalog[currentIndex + 1] ?? null
+      : null;
   const frozenCheckoutRecovery = planoSalvoForaDoCatalogo && sub ? (
     <div className="card-pad" style={{ borderBottom: "1px solid var(--border)" }}>
       <p className="sub" style={{ color: "var(--muted)", marginTop: 0 }}>
@@ -553,14 +560,23 @@ export function AssinaturaScreen() {
                 <div>
                   <h4>Plano {current?.label ?? sub.plano}</h4>
                   <div className="sub" style={{ color: "var(--muted)", marginTop: 3 }}>
-                    {sub.setupPago ? "Mensalidade ativa · setup quitado" : "Setup pendente"}
+                    {complimentary
+                      ? "Cortesia da plataforma · sem cobrança"
+                      : sub.setupPago
+                        ? "Mensalidade ativa · setup quitado"
+                        : "Setup pendente"}
                   </div>
+                  {complimentary ? (
+                    <p className="helper" style={{ margin: "var(--s2) 0 0" }}>
+                      Este plano de cortesia é gerenciado pelo administrador da plataforma.
+                    </p>
+                  ) : null}
                 </div>
                 <SubscriptionPill state={uiState} />
               </div>
               <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginTop: "var(--s4)" }}>
                 <span className="val num" style={{ fontSize: 30, fontWeight: 640 }}>
-                  {current ? BRL.format(current.preco) : "—"}
+                  {complimentary ? BRL.format(0) : current ? BRL.format(current.preco) : "—"}
                 </span>
                 <span style={{ color: "var(--muted)" }}>/mês</span>
               </div>
@@ -607,19 +623,21 @@ export function AssinaturaScreen() {
               <h4 style={{ marginBottom: "var(--s4)" }}>Detalhes da assinatura</h4>
               <div className="config-row">
                 <span style={{ color: "var(--muted)" }}>Próxima cobrança</span>
-                <span className="mono num">{formatDate(sub.proximaCobranca)}</span>
+                <span className="mono num">
+                  {complimentary ? "Sem cobrança" : formatDate(sub.proximaCobranca)}
+                </span>
               </div>
               <div className="config-row">
                 <span style={{ color: "var(--muted)" }}>Taxa de setup</span>
                 {sub.setupPago ? (
-                  <StatusPill tone="ok">Pago</StatusPill>
+                  <StatusPill tone="ok">{complimentary ? "Isento" : "Pago"}</StatusPill>
                 ) : (
                   <span className="mono num">
                     {BRL.format(sub.setupFeeContracted ?? setupFee)}
                   </span>
                 )}
               </div>
-              {sub.setupRecoveryRequired ? (
+              {!complimentary && sub.setupRecoveryRequired ? (
                 <div className="config-row">
                   <span style={{ color: "var(--muted)" }}>
                     Setup em aberto sem cobrança ativa
@@ -698,8 +716,9 @@ export function AssinaturaScreen() {
           {assinante && planChangeBlocked ? (
             <div className="card-pad" style={{ borderBottom: "1px solid var(--border)" }}>
               <p className="sub" style={{ color: "var(--muted)", margin: 0 }}>
-                Regularize as cobranças pendentes (mensalidade e taxa de setup)
-                para poder mudar de plano.
+                {complimentary
+                  ? "Este plano de cortesia é gerenciado pelo administrador da plataforma."
+                  : "Regularize as cobranças pendentes (mensalidade e taxa de setup) para poder mudar de plano."}
               </p>
             </div>
           ) : null}

@@ -202,12 +202,14 @@ def _client(
     plan_changes=None,
     subscription_ops=None,
     igreja_status: str = "ativa",
+    igreja_plano: str | None = None,
 ) -> tuple[TestClient, FakeSession]:
     app_user = make_app_user(igreja_status=igreja_status)
     igreja = SimpleNamespace(
         id=app_user.igreja_id,
         setup_fee_override=setup_fee_override,
         status=igreja_status,
+        plano=igreja_plano,
     )
     db = FakeSession(
         app_user=app_user,
@@ -2945,6 +2947,26 @@ def test_checkout_rejects_plano_inativo(app) -> None:
     assert resp.status_code == 422
 
 
+def test_checkout_rejects_complimentary_plan_without_mutation_or_asaas(app) -> None:
+    asaas = _FakeAsaas()
+    client, db = _client(
+        app,
+        planos=[_plano(codigo="teste_free", preco_mensal=0)],
+        asaas=asaas,
+    )
+
+    resp = client.post(
+        "/subscription",
+        json={"plano": "teste_free", "cpfCnpj": _CPF},
+        headers=_AUTH,
+    )
+
+    assert resp.status_code == 422
+    assert "administrador da plataforma" in resp.json()["detail"]
+    assert asaas.calls == []
+    assert not any(isinstance(obj, Subscription) for obj in db.added)
+
+
 def test_checkout_rejects_unmatched_codigo_when_other_planos_active(app) -> None:
     # Dois planos ATIVOS no catálogo, nenhum com o código pedido — se o
     # filtro de código fosse ignorado (como no fake antigo), isso devolveria
@@ -2999,6 +3021,65 @@ def test_list_planos_omits_inactive(app) -> None:
     resp = client.get("/subscription/planos", headers=_AUTH)
     assert resp.status_code == 200
     assert resp.json()["planos"] == []
+
+
+def test_list_planos_hides_complimentary_from_other_churches(app) -> None:
+    client, _db = _client(
+        app,
+        planos=[
+            _plano(codigo="teste_free", nome="Cortesia", preco_mensal=0),
+            _plano(codigo="ate_100", preco_mensal=199),
+        ],
+    )
+
+    resp = client.get("/subscription/planos", headers=_AUTH)
+
+    assert resp.status_code == 200
+    assert [p["codigo"] for p in resp.json()["planos"]] == ["ate_100"]
+
+
+def test_get_subscription_exposes_master_assigned_complimentary_plan(app) -> None:
+    asaas = _RecoveryAsaas()
+    client, db = _client(
+        app,
+        planos=[
+            _plano(
+                codigo="teste_free",
+                nome="Cortesia de testes",
+                preco_mensal=0,
+                limite_pessoas=50,
+            )
+        ],
+        asaas=asaas,
+        igreja_plano="teste_free",
+    )
+    db.pessoas_count = 7
+
+    resp = client.get("/subscription", headers=_AUTH)
+
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "plano": "teste_free",
+        "status": "ativa",
+        "pessoas": 7,
+        "limite": 50,
+        "proximaCobranca": None,
+        "setupPago": True,
+        "setupFeeContracted": 0.0,
+        "invoiceUrl": None,
+        "setupInvoiceUrl": None,
+        "invoiceReversal": None,
+        "recoveryInvoiceUrl": None,
+        "recoveryRequired": False,
+        "setupRecoveryRequired": False,
+        "hasTrackedSubscription": False,
+        "checkoutRequired": False,
+        "isComplimentary": True,
+    }
+    assert asaas.calls == []
+
+    catalog = client.get("/subscription/planos", headers=_AUTH)
+    assert [p["codigo"] for p in catalog.json()["planos"]] == ["teste_free"]
 
 
 def test_list_planos_forbidden_for_non_owner_admin(app) -> None:
