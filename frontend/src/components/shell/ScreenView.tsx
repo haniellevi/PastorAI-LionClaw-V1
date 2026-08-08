@@ -8,134 +8,140 @@
 import dynamic from "next/dynamic";
 
 import { ModuleTabs } from "./ModuleTabs";
+import {
+  loadAgenteScreen,
+  loadAssinaturaScreen,
+  loadCalendarioScreen,
+  loadCelulasScreen,
+  loadCentralCelulaScreen,
+  loadComunicadosScreen,
+  loadConsolIndividualScreen,
+  loadConsolidarScreen,
+  loadContatosScreen,
+  loadDashboardScreen,
+  loadEnviarScreen,
+  loadEquipeScreen,
+  loadG12Screen,
+  loadGanharScreen,
+  loadIdentidadeVisualScreen,
+  loadInboxScreen,
+  loadIntegracoesScreen,
+  loadLockedScreen,
+  loadMinhaCelulaEntry,
+  loadPerfilScreen,
+  loadPermissoesScreen,
+  loadRelatoriosScreen,
+  loadSetupChecklistScreen,
+  loadWhatsappScreen,
+} from "./screen-loaders";
 import { Icon } from "@/lib/icons";
 import { SCREEN_META } from "@/lib/navigation";
 
 function ScreenLoading() {
   return (
-    <div className="full-loader" role="status" aria-live="polite">
-      <span className="spinner" aria-hidden="true" />
-      <span className="sr-only">Carregando tela…</span>
+    <div className="screen" role="status" aria-live="polite" aria-busy="true">
+      <div className="card" style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <span className="spinner" aria-hidden="true" />
+        <span>Carregando tela…</span>
+      </div>
     </div>
   );
 }
 
 const CalendarioScreen = dynamic(
-  () => import("@/components/calendario/CalendarioScreen").then((module) => module.CalendarioScreen),
+  () => loadCalendarioScreen().then((m) => m.CalendarioScreen),
   { loading: ScreenLoading },
 );
 const CelulasScreen = dynamic(
-  () => import("@/components/cells/CelulasScreen").then((module) => module.CelulasScreen),
+  () => loadCelulasScreen().then((m) => m.CelulasScreen),
   { loading: ScreenLoading },
 );
 const AgenteScreen = dynamic(
-  () => import("@/components/config/AgenteScreen").then((module) => module.AgenteScreen),
+  () => loadAgenteScreen().then((m) => m.AgenteScreen),
   { loading: ScreenLoading },
 );
 const AssinaturaScreen = dynamic(
-  () => import("@/components/config/AssinaturaScreen").then((module) => module.AssinaturaScreen),
+  () => loadAssinaturaScreen().then((m) => m.AssinaturaScreen),
   { loading: ScreenLoading },
 );
 const EquipeScreen = dynamic(
-  () => import("@/components/config/EquipeScreen").then((module) => module.EquipeScreen),
+  () => loadEquipeScreen().then((m) => m.EquipeScreen),
   { loading: ScreenLoading },
 );
 const IdentidadeVisualScreen = dynamic(
-  () =>
-    import("@/components/config/IdentidadeVisualScreen").then(
-      (module) => module.IdentidadeVisualScreen,
-    ),
+  () => loadIdentidadeVisualScreen().then((m) => m.IdentidadeVisualScreen),
   { loading: ScreenLoading },
 );
 const IntegracoesScreen = dynamic(
-  () => import("@/components/config/IntegracoesScreen").then((module) => module.IntegracoesScreen),
+  () => loadIntegracoesScreen().then((m) => m.IntegracoesScreen),
   { loading: ScreenLoading },
 );
 const PermissoesScreen = dynamic(
-  () => import("@/components/config/PermissoesScreen").then((module) => module.PermissoesScreen),
+  () => loadPermissoesScreen().then((m) => m.PermissoesScreen),
   { loading: ScreenLoading },
 );
 const SetupChecklistScreen = dynamic(
-  () =>
-    import("@/components/config/SetupChecklistScreen").then(
-      (module) => module.SetupChecklistScreen,
-    ),
+  () => loadSetupChecklistScreen().then((m) => m.SetupChecklistScreen),
   { loading: ScreenLoading },
 );
 const CentralCelulaScreen = dynamic(
-  () =>
-    import("@/components/central-celula/CentralCelulaScreen").then(
-      (module) => module.CentralCelulaScreen,
-    ),
+  () => loadCentralCelulaScreen().then((m) => m.CentralCelulaScreen),
   { loading: ScreenLoading },
 );
 const MinhaCelulaEntry = dynamic(
-  () =>
-    import("@/components/minha-celula/MinhaCelulaEntry").then(
-      (module) => module.MinhaCelulaEntry,
-    ),
+  () => loadMinhaCelulaEntry().then((m) => m.MinhaCelulaEntry),
   { loading: ScreenLoading },
 );
 const ComunicadosScreen = dynamic(
-  () =>
-    import("@/components/comunicados/ComunicadosScreen").then(
-      (module) => module.ComunicadosScreen,
-    ),
+  () => loadComunicadosScreen().then((m) => m.ComunicadosScreen),
   { loading: ScreenLoading },
 );
 const ConsolIndividualScreen = dynamic(
-  () =>
-    import("@/components/consolidacao/ConsolIndividualScreen").then(
-      (module) => module.ConsolIndividualScreen,
-    ),
+  () => loadConsolIndividualScreen().then((m) => m.ConsolIndividualScreen),
   { loading: ScreenLoading },
 );
 const ConsolidarScreen = dynamic(
-  () =>
-    import("@/components/consolidacao/ConsolidarScreen").then(
-      (module) => module.ConsolidarScreen,
-    ),
+  () => loadConsolidarScreen().then((m) => m.ConsolidarScreen),
   { loading: ScreenLoading },
 );
 const LockedScreen = dynamic(
-  () => import("@/components/consolidacao/LockedScreen").then((module) => module.LockedScreen),
+  () => loadLockedScreen().then((m) => m.LockedScreen),
   { loading: ScreenLoading },
 );
 const ContatosScreen = dynamic(
-  () => import("@/components/contacts/ContatosScreen").then((module) => module.ContatosScreen),
+  () => loadContatosScreen().then((m) => m.ContatosScreen),
   { loading: ScreenLoading },
 );
 const GanharScreen = dynamic(
-  () => import("@/components/contacts/GanharScreen").then((module) => module.GanharScreen),
+  () => loadGanharScreen().then((m) => m.GanharScreen),
   { loading: ScreenLoading },
 );
 const DashboardScreen = dynamic(
-  () =>
-    import("@/components/dashboard/DashboardScreen").then((module) => module.DashboardScreen),
+  () => loadDashboardScreen().then((m) => m.DashboardScreen),
   { loading: ScreenLoading },
 );
 const EnviarScreen = dynamic(
-  () => import("@/components/enviar/EnviarScreen").then((module) => module.EnviarScreen),
+  () => loadEnviarScreen().then((m) => m.EnviarScreen),
   { loading: ScreenLoading },
 );
 const G12Screen = dynamic(
-  () => import("@/components/g12/G12Screen").then((module) => module.G12Screen),
+  () => loadG12Screen().then((m) => m.G12Screen),
   { loading: ScreenLoading },
 );
 const InboxScreen = dynamic(
-  () => import("@/components/inbox/InboxScreen").then((module) => module.InboxScreen),
+  () => loadInboxScreen().then((m) => m.InboxScreen),
   { loading: ScreenLoading },
 );
 const RelatoriosScreen = dynamic(
-  () => import("@/components/reports/RelatoriosScreen").then((module) => module.RelatoriosScreen),
+  () => loadRelatoriosScreen().then((m) => m.RelatoriosScreen),
   { loading: ScreenLoading },
 );
 const WhatsappScreen = dynamic(
-  () => import("@/components/whatsapp/WhatsappScreen").then((module) => module.WhatsappScreen),
+  () => loadWhatsappScreen().then((m) => m.WhatsappScreen),
   { loading: ScreenLoading },
 );
 const PerfilScreen = dynamic(
-  () => import("@/components/profile/PerfilScreen").then((module) => module.PerfilScreen),
+  () => loadPerfilScreen().then((m) => m.PerfilScreen),
   { loading: ScreenLoading },
 );
 

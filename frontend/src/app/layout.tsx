@@ -14,8 +14,8 @@ import "@fontsource/jetbrains-mono/400.css";
 import "@fontsource/jetbrains-mono/500.css";
 
 import "./globals.css";
-// Fundação "Diamante Lapidado" (Gate 6): tokens semânticos + primitives ds-*.
-// Aditivos — nenhum token legado muda de valor; telas não migradas não mudam.
+// Fundação "Diamante Lapidado": tokens semânticos + primitives ds-*.
+// O globals.css mantém aliases compatíveis, todos alinhados a esta fundação.
 import "./design-tokens.css";
 import "./ds.css";
 
@@ -34,12 +34,23 @@ export const metadata: Metadata = {
     title: "Igreja 12",
   },
   icons: {
-    icon: "/icon.svg",
+    // URL própria da microversão evita que navegadores reaproveitem o favicon
+    // legado já armazenado em cache. A silhueta sólida é a versão canônica em
+    // 16 px da identidade Diamante Lapidado.
+    icon: {
+      url: "/brand/diamante-silhueta-16.svg",
+      type: "image/svg+xml",
+      sizes: "16x16",
+    },
+    shortcut: "/brand/diamante-silhueta-16.svg",
     apple: "/apple-touch-icon.png",
   },
   formatDetection: { telephone: false },
 };
 
+// O shell não contém dados de usuário no HTML do servidor: a sessão continua
+// resolvida no cliente pelo AuthProvider. Permitir pré-renderização estática
+// entrega a casca pela CDN e evita iniciar um render no servidor a cada acesso.
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,

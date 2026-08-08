@@ -13,6 +13,13 @@ const providers = read("..", "components", "providers", "AppProviders.tsx");
 const authContext = read("..", "lib", "auth-context.tsx");
 const adminAuthContext = read("..", "lib", "admin-auth-context.tsx");
 const screenView = read("..", "components", "shell", "ScreenView.tsx");
+const screenLoaders = read("..", "components", "shell", "screen-loaders.ts");
+const appShell = read("..", "components", "shell", "AppShell.tsx");
+const sidebar = read("..", "components", "shell", "Sidebar.tsx");
+const bottomNav = read("..", "components", "shell", "BottomNav.tsx");
+const routeDataPreload = read("..", "lib", "route-data-preload.ts");
+const responseCache = read("..", "lib", "authed-response-cache.ts");
+const dashboardApi = read("..", "lib", "dashboard-api.ts");
 const packageJson = JSON.parse(read("..", "..", "package.json")) as {
   dependencies: Record<string, string>;
 };
@@ -74,8 +81,8 @@ describe("fronteiras de carregamento do frontend", () => {
     }
   });
 
-  it("divide as 24 telas do ScreenView em chunks com fallback acessível", () => {
-    const dynamicModules = [...screenView.matchAll(/import\("([^"]+)"\)/g)]
+  it("divide as 24 telas com loaders compartilhados e fallback acessível", () => {
+    const dynamicModules = [...screenLoaders.matchAll(/import\("([^"]+)"\)/g)]
       .map((match) => match[1]!)
       .sort();
     const staticModules = new Set(
@@ -84,10 +91,33 @@ describe("fronteiras de carregamento do frontend", () => {
 
     expect(dynamicModules).toEqual(SCREEN_MODULES);
     expect(SCREEN_MODULES.every((module) => !staticModules.has(module))).toBe(true);
+    expect(screenView).toContain('from "./screen-loaders"');
+    expect(screenLoaders).toContain("preloadScreenModule");
     expect(screenView.match(/loading:\s*ScreenLoading/g)).toHaveLength(24);
     expect(screenView).toContain('role="status"');
     expect(screenView).toContain('aria-live="polite"');
-    expect(screenView).toContain('className="sr-only"');
+    expect(screenView).toContain('aria-busy="true"');
+  });
+
+  it("antecipa chunk e dados por intenção usando cache curto por sessão", () => {
+    expect(appShell).toContain("preloadScreenModule(targetBase)");
+    expect(appShell).toContain("preloadRouteData(token, targetBase)");
+
+    for (const source of [sidebar, bottomNav]) {
+      expect(source).toContain("onPreload?.");
+      expect(source).toContain("onMouseEnter");
+      expect(source).toContain("onFocus");
+    }
+
+    expect(routeDataPreload).toContain("Promise.allSettled(jobs)");
+    expect(routeDataPreload).toContain('case "dashboard"');
+    expect(routeDataPreload).toContain('case "ganhar"');
+    expect(routeDataPreload).toContain('case "inbox"');
+    expect(responseCache).toContain('private key(token: string, path: string)');
+    expect(responseCache).not.toContain("localStorage.setItem");
+    expect(responseCache).not.toContain("sessionStorage.setItem");
+    expect(dashboardApi).toContain("responseCache.get(token, path)");
+    expect(dashboardApi).toContain("responseCache.set(token, path");
   });
 
   it("remove o SDK Clerk não consumido sem remover os providers próprios", () => {
@@ -102,6 +132,7 @@ describe("fronteiras de carregamento do frontend", () => {
     expect(authContext).toContain('import("@/components/shell/AdminAppShell")');
     expect(authContext).toContain('import("@/components/dashboard/DashboardScreen")');
     expect(authContext).toContain('import("@/components/inbox/InboxScreen")');
+    expect(authContext).toContain('import("@/components/contacts/GanharScreen")');
     expect(authContext).toContain('preloadRoute(requestedAuthenticatedRoute("setup"))');
     expect(authContext).toContain('preloadRoute(requestedAuthenticatedRoute("dashboard"))');
 

@@ -176,6 +176,9 @@ function preloadRoute(route: string): void {
     case "calendario":
       void import("@/components/calendario/CalendarioScreen");
       break;
+    case "ganhar":
+      void import("@/components/contacts/GanharScreen");
+      break;
     case "minha-celula":
       void import("@/components/minha-celula/MinhaCelulaEntry");
       break;

@@ -38,7 +38,11 @@ import {
   type ChatMessage,
   type Conversation,
 } from "@/lib/conversations-api";
-import { fetchTeamLookup, type TeamMember } from "@/lib/dashboard-api";
+import {
+  clearAuthedResponseCache,
+  fetchTeamLookup,
+  type TeamMember,
+} from "@/lib/dashboard-api";
 import { Icon } from "@/lib/icons";
 import { isAdmin, type Role } from "@/lib/roles";
 import {
@@ -61,6 +65,13 @@ const POLL_MS = 15_000;
 // breves de rede em várias requisições concorrentes.
 const REQUEST_TIMEOUT_MS = 12_000;
 
+class RequestTimeoutError extends Error {
+  constructor() {
+    super("A requisição excedeu o tempo limite.");
+    this.name = "RequestTimeoutError";
+  }
+}
+
 /**
  * O `fetch` respeita AbortSignal, mas esta corrida também encerra o await caso
  * um mock/adaptador intermediário ignore o cancelamento. Assim o single-flight
@@ -74,6 +85,7 @@ function runTimedRequest<T>(
   const { signal } = controller;
   return new Promise<T>((resolve, reject) => {
     let settled = false;
+    let timedOut = false;
     const finish = (callback: () => void) => {
       if (settled) return;
       settled = true;
@@ -82,8 +94,17 @@ function runTimedRequest<T>(
       callback();
     };
     const onAbort = () =>
-      finish(() => reject(new DOMException("Requisição cancelada.", "AbortError")));
-    const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+      finish(() =>
+        reject(
+          timedOut
+            ? new RequestTimeoutError()
+            : new DOMException("Requisição cancelada.", "AbortError"),
+        ),
+      );
+    const timeoutId = window.setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, REQUEST_TIMEOUT_MS);
 
     signal.addEventListener("abort", onAbort, { once: true });
     if (signal.aborted) {
@@ -188,7 +209,10 @@ export function InboxScreen() {
       if (conversationsRequestRef.current) return;
       const controller = new AbortController();
       conversationsRequestRef.current = controller;
-      if (mode === "initial") setLoading(true);
+      if (mode !== "poll") setLoading(true);
+      if (mode !== "initial") {
+        clearAuthedResponseCache(token, ["/conversations?page="]);
+      }
       if (mode !== "poll") setError(null);
       try {
         const page = await runTimedRequest(controller, (signal) =>
@@ -197,6 +221,12 @@ export function InboxScreen() {
         setConversations(page.items);
         setLoaded(true);
       } catch (err) {
+        if (err instanceof RequestTimeoutError) {
+          if (mode !== "poll") {
+            setError("A carga das conversas demorou mais que o esperado. Tente novamente.");
+          }
+          return;
+        }
         if (controller.signal.aborted) return;
         if (handleSessionError(err)) return;
         if (mode !== "poll") {
@@ -209,7 +239,7 @@ export function InboxScreen() {
       } finally {
         if (conversationsRequestRef.current === controller) {
           conversationsRequestRef.current = null;
-          if (mode === "initial") setLoading(false);
+          if (mode !== "poll") setLoading(false);
         }
       }
     },
@@ -693,6 +723,7 @@ export function InboxScreen() {
   }
 
   const showSkeleton = loading && !loaded;
+  const showInitialFailure = Boolean(error) && !loaded;
 
   return (
     <div className={`screen screen-chat ib${selected ? " thread-open" : ""}`} key="inbox">
@@ -745,7 +776,7 @@ export function InboxScreen() {
               </div>
             ))}
           </div>
-        ) : (
+        ) : showInitialFailure ? null : (
           <ConversationList
             conversations={visible}
             selectedId={selectedId}
@@ -759,7 +790,7 @@ export function InboxScreen() {
           />
         )}
 
-        {selected ? (
+        {showSkeleton || showInitialFailure ? null : selected ? (
           <ConversationThread
             conversation={selected}
             selfId={user?.appUserId ?? ""}

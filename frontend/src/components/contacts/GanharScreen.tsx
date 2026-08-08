@@ -28,7 +28,12 @@ import {
   promoteContact,
   type Contact,
 } from "@/lib/contacts-api";
-import { ApiError, fetchCells, type Cell } from "@/lib/dashboard-api";
+import {
+  ApiError,
+  clearAuthedResponseCache,
+  fetchCells,
+  type Cell,
+} from "@/lib/dashboard-api";
 import { Icon, type IconKey } from "@/lib/icons";
 import { useHashRoute } from "@/lib/use-hash-route";
 
@@ -80,6 +85,9 @@ export function GanharScreen() {
     async (mode: "initial" | "retry") => {
       if (!token) return;
       if (mode === "initial") setLoading(true);
+      if (mode === "retry") {
+        clearAuthedResponseCache(token, ["/pipeline?", "/cells?"]);
+      }
       setError(null);
       try {
         const [page, cellPage] = await Promise.all([

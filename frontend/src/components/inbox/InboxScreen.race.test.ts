@@ -229,6 +229,116 @@ function selectConversation(nome: string) {
   });
 }
 
+describe("InboxScreen — timeout da lista de conversas", () => {
+  it("distingue timeout de cancelamento e mostra erro na carga inicial e no retry", async () => {
+    vi.useFakeTimers();
+    const signals: AbortSignal[] = [];
+    apiMock.fetchConversations.mockImplementation(
+      (_token: string, _pageSize: number, signal: AbortSignal) =>
+        new Promise(() => {
+          signals.push(signal);
+        }),
+    );
+
+    await renderInbox();
+    expect(signals).toHaveLength(1);
+    expect(container.textContent).not.toContain("Nenhuma conversa por aqui ainda.");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(12_000);
+    });
+
+    expect(signals[0]?.aborted).toBe(true);
+    expect(container.textContent).toContain(
+      "A carga das conversas demorou mais que o esperado. Tente novamente.",
+    );
+    expect(container.textContent).not.toContain("Nenhuma conversa por aqui ainda.");
+
+    const retry = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent?.trim() === "Tentar novamente",
+    );
+    if (!retry) throw new Error("botão de retry não encontrado");
+    await act(async () => {
+      retry.click();
+      await Promise.resolve();
+    });
+
+    expect(signals).toHaveLength(2);
+    expect(container.textContent).not.toContain("Nenhuma conversa por aqui ainda.");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(12_000);
+    });
+
+    expect(signals[1]?.aborted).toBe(true);
+    expect(container.textContent).toContain(
+      "A carga das conversas demorou mais que o esperado. Tente novamente.",
+    );
+    expect(container.textContent).not.toContain("Nenhuma conversa por aqui ainda.");
+  });
+
+  it("mantém o último sucesso e não mostra erro quando somente o poll expira", async () => {
+    vi.useFakeTimers();
+    const pollSignals: AbortSignal[] = [];
+    apiMock.fetchConversations
+      .mockResolvedValueOnce({
+        items: [CONV_A, CONV_B],
+        page: 1,
+        pageSize: 100,
+        total: 2,
+      })
+      .mockImplementation(
+        (_token: string, _pageSize: number, signal: AbortSignal) =>
+          new Promise(() => {
+            pollSignals.push(signal);
+          }),
+      );
+
+    await renderInbox();
+    expect(container.textContent).toContain("Ana Souza");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+    const pollSignal = pollSignals.at(-1);
+    if (!pollSignal) throw new Error("poll de conversas não foi iniciado");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(12_000);
+    });
+
+    expect(pollSignal.aborted).toBe(true);
+    expect(container.textContent).toContain("Ana Souza");
+    expect(container.textContent).not.toContain(
+      "A carga das conversas demorou mais que o esperado. Tente novamente.",
+    );
+  });
+
+  it("desmontar cancela a carga pendente imediatamente, sem esperar o timeout", async () => {
+    vi.useFakeTimers();
+    const signals: AbortSignal[] = [];
+    apiMock.fetchConversations.mockImplementation(
+      (_token: string, _pageSize: number, requestSignal: AbortSignal) =>
+        new Promise(() => {
+          signals.push(requestSignal);
+        }),
+    );
+
+    await renderInbox();
+    const signal = signals.at(0);
+    if (!signal) throw new Error("carga inicial de conversas não foi iniciada");
+    expect(signal.aborted).toBe(false);
+
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
+
+    expect(signal.aborted).toBe(true);
+    root = createRoot(container);
+  });
+});
+
 describe("InboxScreen — resposta obsoleta não sobrescreve a conversa atual (INBOX-RACE-1)", () => {
   it("A começa, B começa, B resolve, A resolve depois: a thread mostra só as mensagens de B", async () => {
     // 1) conversa A selecionada (seleção automática do desktop)…

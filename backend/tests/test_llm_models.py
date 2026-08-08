@@ -59,36 +59,63 @@ def test_unknown_model_is_rejected_before_any_provider_call(monkeypatch) -> None
         llm.LLMClient("openai", "sk-test", "modelo-inventado")
 
 
-def test_validate_credential_confirms_selected_model_without_completion(
+def test_validate_credential_retrieves_only_selected_model_without_completion(
     monkeypatch,
 ) -> None:
+    retrieved: list[str] = []
+    client_options: list[tuple[str, float, int]] = []
+
     class _Models:
-        def list(self):
-            return SimpleNamespace(
-                data=[
-                    SimpleNamespace(id="gpt-5.6-luna"),
-                    SimpleNamespace(id="gpt-5.6-terra"),
-                ]
-            )
+        def retrieve(self, model: str):
+            retrieved.append(model)
+            return SimpleNamespace(id=model)
+
+    def build_client(api_key: str, *, timeout: float, max_retries: int):
+        client_options.append((api_key, timeout, max_retries))
+        return SimpleNamespace(models=_Models())
 
     monkeypatch.setattr(
         llm,
         "_build_openai_client",
-        lambda _key: SimpleNamespace(models=_Models()),
+        build_client,
     )
 
     assert llm.validate_credential("openai", "sk-test", "gpt-5.6-terra") is True
+    assert retrieved == ["gpt-5.6-terra"]
+    assert client_options == [("sk-test", 8.0, 0)]
 
 
 def test_validate_credential_rejects_model_not_visible_to_key(monkeypatch) -> None:
     class _Models:
-        def list(self):
-            return SimpleNamespace(data=[SimpleNamespace(id="gpt-5.6-luna")])
+        def retrieve(self, _model: str):
+            return SimpleNamespace(id="gpt-5.6-luna")
 
     monkeypatch.setattr(
         llm,
         "_build_openai_client",
-        lambda _key: SimpleNamespace(models=_Models()),
+        lambda _key, **_options: SimpleNamespace(models=_Models()),
+    )
+
+    with pytest.raises(llm.ModelAccessError, match="gpt-5.6-sol"):
+        llm.validate_credential("openai", "sk-test", "gpt-5.6-sol")
+
+
+def test_validate_credential_maps_missing_model_to_access_error(monkeypatch) -> None:
+    import httpx
+    from openai import NotFoundError
+
+    class _Models:
+        def retrieve(self, model: str):
+            request = httpx.Request(
+                "GET", f"https://api.openai.com/v1/models/{model}"
+            )
+            response = httpx.Response(404, request=request)
+            raise NotFoundError("model not found", response=response, body=None)
+
+    monkeypatch.setattr(
+        llm,
+        "_build_openai_client",
+        lambda _key, **_options: SimpleNamespace(models=_Models()),
     )
 
     with pytest.raises(llm.ModelAccessError, match="gpt-5.6-sol"):

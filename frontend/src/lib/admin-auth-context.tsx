@@ -127,7 +127,16 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (email: string, password: string) => {
     const { token } = await adminLogin(email, password);
     preloadAdminConsole();
-    const me = await fetchAdminMe(token);
+    let me: AdminMe;
+    try {
+      me = await fetchAdminMe(token);
+    } catch (err) {
+      // Token emitido, mas a conta não é admin de plataforma (ou expirou):
+      // não persiste a sessão do console.
+      tokenRef.current = null;
+      writeToken(null);
+      throw err;
+    }
     tokenRef.current = token;
     writeToken(token);
     setAdmin(me);
