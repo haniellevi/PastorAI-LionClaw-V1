@@ -61,7 +61,7 @@ def _sub(**over):
         igreja_id=_IGREJA_A,
         plano="ate_100",
         limite=100,
-        pessoas=None,  # contagem corrente (trigger); testes multi-tier setam
+        pessoas=101,  # espelho legado: membros correntes; testes multi-tier setam
         asaas_subscription_id="sub_asaas_1",
         proxima_cobranca="2026-08-01",
     )
@@ -253,6 +253,37 @@ def test_worker_put_failure_keeps_local_plan_and_operation_recoverable(
     assert op.status == "reconciling"
     assert notified == []
     assert tenant.closed is True
+
+
+def test_worker_cancels_stale_prepared_autoupgrade_before_asaas(
+    monkeypatch,
+) -> None:
+    """Uma intenção antiga baseada em contatos nunca pode aumentar a cobrança."""
+    op = _op()
+    sub = _sub(pessoas=250)
+    tenant = _WorkerSession(
+        subscription=sub,
+        igreja=SimpleNamespace(id=_IGREJA_A, plano="ate_100"),
+        plan_changes=[op],
+    )
+    tenant.pessoas_count = 50  # membros faturáveis; contatos ficaram de fora
+    asaas = _WorkerAsaas()
+    notified = _spy_notify(monkeypatch)
+
+    completed = run_pending_plan_changes(
+        _Discovery([(op, _IGREJA_A)]),
+        session_factory=_factory_queue([tenant]),
+        asaas=asaas,
+        evolution=object(),
+    )
+
+    assert completed == 0
+    assert asaas.puts == 0
+    assert asaas.gets == 0
+    assert op.status == "failed"
+    assert op.notify_status == "skipped"
+    assert "contagem atual de membros" in op.error
+    assert notified == []
 
 
 def test_worker_retry_reconciles_by_get_without_second_put(monkeypatch) -> None:

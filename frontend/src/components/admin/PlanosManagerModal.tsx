@@ -141,7 +141,7 @@ export function PlanosManagerModal({
       return;
     }
     if (limite != null && (!Number.isInteger(limite) || limite < 1)) {
-      setFormError("Limite de pessoas inválido (use um inteiro ≥ 1 ou deixe vazio).");
+      setFormError("Limite de membros inválido (use um inteiro ≥ 1 ou deixe vazio).");
       return;
     }
     if (editing === "new" && !/^[a-z0-9_]+$/.test(codigo)) {
@@ -264,7 +264,7 @@ export function PlanosManagerModal({
               label="Nome"
               value={form.nome}
               onChange={(e) => setForm({ ...form, nome: e.target.value })}
-              placeholder="Ex.: Até 100 pessoas"
+              placeholder="Ex.: Até 100 membros"
               autoFocus={editing !== "new"}
             />
             <Field
@@ -277,7 +277,7 @@ export function PlanosManagerModal({
               placeholder="199"
             />
             <Field
-              label="Limite de pessoas"
+              label="Limite de membros"
               type="number"
               min={1}
               value={form.limite}

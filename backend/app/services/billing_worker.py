@@ -63,6 +63,7 @@ from app.services.billing import (
     current_headcount,
     ensure_plan_change_operation,
     find_open_plan_change,
+    finish_operation,
 )
 from app.services.evolution import EvolutionClient, EvolutionError
 
@@ -224,7 +225,7 @@ def notify_autoupgrade(
 
     texto = (
         "Aviso de assinatura: seu plano foi atualizado automaticamente para "
-        f"'{target_plano}' por aumento do número de pessoas. 🙏"
+        f"'{target_plano}' por aumento do número de membros. 🙏"
     )
     attempted = False
     sent_any = False
@@ -318,6 +319,31 @@ def _process_operation(
     if sub is None:
         return False
 
+    # Uma operação PREPARED ainda não tocou o Asaas. Revalida o porte antes
+    # do primeiro PUT para não executar uma intenção antiga criada quando o
+    # sistema ainda contava todos os cadastros (ou antes de um membro ser
+    # arquivado/reclassificado). Estados processing/reconciling não podem ser
+    # cancelados aqui: o PUT pode já ter chegado ao provedor e exige GET de
+    # reconciliação.
+    if op.origin == "autoupgrade" and op.status == "prepared":
+        try:
+            limite_atual = int(sub.limite) if sub.limite is not None else None
+        except (TypeError, ValueError):
+            limite_atual = None
+        if limite_atual is None or current_headcount(db, sub) <= limite_atual:
+            finish_operation(
+                db,
+                op,
+                ("prepared",),
+                status="failed",
+                notify_status="skipped",
+                error=(
+                    "Auto-upgrade cancelado antes do envio: "
+                    "a contagem atual de membros cabe no plano"
+                ),
+            )
+            return False
+
     try:
         result = ensure_plan_change_operation(
             db,
@@ -330,7 +356,7 @@ def _process_operation(
         )
     except AsaasRejectedError:
         # Um request manual pode morrer e deixar seu claim para o worker. Se
-        # o porte cresceu nesse intervalo, o trigger da pessoa tentou criar o
+        # o número de membros cresceu nesse intervalo, o trigger tentou criar o
         # auto-upgrade, mas perdeu no índice único para a operação manual. A
         # rejeição 4xx fecha essa operação como failed; reavaliar AGORA é a
         # única forma de não perder para sempre a intenção de porte. Operação
@@ -350,8 +376,8 @@ def _process_operation(
     # Multi-tier (CORRECTIVE-8): o porte pode ter cruzado MAIS de um degrau
     # antes deste upgrade concluir — os triggers repetidos coalesceram na
     # operação recém-completada, e o UPDATE do plano não dispara o trigger de
-    # pessoas. Reavalia AGORA e persegue os degraus restantes, sem depender
-    # de uma futura mutação de pessoas.
+    # membros. Reavalia AGORA e persegue os degraus restantes, sem depender
+    # de uma futura mudança de membro.
     _chase_remaining_tiers(db, asaas, evolution, sub, igreja_id)
     return True
 
@@ -359,8 +385,8 @@ def _process_operation(
 def _next_ladder_target(db: Session, sub: Subscription) -> Plano | None:
     """Próximo degrau elegível da escada canônica, com alvo do CATÁLOGO.
 
-    Elegível quando o porte CORRENTE excede o limite vigente. A contagem é
-    relida da tabela `pessoas` (`current_headcount`) e não do espelho
+    Elegível quando a quantidade CORRENTE de membros excede o limite vigente.
+    A contagem é relida da tabela `pessoas` (`current_headcount`) e não do espelho
     ``sub.pessoas`` do objeto em memória: a sessão não expira no commit
     (``expire_on_commit=False``), então depois de uma troca de plano o espelho
     ainda carrega o valor lido ANTES da chamada externa — e é exatamente a
@@ -375,8 +401,8 @@ def _next_ladder_target(db: Session, sub: Subscription) -> Plano | None:
         return None
     if limite is None:
         return None  # plano ilimitado: não há degrau acima
-    pessoas = current_headcount(db, sub)
-    if pessoas <= limite:
+    membros = current_headcount(db, sub)
+    if membros <= limite:
         return None
     idx = plan_rank(sub.plano)
     if idx < 0 or idx + 1 >= len(PLAN_ORDER):
@@ -388,18 +414,18 @@ def _next_ladder_target(db: Session, sub: Subscription) -> Plano | None:
         if plano_row is None or plano_row.preco_mensal is None:
             continue
         alvo_limite = plano_row.limite_pessoas
-        if alvo_limite is None or pessoas <= int(alvo_limite):
+        if alvo_limite is None or membros <= int(alvo_limite):
             return plano_row
     return None
 
 
 def queue_autoupgrade_if_over_limit(db: Session, sub: Subscription) -> bool:
-    """Registra a operação de auto-upgrade quando o porte já passou do limite.
+    """Registra auto-upgrade quando os membros já passaram do limite.
 
     Usado depois de uma troca MANUAL concluída: aplicar o novo plano não
-    dispara o trigger de pessoas, então uma igreja cujo porte subiu durante o
+    dispara o trigger de pessoas, então uma igreja cujos membros aumentaram durante o
     processamento (ou que trocou para um plano no limite) ficaria abaixo do
-    porte até a próxima mutação de pessoa. O porte vem da releitura canônica
+    plano até a próxima mudança de membro. A quantidade vem da releitura canônica
     feita por `_next_ladder_target` — o espelho em memória é sempre anterior à
     chamada externa e nunca enxergaria essa corrida. Aqui só a INTENÇÃO é
     registrada — quem executa o PUT é o cron-worker, pelo trilho durável.

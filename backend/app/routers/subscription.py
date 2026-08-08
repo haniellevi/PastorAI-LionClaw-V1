@@ -82,6 +82,7 @@ router = APIRouter(prefix="/subscription", tags=["subscription"])
 class SubscriptionOut(BaseModel):
     plano: str
     status: str | None = None
+    # Nome legado do contrato HTTP; contém a contagem de membros faturáveis.
     pessoas: int | None = None
     limite: int | None = None
     proximaCobranca: str | None = None  # noqa: N815
@@ -231,6 +232,7 @@ class PlanoPublicOut(BaseModel):
 
     codigo: str
     nome: str
+    # Nome legado do contrato HTTP; representa o limite de membros.
     limitePessoas: int | None = None  # noqa: N815 - None = ilimitado
     precoMensal: float  # noqa: N815
 
@@ -753,11 +755,16 @@ def get_subscription(
     recovery_op = find_any_open_operation(db, sub.id, "monthly_recovery")
     if recovery_op is not None:
         recovery_url = recovery_op.invoice_url
-    return SubscriptionOut.from_model(
+    response = SubscriptionOut.from_model(
         sub,
         recovery_invoice_url=recovery_url,
         recovery_required=recovery_op is not None,
     )
+    # O nome externo ``pessoas`` é mantido por compatibilidade com clientes
+    # existentes, mas o valor representa somente membros faturáveis ativos.
+    # A releitura evita mostrar o espelho defasado entre mutações concorrentes.
+    response.pessoas = current_headcount(db, sub)
+    return response
 
 
 def _ensure_setup_charge(
@@ -1881,20 +1888,20 @@ def change_plan(
     # resultado — bloquear aqui prenderia a operação e o slot único para
     # sempre); alvo diferente continua sendo conflito 409.
     if find_open_plan_change(db, sub.id) is None:
-        # DOWNGRADE abaixo do porte é rejeitado ANTES de criar operação ou
+        # DOWNGRADE abaixo da quantidade de membros é rejeitado ANTES de criar operação ou
         # tocar o Asaas: o trigger de auto-upgrade só dispara em mutação de
         # `pessoas` — concluir a troca não o invoca —, então uma igreja de 201
-        # ficaria no preço de 100 até um cadastro qualquer acontecer. Contagem
+        # membros ficaria no preço de 100 até uma mudança de membro acontecer. Contagem
         # canônica lida da tabela (a mesma fonte que o trigger espelha em
         # subscriptions.pessoas).
-        pessoas_atual = current_headcount(db, sub)
+        membros_atuais = current_headcount(db, sub)
         limite_alvo = plano_row.limite_pessoas  # None = ilimitado (sempre ok)
-        if limite_alvo is not None and pessoas_atual > int(limite_alvo):
+        if limite_alvo is not None and membros_atuais > int(limite_alvo):
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=(
-                    f"O plano escolhido atende até {limite_alvo} pessoas e a "
-                    f"igreja tem {pessoas_atual}"
+                    f"O plano escolhido atende até {limite_alvo} membros e a "
+                    f"igreja tem {membros_atuais}"
                 ),
             )
 
@@ -1915,7 +1922,7 @@ def change_plan(
         # Plano local permanece INTACTO. Uma rejeição 4xx fecha a operação
         # manual como failed; nesse caso o crescimento ocorrido enquanto ela
         # ocupava o claim precisa ser reavaliado agora, pois o trigger da
-        # pessoa foi suprimido por ON CONFLICT e não voltará sozinho.
+        # membro foi suprimido por ON CONFLICT e não voltará sozinho.
         if find_open_plan_change(db, sub.id) is None:
             try:
                 queue_autoupgrade_if_over_limit(db, sub)

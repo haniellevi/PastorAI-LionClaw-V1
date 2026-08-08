@@ -1172,6 +1172,7 @@ class Subscription(Base):
     )
     plano: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Nome legado no schema: espelho da contagem de membros faturáveis ativos.
     pessoas: Mapped[int | None] = mapped_column(Integer, nullable=True)
     limite: Mapped[int | None] = mapped_column(Integer, nullable=True)
     proxima_cobranca: Mapped[dt.date | None] = mapped_column(Date, nullable=True)
@@ -2122,6 +2123,7 @@ class Plano(Base):
     id: Mapped[uuid.UUID] = _uuid_pk()
     codigo: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     nome: Mapped[str] = mapped_column(Text, nullable=False)
+    # Nome legado no schema: limite comercial de membros do plano.
     limite_pessoas: Mapped[int | None] = mapped_column(Integer, nullable=True)
     preco_mensal: Mapped[float] = mapped_column(
         Numeric(10, 2), nullable=False, server_default=text("0")

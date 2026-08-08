@@ -28,9 +28,9 @@ const STATUSES = [
 ];
 
 const FALLBACK_PLANOS: PlanoOption[] = [
-  { codigo: "ate_100", nome: "Até 100 pessoas" },
-  { codigo: "101_200", nome: "101–200 pessoas" },
-  { codigo: "acima_201", nome: "201+ pessoas" },
+  { codigo: "ate_100", nome: "Até 100 membros" },
+  { codigo: "101_200", nome: "101–200 membros" },
+  { codigo: "acima_201", nome: "201+ membros" },
 ];
 
 export interface EditIgrejaModalProps {
