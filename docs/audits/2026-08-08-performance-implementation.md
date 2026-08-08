@@ -50,8 +50,8 @@ nem provam o comportamento de banco/Redis sob carga de produção.
 - Branch: `codex/performance-plan`.
 - Base: `deb95a8cfebc154168bcc13a2bd304aa34260bcf` (`origin/main` no início).
 - Integração mais recente: `origin/main` em
-  `25ed43861c779567d91ff84145d810e81cb601e3`, incorporada pelo merge local
-  `2ed1e19f5a9ba370273c5981a0295cdeae8b2ab6`.
+  `4755e5fb559cb653c4f10958b68cbc08f0703520`, incorporada pelo merge local
+  `19fb55a55d08a15e5ddc1553670228a859312029`.
 - Estado operacional: a migration de idempotência outbound foi aplicada
   **somente no banco DEV**, com autorização explícita e validação; não houve
   migration em produção nem deploy. A branch local está integrada e validada;
@@ -186,10 +186,11 @@ de 7,23 s foi mantida como outlier; ela não alterou a mediana e reforça que o
 gate de staging deve observar cauda, não apenas p50.
 
 Essas medições autenticadas foram feitas no SHA `a66aa71`, imediatamente antes
-da integração final com a `main`. O merge `2ed1e19` incorporou cache e preload
-adicionais do frontend, passou nos testes e no build, mas ainda deve repetir o
-smoke/RUM autenticado no SHA publicado; os números acima não foram
-retroativamente atribuídos ao merge.
+das integrações finais com a `main`. Os merges `2ed1e19` e `19fb55a`
+incorporaram cache, preload e o ajuste de posição do acesso administrativo,
+passaram nos testes aplicáveis, mas ainda devem repetir o smoke/RUM autenticado
+no SHA publicado; os números acima não foram retroativamente atribuídos aos
+merges.
 
 ### PostgreSQL DEV — latência e índice outbound
 
@@ -413,10 +414,12 @@ são limitadas no SQL com `row_number() over(partition by celula_id)`.
   PostgreSQL 16 local descartável, sem skips.
 - Testes focados do último lote: **44/44 PASS**; revisão independente não
   encontrou P0–P2; `git diff --check` permaneceu em **PASS**.
-- Integração com a `main` de `25ed438`: backend **1.972 PASS, 135 SKIP**;
-  frontend **58 arquivos, 508/508 PASS**; TypeScript, ESLint direto sem cache e
+- Integração final com a `main`: backend **1.972 PASS, 135 SKIP**;
+  frontend **58 arquivos, 509/509 PASS**; TypeScript, ESLint direto sem cache e
   build de produção em cópia limpa: **PASS**. O build manteve First Load JS de
   110 kB em `/`, 110 kB em `/gestao` e 108 kB em `/admin`.
+- Delta final da `main` até `4755e5f`: somente posição do acesso Admin na
+  navegação; `Sidebar` + `AppShell` **10/10 PASS** e TypeScript **PASS**.
 - A revisão do merge encontrou duas corridas P2 — resposta antiga repovoando o
   cache e timeout inicial do Inbox aparecendo como lista vazia. Ambas foram
   corrigidas, receberam regressões determinísticas e a re-revisão deu
