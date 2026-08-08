@@ -122,6 +122,79 @@ function writeToken(token: string | null) {
   }
 }
 
+function routeBase(route: string): string {
+  return route.replace(/^#/, "").split("/")[0] ?? "";
+}
+
+function isLoggedOutRoute(route: string): boolean {
+  return (
+    !route ||
+    route === "login" ||
+    route === "esqueci-senha" ||
+    route === "ativar" ||
+    route === "redefinir-senha"
+  );
+}
+
+function requestedAuthenticatedRoute(fallback: string): string {
+  const current = routeBase(window.location.hash);
+  if (!isLoggedOutRoute(current)) return current;
+
+  // During an explicit login the hash still points at the login flow. Peek at
+  // the saved destination without consuming it; LoginScreen remains the owner
+  // that clears RETURN_KEY after authentication succeeds.
+  try {
+    const saved = routeBase(window.localStorage.getItem(RETURN_KEY) ?? "");
+    if (!isLoggedOutRoute(saved)) return saved;
+  } catch {
+    /* localStorage unavailable: use the surface default */
+  }
+  return fallback;
+}
+
+function preloadRoute(route: string): void {
+  // Keep this deliberately small: only the most common/default deep-links are
+  // warmed, and exactly one screen chunk is requested. Other routes still load
+  // normally through ScreenView instead of making every authenticated visitor
+  // download the whole application.
+  switch (route) {
+    case "dashboard":
+      void import("@/components/dashboard/DashboardScreen");
+      break;
+    case "inbox":
+      void import("@/components/inbox/InboxScreen");
+      break;
+    case "calendario":
+      void import("@/components/calendario/CalendarioScreen");
+      break;
+    case "minha-celula":
+      void import("@/components/minha-celula/MinhaCelulaEntry");
+      break;
+    case "setup":
+      void import("@/components/config/SetupChecklistScreen");
+      break;
+    case "contatos":
+      void import("@/components/contacts/ContatosScreen");
+      break;
+    case "whatsapp":
+      void import("@/components/whatsapp/WhatsappScreen");
+      break;
+  }
+}
+
+function preloadAuthenticatedSurface(): void {
+  // Start the shell and the requested screen while /auth/me is in flight, so
+  // auth -> shell -> screen does not become a serial JS waterfall. Logged-out
+  // visitors do not pay for any of these chunks.
+  if (window.location.pathname.startsWith("/gestao")) {
+    void import("@/components/shell/AdminAppShell");
+    preloadRoute(requestedAuthenticatedRoute("setup"));
+    return;
+  }
+  void import("@/components/shell/AppShell");
+  preloadRoute(requestedAuthenticatedRoute("dashboard"));
+}
+
 function toSessionUser(me: MeResult): SessionUser {
   return {
     appUserId: me.appUserId,
@@ -150,6 +223,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
     tokenRef.current = token;
+    preloadAuthenticatedSurface();
     fetchMe(token)
       .then((me) => {
         if (!active) return;
@@ -170,6 +244,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (email: string, password: string) => {
     const { token } = await apiLogin(email, password);
+    preloadAuthenticatedSurface();
     let me: MeResult;
     try {
       me = await fetchMe(token);

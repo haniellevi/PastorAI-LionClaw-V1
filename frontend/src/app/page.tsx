@@ -4,22 +4,42 @@
  * Raiz do painel. Decide entre a tela de login e o app shell autenticado.
  * O roteamento entre telas internas é por hash (#rota) e fica no AppShell.
  */
-import { AppShell } from "@/components/shell/AppShell";
-import { LoginScreen } from "@/components/login/LoginScreen";
+import dynamic from "next/dynamic";
+
+import { AppProviders } from "@/components/providers/AppProviders";
 import { useAuth } from "@/lib/auth-context";
 
+const AppShell = dynamic(
+  () => import("@/components/shell/AppShell").then((module) => module.AppShell),
+  { loading: PageLoading },
+);
+const LoginScreen = dynamic(
+  () => import("@/components/login/LoginScreen").then((module) => module.LoginScreen),
+  { loading: PageLoading },
+);
+
 export default function HomePage() {
+  return (
+    <AppProviders>
+      <HomeContent />
+    </AppProviders>
+  );
+}
+
+function PageLoading() {
+  return (
+    <div className="full-loader" role="status" aria-live="polite">
+      <span className="spinner" aria-hidden="true" />
+      <span className="sr-only">Carregando…</span>
+    </div>
+  );
+}
+
+function HomeContent() {
   const { status } = useAuth();
 
   if (status === "loading") {
-    return (
-      <div className="full-loader" role="status" aria-live="polite">
-        <span className="spinner" aria-hidden="true" />
-        <span style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)" }}>
-          Carregando sessão…
-        </span>
-      </div>
-    );
+    return <PageLoading />;
   }
 
   if (status === "authenticated") {

@@ -1,7 +1,5 @@
 import type { Metadata, Viewport } from "next";
 
-import { AppProviders } from "@/components/providers/AppProviders";
-
 // Webfonts self-hosted (Igreja 12 — F1). Servidas do node_modules via @fontsource;
 // o build empacota os woff2 localmente, sem chamadas externas. As famílias batem
 // com os tokens --font / --font-display / --mono do globals.css.
@@ -42,11 +40,6 @@ export const metadata: Metadata = {
   formatDetection: { telephone: false },
 };
 
-// O painel é inteiramente client-side e auth-gated (sessão via Clerk/contexto):
-// não há HTML estático útil a pré-renderizar e o SSG do shell quebra ao ler o
-// contexto de sessão durante o build. Renderização dinâmica evita esse prerender.
-export const dynamic = "force-dynamic";
-
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
@@ -60,9 +53,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="pt-BR">
-      <body>
-        <AppProviders>{children}</AppProviders>
-      </body>
+      <body>{children}</body>
     </html>
   );
 }

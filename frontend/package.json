@@ -12,7 +12,6 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@clerk/nextjs": "6.39.6",
     "@fontsource/jetbrains-mono": "^5.2.8",
     "@fontsource/plus-jakarta-sans": "^5.2.8",
     "@fontsource/sora": "^5.2.8",

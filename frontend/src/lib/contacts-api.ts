@@ -27,6 +27,28 @@ import {
 
 export type { Page } from "./dashboard-api";
 
+export type ContactView =
+  | "all"
+  | "pending"
+  | "contato"
+  | "visitante"
+  | "membro"
+  | "discipulo"
+  | "pastor"
+  | "lideres_celula"
+  | "aptos"
+  | "csim"
+  | "arquivadas";
+
+export interface FetchContactsParams {
+  /** Página baseada em 1. */
+  page?: number;
+  /** Quantidade por página; o backend limita a 200. */
+  pageSize?: number;
+  /** Visão aplicada no servidor antes de count/offset/limit. */
+  view?: ContactView;
+}
+
 /** Projeção de pessoa retornada por /contacts e /pipeline (ContactOut). */
 export interface Contact {
   id: string;
@@ -83,6 +105,7 @@ export interface ContactDetail {
   liderNome: string | null;
   aptoLider: boolean;
   liderDeCelula: boolean;
+  arquivada: boolean;
   consentimento: boolean;
   optout: boolean;
   origem: string | null;
@@ -190,21 +213,37 @@ function isOffboardingPreflight(value: unknown): value is OffboardingPreflight {
 // ---------------------------------------------------------------------------
 // Leitura
 // ---------------------------------------------------------------------------
+export async function fetchContactsPage(
+  token: string,
+  params: FetchContactsParams = {},
+): Promise<Page<Contact>> {
+  const page = Math.max(1, Math.trunc(params.page ?? 1));
+  const pageSize = Math.min(200, Math.max(1, Math.trunc(params.pageSize ?? 200)));
+  const query = new URLSearchParams({
+    page: String(page),
+    pageSize: String(pageSize),
+    view: params.view ?? "all",
+  });
+  const res = await authedFetch(token, `/contacts?${query.toString()}`);
+  if (!res.ok) {
+    throw new ApiError(res.status, "Não foi possível carregar os contatos.");
+  }
+  return (await res.json()) as Page<Contact>;
+}
+
+/**
+ * Compatibilidade para seletores legados que ainda precisam da coleção inteira.
+ * Novas telas paginadas devem usar `fetchContactsPage` explicitamente.
+ */
 export async function fetchContacts(
   token: string,
   pageSize = 200,
 ): Promise<Page<Contact>> {
-  // Backend limita pageSize a 200 (MAX_PAGE_SIZE); igrejas no plano acima_201
-  // passam disso, então busca todas as páginas para não truncar a lista.
   const items: Contact[] = [];
   let page = 1;
   let total = 0;
   for (;;) {
-    const res = await authedFetch(token, `/contacts?page=${page}&pageSize=${pageSize}`);
-    if (!res.ok) {
-      throw new ApiError(res.status, "Não foi possível carregar os contatos.");
-    }
-    const batch = (await res.json()) as Page<Contact>;
+    const batch = await fetchContactsPage(token, { page, pageSize, view: "all" });
     items.push(...batch.items);
     total = batch.total;
     if (batch.items.length === 0 || items.length >= total) break;

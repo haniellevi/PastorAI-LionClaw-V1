@@ -56,6 +56,51 @@ import { TransferConversationModal } from "./TransferConversationModal";
 import { effectiveEstado } from "./conversation-format";
 
 const POLL_MS = 15_000;
+// O GET normal deve concluir bem antes disso. Encerrar em 12 s libera o
+// single-flight antes do próximo tick de 15 s, sem transformar oscilações
+// breves de rede em várias requisições concorrentes.
+const REQUEST_TIMEOUT_MS = 12_000;
+
+/**
+ * O `fetch` respeita AbortSignal, mas esta corrida também encerra o await caso
+ * um mock/adaptador intermediário ignore o cancelamento. Assim o single-flight
+ * sempre é liberado no prazo e a promessa tardia fica observada, sem rejection
+ * não tratada.
+ */
+function runTimedRequest<T>(
+  controller: AbortController,
+  request: (signal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  const { signal } = controller;
+  return new Promise<T>((resolve, reject) => {
+    let settled = false;
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeoutId);
+      signal.removeEventListener("abort", onAbort);
+      callback();
+    };
+    const onAbort = () =>
+      finish(() => reject(new DOMException("Requisição cancelada.", "AbortError")));
+    const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+    signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+
+    try {
+      request(signal).then(
+        (value) => finish(() => resolve(value)),
+        (error: unknown) => finish(() => reject(error)),
+      );
+    } catch (error) {
+      finish(() => reject(error));
+    }
+  });
+}
 
 interface Toast {
   kind: "ok" | "err";
@@ -98,6 +143,12 @@ export function InboxScreen() {
   // operante, sem banner de degradação.
   const [connStatus, setConnStatus] = useState<ConnectionStatus | "unknown">("unknown");
 
+  // Polling is best-effort. A slow network must not stack another identical
+  // request every 15 seconds; besides wasting work, overlapping responses
+  // allocate duplicate arrays and can keep the browser busy indefinitely.
+  const conversationsRequestRef = useRef<AbortController | null>(null);
+  const connectionRequestRef = useRef<AbortController | null>(null);
+
   // Master-detail mobile (PR2): em ≤860px o inbox é tela única (lista OU thread).
   // selectedId null = lista; tocar uma conversa abre a thread; "voltar" volta à
   // lista. No desktop a lista e a thread seguem lado a lado (seleção automática).
@@ -134,13 +185,19 @@ export function InboxScreen() {
   const load = useCallback(
     async (mode: "initial" | "poll" | "retry") => {
       if (!token) return;
+      if (conversationsRequestRef.current) return;
+      const controller = new AbortController();
+      conversationsRequestRef.current = controller;
       if (mode === "initial") setLoading(true);
       if (mode !== "poll") setError(null);
       try {
-        const page = await fetchConversations(token);
+        const page = await runTimedRequest(controller, (signal) =>
+          fetchConversations(token, 100, signal),
+        );
         setConversations(page.items);
         setLoaded(true);
       } catch (err) {
+        if (controller.signal.aborted) return;
         if (handleSessionError(err)) return;
         if (mode !== "poll") {
           setError(
@@ -150,7 +207,10 @@ export function InboxScreen() {
           );
         }
       } finally {
-        if (mode === "initial") setLoading(false);
+        if (conversationsRequestRef.current === controller) {
+          conversationsRequestRef.current = null;
+          if (mode === "initial") setLoading(false);
+        }
       }
     },
     [token, handleSessionError],
@@ -158,14 +218,22 @@ export function InboxScreen() {
 
   const loadConnection = useCallback(async () => {
     if (!token || !canReadConnection) return;
+    if (connectionRequestRef.current) return;
+    const controller = new AbortController();
+    connectionRequestRef.current = controller;
     try {
-      const info = await fetchConnection(token);
+      const info = await runTimedRequest(controller, (signal) => fetchConnection(token, signal));
       setConnStatus(info.status);
     } catch (err) {
+      if (controller.signal.aborted) return;
       if (handleSessionError(err)) return;
       // 403 (papel sem acesso à conexão) ou falha: mantém "unknown" (sem banner).
       if (err instanceof WaApiError && err.status === 403) {
         setConnStatus("unknown");
+      }
+    } finally {
+      if (connectionRequestRef.current === controller) {
+        connectionRequestRef.current = null;
       }
     }
   }, [token, canReadConnection, handleSessionError]);
@@ -191,30 +259,65 @@ export function InboxScreen() {
   // senão uma carga inicial ultrapassada por um poll deixaria o skeleton na tela.
   const reqSeqRef = useRef(0);
   const appliedSeqRef = useRef(0);
+  // One request per selection visit. A → B → A remains valid because each
+  // visit gets a new generation; only duplicate initial/poll/send refreshes
+  // from the same visit are coalesced.
+  const messageRequestsInFlightRef = useRef(new Set<string>());
+  const messageRequestControllersRef = useRef(new Map<string, AbortController>());
+  // A refresh requested after a successful send must not be lost behind a
+  // slower poll that was already in flight. Keep a single trailing refresh
+  // for that visit and run it immediately after the current request settles.
+  const messageRefreshPendingRef = useRef(new Set<string>());
 
   const loadMessages = useCallback(
-    async (convId: string, mode: "initial" | "poll" = "initial") => {
+    async (convId: string, mode: "initial" | "poll" | "refresh" = "initial") => {
       if (!token) return;
       const gen = selectionGenRef.current;
-      const seq = (reqSeqRef.current += 1);
+      if (selectedIdRef.current !== convId) return;
+      const requestKey = `${gen}:${convId}`;
+      if (messageRequestsInFlightRef.current.has(requestKey)) {
+        if (mode === "refresh") messageRefreshPendingRef.current.add(requestKey);
+        return;
+      }
+      messageRequestsInFlightRef.current.add(requestKey);
+      const controller = new AbortController();
+      messageRequestControllersRef.current.set(requestKey, controller);
       // A requisição só continua valendo se, na volta, a conversa aberta for a
       // mesma E ainda for a mesma visita a ela.
       const atual = () => selectedIdRef.current === convId && selectionGenRef.current === gen;
       if (mode === "initial") setMessagesLoading(true);
       try {
-        const items = await fetchMessages(token, convId);
-        // Resposta obsoleta (trocou de conversa, ou é de uma visita anterior a
-        // esta mesma conversa): descarta sem tocar na UI.
-        if (!atual()) return;
-        // Fora de ordem: outra requisição desta mesma visita, iniciada depois,
-        // já escreveu um histórico mais recente.
-        if (seq < appliedSeqRef.current) return;
-        appliedSeqRef.current = seq;
-        setMessages(items);
-      } catch (err) {
-        if (handleSessionError(err)) return;
-        // No poll a falha é silenciosa; no initial a thread mostra vazio.
+        while (true) {
+          const seq = (reqSeqRef.current += 1);
+          try {
+            const items = await runTimedRequest(controller, (signal) =>
+              fetchMessages(token, convId, 200, signal),
+            );
+            // Resposta obsoleta (trocou de conversa, ou é de uma visita anterior a
+            // esta mesma conversa): descarta sem tocar na UI.
+            if (!atual()) return;
+            // Fora de ordem: outra requisição desta mesma visita, iniciada depois,
+            // já escreveu um histórico mais recente.
+            if (seq >= appliedSeqRef.current) {
+              appliedSeqRef.current = seq;
+              setMessages(items);
+            }
+          } catch (err) {
+            if (controller.signal.aborted) break;
+            if (handleSessionError(err)) return;
+            // No poll/refresh a falha é silenciosa; no initial a thread mostra vazio.
+          }
+
+          // Coalesce any number of sends completed during this request into one
+          // fresh snapshot. Ordinary polling never queues another request.
+          if (!messageRefreshPendingRef.current.delete(requestKey) || !atual()) break;
+        }
       } finally {
+        if (messageRequestControllersRef.current.get(requestKey) === controller) {
+          messageRequestControllersRef.current.delete(requestKey);
+        }
+        messageRequestsInFlightRef.current.delete(requestKey);
+        messageRefreshPendingRef.current.delete(requestKey);
         // Idem para o "carregando": só a requisição da visita atual pode
         // encerrá-lo — senão a resposta antiga apagaria o skeleton da nova.
         if (mode === "initial" && atual()) setMessagesLoading(false);
@@ -225,8 +328,12 @@ export function InboxScreen() {
 
   // Ao trocar de conversa, limpa e recarrega o histórico daquela conversa.
   useEffect(() => {
+    const requestControllers = messageRequestControllersRef.current;
+    const requestsInFlight = messageRequestsInFlightRef.current;
+    const refreshesPending = messageRefreshPendingRef.current;
     selectedIdRef.current = selectedId;
     selectionGenRef.current += 1;
+    const requestKey = `${selectionGenRef.current}:${selectedId ?? ""}`;
     setMessages([]);
     if (!selectedId) {
       // Sem conversa aberta não há requisição para encerrar o carregamento: a
@@ -235,7 +342,30 @@ export function InboxScreen() {
       return;
     }
     void loadMessages(selectedId, "initial");
+    return () => {
+      const controller = requestControllers.get(requestKey);
+      requestControllers.delete(requestKey);
+      requestsInFlight.delete(requestKey);
+      refreshesPending.delete(requestKey);
+      controller?.abort();
+    };
   }, [selectedId, loadMessages]);
+
+  // Rede pendente não deve sobreviver ao Inbox. A limpeza por visita acima
+  // cobre a seleção atual; esta guarda também encerra qualquer pedido residual.
+  useEffect(() => {
+    const requestControllers = messageRequestControllersRef.current;
+    const requestsInFlight = messageRequestsInFlightRef.current;
+    const refreshesPending = messageRefreshPendingRef.current;
+    return () => {
+      for (const controller of requestControllers.values()) {
+        controller.abort();
+      }
+      requestControllers.clear();
+      requestsInFlight.clear();
+      refreshesPending.clear();
+    };
+  }, []);
 
   useEffect(() => {
     if (!allowed) {
@@ -244,6 +374,14 @@ export function InboxScreen() {
     }
     void load("initial");
     void loadConnection();
+    return () => {
+      const conversationsController = conversationsRequestRef.current;
+      const connectionController = connectionRequestRef.current;
+      conversationsRequestRef.current = null;
+      connectionRequestRef.current = null;
+      conversationsController?.abort();
+      connectionController?.abort();
+    };
   }, [allowed, load, loadConnection]);
 
   useEffect(() => {
@@ -383,7 +521,7 @@ export function InboxScreen() {
         // Bump da última mensagem na lista + recarrega o histórico (a mensagem
         // enviada é persistida no backend e aparece na thread).
         patch(c.id, { ultimaMensagem: text });
-        void loadMessages(c.id, "poll");
+        void loadMessages(c.id, "refresh");
         flashToast({ kind: "ok", text: "Resposta enviada pelo número oficial." });
       } catch (err) {
         if (handleSessionError(err)) return;
@@ -413,7 +551,7 @@ export function InboxScreen() {
               ? "🎤 Áudio"
               : "📎 Arquivo";
         patch(c.id, { ultimaMensagem: label });
-        void loadMessages(c.id, "poll");
+        void loadMessages(c.id, "refresh");
         flashToast({ kind: "ok", text: "Mídia enviada pelo número oficial." });
         return true;
       } catch (err) {
