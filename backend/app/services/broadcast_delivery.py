@@ -36,6 +36,7 @@ from app.db.models import (
 )
 from app.db.tenant_session import mark_cross_tenant, mark_tenant_scoped
 from app.domain.broadcast import RecipientCandidate, matches_segments, normalize_segments
+from app.domain.phone import normalize_phone
 from app.services.evolution import BroadcastSendResult, EvolutionClient
 
 logger = logging.getLogger("pastorai.broadcast_delivery")
@@ -232,9 +233,19 @@ def next_occurrence(
 
 
 def normalize_delivery_phone(raw: str | None) -> str | None:
-    """Return a digits-only send/dedupe key, or None when clearly invalid."""
-    digits = "".join(char for char in (raw or "") if char.isdigit())
-    return digits if 10 <= len(digits) <= 15 else None
+    """Return the local Brazilian canonical key used for storage and dedupe.
+
+    Contact storage intentionally uses DDD + mobile (11 digits) so ``+55`` and
+    WhatsApp JIDs de-duplicate correctly without changing persisted targets.
+    """
+    canonical = normalize_phone(raw or "")
+    return canonical if len(canonical) == 11 else None
+
+
+def evolution_delivery_phone(raw: str | None) -> str | None:
+    """Return the Brazilian E.164 number required by Evolution."""
+    canonical = normalize_delivery_phone(raw)
+    return f"55{canonical}" if canonical is not None else None
 
 
 def recipient_delivery_phone(person: Any | None) -> tuple[str | None, str | None]:
@@ -967,18 +978,24 @@ def dispatch_pending_deliveries(
                 continue  # a recipient was suppressed during revalidation
 
             claim = decision.claim
-            try:
-                outcome = evolution.send_text_classificado(
-                    claim.instance, claim.telefone, claim.mensagem
-                )
-            except Exception:  # noqa: BLE001 - unknown means no automatic retry
-                logger.exception(
-                    "Unexpected broadcast transport failure execucao_id=%s",
-                    claim.execucao_id,
-                )
+            transport_phone = evolution_delivery_phone(claim.telefone)
+            if transport_phone is None:
                 outcome = BroadcastSendResult(
-                    status="desconhecido", error_class="erro_nao_classificado"
+                    status="falhou_permanente", error_class="telefone_invalido"
                 )
+            else:
+                try:
+                    outcome = evolution.send_text_classificado(
+                        claim.instance, transport_phone, claim.mensagem
+                    )
+                except Exception:  # noqa: BLE001 - unknown means no automatic retry
+                    logger.exception(
+                        "Unexpected broadcast transport failure execucao_id=%s",
+                        claim.execucao_id,
+                    )
+                    outcome = BroadcastSendResult(
+                        status="desconhecido", error_class="erro_nao_classificado"
+                    )
 
             _record_delivery_result(
                 session_factory,
