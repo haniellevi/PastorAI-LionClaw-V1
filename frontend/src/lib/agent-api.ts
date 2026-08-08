@@ -2,7 +2,9 @@
  * Cliente da API do agente de IA (tela #agente).
  * Consome o backend (sprints 007/009):
  *
- *   POST /agent/credential  {provedor, apiKey} -> {status, provedor, validado}  (US-27 / RNF-03)
+ *   GET  /agent/models      -> allowlist, preços e modelo padrão
+ *   POST /agent/credential  {provedor, apiKey, modelo} -> status  (US-27 / RNF-03)
+ *   PUT  /agent/model       {modelo} -> troca o modelo sem reexibir a chave
  *   PUT  /agent/config      -> {nome, tom, comportamento, publicoAlvo, acessos, ativo}  (US-28)
  *   POST /agent/crons       -> {id, nome, frequencia, gatilhoEstado, acao, ativo}
  *   GET  /agent/crons       -> [ {id, nome, frequencia, gatilhoEstado, acao, ativo} ]
@@ -33,9 +35,26 @@ export const LLM_PROVIDERS: LlmProviderOption[] = [
   { code: "google", label: "Google (Gemini)", enabled: false },
 ];
 
+export interface LlmModelOption {
+  modelo: string;
+  nome: string;
+  perfil: string;
+  precoEntradaUsdMilhao: number;
+  precoSaidaUsdMilhao: number;
+  recomendado: boolean;
+  fallback: string[];
+}
+
+export interface LlmModelCatalog {
+  padrao: string;
+  precosAtualizadosEm: string;
+  modelos: LlmModelOption[];
+}
+
 export interface SaveCredentialResult {
   status: "active" | "invalid";
   provedor: string;
+  modelo: string;
   validado: boolean;
 }
 
@@ -80,6 +99,7 @@ export class AgentCredentialRequiredError extends Error {
 export interface CredentialStatus {
   status: "active" | "invalid" | "none";
   provedor: string | null;
+  modelo: string | null;
 }
 
 /** Config salva do agente; `configured=false` quando ainda não há. */
@@ -101,6 +121,16 @@ export async function fetchCredentialStatus(token: string): Promise<CredentialSt
     throw new ApiError(res.status, detail ?? "Não foi possível carregar a credencial.");
   }
   return (await res.json()) as CredentialStatus;
+}
+
+/** Catálogo autoritativo de modelos; a UI não mantém uma allowlist paralela. */
+export async function fetchLlmModels(token: string): Promise<LlmModelCatalog> {
+  const res = await authedFetch(token, "/agent/models");
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível carregar os modelos.");
+  }
+  return (await res.json()) as LlmModelCatalog;
 }
 
 /** Lê a configuração de comportamento salva. */
@@ -167,7 +197,7 @@ export async function fetchCrons(token: string): Promise<CronResult[]> {
 
 export async function saveCredential(
   token: string,
-  payload: { provedor: LlmProvider; apiKey: string },
+  payload: { provedor: LlmProvider; apiKey: string; modelo: string },
 ): Promise<SaveCredentialResult> {
   const res = await authedFetch(token, "/agent/credential", {
     method: "POST",
@@ -185,6 +215,29 @@ export async function saveCredential(
     throw new ApiError(res.status, detail ?? "Não foi possível salvar a credencial.");
   }
   return (await res.json()) as SaveCredentialResult;
+}
+
+/** Troca o modelo usando a credencial cifrada já salva para a igreja. */
+export async function updateLlmModel(
+  token: string,
+  modelo: string,
+): Promise<{ modelo: string; validado: boolean }> {
+  const res = await authedFetch(token, "/agent/model", {
+    method: "PUT",
+    body: JSON.stringify({ modelo }),
+  });
+  if (res.status === 409 || res.status === 422 || res.status === 502) {
+    const detail = await readDetail(res);
+    throw new ApiError(
+      res.status,
+      detail ?? "Não foi possível validar esse modelo com a credencial salva.",
+    );
+  }
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível salvar o modelo.");
+  }
+  return (await res.json()) as { modelo: string; validado: boolean };
 }
 
 export async function saveAgentConfig(

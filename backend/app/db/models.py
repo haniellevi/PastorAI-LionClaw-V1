@@ -2056,6 +2056,9 @@ class LlmCredential(Base):
         nullable=False,
     )
     provedor: Mapped[str] = mapped_column(Text, nullable=False)
+    modelo: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'gpt-5.6-luna'")
+    )
     api_key_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
     validado: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false")

@@ -68,7 +68,7 @@
 | US-24 | Enviar relatorio de celula pelo WhatsApp |
 | US-25 | Visualizar relatorios de celula no painel |
 | US-26 | Relatorio pendente vira acao na fila |
-| US-27 | Cadastrar credencial do provedor LLM (BYO) |
+| US-27 | Cadastrar credencial do provedor LLM (BYO) e selecionar modelo permitido por igreja |
 | US-28 | Configurar comportamento do agente |
 | US-29 | Configurar crons e agendamentos do agente |
 | US-30 | Gerir eventos no calendario |
@@ -146,7 +146,7 @@
 | `consent_records` | Registro de consentimento LGPD concedido na primeira mensagem inbound (US-31/RF-36). |
 | `agent_configs` | Config de comportamento do agente por igreja (1:1, US-28). |
 | `agent_config_requests` | Requisicao admin -> master para mudar o agente (#10b Fase 1 / delta-043). |
-| `llm_credentials` | Credencial LLM BYO por igreja (1:1; chave cifrada, nunca exibida — RNF-03). |
+| `llm_credentials` | Credencial LLM BYO + modelo permitido por igreja (1:1; chave cifrada, nunca exibida — RNF-03). |
 | `ai_usage_logs` | Log de consumo de IA por igreja: modelo/tokens/custo (F8/RNF-24). |
 | `agent_conversation_logs` | Auditoria de eventos do agente/webhook numa conversa (F8/RNF-24). |
 | `planos` | Catalogo global de planos do SaaS (referencia sem `igreja_id`; CRUD do master). |
@@ -291,7 +291,7 @@ backend/
 | api-broadcasts | `POST /broadcasts` | comunicados, central-celula | action-new/send/schedule-broadcast, action-message-leaders | US-31, US-32, US-33 |
 | api-events | `GET/POST /events` | calendario | action-new-event | US-30 |
 | api-whatsapp-connection | `GET/POST /whatsapp/connection` | whatsapp | action-connect-whatsapp, action-reconnect-whatsapp | US-05, US-06, US-07 |
-| api-llm-credential | `POST /agent/credential` | agente | action-save-llm-key | US-27 |
+| api-llm-credential | `GET /agent/models`, `GET/POST /agent/credential`, `PUT /agent/model` | agente | action-save-llm-key, action-select-llm-model | US-27 |
 | api-agent-config | `PUT /agent/config` | agente | action-save-agent | US-28 |
 | api-crons | `GET/POST /agent/crons`, `PUT /agent/crons/{id}` | agente | action-save-cron | US-29 |
 | api-team-invite | `POST /team/invite` | equipe | action-invite-user | US-03, US-04 |
@@ -363,7 +363,7 @@ backend/
 | **Clerk** | Autenticacao/sessao; papeis vem do cadastro autenticado | US-01, US-04 |
 | **Supabase (Postgres+RLS)** | Persistencia e isolamento multi-tenant | US-02, RNF-02/21 |
 | **Evolution API** | Conexao (QR), envio/recebimento WhatsApp; processo sempre-ligado | US-05..US-08, US-33 |
-| **OpenAI (BYO-LLM)** | Respostas do agente; custo da igreja; chave cifrada | US-08, US-27, RNF-20 |
+| **OpenAI (BYO-LLM)** | Respostas do agente; chave e modelo por igreja; allowlist, validação de acesso e fallback somente para opções mais baratas | US-08, US-27, RNF-20 |
 | **Resend** | E-mail de convite/ativacao de usuarios | US-03 |
 | **Google Calendar** | Sincronizacao de eventos | US-30 |
 | **Asaas** | Checkout (PIX/boleto/cartao), setup fee, status de assinatura, webhooks | US-34, US-35, US-36 |
@@ -764,6 +764,8 @@ EVOLUTION_WEBHOOK_SECRET=xxx
 
 # OpenAI BYO-LLM (US-27 / RNF-20) - chave default opcional; igreja usa a propria cifrada no banco
 OPENAI_API_KEY=
+AGENT_DEFAULT_MODEL=gpt-5.6-luna
+ASSISTANT_DEFAULT_MODEL=gpt-5.6-luna
 
 # Resend (e-mail de convite - US-03)
 RESEND_API_KEY=re_xxx
@@ -877,6 +879,8 @@ AGENT_GRAPH_CHECKPOINT_URL=postgresql://user:pass@host:5432/pastorai
 | Edge case | Comportamento | Estado | Refs |
 |-----------|---------------|--------|------|
 | Chave LLM invalida ao salvar | Validacao falha; nao ativa credencial; chave nunca exibida apos tentativa | `credential` | RF-30, RNF-03, US-27 |
+| Modelo fora da allowlist ou sem acesso pela chave da igreja | Rejeita sem trocar a selecao salva; a chave nunca e devolvida | `credential` | RNF-03, RNF-20, US-27 |
+| Modelo selecionado indisponivel durante uma resposta | Tenta somente a cadeia permitida de menor custo; registra em `ai_usage_logs` o modelo realmente usado | `credential` | F8, RNF-20, RNF-24, US-27 |
 | Salvar comportamento com agente ativo | Confirma aplicacao; novas conversas usam a nova config | `behavior` | US-28 |
 | Cron com gatilho de estado invalido | Validacao do gatilho antes de salvar | `crons` | US-29, RNF-23 |
 | Ativar agente sem credencial valida | Bloqueio: exige credencial validada primeiro | `behavior`/`credential` | US-27, US-28 |

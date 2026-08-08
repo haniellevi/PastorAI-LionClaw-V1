@@ -47,7 +47,7 @@ def test_get_credential_forbidden_for_non_admin(app) -> None:
 def test_get_credential_reports_none_when_unset(app) -> None:
     resp = _client(app).get("/agent/credential", headers=_AUTH)
     assert resp.status_code == 200
-    assert resp.json() == {"status": "none", "provedor": None}
+    assert resp.json() == {"status": "none", "provedor": None, "modelo": None}
 
 
 def test_get_agent_config_reports_unconfigured(app) -> None:

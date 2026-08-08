@@ -1,8 +1,10 @@
 """Agent router — BYO LLM credential, behaviour config and crons (US-27..29).
 
 Endpoints (all admin-only — delta-005):
-  - POST /agent/credential   {provedor, apiKey} -> {status}   (save, RNF-03)
-  - GET  /agent/credential   -> {status, provedor}            (read, no key)
+  - GET  /agent/models       -> allowlist, prices and safe default
+  - POST /agent/credential   {provedor, apiKey, modelo} -> {status}
+  - GET  /agent/credential   -> {status, provedor, modelo}    (read, no key)
+  - PUT  /agent/model        {modelo} -> {modelo, validado}   (keeps key)
   - PUT  /agent/config       -> 403 (config é do master — #10b delta-043)
   - GET  /agent/config       -> {configured, ...}             (read, admin)
   - POST /agent/crons        -> create a cron/state-triggered automation
@@ -28,10 +30,17 @@ from sqlalchemy.orm import Session
 from app.db.models import AgentConfig, AgentConfigRequest, Cron, LlmCredential
 from app.db.session import get_db
 from app.deps import CurrentUser, require_role
-from app.services.crypto import encrypt_secret
+from app.services.crypto import SecretDecryptionError, decrypt_secret, encrypt_secret
 from app.services.llm import (
-    SUPPORTED_PROVIDERS,
+    DEFAULT_MODEL,
+    MODEL_CATALOG,
+    MODEL_FALLBACKS,
+    PRICING_UPDATED_AT,
     LLMProviderError,
+    ModelAccessError,
+    SUPPORTED_MODELS,
+    SUPPORTED_PROVIDERS,
+    UnsupportedModelError,
     UnsupportedProviderError,
     validate_credential,
 )
@@ -41,11 +50,51 @@ logger = logging.getLogger("pastorai.agent")
 router = APIRouter(prefix="/agent", tags=["agent"])
 
 
+class ModelCatalogItemResponse(BaseModel):
+    modelo: str
+    nome: str
+    perfil: str
+    precoEntradaUsdMilhao: float  # noqa: N815
+    precoSaidaUsdMilhao: float  # noqa: N815
+    recomendado: bool
+    fallback: list[str]
+
+
+class ModelCatalogResponse(BaseModel):
+    padrao: str
+    precosAtualizadosEm: str  # noqa: N815
+    modelos: list[ModelCatalogItemResponse]
+
+
+@router.get("/models", response_model=ModelCatalogResponse)
+def get_models(
+    _current_user: CurrentUser = Depends(require_role(["admin"])),
+) -> ModelCatalogResponse:
+    """Return the authoritative selectable-model catalog (no tenant secrets)."""
+    return ModelCatalogResponse(
+        padrao=DEFAULT_MODEL,
+        precosAtualizadosEm=PRICING_UPDATED_AT,
+        modelos=[
+            ModelCatalogItemResponse(
+                modelo=item.modelo,
+                nome=item.nome,
+                perfil=item.perfil,
+                precoEntradaUsdMilhao=item.input_usd_per_million,
+                precoSaidaUsdMilhao=item.output_usd_per_million,
+                recomendado=item.recomendado,
+                fallback=list(MODEL_FALLBACKS[item.modelo]),
+            )
+            for item in MODEL_CATALOG
+        ],
+    )
+
+
 class SaveCredentialRequest(BaseModel):
     """Payload for saving a BYO LLM credential (action-save-llm-key)."""
 
     provedor: str = Field(min_length=1, max_length=40)
     apiKey: str = Field(min_length=1, max_length=400)  # noqa: N815 - external contract
+    modelo: str = Field(default=DEFAULT_MODEL, min_length=1, max_length=80)
 
     @field_validator("provedor")
     @classmethod
@@ -63,12 +112,21 @@ class SaveCredentialRequest(BaseModel):
             raise ValueError("apiKey obrigatório")
         return value
 
+    @field_validator("modelo")
+    @classmethod
+    def _modelo(cls, value: str) -> str:
+        value = value.strip().lower()
+        if value not in SUPPORTED_MODELS:
+            raise ValueError(f"modelo não permitido: {value}")
+        return value
+
 
 class SaveCredentialResponse(BaseModel):
     """Result of saving a credential. `status` never echoes the key (RNF-03)."""
 
     status: str  # active | invalid
     provedor: str
+    modelo: str
     validado: bool
 
 
@@ -88,8 +146,10 @@ def save_credential(
     igreja_uuid = uuid.UUID(current_user.igreja_id)
 
     try:
-        is_valid = validate_credential(payload.provedor, payload.apiKey)
-    except UnsupportedProviderError as exc:
+        is_valid = validate_credential(
+            payload.provedor, payload.apiKey, payload.modelo
+        )
+    except (UnsupportedProviderError, UnsupportedModelError, ModelAccessError) as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
@@ -112,19 +172,22 @@ def save_credential(
         db.add(cred)
 
     cred.provedor = payload.provedor
+    cred.modelo = payload.modelo
     cred.api_key_encrypted = encrypted
     cred.validado = is_valid
     cred.ativo = is_valid  # an invalid key never activates the agent (US-27)
     db.commit()
 
     logger.info(
-        "LLM credential saved for igreja (provedor=%s, validado=%s)",
+        "LLM credential saved for igreja (provedor=%s, modelo=%s, validado=%s)",
         payload.provedor,
+        payload.modelo,
         is_valid,
     )
     return SaveCredentialResponse(
         status="active" if is_valid else "invalid",
         provedor=payload.provedor,
+        modelo=payload.modelo,
         validado=is_valid,
     )
 
@@ -134,6 +197,7 @@ class CredentialStatusResponse(BaseModel):
 
     status: str  # active | invalid | none
     provedor: str | None = None
+    modelo: str | None = None
 
 
 @router.get("/credential", response_model=CredentialStatusResponse)
@@ -152,9 +216,79 @@ def get_credential(
         select(LlmCredential).where(LlmCredential.igreja_id == igreja_uuid)
     ).scalar_one_or_none()
     if cred is None:
-        return CredentialStatusResponse(status="none", provedor=None)
+        return CredentialStatusResponse(status="none", provedor=None, modelo=None)
     status_ = "active" if (cred.validado and cred.ativo) else "invalid"
-    return CredentialStatusResponse(status=status_, provedor=cred.provedor)
+    return CredentialStatusResponse(
+        status=status_, provedor=cred.provedor, modelo=cred.modelo
+    )
+
+
+class UpdateModelRequest(BaseModel):
+    modelo: str = Field(min_length=1, max_length=80)
+
+    @field_validator("modelo")
+    @classmethod
+    def _modelo(cls, value: str) -> str:
+        value = value.strip().lower()
+        if value not in SUPPORTED_MODELS:
+            raise ValueError(f"modelo não permitido: {value}")
+        return value
+
+
+class UpdateModelResponse(BaseModel):
+    modelo: str
+    validado: bool
+
+
+@router.put("/model", response_model=UpdateModelResponse)
+def update_model(
+    payload: UpdateModelRequest,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_role(["admin"])),
+) -> UpdateModelResponse:
+    """Change only the tenant model while keeping its encrypted BYO key."""
+    igreja_uuid = uuid.UUID(current_user.igreja_id)
+    cred = db.execute(
+        select(LlmCredential)
+        .where(LlmCredential.igreja_id == igreja_uuid)
+        .with_for_update()
+    ).scalar_one_or_none()
+    if cred is None or not cred.validado or not cred.ativo:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Configure uma credencial válida antes de escolher o modelo",
+        )
+
+    try:
+        api_key = decrypt_secret(cred.api_key_encrypted)
+    except SecretDecryptionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A credencial salva precisa ser configurada novamente",
+        ) from exc
+
+    try:
+        is_valid = validate_credential(cred.provedor, api_key, payload.modelo)
+    except (UnsupportedProviderError, UnsupportedModelError, ModelAccessError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+    except LLMProviderError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Não foi possível validar o modelo com o provedor",
+        ) from exc
+
+    if not is_valid:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="A credencial salva não foi aceita pelo provedor",
+        )
+
+    cred.modelo = payload.modelo
+    db.commit()
+    logger.info("LLM model updated for igreja (modelo=%s)", payload.modelo)
+    return UpdateModelResponse(modelo=payload.modelo, validado=True)
 
 
 # ---------------------------------------------------------------------------

@@ -141,7 +141,7 @@ def answer_panel_message(
 
     phrased = _phrase_with_llm(
         cred,
-        settings.assistant_default_model,
+        getattr(cred, "modelo", None) or settings.assistant_default_model,
         texto,
         telas,
         config.comportamento if config else None,
