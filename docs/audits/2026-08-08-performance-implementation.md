@@ -4,17 +4,33 @@
 
 O primeiro ciclo de correções de desempenho foi implementado em um worktree
 isolado, medido antes/depois e revisado por uma segunda análise independente.
-O parecer final da revisão foi: **nenhum achado P0–P2 restante no diff**.
+O parecer daquele fechamento foi: **nenhum achado P0–P2 restante no diff
+publicado naquele momento**.
+
+Um segundo ciclo, executado em DEV com autenticação, Redis e PostgreSQL reais,
+encontrou gargalos que o laboratório público não mostrava: latência de rede até
+o banco, round-trips sequenciais no bootstrap, indisponibilidade do Redis
+adicionando cerca de oito segundos ao login e tratamento incorreto de falhas de
+infraestrutura como senha inválida. Esses pontos foram corrigidos localmente e
+revalidados; as mudanças deste segundo ciclo continuam **sem commit, push, PR,
+deploy ou alteração em produção**.
 
 Principais resultados locais:
 
-- First Load JS de `/`: **218 kB → 108 kB** (`-50,5%`).
+- First Load JS de `/`: **218 kB → 110 kB** (`-49,5%`).
 - Lighthouse mobile simulado: **91 → 98**.
 - LCP mediano: **3,43 s → 2,29 s** (`-33,0%`).
 - TBT mediano: **108 ms → 19,5 ms** (`-81,9%`).
 - Transferência inicial: **365,7 kB → 227,6 kB** (`-37,8%`).
 - Suíte backend: **289,3 s → 20,2 s** (`-93,0%`), mesmo crescendo de
   1.846 para 1.924 testes selecionados.
+- Painel autenticado completo, mediana de laboratório: **4,60 s → 3,26 s**
+  (`-29,0%`).
+- `/dashboard/overview`, p50 no DEV real: **2,51 s → 1,50 s** (`-40,1%`).
+- `/auth/me`, p50 no DEV real: **1,30 s → 1,11 s** (`-15,0%`).
+- Login aquecido: o encadeamento backend `login + /auth/me` de cerca de
+  **4,81 s** foi reduzido a um único `login` de **1,51 s** de tempo da
+  aplicação (**1,63 s** de parede no cliente local).
 
 Esses números são de laboratório local. Não equivalem a RUM de usuários reais,
 nem provam o comportamento de banco/Redis sob carga de produção.
@@ -29,9 +45,12 @@ nem provam o comportamento de banco/Redis sob carga de produção.
 - Base: `deb95a8cfebc154168bcc13a2bd304aa34260bcf` (`origin/main` no início).
 - Integração final: `origin/main` em
   `602761c25bfd23d779704c34a11b88a93b80ea7e`, incorporada por merge normal.
-- Estado operacional: mudanças versionadas nesta branch para revisão em PR
-  rascunho; **nenhuma migration foi aplicada e não houve merge da PR nem
-  deploy**.
+- Estado operacional: o primeiro ciclo já estava versionado e publicado na
+  branch remota; o estado de eventual PR não foi alterado nem revalidado neste
+  segundo ciclo. A migration de idempotência outbound foi depois
+  aplicada **somente no banco DEV**, com autorização explícita e validação;
+  não houve migration em produção nem deploy. As correções do segundo ciclo
+  estão apenas no worktree, ainda não versionadas.
 
 ### Gate de frescor do grafo
 
@@ -50,17 +69,23 @@ alterações e após a integração com `main`:
 O grafo atualizado serviu apenas para contexto estrutural. A validação final das
 mudanças continuou sendo feita diretamente no código, nos testes e no build.
 
+Para o segundo ciclo, esse índice deixou de ser válido como evidência: o
+`graph.json` era de `2026-08-07 23:01`, anterior às mudanças locais de
+`2026-08-08`. Uma atualização foi tentada, mas expirou após aproximadamente
+124 s. O estado foi classificado como **DESATUALIZADO/NÃO COMPROVADO** e toda a
+análise posterior usou inspeção direta, testes, build e medições de runtime.
+
 ## Medições antes e depois
 
 ### Frontend — pacote e build de produção
 
 | Métrica | Antes | Depois | Variação |
 |---|---:|---:|---:|
-| First Load JS `/` | 218 kB | 108 kB | -50,5% |
-| First Load JS `/gestao` | 218 kB | 109 kB | -50,0% |
-| First Load JS `/admin` | 120 kB | 107 kB | -10,8% |
-| Build, tempo total | 93,3 s | 45,2 s | -51,6% |
-| Compilação Next | 30,0 s | 15,8 s | -47,3% |
+| First Load JS `/` | 218 kB | 110 kB | -49,5% |
+| First Load JS `/gestao` | 218 kB | 110 kB | -49,5% |
+| First Load JS `/admin` | 120 kB | 108 kB | -10,0% |
+| Build, tempo total | 93,3 s | 48,2 s | -48,3% |
+| Compilação Next | 30,0 s | 19,7 s | -34,3% |
 
 O tempo do build inicial tem confiabilidade menor: havia 245 processos Node já
 existentes e duas falhas de cache do webpack. Os tamanhos de pacote e o
@@ -111,6 +136,58 @@ testes. Antes, `create_app()` custava aproximadamente 194 ms e era repetido em
 cada teste. O cache do pytest também foi desativado porque o `sessionfinish`
 ficava preso ao criar `.pytest_cache` no OneDrive; o stack foi confirmado com
 faulthandler.
+
+### Runtime autenticado — frontend e APIs em DEV
+
+Perfil: build de produção local em `127.0.0.1:3002`, backend local em
+`127.0.0.1:8002`, sessão DEV real e banco Supabase DEV remoto. A métrica
+“painel completo” esperou fila, jornada e responsáveis terminarem de carregar;
+ela é uma medição de parede controlada no navegador interno, não Web Vitals/RUM
+persistente.
+
+| Métrica | Antes | Depois | Variação |
+|---|---:|---:|---:|
+| Painel completo, mediana | 4.596 ms (5 runs) | 3.263 ms (5 runs finais) | -29,0% |
+| `/auth/me`, p50 | 1.300,97 ms | 1.106,21 ms | -15,0% |
+| `/dashboard/overview`, p50 | 2.508,35 ms | 1.503,36 ms | -40,1% |
+| `/work-queue`, p50 | 1.658,98 ms | 1.431,22 ms | -13,7% |
+| `/team/lookup`, p50 | 1.993,91 ms | 1.844,68 ms | -7,5% |
+
+Outras rotas medidas antes da otimização mantiveram o mesmo perfil dominado por
+banco remoto: Agenda 2.335 ms, Inbox 2.346 ms e Ganhar 1.953 ms. Contatos não
+foi cronometrado com essa conta porque a permissão da rota não estava presente;
+o redirecionamento para o painel não foi contado como resultado de Contatos.
+
+O primeiro carregamento após reiniciar o backend ainda exibiu 3,65–3,97 s nas
+quatro APIs paralelas do painel, devido à abertura fria de conexões. Depois do
+aquecimento, o p50 caiu para os valores da tabela.
+
+### PostgreSQL DEV — latência e índice outbound
+
+Medição segura de conexão e `SELECT 1`, sem alterar dados:
+
+- conexão: 1.960,94 ms na primeira abertura e 931,58–962,05 ms nas seguintes;
+- query simples: p50 159,44 ms, p95 320,80 ms, máximo 321,35 ms;
+- conclusão: a distância entre backend e banco é o maior custo residual das
+  APIs autenticadas, multiplicado por cada round-trip SQL sequencial.
+
+A migration `20260808_011500_messages_outbound_provider_id_uidx.sql` foi
+aplicada **somente em DEV**, após preflight confirmar zero duplicatas e nenhum
+índice anterior. O índice foi verificado em `pg_index` como
+`valid/ready/live/unique`, com definição e predicado esperados, e registrado em
+`schema_migrations`. Um `EXPLAIN (ANALYZE, BUFFERS)` seguro confirmou
+`Index Only Scan`, execução de 0,05 ms, dois blocos em cache e zero leituras.
+
+Em PostgreSQL descartável com 500 mil linhas, a mesma consulta caiu de p50
+22,965 ms sem índice para 0,797 ms com índice, aproximadamente 28,8 vezes mais
+rápida. A construção concorrente levou 0,554 s e ocupou cerca de 11 MiB nesse
+volume sintético.
+
+Nota operacional: usar `set_session(readonly=True)` através do pooler em modo
+transaction propagou `default_transaction_read_only=on` para sessões
+reutilizadas. Nenhuma mutação ocorreu durante a tentativa; oito sessões
+sequenciais e oito paralelas foram explicitamente restauradas e verificadas
+como read-write. Esse método não deve ser reutilizado nesse pooler.
 
 ## Causas confirmadas e correções executadas
 
@@ -165,8 +242,10 @@ validação Pydantic acontece depois de o parser já ter alocado o body.
 
 **Correção:** limite de 16 MiB no frontend e no payload decodificado, mais
 middleware ASGI pré-parser que rejeita `Content-Length` excedido e também conta
-chunks quando o header está ausente. A resposta é 413 e o middleware só atua na
-rota de envio de mídia.
+chunks quando o header está ausente. A resposta é 413. O segundo ciclo ampliou
+a proteção para um teto global de 2 MiB nos métodos com body, mantendo políticas
+explícitas de 1 MiB para webhook e aproximadamente 22,4 MiB para mídia. Upload
+de logo de 1,5 MiB e rotas sem body continuam válidos.
 
 ### 5. Webhook/Redis e perda de trabalho
 
@@ -188,6 +267,12 @@ cópias do mesmo claim podiam atravessar o guard Redis.
 
 - `claim_id` preservado em retry/recovery;
 - CAS de ownership e marcadores `processing/done`;
+- prova atômica de posse combinando lease viva e presença do item na lista
+  privada, revalidada antes/depois da trava, do upload e do commit;
+- worker que perdeu ou não consegue comprovar posse interrompe o handler e deixa
+  o recovery assumir, inclusive quando o dono antigo continua vivo;
+- liberação do marcador de retry também exige o dono atual, impedindo o worker
+  antigo de apagar o estado do recuperador;
 - trava transacional `pg_advisory_xact_lock` por
   `(igreja_id, provider_message_id)` antes de contato/mídia/commit;
 - consulta sob a trava inclui `direcao`, permitindo os índices parciais;
@@ -195,7 +280,7 @@ cópias do mesmo claim podiam atravessar o guard Redis.
   `{igreja}/provider/{sha256(provider_message_id)}.{ext}`, independente de uma
   conversa provisória;
 - índice único outbound foi refletido no modelo e preparado em migration
-  separada; **não foi aplicado a banco algum**.
+  separada; foi aplicado e validado somente em DEV, não em produção.
 
 ### 7. Clientes HTTP recriados em caminhos quentes
 
@@ -224,7 +309,42 @@ são limitadas no SQL com `row_number() over(partition by celula_id)`.
 - respostas normais e 500 agora carregam `X-Request-ID` e `Server-Timing`;
 - logs usam rota normalizada e duração, sem criar cardinalidade por URL real.
 
-### 10. Testes e CI
+### 10. Login, autorização e painel no runtime DEV
+
+**Causas confirmadas:**
+
+- Redis indisponível era consultado duas vezes no login, com aproximadamente
+  4,1 s por tentativa antes do fail-open;
+- o frontend mostrava a mesma mensagem para senha errada e falha 500 do banco;
+- login fresco fazia `/auth/login` e depois `/auth/me` serialmente;
+- `/auth/me` executava seis SQL sequenciais e `/dashboard/overview`, sete;
+- clientes HTTP do Clerk eram recriados e falha/timeout do provedor era
+  classificada como credencial inválida;
+- falhas transitórias de sessão apagavam a experiência autenticada ou podiam
+  deixar a interface pendurada sem prazo.
+
+**Correções:**
+
+- Redis com conexão/leitura de 0,5 s, sem retry interno; fail-open preservado;
+- 401/422, 403, 429, rede e 5xx exibem estados diferentes;
+- login devolve token + perfil completo e o frontend valida o contrato antes de
+  persistir; durante rollout misto, a resposta legada usa `/auth/me` como
+  fallback seguro;
+- falha transitória preserva token e mostra tela de indisponibilidade com retry;
+- 401, 403 e demais recusas 4xx definitivas encerram a sessão e permitem trocar
+  de conta; somente rede, timeout, 429 e 5xx permanecem recuperáveis;
+- autenticação operacional e administrativa têm deadline de 20 s, superior ao
+  orçamento nominal do Clerk + Redis + banco frio; o Inbox permanece em 12 s;
+- Clerk usa pool HTTP por lifespan, fecha deterministicamente e distingue senha
+  recusada de indisponibilidade 503;
+- o pool SQLAlchemy agora limita espera por checkout a 5 s e o psycopg2 limita
+  abertura de conexão a 5 s;
+- `/auth/me` usa `joinedload` de papéis e caiu de seis para cinco SQL, mantendo
+  integralmente o contexto RLS;
+- `/dashboard/overview` usa agregações e caiu de sete para duas consultas no
+  escopo da igreja e três no escopo de líder.
+
+### 11. Testes e CI
 
 - aplicação FastAPI compartilhada por sessão, com overrides limpos por teste;
 - novos testes de limites, corrida, paginação, query count, pooling,
@@ -234,56 +354,84 @@ são limitadas no SQL com `row_number() over(partition by celula_id)`.
 
 ## Validação final
 
-- Backend integrado: **1.924/1.924 PASS**, 135 testes `rls_integration` em skip
-  por exigirem Postgres real; 23,5 s de parede (20,2 s internos).
-- Frontend integrado: **52 arquivos, 455/455 PASS**; 25,7 s de parede
-  (22,21 s internos).
+- Backend integrado offline: **1.949/1.949 PASS**, 40,9 s de parede; os 135
+  testes `rls_integration` foram executados separadamente em PostgreSQL real
+  descartável e deram **135/135 PASS**.
+- Frontend integrado: **55 arquivos, 490/490 PASS**; 26,6 s de parede
+  (22,17 s internos).
 - TypeScript: **PASS** (`--incremental false`).
 - ESLint direto, sem cache e `--max-warnings 0`: **PASS**.
-- Build Next de produção limpo e integrado: **PASS**, 45,2 s; compilação
-  15,8 s.
+- Build Next de produção limpo e integrado: **PASS**, 48,2 s; compilação
+  19,7 s; First Load JS 110 kB em `/`, 110 kB em `/gestao` e 108 kB em
+  `/admin`.
 - YAML: **3/3 PASS**.
 - `git diff --check`: **PASS**; somente avisos esperados de conversão LF/CRLF.
-- Revisão independente: **95 testes backend focados, 6 testes frontend de
-  performance, TypeScript e diff-check PASS; zero P0–P2 no diff final**.
+- Revisão independente do worker: **59 testes focados PASS, 7 SKIP** e nenhum
+  P0–P2 restante no split-brain/ownership.
+- Correções finais de auth/admin: **41/41 testes focados PASS**, incluindo
+  providers sob 401, 403, 4xx definitivo e falha transitória.
+- Re-revisão independente de auth, dashboard, limites de body, Clerk, pool e
+  worker: **nenhum P0–P2 remanescente no escopo alterado**.
 - Revisão independente após integrar `main`: **222/222 testes focados PASS** e
   nenhuma perda semântica nos quatro arquivos sobrepostos.
 
-## Gates e riscos ainda não executados
+## Gates executados e pendências
 
-### Gate 1 — banco DEV/STAGING
+### Gate 1 — banco DEV: PASS; STAGING/PROD: não executado
 
-Migration preparada:
+Migration preparada e aplicada somente em DEV:
 
 `backend/migrations/20260808_011500_messages_outbound_provider_id_uidx.sql`
 
-Antes de aplicar:
+Passos executados:
 
-1. confirmar que o índice inbound histórico está presente;
-2. rodar o preflight de duplicatas outbound documentado no próprio arquivo;
-3. revisar/limpar qualquer duplicata com aprovação humana;
-4. executar o único comando `CREATE UNIQUE INDEX CONCURRENTLY` fora de
+1. preflight de duplicatas outbound: zero grupos duplicados;
+2. inspeção do catálogo: nenhum índice outbound anterior;
+3. execução do único comando `CREATE UNIQUE INDEX CONCURRENTLY` fora de
    `BEGIN/COMMIT`; ele evita bloquear as escritas durante a construção;
-5. validar em `pg_index` que o índice está `valid/ready/live/unique` e conferir
-   `pg_get_indexdef`; uma falha pode deixar índice `INVALID` e exige recuperação
-   manual antes de reaplicar;
-6. aplicar primeiro em DEV/STAGING e então executar os 135 testes RLS em
-   Postgres descartável/real.
+4. validação em `pg_index`: `valid/ready/live/unique`, definição correta e
+   registro em `schema_migrations`;
+5. `EXPLAIN (ANALYZE, BUFFERS)`: `Index Only Scan`, 0,05 ms;
+6. suíte RLS em PostgreSQL descartável real: **135/135 PASS**.
 
-Nenhuma dessas ações foi feita nesta execução.
+Produção continua intocada. A aplicação em STAGING/PROD exige novo preflight,
+backup/observabilidade, janela controlada e autorização separada.
 
-### Gate 2 — carga e banco real
+### Gate 2 — parcial
+
+Executado:
+
+- Redis local real para o fluxo de login e validação do fail-open;
+- PostgreSQL DEV real para latência, login, painel e `EXPLAIN` do índice;
+- PostgreSQL descartável com 500 mil linhas para ganho do índice;
+- 135 testes RLS em PostgreSQL descartável real;
+- navegação autenticada controlada no dashboard, Agenda, Inbox e Ganhar.
 
 Ainda faltam:
 
 - `EXPLAIN (ANALYZE, BUFFERS)` das consultas de contatos, células, autorização
-  e dedupe em um volume representativo;
-- teste com múltiplos workers, Redis e Postgres reais;
+  e saúde de células em volume representativo;
+- teste de concorrência com múltiplos workers usando Redis e Postgres reais;
 - validação de pool/saturação e memória sob upload concorrente;
-- RUM autenticado em dispositivo/rede real e métricas de p75.
+- RUM persistente em usuários/dispositivos/redes reais e métricas de p75.
 
 ### Dívidas arquiteturais fora deste ciclo
 
+- O backend e o banco DEV estão em regiões/caminhos de rede com query simples
+  em p50 de 159 ms. A maior oportunidade restante é aproximar o runtime do
+  banco e avaliar conexão direta, pooler de sessão ou pooler dedicado conforme
+  a topologia real; trocar a URL sem esse teste não é uma correção de código.
+- O pool agora limita checkout e conexão, mas não foi imposto um
+  `statement_timeout` global. Em Supavisor transaction mode, configuração de
+  sessão não é segura/suportada; os próximos limites devem ser definidos por
+  transação/endpoint após observar consultas legítimas lentas.
+- Seis consumidores legados de Contatos ainda usam o helper que agrega todas as
+  páginas sequencialmente. A tela principal está paginada, mas seletores e
+  consolidação continuam com custo `O(N/200)` até receberem busca/paginação
+  própria.
+- O fail-open do Redis está limitado a 0,5 s sem retry, porém ainda não há
+  circuit breaker/log sampling; uma indisponibilidade prolongada pode gerar
+  custo e ruído repetidos em cada login.
 - Algumas operações de conversa ainda mantêm `FOR UPDATE` enquanto fazem HTTP
   ou Storage. A correção segura pede outbox/estado intermediário e idempotência,
   não uma troca local de linhas.
@@ -294,12 +442,21 @@ Ainda faltam:
 - Se o produto precisar memória conversacional persistente no LangGraph, deve
   ser instalado/configurado um saver externo durável; o estado atual é
   intencionalmente stateless para não crescer RSS sem limite.
+- Uma credencial compartilhada de usuário DEV apareceu em captura de
+  diagnóstico. A rotação deve ser feita como ação de segurança separada, sem
+  reutilizar nem registrar o valor anterior.
 
 ## Próximos passos recomendados
 
-1. Acompanhar os checks do PR rascunho, incluindo o Postgres descartável do
-   workflow RLS, e repetir a revisão no SHA publicado.
-2. Medir o Gate 2 com Redis/Postgres e dados representativos; definir budgets
-   de p75/p95.
-3. Executar o Gate 1 em DEV/STAGING somente com aprovação explícita.
-4. Fazer canário em staging; deploy/produção continuam como gates separados.
+1. Revisar o diff ainda não versionado e, somente com autorização, criar um
+   commit/PR isolado; repetir os testes no SHA exato publicado.
+2. Executar `EXPLAIN` e carga representativa de Contatos, células e autorização;
+   migrar os seis consumidores legados para busca/paginação própria.
+3. Testar múltiplos workers com Redis + PostgreSQL reais e upload concorrente,
+   medindo p95, memória, pool e recuperação de lease.
+4. Aproximar backend e banco em um ambiente de staging e repetir as medições;
+   depois escolher o modo de conexão Supabase adequado à topologia.
+5. Instrumentar RUM persistente e adotar budgets p75/p95 de login, painel e
+   rotas críticas. A medição do navegador interno é laboratório, não RUM.
+6. Aplicar a migration em staging, fazer canário e só então avaliar produção;
+   commit, PR, staging, deploy e produção continuam gates separados.
