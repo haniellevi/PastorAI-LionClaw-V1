@@ -9,8 +9,8 @@
  * O fluxo de reset roda PRÉ-login (o usuário não está autenticado), por isso vive
  * aqui dentro da LoginScreen, que é o que a raiz renderiza quando não há sessão.
  */
-import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
@@ -41,17 +41,46 @@ const ASIDE_POINTS = [
   "Decisões pastorais sem trocar de tela — tudo via mensagem",
 ];
 
-const linkBtnStyle: React.CSSProperties = {
-  background: "none",
-  border: "none",
-  color: "var(--accent)",
-  cursor: "pointer",
-  font: "inherit",
-  fontSize: 13,
-  padding: 0,
-  marginTop: "var(--s2)",
-  alignSelf: "center",
-};
+function BrandLockup({ className = "" }: { className?: string }) {
+  return (
+    <div className={`brand ${className}`.trim()}>
+      <span className="brand-mark" aria-hidden="true">
+        12
+      </span>
+      <span>Igreja 12</span>
+    </div>
+  );
+}
+
+function AuthCardHeading({
+  eyebrow,
+  title,
+  children,
+}: {
+  eyebrow: string;
+  title: string;
+  children?: ReactNode;
+}) {
+  return (
+    <header className="login-card-head">
+      <span className="login-card-eyebrow">
+        <span aria-hidden="true" />
+        {eyebrow}
+      </span>
+      <h1>{title}</h1>
+      {children ? <p className="sub">{children}</p> : null}
+    </header>
+  );
+}
+
+function AuthSecurityNote() {
+  return (
+    <p className="login-security-note">
+      <Icon name="lock" />
+      A Igreja 12 nunca pede sua senha por e-mail ou WhatsApp.
+    </p>
+  );
+}
 
 export function LoginScreen() {
   const { login, consumeReturnTo } = useAuth();
@@ -256,12 +285,7 @@ export function LoginScreen() {
               justifyContent: "center",
             }}
           >
-            <div className="brand">
-              <span className="brand-mark" aria-hidden="true">
-                12
-              </span>
-              Igreja 12
-            </div>
+            <BrandLockup />
             <span className="aside-kicker">Visão G12 · Agentes de IA · WhatsApp</span>
             <h2>O primeiro sistema de gestão para igreja na Visão&nbsp;G12.</h2>
             <p className="lead">
@@ -278,16 +302,25 @@ export function LoginScreen() {
             </div>
           </div>
           <div className="aside-foot">
-            Igreja 12 © 2026 · Sistema Agêntico Especialista na Gestão de Igrejas na
-            Visão&nbsp;G12.
+            <span>
+              Igreja 12 © 2026 · Sistema Agêntico Especialista na Gestão de Igrejas
+              na Visão&nbsp;G12.
+            </span>
+            <nav aria-label="Informações legais">
+              <Link href="/privacidade">Privacidade</Link>
+              <span aria-hidden="true">·</span>
+              <Link href="/termos">Termos</Link>
+            </nav>
           </div>
         </aside>
 
         <main className="login-main">
+          <BrandLockup className="login-mobile-brand" />
           {mode === "login" ? (
             <form className="login-card" onSubmit={handleSubmit} noValidate>
-              <h1>Entrar no painel</h1>
-              <p className="sub">Use as credenciais da sua igreja para acessar o dashboard.</p>
+              <AuthCardHeading eyebrow="Acesso seguro" title="Entrar no painel">
+                Use as credenciais da sua igreja para acessar o dashboard.
+              </AuthCardHeading>
 
               {authMessage ? (
                 <div className={`auth-error${authMessage.block ? " block" : ""}`} role="alert">
@@ -331,28 +364,28 @@ export function LoginScreen() {
                 Entrar
               </Button>
 
-              <button type="button" style={linkBtnStyle} onClick={() => navigate("esqueci-senha")}>
+              <button type="button" className="auth-link-button" onClick={() => navigate("esqueci-senha")}>
                 Esqueci minha senha
               </button>
+              <AuthSecurityNote />
             </form>
           ) : mode === "forgot" ? (
             <form className="login-card" onSubmit={handleForgot} noValidate>
-              <h1>Recuperar acesso</h1>
-              <p className="sub">
+              <AuthCardHeading eyebrow="Segurança da conta" title="Recuperar acesso">
                 Informe o e-mail da sua conta. Se houver um cadastro, enviaremos um link
                 para você criar uma nova senha.
-              </p>
+              </AuthCardHeading>
 
               {fStatus === "sent" ? (
                 <>
-                  <div className="auth-error" role="status" style={{ background: "var(--accent-soft)", color: "var(--accent)" }}>
+                  <div className="auth-error success" role="status">
                     <Icon name="check" />
                     <span>
                       Se existir uma conta com esse e-mail, enviamos o link de
                       redefinição. Confira sua caixa de entrada (e o spam).
                     </span>
                   </div>
-                  <button type="button" style={linkBtnStyle} onClick={() => navigate("login")}>
+                  <button type="button" className="auth-link-button" onClick={() => navigate("login")}>
                     Voltar ao login
                   </button>
                 </>
@@ -378,15 +411,16 @@ export function LoginScreen() {
                   >
                     Enviar link de redefinição
                   </Button>
-                  <button type="button" style={linkBtnStyle} onClick={() => navigate("login")}>
+                  <button type="button" className="auth-link-button" onClick={() => navigate("login")}>
                     Voltar ao login
                   </button>
                 </>
               )}
+              <AuthSecurityNote />
             </form>
           ) : mode === "activate" ? (
             <form className="login-card" onSubmit={handleActivate} noValidate>
-              <h1>Ativar acesso</h1>
+              <AuthCardHeading eyebrow="Boas-vindas" title="Ativar acesso" />
 
               {aLoading ? (
                 <p className="sub">Validando convite…</p>
@@ -396,16 +430,15 @@ export function LoginScreen() {
                     <Icon name="alert" />
                     <span>{aInfoError}</span>
                   </div>
-                  <button type="button" style={linkBtnStyle} onClick={() => navigate("login")}>
+                  <button type="button" className="auth-link-button" onClick={() => navigate("login")}>
                     Ir para o login
                   </button>
                 </>
               ) : aStatus === "done" ? (
                 <>
                   <div
-                    className="auth-error"
+                    className="auth-error success"
                     role="status"
-                    style={{ background: "var(--accent-soft)", color: "var(--accent)" }}
                   >
                     <Icon name="check" />
                     <span>Acesso ativado! Agora é só entrar com sua nova senha.</span>
@@ -479,10 +512,11 @@ export function LoginScreen() {
                   </Button>
                 </>
               )}
+              <AuthSecurityNote />
             </form>
           ) : (
             <form className="login-card" onSubmit={handleReset} noValidate>
-              <h1>Criar nova senha</h1>
+              <AuthCardHeading eyebrow="Segurança da conta" title="Criar nova senha" />
 
               {!resetToken ? (
                 <>
@@ -490,13 +524,13 @@ export function LoginScreen() {
                     <Icon name="alert" />
                     <span>Link inválido ou incompleto. Peça um novo na tela de login.</span>
                   </div>
-                  <button type="button" style={linkBtnStyle} onClick={() => navigate("login")}>
+                  <button type="button" className="auth-link-button" onClick={() => navigate("login")}>
                     Voltar ao login
                   </button>
                 </>
               ) : rStatus === "done" ? (
                 <>
-                  <div className="auth-error" role="status" style={{ background: "var(--accent-soft)", color: "var(--accent)" }}>
+                  <div className="auth-error success" role="status">
                     <Icon name="check" />
                     <span>Senha redefinida! Agora é só entrar com a nova senha.</span>
                   </div>
@@ -544,6 +578,7 @@ export function LoginScreen() {
                   </Button>
                 </>
               )}
+              <AuthSecurityNote />
             </form>
           )}
           <nav className="login-legal-links" aria-label="Informações legais">
