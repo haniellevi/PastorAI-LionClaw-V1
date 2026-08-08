@@ -137,11 +137,13 @@ def _require_supported(provedor: str) -> str:
     return provider
 
 
-def _build_openai_client(api_key: str):
+def _build_openai_client(
+    api_key: str, *, timeout: float = 20.0, max_retries: int = 1
+):
     """Lazily construct an OpenAI client (import deferred to call time)."""
     from openai import OpenAI  # noqa: PLC0415 - lazy import by design
 
-    return OpenAI(api_key=api_key, timeout=20.0, max_retries=1)
+    return OpenAI(api_key=api_key, timeout=timeout, max_retries=max_retries)
 
 
 def validate_credential(
@@ -149,10 +151,11 @@ def validate_credential(
 ) -> bool:
     """Validate both the credential and access to the selected model.
 
-    Listing models authenticates without consuming completion tokens. A valid
-    key that cannot see the selected model raises ``ModelAccessError``; an
-    invalid/revoked key returns ``False``; transient provider failures raise
-    ``LLMProviderError`` so callers never persist a false validation result.
+    Retrieving the selected model authenticates without consuming completion
+    tokens or downloading the full model catalog. A valid key that cannot see
+    the selected model raises ``ModelAccessError``; an invalid/revoked key
+    returns ``False``; transient provider failures raise ``LLMProviderError``
+    so callers never persist a false validation result.
     """
     provider = _require_supported(provedor)
     selected = _require_supported_model(model)
@@ -167,14 +170,15 @@ def validate_credential(
             PermissionDeniedError,
         )
 
-        client = _build_openai_client(api_key.strip())
+        # Model changes are an interactive UI operation. Fail fast here rather
+        # than inheriting the longer completion timeout/retry policy.
+        client = _build_openai_client(
+            api_key.strip(), timeout=8.0, max_retries=0
+        )
         try:
-            page = client.models.list()
-            rows = getattr(page, "data", page)
-            available = {
-                str(getattr(item, "id", "")).strip().lower() for item in rows
-            }
-            if selected not in available:
+            model_info = client.models.retrieve(selected)
+            retrieved = str(getattr(model_info, "id", "")).strip().lower()
+            if retrieved != selected:
                 raise ModelAccessError(
                     f"A credencial não possui acesso ao modelo {selected}"
                 )
@@ -186,6 +190,10 @@ def validate_credential(
         except APIStatusError as exc:
             if exc.status_code in (401, 403):
                 return False
+            if exc.status_code == 404:
+                raise ModelAccessError(
+                    f"A credencial não possui acesso ao modelo {selected}"
+                ) from exc
             raise LLMProviderError(
                 f"Erro do provedor LLM: {exc.status_code}"
             ) from exc
