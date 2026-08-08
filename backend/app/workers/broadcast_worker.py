@@ -101,7 +101,10 @@ class BroadcastWorker:
         # Resolve the DB factory lazily so an accidentally started, disabled
         # worker can stay healthy without touching the database at all.
         self._session_factory = session_factory
-        self._evolution = evolution or EvolutionClient(boot_settings)
+        self._owns_evolution = evolution is None
+        self._evolution = (
+            evolution if evolution is not None else EvolutionClient(boot_settings)
+        )
         self._cycle_runner = cycle_runner
         self._sleeper = sleeper
         self._worker_id = worker_id or (
@@ -238,6 +241,9 @@ class BroadcastWorker:
             self._advertise_ready = False
             self._publish_heartbeat(ready=False)
             self._inside_run = False
+            if self._owns_evolution:
+                self._owns_evolution = False
+                self._evolution.close()
             logger.info("Broadcast worker stopped")
 
 

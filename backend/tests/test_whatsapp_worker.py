@@ -5,17 +5,25 @@ from __future__ import annotations
 import json
 from types import SimpleNamespace
 
+import pytest
+from sqlalchemy.exc import IntegrityError
+
 from app.db.models import Conversation, Message, Pessoa, WhatsappConnection
 from app.domain.conversations import parse_message_event
 from app.domain.phone import normalize_phone
 from app.workers.queue_worker import (
     DEAD_LETTER_QUEUE,
     MAX_ATTEMPTS,
+    REDIS_CONNECT_TIMEOUT_SECONDS,
+    REDIS_MAX_CONNECTIONS,
+    REDIS_SOCKET_TIMEOUT_SECONDS,
     WEBHOOK_QUEUE,
+    WORKER_REGISTRY,
     IngestionResult,
     QueueWorker,
     WebhookQueue,
     _Envelope,
+    _build_redis,
     ingest_message_event,
     ingest_message_event_ex,
     process_webhook_payload,
@@ -31,6 +39,9 @@ class FakeRedis:
     def __init__(self) -> None:
         self.lists: dict[str, list[str]] = {}
         self.kv: dict[str, str] = {}
+        self.sets: dict[str, set[str]] = {}
+        self.direct_lrem_calls = 0
+        self.failed_transition_calls = 0
 
     def lpush(self, key: str, value: str) -> None:
         self.lists.setdefault(key, []).insert(0, value)
@@ -41,14 +52,99 @@ class FakeRedis:
             return None
         return key, items.pop()
 
-    def set(self, key: str, value: str, nx: bool = False, ex: int | None = None) -> bool:
+    def brpoplpush(self, source: str, destination: str, timeout: int = 0):
+        return self.rpoplpush(source, destination)
+
+    def rpoplpush(self, source: str, destination: str):
+        items = self.lists.get(source)
+        if not items:
+            return None
+        value = items.pop()
+        self.lpush(destination, value)
+        return value
+
+    def lrem(self, key: str, count: int, value: str) -> int:
+        self.direct_lrem_calls += 1
+        items = self.lists.get(key, [])
+        removed = 0
+        for index, item in list(enumerate(items)):
+            if item == value and (count == 0 or removed < count):
+                items.pop(index - removed)
+                removed += 1
+        return removed
+
+    def set(
+        self,
+        key: str,
+        value: str,
+        nx: bool = False,
+        xx: bool = False,
+        ex: int | None = None,
+    ) -> bool:
         if nx and key in self.kv:
+            return False
+        if xx and key not in self.kv:
             return False
         self.kv[key] = value
         return True
 
+    def get(self, key: str) -> str | None:
+        return self.kv.get(key)
+
     def delete(self, key: str) -> None:
         self.kv.pop(key, None)
+
+    def exists(self, key: str) -> int:
+        return int(key in self.kv)
+
+    def llen(self, key: str) -> int:
+        return len(self.lists.get(key, []))
+
+    def sadd(self, key: str, value: str) -> int:
+        values = self.sets.setdefault(key, set())
+        before = len(values)
+        values.add(value)
+        return int(len(values) != before)
+
+    def smembers(self, key: str) -> set[str]:
+        return set(self.sets.get(key, set()))
+
+    def srem(self, key: str, value: str) -> int:
+        values = self.sets.get(key, set())
+        if value not in values:
+            return 0
+        values.remove(value)
+        return 1
+
+    def eval(self, script: str, numkeys: int, *values: str) -> int:
+        if numkeys == 2:  # atomic processing -> ready/dead transition
+            processing, target, raw, replacement = values
+            self.failed_transition_calls += 1
+            items = self.lists.get(processing, [])
+            try:
+                index = items.index(raw)
+            except ValueError:
+                return 0
+            items.pop(index)
+            self.lpush(target, replacement)
+            return 1
+
+        assert numkeys == 1
+        key, *args = values
+        if len(args) == 1:  # compare-and-delete
+            expected = args[0]
+            if self.kv.get(key) != expected:
+                return 0
+            self.kv.pop(key, None)
+            return 1
+        if len(args) == 3:  # compare-and-set marker -> done
+            expected, done, _ttl = args
+            current = self.kv.get(key)
+            if current == expected:
+                self.kv[key] = done
+                return 1
+            return int(current == done)
+        raise AssertionError(f"Unsupported fake Lua call: {script!r}")
 
 
 class _Scalar:
@@ -78,6 +174,7 @@ class FakeIngestSession:
         }
         self.added: list = []
         self.committed = False
+        self.rolled_back = False
         # Records text() clauses (RLS set_config / set role) for assertions.
         self.tenant_calls: list[tuple[str, dict | None]] = []
         # O seam de tenant grava sua marca em session.info (mark_cross_tenant /
@@ -112,6 +209,9 @@ class FakeIngestSession:
 
     def commit(self) -> None:
         self.committed = True
+
+    def rollback(self) -> None:
+        self.rolled_back = True
 
     def close(self) -> None:
         pass
@@ -238,6 +338,64 @@ def test_ingest_persists_provider_message_id() -> None:
     ingest_message_event_ex(session, parsed)
     msg = next(o for o in session.added if isinstance(o, Message))
     assert msg.provider_message_id == "PID1"
+
+
+class _CommitIntegrityErrorSession(FakeIngestSession):
+    def __init__(self, *, constraint_name: str) -> None:
+        connection = WhatsappConnection(igreja_id=_IGREJA, instance="igreja-1")
+        pessoa = Pessoa(igreja_id=_IGREJA, nome="João", telefone="5511988887777")
+        conversation = Conversation(
+            igreja_id=_IGREJA,
+            telefone="5511988887777",
+            estado="ia",
+            nao_lidas=0,
+        )
+        super().__init__(
+            connection=connection,
+            pessoa=pessoa,
+            conversation=conversation,
+        )
+        self._constraint_name = constraint_name
+
+    def commit(self) -> None:
+        orig = SimpleNamespace(
+            pgcode="23505",
+            diag=SimpleNamespace(constraint_name=self._constraint_name),
+        )
+        raise IntegrityError("insert messages", {}, orig)
+
+
+def test_ingest_treats_provider_id_index_violation_as_duplicate() -> None:
+    session = _CommitIntegrityErrorSession(
+        constraint_name="messages_inbound_provider_id_uidx"
+    )
+
+    outcome = ingest_message_event_ex(session, parse_message_event(_parsed_payload()))
+
+    assert outcome.result is IngestionResult.DUPLICATE
+    assert session.rolled_back is True
+
+
+def test_ingest_treats_outbound_provider_index_violation_as_duplicate() -> None:
+    session = _CommitIntegrityErrorSession(
+        constraint_name="messages_outbound_provider_id_uidx"
+    )
+    payload = _parsed_payload("OUT-DUP")
+    payload["data"]["key"]["fromMe"] = True
+
+    outcome = ingest_message_event_ex(session, parse_message_event(payload))
+
+    assert outcome.result is IngestionResult.DUPLICATE
+    assert session.rolled_back is True
+
+
+def test_ingest_does_not_mask_other_unique_violation_as_duplicate() -> None:
+    session = _CommitIntegrityErrorSession(constraint_name="some_other_unique_idx")
+
+    with pytest.raises(IntegrityError):
+        ingest_message_event_ex(session, parse_message_event(_parsed_payload()))
+
+    assert session.rolled_back is True
 
 
 def test_ingest_sets_tenant_context_for_igreja() -> None:
@@ -389,6 +547,118 @@ def test_ingest_media_uploads_and_sets_fields() -> None:
     assert calls == ["imagem"]
 
 
+def test_media_resolver_reuses_injected_evolution_and_stable_object_id(
+    monkeypatch,
+) -> None:
+    from app.services import evolution as evolution_module
+    from app.services import storage as storage_module
+    from app.workers import queue_worker as worker_module
+
+    parsed = parse_message_event(_media_payload("IMG-STABLE"))
+    evolution_calls: list[tuple[str, dict]] = []
+    upload_calls: list[dict] = []
+
+    class SharedEvolution:
+        def get_media_base64(self, instance, key):
+            evolution_calls.append((instance, key))
+            return "aGVsbG8=", "image/jpeg"
+
+    class FakeStorage:
+        def upload(self, *args, **kwargs):
+            upload_calls.append(kwargs)
+            return SimpleNamespace(path="i/c/stable.jpg")
+
+    def must_not_construct():  # pragma: no cover - failure path only
+        raise AssertionError("resolver must reuse the worker-owned client")
+
+    monkeypatch.setattr(evolution_module, "EvolutionClient", must_not_construct)
+    monkeypatch.setattr(storage_module, "SupabaseStorage", FakeStorage)
+
+    result = worker_module.resolve_media_via_evolution(
+        parsed,
+        "igreja-1",
+        "conv-1",
+        evolution_client=SharedEvolution(),
+    )
+
+    assert result.path == "i/c/stable.jpg"
+    assert evolution_calls[0][0] == "igreja-1"
+    assert upload_calls == [{"object_id": "IMG-STABLE"}]
+
+
+def test_main_injects_one_evolution_client_into_both_hot_paths(monkeypatch) -> None:
+    from app.services import evolution as evolution_module
+    from app.workers import queue_worker as worker_module
+
+    captured: dict = {}
+
+    class SharedEvolution:
+        def __enter__(self):
+            captured["entered"] = captured.get("entered", 0) + 1
+            return self
+
+        def __exit__(self, *_args):
+            captured["exited"] = captured.get("exited", 0) + 1
+
+    shared = SharedEvolution()
+
+    class FakeWorker:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def stop(self, *_args):
+            return None
+
+        def run(self):
+            captured["ran"] = True
+
+    monkeypatch.setattr(evolution_module, "EvolutionClient", lambda: shared)
+    monkeypatch.setattr(worker_module, "QueueWorker", FakeWorker)
+    monkeypatch.setattr(worker_module.signal, "signal", lambda *_args: None)
+
+    worker_module.main()
+
+    assert captured["agent_runner"].keywords["evolution_client"] is shared
+    assert captured["media_resolver"].keywords["evolution_client"] is shared
+    assert captured["entered"] == 1
+    assert captured["exited"] == 1
+    assert captured["ran"] is True
+
+
+def test_postgres_provider_fence_serializes_before_duplicate_lookup() -> None:
+    from app.workers import queue_worker as worker_module
+
+    statements: list[str] = []
+    results = iter([None, SimpleNamespace(id="existing")])
+
+    class FenceSession:
+        def get_bind(self):
+            return SimpleNamespace(dialect=SimpleNamespace(name="postgresql"))
+
+        def execute(self, statement):
+            statements.append(str(statement))
+            value = next(results)
+            return SimpleNamespace(scalar_one_or_none=lambda: value)
+
+    exists = worker_module._provider_message_exists_after_fence(
+        FenceSession(),
+        "igreja-1",
+        "provider-1",
+        inbound=True,
+    )
+
+    assert exists is True
+    assert "pg_advisory_xact_lock" in statements[0]
+    assert "provider_message_id" in statements[1]
+    assert "direcao" in statements[1]
+    assert worker_module._provider_message_lock_key("igreja-1", "provider-1") == (
+        worker_module._provider_message_lock_key("igreja-1", "provider-1")
+    )
+    assert worker_module._provider_message_lock_key("igreja-1", "provider-1") != (
+        worker_module._provider_message_lock_key("igreja-2", "provider-1")
+    )
+
+
 def test_ingest_media_degrades_when_resolver_fails() -> None:
     connection = WhatsappConnection(igreja_id=_IGREJA, instance="igreja-1")
     session = FakeIngestSession(connection=connection, pessoa=None, conversation=None)
@@ -450,12 +720,224 @@ def test_queue_enqueue_wraps_envelope() -> None:
     env = _Envelope.from_json(raw)
     assert env.attempts == 0
     assert env.payload == {"event": "messages.upsert"}
+    assert env.claim_id
 
 
-def test_mark_processed_if_new_is_idempotent() -> None:
+def test_envelope_serialization_preserves_claim_id() -> None:
+    envelope = _Envelope(payload=_parsed_payload("SERIAL"))
+
+    restored = _Envelope.from_json(envelope.to_json())
+
+    assert restored.claim_id == envelope.claim_id
+    assert _Envelope(payload=envelope.payload).claim_id != envelope.claim_id
+
+
+def test_legacy_envelope_derives_stable_claim_id_from_raw() -> None:
+    raw = json.dumps({"payload": _parsed_payload("LEGACY"), "attempts": 0})
+
+    first = _Envelope.from_json(raw)
+    recovered = _Envelope.from_json(raw)
+
+    assert first.claim_id.startswith("legacy-")
+    assert recovered.claim_id == first.claim_id
+
+
+def test_mark_processed_accepts_only_the_same_claim_owner() -> None:
     queue = WebhookQueue(redis_client=FakeRedis())
-    assert queue.mark_processed_if_new("MSG1") is True
-    assert queue.mark_processed_if_new("MSG1") is False
+    assert queue.mark_processed_if_new("MSG1", "claim-a") is True
+    # The same recovered envelope may resume its in-flight claim.
+    assert queue.mark_processed_if_new("MSG1", "claim-a") is True
+    # A distinct delivery of the same provider id is blocked pre-ingestion.
+    assert queue.mark_processed_if_new("MSG1", "claim-b") is False
+    queue.mark_processed("MSG1", "claim-a")
+    assert queue.mark_processed_if_new("MSG1", "claim-a") is False
+
+
+def test_marker_cas_cannot_delete_or_finalize_a_new_owner() -> None:
+    redis = FakeRedis()
+    queue = WebhookQueue(redis_client=redis)
+    assert queue.mark_processed_if_new("CAS", "old-owner") is True
+    # Simulate expiry followed by a new claim before the old worker unwinds.
+    redis.delete("pastorai:processed:CAS")
+    assert queue.mark_processed_if_new("CAS", "new-owner") is True
+
+    queue.release_processed("CAS", "old-owner")
+    assert queue.mark_processed_if_new("CAS", "new-owner") is True
+    with pytest.raises(RuntimeError, match="ownership was lost"):
+        queue.mark_processed("CAS", "old-owner")
+    queue.mark_processed("CAS", "new-owner")
+
+
+def test_queue_claim_and_ack_use_processing_list() -> None:
+    redis = FakeRedis()
+    queue = WebhookQueue(redis_client=redis)
+    worker_id = "worker-claim"
+    queue.register_worker(worker_id)
+    queue.enqueue(_parsed_payload("CLAIM"))
+
+    raw = queue.claim(worker_id, timeout=0)
+
+    assert raw is not None
+    assert redis.lists[WEBHOOK_QUEUE] == []
+    processing = queue.processing_queue(worker_id)
+    assert redis.lists[processing] == [raw]
+    queue.ack(worker_id, raw)
+    assert redis.lists[processing] == []
+    assert redis.direct_lrem_calls == 1
+
+
+def test_recovery_does_not_steal_active_worker_claim() -> None:
+    redis = FakeRedis()
+    queue = WebhookQueue(redis_client=redis)
+    queue.register_worker("worker-a")
+    queue.register_worker("worker-b")
+    queue.enqueue(_parsed_payload("ACTIVE"))
+    raw = queue.claim("worker-a", timeout=0)
+
+    assert queue.recover_pending("worker-b") == 0
+    assert redis.lists[queue.processing_queue("worker-a")] == [raw]
+    assert redis.lists[WEBHOOK_QUEUE] == []
+
+
+def test_unregister_keeps_orphan_with_pending_item_discoverable() -> None:
+    redis = FakeRedis()
+    queue = WebhookQueue(redis_client=redis)
+    worker_id = "worker-pending"
+    queue.register_worker(worker_id)
+    redis.lpush(queue.processing_queue(worker_id), "raw")
+
+    queue.unregister_worker(worker_id)
+
+    assert not redis.exists(queue._lease_key(worker_id))  # noqa: SLF001
+    assert worker_id in redis.smembers(WORKER_REGISTRY)
+
+
+def test_worker_recovers_crashed_claim_without_losing_idempotency() -> None:
+    redis = FakeRedis()
+    queue = WebhookQueue(redis_client=redis)
+    crashed_worker = "worker-crashed"
+    recovery_worker = "worker-recovery"
+    queue.register_worker(crashed_worker)
+    queue.enqueue(_parsed_payload("CRASH"))
+    raw = queue.claim(crashed_worker, timeout=0)
+    assert raw is not None
+    claimed_envelope = _Envelope.from_json(raw)
+    # Simulate the crash window after the Redis id was claimed but before the
+    # database transaction/ack completed.
+    assert queue.mark_processed_if_new("CRASH", claimed_envelope.claim_id) is True
+
+    # Hard crash: heartbeat disappears but registry/list survive until another
+    # live worker observes the expired lease.
+    redis.delete(queue._lease_key(crashed_worker))  # noqa: SLF001
+    queue.register_worker(recovery_worker)
+    assert queue.recover_pending(recovery_worker) == 1
+    assert redis.lists[queue.processing_queue(crashed_worker)] == []
+    assert crashed_worker not in redis.smembers(WORKER_REGISTRY)
+    recovered = queue.claim(recovery_worker, timeout=0)
+    assert recovered == raw
+    recovered_envelope = _Envelope.from_json(recovered)
+    assert recovered_envelope.claim_id == claimed_envelope.claim_id
+
+    connection = WhatsappConnection(igreja_id=_IGREJA, instance="igreja-1")
+    factory = lambda: FakeIngestSession(connection=connection)  # noqa: E731
+    worker = QueueWorker(
+        queue=queue,
+        session_factory=factory,
+        worker_id=recovery_worker,
+    )
+    result = worker.handle_envelope(recovered_envelope)
+    queue.ack(recovery_worker, recovered)
+
+    assert result is IngestionResult.REGISTERED
+    assert queue.mark_processed_if_new("CRASH", "different-delivery") is False
+    assert redis.lists[queue.processing_queue(recovery_worker)] == []
+
+
+def test_worker_heartbeat_renews_lease_until_stopped(monkeypatch) -> None:
+    queue = WebhookQueue(redis_client=FakeRedis())
+    worker = QueueWorker(
+        queue=queue,
+        session_factory=FakeIngestSession,
+        worker_id="worker-heartbeat",
+    )
+    refreshes: list[str] = []
+
+    class _StopAfterOneRefresh:
+        calls = 0
+
+        def wait(self, _seconds: int) -> bool:
+            self.calls += 1
+            return self.calls > 1
+
+    monkeypatch.setattr(worker, "_heartbeat_stop", _StopAfterOneRefresh())
+    monkeypatch.setattr(
+        queue,
+        "refresh_worker_lease",
+        lambda worker_id: refreshes.append(worker_id) or True,
+    )
+
+    worker._heartbeat_loop()  # noqa: SLF001
+
+    assert refreshes == ["worker-heartbeat"]
+
+
+def test_worker_run_cleans_up_lease_and_registry(monkeypatch) -> None:
+    redis = FakeRedis()
+    queue = WebhookQueue(redis_client=redis)
+    queue.enqueue({"event": "connection.update"})
+    worker = QueueWorker(
+        queue=queue,
+        session_factory=FakeIngestSession,
+        worker_id="worker-clean",
+    )
+    original_handle = worker._handle_raw  # noqa: SLF001
+
+    def handle_once(raw: str) -> None:
+        original_handle(raw)
+        worker.stop()
+
+    monkeypatch.setattr(worker, "_handle_raw", handle_once)
+
+    worker.run()
+
+    assert not redis.exists(queue._lease_key("worker-clean"))  # noqa: SLF001
+    assert "worker-clean" not in redis.smembers(WORKER_REGISTRY)
+    assert redis.lists[queue.processing_queue("worker-clean")] == []
+
+
+def test_worker_acks_non_object_json_poison_pill() -> None:
+    redis = FakeRedis()
+    queue = WebhookQueue(redis_client=redis)
+    worker_id = "worker-poison"
+    redis.lpush(WEBHOOK_QUEUE, "[]")
+    claimed = queue.claim(worker_id, timeout=0)
+    worker = QueueWorker(
+        queue=queue,
+        session_factory=FakeIngestSession,
+        worker_id=worker_id,
+    )
+
+    worker._handle_raw(claimed)  # noqa: SLF001
+
+    assert redis.lists[queue.processing_queue(worker_id)] == []
+    assert redis.lists[WEBHOOK_QUEUE] == []
+    assert redis.direct_lrem_calls == 1
+    assert redis.failed_transition_calls == 0
+
+
+def test_worker_blocks_concurrent_delivery_with_same_provider_id() -> None:
+    queue = WebhookQueue(redis_client=FakeRedis())
+    first = _Envelope(payload=_parsed_payload("RACE"))
+    concurrent = _Envelope(payload=_parsed_payload("RACE"))
+    assert first.claim_id != concurrent.claim_id
+    assert queue.mark_processed_if_new("RACE", first.claim_id) is True
+
+    def forbidden_factory():  # pragma: no cover - must be blocked before DB
+        raise AssertionError("concurrent envelope reached database work")
+
+    worker = QueueWorker(queue=queue, session_factory=forbidden_factory)
+
+    assert worker.handle_envelope(concurrent) is IngestionResult.DUPLICATE
 
 
 def test_worker_skips_duplicate_message() -> None:
@@ -482,19 +964,87 @@ def test_worker_reprocesses_on_transient_failure() -> None:
     def boom():
         raise RuntimeError("db down")
 
-    worker = QueueWorker(queue=queue, session_factory=boom)
-    raw = _Envelope(payload=_parsed_payload("RETRY")).to_json()
-    worker._handle_raw(raw)  # noqa: SLF001
+    worker = QueueWorker(
+        queue=queue,
+        session_factory=boom,
+        worker_id="worker-retry",
+    )
+    original = _Envelope(payload=_parsed_payload("RETRY"))
+    raw = original.to_json()
+    redis.lpush(WEBHOOK_QUEUE, raw)
+    claimed = queue.claim("worker-retry", timeout=0)
+    worker._handle_raw(claimed)  # noqa: SLF001
 
     requeued = redis.lists[WEBHOOK_QUEUE]
     assert len(requeued) == 1
-    assert _Envelope.from_json(requeued[0]).attempts == 1
+    retried = _Envelope.from_json(requeued[0])
+    assert retried.attempts == 1
+    assert retried.claim_id == original.claim_id
+    assert redis.lists[queue.processing_queue("worker-retry")] == []
+    assert redis.failed_transition_calls == 1
+    assert redis.direct_lrem_calls == 0
+
+
+def test_failed_transition_does_not_enqueue_when_claim_is_missing() -> None:
+    redis = FakeRedis()
+    queue = WebhookQueue(redis_client=redis)
+    envelope = _Envelope(payload=_parsed_payload("MISSING"))
+
+    with pytest.raises(RuntimeError, match="no longer owned"):
+        queue.transition_failed_claim(
+            "worker-missing",
+            envelope.to_json(),
+            envelope,
+        )
+
+    assert redis.lists.get(WEBHOOK_QUEUE) in (None, [])
+    assert redis.lists.get(DEAD_LETTER_QUEUE) in (None, [])
+    assert redis.failed_transition_calls == 1
+    assert redis.direct_lrem_calls == 0
 
 
 def test_worker_dead_letters_after_max_attempts() -> None:
     redis = FakeRedis()
     queue = WebhookQueue(redis_client=redis)
-    env = _Envelope(payload={"event": "messages.upsert"}, attempts=MAX_ATTEMPTS - 1)
-    queue._requeue(env)  # noqa: SLF001
+    env = _Envelope(payload=_parsed_payload("DEAD"), attempts=MAX_ATTEMPTS - 1)
+    raw = env.to_json()
+    redis.lpush(WEBHOOK_QUEUE, raw)
+
+    def boom():
+        raise RuntimeError("db down")
+
+    worker = QueueWorker(
+        queue=queue,
+        session_factory=boom,
+        worker_id="worker-dead",
+    )
+    claimed = queue.claim("worker-dead", timeout=0)
+    worker._handle_raw(claimed)  # noqa: SLF001
+
     assert redis.lists.get(WEBHOOK_QUEUE) in (None, [])
     assert len(redis.lists[DEAD_LETTER_QUEUE]) == 1
+    assert redis.lists[queue.processing_queue("worker-dead")] == []
+    dead = _Envelope.from_json(redis.lists[DEAD_LETTER_QUEUE][0])
+    assert dead.attempts == MAX_ATTEMPTS
+    assert dead.claim_id == env.claim_id
+    assert redis.failed_transition_calls == 1
+    assert redis.direct_lrem_calls == 0
+
+
+def test_build_redis_has_bounded_pool_and_timeouts(monkeypatch) -> None:
+    import redis
+
+    captured: dict = {}
+    sentinel = object()
+
+    def fake_from_url(url: str, **kwargs):
+        captured["url"] = url
+        captured.update(kwargs)
+        return sentinel
+
+    monkeypatch.setattr(redis.Redis, "from_url", fake_from_url)
+
+    assert _build_redis() is sentinel
+    assert captured["socket_connect_timeout"] == REDIS_CONNECT_TIMEOUT_SECONDS
+    assert captured["socket_timeout"] == REDIS_SOCKET_TIMEOUT_SECONDS
+    assert captured["max_connections"] == REDIS_MAX_CONNECTIONS

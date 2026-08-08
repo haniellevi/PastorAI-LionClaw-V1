@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from hashlib import sha256
 
 import httpx
 
@@ -137,11 +138,15 @@ class SupabaseStorage:
         data: bytes,
         mime: str | None,
         nome: str | None = None,
+        object_id: str | None = None,
     ) -> StoredMedia:
         """Upload bytes to the bucket and return the stored-object pointer.
 
-        Path is tenant-scoped: ``{igreja_id}/{conversation_id}/{uuid}.{ext}``.
-        Raises StorageError on oversize or transport failure.
+        Path is tenant-scoped. When ``object_id`` is provided, the object name
+        is deterministic, so a recovered queue claim safely upserts the same
+        object instead of leaving duplicate/orphaned media. Ad-hoc uploads keep
+        the legacy random UUID name. Raises StorageError on oversize or
+        transport failure.
         """
         if not data:
             raise StorageError("Mídia vazia")
@@ -150,7 +155,18 @@ class SupabaseStorage:
 
         url, key = self._require()
         content_type = mime or "application/octet-stream"
-        path = f"{igreja_id}/{conversation_id}/{uuid.uuid4().hex}.{_ext_for(mime, nome)}"
+        extension = _ext_for(mime, nome)
+        if object_id:
+            # Do not include the conversation id: two fenced workers handling
+            # the first message may have provisional conversation UUIDs. The
+            # stable provider key makes both attempts upsert the exact object.
+            object_name = sha256(object_id.encode("utf-8")).hexdigest()
+            path = f"{igreja_id}/provider/{object_name}.{extension}"
+        else:
+            path = (
+                f"{igreja_id}/{conversation_id}/"
+                f"{uuid.uuid4().hex}.{extension}"
+            )
         endpoint = f"{url}/storage/v1/object/{MEDIA_BUCKET}/{path}"
         try:
             with httpx.Client(timeout=30.0) as client:

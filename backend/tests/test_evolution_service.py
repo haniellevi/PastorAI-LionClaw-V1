@@ -276,6 +276,37 @@ def test_existing_send_text_contract_is_preserved(monkeypatch) -> None:
     assert EvolutionClient(_settings()).send_text("i", "5511", "x") is True
 
 
+def test_reuses_one_http_client_and_close_is_idempotent(monkeypatch) -> None:
+    class CountingClient:
+        def __init__(self, *, base_url: str, timeout: float) -> None:
+            self.base_url = base_url
+            self.timeout = timeout
+            self.close_calls = 0
+            created.append(self)
+
+        def post(self, path: str, **_: object) -> httpx.Response:
+            request = httpx.Request("POST", f"{self.base_url}{path}")
+            return httpx.Response(201, request=request, json={})
+
+        def close(self) -> None:
+            self.close_calls += 1
+
+    created: list[CountingClient] = []
+    monkeypatch.setattr(httpx, "Client", CountingClient)
+
+    evolution = EvolutionClient(_settings())
+    first = evolution.send_text_classificado("i", "5511", "primeira")
+    second = evolution.send_text_classificado("i", "5511", "segunda")
+    assert first.status == "aceito"
+    assert second.status == "aceito"
+    assert len(created) == 1
+
+    evolution.__del__()
+    evolution.close()
+    evolution.close()
+    assert created[0].close_calls == 1
+
+
 # ---- media: receive (getBase64) + send (sendMedia) — Etapa 2 --------------
 def test_get_media_base64_returns_data_and_mime(monkeypatch) -> None:
     seen: dict = {}

@@ -139,6 +139,7 @@ def _parsed(
     provider_message_id: str,
     instance: str = "igreja-1",
     telefone: str = "5511988887777",
+    from_me: bool = False,
 ) -> ParsedMessage:
     """Espelha o contrato do parse_message_event de produção: `telefone` é o
     parâmetro BRUTO (como vem do JID); `ParsedMessage.telefone` recebe a chave
@@ -154,7 +155,7 @@ def _parsed(
         telefone_raw=telefone,
         texto="Oi",
         push_name="João",
-        from_me=False,
+        from_me=from_me,
     )
 
 
@@ -165,6 +166,24 @@ def _count_messages(factory: sessionmaker, igreja_id: uuid.UUID) -> int:
             session.execute(
                 text("select count(*) from messages where igreja_id = :i"),
                 {"i": str(igreja_id)},
+            ).scalar_one()
+        )
+    finally:
+        session.close()
+
+
+def _count_messages_by_direction(
+    factory: sessionmaker, igreja_id: uuid.UUID, direction: str
+) -> int:
+    session = factory()
+    try:
+        return int(
+            session.execute(
+                text(
+                    "select count(*) from messages "
+                    "where igreja_id = :i and direcao = :d"
+                ),
+                {"i": str(igreja_id), "d": direction},
             ).scalar_one()
         )
     finally:
@@ -328,6 +347,40 @@ def test_same_provider_id_different_igreja_does_not_conflict(
     assert r2.result is IngestionResult.REGISTERED
     assert _count_messages(factory, _IGREJA_A) == 1
     assert _count_messages(factory, _IGREJA_B) == 1
+
+
+def test_same_outbound_provider_id_is_deduped_by_db(msg_engine_fx: Engine) -> None:
+    """A barreira outbound real aceita uma entrega e rejeita a repetição."""
+    factory = _factory(msg_engine_fx)
+    _seed_igreja_with_connection(factory, igreja_id=_IGREJA_A, instance="igreja-1")
+
+    # O fluxo outbound só persiste para um contato conhecido. Uma inbound única
+    # cria Pessoa/Conversation usando exatamente o caminho de produção.
+    seed_session = factory()
+    try:
+        seed = ingest_message_event_ex(
+            seed_session,
+            _parsed(provider_message_id="OUTBOUND-CONTACT-SEED"),
+        )
+    finally:
+        seed_session.close()
+    assert seed.result is IngestionResult.REGISTERED
+
+    outbound = _parsed(provider_message_id="OUTBOUND-DUP", from_me=True)
+    first_session = factory()
+    try:
+        first = ingest_message_event_ex(first_session, outbound)
+    finally:
+        first_session.close()
+    second_session = factory()
+    try:
+        second = ingest_message_event_ex(second_session, outbound)
+    finally:
+        second_session.close()
+
+    assert first.result is IngestionResult.REGISTERED
+    assert second.result is IngestionResult.DUPLICATE
+    assert _count_messages_by_direction(factory, _IGREJA_A, "out") == 1
 
 
 # ---------------------------------------------------------------------------

@@ -107,8 +107,10 @@ A senha nunca é impressa. O runner mantém uma tabela `schema_migrations` no ba
 alvo para registrar o que já subiu — assim `status`/`apply` sabem o que falta.
 
 Se algo falhar, o `apply` para no primeiro erro e mantém em `schema_migrations`
-o registro das que concluíram; como as migrations são idempotentes, basta
-corrigir a causa e rodar `apply` de novo para retomar as pendentes.
+o registro das que concluíram. Antes de retomar, leia as instruções da migration
+que falhou: as idempotentes podem ser reaplicadas após corrigir a causa, mas
+`CREATE INDEX CONCURRENTLY` pode deixar um índice `INVALID` e exige inspeção e
+recuperação manual antes de rodar `apply` novamente.
 
 > As migrations continuam podendo ser aplicadas à mão no SQL editor do Supabase
 > (ver `backend/migrations/README.md`); o runner é uma conveniência para

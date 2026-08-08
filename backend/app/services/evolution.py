@@ -20,9 +20,11 @@ import hashlib
 import hmac
 import logging
 import math
+from collections.abc import Iterator
 from datetime import datetime, timezone
 from dataclasses import dataclass
 from email.utils import parsedate_to_datetime
+from threading import Lock
 
 import httpx
 
@@ -154,10 +156,64 @@ def verify_shared_secret(secret: str, token: str | None) -> bool:
 
 
 class EvolutionClient:
-    """Thin HTTP client around the Evolution API instance endpoints."""
+    """Thin HTTP client around the Evolution API instance endpoints.
+
+    One underlying :class:`httpx.Client` is opened lazily and reused for the
+    lifetime of this service instance.  Long-running users such as the
+    broadcast worker therefore keep their connection pool instead of paying a
+    new TCP/TLS setup cost for every recipient.
+
+    Call :meth:`close` when the service instance leaves scope (or use it as a
+    context manager).  Closing is idempotent.
+    """
 
     def __init__(self, settings: Settings | None = None) -> None:
         self._settings = settings or get_settings()
+        self._client: httpx.Client | None = None
+        self._client_lock = Lock()
+        self._closed = False
+
+    def _http_client(self, base_url: str) -> httpx.Client:
+        """Return this service instance's lazily-created connection pool."""
+        with self._client_lock:
+            if self._closed:
+                raise EvolutionError("Evolution client is closed")
+            if self._client is None:
+                # Keep the historical 15 second default. Operations that have
+                # intentionally different limits override it per request.
+                self._client = httpx.Client(base_url=base_url, timeout=15.0)
+            return self._client
+
+    def close(self) -> None:
+        """Release network resources once; safe to call repeatedly."""
+        with self._client_lock:
+            if self._closed:
+                return
+            self._closed = True
+            client = self._client
+            self._client = None
+        if client is not None:
+            client.close()
+
+    def __enter__(self) -> EvolutionClient:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()
+
+    def __del__(self) -> None:
+        """Best-effort safety net for legacy one-shot call sites.
+
+        Service owners should still use ``close`` or the context manager.  This
+        fallback prevents short-lived ``EvolutionClient().send_*`` expressions
+        from abandoning their pool while those call sites are migrated.
+        """
+        try:
+            self.close()
+        except Exception:
+            # Destructors can run during interpreter shutdown, when transports
+            # or module globals may already be partially torn down.
+            pass
 
     def _suppress_or_reject_mutation(self, action: str) -> None:
         """Keep non-prod simulation, but prevent false local state in prod."""
@@ -194,13 +250,13 @@ class EvolutionClient:
         headers = self._headers(api_key)
         params = {"number": numero} if numero else None
         try:
-            with httpx.Client(base_url=base_url, timeout=15.0) as client:
-                self._ensure_instance(client, headers, instance)
-                resp = client.get(
-                    f"/instance/connect/{instance}", headers=headers, params=params
-                )
-                resp.raise_for_status()
-                body = resp.json()
+            client = self._http_client(base_url)
+            self._ensure_instance(client, headers, instance)
+            resp = client.get(
+                f"/instance/connect/{instance}", headers=headers, params=params
+            )
+            resp.raise_for_status()
+            body = resp.json()
         except httpx.HTTPError as exc:
             logger.warning("Evolution connect failed: %s", type(exc).__name__)
             raise EvolutionError("Falha ao conectar à Evolution API") from exc
@@ -236,32 +292,32 @@ class EvolutionClient:
         headers = self._headers(api_key)
         params = {"number": numero} if numero else None
         try:
-            with httpx.Client(base_url=base_url, timeout=15.0) as client:
-                # Ensure the instance exists so a never-connected igreja can pair.
-                self._ensure_instance(client, headers, instance)
-                # Restart drops the current socket so connect yields a fresh QR.
-                # A 404/failure here is expected on v2.1.1 and must not hide the
-                # QR from the admin — log it and fall through to connect.
-                try:
-                    restart = client.put(
-                        f"/instance/restart/{instance}", headers=headers
-                    )
-                    if restart.status_code >= 400:
-                        logger.info(
-                            "Evolution restart returned %s for %s; connecting anyway",
-                            restart.status_code,
-                            instance,
-                        )
-                except httpx.HTTPError:
+            client = self._http_client(base_url)
+            # Ensure the instance exists so a never-connected igreja can pair.
+            self._ensure_instance(client, headers, instance)
+            # Restart drops the current socket so connect yields a fresh QR.
+            # A 404/failure here is expected on v2.1.1 and must not hide the
+            # QR from the admin — log it and fall through to connect.
+            try:
+                restart = client.put(
+                    f"/instance/restart/{instance}", headers=headers
+                )
+                if restart.status_code >= 400:
                     logger.info(
-                        "Evolution restart unavailable for %s; connecting anyway",
+                        "Evolution restart returned %s for %s; connecting anyway",
+                        restart.status_code,
                         instance,
                     )
-                resp = client.get(
-                    f"/instance/connect/{instance}", headers=headers, params=params
+            except httpx.HTTPError:
+                logger.info(
+                    "Evolution restart unavailable for %s; connecting anyway",
+                    instance,
                 )
-                resp.raise_for_status()
-                body = resp.json()
+            resp = client.get(
+                f"/instance/connect/{instance}", headers=headers, params=params
+            )
+            resp.raise_for_status()
+            body = resp.json()
         except httpx.HTTPError as exc:
             logger.warning("Evolution reconnect failed: %s", type(exc).__name__)
             raise EvolutionError("Falha ao reconectar à Evolution API") from exc
@@ -301,13 +357,13 @@ class EvolutionClient:
         base_url, api_key = self._require_config()
         headers = self._headers(api_key)
         try:
-            with httpx.Client(base_url=base_url, timeout=15.0) as client:
-                resp = client.delete(
-                    f"/instance/logout/{instance}", headers=headers
-                )
-                # 200 ok, or 404/409 (already logged out / missing) are fine.
-                if resp.status_code not in (200, 201, 404, 409):
-                    resp.raise_for_status()
+            client = self._http_client(base_url)
+            resp = client.delete(
+                f"/instance/logout/{instance}", headers=headers
+            )
+            # 200 ok, or 404/409 (already logged out / missing) are fine.
+            if resp.status_code not in (200, 201, 404, 409):
+                resp.raise_for_status()
         except httpx.HTTPError as exc:
             logger.warning("Evolution logout failed: %s", type(exc).__name__)
             raise EvolutionError(
@@ -327,13 +383,13 @@ class EvolutionClient:
         base_url, api_key = self._require_config()
         headers = self._headers(api_key)
         try:
-            with httpx.Client(base_url=base_url, timeout=15.0) as client:
-                resp = client.post(
-                    f"/message/sendText/{instance}",
-                    headers=headers,
-                    json={"number": telefone, "text": texto},
-                )
-                resp.raise_for_status()
+            client = self._http_client(base_url)
+            resp = client.post(
+                f"/message/sendText/{instance}",
+                headers=headers,
+                json={"number": telefone, "text": texto},
+            )
+            resp.raise_for_status()
         except httpx.HTTPError as exc:
             logger.warning("Evolution sendText failed: %s", type(exc).__name__)
             raise EvolutionError("Falha ao enviar mensagem pela Evolution API") from exc
@@ -372,13 +428,13 @@ class EvolutionClient:
 
         headers = self._headers(api_key)
         try:
-            with httpx.Client(base_url=base_url, timeout=15.0) as client:
-                response = client.post(
-                    f"/message/sendText/{instance}",
-                    headers=headers,
-                    json={"number": telefone, "text": texto},
-                )
-                response.raise_for_status()
+            client = self._http_client(base_url)
+            response = client.post(
+                f"/message/sendText/{instance}",
+                headers=headers,
+                json={"number": telefone, "text": texto},
+            )
+            response.raise_for_status()
         except httpx.HTTPStatusError as exc:
             code = exc.response.status_code
             logger.warning("Evolution broadcast sendText returned HTTP %s", code)
@@ -452,14 +508,15 @@ class EvolutionClient:
         base_url, api_key = self._require_config()
         headers = self._headers(api_key)
         try:
-            with httpx.Client(base_url=base_url, timeout=30.0) as client:
-                resp = client.post(
-                    f"/chat/getBase64FromMediaMessage/{instance}",
-                    headers=headers,
-                    json={"message": {"key": key}, "convertToMp4": False},
-                )
-                resp.raise_for_status()
-                body = resp.json()
+            client = self._http_client(base_url)
+            resp = client.post(
+                f"/chat/getBase64FromMediaMessage/{instance}",
+                headers=headers,
+                json={"message": {"key": key}, "convertToMp4": False},
+                timeout=30.0,
+            )
+            resp.raise_for_status()
+            body = resp.json()
         except httpx.HTTPError as exc:
             logger.warning("Evolution getBase64 failed: %s", type(exc).__name__)
             raise EvolutionError("Falha ao baixar a mídia da Evolution API") from exc
@@ -506,11 +563,14 @@ class EvolutionClient:
         if caption:
             body["caption"] = caption
         try:
-            with httpx.Client(base_url=base_url, timeout=30.0) as client:
-                resp = client.post(
-                    f"/message/sendMedia/{instance}", headers=headers, json=body
-                )
-                resp.raise_for_status()
+            client = self._http_client(base_url)
+            resp = client.post(
+                f"/message/sendMedia/{instance}",
+                headers=headers,
+                json=body,
+                timeout=30.0,
+            )
+            resp.raise_for_status()
         except httpx.HTTPError as exc:
             logger.warning("Evolution sendMedia failed: %s", type(exc).__name__)
             raise EvolutionError("Falha ao enviar a mídia pela Evolution API") from exc
@@ -560,15 +620,15 @@ class EvolutionClient:
         # v2.1+ wraps the config under a `webhook` key; older shapes are flat.
         nested = {"webhook": body}
         try:
-            with httpx.Client(base_url=base_url, timeout=15.0) as client:
+            client = self._http_client(base_url)
+            resp = client.post(
+                f"/webhook/set/{instance}", headers=headers, json=nested
+            )
+            if resp.status_code >= 400:
                 resp = client.post(
-                    f"/webhook/set/{instance}", headers=headers, json=nested
+                    f"/webhook/set/{instance}", headers=headers, json=body
                 )
-                if resp.status_code >= 400:
-                    resp = client.post(
-                        f"/webhook/set/{instance}", headers=headers, json=body
-                    )
-                resp.raise_for_status()
+            resp.raise_for_status()
         except httpx.HTTPError as exc:
             logger.warning("Evolution set_webhook failed: %s", type(exc).__name__)
             raise EvolutionError(
@@ -591,14 +651,15 @@ class EvolutionClient:
         base_url, api_key = self._require_config()
         headers = self._headers(api_key)
         try:
-            with httpx.Client(base_url=base_url, timeout=10.0) as client:
-                resp = client.get(
-                    "/instance/fetchInstances",
-                    headers=headers,
-                    params={"instanceName": instance},
-                )
-                resp.raise_for_status()
-                body = resp.json()
+            client = self._http_client(base_url)
+            resp = client.get(
+                "/instance/fetchInstances",
+                headers=headers,
+                params={"instanceName": instance},
+                timeout=10.0,
+            )
+            resp.raise_for_status()
+            body = resp.json()
         except httpx.HTTPError as exc:
             logger.warning("Evolution status failed: %s", type(exc).__name__)
             raise EvolutionError("Falha ao consultar status na Evolution API") from exc
@@ -664,15 +725,16 @@ class EvolutionClient:
         base_url, api_key = self._require_config()
         headers = self._headers(api_key)
         try:
-            with httpx.Client(base_url=base_url, timeout=10.0) as client:
-                resp = client.post(
-                    f"/chat/fetchProfilePictureUrl/{instance}",
-                    headers=headers,
-                    json={"number": telefone},
-                )
-                if resp.status_code >= 400:
-                    return None
-                body = resp.json()
+            client = self._http_client(base_url)
+            resp = client.post(
+                f"/chat/fetchProfilePictureUrl/{instance}",
+                headers=headers,
+                json={"number": telefone},
+                timeout=10.0,
+            )
+            if resp.status_code >= 400:
+                return None
+            body = resp.json()
         except (httpx.HTTPError, ValueError) as exc:
             logger.warning(
                 "Evolution fetchProfilePictureUrl failed: %s", type(exc).__name__
@@ -727,6 +789,10 @@ class EvolutionClient:
         )
 
 
-def get_evolution_client() -> EvolutionClient:
-    """FastAPI dependency / factory for the Evolution client."""
-    return EvolutionClient()
+def get_evolution_client() -> Iterator[EvolutionClient]:
+    """FastAPI dependency with request-scoped deterministic cleanup."""
+    client = EvolutionClient()
+    try:
+        yield client
+    finally:
+        client.close()
