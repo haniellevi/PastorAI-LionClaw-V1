@@ -60,6 +60,7 @@ from app.services.asaas import (
 from app.services.billing import (
     OPEN_PLAN_CHANGE_STATUSES,
     PlanChangeConflict,
+    claim_transition,
     current_headcount,
     ensure_plan_change_operation,
     find_open_plan_change,
@@ -308,8 +309,10 @@ def _process_operation(
 
     Recarrega a operação dentro do tenant (ela pode ter sido concluída pelo
     request do assinante entre a descoberta e o claim) e delega o
-    PUT/reconciliação a `ensure_plan_change_operation` com o ALVO CONGELADO da
-    própria operação — nunca recalculado aqui, e a origem é preservada.
+    PUT/reconciliação a `ensure_plan_change_operation`. Operações automáticas
+    ainda em `prepared` são revalidadas contra membros e catálogo antes do
+    primeiro PUT; depois desse estado o alvo permanece congelado. A origem é
+    sempre preservada.
     Retorna True quando a troca foi concluída.
     """
     op = db.get(BillingPlanChangeOperation, op_id)
@@ -326,11 +329,14 @@ def _process_operation(
     # cancelados aqui: o PUT pode já ter chegado ao provedor e exige GET de
     # reconciliação.
     if op.origin == "autoupgrade" and op.status == "prepared":
-        try:
-            limite_atual = int(sub.limite) if sub.limite is not None else None
-        except (TypeError, ValueError):
-            limite_atual = None
-        if limite_atual is None or current_headcount(db, sub) <= limite_atual:
+        operacao_aberta = find_open_plan_change(db, sub.id)
+        if operacao_aberta is not None and operacao_aberta.id != op.id:
+            # Defesa para base legada/corrida: uma troca manual ou outra
+            # operação já ocupa o claim. Nunca a adotar ou reprecificar por
+            # coincidência de alvo; o proprietário dela mantém prioridade.
+            return False
+        alvo_atual = _next_ladder_target(db, sub)
+        if alvo_atual is None:
             finish_operation(
                 db,
                 op,
@@ -343,6 +349,23 @@ def _process_operation(
                 ),
             )
             return False
+        if op.to_plano != alvo_atual.codigo:
+            # O alvo antigo pode ter sido calculado contando contatos e
+            # visitantes. Como nenhum PUT ocorreu, substitui plano/preço/
+            # limite no mesmo UPDATE condicional. Se outro worker já tomou o
+            # claim, rowcount=0 e este worker não toca o Asaas.
+            if not claim_transition(
+                db,
+                op,
+                "prepared",
+                "prepared",
+                to_plano=alvo_atual.codigo,
+                to_preco=float(alvo_atual.preco_mensal),
+                to_limite=alvo_atual.limite_pessoas,
+                to_descricao=subscription_description(alvo_atual.codigo),
+                error=None,
+            ):
+                return False
 
     try:
         result = ensure_plan_change_operation(

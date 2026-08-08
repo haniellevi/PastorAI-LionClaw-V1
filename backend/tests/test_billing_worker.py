@@ -82,6 +82,8 @@ class _WorkerAsaas:
         self.puts = 0
         self.gets = 0
         self.put_targets: list[str] = []
+        self.put_values: list[float] = []
+        self.put_descriptions: list[str] = []
         self._remote = remote
         self._put_error = put_error
         self._put_rejected = put_rejected
@@ -89,6 +91,8 @@ class _WorkerAsaas:
     def update_subscription(self, subscription_id: str, *, valor: float, descricao: str):
         self.puts += 1
         self.put_targets.append(subscription_id)
+        self.put_values.append(valor)
+        self.put_descriptions.append(descricao)
         if self._put_rejected:
             raise AsaasRejectedError("Plano rejeitado definitivamente pelo Asaas")
         if self._put_error:
@@ -144,10 +148,24 @@ class _Discovery:
         return _FakeResult(rows=rows)
 
 
+def _ladder_catalog():
+    return [
+        SimpleNamespace(
+            codigo="101_200", nome="101-200", preco_mensal=299.0,
+            limite_pessoas=200, ativo=True,
+        ),
+        SimpleNamespace(
+            codigo="acima_201", nome="201+", preco_mensal=499.0,
+            limite_pessoas=None, ativo=True,
+        ),
+    ]
+
+
 class _WorkerSession(FakeSession):
     """Sessão tenant-scoped fake: aceita o seam real (`mark_tenant_scoped`)."""
 
     def __init__(self, **kw) -> None:
+        kw.setdefault("planos", _ladder_catalog())
         super().__init__(**kw)
         self.info: dict = {}
         self.closed = False
@@ -284,6 +302,45 @@ def test_worker_cancels_stale_prepared_autoupgrade_before_asaas(
     assert op.notify_status == "skipped"
     assert "contagem atual de membros" in op.error
     assert notified == []
+
+
+def test_worker_retargets_stale_prepared_autoupgrade_before_asaas(
+    monkeypatch,
+) -> None:
+    """A operação antiga usa o tier correto dos membros antes do único PUT."""
+    op = _op(
+        to_plano="acima_201",
+        to_preco=499.0,
+        to_limite=None,
+        to_descricao="PastorAI — plano acima_201",
+    )
+    sub = _sub(pessoas=250)
+    tenant = _WorkerSession(
+        subscription=sub,
+        igreja=SimpleNamespace(id=_IGREJA_A, plano="ate_100"),
+        plan_changes=[op],
+    )
+    tenant.pessoas_count = 150
+    asaas = _WorkerAsaas()
+    notified = _spy_notify(monkeypatch)
+
+    completed = run_pending_plan_changes(
+        _Discovery([(op, _IGREJA_A)]),
+        session_factory=_factory_queue([tenant]),
+        asaas=asaas,
+        evolution=object(),
+    )
+
+    assert completed == 1
+    assert asaas.puts == 1
+    assert asaas.put_values == [299.0]
+    assert asaas.put_descriptions == ["PastorAI — plano 101_200"]
+    assert op.to_plano == "101_200"
+    assert float(op.to_preco) == 299.0
+    assert op.to_limite == 200
+    assert op.status == "completed"
+    assert sub.plano == "101_200"
+    assert notified == [_IGREJA_A]
 
 
 def test_worker_retry_reconciles_by_get_without_second_put(monkeypatch) -> None:
@@ -640,7 +697,7 @@ def test_retried_notification_uses_the_completed_operation_target(
 # concluir e persegue os degraus restantes no MESMO tick, sem depender de
 # futura mutação de pessoas.
 # ---------------------------------------------------------------------------
-def test_multi_tier_upgrade_chases_second_step_in_same_tick(monkeypatch) -> None:
+def test_prepared_autoupgrade_skips_obsolete_intermediate_tier(monkeypatch) -> None:
     op = _op()  # ate_100 -> 101_200 (criada pelo trigger coalescido)
     sub = _sub(pessoas=201)  # já cruzou DOIS tiers antes do primeiro tick
     igreja = SimpleNamespace(id=_IGREJA_A, plano="ate_100")
@@ -669,24 +726,19 @@ def test_multi_tier_upgrade_chases_second_step_in_same_tick(monkeypatch) -> None
     )
 
     assert completed == 1
-    # DOIS PUTs no MESMO id remoto — um por degrau; nenhum POST (fake explode).
-    assert asaas.puts == 2
-    assert asaas.put_targets == ["sub_asaas_1", "sub_asaas_1"]
-    # O degrau final é o alvo correto, com limite do catálogo.
+    # O alvo ainda não enviado é recalculado: um único PUT direto ao tier
+    # correto, sem cobrar o degrau intermediário e sem qualquer POST.
+    assert asaas.puts == 1
+    assert asaas.put_targets == ["sub_asaas_1"]
+    assert asaas.put_values == [499.0]
     assert sub.plano == "acima_201"
     assert sub.limite is None
     assert igreja.plano == "acima_201"
     assert op.status == "completed"
-    followup = next(
-        o
-        for o in tenant.added
-        if isinstance(o, BillingPlanChangeOperation) and o.to_plano == "acima_201"
-    )
-    assert followup.status == "completed"
-    assert followup.origin == "autoupgrade"
-    assert float(followup.to_preco) == 499.0
-    # Notificação por degrau concluído (cada plano tem marcador próprio).
-    assert notified == [_IGREJA_A, _IGREJA_A]
+    assert op.to_plano == "acima_201"
+    assert float(op.to_preco) == 499.0
+    assert not tenant.added
+    assert notified == [_IGREJA_A]
 
 
 def test_open_manual_change_has_precedence_over_autoupgrade(monkeypatch) -> None:
@@ -747,19 +799,6 @@ def test_inflight_notification_never_marks_sent(monkeypatch) -> None:
 # justamente na corrida que ela existe para cobrir. Agora o porte vem da
 # releitura canônica, e o worker conclui o degrau enfileirado.
 # ---------------------------------------------------------------------------
-def _ladder_catalog():
-    return [
-        SimpleNamespace(
-            codigo="101_200", nome="101-200", preco_mensal=299.0,
-            limite_pessoas=200, ativo=True,
-        ),
-        SimpleNamespace(
-            codigo="acima_201", nome="201+", preco_mensal=499.0,
-            limite_pessoas=None, ativo=True,
-        ),
-    ]
-
-
 def test_queue_autoupgrade_reads_the_canonical_headcount_not_the_stale_mirror(
 ) -> None:
     sub = _sub(plano="101_200", limite=200, pessoas=50)  # espelho DEFASADO
