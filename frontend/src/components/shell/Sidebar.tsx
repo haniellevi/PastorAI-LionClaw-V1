@@ -35,6 +35,8 @@ interface SidebarProps {
   sections?: NavSection[];
   /** Link para trocar de superfície (app↔admin). null oculta o item. */
   crossSurface?: { href: string; label: string } | null;
+  /** Posição do link de troca de superfície em relação às seções do menu. */
+  crossSurfacePlacement?: "before" | "after";
   collapsed: boolean;
   mobileOpen: boolean;
   onNavigate: (target: string) => void;
@@ -56,6 +58,7 @@ export function Sidebar({
   label = "Menu principal",
   sections = NAV_SECTIONS,
   crossSurface = null,
+  crossSurfacePlacement = "before",
   collapsed,
   mobileOpen,
   onNavigate,
@@ -193,6 +196,30 @@ export function Sidebar({
     );
   }
 
+  function renderCrossSurface() {
+    if (!crossSurface) return null;
+
+    return (
+      <div className="nav-group">
+        <a
+          className="nav-item"
+          href={crossSurface.href}
+          data-accent="whats"
+          aria-label={crossSurface.label}
+          onMouseEnter={(e) => showTip(e, crossSurface.label)}
+          onMouseLeave={hideTip}
+          onFocus={(e) => showTip(e, crossSurface.label)}
+          onBlur={hideTip}
+        >
+          <span className="nav-ic" aria-hidden="true">
+            <Icon name="lock" />
+          </span>
+          <span className="lbl">{crossSurface.label}</span>
+        </a>
+      </div>
+    );
+  }
+
   return (
     // id/tabIndex: alvo do aria-controls dos gatilhos e fallback de foco do
     // trap do drawer mobile (useDrawerA11y). aria-label nomeia o landmark.
@@ -257,26 +284,9 @@ export function Sidebar({
       </div>
 
       <div className="nav-scroll">
-        {crossSurface ? (
-          <div className="nav-group">
-            <a
-              className="nav-item"
-              href={crossSurface.href}
-              data-accent="whats"
-              aria-label={crossSurface.label}
-              onMouseEnter={(e) => showTip(e, crossSurface.label)}
-              onMouseLeave={hideTip}
-              onFocus={(e) => showTip(e, crossSurface.label)}
-              onBlur={hideTip}
-            >
-              <span className="nav-ic" aria-hidden="true">
-                <Icon name="lock" />
-              </span>
-              <span className="lbl">{crossSurface.label}</span>
-            </a>
-          </div>
-        ) : null}
+        {crossSurfacePlacement === "before" ? renderCrossSurface() : null}
         {visibleSections.map(renderSection)}
+        {crossSurfacePlacement === "after" ? renderCrossSurface() : null}
       </div>
 
       {/* Flyout do tooltip colapsado: IRMÃO do .nav-scroll (não descendente) —
