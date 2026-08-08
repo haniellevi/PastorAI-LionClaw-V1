@@ -42,10 +42,9 @@ export const metadata: Metadata = {
   formatDetection: { telephone: false },
 };
 
-// O painel é inteiramente client-side e auth-gated (sessão via Clerk/contexto):
-// não há HTML estático útil a pré-renderizar e o SSG do shell quebra ao ler o
-// contexto de sessão durante o build. Renderização dinâmica evita esse prerender.
-export const dynamic = "force-dynamic";
+// O shell não contém dados de usuário no HTML do servidor: a sessão continua
+// resolvida no cliente pelo AuthProvider. Permitir pré-renderização estática
+// entrega a casca pela CDN e evita iniciar um render no servidor a cada acesso.
 
 export const viewport: Viewport = {
   width: "device-width",

@@ -32,6 +32,7 @@ import { useAuth } from "@/lib/auth-context";
 import {
   ApiError,
   StaleItemError,
+  clearAuthedResponseCache,
   fetchCells,
   fetchOverview,
   fetchTeamLookup,
@@ -125,6 +126,14 @@ export function DashboardScreen() {
     async (mode: "initial" | "retry") => {
       if (!token) return;
       if (mode === "initial") setLoading(true);
+      if (mode === "retry") {
+        clearAuthedResponseCache(token, [
+          "/work-queue?",
+          "/team/lookup?",
+          "/cells?",
+          "/dashboard/overview",
+        ]);
+      }
       setError(null);
       try {
         const [queue, team, cellPage, ov] = await Promise.all([

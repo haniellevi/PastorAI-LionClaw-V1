@@ -38,6 +38,7 @@ interface SidebarProps {
   collapsed: boolean;
   mobileOpen: boolean;
   onNavigate: (target: string) => void;
+  onPreload?: (target: string) => void;
   onToggleCollapse: () => void;
   onLogout: () => void;
 }
@@ -58,6 +59,7 @@ export function Sidebar({
   collapsed,
   mobileOpen,
   onNavigate,
+  onPreload,
   onToggleCollapse,
   onLogout,
 }: SidebarProps) {
@@ -143,9 +145,18 @@ export function Sidebar({
         onClick={() => {
           if (!item.locked) onNavigate(item.target);
         }}
-        onMouseEnter={(e) => showTip(e, item.label)}
+        onPointerDown={() => {
+          if (!item.locked) onPreload?.(item.target);
+        }}
+        onMouseEnter={(e) => {
+          if (!item.locked) onPreload?.(item.target);
+          showTip(e, item.label);
+        }}
         onMouseLeave={hideTip}
-        onFocus={(e) => showTip(e, item.label)}
+        onFocus={(e) => {
+          if (!item.locked) onPreload?.(item.target);
+          showTip(e, item.label);
+        }}
         onBlur={hideTip}
       >
         <span className="nav-ic" aria-hidden="true">
@@ -285,6 +296,9 @@ export function Sidebar({
             type="button"
             className="side-user-link"
             title="Meu perfil"
+            onPointerDown={() => onPreload?.("perfil")}
+            onMouseEnter={() => onPreload?.("perfil")}
+            onFocus={() => onPreload?.("perfil")}
             onClick={() => onNavigate("perfil")}
             style={{
               display: "flex",

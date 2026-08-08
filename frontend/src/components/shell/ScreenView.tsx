@@ -5,33 +5,141 @@
  * e, para as demais rotas, mantém a casca + cabeçalho — provando que a navegação
  * por hash troca de tela sem reload.
  */
-import { CalendarioScreen } from "@/components/calendario/CalendarioScreen";
-import { CelulasScreen } from "@/components/cells/CelulasScreen";
-import { AgenteScreen } from "@/components/config/AgenteScreen";
-import { AssinaturaScreen } from "@/components/config/AssinaturaScreen";
-import { EquipeScreen } from "@/components/config/EquipeScreen";
-import { IdentidadeVisualScreen } from "@/components/config/IdentidadeVisualScreen";
-import { IntegracoesScreen } from "@/components/config/IntegracoesScreen";
-import { PermissoesScreen } from "@/components/config/PermissoesScreen";
-import { SetupChecklistScreen } from "@/components/config/SetupChecklistScreen";
-import { CentralCelulaScreen } from "@/components/central-celula/CentralCelulaScreen";
-import { MinhaCelulaEntry } from "@/components/minha-celula/MinhaCelulaEntry";
-import { ComunicadosScreen } from "@/components/comunicados/ComunicadosScreen";
-import { ConsolIndividualScreen } from "@/components/consolidacao/ConsolIndividualScreen";
-import { ConsolidarScreen } from "@/components/consolidacao/ConsolidarScreen";
-import { LockedScreen } from "@/components/consolidacao/LockedScreen";
-import { ContatosScreen } from "@/components/contacts/ContatosScreen";
-import { GanharScreen } from "@/components/contacts/GanharScreen";
 import { DashboardScreen } from "@/components/dashboard/DashboardScreen";
-import { EnviarScreen } from "@/components/enviar/EnviarScreen";
-import { G12Screen } from "@/components/g12/G12Screen";
-import { InboxScreen } from "@/components/inbox/InboxScreen";
-import { RelatoriosScreen } from "@/components/reports/RelatoriosScreen";
-import { WhatsappScreen } from "@/components/whatsapp/WhatsappScreen";
-import { PerfilScreen } from "@/components/profile/PerfilScreen";
+import dynamic from "next/dynamic";
+
 import { ModuleTabs } from "./ModuleTabs";
+import {
+  loadAgenteScreen,
+  loadAssinaturaScreen,
+  loadCalendarioScreen,
+  loadCelulasScreen,
+  loadCentralCelulaScreen,
+  loadComunicadosScreen,
+  loadConsolIndividualScreen,
+  loadConsolidarScreen,
+  loadContatosScreen,
+  loadEnviarScreen,
+  loadEquipeScreen,
+  loadG12Screen,
+  loadGanharScreen,
+  loadIdentidadeVisualScreen,
+  loadInboxScreen,
+  loadIntegracoesScreen,
+  loadLockedScreen,
+  loadMinhaCelulaEntry,
+  loadPerfilScreen,
+  loadPermissoesScreen,
+  loadRelatoriosScreen,
+  loadSetupChecklistScreen,
+  loadWhatsappScreen,
+} from "./screen-loaders";
 import { Icon } from "@/lib/icons";
 import { SCREEN_META } from "@/lib/navigation";
+
+function ScreenLoading() {
+  return (
+    <div className="screen" role="status" aria-live="polite" aria-busy="true">
+      <div className="card" style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <span className="spinner" aria-hidden="true" />
+        <span>Carregando tela…</span>
+      </div>
+    </div>
+  );
+}
+
+const CalendarioScreen = dynamic(
+  () => loadCalendarioScreen().then((m) => m.CalendarioScreen),
+  { loading: ScreenLoading },
+);
+const CelulasScreen = dynamic(
+  () => loadCelulasScreen().then((m) => m.CelulasScreen),
+  { loading: ScreenLoading },
+);
+const AgenteScreen = dynamic(
+  () => loadAgenteScreen().then((m) => m.AgenteScreen),
+  { loading: ScreenLoading },
+);
+const AssinaturaScreen = dynamic(
+  () => loadAssinaturaScreen().then((m) => m.AssinaturaScreen),
+  { loading: ScreenLoading },
+);
+const EquipeScreen = dynamic(
+  () => loadEquipeScreen().then((m) => m.EquipeScreen),
+  { loading: ScreenLoading },
+);
+const IdentidadeVisualScreen = dynamic(
+  () => loadIdentidadeVisualScreen().then((m) => m.IdentidadeVisualScreen),
+  { loading: ScreenLoading },
+);
+const IntegracoesScreen = dynamic(
+  () => loadIntegracoesScreen().then((m) => m.IntegracoesScreen),
+  { loading: ScreenLoading },
+);
+const PermissoesScreen = dynamic(
+  () => loadPermissoesScreen().then((m) => m.PermissoesScreen),
+  { loading: ScreenLoading },
+);
+const SetupChecklistScreen = dynamic(
+  () => loadSetupChecklistScreen().then((m) => m.SetupChecklistScreen),
+  { loading: ScreenLoading },
+);
+const CentralCelulaScreen = dynamic(
+  () => loadCentralCelulaScreen().then((m) => m.CentralCelulaScreen),
+  { loading: ScreenLoading },
+);
+const MinhaCelulaEntry = dynamic(
+  () => loadMinhaCelulaEntry().then((m) => m.MinhaCelulaEntry),
+  { loading: ScreenLoading },
+);
+const ComunicadosScreen = dynamic(
+  () => loadComunicadosScreen().then((m) => m.ComunicadosScreen),
+  { loading: ScreenLoading },
+);
+const ConsolIndividualScreen = dynamic(
+  () => loadConsolIndividualScreen().then((m) => m.ConsolIndividualScreen),
+  { loading: ScreenLoading },
+);
+const ConsolidarScreen = dynamic(
+  () => loadConsolidarScreen().then((m) => m.ConsolidarScreen),
+  { loading: ScreenLoading },
+);
+const LockedScreen = dynamic(
+  () => loadLockedScreen().then((m) => m.LockedScreen),
+  { loading: ScreenLoading },
+);
+const ContatosScreen = dynamic(
+  () => loadContatosScreen().then((m) => m.ContatosScreen),
+  { loading: ScreenLoading },
+);
+const GanharScreen = dynamic(
+  () => loadGanharScreen().then((m) => m.GanharScreen),
+  { loading: ScreenLoading },
+);
+const EnviarScreen = dynamic(
+  () => loadEnviarScreen().then((m) => m.EnviarScreen),
+  { loading: ScreenLoading },
+);
+const G12Screen = dynamic(
+  () => loadG12Screen().then((m) => m.G12Screen),
+  { loading: ScreenLoading },
+);
+const InboxScreen = dynamic(
+  () => loadInboxScreen().then((m) => m.InboxScreen),
+  { loading: ScreenLoading },
+);
+const RelatoriosScreen = dynamic(
+  () => loadRelatoriosScreen().then((m) => m.RelatoriosScreen),
+  { loading: ScreenLoading },
+);
+const WhatsappScreen = dynamic(
+  () => loadWhatsappScreen().then((m) => m.WhatsappScreen),
+  { loading: ScreenLoading },
+);
+const PerfilScreen = dynamic(
+  () => loadPerfilScreen().then((m) => m.PerfilScreen),
+  { loading: ScreenLoading },
+);
 
 export function ScreenView({ route, param }: { route: string; param?: string | null }) {
   const meta = SCREEN_META[route] ?? { title: "Tela", crumb: "" };

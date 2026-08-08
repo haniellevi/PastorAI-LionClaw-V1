@@ -38,7 +38,11 @@ import {
   type ChatMessage,
   type Conversation,
 } from "@/lib/conversations-api";
-import { fetchTeamLookup, type TeamMember } from "@/lib/dashboard-api";
+import {
+  clearAuthedResponseCache,
+  fetchTeamLookup,
+  type TeamMember,
+} from "@/lib/dashboard-api";
 import { Icon } from "@/lib/icons";
 import { isAdmin, type Role } from "@/lib/roles";
 import {
@@ -135,6 +139,9 @@ export function InboxScreen() {
     async (mode: "initial" | "poll" | "retry") => {
       if (!token) return;
       if (mode === "initial") setLoading(true);
+      if (mode !== "initial") {
+        clearAuthedResponseCache(token, ["/conversations?page="]);
+      }
       if (mode !== "poll") setError(null);
       try {
         const page = await fetchConversations(token);
