@@ -51,10 +51,17 @@ describe("isolamento de tokens (globals.css × design-tokens.css)", () => {
       read("../components/legal/legal-document.module.css"),
       read("../../public/icon.svg"),
       read("../../public/icon-maskable.svg"),
+      read("../../public/brand/diamante-silhueta-16.svg"),
     ].join("\n");
     expect(criticalSurfaces).not.toMatch(
       /#(?:0d9488|0f766e|0f3a36|0b2c29|082220|14b8a6|2dd4bf|5eead4|99f6e4)/i,
     );
+  });
+
+  it("favicon aponta para a microversão canônica do Diamante", () => {
+    const layout = read("layout.tsx");
+    expect(layout).toContain('/brand/diamante-silhueta-16.svg');
+    expect(layout).not.toMatch(/icon:\s*["']\/icon\.svg/);
   });
 
   it("sidebar colapsada não usa display:none nos rótulos (nome acessível preservado)", () => {

@@ -36,7 +36,15 @@ export const metadata: Metadata = {
     title: "Igreja 12",
   },
   icons: {
-    icon: "/icon.svg",
+    // URL própria da microversão evita que navegadores reaproveitem o favicon
+    // legado já armazenado em cache. A silhueta sólida é a versão canônica em
+    // 16 px da identidade Diamante Lapidado.
+    icon: {
+      url: "/brand/diamante-silhueta-16.svg",
+      type: "image/svg+xml",
+      sizes: "16x16",
+    },
+    shortcut: "/brand/diamante-silhueta-16.svg",
     apple: "/apple-touch-icon.png",
   },
   formatDetection: { telephone: false },
