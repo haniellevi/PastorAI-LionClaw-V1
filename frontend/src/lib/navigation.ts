@@ -115,7 +115,7 @@ export const ADMIN_NAV_SECTIONS: NavSection[] = [
       { target: "contatos", label: "Pessoas", icon: "team" },
       { target: "comunicados", label: "Comunicação", icon: "broadcast" },
       { target: "identidade", label: "Identidade Visual", icon: "image" },
-      { target: "equipe", label: "Usuários do Sistema", icon: "team" },
+      { target: "equipe", label: "Membros da Igreja", icon: "team" },
       { target: "permissoes", label: "Permissões", icon: "lock" },
       // Config admin da Agenda (Google + destinatários), antes embutida em
       // #calendario. A operação de eventos (criar/confirmar) segue no app.
@@ -211,7 +211,7 @@ export const SCREEN_META: Record<
     info: "Envio segmentado pelo WhatsApp oficial. Contatos com opt-out são excluídos automaticamente.",
   },
   equipe: {
-    title: "Usuários do Sistema",
+    title: "Membros da Igreja",
     crumb: "Quem tem acesso ao painel",
     info: "Quem tem login no sistema. Cada pessoa acumula papéis, e o menu e o dashboard são a união deles (o que cada papel enxerga é definido em Permissões).",
   },
