@@ -33,6 +33,8 @@ export const loadLockedScreen = () =>
 export const loadContatosScreen = () =>
   import("@/components/contacts/ContatosScreen");
 export const loadGanharScreen = () => import("@/components/contacts/GanharScreen");
+export const loadDashboardScreen = () =>
+  import("@/components/dashboard/DashboardScreen");
 export const loadEnviarScreen = () => import("@/components/enviar/EnviarScreen");
 export const loadG12Screen = () => import("@/components/g12/G12Screen");
 export const loadInboxScreen = () => import("@/components/inbox/InboxScreen");
@@ -61,6 +63,7 @@ const SCREEN_MODULE_LOADERS: Record<string, () => Promise<unknown>> = {
   capacitacao: loadLockedScreen,
   contatos: loadContatosScreen,
   ganhar: loadGanharScreen,
+  dashboard: loadDashboardScreen,
   enviar: loadEnviarScreen,
   g12: loadG12Screen,
   inbox: loadInboxScreen,

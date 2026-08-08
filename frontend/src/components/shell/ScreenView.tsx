@@ -5,7 +5,6 @@
  * e, para as demais rotas, mantém a casca + cabeçalho — provando que a navegação
  * por hash troca de tela sem reload.
  */
-import { DashboardScreen } from "@/components/dashboard/DashboardScreen";
 import dynamic from "next/dynamic";
 
 import { ModuleTabs } from "./ModuleTabs";
@@ -19,6 +18,7 @@ import {
   loadConsolIndividualScreen,
   loadConsolidarScreen,
   loadContatosScreen,
+  loadDashboardScreen,
   loadEnviarScreen,
   loadEquipeScreen,
   loadG12Screen,
@@ -114,6 +114,10 @@ const ContatosScreen = dynamic(
 );
 const GanharScreen = dynamic(
   () => loadGanharScreen().then((m) => m.GanharScreen),
+  { loading: ScreenLoading },
+);
+const DashboardScreen = dynamic(
+  () => loadDashboardScreen().then((m) => m.DashboardScreen),
   { loading: ScreenLoading },
 );
 const EnviarScreen = dynamic(

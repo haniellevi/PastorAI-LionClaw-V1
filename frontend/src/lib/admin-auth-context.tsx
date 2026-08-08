@@ -54,6 +54,10 @@ function writeToken(token: string | null) {
   }
 }
 
+function preloadAdminConsole(): void {
+  void import("@/components/admin/AdminConsole");
+}
+
 export function AdminAuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AdminAuthStatus>("loading");
   const [admin, setAdmin] = useState<AdminMe | null>(null);
@@ -68,6 +72,7 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
       return;
     }
     tokenRef.current = token;
+    preloadAdminConsole();
     fetchAdminMe(token)
       .then((me) => {
         if (!active) return;
@@ -88,6 +93,7 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (email: string, password: string) => {
     const { token } = await adminLogin(email, password);
+    preloadAdminConsole();
     let me: AdminMe;
     try {
       me = await fetchAdminMe(token);
