@@ -129,20 +129,23 @@ def test_valid_recipient_phone_is_digits_only() -> None:
         optout=False,
         telefone="+55 (11) 99999-0000",
     )
-    assert delivery.recipient_delivery_phone(person) == ("5511999990000", None)
+    assert delivery.recipient_delivery_phone(person) == ("11999990000", None)
 
 
 @pytest.mark.parametrize(
-    ("raw", "expected"),
+    ("raw", "expected_local", "expected_e164"),
     [
-        ("(89) 99431-5927", "5589994315927"),
-        ("89994315927", "5589994315927"),
-        ("+55 (89) 99431-5927", "5589994315927"),
-        ("558994315927", "5589994315927"),
+        ("(89) 99431-5927", "89994315927", "5589994315927"),
+        ("89994315927", "89994315927", "5589994315927"),
+        ("+55 (89) 99431-5927", "89994315927", "5589994315927"),
+        ("558994315927", "89994315927", "5589994315927"),
     ],
 )
-def test_delivery_phone_uses_brazilian_e164(raw: str, expected: str) -> None:
-    assert delivery.normalize_delivery_phone(raw) == expected
+def test_delivery_phone_adds_country_code_only_at_evolution_boundary(
+    raw: str, expected_local: str, expected_e164: str
+) -> None:
+    assert delivery.normalize_delivery_phone(raw) == expected_local
+    assert delivery.evolution_delivery_phone(raw) == expected_e164
 
 
 def test_phone_change_after_materialization_is_suppressed() -> None:
@@ -153,7 +156,7 @@ def test_phone_change_after_materialization_is_suppressed() -> None:
         telefone="5511888880000",
     )
     assert delivery.recipient_phone_for_delivery(
-        person, snapshot_phone="5511999990000"
+        person, snapshot_phone="11999990000"
     ) == (None, "telefone_alterado")
 
 
@@ -232,9 +235,11 @@ class _SequenceEvolution:
     def __init__(self, outcomes) -> None:
         self.outcomes = list(outcomes)
         self.calls = 0
+        self.phones: list[str] = []
 
     def send_text_classificado(self, instance, phone, message):
         self.calls += 1
+        self.phones.append(phone)
         return self.outcomes.pop(0)
 
 
@@ -246,7 +251,7 @@ def _install_in_memory_dispatch(monkeypatch):
         entrega_id=uuid.uuid4(),
         execucao_id=uuid.uuid4(),
         instance="igreja-1",
-        telefone="5511999990000",
+        telefone="11999990000",
         mensagem="aviso",
     )
 
@@ -295,6 +300,7 @@ def test_proven_pre_send_failure_is_retried(monkeypatch) -> None:
 
     assert actions == 2
     assert evolution.calls == 2
+    assert evolution.phones == ["5511999990000", "5511999990000"]
     assert state["status"] == "aceito"
 
 
@@ -359,14 +365,14 @@ def test_optout_between_safe_failure_and_retry_suppresses(monkeypatch) -> None:
         arquivada_em=None,
         consentimento=True,
         optout=False,
-        telefone="5511999990000",
+        telefone="11999990000",
     )
     claim = delivery.DeliveryClaim(
         igreja_id=igreja_id,
         entrega_id=uuid.uuid4(),
         execucao_id=uuid.uuid4(),
         instance="igreja-1",
-        telefone="5511999990000",
+        telefone="11999990000",
         mensagem="aviso",
     )
     monkeypatch.setattr(
