@@ -1,8 +1,11 @@
 # PastorAI V1 — runbook canônico de produção
 
-Atualizado em 2026-08-05. Este é o procedimento operacional vigente para o
+Atualizado em 2026-08-07. Este é o procedimento operacional vigente para o
 Igreja 12. Não contém segredos; valores reais ficam somente nos provedores e no
 `.env` do release ativo, acessível por `/opt/pastorai-current/deploy/.env`.
+
+Backup, teste de restauração e firewall: consulte
+[BACKUP-FIREWALL-RUNBOOK.md](BACKUP-FIREWALL-RUNBOOK.md).
 
 ## 1. Alvos oficiais
 
@@ -76,8 +79,10 @@ GOOGLE_OAUTH_REDIRECT_URI
 
 `OPENAI_API_KEY` pode ficar vazio porque a aplicação aceita credencial BYO por
 igreja. `GOOGLE_CALENDAR_ACCESS_TOKEN` é legado e pode ficar vazio; o fluxo
-novo usa OAuth por igreja. Nunca imprimir, versionar ou transportar o `.env`
-em tarball.
+novo usa OAuth por igreja. Nunca imprimir, versionar ou incluir o `.env` no
+tarball de deploy. O pacote de backup é uma exceção operacional controlada:
+fica restrito a root e só sai da VPS criptografado, conforme o runbook de
+backup.
 
 ## 4. Migrations do Supabase
 
