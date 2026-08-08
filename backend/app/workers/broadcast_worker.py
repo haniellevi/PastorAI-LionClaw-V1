@@ -208,10 +208,15 @@ class BroadcastWorker:
 
         try:
             while self._running:
-                # A heartbeat published before work is liveness only. The
-                # worker becomes ready again only after this cycle succeeds.
-                self._advertise_ready = False
-                heartbeat_available = self._publish_heartbeat(ready=False)
+                # Preserve the last proven state while the next cycle runs.
+                # Publishing ``idle`` before every healthy tick created a
+                # false 503 window in the API even though the worker was alive
+                # and able to accept work.  A first boot still starts closed;
+                # after one successful cycle it stays ready until a real
+                # failure, shutdown, or heartbeat expiry proves otherwise.
+                heartbeat_available = self._publish_heartbeat(
+                    ready=self._advertise_ready
+                )
                 if self._enabled and heartbeat_available:
                     try:
                         counters = self.tick()

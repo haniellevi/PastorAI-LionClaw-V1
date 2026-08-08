@@ -474,7 +474,7 @@ def process_inbound_message(
         )
 
     response = final.get("response")
-    model = settings.agent_default_model
+    model = getattr(cred, "modelo", None) or settings.agent_default_model
 
     # Refine the deterministic draft via the BYO LLM and log usage (RNF-24).
     if response:
