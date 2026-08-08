@@ -13,8 +13,8 @@ o banco, round-trips sequenciais no bootstrap, indisponibilidade do Redis
 adicionando cerca de oito segundos ao login e tratamento incorreto de falhas de
 infraestrutura como senha inválida. Esses pontos foram corrigidos localmente,
 revalidados e consolidados em commits da branch. O último lote de warmup e
-`/team/lookup` descrito neste relatório ainda está **sem commit**; a branch não
-recebeu novo push/PR/deploy e produção continua intocada.
+`/team/lookup` também foi versionado; a branch ainda não recebeu o novo push e
+produção continua intocada.
 
 Principais resultados locais:
 
@@ -50,12 +50,13 @@ nem provam o comportamento de banco/Redis sob carga de produção.
 - Branch: `codex/performance-plan`.
 - Base: `deb95a8cfebc154168bcc13a2bd304aa34260bcf` (`origin/main` no início).
 - Integração mais recente: `origin/main` em
-  `2c970c7d39c724a53fdcc79addbbaddc3124e2f8`, incorporada pelo merge local
-  `3bda8144094c3f6324f5f00af51489e009a5757d`.
+  `25ed43861c779567d91ff84145d810e81cb601e3`, incorporada pelo merge local
+  `2ed1e19f5a9ba370273c5981a0295cdeae8b2ab6`.
 - Estado operacional: a migration de idempotência outbound foi aplicada
   **somente no banco DEV**, com autorização explícita e validação; não houve
-  migration em produção nem deploy. As duas correções do gate final e esta
-  atualização do relatório estão no worktree, ainda não versionadas.
+  migration em produção nem deploy. A branch local está integrada e validada;
+  o PR permanece draft e o novo SHA ainda não foi publicado no momento deste
+  registro.
 
 ### Gate de frescor do grafo
 
@@ -183,6 +184,12 @@ cinco amostras aquecidas tiveram mediana de 2,87 s. Todas terminaram
 autenticadas, sem 500/429 e sem warning/error no navegador. Uma amostra aquecida
 de 7,23 s foi mantida como outlier; ela não alterou a mediana e reforça que o
 gate de staging deve observar cauda, não apenas p50.
+
+Essas medições autenticadas foram feitas no SHA `a66aa71`, imediatamente antes
+da integração final com a `main`. O merge `2ed1e19` incorporou cache e preload
+adicionais do frontend, passou nos testes e no build, mas ainda deve repetir o
+smoke/RUM autenticado no SHA publicado; os números acima não foram
+retroativamente atribuídos ao merge.
 
 ### PostgreSQL DEV — latência e índice outbound
 
@@ -406,6 +413,14 @@ são limitadas no SQL com `row_number() over(partition by celula_id)`.
   PostgreSQL 16 local descartável, sem skips.
 - Testes focados do último lote: **44/44 PASS**; revisão independente não
   encontrou P0–P2; `git diff --check` permaneceu em **PASS**.
+- Integração com a `main` de `25ed438`: backend **1.972 PASS, 135 SKIP**;
+  frontend **58 arquivos, 508/508 PASS**; TypeScript, ESLint direto sem cache e
+  build de produção em cópia limpa: **PASS**. O build manteve First Load JS de
+  110 kB em `/`, 110 kB em `/gestao` e 108 kB em `/admin`.
+- A revisão do merge encontrou duas corridas P2 — resposta antiga repovoando o
+  cache e timeout inicial do Inbox aparecendo como lista vazia. Ambas foram
+  corrigidas, receberam regressões determinísticas e a re-revisão deu
+  **20/20 PASS, nenhum P0–P2 remanescente**.
 
 ## Gates executados e pendências
 
@@ -480,8 +495,8 @@ Ainda faltam:
 
 ## Próximos passos recomendados
 
-1. Revisar o diff ainda não versionado e, somente com autorização, criar um
-   commit/PR isolado; repetir os testes no SHA exato publicado.
+1. Publicar a branch integrada, atualizar o PR draft existente e repetir os
+   checks no SHA exato publicado.
 2. Executar `EXPLAIN` e carga representativa de Contatos, células e autorização;
    migrar os seis consumidores legados para busca/paginação própria.
 3. Testar múltiplos workers com Redis + PostgreSQL reais e upload concorrente,
