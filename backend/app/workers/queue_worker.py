@@ -117,6 +117,35 @@ end
 return 0
 """
 
+_OWNS_CLAIM_SCRIPT = """
+if redis.call('GET', KEYS[1]) ~= ARGV[1] then
+    return 0
+end
+local items = redis.call('LRANGE', KEYS[2], 0, -1)
+for _, item in ipairs(items) do
+    if item == ARGV[2] then
+        return 1
+    end
+end
+return 0
+"""
+
+_RELEASE_MARKER_IF_OWNED_SCRIPT = """
+if redis.call('GET', KEYS[1]) ~= ARGV[1] then
+    return 0
+end
+local items = redis.call('LRANGE', KEYS[2], 0, -1)
+for _, item in ipairs(items) do
+    if item == ARGV[2] then
+        if redis.call('GET', KEYS[3]) == ARGV[3] then
+            return redis.call('DEL', KEYS[3])
+        end
+        return 0
+    end
+end
+return 0
+"""
+
 # Postgres error code for unique_violation (23505) — the only IntegrityError
 # `ingest_message_event_ex` treats as a duplicate; anything else re-raises.
 _PG_UNIQUE_VIOLATION = "23505"
@@ -190,11 +219,16 @@ class IngestionResult(str, Enum):
     IGNORED = "ignored"
 
 
+class ClaimOwnershipLost(RuntimeError):
+    """Raised when a recovered queue item no longer belongs to this worker."""
+
+
 # Resolver que baixa a mídia da Evolution e a sobe no Storage, devolvendo o
 # ponteiro (StoredMedia: .path/.mime/.nome/.tamanho). Injetado no worker para
 # manter a ingestão testável (sem rede) — tipado como Any para evitar acoplar a
 # ingestão ao módulo de storage.
 MediaResolver = Callable[[ParsedMessage, Any, Any], Any]
+ClaimGuard = Callable[[], None]
 
 
 # ---------------------------------------------------------------------------
@@ -226,6 +260,7 @@ def ingest_message_event_ex(
     db: Session,
     parsed: ParsedMessage,
     media_resolver: MediaResolver | None = None,
+    ownership_guard: ClaimGuard | None = None,
 ) -> IngestionOutcome:
     """Like `ingest_message_event` but also returns the conversation context.
 
@@ -269,6 +304,12 @@ def ingest_message_event_ex(
     promote_to_tenant(db, igreja_id, source="worker_ingest")
     inbound = not parsed.from_me
 
+    # The Redis processing list is the live ownership record. A handler whose
+    # lease expired may still be running while another worker recovers the same
+    # envelope, so fence the stale owner before it reaches any side effect.
+    if ownership_guard is not None:
+        ownership_guard()
+
     # Data integrity (regra do usuário + US-07): só uma mensagem RECEBIDA de um
     # número que NÃO é o próprio número oficial da igreja vira contato. O número
     # da igreja (auto-conversa, ou a sincronização de histórico ao ler o QR) e os
@@ -298,6 +339,11 @@ def ingest_message_event_ex(
             result=IngestionResult.DUPLICATE,
             igreja_id=igreja_id,
         )
+
+    # The advisory lock above may have waited behind the current winner. Check
+    # the Redis owner again before continuing with contact/media work.
+    if ownership_guard is not None:
+        ownership_guard()
 
     # Dedupe person by CANONICAL telefone + igreja (RNF-16). Always look up an
     # existing contact before creating, matching across the +55 / 9th-digit
@@ -372,6 +418,8 @@ def ingest_message_event_ex(
     # ingestão nem perder a mensagem.
     stored = None
     if parsed.media_kind and media_resolver is not None:
+        if ownership_guard is not None:
+            ownership_guard()
         try:
             stored = media_resolver(parsed, igreja_id, conversation.id)
         except Exception:  # noqa: BLE001 - falha de mídia não derruba a ingestão
@@ -404,6 +452,12 @@ def ingest_message_event_ex(
         conversation.nao_lidas = (conversation.nao_lidas or 0) + 1
 
     # trg_consent_on_inbound grants consent automatically on the first inbound.
+    # An upload already in flight cannot be revoked if the lease expires. The
+    # post-effect check prevents the stale owner from committing; Storage uses
+    # a provider-id-derived upsert path, so the recovered owner overwrites the
+    # same object instead of creating a duplicate/orphan.
+    if ownership_guard is not None:
+        ownership_guard()
     try:
         db.commit()
     except IntegrityError as exc:
@@ -555,6 +609,36 @@ class WebhookQueue:
         """Acknowledge one claimed item after success, ignore, or requeue."""
         self._redis.lrem(self.processing_queue(worker_id), 1, raw)
 
+    def owns_claim(self, worker_id: str, raw: str) -> bool:
+        """Return whether this live worker still owns this exact queue item.
+
+        Lease and private-list membership are checked in one Redis script so a
+        recovered item cannot be processed concurrently by its expired owner.
+        """
+        return bool(
+            self._redis.eval(
+                _OWNS_CLAIM_SCRIPT,
+                2,
+                self._lease_key(worker_id),
+                self.processing_queue(worker_id),
+                worker_id,
+                raw,
+            )
+        )
+
+    def assert_claim_owned(self, worker_id: str, raw: str) -> None:
+        """Abort side effects when lease recovery transferred this item."""
+        try:
+            owned = self.owns_claim(worker_id, raw)
+        except Exception as exc:  # noqa: BLE001 - unverifiable means unsafe
+            raise ClaimOwnershipLost(
+                "Webhook queue claim ownership could not be verified"
+            ) from exc
+        if not owned:
+            raise ClaimOwnershipLost(
+                "Webhook queue claim was recovered by another worker"
+            )
+
     def recover_pending(self, current_worker_id: str) -> int:
         """Recover only processing lists whose worker lease has expired.
 
@@ -643,6 +727,28 @@ class WebhookQueue:
         """
         key = f"{PROCESSED_PREFIX}{message_id}"
         self._compare_and_delete(key, self._claim_marker(claim_id))
+
+    def release_processed_if_owned(
+        self,
+        message_id: str,
+        claim_id: str,
+        worker_id: str,
+        raw: str,
+    ) -> bool:
+        """Release a retry marker only while this worker owns the raw item."""
+        key = f"{PROCESSED_PREFIX}{message_id}"
+        return bool(
+            self._redis.eval(
+                _RELEASE_MARKER_IF_OWNED_SCRIPT,
+                3,
+                self._lease_key(worker_id),
+                self.processing_queue(worker_id),
+                key,
+                worker_id,
+                raw,
+                self._claim_marker(claim_id),
+            )
+        )
 
     def transition_failed_claim(
         self,
@@ -765,15 +871,33 @@ class QueueWorker:
             logger.error("Discarding malformed envelope from queue")
             self._queue.ack(self._worker_id, raw)
             return
+        ownership_guard = partial(
+            self._queue.assert_claim_owned,
+            self._worker_id,
+            raw,
+        )
         try:
-            self.handle_envelope(envelope)
+            ownership_guard()
+            self.handle_envelope(envelope, claimed_raw=raw)
+        except ClaimOwnershipLost:
+            # Recovery already moved the raw item out of this worker's private
+            # list, or Redis could not safely prove ownership. Stop consuming so
+            # this raw claim remains discoverable; do not ack or requeue here.
+            logger.warning("Webhook claim ownership lost during processing")
+            self._running = False
+            return
         except Exception:  # noqa: BLE001 - any error triggers a bounded retry
             logger.exception("Webhook processing failed; scheduling reprocess")
             self._queue.transition_failed_claim(self._worker_id, raw, envelope)
             return
         self._queue.ack(self._worker_id, raw)
 
-    def handle_envelope(self, envelope: _Envelope) -> IngestionResult:
+    def handle_envelope(
+        self,
+        envelope: _Envelope,
+        *,
+        claimed_raw: str | None = None,
+    ) -> IngestionResult:
         """Process one envelope: idempotency guard + DB ingestion.
 
         The message id is claimed before processing (dedupe) and released if
@@ -783,6 +907,16 @@ class QueueWorker:
         parsed = parse_message_event(envelope.payload)
         if parsed is None:
             return IngestionResult.IGNORED
+
+        ownership_guard = (
+            partial(
+                self._queue.assert_claim_owned,
+                self._worker_id,
+                claimed_raw,
+            )
+            if claimed_raw is not None
+            else None
+        )
 
         if not self._queue.mark_processed_if_new(
             parsed.provider_message_id,
@@ -795,16 +929,40 @@ class QueueWorker:
             session: Session = self._session_factory()
             try:
                 outcome = ingest_message_event_ex(
-                    session, parsed, media_resolver=self._media_resolver
+                    session,
+                    parsed,
+                    media_resolver=self._media_resolver,
+                    ownership_guard=ownership_guard,
                 )
             finally:
                 session.close()
-        except Exception:
+        except ClaimOwnershipLost:
+            # The recovered envelope intentionally keeps the same claim id.
+            # Do not delete its shared processing marker from the stale owner.
+            raise
+        except Exception as exc:
             # Release the claim so the requeued envelope can be reprocessed.
-            self._queue.release_processed(
-                parsed.provider_message_id,
-                envelope.claim_id,
-            )
+            if claimed_raw is None:
+                self._queue.release_processed(
+                    parsed.provider_message_id,
+                    envelope.claim_id,
+                )
+            else:
+                try:
+                    released = self._queue.release_processed_if_owned(
+                        parsed.provider_message_id,
+                        envelope.claim_id,
+                        self._worker_id,
+                        claimed_raw,
+                    )
+                except Exception as ownership_exc:  # noqa: BLE001
+                    raise ClaimOwnershipLost(
+                        "Webhook queue claim ownership could not be verified"
+                    ) from ownership_exc
+                if not released:
+                    raise ClaimOwnershipLost(
+                        "Webhook queue claim was recovered during failure handling"
+                    ) from exc
             raise
 
         # A hard crash before this write leaves a retryable ``processing``

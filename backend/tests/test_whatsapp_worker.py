@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from threading import Event, Thread
 from types import SimpleNamespace
 
 import pytest
@@ -19,6 +20,7 @@ from app.workers.queue_worker import (
     REDIS_SOCKET_TIMEOUT_SECONDS,
     WEBHOOK_QUEUE,
     WORKER_REGISTRY,
+    IngestionOutcome,
     IngestionResult,
     QueueWorker,
     WebhookQueue,
@@ -117,6 +119,23 @@ class FakeRedis:
         return 1
 
     def eval(self, script: str, numkeys: int, *values: str) -> int:
+        if numkeys == 3:  # release marker only for the live raw-item owner
+            lease_key, processing, marker_key, worker_id, raw, expected = values
+            if self.kv.get(lease_key) != worker_id:
+                return 0
+            if raw not in self.lists.get(processing, []):
+                return 0
+            if self.kv.get(marker_key) != expected:
+                return 0
+            self.kv.pop(marker_key, None)
+            return 1
+
+        if "LRANGE" in script:  # atomic worker lease + private-list ownership
+            lease_key, processing, worker_id, raw = values
+            if self.kv.get(lease_key) != worker_id:
+                return 0
+            return int(raw in self.lists.get(processing, []))
+
         if numkeys == 2:  # atomic processing -> ready/dead transition
             processing, target, raw, replacement = values
             self.failed_transition_calls += 1
@@ -768,6 +787,33 @@ def test_marker_cas_cannot_delete_or_finalize_a_new_owner() -> None:
     queue.mark_processed("CAS", "new-owner")
 
 
+def test_recovered_claim_marker_cannot_be_released_by_stale_worker() -> None:
+    redis = FakeRedis()
+    queue = WebhookQueue(redis_client=redis)
+    queue.register_worker("marker-old")
+    queue.register_worker("marker-new")
+    queue.enqueue(_parsed_payload("MARKER-RECOVERY"))
+    raw = queue.claim("marker-old", timeout=0)
+    envelope = _Envelope.from_json(raw)
+    assert queue.mark_processed_if_new(
+        "MARKER-RECOVERY", envelope.claim_id
+    ) is True
+
+    redis.delete(queue._lease_key("marker-old"))  # noqa: SLF001
+    assert queue.recover_pending("marker-new") == 1
+    assert queue.claim("marker-new", timeout=0) == raw
+
+    assert queue.release_processed_if_owned(
+        "MARKER-RECOVERY", envelope.claim_id, "marker-old", raw
+    ) is False
+    assert queue.mark_processed_if_new(
+        "MARKER-RECOVERY", envelope.claim_id
+    ) is True
+    assert queue.release_processed_if_owned(
+        "MARKER-RECOVERY", envelope.claim_id, "marker-new", raw
+    ) is True
+
+
 def test_queue_claim_and_ack_use_processing_list() -> None:
     redis = FakeRedis()
     queue = WebhookQueue(redis_client=redis)
@@ -797,6 +843,84 @@ def test_recovery_does_not_steal_active_worker_claim() -> None:
     assert queue.recover_pending("worker-b") == 0
     assert redis.lists[queue.processing_queue("worker-a")] == [raw]
     assert redis.lists[WEBHOOK_QUEUE] == []
+
+
+def test_old_worker_stops_before_commit_after_live_claim_recovery() -> None:
+    """A lease loser still alive cannot commit or run the external agent."""
+    redis = FakeRedis()
+    queue = WebhookQueue(redis_client=redis)
+    old_worker_id = "worker-old-alive"
+    new_worker_id = "worker-recovered"
+    queue.register_worker(old_worker_id)
+    queue.register_worker(new_worker_id)
+    queue.enqueue(_media_payload("LEASE-RACE"))
+    raw = queue.claim(old_worker_id, timeout=0)
+    assert raw is not None
+
+    media_started = Event()
+    release_old_media = Event()
+    media_calls: list[str] = []
+    sessions: list[FakeIngestSession] = []
+    agent_calls: list[IngestionOutcome] = []
+    connection = WhatsappConnection(igreja_id=_IGREJA, instance="igreja-1")
+
+    def session_factory() -> FakeIngestSession:
+        session = FakeIngestSession(connection=connection)
+        sessions.append(session)
+        return session
+
+    def media_resolver(parsed, _igreja_id, _conversation_id):
+        media_calls.append(parsed.provider_message_id)
+        if len(media_calls) == 1:
+            media_started.set()
+            assert release_old_media.wait(timeout=2)
+        return SimpleNamespace(
+            path="stable/provider-object.jpg",
+            mime="image/jpeg",
+            nome=None,
+            tamanho=4,
+        )
+
+    old_worker = QueueWorker(
+        queue=queue,
+        session_factory=session_factory,
+        agent_runner=lambda _factory, outcome: agent_calls.append(outcome),
+        media_resolver=media_resolver,
+        worker_id=old_worker_id,
+    )
+    old_thread = Thread(target=old_worker._handle_raw, args=(raw,))  # noqa: SLF001
+    old_thread.start()
+    assert media_started.wait(timeout=2)
+
+    # The old handler is still inside its upload when its lease expires. A live
+    # worker recovers and claims the exact same raw envelope.
+    redis.delete(queue._lease_key(old_worker_id))  # noqa: SLF001
+    assert queue.recover_pending(new_worker_id) == 1
+    recovered_raw = queue.claim(new_worker_id, timeout=0)
+    assert recovered_raw == raw
+
+    release_old_media.set()
+    old_thread.join(timeout=2)
+    assert not old_thread.is_alive()
+    assert len(sessions) == 1
+    assert sessions[0].committed is False
+    assert agent_calls == []
+
+    recovered_worker = QueueWorker(
+        queue=queue,
+        session_factory=session_factory,
+        agent_runner=lambda _factory, outcome: agent_calls.append(outcome),
+        media_resolver=media_resolver,
+        worker_id=new_worker_id,
+    )
+    recovered_worker._handle_raw(recovered_raw)  # noqa: SLF001
+
+    assert [session.committed for session in sessions] == [False, True]
+    assert len(agent_calls) == 1
+    # The in-flight upload may finish, but both attempts carry the same provider
+    # id; SupabaseStorage maps it to one deterministic upsert object path.
+    assert media_calls == ["LEASE-RACE", "LEASE-RACE"]
+    assert redis.lists[queue.processing_queue(new_worker_id)] == []
 
 
 def test_unregister_keeps_orphan_with_pending_item_discoverable() -> None:
@@ -969,6 +1093,7 @@ def test_worker_reprocesses_on_transient_failure() -> None:
         session_factory=boom,
         worker_id="worker-retry",
     )
+    queue.register_worker("worker-retry")
     original = _Envelope(payload=_parsed_payload("RETRY"))
     raw = original.to_json()
     redis.lpush(WEBHOOK_QUEUE, raw)
@@ -1018,6 +1143,7 @@ def test_worker_dead_letters_after_max_attempts() -> None:
         session_factory=boom,
         worker_id="worker-dead",
     )
+    queue.register_worker("worker-dead")
     claimed = queue.claim("worker-dead", timeout=0)
     worker._handle_raw(claimed)  # noqa: SLF001
 
