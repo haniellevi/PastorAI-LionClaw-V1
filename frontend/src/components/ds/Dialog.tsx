@@ -24,6 +24,8 @@ export interface DialogProps {
   onClose: () => void;
   title: string;
   description?: string;
+  /** Modificador visual para consumidores que precisam de um tamanho específico. */
+  className?: string;
   /** Força apresentação em sheet (mobile); sem a prop, o CSS decide por media query. */
   sheet?: boolean;
   children: ReactNode;
@@ -31,7 +33,16 @@ export interface DialogProps {
   footer?: ReactNode;
 }
 
-export function Dialog({ open, onClose, title, description, sheet = false, children, footer }: DialogProps) {
+export function Dialog({
+  open,
+  onClose,
+  title,
+  description,
+  className,
+  sheet = false,
+  children,
+  footer,
+}: DialogProps) {
   const panelRef = useRef<HTMLDivElement | null>(null);
   const titleId = useId();
   const descId = useId();
@@ -112,7 +123,9 @@ export function Dialog({ open, onClose, title, description, sheet = false, child
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={description ? descId : undefined}
-        className={sheet ? "ds-dialog ds-dialog--sheet" : "ds-dialog"}
+        className={["ds-dialog", sheet ? "ds-dialog--sheet" : "", className ?? ""]
+          .filter(Boolean)
+          .join(" ")}
         tabIndex={-1}
       >
         {sheet ? <div className="ds-sheet-grip" aria-hidden="true" /> : null}

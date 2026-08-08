@@ -273,6 +273,72 @@ textarea.ds-input {
   white-space: nowrap;
 }
 
+/* ---------- Auditoria do console ---------- */
+.ds-dialog.admin-audit-dialog {
+  width: min(1040px, calc(100vw - var(--s6)));
+  max-width: 1040px;
+  overflow: hidden;
+}
+.admin-audit-dialog .ds-dialog-body {
+  min-height: 0;
+  overflow: auto;
+}
+.admin-audit-content {
+  min-width: 0;
+}
+.admin-audit-loading {
+  display: grid;
+  justify-items: center;
+  gap: var(--s2);
+  padding: var(--s6);
+  color: var(--text-secondary);
+}
+.admin-audit-loading .spinner {
+  width: 26px;
+  height: 26px;
+  color: var(--action-primary);
+}
+.admin-audit-empty {
+  margin: 0;
+  padding: var(--s5) 0;
+  color: var(--text-secondary);
+  text-align: center;
+}
+.admin-audit-table {
+  table-layout: fixed;
+}
+.admin-audit-col-when {
+  width: 17%;
+}
+.admin-audit-col-action {
+  width: 22%;
+}
+.admin-audit-col-target {
+  width: 39%;
+}
+.admin-audit-col-actor {
+  width: 22%;
+}
+.admin-audit-table td {
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+.admin-audit-table td:first-child {
+  white-space: nowrap;
+}
+.admin-audit-table .admin-audit-value {
+  display: block;
+  min-width: 0;
+  text-align: left;
+}
+.admin-audit-table .nm {
+  font-weight: 650;
+}
+.admin-audit-table .sub {
+  margin-top: var(--s1);
+  color: var(--text-secondary);
+}
+
 /* ---------- Tabs ---------- */
 .ds-tabs-wrap {
   position: relative;
@@ -551,5 +617,34 @@ textarea.ds-input {
     max-height: calc(100dvh - var(--s7));
     border-radius: var(--radius-dialog) var(--radius-dialog) 0 0;
     padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .ds-dialog.admin-audit-dialog {
+    width: 100%;
+    max-width: none;
+  }
+}
+
+@media (max-width: 600px) {
+  .admin-audit-dialog .ds-dialog-head {
+    padding: var(--s4) var(--s4) 0;
+  }
+  .admin-audit-dialog .ds-dialog-body {
+    padding: var(--s3) var(--s4);
+  }
+  .admin-audit-dialog .ds-dialog-foot {
+    padding: 0 var(--s4) var(--s4);
+  }
+  .admin-audit-table td {
+    align-items: flex-start;
+  }
+  .admin-audit-table td::before {
+    flex: 0 0 72px;
+  }
+  .admin-audit-table .admin-audit-value {
+    flex: 1;
+    text-align: right;
+  }
+  .admin-audit-table .sub {
+    margin-top: 0;
   }
 }

@@ -26,10 +26,10 @@ let container: HTMLDivElement;
 let root: Root;
 const onClose = vi.fn();
 
-function render(open: boolean, children: ReactNode) {
+function render(open: boolean, children: ReactNode, className?: string) {
   act(() => {
     root.render(
-      h(Dialog, { open, onClose, title: "Teste", description: "desc", children }),
+      h(Dialog, { open, onClose, title: "Teste", description: "desc", className, children }),
     );
   });
 }
@@ -61,6 +61,13 @@ afterEach(() => {
 });
 
 describe("Dialog — foco inicial (Gate 7.1)", () => {
+  it("aceita um modificador visual sem remover a classe base", () => {
+    render(true, h("button", null, "A"), "dialog-wide");
+    const panel = document.querySelector<HTMLElement>('[role="dialog"]')!;
+    expect(panel.classList.contains("ds-dialog")).toBe(true);
+    expect(panel.classList.contains("dialog-wide")).toBe(true);
+  });
+
   it("com [data-autofocus] (modal Mensagem): foco inicial vai para o textarea", () => {
     // gatilho com foco antes de abrir
     const opener = document.createElement("button");

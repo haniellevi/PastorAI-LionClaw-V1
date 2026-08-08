@@ -64,8 +64,10 @@ export interface AuditModalProps {
 export function AuditModal({ token, onClose, onExpired }: AuditModalProps) {
   const [rows, setRows] = useState<AdminAuditEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (refresh = false) => {
+    if (refresh) setRefreshing(true);
     setError(null);
     try {
       setRows(await fetchAudit(token, 100));
@@ -75,6 +77,8 @@ export function AuditModal({ token, onClose, onExpired }: AuditModalProps) {
         return;
       }
       setError("Não foi possível carregar a auditoria.");
+    } finally {
+      if (refresh) setRefreshing(false);
     }
   }, [token, onExpired]);
 
@@ -85,67 +89,84 @@ export function AuditModal({ token, onClose, onExpired }: AuditModalProps) {
   return (
     // W5A: shell manual → DsDialog (Esc/trap/backdrop/retorno de foco do
     // primitive); somente leitura — fechar sempre disponível.
-    <DsDialog open onClose={onClose} title="Auditoria">
-      <div className="modal-form">
-          {error ? (
-            <div className="error-banner" role="alert">
-              <span>{error}</span>
-            </div>
-          ) : null}
-
-          {rows === null ? (
-            <div style={{ padding: "var(--s5)", textAlign: "center", color: "var(--muted)" }}>
-              <span className="spinner" aria-hidden="true" />
-              <div className="sub" style={{ marginTop: "var(--s2)" }}>
-                Carregando a auditoria…
-              </div>
-            </div>
-          ) : rows.length === 0 ? (
-            <p className="sub" style={{ color: "var(--muted)" }}>
-              Nenhuma ação registrada ainda.
-            </p>
-          ) : (
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Quando</th>
-                  <th>Ação</th>
-                  <th>Alvo</th>
-                  <th>Por</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => (
-                  <tr key={r.id}>
-                    <td className="num" style={{ whiteSpace: "nowrap" }}>
-                      {quando(r.createdAt)}
-                    </td>
-                    <td>{ACAO_LABEL[r.acao] ?? r.acao}</td>
-                    <td className="nm">
-                      {r.alvoNome ?? "—"}
-                      {resumoDetalhe(r.detalhe) ? (
-                        <div className="sub" style={{ color: "var(--muted)" }}>
-                          {resumoDetalhe(r.detalhe)}
-                        </div>
-                      ) : null}
-                    </td>
-                    <td className="sub" style={{ color: "var(--muted)" }}>
-                      {r.actorEmail ?? "—"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-
-          <div className="modal-foot">
-            <button type="button" className="btn btn-sm" onClick={onClose}>
-              Fechar
-            </button>
-            <Button variant="ghost" size="sm" onClick={() => void load()}>
-              Atualizar
-            </Button>
+    <DsDialog
+      open
+      onClose={onClose}
+      title="Auditoria"
+      description="Últimas 100 ações administrativas, da mais recente para a mais antiga."
+      className="admin-audit-dialog"
+      footer={
+        <>
+          <button type="button" className="btn btn-sm" onClick={onClose}>
+            Fechar
+          </button>
+          <Button
+            variant="ghost"
+            size="sm"
+            loading={refreshing}
+            loadingText="Atualizando…"
+            onClick={() => void load(true)}
+          >
+            Atualizar
+          </Button>
+        </>
+      }
+    >
+      <div className="admin-audit-content">
+        {error ? (
+          <div className="error-banner" role="alert">
+            <span>{error}</span>
           </div>
+        ) : null}
+
+        {rows === null ? (
+          <div className="admin-audit-loading" role="status" aria-live="polite">
+            <span className="spinner" aria-hidden="true" />
+            <div className="sub">Carregando a auditoria…</div>
+          </div>
+        ) : rows.length === 0 ? (
+          <p className="sub admin-audit-empty">Nenhuma ação registrada ainda.</p>
+        ) : (
+          <table className="data-table admin-audit-table">
+            <colgroup>
+              <col className="admin-audit-col-when" />
+              <col className="admin-audit-col-action" />
+              <col className="admin-audit-col-target" />
+              <col className="admin-audit-col-actor" />
+            </colgroup>
+            <thead>
+              <tr>
+                <th>Quando</th>
+                <th>Ação</th>
+                <th>Alvo</th>
+                <th>Por</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.id}>
+                  <td className="num" data-label="Quando">
+                    <span className="admin-audit-value">{quando(r.createdAt)}</span>
+                  </td>
+                  <td data-label="Ação">
+                    <span className="admin-audit-value">{ACAO_LABEL[r.acao] ?? r.acao}</span>
+                  </td>
+                  <td data-label="Alvo">
+                    <div className="admin-audit-value">
+                      <strong className="nm">{r.alvoNome ?? "—"}</strong>
+                      {resumoDetalhe(r.detalhe) ? (
+                        <div className="sub">{resumoDetalhe(r.detalhe)}</div>
+                      ) : null}
+                    </div>
+                  </td>
+                  <td data-label="Por">
+                    <span className="sub admin-audit-value">{r.actorEmail ?? "—"}</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </DsDialog>
   );
