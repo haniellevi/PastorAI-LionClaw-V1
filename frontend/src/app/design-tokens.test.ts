@@ -1,8 +1,7 @@
 /**
- * Gate 6.1 (P1 — isolamento dos tokens da fundação): design-tokens.css importa
- * DEPOIS do globals.css no layout; qualquer custom property de :root repetida
- * lá sobrescreveria o valor legado em TODAS as telas não migradas (foi o caso
- * de --border-strong). Regressão: os dois :root não podem compartilhar nomes.
+ * A fundação importa depois do globals.css. Os dois arquivos não redeclaram os
+ * mesmos nomes: globals mantém aliases compatíveis e a fundação guarda os
+ * tokens canônicos da identidade Diamante Lapidado.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -33,10 +32,29 @@ describe("isolamento de tokens (globals.css × design-tokens.css)", () => {
     expect(collisions).toEqual([]);
   });
 
-  it("--border-strong legado preserva o valor teal e a fundação usa --border-emphasis", () => {
-    expect(globals).toMatch(/--border-strong:\s*oklch\(87\.5% 0\.014 181\)/);
+  it("--border-strong legado aponta para a borda azul canônica", () => {
+    expect(globals).toMatch(/--border-strong:\s*var\(--border-emphasis\)/);
     expect(rootTokenNames(foundation).has("--border-strong")).toBe(false);
     expect(rootTokenNames(foundation).has("--border-emphasis")).toBe(true);
+  });
+
+  it("aliases de marca apontam para a fundação azul", () => {
+    expect(globals).toMatch(/--bg:\s*var\(--surface-canvas\)/);
+    expect(globals).toMatch(/--accent:\s*var\(--action-primary\)/);
+    expect(globals).toMatch(/--sidebar:\s*var\(--diamond-950\)/);
+    expect(globals).toMatch(/--grad-brand:\s*var\(--action-primary\)/);
+  });
+
+  it("superfícies de marca não reintroduzem a antiga paleta verde", () => {
+    const criticalSurfaces = [
+      globals,
+      read("../components/legal/legal-document.module.css"),
+      read("../../public/icon.svg"),
+      read("../../public/icon-maskable.svg"),
+    ].join("\n");
+    expect(criticalSurfaces).not.toMatch(
+      /#(?:0d9488|0f766e|0f3a36|0b2c29|082220|14b8a6|2dd4bf|5eead4|99f6e4)/i,
+    );
   });
 
   it("sidebar colapsada não usa display:none nos rótulos (nome acessível preservado)", () => {

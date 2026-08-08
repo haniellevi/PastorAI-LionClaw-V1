@@ -12,6 +12,7 @@
 import Link from "next/link";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 
+import { BrandSignature } from "@/components/brand/BrandSignature";
 import { Button } from "@/components/ui/Button";
 import { Field } from "@/components/ui/Field";
 import {
@@ -41,14 +42,19 @@ const ASIDE_POINTS = [
   "Decisões pastorais sem trocar de tela — tudo via mensagem",
 ];
 
-function BrandLockup({ className = "" }: { className?: string }) {
+function BrandLockup({
+  className = "",
+  tone = "#F7FAFD",
+}: {
+  className?: string;
+  tone?: string;
+}) {
   return (
-    <div className={`brand ${className}`.trim()}>
-      <span className="brand-mark" aria-hidden="true">
-        12
-      </span>
-      <span>Igreja 12</span>
-    </div>
+    <BrandSignature
+      className={`brand ${className}`.trim()}
+      size={32}
+      tone={tone}
+    />
   );
 }
 
@@ -315,7 +321,7 @@ export function LoginScreen() {
         </aside>
 
         <main className="login-main">
-          <BrandLockup className="login-mobile-brand" />
+          <BrandLockup className="login-mobile-brand" tone="#1B3B6F" />
           {mode === "login" ? (
             <form className="login-card" onSubmit={handleSubmit} noValidate>
               <AuthCardHeading eyebrow="Acesso seguro" title="Entrar no painel">

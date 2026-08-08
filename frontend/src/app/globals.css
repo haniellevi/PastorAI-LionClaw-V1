@@ -1,69 +1,52 @@
 /* ============================================================
    Igreja 12 — Design System global
-   Identidade Igreja 12: verde-petróleo frio + acento teal vivo,
-   mint nos estados ativos, superfícies frias, formas suaves.
-   Redesign #8 — Design Lock revisto em 2026-06-24
-   (ver docs/design/RECONCILIACAO-igreja12.md).
-   F0 = vocabulário de tokens + flip de paleta do lado-claro;
-   gradientes/sombras/mint/fontes são APLICADOS na F1.
+   Identidade "Diamante Lapidado": azul mineral, superfícies gelo,
+   contraste operacional e marca canônica sem gradientes decorativos.
+   Os nomes legados abaixo permanecem como aliases para evitar uma
+   reescrita arriscada das telas, mas todos apontam para a fundação azul.
    ============================================================ */
 
 :root {
-  /* superfícies & neutros (paleta fria)
-     PR fix/design-surface-hierarchy: re-tune da escada de elevação (revê o Design Lock
-     F0 de superfícies). Antes os 3 canais de separação ficavam no piso ao mesmo tempo e
-     --surface-2 era MAIS clara que o --bg (plano do meio invertido). Agora escada
-     monotônica bg(94) < surface-2(96.5) < surface(100). Só muda L; hue/chroma preservados. */
-  --bg: oklch(94% 0.005 183);
-  --surface: oklch(100% 0 0);
-  --surface-2: oklch(96.5% 0.003 174);
-  --surface-3: oklch(95% 0.004 180);
+  /* Compatibilidade: telas antigas passam a consumir os tokens canônicos. */
+  --bg: var(--surface-canvas);
+  --surface: var(--surface-raised);
+  --surface-2: var(--surface-panel);
+  --surface-3: var(--diamond-100);
 
-  /* sidebar dark — F0 só esfria o matiz (mantém a escada de L atual);
-     o gradiente petróleo + mint nos ativos entram na F1 */
-  --sidebar: oklch(21% 0.03 187);
-  --sidebar-fg: oklch(86% 0.025 187);
-  /* F4: 64%→70% p/ passar AA como texto no stop claro do gradiente da sidebar
-     (3.77→4.75:1, medido oklch→WCAG). Segue claramente mais dim que --sidebar-fg. */
-  --sidebar-muted: oklch(70% 0.03 186);
+  --sidebar: var(--diamond-950);
+  --sidebar-fg: var(--diamond-100);
+  --sidebar-muted: var(--diamond-300);
 
-  /* tinta (verde-petróleo) */
-  --fg: oklch(31.8% 0.047 186);
-  --muted: oklch(41.1% 0.024 184);
-  --faint: oklch(72% 0.016 182);
+  --fg: var(--text-primary);
+  --muted: var(--text-secondary);
+  --faint: oklch(72% 0.02 240);
 
-  /* bordas frias
-     PR fix/design-surface-hierarchy: hairlines escurecidas p/ ficarem visíveis sobre branco
-     E sobre o novo --bg, sem virar borda preta/grossa (87.5% ainda é cinza claro). */
-  --border: oklch(91.5% 0.008 177);
-  --border-strong: oklch(87.5% 0.014 181);
-  --border-2: oklch(91% 0.008 177);
-  --border-teal: oklch(90% 0.022 183);
+  --border: var(--border-subtle);
+  --border-strong: var(--border-emphasis);
+  --border-2: var(--border-subtle);
+  /* Alias histórico; a cor já não é teal. */
+  --border-teal: var(--border-emphasis);
 
-  /* acento teal vivo + mint
-     F1: --accent escurecido 60%→53.5% para AA — texto branco no CTA 3.65→~4.67:1
-     e accent-como-texto sobre branco 3.75→~4.79:1 (medido oklch→WCAG).
-     --accent-bright (mint) e --accent-soft seguem para decoração/estados. */
-  --accent: oklch(53.5% 0.108 186);
-  --accent-fg: oklch(99% 0.01 185);
-  --accent-soft: oklch(95.8% 0.016 187);
-  --accent-dark: oklch(46% 0.092 186);
-  --accent-bright: oklch(85.5% 0.125 181);
+  --accent: var(--action-primary);
+  --accent-fg: var(--text-on-action);
+  --accent-soft: var(--selection-soft);
+  --accent-dark: var(--action-primary-hover);
+  --accent-bright: var(--diamond-300);
 
   /* estados */
-  --ok: oklch(62.7% 0.17 149);
-  --ok-soft: oklch(96.2% 0.043 157);
+  --ok: var(--state-ok);
+  --ok-soft: var(--state-ok-soft);
   /* F1: --warn escurecido 66.6%→55% para AA como texto sobre branco
      (3.18→~5.0:1, medido) — diverge do estágio Consolidar (que segue 66.6%),
      desfazendo a colisão byte-idêntica registrada na reconciliação. */
-  --warn: oklch(55% 0.146 58);
-  --warn-soft: oklch(96.2% 0.058 96);
-  --danger: oklch(57.7% 0.215 27);
-  --danger-soft: oklch(97.1% 0.013 17);
+  --warn: var(--state-warn);
+  --warn-soft: var(--state-warn-soft);
+  --danger: var(--state-danger);
+  --danger-soft: var(--state-danger-soft);
   --urgent: oklch(58.6% 0.222 18);
   --urgent-soft: oklch(94.1% 0.03 13);
-  --info: oklch(58.8% 0.139 242);
-  --info-soft: oklch(95.1% 0.025 237);
+  --info: var(--state-info);
+  --info-soft: var(--state-info-soft);
 
   /* canais & selos */
   --whatsapp: oklch(76.1% 0.201 150);
@@ -90,21 +73,18 @@
   --font-display: "Sora", var(--font);
   --mono: "JetBrains Mono", ui-monospace, "SF Mono", "IBM Plex Mono", Menlo, monospace;
 
-  /* sombras & efeitos
-     PR fix/design-surface-hierarchy: opacidade reforçada p/ lift leve (2º stop 0.06→0.09,
-     sm 0.06→0.08). Segue difusa/petróleo — elevação suave, não sombra pesada. */
-  --shadow: 0 1px 2px oklch(31.8% 0.047 186 / 0.05), 0 8px 24px oklch(31.8% 0.047 186 / 0.09);
-  --shadow-sm: 0 1px 2px oklch(31.8% 0.047 186 / 0.08);
-  --shadow-primary: 0 8px 20px oklch(53.5% 0.108 186 / 0.32);
-  --ring: 0 0 0 3px oklch(53.5% 0.108 186 / 0.16);
+  --shadow: var(--shadow-raised);
+  --shadow-sm: 0 2px 8px oklch(24% 0.055 252 / 0.08);
+  --shadow-primary: 0 8px 20px oklch(48% 0.13 252 / 0.24);
+  --ring: 0 0 0 3px oklch(67% 0.15 238 / 0.2);
 
-  /* gradientes de marca — aplicados na F1 */
-  --grad-brand: linear-gradient(135deg, oklch(53.5% 0.108 186), oklch(46% 0.092 186));
-  --grad-brand-mint: linear-gradient(135deg, oklch(53.5% 0.108 186), oklch(85.5% 0.125 181));
-  --grad-sidebar: radial-gradient(120% 120% at 30% 0%, oklch(31.8% 0.047 186), oklch(26.8% 0.038 187) 55%, oklch(23.1% 0.032 188));
+  /* Nomes históricos, agora deliberadamente sólidos. */
+  --grad-brand: var(--action-primary);
+  --grad-brand-mint: var(--diamond-600);
+  --grad-sidebar: var(--diamond-950);
 
-  --ink: oklch(28% 0.012 186);
-  --ink-fg: oklch(99% 0.005 186);
+  --ink: var(--ink-950);
+  --ink-fg: var(--text-on-action);
 }
 
 * {
@@ -168,16 +148,14 @@ a {
 }
 
 /* ---------- LOGIN ---------- */
-/* #login = hero (fundo radial escuro); .login-wrap = card flutuante central.
-   O teal vivo do protótipo fica escopado ao login/hero/marca — não vaza
-   para --accent global (que segue calibrado p/ AA na UI autenticada). */
+/* #login = hero azul mineral; .login-wrap = card flutuante central. */
 #login {
   min-height: 100dvh;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: var(--s5);
-  background: radial-gradient(120% 120% at 0% 0%, #0f3a36 0%, #0b2c29 55%, #082220 100%);
+  background: var(--diamond-950);
 }
 .login-wrap {
   width: 960px;
@@ -188,10 +166,10 @@ a {
   background: var(--surface);
   border-radius: 24px;
   overflow: hidden;
-  box-shadow: 0 30px 80px oklch(23% 0.03 188 / 0.35);
+  box-shadow: var(--shadow-floating);
 }
 .login-aside {
-  background: linear-gradient(150deg, #0d9488, #0f766e 60%, #0f3a36);
+  background: var(--diamond-900);
   color: var(--sidebar-fg);
   padding: 44px 40px;
   display: flex;
@@ -201,13 +179,7 @@ a {
   overflow: hidden;
 }
 .login-aside::after {
-  content: "";
-  position: absolute;
-  inset: auto -120px -160px auto;
-  width: 420px;
-  height: 420px;
-  background: radial-gradient(circle, oklch(52% 0.078 185 / 0.35), transparent 70%);
-  filter: blur(8px);
+  content: none;
 }
 .brand {
   display: flex;
@@ -328,9 +300,7 @@ a {
   gap: var(--s5);
   padding: 44px 40px;
   position: relative;
-  background:
-    radial-gradient(circle at 85% 12%, oklch(93% 0.03 180 / 0.72), transparent 34%),
-    var(--surface);
+  background: var(--surface-canvas);
 }
 .login-mobile-brand {
   display: none;
@@ -344,14 +314,14 @@ a {
   background: oklch(100% 0 0 / 0.92);
   border: 1px solid var(--border);
   border-radius: 18px;
-  box-shadow: 0 18px 46px oklch(23% 0.03 188 / 0.1);
+  box-shadow: var(--shadow-raised);
 }
 .login-card::before {
   content: "";
   position: absolute;
   inset: 0 0 auto;
   height: 4px;
-  background: linear-gradient(90deg, #0f766e, #2dd4bf 58%, #99f6e4);
+  background: var(--diamond-600);
 }
 .login-card-head {
   margin-bottom: var(--s5);
@@ -745,13 +715,13 @@ input[type="checkbox"] {
   padding: 0 4px;
   flex: 1;
   scrollbar-width: thin;
-  scrollbar-color: oklch(38% 0.012 187) transparent;
+  scrollbar-color: color-mix(in oklch, var(--diamond-300) 28%, transparent) transparent;
 }
 .nav-scroll::-webkit-scrollbar {
   width: 7px;
 }
 .nav-scroll::-webkit-scrollbar-thumb {
-  background: oklch(34% 0.012 187);
+  background: color-mix(in oklch, var(--diamond-300) 28%, transparent);
   border-radius: 99px;
 }
 .side-top {
@@ -792,14 +762,14 @@ input[type="checkbox"] {
   display: grid;
   place-items: center;
   border: none;
-  background: oklch(26% 0.012 187);
+  background: color-mix(in oklch, var(--ice-50) 7%, transparent);
   color: var(--sidebar-muted);
   border-radius: 7px;
   transition: color 0.12s, background 0.12s;
 }
 .collapse-btn:hover {
   color: #fff;
-  background: oklch(30% 0.012 187);
+  background: color-mix(in oklch, var(--ice-50) 12%, transparent);
 }
 .collapse-btn svg {
   width: 16px;
@@ -810,7 +780,7 @@ input[type="checkbox"] {
   margin: 0 4px var(--s3);
   padding: 10px;
   border-radius: var(--r-md);
-  background: oklch(26% 0.012 187);
+  background: color-mix(in oklch, var(--ice-50) 7%, transparent);
   display: flex;
   align-items: center;
   gap: 10px;
@@ -879,7 +849,7 @@ input[type="checkbox"] {
   font-weight: 700;
   letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: oklch(62% 0.015 187);
+  color: var(--sidebar-muted);
 }
 
 /* nav items — linha com bloco de ícone arredondado colorido */
@@ -921,9 +891,9 @@ input[type="checkbox"] {
   outline-offset: 2px;
 }
 
-/* bloco do ícone: 27x27, tint + fg coloridos (--ic, default teal #0d9488) */
+/* bloco do ícone: 27x27, sempre dentro da família azul mineral. */
 .nav-ic {
-  --ic: oklch(60% 0.094 184);
+  --ic: var(--diamond-500);
   width: 27px;
   height: 27px;
   border-radius: 8px;
@@ -940,19 +910,19 @@ input[type="checkbox"] {
   opacity: 1;
 }
 .nav-item[data-accent="rose"] .nav-ic {
-  --ic: oklch(71.9% 0.169 13);
+  --ic: var(--diamond-500);
 }
 .nav-item[data-accent="amber"] .nav-ic {
-  --ic: oklch(64% 0.151 60);
+  --ic: var(--diamond-600);
 }
 .nav-item[data-accent="green"] .nav-ic {
-  --ic: oklch(64% 0.13 162);
+  --ic: var(--diamond-700);
 }
 .nav-item[data-accent="indigo"] .nav-ic {
-  --ic: oklch(58% 0.2 277);
+  --ic: var(--diamond-900);
 }
 .nav-item[data-accent="whats"] .nav-ic {
-  --ic: oklch(63% 0.144 152);
+  --ic: var(--diamond-600);
 }
 /* Gate 6 (M7B-Visual-W1): ativo é UMA affordance (o tint da linha) — o bloco
    do ícone não ganha um segundo tint por cima (evita caixa dentro de caixa). */
@@ -967,7 +937,7 @@ input[type="checkbox"] {
   margin-left: auto;
   font-size: 12px;
   font-weight: 600;
-  background: oklch(34% 0.012 187);
+  background: color-mix(in oklch, var(--ice-50) 10%, transparent);
   color: #fff;
   padding: 1px 7px;
   border-radius: 999px;
@@ -981,7 +951,7 @@ input[type="checkbox"] {
 
 /* locked / em breve */
 .nav-item.locked {
-  color: oklch(46% 0.01 187);
+  color: color-mix(in oklch, var(--sidebar-muted) 62%, transparent);
   cursor: not-allowed;
 }
 .nav-item.locked .nav-ic {
@@ -989,7 +959,7 @@ input[type="checkbox"] {
 }
 .nav-item.locked:hover {
   background: transparent;
-  color: oklch(46% 0.01 187);
+  color: color-mix(in oklch, var(--sidebar-muted) 62%, transparent);
 }
 .nav-item.locked .soon {
   margin-left: auto;
@@ -1013,7 +983,7 @@ input[type="checkbox"] {
   width: 28px;
   height: 28px;
   border-radius: 999px;
-  background: oklch(40% 0.04 185);
+  background: var(--diamond-700);
   color: #fff;
   display: grid;
   place-items: center;
@@ -1049,8 +1019,8 @@ input[type="checkbox"] {
   letter-spacing: 0.03em;
   padding: 2px 6px;
   border-radius: 999px;
-  background: oklch(38% 0.03 185);
-  color: oklch(90% 0.02 185);
+  background: color-mix(in oklch, var(--diamond-500) 18%, transparent);
+  color: var(--diamond-100);
 }
 
 /* ---- collapsed (icons-only) ---- */
@@ -1136,7 +1106,7 @@ input[type="checkbox"] {
   left: calc(100% + 10px);
   top: 50%;
   transform: translateY(-50%);
-  background: oklch(16% 0.012 187);
+  background: var(--ink-950);
   color: #fff;
   font-size: 12px;
   font-weight: 500;
@@ -1158,7 +1128,7 @@ input[type="checkbox"] {
   position: absolute;
   left: calc(100% + 10px);
   transform: translateY(-50%);
-  background: oklch(16% 0.012 187);
+  background: var(--ink-950);
   color: #fff;
   font-size: 12px;
   font-weight: 500;
@@ -1771,16 +1741,16 @@ button.jr-row:focus-visible {
   flex: none;
 }
 .jr-dot.ganhar {
-  background: oklch(71.9% 0.169 13);
+  background: var(--diamond-500);
 }
 .jr-dot.consolidar {
-  background: oklch(64% 0.151 60);
+  background: var(--diamond-600);
 }
 .jr-dot.discipular {
-  background: oklch(64% 0.13 162);
+  background: var(--diamond-700);
 }
 .jr-dot.enviar {
-  background: oklch(58% 0.2 277);
+  background: var(--diamond-900);
 }
 .jr-label {
   flex: 1;
@@ -2033,7 +2003,7 @@ button.jr-row:focus-visible {
   height: 34px;
   border-radius: 999px;
   background: var(--accent-soft);
-  color: oklch(42% 0.08 185);
+  color: var(--action-primary);
   display: grid;
   place-items: center;
   font-weight: 600;
@@ -2065,7 +2035,7 @@ button.jr-row:focus-visible {
 .tab.active {
   background: var(--surface);
   color: var(--fg);
-  box-shadow: 0 1px 2px oklch(20% 0.02 186 / 0.08);
+  box-shadow: var(--shadow-sm);
 }
 /* No mobile, o strip de abas no cabeçalho do painel (ex.: #enviar, 4 abas com
    rótulos longos) cai para a própria linha e quebra em pílulas, sem vazar na
@@ -2526,18 +2496,18 @@ button.jr-row:focus-visible {
   font-size: 12px;
   font-weight: 700;
 }
-/* accents por etapa (mesmos oklch da Sidebar — STAGE_ACCENT) */
+/* Etapas diferenciadas por intensidade dentro da família azul mineral. */
 .journey-step-btn[data-accent="rose"] {
-  --ic: oklch(71.9% 0.169 13);
+  --ic: var(--diamond-500);
 }
 .journey-step-btn[data-accent="amber"] {
-  --ic: oklch(64% 0.151 60);
+  --ic: var(--diamond-600);
 }
 .journey-step-btn[data-accent="green"] {
-  --ic: oklch(64% 0.13 162);
+  --ic: var(--diamond-700);
 }
 .journey-step-btn[data-accent="indigo"] {
-  --ic: oklch(58% 0.2 277);
+  --ic: var(--diamond-900);
 }
 /* etapa atual */
 .journey-step-btn.active {
@@ -2686,7 +2656,7 @@ button.jr-row:focus-visible {
   display: grid;
   place-items: center;
   padding: var(--s4);
-  background: oklch(20% 0.02 186 / 0.32);
+  background: oklch(24% 0.055 252 / 0.32);
   animation: modal-fade 0.16s ease-out;
 }
 .modal {
@@ -3799,13 +3769,13 @@ table.data-table {
   height: 10px;
   border-radius: 999px;
   margin-top: 5px;
-  background: oklch(60% 0.16 185);
+  background: var(--action-primary);
 }
 .cd-light.g {
   background: oklch(62% 0.15 150);
 }
 .cd-light.gray {
-  background: oklch(80% 0.01 187);
+  background: var(--border-emphasis);
 }
 @media (max-width: 880px) {
   .cd-levels {
@@ -3978,7 +3948,7 @@ table.data-table {
   height: 38px;
   border-radius: 999px;
   background: var(--accent-soft);
-  color: oklch(42% 0.08 185);
+  color: var(--action-primary);
   display: grid;
   place-items: center;
   font-weight: 600;
@@ -4043,8 +4013,8 @@ table.data-table {
   border-bottom-right-radius: 3px;
 }
 .msg.bot {
-  background: oklch(96% 0.012 185);
-  border: 1px solid oklch(88% 0.03 185);
+  background: var(--selection-soft);
+  border: 1px solid var(--border-emphasis);
   align-self: flex-end;
   border-bottom-right-radius: 3px;
 }
@@ -4207,7 +4177,7 @@ table.data-table {
 }
 .ia-banner.active {
   background: var(--accent-soft);
-  color: oklch(40% 0.08 185);
+  color: var(--action-primary);
 }
 .ia-banner.human {
   background: var(--warn-soft);
@@ -4365,7 +4335,7 @@ table.data-table {
   height: 44px;
   border-radius: 999px;
   background: var(--accent-soft);
-  color: oklch(42% 0.08 185);
+  color: var(--action-primary);
   display: grid;
   place-items: center;
   font-weight: 600;
@@ -4470,7 +4440,7 @@ table.data-table {
     position: fixed;
     inset: 0;
     z-index: 49;
-    background: oklch(20% 0.02 186 / 0.32);
+    background: oklch(24% 0.055 252 / 0.32);
   }
 }
 
@@ -4809,35 +4779,31 @@ table.data-table {
   background: var(--danger-soft);
   color: oklch(46% 0.13 25);
 }
-/* P0b-3: cor por categoria (tipo). Só vale para eventos confirmados/neutros —
-   'a_confirmar' (.danger acima) tem precedência e não recebe cor de tipo. Texto
-   escurecido (L 44–48%) sobre fundo suave p/ AA, mesmo padrão de .cal-ev.danger.
-   O par bg/texto é compartilhado pelo chip do calendário e pela pílula do
-   detalhe (.pill.tipo-*), que exibe o rótulo textual (não só cor). */
+/* Categorias usam intensidades do azul; alertas permanecem semânticos. */
 .cal-ev.tipo-culto,
 .pill.tipo-culto {
-  background: oklch(96% 0.035 27);
-  color: oklch(48% 0.15 27);
+  background: var(--selection-soft);
+  color: var(--diamond-900);
 }
 .cal-ev.tipo-reuniao,
 .pill.tipo-reuniao {
-  background: oklch(95.5% 0.03 195);
-  color: oklch(44% 0.08 195);
+  background: var(--selection-soft);
+  color: var(--diamond-700);
 }
 .cal-ev.tipo-celula,
 .pill.tipo-celula {
-  background: oklch(96% 0.045 150);
-  color: oklch(45% 0.13 150);
+  background: var(--selection-soft);
+  color: var(--diamond-600);
 }
 .cal-ev.tipo-especial,
 .pill.tipo-especial {
-  background: oklch(96% 0.03 295);
-  color: oklch(48% 0.15 295);
+  background: var(--selection-soft);
+  color: var(--diamond-500);
 }
 .cal-ev.tipo-conferencia,
 .pill.tipo-conferencia {
-  background: oklch(96% 0.055 80);
-  color: oklch(47% 0.11 70);
+  background: var(--selection-soft);
+  color: var(--diamond-900);
 }
 
 @media (max-width: 720px) {
@@ -4974,19 +4940,19 @@ table.data-table {
 }
 /* P0b-3: ponto colorido por categoria na visão Ano ('a_confirmar' precede). */
 .agenda-month-list .dot.tipo-culto {
-  background: oklch(62% 0.19 27);
+  background: var(--diamond-900);
 }
 .agenda-month-list .dot.tipo-reuniao {
-  background: oklch(56% 0.09 195);
+  background: var(--diamond-700);
 }
 .agenda-month-list .dot.tipo-celula {
-  background: oklch(60% 0.15 150);
+  background: var(--diamond-600);
 }
 .agenda-month-list .dot.tipo-especial {
-  background: oklch(56% 0.16 295);
+  background: var(--diamond-500);
 }
 .agenda-month-list .dot.tipo-conferencia {
-  background: oklch(68% 0.14 75);
+  background: var(--diamond-300);
 }
 .agenda-month-list .more {
   color: var(--muted);
@@ -5593,7 +5559,7 @@ table.data-table {
 .mc-hero-meta {
   margin-top: 4px;
   font-size: 13px;
-  color: oklch(99% 0.01 185 / 0.82);
+  color: color-mix(in oklch, var(--text-on-action) 82%, transparent);
 }
 .mc-hero-stats {
   display: flex;
@@ -5612,7 +5578,7 @@ table.data-table {
 .mc-hero-stat .k {
   margin-top: 4px;
   font-size: 11.5px;
-  color: oklch(99% 0.01 185 / 0.82);
+  color: color-mix(in oklch, var(--text-on-action) 82%, transparent);
 }
 
 /* Ações sensíveis (dado da célula → Solicitação para a Central).
@@ -6198,19 +6164,19 @@ button.dh-journey-row:hover .dh-journey-label {
 }
 .dh-journey-dot.ganhar,
 .dh-journey-fill.ganhar {
-  background: oklch(71.9% 0.169 13);
+  background: var(--diamond-500);
 }
 .dh-journey-dot.consolidar,
 .dh-journey-fill.consolidar {
-  background: oklch(64% 0.151 60);
+  background: var(--diamond-600);
 }
 .dh-journey-dot.discipular,
 .dh-journey-fill.discipular {
-  background: oklch(64% 0.13 162);
+  background: var(--diamond-700);
 }
 .dh-journey-dot.enviar,
 .dh-journey-fill.enviar {
-  background: oklch(58% 0.2 277);
+  background: var(--diamond-900);
 }
 .dh-journey-label {
   flex: 1;

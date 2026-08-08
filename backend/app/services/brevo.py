@@ -38,8 +38,9 @@ def _email_document(
 
     safe_url = escape(cta_url, quote=True)
     safe_brand_url = escape(brand_url.rstrip("/"), quote=True)
+    safe_logo_url = f"{safe_brand_url}/brand/diamante-simbolo-128.png"
     paragraph_html = "".join(
-        f'<p style="margin:0 0 16px;color:#405755;font-size:16px;line-height:1.65;">'
+        f'<p style="margin:0 0 16px;color:#3f5266;font-size:16px;line-height:1.65;">'
         f"{escape(paragraph)}</p>"
         for paragraph in paragraphs
     )
@@ -61,43 +62,43 @@ def _email_document(
     }}
   </style>
 </head>
-<body style="margin:0;padding:0;background:#edf5f3;color:#102c29;font-family:Arial,Helvetica,sans-serif;">
+<body style="margin:0;padding:0;background:#f7fafd;color:#172b42;font-family:Arial,Helvetica,sans-serif;">
   <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">
     {escape(preheader)}&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;
   </div>
-  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;background:#edf5f3;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;background:#f7fafd;">
     <tr>
       <td class="email-shell" align="center" style="padding:36px 16px;">
-        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:600px;background:#ffffff;border:1px solid #dce9e6;border-radius:20px;box-shadow:0 18px 50px rgba(8,34,32,.12);overflow:hidden;">
+        <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;max-width:600px;background:#ffffff;border:1px solid #d7e1eb;border-radius:20px;box-shadow:0 18px 50px rgba(9,32,56,.12);overflow:hidden;">
           <tr>
-            <td class="email-header" style="padding:25px 34px;background:#0b3a35;">
+            <td class="email-header" style="padding:25px 34px;background:#092038;">
               <table role="presentation" cellspacing="0" cellpadding="0" border="0">
                 <tr>
-                  <td width="38" height="38" align="center" valign="middle" style="width:38px;height:38px;border-radius:10px;background:#5eead4;color:#082220;font-size:16px;font-weight:800;line-height:38px;">12</td>
-                  <td style="padding-left:12px;color:#ffffff;font-size:17px;font-weight:700;letter-spacing:-.2px;">Igreja 12<br><span style="color:#b7d8d3;font-size:11px;font-weight:400;letter-spacing:.6px;text-transform:uppercase;">Gestão pastoral inteligente</span></td>
+                  <td width="38" height="38" align="center" valign="middle" style="width:38px;height:38px;line-height:38px;"><img src="{safe_logo_url}" width="38" height="38" alt="" style="display:block;width:38px;height:38px;border:0;"></td>
+                  <td style="padding-left:12px;color:#ffffff;font-size:17px;font-weight:700;letter-spacing:-.2px;">Igreja 12<br><span style="color:#b8cbe0;font-size:11px;font-weight:400;letter-spacing:.6px;text-transform:uppercase;">Gestão pastoral inteligente</span></td>
                 </tr>
               </table>
             </td>
           </tr>
           <tr>
             <td class="email-body" style="padding:38px 42px 34px;">
-              <p style="margin:0 0 12px;color:#0f766e;font-size:12px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;">{escape(eyebrow)}</p>
-              <h1 class="email-title" style="margin:0 0 22px;color:#102c29;font-size:32px;line-height:1.18;letter-spacing:-.8px;">{escape(title)}</h1>
-              <p style="margin:0 0 16px;color:#102c29;font-size:16px;font-weight:700;line-height:1.6;">{escape(greeting)}</p>
+              <p style="margin:0 0 12px;color:#2b5cb4;font-size:12px;font-weight:700;letter-spacing:1.4px;text-transform:uppercase;">{escape(eyebrow)}</p>
+              <h1 class="email-title" style="margin:0 0 22px;color:#172b42;font-size:32px;line-height:1.18;letter-spacing:-.8px;">{escape(title)}</h1>
+              <p style="margin:0 0 16px;color:#172b42;font-size:16px;font-weight:700;line-height:1.6;">{escape(greeting)}</p>
               {paragraph_html}
               <table role="presentation" cellspacing="0" cellpadding="0" border="0" style="margin:27px 0 28px;">
                 <tr>
-                  <td bgcolor="#0f766e" style="border-radius:10px;">
+                  <td bgcolor="#2b5cb4" style="border-radius:10px;">
                     <a class="email-button" href="{safe_url}" target="_blank" style="display:inline-block;padding:15px 24px;color:#ffffff;font-size:16px;font-weight:700;line-height:1;text-decoration:none;border-radius:10px;">{escape(cta_label)}</a>
                   </td>
                 </tr>
               </table>
-              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;margin:0 0 22px;background:#f4f8f7;border:1px solid #dce9e6;border-radius:12px;">
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" border="0" style="width:100%;margin:0 0 22px;background:#f1f6fc;border:1px solid #d7e1eb;border-radius:12px;">
                 <tr>
                   <td style="padding:16px 18px;">
-                    <p style="margin:0 0 7px;color:#405755;font-size:12px;font-weight:700;">Se o botão não funcionar</p>
-                    <p style="margin:0;color:#607572;font-size:12px;line-height:1.55;">Copie e cole este endereço no navegador:</p>
-                    <p style="margin:8px 0 0;font-size:12px;line-height:1.5;word-break:break-all;"><a href="{safe_url}" target="_blank" style="color:#0f766e;text-decoration:underline;">{safe_url}</a></p>
+                    <p style="margin:0 0 7px;color:#31475f;font-size:12px;font-weight:700;">Se o botão não funcionar</p>
+                    <p style="margin:0;color:#60758b;font-size:12px;line-height:1.55;">Copie e cole este endereço no navegador:</p>
+                    <p style="margin:8px 0 0;font-size:12px;line-height:1.5;word-break:break-all;"><a href="{safe_url}" target="_blank" style="color:#2b5cb4;text-decoration:underline;">{safe_url}</a></p>
                   </td>
                 </tr>
               </table>
@@ -110,11 +111,11 @@ def _email_document(
             </td>
           </tr>
           <tr>
-            <td style="padding:22px 34px;background:#f8fbfa;border-top:1px solid #e4eeec;color:#70827f;font-size:11px;line-height:1.6;text-align:center;">
+            <td style="padding:22px 34px;background:#f7fafd;border-top:1px solid #dfe7ef;color:#6b7f93;font-size:11px;line-height:1.6;text-align:center;">
               Este é um e-mail automático da Igreja 12. Não responda a esta mensagem.<br>
-              <a href="{safe_brand_url}/privacidade" style="color:#49635f;text-decoration:underline;">Privacidade</a>
+              <a href="{safe_brand_url}/privacidade" style="color:#415a73;text-decoration:underline;">Privacidade</a>
               &nbsp;&middot;&nbsp;
-              <a href="{safe_brand_url}/termos" style="color:#49635f;text-decoration:underline;">Termos de uso</a>
+              <a href="{safe_brand_url}/termos" style="color:#415a73;text-decoration:underline;">Termos de uso</a>
             </td>
           </tr>
         </table>
