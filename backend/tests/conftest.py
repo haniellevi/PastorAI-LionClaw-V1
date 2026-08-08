@@ -458,11 +458,27 @@ def make_app_user(
     )
 
 
-@pytest.fixture
-def app():
+@pytest.fixture(scope="session")
+def _session_app():
     from app.main import create_app
 
     return create_app()
+
+
+@pytest.fixture
+def app(_session_app):
+    """Reuse the immutable route graph while isolating per-test overrides.
+
+    Building the FastAPI application discovers and registers every router, so
+    doing it for each test adds a sizeable fixed setup cost to the whole suite.
+    Tests only mutate ``dependency_overrides``; clearing that mapping on both
+    sides keeps the public fixture function-scoped without rebuilding the app.
+    """
+    _session_app.dependency_overrides.clear()
+    try:
+        yield _session_app
+    finally:
+        _session_app.dependency_overrides.clear()
 
 
 @pytest.fixture(autouse=True)
