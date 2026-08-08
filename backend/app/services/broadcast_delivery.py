@@ -36,6 +36,7 @@ from app.db.models import (
 )
 from app.db.tenant_session import mark_cross_tenant, mark_tenant_scoped
 from app.domain.broadcast import RecipientCandidate, matches_segments, normalize_segments
+from app.domain.phone import normalize_phone
 from app.services.evolution import BroadcastSendResult, EvolutionClient
 
 logger = logging.getLogger("pastorai.broadcast_delivery")
@@ -232,9 +233,17 @@ def next_occurrence(
 
 
 def normalize_delivery_phone(raw: str | None) -> str | None:
-    """Return a digits-only send/dedupe key, or None when clearly invalid."""
-    digits = "".join(char for char in (raw or "") if char.isdigit())
-    return digits if 10 <= len(digits) <= 15 else None
+    """Return a Brazilian E.164 send/dedupe key, or None when invalid.
+
+    Contact storage intentionally uses the local Brazilian canonical form
+    (DDD + mobile) so ``+55`` and WhatsApp JIDs de-duplicate correctly.  The
+    Evolution send endpoint, however, requires the country code.  Reuse the
+    same canonicalizer and add ``55`` only at this external boundary.
+    """
+    canonical = normalize_phone(raw or "")
+    if len(canonical) != 11:
+        return None
+    return f"55{canonical}"
 
 
 def recipient_delivery_phone(person: Any | None) -> tuple[str | None, str | None]:

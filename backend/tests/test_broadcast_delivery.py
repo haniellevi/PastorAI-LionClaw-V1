@@ -132,6 +132,19 @@ def test_valid_recipient_phone_is_digits_only() -> None:
     assert delivery.recipient_delivery_phone(person) == ("5511999990000", None)
 
 
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        ("(89) 99431-5927", "5589994315927"),
+        ("89994315927", "5589994315927"),
+        ("+55 (89) 99431-5927", "5589994315927"),
+        ("558994315927", "5589994315927"),
+    ],
+)
+def test_delivery_phone_uses_brazilian_e164(raw: str, expected: str) -> None:
+    assert delivery.normalize_delivery_phone(raw) == expected
+
+
 def test_phone_change_after_materialization_is_suppressed() -> None:
     person = SimpleNamespace(
         arquivada_em=None,
