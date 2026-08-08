@@ -237,8 +237,8 @@ describe("AssinaturaScreen — links do checkout", () => {
     fetchPlanCatalog.mockResolvedValue({
       setupFee: 0,
       planos: [
-        { code: "ate_100", label: "Até 100 pessoas", limite: 100, preco: 199 },
-        { code: "101_200", label: "101–200 pessoas", limite: 200, preco: 299 },
+        { code: "ate_100", label: "Até 100 membros", limite: 100, preco: 199 },
+        { code: "101_200", label: "101–200 membros", limite: 200, preco: 299 },
       ],
     });
     changePlan.mockResolvedValue({
@@ -250,6 +250,10 @@ describe("AssinaturaScreen — links do checkout", () => {
 
     act(() => root.render(h(AssinaturaScreen)));
     await flush();
+
+    expect(container.textContent).toContain("Membros ativos");
+    expect(container.textContent).toContain("Faltam 60 membros");
+    expect(container.textContent).not.toContain("Pessoas cadastradas");
 
     const plansTab = [...container.querySelectorAll("button")].find((button) =>
       button.textContent?.includes("Planos por porte"),
@@ -274,7 +278,7 @@ describe("AssinaturaScreen — links do checkout", () => {
 
     // Confirmação mostra plano/preço e a vigência no próximo ciclo.
     expect(container.textContent).toContain("Confirmar mudança de plano?");
-    expect(container.textContent).toContain("101–200 pessoas");
+    expect(container.textContent).toContain("101–200 membros");
     expect(container.textContent).toContain("Válido a partir do próximo ciclo");
 
     const confirmar = [...container.querySelectorAll("button")].find((button) =>

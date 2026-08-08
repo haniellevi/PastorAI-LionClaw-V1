@@ -137,8 +137,9 @@ class FakeSession:
         self.plan_changes = plan_changes or []
         # Intenções duráveis de CRIAÇÃO de assinatura (CORRECTIVE-6).
         self.subscription_ops = subscription_ops or []
-        # Contagem canônica de `pessoas` da igreja (guarda de downgrade).
-        self.pessoas_count = 0
+        # Contagem canônica de membros faturáveis (o nome fica legado para não
+        # reescrever centenas de fixtures de billing).
+        self.pessoas_count = int(getattr(subscription, "pessoas", 0) or 0)
         # Objetos passados a .add() (ex.: Subscription novo no checkout) —
         # permite o teste inspecionar o que o handler gravou (ex.: sub.limite).
         self.added: list = []
@@ -198,7 +199,7 @@ class FakeSession:
     def execute(self, statement, params=None) -> _FakeResult:
         if isinstance(statement, _SqlUpdate):
             return self._apply_conditional_update(statement)
-        # Contagem canônica de pessoas (guarda de downgrade por porte): o
+        # Contagem canônica de membros (guarda de downgrade por porte): o
         # select é `func.count()` com FROM em `pessoas` — sem entidade no
         # column_descriptions, então é reconhecido pelo texto compilado.
         sql_text = str(statement)

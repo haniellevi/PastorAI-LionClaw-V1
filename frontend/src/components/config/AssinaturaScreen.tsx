@@ -51,7 +51,7 @@ const BRL = new Intl.NumberFormat("pt-BR", {
 });
 
 function formatLimit(limite: number | null): string {
-  return limite == null ? "Ilimitado" : `${limite} pessoas`;
+  return limite == null ? "Ilimitado" : `${limite} membros`;
 }
 
 function formatDate(iso: string | null): string {
@@ -322,10 +322,11 @@ export function AssinaturaScreen() {
       !sub.setupPago ||
       sub.invoiceReversal != null ||
       hasOutstandingRecovery);
-  const pessoas = sub?.pessoas ?? 0;
+  // ``pessoas`` é o nome legado da API; o backend envia membros faturáveis.
+  const membros = sub?.pessoas ?? 0;
   const limite = sub?.limite ?? current?.limite ?? null;
-  const pct = limite ? Math.min(100, Math.round((pessoas / limite) * 100)) : 0;
-  const over = limite != null && pessoas >= limite;
+  const pct = limite ? Math.min(100, Math.round((membros / limite) * 100)) : 0;
+  const over = limite != null && membros >= limite;
   const currentIndex = current ? catalog.findIndex((p) => p.code === current.code) : -1;
   const nextPlan = currentIndex >= 0 ? catalog[currentIndex + 1] ?? null : null;
   const frozenCheckoutRecovery = planoSalvoForaDoCatalogo && sub ? (
@@ -572,9 +573,9 @@ export function AssinaturaScreen() {
                     marginBottom: 6,
                   }}
                 >
-                  <span style={{ color: "var(--muted)" }}>Pessoas cadastradas</span>
+                  <span style={{ color: "var(--muted)" }}>Membros ativos</span>
                   <span className="num">
-                    <strong>{pessoas}</strong> / {limite ?? "∞"}
+                    <strong>{membros}</strong> / {limite ?? "∞"}
                   </span>
                 </div>
                 <div className={`meter${over ? " over" : ""}`}>
@@ -595,7 +596,7 @@ export function AssinaturaScreen() {
                     <span>
                       {over
                         ? `Limite atingido — upgrade automático ao plano ${nextPlan.label} (${BRL.format(nextPlan.preco)}).`
-                        : `Faltam ${limite - pessoas} pessoas para o upgrade automático ao plano ${nextPlan.label} (${BRL.format(nextPlan.preco)}).`}
+                        : `Faltam ${limite - membros} membros para o upgrade automático ao plano ${nextPlan.label} (${BRL.format(nextPlan.preco)}).`}
                     </span>
                   </div>
                 ) : null}
