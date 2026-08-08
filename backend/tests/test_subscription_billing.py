@@ -420,15 +420,19 @@ def test_new_contract_does_not_recharge_setup_already_paid(app) -> None:
 def test_get_subscription_keeps_persisted_links_and_polls_tracked_setup(app) -> None:
     asaas = _RecoveryAsaas()
     sub = _subscription(
+        pessoas=999,  # espelho legado propositalmente defasado
         asaas_invoice_url="https://asaas.test/monthly",
         asaas_setup_invoice_url="https://asaas.test/setup",
     )
     client, db = _client(app, planos=[], asaas=asaas, subscription=sub)
+    db.pessoas_count = 12
 
     resp = client.get("/subscription", headers=_AUTH)
 
     assert resp.status_code == 200
     body = resp.json()
+    assert body["pessoas"] == 12  # contrato legado, valor canônico de membros
+    assert sub.pessoas == 999  # a leitura não precisa regravar o espelho
     assert body["invoiceUrl"] == "https://asaas.test/monthly"
     assert body["setupInvoiceUrl"] == "https://asaas.test/setup"
     # Mensalidade com link não é consultada. Setup ainda não pago é consultado
@@ -3649,8 +3653,8 @@ def test_pre_post_retry_failure_ignores_customer_from_a_previous_attempt(
 
 
 # ---------------------------------------------------------------------------
-# CORRECTIVE-9 P1: downgrade abaixo do porte atual é rejeitado ANTES de criar
-# operação ou tocar o Asaas (o trigger só corrigiria numa mutação de pessoas).
+# CORRECTIVE-9 P1: downgrade abaixo dos membros atuais é rejeitado ANTES de criar
+# operação ou tocar o Asaas (o trigger só corrigiria numa mudança de membro).
 # ---------------------------------------------------------------------------
 class _NoCallAsaas:
     """Qualquer chamada aqui é falha do teste: o bloqueio vem antes."""
@@ -3684,6 +3688,7 @@ def test_change_plan_rejects_downgrade_below_current_headcount(app) -> None:
 
     assert resp.status_code == 422
     assert "201" in resp.json()["detail"]
+    assert "membros" in resp.json()["detail"]
     # Zero PUT (fake explode), zero operação criada, plano local intacto.
     assert not [
         o for o in db.added if isinstance(o, BillingPlanChangeOperation)

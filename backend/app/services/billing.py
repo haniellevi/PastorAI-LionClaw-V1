@@ -41,6 +41,12 @@ from app.services.asaas import (
 
 logger = logging.getLogger("pastorai.billing")
 
+# Categorias que representam membros para fins de porte/cobrança. ``lider``
+# permanece por compatibilidade com dados legados; novas lideranças são
+# derivadas das células e a pessoa continua classificada, no mínimo, como
+# ``membro``. Contato e visitante nunca entram nesta contagem.
+BILLABLE_MEMBER_TYPES = ("membro", "discipulo", "lider", "pastor")
+
 # Estados em que a operação ainda "ocupa" o slot (claim) da assinatura+propósito.
 OPEN_OPERATION_STATUSES = ("prepared", "creating", "reconciling", "created")
 # Estados abertos da troca de plano (claim único por assinatura).
@@ -612,17 +618,24 @@ def _apply_reconciled_payment_state(
 
 
 def current_headcount(db: Session, sub: Subscription) -> int:
-    """Porte atual da igreja — contagem canônica, não o espelho defasado.
+    """Porte faturável — membros ativos, não todos os cadastros de pessoas.
 
-    `subscriptions.pessoas` é mantido pelo trigger a cada mutação, mas pode
-    estar desatualizado entre eventos — e o objeto ORM carregado antes de uma
+    A coluna legada ``subscriptions.pessoas`` espelha esta contagem, mas pode
+    estar desatualizada entre eventos — e o objeto ORM carregado antes de uma
     chamada externa fica STALE por definição (a sessão não expira no commit).
-    Toda decisão de porte (bloquear downgrade, enfileirar auto-upgrade) usa
-    somente a tabela `pessoas`: o espelho não pode substituir nem aumentos nem
-    reduções que já aconteceram na fonte canônica.
+    Toda decisão de porte (bloquear downgrade, enfileirar auto-upgrade) relê a
+    fonte canônica e inclui somente membro/discípulo/líder legado/pastor que não
+    esteja arquivado nem marcado como fora da igreja (CSIM).
     """
     total = db.execute(
-        select(func.count()).select_from(Pessoa).where(Pessoa.igreja_id == sub.igreja_id)
+        select(func.count())
+        .select_from(Pessoa)
+        .where(
+            Pessoa.igreja_id == sub.igreja_id,
+            Pessoa.tipo.in_(BILLABLE_MEMBER_TYPES),
+            Pessoa.sem_interesse.is_(False),
+            Pessoa.arquivada_em.is_(None),
+        )
     ).scalar_one_or_none()
     try:
         contagem = int(total) if total is not None else 0

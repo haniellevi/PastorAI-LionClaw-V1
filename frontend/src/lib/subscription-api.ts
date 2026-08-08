@@ -31,6 +31,7 @@ export type SubscriptionUiState = "active" | "pending" | "past-due" | "plans";
 export interface Subscription {
   plano: PlanCode;
   status: SubscriptionStatus | null;
+  /** Nome legado da API; contém somente membros faturáveis ativos. */
   pessoas: number | null;
   limite: number | null;
   proximaCobranca: string | null;
@@ -75,7 +76,7 @@ export interface CheckoutResult {
 export interface PlanInfo {
   code: PlanCode;
   label: string;
-  /** Limite de pessoas (null = ilimitado). */
+  /** Limite de membros (null = ilimitado). */
   limite: number | null;
   /** Mensalidade em BRL. */
   preco: number;
