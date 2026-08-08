@@ -11,9 +11,10 @@ Um segundo ciclo, executado em DEV com autenticação, Redis e PostgreSQL reais,
 encontrou gargalos que o laboratório público não mostrava: latência de rede até
 o banco, round-trips sequenciais no bootstrap, indisponibilidade do Redis
 adicionando cerca de oito segundos ao login e tratamento incorreto de falhas de
-infraestrutura como senha inválida. Esses pontos foram corrigidos localmente e
-revalidados; as mudanças deste segundo ciclo continuam **sem commit, push, PR,
-deploy ou alteração em produção**.
+infraestrutura como senha inválida. Esses pontos foram corrigidos localmente,
+revalidados e consolidados em commits da branch. O último lote de warmup e
+`/team/lookup` descrito neste relatório ainda está **sem commit**; a branch não
+recebeu novo push/PR/deploy e produção continua intocada.
 
 Principais resultados locais:
 
@@ -31,6 +32,11 @@ Principais resultados locais:
 - Login aquecido: o encadeamento backend `login + /auth/me` de cerca de
   **4,81 s** foi reduzido a um único `login` de **1,51 s** de tempo da
   aplicação (**1,63 s** de parede no cliente local).
+- Painel após reinício do backend, mediana de três partidas controladas:
+  **6,78 s → 4,02 s** (`-40,7%`).
+- Painel aquecido, mediana do gate final: **3,49 s → 2,87 s** (`-17,7%`).
+- `/team/lookup` aquecido, p50 no gate final: **1,86 s → 1,47 s**
+  (`-20,7%`).
 
 Esses números são de laboratório local. Não equivalem a RUM de usuários reais,
 nem provam o comportamento de banco/Redis sob carga de produção.
@@ -43,14 +49,13 @@ nem provam o comportamento de banco/Redis sob carga de produção.
   `.codex/worktrees/performance-plan`.
 - Branch: `codex/performance-plan`.
 - Base: `deb95a8cfebc154168bcc13a2bd304aa34260bcf` (`origin/main` no início).
-- Integração final: `origin/main` em
-  `602761c25bfd23d779704c34a11b88a93b80ea7e`, incorporada por merge normal.
-- Estado operacional: o primeiro ciclo já estava versionado e publicado na
-  branch remota; o estado de eventual PR não foi alterado nem revalidado neste
-  segundo ciclo. A migration de idempotência outbound foi depois
-  aplicada **somente no banco DEV**, com autorização explícita e validação;
-  não houve migration em produção nem deploy. As correções do segundo ciclo
-  estão apenas no worktree, ainda não versionadas.
+- Integração mais recente: `origin/main` em
+  `2c970c7d39c724a53fdcc79addbbaddc3124e2f8`, incorporada pelo merge local
+  `3bda8144094c3f6324f5f00af51489e009a5757d`.
+- Estado operacional: a migration de idempotência outbound foi aplicada
+  **somente no banco DEV**, com autorização explícita e validação; não houve
+  migration em produção nem deploy. As duas correções do gate final e esta
+  atualização do relatório estão no worktree, ainda não versionadas.
 
 ### Gate de frescor do grafo
 
@@ -158,9 +163,26 @@ banco remoto: Agenda 2.335 ms, Inbox 2.346 ms e Ganhar 1.953 ms. Contatos não
 foi cronometrado com essa conta porque a permissão da rota não estava presente;
 o redirecionamento para o painel não foi contado como resultado de Contatos.
 
-O primeiro carregamento após reiniciar o backend ainda exibiu 3,65–3,97 s nas
-quatro APIs paralelas do painel, devido à abertura fria de conexões. Depois do
-aquecimento, o p50 caiu para os valores da tabela.
+O primeiro carregamento após reiniciar o backend ainda exibia penalidade de
+abertura fria de conexões. O gate final moveu uma única abertura de conexão para
+o `lifespan`, antes de o backend aceitar tráfego, e eliminou duas consultas
+redundantes de `/team/lookup`.
+
+| Gate final | Antes do lote | Depois | Variação |
+|---|---:|---:|---:|
+| Painel após restart, mediana de 3 | 6.775 ms | 4.020 ms | -40,7% |
+| `/auth/me` após restart, p50 | 3.513 ms | 1.159 ms | -67,0% |
+| Painel aquecido, mediana de 5 | 3.488 ms | 2.869 ms | -17,7% |
+| `/team/lookup` aquecido, p50 | 1.858 ms | 1.474 ms | -20,7% |
+
+As três partidas finais levaram aproximadamente 5,55 s, 8,34 s e 6,09 s do
+processo até `/health`; a mediana foi 6,09 s. Esse custo agora acontece durante
+a readiness e ficou abaixo do `start_period` de 20 s do Compose. Depois do
+`/health`, os três painéis ficaram completos em 4,02 s, 4,20 s e 3,94 s. As
+cinco amostras aquecidas tiveram mediana de 2,87 s. Todas terminaram
+autenticadas, sem 500/429 e sem warning/error no navegador. Uma amostra aquecida
+de 7,23 s foi mantida como outlier; ela não alterou a mediana e reforça que o
+gate de staging deve observar cauda, não apenas p50.
 
 ### PostgreSQL DEV — latência e índice outbound
 
@@ -342,7 +364,12 @@ são limitadas no SQL com `row_number() over(partition by celula_id)`.
 - `/auth/me` usa `joinedload` de papéis e caiu de seis para cinco SQL, mantendo
   integralmente o contexto RLS;
 - `/dashboard/overview` usa agregações e caiu de sete para duas consultas no
-  escopo da igreja e três no escopo de líder.
+  escopo da igreja e três no escopo de líder;
+- o `lifespan` aquece exatamente uma conexão com `SELECT 1`, encerra a
+  transação e devolve o checkout ao pool antes do `/health`; falhas continuam
+  best-effort e geram apenas warning sanitizado;
+- `/team/lookup` usa `joinedload` dos papéis da página e caiu de quatro para
+  duas consultas próprias, sem varrer novamente todos os papéis do tenant.
 
 ### 11. Testes e CI
 
@@ -374,6 +401,11 @@ são limitadas no SQL com `row_number() over(partition by celula_id)`.
   worker: **nenhum P0–P2 remanescente no escopo alterado**.
 - Revisão independente após integrar `main`: **222/222 testes focados PASS** e
   nenhuma perda semântica nos quatro arquivos sobrepostos.
+- Gate final após warmup e `/team/lookup`: **1.969 PASS, 135 SKIP** na suíte
+  offline completa; em seguida, os **135/135 testes RLS passaram** contra
+  PostgreSQL 16 local descartável, sem skips.
+- Testes focados do último lote: **44/44 PASS**; revisão independente não
+  encontrou P0–P2; `git diff --check` permaneceu em **PASS**.
 
 ## Gates executados e pendências
 

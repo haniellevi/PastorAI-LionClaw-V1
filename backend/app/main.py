@@ -16,6 +16,7 @@ from collections.abc import AsyncIterator
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.config import get_settings
 from app.db.session import get_engine
@@ -85,6 +86,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     clerk_client = ClerkClient(settings=settings)
     app.state.clerk_client = clerk_client
     logger.info("PastorAI backend starting (env=%s)", settings.app_env)
+    try:
+        connection = get_engine().connect()
+        try:
+            connection.exec_driver_sql("SELECT 1").scalar_one()
+            connection.rollback()
+        finally:
+            connection.close()
+        logger.info("Database connection pool warmed")
+    except (RuntimeError, SQLAlchemyError):
+        logger.warning("Database warmup unavailable; startup continuing")
     try:
         yield
     finally:
