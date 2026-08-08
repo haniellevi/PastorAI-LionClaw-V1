@@ -70,15 +70,19 @@ class _Scalars:
 
 
 class _R:
-    def __init__(self, *, scalar=None, scalars=None) -> None:
+    def __init__(self, *, scalar=None, scalars=None, rows=None) -> None:
         self._scalar = scalar
         self._scalars = list(scalars or [])
+        self._rows = list(rows or [])
 
     def scalar_one_or_none(self):
         return self._scalar
 
     def scalars(self) -> _Scalars:
         return _Scalars(self._scalars)
+
+    def all(self) -> list:
+        return list(self._rows)
 
 
 # ===========================================================================
@@ -118,6 +122,9 @@ class CellSession:
         self.added: list = []
         self.deleted: list = []
         self.committed = False
+        self.execute_count = 0
+        self.executed_sql: list[str] = []
+        self.health_result_row_counts: dict[str, int] = {}
 
     # -- predicate / ordering helpers (idênticos ao DiscipuloSession) -------
     @staticmethod
@@ -129,7 +136,58 @@ class CellSession:
             node = stack.pop()
             left = getattr(node, "left", None)
             right = getattr(node, "right", None)
-            if left is not None and right is not None:
+            operator = getattr(node, "operator", None)
+            if (
+                left is not None
+                and right is not None
+                and operator is operators.eq
+            ):
+                key = getattr(left, "key", None)
+                value = getattr(right, "value", None)
+                if key is not None and value is not None:
+                    preds[key] = str(value)
+                continue
+            stack.extend(getattr(node, "clauses", []) or [])
+        return preds
+
+    @staticmethod
+    def _in_predicates(statement) -> dict[str, set[str]]:
+        preds: dict[str, set[str]] = {}
+        clause = getattr(statement, "whereclause", None)
+        stack = [clause] if clause is not None else []
+        while stack:
+            node = stack.pop()
+            left = getattr(node, "left", None)
+            right = getattr(node, "right", None)
+            operator = getattr(node, "operator", None)
+            if (
+                left is not None
+                and right is not None
+                and operator is operators.in_op
+            ):
+                key = getattr(left, "key", None)
+                values = getattr(right, "value", None)
+                if key is not None and values is not None:
+                    preds[key] = {str(value) for value in values}
+                continue
+            stack.extend(getattr(node, "clauses", []) or [])
+        return preds
+
+    @staticmethod
+    def _ne_predicates(statement) -> dict[str, str]:
+        preds: dict[str, str] = {}
+        clause = getattr(statement, "whereclause", None)
+        stack = [clause] if clause is not None else []
+        while stack:
+            node = stack.pop()
+            left = getattr(node, "left", None)
+            right = getattr(node, "right", None)
+            operator = getattr(node, "operator", None)
+            if (
+                left is not None
+                and right is not None
+                and operator is operators.ne
+            ):
                 key = getattr(left, "key", None)
                 value = getattr(right, "value", None)
                 if key is not None and value is not None:
@@ -139,11 +197,18 @@ class CellSession:
         return preds
 
     def _filter(self, store, statement):
-        preds = self._eq_predicates(statement)
+        eq_preds = self._eq_predicates(statement)
+        in_preds = self._in_predicates(statement)
+        ne_preds = self._ne_predicates(statement)
         return [
             o
             for o in store
-            if all(str(getattr(o, k, None)) == v for k, v in preds.items())
+            if all(str(getattr(o, k, None)) == v for k, v in eq_preds.items())
+            and all(
+                str(getattr(o, k, None)) in values
+                for k, values in in_preds.items()
+            )
+            and all(str(getattr(o, k, None)) != v for k, v in ne_preds.items())
         ]
 
     @staticmethod
@@ -176,7 +241,13 @@ class CellSession:
     def _apply_order(rows, specs):
         rows = list(rows)
         for key, descending in reversed(specs):
-            rows.sort(key=lambda r, k=key: getattr(r, k), reverse=descending)
+            rows.sort(
+                key=lambda r, k=key: (
+                    getattr(r, k) is None,
+                    getattr(r, k),
+                ),
+                reverse=descending,
+            )
         return rows
 
     @staticmethod
@@ -190,8 +261,111 @@ class CellSession:
         rows = self._apply_order(rows, self._order_specs(statement))
         return _R(scalar=(rows[0] if rows else None), scalars=rows)
 
+    def _select_group_count(
+        self,
+        store,
+        statement,
+        *,
+        group_key: str,
+        result_name: str,
+        active: bool = False,
+    ) -> _R:
+        rows = self._filter(store, statement)
+        if active and self._wants_active(statement):
+            rows = self._active(rows)
+        counts: dict[object, int] = {}
+        for row in rows:
+            key = getattr(row, group_key)
+            counts[key] = counts.get(key, 0) + 1
+        result_rows = list(counts.items())
+        self.health_result_row_counts[result_name] = len(result_rows)
+        return _R(rows=result_rows)
+
+    def _select_distinct_ids(
+        self,
+        store,
+        statement,
+        *,
+        key: str,
+        result_name: str,
+    ) -> _R:
+        rows = self._filter(store, statement)
+        seen = set()
+        distinct_ids = []
+        for row in rows:
+            value = getattr(row, key)
+            if value in seen:
+                continue
+            seen.add(value)
+            distinct_ids.append(value)
+        self.health_result_row_counts[result_name] = len(distinct_ids)
+        return _R(scalars=distinct_ids)
+
+    def _select_health_window(self, statement) -> _R:
+        """Executa em memória o ``row_number`` do serviço de saúde."""
+        params = statement.compile().params
+        igreja_id = next(
+            (
+                value
+                for key, value in params.items()
+                if key.startswith("igreja_id")
+            ),
+            None,
+        )
+        cell_ids = next(
+            (
+                value
+                for key, value in params.items()
+                if key.startswith("celula_id")
+            ),
+            (),
+        )
+        cancelled_status = next(
+            (
+                value
+                for key, value in params.items()
+                if key.startswith("status")
+            ),
+            "cancelada",
+        )
+        window = next(
+            (
+                value
+                for key, value in params.items()
+                if key.startswith("health_rank")
+            ),
+            10,
+        )
+
+        allowed_cells = {str(cell_id) for cell_id in cell_ids}
+        rows = [
+            meeting
+            for meeting in self.reunioes
+            if str(meeting.igreja_id) == str(igreja_id)
+            and str(meeting.celula_id) in allowed_cells
+            and meeting.status != cancelled_status
+        ]
+        by_cell: dict[str, list] = {}
+        for meeting in rows:
+            by_cell.setdefault(str(meeting.celula_id), []).append(meeting)
+
+        selected = []
+        meeting_order = [("data", True), ("hora", True)]
+        for meetings in by_cell.values():
+            selected.extend(
+                self._apply_order(meetings, meeting_order)[: int(window)]
+            )
+        selected = self._apply_order(selected, self._order_specs(statement))
+        return _R(
+            scalar=(selected[0] if selected else None),
+            scalars=selected,
+        )
+
     # -- execute ------------------------------------------------------------
     def execute(self, statement, params=None) -> _R:
+        self.execute_count += 1
+        sql = str(statement)
+        self.executed_sql.append(sql)
         descs = list(getattr(statement, "column_descriptions", []) or [])
         ent = descs[0].get("entity") if descs else None
         name = descs[0].get("name") if descs else None
@@ -203,14 +377,45 @@ class CellSession:
         if ent is Celula:
             return self._select(self.cells, statement)
         if ent is CelulaReuniao:
+            if "row_number() over" in sql.lower():
+                return self._select_health_window(statement)
             return self._select(self.reunioes, statement)
         if ent is CelulaMembro:
+            if name == "celula_id" and "count(" in sql.lower():
+                return self._select_group_count(
+                    self.membros,
+                    statement,
+                    group_key="celula_id",
+                    result_name="active_members",
+                    active=True,
+                )
             return self._select(self.membros, statement, active=True)
         if ent is CelulaPresenca:
+            if name == "reuniao_id" and "count(" in sql.lower():
+                return self._select_group_count(
+                    self.presencas,
+                    statement,
+                    group_key="reuniao_id",
+                    result_name="attendance",
+                )
             return self._select(self.presencas, statement)
         if ent is CelulaExpectativaVisitante:
+            if name == "reuniao_id" and "distinct" in sql.lower():
+                return self._select_distinct_ids(
+                    self.expectativas,
+                    statement,
+                    key="reuniao_id",
+                    result_name="expected_visitors",
+                )
             return self._select(self.expectativas, statement)
         if ent is CelulaVisitante:
+            if name == "reuniao_id" and "distinct" in sql.lower():
+                return self._select_distinct_ids(
+                    self.visitantes,
+                    statement,
+                    key="reuniao_id",
+                    result_name="registered_visitors",
+                )
             return self._select(self.visitantes, statement)
         if ent is CelulaAviso:
             return self._select(self.avisos, statement, active=True)

@@ -212,7 +212,7 @@ def list_pipeline(
         .limit(pagination.limit)
     ).scalars().all()
 
-    leader_ids = _active_leader_ids(db)
+    leader_ids = _active_leader_ids(db, [p.id for p in rows])
     return Page[ContactOut](
         items=[
             ContactOut.from_model(p, lider_de_celula=str(p.id) in leader_ids)

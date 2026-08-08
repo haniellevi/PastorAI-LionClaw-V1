@@ -16,10 +16,11 @@ import dataclasses
 import datetime as dt
 import logging
 import uuid
+from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -41,6 +42,20 @@ router = APIRouter(prefix="/contacts", tags=["contacts"])
 # DERIVADO (celulas.lider_id em célula ativa), nunca um rótulo manual — a
 # aptidão (Reencontro) é a flag apto_lider (decisão do dono 2026-07-06).
 _TIPOS_PERMITIDOS = {"contato", "visitante", "membro", "pastor", "discipulo"}
+
+ContactView = Literal[
+    "all",
+    "pending",
+    "contato",
+    "visitante",
+    "membro",
+    "discipulo",
+    "pastor",
+    "lideres_celula",
+    "aptos",
+    "csim",
+    "arquivadas",
+]
 
 
 def _validate_tipo(value: str | None) -> str | None:
@@ -69,14 +84,77 @@ def _leads_active_cell(db: Session, pessoa_id) -> bool:
     )
 
 
-def _active_leader_ids(db: Session) -> set[str]:
-    """IDs (str) das pessoas que lideram célula ativa no tenant (RLS)."""
+def _active_leader_ids(
+    db: Session, pessoa_ids: list[uuid.UUID]
+) -> set[str]:
+    """IDs da página que lideram célula ativa no tenant (RLS).
+
+    A listagem chama esta projeção depois da paginação. Restringir o ``IN`` aos
+    IDs retornados evita carregar todos os líderes ativos do tenant em cada
+    página, sem duplicar na aplicação a regra de isolamento mantida pela RLS.
+    """
+    if not pessoa_ids:
+        return set()
+
     rows = db.execute(
-        select(Celula.lider_id).where(
-            Celula.ativo.is_(True), Celula.lider_id.is_not(None)
+        select(Celula.lider_id)
+        .where(
+            Celula.ativo.is_(True),
+            Celula.lider_id.in_(pessoa_ids),
         )
+        .distinct()
     ).scalars().all()
     return {str(r) for r in rows}
+
+
+def _contact_view_conditions(view: ContactView):
+    """SQL predicates for the contacts tabs, applied before count/pagination.
+
+    The active-cell leader predicate is a correlated EXISTS. Tenant isolation
+    remains the database RLS policy for both ``pessoas`` and ``celulas``.
+    """
+
+    leads_active_cell = (
+        select(Celula.id)
+        .where(Celula.lider_id == Pessoa.id, Celula.ativo.is_(True))
+        .correlate(Pessoa)
+        .exists()
+    )
+
+    if view == "arquivadas":
+        return (Pessoa.arquivada_em.is_not(None),)
+
+    active = Pessoa.arquivada_em.is_(None)
+    if view == "all":
+        return (active,)
+    if view in _TIPOS_PERMITIDOS:
+        return (active, Pessoa.tipo == view)
+    if view == "csim":
+        return (active, Pessoa.sem_interesse.is_(True))
+    if view == "lideres_celula":
+        return (active, Pessoa.sem_interesse.is_(False), leads_active_cell)
+    if view == "aptos":
+        return (
+            active,
+            Pessoa.sem_interesse.is_(False),
+            Pessoa.apto_lider.is_(True),
+            ~leads_active_cell,
+        )
+
+    # ``pending`` mirrors followStatus(...).label == "Sem acompanhamento":
+    # no consolidated/in-progress status, no cell, no pastor and not an active
+    # cell leader. Archived records stay out through ``active``; CSIM follows
+    # the previous client rule and can also be pending when no follow-up exists.
+    return (
+        active,
+        func.lower(func.coalesce(Pessoa.acompanhamento, "")).not_in(
+            ("consolidado", "em_consolidacao", "em_andamento")
+        ),
+        or_(Pessoa.subetapa.is_(None), Pessoa.subetapa != "consolidado"),
+        Pessoa.celula_id.is_(None),
+        or_(Pessoa.tipo.is_(None), Pessoa.tipo != "pastor"),
+        ~leads_active_cell,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -159,6 +237,7 @@ class ContactDetailOut(BaseModel):
     liderNome: str | None = None  # noqa: N815
     aptoLider: bool = False  # noqa: N815 - realizou o Reencontro
     liderDeCelula: bool = False  # noqa: N815 - derivado: lidera célula ativa
+    arquivada: bool = False
     consentimento: bool
     optout: bool
     origem: str | None = None
@@ -196,6 +275,7 @@ class ContactDetailOut(BaseModel):
             liderNome=lider_nome,
             aptoLider=bool(p.apto_lider),
             liderDeCelula=lider_de_celula,
+            arquivada=p.arquivada_em is not None,
             consentimento=p.consentimento,
             optout=p.optout,
             origem=p.origem,
@@ -385,23 +465,32 @@ class UnarchiveContactResponse(BaseModel):
 @router.get("", response_model=Page[ContactOut])
 def list_contacts(
     pagination: PaginationParams = Depends(),
+    view: ContactView = Query(default="all"),
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> Page[ContactOut]:
-    """Return the tenant's contacts, newest first, paginated (RNF-09)."""
+    """Return one filtered tenant page, newest first (RNF-09)."""
+
+    conditions = _contact_view_conditions(view)
 
     total = db.execute(
-        select(func.count()).select_from(Pessoa)
+        select(func.count()).select_from(Pessoa).where(*conditions)
     ).scalar_one()
 
+    order_by = (
+        (Pessoa.sem_interesse.asc(), Pessoa.created_at.desc(), Pessoa.id.desc())
+        if view == "all"
+        else (Pessoa.created_at.desc(), Pessoa.id.desc())
+    )
     rows = db.execute(
         select(Pessoa)
-        .order_by(Pessoa.created_at.desc())
+        .where(*conditions)
+        .order_by(*order_by)
         .offset(pagination.offset)
         .limit(pagination.limit)
     ).scalars().all()
 
-    leader_ids = _active_leader_ids(db)
+    leader_ids = _active_leader_ids(db, [p.id for p in rows])
     return Page[ContactOut](
         items=[
             ContactOut.from_model(p, lider_de_celula=str(p.id) in leader_ids)

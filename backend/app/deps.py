@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, noload
 
 from app.db.models import AppUser, Celula, PlatformAdmin, RolePermission, UserRole
 from app.db.rls import set_tenant_context
@@ -171,7 +171,9 @@ def _resolve_current_user(
     set_tenant_context(db, identity.clerk_user_id)
 
     app_user = db.execute(
-        select(AppUser).where(AppUser.clerk_user_id == identity.clerk_user_id)
+        select(AppUser)
+        .options(noload(AppUser.roles))
+        .where(AppUser.clerk_user_id == identity.clerk_user_id)
     ).scalar_one_or_none()
 
     if app_user is None:
@@ -413,7 +415,9 @@ def require_screen(screen: str):
         if ADMIN_ROLE in current_user.roles:
             return current_user
         rows = db.execute(
-            select(RolePermission.papel, RolePermission.tela)
+            select(RolePermission.papel, RolePermission.tela).where(
+                RolePermission.papel.in_(current_user.roles)
+            )
         ).all()
         tenant_matrix: dict[str, set[str]] = {}
         for papel, tela in rows:
