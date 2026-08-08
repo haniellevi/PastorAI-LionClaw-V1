@@ -54,7 +54,7 @@ const linkBtnStyle: React.CSSProperties = {
 };
 
 export function LoginScreen() {
-  const { login, consumeReturnTo } = useAuth();
+  const { login, consumeReturnTo, accessMessage } = useAuth();
   const [route, navigate] = useHashRoute();
 
   // Modo derivado da hash. Tokens vêm como #redefinir-senha/<token> e #ativar/<token>.
@@ -289,10 +289,13 @@ export function LoginScreen() {
               <h1>Entrar no painel</h1>
               <p className="sub">Use as credenciais da sua igreja para acessar o dashboard.</p>
 
-              {authMessage ? (
-                <div className={`auth-error${authMessage.block ? " block" : ""}`} role="alert">
-                  <Icon name={authMessage.block ? "lock" : "alert"} />
-                  <span>{authMessage.text}</span>
+              {authMessage || accessMessage ? (
+                <div
+                  className={`auth-error${authMessage?.block || accessMessage ? " block" : ""}`}
+                  role="alert"
+                >
+                  <Icon name={authMessage?.block || accessMessage ? "lock" : "alert"} />
+                  <span>{authMessage?.text ?? accessMessage}</span>
                 </div>
               ) : null}
 

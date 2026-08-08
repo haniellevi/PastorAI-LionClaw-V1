@@ -21,10 +21,10 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, noload
 
 from app.config import get_settings
-from app.db.models import AppUser, PasswordResetToken, Pessoa
+from app.db.models import AppUser, PasswordResetToken, Pessoa, UserRole
 from app.db.session import get_db
 from app.deps import (
     BLOCKING_IGREJA_STATUSES,
@@ -37,7 +37,12 @@ from app.domain.phone import normalize_phone, phone_suffix
 from app.services.pessoa_dedup import insert_pessoa_or_get_winner
 from app.services.brevo import BrevoClient, BrevoError, get_brevo_client
 from app.services.celula_membro import ensure_active_membro
-from app.services.clerk import ClerkAuthError, ClerkClient, get_clerk_client
+from app.services.clerk import (
+    ClerkAuthError,
+    ClerkClient,
+    ClerkUnavailableError,
+    get_clerk_client,
+)
 from app.services.rate_limit import RateLimiter, get_rate_limiter
 from app.services.storage import logo_public_url
 
@@ -50,6 +55,7 @@ _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 # Single generic message — must not distinguish unknown email vs wrong password.
 _GENERIC_LOGIN_ERROR = "E-mail ou senha inválidos"
+_AUTH_UNAVAILABLE = "Serviço de autenticação temporariamente indisponível"
 
 
 class LoginRequest(BaseModel):
@@ -65,13 +71,6 @@ class LoginRequest(BaseModel):
         if not _EMAIL_RE.match(value):
             raise ValueError("E-mail inválido")
         return value
-
-
-class LoginResponse(BaseModel):
-    """Login success contract."""
-
-    token: str
-    churchId: str  # noqa: N815 - external contract uses camelCase
 
 
 class ForgotPasswordRequest(BaseModel):
@@ -124,6 +123,12 @@ class MeResponse(BaseModel):
     # Missão 4 (branding): nome da igreja (fallback textual) + logo customizada.
     igrejaNome: str | None = None  # noqa: N815
     igrejaLogoUrl: str | None = None  # noqa: N815
+
+
+class LoginResponse(MeResponse):
+    """Login success contract, including the authenticated profile."""
+
+    token: str
 
 
 class UpdateMeRequest(BaseModel):
@@ -184,6 +189,32 @@ def _mark_password_changed(db: Session, clerk_user_id: str) -> None:
     db.commit()
 
 
+def _login_profile(db: Session, app_user: AppUser) -> MeResponse:
+    """Build the same principal snapshot returned by ``GET /auth/me``."""
+    roles = db.execute(
+        select(UserRole.papel).where(UserRole.user_id == app_user.id)
+    ).scalars().all()
+    igreja = app_user.igreja
+    return MeResponse(
+        appUserId=str(app_user.id),
+        churchId=str(app_user.igreja_id),
+        email=app_user.email,
+        nome=app_user.nome,
+        chatNome=app_user.chat_nome,
+        roles=sorted(roles),
+        isOwner=bool(igreja and igreja.dono_id == app_user.id),
+        igrejaNome=igreja.nome if igreja else None,
+        igrejaLogoUrl=logo_public_url(igreja.logo_path if igreja else None),
+    )
+
+
+def _authentication_unavailable() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail=_AUTH_UNAVAILABLE,
+    )
+
+
 @router.post("/login", response_model=LoginResponse)
 def login(
     request: Request,
@@ -192,7 +223,7 @@ def login(
     clerk: ClerkClient = Depends(get_clerk_client),
     limiter: RateLimiter = Depends(get_rate_limiter),
 ) -> LoginResponse:
-    """Authenticate and return {token, churchId}.
+    """Authenticate and return the token plus the bootstrap profile.
 
     Failure modes return the same generic 401 to avoid leaking which emails
     exist; billing blocks return a distinct 403 with billing context.
@@ -207,12 +238,16 @@ def login(
         token, clerk_user_id = clerk.authenticate_password(
             payload.email, payload.password
         )
+    except ClerkUnavailableError:
+        raise _authentication_unavailable() from None
     except ClerkAuthError:
         # Generic — never reveals whether the email is registered.
         raise _unauthorized() from None
 
     app_user = db.execute(
-        select(AppUser).where(AppUser.clerk_user_id == clerk_user_id)
+        select(AppUser)
+        .options(noload(AppUser.roles))
+        .where(AppUser.clerk_user_id == clerk_user_id)
     ).scalar_one_or_none()
 
     if app_user is None:
@@ -250,7 +285,8 @@ def login(
             },
         )
 
-    return LoginResponse(token=token, churchId=str(app_user.igreja_id))
+    profile = _login_profile(db, app_user)
+    return LoginResponse(token=token, **profile.model_dump())
 
 
 @router.post("/forgot-password")
@@ -606,6 +642,8 @@ def change_password(
     )
     try:
         clerk.authenticate_password(current_user.email, payload.currentPassword)
+    except ClerkUnavailableError:
+        raise _authentication_unavailable() from None
     except ClerkAuthError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

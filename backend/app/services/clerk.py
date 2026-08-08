@@ -9,8 +9,10 @@ Two responsibilities:
    decoupled from Clerk's short-lived (~1 min) session tokens so users are not
    logged out after a minute; Clerk is only touched at login.
 
-Errors are normalized to a single `ClerkAuthError` so callers can return a
-generic message that never reveals whether an email exists (US-01).
+Credential rejection is normalized to `ClerkAuthError` so callers never reveal
+whether an email exists (US-01). Transport, upstream and malformed-response
+failures use `ClerkUnavailableError`, allowing login routes to return 503
+without mislabeling an outage as a wrong password.
 """
 
 from __future__ import annotations
@@ -19,16 +21,21 @@ import logging
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from threading import Lock
 from typing import Any
 
 import httpx
 import jwt
+from fastapi import Request
 
 from app.config import Settings, get_settings
 
 logger = logging.getLogger("pastorai.clerk")
 
 _CLERK_API_BASE = "https://api.clerk.com/v1"
+# Login makes at most two sequential Clerk calls. Five seconds per call keeps
+# the nominal upstream budget at 10 seconds, below the frontend's 12s deadline.
+_LOGIN_CALL_TIMEOUT_SECONDS = 5.0
 
 # PastorAI-issued session JWT (HS256) — see module docstring.
 _SESSION_ISSUER = "pastorai"
@@ -51,6 +58,10 @@ class ClerkAuthError(Exception):
     """
 
 
+class ClerkUnavailableError(Exception):
+    """Raised when Clerk cannot reliably accept or reject credentials."""
+
+
 @dataclass(frozen=True)
 class ClerkIdentity:
     """Resolved identity from a verified Clerk session token."""
@@ -60,10 +71,33 @@ class ClerkIdentity:
 
 
 class ClerkClient:
-    """Thin client around Clerk JWKS verification and the Backend API."""
+    """Thin client around Clerk tokens and a reusable Backend API pool."""
 
     def __init__(self, settings: Settings | None = None) -> None:
         self._settings = settings or get_settings()
+        self._client: httpx.Client | None = None
+        self._client_lock = Lock()
+        self._closed = False
+
+    def _http_client(self) -> httpx.Client:
+        """Return the lazily-created connection pool for this service instance."""
+        with self._client_lock:
+            if self._closed:
+                raise ClerkUnavailableError("Clerk client is closed")
+            if self._client is None:
+                self._client = httpx.Client(base_url=_CLERK_API_BASE, timeout=10.0)
+            return self._client
+
+    def close(self) -> None:
+        """Release the Clerk connection pool once; safe to call repeatedly."""
+        with self._client_lock:
+            if self._closed:
+                return
+            self._closed = True
+            client = self._client
+            self._client = None
+        if client is not None:
+            client.close()
 
     # ---- Shared purpose-token emission (MEDIO-005) --------------------------
     def _mint_purpose_token(
@@ -133,12 +167,13 @@ class ClerkClient:
         """Authenticate email+password via Clerk and return (token, clerk_user_id).
 
         Clerk's Backend API verifies the password; PastorAI then mints its own
-        session token (see `_mint_session_token`). Any failure raises
-        ClerkAuthError with no email-existence signal.
+        session token (see `_mint_session_token`). A confirmed unknown e-mail
+        or rejected password raises ClerkAuthError; failures where Clerk could
+        not decide reliably raise ClerkUnavailableError.
         """
         secret = self._settings.clerk_secret_key
         if not secret:
-            raise ClerkAuthError("Clerk secret key is not configured")
+            raise ClerkUnavailableError("Clerk secret key is not configured")
 
         headers = {
             "Authorization": f"Bearer {secret}",
@@ -146,43 +181,62 @@ class ClerkClient:
         }
 
         try:
-            with httpx.Client(base_url=_CLERK_API_BASE, timeout=10.0) as client:
-                # 1) Find the user by email.
-                user_resp = client.get(
-                    "/users",
-                    params={"email_address": [email], "limit": 1},
-                    headers=headers,
-                )
-                user_resp.raise_for_status()
-                users = user_resp.json()
-                if not users:
-                    raise ClerkAuthError("Invalid credentials")
-                clerk_user_id = str(users[0]["id"])
+            client = self._http_client()
+            # 1) Find the user by email.
+            user_resp = client.get(
+                "/users",
+                params={"email_address": [email], "limit": 1},
+                headers=headers,
+                timeout=_LOGIN_CALL_TIMEOUT_SECONDS,
+            )
+            user_resp.raise_for_status()
+            users = user_resp.json()
+            if not isinstance(users, list):
+                raise ClerkUnavailableError("Unexpected Clerk user response")
+            if not users:
+                raise ClerkAuthError("Invalid credentials")
+            clerk_user_id = str(users[0]["id"])
 
-                # 2) Verify the password for that user.
-                verify_resp = client.post(
-                    f"/users/{clerk_user_id}/verify_password",
-                    json={"password": password},
-                    headers=headers,
-                )
-                if verify_resp.status_code != 200 or not verify_resp.json().get(
-                    "verified", False
-                ):
-                    raise ClerkAuthError("Invalid credentials")
+            # 2) Verify the password for that user. Only Clerk's explicit
+            # boolean refusal is a credential error; non-2xx/malformed replies
+            # do not prove the password was wrong.
+            verify_resp = client.post(
+                f"/users/{clerk_user_id}/verify_password",
+                json={"password": password},
+                headers=headers,
+                timeout=_LOGIN_CALL_TIMEOUT_SECONDS,
+            )
+            # Clerk returns 422 when the submitted password is rejected. This
+            # is a confirmed credential decision, unlike transport/5xx or an
+            # unexpected status where the upstream could not decide reliably.
+            if verify_resp.status_code == 422:
+                raise ClerkAuthError("Invalid credentials")
+            verify_resp.raise_for_status()
+            verification = verify_resp.json()
+            if not isinstance(verification, dict):
+                raise ClerkUnavailableError("Unexpected Clerk verify response")
+            verified = verification.get("verified")
+            if verified is False:
+                raise ClerkAuthError("Invalid credentials")
+            if verified is not True:
+                raise ClerkUnavailableError("Unexpected Clerk verify response")
 
-                # 3) Password verified. Mint a PastorAI session token (HS256,
-                #    hours-long) instead of Clerk's short-lived session token so
-                #    the panel session does not expire after ~1 minute. Still no
-                #    password is ever stored (RNF-01).
+            # 3) Password verified. Mint a PastorAI session token (HS256,
+            # hours-long) instead of Clerk's short-lived session token.
+            try:
                 token = self._mint_session_token(clerk_user_id)
+            except ClerkAuthError as exc:
+                raise ClerkUnavailableError("Session token mint failed") from exc
         except ClerkAuthError:
+            raise
+        except ClerkUnavailableError:
             raise
         except httpx.HTTPError as exc:
             logger.warning("Clerk Backend API error during login: %s", type(exc).__name__)
-            raise ClerkAuthError("Authentication failed") from exc
+            raise ClerkUnavailableError("Authentication unavailable") from exc
         except (KeyError, ValueError, TypeError) as exc:
             logger.warning("Unexpected Clerk response shape during login")
-            raise ClerkAuthError("Authentication failed") from exc
+            raise ClerkUnavailableError("Authentication unavailable") from exc
 
         return token, clerk_user_id
 
@@ -303,14 +357,13 @@ class ClerkClient:
             "Content-Type": "application/json",
         }
         try:
-            with httpx.Client(base_url=_CLERK_API_BASE, timeout=10.0) as client:
-                resp = client.get(
-                    "/users",
-                    params={"email_address": [email], "limit": 1},
-                    headers=headers,
-                )
-                resp.raise_for_status()
-                users = resp.json()
+            resp = self._http_client().get(
+                "/users",
+                params={"email_address": [email], "limit": 1},
+                headers=headers,
+            )
+            resp.raise_for_status()
+            users = resp.json()
         except httpx.HTTPError as exc:
             logger.warning("Clerk user lookup failed: %s", type(exc).__name__)
             raise ClerkAuthError("Lookup failed") from exc
@@ -328,13 +381,12 @@ class ClerkClient:
             "Content-Type": "application/json",
         }
         try:
-            with httpx.Client(base_url=_CLERK_API_BASE, timeout=10.0) as client:
-                resp = client.patch(
-                    f"/users/{clerk_user_id}",
-                    json={"password": password, "skip_password_checks": True},
-                    headers=headers,
-                )
-                resp.raise_for_status()
+            resp = self._http_client().patch(
+                f"/users/{clerk_user_id}",
+                json={"password": password, "skip_password_checks": True},
+                headers=headers,
+            )
+            resp.raise_for_status()
         except httpx.HTTPError as exc:
             logger.warning("Clerk set-password failed: %s", type(exc).__name__)
             raise ClerkAuthError("Could not set password") from exc
@@ -354,16 +406,15 @@ class ClerkClient:
             "Content-Type": "application/json",
         }
         try:
-            with httpx.Client(base_url=_CLERK_API_BASE, timeout=10.0) as client:
-                resp = client.post(
-                    "/users",
-                    json={
-                        "email_address": [email],
-                        "password": password,
-                        "skip_password_checks": True,
-                    },
-                    headers=headers,
-                )
+            resp = self._http_client().post(
+                "/users",
+                json={
+                    "email_address": [email],
+                    "password": password,
+                    "skip_password_checks": True,
+                },
+                headers=headers,
+            )
             if resp.status_code in (200, 201):
                 return str(resp.json()["id"])
         except httpx.HTTPError as exc:
@@ -383,6 +434,6 @@ class ClerkClient:
         raise ClerkAuthError("Could not create user")
 
 
-def get_clerk_client() -> ClerkClient:
-    """FastAPI dependency / factory for the Clerk client."""
-    return ClerkClient()
+def get_clerk_client(request: Request) -> ClerkClient:
+    """Return the application-scoped Clerk client and its connection pool."""
+    return request.app.state.clerk_client

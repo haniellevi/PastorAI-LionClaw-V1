@@ -11,11 +11,13 @@ from fastapi.testclient import TestClient
 from starlette.types import Message
 
 from app.middleware.body_limit import (
+    MAX_JSON_REQUEST_BODY_BYTES,
     MAX_MEDIA_JSON_OVERHEAD_BYTES,
     MAX_MEDIA_REQUEST_BODY_BYTES,
+    MAX_WEBHOOK_REQUEST_BODY_BYTES,
     MediaUploadBodyLimitMiddleware,
 )
-from app.routers import conversations
+from app.routers import church, conversations, whatsapp
 from app.services.storage import MAX_MEDIA_BYTES
 
 
@@ -24,7 +26,10 @@ def _asgi_request(
     path: str,
     chunks: list[bytes],
     max_body_bytes: int,
+    max_media_body_bytes: int | None = None,
+    max_webhook_body_bytes: int | None = None,
     content_length: int | None = None,
+    method: str = "POST",
 ) -> tuple[list[Message], dict[str, object]]:
     """Exercise the pure ASGI guard, including requests without a length."""
     request_events = [
@@ -72,7 +77,7 @@ def _asgi_request(
         "type": "http",
         "asgi": {"version": "3.0"},
         "http_version": "1.1",
-        "method": "POST",
+        "method": method,
         "scheme": "http",
         "path": path,
         "raw_path": path.encode("ascii"),
@@ -83,7 +88,10 @@ def _asgi_request(
         "server": ("test", 80),
     }
     middleware = MediaUploadBodyLimitMiddleware(
-        downstream, max_body_bytes=max_body_bytes
+        downstream,
+        max_body_bytes=max_body_bytes,
+        max_media_body_bytes=max_media_body_bytes or max_body_bytes,
+        max_webhook_body_bytes=max_webhook_body_bytes or max_body_bytes,
     )
     asyncio.run(middleware(scope, receive, send))  # type: ignore[arg-type]
     return sent, state
@@ -104,22 +112,54 @@ def test_media_request_limit_reuses_file_limit_with_safe_json_overhead() -> None
     assert MAX_MEDIA_JSON_OVERHEAD_BYTES > max_metadata_chars * 12
 
 
-def test_media_body_limit_rejects_large_content_length_without_parsing() -> None:
+def test_body_limit_defaults_keep_explicit_route_contracts() -> None:
+    assert MAX_JSON_REQUEST_BODY_BYTES == 2 * 1024 * 1024
+    assert MAX_WEBHOOK_REQUEST_BODY_BYTES == whatsapp.MAX_WEBHOOK_BODY_BYTES
+    assert MAX_WEBHOOK_REQUEST_BODY_BYTES < MAX_JSON_REQUEST_BODY_BYTES
+    assert MAX_JSON_REQUEST_BODY_BYTES < MAX_MEDIA_REQUEST_BODY_BYTES
+
+
+def test_global_limit_preserves_church_logo_payload_contract() -> None:
+    metadata = church.UploadLogoRequest.model_fields["base64"].metadata
+    max_base64_chars = max(
+        limit
+        for item in metadata
+        if (limit := getattr(item, "max_length", None)) is not None
+    )
+    body = b'{"mime":"image/png","base64":"' + b"A" * max_base64_chars + b'"}'
+
+    assert len(body) < MAX_JSON_REQUEST_BODY_BYTES
+
     sent, state = _asgi_request(
-        path="/conversations/id/messages/media",
+        path="/igreja/logo",
+        chunks=[body],
+        max_body_bytes=MAX_JSON_REQUEST_BODY_BYTES,
+        content_length=len(body),
+        method="PUT",
+    )
+
+    assert sent[0]["status"] == 204
+    assert state["handler_ran"] is True
+
+
+def test_json_body_limit_rejects_large_content_length_without_parsing() -> None:
+    sent, state = _asgi_request(
+        path="/auth/login",
         chunks=[b"ignored"],
         max_body_bytes=8,
         content_length=9,
     )
 
     assert sent[0]["status"] == 413
-    assert json.loads(sent[1]["body"])["detail"].endswith("16 MB.")
+    assert json.loads(sent[1]["body"])["detail"] == (
+        "Corpo da requisição excede o limite permitido."
+    )
     assert state["handler_ran"] is False
 
 
-def test_media_body_limit_counts_chunked_body_without_content_length() -> None:
+def test_json_body_limit_counts_chunked_body_without_content_length() -> None:
     sent, state = _asgi_request(
-        path="/conversations/id/messages/media",
+        path="/auth/login",
         chunks=[b"1234", b"56789"],
         max_body_bytes=8,
     )
@@ -128,7 +168,7 @@ def test_media_body_limit_counts_chunked_body_without_content_length() -> None:
     assert state["handler_ran"] is False
 
 
-def test_media_body_limit_keeps_413_through_fastapi_chunked_parsing() -> None:
+def test_json_body_limit_keeps_413_through_fastapi_chunked_parsing() -> None:
     state = {"handler_ran": False}
     app = FastAPI()
     app.add_middleware(MediaUploadBodyLimitMiddleware, max_body_bytes=8)
@@ -139,8 +179,8 @@ def test_media_body_limit_keeps_413_through_fastapi_chunked_parsing() -> None:
     async def passthrough(request, call_next):
         return await call_next(request)
 
-    @app.post("/conversations/{conversation_id}/messages/media")
-    async def media_route(conversation_id: str, payload: dict) -> dict:
+    @app.post("/auth/login")
+    async def login_route(payload: dict) -> dict:
         state["handler_ran"] = True
         return payload
 
@@ -149,7 +189,7 @@ def test_media_body_limit_keeps_413_through_fastapi_chunked_parsing() -> None:
         yield b"56789"
 
     response = TestClient(app).post(
-        "/conversations/id/messages/media",
+        "/auth/login",
         content=chunks(),
         headers={"content-type": "application/json"},
     )
@@ -157,15 +197,67 @@ def test_media_body_limit_keeps_413_through_fastapi_chunked_parsing() -> None:
     assert "content-length" not in response.request.headers
     assert response.request.headers["transfer-encoding"] == "chunked"
     assert response.status_code == 413
-    assert response.json()["detail"].endswith("16 MB.")
+    assert response.json()["detail"] == (
+        "Corpo da requisição excede o limite permitido."
+    )
     assert state["handler_ran"] is False
 
 
-def test_media_body_limit_does_not_affect_other_routes() -> None:
+def test_media_route_keeps_its_larger_limit_and_specific_413() -> None:
     sent, state = _asgi_request(
-        path="/conversations/id/messages",
+        path="/conversations/id/messages/media",
         chunks=[b"1234", b"56789"],
         max_body_bytes=8,
+        max_media_body_bytes=16,
+    )
+
+    assert sent[0]["status"] == 204
+    assert state == {"handler_ran": True, "body": b"123456789"}
+
+    sent, state = _asgi_request(
+        path="/conversations/id/messages/media",
+        chunks=[b"1234", b"56789"],
+        max_body_bytes=4,
+        max_media_body_bytes=8,
+    )
+
+    assert sent[0]["status"] == 413
+    assert json.loads(sent[1]["body"])["detail"].endswith("16 MB.")
+    assert state["handler_ran"] is False
+
+
+def test_webhook_keeps_its_larger_limit_and_specific_413() -> None:
+    sent, state = _asgi_request(
+        path="/whatsapp/webhook",
+        chunks=[b"1234", b"56789"],
+        max_body_bytes=8,
+        max_webhook_body_bytes=16,
+    )
+
+    assert sent[0]["status"] == 204
+    assert state == {"handler_ran": True, "body": b"123456789"}
+
+    sent, state = _asgi_request(
+        path="/whatsapp/webhook",
+        chunks=[b"1234", b"56789"],
+        max_body_bytes=4,
+        max_webhook_body_bytes=8,
+    )
+
+    assert sent[0]["status"] == 413
+    assert json.loads(sent[1]["body"])["detail"] == (
+        "Payload do webhook excede o limite permitido"
+    )
+    assert state["handler_ran"] is False
+
+
+def test_body_limit_does_not_affect_routes_without_request_bodies() -> None:
+    sent, state = _asgi_request(
+        path="/health",
+        chunks=[b"1234", b"56789"],
+        max_body_bytes=8,
+        content_length=9,
+        method="GET",
     )
 
     assert sent[0]["status"] == 204

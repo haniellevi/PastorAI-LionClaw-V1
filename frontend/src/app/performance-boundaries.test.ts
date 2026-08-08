@@ -54,6 +54,11 @@ describe("fronteiras de carregamento do frontend", () => {
     expect(admin).not.toContain("AppProviders");
     expect(providers).toContain("<AuthProvider>");
     expect(providers).toContain("<PermissionsProvider>");
+    expect(home).toContain('status === "unavailable"');
+    expect(gestao).toContain('status === "unavailable"');
+    expect(admin).toContain('status === "unavailable"');
+    expect(home).toContain("<SessionUnavailable onRetry={retrySession}");
+    expect(admin).toContain("<SessionUnavailable onRetry={retrySession}");
   });
 
   it("carrega os três shells pesados por next/dynamic com fallback acessível", () => {
@@ -91,7 +96,7 @@ describe("fronteiras de carregamento do frontend", () => {
     expect(packageLock).not.toContain("node_modules/@clerk/");
   });
 
-  it("precarrega shell e somente a tela relevante antes de validar a sessão", () => {
+  it("precarrega a superfície e evita /auth/me serial no login fresco", () => {
     expect(authContext.match(/preloadAuthenticatedSurface\(\);/g)).toHaveLength(2);
     expect(authContext).toContain('import("@/components/shell/AppShell")');
     expect(authContext).toContain('import("@/components/shell/AdminAppShell")');
@@ -107,8 +112,21 @@ describe("fronteiras de carregamento do frontend", () => {
     expect(loginFlow.indexOf("await apiLogin")).toBeLessThan(
       loginFlow.indexOf("preloadAuthenticatedSurface();"),
     );
-    expect(loginFlow.indexOf("preloadAuthenticatedSurface();")).toBeLessThan(
-      loginFlow.indexOf("await fetchMe(token)"),
+    expect(loginFlow).not.toContain("fetchMe(");
+    expect(loginFlow).toContain("setUser(toSessionUser(me))");
+    expect(loginFlow.indexOf("await apiLogin")).toBeLessThan(
+      loginFlow.indexOf("writeToken(token)"),
+    );
+
+    const bootstrap = authContext.slice(
+      authContext.indexOf("useEffect(() =>"),
+      authContext.indexOf("const login = useCallback"),
+    );
+    expect(bootstrap).toContain("fetchMe(token)");
+    expect(bootstrap).toContain("error instanceof SessionExpiredError");
+    expect(bootstrap).toContain('setStatus("unavailable")');
+    expect(bootstrap.indexOf("error instanceof SessionExpiredError")).toBeLessThan(
+      bootstrap.indexOf("writeToken(null)"),
     );
     expect(authContext).not.toContain("Promise.all(Object.values");
   });
@@ -124,6 +142,11 @@ describe("fronteiras de carregamento do frontend", () => {
     expect(bootstrap.indexOf("preloadAdminConsole();")).toBeLessThan(
       bootstrap.indexOf("fetchAdminMe(token)"),
     );
+    expect(bootstrap).toContain("error instanceof AdminSessionExpiredError");
+    expect(bootstrap).toContain('setStatus("unavailable")');
+    expect(bootstrap.indexOf("error instanceof AdminSessionExpiredError")).toBeLessThan(
+      bootstrap.indexOf("writeToken(null)"),
+    );
 
     const loginFlow = adminAuthContext.slice(
       adminAuthContext.indexOf("const login = useCallback"),
@@ -134,6 +157,9 @@ describe("fronteiras de carregamento do frontend", () => {
     );
     expect(loginFlow.indexOf("preloadAdminConsole();")).toBeLessThan(
       loginFlow.indexOf("await fetchAdminMe(token)"),
+    );
+    expect(loginFlow.indexOf("await fetchAdminMe(token)")).toBeLessThan(
+      loginFlow.indexOf("writeToken(token)"),
     );
   });
 });

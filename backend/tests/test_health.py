@@ -50,3 +50,29 @@ def test_openapi_exposes_login_route(app) -> None:
     client = TestClient(app)
     schema = client.get("/openapi.json").json()
     assert "/auth/login" in schema["paths"]
+
+
+def test_lifespan_closes_application_clerk_pool(monkeypatch) -> None:
+    import app.main as main
+
+    created: list[object] = []
+    closed: list[bool] = []
+
+    class FakeClerkClient:
+        def __init__(self, *, settings) -> None:
+            self.settings = settings
+            created.append(self)
+
+        def close(self) -> None:
+            closed.append(True)
+
+    monkeypatch.setattr(main, "ClerkClient", FakeClerkClient)
+    local_app = main.create_app()
+
+    for _ in range(2):
+        with TestClient(local_app) as client:
+            assert client.get("/health").status_code == 200
+
+    assert len(created) == 2
+    assert created[0] is not created[1]
+    assert closed == [True, True]

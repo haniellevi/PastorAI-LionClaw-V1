@@ -52,7 +52,12 @@ from app.domain.permissions import DEFAULT_PERMISSIONS
 from app.services.asaas import MIN_UNDEFINED_PAYMENT_VALUE
 from app.services.brevo import BrevoClient, BrevoError, get_brevo_client
 from app.services.billing import get_setup_fee_default, get_setup_fee_for_igreja
-from app.services.clerk import ClerkAuthError, ClerkClient, get_clerk_client
+from app.services.clerk import (
+    ClerkAuthError,
+    ClerkClient,
+    ClerkUnavailableError,
+    get_clerk_client,
+)
 from app.services.rate_limit import RateLimiter, get_rate_limiter
 
 logger = logging.getLogger("pastorai.platform_admin")
@@ -208,6 +213,11 @@ def admin_login(
         token, clerk_user_id = clerk.authenticate_password(
             payload.email, payload.password
         )
+    except ClerkUnavailableError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Serviço de autenticação temporariamente indisponível",
+        ) from None
     except ClerkAuthError:
         raise denied from None
 

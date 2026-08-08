@@ -54,6 +54,7 @@ from app.services.celula_membro import (
     MembroInelegivelError,
     TransferenciaNaoAutorizadaError,
 )
+from app.services.clerk import ClerkClient
 from app.services.rate_limit import RateLimitExceeded
 
 logging.basicConfig(
@@ -74,19 +75,28 @@ def _request_id(value: str | None) -> str:
 
 
 @asynccontextmanager
-async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    """Validate config on boot and dispose the DB pool on shutdown."""
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Validate config on boot and release shared clients on shutdown."""
     settings = get_settings()
     settings.assert_production_ready()
+    # A FastAPI instance can enter its lifespan more than once in tests or
+    # managed hosts. Each startup gets a fresh, open pool; each shutdown closes
+    # exactly the pool created for that lifespan.
+    clerk_client = ClerkClient(settings=settings)
+    app.state.clerk_client = clerk_client
     logger.info("PastorAI backend starting (env=%s)", settings.app_env)
-    yield
-    # Graceful shutdown: close pooled connections if the engine was created.
     try:
-        get_engine().dispose()
-        logger.info("Database connection pool disposed")
-    except RuntimeError:
-        # Engine was never initialized (e.g. no DATABASE_URL in dev/tests).
-        pass
+        yield
+    finally:
+        clerk_client.close()
+        logger.info("Clerk HTTP connection pool closed")
+        # Graceful shutdown: close pooled connections if the engine was created.
+        try:
+            get_engine().dispose()
+            logger.info("Database connection pool disposed")
+        except RuntimeError:
+            # Engine was never initialized (e.g. no DATABASE_URL in dev/tests).
+            pass
 
 
 def create_app() -> FastAPI:

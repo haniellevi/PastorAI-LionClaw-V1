@@ -35,6 +35,12 @@ logger = logging.getLogger("pastorai.rate_limit")
 # Prefixo das chaves no Redis (namespacing p/ não colidir com a fila do worker).
 _KEY_PREFIX = "ratelimit"
 
+# Auth executa dois limites por tentativa (IP + conta). Se o Redis estiver
+# inacessível, cada operação precisa falhar rápido para o fail-open não virar
+# vários segundos de espera antes de chegar ao provedor de autenticação.
+_REDIS_CONNECT_TIMEOUT_SECONDS = 0.5
+_REDIS_SOCKET_TIMEOUT_SECONDS = 0.5
+
 
 class RateLimitExceeded(Exception):
     """Sinaliza que um limite foi excedido; carrega o Retry-After (segundos)."""
@@ -162,9 +168,18 @@ class RateLimiter:
 def _build_redis() -> Any:
     """Cria um cliente Redis a partir de REDIS_URL (import preguiçoso)."""
     import redis  # lazy import: mantém o pacote opcional para testes unitários
+    from redis.backoff import NoBackoff
+    from redis.retry import Retry
 
     settings = get_settings()
-    return redis.Redis.from_url(settings.redis_url, decode_responses=True)
+    return redis.Redis.from_url(
+        settings.redis_url,
+        decode_responses=True,
+        socket_connect_timeout=_REDIS_CONNECT_TIMEOUT_SECONDS,
+        socket_timeout=_REDIS_SOCKET_TIMEOUT_SECONDS,
+        retry_on_timeout=False,
+        retry=Retry(NoBackoff(), 0),
+    )
 
 
 # Singleton por processo — reusa uma única conexão/pool Redis. Injetável nos

@@ -20,18 +20,32 @@ import {
   type ReactNode,
 } from "react";
 
-import { adminLogin, fetchAdminMe, type AdminMe } from "./admin-api";
+import {
+  adminLogin,
+  AdminAuthError,
+  AdminSessionExpiredError,
+  fetchAdminMe,
+  type AdminMe,
+} from "./admin-api";
 
 const ADMIN_TOKEN_KEY = "pastorai:admin-token";
 
-export type AdminAuthStatus = "loading" | "unauthenticated" | "authenticated";
+export type AdminAuthStatus =
+  | "loading"
+  | "unavailable"
+  | "unauthenticated"
+  | "authenticated";
 
 interface AdminAuthValue {
   status: AdminAuthStatus;
   admin: AdminMe | null;
   token: string | null;
+  /** Motivo terminal devolvido pelo gate da plataforma. */
+  accessMessage: string | null;
   /** Autentica via /admin/login + /admin/me. Repassa o erro em caso de falha. */
   login: (email: string, password: string) => Promise<void>;
+  /** Repete a validação de um token preservado após falha transitória. */
+  retrySession: () => void;
   logout: () => void;
 }
 
@@ -61,6 +75,8 @@ function preloadAdminConsole(): void {
 export function AdminAuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AdminAuthStatus>("loading");
   const [admin, setAdmin] = useState<AdminMe | null>(null);
+  const [accessMessage, setAccessMessage] = useState<string | null>(null);
+  const [bootstrapAttempt, setBootstrapAttempt] = useState(0);
   const tokenRef = useRef<string | null>(null);
 
   // Bootstrap: restaura a sessão do console a partir do token persistido.
@@ -77,36 +93,45 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
       .then((me) => {
         if (!active) return;
         setAdmin(me);
+        setAccessMessage(null);
         setStatus("authenticated");
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         if (!active) return;
-        tokenRef.current = null;
-        writeToken(null);
+        if (
+          error instanceof AdminSessionExpiredError ||
+          (error instanceof AdminAuthError && error.kind === "forbidden")
+        ) {
+          tokenRef.current = null;
+          writeToken(null);
+          setAccessMessage(
+            error instanceof AdminAuthError ? error.message : null,
+          );
+          setStatus("unauthenticated");
+        } else {
+          setAccessMessage(null);
+          setStatus("unavailable");
+        }
         setAdmin(null);
-        setStatus("unauthenticated");
       });
     return () => {
       active = false;
     };
+  }, [bootstrapAttempt]);
+
+  const retrySession = useCallback(() => {
+    setStatus("loading");
+    setBootstrapAttempt((attempt) => attempt + 1);
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {
     const { token } = await adminLogin(email, password);
     preloadAdminConsole();
-    let me: AdminMe;
-    try {
-      me = await fetchAdminMe(token);
-    } catch (err) {
-      // Token emitido, mas a conta não é admin de plataforma (ou expirou):
-      // não persiste a sessão do console.
-      tokenRef.current = null;
-      writeToken(null);
-      throw err;
-    }
+    const me = await fetchAdminMe(token);
     tokenRef.current = token;
     writeToken(token);
     setAdmin(me);
+    setAccessMessage(null);
     setStatus("authenticated");
   }, []);
 
@@ -114,12 +139,21 @@ export function AdminAuthProvider({ children }: { children: ReactNode }) {
     tokenRef.current = null;
     writeToken(null);
     setAdmin(null);
+    setAccessMessage(null);
     setStatus("unauthenticated");
   }, []);
 
   const value = useMemo<AdminAuthValue>(
-    () => ({ status, admin, token: tokenRef.current, login, logout }),
-    [status, admin, login, logout],
+    () => ({
+      status,
+      admin,
+      token: tokenRef.current,
+      accessMessage,
+      login,
+      retrySession,
+      logout,
+    }),
+    [status, admin, accessMessage, login, retrySession, logout],
   );
 
   return <AdminAuthContext.Provider value={value}>{children}</AdminAuthContext.Provider>;

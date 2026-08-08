@@ -8,6 +8,7 @@
 import dynamic from "next/dynamic";
 import { useEffect } from "react";
 
+import { SessionUnavailable } from "@/components/auth/SessionUnavailable";
 import { AppProviders } from "@/components/providers/AppProviders";
 import { useAuth } from "@/lib/auth-context";
 import { isAdmin } from "@/lib/roles";
@@ -40,7 +41,7 @@ function PageLoading() {
 }
 
 function GestaoContent() {
-  const { status, user } = useAuth();
+  const { status, user, retrySession } = useAuth();
   const admin = user ? isAdmin(user.roles) : false;
 
   // Não-admin autenticado nesta superfície volta para o painel operacional.
@@ -56,6 +57,10 @@ function GestaoContent() {
 
   if (status === "authenticated" && admin) {
     return <AdminAppShell />;
+  }
+
+  if (status === "unavailable") {
+    return <SessionUnavailable onRetry={retrySession} />;
   }
 
   return <LoginScreen />;

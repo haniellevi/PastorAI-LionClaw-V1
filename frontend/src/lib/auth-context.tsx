@@ -2,7 +2,8 @@
 
 /**
  * Estado de sessão do painel. A autenticação é feita via api-login (que valida
- * credenciais no Clerk, no backend) e a identidade/papéis vêm de /auth/me.
+ * credenciais no Clerk, no backend) e já devolve a identidade/papéis. /auth/me
+ * fica reservado à restauração de uma sessão persistida.
  *
  * Fluxos (SPEC 5.1 / seção 6):
  *  - sucesso -> #dashboard;
@@ -24,7 +25,7 @@ import {
 import {
   fetchMe,
   login as apiLogin,
-  LoginError,
+  SessionAccessDeniedError,
   SessionExpiredError,
   type MeResult,
 } from "./api";
@@ -49,14 +50,22 @@ export interface SessionUser {
   igrejaLogoUrl: string | null;
 }
 
-export type AuthStatus = "loading" | "unauthenticated" | "authenticated";
+export type AuthStatus =
+  | "loading"
+  | "unavailable"
+  | "unauthenticated"
+  | "authenticated";
 
 interface AuthContextValue {
   status: AuthStatus;
   user: SessionUser | null;
   token: string | null;
-  /** Autentica via api-login + /auth/me. Lança LoginError em falha. */
+  /** Motivo terminal devolvido pelo backend ao recusar a sessão restaurada. */
+  accessMessage: string | null;
+  /** Autentica e hidrata a sessão com a resposta do api-login. */
   login: (email: string, password: string) => Promise<void>;
+  /** Repete a validação de um token preservado após falha transitória. */
+  retrySession: () => void;
   logout: () => void;
   /** Atualiza localmente o nome de exibição após editar o perfil. */
   updateNome: (nome: string) => void;
@@ -212,6 +221,8 @@ function toSessionUser(me: MeResult): SessionUser {
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>("loading");
   const [user, setUser] = useState<SessionUser | null>(null);
+  const [accessMessage, setAccessMessage] = useState<string | null>(null);
+  const [bootstrapAttempt, setBootstrapAttempt] = useState(0);
   const tokenRef = useRef<string | null>(null);
 
   // Bootstrap: restaura sessão de um token persistido.
@@ -228,39 +239,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .then((me) => {
         if (!active) return;
         setUser(toSessionUser(me));
+        setAccessMessage(null);
         setStatus("authenticated");
       })
-      .catch(() => {
+      .catch((error: unknown) => {
         if (!active) return;
-        tokenRef.current = null;
-        writeToken(null);
+        if (
+          error instanceof SessionExpiredError ||
+          error instanceof SessionAccessDeniedError
+        ) {
+          tokenRef.current = null;
+          writeToken(null);
+          setAccessMessage(
+            error instanceof SessionAccessDeniedError ? error.message : null,
+          );
+          setStatus("unauthenticated");
+        } else {
+          setAccessMessage(null);
+          setStatus("unavailable");
+        }
         setUser(null);
-        setStatus("unauthenticated");
       });
     return () => {
       active = false;
     };
+  }, [bootstrapAttempt]);
+
+  const retrySession = useCallback(() => {
+    setStatus("loading");
+    setBootstrapAttempt((attempt) => attempt + 1);
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {
-    const { token } = await apiLogin(email, password);
+    const { token, ...me } = await apiLogin(email, password);
     preloadAuthenticatedSurface();
-    let me: MeResult;
-    try {
-      me = await fetchMe(token);
-    } catch (err) {
-      if (err instanceof SessionExpiredError) {
-        // Token recém-emitido recusado em /me: trata como conta sem vínculo.
-        throw new LoginError(
-          "no_church",
-          "Sua conta não está vinculada a nenhuma igreja. Contate o administrador.",
-        );
-      }
-      throw err;
-    }
     tokenRef.current = token;
     writeToken(token);
     setUser(toSessionUser(me));
+    setAccessMessage(null);
     setStatus("authenticated");
   }, []);
 
@@ -273,6 +289,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       /* ignore */
     }
     setUser(null);
+    setAccessMessage(null);
     setStatus("unauthenticated");
   }, []);
 
@@ -296,6 +313,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     tokenRef.current = null;
     writeToken(null);
     setUser(null);
+    setAccessMessage(null);
     setStatus("unauthenticated");
   }, []);
 
@@ -314,14 +332,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       status,
       user,
       token: tokenRef.current,
+      accessMessage,
       login,
+      retrySession,
       logout,
       updateNome,
       updateChatNome,
       expireSession,
       consumeReturnTo,
     }),
-    [status, user, login, logout, updateNome, updateChatNome, expireSession, consumeReturnTo],
+    [
+      status,
+      user,
+      accessMessage,
+      login,
+      retrySession,
+      logout,
+      updateNome,
+      updateChatNome,
+      expireSession,
+      consumeReturnTo,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

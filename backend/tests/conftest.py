@@ -77,6 +77,9 @@ class _FakeResult:
     def scalar_one_or_none(self):
         return self._scalar
 
+    def unique(self):
+        return self
+
     def scalars(self) -> _FakeScalars:
         return _FakeScalars(self._scalars_list)
 
@@ -111,6 +114,10 @@ class FakeSession:
     ) -> None:
         self.app_user = app_user
         self.roles = roles or []
+        if isinstance(self.app_user, SimpleNamespace):
+            self.app_user.roles = [SimpleNamespace(papel=role) for role in self.roles]
+        self.execute_count = 0
+        self.executed_statements: list[object] = []
         # Linhas (papel, tela) da matriz do tenant, p/ testar require_screen.
         self.role_permissions = role_permissions or []
         # SEC-3B/MEDIO-003: linha de password_reset_tokens pro fluxo de reset.
@@ -197,6 +204,8 @@ class FakeSession:
         return _FakeResult(rowcount=rowcount)
 
     def execute(self, statement, params=None) -> _FakeResult:
+        self.execute_count += 1
+        self.executed_statements.append(statement)
         if isinstance(statement, _SqlUpdate):
             return self._apply_conditional_update(statement)
         # Contagem canônica de membros (guarda de downgrade por porte): o

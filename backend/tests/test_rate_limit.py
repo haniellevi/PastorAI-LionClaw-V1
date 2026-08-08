@@ -11,12 +11,14 @@ travar autenticação).
 from __future__ import annotations
 
 import pytest
+import redis
 from fastapi import Request
 from fastapi.testclient import TestClient
 
 from app.config import get_settings
 from app.db.session import get_db
 from app.services.clerk import get_clerk_client
+from app.services import rate_limit as rate_limit_module
 from app.services.rate_limit import (
     RateLimiter,
     RateLimitExceeded,
@@ -153,6 +155,39 @@ def test_redis_unavailable_fails_open(monkeypatch) -> None:
     for _ in range(5):
         limiter.enforce_ip(request, "scope", limit=1)
         limiter.enforce_account("a@b.com", "scope", limit=1)
+
+
+def test_build_redis_bounds_io_and_disables_retries(monkeypatch) -> None:
+    """O fail-open não pode aguardar timeouts/retries longos antes do login."""
+    captured: dict[str, object] = {}
+    sentinel = object()
+
+    class _RedisFactory:
+        @staticmethod
+        def from_url(url: str, **kwargs):
+            captured["url"] = url
+            captured.update(kwargs)
+            return sentinel
+
+    monkeypatch.setattr(redis, "Redis", _RedisFactory)
+
+    assert rate_limit_module._build_redis() is sentinel
+    assert captured["url"] == get_settings().redis_url
+    assert captured["decode_responses"] is True
+    assert captured["socket_connect_timeout"] == 0.5
+    assert captured["socket_timeout"] == 0.5
+    assert captured["retry_on_timeout"] is False
+
+    attempts = 0
+
+    def _connection_failure():
+        nonlocal attempts
+        attempts += 1
+        raise redis.ConnectionError("redis down")
+
+    with pytest.raises(redis.ConnectionError):
+        captured["retry"].call_with_retry(_connection_failure, lambda _exc: None)
+    assert attempts == 1
 
 
 # ---- Endpoint: /auth/login ---------------------------------------------------
