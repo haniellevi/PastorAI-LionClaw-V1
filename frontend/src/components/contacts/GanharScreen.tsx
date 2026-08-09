@@ -11,7 +11,8 @@
  * Cada aba é uma data-table com status-pill e empty-state, nos estados
  * loading / empty / populated. Promover visitante chama api-pipeline (PUT) e
  * fica desabilitado com tooltip enquanto presenças < 3 e não aceitou Jesus.
- * Abrir contato faz deep-link para o detalhe em #contatos.
+ * Para admin, abrir contato atravessa para a superfície administrativa e
+ * preserva o deep-link do detalhe em #contatos/<id>.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -35,7 +36,8 @@ import {
   type Cell,
 } from "@/lib/dashboard-api";
 import { Icon, type IconKey } from "@/lib/icons";
-import { useHashRoute } from "@/lib/use-hash-route";
+import { isAdmin } from "@/lib/roles";
+import { navigateToAdminRoute } from "@/lib/surface";
 
 import { LinkCellModal } from "./LinkCellModal";
 
@@ -55,8 +57,8 @@ function maskPhone(phone: string): string {
 }
 
 export function GanharScreen() {
-  const { token, expireSession } = useAuth();
-  const [, navigate] = useHashRoute();
+  const { token, user, expireSession } = useAuth();
+  const canOpenContact = user ? isAdmin(user.roles) : false;
 
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [cells, setCells] = useState<Cell[]>([]);
@@ -163,8 +165,11 @@ export function GanharScreen() {
   }, [novos, visitantes, contacts.length]);
 
   const openContact = useCallback(
-    (c: Contact) => navigate(`contatos/${c.id}`),
-    [navigate],
+    (c: Contact) => {
+      if (!canOpenContact) return;
+      navigateToAdminRoute(`contatos/${encodeURIComponent(c.id)}`);
+    },
+    [canOpenContact],
   );
 
   const handlePromote = useCallback(
@@ -251,21 +256,23 @@ export function GanharScreen() {
                 Vincular célula
               </button>
             ) : null}
-            <button
-              type="button"
-              className="btn btn-sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                openContact(c);
-              }}
-            >
-              Ver contato
-            </button>
+            {canOpenContact ? (
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  openContact(c);
+                }}
+              >
+                Ver contato
+              </button>
+            ) : null}
           </div>
         ),
       },
     ],
-    [busyId, openContact],
+    [busyId, canOpenContact, openContact],
   );
 
   const visitantesColumns: Array<Column<Contact>> = useMemo(
@@ -330,22 +337,24 @@ export function GanharScreen() {
               >
                 Promover
               </button>
-              <button
-                type="button"
-                className="btn btn-sm"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  openContact(c);
-                }}
-              >
-                Ver contato
-              </button>
+              {canOpenContact ? (
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    openContact(c);
+                  }}
+                >
+                  Ver contato
+                </button>
+              ) : null}
             </div>
           );
         },
       },
     ],
-    [busyId, handlePromote, openContact],
+    [busyId, canOpenContact, handlePromote, openContact],
   );
 
   return (
@@ -456,7 +465,7 @@ export function GanharScreen() {
                   ? "Quem falar com a igreja pelo WhatsApp aparece aqui."
                   : "Visitantes da semana entram nesta lista automaticamente.",
             }}
-            onRowClick={openContact}
+            onRowClick={canOpenContact ? openContact : undefined}
           />
         )}
       </div>

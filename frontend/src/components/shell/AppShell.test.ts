@@ -115,4 +115,11 @@ describe("AppShell — Sidebar e BottomNav concordam na rota já resolvida", () 
     const bottomNavActive = container.querySelector(".bn-item.active");
     expect(bottomNavActive!.getAttribute("href")).toBe("#inbox");
   });
+
+  it("deep-link administrativo (#contatos/<id>) não vaza para a superfície operacional", () => {
+    window.location.hash = "#contatos/p1";
+    render();
+
+    expect(window.location.hash).toBe("#dashboard");
+  });
 });
