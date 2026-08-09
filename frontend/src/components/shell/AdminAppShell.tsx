@@ -47,6 +47,7 @@ export function AdminAppShell() {
 
   const slash = route.indexOf("/");
   const base = slash === -1 ? route : route.slice(0, slash);
+  const param = slash === -1 ? null : route.slice(slash + 1);
 
   const known = base in SCREEN_META;
   const ownerOk = !OWNER_ONLY.has(base) || (user?.isOwner ?? false);
@@ -54,6 +55,7 @@ export function AdminAppShell() {
   const allowed = known && permitted;
   const resolvedBase = allowed ? base : ADMIN_HOME;
   const resolvedRoute = allowed ? route : ADMIN_HOME;
+  const resolvedParam = allowed ? param : null;
 
   useEffect(() => {
     if (route !== resolvedRoute) navigate(resolvedRoute);
@@ -109,7 +111,7 @@ export function AdminAppShell() {
           menuOpen={mobileOpen}
           onMenuToggle={() => setMobileOpen((v) => !v)}
         />
-        <ScreenView route={resolvedBase} param={null} />
+        <ScreenView route={resolvedBase} param={resolvedParam} />
       </main>
     </div>
   );
