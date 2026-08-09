@@ -1,7 +1,7 @@
 /**
  * Cliente da API FastAPI (sprint-002): api-login e /auth/me.
  * Contratos (SPEC 3.2):
- *   POST /auth/login -> { token, churchId }
+ *   POST /auth/login -> { token, ...perfil }
  *   GET  /auth/me    -> { appUserId, churchId, email, nome, roles[] }
  *
  * Tratamento de erro segue US-01/US-02/US-35:
@@ -12,11 +12,6 @@
  */
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(/\/$/, "");
-
-export interface LoginResult {
-  token: string;
-  churchId: string;
-}
 
 export interface MeResult {
   appUserId: string;
@@ -33,10 +28,15 @@ export interface MeResult {
   igrejaLogoUrl?: string | null;
 }
 
+export interface LoginResult extends MeResult {
+  token: string;
+}
+
 export type LoginErrorKind =
   | "invalid" // credencial inválida (genérico)
   | "billing_blocked" // igreja suspensa/inadimplente
   | "no_church" // conta sem igreja vinculada
+  | "rate_limited" // excesso de tentativas de autenticação
   | "network"; // Clerk/back indisponível ou timeout
 
 export class LoginError extends Error {
@@ -56,27 +56,115 @@ export class SessionExpiredError extends Error {
   }
 }
 
-const GENERIC = "Não foi possível autenticar. Verifique suas credenciais e tente novamente.";
+/** Sessão válida, mas o acesso foi revogado/bloqueado definitivamente. */
+export class SessionAccessDeniedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SessionAccessDeniedError";
+  }
+}
+
+/** A API não confirmou nem invalidou a sessão; o token deve ser preservado. */
+export class AuthUnavailableError extends Error {
+  constructor() {
+    super("Serviço de autenticação temporariamente indisponível");
+    this.name = "AuthUnavailableError";
+  }
+}
+
+const INVALID_CREDENTIALS =
+  "Não foi possível autenticar. Verifique suas credenciais e tente novamente.";
+const SERVICE_UNAVAILABLE =
+  "O serviço de autenticação está temporariamente indisponível. Tente novamente em instantes.";
+const TOO_MANY_ATTEMPTS =
+  "Muitas tentativas de acesso. Aguarde um momento e tente novamente.";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+function parseMeResult(value: unknown): MeResult | null {
+  if (!isRecord(value)) return null;
+  if (
+    typeof value.appUserId !== "string" ||
+    !value.appUserId ||
+    typeof value.churchId !== "string" ||
+    !value.churchId ||
+    typeof value.email !== "string" ||
+    !value.email ||
+    typeof value.nome !== "string" ||
+    !value.nome ||
+    !Array.isArray(value.roles) ||
+    !value.roles.every((role) => typeof role === "string")
+  ) {
+    return null;
+  }
+  if (value.chatNome != null && typeof value.chatNome !== "string") return null;
+  if (value.isOwner != null && typeof value.isOwner !== "boolean") return null;
+  if (value.igrejaNome != null && typeof value.igrejaNome !== "string") return null;
+  if (value.igrejaLogoUrl != null && typeof value.igrejaLogoUrl !== "string") return null;
+  return {
+    appUserId: value.appUserId,
+    churchId: value.churchId,
+    email: value.email,
+    nome: value.nome,
+    chatNome: value.chatNome ?? null,
+    roles: value.roles,
+    isOwner: typeof value.isOwner === "boolean" ? value.isOwner : undefined,
+    igrejaNome: value.igrejaNome ?? null,
+    igrejaLogoUrl: value.igrejaLogoUrl ?? null,
+  };
+}
+
+// Cobre Clerk (até ~10s) + rate limit + banco frio sem afetar deadlines do Inbox.
+const AUTH_REQUEST_TIMEOUT_MS = 20_000;
+
+async function authFetch(url: string, init?: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), AUTH_REQUEST_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export async function login(email: string, password: string): Promise<LoginResult> {
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}/auth/login`, {
+    res = await authFetch(`${API_BASE}/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password }),
     });
   } catch {
-    throw new LoginError("network", GENERIC);
+    throw new LoginError("network", SERVICE_UNAVAILABLE);
   }
 
   if (res.ok) {
-    const data = (await res.json()) as LoginResult;
-    return { token: data.token, churchId: data.churchId };
+    let data: unknown;
+    try {
+      data = await res.json();
+    } catch {
+      throw new LoginError("network", SERVICE_UNAVAILABLE);
+    }
+    if (!isRecord(data) || typeof data.token !== "string" || !data.token) {
+      throw new LoginError("network", SERVICE_UNAVAILABLE);
+    }
+    const profile = parseMeResult(data);
+    if (profile) return { token: data.token, ...profile };
+
+    // Compatibilidade durante deploy gradual: o backend antigo devolve apenas
+    // {token, churchId}. O token só chega ao contexto depois que /auth/me
+    // confirma e valida o perfil completo.
+    if (typeof data.churchId !== "string" || !data.churchId) {
+      throw new LoginError("network", SERVICE_UNAVAILABLE);
+    }
+    const legacyProfile = await fetchMe(data.token);
+    if (legacyProfile.churchId !== data.churchId) {
+      throw new LoginError("network", SERVICE_UNAVAILABLE);
+    }
+    return { token: data.token, ...legacyProfile };
   }
 
   if (res.status === 403) {
@@ -97,26 +185,59 @@ export async function login(email: string, password: string): Promise<LoginResul
     throw new LoginError(kind, message);
   }
 
-  // 401 e demais: mensagem genérica (não revela se o e-mail existe).
-  throw new LoginError("invalid", GENERIC);
+  if (res.status === 429) {
+    const retryAfter = Number.parseInt(res.headers.get("Retry-After") ?? "", 10);
+    const message =
+      Number.isFinite(retryAfter) && retryAfter > 0 && retryAfter <= 3600
+        ? `Muitas tentativas de acesso. Aguarde ${retryAfter} segundos e tente novamente.`
+        : TOO_MANY_ATTEMPTS;
+    throw new LoginError("rate_limited", message);
+  }
+
+  if (res.status >= 500) {
+    throw new LoginError("network", SERVICE_UNAVAILABLE);
+  }
+
+  // 401, 422 e demais recusas do cliente: resposta genérica para não revelar
+  // se o e-mail existe nem detalhes internos da validação.
+  throw new LoginError("invalid", INVALID_CREDENTIALS);
 }
 
 export async function fetchMe(token: string): Promise<MeResult> {
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}/auth/me`, {
+    res = await authFetch(`${API_BASE}/auth/me`, {
       headers: { Authorization: `Bearer ${token}` },
     });
   } catch {
-    throw new SessionExpiredError();
+    throw new AuthUnavailableError();
   }
   if (res.status === 401) {
     throw new SessionExpiredError();
   }
-  if (!res.ok) {
-    throw new SessionExpiredError();
+  if (res.status === 403 || (res.status >= 400 && res.status < 500 && res.status !== 429)) {
+    let message = "Seu acesso não está disponível. Contate o administrador.";
+    try {
+      const body = (await res.json()) as { detail?: unknown };
+      if (typeof body.detail === "string") message = body.detail;
+      if (isRecord(body.detail) && typeof body.detail.message === "string") {
+        message = body.detail.message;
+      }
+    } catch {
+      /* mantém mensagem segura */
+    }
+    throw new SessionAccessDeniedError(message);
   }
-  return (await res.json()) as MeResult;
+  if (!res.ok) {
+    throw new AuthUnavailableError();
+  }
+  try {
+    const profile = parseMeResult(await res.json());
+    if (!profile) throw new AuthUnavailableError();
+    return profile;
+  } catch {
+    throw new AuthUnavailableError();
+  }
 }
 
 /**

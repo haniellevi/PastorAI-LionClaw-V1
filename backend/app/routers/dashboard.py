@@ -74,22 +74,31 @@ def overview(
     scope = "igreja"
     if not full:
         scope = "celula"
-        pessoa_id = db.execute(
-            select(AppUser.pessoa_id).where(
-                AppUser.id == uuid.UUID(current_user.app_user_id)
-            )
-        ).scalar_one_or_none()
-        if pessoa_id is None:
-            return OverviewOut.empty(scope)
-        cell_ids = list(
-            db.execute(
-                select(Celula.id).where(Celula.lider_id == pessoa_id)
-            ).scalars().all()
+        has_cells = (
+            select(Celula.id)
+            .where(Celula.lider_id == AppUser.pessoa_id)
+            .exists()
         )
-        if not cell_ids:
+        scope_row = (
+            db.execute(
+                select(
+                    AppUser.pessoa_id.label("pessoa_id"),
+                    has_cells.label("has_cells"),
+                ).where(AppUser.id == uuid.UUID(current_user.app_user_id))
+            )
+            .mappings()
+            .one_or_none()
+        )
+        if (
+            scope_row is None
+            or scope_row["pessoa_id"] is None
+            or not scope_row["has_cells"]
+        ):
             return OverviewOut.empty(scope)
+        pessoa_id = scope_row["pessoa_id"]
+        cell_ids = select(Celula.id).where(Celula.lider_id == pessoa_id)
         person_filter = Pessoa.celula_id.in_(cell_ids)
-        cell_filter = Celula.id.in_(cell_ids)
+        cell_filter = Celula.lider_id == pessoa_id
 
     # porTipo: CSIM entra no bucket "sem_interesse"; senão, o tipo. tipo NULL cai
     # em "contato" (entrada) para a soma fechar com o total (espelha a UI).
@@ -97,60 +106,68 @@ def overview(
         (Pessoa.sem_interesse.is_(True), "sem_interesse"),
         else_=func.coalesce(cast(Pessoa.tipo, Text), "contato"),
     )
-    tipo_q = select(tipo_expr, func.count()).group_by(tipo_expr)
-    if person_filter is not None:
-        tipo_q = tipo_q.where(person_filter)
-    por_tipo = normalize_counts(dict(db.execute(tipo_q).all()), TIPO_BUCKETS)
+    pessoa_columns = [
+        func.count().label("total"),
+        func.count()
+        .filter(Pessoa.aceitou_jesus.is_(True))
+        .label("decisoes_jesus"),
+        func.count()
+        .filter(Pessoa.sem_interesse.is_(True))
+        .label("sem_interesse"),
+        *[
+            func.count()
+            .filter(tipo_expr == bucket)
+            .label(f"tipo_{bucket}")
+            for bucket in TIPO_BUCKETS
+        ],
+    ]
 
     # porEtapa: exclui CSIM (fora do funil). etapa NULL = "ganhar" (entrada do
     # funil, como o trigger fn_promote_pipeline), p/ não subcontar a fila.
     etapa_expr = case(
         (Pessoa.etapa.is_(None), "ganhar"), else_=cast(Pessoa.etapa, Text)
     )
-    etapa_q = (
-        select(etapa_expr, func.count())
-        .where(Pessoa.sem_interesse.is_(False))
-        .group_by(etapa_expr)
+    pessoa_columns.extend(
+        func.count()
+        .filter(Pessoa.sem_interesse.is_(False), etapa_expr == bucket)
+        .label(f"etapa_{bucket}")
+        for bucket in ETAPA_BUCKETS
     )
-    if person_filter is not None:
-        etapa_q = etapa_q.where(person_filter)
-    por_etapa = normalize_counts(dict(db.execute(etapa_q).all()), ETAPA_BUCKETS)
 
-    # KPIs
-    total_q = select(func.count()).select_from(Pessoa)
-    dec_q = (
-        select(func.count()).select_from(Pessoa).where(Pessoa.aceitou_jesus.is_(True))
-    )
-    csim_q = (
-        select(func.count()).select_from(Pessoa).where(Pessoa.sem_interesse.is_(True))
-    )
+    # Uma única linha agregada substitui porTipo, porEtapa e os três KPIs de
+    # Pessoa. COUNT ... FILTER preserva a semântica anterior sem materializar
+    # pessoas no processo da API.
+    pessoa_q = select(*pessoa_columns).select_from(Pessoa)
     if person_filter is not None:
-        total_q = total_q.where(person_filter)
-        dec_q = dec_q.where(person_filter)
-        csim_q = csim_q.where(person_filter)
-    total = int(db.execute(total_q).scalar_one())
-    decisoes = int(db.execute(dec_q).scalar_one())
-    sem_interesse = int(db.execute(csim_q).scalar_one())
+        pessoa_q = pessoa_q.where(person_filter)
+    pessoa = db.execute(pessoa_q).mappings().one()
+    por_tipo = normalize_counts(
+        {bucket: pessoa[f"tipo_{bucket}"] for bucket in TIPO_BUCKETS},
+        TIPO_BUCKETS,
+    )
+    por_etapa = normalize_counts(
+        {bucket: pessoa[f"etapa_{bucket}"] for bucket in ETAPA_BUCKETS},
+        ETAPA_BUCKETS,
+    )
 
-    cells_q = select(func.count()).select_from(Celula).where(Celula.ativo.is_(True))
+    # Os dois KPIs de Celula também compartilham uma única linha agregada.
+    cells_q = select(
+        func.count().filter(Celula.ativo.is_(True)).label("ativas"),
+        func.count(func.distinct(Celula.lider_id))
+        .filter(Celula.ativo.is_(True), Celula.lider_id.is_not(None))
+        .label("lideres"),
+    ).select_from(Celula)
     if cell_filter is not None:
         cells_q = cells_q.where(cell_filter)
-    celulas_ativas = int(db.execute(cells_q).scalar_one())
-
-    leaders_q = select(func.count(func.distinct(Celula.lider_id))).where(
-        Celula.ativo.is_(True), Celula.lider_id.is_not(None)
-    )
-    if cell_filter is not None:
-        leaders_q = leaders_q.where(cell_filter)
-    lideres_celula = int(db.execute(leaders_q).scalar_one() or 0)
+    cells = db.execute(cells_q).mappings().one()
 
     return OverviewOut(
         scope=scope,
-        total=total,
-        decisoesJesus=decisoes,
-        celulasAtivas=celulas_ativas,
-        lideresCelula=lideres_celula,
-        semInteresse=sem_interesse,
+        total=int(pessoa["total"]),
+        decisoesJesus=int(pessoa["decisoes_jesus"]),
+        celulasAtivas=int(cells["ativas"]),
+        lideresCelula=int(cells["lideres"]),
+        semInteresse=int(pessoa["sem_interesse"]),
         porTipo=por_tipo,
         porEtapa=por_etapa,
     )

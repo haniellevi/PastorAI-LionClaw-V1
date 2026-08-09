@@ -187,6 +187,15 @@ class FakeEvolution:
         return True
 
 
+class ClosingEvolution(FakeEvolution):
+    def __init__(self) -> None:
+        super().__init__()
+        self.close_calls = 0
+
+    def close(self) -> None:
+        self.close_calls += 1
+
+
 def _work_item(*, tipo: str, prazo: dt.datetime, status: str = "aberto", **kw):
     item = WorkQueueItem(
         igreja_id=_IGREJA,
@@ -210,6 +219,23 @@ def test_scan_detects_overdue_report_as_cobranca() -> None:
     assert len(breaches) == 1
     assert breaches[0].kind == "relatorio"
     assert breaches[0].status is SlaStatus.COBRANCA
+
+
+def test_sla_engine_closes_only_its_owned_evolution(monkeypatch) -> None:
+    import app.services.sla_engine as sla_module
+
+    owned = ClosingEvolution()
+    monkeypatch.setattr(sla_module, "EvolutionClient", lambda: owned)
+    owner = SlaEngine()
+    owner.close()
+    owner.close()
+
+    injected = ClosingEvolution()
+    borrower = SlaEngine(evolution=injected)
+    borrower.close()
+
+    assert owned.close_calls == 1
+    assert injected.close_calls == 0
 
 
 def test_scan_ignores_resolved_items() -> None:

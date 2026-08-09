@@ -34,7 +34,7 @@ vi.mock("@/lib/auth-context", () => ({
 }));
 
 const apiMock = vi.hoisted(() => ({
-  fetchContacts: vi.fn(),
+  fetchContactsPage: vi.fn(),
   unarchiveContact: vi.fn(),
 }));
 
@@ -42,7 +42,7 @@ vi.mock("@/lib/contacts-api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/contacts-api")>();
   return {
     ...actual,
-    fetchContacts: apiMock.fetchContacts,
+    fetchContactsPage: apiMock.fetchContactsPage,
     unarchiveContact: apiMock.unarchiveContact,
     fetchOffboardingPreflight: vi.fn(),
     archiveContact: vi.fn(),
@@ -100,6 +100,7 @@ const ativa: Contact = {
 
 let container: HTMLDivElement;
 let root: Root;
+let serverItems: Contact[] = [];
 
 async function flush(times = 3) {
   for (let i = 0; i < times; i++) {
@@ -119,7 +120,7 @@ function tableText(): string {
 }
 
 /** Aba de filtro (role="tab") pelo rótulo — não confundir com botões de ação. */
-function clickTab(label: string) {
+async function clickTab(label: string) {
   const tab = [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((b) =>
     b.textContent!.includes(label),
   );
@@ -127,6 +128,7 @@ function clickTab(label: string) {
   act(() => {
     tab.click();
   });
+  await flush();
 }
 
 /** Botão DENTRO do diálogo (o "Reativar" da linha fica fora dele). */
@@ -137,12 +139,21 @@ function dialogButton(label: string): HTMLButtonElement | undefined {
 }
 
 async function renderScreen(items: Contact[] = [arquivada, ativa]) {
-  apiMock.fetchContacts.mockResolvedValue({
-    items,
-    page: 1,
-    pageSize: 200,
-    total: items.length,
-  });
+  serverItems = items.map((contact) => ({ ...contact }));
+  apiMock.fetchContactsPage.mockImplementation(
+    (_token: string, params: { view?: string }) => {
+      const visible =
+        params.view === "arquivadas"
+          ? serverItems.filter((contact) => contact.arquivada)
+          : serverItems.filter((contact) => !contact.arquivada);
+      return Promise.resolve({
+        items: visible,
+        page: 1,
+        pageSize: 50,
+        total: visible.length,
+      });
+    },
+  );
   act(() => {
     root.render(h(ContatosScreen, {}));
   });
@@ -152,7 +163,7 @@ async function renderScreen(items: Contact[] = [arquivada, ativa]) {
 beforeEach(() => {
   authState.roles = ["admin"];
   authState.expireSession.mockClear();
-  apiMock.fetchContacts.mockReset();
+  apiMock.fetchContactsPage.mockReset();
   apiMock.unarchiveContact.mockReset();
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -172,7 +183,7 @@ describe("ContatosScreen — reativação de Pessoa arquivada (FECH-06/REATIVAR-
     expect(tableText()).toContain("Beatriz Ativa");
     expect(tableText()).not.toContain("Aristides Arquivado");
 
-    clickTab("Arquivadas");
+    await clickTab("Arquivadas");
     expect(tableText()).toContain("Aristides Arquivado");
     expect(tableText()).not.toContain("Beatriz Ativa");
     expect(findButton("Reativar")).toBeDefined();
@@ -180,7 +191,7 @@ describe("ContatosScreen — reativação de Pessoa arquivada (FECH-06/REATIVAR-
 
   it("Reativar: confirmação no ds/Dialog dispara o endpoint; pessoa sai de Arquivadas e volta às listas", async () => {
     await renderScreen();
-    clickTab("Arquivadas");
+    await clickTab("Arquivadas");
 
     act(() => {
       findButton("Reativar")!.click();
@@ -193,10 +204,15 @@ describe("ContatosScreen — reativação de Pessoa arquivada (FECH-06/REATIVAR-
     expect(dialog!.textContent).toContain("Aristides Arquivado");
     expect(apiMock.unarchiveContact).not.toHaveBeenCalled();
 
-    apiMock.unarchiveContact.mockResolvedValue({
-      pessoa_id: "p1",
-      arquivada: false,
-      reativada_por: "admin-1",
+    apiMock.unarchiveContact.mockImplementation(async () => {
+      serverItems = serverItems.map((contact) =>
+        contact.id === "p1" ? { ...contact, arquivada: false } : contact,
+      );
+      return {
+        pessoa_id: "p1",
+        arquivada: false,
+        reativada_por: "admin-1",
+      };
     });
     act(() => {
       dialogButton("Reativar")!.click();
@@ -209,14 +225,14 @@ describe("ContatosScreen — reativação de Pessoa arquivada (FECH-06/REATIVAR-
     // Saiu de "Arquivadas"...
     expect(tableText()).not.toContain("Aristides Arquivado");
     // ...e voltou às listas normais.
-    clickTab("Todos");
+    await clickTab("Todos");
     expect(tableText()).toContain("Aristides Arquivado");
     expect(tableText()).toContain("Beatriz Ativa");
   });
 
   it("Cancelar fecha o diálogo sem chamar a API; pessoa continua arquivada", async () => {
     await renderScreen();
-    clickTab("Arquivadas");
+    await clickTab("Arquivadas");
     act(() => {
       findButton("Reativar")!.click();
     });
@@ -234,7 +250,7 @@ describe("ContatosScreen — reativação de Pessoa arquivada (FECH-06/REATIVAR-
     // Estado PERSISTENTE: fetchContacts já devolve arquivada=true (backend) —
     // nenhum arquivamento aconteceu nesta sessão (archivedInfo vazio).
     await renderScreen();
-    clickTab("Arquivadas");
+    await clickTab("Arquivadas");
 
     const row = [...container.querySelectorAll("tr")].find((r) =>
       r.textContent!.includes("Aristides Arquivado"),
@@ -257,7 +273,7 @@ describe("ContatosScreen — reativação de Pessoa arquivada (FECH-06/REATIVAR-
   it("papel sem admin/pastor não vê o botão Reativar (espelho do RBAC do backend)", async () => {
     authState.roles = ["lider_celula"];
     await renderScreen();
-    clickTab("Arquivadas");
+    await clickTab("Arquivadas");
     expect(tableText()).toContain("Aristides Arquivado");
     expect(findButton("Reativar")).toBeUndefined();
   });
@@ -265,7 +281,7 @@ describe("ContatosScreen — reativação de Pessoa arquivada (FECH-06/REATIVAR-
   it("pastor (sem admin) vê e usa o Reativar — o backend aceita admin/pastor", async () => {
     authState.roles = ["pastor"];
     await renderScreen();
-    clickTab("Arquivadas");
+    await clickTab("Arquivadas");
     act(() => {
       findButton("Reativar")!.click();
     });
@@ -283,7 +299,7 @@ describe("ContatosScreen — reativação de Pessoa arquivada (FECH-06/REATIVAR-
 
   it("erro da API aparece no diálogo sem fechá-lo; pessoa segue arquivada", async () => {
     await renderScreen();
-    clickTab("Arquivadas");
+    await clickTab("Arquivadas");
     act(() => {
       findButton("Reativar")!.click();
     });

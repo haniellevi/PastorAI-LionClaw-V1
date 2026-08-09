@@ -210,6 +210,64 @@ def _spy_notify(monkeypatch, outcome: str = "sent") -> list:
     return calls
 
 
+class _ClosingEvolution:
+    def __init__(self) -> None:
+        self.close_calls = 0
+
+    def close(self) -> None:
+        self.close_calls += 1
+
+
+def test_worker_closes_only_locally_created_evolution(monkeypatch) -> None:
+    owned = _ClosingEvolution()
+    monkeypatch.setattr(billing_worker, "EvolutionClient", lambda: owned)
+
+    assert (
+        run_pending_plan_changes(
+            _Discovery([]),
+            session_factory=_factory_queue([]),
+            asaas=_WorkerAsaas(),
+        )
+        == 0
+    )
+
+    injected = _ClosingEvolution()
+    assert (
+        run_pending_plan_changes(
+            _Discovery([]),
+            session_factory=_factory_queue([]),
+            asaas=_WorkerAsaas(),
+            evolution=injected,
+        )
+        == 0
+    )
+
+    assert owned.close_calls == 1
+    assert injected.close_calls == 0
+
+
+def test_worker_closes_owned_evolution_when_discovery_raises(monkeypatch) -> None:
+    owned = _ClosingEvolution()
+    monkeypatch.setattr(billing_worker, "EvolutionClient", lambda: owned)
+
+    class BrokenDiscovery:
+        def execute(self, statement, params=None):
+            raise RuntimeError("discovery failed")
+
+    try:
+        run_pending_plan_changes(
+            BrokenDiscovery(),
+            session_factory=_factory_queue([]),
+            asaas=_WorkerAsaas(),
+        )
+    except RuntimeError as exc:
+        assert str(exc) == "discovery failed"
+    else:  # pragma: no cover - must propagate the discovery failure
+        raise AssertionError("discovery failure did not propagate")
+
+    assert owned.close_calls == 1
+
+
 def test_worker_completes_autoupgrade_via_put_on_existing_subscription(
     monkeypatch,
 ) -> None:

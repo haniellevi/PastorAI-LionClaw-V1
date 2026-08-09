@@ -7,15 +7,20 @@ are validated at startup so a misconfigured production deploy fails fast.
 from __future__ import annotations
 
 import logging
+import re
+import time
+import uuid
 from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.config import get_settings
 from app.db.session import get_engine
+from app.middleware.body_limit import MediaUploadBodyLimitMiddleware
 from app.routers import (
     agent,
     assistant,
@@ -50,6 +55,7 @@ from app.services.celula_membro import (
     MembroInelegivelError,
     TransferenciaNaoAutorizadaError,
 )
+from app.services.clerk import ClerkClient
 from app.services.rate_limit import RateLimitExceeded
 
 logging.basicConfig(
@@ -58,21 +64,50 @@ logging.basicConfig(
 )
 logger = logging.getLogger("pastorai")
 
+_REQUEST_ID_HEADER = "X-Request-ID"
+_REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
+
+
+def _request_id(value: str | None) -> str:
+    """Return a log-safe correlation id, never echoing arbitrary input."""
+    if value and _REQUEST_ID_PATTERN.fullmatch(value):
+        return value
+    return uuid.uuid4().hex
+
 
 @asynccontextmanager
-async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    """Validate config on boot and dispose the DB pool on shutdown."""
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Validate config on boot and release shared clients on shutdown."""
     settings = get_settings()
     settings.assert_production_ready()
+    # A FastAPI instance can enter its lifespan more than once in tests or
+    # managed hosts. Each startup gets a fresh, open pool; each shutdown closes
+    # exactly the pool created for that lifespan.
+    clerk_client = ClerkClient(settings=settings)
+    app.state.clerk_client = clerk_client
     logger.info("PastorAI backend starting (env=%s)", settings.app_env)
-    yield
-    # Graceful shutdown: close pooled connections if the engine was created.
     try:
-        get_engine().dispose()
-        logger.info("Database connection pool disposed")
-    except RuntimeError:
-        # Engine was never initialized (e.g. no DATABASE_URL in dev/tests).
-        pass
+        connection = get_engine().connect()
+        try:
+            connection.exec_driver_sql("SELECT 1").scalar_one()
+            connection.rollback()
+        finally:
+            connection.close()
+        logger.info("Database connection pool warmed")
+    except (RuntimeError, SQLAlchemyError):
+        logger.warning("Database warmup unavailable; startup continuing")
+    try:
+        yield
+    finally:
+        clerk_client.close()
+        logger.info("Clerk HTTP connection pool closed")
+        # Graceful shutdown: close pooled connections if the engine was created.
+        try:
+            get_engine().dispose()
+            logger.info("Database connection pool disposed")
+        except RuntimeError:
+            # Engine was never initialized (e.g. no DATABASE_URL in dev/tests).
+            pass
 
 
 def create_app() -> FastAPI:
@@ -83,6 +118,10 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    # Guard the base64 media upload before Starlette/Pydantic buffers and parses
+    # its JSON body. Added before CORS so even a 413 carries the normal CORS
+    # response headers; all non-media routes pass through unchanged.
+    app.add_middleware(MediaUploadBodyLimitMiddleware)
     app.add_middleware(
         CORSMiddleware,
         # Explicit origins only — never a wildcard together with credentials
@@ -92,7 +131,54 @@ def create_app() -> FastAPI:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=[_REQUEST_ID_HEADER, "Server-Timing"],
     )
+
+    @app.middleware("http")
+    async def _request_observability(request: Request, call_next):
+        """Emit low-cardinality request timing without query strings or bodies."""
+        request_id = _request_id(request.headers.get(_REQUEST_ID_HEADER))
+        started = time.perf_counter()
+        request.state.request_id = request_id
+        request.state.request_started = started
+        status_code = 500
+        try:
+            response = await call_next(request)
+            status_code = response.status_code
+            duration_ms = (time.perf_counter() - started) * 1000
+            response.headers[_REQUEST_ID_HEADER] = request_id
+            response.headers["Server-Timing"] = f"app;dur={duration_ms:.2f}"
+            return response
+        finally:
+            duration_ms = (time.perf_counter() - started) * 1000
+            route = request.scope.get("route")
+            route_path = getattr(route, "path", "<unmatched>")
+            logger.info(
+                "http_request request_id=%s method=%s route=%s status=%d duration_ms=%.2f",
+                request_id,
+                request.method,
+                route_path,
+                status_code,
+                duration_ms,
+            )
+
+    @app.exception_handler(Exception)
+    async def _unhandled_exception_handler(
+        request: Request, exc: Exception
+    ) -> JSONResponse:
+        """Keep correlation headers even for failures outside user middleware."""
+        request_id = getattr(request.state, "request_id", None) or _request_id(None)
+        started = getattr(request.state, "request_started", time.perf_counter())
+        duration_ms = (time.perf_counter() - started) * 1000
+        logger.exception("Unhandled request error request_id=%s", request_id, exc_info=exc)
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Erro interno do servidor."},
+            headers={
+                _REQUEST_ID_HEADER: request_id,
+                "Server-Timing": f"app;dur={duration_ms:.2f}",
+            },
+        )
 
     @app.exception_handler(RateLimitExceeded)
     async def _rate_limit_exceeded_handler(

@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from app.db.session import get_db
-from app.services.clerk import get_clerk_client
+from app.services.clerk import ClerkUnavailableError, get_clerk_client
 from tests.conftest import FakeClerk, FakeSession, make_app_user
 
 _AUTH = {"Authorization": "Bearer good"}
@@ -15,6 +15,11 @@ def _wire(app, *, session, clerk) -> TestClient:
     app.dependency_overrides[get_db] = lambda: session
     app.dependency_overrides[get_clerk_client] = lambda: clerk
     return TestClient(app)
+
+
+class _UnavailableClerk(FakeClerk):
+    def authenticate_password(self, email: str, password: str) -> tuple[str, str]:
+        raise ClerkUnavailableError("upstream unavailable")
 
 
 def test_update_me_changes_nome(app) -> None:
@@ -41,6 +46,23 @@ def test_me_includes_chat_nome(app) -> None:
     resp = client.get("/auth/me", headers=_AUTH)
     assert resp.status_code == 200
     assert resp.json()["chatNome"] == "Pastor Raniel"
+
+
+def test_me_authentication_uses_five_database_round_trips(app) -> None:
+    session = FakeSession(app_user=make_app_user(), roles=["admin", "pastor"])
+    client = _wire(app, session=session, clerk=FakeClerk())
+
+    resp = client.get("/auth/me", headers=_AUTH)
+
+    assert resp.status_code == 200
+    # claim GUC + SET LOCAL ROLE + user/igreja/roles + tenant GUC + role.
+    assert session.execute_count == 5
+    app_user_sql = next(
+        str(statement)
+        for statement in session.executed_statements
+        if "FROM app_users" in str(statement)
+    )
+    assert "LEFT OUTER JOIN user_roles" in app_user_sql
 
 
 def test_update_me_sets_chat_nome(app) -> None:
@@ -98,6 +120,21 @@ def test_change_password_wrong_current_is_400(app) -> None:
         json={"currentPassword": "errada", "newPassword": "novaSenha123"},
     )
     assert resp.status_code == 400
+
+
+def test_change_password_clerk_unavailable_is_503(app) -> None:
+    client = _wire(
+        app,
+        session=FakeSession(app_user=make_app_user(), roles=["pastor"]),
+        clerk=_UnavailableClerk(),
+    )
+    resp = client.post(
+        "/auth/change-password",
+        headers=_AUTH,
+        json={"currentPassword": "atual", "newPassword": "novaSenha123"},
+    )
+
+    assert resp.status_code == 503
 
 
 def test_change_password_rejects_short_new(app) -> None:

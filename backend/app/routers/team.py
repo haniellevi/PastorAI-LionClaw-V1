@@ -19,7 +19,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.config import get_settings
 from app.db.models import AppUser, Celula, Igreja, Pessoa, UserRole
@@ -239,15 +239,11 @@ def list_members_lookup(
     ).scalar_one()
     users = db.execute(
         select(AppUser)
+        .options(joinedload(AppUser.roles))
         .order_by(AppUser.nome.asc())
         .offset(pagination.offset)
         .limit(pagination.limit)
-    ).scalars().all()
-
-    role_rows = db.execute(select(UserRole.user_id, UserRole.papel)).all()
-    roles_by_user: dict[uuid.UUID, list[str]] = {}
-    for user_id, papel in role_rows:
-        roles_by_user.setdefault(user_id, []).append(papel)
+    ).unique().scalars().all()
 
     return Page[TeamMemberOut](
         items=[
@@ -256,7 +252,7 @@ def list_members_lookup(
                 nome=u.nome,
                 email="",  # PII omitida na busca enxuta do painel
                 status=None,
-                papeis=sorted(roles_by_user.get(u.id, [])),
+                papeis=sorted(role.papel for role in u.roles),
                 pessoaId=str(u.pessoa_id) if u.pessoa_id else None,
             )
             for u in users

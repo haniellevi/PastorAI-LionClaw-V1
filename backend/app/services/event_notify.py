@@ -110,20 +110,25 @@ def notify_event_confirmed(
         logger.info("Agenda notify: sem instância/destinatário; nada enviado")
         return False
 
-    client = evolution or EvolutionClient(settings)
-    texto = _message(event)
-    sent = 0
-    for phone in phones:
-        try:
-            if client.send_text(instance, phone, texto) is not False:
-                sent += 1
-        except EvolutionError:
-            logger.warning("Agenda notify: falha ao enviar aviso de evento")
+    owns_client = evolution is None
+    client = evolution if evolution is not None else EvolutionClient(settings)
+    try:
+        texto = _message(event)
+        sent = 0
+        for phone in phones:
+            try:
+                if client.send_text(instance, phone, texto) is not False:
+                    sent += 1
+            except EvolutionError:
+                logger.warning("Agenda notify: falha ao enviar aviso de evento")
 
-    if not sent:
-        return False
+        if not sent:
+            return False
 
-    event.notificado_em = dt.datetime.now(dt.timezone.utc)
-    db.flush()
-    db.commit()
-    return True
+        event.notificado_em = dt.datetime.now(dt.timezone.utc)
+        db.flush()
+        db.commit()
+        return True
+    finally:
+        if owns_client:
+            client.close()

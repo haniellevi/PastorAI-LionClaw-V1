@@ -249,10 +249,11 @@ def cmd_apply(args: argparse.Namespace) -> int:
                 print(
                     f"\nFALHOU em {path.name}: {type(exc).__name__}: {exc}\n"
                     "Parando no 1º erro. As migrations já concluídas ficam "
-                    "registradas em schema_migrations; como as migrations são "
-                    "idempotentes (IF NOT EXISTS / ON CONFLICT), basta corrigir a "
-                    "causa e rodar `apply` de novo para retomar as pendentes — "
-                    "reexecutar um arquivo parcialmente aplicado é seguro.",
+                    "registradas em schema_migrations. Antes de retomar, leia as "
+                    "instruções do arquivo que falhou: migrations idempotentes "
+                    "podem ser reaplicadas após corrigir a causa, mas CREATE INDEX "
+                    "CONCURRENTLY pode deixar índice INVALID e exige inspeção/"
+                    "recuperação manual antes de um novo `apply`.",
                     file=sys.stderr,
                 )
                 return 5

@@ -24,6 +24,14 @@ def _settings(enabled: bool, *, sends_enabled: bool | None = None):
     )
 
 
+class _ClosingEvolution:
+    def __init__(self) -> None:
+        self.close_calls = 0
+
+    def close(self) -> None:
+        self.close_calls += 1
+
+
 def test_disabled_worker_tick_is_idle_without_db_or_cycle() -> None:
     calls = 0
 
@@ -71,6 +79,52 @@ def test_disabled_worker_stays_alive_and_exits_only_on_stop(caplog) -> None:
     assert "Broadcast worker OCIOSO" in caplog.text
     assert caplog.text.count("Broadcast worker OCIOSO") == 1
     assert "Broadcast worker stopped" in caplog.text
+
+
+def test_worker_closes_evolution_it_created(monkeypatch) -> None:
+    import app.workers.broadcast_worker as worker_module
+
+    evolution = _ClosingEvolution()
+    monkeypatch.setattr(
+        worker_module,
+        "EvolutionClient",
+        lambda _settings: evolution,
+    )
+    holder = {}
+
+    def sleeper(_seconds):
+        holder["worker"].stop()
+
+    worker = BroadcastWorker(
+        settings=_settings(False),
+        sleeper=sleeper,
+        heartbeat_publisher=lambda *_args: None,
+    )
+    holder["worker"] = worker
+
+    worker.run()
+
+    assert evolution.close_calls == 1
+
+
+def test_worker_does_not_close_injected_evolution() -> None:
+    evolution = _ClosingEvolution()
+    holder = {}
+
+    def sleeper(_seconds):
+        holder["worker"].stop()
+
+    worker = BroadcastWorker(
+        settings=_settings(False),
+        evolution=evolution,
+        sleeper=sleeper,
+        heartbeat_publisher=lambda *_args: None,
+    )
+    holder["worker"] = worker
+
+    worker.run()
+
+    assert evolution.close_calls == 0
 
 
 def test_worker_publishes_ready_only_after_successful_tick() -> None:

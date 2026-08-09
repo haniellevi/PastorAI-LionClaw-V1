@@ -52,8 +52,11 @@ function normalizeStatus(value: unknown): ConnectionStatus {
 // ---------------------------------------------------------------------------
 // Leitura
 // ---------------------------------------------------------------------------
-export async function fetchConnection(token: string): Promise<ConnectionInfo> {
-  const res = await authedFetch(token, `/whatsapp/connection`);
+export async function fetchConnection(
+  token: string,
+  signal?: AbortSignal,
+): Promise<ConnectionInfo> {
+  const res = await authedFetch(token, `/whatsapp/connection`, { signal });
   if (res.status === 403) {
     throw new ApiError(403, "Acesso restrito à configuração do WhatsApp.");
   }

@@ -5,35 +5,192 @@ import { describe, expect, it } from "vitest";
 
 const read = (...parts: string[]) => readFileSync(join(__dirname, ...parts), "utf8");
 
+const layout = read("layout.tsx");
+const home = read("page.tsx");
+const gestao = read("gestao", "page.tsx");
+const admin = read("admin", "page.tsx");
+const providers = read("..", "components", "providers", "AppProviders.tsx");
+const authContext = read("..", "lib", "auth-context.tsx");
+const adminAuthContext = read("..", "lib", "admin-auth-context.tsx");
+const screenView = read("..", "components", "shell", "ScreenView.tsx");
+const screenLoaders = read("..", "components", "shell", "screen-loaders.ts");
+const appShell = read("..", "components", "shell", "AppShell.tsx");
+const sidebar = read("..", "components", "shell", "Sidebar.tsx");
+const bottomNav = read("..", "components", "shell", "BottomNav.tsx");
+const routeDataPreload = read("..", "lib", "route-data-preload.ts");
+const responseCache = read("..", "lib", "authed-response-cache.ts");
+const dashboardApi = read("..", "lib", "dashboard-api.ts");
+const packageJson = JSON.parse(read("..", "..", "package.json")) as {
+  dependencies: Record<string, string>;
+};
+const packageLock = read("..", "..", "package-lock.json");
+
+const SCREEN_MODULES = [
+  "@/components/calendario/CalendarioScreen",
+  "@/components/cells/CelulasScreen",
+  "@/components/central-celula/CentralCelulaScreen",
+  "@/components/comunicados/ComunicadosScreen",
+  "@/components/config/AgenteScreen",
+  "@/components/config/AssinaturaScreen",
+  "@/components/config/EquipeScreen",
+  "@/components/config/IdentidadeVisualScreen",
+  "@/components/config/IntegracoesScreen",
+  "@/components/config/PermissoesScreen",
+  "@/components/config/SetupChecklistScreen",
+  "@/components/consolidacao/ConsolIndividualScreen",
+  "@/components/consolidacao/ConsolidarScreen",
+  "@/components/consolidacao/LockedScreen",
+  "@/components/contacts/ContatosScreen",
+  "@/components/contacts/GanharScreen",
+  "@/components/dashboard/DashboardScreen",
+  "@/components/enviar/EnviarScreen",
+  "@/components/g12/G12Screen",
+  "@/components/inbox/InboxScreen",
+  "@/components/minha-celula/MinhaCelulaEntry",
+  "@/components/profile/PerfilScreen",
+  "@/components/reports/RelatoriosScreen",
+  "@/components/whatsapp/WhatsappScreen",
+].sort();
+
 describe("fronteiras de carregamento do frontend", () => {
-  const layout = read("layout.tsx");
-  const home = read("page.tsx");
-  const gestao = read("gestao", "page.tsx");
-  const providers = read("..", "components", "providers", "AppProviders.tsx");
-  const authContext = read("..", "lib", "auth-context.tsx");
-  const screenView = read("..", "components", "shell", "ScreenView.tsx");
-
-  it("mantém o Clerk e o mesmo limite global de autenticação", () => {
-    expect(layout).toContain("AppProviders");
+  it("mantém o root layout estático e escopa os providers às superfícies da igreja", () => {
+    expect(layout).not.toContain("AppProviders");
     expect(layout).not.toContain('dynamic = "force-dynamic"');
-    expect(home).not.toContain("<AppProviders>");
-    expect(gestao).not.toContain("<AppProviders>");
-    expect(providers).toContain("ClerkProvider");
+    expect(home).toContain("<AppProviders>");
+    expect(gestao).toContain("<AppProviders>");
+    expect(admin).not.toContain("AppProviders");
+    expect(providers).toContain("<AuthProvider>");
+    expect(providers).toContain("<PermissionsProvider>");
+    expect(home).toContain('status === "unavailable"');
+    expect(gestao).toContain('status === "unavailable"');
+    expect(admin).toContain('status === "unavailable"');
+    expect(home).toContain("<SessionUnavailable onRetry={retrySession}");
+    expect(admin).toContain("<SessionUnavailable onRetry={retrySession}");
   });
 
-  it("carrega shell, login e dashboard sob demanda com fallback acessível", () => {
+  it("carrega os três shells pesados por next/dynamic com fallback acessível", () => {
     expect(home).toContain('import("@/components/shell/AppShell")');
-    expect(home).toContain('import("@/components/login/LoginScreen")');
-    expect(home).toContain("loading: PageLoading");
-    expect(screenView).toContain("loadDashboardScreen");
-    expect(screenView).toContain("loading: ScreenLoading");
-    expect(home).toContain('role="status"');
+    expect(gestao).toContain('import("@/components/shell/AdminAppShell")');
+    expect(admin).toContain('import("@/components/admin/AdminConsole")');
+
+    for (const source of [home, gestao, admin]) {
+      expect(source).toContain("loading: PageLoading");
+      expect(source).toContain('role="status"');
+      expect(source).toContain('aria-live="polite"');
+      expect(source).toContain('className="sr-only"');
+    }
   });
 
-  it("antecipa somente a superfície e a rota autenticada enquanto /auth/me carrega", () => {
+  it("divide as 24 telas com loaders compartilhados e fallback acessível", () => {
+    const dynamicModules = [...screenLoaders.matchAll(/import\("([^"]+)"\)/g)]
+      .map((match) => match[1]!)
+      .sort();
+    const staticModules = new Set(
+      [...screenView.matchAll(/from\s+"([^"]+)"/g)].map((match) => match[1]!),
+    );
+
+    expect(dynamicModules).toEqual(SCREEN_MODULES);
+    expect(SCREEN_MODULES.every((module) => !staticModules.has(module))).toBe(true);
+    expect(screenView).toContain('from "./screen-loaders"');
+    expect(screenLoaders).toContain("preloadScreenModule");
+    expect(screenView.match(/loading:\s*ScreenLoading/g)).toHaveLength(24);
+    expect(screenView).toContain('role="status"');
+    expect(screenView).toContain('aria-live="polite"');
+    expect(screenView).toContain('aria-busy="true"');
+  });
+
+  it("antecipa chunk e dados por intenção usando cache curto por sessão", () => {
+    expect(appShell).toContain("preloadScreenModule(targetBase)");
+    expect(appShell).toContain("preloadRouteData(token, targetBase)");
+
+    for (const source of [sidebar, bottomNav]) {
+      expect(source).toContain("onPreload?.");
+      expect(source).toContain("onMouseEnter");
+      expect(source).toContain("onFocus");
+    }
+
+    expect(routeDataPreload).toContain("Promise.allSettled(jobs)");
+    expect(routeDataPreload).toContain('case "dashboard"');
+    expect(routeDataPreload).toContain('case "ganhar"');
+    expect(routeDataPreload).toContain('case "inbox"');
+    expect(responseCache).toContain('private key(token: string, path: string)');
+    expect(responseCache).not.toContain("localStorage.setItem");
+    expect(responseCache).not.toContain("sessionStorage.setItem");
+    expect(dashboardApi).toContain("responseCache.get(token, path)");
+    expect(dashboardApi).toContain("responseCache.set(token, path");
+  });
+
+  it("remove o SDK Clerk não consumido sem remover os providers próprios", () => {
+    expect(providers).not.toContain("Clerk");
+    expect(packageJson.dependencies).not.toHaveProperty("@clerk/nextjs");
+    expect(packageLock).not.toContain("node_modules/@clerk/");
+  });
+
+  it("precarrega a superfície e evita /auth/me serial no login fresco", () => {
     expect(authContext.match(/preloadAuthenticatedSurface\(\);/g)).toHaveLength(2);
     expect(authContext).toContain('import("@/components/shell/AppShell")');
+    expect(authContext).toContain('import("@/components/shell/AdminAppShell")');
+    expect(authContext).toContain('import("@/components/dashboard/DashboardScreen")');
+    expect(authContext).toContain('import("@/components/inbox/InboxScreen")');
+    expect(authContext).toContain('import("@/components/contacts/GanharScreen")');
+    expect(authContext).toContain('preloadRoute(requestedAuthenticatedRoute("setup"))');
     expect(authContext).toContain('preloadRoute(requestedAuthenticatedRoute("dashboard"))');
+
+    const loginFlow = authContext.slice(
+      authContext.indexOf("const login = useCallback"),
+      authContext.indexOf("const logout = useCallback"),
+    );
+    expect(loginFlow.indexOf("await apiLogin")).toBeLessThan(
+      loginFlow.indexOf("preloadAuthenticatedSurface();"),
+    );
+    expect(loginFlow).not.toContain("fetchMe(");
+    expect(loginFlow).toContain("setUser(toSessionUser(me))");
+    expect(loginFlow.indexOf("await apiLogin")).toBeLessThan(
+      loginFlow.indexOf("writeToken(token)"),
+    );
+
+    const bootstrap = authContext.slice(
+      authContext.indexOf("useEffect(() =>"),
+      authContext.indexOf("const login = useCallback"),
+    );
+    expect(bootstrap).toContain("fetchMe(token)");
+    expect(bootstrap).toContain("error instanceof SessionExpiredError");
+    expect(bootstrap).toContain('setStatus("unavailable")');
+    expect(bootstrap.indexOf("error instanceof SessionExpiredError")).toBeLessThan(
+      bootstrap.indexOf("writeToken(null)"),
+    );
     expect(authContext).not.toContain("Promise.all(Object.values");
+  });
+
+  it("precarrega o console admin no bootstrap e no login antes de /admin/me", () => {
+    expect(adminAuthContext).toContain('import("@/components/admin/AdminConsole")');
+    expect(adminAuthContext.match(/preloadAdminConsole\(\);/g)).toHaveLength(2);
+
+    const bootstrap = adminAuthContext.slice(
+      adminAuthContext.indexOf("useEffect(() =>"),
+      adminAuthContext.indexOf("const login = useCallback"),
+    );
+    expect(bootstrap.indexOf("preloadAdminConsole();")).toBeLessThan(
+      bootstrap.indexOf("fetchAdminMe(token)"),
+    );
+    expect(bootstrap).toContain("error instanceof AdminSessionExpiredError");
+    expect(bootstrap).toContain('setStatus("unavailable")');
+    expect(bootstrap.indexOf("error instanceof AdminSessionExpiredError")).toBeLessThan(
+      bootstrap.indexOf("writeToken(null)"),
+    );
+
+    const loginFlow = adminAuthContext.slice(
+      adminAuthContext.indexOf("const login = useCallback"),
+      adminAuthContext.indexOf("const logout = useCallback"),
+    );
+    expect(loginFlow.indexOf("await adminLogin")).toBeLessThan(
+      loginFlow.indexOf("preloadAdminConsole();"),
+    );
+    expect(loginFlow.indexOf("preloadAdminConsole();")).toBeLessThan(
+      loginFlow.indexOf("await fetchAdminMe(token)"),
+    );
+    expect(loginFlow.indexOf("await fetchAdminMe(token)")).toBeLessThan(
+      loginFlow.indexOf("writeToken(token)"),
+    );
   });
 });

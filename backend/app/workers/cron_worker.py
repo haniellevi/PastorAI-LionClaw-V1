@@ -158,7 +158,8 @@ class CronWorker:
         tick_seconds: int | None = None,
     ) -> None:
         self._session_factory = session_factory or get_session_factory()
-        self._engine = engine or SlaEngine()
+        self._owns_engine = engine is None
+        self._engine = engine if engine is not None else SlaEngine()
         self._tick_seconds = tick_seconds or get_settings().cron_tick_seconds
         self._last_run: dict[str, dt.datetime] = {}
         self._running = False
@@ -251,28 +252,33 @@ class CronWorker:
         """Block ticking on the configured interval until stopped."""
         self._running = True
         logger.info("Cron worker started (tick=%ss)", self._tick_seconds)
-        while self._running:
-            try:
-                counters = self.tick()
-                # `oauth_flows_purged` na linha NÃO é cosmético: é a assinatura
-                # que o gate G7a usa para provar que o worker está no artefato
-                # novo. Não remover.
-                logger.info(
-                    "Cron tick done (sla=%d, crons=%d, plan_changes=%d, "
-                    "oauth_flows_purged=%d)",
-                    counters["sla_handled"],
-                    counters["crons_run"],
-                    counters["plan_changes_completed"],
-                    counters["oauth_flows_purged"],
-                )
-            except Exception:  # noqa: BLE001 - never let a tick kill the loop
-                logger.exception("Cron tick failed")
-            # Sleep in small slices so shutdown stays responsive.
-            slept = 0
-            while self._running and slept < self._tick_seconds:
-                time.sleep(min(1, self._tick_seconds - slept))
-                slept += 1
-        logger.info("Cron worker stopped")
+        try:
+            while self._running:
+                try:
+                    counters = self.tick()
+                    # `oauth_flows_purged` na linha NÃO é cosmético: é a
+                    # assinatura que o gate G7a usa para provar que o worker
+                    # está no artefato novo. Não remover.
+                    logger.info(
+                        "Cron tick done (sla=%d, crons=%d, plan_changes=%d, "
+                        "oauth_flows_purged=%d)",
+                        counters["sla_handled"],
+                        counters["crons_run"],
+                        counters["plan_changes_completed"],
+                        counters["oauth_flows_purged"],
+                    )
+                except Exception:  # noqa: BLE001 - one tick cannot kill worker
+                    logger.exception("Cron tick failed")
+                # Sleep in small slices so shutdown stays responsive.
+                slept = 0
+                while self._running and slept < self._tick_seconds:
+                    time.sleep(min(1, self._tick_seconds - slept))
+                    slept += 1
+        finally:
+            if self._owns_engine:
+                self._owns_engine = False
+                self._engine.close()
+            logger.info("Cron worker stopped")
 
 
 def main() -> None:  # pragma: no cover - process entrypoint

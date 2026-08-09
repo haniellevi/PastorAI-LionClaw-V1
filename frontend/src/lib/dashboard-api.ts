@@ -189,7 +189,13 @@ export async function authedFetch(
       if (!pending) {
         pending = request()
           .then((response) => {
-            responseCache.set(token, path, response, ttlMs);
+            // Uma invalidação pode remover esta promessa e iniciar outra para
+            // a mesma chave. Só a leitura ainda vigente pode repovoar o cache;
+            // caso contrário, uma resposta antiga que termine por último
+            // sobrescreveria o snapshot mais novo.
+            if (inFlightReads.get(key) === pending) {
+              responseCache.set(token, path, response, ttlMs);
+            }
             return response;
           })
           .finally(() => {

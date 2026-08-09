@@ -8,6 +8,18 @@
  */
 
 const API_BASE = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000").replace(/\/$/, "");
+// Cobre Clerk (até ~10s) + rate limit + banco frio sem afetar deadlines do Inbox.
+const ADMIN_AUTH_TIMEOUT_MS = 20_000;
+
+async function adminAuthFetch(url: string, init?: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), ADMIN_AUTH_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
 export interface AdminMe {
   appUserId: string;
@@ -102,7 +114,7 @@ export async function adminLogin(
 ): Promise<{ token: string }> {
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}/admin/login`, {
+    res = await adminAuthFetch(`${API_BASE}/admin/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password }),
@@ -117,26 +129,65 @@ export async function adminLogin(
     );
   }
   if (!res.ok) throw new AdminAuthError("network", "Não foi possível entrar no console.");
-  return asJson<{ token: string }>(res);
+  let data: unknown;
+  try {
+    data = await asJson<unknown>(res);
+  } catch {
+    throw new AdminAuthError("network", "Não foi possível entrar no console.");
+  }
+  if (
+    !data ||
+    typeof data !== "object" ||
+    !("token" in data) ||
+    typeof data.token !== "string" ||
+    !data.token
+  ) {
+    throw new AdminAuthError("network", "Não foi possível entrar no console.");
+  }
+  return { token: data.token };
 }
 
 /** Confirma que o token pertence a um platform admin e devolve sua identidade. */
 export async function fetchAdminMe(token: string): Promise<AdminMe> {
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}/admin/me`, { headers: authHeaders(token) });
+    res = await adminAuthFetch(`${API_BASE}/admin/me`, { headers: authHeaders(token) });
   } catch {
     throw new AdminAuthError("network", "Falha de conexão com o servidor.");
   }
   if (res.status === 401) throw new AdminSessionExpiredError();
-  if (res.status === 403) {
+  if (res.status === 403 || (res.status >= 400 && res.status < 500 && res.status !== 429)) {
+    let message = "Esta conta não tem acesso à administração da plataforma.";
+    try {
+      message = extractDetail(await res.json(), message);
+    } catch {
+      /* mantém o fallback seguro */
+    }
     throw new AdminAuthError(
       "forbidden",
-      "Esta conta não tem acesso à administração da plataforma.",
+      message,
     );
   }
   if (!res.ok) throw new AdminAuthError("network", "Não foi possível validar a sessão.");
-  return asJson<AdminMe>(res);
+  let data: unknown;
+  try {
+    data = await asJson<unknown>(res);
+  } catch {
+    throw new AdminAuthError("network", "Não foi possível validar a sessão.");
+  }
+  if (
+    !data ||
+    typeof data !== "object" ||
+    !("appUserId" in data) ||
+    !("email" in data) ||
+    !("nome" in data) ||
+    typeof data.appUserId !== "string" ||
+    typeof data.email !== "string" ||
+    typeof data.nome !== "string"
+  ) {
+    throw new AdminAuthError("network", "Não foi possível validar a sessão.");
+  }
+  return { appUserId: data.appUserId, email: data.email, nome: data.nome };
 }
 
 /** Lista todas as igrejas (cross-tenant) com contadores de membros/pessoas. */

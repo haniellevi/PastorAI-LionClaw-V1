@@ -6,6 +6,8 @@
  */
 import dynamic from "next/dynamic";
 
+import { SessionUnavailable } from "@/components/auth/SessionUnavailable";
+import { AppProviders } from "@/components/providers/AppProviders";
 import { useAuth } from "@/lib/auth-context";
 
 const AppShell = dynamic(
@@ -18,17 +20,11 @@ const LoginScreen = dynamic(
 );
 
 export default function HomePage() {
-  const { status } = useAuth();
-
-  if (status === "loading") {
-    return <PageLoading />;
-  }
-
-  if (status === "authenticated") {
-    return <AppShell />;
-  }
-
-  return <LoginScreen />;
+  return (
+    <AppProviders>
+      <HomeContent />
+    </AppProviders>
+  );
 }
 
 function PageLoading() {
@@ -38,4 +34,22 @@ function PageLoading() {
       <span className="sr-only">Carregando…</span>
     </div>
   );
+}
+
+function HomeContent() {
+  const { status, retrySession } = useAuth();
+
+  if (status === "loading") {
+    return <PageLoading />;
+  }
+
+  if (status === "authenticated") {
+    return <AppShell />;
+  }
+
+  if (status === "unavailable") {
+    return <SessionUnavailable onRetry={retrySession} />;
+  }
+
+  return <LoginScreen />;
 }

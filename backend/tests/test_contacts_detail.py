@@ -86,6 +86,7 @@ def make_pessoa(*, celula_id=None):
         celula_id=celula_id,
         lider_id=None,
         apto_lider=False,
+        arquivada_em=None,
         consentimento=True,
         optout=False,
         origem="whatsapp",
@@ -136,6 +137,21 @@ def test_detail_returns_full_shape(app) -> None:
     assert body["origem"] == "whatsapp"
     assert body["aptoLider"] is False
     assert body["liderDeCelula"] is False
+    assert body["arquivada"] is False
+
+
+def test_detail_exposes_archived_state(app) -> None:
+    pessoa = make_pessoa()
+    pessoa.arquivada_em = object()
+    session = DetailSession(
+        app_user=make_app_user(), roles=["admin"], pessoa=pessoa
+    )
+    client = _wire(app, session=session)
+
+    resp = client.get(f"/contacts/{_PID}", headers=_AUTH)
+
+    assert resp.status_code == 200
+    assert resp.json()["arquivada"] is True
 
 
 def test_detail_derives_lider_de_celula(app) -> None:

@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.db.models import AppUser, Celula, PlatformAdmin, RolePermission, UserRole
 from app.db.rls import set_tenant_context
@@ -170,9 +170,17 @@ def _resolve_current_user(
     # a governar — a sessão final nunca fica não-escopada.
     set_tenant_context(db, identity.clerk_user_id)
 
-    app_user = db.execute(
-        select(AppUser).where(AppUser.clerk_user_id == identity.clerk_user_id)
-    ).scalar_one_or_none()
+    app_user_result = db.execute(
+        select(AppUser)
+        .options(joinedload(AppUser.roles))
+        .where(AppUser.clerk_user_id == identity.clerk_user_id)
+    )
+    # SQLAlchemy exige unique() quando joinedload popula uma coleção. Alguns
+    # doubles unitários antigos expõem apenas scalar_one_or_none(); o fallback
+    # mantém esses testes duck-typed sem alterar o caminho de produção.
+    if hasattr(app_user_result, "unique"):
+        app_user_result = app_user_result.unique()
+    app_user = app_user_result.scalar_one_or_none()
 
     if app_user is None:
         # Authenticated at Clerk but not linked to any igreja.
@@ -209,9 +217,13 @@ def _resolve_current_user(
             },
         )
 
-    roles = db.execute(
-        select(UserRole.papel).where(UserRole.user_id == app_user.id)
-    ).scalars().all()
+    loaded_roles = getattr(app_user, "roles", None)
+    if loaded_roles is None:  # compatibilidade com doubles unitários legados
+        roles = db.execute(
+            select(UserRole.papel).where(UserRole.user_id == app_user.id)
+        ).scalars().all()
+    else:
+        roles = [role.papel for role in loaded_roles]
 
     # #4: dono = quando o app_user é o dono_id da própria igreja.
     dono_id = app_user.igreja.dono_id if app_user.igreja else None
@@ -413,7 +425,9 @@ def require_screen(screen: str):
         if ADMIN_ROLE in current_user.roles:
             return current_user
         rows = db.execute(
-            select(RolePermission.papel, RolePermission.tela)
+            select(RolePermission.papel, RolePermission.tela).where(
+                RolePermission.papel.in_(current_user.roles)
+            )
         ).all()
         tenant_matrix: dict[str, set[str]] = {}
         for papel, tela in rows:

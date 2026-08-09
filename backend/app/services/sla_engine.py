@@ -260,7 +260,14 @@ class SlaEngine:
     """Detect SLA breaches and dispatch charges/escalations via WhatsApp."""
 
     def __init__(self, evolution: EvolutionClient | None = None) -> None:
-        self._evolution = evolution or EvolutionClient()
+        self._owns_evolution = evolution is None
+        self._evolution = evolution if evolution is not None else EvolutionClient()
+
+    def close(self) -> None:
+        """Release the Evolution pool only when this engine created it."""
+        if self._owns_evolution:
+            self._owns_evolution = False
+            self._evolution.close()
 
     def run_for_igreja(
         self, session: Session, igreja_id: uuid.UUID, now: dt.datetime | None = None
@@ -419,42 +426,51 @@ def run_all_igrejas(
     `mark_tenant_scoped`, fechada ao fim da iteração. Assim nenhuma sessão é
     remarcada (sem TenantPinConflictError) e o role/GUC nunca vaza ao pool.
     """
-    engine = engine or SlaEngine()
+    owns_engine = engine is None
+    engine = engine if engine is not None else SlaEngine()
     now = now or _now()
     if session_factory is None:
         session_factory = get_session_factory()
 
-    # Descoberta cross-tenant: a `session` compartilhada roda no papel de conexão
-    # (BYPASSRLS), então enxerga todas as igrejas com pendências. Nenhuma escrita
-    # acontece aqui — só a coleta do conjunto de tenants a varrer.
-    igreja_ids: set[uuid.UUID] = set()
-    igreja_ids.update(
-        session.execute(select(WorkQueueItem.igreja_id).distinct()).scalars().all()
-    )
-    igreja_ids.update(
-        session.execute(
-            select(Consolidacao.igreja_id)
-            .where(
-                Consolidacao.concluida.is_(False),
-                Consolidacao.abandonada_em.is_(None),
+    try:
+        # Descoberta cross-tenant: a `session` compartilhada roda no papel de
+        # conexão (BYPASSRLS), então enxerga todas as igrejas com pendências.
+        # Nenhuma escrita acontece aqui — só a coleta do conjunto de tenants.
+        igreja_ids: set[uuid.UUID] = set()
+        igreja_ids.update(
+            session.execute(select(WorkQueueItem.igreja_id).distinct())
+            .scalars()
+            .all()
+        )
+        igreja_ids.update(
+            session.execute(
+                select(Consolidacao.igreja_id)
+                .where(
+                    Consolidacao.concluida.is_(False),
+                    Consolidacao.abandonada_em.is_(None),
+                )
+                .distinct()
             )
-            .distinct()
-        ).scalars().all()
-    )
+            .scalars()
+            .all()
+        )
 
-    total = 0
-    for igreja_id in igreja_ids:
-        # Uma NOVA sessão tenant-scoped por igreja (D3). Fresh a cada iteração:
-        # mark_tenant_scoped a pina no tenant sem risco de re-fixação.
-        tenant_session = session_factory()
-        try:
-            mark_tenant_scoped(tenant_session, igreja_id, source="cron_sla")
-            total += len(engine.run_for_igreja(tenant_session, igreja_id, now))
-        except Exception:  # noqa: BLE001 - one tenant must not break the others
-            logger.exception("SLA engine failed for igreja %s", igreja_id)
-            tenant_session.rollback()
-        finally:
-            # Fecha SEMPRE (inclusive na exceção): sem isso a conexão voltaria ao
-            # pool no papel `authenticated` com o GUC do tenant (§5.7).
-            tenant_session.close()
-    return total
+        total = 0
+        for igreja_id in igreja_ids:
+            # Uma NOVA sessão tenant-scoped por igreja (D3). Fresh a cada
+            # iteração: mark_tenant_scoped a pina no tenant sem re-fixação.
+            tenant_session = session_factory()
+            try:
+                mark_tenant_scoped(tenant_session, igreja_id, source="cron_sla")
+                total += len(engine.run_for_igreja(tenant_session, igreja_id, now))
+            except Exception:  # noqa: BLE001 - one tenant must not break others
+                logger.exception("SLA engine failed for igreja %s", igreja_id)
+                tenant_session.rollback()
+            finally:
+                # Fecha SEMPRE (inclusive na exceção): sem isso a conexão
+                # voltaria ao pool no papel authenticated com o GUC do tenant.
+                tenant_session.close()
+        return total
+    finally:
+        if owns_engine:
+            engine.close()

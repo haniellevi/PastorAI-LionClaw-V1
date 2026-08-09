@@ -7,6 +7,7 @@
  */
 import dynamic from "next/dynamic";
 
+import { SessionUnavailable } from "@/components/auth/SessionUnavailable";
 import { useAdminAuth } from "@/lib/admin-auth-context";
 
 const AdminConsole = dynamic(
@@ -31,7 +32,7 @@ function PageLoading() {
 }
 
 export default function AdminPage() {
-  const { status } = useAdminAuth();
+  const { status, retrySession } = useAdminAuth();
 
   if (status === "loading") {
     return <PageLoading />;
@@ -39,6 +40,10 @@ export default function AdminPage() {
 
   if (status === "authenticated") {
     return <AdminConsole />;
+  }
+
+  if (status === "unavailable") {
+    return <SessionUnavailable onRetry={retrySession} />;
   }
 
   return <AdminLoginScreen />;

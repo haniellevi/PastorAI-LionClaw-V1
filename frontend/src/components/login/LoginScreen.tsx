@@ -89,7 +89,7 @@ function AuthSecurityNote() {
 }
 
 export function LoginScreen() {
-  const { login, consumeReturnTo } = useAuth();
+  const { login, consumeReturnTo, accessMessage } = useAuth();
   const [route, navigate] = useHashRoute();
 
   // Modo derivado da hash. Tokens vêm como #redefinir-senha/<token> e #ativar/<token>.
@@ -328,10 +328,13 @@ export function LoginScreen() {
                 Use as credenciais da sua igreja para acessar o dashboard.
               </AuthCardHeading>
 
-              {authMessage ? (
-                <div className={`auth-error${authMessage.block ? " block" : ""}`} role="alert">
-                  <Icon name={authMessage.block ? "lock" : "alert"} />
-                  <span>{authMessage.text}</span>
+              {authMessage || accessMessage ? (
+                <div
+                  className={`auth-error${authMessage?.block || accessMessage ? " block" : ""}`}
+                  role="alert"
+                >
+                  <Icon name={authMessage?.block || accessMessage ? "lock" : "alert"} />
+                  <span>{authMessage?.text ?? accessMessage}</span>
                 </div>
               ) : null}
 

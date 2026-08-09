@@ -1,7 +1,8 @@
 """Webhook queue worker for inbound WhatsApp messages (RNF-16 / RNF-17).
 
 Flow:
-  Evolution webhook --(enqueue)--> Redis list --(BRPOP)--> worker --> Postgres
+  Evolution webhook --(enqueue)--> Redis list --(BRPOPLPUSH)--> processing
+  list --> worker --> Postgres --(ack processing item)
 
 Design notes:
 - Idempotency (RNF-16): a contact is never duplicated. Persons are deduped by
@@ -20,6 +21,12 @@ Design notes:
 - Reprocess (RNF-17): a transient failure re-enqueues the envelope with an
   incremented attempt counter (bounded by MAX_ATTEMPTS); exhausted envelopes go
   to a dead-letter list for inspection instead of being lost.
+- Crash recovery: claims live in a Redis processing list until acknowledged.
+  On startup the worker moves unfinished claims back to the ready queue. The
+  Redis idempotency marker binds in-flight work to the envelope claim id and
+  distinguishes it from completed work. A crash before/after the database
+  commit is safe to retry; the database unique index remains the durable final
+  barrier.
 
 The worker is a standalone process: `python -m app.workers.queue_worker`.
 """
@@ -30,9 +37,13 @@ import json
 import logging
 import signal
 import time
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
+from functools import partial
+from hashlib import sha256
+from threading import Event, Thread
 from typing import Any
 
 from sqlalchemy import func, select
@@ -59,15 +70,144 @@ from app.services.pessoa_dedup import insert_pessoa_or_get_winner
 logger = logging.getLogger("pastorai.queue_worker")
 
 WEBHOOK_QUEUE = "pastorai:webhooks"
+PROCESSING_QUEUE = "pastorai:webhooks:processing"
 DEAD_LETTER_QUEUE = "pastorai:webhooks:dead"
 PROCESSED_PREFIX = "pastorai:processed:"
+WORKER_REGISTRY = "pastorai:webhooks:workers"
+WORKER_LEASE_PREFIX = "pastorai:webhooks:worker-lease:"
+WORKER_RECOVERY_LOCK_PREFIX = "pastorai:webhooks:recovery-lock:"
 PROCESSED_TTL_SECONDS = 60 * 60 * 24 * 7  # 7 days
 MAX_ATTEMPTS = 5
 BRPOP_TIMEOUT = 5  # seconds
+WORKER_LEASE_SECONDS = 30
+WORKER_HEARTBEAT_SECONDS = 10
+REDIS_CONNECT_TIMEOUT_SECONDS = 3
+# Must exceed BRPOP_TIMEOUT so the client socket does not time out before the
+# blocking Redis command returns normally.
+REDIS_SOCKET_TIMEOUT_SECONDS = BRPOP_TIMEOUT + 2
+REDIS_MAX_CONNECTIONS = 20
+
+_PROCESSING_MARKER = "processing"
+_PROCESSED_MARKER = "done"
+
+_COMPARE_AND_DELETE_SCRIPT = """
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+    return redis.call('DEL', KEYS[1])
+end
+return 0
+"""
+
+_MARK_DONE_SCRIPT = """
+local current = redis.call('GET', KEYS[1])
+if current == ARGV[1] then
+    redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
+    return 1
+end
+if current == ARGV[2] then
+    return 1
+end
+return 0
+"""
+
+_MOVE_FAILED_CLAIM_SCRIPT = """
+if redis.call('LREM', KEYS[1], 1, ARGV[1]) == 1 then
+    redis.call('LPUSH', KEYS[2], ARGV[2])
+    return 1
+end
+return 0
+"""
+
+_OWNS_CLAIM_SCRIPT = """
+if redis.call('GET', KEYS[1]) ~= ARGV[1] then
+    return 0
+end
+local items = redis.call('LRANGE', KEYS[2], 0, -1)
+for _, item in ipairs(items) do
+    if item == ARGV[2] then
+        return 1
+    end
+end
+return 0
+"""
+
+_RELEASE_MARKER_IF_OWNED_SCRIPT = """
+if redis.call('GET', KEYS[1]) ~= ARGV[1] then
+    return 0
+end
+local items = redis.call('LRANGE', KEYS[2], 0, -1)
+for _, item in ipairs(items) do
+    if item == ARGV[2] then
+        if redis.call('GET', KEYS[3]) == ARGV[3] then
+            return redis.call('DEL', KEYS[3])
+        end
+        return 0
+    end
+end
+return 0
+"""
 
 # Postgres error code for unique_violation (23505) — the only IntegrityError
 # `ingest_message_event_ex` treats as a duplicate; anything else re-raises.
 _PG_UNIQUE_VIOLATION = "23505"
+_PROVIDER_MESSAGE_UNIQUE_CONSTRAINTS = frozenset(
+    {
+        "messages_inbound_provider_id_uidx",
+        "messages_outbound_provider_id_uidx",
+    }
+)
+
+
+def _is_provider_message_duplicate(exc: IntegrityError) -> bool:
+    """Return True only for a durable provider-message idempotency index."""
+    orig = exc.orig
+    sqlstate = getattr(orig, "pgcode", None) or getattr(orig, "sqlstate", None)
+    diag = getattr(orig, "diag", None)
+    constraint_name = getattr(diag, "constraint_name", None)
+    return (
+        sqlstate == _PG_UNIQUE_VIOLATION
+        and constraint_name in _PROVIDER_MESSAGE_UNIQUE_CONSTRAINTS
+    )
+
+
+def _provider_message_lock_key(igreja_id: Any, provider_message_id: str) -> int:
+    """Stable signed bigint used by Postgres transaction advisory locks."""
+    material = f"{igreja_id}:{provider_message_id}".encode("utf-8")
+    return int.from_bytes(sha256(material).digest()[:8], "big", signed=True)
+
+
+def _provider_message_exists_after_fence(
+    db: Session,
+    igreja_id: Any,
+    provider_message_id: str,
+    *,
+    inbound: bool,
+) -> bool:
+    """Serialize one provider event in Postgres and detect prior persistence.
+
+    A Redis worker can lose its lease while its handler is still unwinding. A
+    replacement worker may then recover the same claim. The transaction-scoped
+    advisory lock fences those two database transactions independently of the
+    Redis connection: the loser waits, observes the committed provider id, and
+    returns before contact, media, or message side effects.
+
+    Unit-test SQLite and lightweight fake sessions do not support Postgres
+    advisory locks; the durable unique index remains their idempotency seam.
+    Production is Postgres and always takes this path.
+    """
+    get_bind = getattr(db, "get_bind", None)
+    if get_bind is None or get_bind().dialect.name != "postgresql":
+        return False
+
+    lock_key = _provider_message_lock_key(igreja_id, provider_message_id)
+    db.execute(select(func.pg_advisory_xact_lock(lock_key))).scalar_one_or_none()
+    existing = db.execute(
+        select(Message.id).where(
+            Message.igreja_id == igreja_id,
+            Message.provider_message_id == provider_message_id,
+            Message.direcao == ("in" if inbound else "out"),
+        )
+    ).scalar_one_or_none()
+    return existing is not None
 
 
 class IngestionResult(str, Enum):
@@ -79,11 +219,16 @@ class IngestionResult(str, Enum):
     IGNORED = "ignored"
 
 
+class ClaimOwnershipLost(RuntimeError):
+    """Raised when a recovered queue item no longer belongs to this worker."""
+
+
 # Resolver que baixa a mídia da Evolution e a sobe no Storage, devolvendo o
 # ponteiro (StoredMedia: .path/.mime/.nome/.tamanho). Injetado no worker para
 # manter a ingestão testável (sem rede) — tipado como Any para evitar acoplar a
 # ingestão ao módulo de storage.
 MediaResolver = Callable[[ParsedMessage, Any, Any], Any]
+ClaimGuard = Callable[[], None]
 
 
 # ---------------------------------------------------------------------------
@@ -115,6 +260,7 @@ def ingest_message_event_ex(
     db: Session,
     parsed: ParsedMessage,
     media_resolver: MediaResolver | None = None,
+    ownership_guard: ClaimGuard | None = None,
 ) -> IngestionOutcome:
     """Like `ingest_message_event` but also returns the conversation context.
 
@@ -158,6 +304,12 @@ def ingest_message_event_ex(
     promote_to_tenant(db, igreja_id, source="worker_ingest")
     inbound = not parsed.from_me
 
+    # The Redis processing list is the live ownership record. A handler whose
+    # lease expired may still be running while another worker recovers the same
+    # envelope, so fence the stale owner before it reaches any side effect.
+    if ownership_guard is not None:
+        ownership_guard()
+
     # Data integrity (regra do usuário + US-07): só uma mensagem RECEBIDA de um
     # número que NÃO é o próprio número oficial da igreja vira contato. O número
     # da igreja (auto-conversa, ou a sincronização de histórico ao ler o QR) e os
@@ -171,6 +323,27 @@ def ingest_message_event_ex(
             parsed.instance,
         )
         return IngestionOutcome(result=IngestionResult.IGNORED)
+
+    if _provider_message_exists_after_fence(
+        db,
+        igreja_id,
+        parsed.provider_message_id,
+        inbound=inbound,
+    ):
+        logger.info(
+            "Duplicate provider message %s for igreja %s (DB fence)",
+            parsed.provider_message_id,
+            igreja_id,
+        )
+        return IngestionOutcome(
+            result=IngestionResult.DUPLICATE,
+            igreja_id=igreja_id,
+        )
+
+    # The advisory lock above may have waited behind the current winner. Check
+    # the Redis owner again before continuing with contact/media work.
+    if ownership_guard is not None:
+        ownership_guard()
 
     # Dedupe person by CANONICAL telefone + igreja (RNF-16). Always look up an
     # existing contact before creating, matching across the +55 / 9th-digit
@@ -245,6 +418,8 @@ def ingest_message_event_ex(
     # ingestão nem perder a mensagem.
     stored = None
     if parsed.media_kind and media_resolver is not None:
+        if ownership_guard is not None:
+            ownership_guard()
         try:
             stored = media_resolver(parsed, igreja_id, conversation.id)
         except Exception:  # noqa: BLE001 - falha de mídia não derruba a ingestão
@@ -277,18 +452,25 @@ def ingest_message_event_ex(
         conversation.nao_lidas = (conversation.nao_lidas or 0) + 1
 
     # trg_consent_on_inbound grants consent automatically on the first inbound.
+    # An upload already in flight cannot be revoked if the lease expires. The
+    # post-effect check prevents the stale owner from committing; Storage uses
+    # a provider-id-derived upsert path, so the recovered owner overwrites the
+    # same object instead of creating a duplicate/orphan.
+    if ownership_guard is not None:
+        ownership_guard()
     try:
         db.commit()
     except IntegrityError as exc:
         # MSG-IDEMP-1: segunda barreira (DB) contra a mesma barreira do Redis
         # (mark_processed_if_new) ter expirado/faltado/perdido a corrida.
-        # messages_inbound_provider_id_uidx é a ÚNICA fonte de unique_violation
-        # nesta transação — qualquer outro IntegrityError não é duplicata e
-        # sobe (RNF-17 reprocessa). O rollback desfaz Pessoa/Conversation/
-        # Message inteiros desta chamada, então o lado perdedor de uma corrida
-        # na primeira mensagem de um contato novo nunca deixa registro órfão.
+        # Apenas a violação do índice de idempotência da mensagem é duplicata.
+        # Outras constraints também podem falhar nesta transação e precisam
+        # subir para o retry/diagnóstico, nunca ser mascaradas como redelivery.
+        # O rollback desfaz Pessoa/Conversation/Message inteiros desta chamada,
+        # então o lado perdedor de uma corrida na primeira mensagem de um
+        # contato novo nunca deixa registro órfão.
         db.rollback()
-        if getattr(exc.orig, "pgcode", None) != _PG_UNIQUE_VIOLATION:
+        if not _is_provider_message_duplicate(exc):
             raise
         logger.info(
             "Duplicate inbound message %s for igreja %s (DB-level dedupe)",
@@ -322,18 +504,42 @@ def process_webhook_payload(db: Session, payload: dict[str, Any]) -> IngestionRe
 class _Envelope:
     payload: dict[str, Any]
     attempts: int = 0
+    claim_id: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.claim_id:
+            self.claim_id = uuid.uuid4().hex
 
     def to_json(self) -> str:
-        return json.dumps({"payload": self.payload, "attempts": self.attempts})
+        return json.dumps(
+            {
+                "payload": self.payload,
+                "attempts": self.attempts,
+                "claim_id": self.claim_id,
+            }
+        )
 
     @classmethod
     def from_json(cls, raw: str) -> "_Envelope":
         data = json.loads(raw)
-        return cls(payload=data.get("payload", {}), attempts=int(data.get("attempts", 0)))
+        if not isinstance(data, dict):
+            raise ValueError("Webhook envelope must be a JSON object")
+        claim_id = data.get("claim_id")
+        if not isinstance(claim_id, str) or not claim_id:
+            # Backward compatibility for envelopes already in Redis during the
+            # rollout. Hashing the exact raw value gives the crashed/recovered
+            # item a stable owner without making a fresh duplicate delivery of
+            # the same provider id share that owner going forward.
+            claim_id = f"legacy-{sha256(raw.encode('utf-8')).hexdigest()}"
+        return cls(
+            payload=data.get("payload", {}),
+            attempts=int(data.get("attempts", 0)),
+            claim_id=claim_id,
+        )
 
 
 class WebhookQueue:
-    """Redis list used to hand webhook payloads to the worker."""
+    """Reliable Redis-list handoff for webhook payloads."""
 
     def __init__(self, redis_client: Any | None = None) -> None:
         self._redis = redis_client or _build_redis()
@@ -342,33 +548,234 @@ class WebhookQueue:
         """Push a new webhook payload onto the queue (attempts=0)."""
         self._redis.lpush(WEBHOOK_QUEUE, _Envelope(payload=payload).to_json())
 
-    def mark_processed_if_new(self, message_id: str) -> bool:
-        """Atomically claim a provider message id; False if already seen.
+    @staticmethod
+    def processing_queue(worker_id: str) -> str:
+        """Return the private processing-list key owned by one worker."""
+        return f"{PROCESSING_QUEUE}:{worker_id}"
 
-        Backs message-level idempotency: a redelivered event is skipped.
+    @staticmethod
+    def _lease_key(worker_id: str) -> str:
+        return f"{WORKER_LEASE_PREFIX}{worker_id}"
+
+    @staticmethod
+    def _recovery_lock_key(worker_id: str) -> str:
+        return f"{WORKER_RECOVERY_LOCK_PREFIX}{worker_id}"
+
+    def _compare_and_delete(self, key: str, expected: str) -> bool:
+        return bool(
+            self._redis.eval(
+                _COMPARE_AND_DELETE_SCRIPT,
+                1,
+                key,
+                expected,
+            )
+        )
+
+    def register_worker(self, worker_id: str) -> None:
+        """Register a worker and create its renewable ownership lease."""
+        self._redis.set(
+            self._lease_key(worker_id),
+            worker_id,
+            ex=WORKER_LEASE_SECONDS,
+        )
+        self._redis.sadd(WORKER_REGISTRY, worker_id)
+
+    def refresh_worker_lease(self, worker_id: str) -> bool:
+        """Renew an existing lease without resurrecting an expired owner."""
+        return bool(
+            self._redis.set(
+                self._lease_key(worker_id),
+                worker_id,
+                xx=True,
+                ex=WORKER_LEASE_SECONDS,
+            )
+        )
+
+    def unregister_worker(self, worker_id: str) -> None:
+        """Release a clean worker lease, preserving orphan discovery if needed."""
+        self._compare_and_delete(self._lease_key(worker_id), worker_id)
+        if self._redis.llen(self.processing_queue(worker_id)) == 0:
+            self._redis.srem(WORKER_REGISTRY, worker_id)
+
+    def claim(self, worker_id: str, timeout: int = BRPOP_TIMEOUT) -> str | None:
+        """Move the oldest ready item to this worker's private processing list."""
+        return self._redis.brpoplpush(
+            WEBHOOK_QUEUE,
+            self.processing_queue(worker_id),
+            timeout=timeout,
+        )
+
+    def ack(self, worker_id: str, raw: str) -> None:
+        """Acknowledge one claimed item after success, ignore, or requeue."""
+        self._redis.lrem(self.processing_queue(worker_id), 1, raw)
+
+    def owns_claim(self, worker_id: str, raw: str) -> bool:
+        """Return whether this live worker still owns this exact queue item.
+
+        Lease and private-list membership are checked in one Redis script so a
+        recovered item cannot be processed concurrently by its expired owner.
+        """
+        return bool(
+            self._redis.eval(
+                _OWNS_CLAIM_SCRIPT,
+                2,
+                self._lease_key(worker_id),
+                self.processing_queue(worker_id),
+                worker_id,
+                raw,
+            )
+        )
+
+    def assert_claim_owned(self, worker_id: str, raw: str) -> None:
+        """Abort side effects when lease recovery transferred this item."""
+        try:
+            owned = self.owns_claim(worker_id, raw)
+        except Exception as exc:  # noqa: BLE001 - unverifiable means unsafe
+            raise ClaimOwnershipLost(
+                "Webhook queue claim ownership could not be verified"
+            ) from exc
+        if not owned:
+            raise ClaimOwnershipLost(
+                "Webhook queue claim was recovered by another worker"
+            )
+
+    def recover_pending(self, current_worker_id: str) -> int:
+        """Recover only processing lists whose worker lease has expired.
+
+        RPOPLPUSH preserves at-least-once delivery: the item is never between
+        lists. A per-owner recovery lock prevents two live workers from draining
+        the same abandoned list. Active workers retain their private list.
+        """
+        recovered = 0
+        for raw_owner in self._redis.smembers(WORKER_REGISTRY):
+            owner = (
+                raw_owner.decode("utf-8")
+                if isinstance(raw_owner, bytes)
+                else str(raw_owner)
+            )
+            if owner == current_worker_id:
+                continue
+            lease_key = self._lease_key(owner)
+            if self._redis.exists(lease_key):
+                continue
+            lock_key = self._recovery_lock_key(owner)
+            locked = self._redis.set(
+                lock_key,
+                current_worker_id,
+                nx=True,
+                ex=WORKER_LEASE_SECONDS,
+            )
+            if not locked:
+                continue
+            try:
+                # Close the check/lock race: a worker that still owned its lease
+                # when we took the lock must never have its active item stolen.
+                if self._redis.exists(lease_key):
+                    continue
+                processing = self.processing_queue(owner)
+                while self._redis.rpoplpush(processing, WEBHOOK_QUEUE) is not None:
+                    recovered += 1
+                self._redis.srem(WORKER_REGISTRY, owner)
+            finally:
+                self._compare_and_delete(lock_key, current_worker_id)
+        return recovered
+
+    @staticmethod
+    def _claim_marker(claim_id: str) -> str:
+        return f"{_PROCESSING_MARKER}:{claim_id}"
+
+    def mark_processed_if_new(self, message_id: str, claim_id: str) -> bool:
+        """Claim a provider id for this envelope; reject every other owner.
+
+        The exact same envelope keeps ``claim_id`` across crash recovery and
+        retry, so it may resume an in-flight claim. A separate delivery gets a
+        different token and is rejected before DB/media work. ``done`` is final.
         """
         key = f"{PROCESSED_PREFIX}{message_id}"
-        # SET key 1 NX EX ttl -> truthy only the first time.
-        return bool(self._redis.set(key, "1", nx=True, ex=PROCESSED_TTL_SECONDS))
+        marker = self._claim_marker(claim_id)
+        claimed = self._redis.set(
+            key,
+            marker,
+            nx=True,
+            ex=PROCESSED_TTL_SECONDS,
+        )
+        if claimed:
+            return True
+        return self._redis.get(key) == marker
 
-    def release_processed(self, message_id: str) -> None:
+    def mark_processed(self, message_id: str, claim_id: str) -> None:
+        """Finalize an idempotency marker owned by this envelope."""
+        key = f"{PROCESSED_PREFIX}{message_id}"
+        marker = self._claim_marker(claim_id)
+        finalized = self._redis.eval(
+            _MARK_DONE_SCRIPT,
+            1,
+            key,
+            marker,
+            _PROCESSED_MARKER,
+            str(PROCESSED_TTL_SECONDS),
+        )
+        if not finalized:
+            raise RuntimeError("Webhook idempotency claim ownership was lost")
+
+    def release_processed(self, message_id: str, claim_id: str) -> None:
         """Release a previously-claimed message id so a retry can reprocess it.
 
         Called when ingestion fails after the id was claimed, so the bounded
-        reprocess (RNF-17) is not silently dropped as a duplicate.
+        reprocess (RNF-17) is not silently dropped as a duplicate. It never
+        deletes a marker owned by a different delivery or a completed marker.
         """
-        self._redis.delete(f"{PROCESSED_PREFIX}{message_id}")
+        key = f"{PROCESSED_PREFIX}{message_id}"
+        self._compare_and_delete(key, self._claim_marker(claim_id))
 
-    def _requeue(self, envelope: _Envelope) -> None:
+    def release_processed_if_owned(
+        self,
+        message_id: str,
+        claim_id: str,
+        worker_id: str,
+        raw: str,
+    ) -> bool:
+        """Release a retry marker only while this worker owns the raw item."""
+        key = f"{PROCESSED_PREFIX}{message_id}"
+        return bool(
+            self._redis.eval(
+                _RELEASE_MARKER_IF_OWNED_SCRIPT,
+                3,
+                self._lease_key(worker_id),
+                self.processing_queue(worker_id),
+                key,
+                worker_id,
+                raw,
+                self._claim_marker(claim_id),
+            )
+        )
+
+    def transition_failed_claim(
+        self,
+        worker_id: str,
+        raw: str,
+        envelope: _Envelope,
+    ) -> None:
+        """Atomically ack a failed claim into ready or dead-letter state."""
         envelope.attempts += 1
         if envelope.attempts >= MAX_ATTEMPTS:
             logger.error(
                 "Webhook exhausted retries (%d), moving to dead-letter",
                 envelope.attempts,
             )
-            self._redis.lpush(DEAD_LETTER_QUEUE, envelope.to_json())
+            target = DEAD_LETTER_QUEUE
         else:
-            self._redis.lpush(WEBHOOK_QUEUE, envelope.to_json())
+            target = WEBHOOK_QUEUE
+        moved = self._redis.eval(
+            _MOVE_FAILED_CLAIM_SCRIPT,
+            2,
+            self.processing_queue(worker_id),
+            target,
+            raw,
+            envelope.to_json(),
+        )
+        if not moved:
+            raise RuntimeError("Webhook failed claim was no longer owned")
 
 
 class QueueWorker:
@@ -380,6 +787,7 @@ class QueueWorker:
         session_factory: Any | None = None,
         agent_runner: "Callable[[Any, IngestionOutcome], None] | None" = None,
         media_resolver: MediaResolver | None = None,
+        worker_id: str | None = None,
     ) -> None:
         self._queue = queue or WebhookQueue()
         self._session_factory = session_factory or get_session_factory()
@@ -390,39 +798,106 @@ class QueueWorker:
         # Optional media hook (Etapa 2). When set, inbound media is fetched from
         # Evolution and uploaded to Storage. None keeps ingestion tests offline.
         self._media_resolver = media_resolver
+        self._worker_id = worker_id or uuid.uuid4().hex
         self._running = False
+        self._heartbeat_stop = Event()
+        self._heartbeat_thread: Thread | None = None
 
     def stop(self, *_: Any) -> None:
         """Request a graceful shutdown (used as a SIGTERM/SIGINT handler)."""
         logger.info("Queue worker shutdown requested")
         self._running = False
 
+    def _heartbeat_loop(self) -> None:
+        """Renew this worker's lease while a claimed item is being processed."""
+        while not self._heartbeat_stop.wait(WORKER_HEARTBEAT_SECONDS):
+            try:
+                renewed = self._queue.refresh_worker_lease(self._worker_id)
+            except Exception:  # noqa: BLE001 - lease loss must stop consumption
+                logger.exception("Failed to renew webhook worker lease")
+                self._running = False
+                return
+            if not renewed:
+                logger.error("Webhook worker lease expired; stopping consumer")
+                self._running = False
+                return
+
     def run(self) -> None:
         """Block draining the queue until stopped (graceful shutdown)."""
         self._running = True
-        redis = self._queue._redis  # noqa: SLF001 - intentional internal access
-        logger.info("Queue worker started, consuming %s", WEBHOOK_QUEUE)
-        while self._running:
-            item = redis.brpop(WEBHOOK_QUEUE, timeout=BRPOP_TIMEOUT)
-            if item is None:
-                continue  # timeout: loop to re-check the running flag
-            _, raw = item
-            self._handle_raw(raw)
-        logger.info("Queue worker stopped")
+        self._heartbeat_stop.clear()
+        self._queue.register_worker(self._worker_id)
+        heartbeat = Thread(
+            target=self._heartbeat_loop,
+            name=f"webhook-lease-{self._worker_id[:8]}",
+            daemon=True,
+        )
+        self._heartbeat_thread = heartbeat
+        heartbeat.start()
+        next_recovery_at = 0.0
+        try:
+            logger.info(
+                "Queue worker %s started, consuming %s",
+                self._worker_id,
+                WEBHOOK_QUEUE,
+            )
+            while self._running:
+                if not self._queue.refresh_worker_lease(self._worker_id):
+                    logger.error("Webhook worker lease expired; stopping consumer")
+                    break
+                now = time.monotonic()
+                if now >= next_recovery_at:
+                    recovered = self._queue.recover_pending(self._worker_id)
+                    if recovered:
+                        logger.warning(
+                            "Recovered %d abandoned webhook claim(s)", recovered
+                        )
+                    next_recovery_at = now + WORKER_HEARTBEAT_SECONDS
+                raw = self._queue.claim(self._worker_id, timeout=BRPOP_TIMEOUT)
+                if raw is None:
+                    continue
+                self._handle_raw(raw)
+        finally:
+            self._running = False
+            self._heartbeat_stop.set()
+            heartbeat.join(timeout=REDIS_SOCKET_TIMEOUT_SECONDS + 1)
+            self._queue.unregister_worker(self._worker_id)
+            logger.info("Queue worker %s stopped", self._worker_id)
 
     def _handle_raw(self, raw: str) -> None:
         try:
             envelope = _Envelope.from_json(raw)
         except (ValueError, TypeError):
             logger.error("Discarding malformed envelope from queue")
+            self._queue.ack(self._worker_id, raw)
             return
+        ownership_guard = partial(
+            self._queue.assert_claim_owned,
+            self._worker_id,
+            raw,
+        )
         try:
-            self.handle_envelope(envelope)
+            ownership_guard()
+            self.handle_envelope(envelope, claimed_raw=raw)
+        except ClaimOwnershipLost:
+            # Recovery already moved the raw item out of this worker's private
+            # list, or Redis could not safely prove ownership. Stop consuming so
+            # this raw claim remains discoverable; do not ack or requeue here.
+            logger.warning("Webhook claim ownership lost during processing")
+            self._running = False
+            return
         except Exception:  # noqa: BLE001 - any error triggers a bounded retry
             logger.exception("Webhook processing failed; scheduling reprocess")
-            self._queue._requeue(envelope)  # noqa: SLF001
+            self._queue.transition_failed_claim(self._worker_id, raw, envelope)
+            return
+        self._queue.ack(self._worker_id, raw)
 
-    def handle_envelope(self, envelope: _Envelope) -> IngestionResult:
+    def handle_envelope(
+        self,
+        envelope: _Envelope,
+        *,
+        claimed_raw: str | None = None,
+    ) -> IngestionResult:
         """Process one envelope: idempotency guard + DB ingestion.
 
         The message id is claimed before processing (dedupe) and released if
@@ -433,7 +908,20 @@ class QueueWorker:
         if parsed is None:
             return IngestionResult.IGNORED
 
-        if not self._queue.mark_processed_if_new(parsed.provider_message_id):
+        ownership_guard = (
+            partial(
+                self._queue.assert_claim_owned,
+                self._worker_id,
+                claimed_raw,
+            )
+            if claimed_raw is not None
+            else None
+        )
+
+        if not self._queue.mark_processed_if_new(
+            parsed.provider_message_id,
+            envelope.claim_id,
+        ):
             logger.info("Skipping duplicate message %s", parsed.provider_message_id)
             return IngestionResult.DUPLICATE
 
@@ -441,14 +929,46 @@ class QueueWorker:
             session: Session = self._session_factory()
             try:
                 outcome = ingest_message_event_ex(
-                    session, parsed, media_resolver=self._media_resolver
+                    session,
+                    parsed,
+                    media_resolver=self._media_resolver,
+                    ownership_guard=ownership_guard,
                 )
             finally:
                 session.close()
-        except Exception:
-            # Release the claim so the requeued envelope can be reprocessed.
-            self._queue.release_processed(parsed.provider_message_id)
+        except ClaimOwnershipLost:
+            # The recovered envelope intentionally keeps the same claim id.
+            # Do not delete its shared processing marker from the stale owner.
             raise
+        except Exception as exc:
+            # Release the claim so the requeued envelope can be reprocessed.
+            if claimed_raw is None:
+                self._queue.release_processed(
+                    parsed.provider_message_id,
+                    envelope.claim_id,
+                )
+            else:
+                try:
+                    released = self._queue.release_processed_if_owned(
+                        parsed.provider_message_id,
+                        envelope.claim_id,
+                        self._worker_id,
+                        claimed_raw,
+                    )
+                except Exception as ownership_exc:  # noqa: BLE001
+                    raise ClaimOwnershipLost(
+                        "Webhook queue claim ownership could not be verified"
+                    ) from ownership_exc
+                if not released:
+                    raise ClaimOwnershipLost(
+                        "Webhook queue claim was recovered during failure handling"
+                    ) from exc
+            raise
+
+        # A hard crash before this write leaves a retryable ``processing``
+        # marker. A crash after the DB commit is safe: recovery retries and the
+        # durable unique index returns DUPLICATE before this marker is finalized.
+        self._queue.mark_processed(parsed.provider_message_id, envelope.claim_id)
 
         # Hand the persisted inbound message to the orchestrator (delta-034).
         # Agent failures must NOT requeue the (already committed) ingestion, so
@@ -469,7 +989,12 @@ class QueueWorker:
 # ---------------------------------------------------------------------------
 # Agent orchestration runner (delta-034)
 # ---------------------------------------------------------------------------
-def run_agent_for_message(session_factory: Any, outcome: IngestionOutcome) -> None:
+def run_agent_for_message(
+    session_factory: Any,
+    outcome: IngestionOutcome,
+    *,
+    evolution_client: Any | None = None,
+) -> None:
     """Drive the orchestrator for one persisted inbound message and reply.
 
     The orchestrator produces a single reply; we send it through the official
@@ -508,9 +1033,22 @@ def run_agent_for_message(session_factory: Any, outcome: IngestionOutcome) -> No
 
     # Single exit: send the orchestrator reply through the official number.
     try:
-        sent = EvolutionClient().send_text(
-            outcome.instance, outcome.telefone, result.response
-        )
+        if evolution_client is None:
+            with EvolutionClient() as client:
+                sent = client.send_text(
+                    outcome.instance,
+                    outcome.telefone,
+                    result.response,
+                )
+        else:
+            # The long-running worker injects one shared client so its HTTP
+            # connection pool survives across inbound messages.
+            client = evolution_client
+            sent = client.send_text(
+                outcome.instance,
+                outcome.telefone,
+                result.response,
+            )
     except EvolutionError:
         logger.warning("Failed to send agent reply via Evolution")
         return
@@ -558,7 +1096,11 @@ def _key_from(parsed: ParsedMessage) -> dict[str, Any]:
 
 
 def resolve_media_via_evolution(
-    parsed: ParsedMessage, igreja_id: Any, conversation_id: Any
+    parsed: ParsedMessage,
+    igreja_id: Any,
+    conversation_id: Any,
+    *,
+    evolution_client: Any | None = None,
 ) -> Any:
     """Real media resolver: pull bytes from Evolution, upload to Storage.
 
@@ -570,9 +1112,19 @@ def resolve_media_via_evolution(
     from app.services.evolution import EvolutionClient  # noqa: PLC0415
     from app.services.storage import SupabaseStorage  # noqa: PLC0415
 
-    base64_data, mimetype = EvolutionClient().get_media_base64(
-        parsed.instance, _key_from(parsed)
-    )
+    if evolution_client is None:
+        with EvolutionClient() as client:
+            base64_data, mimetype = client.get_media_base64(
+                parsed.instance,
+                _key_from(parsed),
+            )
+    else:
+        # Reuse the worker-owned HTTP pool instead of reconnecting for every
+        # media event.
+        base64_data, mimetype = evolution_client.get_media_base64(
+            parsed.instance,
+            _key_from(parsed),
+        )
     raw = base64.b64decode(base64_data)
     return SupabaseStorage().upload(
         igreja_id,
@@ -580,6 +1132,7 @@ def resolve_media_via_evolution(
         raw,
         mimetype or parsed.media_mime,
         parsed.media_nome,
+        object_id=parsed.provider_message_id,
     )
 
 
@@ -591,7 +1144,13 @@ def _build_redis() -> Any:
     import redis  # lazy import so the package is optional for unit tests
 
     settings = get_settings()
-    return redis.Redis.from_url(settings.redis_url, decode_responses=True)
+    return redis.Redis.from_url(
+        settings.redis_url,
+        decode_responses=True,
+        socket_connect_timeout=REDIS_CONNECT_TIMEOUT_SECONDS,
+        socket_timeout=REDIS_SOCKET_TIMEOUT_SECONDS,
+        max_connections=REDIS_MAX_CONNECTIONS,
+    )
 
 
 def main() -> None:  # pragma: no cover - process entrypoint
@@ -599,13 +1158,24 @@ def main() -> None:  # pragma: no cover - process entrypoint
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
     )
-    worker = QueueWorker(
-        agent_runner=run_agent_for_message,
-        media_resolver=resolve_media_via_evolution,
-    )
-    signal.signal(signal.SIGTERM, worker.stop)
-    signal.signal(signal.SIGINT, worker.stop)
-    worker.run()
+    from app.services.evolution import EvolutionClient  # noqa: PLC0415
+
+    # One client per worker process keeps TCP/TLS connections warm across
+    # messages and is closed deterministically on graceful shutdown or error.
+    with EvolutionClient() as evolution_client:
+        worker = QueueWorker(
+            agent_runner=partial(
+                run_agent_for_message,
+                evolution_client=evolution_client,
+            ),
+            media_resolver=partial(
+                resolve_media_via_evolution,
+                evolution_client=evolution_client,
+            ),
+        )
+        signal.signal(signal.SIGTERM, worker.stop)
+        signal.signal(signal.SIGINT, worker.stop)
+        worker.run()
 
 
 if __name__ == "__main__":  # pragma: no cover

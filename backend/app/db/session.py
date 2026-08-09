@@ -18,6 +18,9 @@ from app.config import get_settings
 _engine: Engine | None = None
 _SessionFactory: sessionmaker[Session] | None = None
 
+_POOL_CHECKOUT_TIMEOUT_SECONDS = 5
+_POSTGRES_CONNECT_TIMEOUT_SECONDS = 5
+
 
 def get_engine() -> Engine:
     """Lazily build the SQLAlchemy engine with a sane connection pool.
@@ -35,7 +38,9 @@ def get_engine() -> Engine:
             pool_pre_ping=True,
             pool_size=5,
             max_overflow=10,
+            pool_timeout=_POOL_CHECKOUT_TIMEOUT_SECONDS,
             pool_recycle=1800,
+            connect_args={"connect_timeout": _POSTGRES_CONNECT_TIMEOUT_SECONDS},
             future=True,
         )
     return _engine

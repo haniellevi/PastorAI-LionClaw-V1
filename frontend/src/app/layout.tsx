@@ -1,7 +1,5 @@
 import type { Metadata, Viewport } from "next";
 
-import { AppProviders } from "@/components/providers/AppProviders";
-
 // Webfonts self-hosted (Igreja 12 — F1). Servidas do node_modules via @fontsource;
 // o build empacota os woff2 localmente, sem chamadas externas. As famílias batem
 // com os tokens --font / --font-display / --mono do globals.css.
@@ -53,7 +51,6 @@ export const metadata: Metadata = {
 // O shell não contém dados de usuário no HTML do servidor: a sessão continua
 // resolvida no cliente pelo AuthProvider. Permitir pré-renderização estática
 // entrega a casca pela CDN e evita iniciar um render no servidor a cada acesso.
-
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
@@ -67,9 +64,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="pt-BR">
-      <body>
-        <AppProviders>{children}</AppProviders>
-      </body>
+      <body>{children}</body>
     </html>
   );
 }

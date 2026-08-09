@@ -88,6 +88,15 @@ class FakeEngine:
         return [object()] * self._handled
 
 
+class ClosingEngine(FakeEngine):
+    def __init__(self) -> None:
+        super().__init__()
+        self.close_calls = 0
+
+    def close(self) -> None:
+        self.close_calls += 1
+
+
 # ---------------------------------------------------------------------------
 # parse_interval
 # ---------------------------------------------------------------------------
@@ -274,3 +283,47 @@ def test_tick_isolates_plan_change_failure_from_sla_and_crons(monkeypatch) -> No
     assert counters["crons_run"] == 1
     assert counters["plan_changes_completed"] == 0
     assert session.closed is True
+
+
+def test_run_closes_engine_created_by_worker_even_after_tick_error(
+    monkeypatch,
+) -> None:
+    import app.workers.cron_worker as worker_module
+
+    engine = ClosingEngine()
+    monkeypatch.setattr(worker_module, "SlaEngine", lambda: engine)
+    worker = CronWorker(session_factory=lambda: object(), tick_seconds=300)
+
+    def stop_and_fail(now=None):
+        worker.stop()
+        raise RuntimeError("tick failed")
+
+    monkeypatch.setattr(worker, "tick", stop_and_fail)
+
+    worker.run()
+
+    assert engine.close_calls == 1
+
+
+def test_run_does_not_close_injected_engine(monkeypatch) -> None:
+    engine = ClosingEngine()
+    worker = CronWorker(
+        session_factory=lambda: object(),
+        engine=engine,
+        tick_seconds=300,
+    )
+
+    def stop_after_tick(now=None):
+        worker.stop()
+        return {
+            "sla_handled": 0,
+            "crons_run": 0,
+            "oauth_flows_purged": 0,
+            "plan_changes_completed": 0,
+        }
+
+    monkeypatch.setattr(worker, "tick", stop_after_tick)
+
+    worker.run()
+
+    assert engine.close_calls == 0

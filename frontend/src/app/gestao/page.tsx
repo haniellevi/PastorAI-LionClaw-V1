@@ -8,6 +8,8 @@
 import dynamic from "next/dynamic";
 import { useEffect } from "react";
 
+import { SessionUnavailable } from "@/components/auth/SessionUnavailable";
+import { AppProviders } from "@/components/providers/AppProviders";
 import { useAuth } from "@/lib/auth-context";
 import { isAdmin } from "@/lib/roles";
 import { appSurfaceHref } from "@/lib/surface";
@@ -22,7 +24,24 @@ const LoginScreen = dynamic(
 );
 
 export default function GestaoPage() {
-  const { status, user } = useAuth();
+  return (
+    <AppProviders>
+      <GestaoContent />
+    </AppProviders>
+  );
+}
+
+function PageLoading() {
+  return (
+    <div className="full-loader" role="status" aria-live="polite">
+      <span className="spinner" aria-hidden="true" />
+      <span className="sr-only">Carregando…</span>
+    </div>
+  );
+}
+
+function GestaoContent() {
+  const { status, user, retrySession } = useAuth();
   const admin = user ? isAdmin(user.roles) : false;
 
   // Não-admin autenticado nesta superfície volta para o painel operacional.
@@ -40,14 +59,9 @@ export default function GestaoPage() {
     return <AdminAppShell />;
   }
 
-  return <LoginScreen />;
-}
+  if (status === "unavailable") {
+    return <SessionUnavailable onRetry={retrySession} />;
+  }
 
-function PageLoading() {
-  return (
-    <div className="full-loader" role="status" aria-live="polite">
-      <span className="spinner" aria-hidden="true" />
-      <span className="sr-only">Carregando…</span>
-    </div>
-  );
+  return <LoginScreen />;
 }

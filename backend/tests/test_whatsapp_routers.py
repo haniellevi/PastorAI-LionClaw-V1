@@ -24,6 +24,7 @@ from app.db.models import (
     WhatsappConnection,
 )
 from app.db.session import get_db
+from app.routers import whatsapp as whatsapp_router
 from app.routers.whatsapp import get_webhook_queue
 from app.services.clerk import get_clerk_client
 from app.services.evolution import get_evolution_client
@@ -245,6 +246,25 @@ def test_whatsapp_connection_rejects_invalid_action(app) -> None:
 
 
 # ---- webhook signature ----------------------------------------------------
+def test_get_webhook_queue_reuses_one_instance_per_process(monkeypatch) -> None:
+    sentinel = object()
+    builds = 0
+
+    def build_queue():
+        nonlocal builds
+        builds += 1
+        return sentinel
+
+    get_webhook_queue.cache_clear()
+    monkeypatch.setattr(whatsapp_router, "WebhookQueue", build_queue)
+    try:
+        assert get_webhook_queue() is sentinel
+        assert get_webhook_queue() is sentinel
+        assert builds == 1
+    finally:
+        get_webhook_queue.cache_clear()
+
+
 def _webhook_client(app) -> TestClient:
     app.dependency_overrides[get_webhook_queue] = lambda: _FakeQueue()
     return TestClient(app)
@@ -295,6 +315,64 @@ def test_webhook_accepts_valid_query_token(app, monkeypatch) -> None:
     )
     assert resp.status_code == 202
     assert len(queue.enqueued) == 1
+
+
+def test_webhook_offloads_sync_redis_enqueue(app, monkeypatch) -> None:
+    secret = "topsecret"
+    monkeypatch.setattr(get_settings(), "evolution_webhook_secret", secret)
+    queue = _FakeQueue()
+    app.dependency_overrides[get_webhook_queue] = lambda: queue
+    calls: list[tuple] = []
+
+    async def fake_run_in_threadpool(func, *args, **kwargs):
+        calls.append((func, args, kwargs))
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr(
+        whatsapp_router,
+        "run_in_threadpool",
+        fake_run_in_threadpool,
+    )
+    client = TestClient(app)
+    body = json.dumps({"event": "messages.upsert", "instance": "igreja-1"}).encode()
+
+    resp = client.post(
+        f"/whatsapp/webhook?token={secret}",
+        content=body,
+    )
+
+    assert resp.status_code == 202
+    assert len(calls) == 1
+    assert calls[0][1] == (json.loads(body),)
+    assert queue.enqueued == [json.loads(body)]
+
+
+def test_webhook_rejects_declared_oversize_before_read(app, monkeypatch) -> None:
+    monkeypatch.setattr(whatsapp_router, "MAX_WEBHOOK_BODY_BYTES", 16)
+    client = _webhook_client(app)
+
+    resp = client.post(
+        "/whatsapp/webhook",
+        content=b"",
+        headers={"content-length": "17"},
+    )
+
+    assert resp.status_code == 413
+
+
+def test_webhook_rejects_actual_oversize_after_read(app, monkeypatch) -> None:
+    monkeypatch.setattr(whatsapp_router, "MAX_WEBHOOK_BODY_BYTES", 16)
+    client = _webhook_client(app)
+
+    resp = client.post(
+        "/whatsapp/webhook",
+        content=b"x" * 17,
+        # Simulates a missing/dishonest upstream framing size: the actual-byte
+        # check must still reject the buffered body.
+        headers={"content-length": "1"},
+    )
+
+    assert resp.status_code == 413
 
 
 def test_webhook_rejects_invalid_query_token(app, monkeypatch) -> None:

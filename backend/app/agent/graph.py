@@ -6,10 +6,11 @@ supervisor chose; every sub-agent then terminates the turn. This encodes the
 core invariant: one entry, one exit, one reply.
 
 `run_turn` executes a single turn and returns the merged state. It prefers the
-compiled LangGraph (production parity, checkpointed via
-AGENT_GRAPH_CHECKPOINT_URL) and falls back to a direct, dependency-free
+compiled, stateless LangGraph and falls back to a direct, dependency-free
 execution of the same node functions so the logic stays testable without a
-running graph backend.
+running graph backend. Durable checkpointing is intentionally disabled until
+a supported external saver is installed; process memory must not grow with the
+number of conversations.
 """
 
 from __future__ import annotations
@@ -71,7 +72,7 @@ class _GraphState(dict):
 
 @lru_cache
 def get_compiled_graph() -> Any:
-    """Build and compile the LangGraph StateGraph (cached per process)."""
+    """Build and compile the stateless LangGraph (cached per process)."""
     from langgraph.graph import END, START, StateGraph  # noqa: PLC0415
 
     # State schema with reducers so list fields accumulate across nodes.
@@ -124,28 +125,27 @@ def get_compiled_graph() -> Any:
     ):
         builder.add_edge(route, END)
 
-    checkpointer = _build_checkpointer()
-    return builder.compile(checkpointer=checkpointer)
+    _warn_if_checkpoint_url_is_configured()
+    return builder.compile()
 
 
-def _build_checkpointer() -> Any:
-    """In-memory checkpointer (AGENT_GRAPH_CHECKPOINT_URL reserved for Postgres).
+def _warn_if_checkpoint_url_is_configured() -> None:
+    """Make an unimplemented durable checkpoint configuration visible.
 
-    The Postgres saver requires an extra dependency and a live connection; we
-    default to the in-memory saver and log when a durable URL is configured so
-    the deploy can wire it without changing call sites.
+    Falling back to ``MemorySaver`` would retain every conversation in the
+    process for the lifetime of this cached graph. Until the external saver is
+    installed, the safe behaviour is a stateless graph and an explicit warning
+    rather than pretending that a configured URL is durable.
     """
     from app.config import get_settings  # noqa: PLC0415
 
     settings = get_settings()
     if settings.agent_graph_checkpoint_url:
-        logger.info("Agent graph checkpoint configured (durable store)")
-    try:
-        from langgraph.checkpoint.memory import MemorySaver  # noqa: PLC0415
-
-        return MemorySaver()
-    except Exception:  # noqa: BLE001 - checkpointer is optional
-        return None
+        logger.warning(
+            "AGENT_GRAPH_CHECKPOINT_URL is configured, but no durable "
+            "LangGraph checkpointer is installed; running without checkpoint "
+            "persistence"
+        )
 
 
 def run_turn(state: AgentState, *, use_graph: bool = True) -> AgentState:
@@ -157,12 +157,7 @@ def run_turn(state: AgentState, *, use_graph: bool = True) -> AgentState:
     if use_graph:
         try:
             graph = get_compiled_graph()
-            config = {
-                "configurable": {
-                    "thread_id": state.get("conversation_id") or "default"
-                }
-            }
-            result = graph.invoke(state, config=config)
+            result = graph.invoke(state)
             return result  # type: ignore[return-value]
         except Exception:  # noqa: BLE001 - resilience: never drop a turn
             logger.exception("LangGraph turn failed; using direct fallback")

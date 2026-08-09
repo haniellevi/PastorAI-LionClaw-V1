@@ -20,7 +20,8 @@ import {
   archiveContact,
   ArchiveBlockedError,
   createContact,
-  fetchContacts,
+  fetchContactDetail,
+  fetchContactsPage,
   fetchOffboardingPreflight,
   followStatus,
   linkContactCell,
@@ -30,6 +31,7 @@ import {
   updateContact,
   type ArchiveContactResult,
   type Contact,
+  type ContactView,
   type CreateContactInput,
   type OffboardingPreflight,
   type UpdateContactInput,
@@ -42,17 +44,7 @@ import { EditContactModal } from "./EditContactModal";
 import { LinkCellModal } from "./LinkCellModal";
 import { NewContactModal } from "./NewContactModal";
 
-type Filter =
-  | "all"
-  | "pending"
-  | "contato"
-  | "visitante"
-  | "discipulo"
-  | "lideres_celula"
-  | "aptos"
-  | "pastor"
-  | "csim"
-  | "arquivadas";
+type Filter = Exclude<ContactView, "membro">;
 
 interface Toast {
   kind: "ok" | "err";
@@ -75,6 +67,9 @@ const FILTERS: Array<{ id: Filter; label: string; warn?: boolean }> = [
   // só aparecem aqui, com ação "Reativar" (admin/pastor).
   { id: "arquivadas", label: "Arquivadas" },
 ];
+
+// Mantém o DOM e o custo de reconciliação limitados mesmo em igrejas grandes.
+const CONTACTS_PAGE_SIZE = 50;
 
 const ETAPA_LABEL: Record<string, string> = {
   ganhar: "Ganhar",
@@ -112,20 +107,6 @@ function maskPhone(phone: string): string {
   return `+${head} •••• ${tail}`;
 }
 
-function matchesFilter(c: Contact, f: Filter): boolean {
-  // Arquivadas só aparecem na aba própria; nas demais listas ficam de fora
-  // (reativar as devolve às listas normais — FECH-06/REATIVAR-1).
-  if (f === "arquivadas") return c.arquivada === true;
-  if (c.arquivada) return false;
-  if (f === "all") return true;
-  if (f === "pending") return followStatus(c).label === "Sem acompanhamento";
-  if (f === "csim") return c.semInteresse === true;
-  // CSIM fica fora da visão: nunca aparece como líder/apto.
-  if (f === "lideres_celula") return c.liderDeCelula && !c.semInteresse;
-  if (f === "aptos") return c.aptoLider && !c.liderDeCelula && !c.semInteresse;
-  return c.tipo === f;
-}
-
 export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
   const { token, user, expireSession } = useAuth();
   const roles = user?.roles ?? [];
@@ -136,10 +117,23 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [cells, setCells] = useState<Cell[]>([]);
   const [loading, setLoading] = useState(true);
-  const [loaded, setLoaded] = useState(false);
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
+  const [currentPage, setCurrentPage] = useState(1);
+  const currentDataKey = `${filter}:${currentPage}`;
+  const hasCurrentData = loadedKey === currentDataKey;
+  const [pagination, setPagination] = useState({
+    page: 1,
+    pageSize: CONTACTS_PAGE_SIZE,
+    total: 0,
+  });
   const [selected, setSelected] = useState<string | null>(selectedId ?? null);
+  // Um deep-link pode apontar para alguém que não está nas 50 linhas atuais.
+  // Esse registro alimenta somente o painel lateral; nunca entra na tabela.
+  const [detachedSelected, setDetachedSelected] = useState<Contact | null>(null);
+  const [selectedDetailLoading, setSelectedDetailLoading] = useState(false);
+  const [selectedDetailError, setSelectedDetailError] = useState<string | null>(null);
 
   const [showNew, setShowNew] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -183,34 +177,75 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
     [expireSession],
   );
 
-  const load = useCallback(
-    async (mode: "initial" | "retry") => {
+  // Uma troca rápida de página pode inverter a ordem das respostas. Só a
+  // requisição mais recente pode atualizar a tabela.
+  const loadRequestRef = useRef(0);
+  // Células mudam muito menos que a página/filtro de contatos. Reaproveite a
+  // mesma promessa por sessão para que paginar não repita esse request.
+  const cellsRequestRef = useRef<{
+    token: string;
+    request: ReturnType<typeof fetchCells>;
+  } | null>(null);
+  const fetchCellsOnce = useCallback(() => {
+    if (!token) throw new Error("Sessão indisponível");
+    const cached = cellsRequestRef.current;
+    if (cached?.token === token) return cached.request;
+
+    const entry = { token, request: fetchCells(token) };
+    cellsRequestRef.current = entry;
+    void entry.request.catch(() => {
+      // Uma falha pode ser tentada novamente na próxima carga.
+      if (cellsRequestRef.current === entry) cellsRequestRef.current = null;
+    });
+    return entry.request;
+  }, [token]);
+  const loadPage = useCallback(
+    async (requestedPage: number) => {
       if (!token) return;
-      if (mode === "initial") setLoading(true);
+      const requestId = ++loadRequestRef.current;
+      const dataKey = `${filter}:${requestedPage}`;
+      setLoading(true);
       setError(null);
       try {
         const [page, cellPage] = await Promise.all([
-          fetchContacts(token),
-          fetchCells(token),
+          fetchContactsPage(token, {
+            page: requestedPage,
+            pageSize: CONTACTS_PAGE_SIZE,
+            view: filter,
+          }),
+          fetchCellsOnce(),
         ]);
-        setContacts(page.items);
+        if (loadRequestRef.current !== requestId) return;
+        // Defesa adicional contra um backend/mocked response fora do contrato:
+        // nunca renderize mais linhas do que o orçamento desta tela.
+        setContacts(page.items.slice(0, CONTACTS_PAGE_SIZE));
+        setPagination({
+          page: page.page,
+          pageSize: Math.min(page.pageSize, CONTACTS_PAGE_SIZE),
+          total: page.total,
+        });
         setCells(cellPage.items);
-        setLoaded(true);
+        setLoadedKey(dataKey);
       } catch (err) {
+        if (loadRequestRef.current !== requestId) return;
         if (handleSessionError(err)) return;
+        // Nunca mantenha linhas/total de outra aba sob o filtro atual.
+        setContacts([]);
+        setPagination({ page: requestedPage, pageSize: CONTACTS_PAGE_SIZE, total: 0 });
+        setLoadedKey(dataKey);
         setError(
           err instanceof ApiError ? err.message : "Não foi possível carregar os contatos.",
         );
       } finally {
-        setLoading(false);
+        if (loadRequestRef.current === requestId) setLoading(false);
       }
     },
-    [token, handleSessionError],
+    [token, filter, handleSessionError, fetchCellsOnce],
   );
 
   useEffect(() => {
-    void load("initial");
-  }, [load]);
+    void loadPage(currentPage);
+  }, [currentPage, loadPage]);
 
   // Deep-link: sincroniza seleção quando o id do hash muda.
   useEffect(() => {
@@ -230,17 +265,66 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
     [],
   );
 
-  const filtered = useMemo(() => {
-    const list = contacts.filter((c) => matchesFilter(c, filter));
-    if (filter !== "all") return list;
-    // Sem interesse (CSIM) fica por último na aba Todos (sort estável).
-    return [...list].sort((a, b) => Number(a.semInteresse) - Number(b.semInteresse));
-  }, [contacts, filter]);
-
-  const selectedContact = useMemo(
+  const selectedPageContact = useMemo(
     () => contacts.find((c) => c.id === selected) ?? null,
     [contacts, selected],
   );
+  const selectedContact =
+    selectedPageContact ?? (detachedSelected?.id === selected ? detachedSelected : null);
+  const hasDetachedSelection = detachedSelected?.id === selected;
+
+  // Busca pontual para deep-link fora da página. A geração impede que uma
+  // resposta atrasada do contato A substitua o contato B selecionado depois.
+  const selectedDetailRequestRef = useRef(0);
+  useEffect(() => {
+    const requestId = ++selectedDetailRequestRef.current;
+
+    if (!token || !hasCurrentData || !selected) {
+      setDetachedSelected(null);
+      setSelectedDetailLoading(false);
+      setSelectedDetailError(null);
+      return;
+    }
+    if (selectedPageContact) {
+      setDetachedSelected(null);
+      setSelectedDetailLoading(false);
+      setSelectedDetailError(null);
+      return;
+    }
+    if (hasDetachedSelection) {
+      setSelectedDetailLoading(false);
+      setSelectedDetailError(null);
+      return;
+    }
+
+    setDetachedSelected(null);
+    setSelectedDetailLoading(true);
+    setSelectedDetailError(null);
+    void fetchContactDetail(token, selected)
+      .then((detail) => {
+        if (selectedDetailRequestRef.current !== requestId) return;
+        setDetachedSelected(detail);
+      })
+      .catch((err: unknown) => {
+        if (selectedDetailRequestRef.current !== requestId) return;
+        if (handleSessionError(err)) return;
+        setSelectedDetailError(
+          err instanceof ApiError ? err.message : "Não foi possível carregar este contato.",
+        );
+      })
+      .finally(() => {
+        if (selectedDetailRequestRef.current === requestId) {
+          setSelectedDetailLoading(false);
+        }
+      });
+  }, [
+    token,
+    hasCurrentData,
+    selected,
+    selectedPageContact,
+    hasDetachedSelection,
+    handleSessionError,
+  ]);
 
   const cellName = useCallback(
     (id: string | null) => (id ? cells.find((c) => c.id === id)?.nome ?? "—" : "—"),
@@ -254,13 +338,14 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
       setFormError(null);
       try {
         const result = await createContact(token, input);
-        setContacts((prev) => {
-          const exists = prev.some((c) => c.id === result.contact.id);
-          return exists
-            ? prev.map((c) => (c.id === result.contact.id ? result.contact : c))
-            : [result.contact, ...prev];
-        });
+        // Novo contato pode não pertencer ao filtro atual. Volte à visão
+        // canônica e revalide no servidor, preservando o detalhe no intervalo.
+        setDetachedSelected(result.contact);
         setSelected(result.contact.id);
+        const alreadyOnFirstAllPage = filter === "all" && currentPage === 1;
+        setFilter("all");
+        setCurrentPage(1);
+        if (alreadyOnFirstAllPage) await loadPage(1);
         setShowNew(false);
         flashToast({
           kind: "ok",
@@ -278,7 +363,7 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
         setSaving(false);
       }
     },
-    [token, flashToast, handleSessionError],
+    [token, filter, currentPage, loadPage, flashToast, handleSessionError],
   );
 
   const handleLink = useCallback(
@@ -289,6 +374,11 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
       try {
         const updated = await linkContactCell(token, linkTarget.id, celulaId);
         setContacts((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
+        setDetachedSelected((prev) =>
+          prev?.id === updated.id ? { ...prev, ...updated } : prev,
+        );
+        if (selected === updated.id) setDetachedSelected(updated);
+        await loadPage(currentPage);
         flashToast({ kind: "ok", text: `${updated.nome} conectado à célula.` });
         setLinkTarget(null);
       } catch (err) {
@@ -300,7 +390,7 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
         setBusyId(null);
       }
     },
-    [token, linkTarget, flashToast, handleSessionError],
+    [token, linkTarget, selected, currentPage, loadPage, flashToast, handleSessionError],
   );
 
   const handleUpdate = useCallback(
@@ -311,6 +401,11 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
       try {
         const updated = await updateContact(token, editTarget.id, input);
         setContacts((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
+        setDetachedSelected((prev) =>
+          prev?.id === updated.id ? { ...prev, ...updated } : prev,
+        );
+        if (selected === updated.id) setDetachedSelected(updated);
+        await loadPage(currentPage);
         flashToast({ kind: "ok", text: `${updated.nome} atualizado.` });
         setEditTarget(null);
       } catch (err) {
@@ -322,7 +417,7 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
         setEditSaving(false);
       }
     },
-    [token, editTarget, flashToast, handleSessionError],
+    [token, editTarget, selected, currentPage, loadPage, flashToast, handleSessionError],
   );
 
   // Geração da requisição de preflight: A pode ser aberto, o usuário trocar
@@ -373,11 +468,12 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
       setArchiveError(null);
       try {
         const result = await archiveContact(token, archiveTarget.id, motivo);
-        // Pessoa sai das listas normais e entra em "Arquivadas" (espelho do
-        // patch local feito por handleUnarchiveConfirm).
-        setContacts((prev) =>
-          prev.map((c) => (c.id === result.pessoa_id ? { ...c, arquivada: true } : c)),
-        );
+        const nextTotal = Math.max(0, pagination.total - 1);
+        const lastPage = Math.max(1, Math.ceil(nextTotal / pagination.pageSize));
+        const targetPage = Math.min(currentPage, lastPage);
+        if (selected === result.pessoa_id) {
+          setDetachedSelected({ ...archiveTarget, arquivada: true });
+        }
         setArchivedInfo((prev) => ({ ...prev, [result.pessoa_id]: result }));
         flashToast({
           kind: "ok",
@@ -387,6 +483,10 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
         });
         setArchiveTarget(null);
         setArchivePreflight(null);
+        if (targetPage !== currentPage) setCurrentPage(targetPage);
+        // Offset pagination shifts the next row into this page after removal.
+        // Reload every time so no contact is skipped on the following page.
+        await loadPage(targetPage);
       } catch (err) {
         if (handleSessionError(err)) return;
         if (err instanceof ArchiveBlockedError) {
@@ -403,7 +503,16 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
         setArchiveBusy(false);
       }
     },
-    [token, archiveTarget, flashToast, handleSessionError],
+    [
+      token,
+      archiveTarget,
+      selected,
+      pagination,
+      currentPage,
+      loadPage,
+      flashToast,
+      handleSessionError,
+    ],
   );
 
   const handleUnarchiveConfirm = useCallback(async () => {
@@ -412,10 +521,12 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
     setUnarchiveError(null);
     try {
       const result = await unarchiveContact(token, unarchiveTarget.id);
-      // Pessoa sai de "Arquivadas" e volta às listas normais.
-      setContacts((prev) =>
-        prev.map((c) => (c.id === result.pessoa_id ? { ...c, arquivada: false } : c)),
-      );
+      const nextTotal = Math.max(0, pagination.total - 1);
+      const lastPage = Math.max(1, Math.ceil(nextTotal / pagination.pageSize));
+      const targetPage = Math.min(currentPage, lastPage);
+      if (selected === result.pessoa_id) {
+        setDetachedSelected({ ...unarchiveTarget, arquivada: false });
+      }
       // O selo de sessão do fluxo de arquivar (se houver) também deixa de valer.
       setArchivedInfo((prev) => {
         if (!(result.pessoa_id in prev)) return prev;
@@ -425,6 +536,8 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
       });
       flashToast({ kind: "ok", text: `${unarchiveTarget.nome} foi reativada.` });
       setUnarchiveTarget(null);
+      if (targetPage !== currentPage) setCurrentPage(targetPage);
+      await loadPage(targetPage);
     } catch (err) {
       if (handleSessionError(err)) return;
       setUnarchiveError(
@@ -433,7 +546,16 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
     } finally {
       setUnarchiveBusy(false);
     }
-  }, [token, unarchiveTarget, flashToast, handleSessionError]);
+  }, [
+    token,
+    unarchiveTarget,
+    selected,
+    pagination,
+    currentPage,
+    loadPage,
+    flashToast,
+    handleSessionError,
+  ]);
 
   const columns: Array<Column<Contact>> = useMemo(
     () => [
@@ -513,7 +635,13 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
     [cellName, filter, canReactivate],
   );
 
-  const showSkeleton = loading && !loaded;
+  const showSkeleton = !hasCurrentData;
+  const totalPages = Math.max(1, Math.ceil(pagination.total / pagination.pageSize));
+  const pageStart = pagination.total === 0 ? 0 : (pagination.page - 1) * pagination.pageSize + 1;
+  const pageEnd =
+    pagination.total === 0
+      ? 0
+      : Math.min(pageStart + contacts.length - 1, pagination.total);
 
   return (
     <div className="screen" key="contatos">
@@ -540,7 +668,7 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
           <button
             type="button"
             className="btn btn-sm"
-            onClick={() => void load("retry")}
+            onClick={() => void loadPage(currentPage)}
             disabled={loading}
           >
             Tentar novamente
@@ -549,9 +677,7 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
       ) : null}
 
       <div className="tabs filter-tabs" role="tablist">
-        {FILTERS.map((f) => {
-          const count = contacts.filter((c) => matchesFilter(c, f.id)).length;
-          return (
+        {FILTERS.map((f) => (
             <button
               key={f.id}
               type="button"
@@ -559,13 +685,24 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
               aria-selected={filter === f.id}
               className={`tab${filter === f.id ? " active" : ""}`}
               style={f.warn ? { color: "var(--warn)" } : undefined}
-              onClick={() => setFilter(f.id)}
+              onClick={() => {
+                setFilter(f.id);
+                setSelected(null);
+                setCurrentPage(1);
+              }}
             >
-              {f.label} <span className="num">{count}</span>
+              {f.label}
+              {filter === f.id ? (
+                <span className="num" title="Total neste filtro">
+                  {pagination.total}
+                </span>
+              ) : null}
             </button>
-          );
-        })}
+          ))}
       </div>
+      <p className="sub" style={{ marginTop: "var(--s2)" }}>
+        O número da aba ativa é o total global do filtro; a tabela mostra uma página por vez.
+      </p>
 
       <div className="dash-grid">
         <div className="card">
@@ -582,52 +719,110 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
               ))}
             </div>
           ) : (
-            <DataTable
-              className="people-cards"
-              columns={columns}
-              rows={filtered}
-              rowKey={(c) => c.id}
-              empty={{
-                icon: "user",
-                title:
-                  contacts.length === 0
-                    ? "Nenhum contato ainda."
-                    : "Nenhum contato neste filtro.",
-                hint:
-                  contacts.length === 0
-                    ? "Crie um contato ou aguarde o agente registrar as conversas."
-                    : undefined,
-              }}
-              onRowClick={(c) => setSelected(c.id)}
-            />
+            <>
+              <DataTable
+                className="people-cards"
+                columns={columns}
+                rows={contacts}
+                rowKey={(c) => c.id}
+                empty={{
+                  icon: "user",
+                  title:
+                    filter === "all" && pagination.total === 0
+                      ? "Nenhum contato ainda."
+                      : "Nenhum contato neste filtro.",
+                  hint:
+                    filter === "all" && pagination.total === 0
+                      ? "Crie um contato ou aguarde o agente registrar as conversas."
+                      : undefined,
+                }}
+                onRowClick={(c) => setSelected(c.id)}
+              />
+
+              {hasCurrentData ? (
+                <nav
+                  aria-label="Paginação de contatos"
+                  aria-busy={loading}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: "var(--s2)",
+                    flexWrap: "wrap",
+                    padding: "var(--s3)",
+                    borderTop: "1px solid var(--border)",
+                  }}
+                >
+                  <span className="sub" role="status" aria-live="polite">
+                    Mostrando {pageStart}–{pageEnd} de {pagination.total}. Página{" "}
+                    {pagination.page} de {totalPages}.
+                  </span>
+                  <span style={{ display: "flex", gap: "var(--s2)" }}>
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      disabled={loading || currentPage <= 1}
+                      onClick={() => {
+                        setSelected(null);
+                        setCurrentPage((page) => Math.max(1, page - 1));
+                      }}
+                    >
+                      Anterior
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      disabled={loading || currentPage >= totalPages}
+                      onClick={() => {
+                        setSelected(null);
+                        setCurrentPage((page) => Math.min(totalPages, page + 1));
+                      }}
+                    >
+                      Próxima
+                    </button>
+                  </span>
+                </nav>
+              ) : null}
+            </>
           )}
         </div>
 
         <div className="dash-side">
-          <ContactDetail
-            contact={selectedContact}
-            cellName={cellName(selectedContact?.celulaId ?? null)}
-            busy={busyId === selectedContact?.id}
-            canEdit={canEdit}
-            archived={selectedContact ? archivedInfo[selectedContact.id] : undefined}
-            onEdit={() => {
-              if (!selectedContact) return;
-              setEditError(null);
-              setEditTarget(selectedContact);
-            }}
-            onLink={() => {
-              if (!selectedContact) return;
-              setLinkError(null);
-              setLinkTarget(selectedContact);
-            }}
-            onArchive={() => {
-              if (!selectedContact) return;
-              setArchivePreflight(null);
-              setArchivePreflightError(null);
-              setArchiveError(null);
-              setArchiveTarget(selectedContact);
-            }}
-          />
+          {selected && !selectedContact && selectedDetailLoading ? (
+            <div className="card card-pad" role="status">
+              Carregando detalhes do contato…
+            </div>
+          ) : selected && !selectedContact && selectedDetailError ? (
+            <div className="error-banner" role="alert">
+              <Icon name="alert" />
+              <span>{selectedDetailError}</span>
+            </div>
+          ) : (
+            <ContactDetail
+              contact={selectedContact}
+              cellName={cellName(selectedContact?.celulaId ?? null)}
+              busy={busyId === selectedContact?.id}
+              canEdit={canEdit}
+              archived={selectedContact ? archivedInfo[selectedContact.id] : undefined}
+              onEdit={() => {
+                if (!selectedContact) return;
+                setEditError(null);
+                setEditTarget(selectedContact);
+              }}
+              onLink={() => {
+                if (!selectedContact) return;
+                setLinkError(null);
+                setLinkTarget(selectedContact);
+              }}
+              onArchive={() => {
+                if (!selectedContact) return;
+                setArchivePreflight(null);
+                setArchivePreflightError(null);
+                setArchiveError(null);
+                setArchiveTarget(selectedContact);
+              }}
+            />
+          )}
         </div>
       </div>
 
@@ -845,7 +1040,7 @@ function ContactDetail({
         ) : null}
       </dl>
 
-      {!contact.celulaId ? (
+      {!isArquivada && !contact.celulaId ? (
         <button
           type="button"
           className="btn btn-primary btn-block"
@@ -857,7 +1052,7 @@ function ContactDetail({
         </button>
       ) : null}
 
-      {canEdit ? (
+      {canEdit && !isArquivada ? (
         <button
           type="button"
           className="btn btn-block"

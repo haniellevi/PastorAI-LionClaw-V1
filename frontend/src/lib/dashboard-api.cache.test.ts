@@ -48,6 +48,34 @@ describe("authedFetch navigation cache", () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
+  it("não deixa uma leitura invalidada sobrescrever o cache mais novo", async () => {
+    let resolveOld!: (response: Response) => void;
+    const oldDeferred = new Promise<Response>((resolve) => {
+      resolveOld = resolve;
+    });
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(() => oldDeferred)
+      .mockResolvedValueOnce(Response.json({ version: "new" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const token = "token-a";
+    const path = "/dashboard/overview";
+    const oldPending = authedFetch(token, path);
+
+    clearAuthedResponseCache(token, ["/dashboard/overview"]);
+    const fresh = await authedFetch(token, path);
+    expect(await fresh.json()).toEqual({ version: "new" });
+
+    resolveOld(Response.json({ version: "old" }));
+    const stale = await oldPending;
+    expect(await stale.json()).toEqual({ version: "old" });
+
+    const cached = await authedFetch(token, path);
+    expect(await cached.json()).toEqual({ version: "new" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("não guarda endpoints fora da lista de prefetch", async () => {
     const fetchMock = vi.fn(async () => Response.json({ status: "online" }));
     vi.stubGlobal("fetch", fetchMock);

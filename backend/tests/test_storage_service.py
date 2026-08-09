@@ -94,6 +94,30 @@ def test_upload_uses_filename_extension_for_unknown_mime(monkeypatch) -> None:
     assert stored.nome == "planilha.csv"
 
 
+def test_upload_object_id_is_deterministic_for_queue_recovery(monkeypatch) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={})
+
+    _use_transport(monkeypatch, handler)
+    storage = SupabaseStorage(_settings())
+
+    first = storage.upload(
+        "i", "c", b"same", "image/jpeg", object_id="provider-message-1"
+    )
+    recovered = storage.upload(
+        "i", "c", b"same", "image/jpeg", object_id="provider-message-1"
+    )
+    other = storage.upload(
+        "i", "c", b"other", "image/jpeg", object_id="provider-message-2"
+    )
+
+    assert first.path == recovered.path
+    assert first.path != other.path
+    assert first.path.startswith("i/provider/")
+    assert "/c/" not in first.path
+    assert "provider-message-1" not in first.path
+
+
 def test_upload_rejects_oversize() -> None:
     big = b"x" * (MAX_MEDIA_BYTES + 1)
     with pytest.raises(StorageError):
