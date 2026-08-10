@@ -81,6 +81,23 @@ logger = logging.getLogger("pastorai.subscription")
 
 router = APIRouter(prefix="/subscription", tags=["subscription"])
 
+_COMPLIMENTARY_SELF_SERVICE_DETAIL = (
+    "O plano de cortesia é gerenciado pelo administrador da plataforma"
+)
+
+
+def _reject_complimentary_self_service(db: Session, igreja: Igreja | None) -> None:
+    """Bloqueia qualquer mutação financeira iniciada por uma igreja cortesia.
+
+    Esta guarda deve rodar antes de placeholder, commit, operação durável ou
+    chamada Asaas. Somente o painel master pode retirar a concessão.
+    """
+    if assigned_complimentary_plan(db, igreja) is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=_COMPLIMENTARY_SELF_SERVICE_DETAIL,
+        )
+
 
 class SubscriptionOut(BaseModel):
     plano: str
@@ -737,26 +754,27 @@ def get_subscription(
     log_if_not_scoped(db, source="http")
     igreja_uuid = uuid.UUID(current_user.igreja_id)
 
+    igreja = db.execute(
+        select(Igreja).where(Igreja.id == igreja_uuid)
+    ).scalar_one_or_none()
+    plano_cortesia = assigned_complimentary_plan(db, igreja)
+    if plano_cortesia is not None:
+        return SubscriptionOut(
+            plano=plano_cortesia.codigo,
+            status="ativa",
+            pessoas=current_headcount_for_igreja(db, igreja_uuid),
+            limite=plano_cortesia.limite_pessoas,
+            setupPago=True,
+            setupFeeContracted=0.0,
+            hasTrackedSubscription=False,
+            checkoutRequired=False,
+            isComplimentary=True,
+        )
+
     sub = db.execute(
         select(Subscription).where(Subscription.igreja_id == igreja_uuid)
     ).scalar_one_or_none()
     if sub is None:
-        igreja = db.execute(
-            select(Igreja).where(Igreja.id == igreja_uuid)
-        ).scalar_one_or_none()
-        plano_cortesia = assigned_complimentary_plan(db, igreja)
-        if plano_cortesia is not None:
-            return SubscriptionOut(
-                plano=plano_cortesia.codigo,
-                status="ativa",
-                pessoas=current_headcount_for_igreja(db, igreja_uuid),
-                limite=plano_cortesia.limite_pessoas,
-                setupPago=True,
-                setupFeeContracted=0.0,
-                hasTrackedSubscription=False,
-                checkoutRequired=False,
-                isComplimentary=True,
-            )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Assinatura não encontrada",
@@ -1041,6 +1059,8 @@ def create_checkout(
     ).scalar_one_or_none()
     if igreja is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Igreja não encontrada")
+
+    _reject_complimentary_self_service(db, igreja)
 
     # Cortesia é concessão administrativa, não um produto de autosserviço. A
     # checagem acontece antes de criar o placeholder local, garantindo zero
@@ -1357,6 +1377,7 @@ def resume_tracked_checkout(
     igreja = db.execute(
         select(Igreja).where(Igreja.id == igreja_uuid)
     ).scalar_one_or_none()
+    _reject_complimentary_self_service(db, igreja)
     sub = db.execute(
         select(Subscription).where(Subscription.igreja_id == igreja_uuid)
     ).scalar_one_or_none()
@@ -1475,6 +1496,12 @@ def recover_invoice(
     cobrança avulsa de recuperação via operação durável. Nunca cria assinatura.
     """
     igreja_uuid = uuid.UUID(current_user.igreja_id)
+    igreja = db.execute(
+        select(Igreja).where(Igreja.id == igreja_uuid)
+    ).scalar_one_or_none()
+    if igreja is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Igreja não encontrada")
+    _reject_complimentary_self_service(db, igreja)
     sub = db.execute(
         select(Subscription).where(Subscription.igreja_id == igreja_uuid)
     ).scalar_one_or_none()
@@ -1719,6 +1746,7 @@ def create_setup_charge_action(
     ).scalar_one_or_none()
     if igreja is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Igreja não encontrada")
+    _reject_complimentary_self_service(db, igreja)
     sub = db.execute(
         select(Subscription).where(Subscription.igreja_id == igreja_uuid)
     ).scalar_one_or_none()
@@ -1881,13 +1909,20 @@ def change_plan(
     assinatura ativa, setup quitado, sem reversão nem recuperação pendente.
     Não solicita CPF/CNPJ (o cliente Asaas já existe).
     """
+    igreja_uuid = uuid.UUID(current_user.igreja_id)
+    igreja = db.execute(
+        select(Igreja).where(Igreja.id == igreja_uuid)
+    ).scalar_one_or_none()
+    if igreja is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Igreja não encontrada")
+    _reject_complimentary_self_service(db, igreja)
+
     plano_row = _plano_ativo_or_422(db, payload.plano)
     if is_complimentary_plan(plano_row):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Plano de cortesia só pode ser atribuído pelo administrador da plataforma",
         )
-    igreja_uuid = uuid.UUID(current_user.igreja_id)
     sub = db.execute(
         select(Subscription).where(Subscription.igreja_id == igreja_uuid)
     ).scalar_one_or_none()

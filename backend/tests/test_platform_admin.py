@@ -475,7 +475,9 @@ def test_admin_assigns_complimentary_plan_when_church_has_no_subscription(app) -
     assert igreja.plano == "teste_free"
 
 
-def test_admin_rejects_complimentary_plan_when_subscription_exists(app) -> None:
+def test_admin_rejects_complimentary_plan_when_asaas_subscription_is_tracked(
+    app,
+) -> None:
     igreja = SimpleNamespace(
         id="00000000-0000-0000-0000-000000000009",
         nome="Igreja Pagante",
@@ -492,7 +494,10 @@ def test_admin_rejects_complimentary_plan_when_subscription_exists(app) -> None:
         igreja_scalar=igreja,
         plano_scalar=free_plan,
         plano_precos_rows=[("ate_100", 199), ("teste_free", 0)],
-        subscription=SimpleNamespace(id="sub-existing"),
+        subscription=SimpleNamespace(
+            id="sub-existing",
+            asaas_subscription_id="sub_asaas_existing",
+        ),
     )
     client = _wire(app, db=db, clerk=FakeClerk())
 
@@ -503,7 +508,44 @@ def test_admin_rejects_complimentary_plan_when_subscription_exists(app) -> None:
     )
 
     assert resp.status_code == 409
+    assert "nenhum cancelamento" in resp.json()["detail"]
     assert igreja.plano == "ate_100"
+
+
+def test_admin_can_assign_complimentary_plan_with_untracked_local_placeholder(
+    app,
+) -> None:
+    igreja = SimpleNamespace(
+        id="00000000-0000-0000-0000-000000000009",
+        nome="Igreja Piloto",
+        status="ativa",
+        plano="ate_100",
+        created_at=None,
+    )
+    free_plan = _plano_ns(
+        id="free-1", codigo="teste_free", nome="Cortesia", preco_mensal=0
+    )
+    db = PlatformDB(
+        gate_app_user=make_app_user(),
+        admin_marker="pa1",
+        igreja_scalar=igreja,
+        plano_scalar=free_plan,
+        plano_precos_rows=[("ate_100", 199), ("teste_free", 0)],
+        subscription=SimpleNamespace(
+            id="placeholder-local",
+            asaas_subscription_id=None,
+        ),
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+
+    resp = client.patch(
+        "/admin/igrejas/00000000-0000-0000-0000-000000000009",
+        headers=_AUTH,
+        json={"plano": "teste_free"},
+    )
+
+    assert resp.status_code == 200
+    assert igreja.plano == "teste_free"
 
 
 def test_admin_patch_sets_and_clears_setup_override(app) -> None:
@@ -656,6 +698,24 @@ def test_admin_metrics_global_view(app) -> None:
     assert body["porPlano"] == {"ate_100": 1, "101_200": 1, "acima_201": 1}
     # MRR conta só as ATIVAS com plano: 199 (ate_100) + 399 (acima_201) = 598.
     assert body["mrr"] == 598
+
+
+def test_admin_metrics_complimentary_church_has_zero_mrr(app) -> None:
+    complimentary = SimpleNamespace(status="ativa", plano="teste_free")
+    paid = SimpleNamespace(status="ativa", plano="ate_100")
+    db = PlatformDB(
+        gate_app_user=make_app_user(),
+        admin_marker="pa1",
+        igrejas=[complimentary, paid],
+        plano_precos_rows=[("teste_free", 0), ("ate_100", 199)],
+        count_value=0,
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+
+    resp = client.get("/admin/metrics", headers=_AUTH)
+
+    assert resp.status_code == 200
+    assert resp.json()["mrr"] == 199
 
 
 def test_admin_metrics_blocks_non_master(app) -> None:

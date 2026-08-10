@@ -279,6 +279,22 @@ def _post(client: TestClient, event: str, payment: dict):
     )
 
 
+def test_authenticated_webhook_works_with_billing_write_gates_off(
+    app, monkeypatch
+) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "allow_real_sends", False, raising=False)
+    monkeypatch.setattr(settings, "asaas_billing_enabled", False, raising=False)
+    db = _WebhookDb(sub=_sub(), igreja=_igreja("ativa"))
+    client = _client(app, db, monkeypatch)
+
+    resp = _post(client, "PAYMENT_CONFIRMED", _payment(status="CONFIRMED"))
+
+    assert resp.status_code == 200
+    assert resp.json() == {"received": True, "status": "ativa"}
+    assert db.commits == 1
+
+
 def test_payment_created_pending_preserva_igreja_ativa(app, monkeypatch) -> None:
     # Fatura mensal recém-criada NÃO pode derrubar igreja adimplente.
     db = _WebhookDb(sub=_sub(), igreja=_igreja("ativa"))

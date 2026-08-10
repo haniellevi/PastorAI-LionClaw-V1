@@ -42,6 +42,7 @@ from app.db.models import (
     AgentConversationLog,
     AppUser,
     BillingPlanChangeOperation,
+    Igreja,
     Plano,
     Subscription,
     UserRole,
@@ -60,6 +61,7 @@ from app.services.asaas import (
 from app.services.billing import (
     OPEN_PLAN_CHANGE_STATUSES,
     PlanChangeConflict,
+    assigned_complimentary_plan,
     claim_transition,
     current_headcount,
     ensure_plan_change_operation,
@@ -322,6 +324,29 @@ def _process_operation(
     if sub is None:
         return False
 
+    igreja = db.execute(
+        select(Igreja).where(Igreja.id == igreja_id)
+    ).scalar_one_or_none()
+    if assigned_complimentary_plan(db, igreja) is not None:
+        # Defesa em profundidade: o master é a única autoridade para retirar
+        # cortesia. Uma intenção ainda local é encerrada sem PUT; estados que
+        # talvez já tenham atravessado a rede ficam para conciliação manual.
+        if op.status == "prepared":
+            finish_operation(
+                db,
+                op,
+                ("prepared",),
+                status="failed",
+                notify_status="skipped",
+                error="Auto-upgrade bloqueado: igreja em plano de cortesia",
+            )
+        else:
+            logger.error(
+                "Complimentary church has an ambiguous Asaas plan change (%s)",
+                op.id,
+            )
+        return False
+
     # Uma operação PREPARED ainda não tocou o Asaas. Revalida o porte antes
     # do primeiro PUT para não executar uma intenção antiga criada quando o
     # sistema ainda contava todos os cadastros (ou antes de um membro ser
@@ -455,6 +480,11 @@ def queue_autoupgrade_if_over_limit(db: Session, sub: Subscription) -> bool:
     Nenhuma chamada externa acontece nesta função. Retorna True quando
     enfileirou.
     """
+    igreja = db.execute(
+        select(Igreja).where(Igreja.id == sub.igreja_id)
+    ).scalar_one_or_none()
+    if assigned_complimentary_plan(db, igreja) is not None:
+        return False
     if not sub.asaas_subscription_id or sub.asaas_subscription_id == "sandbox":
         return False
     alvo = _next_ladder_target(db, sub)

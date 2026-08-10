@@ -362,6 +362,41 @@ def test_worker_cancels_stale_prepared_autoupgrade_before_asaas(
     assert notified == []
 
 
+def test_worker_never_mutates_asaas_for_complimentary_church(monkeypatch) -> None:
+    op = _op()
+    sub = _sub()
+    complimentary_plan = SimpleNamespace(
+        codigo="teste_free",
+        nome="Cortesia piloto",
+        preco_mensal=0.0,
+        limite_pessoas=100,
+        ativo=True,
+    )
+    tenant = _WorkerSession(
+        subscription=sub,
+        igreja=SimpleNamespace(id=_IGREJA_A, plano="teste_free"),
+        plan_changes=[op],
+        planos=[complimentary_plan],
+    )
+    asaas = _WorkerAsaas()
+    notified = _spy_notify(monkeypatch)
+
+    completed = run_pending_plan_changes(
+        _Discovery([(op, _IGREJA_A)]),
+        session_factory=_factory_queue([tenant]),
+        asaas=asaas,
+        evolution=object(),
+    )
+
+    assert completed == 0
+    assert asaas.puts == 0
+    assert asaas.gets == 0
+    assert op.status == "failed"
+    assert op.notify_status == "skipped"
+    assert "cortesia" in op.error
+    assert notified == []
+
+
 def test_worker_retargets_stale_prepared_autoupgrade_before_asaas(
     monkeypatch,
 ) -> None:

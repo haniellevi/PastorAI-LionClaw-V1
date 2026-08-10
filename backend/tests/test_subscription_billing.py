@@ -2967,6 +2967,75 @@ def test_checkout_rejects_complimentary_plan_without_mutation_or_asaas(app) -> N
     assert not any(isinstance(obj, Subscription) for obj in db.added)
 
 
+def test_complimentary_church_cannot_contract_paid_plan_or_create_placeholder(
+    app,
+) -> None:
+    asaas = _FakeAsaas()
+    client, db = _client(
+        app,
+        planos=[
+            _plano(codigo="teste_free", preco_mensal=0),
+            _plano(codigo="ate_100", preco_mensal=199),
+        ],
+        asaas=asaas,
+        igreja_plano="teste_free",
+    )
+
+    resp = client.post(
+        "/subscription",
+        json={"plano": "ate_100", "cpfCnpj": _CPF},
+        headers=_AUTH,
+    )
+
+    assert resp.status_code == 409
+    assert "administrador da plataforma" in resp.json()["detail"]
+    assert asaas.calls == []
+    assert asaas.charge_calls == []
+    assert not any(isinstance(obj, Subscription) for obj in db.added)
+    assert db.commits == 0
+
+
+@pytest.mark.parametrize(
+    "path,payload",
+    [
+        ("/subscription/resume", None),
+        ("/subscription/recover-invoice", None),
+        ("/subscription/setup-charge", None),
+        ("/subscription/change-plan", {"plano": "ate_100"}),
+    ],
+    ids=["resume", "recovery", "setup", "plan-change"],
+)
+def test_complimentary_church_blocks_all_financial_self_service_before_mutation(
+    app, path, payload
+) -> None:
+    class _NoAsaasCalls:
+        def __getattr__(self, name):  # pragma: no cover - defesa do teste
+            raise AssertionError(f"cortesia não pode tocar o Asaas ({name})")
+
+    sub = _subscription(
+        asaas_subscription_id="sub_should_not_be_touched",
+        asaas_invoice_reversal="refunded",
+        setup_pago=False,
+    )
+    client, db = _client(
+        app,
+        planos=[
+            _plano(codigo="teste_free", preco_mensal=0),
+            _plano(codigo="ate_100", preco_mensal=199),
+        ],
+        asaas=_NoAsaasCalls(),
+        subscription=sub,
+        igreja_plano="teste_free",
+    )
+
+    resp = client.post(path, json=payload, headers=_AUTH)
+
+    assert resp.status_code == 409
+    assert "administrador da plataforma" in resp.json()["detail"]
+    assert db.added == []
+    assert db.commits == 0
+
+
 def test_checkout_rejects_unmatched_codigo_when_other_planos_active(app) -> None:
     # Dois planos ATIVOS no catálogo, nenhum com o código pedido — se o
     # filtro de código fosse ignorado (como no fake antigo), isso devolveria
@@ -3051,6 +3120,12 @@ def test_get_subscription_exposes_master_assigned_complimentary_plan(app) -> Non
             )
         ],
         asaas=asaas,
+        subscription=_subscription(
+            status=None,
+            asaas_customer_id=None,
+            asaas_subscription_id=None,
+            asaas_setup_charge_id=None,
+        ),
         igreja_plano="teste_free",
     )
     db.pessoas_count = 7

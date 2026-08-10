@@ -30,14 +30,17 @@ APP_ENV=production
 APP_BASE_URL=https://api.igreja12.com.br
 FRONTEND_URL=https://app.igreja12.com.br
 ALLOW_REAL_SENDS=false
+ASAAS_BILLING_ENABLED=false
 BROADCAST_ASYNC_ENABLED=false
 CALENDAR_OAUTH_RETURN_ORIGINS=https://admin.igreja12.com.br
 ```
 
-- `ALLOW_REAL_SENDS=false` bloqueia WhatsApp, Asaas, Brevo, LLM e Google até
-  os smokes de saúde/login terminarem. Em produção, mutações de billing Asaas,
-  conexão Evolution e envios Brevo retornam erro controlado: não alteram o
-  estado local nem confirmam e-mail/conexão que não aconteceu.
+- `ALLOW_REAL_SENDS=false` bloqueia os efeitos externos até os smokes de
+  saúde/login terminarem. Em produção, conexão Evolution e envios Brevo
+  retornam erro controlado em vez de simular sucesso.
+- `ASAAS_BILLING_ENABLED=false` mantém toda mutação financeira Asaas desligada
+  mesmo depois de `ALLOW_REAL_SENDS=true`. Cobrança só é possível com os dois
+  opt-ins; leituras de reconciliação e o webhook autenticado continuam ativos.
 - `BROADCAST_ASYNC_ENABLED=false` mantém o worker persistente inativo e faz
   qualquer novo comunicado falhar antes de ser persistido; não existe fallback
   síncrono capaz de contornar o ledger/heartbeat.
@@ -69,6 +72,7 @@ Integrações:
 ASAAS_API_URL
 ASAAS_API_KEY
 ASAAS_WEBHOOK_TOKEN
+ASAAS_BILLING_ENABLED
 BREVO_API_KEY
 BREVO_FROM_EMAIL
 BREVO_FROM_NAME
@@ -223,6 +227,10 @@ Validar também:
 - isolamento das portas 8000/8080;
 - ausência de placeholders no `.env`;
 - frontend sem referências ao Supabase DEV ou localhost.
+
+Mesmo depois desses smokes, mantenha `ASAAS_BILLING_ENABLED=false` enquanto as
+igrejas-piloto estiverem em cortesia. Não habilite a flag sem inventário das
+assinaturas rastreadas, backup fresco e canário financeiro separado.
 
 Somente após esses smokes decidir o gate separado
 `ALLOW_REAL_SENDS=true`. A leitura do QR da Evolution e qualquer canário de

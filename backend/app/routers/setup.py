@@ -98,7 +98,9 @@ def get_setup_checklist(
         sub = db.execute(
             select(Subscription).where(Subscription.igreja_id == igreja_uuid)
         ).scalar_one_or_none()
-        complimentary = assigned_complimentary_plan(db, igreja) if sub is None else None
+        # A concessão master é autoritativa mesmo se restou um placeholder
+        # local de checkout sem assinatura remota.
+        complimentary = assigned_complimentary_plan(db, igreja)
         items.append(
             SetupItemOut(
                 id="assinatura",

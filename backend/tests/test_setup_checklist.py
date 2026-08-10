@@ -223,6 +223,8 @@ def test_assinatura_done_for_master_assigned_complimentary_plan(app) -> None:
     session = _owner_session(
         igreja=_igreja(plano="teste_free"),
         plano=SimpleNamespace(codigo="teste_free", preco_mensal=0),
+        # Placeholder legado não revoga a concessão autoritativa do master.
+        subscription=SimpleNamespace(status="pendente"),
     )
 
     resp = _wire(app, session=session).get("/setup/checklist", headers=_AUTH)

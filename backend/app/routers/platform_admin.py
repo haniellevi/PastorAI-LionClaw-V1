@@ -564,12 +564,18 @@ def update_igreja(
             existing_subscription = db.execute(
                 select(Subscription).where(Subscription.igreja_id == ig_uuid)
             ).scalar_one_or_none()
-            if existing_subscription is not None:
+            tracked_subscription_id = (
+                getattr(existing_subscription, "asaas_subscription_id", None)
+                if existing_subscription is not None
+                else None
+            )
+            if tracked_subscription_id and tracked_subscription_id != "sandbox":
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail=(
-                        "Esta igreja já possui uma assinatura. Cancele e concilie "
-                        "a assinatura Asaas antes de conceder um plano de cortesia."
+                        "Esta igreja possui uma assinatura Asaas rastreada. "
+                        "Concilie-a manualmente antes de conceder cortesia; "
+                        "nenhum cancelamento é feito automaticamente."
                     ),
                 )
 

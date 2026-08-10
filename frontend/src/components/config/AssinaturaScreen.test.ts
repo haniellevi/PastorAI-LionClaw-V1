@@ -131,6 +131,20 @@ describe("AssinaturaScreen — links do checkout", () => {
     expect(container.querySelector("#subscription-cpf-cnpj")).toBeNull();
     expect(createCheckout).not.toHaveBeenCalled();
     expect(changePlan).not.toHaveBeenCalled();
+
+    const plansTab = [...container.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Planos por porte"),
+    )!;
+    act(() => plansTab.click());
+    await flush();
+
+    const paidRow = [...container.querySelectorAll("tbody tr")].find((row) =>
+      row.textContent?.includes("Até 100 pessoas"),
+    )!;
+    const paidAction = paidRow.querySelector<HTMLButtonElement>("button");
+    expect(paidAction?.textContent).toContain("Mudar plano");
+    expect(paidAction?.disabled).toBe(true);
+    expect(container.textContent).not.toContain("Contratar");
   });
 
   it("mostra a taxa congelada no contrato mesmo se o catálogo mudou", async () => {
