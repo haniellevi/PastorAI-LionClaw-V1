@@ -68,7 +68,9 @@ INP ≤ 200 ms e CLS ≤ 0,1, segmentados entre mobile e desktop. Referência:
 6. WhatsApp: gera QR e comprova um único `POST /whatsapp/connection` com
    `{ "action": "connect" }` no mock.
 
-Execução final da Fase A:
+Execução histórica da coleta inicial da Fase A, com o código medido em
+`3f085ec7228d770649b0d9041f0e16154fe37629` e o primeiro harness M09 em
+`c35ae64de300e5637fe6503fac7c96fe30c1a07e`:
 
 ```text
 Playwright após `npm ci`: 5 passed (30.0s)
@@ -77,6 +79,9 @@ typecheck: PASS
 lint: PASS
 next build: PASS
 ```
+
+Essas contagens registram a coleta inicial e não representam a suíte ampliada
+pelos corretivos posteriores do guard de loopback.
 
 As evidências JSON ficam em `frontend/test-results/metrics/` durante cada run e
 incluem SHA, versão do Node, timeline, requests sanitizados e arrays de erros.

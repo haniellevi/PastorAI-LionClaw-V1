@@ -98,6 +98,31 @@ describe("guard loopback do laboratorio M09", () => {
     }
   });
 
+  test("portas ausentes usam os defaults locais", () => {
+    expect(resolveM09Urls({})).toEqual({
+      app: { origin: "http://127.0.0.1:3109", hostname: "127.0.0.1", port: 3109 },
+      api: { origin: "http://127.0.0.1:8009", hostname: "127.0.0.1", port: 8009 },
+    });
+  });
+
+  test("M09_APP_PORT vazia falha mesmo quando M09_APP_URL existe", () => {
+    expect(() =>
+      resolveM09Urls({
+        M09_APP_URL: "http://127.0.0.1:3109",
+        M09_APP_PORT: "",
+      }),
+    ).toThrow("[M09] M09_APP_PORT invalida");
+  });
+
+  test("M09_API_PORT vazia falha mesmo quando M09_API_URL existe", () => {
+    expect(() =>
+      resolveM09Urls({
+        M09_API_URL: "http://127.0.0.1:8009",
+        M09_API_PORT: "",
+      }),
+    ).toThrow("[M09] M09_API_PORT invalida");
+  });
+
   test("build E2E falha antes de iniciar npm ou expor a URL externa", () => {
     const result = spawnSync(process.execPath, ["e2e/support/build-e2e.mjs"], {
       cwd: FRONTEND_ROOT,
@@ -134,6 +159,26 @@ describe("guard loopback do laboratorio M09", () => {
     expect(result.status).toBe(1);
     expect(output).toContain("[M09] M09_API_URL invalida");
     expect(output).not.toContain(rawValue);
+    expect(output).not.toContain("next build");
+  });
+
+  test("M09_API_PORT vazia aborta o build antes de iniciar npm", () => {
+    const environment: NodeJS.ProcessEnv = {
+      ...process.env,
+      M09_APP_URL: "http://127.0.0.1:3109",
+      M09_API_PORT: "",
+    };
+    delete environment.M09_API_URL;
+    const result = spawnSync(process.execPath, ["e2e/support/build-e2e.mjs"], {
+      cwd: FRONTEND_ROOT,
+      encoding: "utf8",
+      env: environment,
+      timeout: 10_000,
+    });
+    const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+
+    expect(result.status).toBe(1);
+    expect(output).toContain("[M09] M09_API_PORT invalida");
     expect(output).not.toContain("next build");
   });
 
@@ -180,6 +225,30 @@ describe("guard loopback do laboratorio M09", () => {
     expect(result.status).toBe(1);
     expect(output).toContain("[M09] M09_APP_URL invalida");
     expect(output).not.toContain(rawValue);
+    expect(output).not.toContain("M09 mock API");
+    expect(output).not.toContain("Next production local");
+  });
+
+  test("M09_APP_PORT vazia aborta Playwright antes dos webServers", () => {
+    const environment: NodeJS.ProcessEnv = {
+      ...process.env,
+      M09_API_URL: "http://127.0.0.1:8009",
+      M09_APP_PORT: "",
+    };
+    delete environment.M09_APP_URL;
+    const playwrightCli = fileURLToPath(
+      new URL("../../node_modules/@playwright/test/cli.js", import.meta.url),
+    );
+    const result = spawnSync(process.execPath, [playwrightCli, "test", "--list"], {
+      cwd: FRONTEND_ROOT,
+      encoding: "utf8",
+      env: environment,
+      timeout: 10_000,
+    });
+    const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
+
+    expect(result.status).toBe(1);
+    expect(output).toContain("[M09] M09_APP_PORT invalida");
     expect(output).not.toContain("M09 mock API");
     expect(output).not.toContain("Next production local");
   });

@@ -9,6 +9,12 @@ function invalidUrl(name) {
   );
 }
 
+function invalidPort(name) {
+  return new Error(
+    `[M09] ${name} invalida: informe uma porta local canonica entre 1 e 65535.`,
+  );
+}
+
 function isLoopbackHostname(hostname) {
   const normalized = hostname.toLowerCase();
   if (normalized === "localhost" || normalized === "[::1]") return true;
@@ -79,15 +85,20 @@ export function assertM09LoopbackUrl(name, rawValue) {
 }
 
 export function resolveM09Urls(environment = process.env) {
+  const appPort = environment.M09_APP_PORT;
+  const apiPort = environment.M09_API_PORT;
+  if (appPort === "") throw invalidPort("M09_APP_PORT");
+  if (apiPort === "") throw invalidPort("M09_API_PORT");
+
   const appValue =
     environment.M09_APP_URL ??
-    (environment.M09_APP_PORT
-      ? `http://127.0.0.1:${environment.M09_APP_PORT}`
+    (appPort !== undefined
+      ? `http://127.0.0.1:${appPort}`
       : DEFAULT_APP_URL);
   const apiValue =
     environment.M09_API_URL ??
-    (environment.M09_API_PORT
-      ? `http://127.0.0.1:${environment.M09_API_PORT}`
+    (apiPort !== undefined
+      ? `http://127.0.0.1:${apiPort}`
       : DEFAULT_API_URL);
 
   return Object.freeze({
