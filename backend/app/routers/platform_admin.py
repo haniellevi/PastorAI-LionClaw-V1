@@ -52,9 +52,12 @@ from app.domain.permissions import DEFAULT_PERMISSIONS
 from app.services.asaas import MIN_UNDEFINED_PAYMENT_VALUE
 from app.services.brevo import BrevoClient, BrevoError, get_brevo_client
 from app.services.billing import (
+    find_blocking_plan_change_for_plan,
+    find_blocking_subscription_creation,
     get_setup_fee_default,
     get_setup_fee_for_igreja,
     is_complimentary_plan,
+    lock_igreja_for_billing,
 )
 from app.services.clerk import (
     ClerkAuthError,
@@ -547,9 +550,7 @@ def update_igreja(
             status_code=status.HTTP_404_NOT_FOUND, detail="Igreja não encontrada"
         ) from exc
 
-    igreja = db.execute(
-        select(Igreja).where(Igreja.id == ig_uuid)
-    ).scalar_one_or_none()
+    igreja = lock_igreja_for_billing(db, ig_uuid)
     if igreja is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Igreja não encontrada"
@@ -558,7 +559,10 @@ def update_igreja(
     if payload.plano is not None:
         _validate_plano_or_422(db, payload.plano)
         target_plan = db.execute(
-            select(Plano).where(Plano.codigo == payload.plano)
+            select(Plano)
+            .where(Plano.codigo == payload.plano)
+            .with_for_update()
+            .execution_options(populate_existing=True)
         ).scalar_one_or_none()
         if is_complimentary_plan(target_plan) and payload.plano != igreja.plano:
             existing_subscription = db.execute(
@@ -569,12 +573,20 @@ def update_igreja(
                 if existing_subscription is not None
                 else None
             )
-            if tracked_subscription_id and tracked_subscription_id != "sandbox":
+            blocking_creation = (
+                find_blocking_subscription_creation(db, existing_subscription.id)
+                if existing_subscription is not None
+                else None
+            )
+            if (
+                tracked_subscription_id
+                and tracked_subscription_id != "sandbox"
+            ) or blocking_creation is not None:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail=(
-                        "Esta igreja possui uma assinatura Asaas rastreada. "
-                        "Concilie-a manualmente antes de conceder cortesia; "
+                        "Esta igreja possui assinatura rastreada ou contratação "
+                        "em aberto. Concilie-a manualmente antes de conceder cortesia; "
                         "nenhum cancelamento é feito automaticamente."
                     ),
                 )
@@ -1751,14 +1763,24 @@ def _plano_out(p: Plano, em_uso: int = 0) -> PlanoOut:
     )
 
 
-def _get_plano_or_404(db: Session, plano_id: str) -> Plano:
+def _get_plano_or_404(
+    db: Session, plano_id: str, *, for_update: bool = False
+) -> Plano:
     try:
         pid = uuid.UUID(plano_id)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Plano não encontrado"
         ) from exc
-    plano = db.execute(select(Plano).where(Plano.id == pid)).scalar_one_or_none()
+    statement = select(Plano).where(Plano.id == pid)
+    if for_update:
+        # Se a transação esperou outro editor/worker, force a releitura do
+        # estado já confirmado em vez de reutilizar um objeto antigo do
+        # identity map da sessão.
+        statement = statement.with_for_update().execution_options(
+            populate_existing=True
+        )
+    plano = db.execute(statement).scalar_one_or_none()
     if plano is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Plano não encontrado"
@@ -1849,7 +1871,7 @@ def update_plano(
     O ``codigo`` não muda (as igrejas o referenciam). Atualização parcial: só
     os campos enviados são alterados — ``limitePessoas: null`` marca ilimitado.
     """
-    plano = _get_plano_or_404(db, plano_id)
+    plano = _get_plano_or_404(db, plano_id, for_update=True)
     fields = payload.model_fields_set
     if not fields:
         raise HTTPException(
@@ -1865,6 +1887,17 @@ def update_plano(
             (float(plano.preco_mensal) == 0.0)
             != (float(payload.precoMensal) == 0.0)
         )
+        if (
+            changes_billing_mode
+            and find_blocking_plan_change_for_plan(db, plano.codigo) is not None
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Há uma troca de assinatura em aberto usando este plano. "
+                    "Concilie a operação antes de alterar entre pago e cortesia."
+                ),
+            )
         if changes_billing_mode and _igrejas_no_plano(db, plano.codigo) > 0:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,

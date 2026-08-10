@@ -950,6 +950,19 @@ def test_queue_autoupgrade_advances_past_an_inactive_intermediate_tier() -> None
     assert op.to_limite is None
 
 
+def test_queue_autoupgrade_never_selects_zero_price_intermediate_tier() -> None:
+    sub = _sub(plano="ate_100", limite=100, pessoas=50)
+    catalog = _ladder_catalog()
+    catalog[0].preco_mensal = 0
+    db = _WorkerSession(subscription=sub, planos=catalog)
+    db.pessoas_count = 150
+
+    assert queue_autoupgrade_if_over_limit(db, sub) is True
+    op = next(o for o in db.added if isinstance(o, BillingPlanChangeOperation))
+    assert op.to_plano == "acima_201"
+    assert float(op.to_preco) == 499.0
+
+
 def test_worker_completes_the_queued_autoupgrade(monkeypatch) -> None:
     # Ponta a ponta: o endpoint enfileira (releitura canônica) e o worker
     # conclui pelo trilho durável — PUT in-place, nunca POST.

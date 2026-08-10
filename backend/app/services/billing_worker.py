@@ -67,6 +67,7 @@ from app.services.billing import (
     ensure_plan_change_operation,
     find_open_plan_change,
     finish_operation,
+    lock_plan_rows_for_billing,
 )
 from app.services.evolution import EvolutionClient, EvolutionError
 
@@ -360,6 +361,10 @@ def _process_operation(
             # operação já ocupa o claim. Nunca a adotar ou reprecificar por
             # coincidência de alvo; o proprietário dela mantém prioridade.
             return False
+        # Serializa a seleção/retarget com qualquer conversão pago <-> cortesia
+        # no catálogo. O commit do claim abaixo libera o lock somente depois de
+        # a operação corrigida ficar visível.
+        lock_plan_rows_for_billing(db, *PLAN_ORDER)
         alvo_atual = _next_ladder_target(db, sub)
         if alvo_atual is None:
             finish_operation(
@@ -457,9 +462,17 @@ def _next_ladder_target(db: Session, sub: Subscription) -> Plano | None:
         return None
     for proximo in PLAN_ORDER[idx + 1 :]:
         plano_row = db.execute(
-            select(Plano).where(Plano.codigo == proximo, Plano.ativo.is_(True))
+            select(Plano).where(
+                Plano.codigo == proximo,
+                Plano.ativo.is_(True),
+                Plano.preco_mensal > 0,
+            )
         ).scalar_one_or_none()
-        if plano_row is None or plano_row.preco_mensal is None:
+        if (
+            plano_row is None
+            or plano_row.preco_mensal is None
+            or float(plano_row.preco_mensal) <= 0
+        ):
             continue
         alvo_limite = plano_row.limite_pessoas
         if alvo_limite is None or membros <= int(alvo_limite):
@@ -487,6 +500,10 @@ def queue_autoupgrade_if_over_limit(db: Session, sub: Subscription) -> bool:
         return False
     if not sub.asaas_subscription_id or sub.asaas_subscription_id == "sandbox":
         return False
+    # A operação e a conversão do catálogo compartilham os mesmos row locks.
+    # Selecionar só depois deles impede congelar um alvo que virou cortesia na
+    # corrida entre a leitura e o INSERT durável.
+    lock_plan_rows_for_billing(db, *PLAN_ORDER)
     alvo = _next_ladder_target(db, sub)
     if alvo is None:
         return False

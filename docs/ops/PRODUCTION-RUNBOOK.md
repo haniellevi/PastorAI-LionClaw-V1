@@ -150,9 +150,22 @@ docker compose config --quiet
 docker compose build backend
 docker compose up -d
 docker compose ps
+# Prova pós-restart sem imprimir o .env nem qualquer segredo. Todos os
+# processos capazes de faturar devem confirmar as duas travas fechadas.
+for service in backend queue-worker cron-worker; do
+  docker compose exec -T "$service" sh -lc '
+    [ "${ALLOW_REAL_SENDS:-false}" = "false" ] &&
+    [ "${ASAAS_BILLING_ENABLED:-false}" = "false" ] &&
+    echo "billing gates: CLOSED"'
+done
 curl -fsS http://127.0.0.1:8000/health
 ln -sfn "/opt/pastorai-releases/${PASTORAI_RELEASE_SHA}" /opt/pastorai-current
 ```
+
+O esperado é uma linha `billing gates: CLOSED` por serviço. Qualquer ausência
+ou valor diferente de `false` interrompe o deploy: mutações Asaas só podem
+existir quando `ALLOW_REAL_SENDS=true` **e** `ASAAS_BILLING_ENABLED=true`, em um
+gate financeiro posterior e explicitamente aprovado.
 
 Portas públicas proibidas:
 
@@ -258,4 +271,6 @@ Registrar:
 - health local e público;
 - CORS e login;
 - deployment/aliases Vercel;
-- estado explícito de `ALLOW_REAL_SENDS` e `BROADCAST_ASYNC_ENABLED`.
+- estado explícito de `ALLOW_REAL_SENDS`, `ASAAS_BILLING_ENABLED` e
+  `BROADCAST_ASYNC_ENABLED`, incluindo a prova pós-restart de que billing
+  permaneceu fechado por padrão, sem imprimir o `.env`.

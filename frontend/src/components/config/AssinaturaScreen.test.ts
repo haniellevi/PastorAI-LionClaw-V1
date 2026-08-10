@@ -112,7 +112,7 @@ describe("AssinaturaScreen — links do checkout", () => {
       isComplimentary: true,
     });
     fetchPlanCatalog.mockResolvedValue({
-      setupFee: 59.9,
+      setupFee: 0,
       planos: [
         { code: "teste_free", label: "Cortesia de testes", limite: 50, preco: 0 },
         { code: "ate_100", label: "Até 100 pessoas", limite: 100, preco: 199 },
@@ -126,7 +126,7 @@ describe("AssinaturaScreen — links do checkout", () => {
     expect(container.textContent).toContain("Sem cobrança");
     expect(container.textContent).toContain("Isento");
     expect(container.textContent).toContain(
-      "Este plano de cortesia é gerenciado pelo administrador da plataforma.",
+      "Somente o administrador da plataforma pode retirar este plano de cortesia.",
     );
     expect(container.querySelector("#subscription-cpf-cnpj")).toBeNull();
     expect(createCheckout).not.toHaveBeenCalled();
@@ -144,6 +144,9 @@ describe("AssinaturaScreen — links do checkout", () => {
     const paidAction = paidRow.querySelector<HTMLButtonElement>("button");
     expect(paidAction?.textContent).toContain("Mudar plano");
     expect(paidAction?.disabled).toBe(true);
+    expect(paidAction?.title).toBe(
+      "Somente o administrador da plataforma pode retirar este plano de cortesia.",
+    );
     expect(container.textContent).not.toContain("Contratar");
   });
 

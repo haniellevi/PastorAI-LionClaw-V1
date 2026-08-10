@@ -11,13 +11,16 @@ from __future__ import annotations
 import uuid
 from types import SimpleNamespace
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.db.models import (
     AgentConfig,
     AgentConfigRequest,
     AppUser,
+    BillingPlanChangeOperation,
     BillingSettings,
+    BillingSubscriptionOperation,
     Igreja,
     LlmCredential,
     Pessoa,
@@ -108,6 +111,8 @@ class PlatformDB:
         agent_request_rows=None,
         billing_settings=None,
         subscription=None,
+        plan_changes=None,
+        subscription_ops=None,
     ) -> None:
         self.gate_app_user = gate_app_user
         self.admin_marker = admin_marker
@@ -140,6 +145,8 @@ class PlatformDB:
             else SimpleNamespace(id=1, setup_fee_default=0.0)
         )
         self.subscription = subscription
+        self.plan_changes = plan_changes or []
+        self.subscription_ops = subscription_ops or []
         for igreja in [*self.igrejas, self.igreja_scalar]:
             if igreja is not None and not hasattr(igreja, "setup_fee_override"):
                 igreja.setup_fee_override = None
@@ -175,6 +182,20 @@ class PlatformDB:
             return _Result(scalar=self.billing_settings)
         if ent is Subscription:
             return _Result(scalar=self.subscription)
+        if ent is BillingPlanChangeOperation:
+            blocking = [
+                op
+                for op in self.plan_changes
+                if getattr(op, "status", None) not in ("completed", "failed")
+            ]
+            return _Result(scalar=blocking[0] if blocking else None)
+        if ent is BillingSubscriptionOperation:
+            blocking = [
+                op
+                for op in self.subscription_ops
+                if getattr(op, "status", None) not in ("failed", "superseded")
+            ]
+            return _Result(scalar=blocking[0] if blocking else None)
         if ent is Plano:
             return _Result(scalar=self.plano_scalar, scalars=self.planos)
         if ent is PlatformAuditLog:
@@ -548,6 +569,115 @@ def test_admin_can_assign_complimentary_plan_with_untracked_local_placeholder(
     assert igreja.plano == "teste_free"
 
 
+@pytest.mark.parametrize(
+    "operation_status",
+    ["prepared", "creating", "reconciling", "created", "future_unknown"],
+)
+def test_admin_rejects_complimentary_while_subscription_creation_is_not_safe(
+    app, operation_status: str
+) -> None:
+    igreja = SimpleNamespace(
+        id="00000000-0000-0000-0000-000000000009",
+        nome="Igreja em checkout",
+        status="ativa",
+        plano="ate_100",
+        created_at=None,
+    )
+    free_plan = _plano_ns(
+        id="free-1", codigo="teste_free", nome="Cortesia", preco_mensal=0
+    )
+    sub = SimpleNamespace(id="sub-local", asaas_subscription_id=None)
+    operation = SimpleNamespace(status=operation_status)
+    db = PlatformDB(
+        gate_app_user=make_app_user(),
+        admin_marker="pa1",
+        igreja_scalar=igreja,
+        plano_scalar=free_plan,
+        plano_precos_rows=[("ate_100", 199), ("teste_free", 0)],
+        subscription=sub,
+        subscription_ops=[operation],
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+
+    resp = client.patch(
+        "/admin/igrejas/00000000-0000-0000-0000-000000000009",
+        headers=_AUTH,
+        json={"plano": "teste_free"},
+    )
+
+    assert resp.status_code == 409
+    assert "Concilie-a manualmente" in resp.json()["detail"]
+    assert igreja.plano == "ate_100"
+    assert db.committed is False
+
+
+@pytest.mark.parametrize("operation_status", ["failed", "superseded"])
+def test_admin_allows_complimentary_after_safe_terminal_subscription_operation(
+    app, operation_status: str
+) -> None:
+    igreja = SimpleNamespace(
+        id="00000000-0000-0000-0000-000000000009",
+        nome="Igreja conciliada",
+        status="ativa",
+        plano="ate_100",
+        created_at=None,
+    )
+    free_plan = _plano_ns(
+        id="free-1", codigo="teste_free", nome="Cortesia", preco_mensal=0
+    )
+    db = PlatformDB(
+        gate_app_user=make_app_user(),
+        admin_marker="pa1",
+        igreja_scalar=igreja,
+        plano_scalar=free_plan,
+        plano_precos_rows=[("ate_100", 199), ("teste_free", 0)],
+        subscription=SimpleNamespace(id="sub-local", asaas_subscription_id=None),
+        subscription_ops=[SimpleNamespace(status=operation_status)],
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+
+    resp = client.patch(
+        "/admin/igrejas/00000000-0000-0000-0000-000000000009",
+        headers=_AUTH,
+        json={"plano": "teste_free"},
+    )
+
+    assert resp.status_code == 200
+    assert igreja.plano == "teste_free"
+
+
+def test_admin_removes_complimentary_without_creating_financial_operation(app) -> None:
+    igreja = SimpleNamespace(
+        id="00000000-0000-0000-0000-000000000009",
+        nome="Igreja Piloto",
+        status="ativa",
+        plano="teste_free",
+        created_at=None,
+    )
+    paid_plan = _plano_ns(codigo="ate_100", preco_mensal=199)
+    db = PlatformDB(
+        gate_app_user=make_app_user(),
+        admin_marker="pa1",
+        igreja_scalar=igreja,
+        plano_scalar=paid_plan,
+        plano_precos_rows=[("teste_free", 0), ("ate_100", 199)],
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+
+    resp = client.patch(
+        "/admin/igrejas/00000000-0000-0000-0000-000000000009",
+        headers=_AUTH,
+        json={"plano": "ate_100"},
+    )
+
+    assert resp.status_code == 200
+    assert igreja.plano == "ate_100"
+    assert not any(
+        isinstance(obj, (BillingSubscriptionOperation, BillingPlanChangeOperation))
+        for obj in db.added
+    )
+
+
 def test_admin_patch_sets_and_clears_setup_override(app) -> None:
     igreja = SimpleNamespace(
         id="00000000-0000-0000-0000-000000000009",
@@ -744,6 +874,35 @@ def test_admin_igreja_detail_drilldown(app) -> None:
     assert body["membros"] == 7 and body["pessoas"] == 7 and body["celulas"] == 7
     assert body["mensalidade"] == 199  # plano ate_100
     assert body["assinatura"] is None  # sem linha em subscriptions no fake
+
+
+def test_admin_igreja_detail_shows_zero_setup_for_complimentary_plan(app) -> None:
+    igreja = SimpleNamespace(
+        id="00000000-0000-0000-0000-000000000009",
+        nome="Igreja Piloto",
+        status="ativa",
+        plano="teste_free",
+        created_at=None,
+        setup_fee_override=99.0,
+    )
+    free_plan = _plano_ns(codigo="teste_free", preco_mensal=0)
+    db = PlatformDB(
+        gate_app_user=make_app_user(),
+        admin_marker="pa1",
+        igreja_scalar=igreja,
+        plano_scalar=free_plan,
+        plano_precos_rows=[("teste_free", 0)],
+        billing_settings=SimpleNamespace(id=1, setup_fee_default=59.9),
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+
+    resp = client.get(
+        "/admin/igrejas/00000000-0000-0000-0000-000000000009", headers=_AUTH
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["mensalidade"] == 0
+    assert resp.json()["setupFeeAplicavel"] == 0
 
 
 def test_admin_igreja_detail_404(app) -> None:
@@ -1000,6 +1159,64 @@ def test_admin_cannot_convert_in_use_paid_plan_to_complimentary(app) -> None:
 
     assert resp.status_code == 409
     assert plano.preco_mensal == 199
+
+
+@pytest.mark.parametrize(
+    "operation_status", ["prepared", "processing", "reconciling", "future_unknown"]
+)
+def test_admin_cannot_convert_plan_with_non_terminal_plan_change(
+    app, operation_status: str
+) -> None:
+    plano = _plano_ns(preco_mensal=199)
+    operation = SimpleNamespace(
+        status=operation_status,
+        from_plano="101_200",
+        to_plano=plano.codigo,
+    )
+    db = PlatformDB(
+        gate_app_user=make_app_user(),
+        admin_marker="pa1",
+        plano_scalar=plano,
+        count_value=0,
+        plan_changes=[operation],
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+
+    resp = client.patch(
+        f"/admin/planos/{_PLANO_ID}", headers=_AUTH, json={"precoMensal": 0}
+    )
+
+    assert resp.status_code == 409
+    assert "troca de assinatura em aberto" in resp.json()["detail"]
+    assert plano.preco_mensal == 199
+
+
+@pytest.mark.parametrize("operation_status", ["completed", "failed"])
+def test_admin_can_convert_unused_plan_after_terminal_plan_change(
+    app, operation_status: str
+) -> None:
+    plano = _plano_ns(preco_mensal=199)
+    db = PlatformDB(
+        gate_app_user=make_app_user(),
+        admin_marker="pa1",
+        plano_scalar=plano,
+        count_value=0,
+        plan_changes=[
+            SimpleNamespace(
+                status=operation_status,
+                from_plano="101_200",
+                to_plano=plano.codigo,
+            )
+        ],
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+
+    resp = client.patch(
+        f"/admin/planos/{_PLANO_ID}", headers=_AUTH, json={"precoMensal": 0}
+    )
+
+    assert resp.status_code == 200
+    assert plano.preco_mensal == 0
 
 
 def test_admin_update_plano_404(app) -> None:

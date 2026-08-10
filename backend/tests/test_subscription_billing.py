@@ -3120,6 +3120,8 @@ def test_get_subscription_exposes_master_assigned_complimentary_plan(app) -> Non
             )
         ],
         asaas=asaas,
+        setup_fee_default=59.9,
+        setup_fee_override=99.0,
         subscription=_subscription(
             status=None,
             asaas_customer_id=None,
@@ -3155,6 +3157,7 @@ def test_get_subscription_exposes_master_assigned_complimentary_plan(app) -> Non
 
     catalog = client.get("/subscription/planos", headers=_AUTH)
     assert [p["codigo"] for p in catalog.json()["planos"]] == ["teste_free"]
+    assert catalog.json()["setupFee"] == 0.0
 
 
 def test_list_planos_forbidden_for_non_owner_admin(app) -> None:

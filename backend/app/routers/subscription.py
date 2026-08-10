@@ -70,6 +70,8 @@ from app.services.billing import (
     find_subscription_operation_by_key,
     get_setup_fee_for_igreja,
     is_complimentary_plan,
+    lock_igreja_for_billing,
+    lock_plan_rows_for_billing,
     payment_matches_operation,
     prepare_subscription_operation,
     reconcile_subscription_operation,
@@ -1089,6 +1091,17 @@ def create_checkout(
         # (server_default) antes de qualquer chamada externa.
         db.commit()
 
+        # O commit do placeholder liberou o lock da igreja. Reobtém e repete a
+        # guarda antes de qualquer intenção: se o master concedeu cortesia na
+        # janela, o checkout termina sem nova operação nem chamada remota.
+        igreja = lock_igreja_for_billing(db, igreja_uuid)
+        if igreja is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Igreja não encontrada",
+            )
+        _reject_complimentary_self_service(db, igreja)
+
     contracted_setup_fee = getattr(sub, "setup_fee_contracted", None)
     # `setup_pago` é estado, não preço contratual. Uma confirmação pode ser
     # revertida enquanto a retomada consulta a mensalidade; preservar o valor
@@ -1146,6 +1159,28 @@ def create_checkout(
     # comprovadamente não postou nada e por isso não tem o que adotar): aqui
     # sim o plano precisa estar ATIVO no catálogo.
     plano_row = _plano_ativo_or_422(db, payload.plano)
+
+    # Última revalidação sob o lock compartilhado com o master. A intenção
+    # abaixo é persistida no mesmo commit que libera este lock.
+    igreja = lock_igreja_for_billing(db, igreja_uuid)
+    if igreja is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Igreja não encontrada"
+        )
+    _reject_complimentary_self_service(db, igreja)
+    locked_plan = lock_plan_rows_for_billing(db, payload.plano).get(payload.plano)
+    if (
+        locked_plan is None
+        or not locked_plan.ativo
+        or is_complimentary_plan(locked_plan)
+        or float(locked_plan.preco_mensal) != float(plano_row.preco_mensal)
+        or locked_plan.limite_pessoas != plano_row.limite_pessoas
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="O plano foi alterado ou virou cortesia; recarregue antes de continuar",
+        )
+    plano_row = locked_plan
 
     # A INTENÇÃO durável nasce (ou é adotada) ANTES do POST /subscriptions: a
     # operation_key vira a externalReference da assinatura — uma resposta
@@ -1918,6 +1953,7 @@ def change_plan(
     _reject_complimentary_self_service(db, igreja)
 
     plano_row = _plano_ativo_or_422(db, payload.plano)
+
     if is_complimentary_plan(plano_row):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

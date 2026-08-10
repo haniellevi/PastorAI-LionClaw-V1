@@ -50,6 +50,9 @@ const BRL = new Intl.NumberFormat("pt-BR", {
   maximumFractionDigits: 0,
 });
 
+const COMPLIMENTARY_ADMIN_MESSAGE =
+  "Somente o administrador da plataforma pode retirar este plano de cortesia.";
+
 function formatLimit(limite: number | null): string {
   return limite == null ? "Ilimitado" : `${limite} membros`;
 }
@@ -568,7 +571,7 @@ export function AssinaturaScreen() {
                   </div>
                   {complimentary ? (
                     <p className="helper" style={{ margin: "var(--s2) 0 0" }}>
-                      Este plano de cortesia é gerenciado pelo administrador da plataforma.
+                      {COMPLIMENTARY_ADMIN_MESSAGE}
                     </p>
                   ) : null}
                 </div>
@@ -717,7 +720,7 @@ export function AssinaturaScreen() {
             <div className="card-pad" style={{ borderBottom: "1px solid var(--border)" }}>
               <p className="sub" style={{ color: "var(--muted)", margin: 0 }}>
                 {complimentary
-                  ? "Este plano de cortesia é gerenciado pelo administrador da plataforma."
+                  ? COMPLIMENTARY_ADMIN_MESSAGE
                   : "Regularize as cobranças pendentes (mensalidade e taxa de setup) para poder mudar de plano."}
               </p>
             </div>
@@ -761,7 +764,9 @@ export function AssinaturaScreen() {
                           disabled={changingPlan || planChangeBlocked}
                           title={
                             planChangeBlocked
-                              ? "Regularize as cobranças pendentes para mudar de plano."
+                              ? complimentary
+                                ? COMPLIMENTARY_ADMIN_MESSAGE
+                                : "Regularize as cobranças pendentes para mudar de plano."
                               : undefined
                           }
                         >
