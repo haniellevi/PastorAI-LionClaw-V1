@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from dataclasses import dataclass
 from threading import BoundedSemaphore
@@ -34,6 +35,10 @@ _REDIS_TIMEOUT_SECONDS = 1.0
 _EVOLUTION_TIMEOUT_SECONDS = 1.5
 _PROBE_CONCURRENCY_LIMIT = 3
 _PROBE_SLOTS = BoundedSemaphore(_PROBE_CONCURRENCY_LIMIT)
+_PROBE_EXECUTOR = ThreadPoolExecutor(
+    max_workers=_PROBE_CONCURRENCY_LIMIT,
+    thread_name_prefix="readiness-probe",
+)
 _OPTIONAL_HEALTHY_STATES = frozenset({"ok", "disabled"})
 
 
@@ -130,22 +135,30 @@ async def _bounded_probe(
     *,
     timeout_seconds: float,
 ) -> tuple[str, Any | None]:
-    if not _PROBE_SLOTS.acquire(blocking=False):
+    # Capture the exact guard used for this submission. Tests replace the global
+    # semaphore, and a residual probe may finish after that replacement.
+    slots = _PROBE_SLOTS
+    if not slots.acquire(blocking=False):
         logger.warning(
             "readiness_probe_failed dependency=%s error_type=Busy",
             name,
         )
         return "busy", None
 
-    def run_and_release() -> Any:
-        try:
-            return probe()
-        finally:
-            _PROBE_SLOTS.release()
+    try:
+        # Keep the concurrent Future itself. Cancelling an asyncio wrapper only
+        # cancels a queued job; a running driver call retains its slot until the
+        # real work completes. The done callback is therefore the single release
+        # point for success, error, timeout and cancellation.
+        future = _PROBE_EXECUTOR.submit(probe)
+    except BaseException:
+        slots.release()
+        raise
+    future.add_done_callback(lambda _future: slots.release())
 
     try:
         payload = await asyncio.wait_for(
-            asyncio.to_thread(run_and_release),
+            asyncio.wrap_future(future),
             timeout=timeout_seconds,
         )
         return "ok", payload

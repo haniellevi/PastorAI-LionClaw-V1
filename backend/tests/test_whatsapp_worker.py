@@ -21,6 +21,7 @@ from app.workers.queue_worker import (
     WEBHOOK_QUEUE,
     WORKER_LEASE_SECONDS,
     WORKER_REGISTRY,
+    ClaimOwnershipLost,
     IngestionOutcome,
     IngestionResult,
     QueueWorker,
@@ -30,6 +31,7 @@ from app.workers.queue_worker import (
     ingest_message_event,
     ingest_message_event_ex,
     process_webhook_payload,
+    run_agent_for_message,
 )
 
 
@@ -45,6 +47,7 @@ class FakeRedis:
         self.sets: dict[str, set[str]] = {}
         self.direct_lrem_calls = 0
         self.failed_transition_calls = 0
+        self.fence_calls: list[tuple[str, str]] = []
 
     def lpush(self, key: str, value: str) -> None:
         self.lists.setdefault(key, []).insert(0, value)
@@ -120,22 +123,29 @@ class FakeRedis:
         return 1
 
     def eval(self, script: str, numkeys: int, *values: str) -> int:
-        if numkeys == 3:  # release marker only for the live raw-item owner
-            lease_key, processing, marker_key, worker_id, raw, expected = values
+        if numkeys == 3:  # marker mutation only for the live raw-item owner
+            lease_key, processing, marker_key, worker_id, raw, expected, *rest = values
             if self.kv.get(lease_key) != worker_id:
                 return 0
             if raw not in self.lists.get(processing, []):
                 return 0
             if self.kv.get(marker_key) != expected:
                 return 0
-            self.kv.pop(marker_key, None)
+            if rest:
+                done, _ttl = rest
+                self.kv[marker_key] = done
+            else:
+                self.kv.pop(marker_key, None)
             return 1
 
         if "LRANGE" in script:  # atomic worker lease + private-list ownership
-            lease_key, processing, worker_id, raw = values
+            lease_key, processing, worker_id, raw, *_ttl = values
             if self.kv.get(lease_key) != worker_id:
                 return 0
-            return int(raw in self.lists.get(processing, []))
+            owned = raw in self.lists.get(processing, [])
+            if owned and _ttl:
+                self.fence_calls.append((worker_id, _ttl[0]))
+            return int(owned)
 
         if numkeys == 2:  # atomic processing -> ready/dead transition
             processing, target, raw, replacement = values
@@ -833,6 +843,22 @@ def test_queue_claim_and_ack_use_processing_list() -> None:
     assert redis.direct_lrem_calls == 1
 
 
+def test_effect_fence_atomically_renews_a_live_claim() -> None:
+    redis = FakeRedis()
+    queue = WebhookQueue(redis_client=redis)
+    worker_id = "worker-fence"
+    queue.register_worker(worker_id)
+    queue.enqueue(_parsed_payload("FENCE"))
+    raw = queue.claim(worker_id, timeout=0)
+
+    queue.assert_claim_owned(worker_id, raw)
+
+    assert redis.fence_calls == [(worker_id, str(WORKER_LEASE_SECONDS))]
+    redis.delete(queue._lease_key(worker_id))  # noqa: SLF001
+    with pytest.raises(ClaimOwnershipLost):
+        queue.assert_claim_owned(worker_id, raw)
+
+
 def test_recovery_does_not_steal_active_worker_claim() -> None:
     redis = FakeRedis()
     queue = WebhookQueue(redis_client=redis)
@@ -885,7 +911,7 @@ def test_old_worker_stops_before_commit_after_live_claim_recovery() -> None:
     old_worker = QueueWorker(
         queue=queue,
         session_factory=session_factory,
-        agent_runner=lambda _factory, outcome: agent_calls.append(outcome),
+        agent_runner=lambda _factory, outcome, _guard: agent_calls.append(outcome),
         media_resolver=media_resolver,
         worker_id=old_worker_id,
     )
@@ -910,7 +936,7 @@ def test_old_worker_stops_before_commit_after_live_claim_recovery() -> None:
     recovered_worker = QueueWorker(
         queue=queue,
         session_factory=session_factory,
-        agent_runner=lambda _factory, outcome: agent_calls.append(outcome),
+        agent_runner=lambda _factory, outcome, _guard: agent_calls.append(outcome),
         media_resolver=media_resolver,
         worker_id=new_worker_id,
     )
@@ -922,6 +948,147 @@ def test_old_worker_stops_before_commit_after_live_claim_recovery() -> None:
     # id; SupabaseStorage maps it to one deterministic upsert object path.
     assert media_calls == ["LEASE-RACE", "LEASE-RACE"]
     assert redis.lists[queue.processing_queue(new_worker_id)] == []
+
+
+def test_lease_recovery_between_ingest_and_agent_has_one_external_effect(
+    monkeypatch,
+) -> None:
+    """A stale owner aborts; the recovered owner resumes the same claim once."""
+    from app.workers import queue_worker as worker_module
+
+    redis = FakeRedis()
+    queue = WebhookQueue(redis_client=redis)
+    old_worker_id = "worker-agent-old"
+    new_worker_id = "worker-agent-new"
+    queue.register_worker(old_worker_id)
+    queue.register_worker(new_worker_id)
+    queue.enqueue(_parsed_payload("AGENT-LEASE-RACE"))
+    raw = queue.claim(old_worker_id, timeout=0)
+    assert raw is not None
+
+    outcomes = iter(
+        [
+            IngestionOutcome(
+                result=IngestionResult.REGISTERED,
+                conversation_id="conversation-1",
+                instance="igreja-1",
+                telefone="5511988887777",
+                texto="ola",
+                inbound=True,
+                igreja_id=_IGREJA,
+            ),
+            IngestionOutcome(
+                result=IngestionResult.DUPLICATE,
+                conversation_id="conversation-1",
+                instance="igreja-1",
+                telefone="5511988887777",
+                texto="ola",
+                inbound=True,
+                igreja_id=_IGREJA,
+            ),
+        ]
+    )
+    monkeypatch.setattr(
+        worker_module,
+        "ingest_message_event_ex",
+        lambda *_args, **_kwargs: next(outcomes),
+    )
+    session_factory = lambda: SimpleNamespace(close=lambda: None)  # noqa: E731
+    recovered_raw: list[str] = []
+    effects: list[str] = []
+
+    def stale_agent(_factory, _outcome, ownership_guard) -> None:
+        # Recovery wins after the worker's pre-runner fence but before the
+        # runner's first effect fence.
+        redis.delete(queue._lease_key(old_worker_id))  # noqa: SLF001
+        assert queue.recover_pending(new_worker_id) == 1
+        claimed = queue.claim(new_worker_id, timeout=0)
+        assert claimed == raw
+        recovered_raw.append(claimed)
+        ownership_guard()
+        effects.append("stale")  # pragma: no cover - ownership must abort first
+
+    old_worker = QueueWorker(
+        queue=queue,
+        session_factory=session_factory,
+        agent_runner=stale_agent,
+        worker_id=old_worker_id,
+    )
+    old_worker._handle_raw(raw)  # noqa: SLF001
+
+    assert effects == []
+    assert recovered_raw == [raw]
+    assert redis.get("pastorai:processed:AGENT-LEASE-RACE").startswith(
+        "processing:"
+    )
+
+    def recovered_agent(_factory, _outcome, ownership_guard) -> None:
+        ownership_guard()
+        effects.append("recovered")
+
+    new_worker = QueueWorker(
+        queue=queue,
+        session_factory=session_factory,
+        agent_runner=recovered_agent,
+        worker_id=new_worker_id,
+    )
+    new_worker._handle_raw(recovered_raw[0])  # noqa: SLF001
+
+    assert effects == ["recovered"]
+    assert redis.get("pastorai:processed:AGENT-LEASE-RACE") == "done"
+    assert redis.lists[queue.processing_queue(new_worker_id)] == []
+
+
+def test_agent_checks_ownership_immediately_before_whatsapp(monkeypatch) -> None:
+    from app.agent import runtime as runtime_module
+
+    monkeypatch.setattr(
+        runtime_module,
+        "process_inbound_message",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            handled=True,
+            suppressed=False,
+            response="resposta",
+        ),
+    )
+
+    class FakeEvolution:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str, str]] = []
+
+        def send_text(self, instance, telefone, texto):
+            self.calls.append((instance, telefone, texto))
+            return True
+
+    evolution = FakeEvolution()
+    guard_calls = 0
+
+    def ownership_guard() -> None:
+        nonlocal guard_calls
+        guard_calls += 1
+        if guard_calls == 2:
+            raise ClaimOwnershipLost("recovered before WhatsApp")
+
+    session_factory = lambda: SimpleNamespace(close=lambda: None)  # noqa: E731
+    outcome = IngestionOutcome(
+        result=IngestionResult.REGISTERED,
+        conversation_id="conversation-1",
+        instance="igreja-1",
+        telefone="5511988887777",
+        texto="ola",
+        inbound=True,
+    )
+
+    with pytest.raises(ClaimOwnershipLost, match="before WhatsApp"):
+        run_agent_for_message(
+            session_factory,
+            outcome,
+            ownership_guard,
+            evolution_client=evolution,
+        )
+
+    assert guard_calls == 2
+    assert evolution.calls == []
 
 
 def test_unregister_keeps_orphan_with_pending_item_discoverable() -> None:

@@ -249,11 +249,15 @@ journalctl -u pastorai-monitor.service -n 50 --no-pager
 ```
 
 O modo padrão preserva o cron M02, não habilita `pastorai-backup.timer` e executa
-somente a primeira sondagem local. Se cron e timer já estiverem simultaneamente
-ativos, o instalador aborta para impedir dois backups diários. Uma migração
+somente a primeira sondagem local. Se houver cron legado junto de timer
+habilitado ou ativo, o instalador aborta antes de escrever arquivos para impedir
+dois backups diários. Arquivos, permissões e estado anterior dos timers são
+restaurados se qualquer etapa da instalação falhar. Uma migração
 futura para timer exige remover o cron em gate operacional próprio e então usar
-explicitamente `PASTORAI_BACKUP_TIMER_MODE=enable`; essa opção também executa um
-primeiro backup. A raiz canônica continua sendo `/root/pastorai-backups`.
+explicitamente `PASTORAI_BACKUP_TIMER_MODE=enable`; essa opção apenas habilita o
+timer e não executa um backup. A raiz canônica continua sendo
+`/root/pastorai-backups`. O monitor considera válido somente o pacote mais
+recente cujo SHA-256 real corresponde ao sidecar do mesmo arquivo.
 O workflow `production-monitor.yml` faz os checks públicos e mantém uma issue
 deduplicada no GitHub. Procedimento, estados e limites de disaster recovery:
 [`deploy/monitoring/README.md`](../../deploy/monitoring/README.md).

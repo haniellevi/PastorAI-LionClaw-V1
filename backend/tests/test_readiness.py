@@ -6,8 +6,10 @@ import asyncio
 import logging
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.services.readiness import ReadinessReport, collect_readiness
@@ -268,6 +270,119 @@ def test_repeated_timeouts_have_strict_concurrency_limit_and_recover(
         for report in reports
     )
     assert recovered.status == "ready"
+
+
+def test_cancelled_queued_probe_releases_exact_slot_and_recovers(
+    monkeypatch,
+) -> None:
+    import app.services.readiness as readiness
+
+    executor_blocked = threading.Event()
+    release_executor = threading.Event()
+    probe_started = threading.Event()
+    executor = ThreadPoolExecutor(max_workers=1)
+
+    def occupy_executor() -> None:
+        executor_blocked.set()
+        release_executor.wait(timeout=2)
+
+    blocker = executor.submit(occupy_executor)
+    assert executor_blocked.wait(timeout=1)
+    slots = threading.BoundedSemaphore(1)
+    monkeypatch.setattr(readiness, "_PROBE_EXECUTOR", executor)
+    monkeypatch.setattr(readiness, "_PROBE_SLOTS", slots)
+
+    async def exercise() -> None:
+        for index in range(3):
+            task = asyncio.create_task(
+                readiness._bounded_probe(  # noqa: SLF001
+                    f"queued-{index}",
+                    lambda: probe_started.set(),
+                    timeout_seconds=1,
+                )
+            )
+            await asyncio.sleep(0)
+            assert slots.acquire(blocking=False) is False
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            assert slots.acquire(blocking=False) is True
+            slots.release()
+
+        result = await readiness._bounded_probe(  # noqa: SLF001
+            "queued-recovery",
+            lambda: "should-not-run-yet",
+            timeout_seconds=0.001,
+        )
+        assert result[0] == "timeout"
+
+    try:
+        asyncio.run(exercise())
+        assert probe_started.is_set() is False
+    finally:
+        release_executor.set()
+        blocker.result(timeout=1)
+        executor.shutdown(wait=True, cancel_futures=True)
+
+
+def test_cancelled_running_probe_holds_slot_until_real_completion(
+    monkeypatch,
+) -> None:
+    import app.services.readiness as readiness
+
+    started = threading.Event()
+    release = threading.Event()
+    finished = threading.Event()
+    executor = ThreadPoolExecutor(max_workers=1)
+    slots = threading.BoundedSemaphore(1)
+    monkeypatch.setattr(readiness, "_PROBE_EXECUTOR", executor)
+    monkeypatch.setattr(readiness, "_PROBE_SLOTS", slots)
+
+    def running_probe() -> None:
+        started.set()
+        try:
+            release.wait(timeout=2)
+        finally:
+            finished.set()
+
+    async def exercise() -> None:
+        task = asyncio.create_task(
+            readiness._bounded_probe(  # noqa: SLF001
+                "running",
+                running_probe,
+                timeout_seconds=1,
+            )
+        )
+        assert await asyncio.to_thread(started.wait, 1)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        busy = await readiness._bounded_probe(  # noqa: SLF001
+            "busy-while-running",
+            lambda: None,
+            timeout_seconds=0.1,
+        )
+        assert busy == ("busy", None)
+
+        release.set()
+        assert await asyncio.to_thread(finished.wait, 1)
+        for _ in range(10):
+            recovered = await readiness._bounded_probe(  # noqa: SLF001
+                "running-recovery",
+                lambda: "ok",
+                timeout_seconds=0.1,
+            )
+            if recovered == ("ok", "ok"):
+                break
+            await asyncio.sleep(0)
+        assert recovered == ("ok", "ok")
+
+    try:
+        asyncio.run(exercise())
+    finally:
+        release.set()
+        executor.shutdown(wait=True, cancel_futures=True)
 
 
 def test_disabled_evolution_is_not_a_failure(monkeypatch) -> None:

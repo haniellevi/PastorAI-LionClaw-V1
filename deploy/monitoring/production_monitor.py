@@ -9,11 +9,14 @@ for the application.  Notifications are deduplicated by persisted state.
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import html
 import json
 import os
+import re
 import urllib.error
 import urllib.request
+from contextlib import contextmanager
 from dataclasses import asdict, dataclass
 from enum import Enum
 from pathlib import Path
@@ -23,6 +26,7 @@ UTC = dt.timezone.utc
 DEFAULT_ENV_FILE = Path("/opt/pastorai-current/deploy/.env")
 DEFAULT_STATE_FILE = Path("/var/lib/pastorai-monitor/state.json")
 DEFAULT_BACKUP_ROOT = Path("/root/pastorai-backups")
+_SHA256_RE = re.compile(r"[0-9a-fA-F]{64}")
 
 
 @dataclass(frozen=True)
@@ -128,10 +132,25 @@ def check_backup(
     latest = archives[-1]
     checksum = Path(str(latest) + ".sha256")
     try:
-        if not checksum.is_file() or checksum.stat().st_size < 64:
+        if not checksum.is_file() or not latest.is_file():
             return CheckResult("backup", False, "checksum lateral ausente")
+        checksum_lines = checksum.read_text(encoding="utf-8").splitlines()
+        if len(checksum_lines) != 1:
+            return CheckResult("backup", False, "checksum lateral invalido")
+        checksum_parts = checksum_lines[0].split(maxsplit=1)
+        if len(checksum_parts) != 2 or not _SHA256_RE.fullmatch(checksum_parts[0]):
+            return CheckResult("backup", False, "checksum lateral invalido")
+        referenced_name = checksum_parts[1].lstrip("*").strip()
+        if not referenced_name or Path(referenced_name).name != latest.name:
+            return CheckResult("backup", False, "checksum lateral invalido")
+        digest = hashlib.sha256()
+        with latest.open("rb") as archive:
+            for chunk in iter(lambda: archive.read(1024 * 1024), b""):
+                digest.update(chunk)
+        if digest.hexdigest().lower() != checksum_parts[0].lower():
+            return CheckResult("backup", False, "checksum divergente")
         modified = dt.datetime.fromtimestamp(latest.stat().st_mtime, tz=UTC)
-    except OSError as exc:
+    except (OSError, UnicodeError) as exc:
         return CheckResult("backup", False, f"indisponivel ({type(exc).__name__})")
     checked_at = now or utcnow()
     age_hours = max(0.0, (checked_at - modified).total_seconds() / 3600)
@@ -154,6 +173,42 @@ def save_state(path: Path, state: dict[str, Any]) -> None:
     temporary.write_text(json.dumps(state, sort_keys=True) + "\n", encoding="utf-8")
     os.chmod(temporary, 0o600)
     temporary.replace(path)
+
+
+@contextmanager
+def state_file_lock(state_path: Path):
+    """Serialize alert decisions across timer/manual monitor processes."""
+    lock_path = Path(str(state_path) + ".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    descriptor = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    os.chmod(lock_path, 0o600)
+    handle = os.fdopen(descriptor, "r+b", buffering=0)
+    try:
+        if os.name == "nt":  # pragma: no cover - exercised by Windows CI only
+            import msvcrt
+
+            if handle.seek(0, os.SEEK_END) == 0:
+                handle.write(b"\0")
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+        else:
+            import fcntl
+
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        yield
+    finally:
+        try:
+            handle.seek(0)
+            if os.name == "nt":  # pragma: no cover - exercised by Windows CI only
+                import msvcrt
+
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        finally:
+            handle.close()
 
 
 def failure_signature(checks: list[CheckResult]) -> str:
@@ -262,7 +317,6 @@ def run(config: dict[str, str], *, now: dt.datetime | None = None) -> int:
         )
 
     state_path = Path(config.get("MONITOR_STATE_FILE", DEFAULT_STATE_FILE))
-    previous = load_state(state_path)
     signature = failure_signature(checks)
     try:
         reminder = int(config.get("MONITOR_REMINDER_HOURS", "6"))
@@ -278,47 +332,52 @@ def run(config: dict[str, str], *, now: dt.datetime | None = None) -> int:
         )
     except ValueError:
         ambiguous_retry_hours = 6
-    notify = should_notify(
-        previous,
-        signature,
-        now=checked_at,
-        reminder_hours=reminder,
-        retry_hours=retry_hours,
-        ambiguous_retry_hours=ambiguous_retry_hours,
-    )
-    state = {
-        "checked_at": checked_at.isoformat(),
-        "attempted_at": previous.get("attempted_at"),
-        "delivered_at": previous.get("delivered_at"),
-        "notified_at": previous.get("notified_at"),
-        "delivery_status": previous.get("delivery_status"),
-        "signature": signature,
-        "checks": [asdict(item) for item in checks],
-    }
-    if notify:
-        subject = (
-            "[PastorAI] Falha na producao"
-            if signature
-            else "[PastorAI] Producao recuperada"
+    with state_file_lock(state_path):
+        # The lock deliberately includes network I/O. A second timer/manual
+        # process must observe the persisted attempt instead of making the same
+        # transition concurrently.
+        previous = load_state(state_path)
+        notify = should_notify(
+            previous,
+            signature,
+            now=checked_at,
+            reminder_hours=reminder,
+            retry_hours=retry_hours,
+            ambiguous_retry_hours=ambiguous_retry_hours,
         )
-        state["attempted_at"] = checked_at.isoformat()
-        state["delivery_status"] = "attempting"
-        # Persist the transition before network I/O. A crash or ambiguous
-        # response is therefore cooled down instead of retried every five minutes.
-        save_state(state_path, state)
-        try:
-            delivery = send_brevo_alert(config, subject=subject, checks=checks)
-        except Exception as exc:  # noqa: BLE001 - custom sender must remain safe
-            print(
-                "monitor_alert delivery=ambiguous "
-                f"error_type={type(exc).__name__}"
+        state = {
+            "checked_at": checked_at.isoformat(),
+            "attempted_at": previous.get("attempted_at"),
+            "delivered_at": previous.get("delivered_at"),
+            "notified_at": previous.get("notified_at"),
+            "delivery_status": previous.get("delivery_status"),
+            "signature": signature,
+            "checks": [asdict(item) for item in checks],
+        }
+        if notify:
+            subject = (
+                "[PastorAI] Falha na producao"
+                if signature
+                else "[PastorAI] Producao recuperada"
             )
-            delivery = AlertDelivery.AMBIGUOUS
-        state["delivery_status"] = delivery.value
-        if delivery is AlertDelivery.SENT:
-            state["delivered_at"] = checked_at.isoformat()
-            state["notified_at"] = checked_at.isoformat()
-    save_state(state_path, state)
+            state["attempted_at"] = checked_at.isoformat()
+            state["delivery_status"] = "attempting"
+            # Persist before network I/O. Crash/ambiguity is cooled down after
+            # the OS releases the process lock.
+            save_state(state_path, state)
+            try:
+                delivery = send_brevo_alert(config, subject=subject, checks=checks)
+            except Exception as exc:  # noqa: BLE001 - custom sender must remain safe
+                print(
+                    "monitor_alert delivery=ambiguous "
+                    f"error_type={type(exc).__name__}"
+                )
+                delivery = AlertDelivery.AMBIGUOUS
+            state["delivery_status"] = delivery.value
+            if delivery is AlertDelivery.SENT:
+                state["delivered_at"] = checked_at.isoformat()
+                state["notified_at"] = checked_at.isoformat()
+        save_state(state_path, state)
     return 1 if signature else 0
 
 

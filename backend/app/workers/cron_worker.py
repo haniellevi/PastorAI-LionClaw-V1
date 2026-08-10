@@ -23,6 +23,7 @@ import logging
 import signal
 import time
 from collections.abc import Callable
+from threading import Event, Lock, Thread
 from typing import Any
 
 from sqlalchemy import select
@@ -80,9 +81,23 @@ def _now() -> dt.datetime:
 # ---------------------------------------------------------------------------
 # Cron action handlers
 # ---------------------------------------------------------------------------
-def _action_sla(session: Session, cron: Cron, engine: SlaEngine) -> int:
+def _action_sla(
+    session: Session,
+    cron: Cron,
+    engine: SlaEngine,
+    *,
+    progress_callback: Callable[[], None] | None = None,
+) -> int:
     """Run the SLA engine for the cron's igreja (idempotent)."""
-    return len(engine.run_for_igreja(session, cron.igreja_id))
+    if progress_callback is None:
+        return len(engine.run_for_igreja(session, cron.igreja_id))
+    return len(
+        engine.run_for_igreja(
+            session,
+            cron.igreja_id,
+            progress_callback=progress_callback,
+        )
+    )
 
 
 def _is_sla_action(acao: str | None) -> bool:
@@ -98,6 +113,7 @@ def run_due_crons(
     engine: SlaEngine,
     now: dt.datetime | None = None,
     last_run: dict[str, dt.datetime] | None = None,
+    progress_callback: Callable[[], None] | None = None,
 ) -> int:
     """Execute active crons that are due (recurring) or state-driven.
 
@@ -111,14 +127,23 @@ def run_due_crons(
     crons = session.execute(
         select(Cron).where(Cron.ativo.is_(True))
     ).scalars().all()
+    if progress_callback is not None:
+        progress_callback()
 
     dispatched = 0
     for cron in crons:
+        if progress_callback is not None:
+            progress_callback()
         if not _should_run(cron, now, last_run):
             continue
         try:
             if _is_sla_action(cron.acao):
-                _action_sla(session, cron, engine)
+                _action_sla(
+                    session,
+                    cron,
+                    engine,
+                    progress_callback=progress_callback,
+                )
             else:
                 logger.info(
                     "Cron '%s' has no executable action handler (acao=%s); skipped",
@@ -130,6 +155,9 @@ def run_due_crons(
         except Exception:  # noqa: BLE001 - one cron must not break the others
             logger.exception("Cron '%s' execution failed", cron.nome)
             session.rollback()
+        finally:
+            if progress_callback is not None:
+                progress_callback()
     return dispatched
 
 
@@ -162,6 +190,8 @@ class CronWorker:
         tick_seconds: int | None = None,
         settings: Any | None = None,
         heartbeat_publisher: Callable[[str, int], None] | None = None,
+        progress_clock: Callable[[], float] = time.monotonic,
+        progress_timeout_seconds: float = WORKER_HEARTBEAT_TTL_SECONDS,
     ) -> None:
         boot_settings = settings or get_settings()
         self._session_factory = session_factory or get_session_factory()
@@ -180,6 +210,39 @@ class CronWorker:
                 ttl_seconds=ttl,
             )
         self._health_state = "ready"
+        self._heartbeat_stop = Event()
+        self._heartbeat_thread: Thread | None = None
+        self._progress_clock = progress_clock
+        self._progress_timeout_seconds = max(
+            float(WORKER_HEARTBEAT_SECONDS),
+            float(progress_timeout_seconds),
+        )
+        self._progress_lock = Lock()
+        self._last_progress_at = self._progress_clock()
+
+    def _record_progress(self) -> None:
+        with self._progress_lock:
+            self._last_progress_at = self._progress_clock()
+
+    def _progress_stale(self) -> bool:
+        with self._progress_lock:
+            last_progress_at = self._last_progress_at
+        return self._progress_clock() - last_progress_at > self._progress_timeout_seconds
+
+    def _heartbeat_once(self) -> bool:
+        """Publish health only while the main tick/sleep loop makes progress."""
+        if self._progress_stale():
+            logger.error("Cron worker stalled; heartbeat renewal stopped")
+            self._publish_health("error")
+            self._running = False
+            return False
+        self._publish_health()
+        return True
+
+    def _heartbeat_loop(self) -> None:
+        while not self._heartbeat_stop.wait(WORKER_HEARTBEAT_SECONDS):
+            if not self._heartbeat_once():
+                return
 
     def _publish_health(self, state: str | None = None) -> None:
         if state is not None:
@@ -201,6 +264,7 @@ class CronWorker:
         """Request a graceful shutdown (SIGTERM/SIGINT handler)."""
         logger.info("Cron worker shutdown requested")
         self._running = False
+        self._heartbeat_stop.set()
 
     def _purge_oauth_flows(self, now: dt.datetime) -> int:
         """Purga fluxos OAuth expirados numa sessão PRÓPRIA, cross-tenant.
@@ -247,6 +311,7 @@ class CronWorker:
         """
         now = now or _now()
         oauth_flows_purged = self._purge_oauth_flows(now)
+        self._record_progress()
         session: Session = self._session_factory()
         try:
             # A `session` compartilhada só faz a DESCOBERTA cross-tenant do sweep
@@ -257,21 +322,31 @@ class CronWorker:
                 self._engine,
                 now,
                 session_factory=self._session_factory,
+                progress_callback=self._record_progress,
             )
+            self._record_progress()
             crons_run = run_due_crons(
-                session, engine=self._engine, now=now, last_run=self._last_run
+                session,
+                engine=self._engine,
+                now=now,
+                last_run=self._last_run,
+                progress_callback=self._record_progress,
             )
+            self._record_progress()
             # Auto-upgrade de plano (billing): fronteira de erro PRÓPRIA — uma
             # falha aqui nunca impede o sweep de SLA nem os crons do tick, e
             # vice-versa. A descoberta usa a mesma sessão compartilhada; o
             # processamento abre sessões tenant-scoped próprias (D3).
             try:
                 plan_changes = run_pending_plan_changes(
-                    session, session_factory=self._session_factory
+                    session,
+                    session_factory=self._session_factory,
+                    progress_callback=self._record_progress,
                 )
             except Exception:  # noqa: BLE001 - billing não derruba o tick
                 logger.exception("Autoupgrade plan-change pass failed")
                 plan_changes = 0
+            self._record_progress()
         finally:
             session.close()
         return {
@@ -284,12 +359,25 @@ class CronWorker:
     def run(self) -> None:
         """Block ticking on the configured interval until stopped."""
         self._running = True
+        self._heartbeat_stop.clear()
+        self._record_progress()
         logger.info("Cron worker started (tick=%ss)", self._tick_seconds)
+        heartbeat = Thread(
+            target=self._heartbeat_loop,
+            name="cron-worker-health",
+            daemon=True,
+        )
+        self._heartbeat_thread = heartbeat
+        heartbeat.start()
         try:
             while self._running:
+                self._record_progress()
                 self._publish_health("running")
                 try:
                     counters = self.tick()
+                    if self._progress_stale():
+                        self._publish_health("error")
+                        break
                     # `oauth_flows_purged` na linha NÃO é cosmético: é a
                     # assinatura que o gate G7a usa para provar que o worker
                     # está no artefato novo. Não remover.
@@ -307,15 +395,14 @@ class CronWorker:
                     self._publish_health("error")
                 # Sleep in small slices so shutdown stays responsive.
                 slept = 0
-                next_heartbeat = WORKER_HEARTBEAT_SECONDS
                 while self._running and slept < self._tick_seconds:
                     sleep_for = min(1, self._tick_seconds - slept)
                     time.sleep(sleep_for)
                     slept += sleep_for
-                    if slept >= next_heartbeat:
-                        self._publish_health()
-                        next_heartbeat += WORKER_HEARTBEAT_SECONDS
+                    self._record_progress()
         finally:
+            self._heartbeat_stop.set()
+            heartbeat.join(timeout=WORKER_HEARTBEAT_SECONDS + 1)
             self._publish_health("stopped")
             if self._owns_engine:
                 self._owns_engine = False

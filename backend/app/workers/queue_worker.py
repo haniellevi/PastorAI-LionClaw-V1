@@ -14,7 +14,8 @@ Design notes:
   `messages(igreja_id, provider_message_id)` where inbound) is the durable
   second barrier — `ingest_message_event_ex` catches the resulting
   IntegrityError and returns DUPLICATE instead of persisting twice or
-  re-running the agent.
+  treating a fresh provider redelivery as new work. A recovered copy of the
+  exact same queue claim may resume effects that were not finalized yet.
 - Official number only (US-07): a message is only persisted when its instance
   matches a registered `whatsapp_connections.instance`. Personal conversations
   (any other number/instance) are dropped.
@@ -148,6 +149,37 @@ end
 return 0
 """
 
+_FENCE_CLAIM_SCRIPT = """
+if redis.call('GET', KEYS[1]) ~= ARGV[1] then
+    return 0
+end
+local items = redis.call('LRANGE', KEYS[2], 0, -1)
+for _, item in ipairs(items) do
+    if item == ARGV[2] then
+        redis.call('EXPIRE', KEYS[1], ARGV[3])
+        return 1
+    end
+end
+return 0
+"""
+
+_MARK_DONE_IF_OWNED_SCRIPT = """
+if redis.call('GET', KEYS[1]) ~= ARGV[1] then
+    return 0
+end
+local items = redis.call('LRANGE', KEYS[2], 0, -1)
+for _, item in ipairs(items) do
+    if item == ARGV[2] then
+        if redis.call('GET', KEYS[3]) == ARGV[3] then
+            redis.call('SET', KEYS[3], ARGV[4], 'EX', ARGV[5])
+            return 1
+        end
+        return 0
+    end
+end
+return 0
+"""
+
 # Postgres error code for unique_violation (23505) — the only IntegrityError
 # `ingest_message_event_ex` treats as a duplicate; anything else re-raises.
 _PG_UNIQUE_VIOLATION = "23505"
@@ -196,20 +228,38 @@ def _provider_message_exists_after_fence(
     advisory locks; the durable unique index remains their idempotency seam.
     Production is Postgres and always takes this path.
     """
+    return (
+        _provider_message_after_fence(
+            db,
+            igreja_id,
+            provider_message_id,
+            inbound=inbound,
+        )
+        is not None
+    )
+
+
+def _provider_message_after_fence(
+    db: Session,
+    igreja_id: Any,
+    provider_message_id: str,
+    *,
+    inbound: bool,
+) -> Message | None:
+    """Fence one provider event and return the already persisted row, if any."""
     get_bind = getattr(db, "get_bind", None)
     if get_bind is None or get_bind().dialect.name != "postgresql":
-        return False
+        return None
 
     lock_key = _provider_message_lock_key(igreja_id, provider_message_id)
     db.execute(select(func.pg_advisory_xact_lock(lock_key))).scalar_one_or_none()
-    existing = db.execute(
-        select(Message.id).where(
+    return db.execute(
+        select(Message).where(
             Message.igreja_id == igreja_id,
             Message.provider_message_id == provider_message_id,
             Message.direcao == ("in" if inbound else "out"),
         )
     ).scalar_one_or_none()
-    return existing is not None
 
 
 class IngestionResult(str, Enum):
@@ -219,6 +269,14 @@ class IngestionResult(str, Enum):
     DUPLICATE = "duplicate"
     SKIPPED_NOT_OFFICIAL = "skipped_not_official"
     IGNORED = "ignored"
+
+
+class ProcessingClaim(str, Enum):
+    """How this envelope relates to the Redis idempotency marker."""
+
+    NEW = "new"
+    RESUMED = "resumed"
+    REJECTED = "rejected"
 
 
 class ClaimOwnershipLost(RuntimeError):
@@ -326,12 +384,13 @@ def ingest_message_event_ex(
         )
         return IngestionOutcome(result=IngestionResult.IGNORED)
 
-    if _provider_message_exists_after_fence(
+    existing_message = _provider_message_after_fence(
         db,
         igreja_id,
         parsed.provider_message_id,
         inbound=inbound,
-    ):
+    )
+    if existing_message is not None:
         logger.info(
             "Duplicate provider message %s for igreja %s (DB fence)",
             parsed.provider_message_id,
@@ -339,6 +398,11 @@ def ingest_message_event_ex(
         )
         return IngestionOutcome(
             result=IngestionResult.DUPLICATE,
+            conversation_id=existing_message.conversation_id,
+            instance=parsed.instance,
+            telefone=parsed.telefone_raw,
+            texto=parsed.texto,
+            inbound=inbound,
             igreja_id=igreja_id,
         )
 
@@ -629,9 +693,25 @@ class WebhookQueue:
         )
 
     def assert_claim_owned(self, worker_id: str, raw: str) -> None:
-        """Abort side effects when lease recovery transferred this item."""
+        """Fence the next effect with a live lease and private-list ownership.
+
+        The check and lease renewal are one Redis operation.  A worker whose
+        lease expired cannot revive it after a recovery worker registered the
+        new owner, while a legitimate bounded effect gets a full lease window
+        immediately before it starts.
+        """
         try:
-            owned = self.owns_claim(worker_id, raw)
+            owned = bool(
+                self._redis.eval(
+                    _FENCE_CLAIM_SCRIPT,
+                    2,
+                    self._lease_key(worker_id),
+                    self.processing_queue(worker_id),
+                    worker_id,
+                    raw,
+                    str(WORKER_LEASE_SECONDS),
+                )
+            )
         except Exception as exc:  # noqa: BLE001 - unverifiable means unsafe
             raise ClaimOwnershipLost(
                 "Webhook queue claim ownership could not be verified"
@@ -693,6 +773,10 @@ class WebhookQueue:
         retry, so it may resume an in-flight claim. A separate delivery gets a
         different token and is rejected before DB/media work. ``done`` is final.
         """
+        return self.claim_processing(message_id, claim_id) is not ProcessingClaim.REJECTED
+
+    def claim_processing(self, message_id: str, claim_id: str) -> ProcessingClaim:
+        """Create, resume or reject the envelope's idempotency claim."""
         key = f"{PROCESSED_PREFIX}{message_id}"
         marker = self._claim_marker(claim_id)
         claimed = self._redis.set(
@@ -702,8 +786,10 @@ class WebhookQueue:
             ex=PROCESSED_TTL_SECONDS,
         )
         if claimed:
-            return True
-        return self._redis.get(key) == marker
+            return ProcessingClaim.NEW
+        if self._redis.get(key) == marker:
+            return ProcessingClaim.RESUMED
+        return ProcessingClaim.REJECTED
 
     def mark_processed(self, message_id: str, claim_id: str) -> None:
         """Finalize an idempotency marker owned by this envelope."""
@@ -719,6 +805,30 @@ class WebhookQueue:
         )
         if not finalized:
             raise RuntimeError("Webhook idempotency claim ownership was lost")
+
+    def mark_processed_if_owned(
+        self,
+        message_id: str,
+        claim_id: str,
+        worker_id: str,
+        raw: str,
+    ) -> bool:
+        """Finalize only while this live worker owns the exact raw claim."""
+        key = f"{PROCESSED_PREFIX}{message_id}"
+        return bool(
+            self._redis.eval(
+                _MARK_DONE_IF_OWNED_SCRIPT,
+                3,
+                self._lease_key(worker_id),
+                self.processing_queue(worker_id),
+                key,
+                worker_id,
+                raw,
+                self._claim_marker(claim_id),
+                _PROCESSED_MARKER,
+                str(PROCESSED_TTL_SECONDS),
+            )
+        )
 
     def release_processed(self, message_id: str, claim_id: str) -> None:
         """Release a previously-claimed message id so a retry can reprocess it.
@@ -787,7 +897,9 @@ class QueueWorker:
         self,
         queue: WebhookQueue | None = None,
         session_factory: Any | None = None,
-        agent_runner: "Callable[[Any, IngestionOutcome], None] | None" = None,
+        agent_runner: (
+            "Callable[[Any, IngestionOutcome, ClaimGuard | None], None] | None"
+        ) = None,
         media_resolver: MediaResolver | None = None,
         worker_id: str | None = None,
         heartbeat_publisher: Callable[[str, int], None] | None = None,
@@ -884,6 +996,11 @@ class QueueWorker:
             if not self._heartbeat_once():
                 return
 
+    def _assert_effect_ownership(self, raw: str) -> None:
+        """Fence an effect and count that successful fence as main-loop progress."""
+        self._queue.assert_claim_owned(self._worker_id, raw)
+        self._record_progress()
+
     def run(self) -> None:
         """Block draining the queue until stopped (graceful shutdown)."""
         self._running = True
@@ -945,11 +1062,7 @@ class QueueWorker:
             logger.error("Discarding malformed envelope from queue")
             self._queue.ack(self._worker_id, raw)
             return
-        ownership_guard = partial(
-            self._queue.assert_claim_owned,
-            self._worker_id,
-            raw,
-        )
+        ownership_guard = partial(self._assert_effect_ownership, raw)
         try:
             ownership_guard()
             self.handle_envelope(envelope, claimed_raw=raw)
@@ -983,19 +1096,16 @@ class QueueWorker:
             return IngestionResult.IGNORED
 
         ownership_guard = (
-            partial(
-                self._queue.assert_claim_owned,
-                self._worker_id,
-                claimed_raw,
-            )
+            partial(self._assert_effect_ownership, claimed_raw)
             if claimed_raw is not None
             else None
         )
 
-        if not self._queue.mark_processed_if_new(
+        processing_claim = self._queue.claim_processing(
             parsed.provider_message_id,
             envelope.claim_id,
-        ):
+        )
+        if processing_claim is ProcessingClaim.REJECTED:
             logger.info("Skipping duplicate message %s", parsed.provider_message_id)
             return IngestionResult.DUPLICATE
 
@@ -1039,23 +1149,35 @@ class QueueWorker:
                     ) from exc
             raise
 
-        # A hard crash before this write leaves a retryable ``processing``
-        # marker. A crash after the DB commit is safe: recovery retries and the
-        # durable unique index returns DUPLICATE before this marker is finalized.
-        self._queue.mark_processed(parsed.provider_message_id, envelope.claim_id)
-
         # Hand the persisted inbound message to the orchestrator (delta-034).
-        # Agent failures must NOT requeue the (already committed) ingestion, so
-        # they are caught and logged rather than propagated.
+        # A recovered envelope may observe the already committed inbound row.
+        # It resumes the agent only when it owns the same in-flight claim; a new
+        # delivery rejected by Redis never re-runs the agent.
+        should_run_agent = outcome.result is IngestionResult.REGISTERED or (
+            processing_claim is ProcessingClaim.RESUMED
+            and outcome.result is IngestionResult.DUPLICATE
+        )
         if (
             self._agent_runner is not None
-            and outcome.result is IngestionResult.REGISTERED
+            and should_run_agent
             and outcome.inbound
         ):
-            try:
-                self._agent_runner(self._session_factory, outcome)
-            except Exception:  # noqa: BLE001 - agent errors never lose the message
-                logger.exception("Agent orchestration failed for %s", parsed.provider_message_id)
+            if ownership_guard is not None:
+                ownership_guard()
+            self._agent_runner(self._session_factory, outcome, ownership_guard)
+
+        # Finalization is the last effect. Until it succeeds the same claim stays
+        # recoverable. A stale owner cannot finalize after another worker moved
+        # the raw item out of its private processing list.
+        if claimed_raw is None:
+            self._queue.mark_processed(parsed.provider_message_id, envelope.claim_id)
+        elif not self._queue.mark_processed_if_owned(
+            parsed.provider_message_id,
+            envelope.claim_id,
+            self._worker_id,
+            claimed_raw,
+        ):
+            raise ClaimOwnershipLost("Webhook claim was recovered before finalization")
 
         return outcome.result
 
@@ -1066,6 +1188,7 @@ class QueueWorker:
 def run_agent_for_message(
     session_factory: Any,
     outcome: IngestionOutcome,
+    ownership_guard: ClaimGuard | None = None,
     *,
     evolution_client: Any | None = None,
 ) -> None:
@@ -1082,6 +1205,8 @@ def run_agent_for_message(
     if outcome.conversation_id is None:
         return
 
+    if ownership_guard is not None:
+        ownership_guard()
     session: Session = session_factory()
     try:
         # Fase 0 (#10b): RLS por igreja também no caminho do agente — é aqui que
@@ -1106,6 +1231,8 @@ def run_agent_for_message(
         return
 
     # Single exit: send the orchestrator reply through the official number.
+    if ownership_guard is not None:
+        ownership_guard()
     try:
         if evolution_client is None:
             with EvolutionClient() as client:
@@ -1132,6 +1259,8 @@ def run_agent_for_message(
         return
 
     # Persist the outbound message and refresh the conversation snapshot.
+    if ownership_guard is not None:
+        ownership_guard()
     session = session_factory()
     try:
         if outcome.igreja_id is not None:

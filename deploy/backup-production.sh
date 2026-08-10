@@ -5,13 +5,14 @@ set -euo pipefail
 # somente como root na VPS.
 umask 077
 
-BACKUP_ROOT="/root/pastorai-backups"
-ENV_FILE="/opt/pastorai-current/deploy/.env"
-COMPOSE_FILE="/opt/pastorai-current/deploy/docker-compose.yml"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+BACKUP_ROOT="${PASTORAI_BACKUP_ROOT:-/root/pastorai-backups}"
+ENV_FILE="${PASTORAI_ENV_FILE:-/opt/pastorai-current/deploy/.env}"
+COMPOSE_FILE="${PASTORAI_COMPOSE_FILE:-/opt/pastorai-current/deploy/docker-compose.yml}"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 BACKUP_DIR="${BACKUP_ROOT}/${STAMP}"
 ARCHIVE="${BACKUP_ROOT}/pastorai-backup-${STAMP}.tar.gz"
-LOCK_FILE="/var/lock/pastorai-backup.lock"
+LOCK_FILE="${PASTORAI_BACKUP_LOCK_FILE:-/var/lock/pastorai-backup.lock}"
 
 if [[ "${EUID}" -ne 0 ]]; then
   echo "ERRO: execute como root" >&2
@@ -33,39 +34,34 @@ if ! flock -n 9; then
 fi
 
 paused=0
+DATABASE_ENV_FILE=""
 cleanup() {
-  unset DATABASE_URL
+  if [[ -n "${DATABASE_ENV_FILE}" ]]; then
+    rm -f -- "${DATABASE_ENV_FILE}"
+    DATABASE_ENV_FILE=""
+  fi
   if [[ "${paused}" -eq 1 ]]; then
     docker unpause pastorai_evolution pastorai_evo_postgres pastorai_redis \
       >/dev/null 2>&1 || true
   fi
 }
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
-DATABASE_URL="$(ENV_FILE="${ENV_FILE}" python3 - <<'PY'
-import os
-from pathlib import Path
+DATABASE_ENV_FILE="$(mktemp "${BACKUP_ROOT}/.database-url.XXXXXX")"
+chmod 600 "${DATABASE_ENV_FILE}"
+python3 "${SCRIPT_DIR}/prepare-database-env.py" \
+  "${ENV_FILE}" "${DATABASE_ENV_FILE}"
 
-for raw in Path(os.environ["ENV_FILE"]).read_text().splitlines():
-    raw = raw.strip()
-    if raw and not raw.startswith("#") and "=" in raw:
-        key, value = raw.split("=", 1)
-        if key.strip() == "DATABASE_URL":
-            print(value.strip().strip('"').strip("'"))
-            break
-else:
-    raise SystemExit("DATABASE_URL ausente")
-PY
-)"
-
-docker run --rm -e DATABASE_URL="${DATABASE_URL}" postgres:17-alpine \
+docker run --rm --env-file "${DATABASE_ENV_FILE}" postgres:17-alpine \
   sh -c 'exec pg_dump --dbname="$DATABASE_URL" --format=custom --compress=9 --no-owner --no-acl --schema=public' \
   >"${BACKUP_DIR}/supabase-prod-public.dump"
+rm -f -- "${DATABASE_ENV_FILE}"
+DATABASE_ENV_FILE=""
 docker run --rm -i postgres:17-alpine pg_restore --list \
   <"${BACKUP_DIR}/supabase-prod-public.dump" \
   >"${BACKUP_DIR}/supabase-prod-public.list"
-unset DATABASE_URL
-
 BACKUP_DIR="${BACKUP_DIR}" ENV_FILE="${ENV_FILE}" python3 - <<'PY'
 import json
 import os
