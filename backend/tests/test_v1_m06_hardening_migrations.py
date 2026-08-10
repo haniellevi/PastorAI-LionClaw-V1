@@ -6,6 +6,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from psycopg2 import Error as PsycopgError
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine, make_url
 from sqlalchemy.exc import DBAPIError
@@ -15,6 +16,7 @@ from tests.conftest_rls import rls_database_url  # noqa: F401
 
 MIGRATIONS = Path(__file__).resolve().parents[1] / "migrations"
 POLICIES = MIGRATIONS / "20260810_031050_explicit_deny_policies_for_closed_tables.sql"
+POLICY_NAME = "service_role_bypass_only"
 POLICY_TABLES = (
     "password_reset_tokens",
     "platform_admins",
@@ -34,22 +36,34 @@ def _sql(path: Path) -> str:
     return " ".join("\n".join(executable_lines).split())
 
 
-def test_closed_tables_receive_only_an_explicit_deny_policy() -> None:
+def test_closed_tables_migration_is_structurally_fail_closed() -> None:
     sql = _sql(POLICIES)
 
     for table in POLICY_TABLES:
         assert f"'{table}'" in sql
 
+    assert "required table public.%i is missing" in sql
+    assert "lock table public.%i in access exclusive mode" in sql
+    assert "unexpected policy state on public.%i" in sql
     assert "alter table public.%i enable row level security" in sql
     assert "create policy service_role_bypass_only" in sql
-    assert "for all to public using (false) with check (false)" in sql
+    assert "as restrictive for all to public" in sql
+    assert "using (false) with check (false)" in sql
+    assert "p.polcmd = '*'" in sql
+    assert "p.polpermissive is false" in sql
+    assert "p.polroles = array[0::oid]" in sql
+    assert "pg_get_expr(p.polqual, p.polrelid) = 'false'" in sql
+    assert "pg_get_expr(p.polwithcheck, p.polrelid) = 'false'" in sql
     assert "from pg_policy" in sql
-    assert "not exists" in sql
-    assert sql.index("enable row level security") < sql.index("create policy")
+    assert "policy_count <> 0" in sql
+    assert "policy_count <> 1 or exact_policy_count <> 1" in sql
+    assert sql.index("lock table") < sql.index("enable row level security")
+    assert sql.index("unexpected policy state") < sql.index(
+        "enable row level security"
+    )
     assert sql.count("create policy") == 1
 
-    # Esta onda não muda grants nem substitui policies que possam surgir antes
-    # do gate de aplicação.
+    # Grants são uma camada separada e permanecem intocados nesta migration.
     assert "grant " not in sql
     assert "revoke " not in sql
     assert "drop policy" not in sql
@@ -76,7 +90,7 @@ def m06_engine(rls_database_url: str) -> Iterator[Engine]:  # noqa: F811
     _drop_and_create_database(admin_url, _M06_DATABASE)
     engine = create_engine(base.set(database=_M06_DATABASE), future=True)
 
-    schema = """
+    roles = """
     do $roles$
     begin
       if not exists (select 1 from pg_roles where rolname = 'anon') then
@@ -94,21 +108,9 @@ def m06_engine(rls_database_url: str) -> Iterator[Engine]:  # noqa: F811
     alter role anon nobypassrls;
     alter role authenticated nobypassrls;
     alter role service_role bypassrls;
-
-    create table public.password_reset_tokens (id integer primary key, payload text);
-    create table public.platform_admins (id integer primary key, payload text);
-    create table public.platform_audit_log (id integer primary key, payload text);
-    create table public.platform_orchestrator (id integer primary key, payload text);
     """
-    grants_and_seed = "\n".join(
-        f"grant select, insert, update, delete on public.{table} "
-        "to anon, authenticated, service_role;\n"
-        f"insert into public.{table} (id, payload) values (1, 'seed');"
-        for table in POLICY_TABLES
-    )
     with engine.begin() as conn:
-        conn.exec_driver_sql(schema)
-        conn.exec_driver_sql(grants_and_seed)
+        conn.exec_driver_sql(roles)
 
     try:
         yield engine
@@ -122,6 +124,33 @@ def m06_engine(rls_database_url: str) -> Iterator[Engine]:  # noqa: F811
                 )
         finally:
             admin.dispose()
+
+
+def _reset_tables(engine: Engine) -> None:
+    drop_sql = "\n".join(
+        f"drop table if exists public.{table} cascade;" for table in POLICY_TABLES
+    )
+    create_sql = "\n".join(
+        f"create table public.{table} (id integer primary key, payload text);"
+        for table in POLICY_TABLES
+    )
+    grants_and_seed = "\n".join(
+        f"grant select, insert, update, delete on public.{table} "
+        "to anon, authenticated, service_role;\n"
+        f"insert into public.{table} (id, payload) values (1, 'seed');"
+        for table in POLICY_TABLES
+    )
+    with engine.begin() as conn:
+        conn.exec_driver_sql(drop_sql)
+        conn.exec_driver_sql(create_sql)
+        conn.exec_driver_sql(grants_and_seed)
+
+
+@pytest.fixture
+def m06_tables(m06_engine: Engine) -> Engine:
+    """Quatro tabelas limpas antes de cada cenário adversarial."""
+    _reset_tables(m06_engine)
+    return m06_engine
 
 
 def _grant_matrix(engine: Engine) -> dict[tuple[str, str, str], bool]:
@@ -178,25 +207,118 @@ def _apply_migration(engine: Engine, migration: str) -> None:
         with connection.cursor() as cursor:
             cursor.execute(migration)
         connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
     finally:
         connection.close()
 
 
+def _create_policy(engine: Engine, table: str, definition: str) -> None:
+    with engine.begin() as conn:
+        conn.exec_driver_sql(
+            f"create policy {POLICY_NAME} on public.{table} {definition}"
+        )
+
+
+def _create_expected_policy(engine: Engine, table: str) -> None:
+    _create_policy(
+        engine,
+        table,
+        "as restrictive for all to public using (false) with check (false)",
+    )
+
+
+def _security_snapshot(engine: Engine) -> dict[str, dict[str, object]]:
+    snapshot: dict[str, dict[str, object]] = {}
+    with engine.connect() as conn:
+        for table in POLICY_TABLES:
+            relation = conn.execute(
+                text(
+                    """
+                    select c.oid, c.relrowsecurity
+                    from pg_class c
+                    join pg_namespace n on n.oid = c.relnamespace
+                    where n.nspname = 'public' and c.relname = :table
+                    """
+                ),
+                {"table": table},
+            ).mappings().one_or_none()
+            if relation is None:
+                snapshot[table] = {"exists": False, "rls": None, "policies": ()}
+                continue
+
+            policies = conn.execute(
+                text(
+                    """
+                    select p.polname,
+                           p.polcmd,
+                           p.polpermissive,
+                           p.polroles::text as polroles,
+                           pg_get_expr(p.polqual, p.polrelid) as using_expr,
+                           pg_get_expr(p.polwithcheck, p.polrelid) as check_expr
+                    from pg_policy p
+                    where p.polrelid = :oid
+                    order by p.polname
+                    """
+                ),
+                {"oid": relation["oid"]},
+            ).mappings().all()
+            snapshot[table] = {
+                "exists": True,
+                "rls": relation["relrowsecurity"],
+                "policies": tuple(
+                    (
+                        row["polname"],
+                        row["polcmd"],
+                        row["polpermissive"],
+                        row["polroles"],
+                        row["using_expr"],
+                        row["check_expr"],
+                    )
+                    for row in policies
+                ),
+            }
+    return snapshot
+
+
+def _assert_migration_rejected_without_changes(
+    engine: Engine,
+    migration: str,
+    message: str,
+) -> None:
+    before = _security_snapshot(engine)
+    with pytest.raises(PsycopgError, match=message):
+        _apply_migration(engine, migration)
+    assert _security_snapshot(engine) == before
+
+
+def _assert_exact_closed_policy(engine: Engine, table: str) -> None:
+    state = _security_snapshot(engine)[table]
+    assert state["exists"] is True
+    assert state["rls"] is True
+    assert state["policies"] == (
+        (POLICY_NAME, "*", False, "{0}", "false", "false"),
+    )
+
+
 @pytest.mark.rls_integration
-def test_closed_tables_migration_enforces_rls_in_postgres(
-    m06_engine: Engine,
+def test_valid_first_apply_and_reapply_are_closed_and_idempotent(
+    m06_tables: Engine,
 ) -> None:
     """Aplica/reaplica SQL real e prova grants, RLS e bypass do backend."""
     migration = POLICIES.read_text(encoding="utf-8")
-    grants_before = _grant_matrix(m06_engine)
+    grants_before = _grant_matrix(m06_tables)
     assert all(grants_before.values())
 
-    for _ in range(2):
-        _apply_migration(m06_engine, migration)
+    _apply_migration(m06_tables, migration)
+    first_state = _security_snapshot(m06_tables)
+    _apply_migration(m06_tables, migration)
 
-    assert _grant_matrix(m06_engine) == grants_before
+    assert _security_snapshot(m06_tables) == first_state
+    assert _grant_matrix(m06_tables) == grants_before
 
-    with m06_engine.connect() as conn:
+    with m06_tables.connect() as conn:
         role_bypass = dict(
             conn.execute(
                 text(
@@ -206,44 +328,19 @@ def test_closed_tables_migration_enforces_rls_in_postgres(
                 {"roles": list(TEST_ROLES)},
             ).all()
         )
-        rows = conn.execute(
-            text(
-                """
-                select c.relname,
-                       c.relrowsecurity,
-                       count(p.polname) as policy_count,
-                       bool_and(p.polpermissive) as policies_are_permissive,
-                       bool_and(pg_get_expr(p.polqual, p.polrelid) = 'false') as using_false,
-                       bool_and(pg_get_expr(p.polwithcheck, p.polrelid) = 'false') as check_false
-                from pg_class c
-                join pg_namespace n on n.oid = c.relnamespace
-                left join pg_policy p on p.polrelid = c.oid
-                where n.nspname = 'public' and c.relname = any(:tables)
-                group by c.relname, c.relrowsecurity
-                order by c.relname
-                """
-            ),
-            {"tables": list(POLICY_TABLES)},
-        ).mappings().all()
 
     assert role_bypass == {
         "anon": False,
         "authenticated": False,
         "service_role": True,
     }
-    assert len(rows) == len(POLICY_TABLES)
-    for row in rows:
-        assert row["relrowsecurity"] is True
-        assert row["policy_count"] == 1
-        assert row["policies_are_permissive"] is True
-        assert row["using_false"] is True
-        assert row["check_false"] is True
 
     for table in POLICY_TABLES:
+        _assert_exact_closed_policy(m06_tables, table)
         for role in ("anon", "authenticated"):
-            assert _row_count_as(m06_engine, role, table) == 0
-            _blocked_insert(m06_engine, role, table)
-            with m06_engine.connect() as conn:
+            assert _row_count_as(m06_tables, role, table) == 0
+            _blocked_insert(m06_tables, role, table)
+            with m06_tables.connect() as conn:
                 transaction = conn.begin()
                 try:
                     conn.exec_driver_sql(f"set local role {role}")
@@ -262,7 +359,7 @@ def test_closed_tables_migration_enforces_rls_in_postgres(
                 finally:
                     transaction.rollback()
 
-        with m06_engine.connect() as conn:
+        with m06_tables.connect() as conn:
             transaction = conn.begin()
             try:
                 conn.exec_driver_sql("set local role service_role")
@@ -292,3 +389,116 @@ def test_closed_tables_migration_enforces_rls_in_postgres(
                 )
             finally:
                 transaction.rollback()
+
+
+@pytest.mark.rls_integration
+@pytest.mark.parametrize("missing_table", POLICY_TABLES)
+def test_each_missing_required_table_aborts_the_whole_migration(
+    m06_tables: Engine,
+    missing_table: str,
+) -> None:
+    migration = POLICIES.read_text(encoding="utf-8")
+    with m06_tables.begin() as conn:
+        conn.exec_driver_sql(f"drop table public.{missing_table}")
+
+    _assert_migration_rejected_without_changes(
+        m06_tables,
+        migration,
+        rf"required table public\.{missing_table} is missing",
+    )
+
+
+@pytest.mark.rls_integration
+def test_unexpected_policy_name_aborts_without_changes(m06_tables: Engine) -> None:
+    migration = POLICIES.read_text(encoding="utf-8")
+    with m06_tables.begin() as conn:
+        conn.exec_driver_sql(
+            "create policy unexpected_policy on public.password_reset_tokens "
+            "as restrictive for all to public using (false) with check (false)"
+        )
+
+    _assert_migration_rejected_without_changes(
+        m06_tables,
+        migration,
+        r"unexpected policy state on public\.password_reset_tokens",
+    )
+
+
+@pytest.mark.rls_integration
+def test_additional_policy_beside_expected_aborts_without_changes(
+    m06_tables: Engine,
+) -> None:
+    migration = POLICIES.read_text(encoding="utf-8")
+    _create_expected_policy(m06_tables, "password_reset_tokens")
+    with m06_tables.begin() as conn:
+        conn.exec_driver_sql(
+            "create policy unexpected_extra on public.password_reset_tokens "
+            "as restrictive for all to public using (false) with check (false)"
+        )
+
+    _assert_migration_rejected_without_changes(
+        m06_tables,
+        migration,
+        r"unexpected policy state on public\.password_reset_tokens",
+    )
+
+
+@pytest.mark.rls_integration
+def test_expected_policy_that_is_permissive_aborts_without_changes(
+    m06_tables: Engine,
+) -> None:
+    migration = POLICIES.read_text(encoding="utf-8")
+    _create_policy(
+        m06_tables,
+        "password_reset_tokens",
+        "for all to public using (false) with check (false)",
+    )
+
+    _assert_migration_rejected_without_changes(
+        m06_tables,
+        migration,
+        r"unexpected policy state on public\.password_reset_tokens",
+    )
+
+
+@pytest.mark.rls_integration
+@pytest.mark.parametrize(
+    "definition",
+    (
+        "as restrictive for select to public using (false)",
+        "as restrictive for all to authenticated using (false) with check (false)",
+        "as restrictive for all to public using (true) with check (false)",
+        "as restrictive for all to public using (false) with check (true)",
+        "as restrictive for all to public using (false)",
+    ),
+    ids=("command", "roles", "using", "with-check", "missing-with-check"),
+)
+def test_expected_policy_with_divergent_semantics_aborts_without_changes(
+    m06_tables: Engine,
+    definition: str,
+) -> None:
+    migration = POLICIES.read_text(encoding="utf-8")
+    _create_policy(m06_tables, "password_reset_tokens", definition)
+
+    _assert_migration_rejected_without_changes(
+        m06_tables,
+        migration,
+        r"unexpected policy state on public\.password_reset_tokens",
+    )
+
+
+@pytest.mark.rls_integration
+def test_partial_existing_state_rolls_back_all_tables(m06_tables: Engine) -> None:
+    migration = POLICIES.read_text(encoding="utf-8")
+    _create_expected_policy(m06_tables, "password_reset_tokens")
+    with m06_tables.begin() as conn:
+        conn.exec_driver_sql(
+            "create policy unexpected_policy on public.platform_audit_log "
+            "as restrictive for all to public using (false) with check (false)"
+        )
+
+    _assert_migration_rejected_without_changes(
+        m06_tables,
+        migration,
+        r"unexpected policy state on public\.platform_audit_log",
+    )
