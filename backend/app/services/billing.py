@@ -425,7 +425,11 @@ def find_settled_recovery(
 
 
 def find_operation_for_payment(
-    db: Session, *, payment_id: str | None, external_reference: str | None
+    db: Session,
+    *,
+    payment_id: str | None,
+    external_reference: str | None,
+    for_update: bool = True,
 ) -> BillingPaymentOperation | None:
     """Resolve a operação dona de um payment do webhook (id ou operation_key).
 
@@ -433,21 +437,25 @@ def find_operation_for_payment(
     ``payment.subscription`` no payload.
     """
     if payment_id:
-        op = db.execute(
-            select(BillingPaymentOperation).where(
-                BillingPaymentOperation.asaas_payment_id == payment_id
-            ).with_for_update()
-        ).scalar_one_or_none()
+        statement = select(BillingPaymentOperation).where(
+            BillingPaymentOperation.asaas_payment_id == payment_id
+        )
+        if for_update:
+            statement = statement.with_for_update().execution_options(
+                populate_existing=True
+            )
+        op = db.execute(statement).scalar_one_or_none()
         if op is not None:
             return op
     if external_reference:
-        op = db.execute(
-            select(BillingPaymentOperation)
-            .where(
-                BillingPaymentOperation.operation_key == str(external_reference)
+        statement = select(BillingPaymentOperation).where(
+            BillingPaymentOperation.operation_key == str(external_reference)
+        )
+        if for_update:
+            statement = statement.with_for_update().execution_options(
+                populate_existing=True
             )
-            .with_for_update()
-        ).scalar_one_or_none()
+        op = db.execute(statement).scalar_one_or_none()
         # A operation_key localiza uma intenção, não autoriza rebind. Se ela
         # já pertence a outro payment, este webhook é um duplicado remoto
         # conflitante e não pode alterar a operação original.
@@ -1143,19 +1151,22 @@ def ensure_plan_change_operation(
 
 
 def find_open_subscription_operation(
-    db: Session, subscription_id
+    db: Session, subscription_id, *, for_update: bool = False
 ) -> BillingSubscriptionOperation | None:
     """A criação de assinatura em andamento desta Subscription, se houver."""
-    return db.execute(
-        select(BillingSubscriptionOperation).where(
-            BillingSubscriptionOperation.subscription_id == subscription_id,
-            BillingSubscriptionOperation.status.in_(OPEN_SUBSCRIPTION_OP_STATUSES),
+    statement = select(BillingSubscriptionOperation).where(
+        BillingSubscriptionOperation.subscription_id == subscription_id,
+        BillingSubscriptionOperation.status.in_(OPEN_SUBSCRIPTION_OP_STATUSES),
+    )
+    if for_update:
+        statement = statement.with_for_update().execution_options(
+            populate_existing=True
         )
-    ).scalar_one_or_none()
+    return db.execute(statement).scalar_one_or_none()
 
 
 def find_subscription_operation_by_key(
-    db: Session, operation_key: str
+    db: Session, operation_key: str, *, for_update: bool = True
 ) -> BillingSubscriptionOperation | None:
     """Resolve a intenção de criação pela operation_key (webhook novo formato).
 
@@ -1163,11 +1174,14 @@ def find_subscription_operation_by_key(
     operation_key da intenção durável — o webhook a resolve por aqui; o
     formato legado (igreja_id) continua no fallback do próprio webhook.
     """
-    return db.execute(
-        select(BillingSubscriptionOperation).where(
-            BillingSubscriptionOperation.operation_key == str(operation_key)
-        ).with_for_update()
-    ).scalar_one_or_none()
+    statement = select(BillingSubscriptionOperation).where(
+        BillingSubscriptionOperation.operation_key == str(operation_key)
+    )
+    if for_update:
+        statement = statement.with_for_update().execution_options(
+            populate_existing=True
+        )
+    return db.execute(statement).scalar_one_or_none()
 
 
 def subscription_matches_operation(

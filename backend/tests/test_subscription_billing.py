@@ -3382,7 +3382,14 @@ class _NoAsaasCalls:
         ("removed", "reconciling"),
         ("complimentary", "reconciling"),
         ("invalid_catalog_price", "reconciling"),
+        ("changed_catalog_price", "reconciling"),
+        ("changed_catalog_limit", "reconciling"),
+        ("changed_catalog_price", "prepared"),
+        ("changed_catalog_limit", "prepared"),
         ("zero_frozen_price", "reconciling"),
+        ("changed_setup_contract", "reconciling"),
+        ("changed_customer", "reconciling"),
+        ("missing_operation_key", "reconciling"),
         ("incompatible_placeholder", "reconciling"),
         ("invalid_cycle", "reconciling"),
         ("invalid_description", "reconciling"),
@@ -3393,13 +3400,14 @@ def test_ambiguous_checkout_validates_local_target_before_any_asaas_call(
     case: str,
     operation_status: str,
 ) -> None:
-    """Alvo removido/cortesia/zero/incompatível falha sem GET nem mutação."""
+    """Catálogo/intenção divergente falha sem GET, tentativa ou mutação."""
     plan = _plano()
     plans = [plan]
     sub = _subscription(
         status=None,
         asaas_subscription_id=None,
         asaas_setup_charge_id=None,
+        setup_fee_contracted=0.0,
         setup_pago=False,
     )
     op_overrides: dict[str, object] = {"status": operation_status}
@@ -3410,8 +3418,18 @@ def test_ambiguous_checkout_validates_local_target_before_any_asaas_call(
         plan.preco_mensal = 0
     elif case == "invalid_catalog_price":
         plan.preco_mensal = -1
+    elif case == "changed_catalog_price":
+        plan.preco_mensal = 249
+    elif case == "changed_catalog_limit":
+        plan.limite_pessoas = 150
     elif case == "zero_frozen_price":
         op_overrides["valor"] = 0
+    elif case == "changed_setup_contract":
+        sub.setup_fee_contracted = 59.9
+    elif case == "changed_customer":
+        sub.asaas_customer_id = "cus_changed"
+    elif case == "missing_operation_key":
+        op_overrides["operation_key"] = ""
     elif case == "incompatible_placeholder":
         sub.plano = "101_200"
     elif case == "invalid_cycle":
@@ -3440,6 +3458,7 @@ def test_ambiguous_checkout_validates_local_target_before_any_asaas_call(
         sub.status,
         sub.asaas_subscription_id,
         sub.asaas_customer_id,
+        sub.setup_fee_contracted,
         sub.setup_pago,
     )
     igreja_before = (db.igreja.plano, db.igreja.status)
@@ -3464,6 +3483,7 @@ def test_ambiguous_checkout_validates_local_target_before_any_asaas_call(
         sub.status,
         sub.asaas_subscription_id,
         sub.asaas_customer_id,
+        sub.setup_fee_contracted,
         sub.setup_pago,
     ) == sub_before
     assert (db.igreja.plano, db.igreja.status) == igreja_before
@@ -3480,6 +3500,7 @@ def test_inactive_paid_plan_can_resume_its_matching_ambiguous_intent(app) -> Non
         status=None,
         asaas_subscription_id=None,
         asaas_setup_charge_id=None,
+        setup_fee_contracted=0.0,
         setup_pago=True,
     )
     op = _ambiguous_subscription_intent(status="reconciling")
@@ -3770,6 +3791,7 @@ def test_abandoned_subscription_claim_stays_reconciling_without_second_post(app)
     sub = _subscription(
         asaas_subscription_id=None,
         asaas_setup_charge_id=None,
+        setup_fee_contracted=0.0,
         setup_pago=False,
     )
     client, db = _client(
@@ -4315,9 +4337,10 @@ def test_deactivated_plan_without_open_intent_still_returns_422(app) -> None:
     assert not [o for o in db.added if isinstance(o, BillingSubscriptionOperation)]
 
 
-def test_adoption_uses_the_frozen_target_not_the_edited_catalog(app) -> None:
-    # O master editou preço e limite DEPOIS da intenção: a adoção usa o alvo
-    # congelado na operação — nunca reinterpreta a contratação antiga.
+def test_adoption_rejects_catalog_changed_after_the_frozen_intent(app) -> None:
+    # O master editou preço e limite DEPOIS da intenção: a adoção automática
+    # falha localmente. O remoto pode existir com o contrato antigo, mas essa
+    # divergência exige reconciliação manual e nenhum GET é autorizado.
     plano = _plano()
     asaas = _LostResponseAsaas()
     client, db = _client(app, planos=[plano], asaas=asaas)
@@ -4333,6 +4356,16 @@ def test_adoption_uses_the_frozen_target_not_the_edited_catalog(app) -> None:
     plano.limite_pessoas = 5
 
     _adopt_created_sub(db)
+    created_sub = next(o for o in db.added if isinstance(o, Subscription))
+    op_before = (op.status, op.asaas_subscription_id, op.attempt_started_at)
+    sub_before = (
+        created_sub.plano,
+        created_sub.limite,
+        created_sub.status,
+        created_sub.asaas_subscription_id,
+        created_sub.asaas_customer_id,
+    )
+    commits_before = db.commits
     asaas.found = [{
         "id": "sub_asaas_9",
         "customer": "cus_1",
@@ -4344,10 +4377,18 @@ def test_adoption_uses_the_frozen_target_not_the_edited_catalog(app) -> None:
         "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
     )
 
-    assert resp.status_code == 200
-    created_sub = next(o for o in db.added if isinstance(o, Subscription))
-    assert created_sub.limite == 100  # não o 5 novo do catálogo
-    assert float(op.valor) == 199.0  # nem o preço novo
+    assert resp.status_code == 409
+    assert asaas.find_calls == 0
+    assert asaas.create_calls == 1  # só o POST inicial, nunca um segundo
+    assert (op.status, op.asaas_subscription_id, op.attempt_started_at) == op_before
+    assert (
+        created_sub.plano,
+        created_sub.limite,
+        created_sub.status,
+        created_sub.asaas_subscription_id,
+        created_sub.asaas_customer_id,
+    ) == sub_before
+    assert db.commits == commits_before
 
 
 # ---------------------------------------------------------------------------
@@ -4416,7 +4457,7 @@ def test_prepared_intent_is_superseded_when_the_user_picks_another_plan(
     assert asaas.create_calls == ["ate_100", "101_200"]
 
 
-def test_prepared_retry_uses_the_intent_price_and_limit_after_catalog_edit(
+def test_prepared_retry_rejects_catalog_edit_before_any_new_post(
     app,
 ) -> None:
     asaas = _RejectingThenTrackingAsaas()
@@ -4431,6 +4472,21 @@ def test_prepared_retry_uses_the_intent_price_and_limit_after_catalog_edit(
     assert op.status == "prepared"
     assert op.limite == 100
     _adopt_created_sub(db)
+    sub = db.subscription
+    op_before = (
+        op.status,
+        op.valor,
+        op.limite,
+        op.attempt_started_at,
+        op.error,
+    )
+    sub_before = (
+        sub.plano,
+        sub.status,
+        sub.asaas_customer_id,
+        sub.asaas_subscription_id,
+    )
+    commits_before = db.commits
 
     plano.preco_mensal = 999
     plano.limite_pessoas = 5
@@ -4438,12 +4494,22 @@ def test_prepared_retry_uses_the_intent_price_and_limit_after_catalog_edit(
         "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
     )
 
-    assert second.status_code == 200
-    assert asaas.values == [199.0, 199.0]
-    tracked = next(o for o in db.added if isinstance(o, Subscription))
-    assert tracked.limite == 100
-    assert float(op.valor) == 199.0
-    assert op.limite == 100
+    assert second.status_code == 409
+    assert asaas.values == [199.0]
+    assert (
+        op.status,
+        op.valor,
+        op.limite,
+        op.attempt_started_at,
+        op.error,
+    ) == op_before
+    assert (
+        sub.plano,
+        sub.status,
+        sub.asaas_customer_id,
+        sub.asaas_subscription_id,
+    ) == sub_before
+    assert db.commits == commits_before
 
 
 def test_ambiguous_intent_for_another_plan_still_conflicts(app) -> None:
