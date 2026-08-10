@@ -113,8 +113,11 @@ return 0
 """
 
 _MOVE_FAILED_CLAIM_SCRIPT = """
-if redis.call('LREM', KEYS[1], 1, ARGV[1]) == 1 then
-    redis.call('LPUSH', KEYS[2], ARGV[2])
+if redis.call('GET', KEYS[1]) ~= ARGV[1] then
+    return 0
+end
+if redis.call('LREM', KEYS[2], 1, ARGV[2]) == 1 then
+    redis.call('LPUSH', KEYS[3], ARGV[3])
     return 1
 end
 return 0
@@ -868,26 +871,39 @@ class WebhookQueue:
         raw: str,
         envelope: _Envelope,
     ) -> None:
-        """Atomically ack a failed claim into ready or dead-letter state."""
-        envelope.attempts += 1
-        if envelope.attempts >= MAX_ATTEMPTS:
-            logger.error(
-                "Webhook exhausted retries (%d), moving to dead-letter",
-                envelope.attempts,
-            )
+        """Move a failed claim only while its worker still owns a live lease."""
+        next_attempts = envelope.attempts + 1
+        replacement = _Envelope(
+            payload=envelope.payload,
+            attempts=next_attempts,
+            claim_id=envelope.claim_id,
+        )
+        if next_attempts >= MAX_ATTEMPTS:
             target = DEAD_LETTER_QUEUE
         else:
             target = WEBHOOK_QUEUE
-        moved = self._redis.eval(
-            _MOVE_FAILED_CLAIM_SCRIPT,
-            2,
-            self.processing_queue(worker_id),
-            target,
-            raw,
-            envelope.to_json(),
-        )
+        try:
+            moved = self._redis.eval(
+                _MOVE_FAILED_CLAIM_SCRIPT,
+                3,
+                self._lease_key(worker_id),
+                self.processing_queue(worker_id),
+                target,
+                worker_id,
+                raw,
+                replacement.to_json(),
+            )
+        except Exception as exc:  # noqa: BLE001 - unverifiable means unsafe
+            raise ClaimOwnershipLost(
+                "Webhook failed claim ownership could not be verified"
+            ) from exc
         if not moved:
-            raise RuntimeError("Webhook failed claim was no longer owned")
+            raise ClaimOwnershipLost("Webhook failed claim was no longer owned")
+        if target == DEAD_LETTER_QUEUE:
+            logger.error(
+                "Webhook exhausted retries (%d), moving to dead-letter",
+                next_attempts,
+            )
 
 
 class QueueWorker:
@@ -1075,7 +1091,14 @@ class QueueWorker:
             return
         except Exception:  # noqa: BLE001 - any error triggers a bounded retry
             logger.exception("Webhook processing failed; scheduling reprocess")
-            self._queue.transition_failed_claim(self._worker_id, raw, envelope)
+            try:
+                self._queue.transition_failed_claim(self._worker_id, raw, envelope)
+            except ClaimOwnershipLost:
+                # The raw item remains in (or was recovered from) the private
+                # list. A stale worker must not retry/dead-letter it after its
+                # lease expires; stop and let the current owner recover it.
+                logger.warning("Webhook claim ownership lost during failure handling")
+                self._running = False
             return
         self._queue.ack(self._worker_id, raw)
 

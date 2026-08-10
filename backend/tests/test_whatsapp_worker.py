@@ -123,6 +123,22 @@ class FakeRedis:
         return 1
 
     def eval(self, script: str, numkeys: int, *values: str) -> int:
+        if numkeys == 3 and "LREM" in script:
+            # Failed claims move only when the same worker still owns both the
+            # live lease and the raw item in its private processing list.
+            lease_key, processing, target, worker_id, raw, replacement = values
+            self.failed_transition_calls += 1
+            if self.kv.get(lease_key) != worker_id:
+                return 0
+            items = self.lists.get(processing, [])
+            try:
+                index = items.index(raw)
+            except ValueError:
+                return 0
+            items.pop(index)
+            self.lpush(target, replacement)
+            return 1
+
         if numkeys == 3:  # marker mutation only for the live raw-item owner
             lease_key, processing, marker_key, worker_id, raw, expected, *rest = values
             if self.kv.get(lease_key) != worker_id:
@@ -146,18 +162,6 @@ class FakeRedis:
             if owned and _ttl:
                 self.fence_calls.append((worker_id, _ttl[0]))
             return int(owned)
-
-        if numkeys == 2:  # atomic processing -> ready/dead transition
-            processing, target, raw, replacement = values
-            self.failed_transition_calls += 1
-            items = self.lists.get(processing, [])
-            try:
-                index = items.index(raw)
-            except ValueError:
-                return 0
-            items.pop(index)
-            self.lpush(target, replacement)
-            return 1
 
         assert numkeys == 1
         key, *args = values
@@ -1335,7 +1339,7 @@ def test_failed_transition_does_not_enqueue_when_claim_is_missing() -> None:
     queue = WebhookQueue(redis_client=redis)
     envelope = _Envelope(payload=_parsed_payload("MISSING"))
 
-    with pytest.raises(RuntimeError, match="no longer owned"):
+    with pytest.raises(ClaimOwnershipLost, match="no longer owned"):
         queue.transition_failed_claim(
             "worker-missing",
             envelope.to_json(),
@@ -1346,6 +1350,72 @@ def test_failed_transition_does_not_enqueue_when_claim_is_missing() -> None:
     assert redis.lists.get(DEAD_LETTER_QUEUE) in (None, [])
     assert redis.failed_transition_calls == 1
     assert redis.direct_lrem_calls == 0
+
+
+def test_stale_worker_cannot_dead_letter_and_claim_remains_recoverable(
+    monkeypatch,
+) -> None:
+    """A lease loser cannot move a failed claim after a new owner can recover it."""
+    redis = FakeRedis()
+    queue = WebhookQueue(redis_client=redis)
+    old_worker_id = "worker-failure-old"
+    new_worker_id = "worker-failure-new"
+    queue.register_worker(old_worker_id)
+    queue.register_worker(new_worker_id)
+    original = _Envelope(
+        payload=_parsed_payload("STALE-FAILURE"),
+        attempts=MAX_ATTEMPTS - 1,
+    )
+    redis.lpush(WEBHOOK_QUEUE, original.to_json())
+    raw = queue.claim(old_worker_id, timeout=0)
+    assert raw is not None
+
+    worker = QueueWorker(
+        queue=queue,
+        session_factory=FakeIngestSession,
+        worker_id=old_worker_id,
+    )
+
+    def fail_after_lease_loss(*_args, **_kwargs):
+        redis.delete(queue._lease_key(old_worker_id))  # noqa: SLF001
+        raise RuntimeError("processing failed after lease expiry")
+
+    monkeypatch.setattr(worker, "handle_envelope", fail_after_lease_loss)
+    worker._handle_raw(raw)  # noqa: SLF001
+
+    assert redis.lists[queue.processing_queue(old_worker_id)] == [raw]
+    assert redis.lists.get(DEAD_LETTER_QUEUE) in (None, [])
+    assert redis.lists.get(WEBHOOK_QUEUE) in (None, [])
+    assert redis.failed_transition_calls == 1
+    assert worker._running is False  # noqa: SLF001
+
+    assert queue.recover_pending(new_worker_id) == 1
+    recovered = queue.claim(new_worker_id, timeout=0)
+    assert recovered == raw
+    assert _Envelope.from_json(recovered).attempts == MAX_ATTEMPTS - 1
+
+
+def test_current_owner_atomically_dead_letters_failed_claim() -> None:
+    redis = FakeRedis()
+    queue = WebhookQueue(redis_client=redis)
+    worker_id = "worker-failure-current"
+    queue.register_worker(worker_id)
+    original = _Envelope(
+        payload=_parsed_payload("OWNED-FAILURE"),
+        attempts=MAX_ATTEMPTS - 1,
+    )
+    redis.lpush(WEBHOOK_QUEUE, original.to_json())
+    raw = queue.claim(worker_id, timeout=0)
+    assert raw is not None
+
+    queue.transition_failed_claim(worker_id, raw, _Envelope.from_json(raw))
+
+    assert redis.lists[queue.processing_queue(worker_id)] == []
+    assert len(redis.lists[DEAD_LETTER_QUEUE]) == 1
+    dead = _Envelope.from_json(redis.lists[DEAD_LETTER_QUEUE][0])
+    assert dead.attempts == MAX_ATTEMPTS
+    assert dead.claim_id == original.claim_id
+    assert redis.failed_transition_calls == 1
 
 
 def test_worker_dead_letters_after_max_attempts() -> None:
