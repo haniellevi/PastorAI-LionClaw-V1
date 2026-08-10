@@ -166,6 +166,14 @@ class _WorkerSession(FakeSession):
 
     def __init__(self, **kw) -> None:
         kw.setdefault("planos", _ladder_catalog())
+        subscription = kw.get("subscription")
+        kw.setdefault(
+            "igreja",
+            SimpleNamespace(
+                id=getattr(subscription, "igreja_id", _IGREJA_A),
+                plano=getattr(subscription, "plano", "ate_100"),
+            ),
+        )
         super().__init__(**kw)
         self.info: dict = {}
         self.closed = False
@@ -1047,3 +1055,42 @@ def test_worker_completes_the_queued_autoupgrade(monkeypatch) -> None:
     assert sub.limite is None
     assert igreja.plano == "acima_201"
     assert notified == [_IGREJA_A]
+
+
+def test_worker_locks_church_before_any_plan_row(monkeypatch) -> None:
+    """O worker segue o prefixo Igreja -> Planos usado pelo trigger SQL."""
+    sub = _sub()
+    igreja = SimpleNamespace(id=_IGREJA_A, plano="ate_100")
+    op = _op()
+    tenant = _WorkerSession(
+        subscription=sub,
+        igreja=igreja,
+        plan_changes=[op],
+        planos=_ladder_catalog(),
+    )
+    tenant.pessoas_count = 101
+    events: list[str] = []
+    original_lock_church = billing_worker.lock_igreja_for_billing
+    original_lock_plans = billing_worker.lock_plan_rows_for_billing
+
+    def lock_church(*args, **kwargs):
+        events.append("church")
+        return original_lock_church(*args, **kwargs)
+
+    def lock_plans(*args, **kwargs):
+        events.append("plans")
+        return original_lock_plans(*args, **kwargs)
+
+    monkeypatch.setattr(billing_worker, "lock_igreja_for_billing", lock_church)
+    monkeypatch.setattr(billing_worker, "lock_plan_rows_for_billing", lock_plans)
+    _spy_notify(monkeypatch)
+
+    completed = run_pending_plan_changes(
+        _Discovery([(op, _IGREJA_A)]),
+        session_factory=_factory_queue([tenant]),
+        asaas=_WorkerAsaas(),
+        evolution=object(),
+    )
+
+    assert completed == 1
+    assert events[:2] == ["church", "plans"]

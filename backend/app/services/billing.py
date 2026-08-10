@@ -882,6 +882,22 @@ def _complete_plan_change(
     fecha a operação velha e reserva a aplicação local na MESMA transação; se
     ela já fechou, a resposta atrasada não escreve plano nem entitlement.
     """
+    # A chamada remota acontece depois de um commit e, portanto, sem locks.
+    # Recomece sempre pelo prefixo canônico antes de fechar a operação e tocar
+    # a Subscription: Igreja -> Planos -> operação -> Subscription.
+    igreja = lock_igreja_for_billing(db, sub.igreja_id)
+    if igreja is None:
+        db.rollback()
+        return False
+    locked_plans = lock_plan_rows_for_billing(
+        db, igreja.plano, sub.plano, op.to_plano
+    )
+    if is_complimentary_plan(locked_plans.get(igreja.plano)):
+        # Estado legado/ambíguo: o remoto pode ter mudado, mas a cortesia é a
+        # autoridade local. Preserve a operação para conciliação manual.
+        db.rollback()
+        return False
+
     claimed = db.execute(
         update(BillingPlanChangeOperation)
         .where(
@@ -896,11 +912,7 @@ def _complete_plan_change(
 
     sub.plano = op.to_plano
     sub.limite = op.to_limite
-    igreja = db.execute(
-        select(Igreja).where(Igreja.id == sub.igreja_id)
-    ).scalar_one_or_none()
-    if igreja is not None:
-        igreja.plano = op.to_plano
+    igreja.plano = op.to_plano
     op.status = "completed"
     op.attempt_started_at = None
     db.commit()
@@ -930,11 +942,19 @@ def ensure_plan_change_operation(
     ambígua preserva o plano atual e mantém a operação recuperável. Nunca cria
     outra recorrência.
     """
-    # A edição master pago <-> cortesia trava a MESMA linha de plano. Se ela
-    # vencer a corrida, esta operação relê o catálogo já alterado e falha antes
-    # de persistir/retomar um PUT seguro. Se esta função vencer, a intenção
-    # aberta fica visível antes de liberar os locks no commit abaixo.
-    locked_plans = lock_plan_rows_for_billing(db, sub.plano, to_plano)
+    # Prefixo canônico compartilhado com trigger, master e worker. Se a
+    # cortesia vencer, ela fica visível antes de qualquer GET/PUT; se esta
+    # operação vencer, sua intenção fica visível antes de liberar os locks.
+    igreja = lock_igreja_for_billing(db, sub.igreja_id)
+    if igreja is None:
+        raise PlanChangeConflict("Igreja não encontrada para a troca de plano")
+    locked_plans = lock_plan_rows_for_billing(
+        db, igreja.plano, sub.plano, to_plano
+    )
+    if is_complimentary_plan(locked_plans.get(igreja.plano)):
+        raise PlanChangeConflict(
+            "O plano de cortesia é gerenciado pelo administrador da plataforma"
+        )
     op = find_open_plan_change(db, sub.id)
 
     if op is not None and op.to_plano != to_plano:

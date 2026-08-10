@@ -96,6 +96,20 @@ create unique index billing_plan_change_operations_open_uq
   on {_SCHEMA}.billing_plan_change_operations (subscription_id)
   where status in ('prepared','processing','reconciling');
 
+create table {_SCHEMA}.billing_subscription_operations (
+  id uuid primary key default gen_random_uuid(),
+  subscription_id uuid not null,
+  operation_key text not null unique,
+  plano text not null,
+  status text,
+  asaas_subscription_id text,
+  created_at timestamptz not null default now()
+);
+
+create unique index billing_subscription_operations_open_uq
+  on {_SCHEMA}.billing_subscription_operations (subscription_id)
+  where status in ('prepared','creating','reconciling');
+
 create function {_SCHEMA}.fn_subscription_autoupgrade()
 returns trigger language plpgsql as $$
 begin
@@ -131,6 +145,26 @@ def _apply_real_migration(engine: Engine) -> None:
             cursor.close()
     finally:
         raw.close()
+
+
+def _wait_until_lock_wait(engine: Engine, application_name: str) -> bool:
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        with engine.connect() as observer:
+            wait_type = observer.exec_driver_sql(
+                "select wait_event_type from pg_stat_activity "
+                "where application_name = %s and pid <> pg_backend_pid()",
+                (application_name,),
+            ).scalar_one_or_none()
+        if wait_type == "Lock":
+            return True
+        time.sleep(0.05)
+    return False
+
+
+def _drop_test_schema(engine: Engine) -> None:
+    with engine.begin() as conn:
+        conn.exec_driver_sql(f"drop schema if exists {_SCHEMA} cascade;")
 
 
 def test_forward_migration_is_reviewable_and_does_not_replace_history() -> None:
@@ -342,10 +376,208 @@ def test_real_migration_is_idempotent_and_never_selects_zero_plan(
 
 
 @pytest.mark.rls_integration
-def test_trigger_and_master_use_church_before_plan_lock_order(
+def test_checkout_intent_commit_blocks_concurrent_complimentary_grant(
+    rls_engine: Engine,
+    request: pytest.FixtureRequest,
+) -> None:
+    """Checkout vencedor publica placeholder+intenção antes de liberar Igreja."""
+    igreja_id = "10000000-0000-0000-0000-000000000020"
+    sub_id = "20000000-0000-0000-0000-000000000020"
+    app_name = "billing-checkout-before-complimentary"
+    grant_started = threading.Event()
+    grant_outcomes: list[str] = []
+    grant_errors: list[BaseException] = []
+    request.addfinalizer(lambda: _drop_test_schema(rls_engine))
+
+    with rls_engine.begin() as conn:
+        conn.exec_driver_sql(_DDL)
+        conn.exec_driver_sql(
+            f"""
+            insert into {_SCHEMA}.planos
+              (codigo, ativo, preco_mensal, limite_pessoas)
+            values ('ate_100', true, 199, 100), ('piloto', true, 0, 50);
+            insert into {_SCHEMA}.igrejas (id, plano)
+            values ('{igreja_id}', 'ate_100');
+            """
+        )
+
+    def grant_complimentary() -> None:
+        try:
+            with rls_engine.begin() as conn:
+                conn.exec_driver_sql(
+                    f"set local application_name = '{app_name}'"
+                )
+                conn.exec_driver_sql("set local lock_timeout = '5s'")
+                grant_started.set()
+                conn.exec_driver_sql(
+                    f"select 1 from {_SCHEMA}.igrejas "
+                    f"where id = '{igreja_id}' for update"
+                )
+                blocking = conn.exec_driver_sql(
+                    f"""
+                    select count(*)
+                      from {_SCHEMA}.subscriptions s
+                      join {_SCHEMA}.billing_subscription_operations o
+                        on o.subscription_id = s.id
+                     where s.igreja_id = '{igreja_id}'
+                       and (o.status is null
+                            or o.status not in ('failed', 'superseded'))
+                    """
+                ).scalar_one()
+                if blocking:
+                    grant_outcomes.append("blocked")
+                    return
+                conn.exec_driver_sql(
+                    f"update {_SCHEMA}.igrejas set plano = 'piloto' "
+                    f"where id = '{igreja_id}'"
+                )
+                grant_outcomes.append("granted")
+        except BaseException as exc:  # noqa: BLE001 - transporta da thread
+            grant_errors.append(exc)
+
+    checkout = rls_engine.connect()
+    checkout_tx = checkout.begin()
+    grant = threading.Thread(target=grant_complimentary)
+    try:
+        checkout.exec_driver_sql(
+            f"select 1 from {_SCHEMA}.igrejas "
+            f"where id = '{igreja_id}' for update"
+        )
+        checkout.exec_driver_sql(
+            f"select 1 from {_SCHEMA}.planos "
+            "where codigo = 'ate_100' for update"
+        )
+        checkout.exec_driver_sql(
+            f"""
+            insert into {_SCHEMA}.subscriptions
+              (id, igreja_id, plano, pessoas, limite)
+            values ('{sub_id}', '{igreja_id}', 'ate_100', 0, 100);
+            insert into {_SCHEMA}.billing_subscription_operations
+              (subscription_id, operation_key, plano, status)
+            values ('{sub_id}', 'checkout-race-20', 'ate_100', 'prepared');
+            """
+        )
+        grant.start()
+        assert grant_started.wait(timeout=5)
+        assert _wait_until_lock_wait(rls_engine, app_name)
+        checkout_tx.commit()
+    finally:
+        if checkout_tx.is_active:
+            checkout_tx.rollback()
+        checkout.close()
+        grant.join(timeout=10)
+
+    assert not grant.is_alive()
+    assert grant_errors == []
+    assert grant_outcomes == ["blocked"]
+    with rls_engine.begin() as conn:
+        state = conn.exec_driver_sql(
+            f"""
+            select i.plano, s.plano, o.status
+              from {_SCHEMA}.igrejas i
+              join {_SCHEMA}.subscriptions s on s.igreja_id = i.id
+              join {_SCHEMA}.billing_subscription_operations o
+                on o.subscription_id = s.id
+             where i.id = '{igreja_id}'
+            """
+        ).one()
+    assert state == ("ate_100", "ate_100", "prepared")
+
+
+@pytest.mark.rls_integration
+def test_complimentary_grant_blocks_checkout_before_placeholder(
+    rls_engine: Engine,
+    request: pytest.FixtureRequest,
+) -> None:
+    """Master vencedor torna a cortesia visível antes de qualquer INSERT."""
+    igreja_id = "10000000-0000-0000-0000-000000000021"
+    app_name = "billing-complimentary-before-checkout"
+    checkout_started = threading.Event()
+    checkout_outcomes: list[str] = []
+    checkout_errors: list[BaseException] = []
+    request.addfinalizer(lambda: _drop_test_schema(rls_engine))
+
+    with rls_engine.begin() as conn:
+        conn.exec_driver_sql(_DDL)
+        conn.exec_driver_sql(
+            f"""
+            insert into {_SCHEMA}.planos
+              (codigo, ativo, preco_mensal, limite_pessoas)
+            values ('ate_100', true, 199, 100), ('piloto', true, 0, 50);
+            insert into {_SCHEMA}.igrejas (id, plano)
+            values ('{igreja_id}', 'ate_100');
+            """
+        )
+
+    def checkout() -> None:
+        try:
+            with rls_engine.begin() as conn:
+                conn.exec_driver_sql(
+                    f"set local application_name = '{app_name}'"
+                )
+                conn.exec_driver_sql("set local lock_timeout = '5s'")
+                checkout_started.set()
+                plan_code = conn.exec_driver_sql(
+                    f"select plano from {_SCHEMA}.igrejas "
+                    f"where id = '{igreja_id}' for update"
+                ).scalar_one()
+                price = conn.exec_driver_sql(
+                    f"select preco_mensal from {_SCHEMA}.planos "
+                    "where codigo = %s",
+                    (plan_code,),
+                ).scalar_one()
+                if float(price) <= 0:
+                    checkout_outcomes.append("blocked")
+                    return
+                checkout_outcomes.append("unsafe")
+        except BaseException as exc:  # noqa: BLE001 - transporta da thread
+            checkout_errors.append(exc)
+
+    master = rls_engine.connect()
+    master_tx = master.begin()
+    checkout_thread = threading.Thread(target=checkout)
+    try:
+        master.exec_driver_sql(
+            f"select 1 from {_SCHEMA}.igrejas "
+            f"where id = '{igreja_id}' for update"
+        )
+        master.exec_driver_sql(
+            f"select 1 from {_SCHEMA}.planos "
+            "where codigo in ('ate_100', 'piloto') order by codigo for update"
+        )
+        master.exec_driver_sql(
+            f"update {_SCHEMA}.igrejas set plano = 'piloto' "
+            f"where id = '{igreja_id}'"
+        )
+        checkout_thread.start()
+        assert checkout_started.wait(timeout=5)
+        assert _wait_until_lock_wait(rls_engine, app_name)
+        master_tx.commit()
+    finally:
+        if master_tx.is_active:
+            master_tx.rollback()
+        master.close()
+        checkout_thread.join(timeout=10)
+
+    assert not checkout_thread.is_alive()
+    assert checkout_errors == []
+    assert checkout_outcomes == ["blocked"]
+    with rls_engine.begin() as conn:
+        counts = conn.exec_driver_sql(
+            f"""
+            select
+              (select count(*) from {_SCHEMA}.subscriptions),
+              (select count(*) from {_SCHEMA}.billing_subscription_operations)
+            """
+        ).one()
+    assert counts == (0, 0)
+
+
+@pytest.mark.rls_integration
+def test_trigger_and_worker_use_church_before_plan_lock_order(
     rls_engine: Engine,
 ) -> None:
-    """O insert espera a Igreja antes de tocar o plano-alvo, sem deadlock."""
+    """Trigger e worker compartilham Igreja -> Planos, sem deadlock."""
     igreja_id = "10000000-0000-0000-0000-000000000010"
     sub_id = "20000000-0000-0000-0000-000000000010"
     worker_started = threading.Event()
@@ -391,11 +623,11 @@ def test_trigger_and_master_use_church_before_plan_lock_order(
             except BaseException as exc:  # noqa: BLE001 - transporta da thread
                 worker_errors.append(exc)
 
-        master = rls_engine.connect()
-        master_tx = master.begin()
+        worker_conn = rls_engine.connect()
+        worker_tx = worker_conn.begin()
         worker = threading.Thread(target=add_101st_member)
         try:
-            master.exec_driver_sql(
+            worker_conn.exec_driver_sql(
                 f"select 1 from {_SCHEMA}.igrejas "
                 f"where id = '{igreja_id}' for update"
             )
@@ -418,17 +650,18 @@ def test_trigger_and_master_use_church_before_plan_lock_order(
                 time.sleep(0.05)
             assert blocked_on_lock, "trigger não aguardou o lock da Igreja"
 
-            # Na implementação antiga, o trigger já segurava este Plano e a
-            # linha abaixo formava o ciclo Plano -> Igreja. Agora ela conclui.
-            master.exec_driver_sql(
+            # Na implementação antiga, o worker travava este Plano antes da
+            # Igreja e formava o ciclo com o trigger. Agora ele chega aqui com
+            # a Igreja já travada e o trigger ainda a aguarda.
+            worker_conn.exec_driver_sql(
                 f"select 1 from {_SCHEMA}.planos "
                 "where codigo = '101_200' for update"
             )
-            master_tx.commit()
+            worker_tx.commit()
         finally:
-            if master_tx.is_active:
-                master_tx.rollback()
-            master.close()
+            if worker_tx.is_active:
+                worker_tx.rollback()
+            worker_conn.close()
             worker.join(timeout=10)
 
         assert not worker.is_alive(), "trigger ficou preso após liberar a Igreja"

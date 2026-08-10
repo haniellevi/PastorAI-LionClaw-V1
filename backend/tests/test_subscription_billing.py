@@ -249,6 +249,72 @@ def test_checkout_charges_price_and_saves_limit_from_planos_table(app) -> None:
     assert added_subs[0].limite == 150
 
 
+def test_new_checkout_keeps_church_and_plan_locked_until_intent_commit(
+    app, monkeypatch
+) -> None:
+    """Placeholder e intenção nascem no mesmo commit sob a ordem canônica."""
+    from app.routers import subscription as subscription_router
+
+    events: list[str] = []
+    original_lock_church = subscription_router.lock_igreja_for_billing
+    original_lock_plans = subscription_router.lock_plan_rows_for_billing
+    original_prepare = subscription_router.prepare_subscription_operation
+
+    def lock_church(*args, **kwargs):
+        events.append("lock_church")
+        return original_lock_church(*args, **kwargs)
+
+    def lock_plans(*args, **kwargs):
+        events.append("lock_plans")
+        return original_lock_plans(*args, **kwargs)
+
+    def prepare(*args, **kwargs):
+        events.append("prepare_intent")
+        return original_prepare(*args, **kwargs)
+
+    monkeypatch.setattr(subscription_router, "lock_igreja_for_billing", lock_church)
+    monkeypatch.setattr(subscription_router, "lock_plan_rows_for_billing", lock_plans)
+    monkeypatch.setattr(subscription_router, "prepare_subscription_operation", prepare)
+
+    client, db = _client(app, planos=[_plano()], asaas=_FakeAsaas())
+    original_add = db.add
+    original_flush = db.flush
+    original_commit = db.commit
+
+    def add(obj) -> None:
+        if isinstance(obj, Subscription):
+            events.append("add_placeholder")
+        original_add(obj)
+
+    def flush() -> None:
+        events.append("flush_placeholder")
+        original_flush()
+
+    def commit() -> None:
+        events.append("commit")
+        original_commit()
+
+    db.add = add
+    db.flush = flush
+    db.commit = commit
+
+    response = client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    )
+
+    assert response.status_code == 200
+    canonical_prefix = [
+        events.index("lock_church"),
+        events.index("lock_plans"),
+        events.index("add_placeholder"),
+        events.index("flush_placeholder"),
+        events.index("prepare_intent"),
+    ]
+    assert canonical_prefix == sorted(canonical_prefix)
+    assert "commit" not in events[: events.index("prepare_intent")]
+    assert events.index("commit") > events.index("prepare_intent")
+
+
 def test_sandbox_checkout_keeps_one_retryable_prepared_intent(app) -> None:
     asaas = _SandboxCheckoutAsaas()
     sub = _subscription(
@@ -3631,9 +3697,10 @@ def test_customer_persistence_failure_returns_intent_to_prepared(app) -> None:
     original_commit = db.commit
 
     def fail_customer_commit_once() -> None:
-        # sub placeholder, prepare op e claim já fizeram três commits. O quarto
-        # é a callback que persiste o customer antes do POST /subscriptions.
-        if db.commits == 3:
+        # Placeholder + intenção agora nascem no mesmo commit; depois, o claim
+        # faz o segundo. O terceiro é a callback que persiste o customer antes
+        # do POST /subscriptions.
+        if db.commits == 2:
             db.commits += 1
             raise RuntimeError("falha transitória no commit do customer")
         original_commit()

@@ -1080,20 +1080,10 @@ def create_checkout(
         select(Subscription).where(Subscription.igreja_id == igreja_uuid)
     ).scalar_one_or_none()
     if sub is None:
-        if payload.cpfCnpj is None:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="CPF ou CNPJ obrigatório para iniciar o checkout",
-            )
-        sub = Subscription(igreja_id=igreja_uuid, plano=payload.plano)
-        db.add(sub)
-        # Persistida JÁ: a intenção durável de criação referencia sub.id
-        # (server_default) antes de qualquer chamada externa.
-        db.commit()
-
-        # O commit do placeholder liberou o lock da igreja. Reobtém e repete a
-        # guarda antes de qualquer intenção: se o master concedeu cortesia na
-        # janela, o checkout termina sem nova operação nem chamada remota.
+        # O placeholder e a intenção durável precisam nascer sob o MESMO lock
+        # usado pela concessão de cortesia. Depois de acordar, releia a
+        # Subscription: outro checkout pode ter vencido a corrida enquanto
+        # aguardávamos a Igreja.
         igreja = lock_igreja_for_billing(db, igreja_uuid)
         if igreja is None:
             raise HTTPException(
@@ -1101,6 +1091,41 @@ def create_checkout(
                 detail="Igreja não encontrada",
             )
         _reject_complimentary_self_service(db, igreja)
+        sub = db.execute(
+            select(Subscription).where(Subscription.igreja_id == igreja_uuid)
+        ).scalar_one_or_none()
+
+    if sub is None:
+        if payload.cpfCnpj is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="CPF ou CNPJ obrigatório para iniciar o checkout",
+            )
+        # Ordem canônica: Igreja -> Planos -> operação -> Subscription. O row
+        # lock do plano impede que ele vire cortesia entre esta validação e o
+        # commit atômico do placeholder com a intenção de contratação.
+        locked_new_plan = lock_plan_rows_for_billing(db, payload.plano).get(
+            payload.plano
+        )
+        if locked_new_plan is None or not locked_new_plan.ativo:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Plano inválido ou inativo",
+            )
+        if is_complimentary_plan(locked_new_plan):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    "Plano de cortesia só pode ser atribuído pelo "
+                    "administrador da plataforma"
+                ),
+            )
+        sub = Subscription(igreja_id=igreja_uuid, plano=payload.plano)
+        db.add(sub)
+        # O flush obtém o UUID server-side sem liberar Igreja/Plano. O commit
+        # só ocorre em prepare_subscription_operation, junto com a intenção;
+        # nunca fica um placeholder pago órfão visível para o master.
+        db.flush()
 
     contracted_setup_fee = getattr(sub, "setup_fee_contracted", None)
     # `setup_pago` é estado, não preço contratual. Uma confirmação pode ser

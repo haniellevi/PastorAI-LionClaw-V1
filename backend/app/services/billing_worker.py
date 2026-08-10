@@ -67,6 +67,7 @@ from app.services.billing import (
     ensure_plan_change_operation,
     find_open_plan_change,
     finish_operation,
+    lock_igreja_for_billing,
     lock_plan_rows_for_billing,
 )
 from app.services.evolution import EvolutionClient, EvolutionError
@@ -325,9 +326,12 @@ def _process_operation(
     if sub is None:
         return False
 
-    igreja = db.execute(
-        select(Igreja).where(Igreja.id == igreja_id)
-    ).scalar_one_or_none()
+    # Prefixo canônico compartilhado com trigger/master: Igreja -> Planos.
+    # Este lock precisa anteceder o retarget e qualquer chamada ao helper de
+    # troca, senão o worker pode formar o ciclo Planos -> Igreja.
+    igreja = lock_igreja_for_billing(db, igreja_id)
+    if igreja is None:
+        return False
     if assigned_complimentary_plan(db, igreja) is not None:
         # Defesa em profundidade: o master é a única autoridade para retirar
         # cortesia. Uma intenção ainda local é encerrada sem PUT; estados que
@@ -493,9 +497,9 @@ def queue_autoupgrade_if_over_limit(db: Session, sub: Subscription) -> bool:
     Nenhuma chamada externa acontece nesta função. Retorna True quando
     enfileirou.
     """
-    igreja = db.execute(
-        select(Igreja).where(Igreja.id == sub.igreja_id)
-    ).scalar_one_or_none()
+    igreja = lock_igreja_for_billing(db, sub.igreja_id)
+    if igreja is None:
+        return False
     if assigned_complimentary_plan(db, igreja) is not None:
         return False
     if not sub.asaas_subscription_id or sub.asaas_subscription_id == "sandbox":

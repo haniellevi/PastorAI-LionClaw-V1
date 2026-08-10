@@ -154,8 +154,10 @@ docker compose ps
 # processos capazes de faturar devem confirmar as duas travas fechadas.
 for service in backend queue-worker cron-worker; do
   if ! docker compose exec -T "$service" sh -lc '
-      [ "${ALLOW_REAL_SENDS:-false}" = "false" ] &&
-      [ "${ASAAS_BILLING_ENABLED:-false}" = "false" ] &&
+      [ "${ALLOW_REAL_SENDS+x}" = "x" ] &&
+      [ "$ALLOW_REAL_SENDS" = "false" ] &&
+      [ "${ASAAS_BILLING_ENABLED+x}" = "x" ] &&
+      [ "$ASAAS_BILLING_ENABLED" = "false" ] &&
       echo "billing gates: CLOSED"'; then
     echo "billing gates: OPEN or unverifiable for ${service}" >&2
     exit 1

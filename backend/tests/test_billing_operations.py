@@ -576,6 +576,8 @@ def _change(db, asaas, sub, *, to_plano: str = "101_200"):
                 ),
             ]
         )
+    if db.igreja is None:
+        db.igreja = SimpleNamespace(id=sub.igreja_id, plano=sub.plano)
     return ensure_plan_change_operation(
         db,
         asaas,
