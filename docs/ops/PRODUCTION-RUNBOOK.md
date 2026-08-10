@@ -248,7 +248,12 @@ systemctl list-timers pastorai-monitor.timer pastorai-backup.timer --all
 journalctl -u pastorai-monitor.service -n 50 --no-pager
 ```
 
-O instalador executa um primeiro backup verificado e a primeira sondagem local.
+O modo padrão preserva o cron M02, não habilita `pastorai-backup.timer` e executa
+somente a primeira sondagem local. Se cron e timer já estiverem simultaneamente
+ativos, o instalador aborta para impedir dois backups diários. Uma migração
+futura para timer exige remover o cron em gate operacional próprio e então usar
+explicitamente `PASTORAI_BACKUP_TIMER_MODE=enable`; essa opção também executa um
+primeiro backup. A raiz canônica continua sendo `/root/pastorai-backups`.
 O workflow `production-monitor.yml` faz os checks públicos e mantém uma issue
 deduplicada no GitHub. Procedimento, estados e limites de disaster recovery:
 [`deploy/monitoring/README.md`](../../deploy/monitoring/README.md).

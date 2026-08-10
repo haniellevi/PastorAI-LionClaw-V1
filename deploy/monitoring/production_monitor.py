@@ -12,15 +12,17 @@ import datetime as dt
 import html
 import json
 import os
+import urllib.error
 import urllib.request
 from dataclasses import asdict, dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
 UTC = dt.timezone.utc
 DEFAULT_ENV_FILE = Path("/opt/pastorai-current/deploy/.env")
 DEFAULT_STATE_FILE = Path("/var/lib/pastorai-monitor/state.json")
-DEFAULT_BACKUP_ROOT = Path("/var/backups/pastorai")
+DEFAULT_BACKUP_ROOT = Path("/root/pastorai-backups")
 
 
 @dataclass(frozen=True)
@@ -28,6 +30,12 @@ class CheckResult:
     name: str
     ok: bool
     detail: str
+
+
+class AlertDelivery(str, Enum):
+    SENT = "sent"
+    DEFINITE_FAILURE = "failed"
+    AMBIGUOUS = "ambiguous"
 
 
 def utcnow() -> dt.datetime:
@@ -160,28 +168,45 @@ def should_notify(
     *,
     now: dt.datetime,
     reminder_hours: int,
+    retry_hours: int = 1,
+    ambiguous_retry_hours: int = 6,
 ) -> bool:
     old_signature = str(previous.get("signature", ""))
     if signature != old_signature:
         return True
-    if not signature:
+
+    delivery_status = str(previous.get("delivery_status", ""))
+    if not delivery_status and previous.get("notified_at"):
+        delivery_status = AlertDelivery.SENT.value
+    if not signature and delivery_status in {"", AlertDelivery.SENT.value}:
         return False
+    if delivery_status == AlertDelivery.SENT.value:
+        timestamp_key = (
+            "delivered_at" if previous.get("delivered_at") else "notified_at"
+        )
+        wait_hours = reminder_hours
+    elif delivery_status in {AlertDelivery.AMBIGUOUS.value, "attempting"}:
+        timestamp_key = "attempted_at"
+        wait_hours = ambiguous_retry_hours
+    else:
+        timestamp_key = "attempted_at"
+        wait_hours = retry_hours
     try:
-        notified = dt.datetime.fromisoformat(str(previous["notified_at"]))
+        last_attempt = dt.datetime.fromisoformat(str(previous[timestamp_key]))
     except (KeyError, TypeError, ValueError):
         return True
-    return now - notified >= dt.timedelta(hours=max(1, reminder_hours))
+    return now - last_attempt >= dt.timedelta(hours=max(1, wait_hours))
 
 
 def send_brevo_alert(
     config: dict[str, str], *, subject: str, checks: list[CheckResult]
-) -> bool:
+) -> AlertDelivery:
     api_key = config.get("BREVO_API_KEY", "")
     recipient = config.get("MONITOR_ALERT_EMAIL", "")
     sender = config.get("BREVO_FROM_EMAIL", "")
     if not api_key or not recipient or not sender:
         print("monitor_alert delivery=skipped reason=configuration_missing")
-        return False
+        return AlertDelivery.DEFINITE_FAILURE
     rows = "".join(
         "<li><strong>"
         f"{html.escape(item.name)}</strong>: {html.escape(item.detail)}</li>"
@@ -212,11 +237,15 @@ def send_brevo_alert(
     try:
         with urllib.request.urlopen(request, timeout=15) as response:
             ok = 200 <= response.status < 300
-    except Exception as exc:  # noqa: BLE001 - never print provider response/key
+    except urllib.error.HTTPError as exc:
         print(f"monitor_alert delivery=failed error_type={type(exc).__name__}")
-        return False
-    print(f"monitor_alert delivery={'sent' if ok else 'failed'}")
-    return ok
+        return AlertDelivery.DEFINITE_FAILURE
+    except Exception as exc:  # noqa: BLE001 - never print provider response/key
+        print(f"monitor_alert delivery=ambiguous error_type={type(exc).__name__}")
+        return AlertDelivery.AMBIGUOUS
+    delivery = AlertDelivery.SENT if ok else AlertDelivery.DEFINITE_FAILURE
+    print(f"monitor_alert delivery={delivery.value}")
+    return delivery
 
 
 def run(config: dict[str, str], *, now: dt.datetime | None = None) -> int:
@@ -239,32 +268,57 @@ def run(config: dict[str, str], *, now: dt.datetime | None = None) -> int:
         reminder = int(config.get("MONITOR_REMINDER_HOURS", "6"))
     except ValueError:
         reminder = 6
-    notify = should_notify(previous, signature, now=checked_at, reminder_hours=reminder)
-    notified_at = previous.get("notified_at")
-    delivered = False
+    try:
+        retry_hours = int(config.get("MONITOR_RETRY_HOURS", "1"))
+    except ValueError:
+        retry_hours = 1
+    try:
+        ambiguous_retry_hours = int(
+            config.get("MONITOR_AMBIGUOUS_RETRY_HOURS", "6")
+        )
+    except ValueError:
+        ambiguous_retry_hours = 6
+    notify = should_notify(
+        previous,
+        signature,
+        now=checked_at,
+        reminder_hours=reminder,
+        retry_hours=retry_hours,
+        ambiguous_retry_hours=ambiguous_retry_hours,
+    )
+    state = {
+        "checked_at": checked_at.isoformat(),
+        "attempted_at": previous.get("attempted_at"),
+        "delivered_at": previous.get("delivered_at"),
+        "notified_at": previous.get("notified_at"),
+        "delivery_status": previous.get("delivery_status"),
+        "signature": signature,
+        "checks": [asdict(item) for item in checks],
+    }
     if notify:
         subject = (
             "[PastorAI] Falha na producao"
             if signature
             else "[PastorAI] Producao recuperada"
         )
-        delivered = send_brevo_alert(config, subject=subject, checks=checks)
-        if delivered:
-            notified_at = checked_at.isoformat()
-    persisted_signature = (
-        signature
-        if not notify or delivered
-        else str(previous.get("signature", ""))
-    )
-    save_state(
-        state_path,
-        {
-            "checked_at": checked_at.isoformat(),
-            "notified_at": notified_at,
-            "signature": persisted_signature,
-            "checks": [asdict(item) for item in checks],
-        },
-    )
+        state["attempted_at"] = checked_at.isoformat()
+        state["delivery_status"] = "attempting"
+        # Persist the transition before network I/O. A crash or ambiguous
+        # response is therefore cooled down instead of retried every five minutes.
+        save_state(state_path, state)
+        try:
+            delivery = send_brevo_alert(config, subject=subject, checks=checks)
+        except Exception as exc:  # noqa: BLE001 - custom sender must remain safe
+            print(
+                "monitor_alert delivery=ambiguous "
+                f"error_type={type(exc).__name__}"
+            )
+            delivery = AlertDelivery.AMBIGUOUS
+        state["delivery_status"] = delivery.value
+        if delivery is AlertDelivery.SENT:
+            state["delivered_at"] = checked_at.isoformat()
+            state["notified_at"] = checked_at.isoformat()
+    save_state(state_path, state)
     return 1 if signature else 0
 
 

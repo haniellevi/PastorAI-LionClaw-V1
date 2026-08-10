@@ -9,6 +9,7 @@ runs the global SLA sweep plus due crons and always releases the session.
 from __future__ import annotations
 
 import datetime as dt
+import threading
 import uuid
 from types import SimpleNamespace
 
@@ -362,3 +363,51 @@ def test_run_publishes_worker_progress_states(monkeypatch) -> None:
         ("ready", WORKER_HEARTBEAT_TTL_SECONDS),
         ("stopped", WORKER_HEARTBEAT_TTL_SECONDS),
     ]
+
+
+def test_blocked_tick_is_not_kept_healthy_by_an_auxiliary_thread(
+    monkeypatch,
+) -> None:
+    import app.workers.cron_worker as worker_module
+
+    monkeypatch.setattr(worker_module, "WORKER_HEARTBEAT_SECONDS", 0.01)
+    entered_tick = threading.Event()
+    release_tick = threading.Event()
+    auxiliary_heartbeat = threading.Event()
+    runner_ident: list[int | None] = [None]
+
+    def publish(_state: str, _ttl: int) -> None:
+        if threading.get_ident() != runner_ident[0]:
+            auxiliary_heartbeat.set()
+
+    worker = CronWorker(
+        session_factory=lambda: object(),
+        engine=ClosingEngine(),
+        tick_seconds=300,
+        heartbeat_publisher=publish,
+    )
+
+    def blocked_tick(now=None):
+        entered_tick.set()
+        assert release_tick.wait(timeout=1)
+        worker.stop()
+        return {
+            "sla_handled": 0,
+            "crons_run": 0,
+            "oauth_flows_purged": 0,
+            "plan_changes_completed": 0,
+        }
+
+    monkeypatch.setattr(worker, "tick", blocked_tick)
+
+    def run_worker() -> None:
+        runner_ident[0] = threading.get_ident()
+        worker.run()
+
+    thread = threading.Thread(target=run_worker)
+    thread.start()
+    assert entered_tick.wait(timeout=1)
+    assert auxiliary_heartbeat.wait(timeout=0.05) is False
+    release_tick.set()
+    thread.join(timeout=1)
+    assert thread.is_alive() is False

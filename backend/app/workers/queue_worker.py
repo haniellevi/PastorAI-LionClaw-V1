@@ -43,7 +43,7 @@ from dataclasses import dataclass
 from enum import Enum
 from functools import partial
 from hashlib import sha256
-from threading import Event, Thread
+from threading import Event, Lock, Thread
 from typing import Any
 
 from sqlalchemy import func, select
@@ -82,6 +82,7 @@ MAX_ATTEMPTS = 5
 BRPOP_TIMEOUT = 5  # seconds
 WORKER_LEASE_SECONDS = 30
 WORKER_HEARTBEAT_SECONDS = 10
+WORKER_PROGRESS_TIMEOUT_SECONDS = WORKER_LEASE_SECONDS * 2
 REDIS_CONNECT_TIMEOUT_SECONDS = 3
 # Must exceed BRPOP_TIMEOUT so the client socket does not time out before the
 # blocking Redis command returns normally.
@@ -790,6 +791,8 @@ class QueueWorker:
         media_resolver: MediaResolver | None = None,
         worker_id: str | None = None,
         heartbeat_publisher: Callable[[str, int], None] | None = None,
+        progress_clock: Callable[[], float] = time.monotonic,
+        progress_timeout_seconds: float = WORKER_PROGRESS_TIMEOUT_SECONDS,
     ) -> None:
         self._queue = queue or WebhookQueue()
         self._session_factory = session_factory or get_session_factory()
@@ -805,6 +808,13 @@ class QueueWorker:
         self._heartbeat_stop = Event()
         self._heartbeat_thread: Thread | None = None
         self._health_state = "ready"
+        self._progress_clock = progress_clock
+        self._progress_timeout_seconds = max(
+            float(WORKER_LEASE_SECONDS),
+            float(progress_timeout_seconds),
+        )
+        self._progress_lock = Lock()
+        self._last_progress_at = self._progress_clock()
         self._heartbeat_publisher = heartbeat_publisher or (
             lambda state, ttl: publish_worker_heartbeat(
                 None,
@@ -814,6 +824,43 @@ class QueueWorker:
                 client=self._queue._redis,  # noqa: SLF001 - same module owner
             )
         )
+
+    def _record_progress(self) -> None:
+        with self._progress_lock:
+            self._last_progress_at = self._progress_clock()
+
+    def _progress_stale(self) -> bool:
+        with self._progress_lock:
+            last_progress_at = self._last_progress_at
+        return (
+            self._progress_clock() - last_progress_at
+            > self._progress_timeout_seconds
+        )
+
+    def _heartbeat_once(self) -> bool:
+        """Renew lease/health only while the main consumer made recent progress."""
+        if self._progress_stale():
+            logger.error("Webhook worker stalled; lease renewal stopped")
+            self._publish_health("error")
+            self._running = False
+            return False
+        try:
+            renewed = self._queue.refresh_worker_lease(self._worker_id)
+        except Exception as exc:  # noqa: BLE001 - lease loss stops consumption
+            logger.error(
+                "Webhook worker lease renewal failed error_type=%s",
+                type(exc).__name__,
+            )
+            self._publish_health("error")
+            self._running = False
+            return False
+        if not renewed:
+            logger.error("Webhook worker lease expired; stopping consumer")
+            self._publish_health("error")
+            self._running = False
+            return False
+        self._publish_health()
+        return True
 
     def _publish_health(self, state: str | None = None) -> None:
         if state is not None:
@@ -832,30 +879,17 @@ class QueueWorker:
         self._running = False
 
     def _heartbeat_loop(self) -> None:
-        """Renew this worker's lease while a claimed item is being processed."""
+        """Renew a claim lease only inside the bounded progress window."""
         while not self._heartbeat_stop.wait(WORKER_HEARTBEAT_SECONDS):
-            try:
-                renewed = self._queue.refresh_worker_lease(self._worker_id)
-            except Exception as exc:  # noqa: BLE001 - lease loss stops consumption
-                logger.error(
-                    "Webhook worker lease renewal failed error_type=%s",
-                    type(exc).__name__,
-                )
-                self._publish_health("error")
-                self._running = False
+            if not self._heartbeat_once():
                 return
-            if not renewed:
-                logger.error("Webhook worker lease expired; stopping consumer")
-                self._publish_health("error")
-                self._running = False
-                return
-            self._publish_health()
 
     def run(self) -> None:
         """Block draining the queue until stopped (graceful shutdown)."""
         self._running = True
         self._heartbeat_stop.clear()
         self._queue.register_worker(self._worker_id)
+        self._record_progress()
         self._publish_health("ready")
         heartbeat = Thread(
             target=self._heartbeat_loop,
@@ -876,6 +910,9 @@ class QueueWorker:
                     logger.error("Webhook worker lease expired; stopping consumer")
                     self._publish_health("error")
                     break
+                self._record_progress()
+                if not self._running:
+                    break
                 now = time.monotonic()
                 if now >= next_recovery_at:
                     recovered = self._queue.recover_pending(self._worker_id)
@@ -885,10 +922,12 @@ class QueueWorker:
                         )
                     next_recovery_at = now + WORKER_HEARTBEAT_SECONDS
                 raw = self._queue.claim(self._worker_id, timeout=BRPOP_TIMEOUT)
+                self._record_progress()
                 if raw is None:
                     continue
                 self._publish_health("running")
                 self._handle_raw(raw)
+                self._record_progress()
                 if self._running:
                     self._publish_health("ready")
         finally:

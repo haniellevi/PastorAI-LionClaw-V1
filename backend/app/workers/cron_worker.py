@@ -23,7 +23,6 @@ import logging
 import signal
 import time
 from collections.abc import Callable
-from threading import Event, Thread
 from typing import Any
 
 from sqlalchemy import select
@@ -181,8 +180,6 @@ class CronWorker:
                 ttl_seconds=ttl,
             )
         self._health_state = "ready"
-        self._heartbeat_stop = Event()
-        self._heartbeat_thread: Thread | None = None
 
     def _publish_health(self, state: str | None = None) -> None:
         if state is not None:
@@ -199,11 +196,6 @@ class CronWorker:
                 "Cron worker heartbeat failed error_type=%s",
                 type(exc).__name__,
             )
-
-    def _heartbeat_loop(self) -> None:
-        """Keep the liveness lease fresh even while one cron tick is long."""
-        while not self._heartbeat_stop.wait(WORKER_HEARTBEAT_SECONDS):
-            self._publish_health()
 
     def stop(self, *_: Any) -> None:
         """Request a graceful shutdown (SIGTERM/SIGINT handler)."""
@@ -292,14 +284,6 @@ class CronWorker:
     def run(self) -> None:
         """Block ticking on the configured interval until stopped."""
         self._running = True
-        self._heartbeat_stop.clear()
-        heartbeat = Thread(
-            target=self._heartbeat_loop,
-            name="cron-worker-health",
-            daemon=True,
-        )
-        self._heartbeat_thread = heartbeat
-        heartbeat.start()
         logger.info("Cron worker started (tick=%ss)", self._tick_seconds)
         try:
             while self._running:
@@ -323,12 +307,15 @@ class CronWorker:
                     self._publish_health("error")
                 # Sleep in small slices so shutdown stays responsive.
                 slept = 0
+                next_heartbeat = WORKER_HEARTBEAT_SECONDS
                 while self._running and slept < self._tick_seconds:
-                    time.sleep(min(1, self._tick_seconds - slept))
-                    slept += 1
+                    sleep_for = min(1, self._tick_seconds - slept)
+                    time.sleep(sleep_for)
+                    slept += sleep_for
+                    if slept >= next_heartbeat:
+                        self._publish_health()
+                        next_heartbeat += WORKER_HEARTBEAT_SECONDS
         finally:
-            self._heartbeat_stop.set()
-            heartbeat.join(timeout=2)
             self._publish_health("stopped")
             if self._owns_engine:
                 self._owns_engine = False

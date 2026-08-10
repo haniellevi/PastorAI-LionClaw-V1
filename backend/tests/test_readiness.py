@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import time
 from types import SimpleNamespace
 
@@ -23,7 +24,11 @@ def _settings(*, evolution_url: str = "http://evolution-api:8080"):
 def _install_probes(monkeypatch, *, database=None, redis=None, evolution=None):
     import app.services.readiness as readiness
 
-    monkeypatch.setattr(readiness, "_check_database", database or (lambda: None))
+    monkeypatch.setattr(
+        readiness,
+        "_check_database",
+        database or (lambda: None),
+    )
     monkeypatch.setattr(
         readiness,
         "_check_redis_and_workers",
@@ -113,22 +118,22 @@ def test_optional_evolution_failure_is_degraded_but_still_200(monkeypatch) -> No
 
 def test_optional_evolution_timeout_is_bounded_and_degraded(monkeypatch) -> None:
     def slow_evolution(_settings) -> None:
-        time.sleep(0.05)
+        time.sleep(0.2)
 
     _install_probes(monkeypatch, evolution=slow_evolution)
 
     async def run_probe():
         started = time.perf_counter()
-        report = await collect_readiness(_settings(), timeout_seconds=0.001)
+        report = await collect_readiness(_settings(), timeout_seconds=0.05)
         elapsed = time.perf_counter() - started
         # Let the cancelled to_thread call finish before asyncio.run shuts its
         # executor down; the endpoint itself already returned at ``elapsed``.
-        await asyncio.sleep(0.06)
+        await asyncio.sleep(0.21)
         return report, elapsed
 
     report, elapsed = asyncio.run(run_probe())
 
-    assert elapsed < 0.04
+    assert elapsed < 0.15
     assert report.status == "degraded"
     assert report.http_status == 200
     assert report.optional["evolution"] == "timeout"
@@ -136,23 +141,133 @@ def test_optional_evolution_timeout_is_bounded_and_degraded(monkeypatch) -> None
 
 def test_dependency_timeouts_run_concurrently(monkeypatch) -> None:
     def slow(*_args) -> None:
-        time.sleep(0.05)
+        time.sleep(0.3)
 
     _install_probes(monkeypatch, database=slow, redis=slow, evolution=slow)
 
     async def run_probes():
         started = time.perf_counter()
-        report = await collect_readiness(_settings(), timeout_seconds=0.001)
+        report = await collect_readiness(_settings(), timeout_seconds=0.05)
         elapsed = time.perf_counter() - started
-        await asyncio.sleep(0.06)
+        await asyncio.sleep(0.31)
         return report, elapsed
 
     report, elapsed = asyncio.run(run_probes())
 
-    assert elapsed < 0.04
+    # Three sequential 50 ms deadlines would take at least 150 ms. The probes
+    # are launched together and must return comfortably below that bound.
+    assert elapsed < 0.12
     assert report.status == "not_ready"
     assert set(report.required.values()) == {"timeout"}
     assert report.optional == {"evolution": "timeout"}
+
+
+def test_database_probe_sets_driver_deadlines(monkeypatch) -> None:
+    import app.services.readiness as readiness
+
+    seen: dict[str, object] = {}
+
+    class _Url:
+        query = {"sslmode": "require"}
+
+        @staticmethod
+        def translate_connect_args(**names):
+            seen["translated_names"] = names
+            return {
+                "host": "db.internal",
+                names["username"]: "app_user",
+                names["database"]: "app",
+            }
+
+    class _Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        def execute(self, sql):
+            seen["sql"] = sql
+
+        @staticmethod
+        def fetchone():
+            return (1,)
+
+    class _Connection:
+        closed = False
+
+        @staticmethod
+        def cursor():
+            return _Cursor()
+
+        def close(self):
+            self.closed = True
+
+    connection = _Connection()
+    monkeypatch.setattr(readiness, "get_engine", lambda: SimpleNamespace(url=_Url()))
+    monkeypatch.setattr(
+        readiness.psycopg2,
+        "connect",
+        lambda **kwargs: seen.update(kwargs) or connection,
+    )
+
+    readiness._check_database()
+
+    assert seen["connect_timeout"] == readiness._DATABASE_TIMEOUT_SECONDS
+    assert "statement_timeout=1000" in str(seen["options"])
+    assert seen["sslmode"] == "require"
+    assert seen["user"] == "app_user"
+    assert seen["dbname"] == "app"
+    assert seen["translated_names"] == {
+        "username": "user",
+        "database": "dbname",
+    }
+    assert seen["sql"] == "SELECT 1"
+    assert connection.closed is True
+
+
+def test_repeated_timeouts_have_strict_concurrency_limit_and_recover(
+    monkeypatch,
+) -> None:
+    import app.services.readiness as readiness
+
+    release = threading.Event()
+    counter_lock = threading.Lock()
+    active = 0
+    max_active = 0
+
+    def slow(*_args) -> None:
+        nonlocal active, max_active
+        with counter_lock:
+            active += 1
+            max_active = max(max_active, active)
+        try:
+            release.wait(timeout=1)
+        finally:
+            with counter_lock:
+                active -= 1
+
+    _install_probes(monkeypatch, database=slow, redis=slow, evolution=slow)
+    monkeypatch.setattr(readiness, "_PROBE_SLOTS", threading.BoundedSemaphore(3))
+
+    async def exercise():
+        reports = await asyncio.gather(
+            *(collect_readiness(_settings(), timeout_seconds=0.001) for _ in range(8))
+        )
+        release.set()
+        await asyncio.sleep(0.05)
+        _install_probes(monkeypatch)
+        recovered = await collect_readiness(_settings(), timeout_seconds=0.1)
+        return reports, recovered
+
+    reports, recovered = asyncio.run(exercise())
+
+    assert max_active <= 3
+    assert any(
+        "busy" in set(report.required.values()) | set(report.optional.values())
+        for report in reports
+    )
+    assert recovered.status == "ready"
 
 
 def test_disabled_evolution_is_not_a_failure(monkeypatch) -> None:

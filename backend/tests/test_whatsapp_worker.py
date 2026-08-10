@@ -978,32 +978,77 @@ def test_worker_recovers_crashed_claim_without_losing_idempotency() -> None:
     assert redis.lists[queue.processing_queue(recovery_worker)] == []
 
 
-def test_worker_heartbeat_renews_lease_until_stopped(monkeypatch) -> None:
-    queue = WebhookQueue(redis_client=FakeRedis())
+def test_worker_heartbeat_renews_lease_while_main_loop_progress_is_fresh(
+    monkeypatch,
+) -> None:
+    redis = FakeRedis()
+    queue = WebhookQueue(redis_client=redis)
+    queue.register_worker("worker-heartbeat")
+    now = [0.0]
+    heartbeats: list[tuple[str, int]] = []
     worker = QueueWorker(
         queue=queue,
         session_factory=FakeIngestSession,
         worker_id="worker-heartbeat",
+        heartbeat_publisher=lambda state, ttl: heartbeats.append((state, ttl)),
+        progress_clock=lambda: now[0],
+        progress_timeout_seconds=WORKER_LEASE_SECONDS,
     )
     refreshes: list[str] = []
-
-    class _StopAfterOneRefresh:
-        calls = 0
-
-        def wait(self, _seconds: int) -> bool:
-            self.calls += 1
-            return self.calls > 1
-
-    monkeypatch.setattr(worker, "_heartbeat_stop", _StopAfterOneRefresh())
     monkeypatch.setattr(
         queue,
         "refresh_worker_lease",
         lambda worker_id: refreshes.append(worker_id) or True,
     )
 
-    worker._heartbeat_loop()  # noqa: SLF001
+    worker._record_progress()  # noqa: SLF001
+    now[0] = WORKER_LEASE_SECONDS - 1
 
+    assert worker._heartbeat_once() is True  # noqa: SLF001
     assert refreshes == ["worker-heartbeat"]
+    assert heartbeats == [("ready", WORKER_LEASE_SECONDS)]
+
+
+def test_stalled_worker_stops_renewing_and_claim_becomes_recoverable(
+    monkeypatch,
+) -> None:
+    redis = FakeRedis()
+    queue = WebhookQueue(redis_client=redis)
+    queue.register_worker("worker-stalled")
+    queue.register_worker("worker-recovery")
+    queue.enqueue(_parsed_payload("STALL-RECOVERY"))
+    raw = queue.claim("worker-stalled", timeout=0)
+    now = [0.0]
+    heartbeats: list[tuple[str, int]] = []
+    refreshes: list[str] = []
+    worker = QueueWorker(
+        queue=queue,
+        session_factory=FakeIngestSession,
+        worker_id="worker-stalled",
+        heartbeat_publisher=lambda state, ttl: heartbeats.append((state, ttl)),
+        progress_clock=lambda: now[0],
+        progress_timeout_seconds=WORKER_LEASE_SECONDS,
+    )
+    worker._running = True  # noqa: SLF001
+    worker._record_progress()  # noqa: SLF001
+    monkeypatch.setattr(
+        queue,
+        "refresh_worker_lease",
+        lambda worker_id: refreshes.append(worker_id) or True,
+    )
+
+    now[0] = WORKER_LEASE_SECONDS + 1
+
+    assert worker._heartbeat_once() is False  # noqa: SLF001
+    assert worker._running is False  # noqa: SLF001
+    assert refreshes == []
+    assert heartbeats == [("error", WORKER_LEASE_SECONDS)]
+
+    # FakeRedis does not advance TTL; deleting the unrenewed lease models its
+    # natural expiry and proves that a live worker can recover the exact claim.
+    redis.delete(queue._lease_key("worker-stalled"))  # noqa: SLF001
+    assert queue.recover_pending("worker-recovery") == 1
+    assert queue.claim("worker-recovery", timeout=0) == raw
 
 
 def test_worker_run_cleans_up_lease_and_registry(monkeypatch) -> None:

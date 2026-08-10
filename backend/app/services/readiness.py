@@ -9,10 +9,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from contextlib import closing
 from dataclasses import dataclass
+from threading import BoundedSemaphore
 from typing import Any, Callable
 
 import httpx
+import psycopg2
 import redis
 
 from app.config import Settings, get_settings
@@ -26,8 +29,11 @@ from app.services.worker_health import (
 logger = logging.getLogger("pastorai.readiness")
 
 _PROBE_TIMEOUT_SECONDS = 2.0
+_DATABASE_TIMEOUT_SECONDS = 1
 _REDIS_TIMEOUT_SECONDS = 1.0
 _EVOLUTION_TIMEOUT_SECONDS = 1.5
+_PROBE_CONCURRENCY_LIMIT = 3
+_PROBE_SLOTS = BoundedSemaphore(_PROBE_CONCURRENCY_LIMIT)
 _OPTIONAL_HEALTHY_STATES = frozenset({"ok", "disabled"})
 
 
@@ -63,14 +69,23 @@ class ReadinessReport:
 
 
 def _check_database() -> None:
-    connection = get_engine().connect()
-    try:
-        value = connection.exec_driver_sql("SELECT 1").scalar_one()
-        if value != 1:
-            raise RuntimeError("database probe failed")
-        connection.rollback()
-    finally:
-        connection.close()
+    """Probe Postgres with driver-level connect and statement deadlines."""
+    url = get_engine().url
+    kwargs: dict[str, Any] = url.translate_connect_args(
+        username="user",
+        database="dbname",
+    )
+    kwargs.update(dict(url.query))
+    existing_options = str(kwargs.get("options", "")).strip()
+    statement_timeout = f"-c statement_timeout={_DATABASE_TIMEOUT_SECONDS * 1000}"
+    kwargs["options"] = f"{existing_options} {statement_timeout}".strip()
+    kwargs["connect_timeout"] = _DATABASE_TIMEOUT_SECONDS
+    with closing(psycopg2.connect(**kwargs)) as connection:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT 1")
+            value = cursor.fetchone()
+    if value != (1,):
+        raise RuntimeError("database probe failed")
 
 
 def _check_redis_and_workers(settings: Settings) -> dict[str, str | None]:
@@ -115,9 +130,22 @@ async def _bounded_probe(
     *,
     timeout_seconds: float,
 ) -> tuple[str, Any | None]:
+    if not _PROBE_SLOTS.acquire(blocking=False):
+        logger.warning(
+            "readiness_probe_failed dependency=%s error_type=Busy",
+            name,
+        )
+        return "busy", None
+
+    def run_and_release() -> Any:
+        try:
+            return probe()
+        finally:
+            _PROBE_SLOTS.release()
+
     try:
         payload = await asyncio.wait_for(
-            asyncio.to_thread(probe),
+            asyncio.to_thread(run_and_release),
             timeout=timeout_seconds,
         )
         return "ok", payload
@@ -152,7 +180,11 @@ async def collect_readiness(
     settings = settings or get_settings()
     timeout = _PROBE_TIMEOUT_SECONDS if timeout_seconds is None else timeout_seconds
 
-    database_task = _bounded_probe("database", _check_database, timeout_seconds=timeout)
+    database_task = _bounded_probe(
+        "database",
+        _check_database,
+        timeout_seconds=timeout,
+    )
     redis_task = _bounded_probe(
         "redis",
         lambda: _check_redis_and_workers(settings),
