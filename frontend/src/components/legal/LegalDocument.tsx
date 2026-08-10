@@ -1,6 +1,8 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
+import { DiamondMark } from "@/components/brand/DiamondMark";
+
 import { LEGAL_CONTACT_EMAIL, LEGAL_LAST_UPDATED, LEGAL_NAME } from "./legal-config";
 import styles from "./legal-document.module.css";
 
@@ -20,7 +22,7 @@ export function LegalDocument({ children, description, title }: LegalDocumentPro
       <header className={styles.header}>
         <Link className={styles.brand} href="/" aria-label="Voltar ao Igreja 12">
           <span className={styles.brandMark} aria-hidden="true">
-            12
+            <DiamondMark size={34} title="" />
           </span>
           <span>{LEGAL_NAME}</span>
         </Link>

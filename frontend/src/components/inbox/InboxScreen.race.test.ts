@@ -36,6 +36,7 @@ const apiMock = vi.hoisted(() => ({
   fetchConversations: vi.fn(),
   fetchMessages: vi.fn(),
   fetchConversationPhoto: vi.fn(),
+  sendMessage: vi.fn(),
 }));
 
 vi.mock("@/lib/conversations-api", async (importOriginal) => {
@@ -45,6 +46,7 @@ vi.mock("@/lib/conversations-api", async (importOriginal) => {
     fetchConversations: apiMock.fetchConversations,
     fetchMessages: apiMock.fetchMessages,
     fetchConversationPhoto: apiMock.fetchConversationPhoto,
+    sendMessage: apiMock.sendMessage,
   };
 });
 
@@ -95,14 +97,17 @@ const MSGS_B = [msg("m-b1", "mensagem atual do Bruno")];
 // qual das duas respostas ficou na tela.
 const MSGS_A_1A_VISITA = [msg("m-a-v1", "resposta da 1a visita a Ana")];
 const MSGS_A_2A_VISITA = [msg("m-a-v2", "resposta da 2a visita a Ana")];
-// Dois SNAPSHOTS da MESMA visita (INBOX-RACE-1B): o antigo da carga inicial e o
-// mais recente do polling.
+// Snapshots sequenciais da mesma visita, usados para provar o single-flight.
 const SNAPSHOT_M1 = [msg("m-s1", "snapshot antigo M1")];
 const SNAPSHOT_M2 = [msg("m-s2", "snapshot mais novo M2")];
 
 // ---- promessas controladas -------------------------------------------------
 /** Requisições de mensagens em voo, na ordem em que foram disparadas. */
-let pending: Array<{ convId: string; resolve: (items: ChatMessage[]) => void }>;
+let pending: Array<{
+  convId: string;
+  signal: AbortSignal;
+  resolve: (items: ChatMessage[]) => void;
+}>;
 
 /**
  * Resolve a requisição em voo na POSIÇÃO indicada de `pending` (0 = a mais
@@ -126,6 +131,22 @@ async function resolveRequestAt(index: number, items: ChatMessage[]) {
 async function resolveMessages(convId: string, items: ChatMessage[]) {
   const i = pending.findIndex((p) => p.convId === convId);
   if (i < 0) throw new Error(`nenhuma requisição em voo para ${convId}`);
+  await resolveRequestAt(i, items);
+}
+
+function activeRequests(convId?: string) {
+  return pending.filter((p) => !p.signal.aborted && (!convId || p.convId === convId));
+}
+
+function firstPendingRequest() {
+  const request = pending.at(0);
+  if (!request) throw new Error("nenhuma requisição pendente");
+  return request;
+}
+
+async function resolveActiveMessages(convId: string, items: ChatMessage[]) {
+  const i = pending.findIndex((p) => p.convId === convId && !p.signal.aborted);
+  if (i < 0) throw new Error(`nenhuma requisição ativa para ${convId}`);
   await resolveRequestAt(i, items);
 }
 
@@ -158,11 +179,13 @@ beforeEach(() => {
   });
   apiMock.fetchConversationPhoto.mockReset();
   apiMock.fetchConversationPhoto.mockResolvedValue(null);
+  apiMock.sendMessage.mockReset();
+  apiMock.sendMessage.mockResolvedValue(undefined);
   apiMock.fetchMessages.mockReset();
   apiMock.fetchMessages.mockImplementation(
-    (_token: string, convId: string) =>
+    (_token: string, convId: string, _pageSize: number, signal: AbortSignal) =>
       new Promise<ChatMessage[]>((resolve) => {
-        pending.push({ convId, resolve });
+        pending.push({ convId, signal, resolve });
       }),
   );
 
@@ -205,6 +228,116 @@ function selectConversation(nome: string) {
     convButton(nome).dispatchEvent(new MouseEvent("click", { bubbles: true }));
   });
 }
+
+describe("InboxScreen — timeout da lista de conversas", () => {
+  it("distingue timeout de cancelamento e mostra erro na carga inicial e no retry", async () => {
+    vi.useFakeTimers();
+    const signals: AbortSignal[] = [];
+    apiMock.fetchConversations.mockImplementation(
+      (_token: string, _pageSize: number, signal: AbortSignal) =>
+        new Promise(() => {
+          signals.push(signal);
+        }),
+    );
+
+    await renderInbox();
+    expect(signals).toHaveLength(1);
+    expect(container.textContent).not.toContain("Nenhuma conversa por aqui ainda.");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(12_000);
+    });
+
+    expect(signals[0]?.aborted).toBe(true);
+    expect(container.textContent).toContain(
+      "A carga das conversas demorou mais que o esperado. Tente novamente.",
+    );
+    expect(container.textContent).not.toContain("Nenhuma conversa por aqui ainda.");
+
+    const retry = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+      (button) => button.textContent?.trim() === "Tentar novamente",
+    );
+    if (!retry) throw new Error("botão de retry não encontrado");
+    await act(async () => {
+      retry.click();
+      await Promise.resolve();
+    });
+
+    expect(signals).toHaveLength(2);
+    expect(container.textContent).not.toContain("Nenhuma conversa por aqui ainda.");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(12_000);
+    });
+
+    expect(signals[1]?.aborted).toBe(true);
+    expect(container.textContent).toContain(
+      "A carga das conversas demorou mais que o esperado. Tente novamente.",
+    );
+    expect(container.textContent).not.toContain("Nenhuma conversa por aqui ainda.");
+  });
+
+  it("mantém o último sucesso e não mostra erro quando somente o poll expira", async () => {
+    vi.useFakeTimers();
+    const pollSignals: AbortSignal[] = [];
+    apiMock.fetchConversations
+      .mockResolvedValueOnce({
+        items: [CONV_A, CONV_B],
+        page: 1,
+        pageSize: 100,
+        total: 2,
+      })
+      .mockImplementation(
+        (_token: string, _pageSize: number, signal: AbortSignal) =>
+          new Promise(() => {
+            pollSignals.push(signal);
+          }),
+      );
+
+    await renderInbox();
+    expect(container.textContent).toContain("Ana Souza");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(15_000);
+    });
+    const pollSignal = pollSignals.at(-1);
+    if (!pollSignal) throw new Error("poll de conversas não foi iniciado");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(12_000);
+    });
+
+    expect(pollSignal.aborted).toBe(true);
+    expect(container.textContent).toContain("Ana Souza");
+    expect(container.textContent).not.toContain(
+      "A carga das conversas demorou mais que o esperado. Tente novamente.",
+    );
+  });
+
+  it("desmontar cancela a carga pendente imediatamente, sem esperar o timeout", async () => {
+    vi.useFakeTimers();
+    const signals: AbortSignal[] = [];
+    apiMock.fetchConversations.mockImplementation(
+      (_token: string, _pageSize: number, requestSignal: AbortSignal) =>
+        new Promise(() => {
+          signals.push(requestSignal);
+        }),
+    );
+
+    await renderInbox();
+    const signal = signals.at(0);
+    if (!signal) throw new Error("carga inicial de conversas não foi iniciada");
+    expect(signal.aborted).toBe(false);
+
+    await act(async () => {
+      root.unmount();
+      await Promise.resolve();
+    });
+
+    expect(signal.aborted).toBe(true);
+    root = createRoot(container);
+  });
+});
 
 describe("InboxScreen — resposta obsoleta não sobrescreve a conversa atual (INBOX-RACE-1)", () => {
   it("A começa, B começa, B resolve, A resolve depois: a thread mostra só as mensagens de B", async () => {
@@ -331,85 +464,139 @@ describe("InboxScreen — duas visitas à MESMA conversa (INBOX-RACE-1A)", () =>
     expect(threadBody().querySelectorAll(".msg").length).toBe(1);
   });
 
-  it("a geração não é por requisição: o polling da conversa aberta não prende o loading inicial", async () => {
-    // Duas requisições da MESMA visita (a inicial e a do polling de 15s). Se a
-    // geração fosse incrementada por requisição, a do polling invalidaria a
-    // inicial e o "Carregando conversa…" nunca sairia da tela.
-    vi.useFakeTimers();
+  it("trocar de conversa aborta imediatamente a requisição da visita anterior", async () => {
     await renderInbox();
     expect(pending.map((p) => p.convId)).toEqual(["conv-a"]);
+    const firstVisitSignal = firstPendingRequest().signal;
+
+    selectConversation("Bruno Lima");
+    expect(firstVisitSignal.aborted).toBe(true);
+    expect(activeRequests().map((p) => p.convId)).toEqual(["conv-b"]);
+    await resolveActiveMessages("conv-b", MSGS_B);
+    expect(threadBody().textContent).toContain("mensagem atual do Bruno");
+  });
+
+  it("desmontar o Inbox aborta a requisição da visita atual", async () => {
+    await renderInbox();
+    const signal = firstPendingRequest().signal;
 
     await act(async () => {
-      vi.advanceTimersByTime(15_000);
+      root.unmount();
+      await Promise.resolve();
     });
-    expect(pending.map((p) => p.convId)).toEqual(["conv-a", "conv-a"]);
 
-    // A inicial (posição 0) responde: continua na mesma visita, então vale e
-    // ENCERRA o loading — o disparo do polling não a invalidou.
-    await resolveRequestAt(0, MSGS_A);
-    expect(threadBody().textContent).not.toContain("Carregando conversa…");
-    expect(threadBody().textContent).toContain("mensagem antiga da Ana");
-
-    // A do polling responde depois; sendo a mais nova, também vale.
-    await resolveRequestAt(0, MSGS_A);
-    expect(threadBody().textContent).toContain("mensagem antiga da Ana");
+    expect(signal.aborted).toBe(true);
+    // Mantém o cleanup compartilhado seguro após o unmount exercitado aqui.
+    root = createRoot(container);
   });
 });
 
 /**
- * INBOX-RACE-1B: a geração por seleção não ordena requisições concorrentes da
- * MESMA visita. A carga inicial e o polling (ou o recarregamento pós-envio) da
- * conversa aberta passam as duas por `atual()` — se a mais nova responder
- * primeiro, a mais antiga chegando depois voltava o histórico para um snapshot
- * vencido.
- *
- * A sequência por requisição resolve só isso: bloqueia a ESCRITA de uma resposta
- * iniciada antes de outra já aplicada. Ela NÃO participa do encerramento do
- * loading — se participasse, a carga inicial ultrapassada por um poll nunca
- * tiraria o "Carregando conversa…" da tela (2º caso).
+ * INBOX-POLL-1: rede lenta não pode acumular uma nova carga de mensagens em
+ * cada tick. O single-flight é por visita, portanto A → B → A continua podendo
+ * ter pedidos distintos enquanto ticks repetidos da mesma visita são unidos.
  */
-describe("InboxScreen — respostas concorrentes da MESMA visita (INBOX-RACE-1B)", () => {
-  /** Deixa a carga inicial e a do polling de A em voo, nessa ordem. */
-  async function duasRequisicoesDeA() {
+describe("InboxScreen — polling single-flight (INBOX-POLL-1)", () => {
+  async function cargaInicialPendente() {
     vi.useFakeTimers();
     await renderInbox();
     expect(pending.map((p) => p.convId)).toEqual(["conv-a"]);
+  }
+
+  it("uma requisição que nunca resolve expira e o próximo tick tenta novamente", async () => {
+    await cargaInicialPendente();
+    const firstSignal = firstPendingRequest().signal;
+
+    await act(async () => {
+      vi.advanceTimersByTime(12_000);
+    });
+    expect(firstSignal.aborted).toBe(true);
+    expect(activeRequests("conv-a")).toHaveLength(0);
+
+    // O tick de 15 s encontra o single-flight já liberado pelo timeout de 12 s.
+    await act(async () => {
+      vi.advanceTimersByTime(3_000);
+    });
+    expect(apiMock.fetchMessages).toHaveBeenCalledTimes(2);
+    expect(activeRequests("conv-a")).toHaveLength(1);
+    await resolveActiveMessages("conv-a", SNAPSHOT_M2);
+    expect(threadBody().textContent).toContain("snapshot mais novo M2");
+  });
+
+  it("um poll lento não duplica antes do prazo e é substituído após o timeout", async () => {
+    await cargaInicialPendente();
+    await resolveRequestAt(0, SNAPSHOT_M1);
+
     await act(async () => {
       vi.advanceTimersByTime(15_000);
     });
-    expect(pending.map((p) => p.convId)).toEqual(["conv-a", "conv-a"]);
-  }
+    expect(activeRequests("conv-a")).toHaveLength(1);
+    const slowPoll = activeRequests("conv-a").at(0);
+    if (!slowPoll) throw new Error("poll lento não foi iniciado");
+    const slowPollSignal = slowPoll.signal;
 
-  it("a mais NOVA responde primeiro (M2): a inicial atrasada (M1) não volta atrás", async () => {
-    // 1) A-inicial pendente (vai responder M1); 2) polling de A em voo.
-    await duasRequisicoesDeA();
+    await act(async () => {
+      vi.advanceTimersByTime(11_999);
+    });
+    expect(apiMock.fetchMessages).toHaveBeenCalledTimes(2);
+    expect(slowPollSignal.aborted).toBe(false);
+    expect(activeRequests("conv-a")).toHaveLength(1);
 
-    // 3) a MAIS NOVA (posição 1 = a do polling) responde primeiro com M2.
-    await resolveRequestAt(1, SNAPSHOT_M2);
-    expect(threadBody().textContent).toContain("snapshot mais novo M2");
+    await act(async () => {
+      vi.advanceTimersByTime(1);
+    });
+    expect(slowPollSignal.aborted).toBe(true);
+    expect(activeRequests("conv-a")).toHaveLength(0);
 
-    // 4) a inicial, iniciada ANTES, responde depois com M1…
-    await resolveRequestAt(0, SNAPSHOT_M1);
+    await act(async () => {
+      vi.advanceTimersByTime(3_000);
+    });
+    expect(apiMock.fetchMessages).toHaveBeenCalledTimes(3);
+    expect(activeRequests("conv-a")).toHaveLength(1);
 
-    // 5) …e não substitui M2.
+    await resolveActiveMessages("conv-a", SNAPSHOT_M2);
     expect(threadBody().textContent).toContain("snapshot mais novo M2");
     expect(threadBody().textContent).not.toContain("snapshot antigo M1");
-    expect(threadBody().querySelectorAll(".msg").length).toBe(1);
   });
 
-  it("a inicial ultrapassada ainda encerra o loading (a sequência não trava o skeleton)", async () => {
-    await duasRequisicoesDeA();
-
-    // A mais nova responde primeiro com histórico VAZIO: o skeleton continua,
-    // porque só a requisição `initial` encerra o `messagesLoading`.
-    await resolveRequestAt(1, []);
-    expect(threadBody().textContent).toContain("Carregando conversa…");
-
-    // A inicial responde depois: a escrita dela é descartada (é mais antiga),
-    // mas o `finally` dela ainda encerra o loading — nada fica preso.
+  it("um envio concluído durante poll lento agenda um snapshot imediatamente depois", async () => {
+    vi.useFakeTimers();
+    apiMock.fetchConversations.mockResolvedValue({
+      items: [{ ...CONV_A, estado: "humano", assumidoPor: "u-1", assumidoPorNome: "Pastor" }],
+      page: 1,
+      pageSize: 100,
+      total: 1,
+    });
+    await renderInbox();
     await resolveRequestAt(0, SNAPSHOT_M1);
-    expect(threadBody().textContent).not.toContain("Carregando conversa…");
-    expect(threadBody().textContent).toContain("Ainda não há mensagens nesta conversa.");
-    expect(threadBody().textContent).not.toContain("snapshot antigo M1");
+
+    // Um poll começa e permanece em voo com um snapshot anterior ao envio.
+    await act(async () => {
+      vi.advanceTimersByTime(15_000);
+    });
+    expect(apiMock.fetchMessages).toHaveBeenCalledTimes(2);
+
+    const input = container.querySelector<HTMLInputElement>("input[placeholder='Escreva uma resposta…']");
+    const send = container.querySelector<HTMLButtonElement>("button[aria-label='Enviar mensagem']");
+    if (!input || !send) throw new Error("composer habilitado não encontrado");
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+      setter?.call(input, "mensagem recém-enviada");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      send.click();
+      await Promise.resolve();
+    });
+    expect(apiMock.sendMessage).toHaveBeenCalledTimes(1);
+    // O single-flight não duplica enquanto o poll ainda está em voo.
+    expect(apiMock.fetchMessages).toHaveBeenCalledTimes(2);
+
+    // Quando o poll antigo termina, o refresh pendente começa sem esperar 15 s.
+    await resolveRequestAt(0, SNAPSHOT_M1);
+    expect(apiMock.fetchMessages).toHaveBeenCalledTimes(3);
+    expect(pending.map((p) => p.convId)).toEqual(["conv-a"]);
+    await resolveRequestAt(0, SNAPSHOT_M2);
+    expect(threadBody().textContent).toContain("snapshot mais novo M2");
   });
 });

@@ -31,13 +31,18 @@ from app.db.models import (
 )
 from app.db.session import get_db
 from app.services.brevo import BrevoError, get_brevo_client
-from app.services.clerk import get_clerk_client
+from app.services.clerk import ClerkUnavailableError, get_clerk_client
 from tests.conftest import FakeClerk, make_app_user
 
 # Catálogo padrão usado pelo fake quando o teste não fornece planos: os 3
 # planos seedados na migration 0012 (espelha PRD: 199/299/399). Faz MRR e
 # mensalidade continuarem batendo sem cada teste precisar montar o catálogo.
 _DEFAULT_PLANO_PRECOS = [("ate_100", 199), ("101_200", 299), ("acima_201", 399)]
+
+
+class _UnavailableClerk(FakeClerk):
+    def authenticate_password(self, email: str, password: str) -> tuple[str, str]:
+        raise ClerkUnavailableError("upstream unavailable")
 
 
 # ---------------------------------------------------------------------------
@@ -615,6 +620,18 @@ def test_admin_login_rejects_bad_credentials(app) -> None:
     client = _wire(app, db=db, clerk=FakeClerk(raise_login=True))
     resp = client.post("/admin/login", json={"email": "p@x.com", "password": "no"})
     assert resp.status_code == 401
+
+
+def test_admin_login_clerk_unavailable_returns_503(app) -> None:
+    db = PlatformDB(gate_app_user=make_app_user(), admin_marker="pa1")
+    client = _wire(app, db=db, clerk=_UnavailableClerk())
+
+    resp = client.post("/admin/login", json={"email": "p@x.com", "password": "x"})
+
+    assert resp.status_code == 503
+    assert resp.json() == {
+        "detail": "Serviço de autenticação temporariamente indisponível"
+    }
 
 
 # ---------------------------------------------------------------------------

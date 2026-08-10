@@ -53,7 +53,16 @@ let container: HTMLDivElement;
 let root: Root;
 const onNavigate = vi.fn();
 
-function render(route: string, collapsed = false, mobileOpen = false) {
+function render(
+  route: string,
+  collapsed = false,
+  mobileOpen = false,
+  options?: {
+    sections?: NavSection[];
+    crossSurface?: { href: string; label: string };
+    crossSurfacePlacement?: "before" | "after";
+  },
+) {
   act(() => {
     root.render(
       h(
@@ -62,7 +71,9 @@ function render(route: string, collapsed = false, mobileOpen = false) {
         h(Sidebar, {
           user,
           route,
-          sections: SECTIONS,
+          sections: options?.sections ?? SECTIONS,
+          crossSurface: options?.crossSurface,
+          crossSurfacePlacement: options?.crossSurfacePlacement,
           collapsed,
           mobileOpen,
           onNavigate,
@@ -87,6 +98,39 @@ afterEach(() => {
 });
 
 describe("Sidebar — nav-item ativo/aria-label (contrato compartilhado M7B-Visual-W1)", () => {
+  it("posiciona o atalho Admin depois da seção A Jornada G12", () => {
+    const sections: NavSection[] = [
+      {
+        id: "gestao",
+        label: "Igreja",
+        items: [{ target: "dashboard", label: "Painel de Hoje", icon: "dashboard" }],
+      },
+      {
+        id: "jornada",
+        label: "A Jornada G12",
+        stages: [
+          {
+            stage: "consolidar",
+            head: { target: "consolidar", label: "Consolidar", icon: "consolidar" },
+          },
+        ],
+      },
+    ];
+
+    render("dashboard", false, false, {
+      sections,
+      crossSurface: { href: "https://admin.igreja12.com.br", label: "Admin" },
+      crossSurfacePlacement: "after",
+    });
+
+    const order = Array.from(container.querySelectorAll(".nav-scroll > .nav-group")).map(
+      (group) =>
+        group.querySelector(".nav-group-title")?.textContent ??
+        group.querySelector("a")?.getAttribute("aria-label"),
+    );
+    expect(order).toEqual(["Igreja", "A Jornada G12", "Admin"]);
+  });
+
   it("item da rota vigente: classe active + aria-current=page + aria-label = label", () => {
     render("dashboard");
     const active = container.querySelector(".nav-item.active") as HTMLButtonElement;

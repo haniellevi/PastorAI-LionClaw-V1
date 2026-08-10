@@ -74,6 +74,7 @@ function detail(over: Partial<ContactDetail> = {}): ContactDetail {
     liderNome: null,
     aptoLider: false,
     liderDeCelula: false,
+    arquivada: false,
     consentimento: true,
     optout: true,
     origem: null,

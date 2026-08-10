@@ -35,9 +35,12 @@ interface SidebarProps {
   sections?: NavSection[];
   /** Link para trocar de superfície (app↔admin). null oculta o item. */
   crossSurface?: { href: string; label: string } | null;
+  /** Posição do link de troca de superfície em relação às seções do menu. */
+  crossSurfacePlacement?: "before" | "after";
   collapsed: boolean;
   mobileOpen: boolean;
   onNavigate: (target: string) => void;
+  onPreload?: (target: string) => void;
   onToggleCollapse: () => void;
   onLogout: () => void;
 }
@@ -55,9 +58,11 @@ export function Sidebar({
   label = "Menu principal",
   sections = NAV_SECTIONS,
   crossSurface = null,
+  crossSurfacePlacement = "before",
   collapsed,
   mobileOpen,
   onNavigate,
+  onPreload,
   onToggleCollapse,
   onLogout,
 }: SidebarProps) {
@@ -143,9 +148,18 @@ export function Sidebar({
         onClick={() => {
           if (!item.locked) onNavigate(item.target);
         }}
-        onMouseEnter={(e) => showTip(e, item.label)}
+        onPointerDown={() => {
+          if (!item.locked) onPreload?.(item.target);
+        }}
+        onMouseEnter={(e) => {
+          if (!item.locked) onPreload?.(item.target);
+          showTip(e, item.label);
+        }}
         onMouseLeave={hideTip}
-        onFocus={(e) => showTip(e, item.label)}
+        onFocus={(e) => {
+          if (!item.locked) onPreload?.(item.target);
+          showTip(e, item.label);
+        }}
         onBlur={hideTip}
       >
         <span className="nav-ic" aria-hidden="true">
@@ -178,6 +192,30 @@ export function Sidebar({
         <div className="nav-group-title lbl">{section.label}</div>
         {directItems.map((i) => renderItem(i))}
         {stageHeads.map(({ item, accent }) => renderItem(item, accent))}
+      </div>
+    );
+  }
+
+  function renderCrossSurface() {
+    if (!crossSurface) return null;
+
+    return (
+      <div className="nav-group">
+        <a
+          className="nav-item"
+          href={crossSurface.href}
+          data-accent="whats"
+          aria-label={crossSurface.label}
+          onMouseEnter={(e) => showTip(e, crossSurface.label)}
+          onMouseLeave={hideTip}
+          onFocus={(e) => showTip(e, crossSurface.label)}
+          onBlur={hideTip}
+        >
+          <span className="nav-ic" aria-hidden="true">
+            <Icon name="lock" />
+          </span>
+          <span className="lbl">{crossSurface.label}</span>
+        </a>
       </div>
     );
   }
@@ -246,26 +284,9 @@ export function Sidebar({
       </div>
 
       <div className="nav-scroll">
-        {crossSurface ? (
-          <div className="nav-group">
-            <a
-              className="nav-item"
-              href={crossSurface.href}
-              data-accent="whats"
-              aria-label={crossSurface.label}
-              onMouseEnter={(e) => showTip(e, crossSurface.label)}
-              onMouseLeave={hideTip}
-              onFocus={(e) => showTip(e, crossSurface.label)}
-              onBlur={hideTip}
-            >
-              <span className="nav-ic" aria-hidden="true">
-                <Icon name="lock" />
-              </span>
-              <span className="lbl">{crossSurface.label}</span>
-            </a>
-          </div>
-        ) : null}
+        {crossSurfacePlacement === "before" ? renderCrossSurface() : null}
         {visibleSections.map(renderSection)}
+        {crossSurfacePlacement === "after" ? renderCrossSurface() : null}
       </div>
 
       {/* Flyout do tooltip colapsado: IRMÃO do .nav-scroll (não descendente) —
@@ -285,6 +306,9 @@ export function Sidebar({
             type="button"
             className="side-user-link"
             title="Meu perfil"
+            onPointerDown={() => onPreload?.("perfil")}
+            onMouseEnter={() => onPreload?.("perfil")}
+            onFocus={() => onPreload?.("perfil")}
             onClick={() => onNavigate("perfil")}
             style={{
               display: "flex",

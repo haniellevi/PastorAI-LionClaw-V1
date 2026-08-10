@@ -1,7 +1,5 @@
 import type { Metadata, Viewport } from "next";
 
-import { AppProviders } from "@/components/providers/AppProviders";
-
 // Webfonts self-hosted (Igreja 12 — F1). Servidas do node_modules via @fontsource;
 // o build empacota os woff2 localmente, sem chamadas externas. As famílias batem
 // com os tokens --font / --font-display / --mono do globals.css.
@@ -16,8 +14,8 @@ import "@fontsource/jetbrains-mono/400.css";
 import "@fontsource/jetbrains-mono/500.css";
 
 import "./globals.css";
-// Fundação "Diamante Lapidado" (Gate 6): tokens semânticos + primitives ds-*.
-// Aditivos — nenhum token legado muda de valor; telas não migradas não mudam.
+// Fundação "Diamante Lapidado": tokens semânticos + primitives ds-*.
+// O globals.css mantém aliases compatíveis, todos alinhados a esta fundação.
 import "./design-tokens.css";
 import "./ds.css";
 
@@ -36,17 +34,23 @@ export const metadata: Metadata = {
     title: "Igreja 12",
   },
   icons: {
-    icon: "/icon.svg",
+    // URL própria da microversão evita que navegadores reaproveitem o favicon
+    // legado já armazenado em cache. A silhueta sólida é a versão canônica em
+    // 16 px da identidade Diamante Lapidado.
+    icon: {
+      url: "/brand/diamante-silhueta-16.svg",
+      type: "image/svg+xml",
+      sizes: "16x16",
+    },
+    shortcut: "/brand/diamante-silhueta-16.svg",
     apple: "/apple-touch-icon.png",
   },
   formatDetection: { telephone: false },
 };
 
-// O painel é inteiramente client-side e auth-gated (sessão via Clerk/contexto):
-// não há HTML estático útil a pré-renderizar e o SSG do shell quebra ao ler o
-// contexto de sessão durante o build. Renderização dinâmica evita esse prerender.
-export const dynamic = "force-dynamic";
-
+// O shell não contém dados de usuário no HTML do servidor: a sessão continua
+// resolvida no cliente pelo AuthProvider. Permitir pré-renderização estática
+// entrega a casca pela CDN e evita iniciar um render no servidor a cada acesso.
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
@@ -60,9 +64,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="pt-BR">
-      <body>
-        <AppProviders>{children}</AppProviders>
-      </body>
+      <body>{children}</body>
     </html>
   );
 }

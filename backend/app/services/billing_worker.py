@@ -557,60 +557,67 @@ def run_pending_plan_changes(
     """
     if session_factory is None:
         session_factory = get_session_factory()
-    asaas = asaas or AsaasClient()
-    evolution = evolution or EvolutionClient()
+    asaas = asaas if asaas is not None else AsaasClient()
+    owns_evolution = evolution is None
+    evolution = evolution if evolution is not None else EvolutionClient()
 
-    open_rows = session.execute(
-        select(BillingPlanChangeOperation.id, Subscription.igreja_id)
-        .join(
-            Subscription,
-            Subscription.id == BillingPlanChangeOperation.subscription_id,
-        )
-        .where(BillingPlanChangeOperation.status.in_(OPEN_PLAN_CHANGE_STATUSES))
-    ).all()
-    # Entrega durável: operações já COMPLETED cuja notificação ainda não saiu
-    # (falha do Evolution ou crash pós-conclusão) são redescobertas aqui.
-    notify_rows = session.execute(
-        select(BillingPlanChangeOperation.id, Subscription.igreja_id)
-        .join(
-            Subscription,
-            Subscription.id == BillingPlanChangeOperation.subscription_id,
-        )
-        .where(
-            BillingPlanChangeOperation.origin == "autoupgrade",
-            BillingPlanChangeOperation.status == "completed",
-            BillingPlanChangeOperation.notify_status == "pending",
-        )
-    ).all()
-
-    work: list[tuple[str, uuid.UUID, uuid.UUID]] = [
-        ("process", op_id, igreja_id) for op_id, igreja_id in open_rows
-    ] + [("notify", op_id, igreja_id) for op_id, igreja_id in notify_rows]
-
-    completed = 0
-    for kind, op_id, igreja_id in work:
-        tenant_session = session_factory()
-        try:
-            mark_tenant_scoped(tenant_session, igreja_id, source="cron_billing")
-            if kind == "process":
-                if _process_operation(
-                    tenant_session, asaas, evolution, op_id, igreja_id
-                ):
-                    completed += 1
-            else:
-                _retry_pending_notification(
-                    tenant_session, evolution, op_id, igreja_id
-                )
-        except AsaasError:
-            # Falha/timeout remoto: a operação ficou `reconciling` (plano
-            # local intacto) e o próximo tick reconcilia — sem PUT repetido.
-            logger.warning(
-                "Autoupgrade plan change pending reconciliation (igreja %s)",
-                igreja_id,
+    try:
+        open_rows = session.execute(
+            select(BillingPlanChangeOperation.id, Subscription.igreja_id)
+            .join(
+                Subscription,
+                Subscription.id == BillingPlanChangeOperation.subscription_id,
             )
-        except Exception:  # noqa: BLE001 - um tenant não derruba os demais
-            logger.exception("Autoupgrade plan change failed (igreja %s)", igreja_id)
-            tenant_session.rollback()
-        finally:
-            tenant_session.close()
-    return completed
+            .where(BillingPlanChangeOperation.status.in_(OPEN_PLAN_CHANGE_STATUSES))
+        ).all()
+        # Entrega durável: operações já COMPLETED cuja notificação ainda não saiu
+        # (falha do Evolution ou crash pós-conclusão) são redescobertas aqui.
+        notify_rows = session.execute(
+            select(BillingPlanChangeOperation.id, Subscription.igreja_id)
+            .join(
+                Subscription,
+                Subscription.id == BillingPlanChangeOperation.subscription_id,
+            )
+            .where(
+                BillingPlanChangeOperation.origin == "autoupgrade",
+                BillingPlanChangeOperation.status == "completed",
+                BillingPlanChangeOperation.notify_status == "pending",
+            )
+        ).all()
+
+        work: list[tuple[str, uuid.UUID, uuid.UUID]] = [
+            ("process", op_id, igreja_id) for op_id, igreja_id in open_rows
+        ] + [("notify", op_id, igreja_id) for op_id, igreja_id in notify_rows]
+
+        completed = 0
+        for kind, op_id, igreja_id in work:
+            tenant_session = session_factory()
+            try:
+                mark_tenant_scoped(tenant_session, igreja_id, source="cron_billing")
+                if kind == "process":
+                    if _process_operation(
+                        tenant_session, asaas, evolution, op_id, igreja_id
+                    ):
+                        completed += 1
+                else:
+                    _retry_pending_notification(
+                        tenant_session, evolution, op_id, igreja_id
+                    )
+            except AsaasError:
+                # Falha/timeout remoto: a operação ficou `reconciling` (plano
+                # local intacto) e o próximo tick reconcilia — sem PUT repetido.
+                logger.warning(
+                    "Autoupgrade plan change pending reconciliation (igreja %s)",
+                    igreja_id,
+                )
+            except Exception:  # noqa: BLE001 - um tenant não derruba os demais
+                logger.exception(
+                    "Autoupgrade plan change failed (igreja %s)", igreja_id
+                )
+                tenant_session.rollback()
+            finally:
+                tenant_session.close()
+        return completed
+    finally:
+        if owns_evolution:
+            evolution.close()

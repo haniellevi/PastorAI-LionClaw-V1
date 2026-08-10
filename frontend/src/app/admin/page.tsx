@@ -5,34 +5,45 @@
  * o console autenticado. Superfície separada do painel da igreja (PRD: US-42/43
  * em superfície própria, fora do painel operacional).
  */
-import { AdminConsole } from "@/components/admin/AdminConsole";
-import { AdminLoginScreen } from "@/components/admin/AdminLoginScreen";
+import dynamic from "next/dynamic";
+
+import { SessionUnavailable } from "@/components/auth/SessionUnavailable";
 import { useAdminAuth } from "@/lib/admin-auth-context";
 
+const AdminConsole = dynamic(
+  () => import("@/components/admin/AdminConsole").then((module) => module.AdminConsole),
+  { loading: PageLoading },
+);
+const AdminLoginScreen = dynamic(
+  () =>
+    import("@/components/admin/AdminLoginScreen").then(
+      (module) => module.AdminLoginScreen,
+    ),
+  { loading: PageLoading },
+);
+
+function PageLoading() {
+  return (
+    <div className="full-loader" role="status" aria-live="polite">
+      <span className="spinner" aria-hidden="true" />
+      <span className="sr-only">Carregando…</span>
+    </div>
+  );
+}
+
 export default function AdminPage() {
-  const { status } = useAdminAuth();
+  const { status, retrySession } = useAdminAuth();
 
   if (status === "loading") {
-    return (
-      <div className="full-loader" role="status" aria-live="polite">
-        <span className="spinner" aria-hidden="true" />
-        <span
-          style={{
-            position: "absolute",
-            width: 1,
-            height: 1,
-            overflow: "hidden",
-            clip: "rect(0 0 0 0)",
-          }}
-        >
-          Carregando sessão…
-        </span>
-      </div>
-    );
+    return <PageLoading />;
   }
 
   if (status === "authenticated") {
     return <AdminConsole />;
+  }
+
+  if (status === "unavailable") {
+    return <SessionUnavailable onRetry={retrySession} />;
   }
 
   return <AdminLoginScreen />;

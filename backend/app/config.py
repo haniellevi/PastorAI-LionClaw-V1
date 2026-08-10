@@ -144,10 +144,11 @@ class Settings(BaseSettings):
     # ---- Agente Orquestrador / LLM BYO (US-08/US-27 / delta-034) ------------
     # Default OpenAI key is optional: each igreja brings its own encrypted key.
     openai_api_key: str = Field(default="")
-    # LangGraph checkpoint store (RNF-08/15). Empty -> in-memory checkpointer.
+    # Reserved for a future durable LangGraph saver. A configured URL currently
+    # emits a warning; the runtime stays stateless and never falls back to RAM.
     agent_graph_checkpoint_url: str = Field(default="")
     # Default model used by the orchestrator when an igreja has not overridden it.
-    agent_default_model: str = Field(default="gpt-4o-mini")
+    agent_default_model: str = Field(default="gpt-5.6-luna")
     # Current LGPD consent term version (delta-040). Bumping it forces re-accept.
     agent_term_version: str = Field(default="v1")
 
@@ -211,7 +212,7 @@ class Settings(BaseSettings):
     # Default model used by the panel assistant (api-assistant) when an igreja
     # has not overridden it. The assistant is a separate channel from the
     # WhatsApp orchestrator but reuses the igreja's BYO LLM credential.
-    assistant_default_model: str = Field(default="gpt-4o-mini")
+    assistant_default_model: str = Field(default="gpt-5.6-luna")
 
     # ---- Rate limiting nos endpoints de autenticação (ALTO-002) -------------
     # Kill switch de emergência: desliga todo o rate limiting de auth sem

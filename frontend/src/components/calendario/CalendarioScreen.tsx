@@ -39,7 +39,7 @@ import { Tabs } from "@/components/ds/Tabs";
 import { Button } from "@/components/ui/Button";
 import { SessionExpiredError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
-import { ApiError } from "@/lib/dashboard-api";
+import { ApiError, clearAuthedResponseCache } from "@/lib/dashboard-api";
 import {
   buildMonthGrid,
   buildWeekDays,
@@ -213,6 +213,7 @@ export function CalendarioScreen() {
     async (mode: "initial" | "retry") => {
       if (!token) return;
       if (mode === "initial") setLoading(true);
+      if (mode === "retry") clearAuthedResponseCache(token, ["/events?"]);
       setError(null);
       try {
         const page = await fetchEvents(token);

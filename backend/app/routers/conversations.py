@@ -45,6 +45,7 @@ from app.domain.conversations import (
     media_snippet,
     resolve_handoff,
 )
+from app.middleware.body_limit import MAX_MEDIA_BASE64_CHARS
 from app.routers._common import Page, PaginationParams
 from app.services.evolution import (
     EvolutionClient,
@@ -53,6 +54,7 @@ from app.services.evolution import (
 )
 from app.services.outbound_guard import external_sends_allowed, log_suppressed
 from app.services.storage import (
+    MAX_MEDIA_BYTES,
     StorageError,
     SupabaseStorage,
     get_storage,
@@ -171,7 +173,7 @@ class SendMediaRequest(BaseModel):
     """
 
     mime: str = Field(min_length=1, max_length=255)
-    base64: str = Field(min_length=1)
+    base64: str = Field(min_length=1, max_length=MAX_MEDIA_BASE64_CHARS)
     nome: str | None = Field(default=None, max_length=255)
     caption: str | None = Field(default=None, max_length=4096)
 
@@ -600,6 +602,11 @@ def send_media_message(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Mídia inválida (base64).",
         ) from exc
+    if len(raw) > MAX_MEDIA_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            detail="Arquivo excede o limite de 16 MB.",
+        )
 
     tipo = kind_for_mime(payload.mime)
 

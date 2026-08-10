@@ -19,12 +19,14 @@ import datetime as dt
 import json
 import logging
 import uuid
+from functools import lru_cache
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.config import get_settings
 from app.db.models import WhatsappConnection
@@ -43,6 +45,11 @@ from app.workers.queue_worker import WebhookQueue
 logger = logging.getLogger("pastorai.whatsapp")
 
 router = APIRouter(prefix="/whatsapp", tags=["whatsapp"])
+
+# Evolution messages.upsert payloads contain metadata; media bytes are fetched
+# separately by the worker. A hard cap prevents an unauthenticated caller from
+# making the API buffer an arbitrarily large body.
+MAX_WEBHOOK_BODY_BYTES = 1024 * 1024
 
 
 # ---------------------------------------------------------------------------
@@ -68,8 +75,9 @@ class ConnectResponse(BaseModel):
 # ---------------------------------------------------------------------------
 # Dependencies
 # ---------------------------------------------------------------------------
+@lru_cache(maxsize=1)
 def get_webhook_queue() -> WebhookQueue:
-    """FastAPI dependency providing the Redis-backed webhook queue."""
+    """Return the process-shared, thread-safe Redis-backed webhook queue."""
     return WebhookQueue()
 
 
@@ -343,10 +351,44 @@ async def webhook(
       - a matching `x-webhook-token` header (Cloud edition / reverse proxy);
       - a matching `?token=` query param (Evolution v2 self-hosted — the path
         actually used by this deploy).
-    An unauthenticated request is rejected with 401 before any parsing. Accepted
-    events are queued and processed asynchronously (RNF-17).
+    Oversized requests are rejected before authentication/body parsing when
+    Content-Length is available. Other unauthenticated requests are rejected
+    with 401 before JSON parsing. Accepted events are queued and processed
+    asynchronously (RNF-17).
     """
-    raw = await request.body()
+    content_length = request.headers.get("content-length")
+    if content_length is not None:
+        try:
+            declared_size = int(content_length)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Content-Length inválido",
+            ) from exc
+        if declared_size < 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Content-Length inválido",
+            )
+        if declared_size > MAX_WEBHOOK_BODY_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                detail="Payload do webhook excede o limite permitido",
+            )
+
+    # Read incrementally so a missing/dishonest Content-Length cannot make
+    # Starlette buffer an unbounded chunked request before we inspect its size.
+    chunks: list[bytes] = []
+    received_size = 0
+    async for chunk in request.stream():
+        received_size += len(chunk)
+        if received_size > MAX_WEBHOOK_BODY_BYTES:
+            raise HTTPException(
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                detail="Payload do webhook excede o limite permitido",
+            )
+        chunks.append(chunk)
+    raw = b"".join(chunks)
     secret = get_settings().evolution_webhook_secret
     signature = x_evolution_signature or x_hub_signature_256
 
@@ -370,7 +412,9 @@ async def webhook(
         ) from exc
 
     try:
-        queue.enqueue(payload)
+        # redis-py is synchronous. Keep its connect/socket waits off the ASGI
+        # event loop while preserving a simple sync queue API for the worker.
+        await run_in_threadpool(queue.enqueue, payload)
     except Exception as exc:  # noqa: BLE001 - surface as retryable to provider
         logger.exception("Failed to enqueue webhook payload")
         raise HTTPException(

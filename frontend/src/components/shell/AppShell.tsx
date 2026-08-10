@@ -5,18 +5,21 @@
  * Resolve a rota ativa contra role_permissions (canSee) e telas bloqueadas;
  * rotas inválidas/sem acesso caem para #dashboard.
  */
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { useAuth } from "@/lib/auth-context";
+import { clearAuthedResponseCache } from "@/lib/dashboard-api";
 import { SCREEN_META } from "@/lib/navigation";
 import { ADMIN_ONLY, canSee } from "@/lib/permissions";
 import { usePermissions } from "@/lib/permissions-context";
 import { isAdmin } from "@/lib/roles";
+import { preloadRouteData } from "@/lib/route-data-preload";
 import { adminSurfaceHref } from "@/lib/surface";
 import { useHashRoute } from "@/lib/use-hash-route";
 
 import { BottomNav } from "./BottomNav";
 import { JourneyStepper } from "./JourneyStepper";
+import { preloadScreenModule } from "./screen-loaders";
 import { ScreenView } from "./ScreenView";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
@@ -37,7 +40,7 @@ const OWNER_ONLY = new Set(["assinatura"]);
 const ADMIN_ONLY_SET = new Set<string>(ADMIN_ONLY);
 
 export function AppShell() {
-  const { user, logout } = useAuth();
+  const { user, token, logout } = useAuth();
   const { matrix } = usePermissions();
   const [route, navigate] = useHashRoute();
   const [collapsed, setCollapsed] = useState(false);
@@ -66,6 +69,50 @@ export function AppShell() {
   const resolvedBase = allowed ? base : "dashboard";
   const resolvedRoute = allowed ? route : "dashboard";
   const resolvedParam = allowed ? param : null;
+
+  const warmRoute = useCallback(
+    (target: string) => {
+      if (!user) return;
+      const targetBase = target.split("/", 1)[0] ?? target;
+      const targetOwnerOk =
+        !OWNER_ONLY.has(targetBase) || (user.isOwner ?? false);
+      const targetPermitted =
+        targetOwnerOk &&
+        !ADMIN_ONLY_SET.has(targetBase) &&
+        (ALWAYS_ALLOWED.has(targetBase) || canSee(targetBase, user.roles, matrix));
+      if (
+        !(targetBase in SCREEN_META) ||
+        !targetPermitted ||
+        LOCKED_SCREENS.has(targetBase)
+      ) {
+        return;
+      }
+
+      preloadScreenModule(targetBase);
+      if (token) void preloadRouteData(token, targetBase);
+    },
+    [user, token, matrix],
+  );
+
+  // Depois da tela inicial estabilizar, aquece gradualmente os três destinos
+  // mais usados. O escalonamento evita disputar rede/CPU com o primeiro paint.
+  useEffect(() => {
+    if (!user || !token) return;
+    const commonRoutes = ["inbox", "calendario", "ganhar"];
+    const timers = commonRoutes.map((target, index) =>
+      window.setTimeout(() => warmRoute(target), 3_500 + index * 1_500),
+    );
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, [user, token, warmRoute]);
+
+  // A troca/encerramento da sessão remove imediatamente snapshots que ainda
+  // estejam na memória, mesmo que o TTL curto não tenha vencido.
+  useEffect(
+    () => () => {
+      if (token) clearAuthedResponseCache(token);
+    },
+    [token],
+  );
 
   // Normaliza o hash quando a rota pedida é inválida/sem acesso.
   useEffect(() => {
@@ -101,9 +148,11 @@ export function AppShell() {
         user={user}
         route={resolvedBase}
         crossSurface={adminHref ? { href: adminHref, label: "Admin" } : null}
+        crossSurfacePlacement="after"
         collapsed={collapsed}
         mobileOpen={mobileOpen}
         onNavigate={navigate}
+        onPreload={warmRoute}
         onToggleCollapse={() => setCollapsed((v) => !v)}
         onLogout={() => {
           logout();
@@ -123,6 +172,7 @@ export function AppShell() {
       <BottomNav
         route={resolvedBase}
         menuOpen={mobileOpen}
+        onPreload={warmRoute}
         onMore={() => setMobileOpen((v) => !v)}
       />
     </div>

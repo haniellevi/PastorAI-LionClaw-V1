@@ -270,7 +270,7 @@ def test_llm_complete_blocked(monkeypatch) -> None:
         "app.services.llm._build_openai_client",
         lambda *a, **k: (_ for _ in ()).throw(AssertionError("OpenAI não deveria ser usado")),
     )
-    result = LLMClient("openai", "sk-secret", "gpt-4o-mini").complete("sys", "user")
+    result = LLMClient("openai", "sk-secret", "gpt-5.6-luna").complete("sys", "user")
     assert "simulada" in result.texto.lower()
     assert result.usage.custo == 0.0
     assert result.usage.tokens_in == 0 and result.usage.tokens_out == 0
@@ -356,7 +356,7 @@ def test_meta_all_guarded_methods_block_network(monkeypatch) -> None:
         lambda: asa.create_checkout(nome="n", email="e@x.com", plano="ate_100", valor=1.0),
         lambda: bre.send_invite(to_email="e@x.com", nome="n", activation_link="l"),
         lambda: bre.send_password_reset(to_email="e@x.com", reset_link="l"),
-        lambda: LLMClient("openai", "k", "gpt-4o-mini").complete("s", "u"),
+        lambda: LLMClient("openai", "k", "gpt-5.6-luna").complete("s", "u"),
         lambda: gcal.delete_event("evt"),
     ]
     for call in calls:

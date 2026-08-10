@@ -859,13 +859,14 @@ class Message(Base):
 
     __tablename__ = "messages"
 
-    # MSG-IDEMP-1: defesa em profundidade contra duplicação de mensagem INBOUND.
+    # MSG-IDEMP-1: defesa em profundidade contra duplicação de eventos do
+    # provider. Índices separados por direção mantêm as consultas do hot path
+    # cobertas pelos predicados parciais e preservam o histórico NULL.
     # Redis (WebhookQueue.mark_processed_if_new) é a primeira barreira, chaveada
     # pelo id estável da Evolution, mas expira em 7 dias e não sobrevive a um
     # Redis indisponível/flush. Este índice único PARCIAL garante que o MESMO
-    # provider_message_id nunca persiste duas vezes como inbound na mesma
-    # igreja, mesmo que o Redis diga "novo" de novo. Outbound (direcao='out')
-    # fica fora do escopo — não carrega a mesma garantia de dedupe hoje.
+    # provider_message_id nunca persiste duas vezes na mesma direção/igreja,
+    # mesmo que o Redis diga "novo" de novo.
     __table_args__ = (
         Index(
             "messages_inbound_provider_id_uidx",
@@ -874,6 +875,15 @@ class Message(Base):
             unique=True,
             postgresql_where=text(
                 "direcao = 'in' AND provider_message_id IS NOT NULL"
+            ),
+        ),
+        Index(
+            "messages_outbound_provider_id_uidx",
+            "igreja_id",
+            "provider_message_id",
+            unique=True,
+            postgresql_where=text(
+                "direcao = 'out' AND provider_message_id IS NOT NULL"
             ),
         ),
     )
@@ -895,7 +905,7 @@ class Message(Base):
     # Id estável do provider (Evolution `data.key.id` / ParsedMessage.
     # provider_message_id). Só populado para mensagens vindas do webhook
     # (in/out); histórico anterior a esta migration fica NULL. Ver
-    # messages_inbound_provider_id_uidx acima.
+    # índices provider_message_id em __table_args__ acima.
     provider_message_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Mídia (Etapa 2 do chat): o binário vive no Supabase Storage (bucket
     # whatsapp-media); aqui guardamos só o ponteiro + metadados. tipo='texto'
@@ -2056,6 +2066,9 @@ class LlmCredential(Base):
         nullable=False,
     )
     provedor: Mapped[str] = mapped_column(Text, nullable=False)
+    modelo: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'gpt-5.6-luna'")
+    )
     api_key_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
     validado: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false")

@@ -19,6 +19,16 @@ export function adminSurfaceHref(): string {
   return "/gestao";
 }
 
+/** URL de uma rota específica na superfície administrativa. */
+export function adminSurfaceRouteHref(route: string): string {
+  return `${adminSurfaceHref()}#${route.replace(/^#/, "")}`;
+}
+
+/** Faz a navegação completa necessária para trocar de superfície. */
+export function navigateToAdminRoute(route: string): void {
+  window.location.href = adminSurfaceRouteHref(route);
+}
+
 /** URL do painel operacional, a partir da superfície do admin. */
 export function appSurfaceHref(): string {
   if (typeof window === "undefined") return "/";

@@ -21,6 +21,9 @@ import type { Role } from "./roles";
 
 export type { Page };
 
+/** Limite espelhado pelo backend; evita alocar uma string base64 ainda maior. */
+export const MAX_MEDIA_BYTES = 16 * 1024 * 1024;
+
 /** Estado da máquina de handoff (conversation_estado). */
 export type ConversationEstado = "ia" | "humano" | "aguardando";
 
@@ -106,8 +109,9 @@ export class ConversationConflictError extends Error {
 export async function fetchConversations(
   token: string,
   pageSize = 100,
+  signal?: AbortSignal,
 ): Promise<Page<Conversation>> {
-  const res = await authedFetch(token, `/conversations?page=1&pageSize=${pageSize}`);
+  const res = await authedFetch(token, `/conversations?page=1&pageSize=${pageSize}`, { signal });
   if (res.status === 403) {
     throw new ApiError(403, "Acesso restrito ao inbox.");
   }
@@ -122,10 +126,12 @@ export async function fetchMessages(
   token: string,
   conversationId: string,
   pageSize = 200,
+  signal?: AbortSignal,
 ): Promise<ChatMessage[]> {
   const res = await authedFetch(
     token,
     `/conversations/${conversationId}/messages?page=1&pageSize=${pageSize}`,
+    { signal },
   );
   if (res.status === 403) {
     throw new ApiError(403, "Acesso restrito ao inbox.");
@@ -226,6 +232,9 @@ export async function sendMedia(
   file: File,
   caption?: string,
 ): Promise<ChatMessage> {
+  if (file.size > MAX_MEDIA_BYTES) {
+    throw new ApiError(413, "Arquivo excede o limite de 16 MB.");
+  }
   const base64 = await fileToBase64(file);
   const res = await authedFetch(token, `/conversations/${conversationId}/messages/media`, {
     method: "POST",

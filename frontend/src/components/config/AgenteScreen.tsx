@@ -27,11 +27,14 @@ import {
   fetchConfigRequests,
   fetchCredentialStatus,
   fetchCrons,
+  fetchLlmModels,
   LLM_PROVIDERS,
   saveCredential,
   updateCron,
+  updateLlmModel,
   type AgentConfigRequestItem,
   type CronResult,
+  type LlmModelOption,
   type LlmProvider,
 } from "@/lib/agent-api";
 import { useAuth } from "@/lib/auth-context";
@@ -85,6 +88,10 @@ export function AgenteScreen() {
   // ── Credencial LLM ──────────────────────────────────────────────────────
   const [provedor, setProvedor] = useState<LlmProvider>("openai");
   const [apiKey, setApiKey] = useState("");
+  const [modelOptions, setModelOptions] = useState<LlmModelOption[]>([]);
+  const [modelPricingDate, setModelPricingDate] = useState("");
+  const [modelo, setModelo] = useState("");
+  const [savedModelo, setSavedModelo] = useState<string | null>(null);
   const [credentialState, setCredentialState] = useState<CredentialState>("none");
   const [savingCred, setSavingCred] = useState(false);
   const [credError, setCredError] = useState<string | null>(null);
@@ -144,8 +151,9 @@ export function AgenteScreen() {
     let alive = true;
     void (async () => {
       try {
-        const [cred, cfg, cronList, reqList] = await Promise.all([
+        const [cred, modelCatalog, cfg, cronList, reqList] = await Promise.all([
           fetchCredentialStatus(token),
+          fetchLlmModels(token),
           fetchAgentConfig(token),
           fetchCrons(token),
           fetchConfigRequests(token),
@@ -153,6 +161,11 @@ export function AgenteScreen() {
         if (!alive) return;
         setCredentialState(cred.status);
         if (cred.provedor) setProvedor(cred.provedor as LlmProvider);
+        const selectedModel = cred.modelo ?? modelCatalog.padrao;
+        setModelOptions(modelCatalog.modelos);
+        setModelPricingDate(modelCatalog.precosAtualizadosEm);
+        setModelo(selectedModel);
+        setSavedModelo(cred.modelo);
         if (cfg.configured) {
           setNome(cfg.nome ?? "");
           setTom(cfg.tom ?? "");
@@ -163,7 +176,9 @@ export function AgenteScreen() {
         setRequests(reqList);
       } catch (err) {
         if (handleSessionError(err)) return;
-        // Falha de leitura não trava a tela — ainda dá pra salvar.
+        setCredError(
+          "Não foi possível carregar os modelos permitidos. Atualize a página e tente novamente.",
+        );
       } finally {
         if (alive) setLoading(false);
       }
@@ -175,16 +190,36 @@ export function AgenteScreen() {
 
   // ── Salvar credencial (a chave nunca volta após salvar) ──────────────────
   const submitCredential = useCallback(async () => {
-    if (!token || savingCred || apiKey.trim().length === 0) return;
+    const newKey = apiKey.trim();
+    const modelOnly =
+      newKey.length === 0 &&
+      credentialState === "active" &&
+      modelo.length > 0 &&
+      modelo !== savedModelo;
+    if (!token || savingCred || !modelo || (newKey.length === 0 && !modelOnly)) return;
     setSavingCred(true);
     setCredError(null);
     try {
-      const result = await saveCredential(token, { provedor, apiKey: apiKey.trim() });
+      if (modelOnly) {
+        const result = await updateLlmModel(token, modelo);
+        setModelo(result.modelo);
+        setSavedModelo(result.modelo);
+        flashToast({ kind: "ok", text: "Modelo validado e atualizado." });
+        return;
+      }
+
+      const result = await saveCredential(token, {
+        provedor,
+        apiKey: newKey,
+        modelo,
+      });
       // RNF-03: nunca reexibir a chave — limpamos o campo imediatamente.
       setApiKey("");
+      setModelo(result.modelo);
+      setSavedModelo(result.modelo);
       if (result.status === "active" && result.validado) {
         setCredentialState("active");
-        flashToast({ kind: "ok", text: "Credencial validada e ativada." });
+        flashToast({ kind: "ok", text: "Credencial e modelo validados e ativados." });
       } else {
         // Chave inválida NÃO ativa a credencial.
         setCredentialState("invalid");
@@ -193,12 +228,21 @@ export function AgenteScreen() {
     } catch (err) {
       if (handleSessionError(err)) return;
       setApiKey("");
-      setCredentialState("invalid");
       setCredError(err instanceof ApiError ? err.message : "Não foi possível salvar a credencial.");
     } finally {
       setSavingCred(false);
     }
-  }, [token, savingCred, apiKey, provedor, flashToast, handleSessionError]);
+  }, [
+    token,
+    savingCred,
+    apiKey,
+    credentialState,
+    modelo,
+    savedModelo,
+    provedor,
+    flashToast,
+    handleSessionError,
+  ]);
 
   // ── Enviar requisição de mudança ao master ───────────────────────────────
   const submitRequest = useCallback(async () => {
@@ -316,7 +360,10 @@ export function AgenteScreen() {
     [token, togglingId, editingId, flashToast, handleSessionError],
   );
 
-  const credReady = apiKey.trim().length > 0;
+  const modelChanged =
+    credentialState === "active" && modelo.length > 0 && modelo !== savedModelo;
+  const credReady = modelo.length > 0 && (apiKey.trim().length > 0 || modelChanged);
+  const selectedModel = modelOptions.find((item) => item.modelo === modelo);
   const cronReady = cronNome.trim().length > 0;
 
   return (
@@ -498,6 +545,42 @@ export function AgenteScreen() {
             </select>
           </div>
           <div className="field" style={{ marginBottom: "var(--s3)" }}>
+            <label htmlFor="agModel">Modelo</label>
+            <select
+              id="agModel"
+              value={modelo}
+              onChange={(e) => setModelo(e.target.value)}
+              disabled={modelOptions.length === 0 || savingCred}
+            >
+              {modelOptions.map((item) => (
+                <option key={item.modelo} value={item.modelo}>
+                  {item.nome}
+                  {item.recomendado ? " (recomendado)" : ""}
+                </option>
+              ))}
+            </select>
+            {selectedModel ? (
+              <div className="sub" style={{ color: "var(--muted)", marginTop: 6 }}>
+                <div>{selectedModel.perfil}</div>
+                <div>
+                  Entrada: US$ {selectedModel.precoEntradaUsdMilhao.toFixed(2)} · Saída:
+                  {" "}US$ {selectedModel.precoSaidaUsdMilhao.toFixed(2)} por 1 milhão de tokens.
+                </div>
+                {modelPricingDate ? (
+                  <div>
+                    Referência de preços públicos: {modelPricingDate.split("-").reverse().join("/")}.
+                  </div>
+                ) : null}
+                {selectedModel.fallback.length > 0 ? (
+                  <div>
+                    Se ficar indisponível, o sistema tenta somente modelos mais baratos:
+                    {" "}{selectedModel.fallback.join(" → ")}.
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+          <div className="field" style={{ marginBottom: "var(--s3)" }}>
             <label htmlFor="agKey">Chave da API</label>
             <input
               id="agKey"
@@ -539,7 +622,11 @@ export function AgenteScreen() {
               disabled={!credReady || savingCred}
               aria-busy={savingCred || undefined}
             >
-              {savingCred ? "Validando…" : "Salvar credencial"}
+              {savingCred
+                ? "Validando…"
+                : apiKey.trim().length > 0
+                  ? "Salvar credencial e modelo"
+                  : "Salvar modelo"}
             </button>
           </div>
         </form>

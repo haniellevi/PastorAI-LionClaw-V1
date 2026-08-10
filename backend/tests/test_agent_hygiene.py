@@ -281,6 +281,12 @@ def test_worker_nao_persiste_resposta_suprimida_pelo_guard(monkeypatch) -> None:
     )
 
     class _SuppressedEvolution:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
         def send_text(self, *a, **k):
             return False
 

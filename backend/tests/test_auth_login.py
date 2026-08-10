@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 from app.db.session import get_db
-from app.services.clerk import get_clerk_client
+from app.services.clerk import ClerkUnavailableError, get_clerk_client
 from tests.conftest import FakeClerk, FakeSession, make_app_user
 
 
@@ -15,8 +15,13 @@ def _client(app, *, session: FakeSession, clerk: FakeClerk) -> TestClient:
     return TestClient(app)
 
 
-def test_login_success_returns_token_and_church_id(app) -> None:
-    user = make_app_user()
+class _UnavailableClerk(FakeClerk):
+    def authenticate_password(self, email: str, password: str) -> tuple[str, str]:
+        raise ClerkUnavailableError("upstream unavailable")
+
+
+def test_login_success_returns_token_and_bootstrap_profile(app) -> None:
+    user = make_app_user(chat_nome="Pr. Piloto")
     client = _client(
         app,
         session=FakeSession(app_user=user, roles=["admin", "pastor"]),
@@ -28,8 +33,18 @@ def test_login_success_returns_token_and_church_id(app) -> None:
     )
     assert resp.status_code == 200
     body = resp.json()
-    assert body["token"] == "token_xyz"
-    assert body["churchId"] == "00000000-0000-0000-0000-000000000001"
+    assert body == {
+        "appUserId": "00000000-0000-0000-0000-0000000000a1",
+        "churchId": "00000000-0000-0000-0000-000000000001",
+        "email": "pastor@igrejapiloto.com",
+        "nome": "Pastor Piloto",
+        "chatNome": "Pr. Piloto",
+        "roles": ["admin", "pastor"],
+        "isOwner": True,
+        "igrejaNome": "Igreja Piloto",
+        "igrejaLogoUrl": None,
+        "token": "token_xyz",
+    }
 
 
 def test_login_invalid_credentials_is_generic(app) -> None:
@@ -45,6 +60,25 @@ def test_login_invalid_credentials_is_generic(app) -> None:
     assert resp.status_code == 401
     # Must not reveal whether the email exists.
     assert resp.json()["detail"] == "E-mail ou senha inválidos"
+
+
+def test_login_clerk_unavailable_returns_generic_503(app) -> None:
+    client = _client(
+        app,
+        session=FakeSession(app_user=None),
+        clerk=_UnavailableClerk(),
+    )
+
+    resp = client.post(
+        "/auth/login",
+        json={"email": "pastor@example.com", "password": "secret"},
+    )
+
+    assert resp.status_code == 503
+    assert resp.json() == {
+        "detail": "Serviço de autenticação temporariamente indisponível"
+    }
+    assert "token" not in resp.json()
 
 
 def test_login_clerk_ok_but_no_app_user_is_generic(app) -> None:
@@ -94,6 +128,10 @@ def test_delinquent_owner_can_login_and_restore_session_for_recovery(app) -> Non
 
     assert login.status_code == 200
     assert me.status_code == 200
+    login_profile = {
+        key: value for key, value in login.json().items() if key != "token"
+    }
+    assert login_profile == me.json()
     assert me.json()["isOwner"] is True
 
 

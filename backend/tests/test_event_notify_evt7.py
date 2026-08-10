@@ -90,12 +90,16 @@ class SpyEvolution:
     def __init__(self, *, fail: bool = False) -> None:
         self.sent: list[tuple[str, str, str]] = []
         self.fail = fail
+        self.close_calls = 0
 
     def send_text(self, instance: str, telefone: str, texto: str) -> bool:
         if self.fail:
             raise EvolutionError("boom")
         self.sent.append((instance, telefone, texto))
         return True
+
+    def close(self) -> None:
+        self.close_calls += 1
 
 
 def _event(*, status: str = "confirmado", notificado_em=None):
@@ -229,6 +233,39 @@ def test_evolution_failure_does_not_break_and_leaves_notificado_em_null() -> Non
     assert notify_event_confirmed(session, event, settings=_on(), evolution=spy) is False
     assert event.notificado_em is None
     assert session.committed is False
+
+
+def test_notify_closes_only_locally_created_evolution(monkeypatch) -> None:
+    import app.services.event_notify as notify_module
+
+    owned = SpyEvolution(fail=True)
+    monkeypatch.setattr(
+        notify_module,
+        "EvolutionClient",
+        lambda _settings: owned,
+    )
+    assert (
+        notify_event_confirmed(
+            _session_with_recipient(),
+            _event(),
+            settings=_on(),
+        )
+        is False
+    )
+
+    injected = SpyEvolution()
+    assert (
+        notify_event_confirmed(
+            _session_with_recipient(),
+            _event(),
+            settings=_on(),
+            evolution=injected,
+        )
+        is True
+    )
+
+    assert owned.close_calls == 1
+    assert injected.close_calls == 0
 
 
 # ---------------------------------------------------------------------------

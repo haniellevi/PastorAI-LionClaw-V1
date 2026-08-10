@@ -14,7 +14,7 @@ import { LoginError } from "@/lib/api";
 import { useAdminAuth } from "@/lib/admin-auth-context";
 
 export function AdminLoginScreen() {
-  const { login } = useAdminAuth();
+  const { login, accessMessage } = useAdminAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string>();
@@ -63,9 +63,9 @@ export function AdminLoginScreen() {
         <h1>Console da Plataforma</h1>
         <p className="sub">Administração multi-igreja do Igreja 12. Acesso restrito.</p>
 
-        {error ? (
+        {error || accessMessage ? (
           <div className="auth-error block" role="alert">
-            <span>{error}</span>
+            <span>{error ?? accessMessage}</span>
           </div>
         ) : null}
 

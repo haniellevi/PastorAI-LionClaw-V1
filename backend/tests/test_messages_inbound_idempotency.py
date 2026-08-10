@@ -139,6 +139,7 @@ def _parsed(
     provider_message_id: str,
     instance: str = "igreja-1",
     telefone: str = "5511988887777",
+    from_me: bool = False,
 ) -> ParsedMessage:
     """Espelha o contrato do parse_message_event de produção: `telefone` é o
     parâmetro BRUTO (como vem do JID); `ParsedMessage.telefone` recebe a chave
@@ -154,7 +155,7 @@ def _parsed(
         telefone_raw=telefone,
         texto="Oi",
         push_name="João",
-        from_me=False,
+        from_me=from_me,
     )
 
 
@@ -165,6 +166,24 @@ def _count_messages(factory: sessionmaker, igreja_id: uuid.UUID) -> int:
             session.execute(
                 text("select count(*) from messages where igreja_id = :i"),
                 {"i": str(igreja_id)},
+            ).scalar_one()
+        )
+    finally:
+        session.close()
+
+
+def _count_messages_by_direction(
+    factory: sessionmaker, igreja_id: uuid.UUID, direction: str
+) -> int:
+    session = factory()
+    try:
+        return int(
+            session.execute(
+                text(
+                    "select count(*) from messages "
+                    "where igreja_id = :i and direcao = :d"
+                ),
+                {"i": str(igreja_id), "d": direction},
             ).scalar_one()
         )
     finally:
@@ -330,6 +349,40 @@ def test_same_provider_id_different_igreja_does_not_conflict(
     assert _count_messages(factory, _IGREJA_B) == 1
 
 
+def test_same_outbound_provider_id_is_deduped_by_db(msg_engine_fx: Engine) -> None:
+    """A barreira outbound real aceita uma entrega e rejeita a repetição."""
+    factory = _factory(msg_engine_fx)
+    _seed_igreja_with_connection(factory, igreja_id=_IGREJA_A, instance="igreja-1")
+
+    # O fluxo outbound só persiste para um contato conhecido. Uma inbound única
+    # cria Pessoa/Conversation usando exatamente o caminho de produção.
+    seed_session = factory()
+    try:
+        seed = ingest_message_event_ex(
+            seed_session,
+            _parsed(provider_message_id="OUTBOUND-CONTACT-SEED"),
+        )
+    finally:
+        seed_session.close()
+    assert seed.result is IngestionResult.REGISTERED
+
+    outbound = _parsed(provider_message_id="OUTBOUND-DUP", from_me=True)
+    first_session = factory()
+    try:
+        first = ingest_message_event_ex(first_session, outbound)
+    finally:
+        first_session.close()
+    second_session = factory()
+    try:
+        second = ingest_message_event_ex(second_session, outbound)
+    finally:
+        second_session.close()
+
+    assert first.result is IngestionResult.REGISTERED
+    assert second.result is IngestionResult.DUPLICATE
+    assert _count_messages_by_direction(factory, _IGREJA_A, "out") == 1
+
+
 # ---------------------------------------------------------------------------
 # Regressão: sem o índice, a duplicação volta
 # ---------------------------------------------------------------------------
@@ -348,15 +401,29 @@ def test_without_index_duplicate_reproduces(msg_engine_fx: Engine) -> None:
         first = ingest_message_event_ex(session1, parsed)
     finally:
         session1.close()
-    session2 = factory()
-    try:
-        second = ingest_message_event_ex(session2, parsed)
-    finally:
-        session2.close()
-
-    # Sem o índice, nada impede a 2ª ingestão — prova que o índice é o fix.
     assert first.result is IngestionResult.REGISTERED
-    assert second.result is IngestionResult.REGISTERED
+
+    # O advisory fence da aplicação ainda rejeitaria uma segunda chamada pelo
+    # caminho normal. A inserção direta isola a última barreira do banco: sem o
+    # índice, outra sessão/integração consegue persistir a mesma chave.
+    with msg_engine_fx.begin() as conn:
+        conn.execute(
+            text(
+                "insert into messages "
+                "(id, igreja_id, conversation_id, direcao, autor, texto, "
+                "provider_message_id) "
+                "select :new_id, igreja_id, conversation_id, direcao, autor, "
+                "texto, provider_message_id from messages "
+                "where igreja_id = :igreja_id and provider_message_id = :pid "
+                "limit 1"
+            ),
+            {
+                "new_id": str(uuid.uuid4()),
+                "igreja_id": str(_IGREJA_A),
+                "pid": parsed.provider_message_id,
+            },
+        )
+
     assert _count_messages(factory, _IGREJA_A) == 2
 
 
@@ -376,6 +443,11 @@ class _AlwaysNewRedis:
 
     def delete(self, key: str) -> None:
         pass
+
+    def eval(self, script: str, numkeys: int, *args: object) -> int:
+        # CAS de `mark_processed`/`release_processed`: este stub modela a perda
+        # posterior da marca, não uma disputa de ownership durante a chamada.
+        return 1
 
 
 def _payload(message_id: str, *, instance: str = "igreja-1") -> dict:
