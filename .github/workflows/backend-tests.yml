@@ -48,17 +48,25 @@ jobs:
             backend/requirements.lock
             backend/requirements-audit.lock
 
-      - name: Instalar dependencias (lock e hashes exatos)
-        run: python -m pip install --require-hashes -r requirements.lock
+      - name: Criar ambiente runtime limpo (lock e hashes exatos)
+        run: |
+          python -m venv "$RUNNER_TEMP/backend-runtime-venv"
+          "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pip install --require-hashes -r requirements.lock
+          "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pip check
+          "$RUNNER_TEMP/backend-runtime-venv/bin/python" scripts/verify_manifest_requirements.py requirements.txt
 
-      - name: Auditar dependencias Python
+      - name: Criar ambiente de auditoria limpo e auditar
         run: |
           python -m venv "$RUNNER_TEMP/pip-audit-venv"
           "$RUNNER_TEMP/pip-audit-venv/bin/python" -m pip install --require-hashes -r requirements-audit.lock
+          "$RUNNER_TEMP/pip-audit-venv/bin/python" -m pip check
+          "$RUNNER_TEMP/pip-audit-venv/bin/python" scripts/verify_manifest_requirements.py requirements-audit.in
           "$RUNNER_TEMP/pip-audit-venv/bin/python" -m pip_audit --require-hashes --disable-pip -r requirements.lock
+          "$RUNNER_TEMP/pip-audit-venv/bin/python" -m pip_audit --require-hashes --disable-pip -r requirements-audit.lock
 
       - name: Build da imagem backend (sem publicar)
         run: docker build --tag pastorai-backend:ci .
 
       - name: Rodar suite backend offline (tudo exceto rls_integration)
-        run: pytest -m "not rls_integration" --durations=25
+        run: |
+          "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pytest -m "not rls_integration" --durations=25
