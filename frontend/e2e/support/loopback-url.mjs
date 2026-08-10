@@ -1,5 +1,7 @@
 const DEFAULT_APP_URL = "http://127.0.0.1:3109";
 const DEFAULT_API_URL = "http://127.0.0.1:8009";
+const HTTP_PREFIX = "http://";
+const FORBIDDEN_RAW_CHARACTERS = /[\p{Cc}\p{White_Space}\\]/u;
 
 function invalidUrl(name) {
   return new Error(
@@ -20,7 +22,26 @@ function isLoopbackHostname(hostname) {
 }
 
 export function assertM09LoopbackUrl(name, rawValue) {
-  if (typeof rawValue !== "string" || rawValue.length === 0 || rawValue !== rawValue.trim()) {
+  if (
+    typeof rawValue !== "string" ||
+    rawValue.length === 0 ||
+    FORBIDDEN_RAW_CHARACTERS.test(rawValue) ||
+    rawValue.includes("@") ||
+    rawValue.includes("?") ||
+    rawValue.includes("#") ||
+    rawValue.slice(0, HTTP_PREFIX.length) !== HTTP_PREFIX
+  ) {
+    throw invalidUrl(name);
+  }
+
+  // Esta fronteira lexical não decide se o host é seguro. Ela impede que o
+  // parser apague path/dot-segments antes da validação estrutural abaixo.
+  const authorityAndRoot = rawValue.slice(HTTP_PREFIX.length);
+  const firstSlash = authorityAndRoot.indexOf("/");
+  if (
+    authorityAndRoot.length === 0 ||
+    (firstSlash !== -1 && firstSlash !== authorityAndRoot.length - 1)
+  ) {
     throw invalidUrl(name);
   }
 
@@ -32,11 +53,16 @@ export function assertM09LoopbackUrl(name, rawValue) {
   }
 
   const port = parsed.port === "" ? 80 : Number(parsed.port);
+  const canonicalOrigin =
+    rawValue.endsWith("/") ? `${parsed.origin}/` : parsed.origin;
   if (
     parsed.protocol !== "http:" ||
     parsed.username !== "" ||
     parsed.password !== "" ||
-    parsed.href !== `${parsed.origin}/` ||
+    parsed.pathname !== "/" ||
+    parsed.search !== "" ||
+    parsed.hash !== "" ||
+    rawValue !== canonicalOrigin ||
     !isLoopbackHostname(parsed.hostname) ||
     !Number.isInteger(port) ||
     port < 1 ||
