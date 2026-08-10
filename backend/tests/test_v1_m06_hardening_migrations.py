@@ -24,7 +24,15 @@ POLICY_TABLES = (
     "platform_orchestrator",
 )
 TEST_ROLES = ("anon", "authenticated", "service_role")
-TABLE_PRIVILEGES = ("SELECT", "INSERT", "UPDATE", "DELETE")
+CORE_TABLE_PRIVILEGES = (
+    "SELECT",
+    "INSERT",
+    "UPDATE",
+    "DELETE",
+    "TRUNCATE",
+    "REFERENCES",
+    "TRIGGER",
+)
 _M06_DATABASE = "m06_hardening_disposable"
 
 
@@ -54,6 +62,8 @@ def test_closed_tables_migration_is_structurally_fail_closed() -> None:
     assert "p.polroles = array[0::oid]" in sql
     assert "pg_get_expr(p.polqual, p.polrelid) = 'false'" in sql
     assert "pg_get_expr(p.polwithcheck, p.polrelid) = 'false'" in sql
+    assert "revoke all privileges on table public.%i from anon, authenticated" in sql
+    assert "has_table_privilege(target_role, target_oid, target_privilege)" in sql
     assert "from pg_policy" in sql
     assert "policy_count <> 0" in sql
     assert "policy_count <> 1 or exact_policy_count <> 1" in sql
@@ -63,9 +73,8 @@ def test_closed_tables_migration_is_structurally_fail_closed() -> None:
     )
     assert sql.count("create policy") == 1
 
-    # Grants são uma camada separada e permanecem intocados nesta migration.
+    # Grants e RLS continuam independentes: a migration só fecha anon/authenticated.
     assert "grant " not in sql
-    assert "revoke " not in sql
     assert "drop policy" not in sql
     assert "disable row level security" not in sql
     assert "using (true)" not in sql
@@ -135,14 +144,21 @@ def _reset_tables(engine: Engine) -> None:
         for table in POLICY_TABLES
     )
     grants_and_seed = "\n".join(
-        f"grant select, insert, update, delete on public.{table} "
+        f"grant all privileges on table public.{table} "
         "to anon, authenticated, service_role;\n"
         f"insert into public.{table} (id, payload) values (1, 'seed');"
         for table in POLICY_TABLES
     )
     with engine.begin() as conn:
+        conn.exec_driver_sql("drop schema if exists m06_grant_probe cascade")
         conn.exec_driver_sql(drop_sql)
         conn.exec_driver_sql(create_sql)
+        conn.exec_driver_sql("grant usage on schema public to anon, authenticated, service_role")
+        conn.exec_driver_sql("create schema m06_grant_probe")
+        conn.exec_driver_sql(
+            "grant usage, create on schema m06_grant_probe "
+            "to anon, authenticated, service_role"
+        )
         conn.exec_driver_sql(grants_and_seed)
 
 
@@ -153,8 +169,16 @@ def m06_tables(m06_engine: Engine) -> Engine:
     return m06_engine
 
 
+def _applicable_table_privileges(connection) -> tuple[str, ...]:
+    version = int(connection.exec_driver_sql("show server_version_num").scalar_one())
+    if version >= 170000:
+        return (*CORE_TABLE_PRIVILEGES, "MAINTAIN")
+    return CORE_TABLE_PRIVILEGES
+
+
 def _grant_matrix(engine: Engine) -> dict[tuple[str, str, str], bool]:
     with engine.connect() as conn:
+        privileges = _applicable_table_privileges(conn)
         return {
             (table, role, privilege): bool(
                 conn.execute(
@@ -168,34 +192,23 @@ def _grant_matrix(engine: Engine) -> dict[tuple[str, str, str], bool]:
             )
             for table in POLICY_TABLES
             for role in TEST_ROLES
-            for privilege in TABLE_PRIVILEGES
+            for privilege in privileges
         }
 
 
-def _row_count_as(engine: Engine, role: str, table: str) -> int:
-    with engine.connect() as conn:
-        transaction = conn.begin()
-        try:
-            conn.exec_driver_sql(f"set local role {role}")
-            return int(
-                conn.exec_driver_sql(
-                    f"select count(*) from public.{table}"
-                ).scalar_one()
-            )
-        finally:
-            transaction.rollback()
-
-
-def _blocked_insert(engine: Engine, role: str, table: str) -> None:
+def _assert_table_privilege_denied(
+    engine: Engine,
+    role: str,
+    table: str,
+    statement: str,
+) -> None:
     with engine.connect() as conn:
         transaction = conn.begin()
         try:
             conn.exec_driver_sql(f"set local role {role}")
             with pytest.raises(DBAPIError) as error:
-                conn.exec_driver_sql(
-                    f"insert into public.{table} (id, payload) values (2, 'blocked')"
-                )
-            assert "row-level security policy" in str(error.value).lower()
+                conn.exec_driver_sql(statement)
+            assert f"permission denied for table {table}" in str(error.value).lower()
         finally:
             transaction.rollback()
 
@@ -245,7 +258,12 @@ def _security_snapshot(engine: Engine) -> dict[str, dict[str, object]]:
                 {"table": table},
             ).mappings().one_or_none()
             if relation is None:
-                snapshot[table] = {"exists": False, "rls": None, "policies": ()}
+                snapshot[table] = {
+                    "exists": False,
+                    "rls": None,
+                    "policies": (),
+                    "grants": (),
+                }
                 continue
 
             policies = conn.execute(
@@ -278,6 +296,27 @@ def _security_snapshot(engine: Engine) -> dict[str, dict[str, object]]:
                     )
                     for row in policies
                 ),
+                "grants": tuple(
+                    (
+                        role,
+                        privilege,
+                        bool(
+                            conn.execute(
+                                text(
+                                    "select has_table_privilege("
+                                    ":role, :table, :privilege)"
+                                ),
+                                {
+                                    "role": role,
+                                    "table": f"public.{table}",
+                                    "privilege": privilege,
+                                },
+                            ).scalar_one()
+                        ),
+                    )
+                    for role in TEST_ROLES
+                    for privilege in _applicable_table_privileges(conn)
+                ),
             }
     return snapshot
 
@@ -302,6 +341,16 @@ def _assert_exact_closed_policy(engine: Engine, table: str) -> None:
     )
 
 
+def _assert_closed_grants(engine: Engine) -> None:
+    matrix = _grant_matrix(engine)
+    for table in POLICY_TABLES:
+        for role in TEST_ROLES:
+            for privilege in {
+                key[2] for key in matrix if key[0] == table and key[1] == role
+            }:
+                assert matrix[(table, role, privilege)] is (role == "service_role")
+
+
 @pytest.mark.rls_integration
 def test_valid_first_apply_and_reapply_are_closed_and_idempotent(
     m06_tables: Engine,
@@ -316,7 +365,7 @@ def test_valid_first_apply_and_reapply_are_closed_and_idempotent(
     _apply_migration(m06_tables, migration)
 
     assert _security_snapshot(m06_tables) == first_state
-    assert _grant_matrix(m06_tables) == grants_before
+    _assert_closed_grants(m06_tables)
 
     with m06_tables.connect() as conn:
         role_bypass = dict(
@@ -338,26 +387,16 @@ def test_valid_first_apply_and_reapply_are_closed_and_idempotent(
     for table in POLICY_TABLES:
         _assert_exact_closed_policy(m06_tables, table)
         for role in ("anon", "authenticated"):
-            assert _row_count_as(m06_tables, role, table) == 0
-            _blocked_insert(m06_tables, role, table)
-            with m06_tables.connect() as conn:
-                transaction = conn.begin()
-                try:
-                    conn.exec_driver_sql(f"set local role {role}")
-                    assert (
-                        conn.exec_driver_sql(
-                            f"update public.{table} set payload = 'blocked' where id = 1"
-                        ).rowcount
-                        == 0
-                    )
-                    assert (
-                        conn.exec_driver_sql(
-                            f"delete from public.{table} where id = 1"
-                        ).rowcount
-                        == 0
-                    )
-                finally:
-                    transaction.rollback()
+            for statement in (
+                f"select count(*) from public.{table}",
+                f"insert into public.{table} (id, payload) values (2, 'blocked')",
+                f"update public.{table} set payload = 'blocked' where id = 1",
+                f"delete from public.{table} where id = 1",
+                f"truncate table public.{table}",
+                "create table m06_grant_probe.reference_probe "
+                f"(target_id integer references public.{table}(id))",
+            ):
+                _assert_table_privilege_denied(m06_tables, role, table, statement)
 
         with m06_tables.connect() as conn:
             transaction = conn.begin()
@@ -389,6 +428,25 @@ def test_valid_first_apply_and_reapply_are_closed_and_idempotent(
                 )
             finally:
                 transaction.rollback()
+
+
+@pytest.mark.rls_integration
+def test_inherited_public_grant_aborts_and_restores_all_grants(
+    m06_tables: Engine,
+) -> None:
+    """PUBLIC é acesso efetivo: a migration deve abortar sem revogar parcialmente."""
+    migration = POLICIES.read_text(encoding="utf-8")
+    with m06_tables.begin() as conn:
+        conn.exec_driver_sql(
+            "grant select on table public.platform_orchestrator to public"
+        )
+
+    _assert_migration_rejected_without_changes(
+        m06_tables,
+        migration,
+        r"unexpected effective SELECT privilege for role anon "
+        r"on public\.platform_orchestrator",
+    )
 
 
 @pytest.mark.rls_integration

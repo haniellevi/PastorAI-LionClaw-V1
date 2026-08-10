@@ -5,9 +5,11 @@
 -- o histórico mínimo não habilitava RLS em password_reset_tokens. A migration
 -- fecha essa lacuna de reconstrução: habilita RLS explicitamente antes de
 -- tornar a negação intencional para o linter do Supabase. Grants e RLS são
--- controles independentes; esta migration não concede nem revoga privilégios.
--- O papel proprietário e papéis com BYPASSRLS continuam fora da avaliação de
--- policies, como antes.
+-- controles independentes: além da policy, a migration revoga explicitamente
+-- todos os privilégios de tabela de anon/authenticated. Isso inclui SELECT,
+-- INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES e TRIGGER; no PostgreSQL 17,
+-- também inclui MAINTAIN. O service_role não recebe GRANT nem REVOKE aqui e
+-- papéis com BYPASSRLS continuam fora da avaliação de policies, como antes.
 --
 -- A migration é fail-closed também diante de drift de catálogo: exige todas as
 -- tabelas, trava-as antes de inspecionar as policies e aceita somente dois
@@ -25,13 +27,32 @@ declare
     policy_count integer;
     exact_policy_count integer;
     rls_enabled boolean;
+    target_role text;
+    target_privilege text;
     target_tables constant text[] := array[
         'password_reset_tokens',
         'platform_admins',
         'platform_audit_log',
         'platform_orchestrator'
     ];
+    closed_roles constant text[] := array['anon', 'authenticated'];
+    closed_privileges text[] := array[
+        'SELECT',
+        'INSERT',
+        'UPDATE',
+        'DELETE',
+        'TRUNCATE',
+        'REFERENCES',
+        'TRIGGER'
+    ];
 begin
+    -- MAINTAIN foi adicionado aos privilégios de tabela no PostgreSQL 17.
+    -- A migration continua compatível com o PostgreSQL 16 do CI, mas verifica
+    -- esse privilégio adicional quando o catálogo do destino o suporta.
+    if current_setting('server_version_num')::integer >= 170000 then
+        closed_privileges := array_append(closed_privileges, 'MAINTAIN');
+    end if;
+
     -- Valida primeiro a existência das quatro tabelas. Uma ausência é drift,
     -- não um estado idempotente, e deve impedir o registro de sucesso.
     foreach target_table in array target_tables
@@ -137,6 +158,15 @@ begin
                 target_table
             );
         end if;
+
+        -- REVOKE ALL PRIVILEGES cobre todos os privilégios de tabela aplicáveis
+        -- ao servidor (inclusive MAINTAIN no PostgreSQL 17), sem tocar no
+        -- service_role. A pós-condição abaixo detecta grants por PUBLIC ou por
+        -- membership que este REVOKE direto não pudesse remover.
+        execute format(
+            'revoke all privileges on table public.%I from anon, authenticated',
+            target_table
+        );
     end loop;
 
     -- Pós-condição explícita: uma falha aqui também reverte integralmente todos
@@ -172,6 +202,24 @@ begin
                     target_table
                 );
         end if;
+
+        foreach target_role in array closed_roles
+        loop
+            foreach target_privilege in array closed_privileges
+            loop
+                if has_table_privilege(target_role, target_oid, target_privilege) then
+                    raise exception using
+                        errcode = 'P0001',
+                        message = format(
+                            'M06 fail-closed: unexpected effective %s privilege '
+                            'for role %I on public.%I',
+                            target_privilege,
+                            target_role,
+                            target_table
+                        );
+                end if;
+            end loop;
+        end loop;
     end loop;
 end
 $migration$;
