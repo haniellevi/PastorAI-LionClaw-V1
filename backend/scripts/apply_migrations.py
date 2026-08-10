@@ -88,8 +88,8 @@ def _connect(url: str):
         import psycopg2  # lazy: `list` funciona sem o driver instalado
     except ImportError:  # pragma: no cover - ambiente sem deps
         print(
-            "ERRO: psycopg2 não está instalado. Rode dentro do venv do backend "
-            "(pip install -r requirements.txt).",
+            "ERRO: psycopg2 não está instalado. A partir de backend/, rode no "
+            "venv: python -m pip install --require-hashes -r requirements.lock.",
             file=sys.stderr,
         )
         raise SystemExit(3)
