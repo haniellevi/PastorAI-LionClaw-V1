@@ -13,7 +13,10 @@
 A Fase A está reproduzível e verde. Login, dashboard, restauração de sessão,
 navegação, troca de modelo e conexão WhatsApp foram exercitados em build de
 produção local, num Chromium real, com dados fictícios e API-mock presa a
-`127.0.0.1`. O gate bloqueia qualquer origem externa.
+loopback. Um guard estrutural compartilhado valida `M09_APP_URL` e
+`M09_API_URL` antes do build, da configuração dos servidores e dos helpers. Ele
+aceita somente HTTP em `localhost`, IPv4 `127.0.0.0/8` ou IPv6 `::1`, sem
+credenciais, caminho, query ou fragmento, e falha antes de qualquer rede.
 
 Isto **não é o aceite final da M09**. A Fase B depende dos deploys aprovados de
 M06/M07/M08 e precisa repetir as medições no SHA efetivamente implantado.

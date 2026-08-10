@@ -1,9 +1,10 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const appPort = Number(process.env.M09_APP_PORT ?? "3109");
-const apiPort = Number(process.env.M09_API_PORT ?? "8009");
-const appUrl = `http://127.0.0.1:${appPort}`;
-const apiUrl = `http://127.0.0.1:${apiPort}`;
+import { resolveM09Urls } from "./e2e/support/loopback-url.mjs";
+
+const { app, api } = resolveM09Urls();
+const appUrl = app.origin;
+const apiUrl = api.origin;
 
 export default defineConfig({
   testDir: "./e2e",
@@ -36,7 +37,7 @@ export default defineConfig({
       name: "API mock local",
       command: "node e2e/support/mock-api.mjs",
       url: `${apiUrl}/__e2e/health`,
-      env: { M09_API_PORT: String(apiPort), M09_APP_PORT: String(appPort) },
+      env: { M09_API_URL: apiUrl, M09_APP_URL: appUrl },
       reuseExistingServer: false,
       timeout: 30_000,
       stdout: "pipe",
@@ -44,9 +45,9 @@ export default defineConfig({
     },
     {
       name: "Next production local",
-      command: `npm run start -- --hostname 127.0.0.1 --port ${appPort}`,
+      command: `npm run start -- --hostname ${app.hostname} --port ${app.port}`,
       url: appUrl,
-      env: { NEXT_PUBLIC_API_URL: apiUrl },
+      env: { NEXT_PUBLIC_API_URL: apiUrl, M09_API_URL: apiUrl, M09_APP_URL: appUrl },
       reuseExistingServer: false,
       timeout: 60_000,
       stdout: "pipe",

@@ -1,8 +1,10 @@
 import { createServer } from "node:http";
 
-const host = "127.0.0.1";
-const port = Number(process.env.M09_API_PORT ?? "8009");
-const appPort = Number(process.env.M09_APP_PORT ?? "3109");
+import { resolveM09Urls } from "./loopback-url.mjs";
+
+const { app, api } = resolveM09Urls();
+const host = api.hostname;
+const port = api.port;
 const token = "m09-local-e2e-token";
 const qrPixel =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQmcAAAAASUVORK5CYII=";
@@ -51,7 +53,7 @@ function sleep(ms) {
 
 function corsHeaders() {
   return {
-    "Access-Control-Allow-Origin": `http://127.0.0.1:${appPort}`,
+    "Access-Control-Allow-Origin": app.origin,
     "Access-Control-Allow-Headers": "Authorization, Content-Type",
     "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
     "Cache-Control": "no-store",
@@ -108,7 +110,7 @@ function page(items) {
 }
 
 const server = createServer(async (request, response) => {
-  const url = new URL(request.url ?? "/", `http://${host}:${port}`);
+  const url = new URL(request.url ?? "/", api.origin);
   const method = (request.method ?? "GET").toUpperCase();
   const pathname = url.pathname;
 
@@ -328,7 +330,7 @@ const server = createServer(async (request, response) => {
 });
 
 server.listen(port, host, () => {
-  console.log(`M09 mock API em http://${host}:${port}`);
+  console.log(`M09 mock API em ${api.origin}`);
 });
 
 for (const signal of ["SIGINT", "SIGTERM"]) {

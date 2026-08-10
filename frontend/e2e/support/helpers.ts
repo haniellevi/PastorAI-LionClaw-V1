@@ -3,12 +3,11 @@ import { execFileSync } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-export const API_URL =
-  process.env.M09_API_URL ??
-  `http://127.0.0.1:${process.env.M09_API_PORT ?? "8009"}`;
-export const APP_URL =
-  process.env.M09_APP_URL ??
-  `http://127.0.0.1:${process.env.M09_APP_PORT ?? "3109"}`;
+import { resolveM09Urls } from "./loopback-url.mjs";
+
+const M09_URLS = resolveM09Urls();
+export const API_URL = M09_URLS.api.origin;
+export const APP_URL = M09_URLS.app.origin;
 export const LOCAL_TOKEN = "m09-local-e2e-token";
 export const SOURCE_SHA =
   process.env.GITHUB_SHA ??

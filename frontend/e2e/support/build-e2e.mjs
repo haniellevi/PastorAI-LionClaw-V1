@@ -1,9 +1,11 @@
 import { spawn } from "node:child_process";
 
-const apiUrl = process.env.M09_API_URL ?? "http://127.0.0.1:8009";
+import { resolveM09Urls } from "./loopback-url.mjs";
+
+const { api } = resolveM09Urls();
 const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 const child = spawn(npmCommand, ["run", "build"], {
-  env: { ...process.env, NEXT_PUBLIC_API_URL: apiUrl },
+  env: { ...process.env, NEXT_PUBLIC_API_URL: api.origin },
   shell: process.platform === "win32",
   stdio: "inherit",
 });
