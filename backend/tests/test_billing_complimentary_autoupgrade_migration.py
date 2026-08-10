@@ -8,6 +8,8 @@ o guard compartilhado impede qualquer URL DEV/PROD.
 from __future__ import annotations
 
 import pathlib
+import threading
+import time
 
 import pytest
 from sqlalchemy.engine import Engine
@@ -157,7 +159,8 @@ def test_real_migration_is_idempotent_and_never_selects_zero_plan(
             values
               ('ate_100', true, 199, 100),
               ('101_200', true, 0, 200),
-              ('acima_201', true, 399, null);
+              ('acima_201', true, 399, null),
+              ('piloto', true, 0, 50);
 
             insert into {_SCHEMA}.igrejas (id, plano)
             values ('10000000-0000-0000-0000-000000000001', 'ate_100');
@@ -180,6 +183,21 @@ def test_real_migration_is_idempotent_and_never_selects_zero_plan(
               'ate_100', '101_200', 0, 200, 'alvo antigo',
               'autoupgrade', 'prepared', 'pending'
             );
+
+            -- Regressão: a Igreja já recebeu cortesia, mas a Subscription
+            -- histórica ainda aponta para o tier pago anterior.
+            insert into {_SCHEMA}.igrejas (id, plano)
+            values ('10000000-0000-0000-0000-000000000005', 'piloto');
+            insert into {_SCHEMA}.subscriptions
+              (id, igreja_id, plano, pessoas, limite, asaas_subscription_id)
+            values (
+              '20000000-0000-0000-0000-000000000005',
+              '10000000-0000-0000-0000-000000000005',
+              'ate_100', 100, 100, null
+            );
+            insert into {_SCHEMA}.pessoas (igreja_id, tipo)
+            select '10000000-0000-0000-0000-000000000005', 'membro'
+              from generate_series(1, 100);
             """
         )
 
@@ -188,6 +206,31 @@ def test_real_migration_is_idempotent_and_never_selects_zero_plan(
         _apply_real_migration(rls_engine)
 
         with rls_engine.begin() as conn:
+            conn.exec_driver_sql(
+                f"""
+                insert into {_SCHEMA}.pessoas (igreja_id, tipo)
+                values ('10000000-0000-0000-0000-000000000005', 'membro')
+                """
+            )
+            complimentary_state = conn.exec_driver_sql(
+                f"""
+                select i.plano, s.plano, s.limite, s.pessoas
+                  from {_SCHEMA}.igrejas i
+                  join {_SCHEMA}.subscriptions s on s.igreja_id = i.id
+                 where i.id = '10000000-0000-0000-0000-000000000005'
+                """
+            ).one()
+            assert complimentary_state == ("piloto", "piloto", 50, 101)
+            complimentary_ops = conn.exec_driver_sql(
+                f"""
+                select count(*)
+                  from {_SCHEMA}.billing_plan_change_operations
+                 where subscription_id =
+                       '20000000-0000-0000-0000-000000000005'
+                """
+            ).scalar_one()
+            assert complimentary_ops == 0
+
             old_status = conn.exec_driver_sql(
                 f"""
                 select status from {_SCHEMA}.billing_plan_change_operations
@@ -293,6 +336,113 @@ def test_real_migration_is_idempotent_and_never_selects_zero_plan(
                 """
             ).scalar_one()
             assert no_target_count == 0
+    finally:
+        with rls_engine.begin() as conn:
+            conn.exec_driver_sql(f"drop schema if exists {_SCHEMA} cascade;")
+
+
+@pytest.mark.rls_integration
+def test_trigger_and_master_use_church_before_plan_lock_order(
+    rls_engine: Engine,
+) -> None:
+    """O insert espera a Igreja antes de tocar o plano-alvo, sem deadlock."""
+    igreja_id = "10000000-0000-0000-0000-000000000010"
+    sub_id = "20000000-0000-0000-0000-000000000010"
+    worker_started = threading.Event()
+    worker_errors: list[BaseException] = []
+
+    with rls_engine.begin() as conn:
+        conn.exec_driver_sql(_DDL)
+        conn.exec_driver_sql(
+            f"""
+            insert into {_SCHEMA}.planos
+              (codigo, ativo, preco_mensal, limite_pessoas)
+            values
+              ('ate_100', true, 199, 100),
+              ('101_200', true, 299, 200),
+              ('acima_201', true, 399, null);
+            insert into {_SCHEMA}.igrejas (id, plano)
+            values ('{igreja_id}', 'ate_100');
+            insert into {_SCHEMA}.subscriptions
+              (id, igreja_id, plano, pessoas, limite, asaas_subscription_id)
+            values ('{sub_id}', '{igreja_id}', 'ate_100', 100, 100, null);
+            insert into {_SCHEMA}.pessoas (igreja_id, tipo)
+            select '{igreja_id}', 'membro' from generate_series(1, 100);
+            """
+        )
+
+    try:
+        _apply_real_migration(rls_engine)
+
+        def add_101st_member() -> None:
+            try:
+                with rls_engine.begin() as conn:
+                    conn.exec_driver_sql(
+                        "set local application_name = "
+                        "'billing-autoupgrade-lock-order'"
+                    )
+                    worker_started.set()
+                    conn.exec_driver_sql(
+                        f"""
+                        insert into {_SCHEMA}.pessoas (igreja_id, tipo)
+                        values ('{igreja_id}', 'membro')
+                        """
+                    )
+            except BaseException as exc:  # noqa: BLE001 - transporta da thread
+                worker_errors.append(exc)
+
+        master = rls_engine.connect()
+        master_tx = master.begin()
+        worker = threading.Thread(target=add_101st_member)
+        try:
+            master.exec_driver_sql(
+                f"select 1 from {_SCHEMA}.igrejas "
+                f"where id = '{igreja_id}' for update"
+            )
+            worker.start()
+            assert worker_started.wait(timeout=5)
+
+            deadline = time.monotonic() + 5
+            blocked_on_lock = False
+            while time.monotonic() < deadline:
+                with rls_engine.connect() as observer:
+                    wait_type = observer.exec_driver_sql(
+                        "select wait_event_type from pg_stat_activity "
+                        "where application_name = "
+                        "'billing-autoupgrade-lock-order' "
+                        "and pid <> pg_backend_pid()"
+                    ).scalar_one_or_none()
+                if wait_type == "Lock":
+                    blocked_on_lock = True
+                    break
+                time.sleep(0.05)
+            assert blocked_on_lock, "trigger não aguardou o lock da Igreja"
+
+            # Na implementação antiga, o trigger já segurava este Plano e a
+            # linha abaixo formava o ciclo Plano -> Igreja. Agora ela conclui.
+            master.exec_driver_sql(
+                f"select 1 from {_SCHEMA}.planos "
+                "where codigo = '101_200' for update"
+            )
+            master_tx.commit()
+        finally:
+            if master_tx.is_active:
+                master_tx.rollback()
+            master.close()
+            worker.join(timeout=10)
+
+        assert not worker.is_alive(), "trigger ficou preso após liberar a Igreja"
+        assert worker_errors == []
+        with rls_engine.begin() as conn:
+            state = conn.exec_driver_sql(
+                f"""
+                select i.plano, s.plano, s.pessoas
+                  from {_SCHEMA}.igrejas i
+                  join {_SCHEMA}.subscriptions s on s.igreja_id = i.id
+                 where i.id = '{igreja_id}'
+                """
+            ).one()
+        assert state == ("101_200", "101_200", 101)
     finally:
         with rls_engine.begin() as conn:
             conn.exec_driver_sql(f"drop schema if exists {_SCHEMA} cascade;")

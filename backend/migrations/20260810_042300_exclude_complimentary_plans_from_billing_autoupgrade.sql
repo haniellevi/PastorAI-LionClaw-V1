@@ -5,9 +5,10 @@
 -- Plano com preço zero é cortesia concedida somente pelo master e NUNCA pode
 -- ser escolhido pelo auto-upgrade (nem no ramo local, nem no trilho Asaas).
 --
--- A linha do plano alvo é travada antes de atualizar/enfileirar. O PATCH do
--- catálogo usa o mesmo row lock, impedindo a corrida em que o plano vira
--- cortesia entre a seleção e a criação da operação financeira.
+-- Ordem canônica de locks: Igreja -> Planos (codigo ordenado). O trigger segue
+-- com Subscription; a reconciliação trava a operação antes da Subscription,
+-- pois esse é o par usado pela callback remota. O PATCH da igreja respeita o
+-- mesmo prefixo. Isso elimina o ciclo Plano -> Igreja que causava deadlock.
 --
 -- Também reconcilia apenas operações automáticas PREPARED que apontem para
 -- plano zero/ausente. Elas comprovadamente ainda não executaram PUT remoto:
@@ -29,6 +30,9 @@ set search_path = public, pg_temp
 as $$
 declare
   v_igreja_id uuid;
+  v_igreja_plano text;
+  v_igreja_preco numeric(10,2);
+  v_igreja_limite int;
   v_total int;
   v_sub public.subscriptions%rowtype;
   v_novo_plano text;
@@ -41,9 +45,34 @@ begin
     v_igreja_id := new.igreja_id;
   end if;
 
+  -- A concessão master em igrejas.plano é a autoridade do entitlement. Trava
+  -- primeiro a Igreja; checkout e painel master usam a mesma primeira linha.
+  select i.plano into v_igreja_plano
+    from public.igrejas i
+   where i.id = v_igreja_id
+   for update of i;
+  if not found then
+    if tg_op = 'DELETE' then return old; else return new; end if;
+  end if;
+
+  -- Todos os planos possivelmente tocados são travados em ordem estável, igual
+  -- ao helper Python lock_plan_rows_for_billing.
+  perform 1
+    from public.planos p
+   where p.codigo = v_igreja_plano
+      or p.codigo in ('ate_100', '101_200', 'acima_201')
+   order by p.codigo
+   for update of p;
+
+  select p.preco_mensal, p.limite_pessoas
+    into v_igreja_preco, v_igreja_limite
+    from public.planos p
+   where p.codigo = v_igreja_plano;
+
   select * into v_sub
     from public.subscriptions
-   where igreja_id = v_igreja_id;
+   where igreja_id = v_igreja_id
+   for update;
   if not found then
     if tg_op = 'DELETE' then return old; else return new; end if;
   end if;
@@ -55,13 +84,29 @@ begin
      and coalesce(sem_interesse, false) is false
      and tipo in ('membro', 'discipulo', 'lider', 'pastor');
 
+  -- Catálogo ausente é estado inválido e falha fechado sem reatribuir plano.
+  if v_igreja_preco is null then
+    if tg_op = 'DELETE' then return old; else return new; end if;
+  end if;
+
+  -- Cortesia da Igreja sempre vence um snapshot histórico pago da Subscription.
+  -- Mantém apenas o espelho local coerente; nunca cria/cancela cobrança remota.
+  if v_igreja_preco <= 0 then
+    update public.subscriptions
+       set pessoas = v_total,
+           plano = v_igreja_plano,
+           limite = v_igreja_limite
+     where id = v_sub.id;
+    if tg_op = 'DELETE' then return old; else return new; end if;
+  end if;
+
   update public.subscriptions
      set pessoas = v_total
-   where igreja_id = v_igreja_id;
+   where id = v_sub.id;
 
   if v_sub.limite is not null and v_total > v_sub.limite then
-    -- Primeiro degrau ATIVO, PAGO e suficiente acima do atual. `FOR UPDATE`
-    -- serializa esta escolha com a conversão pago <-> cortesia no painel master.
+    -- Primeiro degrau ATIVO, PAGO e suficiente acima do atual. As linhas da
+    -- escada já estão travadas em ordem canônica acima.
     select p.codigo, p.preco_mensal, p.limite_pessoas
       into v_novo_plano, v_novo_preco, v_novo_limite
       from public.planos p
@@ -86,8 +131,7 @@ begin
        when 'acima_201' then 3
        else 999
      end
-     limit 1
-     for update of p;
+     limit 1;
 
     if v_novo_plano is not null and v_novo_preco is not null then
       if v_sub.asaas_subscription_id is null then
@@ -122,6 +166,9 @@ $$;
 do $reconcile_zero_price_prepared_upgrades$
 declare
   v_op record;
+  v_current_plan text;
+  v_current_limit integer;
+  v_current_asaas_subscription_id text;
   v_total integer;
   v_target_code text;
   v_target_price numeric(10,2);
@@ -131,9 +178,7 @@ begin
     select o.id,
            o.subscription_id,
            s.igreja_id,
-           s.plano as current_plan,
-           s.limite as current_limit,
-           s.asaas_subscription_id as current_asaas_subscription_id
+           o.to_plano
       from public.billing_plan_change_operations o
       join public.subscriptions s on s.id = o.subscription_id
       left join public.planos old_target on old_target.codigo = o.to_plano
@@ -141,8 +186,38 @@ begin
        and o.status = 'prepared'
        and (old_target.codigo is null or old_target.preco_mensal <= 0)
      order by o.created_at, o.id
-     for update of o
   loop
+    -- Mesmo prefixo canônico do trigger e do painel master. O cursor acima só
+    -- descobre candidatos; toda condição é revalidada depois dos locks.
+    perform 1 from public.igrejas i
+     where i.id = v_op.igreja_id
+     for update of i;
+    if not found then continue; end if;
+
+    perform 1 from public.planos p
+     where p.codigo = v_op.to_plano
+        or p.codigo in ('ate_100', '101_200', 'acima_201')
+     order by p.codigo
+     for update of p;
+
+    perform 1
+      from public.billing_plan_change_operations o
+      left join public.planos old_target on old_target.codigo = o.to_plano
+     where o.id = v_op.id
+       and o.origin = 'autoupgrade'
+       and o.status = 'prepared'
+       and (old_target.codigo is null or old_target.preco_mensal <= 0)
+     for update of o;
+    if not found then continue; end if;
+
+    select s.plano, s.limite, s.asaas_subscription_id
+      into v_current_plan, v_current_limit, v_current_asaas_subscription_id
+      from public.subscriptions s
+     where s.id = v_op.subscription_id
+       and s.igreja_id = v_op.igreja_id
+     for update of s;
+    if not found then continue; end if;
+
     select count(*) into v_total
       from public.pessoas p
      where p.igreja_id = v_op.igreja_id
@@ -154,7 +229,7 @@ begin
     v_target_price := null;
     v_target_limit := null;
 
-    if v_op.current_limit is not null and v_total > v_op.current_limit then
+    if v_current_limit is not null and v_total > v_current_limit then
       select p.codigo, p.preco_mensal, p.limite_pessoas
         into v_target_code, v_target_price, v_target_limit
         from public.planos p
@@ -167,7 +242,7 @@ begin
                when '101_200' then 2
                when 'acima_201' then 3
                else 999
-             end > case v_op.current_plan
+             end > case v_current_plan
                when 'ate_100' then 1
                when '101_200' then 2
                when 'acima_201' then 3
@@ -193,14 +268,14 @@ begin
        and status = 'prepared';
 
     if found
-       and v_op.current_asaas_subscription_id is not null
+       and v_current_asaas_subscription_id is not null
        and v_target_code is not null then
       insert into public.billing_plan_change_operations
         (subscription_id, asaas_subscription_id, from_plano, to_plano,
          to_preco, to_limite, to_descricao, origin, status, notify_status)
       values
-        (v_op.subscription_id, v_op.current_asaas_subscription_id,
-         v_op.current_plan, v_target_code, v_target_price, v_target_limit,
+        (v_op.subscription_id, v_current_asaas_subscription_id,
+         v_current_plan, v_target_code, v_target_price, v_target_limit,
          'PastorAI — plano ' || v_target_code,
          'autoupgrade', 'prepared', 'pending')
       on conflict (subscription_id)

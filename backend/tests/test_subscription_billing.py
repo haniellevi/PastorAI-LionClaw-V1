@@ -1433,12 +1433,14 @@ def test_retry_still_adopts_pending_snapshot_from_a_new_billing_cycle(app) -> No
     assert db.igreja.status == "ativa"  # PENDING não é inadimplência
 
 
-def test_plan_change_still_creates_new_subscription(app) -> None:
-    # Troca de plano (plano DIFERENTE do vinculado) segue o fluxo normal de
-    # criação — a retomada vale só para retry do mesmo plano pendente.
+def test_tracked_subscription_requires_change_plan_instead_of_second_checkout(
+    app,
+) -> None:
+    # Uma recorrência rastreada nunca pode gerar outro POST. Plano diferente
+    # deve seguir a troca in-place da assinatura existente.
     asaas = _FakeAsaas()
     sub = _subscription(status="pendente", plano="ate_100")
-    client, _db = _client(
+    client, db = _client(
         app,
         planos=[_plano(codigo="101_200", preco_mensal=299, limite_pessoas=200)],
         asaas=asaas,
@@ -1449,9 +1451,13 @@ def test_plan_change_still_creates_new_subscription(app) -> None:
         "/subscription", json={"plano": "101_200", "cpfCnpj": _CPF}, headers=_AUTH
     )
 
-    assert resp.status_code == 200
-    assert len(asaas.calls) == 1  # create_checkout chamado (fluxo legítimo)
-    assert asaas.calls[0]["plano"] == "101_200"
+    assert resp.status_code == 409
+    assert "troca de plano" in resp.json()["detail"]
+    assert asaas.calls == []
+    assert not [
+        op for op in db.added if isinstance(op, BillingSubscriptionOperation)
+    ]
+    assert sub.plano == "ate_100"
 
 
 def test_get_subscription_withholds_reversed_invoice_link(app) -> None:

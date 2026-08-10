@@ -237,6 +237,44 @@ def find_blocking_subscription_creation(
         )
         .order_by(BillingSubscriptionOperation.created_at.desc())
         .limit(1)
+        .with_for_update(of=BillingSubscriptionOperation)
+        .execution_options(populate_existing=True)
+    ).scalar_one_or_none()
+
+
+def find_blocking_subscription_creation_for_plan(
+    db: Session, plan_code: str
+) -> BillingSubscriptionOperation | None:
+    """Localiza criação não terminal que usa ou aponta para um plano.
+
+    A operação carrega o alvo congelado em ``plano``; os vínculos atuais da
+    Subscription e da Igreja também entram para cobrir registros legados. O
+    complemento dos estados terminais mantém a conversão pago/cortesia
+    fail-closed diante de estado novo ou nulo.
+    """
+    return db.execute(
+        select(BillingSubscriptionOperation)
+        .join(
+            Subscription,
+            Subscription.id == BillingSubscriptionOperation.subscription_id,
+        )
+        .join(Igreja, Igreja.id == Subscription.igreja_id)
+        .where(
+            or_(
+                BillingSubscriptionOperation.status.is_(None),
+                BillingSubscriptionOperation.status.not_in(
+                    SUBSCRIPTION_CREATION_SAFE_TERMINAL_STATUSES
+                ),
+            ),
+            or_(
+                BillingSubscriptionOperation.plano == plan_code,
+                Subscription.plano == plan_code,
+                Igreja.plano == plan_code,
+            ),
+        )
+        .order_by(BillingSubscriptionOperation.created_at.desc())
+        .limit(1)
+        .with_for_update(of=BillingSubscriptionOperation)
         .execution_options(populate_existing=True)
     ).scalar_one_or_none()
 
@@ -899,6 +937,59 @@ def ensure_plan_change_operation(
     locked_plans = lock_plan_rows_for_billing(db, sub.plano, to_plano)
     op = find_open_plan_change(db, sub.id)
 
+    if op is not None and op.to_plano != to_plano:
+        # Duas solicitações concorrentes para planos DIFERENTES nunca se
+        # atropelam silenciosamente. Faça esta validação antes de interpretar
+        # o catálogo do alvo congelado, pois ele pode nem estar entre os planos
+        # solicitados por este caller.
+        raise PlanChangeConflict(
+            f"Já existe uma troca em andamento para o plano {op.to_plano}"
+        )
+
+    # Uma operação histórica pode apontar para um plano que depois virou
+    # cortesia. Nem reconciliação nem recovery podem usar esse snapshot para
+    # GET/PUT e, sobretudo, nunca podem aplicar localmente o valor zero. Estados
+    # ambíguos permanecem abertos, com sinalização explícita para conciliação
+    # manual; ``prepared`` é seguro para encerrar porque ainda não tocou a rede.
+    effective_target = op.to_plano if op is not None else to_plano
+    target_plan = locked_plans.get(effective_target)
+    try:
+        frozen_price = float(op.to_preco) if op is not None else float(to_preco)
+    except (TypeError, ValueError):
+        frozen_price = 0.0
+    unsafe_financial_target = bool(
+        target_plan is None
+        or is_complimentary_plan(target_plan)
+        or frozen_price <= 0
+    )
+    if unsafe_financial_target:
+        detail = (
+            "Plano alvo ausente, virou cortesia ou tem valor zero; "
+            "conciliação manual obrigatória antes de retomar a troca"
+        )
+        if op is not None and op.status == "prepared":
+            finish_operation(
+                db,
+                op,
+                ("prepared",),
+                status="failed",
+                notify_status="skipped",
+                error=detail,
+            )
+        elif op is not None and op.status in ("processing", "reconciling"):
+            result = db.execute(
+                update(BillingPlanChangeOperation)
+                .where(
+                    BillingPlanChangeOperation.id == op.id,
+                    BillingPlanChangeOperation.status == op.status,
+                )
+                .values(error=detail)
+            )
+            db.commit()
+            if getattr(result, "rowcount", 0) == 1:
+                op.error = detail
+        raise PlanChangeConflict(detail)
+
     # Operações processing/reconciling podem já ter atravessado a rede e devem
     # continuar reconciliáveis com o alvo congelado, mesmo se o catálogo mudou.
     # `prepared` e operação nova ainda não tocaram o Asaas: exigem que o alvo
@@ -924,13 +1015,6 @@ def ensure_plan_change_operation(
             raise PlanChangeConflict(
                 "O plano foi alterado ou virou cortesia; recarregue antes de continuar"
             )
-
-    if op is not None and op.to_plano != to_plano:
-        # Duas solicitações concorrentes para planos DIFERENTES nunca se
-        # atropelam silenciosamente: a segunda é rejeitada com conflito.
-        raise PlanChangeConflict(
-            f"Já existe uma troca em andamento para o plano {op.to_plano}"
-        )
 
     if op is None:
         op = BillingPlanChangeOperation(

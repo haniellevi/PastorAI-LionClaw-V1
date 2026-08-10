@@ -197,7 +197,10 @@ class PlatformDB:
             ]
             return _Result(scalar=blocking[0] if blocking else None)
         if ent is Plano:
-            return _Result(scalar=self.plano_scalar, scalars=self.planos)
+            plan_rows = self.planos
+            if not plan_rows and self.plano_scalar is not None:
+                plan_rows = [self.plano_scalar]
+            return _Result(scalar=self.plano_scalar, scalars=plan_rows)
         if ent is PlatformAuditLog:
             return _Result(scalars=self.audit_rows)
         if ent is AgentConfig:
@@ -546,16 +549,19 @@ def test_admin_can_assign_complimentary_plan_with_untracked_local_placeholder(
     free_plan = _plano_ns(
         id="free-1", codigo="teste_free", nome="Cortesia", preco_mensal=0
     )
+    sub = SimpleNamespace(
+        id="placeholder-local",
+        plano="ate_100",
+        limite=100,
+        asaas_subscription_id=None,
+    )
     db = PlatformDB(
         gate_app_user=make_app_user(),
         admin_marker="pa1",
         igreja_scalar=igreja,
         plano_scalar=free_plan,
         plano_precos_rows=[("ate_100", 199), ("teste_free", 0)],
-        subscription=SimpleNamespace(
-            id="placeholder-local",
-            asaas_subscription_id=None,
-        ),
+        subscription=sub,
     )
     client = _wire(app, db=db, clerk=FakeClerk())
 
@@ -567,6 +573,8 @@ def test_admin_can_assign_complimentary_plan_with_untracked_local_placeholder(
 
     assert resp.status_code == 200
     assert igreja.plano == "teste_free"
+    assert sub.plano == "teste_free"
+    assert sub.limite == free_plan.limite_pessoas
 
 
 @pytest.mark.parametrize(
@@ -655,12 +663,23 @@ def test_admin_removes_complimentary_without_creating_financial_operation(app) -
         created_at=None,
     )
     paid_plan = _plano_ns(codigo="ate_100", preco_mensal=199)
+    free_plan = _plano_ns(
+        id="free-1", codigo="teste_free", nome="Cortesia", preco_mensal=0
+    )
+    sub = SimpleNamespace(
+        id="placeholder-local",
+        plano="teste_free",
+        limite=free_plan.limite_pessoas,
+        asaas_subscription_id=None,
+    )
     db = PlatformDB(
         gate_app_user=make_app_user(),
         admin_marker="pa1",
         igreja_scalar=igreja,
         plano_scalar=paid_plan,
+        planos=[paid_plan, free_plan],
         plano_precos_rows=[("teste_free", 0), ("ate_100", 199)],
+        subscription=sub,
     )
     client = _wire(app, db=db, clerk=FakeClerk())
 
@@ -672,6 +691,8 @@ def test_admin_removes_complimentary_without_creating_financial_operation(app) -
 
     assert resp.status_code == 200
     assert igreja.plano == "ate_100"
+    assert sub.plano == "ate_100"
+    assert sub.limite == paid_plan.limite_pessoas
     assert not any(
         isinstance(obj, (BillingSubscriptionOperation, BillingPlanChangeOperation))
         for obj in db.added
@@ -1187,8 +1208,30 @@ def test_admin_cannot_convert_plan_with_non_terminal_plan_change(
     )
 
     assert resp.status_code == 409
-    assert "troca de assinatura em aberto" in resp.json()["detail"]
+    assert "operação de assinatura em aberto" in resp.json()["detail"]
     assert plano.preco_mensal == 199
+
+
+def test_admin_cannot_convert_plan_during_subscription_creation(app) -> None:
+    plano = _plano_ns(preco_mensal=199)
+    operation = SimpleNamespace(status="creating", plano=plano.codigo)
+    db = PlatformDB(
+        gate_app_user=make_app_user(),
+        admin_marker="pa1",
+        plano_scalar=plano,
+        count_value=0,
+        subscription_ops=[operation],
+    )
+    client = _wire(app, db=db, clerk=FakeClerk())
+
+    resp = client.patch(
+        f"/admin/planos/{_PLANO_ID}", headers=_AUTH, json={"precoMensal": 0}
+    )
+
+    assert resp.status_code == 409
+    assert "operação de assinatura em aberto" in resp.json()["detail"]
+    assert plano.preco_mensal == 199
+    assert db.committed is False
 
 
 @pytest.mark.parametrize("operation_status", ["completed", "failed"])

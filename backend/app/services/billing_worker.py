@@ -650,6 +650,15 @@ def run_pending_plan_changes(
                     _retry_pending_notification(
                         tenant_session, evolution, op_id, igreja_id
                     )
+            except PlanChangeConflict:
+                # Alvo ausente/cortesia/zero ou conflito local: a guarda central
+                # já preservou o estado seguro e, quando ambíguo, sinalizou
+                # conciliação manual sem GET/PUT no Asaas.
+                logger.warning(
+                    "Plan change blocked for manual reconciliation (igreja %s)",
+                    igreja_id,
+                )
+                tenant_session.rollback()
             except AsaasError:
                 # Falha/timeout remoto: a operação ficou `reconciling` (plano
                 # local intacto) e o próximo tick reconcilia — sem PUT repetido.

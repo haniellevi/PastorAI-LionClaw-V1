@@ -397,6 +397,53 @@ def test_worker_never_mutates_asaas_for_complimentary_church(monkeypatch) -> Non
     assert notified == []
 
 
+def test_worker_blocks_historical_reconciling_target_that_became_complimentary(
+    monkeypatch,
+) -> None:
+    op = _op(status="reconciling", error=None)
+    sub = _sub()
+    igreja = SimpleNamespace(id=_IGREJA_A, plano="ate_100")
+    paid_current = SimpleNamespace(
+        codigo="ate_100",
+        nome="Até 100",
+        preco_mensal=199.0,
+        limite_pessoas=100,
+        ativo=True,
+    )
+    converted_target = SimpleNamespace(
+        codigo="101_200",
+        nome="Cortesia convertida",
+        preco_mensal=0.0,
+        limite_pessoas=200,
+        ativo=True,
+    )
+    tenant = _WorkerSession(
+        subscription=sub,
+        igreja=igreja,
+        plan_changes=[op],
+        planos=[paid_current, converted_target],
+    )
+    asaas = _WorkerAsaas()
+    notified = _spy_notify(monkeypatch)
+
+    completed = run_pending_plan_changes(
+        _Discovery([(op, _IGREJA_A)]),
+        session_factory=_factory_queue([tenant]),
+        asaas=asaas,
+        evolution=object(),
+    )
+
+    assert completed == 0
+    assert asaas.gets == 0
+    assert asaas.puts == 0
+    assert op.status == "reconciling"
+    assert "conciliação manual" in op.error
+    assert sub.plano == "ate_100"
+    assert sub.limite == 100
+    assert igreja.plano == "ate_100"
+    assert notified == []
+
+
 def test_worker_retargets_stale_prepared_autoupgrade_before_asaas(
     monkeypatch,
 ) -> None:

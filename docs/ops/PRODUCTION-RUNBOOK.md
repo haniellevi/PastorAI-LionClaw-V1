@@ -153,10 +153,13 @@ docker compose ps
 # Prova pós-restart sem imprimir o .env nem qualquer segredo. Todos os
 # processos capazes de faturar devem confirmar as duas travas fechadas.
 for service in backend queue-worker cron-worker; do
-  docker compose exec -T "$service" sh -lc '
-    [ "${ALLOW_REAL_SENDS:-false}" = "false" ] &&
-    [ "${ASAAS_BILLING_ENABLED:-false}" = "false" ] &&
-    echo "billing gates: CLOSED"'
+  if ! docker compose exec -T "$service" sh -lc '
+      [ "${ALLOW_REAL_SENDS:-false}" = "false" ] &&
+      [ "${ASAAS_BILLING_ENABLED:-false}" = "false" ] &&
+      echo "billing gates: CLOSED"'; then
+    echo "billing gates: OPEN or unverifiable for ${service}" >&2
+    exit 1
+  fi
 done
 curl -fsS http://127.0.0.1:8000/health
 ln -sfn "/opt/pastorai-releases/${PASTORAI_RELEASE_SHA}" /opt/pastorai-current

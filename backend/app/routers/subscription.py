@@ -1113,20 +1113,22 @@ def create_checkout(
         contractual_setup_fee = get_setup_fee_for_igreja(db, igreja)
     setup_fee = 0.0 if sub.setup_pago else contractual_setup_fee
 
-    # INVARIANTE: mesmo plano + assinatura Asaas já rastreada NUNCA executa
-    # outro POST /subscriptions — em qualquer status (pendente, ativa,
-    # inadimplente ou revertida) o caminho é a retomada. Troca de plano
-    # (plano diferente) segue o fluxo de criação — semântica de produto
-    # preservada (risco da recorrência antiga reportado ao dono à parte).
+    # INVARIANTE: qualquer assinatura Asaas já rastreada NUNCA executa outro
+    # POST /subscriptions. Mesmo plano retoma o vínculo atual; plano diferente
+    # deve passar pelo endpoint de troca in-place, que usa PUT no mesmo id.
     # A retomada NÃO consulta o catálogo: um plano desativado pelo master
     # depois da contratação (grandfathering) não pode travar o assinante.
-    if (
-        sub.asaas_subscription_id
-        and sub.asaas_subscription_id != "sandbox"
-        and sub.plano == payload.plano
-    ):
-        return _resume_tracked_checkout(
-            db, sub, asaas, contractual_setup_fee
+    if sub.asaas_subscription_id and sub.asaas_subscription_id != "sandbox":
+        if sub.plano == payload.plano:
+            return _resume_tracked_checkout(
+                db, sub, asaas, contractual_setup_fee
+            )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Esta igreja já possui uma assinatura Asaas. "
+                "Use a troca de plano para atualizar a recorrência existente."
+            ),
         )
 
     # RECONCILIAÇÃO ANTES DO CATÁLOGO: se o POST anterior pode ter criado a
