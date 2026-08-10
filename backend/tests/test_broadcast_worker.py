@@ -150,7 +150,7 @@ def test_worker_publishes_ready_only_after_successful_tick() -> None:
 
     worker.run()
 
-    assert heartbeats == [(False, 30), (True, 30), (False, 30)]
+    assert heartbeats == [("running", 30), ("ready", 30), ("stopped", 30)]
 
 
 def test_next_tick_keeps_last_proven_ready_until_a_real_failure(caplog) -> None:
@@ -165,7 +165,7 @@ def test_next_tick_keeps_last_proven_ready_until_a_real_failure(caplog) -> None:
     def runner(*args, **kwargs):
         cycles["count"] += 1
         if cycles["count"] == 2:
-            assert heartbeats[-1] == (True, 30)
+            assert heartbeats[-1] == ("running", 30)
             raise RuntimeError("database unavailable")
         return BroadcastCycleStats()
 
@@ -187,11 +187,11 @@ def test_next_tick_keeps_last_proven_ready_until_a_real_failure(caplog) -> None:
     worker.run()
 
     assert heartbeats == [
-        (False, 30),
-        (True, 30),
-        (True, 30),
-        (False, 30),
-        (False, 30),
+        ("running", 30),
+        ("ready", 30),
+        ("running", 30),
+        ("error", 30),
+        ("stopped", 30),
     ]
     assert "Broadcast worker tick failed" in caplog.text
 
@@ -261,11 +261,11 @@ def test_failed_tick_stays_unready_until_a_later_tick_succeeds(caplog) -> None:
     worker.run()
 
     assert heartbeats == [
-        (False, 30),
-        (False, 30),
-        (False, 30),
-        (True, 30),
-        (False, 30),
+        ("running", 30),
+        ("error", 30),
+        ("running", 30),
+        ("ready", 30),
+        ("stopped", 30),
     ]
     assert "Broadcast worker tick failed" in caplog.text
 

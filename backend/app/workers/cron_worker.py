@@ -23,6 +23,7 @@ import logging
 import signal
 import time
 from collections.abc import Callable
+from threading import Event, Thread
 from typing import Any
 
 from sqlalchemy import select
@@ -35,8 +36,12 @@ from app.db.tenant_session import mark_cross_tenant
 from app.services.billing_worker import run_pending_plan_changes
 from app.services.calendar_oauth_flows import purge_expired_flows
 from app.services.sla_engine import SlaEngine, run_all_igrejas
+from app.services.worker_health import publish_worker_heartbeat
 
 logger = logging.getLogger("pastorai.cron_worker")
+
+WORKER_HEARTBEAT_SECONDS = 10
+WORKER_HEARTBEAT_TTL_SECONDS = 30
 
 # Named frequencies mapped to an interval. Anything not matched is parsed as a
 # compact "<n><unit>" form (e.g. "5m", "2h", "30s", "1d").
@@ -156,13 +161,49 @@ class CronWorker:
         session_factory: Callable[[], Session] | None = None,
         engine: SlaEngine | None = None,
         tick_seconds: int | None = None,
+        settings: Any | None = None,
+        heartbeat_publisher: Callable[[str, int], None] | None = None,
     ) -> None:
+        boot_settings = settings or get_settings()
         self._session_factory = session_factory or get_session_factory()
         self._owns_engine = engine is None
         self._engine = engine if engine is not None else SlaEngine()
-        self._tick_seconds = tick_seconds or get_settings().cron_tick_seconds
+        self._tick_seconds = tick_seconds or boot_settings.cron_tick_seconds
         self._last_run: dict[str, dt.datetime] = {}
         self._running = False
+        redis_url = str(getattr(boot_settings, "redis_url", "") or "")
+        self._heartbeat_publisher = heartbeat_publisher
+        if self._heartbeat_publisher is None and redis_url:
+            self._heartbeat_publisher = lambda state, ttl: publish_worker_heartbeat(
+                redis_url,
+                worker_name="cron-worker",
+                state=state,
+                ttl_seconds=ttl,
+            )
+        self._health_state = "ready"
+        self._heartbeat_stop = Event()
+        self._heartbeat_thread: Thread | None = None
+
+    def _publish_health(self, state: str | None = None) -> None:
+        if state is not None:
+            self._health_state = state
+        if self._heartbeat_publisher is None:
+            return
+        try:
+            self._heartbeat_publisher(
+                self._health_state,
+                WORKER_HEARTBEAT_TTL_SECONDS,
+            )
+        except Exception as exc:  # noqa: BLE001 - telemetry cannot stop cron work
+            logger.warning(
+                "Cron worker heartbeat failed error_type=%s",
+                type(exc).__name__,
+            )
+
+    def _heartbeat_loop(self) -> None:
+        """Keep the liveness lease fresh even while one cron tick is long."""
+        while not self._heartbeat_stop.wait(WORKER_HEARTBEAT_SECONDS):
+            self._publish_health()
 
     def stop(self, *_: Any) -> None:
         """Request a graceful shutdown (SIGTERM/SIGINT handler)."""
@@ -251,9 +292,18 @@ class CronWorker:
     def run(self) -> None:
         """Block ticking on the configured interval until stopped."""
         self._running = True
+        self._heartbeat_stop.clear()
+        heartbeat = Thread(
+            target=self._heartbeat_loop,
+            name="cron-worker-health",
+            daemon=True,
+        )
+        self._heartbeat_thread = heartbeat
+        heartbeat.start()
         logger.info("Cron worker started (tick=%ss)", self._tick_seconds)
         try:
             while self._running:
+                self._publish_health("running")
                 try:
                     counters = self.tick()
                     # `oauth_flows_purged` na linha NÃO é cosmético: é a
@@ -267,14 +317,19 @@ class CronWorker:
                         counters["plan_changes_completed"],
                         counters["oauth_flows_purged"],
                     )
+                    self._publish_health("ready")
                 except Exception:  # noqa: BLE001 - one tick cannot kill worker
                     logger.exception("Cron tick failed")
+                    self._publish_health("error")
                 # Sleep in small slices so shutdown stays responsive.
                 slept = 0
                 while self._running and slept < self._tick_seconds:
                     time.sleep(min(1, self._tick_seconds - slept))
                     slept += 1
         finally:
+            self._heartbeat_stop.set()
+            heartbeat.join(timeout=2)
+            self._publish_health("stopped")
             if self._owns_engine:
                 self._owns_engine = False
                 self._engine.close()

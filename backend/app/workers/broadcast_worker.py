@@ -19,7 +19,7 @@ from app.services.broadcast_delivery import (
     BroadcastCycleStats,
     run_delivery_cycle,
 )
-from app.services.broadcast_health import publish_broadcast_worker_heartbeat
+from app.services.broadcast_health import publish_broadcast_worker_state
 from app.services.evolution import EvolutionClient
 
 logger = logging.getLogger("pastorai.broadcast_worker")
@@ -47,7 +47,7 @@ class BroadcastWorker:
         sleeper: Callable[[float], None] = time.sleep,
         worker_id: str | None = None,
         tick_seconds: int | None = None,
-        heartbeat_publisher: Callable[[bool, int], None] | None = None,
+        heartbeat_publisher: Callable[[str, int], None] | None = None,
     ) -> None:
         boot_settings = settings or get_settings()
         self._enabled = bool(
@@ -113,10 +113,10 @@ class BroadcastWorker:
         redis_url = str(getattr(boot_settings, "redis_url", "") or "")
         self._heartbeat_publisher = heartbeat_publisher
         if self._heartbeat_publisher is None and redis_url:
-            self._heartbeat_publisher = lambda enabled, ttl: (
-                publish_broadcast_worker_heartbeat(
+            self._heartbeat_publisher = lambda state, ttl: (
+                publish_broadcast_worker_state(
                     redis_url,
-                    enabled=enabled,
+                    state=state,
                     ttl_seconds=ttl,
                 )
             )
@@ -124,7 +124,6 @@ class BroadcastWorker:
         self._inside_run = False
         self._last_heartbeat_monotonic = 0.0
         self._heartbeat_available = False
-        self._advertise_ready = False
 
     @property
     def enabled(self) -> bool:
@@ -143,7 +142,7 @@ class BroadcastWorker:
             if now - self._last_heartbeat_monotonic >= min(
                 10, self._tick_seconds
             ):
-                self._publish_heartbeat(ready=self._advertise_ready)
+                self._publish_heartbeat(state="running")
         if not self._inside_run:
             return True
         return self._running and (not self._enabled or self._heartbeat_available)
@@ -174,18 +173,20 @@ class BroadcastWorker:
             self._sleeper(step)
             remaining -= step
 
-    def _publish_heartbeat(self, *, ready: bool) -> bool:
+    def _publish_heartbeat(self, *, state: str) -> bool:
         if self._heartbeat_publisher is None:
             self._heartbeat_available = not self._enabled
             return self._heartbeat_available
         ttl = max(30, self._tick_seconds * 3)
         try:
-            self._heartbeat_publisher(ready, ttl)
+            self._heartbeat_publisher(state, ttl)
             self._heartbeat_available = True
-        except Exception:  # noqa: BLE001 - heartbeat failure must fail closed in API
+        except Exception as exc:  # noqa: BLE001 - heartbeat failure fails closed
             self._heartbeat_available = False
-            self._advertise_ready = False
-            logger.exception("Broadcast worker heartbeat publish failed")
+            logger.warning(
+                "Broadcast worker heartbeat failed error_type=%s",
+                type(exc).__name__,
+            )
         finally:
             self._last_heartbeat_monotonic = time.monotonic()
         return self._heartbeat_available
@@ -208,20 +209,13 @@ class BroadcastWorker:
 
         try:
             while self._running:
-                # Preserve the last proven state while the next cycle runs.
-                # Publishing ``idle`` before every healthy tick created a
-                # false 503 window in the API even though the worker was alive
-                # and able to accept work.  A first boot still starts closed;
-                # after one successful cycle it stays ready until a real
-                # failure, shutdown, or heartbeat expiry proves otherwise.
                 heartbeat_available = self._publish_heartbeat(
-                    ready=self._advertise_ready
+                    state="running" if self._enabled else "idle"
                 )
                 if self._enabled and heartbeat_available:
                     try:
                         counters = self.tick()
-                        self._advertise_ready = True
-                        self._publish_heartbeat(ready=True)
+                        self._publish_heartbeat(state="ready")
                         logger.info(
                             "Broadcast tick done reaped=%d materialized=%d actions=%d",
                             counters.reaped,
@@ -230,8 +224,7 @@ class BroadcastWorker:
                         )
                     except Exception:  # noqa: BLE001 - one tick cannot kill worker
                         logger.exception("Broadcast worker tick failed")
-                        self._advertise_ready = False
-                        self._publish_heartbeat(ready=False)
+                        self._publish_heartbeat(state="error")
                 elif self._enabled:
                     logger.error(
                         "Broadcast dispatch paused: heartbeat unavailable"
@@ -243,8 +236,7 @@ class BroadcastWorker:
                         logger.info("Broadcast worker idle heartbeat")
                 self._sleep_interruptibly()
         finally:
-            self._advertise_ready = False
-            self._publish_heartbeat(ready=False)
+            self._publish_heartbeat(state="stopped")
             self._inside_run = False
             if self._owns_evolution:
                 self._owns_evolution = False

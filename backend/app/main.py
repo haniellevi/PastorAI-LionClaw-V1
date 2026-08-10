@@ -57,6 +57,7 @@ from app.services.celula_membro import (
 )
 from app.services.clerk import ClerkClient
 from app.services.rate_limit import RateLimitExceeded
+from app.services.readiness import collect_readiness
 
 logging.basicConfig(
     level=logging.INFO,
@@ -250,6 +251,23 @@ def create_app() -> FastAPI:
     def health() -> dict[str, str]:
         """Liveness probe — always 200 when the process is up."""
         return {"status": "ok"}
+
+    @app.get("/ready", tags=["health"])
+    async def readiness(request: Request) -> JSONResponse:
+        """Dependency readiness, sanitized for public operational checks."""
+        report = await collect_readiness()
+        logger.info(
+            "readiness_check request_id=%s status=%s "
+            "required_failures=%d optional_failures=%d",
+            request.state.request_id,
+            report.status,
+            report.required_failures,
+            report.optional_failures,
+        )
+        return JSONResponse(
+            status_code=report.http_status,
+            content=report.public_payload(),
+        )
 
     return app
 

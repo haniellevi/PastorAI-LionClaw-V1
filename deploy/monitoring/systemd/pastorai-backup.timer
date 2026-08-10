@@ -1,0 +1,10 @@
+[Unit]
+Description=Run PastorAI verified backup every day
+
+[Timer]
+OnCalendar=*-*-* 03:10:00 UTC
+RandomizedDelaySec=10min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -14,6 +14,7 @@ from types import SimpleNamespace
 
 from app.workers.cron_worker import (
     CronWorker,
+    WORKER_HEARTBEAT_TTL_SECONDS,
     parse_interval,
     run_due_crons,
     _should_run,
@@ -292,7 +293,11 @@ def test_run_closes_engine_created_by_worker_even_after_tick_error(
 
     engine = ClosingEngine()
     monkeypatch.setattr(worker_module, "SlaEngine", lambda: engine)
-    worker = CronWorker(session_factory=lambda: object(), tick_seconds=300)
+    worker = CronWorker(
+        session_factory=lambda: object(),
+        tick_seconds=300,
+        heartbeat_publisher=lambda *_args: None,
+    )
 
     def stop_and_fail(now=None):
         worker.stop()
@@ -311,6 +316,7 @@ def test_run_does_not_close_injected_engine(monkeypatch) -> None:
         session_factory=lambda: object(),
         engine=engine,
         tick_seconds=300,
+        heartbeat_publisher=lambda *_args: None,
     )
 
     def stop_after_tick(now=None):
@@ -327,3 +333,32 @@ def test_run_does_not_close_injected_engine(monkeypatch) -> None:
     worker.run()
 
     assert engine.close_calls == 0
+
+
+def test_run_publishes_worker_progress_states(monkeypatch) -> None:
+    heartbeats: list[tuple[str, int]] = []
+    worker = CronWorker(
+        session_factory=lambda: object(),
+        engine=ClosingEngine(),
+        tick_seconds=300,
+        heartbeat_publisher=lambda state, ttl: heartbeats.append((state, ttl)),
+    )
+
+    def stop_after_tick(now=None):
+        worker.stop()
+        return {
+            "sla_handled": 0,
+            "crons_run": 0,
+            "oauth_flows_purged": 0,
+            "plan_changes_completed": 0,
+        }
+
+    monkeypatch.setattr(worker, "tick", stop_after_tick)
+
+    worker.run()
+
+    assert heartbeats == [
+        ("running", WORKER_HEARTBEAT_TTL_SECONDS),
+        ("ready", WORKER_HEARTBEAT_TTL_SECONDS),
+        ("stopped", WORKER_HEARTBEAT_TTL_SECONDS),
+    ]

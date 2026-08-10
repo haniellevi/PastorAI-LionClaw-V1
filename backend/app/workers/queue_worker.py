@@ -66,6 +66,7 @@ from app.domain.conversations import (
 )
 from app.domain.phone import normalize_phone, phone_suffix
 from app.services.pessoa_dedup import insert_pessoa_or_get_winner
+from app.services.worker_health import publish_worker_heartbeat
 
 logger = logging.getLogger("pastorai.queue_worker")
 
@@ -788,6 +789,7 @@ class QueueWorker:
         agent_runner: "Callable[[Any, IngestionOutcome], None] | None" = None,
         media_resolver: MediaResolver | None = None,
         worker_id: str | None = None,
+        heartbeat_publisher: Callable[[str, int], None] | None = None,
     ) -> None:
         self._queue = queue or WebhookQueue()
         self._session_factory = session_factory or get_session_factory()
@@ -802,6 +804,27 @@ class QueueWorker:
         self._running = False
         self._heartbeat_stop = Event()
         self._heartbeat_thread: Thread | None = None
+        self._health_state = "ready"
+        self._heartbeat_publisher = heartbeat_publisher or (
+            lambda state, ttl: publish_worker_heartbeat(
+                None,
+                worker_name="queue-worker",
+                state=state,
+                ttl_seconds=ttl,
+                client=self._queue._redis,  # noqa: SLF001 - same module owner
+            )
+        )
+
+    def _publish_health(self, state: str | None = None) -> None:
+        if state is not None:
+            self._health_state = state
+        try:
+            self._heartbeat_publisher(self._health_state, WORKER_LEASE_SECONDS)
+        except Exception as exc:  # noqa: BLE001 - telemetry cannot stop ingestion
+            logger.warning(
+                "Queue worker heartbeat failed error_type=%s",
+                type(exc).__name__,
+            )
 
     def stop(self, *_: Any) -> None:
         """Request a graceful shutdown (used as a SIGTERM/SIGINT handler)."""
@@ -813,20 +836,27 @@ class QueueWorker:
         while not self._heartbeat_stop.wait(WORKER_HEARTBEAT_SECONDS):
             try:
                 renewed = self._queue.refresh_worker_lease(self._worker_id)
-            except Exception:  # noqa: BLE001 - lease loss must stop consumption
-                logger.exception("Failed to renew webhook worker lease")
+            except Exception as exc:  # noqa: BLE001 - lease loss stops consumption
+                logger.error(
+                    "Webhook worker lease renewal failed error_type=%s",
+                    type(exc).__name__,
+                )
+                self._publish_health("error")
                 self._running = False
                 return
             if not renewed:
                 logger.error("Webhook worker lease expired; stopping consumer")
+                self._publish_health("error")
                 self._running = False
                 return
+            self._publish_health()
 
     def run(self) -> None:
         """Block draining the queue until stopped (graceful shutdown)."""
         self._running = True
         self._heartbeat_stop.clear()
         self._queue.register_worker(self._worker_id)
+        self._publish_health("ready")
         heartbeat = Thread(
             target=self._heartbeat_loop,
             name=f"webhook-lease-{self._worker_id[:8]}",
@@ -844,6 +874,7 @@ class QueueWorker:
             while self._running:
                 if not self._queue.refresh_worker_lease(self._worker_id):
                     logger.error("Webhook worker lease expired; stopping consumer")
+                    self._publish_health("error")
                     break
                 now = time.monotonic()
                 if now >= next_recovery_at:
@@ -856,11 +887,15 @@ class QueueWorker:
                 raw = self._queue.claim(self._worker_id, timeout=BRPOP_TIMEOUT)
                 if raw is None:
                     continue
+                self._publish_health("running")
                 self._handle_raw(raw)
+                if self._running:
+                    self._publish_health("ready")
         finally:
             self._running = False
             self._heartbeat_stop.set()
             heartbeat.join(timeout=REDIS_SOCKET_TIMEOUT_SECONDS + 1)
+            self._publish_health("stopped")
             self._queue.unregister_worker(self._worker_id)
             logger.info("Queue worker %s stopped", self._worker_id)
 

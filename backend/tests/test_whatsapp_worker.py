@@ -19,6 +19,7 @@ from app.workers.queue_worker import (
     REDIS_MAX_CONNECTIONS,
     REDIS_SOCKET_TIMEOUT_SECONDS,
     WEBHOOK_QUEUE,
+    WORKER_LEASE_SECONDS,
     WORKER_REGISTRY,
     IngestionOutcome,
     IngestionResult,
@@ -1009,10 +1010,12 @@ def test_worker_run_cleans_up_lease_and_registry(monkeypatch) -> None:
     redis = FakeRedis()
     queue = WebhookQueue(redis_client=redis)
     queue.enqueue({"event": "connection.update"})
+    heartbeats: list[tuple[str, int]] = []
     worker = QueueWorker(
         queue=queue,
         session_factory=FakeIngestSession,
         worker_id="worker-clean",
+        heartbeat_publisher=lambda state, ttl: heartbeats.append((state, ttl)),
     )
     original_handle = worker._handle_raw  # noqa: SLF001
 
@@ -1027,6 +1030,11 @@ def test_worker_run_cleans_up_lease_and_registry(monkeypatch) -> None:
     assert not redis.exists(queue._lease_key("worker-clean"))  # noqa: SLF001
     assert "worker-clean" not in redis.smembers(WORKER_REGISTRY)
     assert redis.lists[queue.processing_queue("worker-clean")] == []
+    assert heartbeats == [
+        ("ready", WORKER_LEASE_SECONDS),
+        ("running", WORKER_LEASE_SECONDS),
+        ("stopped", WORKER_LEASE_SECONDS),
+    ]
 
 
 def test_worker_acks_non_object_json_poison_pill() -> None:

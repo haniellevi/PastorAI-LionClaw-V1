@@ -1,0 +1,18 @@
+[Unit]
+Description=PastorAI liveness, readiness and backup monitor
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+EnvironmentFile=-/etc/pastorai-monitor.env
+ExecStart=/usr/bin/python3 /opt/pastorai-monitor/production_monitor.py
+TimeoutStartSec=90s
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/pastorai-monitor

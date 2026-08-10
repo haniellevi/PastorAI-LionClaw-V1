@@ -1,6 +1,6 @@
 # PastorAI V1 — runbook canônico de produção
 
-Atualizado em 2026-08-07. Este é o procedimento operacional vigente para o
+Atualizado em 2026-08-10. Este é o procedimento operacional vigente para o
 Igreja 12. Não contém segredos; valores reais ficam somente nos provedores e no
 `.env` do release ativo, acessível por `/opt/pastorai-current/deploy/.env`.
 
@@ -147,6 +147,7 @@ docker compose build backend
 docker compose up -d
 docker compose ps
 curl -fsS http://127.0.0.1:8000/health
+curl -fsS http://127.0.0.1:8000/ready
 ln -sfn "/opt/pastorai-releases/${PASTORAI_RELEASE_SHA}" /opt/pastorai-current
 ```
 
@@ -210,7 +211,9 @@ Com `ALLOW_REAL_SENDS=false`:
 
 ```bash
 curl -fsS https://api.igreja12.com.br/health
+curl -fsS https://api.igreja12.com.br/ready
 curl -fsS http://127.0.0.1:8000/health
+curl -fsS http://127.0.0.1:8000/ready
 docker compose ps
 ```
 
@@ -230,7 +233,27 @@ e-mail/WhatsApp/cobrança ocorrem em uma janela controlada. O recebimento real
 do e-mail de recuperação pelo Brevo pertence a esse canário pós-gate, usando
 uma conta de teste e um único envio observado.
 
-## 9. Rollback
+## 9. Monitoramento e backup
+
+`/health` é liveness barata. `/ready` verifica DB e Redis como dependências
+obrigatórias; Evolution e workers aparecem como sinais opcionais. Uma falha
+opcional gera `degraded` e alerta, mas não derruba a API nem cria restart loop.
+
+Após o release ser aprovado e o symlink estável apontar para ele:
+
+```bash
+cd /opt/pastorai-current
+MONITOR_ALERT_EMAIL=seu-email@dominio.com sh deploy/monitoring/install.sh
+systemctl list-timers pastorai-monitor.timer pastorai-backup.timer --all
+journalctl -u pastorai-monitor.service -n 50 --no-pager
+```
+
+O instalador executa um primeiro backup verificado e a primeira sondagem local.
+O workflow `production-monitor.yml` faz os checks públicos e mantém uma issue
+deduplicada no GitHub. Procedimento, estados e limites de disaster recovery:
+[`deploy/monitoring/README.md`](../../deploy/monitoring/README.md).
+
+## 10. Rollback
 
 - Backend: apontar `/opt/pastorai-current` para o SHA anterior e recriar os
   containers a partir desse release; nunca restaurar ou apagar `deploy/.env` e
@@ -239,7 +262,7 @@ uma conta de teste e um único envio observado.
 - Banco: migrations aditivas não são revertidas automaticamente. Corrigir por
   nova migration revisada; não executar rollback destrutivo improvisado.
 
-## 10. Evidência mínima de conclusão
+## 11. Evidência mínima de conclusão
 
 Registrar:
 
@@ -247,7 +270,8 @@ Registrar:
 - IDs das migrations aplicadas;
 - resultado de testes/CI;
 - `docker compose ps`;
-- health local e público;
+- liveness/readiness local e pública;
+- timers do monitor/backup e data do último backup válido;
 - CORS e login;
 - deployment/aliases Vercel;
 - estado explícito de `ALLOW_REAL_SENDS` e `BROADCAST_ASYNC_ENABLED`.
