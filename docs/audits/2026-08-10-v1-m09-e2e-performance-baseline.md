@@ -83,6 +83,14 @@ next build: PASS
 Essas contagens registram a coleta inicial e não representam a suíte ampliada
 pelos corretivos posteriores do guard de loopback.
 
+### Revalidação atual
+
+Após os corretivos do guard de loopback, a revalidação local com o guard no SHA
+`87f59fb573026dc659658421f0d925242fadf266` aprovou **62 arquivos e 569
+testes**. A aplicação usada nas medições de performance permanece baseada em
+`3f085ec7228d770649b0d9041f0e16154fe37629`; o SHA do guard identifica o
+harness revalidado, não uma nova medição ou implantação da aplicação.
+
 As evidências JSON ficam em `frontend/test-results/metrics/` durante cada run e
 incluem SHA, versão do Node, timeline, requests sanitizados e arrays de erros.
 O diretório é artefato de CI, não arquivo versionado.
