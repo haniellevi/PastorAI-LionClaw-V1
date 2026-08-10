@@ -94,6 +94,57 @@ def test_rejects_unsupported_manifest_directive(tmp_path: Path) -> None:
         verify_manifest(_write_manifest(tmp_path, "-r other.txt\n"))
 
 
+@pytest.mark.parametrize(
+    "reference",
+    [
+        "demo @ https://packages.example.invalid/demo-1.0.whl",
+        "demo @ git+https://example.invalid/org/demo.git@v1.0",
+        "demo @ file:///tmp/demo-1.0.whl",
+    ],
+)
+def test_rejects_direct_references_without_exposing_their_source(
+    tmp_path: Path, reference: str
+) -> None:
+    with pytest.raises(VerificationError) as exc_info:
+        verify_manifest(_write_manifest(tmp_path, f"{reference}\n"))
+
+    assert str(exc_info.value) == (
+        "direct references are not supported by the current lock contract"
+    )
+    assert "example.invalid" not in str(exc_info.value)
+    assert "file:///" not in str(exc_info.value)
+
+
+def test_rejects_direct_url_even_when_matching_distribution_is_installed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    lookups: list[str] = []
+
+    def matching_distribution(name: str) -> _Distribution:
+        lookups.append(name)
+        return _Distribution(version="1.0")
+
+    monkeypatch.setattr(
+        metadata,
+        "distribution",
+        matching_distribution,
+    )
+
+    with pytest.raises(
+        VerificationError, match="direct references are not supported"
+    ) as exc_info:
+        verify_manifest(
+            _write_manifest(
+                tmp_path,
+                "demo @ https://user:secret@example.invalid/demo-1.0.whl\n",
+            )
+        )
+
+    assert "user" not in str(exc_info.value)
+    assert "secret" not in str(exc_info.value)
+    assert lookups == []
+
+
 def test_ignores_inactive_environment_marker(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -128,3 +179,20 @@ def test_rejects_missing_dependency_activated_by_extra(
 
     with pytest.raises(VerificationError, match="missing distribution: extra-child"):
         verify_manifest(_write_manifest(tmp_path, "demo[feature]>=1\n"))
+
+
+def test_rejects_nested_extra_requested_by_an_activated_dependency(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    distributions = {
+        "root": _Distribution(
+            version="1.0",
+            requires=["child[nested]>=1; extra == 'top'"],
+            extras=["top"],
+        ),
+        "child": _Distribution(version="1.0", extras=["nested"]),
+    }
+    monkeypatch.setattr(metadata, "distribution", lambda name: distributions[name])
+
+    with pytest.raises(VerificationError, match="nested extras are not supported"):
+        verify_manifest(_write_manifest(tmp_path, "root[top]>=1\n"))

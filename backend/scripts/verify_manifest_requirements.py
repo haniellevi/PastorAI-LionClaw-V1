@@ -21,6 +21,14 @@ class VerificationError(RuntimeError):
     """Raised when a manifest or installed environment violates the contract."""
 
 
+def _reject_direct_reference(requirement: Requirement) -> None:
+    """Fail closed until the lock contract can validate reference provenance."""
+    if requirement.url is not None:
+        raise VerificationError(
+            "direct references are not supported by the current lock contract"
+        )
+
+
 @dataclass(frozen=True)
 class VerificationResult:
     direct_requirements: int
@@ -41,11 +49,13 @@ def load_manifest(path: Path) -> list[Requirement]:
                 f"{path}:{line_number}: unsupported manifest directive"
             )
         try:
-            requirements.append(Requirement(line))
+            requirement = Requirement(line)
         except InvalidRequirement as exc:
             raise VerificationError(
                 f"{path}:{line_number}: invalid requirement"
             ) from exc
+        _reject_direct_reference(requirement)
+        requirements.append(requirement)
     if not requirements:
         raise VerificationError(f"{path}: manifest has no requirements")
     return requirements
@@ -60,6 +70,7 @@ def _marker_applies(requirement: Requirement, *, extra: str = "") -> bool:
 
 
 def _require_installed(requirement: Requirement) -> metadata.Distribution:
+    _reject_direct_reference(requirement)
     normalized_name = canonicalize_name(requirement.name)
     try:
         distribution = metadata.distribution(normalized_name)
@@ -103,6 +114,10 @@ def _verify_requested_extras(
                 ) from exc
             if not _marker_applies(dependency, extra=normalized_extra):
                 continue
+            if dependency.extras:
+                raise VerificationError(
+                    "nested extras are not supported by the current lock contract"
+                )
             _require_installed(dependency)
             extra_requirements += 1
 

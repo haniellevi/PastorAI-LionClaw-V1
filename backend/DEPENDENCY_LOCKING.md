@@ -33,6 +33,18 @@ python -m venv .venv-audit
 On Windows, replace `.venv-*/bin/python` with `.venv-*\Scripts\python.exe`.
 The runtime and audit environments must remain separate.
 
+## Manifest contract limits
+
+The verifier supports named index requirements and their direct extras, such as
+`uvicorn[standard]` and `PyJWT[crypto]`. It intentionally rejects PEP 508
+direct references, including HTTPS, VCS, local-file, and other URL sources,
+until it can validate their provenance.
+
+It also rejects nested extras activated by another extra. Recursive extra
+validation is not part of the current contract. Any future introduction of a
+direct reference or nested extra must expand the verifier and its tests before
+the corresponding change is merged.
+
 ## Controlled lock maintenance
 
 Lock changes are intentional, reviewed updates. Use the pinned generator without
