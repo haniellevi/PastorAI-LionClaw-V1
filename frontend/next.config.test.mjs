@@ -8,7 +8,7 @@ async function configuredHeaders() {
 }
 
 describe("Next security headers", () => {
-  it("applies the policy to every route", async () => {
+  it("targets every response resolved through the configured route matcher", async () => {
     const routes = await configuredHeaders();
 
     expect(routes).toHaveLength(1);

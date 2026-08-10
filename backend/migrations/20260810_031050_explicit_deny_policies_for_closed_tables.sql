@@ -1,10 +1,13 @@
 -- ============================================================================
 -- PastorAI — M06: políticas explícitas para tabelas fechadas
 --
--- As quatro tabelas abaixo já usam RLS sem policy, o que equivale a negar todo
--- acesso sujeito a RLS. Esta migration preserva esse comportamento e torna a
--- intenção explícita para o linter do Supabase. O papel proprietário e papéis
--- com BYPASSRLS continuam fora da avaliação de policies, como antes.
+-- O estado auditado em PROD tem RLS sem policy nas quatro tabelas abaixo, mas
+-- o histórico mínimo não habilitava RLS em password_reset_tokens. A migration
+-- fecha essa lacuna de reconstrução: habilita RLS explicitamente antes de
+-- tornar a negação intencional para o linter do Supabase. Grants e RLS são
+-- controles independentes; esta migration não concede nem revoga privilégios.
+-- O papel proprietário e papéis com BYPASSRLS continuam fora da avaliação de
+-- policies, como antes.
 --
 -- A policy só é criada quando a tabela existe e ainda não possui policy. Se o
 -- estado mudar antes da aplicação, a migration não sobrepõe a nova decisão.
@@ -26,18 +29,24 @@ begin
     loop
         target_oid := to_regclass(format('public.%I', target_table));
 
-        if target_oid is not null
-           and not exists (
-               select 1
-               from pg_policy
-               where polrelid = target_oid
-           )
-        then
+        if target_oid is not null then
             execute format(
-                'create policy service_role_bypass_only on public.%I '
-                'for all to public using (false) with check (false)',
+                'alter table public.%I enable row level security',
                 target_table
             );
+
+            if not exists (
+                select 1
+                from pg_policy
+                where polrelid = target_oid
+            )
+            then
+                execute format(
+                    'create policy service_role_bypass_only on public.%I '
+                    'for all to public using (false) with check (false)',
+                    target_table
+                );
+            end if;
         end if;
     end loop;
 end

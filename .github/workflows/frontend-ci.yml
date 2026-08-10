@@ -57,3 +57,6 @@ jobs:
 
       - name: Build de producao
         run: npm run build
+
+      - name: Smoke HTTP real dos headers de seguranca
+        run: node smoke-security-headers.mjs
