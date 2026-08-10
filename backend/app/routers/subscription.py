@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import math
 import re
 import uuid
 
@@ -30,6 +31,7 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.db.models import (
     BillingPaymentOperation,
+    BillingSubscriptionOperation,
     Igreja,
     Plano,
     Subscription,
@@ -283,6 +285,64 @@ def _plano_ativo_or_422(db: Session, codigo: str) -> Plano:
             detail=f"plano inválido: {codigo}",
         )
     return plano
+
+
+def _validate_open_subscription_intent_target(
+    db: Session,
+    *,
+    sub: Subscription,
+    op: BillingSubscriptionOperation,
+    requested_plan: str,
+) -> Plano:
+    """Valida localmente uma intenção ambígua antes de qualquer GET no Asaas.
+
+    Uma intenção `creating`/`reconciling` só pode ser retomada quando ainda
+    aponta para o placeholder e para um plano local existente e pago. Plano
+    pago inativo continua válido (grandfathering); preço/limite editados depois
+    do POST permanecem congelados na operação. Qualquer alvo ausente, cortesia,
+    zero ou estruturalmente incompatível falha fechado sem consumir tentativa,
+    alterar estado local ou consultar o provedor.
+    """
+    plan = db.execute(
+        select(Plano).where(Plano.codigo == op.plano)
+    ).scalar_one_or_none()
+
+    try:
+        catalog_price = float(plan.preco_mensal) if plan is not None else 0.0
+        frozen_price = float(op.valor)
+    except (TypeError, ValueError):
+        catalog_price = 0.0
+        frozen_price = 0.0
+
+    try:
+        frozen_limit_valid = op.limite is None or int(op.limite) > 0
+    except (TypeError, ValueError):
+        frozen_limit_valid = False
+
+    compatible = bool(
+        plan is not None
+        and str(plan.codigo) == str(op.plano) == str(requested_plan)
+        and str(sub.plano) == str(op.plano)
+        and str(op.subscription_id) == str(sub.id)
+        and op.status in ("creating", "reconciling")
+        and math.isfinite(catalog_price)
+        and catalog_price > 0
+        and not is_complimentary_plan(plan)
+        and math.isfinite(frozen_price)
+        and frozen_price > 0
+        and frozen_limit_valid
+        and str(op.ciclo or "").upper() == "MONTHLY"
+        and op.descricao == subscription_description(op.plano)
+    )
+    if not compatible:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Contratação local inválida; reconciliação manual obrigatória "
+                "antes de consultar o Asaas"
+            ),
+        )
+    return plan
 
 
 def _parse_iso_date(value: object) -> dt.date | None:
@@ -1167,6 +1227,12 @@ def create_checkout(
         and aberta.plano == payload.plano
         and aberta.status in ("creating", "reconciling")
     ):
+        _validate_open_subscription_intent_target(
+            db,
+            sub=sub,
+            op=aberta,
+            requested_plan=payload.plano,
+        )
         frozen_setup = (
             float(aberta.setup_fee)
             if aberta.setup_fee is not None
@@ -1231,6 +1297,12 @@ def create_checkout(
 
     if op.status in ("creating", "reconciling"):
         # Corrida: outro request avançou a MESMA intenção enquanto líamos.
+        _validate_open_subscription_intent_target(
+            db,
+            sub=sub,
+            op=op,
+            requested_plan=payload.plano,
+        )
         frozen_setup = (
             float(op.setup_fee) if op.setup_fee is not None else setup_fee
         )

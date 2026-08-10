@@ -5,10 +5,10 @@
 -- Plano com preço zero é cortesia concedida somente pelo master e NUNCA pode
 -- ser escolhido pelo auto-upgrade (nem no ramo local, nem no trilho Asaas).
 --
--- Ordem canônica de locks: Igreja -> Planos (codigo ordenado). O trigger segue
--- com Subscription; a reconciliação trava a operação antes da Subscription,
--- pois esse é o par usado pela callback remota. O PATCH da igreja respeita o
--- mesmo prefixo. Isso elimina o ciclo Plano -> Igreja que causava deadlock.
+-- Ordem canônica de locks: Igreja -> Planos (codigo ordenado) -> operação ->
+-- Subscription. O trigger cria ou trava a operação ANTES da Subscription; a
+-- reconciliação usa o mesmo sufixo operação -> Subscription. Isso elimina os
+-- ciclos Plano -> Igreja e Subscription -> operação que causavam deadlock.
 --
 -- Também reconcilia apenas operações automáticas PREPARED que apontem para
 -- plano zero/ausente. Elas comprovadamente ainda não executaram PUT remoto:
@@ -34,10 +34,13 @@ declare
   v_igreja_preco numeric(10,2);
   v_igreja_limite int;
   v_total int;
+  v_sub_snapshot public.subscriptions%rowtype;
   v_sub public.subscriptions%rowtype;
   v_novo_plano text;
   v_novo_limite int;
   v_novo_preco numeric(10,2);
+  v_inserted_operation_id uuid;
+  v_locked_operation_id uuid;
 begin
   if tg_op = 'DELETE' then
     v_igreja_id := old.igreja_id;
@@ -69,10 +72,12 @@ begin
     from public.planos p
    where p.codigo = v_igreja_plano;
 
-  select * into v_sub
-    from public.subscriptions
-   where igreja_id = v_igreja_id
-   for update;
+  -- Snapshot sem row lock: ele serve apenas para decidir se existe uma
+  -- operação correspondente a reservar. A Subscription só será travada depois
+  -- da operação, preservando o sufixo canônico usado pela reconciliação.
+  select * into v_sub_snapshot
+    from public.subscriptions s
+   where s.igreja_id = v_igreja_id;
   if not found then
     if tg_op = 'DELETE' then return old; else return new; end if;
   end if;
@@ -86,6 +91,74 @@ begin
 
   -- Catálogo ausente é estado inválido e falha fechado sem reatribuir plano.
   if v_igreja_preco is null then
+    if tg_op = 'DELETE' then return old; else return new; end if;
+  end if;
+
+  -- Descobre o alvo a partir do snapshot, ainda sem tocar a Subscription. Se
+  -- houver recorrência remota, reserva a operação antes do row lock final.
+  if v_igreja_preco > 0
+     and v_sub_snapshot.limite is not null
+     and v_total > v_sub_snapshot.limite then
+    select p.codigo, p.preco_mensal, p.limite_pessoas
+      into v_novo_plano, v_novo_preco, v_novo_limite
+      from public.planos p
+     where p.ativo is true
+       and p.codigo in ('ate_100', '101_200', 'acima_201')
+       and p.preco_mensal > 0
+       and (p.limite_pessoas is null or v_total <= p.limite_pessoas)
+       and case p.codigo
+             when 'ate_100' then 1
+             when '101_200' then 2
+             when 'acima_201' then 3
+             else 999
+           end > case v_sub_snapshot.plano
+             when 'ate_100' then 1
+             when '101_200' then 2
+             when 'acima_201' then 3
+             else 999
+           end
+     order by case p.codigo
+       when 'ate_100' then 1
+       when '101_200' then 2
+       when 'acima_201' then 3
+       else 999
+     end
+     limit 1;
+  end if;
+
+  if v_novo_plano is not null
+     and v_novo_preco is not null
+     and v_sub_snapshot.asaas_subscription_id is not null then
+    insert into public.billing_plan_change_operations
+      (subscription_id, asaas_subscription_id, from_plano, to_plano,
+       to_preco, to_limite, to_descricao, origin, status, notify_status)
+    values
+      (v_sub_snapshot.id, v_sub_snapshot.asaas_subscription_id,
+       v_sub_snapshot.plano, v_novo_plano, v_novo_preco, v_novo_limite,
+       'PastorAI — plano ' || v_novo_plano,
+       'autoupgrade', 'prepared', 'pending')
+    on conflict (subscription_id)
+      where status in ('prepared','processing','reconciling')
+      do nothing
+    returning id into v_inserted_operation_id;
+  end if;
+
+  -- Uma operação manual/automática já aberta também é o slot correspondente.
+  -- Trave-a mesmo nos ramos cortesia/local antes de tocar a Subscription.
+  select o.id into v_locked_operation_id
+    from public.billing_plan_change_operations o
+   where o.subscription_id = v_sub_snapshot.id
+     and o.status in ('prepared','processing','reconciling')
+   order by o.created_at, o.id
+   limit 1
+   for update of o;
+
+  select * into v_sub
+    from public.subscriptions s
+   where s.id = v_sub_snapshot.id
+     and s.igreja_id = v_igreja_id
+   for update of s;
+  if not found then
     if tg_op = 'DELETE' then return old; else return new; end if;
   end if;
 
@@ -104,9 +177,13 @@ begin
      set pessoas = v_total
    where id = v_sub.id;
 
+  -- Revalida o alvo com a Subscription agora travada. Planos e Igreja seguem
+  -- bloqueados; qualquer reserva criada por este trigger é corrigida ou
+  -- removida no mesmo commit, sem estado parcial visível.
+  v_novo_plano := null;
+  v_novo_preco := null;
+  v_novo_limite := null;
   if v_sub.limite is not null and v_total > v_sub.limite then
-    -- Primeiro degrau ATIVO, PAGO e suficiente acima do atual. As linhas da
-    -- escada já estão travadas em ordem canônica acima.
     select p.codigo, p.preco_mensal, p.limite_pessoas
       into v_novo_plano, v_novo_preco, v_novo_limite
       from public.planos p
@@ -132,30 +209,41 @@ begin
        else 999
      end
      limit 1;
+  end if;
 
-    if v_novo_plano is not null and v_novo_preco is not null then
-      if v_sub.asaas_subscription_id is null then
+  if v_inserted_operation_id is not null
+     and (v_novo_plano is null or v_sub.asaas_subscription_id is null) then
+    delete from public.billing_plan_change_operations
+     where id = v_inserted_operation_id;
+    v_locked_operation_id := null;
+  end if;
+
+  if v_novo_plano is not null and v_novo_preco is not null then
+    if v_sub.asaas_subscription_id is null then
+      -- Operação aberta legada/ambígua impede promoção local. Sem operação,
+      -- esta assinatura é puramente local e pode avançar no mesmo commit.
+      if v_locked_operation_id is null then
         update public.subscriptions
            set plano = v_novo_plano,
                limite = v_novo_limite
-         where igreja_id = v_igreja_id;
+         where id = v_sub.id;
         update public.igrejas
            set plano = v_novo_plano
          where id = v_igreja_id;
-      else
-        insert into public.billing_plan_change_operations
-          (subscription_id, asaas_subscription_id, from_plano, to_plano,
-           to_preco, to_limite, to_descricao, origin, status, notify_status)
-        values
-          (v_sub.id, v_sub.asaas_subscription_id, v_sub.plano, v_novo_plano,
-           v_novo_preco, v_novo_limite,
-           'PastorAI — plano ' || v_novo_plano,
-           'autoupgrade', 'prepared', 'pending')
-        on conflict (subscription_id)
-          where status in ('prepared','processing','reconciling')
-          do nothing;
       end if;
+    elsif v_inserted_operation_id is not null then
+      update public.billing_plan_change_operations
+         set asaas_subscription_id = v_sub.asaas_subscription_id,
+             from_plano = v_sub.plano,
+             to_plano = v_novo_plano,
+             to_preco = v_novo_preco,
+             to_limite = v_novo_limite,
+             to_descricao = 'PastorAI — plano ' || v_novo_plano
+       where id = v_inserted_operation_id;
     end if;
+    -- Se a recorrência apareceu depois do snapshot e não há operação travada,
+    -- falha fechado: atualiza só a contagem; um próximo evento/recovery cria o
+    -- claim na ordem correta, nunca depois de já ter travado a Subscription.
   end if;
 
   if tg_op = 'DELETE' then return old; else return new; end if;

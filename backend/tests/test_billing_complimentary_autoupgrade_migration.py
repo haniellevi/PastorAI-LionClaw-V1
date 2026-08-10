@@ -76,7 +76,8 @@ create table {_SCHEMA}.pessoas (
 
 create table {_SCHEMA}.billing_plan_change_operations (
   id uuid primary key default gen_random_uuid(),
-  subscription_id uuid not null,
+  subscription_id uuid not null
+    references {_SCHEMA}.subscriptions(id) on delete cascade,
   asaas_subscription_id text not null,
   from_plano text not null,
   to_plano text not null,
@@ -98,7 +99,8 @@ create unique index billing_plan_change_operations_open_uq
 
 create table {_SCHEMA}.billing_subscription_operations (
   id uuid primary key default gen_random_uuid(),
-  subscription_id uuid not null,
+  subscription_id uuid not null
+    references {_SCHEMA}.subscriptions(id) on delete cascade,
   operation_key text not null unique,
   plano text not null,
   status text,
@@ -170,6 +172,7 @@ def _drop_test_schema(engine: Engine) -> None:
 def test_forward_migration_is_reviewable_and_does_not_replace_history() -> None:
     sql = " ".join(_sql().lower().split())
     historical = " ".join(_HISTORICAL.read_text(encoding="utf-8").lower().split())
+    trigger_sql = _sql().lower().split("-- corrige somente alvos automáticos")[0]
 
     assert "create or replace function public.fn_subscription_autoupgrade()" in sql
     assert "p.preco_mensal > 0" in sql
@@ -178,6 +181,17 @@ def test_forward_migration_is_reviewable_and_does_not_replace_history() -> None:
     assert "o.status = 'prepared'" in sql
     assert "status in ('processing','reconciling')" not in sql
     assert "preco_mensal > 0" not in historical
+    church_lock = trigger_sql.index("from public.igrejas i")
+    plan_lock = trigger_sql.index("from public.planos p", church_lock)
+    operation_reservation = trigger_sql.index(
+        "insert into public.billing_plan_change_operations", plan_lock
+    )
+    operation_lock = trigger_sql.index(
+        "from public.billing_plan_change_operations o", operation_reservation
+    )
+    subscription_lock = trigger_sql.index("for update of s", operation_lock)
+    assert church_lock < plan_lock < operation_reservation < operation_lock
+    assert operation_lock < subscription_lock
 
 
 @pytest.mark.rls_integration
@@ -679,3 +693,196 @@ def test_trigger_and_worker_use_church_before_plan_lock_order(
     finally:
         with rls_engine.begin() as conn:
             conn.exec_driver_sql(f"drop schema if exists {_SCHEMA} cascade;")
+
+
+@pytest.mark.rls_integration
+def test_trigger_worker_and_reconciliation_share_canonical_lock_suffix(
+    rls_engine: Engine,
+    request: pytest.FixtureRequest,
+) -> None:
+    """Operação -> Subscription evita 40P01 e preserva um único claim.
+
+    A reconciliação segura primeiro a operação e depois tenta a Subscription.
+    Enquanto isso, o trigger segura Igreja/Planos e aguarda a MESMA operação;
+    um worker concorrente aguarda a Igreja. Se o trigger ainda travasse a
+    Subscription antes da operação, a tentativa da reconciliação fecharia o
+    ciclo clássico que o PostgreSQL resolve com SQLSTATE 40P01.
+    """
+    igreja_id = "10000000-0000-0000-0000-000000000030"
+    sub_id = "20000000-0000-0000-0000-000000000030"
+    operation_id = "30000000-0000-0000-0000-000000000030"
+    trigger_app = "billing-trigger-operation-before-subscription"
+    worker_app = "billing-worker-canonical-lock-order"
+    trigger_started = threading.Event()
+    worker_started = threading.Event()
+    errors: list[BaseException] = []
+    worker_outcomes: list[int] = []
+    request.addfinalizer(lambda: _drop_test_schema(rls_engine))
+
+    with rls_engine.begin() as conn:
+        conn.exec_driver_sql(_DDL)
+    _apply_real_migration(rls_engine)
+    _apply_real_migration(rls_engine)
+    with rls_engine.begin() as conn:
+        conn.exec_driver_sql(
+            f"""
+            insert into {_SCHEMA}.planos
+              (codigo, ativo, preco_mensal, limite_pessoas)
+            values
+              ('ate_100', true, 199, 100),
+              ('101_200', true, 299, 200),
+              ('acima_201', true, 399, null);
+            insert into {_SCHEMA}.igrejas (id, plano)
+            values ('{igreja_id}', 'ate_100');
+            insert into {_SCHEMA}.subscriptions
+              (id, igreja_id, plano, pessoas, limite, asaas_subscription_id)
+            values (
+              '{sub_id}', '{igreja_id}', 'ate_100', 100, 100, 'asaas-race-30'
+            );
+            insert into {_SCHEMA}.pessoas (igreja_id, tipo)
+            select '{igreja_id}', 'membro' from generate_series(1, 100);
+            insert into {_SCHEMA}.billing_plan_change_operations
+              (id, subscription_id, asaas_subscription_id, from_plano,
+               to_plano, to_preco, to_limite, to_descricao, origin, status,
+               notify_status)
+            values (
+              '{operation_id}', '{sub_id}', 'asaas-race-30', 'ate_100',
+              '101_200', 299, 200, 'PastorAI — plano 101_200',
+              'autoupgrade', 'prepared', 'pending'
+            );
+            """
+        )
+
+    def add_member_through_trigger() -> None:
+        try:
+            with rls_engine.begin() as conn:
+                conn.exec_driver_sql(f"set local application_name = '{trigger_app}'")
+                conn.exec_driver_sql("set local lock_timeout = '8s'")
+                trigger_started.set()
+                conn.exec_driver_sql(
+                    f"insert into {_SCHEMA}.pessoas (igreja_id, tipo) "
+                    f"values ('{igreja_id}', 'membro')"
+                )
+        except BaseException as exc:  # noqa: BLE001 - transporta da thread
+            errors.append(exc)
+
+    def canonical_worker() -> None:
+        try:
+            with rls_engine.begin() as conn:
+                conn.exec_driver_sql(f"set local application_name = '{worker_app}'")
+                conn.exec_driver_sql("set local lock_timeout = '8s'")
+                worker_started.set()
+                conn.exec_driver_sql(
+                    f"select 1 from {_SCHEMA}.igrejas "
+                    f"where id = '{igreja_id}' for update"
+                )
+                conn.exec_driver_sql(
+                    f"select 1 from {_SCHEMA}.planos "
+                    "where codigo in ('ate_100','101_200','acima_201') "
+                    "order by codigo for update"
+                )
+                conn.exec_driver_sql(
+                    f"select 1 from {_SCHEMA}.billing_plan_change_operations "
+                    f"where id = '{operation_id}' for update"
+                )
+                conn.exec_driver_sql(
+                    f"select 1 from {_SCHEMA}.subscriptions "
+                    f"where id = '{sub_id}' for update"
+                )
+                worker_outcomes.append(
+                    conn.exec_driver_sql(
+                        f"select count(*) from {_SCHEMA}.billing_plan_change_operations "
+                        f"where subscription_id = '{sub_id}' and status in "
+                        "('prepared','processing','reconciling')"
+                    ).scalar_one()
+                )
+        except BaseException as exc:  # noqa: BLE001 - transporta da thread
+            errors.append(exc)
+
+    reconciliation = rls_engine.connect()
+    reconciliation_tx = reconciliation.begin()
+    trigger_thread = threading.Thread(target=add_member_through_trigger)
+    worker_thread = threading.Thread(target=canonical_worker)
+    try:
+        reconciliation.exec_driver_sql("set local lock_timeout = '2s'")
+        reconciliation.exec_driver_sql(
+            f"select 1 from {_SCHEMA}.billing_plan_change_operations "
+            f"where id = '{operation_id}' for update"
+        )
+
+        trigger_thread.start()
+        assert trigger_started.wait(timeout=5)
+        assert _wait_until_lock_wait(rls_engine, trigger_app)
+
+        worker_thread.start()
+        assert worker_started.wait(timeout=5)
+        assert _wait_until_lock_wait(rls_engine, worker_app)
+
+        # Prova dinâmica da ordem: o trigger já espera a operação, mas ainda
+        # não possui a Subscription; a reconciliação consegue travá-la e sair.
+        reconciliation.exec_driver_sql(
+            f"select 1 from {_SCHEMA}.subscriptions "
+            f"where id = '{sub_id}' for update"
+        )
+        reconciliation_tx.commit()
+    finally:
+        if reconciliation_tx.is_active:
+            reconciliation_tx.rollback()
+        reconciliation.close()
+        trigger_thread.join(timeout=12)
+        worker_thread.join(timeout=12)
+
+    assert not trigger_thread.is_alive()
+    assert not worker_thread.is_alive()
+    assert [getattr(getattr(exc, "orig", None), "pgcode", None) for exc in errors] == []
+    assert errors == []
+    assert worker_outcomes == [1]
+
+    with rls_engine.begin() as conn:
+        state = conn.exec_driver_sql(
+            f"""
+            select
+              (select count(*) from {_SCHEMA}.pessoas
+                where igreja_id = '{igreja_id}'),
+              (select pessoas from {_SCHEMA}.subscriptions
+                where id = '{sub_id}'),
+              (select count(*) from {_SCHEMA}.billing_plan_change_operations
+                where subscription_id = '{sub_id}'
+                  and status in ('prepared','processing','reconciling'))
+            """
+        ).one()
+    assert state == (101, 101, 1)
+
+    # Falha depois do trigger deve desfazer membro, espelho e qualquer trabalho
+    # sobre a operação na mesma transação: nenhum estado parcial sobrevive.
+    rollback_conn = rls_engine.connect()
+    rollback_tx = rollback_conn.begin()
+    try:
+        rollback_conn.exec_driver_sql(
+            f"insert into {_SCHEMA}.pessoas (igreja_id, tipo) "
+            f"values ('{igreja_id}', 'membro')"
+        )
+        in_flight = rollback_conn.exec_driver_sql(
+            f"select pessoas from {_SCHEMA}.subscriptions where id = '{sub_id}'"
+        ).scalar_one()
+        assert in_flight == 102
+        rollback_tx.rollback()
+    finally:
+        if rollback_tx.is_active:
+            rollback_tx.rollback()
+        rollback_conn.close()
+
+    with rls_engine.begin() as conn:
+        rolled_back_state = conn.exec_driver_sql(
+            f"""
+            select
+              (select count(*) from {_SCHEMA}.pessoas
+                where igreja_id = '{igreja_id}'),
+              (select pessoas from {_SCHEMA}.subscriptions
+                where id = '{sub_id}'),
+              (select count(*) from {_SCHEMA}.billing_plan_change_operations
+                where subscription_id = '{sub_id}'
+                  and status in ('prepared','processing','reconciling'))
+            """
+        ).one()
+    assert rolled_back_state == (101, 101, 1)

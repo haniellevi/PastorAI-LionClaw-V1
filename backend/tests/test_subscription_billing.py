@@ -3343,6 +3343,178 @@ def _adopt_created_sub(db) -> None:
     db.subscription = created
 
 
+def _ambiguous_subscription_intent(**over) -> BillingSubscriptionOperation:
+    base = dict(
+        subscription_id="00000000-0000-0000-0000-00000000su01",
+        operation_key="pastorai-subcreate-local-validation",
+        customer_id="cus_1",
+        plano="ate_100",
+        valor=199.0,
+        limite=100,
+        setup_fee=0.0,
+        ciclo="MONTHLY",
+        descricao="PastorAI — plano ate_100",
+        status="reconciling",
+        attempt_started_at=dt.datetime.now(dt.timezone.utc),
+    )
+    base.update(over)
+    return BillingSubscriptionOperation(**base)
+
+
+class _NoAsaasCalls:
+    """Qualquer método acessado prova que a validação local chegou tarde."""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def __getattr__(self, name):
+        def forbidden(*_args, **_kwargs):
+            self.calls.append(name)
+            raise AssertionError(f"alvo local inválido não pode chamar Asaas ({name})")
+
+        return forbidden
+
+
+@pytest.mark.parametrize(
+    ("case", "operation_status"),
+    [
+        ("removed", "creating"),
+        ("removed", "reconciling"),
+        ("complimentary", "reconciling"),
+        ("invalid_catalog_price", "reconciling"),
+        ("zero_frozen_price", "reconciling"),
+        ("incompatible_placeholder", "reconciling"),
+        ("invalid_cycle", "reconciling"),
+        ("invalid_description", "reconciling"),
+    ],
+)
+def test_ambiguous_checkout_validates_local_target_before_any_asaas_call(
+    app,
+    case: str,
+    operation_status: str,
+) -> None:
+    """Alvo removido/cortesia/zero/incompatível falha sem GET nem mutação."""
+    plan = _plano()
+    plans = [plan]
+    sub = _subscription(
+        status=None,
+        asaas_subscription_id=None,
+        asaas_setup_charge_id=None,
+        setup_pago=False,
+    )
+    op_overrides: dict[str, object] = {"status": operation_status}
+
+    if case == "removed":
+        plans = []
+    elif case == "complimentary":
+        plan.preco_mensal = 0
+    elif case == "invalid_catalog_price":
+        plan.preco_mensal = -1
+    elif case == "zero_frozen_price":
+        op_overrides["valor"] = 0
+    elif case == "incompatible_placeholder":
+        sub.plano = "101_200"
+    elif case == "invalid_cycle":
+        op_overrides["ciclo"] = "YEARLY"
+    elif case == "invalid_description":
+        op_overrides["descricao"] = "alvo local incompatível"
+
+    op = _ambiguous_subscription_intent(**op_overrides)
+    asaas = _NoAsaasCalls()
+    client, db = _client(
+        app,
+        planos=plans,
+        asaas=asaas,
+        subscription=sub,
+        subscription_ops=[op],
+    )
+    op_before = (
+        op.status,
+        op.attempt_started_at,
+        op.asaas_subscription_id,
+        op.customer_id,
+        op.error,
+    )
+    sub_before = (
+        sub.plano,
+        sub.status,
+        sub.asaas_subscription_id,
+        sub.asaas_customer_id,
+        sub.setup_pago,
+    )
+    igreja_before = (db.igreja.plano, db.igreja.status)
+
+    response = client.post(
+        "/subscription",
+        json={"plano": "ate_100", "cpfCnpj": _CPF},
+        headers=_AUTH,
+    )
+
+    assert response.status_code in (409, 422)
+    assert asaas.calls == []
+    assert (
+        op.status,
+        op.attempt_started_at,
+        op.asaas_subscription_id,
+        op.customer_id,
+        op.error,
+    ) == op_before
+    assert (
+        sub.plano,
+        sub.status,
+        sub.asaas_subscription_id,
+        sub.asaas_customer_id,
+        sub.setup_pago,
+    ) == sub_before
+    assert (db.igreja.plano, db.igreja.status) == igreja_before
+    assert db.commits == 0
+    assert db.refresh_calls == []
+    assert not any(isinstance(obj, Subscription) for obj in db.added)
+    assert not any(isinstance(obj, BillingSubscriptionOperation) for obj in db.added)
+
+
+def test_inactive_paid_plan_can_resume_its_matching_ambiguous_intent(app) -> None:
+    """Grandfathering pago inativo mantém um único GET e zero novo POST."""
+    plan = _plano(ativo=False)
+    sub = _subscription(
+        status=None,
+        asaas_subscription_id=None,
+        asaas_setup_charge_id=None,
+        setup_pago=True,
+    )
+    op = _ambiguous_subscription_intent(status="reconciling")
+    asaas = _LostResponseAsaas()
+    asaas.found = [
+        {
+            "id": "sub_asaas_inactive_paid",
+            "customer": "cus_1",
+            "value": 199.0,
+            "cycle": "MONTHLY",
+            "description": "PastorAI — plano ate_100",
+        }
+    ]
+    client, _db = _client(
+        app,
+        planos=[plan],
+        asaas=asaas,
+        subscription=sub,
+        subscription_ops=[op],
+    )
+
+    response = client.post(
+        "/subscription",
+        json={"plano": "ate_100", "cpfCnpj": _CPF},
+        headers=_AUTH,
+    )
+
+    assert response.status_code == 200
+    assert plan.ativo is False
+    assert asaas.find_calls == 1
+    assert asaas.create_calls == 0
+    assert op.status == "created"
+    assert sub.asaas_subscription_id == "sub_asaas_inactive_paid"
+
+
 def test_checkout_lost_response_reconciles_without_second_post(app) -> None:
     asaas = _LostResponseAsaas()
     client, db = _client(app, planos=[_plano()], asaas=asaas)
