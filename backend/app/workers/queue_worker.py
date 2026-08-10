@@ -113,14 +113,78 @@ return 0
 """
 
 _MOVE_FAILED_CLAIM_SCRIPT = """
+-- A failed claim must never disappear if Redis rejects a later write.  Redis
+-- does not roll back earlier Lua mutations after a command error, so validate
+-- every key first, persist the replacement first, and only then remove the
+-- original claim.  A rare failure after LPUSH leaves a recoverable duplicate;
+-- the next owner sees the replacement and removes the original without
+-- enqueueing a second copy.
+local lease_type = redis.call('TYPE', KEYS[1]).ok
+local processing_type = redis.call('TYPE', KEYS[2]).ok
+local target_type = redis.call('TYPE', KEYS[3]).ok
+if lease_type ~= 'string' or processing_type ~= 'list' then
+    return 0
+end
+if target_type ~= 'none' and target_type ~= 'list' then
+    return -1
+end
 if redis.call('GET', KEYS[1]) ~= ARGV[1] then
     return 0
 end
-if redis.call('LREM', KEYS[2], 1, ARGV[2]) == 1 then
-    redis.call('LPUSH', KEYS[3], ARGV[3])
-    return 1
+
+local processing_items = redis.call('LRANGE', KEYS[2], 0, -1)
+local owned = false
+for _, item in ipairs(processing_items) do
+    if item == ARGV[2] then
+        owned = true
+        break
+    end
 end
-return 0
+if not owned then
+    return 0
+end
+
+-- Test-only failure points exercise Redis's non-transactional error model in
+-- a real Redis 7 server.  Runtime callers never pass ARGV[4].
+local failure = ARGV[4] or ''
+if failure == 'before_destination' or failure == 'target_write_error' then
+    return -10
+end
+
+local destination_has_replacement = false
+if target_type == 'list' then
+    local target_items = redis.call('LRANGE', KEYS[3], 0, -1)
+    for _, item in ipairs(target_items) do
+        if item == ARGV[3] then
+            destination_has_replacement = true
+            break
+        end
+    end
+end
+if not destination_has_replacement then
+    local pushed = redis.pcall('LPUSH', KEYS[3], ARGV[3])
+    if type(pushed) == 'table' and pushed.err then
+        return -11
+    end
+end
+
+if failure == 'after_destination' or failure == 'before_source' then
+    return -12
+end
+
+local removed = redis.pcall('LREM', KEYS[2], 1, ARGV[2])
+if type(removed) == 'table' and removed.err then
+    return -13
+end
+if removed ~= 1 then
+    -- The destination is deliberately retained.  Returning a non-success
+    -- fences this worker; a later owner can reconcile the original claim.
+    return -14
+end
+if failure == 'after_source' then
+    return -15
+end
+return 1
 """
 
 _OWNS_CLAIM_SCRIPT = """
@@ -897,7 +961,11 @@ class WebhookQueue:
             raise ClaimOwnershipLost(
                 "Webhook failed claim ownership could not be verified"
             ) from exc
-        if not moved:
+        if moved != 1:
+            # A Lua error, wrong destination type, timeout, or deliberately
+            # recoverable partial transition is never success.  The original
+            # claim remains recoverable or the replacement is already durable;
+            # stopping this worker avoids a stale retry/dead-letter mutation.
             raise ClaimOwnershipLost("Webhook failed claim was no longer owned")
         if target == DEAD_LETTER_QUEUE:
             logger.error(

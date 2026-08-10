@@ -35,6 +35,21 @@ seis horas. Uma recuperação ou uma nova combinação de checks falhos continua
 sendo uma transição nova e pode alertar imediatamente. Isso evita reenvio a
 cada execução de cinco minutos sem esconder mudanças reais de estado.
 
+## Limites de privilégio das units
+
+As duas units usam `ProtectSystem=strict`, devices e namespaces privados,
+capabilities vazias e escrita limitada aos diretórios declarados. O monitor
+não recebe o socket Docker: ele roda como root somente porque precisa calcular
+o SHA-256 real de pacotes `0600` em `/root/pastorai-backups`; esse acesso não
+permite escrita fora de `/var/lib/pastorai-monitor` dentro da sandbox.
+
+O backup é a fronteira privilegiada separada: precisa acessar o socket Docker
+para montar volumes e executar `pg_dump`. Esse socket é equivalente a root no
+host, portanto `ReadWritePaths` limita escrita direta da unit, mas não deve ser
+tratado como uma allowlist de segurança contra um script comprometido. Não há
+socket Docker exposto ao monitor. A redução adicional desse risco exigiria um
+proxy de socket com API limitada, que não é criado por esta missão.
+
 ## Ativação após merge e deploy aprovado
 
 No Web Terminal da VPS, já com `/opt/pastorai-current` apontando para o release:

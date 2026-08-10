@@ -125,7 +125,9 @@ class FakeRedis:
     def eval(self, script: str, numkeys: int, *values: str) -> int:
         if numkeys == 3 and "LREM" in script:
             # Failed claims move only when the same worker still owns both the
-            # live lease and the raw item in its private processing list.
+            # live lease and the raw item in its private processing list.  The
+            # destination is persisted before removing the source claim so a
+            # failed source removal stays recoverable rather than losing work.
             lease_key, processing, target, worker_id, raw, replacement = values
             self.failed_transition_calls += 1
             if self.kv.get(lease_key) != worker_id:
@@ -135,8 +137,10 @@ class FakeRedis:
                 index = items.index(raw)
             except ValueError:
                 return 0
+            destination = self.lists.setdefault(target, [])
+            if replacement not in destination:
+                self.lpush(target, replacement)
             items.pop(index)
-            self.lpush(target, replacement)
             return 1
 
         if numkeys == 3:  # marker mutation only for the live raw-item owner
@@ -1416,6 +1420,37 @@ def test_current_owner_atomically_dead_letters_failed_claim() -> None:
     assert dead.attempts == MAX_ATTEMPTS
     assert dead.claim_id == original.claim_id
     assert redis.failed_transition_calls == 1
+
+
+def test_failed_transition_does_not_treat_a_partial_lua_result_as_success(
+    monkeypatch,
+) -> None:
+    """An ambiguous Redis result leaves the claim recoverable and fences us."""
+    redis = FakeRedis()
+    queue = WebhookQueue(redis_client=redis)
+    worker_id = "worker-failure-partial"
+    queue.register_worker(worker_id)
+    envelope = _Envelope(payload=_parsed_payload("PARTIAL"))
+    raw = envelope.to_json()
+    redis.lpush(WEBHOOK_QUEUE, raw)
+    assert queue.claim(worker_id, timeout=0) == raw
+
+    original_eval = redis.eval
+
+    def partial(*args, **kwargs):
+        # Simulate a response received after Redis has durably copied the
+        # replacement but before the caller can know whether source removal
+        # completed.  The queue must not claim success in either case.
+        original_eval(*args, **kwargs)
+        return -14
+
+    monkeypatch.setattr(redis, "eval", partial)
+
+    with pytest.raises(ClaimOwnershipLost, match="no longer owned"):
+        queue.transition_failed_claim(worker_id, raw, envelope)
+
+    assert redis.lists[queue.processing_queue(worker_id)] == []
+    assert len(redis.lists[WEBHOOK_QUEUE]) == 1
 
 
 def test_worker_dead_letters_after_max_attempts() -> None:

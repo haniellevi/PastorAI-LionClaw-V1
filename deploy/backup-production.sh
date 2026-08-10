@@ -34,11 +34,11 @@ if ! flock -n 9; then
 fi
 
 paused=0
-DATABASE_ENV_FILE=""
+DATABASE_CREDENTIALS_DIR=""
 cleanup() {
-  if [[ -n "${DATABASE_ENV_FILE}" ]]; then
-    rm -f -- "${DATABASE_ENV_FILE}"
-    DATABASE_ENV_FILE=""
+  if [[ -n "${DATABASE_CREDENTIALS_DIR}" ]]; then
+    rm -rf -- "${DATABASE_CREDENTIALS_DIR}"
+    DATABASE_CREDENTIALS_DIR=""
   fi
   if [[ "${paused}" -eq 1 ]]; then
     docker unpause pastorai_evolution pastorai_evo_postgres pastorai_redis \
@@ -49,16 +49,25 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-DATABASE_ENV_FILE="$(mktemp "${BACKUP_ROOT}/.database-url.XXXXXX")"
-chmod 600 "${DATABASE_ENV_FILE}"
-python3 "${SCRIPT_DIR}/prepare-database-env.py" \
-  "${ENV_FILE}" "${DATABASE_ENV_FILE}"
+DATABASE_CREDENTIALS_DIR="$(mktemp -d "${BACKUP_ROOT}/.pg-credentials.XXXXXX")"
+chmod 700 "${DATABASE_CREDENTIALS_DIR}"
+python3 "${SCRIPT_DIR}/prepare-database-service.py" \
+  "${ENV_FILE}" "${DATABASE_CREDENTIALS_DIR}"
 
-docker run --rm --env-file "${DATABASE_ENV_FILE}" postgres:17-alpine \
-  sh -c 'exec pg_dump --dbname="$DATABASE_URL" --format=custom --compress=9 --no-owner --no-acl --schema=public' \
-  >"${BACKUP_DIR}/supabase-prod-public.dump"
-rm -f -- "${DATABASE_ENV_FILE}"
-DATABASE_ENV_FILE=""
+# Do not inherit a URL/password into Docker or pg_dump.  libpq receives only
+# a service name; the mode-0600 service/pass files are mounted read-only and
+# removed by cleanup on success, error, signal, or interruption.
+(
+  unset DATABASE_URL PGPASSWORD PGHOST PGPORT PGUSER PGDATABASE PGSERVICE PGSERVICEFILE PGPASSFILE
+  exec docker run --rm \
+    --mount "type=bind,src=${DATABASE_CREDENTIALS_DIR},dst=/run/pastorai-backup,readonly" \
+    --env PGSERVICE=pastorai_backup \
+    --env PGSERVICEFILE=/run/pastorai-backup/pg_service.conf \
+    postgres:17-alpine \
+    pg_dump --format=custom --compress=9 --no-owner --no-acl --schema=public
+) >"${BACKUP_DIR}/supabase-prod-public.dump"
+rm -rf -- "${DATABASE_CREDENTIALS_DIR}"
+DATABASE_CREDENTIALS_DIR=""
 docker run --rm -i postgres:17-alpine pg_restore --list \
   <"${BACKUP_DIR}/supabase-prod-public.dump" \
   >"${BACKUP_DIR}/supabase-prod-public.list"

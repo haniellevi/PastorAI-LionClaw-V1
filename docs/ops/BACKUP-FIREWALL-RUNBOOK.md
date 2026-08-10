@@ -48,17 +48,21 @@ Agendamento diário, às 06:15 UTC (03:15 em Brasília):
 
 Os pacotes ficam em `/root/pastorai-backups`, modo `600`, com checksum SHA-256
 e retenção de 14 dias. O script usa lock para impedir execuções simultâneas. A
-`DATABASE_URL` é extraída para um arquivo efêmero `0600`, passado ao container
-por `--env-file` (nunca por argv ou ambiente do processo Docker) e removido por
-trap em sucesso, erro ou sinal.
+`DATABASE_URL` é convertida em arquivos libpq efêmeros (`pg_service.conf` e
+`pgpass`) dentro de diretório `0700`; ambos ficam em modo `600`, são montados
+somente-leitura no container e removidos por trap em sucesso, erro ou sinal.
+Nem a URL nem a senha chegam ao argv ou ao ambiente de `pg_dump`.
 O instalador de observabilidade preserva este cron por padrão. Ele instala a
 unit `pastorai-backup.service` para uma migração futura, mas só habilita o timer
 com `PASTORAI_BACKUP_TIMER_MODE=enable` e recusa essa opção enquanto detectar o
 cron legado. O instalador aborta também quando o timer estiver ativo embora
-desabilitado, e restaura arquivos, modos e estado dos timers em falha. A unit
-mantém `/root` somente leitura e libera escrita apenas em
-`/root/pastorai-backups`; esse recorte foi validado com uma unit transitória em
-systemd controlado, sem instalar ou executar o backup real.
+desabilitado, e restaura arquivos, modos e estado dos timers em falha. As units
+usam `ProtectSystem=strict`, capabilities vazias e escrita direta limitada aos
+destinos declarados. O monitor não recebe socket Docker e usa root apenas para
+ler e calcular SHA-256 de pacotes root-only. O backup continua uma fronteira
+root separada porque precisa do socket Docker; esse socket é root-equivalente,
+portanto a allowlist de escrita não é uma contenção contra script comprometido.
+Esse risco residual é explícito e nenhuma unit de monitoramento recebe o socket.
 
 Na estação Windows, `deploy/pull-encrypted-backup.ps1` copia o pacote mais
 recente aos domingos às 05:00, valida o SHA-256, criptografa, testa a

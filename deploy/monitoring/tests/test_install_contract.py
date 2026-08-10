@@ -58,15 +58,29 @@ def test_backup_root_is_canonical_across_script_monitor_and_units() -> None:
         assert "/var/backups/pastorai" not in _read(relative), relative
 
 
-def test_units_keep_home_sandbox_and_open_only_canonical_backup_path() -> None:
+def test_units_use_strict_filesystem_sandbox_and_explicit_privilege_boundaries() -> None:
     backup_unit = _read("deploy/monitoring/systemd/pastorai-backup.service")
     monitor_unit = _read("deploy/monitoring/systemd/pastorai-monitor.service")
 
     assert "ProtectHome=read-only" in backup_unit
+    assert "ProtectSystem=strict" in backup_unit
     assert "ReadWritePaths=/root/pastorai-backups" in backup_unit
+    assert "RuntimeDirectory=pastorai-backup" in backup_unit
+    assert "Environment=PASTORAI_BACKUP_LOCK_FILE=/run/pastorai-backup/backup.lock" in backup_unit
+    assert "CapabilityBoundingSet=" in backup_unit
+    assert "PrivateDevices=true" in backup_unit
+    assert "RestrictNamespaces=true" in backup_unit
+    assert "ReadOnlyPaths=/opt/pastorai-current" in backup_unit
+
     assert "ProtectHome=read-only" in monitor_unit
+    assert "ProtectSystem=strict" in monitor_unit
     assert "ReadOnlyPaths=/root/pastorai-backups" in monitor_unit
     assert "ReadWritePaths=/var/lib/pastorai-monitor" in monitor_unit
+    assert "StateDirectory=pastorai-monitor" in monitor_unit
+    assert "InaccessiblePaths=-/run/docker.sock -/var/run/docker.sock" in monitor_unit
+    assert "CapabilityBoundingSet=" in monitor_unit
+    assert "PrivateDevices=true" in monitor_unit
+    assert "RestrictNamespaces=true" in monitor_unit
 
 
 def test_installer_preserves_legacy_cron_and_requires_explicit_timer_opt_in() -> None:

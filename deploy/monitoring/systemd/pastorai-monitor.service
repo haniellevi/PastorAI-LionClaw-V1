@@ -5,6 +5,8 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
+# The monitor reads a root-only backup to hash it. It deliberately has no
+# Docker socket, no capabilities and no writable path besides its own state.
 User=root
 Group=root
 UMask=0077
@@ -12,8 +14,33 @@ EnvironmentFile=-/etc/pastorai-monitor.env
 ExecStart=/usr/bin/python3 /opt/pastorai-monitor/production_monitor.py
 TimeoutStartSec=90s
 NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+SecureBits=noroot noroot-locked
 PrivateTmp=true
+PrivateDevices=true
+PrivateMounts=true
 ProtectHome=read-only
-ProtectSystem=full
+ProtectSystem=strict
 ReadOnlyPaths=/root/pastorai-backups
 ReadWritePaths=/var/lib/pastorai-monitor
+InaccessiblePaths=-/run/docker.sock -/var/run/docker.sock
+StateDirectory=pastorai-monitor
+StateDirectoryMode=0700
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+ProtectProc=invisible
+ProcSubset=pid
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+RemoveIPC=true
+KeyringMode=private
+SystemCallArchitectures=native
