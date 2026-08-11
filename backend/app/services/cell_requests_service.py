@@ -117,19 +117,61 @@ def _assert_pessoa_in_tenant(
         )
 
 
-def _deactivate_active_membership(
-    db: Session, igreja_id: uuid.UUID, pessoa_id: uuid.UUID
-) -> None:
-    membro = db.execute(
-        select(CelulaMembro).where(
-            CelulaMembro.igreja_id == igreja_id,
-            CelulaMembro.pessoa_id == pessoa_id,
-            CelulaMembro.ativo.is_(True),
+def _lock_origin_cell(db: Session, solicitacao: CelulaSolicitacao) -> Celula:
+    """Relê a origem sob lock e confirma que a autoria ainda é liderança atual."""
+
+    cell = db.execute(
+        select(Celula)
+        .where(
+            Celula.id == solicitacao.celula_id,
+            Celula.igreja_id == solicitacao.igreja_id,
         )
+        .with_for_update()
+        .execution_options(populate_existing=True)
     ).scalar_one_or_none()
-    if membro is not None:
-        membro.ativo = False
-        membro.updated_at = _now()
+    if (
+        cell is None
+        or not bool(cell.ativo)
+        or solicitacao.solicitante_id is None
+        or cell.lider_id is None
+        or str(cell.lider_id) != str(solicitacao.solicitante_id)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A liderança ou a célula de origem mudou desde a solicitação",
+        )
+    return cell
+
+
+def _lock_current_source_membership(
+    db: Session,
+    *,
+    solicitacao: CelulaSolicitacao,
+    pessoa_id: uuid.UUID,
+) -> CelulaMembro:
+    """Exige uma única membresia ativa, ainda exatamente na célula de origem."""
+
+    memberships = list(
+        db.execute(
+            select(CelulaMembro)
+            .where(
+                CelulaMembro.igreja_id == solicitacao.igreja_id,
+                CelulaMembro.pessoa_id == pessoa_id,
+                CelulaMembro.ativo.is_(True),
+            )
+            .order_by(CelulaMembro.id.asc())
+            .with_for_update()
+        ).scalars().all()
+    )
+    if (
+        len(memberships) != 1
+        or str(memberships[0].celula_id) != str(solicitacao.celula_id)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A membresia atual não corresponde mais à célula de origem",
+        )
+    return memberships[0]
 
 
 def _apply_payload(
@@ -163,17 +205,25 @@ def _apply_payload(
         destino_id = uuid.UUID(str(payload["celula_destino_id"]))
         _assert_pessoa_in_tenant(db, igreja_id, pessoa_id, "pessoa_id")
         destino = db.execute(
-            select(Celula).where(
-                Celula.id == destino_id, Celula.igreja_id == igreja_id
-            )
+            select(Celula)
+            .where(Celula.id == destino_id, Celula.igreja_id == igreja_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
         ).scalar_one_or_none()
         if destino is None:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="celula_destino_id: célula não encontrada nesta igreja",
             )
+        if not bool(destino.ativo):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="celula_destino_id: a célula de destino está inativa",
+            )
         pessoa = db.execute(
-            select(Pessoa).where(Pessoa.id == pessoa_id)
+            select(Pessoa).where(
+                Pessoa.id == pessoa_id, Pessoa.igreja_id == igreja_id
+            )
         ).scalar_one_or_none()
         # M7B-W1.2: guarda compartilhada ANTES de desativar/inserir — recusa
         # pastor / líder da célula de destino / número do WhatsApp (este é o 6º
@@ -183,7 +233,11 @@ def _apply_payload(
         # é revertida no rollback do approve, mas a ordem mantém a intenção clara).
         if pessoa is not None:
             assert_membro_elegivel(db, igreja_id=igreja_id, celula=destino, pessoa=pessoa)
-        _deactivate_active_membership(db, igreja_id, pessoa_id)
+        source_membership = _lock_current_source_membership(
+            db, solicitacao=solicitacao, pessoa_id=pessoa_id
+        )
+        source_membership.ativo = False
+        source_membership.updated_at = _now()
         db.add(
             CelulaMembro(
                 igreja_id=igreja_id,
@@ -199,9 +253,15 @@ def _apply_payload(
     elif tipo == TIPO_REMOVER_MEMBRO:
         pessoa_id = uuid.UUID(str(payload["pessoa_id"]))
         _assert_pessoa_in_tenant(db, igreja_id, pessoa_id, "pessoa_id")
-        _deactivate_active_membership(db, igreja_id, pessoa_id)
+        source_membership = _lock_current_source_membership(
+            db, solicitacao=solicitacao, pessoa_id=pessoa_id
+        )
+        source_membership.ativo = False
+        source_membership.updated_at = _now()
         pessoa = db.execute(
-            select(Pessoa).where(Pessoa.id == pessoa_id)
+            select(Pessoa).where(
+                Pessoa.id == pessoa_id, Pessoa.igreja_id == igreja_id
+            )
         ).scalar_one_or_none()
         if pessoa is not None:
             pessoa.celula_id = None
@@ -264,6 +324,12 @@ def approve(
             status_code=status.HTTP_409_CONFLICT,
             detail="Solicitação não está aguardando aprovação",
         )
+
+    try:
+        cell = _lock_origin_cell(db, solicitacao)
+    except HTTPException:
+        db.rollback()
+        raise
 
     # W3.2A: revalida SOB O LOCK — a pessoa referenciada pode ter sido
     # arquivada entre a criação da solicitação e esta aprovação (fecha o
@@ -452,6 +518,11 @@ def resubmit(
             status_code=status.HTTP_409_CONFLICT,
             detail="Só é possível reenviar solicitação em ajuste_solicitado",
         )
+    try:
+        _lock_origin_cell(db, solicitacao)
+    except HTTPException:
+        db.rollback()
+        raise
     try:
         de = solicitacao.status
         solicitacao.payload_proposto = new_payload

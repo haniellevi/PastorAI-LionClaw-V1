@@ -5,13 +5,13 @@
  * (saúde US-18, relatórios pendentes US-16, multiplicações US-19), é AQUI que
  * a Central cadastra célula (PRD Central §6 / onboarding PR-O1): botão "Nova
  * célula" no topo e, quando a igreja ainda não tem célula, empty state com o
- * CTA "Criar primeira célula". Reusa o CellFormModal da tela legada #celulas;
+ * CTA "Criar primeira célula". Reusa o CellFormModal compartilhado;
  * permissão e elegibilidade continuam no backend (403/409/422 aparecem como
  * erro inline no modal).
  *
  * PR-A1.1: lista de células existentes p/ selecionar uma e abrir "Editar
- * célula" (CellFormModal em modo edição) ou "Convidar membro" (InviteMemberModal
- * — já reforçado pelo guard A1: líder de célula ativa nunca aparece no picker).
+ * célula" (CellFormModal em modo edição) ou "Adicionar à célula"
+ * (AddCellMemberModal). Acesso ao painel permanece separado em Equipe.
  * Segue o mesmo padrão da tela legada #celulas (CelulasScreen), sem o painel de
  * detalhe/membros/alertas dela — fora de escopo aqui.
  */
@@ -22,7 +22,8 @@ import { DsButton } from "@/components/ds/Button";
 import { DsEmptyState } from "@/components/ds/EmptyState";
 import { StatusPill } from "@/components/dashboard/StatusPill";
 import { CellFormModal } from "@/components/cells/CellFormModal";
-import { InviteMemberModal } from "@/components/cells/InviteMemberModal";
+import { AddCellMemberModal } from "@/components/cells/InviteMemberModal";
+import { buildCellLeaderOptions } from "@/components/cells/cell-leadership";
 import { SessionExpiredError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import {
@@ -34,13 +35,21 @@ import {
   type UpsertCellInput,
 } from "@/lib/cells-api";
 import { fetchContacts, type Contact } from "@/lib/contacts-api";
-import { ApiError } from "@/lib/dashboard-api";
+import { ApiError, fetchTeam, type TeamMember } from "@/lib/dashboard-api";
 import { Icon } from "@/lib/icons";
 
 import { CellHealthList } from "./CellHealthList";
 import { PendingReportsList } from "./PendingReportsList";
 import { MultiplicationsList } from "./MultiplicationsList";
 import type { CentralToast } from "./types";
+
+export function cellMemberAddBlockReason(
+  cell: Pick<CellSummary, "ativo" | "liderId">,
+): string | null {
+  if (!cell.ativo) return "Ative a célula antes de adicionar pessoas.";
+  if (!cell.liderId) return "Defina um líder antes de adicionar pessoas à célula.";
+  return null;
+}
 
 export function ManageCellsPanel({
   token,
@@ -55,6 +64,7 @@ export function ManageCellsPanel({
 
   const [cells, setCells] = useState<CellSummary[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
+  const [team, setTeam] = useState<TeamMember[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -70,18 +80,20 @@ export function ManageCellsPanel({
   const [membros, setMembros] = useState<CellMembro[]>([]);
   const [membrosLoading, setMembrosLoading] = useState(false);
   const [membrosError, setMembrosError] = useState<string | null>(null);
-  // Bump para reexecutar o fetch dos membros (retry manual e após convite).
+  // Bump para reexecutar o fetch dos membros (retry manual e após vínculo).
   const [membrosNonce, setMembrosNonce] = useState(0);
 
   const load = useCallback(async () => {
     setLoadError(null);
     try {
-      const [cellPage, contactPage] = await Promise.all([
+      const [cellPage, contactPage, teamPage] = await Promise.all([
         fetchCellsFull(token),
         fetchContacts(token),
+        fetchTeam(token),
       ]);
       setCells(cellPage.items);
       setContacts(contactPage.items);
+      setTeam(teamPage.items);
       setLoaded(true);
     } catch (err) {
       if (err instanceof SessionExpiredError) {
@@ -89,7 +101,9 @@ export function ManageCellsPanel({
         return;
       }
       setLoadError(
-        err instanceof ApiError ? err.message : "Não foi possível carregar as células.",
+        err instanceof ApiError
+          ? err.message
+          : "Não foi possível carregar células, Pessoas e acessos.",
       );
     }
   }, [token, expireSession]);
@@ -98,20 +112,13 @@ export function ManageCellsPanel({
     void load();
   }, [load]);
 
-  // Elegíveis a líder (regra 2026-07-06): apto (Reencontro) + sem célula própria
-  // + fora do CSIM. Ao editar, o líder ATUAL entra mesmo fora do filtro
-  // (grandfather — o backend aceita reenviar o mesmo líder; igual #celulas).
-  const leaderOptions = useMemo(() => {
-    const eligible = contacts.filter(
-      (c) => c.aptoLider && !c.liderDeCelula && !c.semInteresse,
-    );
-    const currentId = editing?.liderId;
-    if (currentId && !eligible.some((c) => c.id === currentId)) {
-      const current = contacts.find((c) => c.id === currentId);
-      if (current) return [current, ...eligible];
-    }
-    return eligible;
-  }, [contacts, editing]);
+  // A Central cruza Pessoa + Equipe completa. Convites pendentes, acessos
+  // revogados, ausentes ou duplicados ficam visíveis com o motivo, sem poderem
+  // ser escolhidos. O líder atual continua visível; pendência bloqueia salvar.
+  const leaderOptions = useMemo(
+    () => buildCellLeaderOptions(contacts, team, editing?.liderId),
+    [contacts, team, editing],
+  );
 
   const leaderName = useCallback(
     (id: string | null) => (id ? contacts.find((c) => c.id === id)?.nome ?? "—" : "—"),
@@ -122,6 +129,9 @@ export function ManageCellsPanel({
     () => cells.find((c) => c.id === selectedId) ?? null,
     [cells, selectedId],
   );
+  const addMemberBlockReason = selectedCell
+    ? cellMemberAddBlockReason(selectedCell)
+    : null;
 
   // Nome do vínculo resolvido pelos contatos já carregados (membros só têm id).
   const membroNome = useCallback(
@@ -219,16 +229,14 @@ export function ManageCellsPanel({
     [token, onToast, onChanged, expireSession],
   );
 
-  const handleInvited = useCallback(
-    (text: string) => {
-      setShowInvite(false);
-      onToast({ kind: "ok", text });
-      // O convite vinculou a pessoa à célula: recarrega para refletir o membro.
+  const handleMemberAdded = useCallback(
+    () => {
+      // O modal mantém o sucesso visível; aqui apenas sincronizamos as leituras.
       void load();
       setMembrosNonce((n) => n + 1);
       onChanged();
     },
-    [onToast, onChanged, load],
+    [onChanged, load],
   );
 
   const showEmpty = loaded && !loadError && cells.length === 0;
@@ -236,11 +244,17 @@ export function ManageCellsPanel({
   return (
     <div className="central-stack">
       <div style={{ display: "flex", justifyContent: "flex-end" }}>
-        <DsButton variant="primary" onClick={openForm}>
+        <DsButton variant="primary" onClick={openForm} disabled={!loaded}>
           <Icon name="plus" />
           <span>Nova célula</span>
         </DsButton>
       </div>
+
+      {!loaded && !loadError ? (
+        <div className="card card-pad sub" role="status" aria-live="polite">
+          Carregando células, Pessoas e acessos…
+        </div>
+      ) : null}
 
       {loadError ? (
         <DsBanner
@@ -271,7 +285,7 @@ export function ManageCellsPanel({
         </div>
       ) : null}
 
-      {!showEmpty ? (
+      {loaded && !showEmpty ? (
         <section className="card" aria-label="Selecionar célula existente">
           <div className="panel-title">
             <Icon name="central-celula" /> Selecionar célula existente
@@ -302,16 +316,37 @@ export function ManageCellsPanel({
 
           {selectedCell ? (
             <>
-              <div style={{ display: "flex", gap: "var(--s2)", padding: "var(--s3) var(--s4)" }}>
+              <div className="cell-detail-actions" style={{ padding: "var(--s3) var(--s4)", marginBottom: 0 }}>
                 <DsButton variant="secondary" onClick={() => openEdit(selectedCell)} block>
                   <Icon name="document" />
                   <span>Editar célula</span>
                 </DsButton>
-                <DsButton variant="primary" onClick={() => setShowInvite(true)} block>
+                <DsButton
+                  variant="primary"
+                  onClick={() => setShowInvite(true)}
+                  block
+                  disabled={addMemberBlockReason !== null}
+                  aria-describedby={
+                    addMemberBlockReason ? "central-add-member-block-reason" : undefined
+                  }
+                  title={addMemberBlockReason ?? undefined}
+                >
                   <Icon name="plus" />
-                  <span>Convidar membro</span>
+                  <span>Adicionar à célula</span>
                 </DsButton>
               </div>
+
+              {addMemberBlockReason ? (
+                <p
+                  id="central-add-member-block-reason"
+                  className="sub"
+                  role="status"
+                  aria-live="polite"
+                  style={{ padding: "0 var(--s4) var(--s3)", color: "var(--muted)" }}
+                >
+                  {addMemberBlockReason}
+                </p>
+              ) : null}
 
               <div style={{ borderTop: "1px solid var(--border)" }}>
                 <div className="panel-title" style={{ padding: "var(--s3) var(--s4)" }}>
@@ -371,6 +406,7 @@ export function ManageCellsPanel({
           cell={editing}
           leaders={leaderOptions}
           coverageOptions={coverageOptions}
+          canManageLeadership
           busy={saving}
           error={formError}
           onClose={() => {
@@ -383,12 +419,12 @@ export function ManageCellsPanel({
       ) : null}
 
       {showInvite && selectedCell ? (
-        <InviteMemberModal
+        <AddCellMemberModal
           celulaId={selectedCell.id}
           celulaNome={selectedCell.nome}
           contacts={contacts}
           onClose={() => setShowInvite(false)}
-          onInvited={handleInvited}
+          onAdded={handleMemberAdded}
         />
       ) : null}
     </div>

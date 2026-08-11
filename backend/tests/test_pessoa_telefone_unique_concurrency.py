@@ -27,6 +27,7 @@ Dois blocos:
 from __future__ import annotations
 
 import datetime as dt
+import inspect
 import threading
 import uuid
 from collections.abc import Iterator
@@ -44,6 +45,7 @@ from app.db.models import Base, Igreja, Pessoa
 from app.services.pessoa_dedup import (
     find_active_pessoa_by_phone,
     insert_pessoa_or_get_winner,
+    lock_canonical_phone,
 )
 
 # Fixture opt-in (guard de produção + skip sem a env var). noqa: F401 — fixture
@@ -170,6 +172,41 @@ def test_refetch_ignores_suffix_collision_of_a_different_number() -> None:
         insert_pessoa_or_get_winner(
             db, _pessoa("11912345678"), igreja_id=_IGREJA, canonical="11912345678"
         )
+
+
+class _PhoneLockDB:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, int]]] = []
+
+    def execute(self, statement, params=None) -> _FakeResult:
+        self.calls.append((str(statement), dict(params or {})))
+        return _FakeResult([])
+
+
+def test_canonical_phone_lock_is_stable_and_tenant_scoped() -> None:
+    db = _PhoneLockDB()
+    lock_canonical_phone(db, igreja_id=_IGREJA, canonical="5511912345678")
+    lock_canonical_phone(db, igreja_id=_IGREJA, canonical="5511912345678")
+    lock_canonical_phone(db, igreja_id=uuid.uuid4(), canonical="5511912345678")
+
+    assert all("pg_advisory_xact_lock" in sql for sql, _ in db.calls)
+    keys = [params["canonical_phone_key"] for _, params in db.calls]
+    assert keys[0] == keys[1]
+    assert keys[0] != keys[2]
+
+
+def test_all_canonical_phone_writers_lock_before_lookup() -> None:
+    from app.routers import auth, contacts
+    from app.workers import queue_worker
+
+    writers = (
+        auth._prepare_cadastro_pessoa,
+        contacts.create_contact,
+        queue_worker.ingest_message_event_ex,
+    )
+    for writer in writers:
+        source = inspect.getsource(writer)
+        assert source.index("lock_canonical_phone(") < source.index("stored_digits")
 
 
 # ===========================================================================

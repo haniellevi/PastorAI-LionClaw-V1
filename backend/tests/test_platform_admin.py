@@ -11,6 +11,7 @@ from __future__ import annotations
 import uuid
 from types import SimpleNamespace
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.db.models import (
@@ -101,6 +102,8 @@ class PlatformDB:
         agent_config=None,
         llm_credential=None,
         igreja_admins=None,
+        email_app_user=None,
+        usable_admin_ids=None,
         user_role=None,
         orchestrator=None,
         agent_request=None,
@@ -128,6 +131,16 @@ class PlatformDB:
         self.agent_config = agent_config
         self.llm_credential = llm_credential
         self.igreja_admins = igreja_admins or []
+        self.email_app_user = email_app_user
+        if usable_admin_ids is None:
+            derived_ids = []
+            if count_value > 0 and gate_app_user is not None:
+                derived_ids.append(gate_app_user.id)
+            if count_value > 1:
+                derived_ids.append(uuid.UUID("00000000-0000-0000-0000-0000000000ff"))
+            self.usable_admin_ids = derived_ids
+        else:
+            self.usable_admin_ids = list(usable_admin_ids)
         self.user_role = user_role
         self.orchestrator = orchestrator
         self.agent_request = agent_request
@@ -143,10 +156,13 @@ class PlatformDB:
         self.added: list = []
         self.deleted: list = []
         self.committed = False
+        self.statements: list = []
 
     def execute(self, statement, params=None) -> _Result:
+        self.statements.append(statement)
         descs = list(getattr(statement, "column_descriptions", []) or [])
         entities = [d.get("entity") for d in descs]
+        names = [d.get("name") for d in descs]
         # Grouped aggregation: (chave, count) — duas colunas de saída.
         if len(descs) >= 2:
             if entities[0] is AppUser:
@@ -162,6 +178,14 @@ class PlatformDB:
             return _Result(rows=[])
         ent = entities[0] if entities else None
         if ent is AppUser:
+            if names[0] == "id" and "lower(app_users.email)" in str(statement).lower():
+                return _Result(
+                    scalar=(
+                        getattr(self.email_app_user, "id", self.email_app_user)
+                        if self.email_app_user is not None
+                        else None
+                    )
+                )
             # scalar -> gate (clerk_user_id lookup); scalars -> admins da igreja.
             return _Result(scalar=self.gate_app_user, scalars=self.igreja_admins)
         if ent is PlatformAdmin:
@@ -179,6 +203,8 @@ class PlatformDB:
         if ent is LlmCredential:
             return _Result(scalar=self.llm_credential)
         if ent is UserRole:
+            if names[0] == "user_id":
+                return _Result(scalars=self.usable_admin_ids)
             return _Result(scalar=self.user_role)
         if ent is PlatformOrchestrator:
             return _Result(scalar=self.orchestrator)
@@ -496,6 +522,15 @@ def test_admin_set_dono_succeeds(app) -> None:
     assert resp.json()["donoId"] == "00000000-0000-0000-0000-0000000000a1"
     assert str(igreja.dono_id) == "00000000-0000-0000-0000-0000000000a1"
     assert db.committed is True
+    locked = [
+        str(statement).upper()
+        for statement in db.statements
+        if "FOR UPDATE" in str(statement).upper()
+    ]
+    igreja_lock = next(i for i, sql in enumerate(locked) if "FROM IGREJAS" in sql)
+    user_lock = next(i for i, sql in enumerate(locked) if "FROM APP_USERS" in sql)
+    role_lock = next(i for i, sql in enumerate(locked) if "FROM USER_ROLES" in sql)
+    assert igreja_lock < user_lock < role_lock
 
 
 def test_admin_set_dono_rejects_non_admin_target(app) -> None:
@@ -514,6 +549,36 @@ def test_admin_set_dono_rejects_non_admin_target(app) -> None:
         headers=_AUTH,
         json={"appUserId": "00000000-0000-0000-0000-0000000000a1"},
     )
+    assert resp.status_code == 422
+    assert igreja.dono_id is None
+
+
+@pytest.mark.parametrize(
+    ("user_status", "clerk_user_id"),
+    [("convidado", None), ("revogado", "clerk_revoked"), ("ativo", None)],
+)
+def test_admin_set_dono_requires_usable_admin_access(
+    app, user_status, clerk_user_id
+) -> None:
+    igreja = SimpleNamespace(
+        id="00000000-0000-0000-0000-000000000009",
+        nome="Igreja X",
+        dono_id=None,
+    )
+    target = make_app_user(status=user_status, clerk_user_id=clerk_user_id)
+    db = PlatformDB(
+        gate_app_user=target,
+        admin_marker="pa1",
+        igreja_scalar=igreja,
+        user_role=SimpleNamespace(id="r1"),
+    )
+
+    resp = _wire(app, db=db, clerk=FakeClerk()).put(
+        "/admin/igrejas/00000000-0000-0000-0000-000000000009/dono",
+        headers=_AUTH,
+        json={"appUserId": "00000000-0000-0000-0000-0000000000a1"},
+    )
+
     assert resp.status_code == 422
     assert igreja.dono_id is None
 
@@ -1109,6 +1174,10 @@ def test_admin_adds_igreja_admin(app) -> None:
     assert any(
         isinstance(o, PlatformAuditLog) and o.acao == "admin_add" for o in db.added
     )
+    assert any(
+        "PG_ADVISORY_XACT_LOCK" in str(statement).upper()
+        for statement in db.statements
+    )
 
 
 def test_admin_add_admin_conflict(app) -> None:
@@ -1118,6 +1187,7 @@ def test_admin_add_admin_conflict(app) -> None:
         admin_marker="pa1",
         igreja_scalar=_igreja_ns(),
         igreja_admins=[existing],
+        email_app_user=existing,
     )
     client = _wire(app, db=db, clerk=FakeClerk(), mailer=FakeMailer())
     resp = client.post(
@@ -1128,9 +1198,46 @@ def test_admin_add_admin_conflict(app) -> None:
     assert resp.status_code == 409
 
 
+def test_admin_add_rejects_existing_clerk_identity_before_write(app) -> None:
+    db = PlatformDB(
+        gate_app_user=make_app_user(),
+        admin_marker="pa1",
+        igreja_scalar=_igreja_ns(),
+    )
+    clerk = FakeClerk(existing_clerk_id="clerk_existing")
+
+    resp = _wire(app, db=db, clerk=clerk, mailer=FakeMailer()).post(
+        f"/admin/igrejas/{_IG_ID}/admins",
+        headers=_AUTH,
+        json={"nome": "Novo", "email": "existente@igreja.org"},
+    )
+
+    assert resp.status_code == 409
+    assert not any(isinstance(obj, AppUser) for obj in db.added)
+
+
+def test_admin_add_fails_closed_when_clerk_lookup_unavailable(app) -> None:
+    db = PlatformDB(
+        gate_app_user=make_app_user(),
+        admin_marker="pa1",
+        igreja_scalar=_igreja_ns(),
+    )
+    clerk = FakeClerk(raise_find=True)
+
+    resp = _wire(app, db=db, clerk=clerk, mailer=FakeMailer()).post(
+        f"/admin/igrejas/{_IG_ID}/admins",
+        headers=_AUTH,
+        json={"nome": "Novo", "email": "novo@igreja.org"},
+    )
+
+    assert resp.status_code == 502
+    assert not any(isinstance(obj, AppUser) for obj in db.added)
+
+
 def test_admin_resends_admin_invite(app) -> None:
     u = make_app_user()
     u.status = "convidado"
+    u.clerk_user_id = None
     db = PlatformDB(gate_app_user=u, admin_marker="pa1", igreja_scalar=_igreja_ns())
     mailer = FakeMailer()
     client = _wire(app, db=db, clerk=FakeClerk(), mailer=mailer)
@@ -1149,6 +1256,25 @@ def test_admin_resend_blocks_active(app) -> None:
     db = PlatformDB(gate_app_user=u, admin_marker="pa1", igreja_scalar=_igreja_ns())
     client = _wire(app, db=db, clerk=FakeClerk(), mailer=FakeMailer())
     resp = client.post(f"/admin/igrejas/{_IG_ID}/admins/{u.id}/reenviar", headers=_AUTH)
+    assert resp.status_code == 409
+
+
+@pytest.mark.parametrize(
+    ("user_status", "clerk_user_id"),
+    [("revogado", None), ("convidado", "clerk_already_created")],
+)
+def test_admin_resend_blocks_non_pending_identity(
+    app, user_status, clerk_user_id
+) -> None:
+    u = make_app_user()
+    u.status = user_status
+    u.clerk_user_id = clerk_user_id
+    db = PlatformDB(gate_app_user=u, admin_marker="pa1", igreja_scalar=_igreja_ns())
+
+    resp = _wire(app, db=db, clerk=FakeClerk(), mailer=FakeMailer()).post(
+        f"/admin/igrejas/{_IG_ID}/admins/{u.id}/reenviar", headers=_AUTH
+    )
+
     assert resp.status_code == 409
 
 
@@ -1194,10 +1320,37 @@ def test_admin_removing_dono_clears_dono_id(app) -> None:
 def test_admin_remove_blocks_last_admin(app) -> None:
     u = make_app_user()
     db = PlatformDB(
-        gate_app_user=u, admin_marker="pa1", igreja_scalar=_igreja_ns(), count_value=1
+        gate_app_user=u,
+        admin_marker="pa1",
+        igreja_scalar=_igreja_ns(),
+        count_value=1,
+        user_role=SimpleNamespace(id="r1", papel="admin"),
     )
     client = _wire(app, db=db, clerk=FakeClerk())
     resp = client.delete(f"/admin/igrejas/{_IG_ID}/admins/{u.id}", headers=_AUTH)
+    assert resp.status_code == 409
+    assert any(
+        "FROM IGREJAS" in str(statement).upper()
+        and "FOR UPDATE" in str(statement).upper()
+        for statement in db.statements
+    )
+
+
+def test_admin_remove_invited_peer_does_not_sustain_active_floor(app) -> None:
+    u = make_app_user()
+    db = PlatformDB(
+        gate_app_user=u,
+        admin_marker="pa1",
+        igreja_scalar=_igreja_ns(),
+        count_value=2,
+        usable_admin_ids=[u.id],
+        user_role=SimpleNamespace(id="r1", papel="admin"),
+    )
+
+    resp = _wire(app, db=db, clerk=FakeClerk()).delete(
+        f"/admin/igrejas/{_IG_ID}/admins/{u.id}", headers=_AUTH
+    )
+
     assert resp.status_code == 409
 
 

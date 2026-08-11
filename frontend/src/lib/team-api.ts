@@ -11,9 +11,10 @@
  *  - e-mail duplicado no tenant é rejeitado (409);
  *  - remover/rebaixar OU revogar o último admin ativo é bloqueado (409) — a
  *    igreja nunca fica sem administrador (F3 / RF-04);
- *  - o convite NÃO escolhe papéis: o convidado entra como `membro` vinculado a
- *    uma célula; o e-mail de ativação é disparado via Brevo (best-effort). Papéis
- *    são a UNIÃO de user_roles, editados depois só para pessoas já cadastradas;
+ *  - o convite NÃO escolhe papéis nem altera vínculo de célula: o convidado
+ *    entra como `membro`; o e-mail de ativação é disparado via Brevo
+ *    (best-effort). Papéis são a UNIÃO de user_roles, editados depois só para
+ *    pessoas já cadastradas;
  *  - revogar é soft: o usuário fica com status `revogado` (auditoria preservada)
  *    e perde o acesso ao painel imediatamente.
  */
@@ -47,7 +48,7 @@ export class TeamConflictError extends Error {
 
 export async function inviteMember(
   token: string,
-  payload: { pessoaId?: string; nome?: string; email: string; celulaId?: string },
+  payload: { pessoaId?: string; nome?: string; email: string },
 ): Promise<InviteResult> {
   const res = await authedFetch(token, "/team/invite", {
     method: "POST",

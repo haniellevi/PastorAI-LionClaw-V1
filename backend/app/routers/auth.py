@@ -34,9 +34,12 @@ from app.deps import (
     get_current_user,
 )
 from app.domain.phone import normalize_phone, phone_suffix
-from app.services.pessoa_dedup import insert_pessoa_or_get_winner
+from app.services.pessoa_dedup import (
+    insert_pessoa_or_get_winner,
+    lock_canonical_phone,
+)
 from app.services.brevo import BrevoClient, BrevoError, get_brevo_client
-from app.services.celula_membro import ensure_active_membro
+from app.services.cell_leadership import sync_role_after_activation
 from app.services.clerk import (
     ClerkAuthError,
     ClerkClient,
@@ -396,7 +399,13 @@ def reset_password(
     return {"status": "ok"}
 
 
-def _resolve_invite(token: str, db: Session, clerk: ClerkClient) -> AppUser:
+def _resolve_invite(
+    token: str,
+    db: Session,
+    clerk: ClerkClient,
+    *,
+    for_update: bool = False,
+) -> AppUser:
     """Valida o token de convite e devolve o app_user 'convidado' alvo.
 
     Pré-login (sem sessão): roda como o role de conexão, então acha o app_user
@@ -412,9 +421,12 @@ def _resolve_invite(token: str, db: Session, clerk: ClerkClient) -> AppUser:
     except (ClerkAuthError, ValueError):
         raise invalid from None
 
-    app_user = db.execute(
-        select(AppUser).where(AppUser.id == au_uuid)
-    ).scalar_one_or_none()
+    statement = select(AppUser).where(AppUser.id == au_uuid)
+    if for_update:
+        # AppUser.igreja é eager via LEFT JOIN; limitar o lock evita o erro do
+        # PostgreSQL ao tentar travar o lado anulável do outer join.
+        statement = statement.with_for_update(of=AppUser)
+    app_user = db.execute(statement).scalar_one_or_none()
     if app_user is None:
         raise invalid
     if app_user.clerk_user_id:
@@ -422,6 +434,10 @@ def _resolve_invite(token: str, db: Session, clerk: ClerkClient) -> AppUser:
             status_code=status.HTTP_409_CONFLICT,
             detail="Este convite já foi ativado. Faça login normalmente.",
         )
+    # Um token antigo nunca reabre acesso revogado. Somente a máquina de estado
+    # convidado -> ativo é válida; a resposta genérica não revela o status.
+    if app_user.status != "convidado":
+        raise invalid
     return app_user
 
 
@@ -441,70 +457,140 @@ def invite_info(
     )
 
 
-def _complete_cadastro_pessoa(
+def _lock_pessoa_and_assert_unique_access(
+    db: Session, *, app_user: AppUser, pessoa_id: uuid.UUID
+) -> Pessoa:
+    """Trava/revalida a Pessoa e impede um segundo acesso ao mesmo cadastro."""
+
+    pessoa = db.execute(
+        select(Pessoa)
+        .where(
+            Pessoa.id == pessoa_id,
+            Pessoa.igreja_id == app_user.igreja_id,
+        )
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).scalar_one_or_none()
+    if pessoa is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Não foi possível vincular este convite ao cadastro",
+        )
+    # O domínio pode mudar entre a emissão e o clique. Um convite antigo não
+    # reabre acesso para Pessoa arquivada ou classificada como CSIM.
+    if (
+        getattr(pessoa, "arquivada_em", None) is not None
+        or bool(getattr(pessoa, "sem_interesse", False))
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Este cadastro não está disponível para acesso ao painel",
+        )
+    linked = db.execute(
+        select(AppUser.id)
+        .where(
+            AppUser.igreja_id == app_user.igreja_id,
+            AppUser.pessoa_id == pessoa_id,
+            AppUser.id != app_user.id,
+        )
+        .limit(1)
+    ).scalar_one_or_none()
+    if linked is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Este cadastro já possui outro acesso ao painel",
+        )
+    return pessoa
+
+
+def _lock_invite_for_activation(db: Session, app_user_id: uuid.UUID) -> AppUser:
+    """Trava e relê o convite depois da Pessoa, preservando a ordem de locks."""
+
+    app_user = db.execute(
+        select(AppUser)
+        .where(AppUser.id == app_user_id)
+        .with_for_update(of=AppUser)
+        .execution_options(populate_existing=True)
+    ).scalar_one_or_none()
+    if app_user is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Convite inválido ou expirado. Peça um novo.",
+        )
+    if app_user.clerk_user_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Este convite já foi ativado. Faça login normalmente.",
+        )
+    if app_user.status != "convidado":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Convite inválido ou expirado. Peça um novo.",
+        )
+    return app_user
+
+
+def _prepare_cadastro_pessoa(
     db: Session, app_user: AppUser, telefone_raw: str, normalized: str
 ) -> None:
     """Parte B: cria/vincula a Pessoa-membro do convidado na ativação.
 
     Pré-login (service role / BYPASSRLS), por isso TODA query é escopada
-    explicitamente por ``app_user.igreja_id``. Dedup canônico por telefone
-    (mesmo critério de create_contact): se já existe uma Pessoa com esse número
-    na igreja, vincula a ela (adotando a célula pendente só se ela ainda não tem
-    célula — não transfere); senão cria a Pessoa-membro na célula pendente.
+    explicitamente por ``app_user.igreja_id``. O telefone auto-declarado não
+    prova identidade: se o dedupe canônico encontrar Pessoa existente, falha
+    antes do Clerk e exige novo convite Parte A apontando ``pessoaId``. Parte B
+    cria somente Pessoa nova, sempre sem vínculo de célula. O campo legado
+    ``celula_pendente_id`` é descartado.
     """
     igreja_uuid = app_user.igreja_id
-    celula_id = app_user.celula_pendente_id
+
+    lock_canonical_phone(db, igreja_id=igreja_uuid, canonical=normalized)
 
     stored_digits = func.regexp_replace(Pessoa.telefone, r"\D", "", "g")
     candidates = db.execute(
-        select(Pessoa).where(
+        select(Pessoa)
+        .where(
             Pessoa.igreja_id == igreja_uuid,
             func.right(stored_digits, 8) == phone_suffix(normalized),
         )
+        .order_by(Pessoa.id.asc())
+        .with_for_update()
     ).scalars().all()
-    existing = next(
-        (p for p in candidates if normalize_phone(p.telefone) == normalized),
-        None,
-    )
+    # Histórico arquivado também reserva a identidade: nunca recriar/adotar
+    # automaticamente só porque o telefone foi auto-declarado no convite.
+    matches = [p for p in candidates if normalize_phone(p.telefone) == normalized]
+    if matches:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Já existe uma pessoa com este telefone. Peça ao administrador "
+                "um convite vinculado ao cadastro correto."
+            ),
+        )
 
-    if existing is not None:
-        app_user.pessoa_id = existing.id
-        if existing.celula_id is None and celula_id is not None:
-            existing.celula_id = celula_id
-            # Vínculo canônico (achado C-02) — mesma regra: só quando a
-            # célula pendente é de fato adotada (pessoa ainda sem célula).
-            ensure_active_membro(
-                db, igreja_id=igreja_uuid, celula_id=celula_id, pessoa_id=existing.id
-            )
-    else:
-        new_pessoa = Pessoa(
-            igreja_id=igreja_uuid,
-            nome=app_user.nome,
-            telefone=telefone_raw.strip(),
-            email=app_user.email,
-            tipo="membro",
-            celula_id=celula_id,
+    new_pessoa = Pessoa(
+        igreja_id=igreja_uuid,
+        nome=app_user.nome,
+        telefone=telefone_raw.strip(),
+        email=app_user.email,
+        tipo="membro",
+        celula_id=None,
+    )
+    pessoa = insert_pessoa_or_get_winner(
+        db, new_pessoa, igreja_id=igreja_uuid, canonical=normalized
+    )
+    if str(pessoa.id) != str(new_pessoa.id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Já existe uma pessoa com este telefone. Peça ao administrador "
+                "um convite vinculado ao cadastro correto."
+            ),
         )
-        # UNIQ-PESSOA-1: SAVEPOINT + re-fetch. Se uma criação concorrente do
-        # mesmo telefone/tenant venceu, uq_pessoas_telefone_ativa levanta
-        # unique_violation e reaproveitamos a vencedora — tratada como o ramo
-        # "existing" (adota a célula pendente só se ainda não tiver uma).
-        pessoa = insert_pessoa_or_get_winner(
-            db, new_pessoa, igreja_id=igreja_uuid, canonical=normalized
-        )
-        app_user.pessoa_id = pessoa.id
-        if pessoa is new_pessoa:
-            if celula_id is not None:
-                # Vínculo canônico (achado C-02): Pessoa recém-criada na célula
-                # pendente também precisa da linha em celula_membro.
-                ensure_active_membro(
-                    db, igreja_id=igreja_uuid, celula_id=celula_id, pessoa_id=pessoa.id
-                )
-        elif pessoa.celula_id is None and celula_id is not None:
-            pessoa.celula_id = celula_id
-            ensure_active_membro(
-                db, igreja_id=igreja_uuid, celula_id=celula_id, pessoa_id=pessoa.id
-            )
+    pessoa = _lock_pessoa_and_assert_unique_access(
+        db, app_user=app_user, pessoa_id=pessoa.id
+    )
+    app_user.pessoa_id = pessoa.id
 
     app_user.celula_pendente_id = None
 
@@ -520,7 +606,8 @@ def activate(
     """Ativa o convite: cria o acesso no Clerk + define a senha + vincula.
 
     Parte B (delta-049): quando o convidado ainda não é Pessoa, o telefone é
-    obrigatório e a ativação cria/vincula a Pessoa-membro na célula pendente.
+    obrigatório e a ativação cria/vincula somente o cadastro de Pessoa. Mesmo
+    convites legados com célula pendente não criam nem alteram membresia.
     Idempotência: um convite já ativado (app_user com clerk_user_id) → 409.
     Rate-limitada por IP (ALTO-002) — o token do convite já é o segredo
     validado abaixo; o limite aqui é só contra brute-force de tokens.
@@ -540,20 +627,81 @@ def activate(
                 detail="Informe um telefone/WhatsApp válido para concluir o cadastro.",
             )
 
+    # Toda validação/mutação local possível acontece antes do Clerk. Se o
+    # provedor falhar, rollback explícito desfaz Pessoa/vínculo preparados.
+    try:
+        if needs_cadastro:
+            _prepare_cadastro_pessoa(
+                db, app_user, payload.telefone or "", normalized
+            )
+        else:
+            _lock_pessoa_and_assert_unique_access(
+                db,
+                app_user=app_user,
+                pessoa_id=uuid.UUID(str(app_user.pessoa_id)),
+            )
+        # Ordem comum de concorrência: Pessoa -> AppUser. A releitura sob lock
+        # fecha duas ativações do mesmo token, mesmo se enviarem telefones
+        # diferentes (o advisory lock canônico cobre o mesmo telefone).
+        app_user = _lock_invite_for_activation(
+            db, uuid.UUID(str(app_user.id))
+        )
+    except HTTPException:
+        db.rollback()
+        raise
+
+    try:
+        clerk_existing = clerk.find_user_id_by_email(app_user.email)
+    except ClerkAuthError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Não foi possível validar o e-mail para ativação",
+        ) from exc
+    if clerk_existing is not None:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Este e-mail não está disponível para um novo acesso",
+        )
+
     try:
         clerk_user_id = clerk.create_user(app_user.email, payload.password)
     except ClerkAuthError as exc:
+        db.rollback()
+        # Fecha a corrida lookup -> create sem reutilizar/redefinir senha.
+        try:
+            conflict_after_create = clerk.find_user_id_by_email(app_user.email)
+        except ClerkAuthError:
+            conflict_after_create = None
+        if conflict_after_create is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Este e-mail não está disponível para um novo acesso",
+            ) from exc
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Não foi possível criar o acesso. Tente novamente.",
         ) from exc
 
-    if needs_cadastro:
-        _complete_cadastro_pessoa(db, app_user, payload.telefone or "", normalized)
-
-    app_user.clerk_user_id = clerk_user_id
-    app_user.status = "ativo"
-    db.commit()
+    try:
+        app_user.clerk_user_id = clerk_user_id
+        app_user.status = "ativo"
+        sync_role_after_activation(db, app_user=app_user)
+        db.commit()
+    except Exception:
+        db.rollback()
+        # create_user não reutiliza identidade: este id pertence à operação
+        # corrente e pode ser apagado com segurança como compensação best-effort.
+        try:
+            clerk.delete_user(clerk_user_id)
+        except ClerkAuthError:
+            logger.error(
+                "Activation Clerk compensation failed after database error",
+                exc_info=True,
+            )
+        logger.exception("Activation database commit failed after Clerk mutation")
+        raise
     return {"status": "ok"}
 
 

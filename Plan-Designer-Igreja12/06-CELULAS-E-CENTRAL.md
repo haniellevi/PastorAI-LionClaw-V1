@@ -1,5 +1,18 @@
 # Células e Central de Células
 
+## Atualização de implementação, Fatia 03
+
+A branch local `codex/ux03-cell-access-leadership` separa dar acesso, adicionar
+à célula e definir liderança. Convite deixa de mover Pessoa; vínculo direto fica
+na Central; e `lider_celula` passa a ser derivado de uma célula ativa com acesso
+utilizável. Operador e Líder de Multiplicação deixam de enumerar todas as células
+por papel bruto. A implementação, evidências e limites estão em
+[`13-IMPLEMENTACAO-FATIA-03-ACESSO-LIDERANCA-CELULA.md`](13-IMPLEMENTACAO-FATIA-03-ACESSO-LIDERANCA-CELULA.md).
+
+O novo tipo formal de solicitação de troca de liderança e o reparo de dados
+legados continuam pendentes porque exigem decisão de workflow, auditoria dos
+dados e possível migration. Não foram inferidos nesta fatia.
+
 ## 1. Princípios preservados
 
 - `Minha Célula` é a superfície operacional do discípulo e do líder.

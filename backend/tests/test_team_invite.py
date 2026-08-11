@@ -1,27 +1,11 @@
-"""Tests for POST /team/invite — célula/liderança guards (EVT-A1 / achado C-01/C-03).
-
-Cobre o que faltava: nenhum teste existente exercitava a persistência real do
-convite (só 401/422 em test_sprint_routers_validation.py). Estes provam, offline
-(sem Postgres), que:
-
-  1. um líder de célula ATIVA nunca é aceito como convidado/membro — nem da
-     própria célula nem de outra (achado C-01: o front já filtra, mas o backend
-     é a fonte de verdade);
-  2. célula inativa ou sem líder é rejeitada no convite, na mesma medida que já
-     era em POST /contacts/{id}/cell (achado C-03: paridade de validação);
-  3. o caminho feliz (pessoa elegível, célula ativa com líder) continua criando
-     o app_user + role membro normalmente.
-
-Fake session no estilo dos demais testes de team/cells (entity-routed via
-``column_descriptions``, com extração genérica de predicados de igualdade —
-inclusive ``func.lower(AppUser.email) == valor``, usado no dedupe de e-mail).
-"""
+"""Contrato de POST /team/invite: acesso administrativo, sem vínculo de célula."""
 
 from __future__ import annotations
 
 import uuid
 from types import SimpleNamespace
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.db.models import AppUser, Celula, CelulaMembro, Pessoa
@@ -120,8 +104,10 @@ class _InviteSession:
         self.cells = list(cells)
         self.added: list = []
         self.committed = False
+        self.statements: list = []
 
     def execute(self, statement, params=None) -> _Result:
+        self.statements.append(statement)
         descs = list(getattr(statement, "column_descriptions", []) or [])
         ent = descs[0].get("entity") if descs else None
         name = descs[0].get("name") if descs else None
@@ -209,98 +195,39 @@ def _pessoa(pessoa_id: uuid.UUID, *, celula_id=None, email: str | None = None) -
         celula_id=celula_id,
         email=email,
         nome="Fulano",
+        arquivada_em=None,
+        sem_interesse=False,
     )
 
 
-def _client(app, *, session, current_user) -> TestClient:
+def _client(app, *, session, current_user, clerk=None) -> TestClient:
     app.dependency_overrides[get_db] = lambda: session
     app.dependency_overrides[get_current_user] = lambda: current_user
-    app.dependency_overrides[get_clerk_client] = lambda: FakeClerk()
+    app.dependency_overrides[get_clerk_client] = lambda: clerk or FakeClerk()
     app.dependency_overrides[get_brevo_client] = lambda: _FakeBrevo()
     return TestClient(app)
 
 
-# ---------------------------------------------------------------------------
-# 1) líder de célula ativa rejeitado como candidato (achado C-01)
-# ---------------------------------------------------------------------------
-def test_invite_rejects_person_who_leads_an_active_cell(app) -> None:
-    target_cell = _cell(_TARGET_CELL, lider_id=_LEADER_OF_TARGET, ativo=True)
-    led_cell = _cell(_LIDER_CELL, lider_id=_LIDER_PESSOA, ativo=True)
-    candidato = _pessoa(_LIDER_PESSOA, celula_id=None)
-    session = _InviteSession(cells=[target_cell, led_cell], pessoas=[candidato])
+def test_invite_rejects_legacy_celula_id_in_new_payload(app) -> None:
+    session = _InviteSession()
     client = _client(app, session=session, current_user=_admin())
-
     resp = client.post(
         "/team/invite",
         json={
-            "pessoaId": str(_LIDER_PESSOA),
+            "nome": "Novo Membro",
             "email": "novo@igrejapiloto.com.br",
             "celulaId": str(_TARGET_CELL),
         },
         headers=_AUTH,
     )
-
-    assert resp.status_code == 409
-    assert "lidera uma célula ativa" in resp.json()["detail"]
+    assert resp.status_code == 422
     assert session.added == []
-    assert session.committed is False
 
 
-# ---------------------------------------------------------------------------
-# 2) célula inativa rejeitada (achado C-03 — paridade com link_cell)
-# ---------------------------------------------------------------------------
-def test_invite_rejects_inactive_cell(app) -> None:
-    inactive_cell = _cell(_INACTIVE_CELL, lider_id=_LEADER_OF_TARGET, ativo=False)
-    session = _InviteSession(cells=[inactive_cell])
-    client = _client(app, session=session, current_user=_admin())
-
-    resp = client.post(
-        "/team/invite",
-        json={
-            "nome": "Novo Membro",
-            "email": "novo2@igrejapiloto.com.br",
-            "celulaId": str(_INACTIVE_CELL),
-        },
-        headers=_AUTH,
-    )
-
-    assert resp.status_code == 409
-    assert "inativa" in resp.json()["detail"]
-    assert session.added == []
-    assert session.committed is False
-
-
-# ---------------------------------------------------------------------------
-# 3) célula sem líder rejeitada (achado C-03)
-# ---------------------------------------------------------------------------
-def test_invite_rejects_leaderless_cell(app) -> None:
-    leaderless_cell = _cell(_LEADERLESS_CELL, lider_id=None, ativo=True)
-    session = _InviteSession(cells=[leaderless_cell])
-    client = _client(app, session=session, current_user=_admin())
-
-    resp = client.post(
-        "/team/invite",
-        json={
-            "nome": "Novo Membro",
-            "email": "novo3@igrejapiloto.com.br",
-            "celulaId": str(_LEADERLESS_CELL),
-        },
-        headers=_AUTH,
-    )
-
-    assert resp.status_code == 409
-    assert "sem líder" in resp.json()["detail"]
-    assert session.added == []
-    assert session.committed is False
-
-
-# ---------------------------------------------------------------------------
-# 4) caso feliz continua funcionando
-# ---------------------------------------------------------------------------
-def test_invite_happy_path_still_works(app) -> None:
-    target_cell = _cell(_TARGET_CELL, lider_id=_LEADER_OF_TARGET, ativo=True)
-    candidato = _pessoa(_NORMAL_PESSOA, celula_id=None, email=None)
-    session = _InviteSession(cells=[target_cell], pessoas=[candidato])
+def test_invite_existing_cell_member_grants_access_without_moving(app) -> None:
+    original_cell = uuid.UUID("00000000-0000-0000-0000-0000000000c9")
+    candidato = _pessoa(_NORMAL_PESSOA, celula_id=original_cell, email=None)
+    session = _InviteSession(pessoas=[candidato])
     client = _client(app, session=session, current_user=_admin())
 
     resp = client.post(
@@ -308,7 +235,6 @@ def test_invite_happy_path_still_works(app) -> None:
         json={
             "pessoaId": str(_NORMAL_PESSOA),
             "email": "membro@igrejapiloto.com.br",
-            "celulaId": str(_TARGET_CELL),
         },
         headers=_AUTH,
     )
@@ -317,11 +243,171 @@ def test_invite_happy_path_still_works(app) -> None:
     body = resp.json()
     assert body["status"] == "convidado"
     assert session.committed is True
-    # app_user + UserRole('membro') + CelulaMembro (achado C-02: vínculo
-    # canônico, não só o espelho legado pessoas.celula_id).
-    assert len(session.added) == 3
-    assert candidato.celula_id == _TARGET_CELL
-    membro = next(o for o in session.added if isinstance(o, CelulaMembro))
-    assert membro.pessoa_id == _NORMAL_PESSOA
-    assert membro.celula_id == _TARGET_CELL
-    assert membro.ativo is True
+    assert len(session.added) == 2  # AppUser + UserRole, nenhum CelulaMembro
+    assert candidato.celula_id == original_cell
+    assert not any(isinstance(o, CelulaMembro) for o in session.added)
+    assert any("FOR UPDATE" in str(stmt).upper() for stmt in session.statements)
+    assert "PG_ADVISORY_XACT_LOCK" in str(session.statements[0]).upper()
+
+
+def test_invite_existing_cell_leader_can_receive_access(app) -> None:
+    candidato = _pessoa(_LIDER_PESSOA, celula_id=None)
+    led_cell = _cell(_LIDER_CELL, lider_id=_LIDER_PESSOA, ativo=True)
+    session = _InviteSession(pessoas=[candidato], cells=[led_cell])
+    resp = _client(app, session=session, current_user=_admin()).post(
+        "/team/invite",
+        json={"pessoaId": str(_LIDER_PESSOA), "email": "lider@igreja.org"},
+        headers=_AUTH,
+    )
+    assert resp.status_code == 200, resp.text
+    assert len(session.added) == 2
+
+
+def test_invite_rejects_second_access_for_same_person(app) -> None:
+    candidato = _pessoa(_NORMAL_PESSOA)
+    linked = SimpleNamespace(
+        id=uuid.uuid4(),
+        igreja_id=uuid.UUID(_IGREJA_ID),
+        pessoa_id=_NORMAL_PESSOA,
+        email="outro@igreja.org",
+    )
+    session = _InviteSession(pessoas=[candidato], app_users=[linked])
+    resp = _client(app, session=session, current_user=_admin()).post(
+        "/team/invite",
+        json={"pessoaId": str(_NORMAL_PESSOA), "email": "novo@igreja.org"},
+        headers=_AUTH,
+    )
+    assert resp.status_code == 409
+    assert session.added == []
+
+
+def test_invite_rejects_archived_person_until_explicit_reactivation(app) -> None:
+    candidato = _pessoa(_NORMAL_PESSOA)
+    candidato.arquivada_em = object()
+    session = _InviteSession(pessoas=[candidato])
+
+    resp = _client(app, session=session, current_user=_admin()).post(
+        "/team/invite",
+        json={"pessoaId": str(_NORMAL_PESSOA), "email": "novo@igreja.org"},
+        headers=_AUTH,
+    )
+
+    assert resp.status_code == 409
+    assert session.added == []
+
+
+def test_invite_rejects_person_without_ministerial_interest(app) -> None:
+    candidato = _pessoa(_NORMAL_PESSOA)
+    candidato.sem_interesse = True
+    session = _InviteSession(pessoas=[candidato])
+
+    resp = _client(app, session=session, current_user=_admin()).post(
+        "/team/invite",
+        json={"pessoaId": str(_NORMAL_PESSOA), "email": "novo@igreja.org"},
+        headers=_AUTH,
+    )
+
+    assert resp.status_code == 409
+    assert session.added == []
+
+
+def test_invite_rejects_existing_global_clerk_identity_before_write(app) -> None:
+    session = _InviteSession()
+    clerk = FakeClerk(existing_clerk_id="clerk_from_another_church")
+
+    resp = _client(
+        app, session=session, current_user=_admin(), clerk=clerk
+    ).post(
+        "/team/invite",
+        json={"nome": "Novo", "email": "existente@igreja.org"},
+        headers=_AUTH,
+    )
+
+    assert resp.status_code == 409
+    assert session.added == []
+    assert clerk.create_calls == 0
+    assert "PG_ADVISORY_XACT_LOCK" in str(session.statements[0]).upper()
+
+
+def test_invite_fails_closed_when_clerk_lookup_is_unavailable(app) -> None:
+    session = _InviteSession()
+    clerk = FakeClerk(raise_find=True)
+
+    resp = _client(
+        app, session=session, current_user=_admin(), clerk=clerk
+    ).post(
+        "/team/invite",
+        json={"nome": "Novo", "email": "novo@igreja.org"},
+        headers=_AUTH,
+    )
+
+    assert resp.status_code == 502
+    assert session.added == []
+
+
+@pytest.mark.parametrize(
+    ("user_status", "clerk_user_id"),
+    [("ativo", "clerk_active"), ("revogado", None), ("convidado", "clerk_done")],
+)
+def test_resend_accepts_only_pending_invite_without_clerk(
+    app, user_status, clerk_user_id
+) -> None:
+    target = SimpleNamespace(
+        id=uuid.uuid4(),
+        igreja_id=uuid.UUID(_IGREJA_ID),
+        pessoa_id=None,
+        nome="Convite",
+        email="convite@igreja.org",
+        status=user_status,
+        clerk_user_id=clerk_user_id,
+    )
+    session = _InviteSession(app_users=[target])
+
+    resp = _client(app, session=session, current_user=_admin()).post(
+        f"/team/{target.id}/resend", headers=_AUTH
+    )
+
+    assert resp.status_code == 409
+
+
+def test_resend_pending_invite_without_clerk_is_allowed(app) -> None:
+    target = SimpleNamespace(
+        id=uuid.uuid4(),
+        igreja_id=uuid.UUID(_IGREJA_ID),
+        pessoa_id=None,
+        nome="Convite",
+        email="convite@igreja.org",
+        status="convidado",
+        clerk_user_id=None,
+    )
+    session = _InviteSession(app_users=[target])
+
+    resp = _client(app, session=session, current_user=_admin()).post(
+        f"/team/{target.id}/resend", headers=_AUTH
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["emailEnviado"] is True
+
+
+def test_invite_requires_admin_not_pastor_or_cell_leader(app) -> None:
+    for role in ("pastor", "lider_celula"):
+        session = _InviteSession()
+        resp = _client(
+            app,
+            session=session,
+            current_user=CurrentUser(
+                app_user_id=str(_ADMIN_APP_USER_ID),
+                clerk_user_id="clerk",
+                igreja_id=_IGREJA_ID,
+                email="x@igreja.org",
+                nome="X",
+                roles=frozenset({role}),
+            ),
+        ).post(
+            "/team/invite",
+            json={"nome": "Novo", "email": "novo@igreja.org"},
+            headers=_AUTH,
+        )
+        assert resp.status_code == 403
+        assert session.added == []

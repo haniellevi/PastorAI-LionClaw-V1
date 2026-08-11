@@ -43,7 +43,11 @@ from app.deps import (
     resolve_actor_pessoa_id,
 )
 from app.domain.phone import normalize_phone, phone_suffix
-from app.services.pessoa_dedup import _PG_UNIQUE_VIOLATION, insert_pessoa_or_get_winner
+from app.services.pessoa_dedup import (
+    _PG_UNIQUE_VIOLATION,
+    insert_pessoa_or_get_winner,
+    lock_canonical_phone,
+)
 from app.services import pessoa_offboarding_service
 from app.services.celula_membro import ensure_active_membro
 from app.routers._common import Page, PaginationParams
@@ -623,6 +627,8 @@ def create_contact(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Telefone inválido",
         )
+    igreja_uuid = uuid.UUID(current_user.igreja_id)
+    lock_canonical_phone(db, igreja_id=igreja_uuid, canonical=normalized)
 
     # Dedupe by CANONICAL phone (look up before creating): narrow by the stable
     # 8-digit suffix in SQL, then confirm the full canonical match in Python so
@@ -630,7 +636,7 @@ def create_contact(
     stored_digits = func.regexp_replace(Pessoa.telefone, r"\D", "", "g")
     candidates = db.execute(
         select(Pessoa).where(
-            Pessoa.igreja_id == uuid.UUID(current_user.igreja_id),
+            Pessoa.igreja_id == igreja_uuid,
             func.right(stored_digits, 8) == phone_suffix(normalized),
         )
     ).scalars().all()
@@ -649,7 +655,7 @@ def create_contact(
         )
 
     new_pessoa = Pessoa(
-        igreja_id=uuid.UUID(current_user.igreja_id),
+        igreja_id=igreja_uuid,
         nome=payload.nome,
         telefone=payload.telefone,
         email=payload.email,
@@ -667,7 +673,7 @@ def create_contact(
     pessoa = insert_pessoa_or_get_winner(
         db,
         new_pessoa,
-        igreja_id=uuid.UUID(current_user.igreja_id),
+        igreja_id=igreja_uuid,
         canonical=normalized,
     )
     db.refresh(pessoa)
@@ -754,6 +760,7 @@ def update_contact(
     re-checa o dedup canônico por igreja: não pode colidir com OUTRA pessoa
     (409). Os gatilhos de estado da pessoa não são reimplementados aqui.
     """
+    igreja_uuid = uuid.UUID(current_user.igreja_id)
 
     try:
         pessoa_uuid = uuid.UUID(contact_id)
@@ -763,7 +770,10 @@ def update_contact(
         ) from exc
 
     pessoa = db.execute(
-        select(Pessoa).where(Pessoa.id == pessoa_uuid)
+        select(Pessoa).where(
+            Pessoa.id == pessoa_uuid,
+            Pessoa.igreja_id == igreja_uuid,
+        )
     ).scalar_one_or_none()
     if pessoa is None:
         raise HTTPException(
@@ -777,6 +787,7 @@ def update_contact(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="Telefone inválido",
             )
+        lock_canonical_phone(db, igreja_id=igreja_uuid, canonical=normalized)
         # Colisão com OUTRA pessoa do tenant (mesmo telefone canônico).
         stored_digits = func.regexp_replace(Pessoa.telefone, r"\D", "", "g")
         candidates = db.execute(
@@ -877,7 +888,10 @@ def link_cell(
         )
 
     celula = db.execute(
-        select(Celula).where(Celula.id == uuid.UUID(payload.celulaId))
+        select(Celula).where(
+            Celula.id == uuid.UUID(payload.celulaId),
+            Celula.igreja_id == uuid.UUID(current_user.igreja_id),
+        )
     ).scalar_one_or_none()
     if celula is None:
         raise HTTPException(

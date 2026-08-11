@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any
 
@@ -23,6 +24,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.models import Celula, Decision, Pessoa
+from app.domain.agent_authz import has_central_tool_role
 from app.domain.consolidation import (
     CONNECTION_DEADLINE_HOURS,
     VALID_VINCULOS,
@@ -197,8 +199,17 @@ def vincular_celula(
     igreja_id: str | uuid.UUID,
     pessoa_id: str | uuid.UUID,
     celula_id: str | uuid.UUID,
+    actor_roles: Iterable[str],
 ) -> ToolResult:
-    """Link a person to an active, led cell (mirrors POST /contacts/{id}/cell)."""
+    """Link a person to a cell, restricted to the Central (admin/pastor).
+
+    ``actor_roles`` is injected by the trusted runtime and is intentionally not
+    part of ``TOOL_ARG_SCHEMA``. The guard runs before UUID parsing or any
+    session access, so a denied call produces zero database mutation.
+    """
+    if not has_central_tool_role(actor_roles):
+        raise ToolError("Ação restrita à Central de Células")
+
     igreja_uuid = _as_uuid(igreja_id)
     pessoa = _load_pessoa(session, igreja_uuid, _as_uuid(pessoa_id))
 
@@ -309,3 +320,8 @@ TOOL_ARG_SCHEMA: dict[str, frozenset[str]] = {
     "vincular_celula": frozenset({"pessoa_id", "celula_id"}),
     "avancar_trilha": frozenset({"pessoa_id", "etapa", "subetapa"}),
 }
+
+# Contexto confiável injetado pelo runtime depois da validação do payload do
+# LLM. Nunca incluir estas chaves em TOOL_ARG_SCHEMA: o modelo não pode forjar
+# papéis do ator.
+TOOL_ACTOR_ROLE_CONTEXT: frozenset[str] = frozenset({"vincular_celula"})
