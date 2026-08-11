@@ -33,9 +33,9 @@ import uuid
 from collections.abc import Iterator
 
 import pytest
-from sqlalchemy import create_engine, select, text
+from sqlalchemy import create_engine, inspect as sa_inspect, select, text
 from sqlalchemy.engine import Engine
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, PendingRollbackError
 from sqlalchemy.orm import Session, sessionmaker
 
 # Importar session.py registra (uma vez) o listener after_begin do seam de tenant
@@ -93,10 +93,15 @@ def _foreign_key_violation() -> IntegrityError:
 
 
 class _FakeNested:
+    def __init__(self, db: _FakeDB) -> None:
+        self._db = db
+
     def __enter__(self) -> _FakeNested:
+        self._db.events.append("enter_nested")
         return self
 
     def __exit__(self, *exc: object) -> bool:
+        self._db.events.append("exit_nested")
         return False
 
 
@@ -112,7 +117,7 @@ class _FakeResult:
 
 
 class _FakeDB:
-    """Session mínima: begin_nested/add/flush + execute do re-fetch."""
+    """Session mínima que separa flush externo do flush da candidata."""
 
     def __init__(
         self,
@@ -120,22 +125,33 @@ class _FakeDB:
         raise_on_flush: IntegrityError | None,
         winners: list[Pessoa],
         winner_batches: list[list[Pessoa]] | None = None,
+        raise_on_outer_flush: BaseException | None = None,
     ) -> None:
-        self._raise = raise_on_flush
+        self._raise_on_candidate_flush = raise_on_flush
+        self._raise_on_outer_flush = raise_on_outer_flush
         self._winners = winners
         self._winner_batches = list(winner_batches or [])
         self.added: list[Pessoa] = []
         self.execute_calls = 0
+        self.events: list[str] = []
 
     def begin_nested(self) -> _FakeNested:
-        return _FakeNested()
+        self.events.append("begin_nested")
+        return _FakeNested(self)
 
     def add(self, obj: Pessoa) -> None:
+        self.events.append("add")
         self.added.append(obj)
 
     def flush(self) -> None:
-        if self._raise is not None:
-            raise self._raise
+        if not self.added:
+            self.events.append("outer_flush")
+            if self._raise_on_outer_flush is not None:
+                raise self._raise_on_outer_flush
+            return
+        self.events.append("candidate_flush")
+        if self._raise_on_candidate_flush is not None:
+            raise self._raise_on_candidate_flush
 
     def execute(self, _stmt: object) -> _FakeResult:
         self.execute_calls += 1
@@ -158,6 +174,39 @@ def test_happy_path_returns_the_new_pessoa() -> None:
     )
     assert got is novo
     assert db.added == [novo]
+    assert db.events == [
+        "outer_flush",
+        "begin_nested",
+        "enter_nested",
+        "add",
+        "candidate_flush",
+        "exit_nested",
+    ]
+
+
+@pytest.mark.parametrize(
+    "outer_error",
+    [_unique_violation(), RuntimeError("outer flush failed")],
+    ids=["unique-violation", "non-integrity-error"],
+)
+def test_outer_flush_error_bubbles_without_winner_lookup(
+    outer_error: BaseException,
+) -> None:
+    db = _FakeDB(
+        raise_on_flush=None,
+        raise_on_outer_flush=outer_error,
+        winners=[_pessoa("11912345678")],
+    )
+
+    with pytest.raises(type(outer_error)) as exc_info:
+        insert_pessoa_or_get_winner(
+            db, _pessoa("21912345678"), igreja_id=_IGREJA, canonical="21912345678"
+        )
+
+    assert exc_info.value is outer_error
+    assert db.execute_calls == 0
+    assert db.added == []
+    assert db.events == ["outer_flush"]
 
 
 def test_unique_violation_refetches_and_returns_winner() -> None:
@@ -565,6 +614,61 @@ def test_different_tenants_same_phone_coexist(engine_fx: Engine) -> None:
 
 
 @pytestmark_integration
+def test_pending_outer_phone_unique_violation_bubbles_without_winner_lookup(
+    engine_fx: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A falha anterior ao SAVEPOINT não é a corrida da candidata."""
+
+    _seed_igrejas(_factory(engine_fx))
+    factory = _factory(engine_fx)
+    owner_session = factory()
+    try:
+        owner_session.add(
+            Pessoa(igreja_id=_IGREJA_A, nome="Owner", telefone=_TELEFONE)
+        )
+        owner_session.commit()
+    finally:
+        owner_session.close()
+
+    session = factory()
+    try:
+        session.add(
+            Pessoa(igreja_id=_IGREJA_A, nome="Outer duplicate", telefone=_TELEFONE)
+        )
+        candidate = Pessoa(
+            igreja_id=_IGREJA_A,
+            nome="Candidate",
+            telefone="21912345678",
+        )
+
+        def winner_lookup_must_not_run(*_args: object, **_kwargs: object) -> Pessoa:
+            raise AssertionError("não deve procurar vencedora após flush externo")
+
+        monkeypatch.setattr(
+            pessoa_dedup, "find_active_pessoa_by_phone", winner_lookup_must_not_run
+        )
+        with pytest.raises(IntegrityError) as exc_info:
+            insert_pessoa_or_get_winner(
+                session,
+                candidate,
+                igreja_id=_IGREJA_A,
+                canonical="21912345678",
+            )
+
+        assert not isinstance(exc_info.value, PendingRollbackError)
+        assert getattr(exc_info.value.orig, "pgcode", None) == "23505"
+        assert exc_info.value.orig.diag.constraint_name == "uq_pessoas_telefone_ativa"
+        assert not session.is_active
+        assert sa_inspect(candidate).transient
+    finally:
+        session.rollback()
+        session.close()
+
+    assert _count_active(factory, _IGREJA_A, _TELEFONE) == 1
+    assert _count_active(factory, _IGREJA_A, "21912345678") == 0
+
+
+@pytestmark_integration
 def test_other_unique_constraint_is_repropagated_and_outer_rollback_works(
     engine_fx: Engine,
 ) -> None:
@@ -622,6 +726,75 @@ def test_other_unique_constraint_is_repropagated_and_outer_rollback_works(
 
 
 @pytestmark_integration
+def test_pending_outer_other_unique_violation_bubbles_without_winner_lookup(
+    engine_fx: Engine, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _seed_igrejas(_factory(engine_fx))
+    factory = _factory(engine_fx)
+    with engine_fx.begin() as connection:
+        connection.execute(
+            text(
+                "create unique index uq_pessoas_email_pending_hotfix "
+                "on pessoas (igreja_id, email) where email is not null"
+            )
+        )
+
+    owner_session = factory()
+    try:
+        owner_session.add(
+            Pessoa(
+                igreja_id=_IGREJA_A,
+                nome="Email owner",
+                telefone=_TELEFONE,
+                email="duplicate@example.test",
+            )
+        )
+        owner_session.commit()
+    finally:
+        owner_session.close()
+
+    session = factory()
+    try:
+        session.add(
+            Pessoa(
+                igreja_id=_IGREJA_A,
+                nome="Outer email duplicate",
+                telefone="21912345678",
+                email="duplicate@example.test",
+            )
+        )
+        candidate = Pessoa(
+            igreja_id=_IGREJA_A,
+            nome="Candidate",
+            telefone="31912345678",
+            email="candidate@example.test",
+        )
+
+        def winner_lookup_must_not_run(*_args: object, **_kwargs: object) -> Pessoa:
+            raise AssertionError("não deve procurar vencedora após flush externo")
+
+        monkeypatch.setattr(
+            pessoa_dedup, "find_active_pessoa_by_phone", winner_lookup_must_not_run
+        )
+        with pytest.raises(IntegrityError) as exc_info:
+            insert_pessoa_or_get_winner(
+                session,
+                candidate,
+                igreja_id=_IGREJA_A,
+                canonical="31912345678",
+            )
+
+        assert not isinstance(exc_info.value, PendingRollbackError)
+        assert getattr(exc_info.value.orig, "pgcode", None) == "23505"
+        assert exc_info.value.orig.diag.constraint_name == "uq_pessoas_email_pending_hotfix"
+        assert not session.is_active
+        assert sa_inspect(candidate).transient
+    finally:
+        session.rollback()
+        session.close()
+
+
+@pytestmark_integration
 def test_deduplication_preserves_pending_outer_transaction_changes(
     engine_fx: Engine,
 ) -> None:
@@ -653,12 +826,75 @@ def test_deduplication_preserves_pending_outer_transaction_changes(
 
         assert deduped.id == winner_id
         assert session.in_transaction()
-        session.commit()
+        assert sa_inspect(pending).persistent
+        session.rollback()
     finally:
         session.close()
 
     assert _count_active(factory, _IGREJA_A) == 1
-    assert _count_active(factory, _IGREJA_A, "21912345678") == 1
+    assert _count_active(factory, _IGREJA_A, "21912345678") == 0
+
+
+@pytestmark_integration
+@pytest.mark.parametrize(
+    ("candidate_state", "message_fragment"),
+    [
+        ("pending", "pending"),
+        ("persistent", "persistent"),
+        ("detached", "detached"),
+        ("other-session", "outra Session"),
+    ],
+)
+def test_non_transient_candidate_is_rejected_without_helper_insert(
+    engine_fx: Engine, candidate_state: str, message_fragment: str
+) -> None:
+    _seed_igrejas(_factory(engine_fx))
+    factory = _factory(engine_fx)
+    session = factory()
+    other_session: Session | None = None
+    candidate = Pessoa(
+        igreja_id=_IGREJA_A,
+        nome="Already attached",
+        telefone="31912345678",
+    )
+    try:
+        if candidate_state == "pending":
+            session.add(candidate)
+        elif candidate_state == "persistent":
+            session.add(candidate)
+            session.flush()
+        elif candidate_state == "detached":
+            session.add(candidate)
+            session.commit()
+            session.expunge(candidate)
+        else:
+            other_session = factory()
+            other_session.add(candidate)
+
+        with pytest.raises(ValueError, match=message_fragment):
+            insert_pessoa_or_get_winner(
+                session,
+                candidate,
+                igreja_id=_IGREJA_A,
+                canonical="31912345678",
+            )
+
+        if candidate_state == "pending":
+            assert sa_inspect(candidate).pending
+        elif candidate_state == "persistent":
+            assert sa_inspect(candidate).persistent
+        elif candidate_state == "detached":
+            assert sa_inspect(candidate).detached
+        else:
+            assert other_session is not None
+            assert sa_inspect(candidate).session is other_session
+        assert session.is_active
+    finally:
+        session.rollback()
+        session.close()
+        if other_session is not None:
+            other_session.rollback()
+            other_session.close()
 
 
 @pytestmark_integration

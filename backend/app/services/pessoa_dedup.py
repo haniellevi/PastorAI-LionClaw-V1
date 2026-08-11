@@ -16,7 +16,7 @@ import hashlib
 import time
 import uuid
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, inspect, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -42,6 +42,35 @@ def _is_pessoa_phone_unique_violation(exc: IntegrityError) -> bool:
     return (
         _PG_UNIQUE_VIOLATION in sqlstates
         and constraint_name == _PESSOA_PHONE_UNIQUE_CONSTRAINT
+    )
+
+
+def _require_transient_candidate(db: Session, pessoa: Pessoa) -> None:
+    """Reject a candidate already attached to any Session.
+
+    ``Session.begin_nested()`` flushes pending state before it opens the
+    SAVEPOINT.  Keeping the candidate transient until the SAVEPOINT exists is
+    what lets this helper distinguish its collision from an earlier failure in
+    the caller's transaction.
+    """
+
+    state = inspect(pessoa)
+    if state.transient and state.session is None:
+        return
+
+    if state.session is not None and state.session is not db:
+        state_name = "associada a outra Session"
+    elif state.pending:
+        state_name = "pending"
+    elif state.persistent:
+        state_name = "persistent"
+    elif state.detached:
+        state_name = "detached"
+    else:
+        state_name = "associada a uma Session"
+    raise ValueError(
+        "A Pessoa candidata deve estar transitória e não associada a uma "
+        f"Session; recebeu estado {state_name}."
     )
 
 
@@ -91,18 +120,25 @@ def insert_pessoa_or_get_winner(
 ) -> Pessoa:
     """Insere ``pessoa`` num SAVEPOINT; na corrida, devolve a vencedora.
 
-    O INSERT roda dentro de ``db.begin_nested()`` (SAVEPOINT): se uma criação
-    concorrente do mesmo telefone/tenant já venceu, o flush levanta
-    ``unique_violation`` de ``uq_pessoas_telefone_ativa`` — só o SAVEPOINT é
-    desfeito (ROLLBACK TO SAVEPOINT), preservando qualquer coisa já pendente na
-    transação externa (importante no queue_worker, cuja Session é compartilhada
-    no turno). Aí re-busca e devolve a Pessoa ATIVA vencedora. Só a constraint
-    exata é deduplicada; qualquer outra IntegrityError sobe inalterada.
+    Primeiro faz flush do estado que já estava pendente na transação externa.
+    Isso fica propositalmente FORA da captura de colisão da candidata porque
+    ``Session.begin_nested()`` também autofluxa antes de estabelecer o
+    SAVEPOINT. Se esse estado anterior falhar, o erro original deve subir sem
+    procurar vencedora. A candidata deve estar transitória e só é adicionada
+    depois de o SAVEPOINT ser aberto. Se ela perder a corrida, o seu flush
+    levanta ``unique_violation`` de ``uq_pessoas_telefone_ativa`` — só o
+    SAVEPOINT é desfeito (ROLLBACK TO SAVEPOINT), preservando o estado externo
+    já enviado mas ainda não commitado. Aí re-busca e devolve a Pessoa ATIVA
+    vencedora. Só a constraint exata é deduplicada; qualquer outra
+    IntegrityError sobe inalterada.
 
     Retorna a Pessoa a usar (a recém-criada no caminho feliz, ou a vencedora).
     """
+    _require_transient_candidate(db, pessoa)
+    db.flush()
+    savepoint = db.begin_nested()
     try:
-        with db.begin_nested():
+        with savepoint:
             db.add(pessoa)
             db.flush()
         return pessoa
