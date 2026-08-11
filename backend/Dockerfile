@@ -4,7 +4,8 @@
 # - cron worker: python -m app.workers.cron_worker
 # - broadcast worker: python -m app.workers.broadcast_worker
 # O comando é sobrescrito por serviço no docker-compose.
-FROM python:3.13-slim AS base
+# A tag legivel facilita manutencao; o digest torna a base imutavel.
+FROM python:3.13.14-slim-trixie@sha256:9662417aace5ae7b8e2609cce472b72a8958e134ba372808abe9cc1a0c0125e6 AS base
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -14,8 +15,8 @@ ENV PYTHONUNBUFFERED=1 \
 WORKDIR /app
 
 # psycopg2-binary já traz libpq embutida — sem necessidade de build-essential/libpq-dev.
-COPY requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.lock ./
+RUN python -m pip install --require-hashes -r requirements.lock
 
 COPY app ./app
 COPY migrations ./migrations
