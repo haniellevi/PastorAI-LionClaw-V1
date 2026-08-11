@@ -43,14 +43,14 @@ import {
   sendInternalMessage,
   type Cell,
   type OverviewStats,
-  type TeamMember,
+  type TeamLookupMember,
   type WorkItem,
 } from "@/lib/dashboard-api";
 import { compareUrgency } from "@/lib/deadline";
 import { Icon, type IconKey } from "@/lib/icons";
 import { canSee } from "@/lib/permissions";
 import { usePermissions } from "@/lib/permissions-context";
-import { isLeader } from "@/lib/roles";
+import { isLeader, normalizeRoles, ROLE_DEFS, sortedRoles } from "@/lib/roles";
 import { useHashRoute } from "@/lib/use-hash-route";
 
 import { NextActions } from "./NextActions";
@@ -89,7 +89,7 @@ export function DashboardScreen() {
   const [, navigate] = useHashRoute();
 
   const [items, setItems] = useState<WorkItem[]>([]);
-  const [members, setMembers] = useState<TeamMember[]>([]);
+  const [members, setMembers] = useState<TeamLookupMember[]>([]);
   const [cells, setCells] = useState<Cell[]>([]);
   const [overview, setOverview] = useState<OverviewStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -105,10 +105,39 @@ export function DashboardScreen() {
   const [toast, setToast] = useState<Toast | null>(null);
 
   const leader = user ? isLeader(user.roles) : false;
+  const canLinkCell =
+    user?.roles.some((role) => role === "admin" || role === "pastor") ?? false;
+  const canAssignQueue =
+    user?.roles.some(
+      (role) =>
+        role === "admin" ||
+        role === "pastor" ||
+        role === "lider_g12" ||
+        role === "lider_consol",
+    ) ?? false;
   const memberById = useMemo(
     () => new Map(members.map((m) => [m.usuarioId, m])),
     [members],
   );
+
+  useEffect(() => {
+    if (canLinkCell) return;
+    setCells([]);
+    setModal((current) => (current?.kind === "linkCell" ? null : current));
+  }, [canLinkCell]);
+
+  useEffect(() => {
+    if (canAssignQueue) return;
+    setModal((current) => (current?.kind === "assign" ? null : current));
+  }, [canAssignQueue]);
+
+  useEffect(() => {
+    setModal((current) => {
+      if (current?.kind !== "message") return current;
+      const fresh = items.find((item) => item.id === current.item.id);
+      return fresh?.canMessage ? { ...current, item: fresh } : null;
+    });
+  }, [items]);
 
   // ---- carga de dados -----------------------------------------------------
   const handleSessionError = useCallback(
@@ -127,25 +156,26 @@ export function DashboardScreen() {
       if (!token) return;
       if (mode === "initial") setLoading(true);
       if (mode === "retry") {
-        clearAuthedResponseCache(token, [
+        const paths = [
           "/work-queue?",
-          "/team/lookup?",
-          "/cells?",
+          ...(canAssignQueue ? ["/team/lookup?"] : []),
+          ...(canLinkCell ? ["/cells?"] : []),
           "/dashboard/overview",
-        ]);
+        ];
+        clearAuthedResponseCache(token, paths);
       }
       setError(null);
       try {
         const [queue, team, cellPage, ov] = await Promise.all([
           fetchWorkQueue(token),
-          fetchTeamLookup(token),
-          fetchCells(token),
+          canAssignQueue ? fetchTeamLookup(token) : Promise.resolve(null),
+          canLinkCell ? fetchCells(token) : Promise.resolve(null),
           // Visão geral (#2) é aditiva: uma falha não derruba a fila.
           fetchOverview(token).catch(() => null),
         ]);
         setItems(queue.items);
-        setMembers(team.items);
-        setCells(cellPage.items);
+        setMembers(team?.items ?? []);
+        setCells(cellPage?.items ?? []);
         setOverview(ov);
         setLoaded(true);
       } catch (err) {
@@ -159,7 +189,7 @@ export function DashboardScreen() {
         setLoading(false);
       }
     },
-    [token, handleSessionError],
+    [token, canAssignQueue, canLinkCell, handleSessionError],
   );
 
   useEffect(() => {
@@ -348,7 +378,7 @@ export function DashboardScreen() {
 
   const handleAssign = useCallback(
     async (item: WorkItem, responsavelId: string) => {
-      if (!token) return;
+      if (!canAssignQueue || !token) return;
       setBusyItemId(item.id);
       clearConflict(item.id);
       setModal(null);
@@ -371,12 +401,21 @@ export function DashboardScreen() {
         setBusyItemId(null);
       }
     },
-    [token, clearConflict, patchItem, memberById, flashToast, handleSessionError, handleStale],
+    [
+      canAssignQueue,
+      token,
+      clearConflict,
+      patchItem,
+      memberById,
+      flashToast,
+      handleSessionError,
+      handleStale,
+    ],
   );
 
   const handleMessage = useCallback(
     async (item: WorkItem, mensagem: string) => {
-      if (!token) return;
+      if (!item.canMessage || !token) return;
       setBusyItemId(item.id);
       setModal(null);
       try {
@@ -397,7 +436,7 @@ export function DashboardScreen() {
 
   const handleLinkCell = useCallback(
     async (item: WorkItem, celulaId: string) => {
-      if (!token || !item.pessoaId) return;
+      if (!canLinkCell || !token || !item.pessoaId) return;
       setBusyItemId(item.id);
       setModal(null);
       try {
@@ -414,7 +453,7 @@ export function DashboardScreen() {
         setBusyItemId(null);
       }
     },
-    [token, flashToast, removeWithAnim, handleSessionError],
+    [canLinkCell, token, flashToast, removeWithAnim, handleSessionError],
   );
 
   const handleFonovisita = useCallback(
@@ -555,13 +594,21 @@ export function DashboardScreen() {
                       ? memberById.get(item.responsavelId)?.nome ?? null
                       : null
                   }
+                  canLinkCell={canLinkCell}
+                  canAssignQueue={canAssignQueue}
                   busy={busyItemId === item.id}
                   resolving={resolvingIds.has(item.id)}
                   conflict={conflicts[item.id] ?? null}
                   onAssume={handleAssume}
-                  onAssign={(it) => setModal({ kind: "assign", item: it })}
-                  onMessage={(it) => setModal({ kind: "message", item: it })}
-                  onLinkCell={(it) => setModal({ kind: "linkCell", item: it })}
+                  onAssign={(it) => {
+                    if (canAssignQueue) setModal({ kind: "assign", item: it });
+                  }}
+                   onMessage={(it) => {
+                     if (it.canMessage) setModal({ kind: "message", item: it });
+                   }}
+                  onLinkCell={(it) => {
+                    if (canLinkCell) setModal({ kind: "linkCell", item: it });
+                  }}
                   onFonovisita={handleFonovisita}
                 />
               ))}
@@ -612,7 +659,10 @@ export function DashboardScreen() {
         </aside>
       </div>
 
-      {modal ? (
+      {modal &&
+      (modal.kind !== "linkCell" || canLinkCell) &&
+      (modal.kind !== "assign" || canAssignQueue) &&
+      (modal.kind !== "message" || modal.item.canMessage) ? (
         <ActionModal
           modal={modal}
           members={members}
@@ -677,7 +727,7 @@ function ActionModal({
   onLinkCell,
 }: {
   modal: ModalState;
-  members: TeamMember[];
+  members: TeamLookupMember[];
   cells: Cell[];
   onClose: () => void;
   onAssign: (item: WorkItem, responsavelId: string) => void;
@@ -687,6 +737,9 @@ function ActionModal({
   const { kind, item } = modal;
   const [text, setText] = useState("");
   const activeCells = cells.filter((c) => c.ativo && c.liderId);
+  const eligibleMembers = members.filter((member) =>
+    member.tiposFila.includes(item.tipo),
+  );
 
   const title =
     kind === "assign"
@@ -699,10 +752,10 @@ function ActionModal({
     <DsDialog open onClose={onClose} title={title} description={item.titulo}>
       {kind === "assign" ? (
         <div className="dh-picker">
-          {members.length === 0 ? (
+          {eligibleMembers.length === 0 ? (
             <p className="dh-picker-empty">Nenhum membro disponível para atribuição.</p>
           ) : (
-            members.map((m) => (
+            eligibleMembers.map((m) => (
               <button
                 type="button"
                 key={m.usuarioId}
@@ -710,7 +763,11 @@ function ActionModal({
                 onClick={() => onAssign(item, m.usuarioId)}
               >
                 <span className="dh-picker-nm">{m.nome}</span>
-                <span className="dh-picker-sub">{m.email}</span>
+                <span className="dh-picker-sub">
+                  {sortedRoles(normalizeRoles(m.papeis))
+                    .map((role) => ROLE_DEFS[role].label)
+                    .join(" · ")}
+                </span>
               </button>
             ))
           )}

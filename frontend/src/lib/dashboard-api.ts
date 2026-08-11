@@ -82,6 +82,8 @@ export interface WorkItem {
   pessoaId: string | null;
   responsavelId: string | null;
   prioridade: number | null;
+  /** Capacidade por item, resolvida no backend conforme a conversa atribuída. */
+  canMessage: boolean;
   /** ISO-8601 ou null quando o item não tem prazo. */
   prazo: string | null;
 }
@@ -93,6 +95,11 @@ export interface TeamMember {
   status: string | null;
   papeis: string[];
   pessoaId: string | null;
+}
+
+export interface TeamLookupMember extends TeamMember {
+  /** Tipos de item que este usuário pode receber, derivados no servidor. */
+  tiposFila: string[];
 }
 
 export interface Cell {
@@ -252,16 +259,35 @@ export async function fetchTeam(token: string, pageSize = 100): Promise<Page<Tea
 }
 
 /**
- * Busca ENXUTA de membros (id, nome, papéis; e-mail vazio) para o painel
- * resolver o nome do responsável de cada item — liberada a qualquer papel. A
- * lista completa com e-mail (GET /team) é restrita a admin/pastor/lider_g12.
+ * Busca ENXUTA de destinos elegíveis (id, nome, papéis, tipos de fila; e-mail
+ * vazio) para o seletor de atribuição. O backend a restringe aos mesmos papéis
+ * que podem atribuir a fila; os demais papéis não devem chamar este endpoint.
+ * A lista completa com e-mail (GET /team) mantém seu contrato administrativo.
  */
-export async function fetchTeamLookup(token: string, pageSize = 200): Promise<Page<TeamMember>> {
-  const res = await authedFetch(token, `/team/lookup?page=1&pageSize=${pageSize}`);
-  if (!res.ok) {
-    throw new ApiError(res.status, "Não foi possível carregar a equipe.");
-  }
-  return (await res.json()) as Page<TeamMember>;
+export async function fetchTeamLookup(
+  token: string,
+  pageSize = 200,
+): Promise<Page<TeamLookupMember>> {
+  const items: TeamLookupMember[] = [];
+  let page = 1;
+  let total = 0;
+
+  do {
+    const res = await authedFetch(
+      token,
+      `/team/lookup?page=${page}&pageSize=${pageSize}`,
+    );
+    if (!res.ok) {
+      throw new ApiError(res.status, "Não foi possível carregar a equipe.");
+    }
+    const chunk = (await res.json()) as Page<TeamLookupMember>;
+    total = chunk.total;
+    items.push(...chunk.items);
+    if (chunk.items.length === 0) break;
+    page += 1;
+  } while (items.length < total);
+
+  return { items, page: 1, pageSize, total };
 }
 
 export async function fetchOverview(token: string): Promise<OverviewStats> {

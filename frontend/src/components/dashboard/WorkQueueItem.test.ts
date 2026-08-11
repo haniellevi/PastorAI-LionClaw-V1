@@ -2,10 +2,11 @@
 /**
  * Gate 7 (Onda 4A): regressão do item da fila pastoral — a repaginação visual
  * NÃO pode mudar o conjunto de ações nem a ação principal de cada tipo:
- *  - visitante/conectar_celula → principal "Conectar à célula";
+ *  - visitante/conectar_celula → principal "Conectar à célula" quando permitido;
  *  - fonovisita → principal "Fonovisita" (semântica intacta — mesmo callback);
  *  - atendimento/relatorio → principal "Assumir";
- *  - Assumir/Atribuir/Mensagem presentes em TODOS os tipos;
+ *  - Assumir presente em todos os tipos; Mensagem somente quando autorizada;
+ *    Atribuir quando permitido;
  *  - assumido → "Assumido" desabilitado; busy → tudo desabilitado.
  *
  * Sem JSX (createElement): o tsconfig do Next usa jsx:"preserve".
@@ -33,6 +34,7 @@ const baseItem = (over: Partial<WorkItem>): WorkItem => ({
   pessoaId: "p1",
   responsavelId: null,
   prioridade: 1,
+  canMessage: true,
   prazo: new Date(Date.now() + 3600e3).toISOString(),
   ...over,
 });
@@ -56,6 +58,8 @@ function render(item: WorkItem, extra: Record<string, unknown> = {}) {
         item,
         now: Date.now(),
         responsibleName: null,
+        canLinkCell: true,
+        canAssignQueue: true,
         ...callbacks,
         ...extra,
       }),
@@ -95,6 +99,40 @@ describe("WorkQueueItem — ação principal por tipo (Gate 7)", () => {
       expect(b.get("Conectar à célula")!.primary).toBe(true);
       expect(b.get("Assumir")!.primary).toBe(false);
     }
+  });
+
+  it("capacidade negada oculta vínculo e preserva as demais ações", () => {
+    const onLinkCell = vi.fn();
+    render(baseItem({ tipo: "visitante" }), { canLinkCell: false, onLinkCell });
+
+    const b = buttons();
+    expect([...b.keys()]).toEqual(["Assumir", "Atribuir", "Mensagem"]);
+    expect(b.get("Assumir")!.primary).toBe(true);
+    expect(onLinkCell).not.toHaveBeenCalled();
+  });
+
+  it("capacidade de atribuição negada oculta Atribuir e preserva Assumir", () => {
+    const onAssign = vi.fn();
+    const onAssume = vi.fn();
+    render(baseItem({ tipo: "atendimento" }), {
+      canAssignQueue: false,
+      onAssign,
+      onAssume,
+    });
+
+    expect([...buttons().keys()]).toEqual(["Assumir", "Mensagem"]);
+    act(() => buttonWithText("Assumir")?.click());
+    expect(onAssume).toHaveBeenCalledTimes(1);
+    expect(onAssign).not.toHaveBeenCalled();
+  });
+
+  it("capacidade de mensagem negada oculta o CTA e mantém o handler inerte", () => {
+    const onMessage = vi.fn();
+    render(baseItem({ tipo: "atendimento", canMessage: false }), { onMessage });
+
+    expect([...buttons().keys()]).toEqual(["Assumir", "Atribuir"]);
+    expect(buttonWithText("Mensagem")).toBeUndefined();
+    expect(onMessage).not.toHaveBeenCalled();
   });
 
   it("fonovisita: 'Fonovisita' primária, sem perder Assumir/Atribuir/Mensagem", () => {
@@ -152,3 +190,9 @@ describe("WorkQueueItem — ação principal por tipo (Gate 7)", () => {
     expect(alert?.textContent).toContain("Já tratado por Ana Lima");
   });
 });
+
+function buttonWithText(text: string): HTMLButtonElement | undefined {
+  return [...container.querySelectorAll("button")].find(
+    (button) => button.textContent?.trim() === text,
+  );
+}

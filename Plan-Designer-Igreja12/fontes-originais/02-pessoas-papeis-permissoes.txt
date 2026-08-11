@@ -1,0 +1,49 @@
+1- no menu pessoas - Pessoas sem interesse (rece em vermelho - fora da igreja (em vez de sem interesse) na coluna tipo.
+2- Vamos colocar todos de fora da igreja no final da lista sempre quando clicarmos em todos.
+3- quando clicamos abre o popup de editar pessoa (tem que ser editar dados), esse popup nao deve abrir agora, somente se clicarmos na aba do lado com as informações, Aqui tem o botão vincular célula editar dados. Só se eu clicar em editar dados que vai abrir esse pop-up para editar os dados.
+4- Somente o pastor principal ou admin pode visualizar o menu pessoas, somente eles podem editar pessoas.
+5- Nesse editar pessoas está faltando colocar como líder, mas sabemos que o líder, se ele for selecionado, precisa indicar a célula que ele está liderando. Então precisamos daqui mandar para a criação de uma célula. Ou podemos criar um pop-up ao lado que traga a criação de célula. Onde ele precisa cumprir os requisitos para liderar a célula. Tem que ser uma pessoa apta a liderar, já tem que estar marcado. E ele precisa indicar um líder superior acima dele e preencher os dados da célula. E depois disso vai mandar a solicitação de nova célula para a central de célula aprovar. Só então ele se torna um líder de célula. E aí, no caso, esse tipo de pessoa fica como líder em atualização. E depois que o central de célula aprovar, muda esse tipo para líder de célula. Automaticamente.
+6- Esses menus de gestão que são pessoas e comunicação devem pertencer ao painel do admin. E o pastor, alguns pastores, podem receber esse privilégio, esse papel de administrador. Então só vai mostrar isso para os admin. Então vamos tirar do menu principal do aplicativo essa categoria Gestão com Pessoa e Comunicação. E passar para o painel da administração, painel admin e colocando eles nos respectivos lugares do menu admin.
+
+
+
+Mudanças
+
+1- Plano da igreja no master, pode ser amostra gratuita e define a qua
+2- Destinatarios de avisos- nao etendi essa parte.
+3- Assinatura asaas configurada, isso nao é configurado, isso acontece na contratação junto a landpage que será criada e gerenciada no master.
+4- nenhuma tela lista o que falta, o admin deve receber um guia interatipo para configurar a igreja, talvez essa funcionalidade seja algo a ser desenvolvida no final de tudo.
+5- no admin/calendario ainda aparece destinatatio de avisos. Essa função fica na hora de confirmar eventos trazidos na importação do google ou edição de eventos já aprovados visiveis no agenda. Na lsita a confirmar, podemos criar um numero de ordem por data na listagem.
+6- Todas as pessoas definidas com Fora da Igreja (csim, sem interesse) automaticamente deve pausar atendimento da IA no chat. E ficar por ultima na lista de todas as pessoas do chat, devemos mostrar no chat apenas as pessoas que nao sao csim primeiro, e no fim da lista todas csim.
+
+
+Gargalos Atuais-
+O organograma ministerial deve ser configurável, tem igreja que tem apenas pastor, igreja que tem pator e pastora(casal) e ambos tem descendencias(discipulos abaixo de si), tem igreja que tem apenas pastora. O admin deve responder um questionário onde o agente vai configurar o organograma da igreja, isso significa que ele vai abrir os espaços de pessoas que devem ser preenchidos. 
+ex: pastor apenaas - abre o espaço de Pastor Principal, abaixo dele 12 espaços para o G12 pastoral (que podem ficar vazios se nao tiver os 12 ainda), depois o admin cadastra os 12 existentes (esses 12 sao pessoas da igreja que precisam receber o convite de cadastro), eles podem ser pessoas sem formação alguma na visão g12, e o admin pode marcar em caixas de seleção toda formação/trilha da visão do g12 pastoral).
+Depois do cadastro de pelo menos um g12, a criação de celulas manual (sem vir de multiplicaçãoes) estão ativas, e o admin pode cadastrar celulas abaixo do g12 pastoral ou abaixo do proprio pastor principal (caso ele nao tenha nenhum g12 pastoral ainda) e todo o restante da igreja virá abaixo dessa estrutura ministerial.
+
+Se for pastora apenas será da mesma forma.
+Se for casal, abrirá duas arvores genealogicas, a estrutura do pastor (aceita apenas homens no espaço de g12 pastoral) e a estrutura da pastora (apenas mulheres no g12) e o restante da igreja abaixo deles.
+
+O g12 pastoral pode ser lider de celula, pode ser marcado como ainda nao lidera celula (mas participa de uma celula ativa que pode ser do pastor ou de outro g12 pastoral)
+
+
+
+Decisoes Pendentes
+1- Convite deve ser feito sempre por um lider de celula para sua respectiva celula, então ele entra como membro ou visitante daquela celula.
+Se o admin ou central de celula vai adicionar pessoa, tem que indicar a celula e decidir se será visitante ou membro daquela respectiva celula. Ninguem será adicionado sem ficar dentro de uma celula, mas uma pessoa pode entrar na fila de cadastro do ganhar se for contato, visitante da igreja como ja temos no plano.
+
+2- Somente admins ou o lider do Discipular (será responsavel por tudo que envolve o menu discipular)
+
+3- Nao entendi, o · O toggle do agente (master) deve valer?
+
+4- Nao entendi tbm.
+
+5- Celula multiplicada sempre fica vinculada a celula mae, mas futuramente pode ser alterado pela Central de Celulas em editar celula.
+
+6- Respondi acima sobre g12 pastoral.
+
+
+Erros encontrados -
+1-No caso, está aparecendo aqui, dá acesso ao painel. Aí escolhe essa pessoa. Esse cadastro aqui, que já é um líder de celula. E ele aparece aqui para eu colocar ele como célula do convidado. Para vincular ele a célula que ele mesmo lidera. Então existe um erro aqui, porque esse é o líder de cello e ele não tinha acesso ao sistema. Nós temos que criar essa segurança. Não pode ter um líder de cello. Ninguém pode ser configurado como líder de cello, se não tiver acesso ao painel primeiro. E para colocar uma pessoa dentro do sistema, ele pode ser colocado como membro. It não tem que ser colocado somente como a cello do convidado. Ele não está sendo convidado. Ele pode ser colocado como uma persona who está abaixo de alguém. Somente o pastor da igreja pode ser cadastrado sem estar abaixo de alguém. Pastor primeiro, pastor principal. But qualquer outra persona who adicionated, precisa estar vinculada. Se ela não tem uma cello, se ela não é de uma cello, ela tem que estar pelo menos abaixo do pastor principal.
+

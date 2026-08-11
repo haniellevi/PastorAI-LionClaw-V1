@@ -19,7 +19,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import func, select
+from sqlalchemy import false, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -40,6 +40,15 @@ router = APIRouter(tags=["cells"])
 
 # Roles that may create a cell (admin always passes via has_any_role).
 CELL_CREATE_ROLES = ["pastor", "lider_g12"]
+# Roles with tenant-wide read access (admin passes implicitly).
+CELL_TENANT_WIDE_READ_ROLES = [
+    "pastor",
+    "lider_g12",
+    "lider_mult",
+    "operador",
+]
+# Roles with tenant-wide access to the G12 leadership forest (admin implicit).
+DESCENDENCIAS_TENANT_WIDE_ROLES = ["pastor", "lider_g12"]
 # Roles treated as superior to any cell leader for edit authorization.
 CELL_EDIT_SUPERIOR_ROLES = ["pastor"]
 # Papéis válidos de vínculo em celula_membro (enum celula_membro_papel).
@@ -235,6 +244,58 @@ def _actor_pessoa_id(db: Session, current_user: CurrentUser) -> str | None:
     return str(pessoa_id) if pessoa_id else None
 
 
+def _cell_read_scope_filters(
+    db: Session, current_user: CurrentUser
+) -> list:
+    """Predicates shared by cell list/count/detail reads.
+
+    Wide accumulated roles retain the tenant-wide RLS view. Restricted roles
+    fail closed and carry explicit tenant predicates as defense in depth.
+    """
+
+    if current_user.has_any_role(CELL_TENANT_WIDE_READ_ROLES):
+        return []
+
+    actor_pessoa_id = _actor_pessoa_id(db, current_user)
+    if actor_pessoa_id is None:
+        return [false()]
+
+    igreja_id = uuid.UUID(current_user.igreja_id)
+    actor_id = uuid.UUID(actor_pessoa_id)
+
+    if "lider_celula" in current_user.roles:
+        return [
+            Celula.igreja_id == igreja_id,
+            Celula.lider_id == actor_id,
+        ]
+
+    celulas_do_membro = select(CelulaMembro.celula_id).where(
+        CelulaMembro.igreja_id == igreja_id,
+        CelulaMembro.pessoa_id == actor_id,
+        CelulaMembro.ativo.is_(True),
+    )
+    return [
+        Celula.igreja_id == igreja_id,
+        Celula.ativo.is_(True),
+        Celula.id.in_(celulas_do_membro),
+    ]
+
+
+def _can_view_cell_alerts(
+    db: Session, current_user: CurrentUser, cell: Celula
+) -> bool:
+    """Allow pastoral alert details only to pastors/admins or the cell leader."""
+    if current_user.has_any_role(["pastor"]):
+        return True
+
+    actor_pessoa_id = _actor_pessoa_id(db, current_user)
+    return (
+        actor_pessoa_id is not None
+        and cell.lider_id is not None
+        and str(cell.lider_id) == actor_pessoa_id
+    )
+
+
 def _lider_of_map(db: Session) -> dict[str, str | None]:
     """Tenant-scoped pessoa_id -> lider_id mapping for hierarchy walks."""
     rows = db.execute(select(Pessoa.id, Pessoa.lider_id)).all()
@@ -418,9 +479,13 @@ def list_cells(
     current_user: CurrentUser = Depends(get_current_user),
 ) -> Page[CellOut]:
     """List the tenant's cells, paginated."""
-    total = db.execute(select(func.count()).select_from(Celula)).scalar_one()
+    scope_filters = _cell_read_scope_filters(db, current_user)
+    total = db.execute(
+        select(func.count()).select_from(Celula).where(*scope_filters)
+    ).scalar_one()
     rows = db.execute(
         select(Celula)
+        .where(*scope_filters)
         .order_by(Celula.created_at.desc())
         .offset(pagination.offset)
         .limit(pagination.limit)
@@ -440,7 +505,15 @@ def get_cell(
     current_user: CurrentUser = Depends(get_current_user),
 ) -> CellDetailOut:
     """Return a cell with its open alerts."""
-    cell = _get_cell_or_404(db, cell_id)
+    cell = _get_cell_or_404(
+        db,
+        cell_id,
+        scope_filters=_cell_read_scope_filters(db, current_user),
+    )
+
+    detail = CellDetailOut.from_model(cell)
+    if not _can_view_cell_alerts(db, current_user, cell):
+        return detail
 
     alerts = db.execute(
         select(CellAlert)
@@ -448,7 +521,6 @@ def get_cell(
         .order_by(CellAlert.created_at.desc())
     ).scalars().all()
 
-    detail = CellDetailOut.from_model(cell)
     detail.alerts = [AlertOut.from_model(a) for a in alerts]
     return detail
 
@@ -761,15 +833,44 @@ def descendencias(
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> list[TreeNode]:
-    """Return the leadership tree built from pessoas.lider_id.
+    """Return the tenant-scoped leadership tree built from pessoas.lider_id."""
 
-    By default the tree is rooted at the acting user's linked person (their
-    downline). An explicit ?rootId= overrides it. When no root can be resolved,
-    the full forest (people with no leader) is returned.
-    """
+    wide_scope = current_user.has_any_role(DESCENDENCIAS_TENANT_WIDE_ROLES)
+    actor_pessoa_id: str | None = None
+    normalized_root: str | None = None
 
+    if root_id is not None:
+        try:
+            normalized_root = str(uuid.UUID(root_id))
+        except (ValueError, AttributeError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Raiz não encontrada",
+            ) from exc
+
+    if not wide_scope:
+        actor_pessoa_id = _actor_pessoa_id(db, current_user)
+        if actor_pessoa_id is None:
+            if root_id is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Raiz não encontrada",
+                )
+            return []
+
+        actor_pessoa_id = str(uuid.UUID(actor_pessoa_id))
+        if normalized_root is not None and normalized_root != actor_pessoa_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Raiz não encontrada",
+            )
+        normalized_root = actor_pessoa_id
+
+    igreja_id = uuid.UUID(current_user.igreja_id)
     rows = db.execute(
-        select(Pessoa.id, Pessoa.nome, Pessoa.tipo, Pessoa.lider_id)
+        select(Pessoa.id, Pessoa.nome, Pessoa.tipo, Pessoa.lider_id).where(
+            Pessoa.igreja_id == igreja_id
+        )
     ).all()
 
     # node lookup and parent -> children adjacency.
@@ -781,24 +882,43 @@ def descendencias(
         key = str(lider_id) if lider_id else None
         children.setdefault(key, []).append(spid)
 
+    allow_descendants = wide_scope or bool(
+        current_user.roles & {"lider_mult", "lider_celula"}
+    )
+
     def build(node_id: str) -> TreeNode:
         nome, tipo = info[node_id]
         return TreeNode(
             id=node_id,
             nome=nome,
             tipo=tipo,
-            children=[build(cid) for cid in children.get(node_id, [])],
+            children=(
+                [build(cid) for cid in children.get(node_id, [])]
+                if allow_descendants
+                else []
+            ),
         )
 
-    resolved_root = root_id or _actor_pessoa_id(db, current_user)
-    if resolved_root:
-        return [build(resolved_root)] if resolved_root in info else []
+    if normalized_root is not None:
+        if normalized_root not in info:
+            if root_id is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Raiz não encontrada",
+                )
+            return []
+        return [build(normalized_root)]
 
-    # No root: return the forest of top-level people (lider_id is null).
+    # Only broad roles reach this branch: tenant-wide forest roots.
     return [build(pid) for pid in children.get(None, [])]
 
 
-def _get_cell_or_404(db: Session, cell_id: str) -> Celula:
+def _get_cell_or_404(
+    db: Session,
+    cell_id: str,
+    *,
+    scope_filters: list | None = None,
+) -> Celula:
     try:
         cell_uuid = uuid.UUID(cell_id)
     except ValueError as exc:
@@ -806,7 +926,7 @@ def _get_cell_or_404(db: Session, cell_id: str) -> Celula:
             status_code=status.HTTP_404_NOT_FOUND, detail="Célula não encontrada"
         ) from exc
     cell = db.execute(
-        select(Celula).where(Celula.id == cell_uuid)
+        select(Celula).where(Celula.id == cell_uuid, *(scope_filters or []))
     ).scalar_one_or_none()
     if cell is None:
         raise HTTPException(

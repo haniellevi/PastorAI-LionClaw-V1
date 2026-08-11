@@ -18,7 +18,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, field_validator, model_validator
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.config import get_settings
@@ -31,6 +31,8 @@ from app.deps import (
     get_current_user,
     require_role,
 )
+from app.domain.conversations import INBOX_ROLES, can_access_inbox
+from app.domain.work_queue import TIPO_RESOLVER_ROLES, resolvable_tipos
 from app.routers._common import Page, PaginationParams
 from app.services.brevo import BrevoClient, BrevoError, get_brevo_client
 from app.services.celula_membro import ensure_active_membro
@@ -143,6 +145,20 @@ class TeamMemberOut(BaseModel):
     pessoaId: str | None = None  # noqa: N815 - liga ao registro de Pessoa
 
 
+class TeamLookupOut(TeamMemberOut):
+    """Minimal assignment-picker projection with server-derived capabilities."""
+
+    tiposFila: list[str] = Field(default_factory=list)  # noqa: N815
+
+
+class InboxLookupOut(BaseModel):
+    """Minimal transfer destination, without e-mail or person data."""
+
+    usuarioId: str  # noqa: N815
+    nome: str
+    papeis: list[str]
+
+
 def _activation_link(app_user_id: uuid.UUID, clerk: ClerkClient) -> str:
     """Link de ativação com token de convite assinado (expira em 7 dias)."""
     token = clerk.mint_invite_token(str(app_user_id))
@@ -220,43 +236,136 @@ def list_members(
     )
 
 
-@router.get("/lookup", response_model=Page[TeamMemberOut])
+@router.get("/lookup", response_model=Page[TeamLookupOut])
 def list_members_lookup(
     pagination: PaginationParams = Depends(),
     db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(get_current_user),
-) -> Page[TeamMemberOut]:
-    """Lista ENXUTA de membros (id, nome, papéis) para o painel.
+    current_user: CurrentUser = Depends(
+        require_role(["admin", "pastor", "lider_g12", "lider_consol"])
+    ),
+) -> Page[TeamLookupOut]:
+    """Lista ENXUTA de destinos para o modal de atribuição da fila.
 
-    Acessível a qualquer usuário autenticado do tenant: o dashboard precisa
-    resolver o NOME (e o papel) do responsável de cada item da fila — para todos
-    os papéis. O e-mail (PII) é OMITIDO de propósito; a lista completa com e-mail
-    vive em GET /team, restrita a admin/pastor/lider_g12.
+    Usa o mesmo gate da ação ``assign``: admin, pastor, líder G12 e líder de
+    consolidação. Usuários que só assumem itens não recebem o diretório do
+    tenant. Contagem e paginação já excluem contas sem capacidade para qualquer
+    tipo de fila; o cliente percorre as páginas e filtra ``tiposFila`` para o
+    item atual, enquanto o POST revalida o tipo. O e-mail (PII) continua omitido.
     """
 
+    igreja_id = uuid.UUID(current_user.igreja_id)
+    assignable_roles = {ADMIN_ROLE}
+    for roles in TIPO_RESOLVER_ROLES.values():
+        assignable_roles.update(roles)
+    assignable_user_ids = select(UserRole.user_id).where(
+        UserRole.igreja_id == igreja_id,
+        UserRole.papel.in_(tuple(sorted(assignable_roles))),
+    )
+    lookup_filters = (
+        AppUser.igreja_id == igreja_id,
+        or_(AppUser.status.is_(None), AppUser.status == "ativo"),
+        AppUser.id.in_(assignable_user_ids),
+    )
+
     total = db.execute(
-        select(func.count()).select_from(AppUser)
+        select(func.count()).select_from(AppUser).where(*lookup_filters)
     ).scalar_one()
     users = db.execute(
         select(AppUser)
         .options(joinedload(AppUser.roles))
+        .where(*lookup_filters)
         .order_by(AppUser.nome.asc())
         .offset(pagination.offset)
         .limit(pagination.limit)
     ).unique().scalars().all()
 
-    return Page[TeamMemberOut](
+    return Page[TeamLookupOut](
         items=[
-            TeamMemberOut(
+            TeamLookupOut(
                 usuarioId=str(u.id),
                 nome=u.nome,
                 email="",  # PII omitida na busca enxuta do painel
                 status=None,
                 papeis=sorted(role.papel for role in u.roles),
                 pessoaId=str(u.pessoa_id) if u.pessoa_id else None,
+                tiposFila=sorted(
+                    resolvable_tipos(role.papel for role in u.roles)
+                ),
             )
             for u in users
         ],
+        page=pagination.page,
+        pageSize=pagination.page_size,
+        total=int(total),
+    )
+
+
+def _require_inbox_lookup(
+    current_user: CurrentUser = Depends(get_current_user),
+) -> CurrentUser:
+    """Gate the transfer directory with the canonical inbox role policy."""
+
+    if not can_access_inbox(current_user.roles):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Você não tem permissão para acessar destinos do inbox",
+        )
+    return current_user
+
+
+@router.get("/inbox-lookup", response_model=Page[InboxLookupOut])
+def list_inbox_transfer_targets(
+    pagination: PaginationParams = Depends(),
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(_require_inbox_lookup),
+) -> Page[InboxLookupOut]:
+    """List active same-tenant users eligible to receive a conversation.
+
+    This endpoint is deliberately separate from ``/team/lookup``. Restricted
+    inbox roles may discover only valid transfer destinations, never the queue
+    assignment directory or user e-mails.
+    """
+
+    igreja_id = uuid.UUID(current_user.igreja_id)
+    eligible_roles = tuple(sorted({ADMIN_ROLE, *INBOX_ROLES}))
+    eligible_user_ids = select(UserRole.user_id).where(
+        UserRole.igreja_id == igreja_id,
+        UserRole.papel.in_(eligible_roles),
+    )
+    filters = (
+        AppUser.igreja_id == igreja_id,
+        or_(AppUser.status.is_(None), AppUser.status == "ativo"),
+        AppUser.id.in_(eligible_user_ids),
+    )
+
+    total = db.execute(
+        select(func.count()).select_from(AppUser).where(*filters)
+    ).scalar_one()
+    users = db.execute(
+        select(AppUser)
+        .options(joinedload(AppUser.roles))
+        .where(*filters)
+        .order_by(AppUser.nome.asc())
+        .offset(pagination.offset)
+        .limit(pagination.limit)
+    ).unique().scalars().all()
+
+    items: list[InboxLookupOut] = []
+    for user in users:
+        roles = sorted(role.papel for role in user.roles)
+        # Defense in depth if storage ever contains a role outside the SQL set.
+        if not can_access_inbox(roles):
+            continue
+        items.append(
+            InboxLookupOut(
+                usuarioId=str(user.id),
+                nome=user.chat_nome or user.nome,
+                papeis=roles,
+            )
+        )
+
+    return Page[InboxLookupOut](
+        items=items,
         page=pagination.page,
         pageSize=pagination.page_size,
         total=int(total),

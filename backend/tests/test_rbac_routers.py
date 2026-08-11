@@ -54,11 +54,11 @@ def test_post_fonovisita_forbidden_for_membro(app) -> None:
     assert resp.status_code == 403
 
 
-# ---- papel operacional passa o gate (não é barrado por 403) ---------------
+# ---- papel autorizado passa o gate (não é barrado por 403) -----------------
 def test_put_pipeline_allowed_role_passes_gate(app) -> None:
-    # lider_celula passa o gate de papel; o fluxo segue (404 por pessoa ausente
+    # lider_consol passa o gate de papel; o fluxo segue (404 por pessoa ausente
     # no fake), mas NÃO é barrado por 403.
-    resp = _client(app, ["lider_celula"]).put(
+    resp = _client(app, ["lider_consol"]).put(
         "/pipeline", json={"pessoaId": _PID, "etapa": "consolidar"}, headers=_AUTH
     )
     assert resp.status_code != 403

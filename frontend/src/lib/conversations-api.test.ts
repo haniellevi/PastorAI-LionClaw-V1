@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   fetchConversations,
+  fetchInboxTransferTargets,
   fetchMessages,
   MAX_MEDIA_BYTES,
   sendMedia,
@@ -32,6 +33,41 @@ describe("GETs do inbox", () => {
     if (!conversationsCall || !messagesCall) throw new Error("GETs esperados não foram chamados");
     expect(conversationsCall[1]).toMatchObject({ signal: conversationsController.signal });
     expect(messagesCall[1]).toMatchObject({ signal: messagesController.signal });
+  });
+
+  it("percorre todas as páginas de destinos de transferência", async () => {
+    const firstPage = Array.from({ length: 200 }, (_, index) => ({
+      usuarioId: `u-${index}`,
+      nome: `Responsável ${index}`,
+      papeis: ["operador"],
+    }));
+    const lastTarget = {
+      usuarioId: "u-eligible",
+      nome: "Responsável da página 2",
+      papeis: ["lider_celula"],
+    };
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ items: firstPage, page: 1, pageSize: 200, total: 201 }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ items: [lastTarget], page: 2, pageSize: 200, total: 201 }),
+          { status: 200 },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const result = await fetchInboxTransferTargets("token");
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(String(fetchSpy.mock.calls[1]?.[0])).toContain("page=2&pageSize=200");
+    expect(result.items).toHaveLength(201);
+    expect(result.items.at(-1)).toEqual(lastTarget);
   });
 });
 

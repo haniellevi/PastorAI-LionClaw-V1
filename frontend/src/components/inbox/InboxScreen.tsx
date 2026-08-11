@@ -29,6 +29,7 @@ import {
   deleteConversation,
   fetchConversationPhoto,
   fetchConversations,
+  fetchInboxTransferTargets,
   fetchMessages,
   handoffConversation,
   markConversationRead,
@@ -37,12 +38,9 @@ import {
   transferConversation,
   type ChatMessage,
   type Conversation,
+  type InboxTransferTarget,
 } from "@/lib/conversations-api";
-import {
-  clearAuthedResponseCache,
-  fetchTeamLookup,
-  type TeamMember,
-} from "@/lib/dashboard-api";
+import { clearAuthedResponseCache } from "@/lib/dashboard-api";
 import { Icon } from "@/lib/icons";
 import { isAdmin, type Role } from "@/lib/roles";
 import {
@@ -157,7 +155,7 @@ export function InboxScreen() {
   const [transferTarget, setTransferTarget] = useState<Conversation | null>(null);
   const [transferBusy, setTransferBusy] = useState(false);
   const [transferError, setTransferError] = useState<string | null>(null);
-  const [team, setTeam] = useState<TeamMember[]>([]);
+  const [team, setTeam] = useState<InboxTransferTarget[]>([]);
   const [teamLoading, setTeamLoading] = useState(false);
 
   // "unknown" quando o papel não pode ler a conexão (não-admin) — tratado como
@@ -652,7 +650,7 @@ export function InboxScreen() {
       setTransferTarget(c);
       if (team.length === 0 && token) {
         setTeamLoading(true);
-        fetchTeamLookup(token)
+        fetchInboxTransferTargets(token)
           .then((page) => setTeam(page.items))
           .catch(() => {})
           .finally(() => setTeamLoading(false));
