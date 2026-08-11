@@ -198,9 +198,86 @@ def test_attempt_is_persisted_before_send_and_success_is_recorded(
     )
 
     persisted = monitor.load_state(state)
-    assert result == 1
+    assert result == 0
     assert persisted["delivery_status"] == monitor.AlertDelivery.SENT.value
     assert persisted["delivered_at"] == now.isoformat()
+
+
+@pytest.mark.parametrize("failed", [{"backup"}, {"readiness"}])
+def test_operational_degradation_returns_zero_and_keeps_alert_state(
+    monkeypatch, tmp_path, failed: set[str]
+) -> None:
+    """Missing backup/readiness failure is an alert, not a failed unit install."""
+
+    _install_checks(monkeypatch, failed=failed)
+    monkeypatch.setattr(
+        monitor,
+        "send_brevo_alert",
+        lambda *_args, **_kwargs: monitor.AlertDelivery.SENT,
+    )
+
+    result = monitor.run(
+        {"MONITOR_STATE_FILE": str(tmp_path / "state.json")},
+        now=dt.datetime(2026, 8, 9, 12, tzinfo=UTC),
+    )
+
+    assert result == 0
+
+
+def test_missing_backup_manifest_is_operational_not_installer_failure(
+    monkeypatch, tmp_path
+) -> None:
+    """The first monitor tick must stay alive to report a missing M02 artifact."""
+
+    state = tmp_path / "state.json"
+    monkeypatch.setattr(
+        monitor,
+        "check_liveness",
+        lambda _config: monitor.CheckResult("liveness", True, "status=ok"),
+    )
+    monkeypatch.setattr(
+        monitor,
+        "check_readiness",
+        lambda _config: monitor.CheckResult("readiness", True, "status=ready"),
+    )
+    calls: list[str] = []
+    monkeypatch.setattr(
+        monitor,
+        "send_brevo_alert",
+        lambda *_args, **_kwargs: calls.append("alert") or monitor.AlertDelivery.SENT,
+    )
+
+    result = monitor.run(
+        {
+            "MONITOR_STATE_FILE": str(state),
+            "MONITOR_BACKUP_MANIFEST": str(tmp_path / "missing.json"),
+        },
+        now=dt.datetime(2026, 8, 9, 12, tzinfo=UTC),
+    )
+
+    assert result == 0
+    assert calls == ["alert"]
+    assert monitor.load_state(state)["signature"] == "backup"
+
+
+def test_brevo_failure_is_operational_degradation_not_process_failure(
+    monkeypatch, tmp_path
+) -> None:
+    _install_checks(monkeypatch, failed={"backup"})
+    monkeypatch.setattr(
+        monitor,
+        "send_brevo_alert",
+        lambda *_args, **_kwargs: monitor.AlertDelivery.DEFINITE_FAILURE,
+    )
+
+    state = tmp_path / "state.json"
+    result = monitor.run(
+        {"MONITOR_STATE_FILE": str(state)},
+        now=dt.datetime(2026, 8, 9, 12, tzinfo=UTC),
+    )
+
+    assert result == 0
+    assert monitor.load_state(state)["delivery_status"] == "failed"
 
 
 def test_concurrent_monitor_runs_send_one_alert(monkeypatch, tmp_path) -> None:
@@ -254,7 +331,7 @@ def test_concurrent_monitor_runs_send_one_alert(monkeypatch, tmp_path) -> None:
 
     assert not first.is_alive()
     assert not second.is_alive()
-    assert sorted(results) == [1, 1]
+    assert sorted(results) == [0, 0]
     assert calls == ["send"]
     assert monitor.load_state(state)["delivery_status"] == "sent"
     if os.name != "nt":

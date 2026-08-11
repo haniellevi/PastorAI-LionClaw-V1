@@ -162,7 +162,7 @@ def test_explicit_timer_enable_refuses_legacy_cron_before_writes() -> None:
     [
         ("copy", "preserve"),
         ("daemon-reload", "preserve"),
-        ("monitor-check", "preserve"),
+        ("unit-load", "preserve"),
         ("enable-monitor", "preserve"),
         ("enable-backup", "enable"),
     ],
@@ -182,3 +182,10 @@ def test_installer_is_idempotent_without_legacy_cron() -> None:
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert "IDEMPOTENT_OK" in result.stdout
+
+
+def test_operational_degradation_does_not_roll_back_a_valid_timer_install() -> None:
+    result = _run_harness("operational")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "OPERATIONAL_DEGRADATION_INSTALL_OK" in result.stdout

@@ -60,6 +60,13 @@ case "$command" in
   stop)
     for unit in "$@"; do rm -f -- "$state/$unit.active"; done
     ;;
+  show)
+    if [ "${FAKE_SYSTEMCTL_LOAD_FAIL:-0}" = 1 ]; then
+      printf '%s\n' not-found
+      exit 1
+    fi
+    printf '%s\n' loaded
+    ;;
   daemon-reload|list-timers) ;;
   *) echo "unexpected fake systemctl command: $command" >&2; exit 64 ;;
 esac
@@ -172,6 +179,16 @@ case "$SCENARIO" in
       exit 1
     fi
     printf 'ROLLBACK_OK step=%s mode=%s\n' "$fail_step" "$mode"
+    ;;
+  operational)
+    # No manifest or live API is required to install the timer.  The monitor
+    # reports those conditions on its own tick after the transaction commits.
+    export PASTORAI_BACKUP_TIMER_MODE=preserve
+    run_installer >/dev/null
+    [ -f "$INSTALL_DIR/production_monitor.py" ]
+    [ -f "$SYSTEMCTL_STATE/pastorai-monitor.timer.enabled" ]
+    [ -f "$SYSTEMCTL_STATE/pastorai-monitor.timer.active" ]
+    printf 'OPERATIONAL_DEGRADATION_INSTALL_OK\n'
     ;;
   idempotent)
     export PASTORAI_BACKUP_TIMER_MODE=preserve

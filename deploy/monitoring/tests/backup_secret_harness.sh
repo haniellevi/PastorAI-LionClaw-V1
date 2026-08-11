@@ -3,7 +3,7 @@ set -eu
 
 TEST_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 DEPLOY_DIR=$(CDPATH= cd -- "$TEST_DIR/../.." && pwd)
-BACKUP_SCRIPT="$DEPLOY_DIR/backup-production.sh"
+INSTALL_SCRIPT="$DEPLOY_DIR/install-legacy-backup.sh"
 SANDBOX=$(mktemp -d "${TMPDIR:-/tmp}/pastorai-backup-secret-test.XXXXXX")
 SIGNAL_PGID=""
 cleanup_sandbox() {
@@ -20,11 +20,20 @@ BACKUP_ROOT="$SANDBOX/backups"
 ENV_FILE="$SANDBOX/deploy.env"
 COMPOSE_FILE="$SANDBOX/docker-compose.yml"
 BIN_DIR="$SANDBOX/bin"
+LEGACY_ROOT="$SANDBOX/legacy"
+BACKUP_SCRIPT="$LEGACY_ROOT/usr/local/sbin/pastorai-backup.sh"
+HELPER_DIR="$LEGACY_ROOT/usr/local/libexec/pastorai-backup"
+HELPER="$HELPER_DIR/prepare-database-service.py"
+HELPER_SHA256="$HELPER.sha256"
 REAL_PYTHON=$(command -v python3)
 mkdir -p "$BACKUP_ROOT" "$BIN_DIR"
 printf 'DATABASE_URL=%s\nSUPABASE_URL=https://unused.invalid\nSUPABASE_SERVICE_ROLE_KEY=unused\n' "$SECRET" >"$ENV_FILE"
 printf 'services: {}\n' >"$COMPOSE_FILE"
 chmod 0600 "$ENV_FILE" "$COMPOSE_FILE"
+PASTORAI_LEGACY_BACKUP_INSTALL_TEST_MODE=1 \
+PASTORAI_LEGACY_BACKUP_TARGET="$BACKUP_SCRIPT" \
+PASTORAI_LEGACY_BACKUP_HELPER_DIR="$HELPER_DIR" \
+bash "$INSTALL_SCRIPT" >/dev/null
 
 cat >"$BIN_DIR/python3" <<'EOF'
 #!/usr/bin/env sh
@@ -179,6 +188,8 @@ start_backup() {
     PASTORAI_COMPOSE_FILE="$COMPOSE_FILE" \
     PASTORAI_BACKUP_LOCK_FILE="$SANDBOX/backup.lock" \
     PASTORAI_BACKUP_MONITOR_MANIFEST="$SANDBOX/backup-status.json" \
+    PASTORAI_BACKUP_HELPER="$HELPER" \
+    PASTORAI_BACKUP_HELPER_SHA256="$HELPER_SHA256" \
     bash "$BACKUP_SCRIPT" >"$inspect_dir/output" 2>&1
   ) &
   BACKUP_PID=$!
@@ -252,6 +263,8 @@ setsid --fork --wait env \
   PASTORAI_COMPOSE_FILE="$COMPOSE_FILE" \
   PASTORAI_BACKUP_LOCK_FILE="$SANDBOX/backup-signal.lock" \
   PASTORAI_BACKUP_MONITOR_MANIFEST="$SANDBOX/backup-status.json" \
+  PASTORAI_BACKUP_HELPER="$HELPER" \
+  PASTORAI_BACKUP_HELPER_SHA256="$HELPER_SHA256" \
   bash "$BACKUP_SCRIPT" >"$SIGNAL/output" 2>&1 &
 signal_runner=$!
 set -e

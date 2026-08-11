@@ -13,11 +13,12 @@ unset DATABASE_URL PGPASSWORD PGHOST PGHOSTADDR PGPORT PGDATABASE PGUSER \
   PGSSLROOTCERT PGSSLCRL PGCONNECT_TIMEOUT PGAPPNAME PGTARGETSESSIONATTRS \
   PGCHANNELBINDING
 
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 BACKUP_ROOT="${PASTORAI_BACKUP_ROOT:-/root/pastorai-backups}"
 ENV_FILE="${PASTORAI_ENV_FILE:-/opt/pastorai-current/deploy/.env}"
 COMPOSE_FILE="${PASTORAI_COMPOSE_FILE:-/opt/pastorai-current/deploy/docker-compose.yml}"
 MONITOR_MANIFEST="${PASTORAI_BACKUP_MONITOR_MANIFEST:-/var/lib/pastorai-backup/backup-status.json}"
+DATABASE_SERVICE_HELPER="${PASTORAI_BACKUP_HELPER:-/usr/local/libexec/pastorai-backup/prepare-database-service.py}"
+DATABASE_SERVICE_HELPER_SHA256="${PASTORAI_BACKUP_HELPER_SHA256:-/usr/local/libexec/pastorai-backup/prepare-database-service.py.sha256}"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 BACKUP_DIR="${BACKUP_ROOT}/${STAMP}"
 ARCHIVE="${BACKUP_ROOT}/pastorai-backup-${STAMP}.tar.gz"
@@ -32,6 +33,36 @@ if [[ ! -s "${ENV_FILE}" || ! -s "${COMPOSE_FILE}" ]]; then
   echo "ERRO: release ativo sem .env ou docker-compose.yml" >&2
   exit 1
 fi
+
+validate_database_service_helper() {
+  local helper_stat checksum_stat expected actual
+  if [[ ! -f "${DATABASE_SERVICE_HELPER}" || -L "${DATABASE_SERVICE_HELPER}" \
+    || ! -f "${DATABASE_SERVICE_HELPER_SHA256}" || -L "${DATABASE_SERVICE_HELPER_SHA256}" ]]; then
+    echo "ERRO: pacote de credencial do backup incompleto" >&2
+    return 1
+  fi
+  helper_stat="$(stat -c '%u:%g:%a' "${DATABASE_SERVICE_HELPER}")"
+  checksum_stat="$(stat -c '%u:%g:%a' "${DATABASE_SERVICE_HELPER_SHA256}")"
+  if [[ "${helper_stat}" != "0:0:700" || "${checksum_stat}" != "0:0:600" ]]; then
+    echo "ERRO: permissao do pacote de credencial do backup invalida" >&2
+    return 1
+  fi
+  expected="$(tr -d '[:space:]' <"${DATABASE_SERVICE_HELPER_SHA256}")"
+  if [[ ! "${expected}" =~ ^[0-9a-fA-F]{64}$ ]]; then
+    echo "ERRO: checksum do pacote de credencial do backup invalido" >&2
+    return 1
+  fi
+  actual="$(sha256sum "${DATABASE_SERVICE_HELPER}" | awk '{print $1}')"
+  if [[ "${actual}" != "${expected,,}" ]]; then
+    echo "ERRO: checksum do pacote de credencial do backup divergente" >&2
+    return 1
+  fi
+}
+
+# The legacy cron starts only this script from /usr/local/sbin.  Validate its
+# fixed, separately-installed helper before creating credentials, pausing any
+# container, or beginning a backup.  No checkout-relative file is trusted.
+validate_database_service_helper
 
 mkdir -p "${BACKUP_ROOT}" "${BACKUP_DIR}"
 chmod 700 "${BACKUP_ROOT}" "${BACKUP_DIR}"
@@ -65,7 +96,7 @@ trap 'exit 143' TERM
 
 DATABASE_CREDENTIALS_DIR="$(mktemp -d "${BACKUP_ROOT}/.pg-credentials.XXXXXX")"
 chmod 700 "${DATABASE_CREDENTIALS_DIR}"
-python3 "${SCRIPT_DIR}/prepare-database-service.py" \
+python3 "${DATABASE_SERVICE_HELPER}" \
   "${ENV_FILE}" "${DATABASE_CREDENTIALS_DIR}"
 
 # libpq receives only a service name; the mode-0600 service/pass files are

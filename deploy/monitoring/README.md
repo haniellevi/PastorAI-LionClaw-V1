@@ -28,6 +28,26 @@ mas ele publica heartbeat apenas enquanto recebe progresso cooperativo do tick
 (descoberta, tenant, cron, cobrança e envio). Um tick travado deixa de renovar;
 um tick longo que atravessa várias unidades de trabalho continua saudável.
 
+## Resposta do agente no WhatsApp
+
+Antes de chamar a Evolution, o queue-worker grava uma intenção de saída em
+`messages`, protegida pelo índice outbound existente e por fence transacional.
+A chave opaca deriva do evento, claim e fingerprint da resposta. Apenas a
+intenção `ia_pendente` pode iniciar transporte; `ia_em_transporte`,
+`ia_ambigua`, falha e supressão nunca são reenviadas automaticamente. Uma
+resposta aceita só vira `ia` depois da persistência final. Se houver timeout,
+resposta ambígua, queda após a chamada ou falha de persistência, a linha fica
+para reconciliação operacional. A Evolution não documenta idempotência de
+envio, portanto este desenho evita duplicação automática, mas não promete
+entrega exatamente uma vez.
+
+Reconciliação é deliberadamente humana e não executa retry cego: o operador
+confere o evento no histórico da Evolution e a conversa correspondente antes
+de qualquer nova mensagem. Enquanto o estado for `ia_em_transporte` ou
+`ia_ambigua`, o worker não inicia outro transporte. Uma ação automática para
+reenviar só poderá existir em gate próprio, com confirmação explícita e prova
+de que o primeiro transporte não foi aceito.
+
 O monitor serializa processos concorrentes com lock `0600` e grava a transição
 e o instante da tentativa antes de chamar o Brevo.
 Falha HTTP inequívoca usa cooldown de uma hora; timeout ou resposta ambígua usa
@@ -65,7 +85,10 @@ nem instala plugin. Por padrão ele preserva o cron M02 e habilita somente o
 timer do monitor. Se detectar cron legado junto de timer de backup habilitado
 ou ativo, aborta antes de escrever qualquer arquivo. A instalação é
 transacional: arquivos, modos e estado anterior dos timers são restaurados se
-copy, `daemon-reload`, sondagem ou `enable --now` falhar. O timer de backup só
+copy, validação estrutural de unit, `daemon-reload` ou `enable --now` falhar.
+Manifesto ausente, `/ready` degradado ou indisponibilidade do Brevo são sinais
+operacionais: o timer de monitor permanece habilitado para alertar e observar a
+recuperação, sem rollback de uma instalação válida. O timer de backup só
 pode ser habilitado explicitamente, em uma máquina sem cron legado:
 
 ```bash
@@ -75,8 +98,9 @@ PASTORAI_BACKUP_TIMER_MODE=enable \
 ```
 
 Essa opção apenas habilita o timer; não executa backup durante a instalação.
-Use-a somente após preflight e migração operacional aprovada. No modo padrão,
-o instalador executa somente a primeira sondagem local. Depois valide:
+Use-a somente após preflight e migração operacional aprovada. O primeiro tick
+do monitor executa depois do commit da instalação e pode reportar degradação.
+Depois valide:
 
 ```bash
 systemctl list-timers pastorai-monitor.timer pastorai-backup.timer --all

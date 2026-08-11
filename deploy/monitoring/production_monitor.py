@@ -360,7 +360,12 @@ def run(config: dict[str, str], *, now: dt.datetime | None = None) -> int:
                 state["delivered_at"] = checked_at.isoformat()
                 state["notified_at"] = checked_at.isoformat()
         save_state(state_path, state)
-    return 1 if signature else 0
+    # Operational degradation is the monitor's payload, not a failed systemd
+    # installation.  Returning zero keeps a valid timer enabled so it can send
+    # the first alert and observe recovery; structural unit/load failures still
+    # fail through systemd and are handled by the installer transaction.
+    print(f"monitor_status={'degraded' if signature else 'healthy'}")
+    return 0
 
 
 def main() -> int:

@@ -36,9 +36,18 @@ Script versionado: `deploy/backup-production.sh`.
 Instalação esperada na VPS:
 
 ```bash
-install -o root -g root -m 700 backup-production.sh \
-  /usr/local/sbin/pastorai-backup.sh
+cd /opt/pastorai-current
+sudo bash deploy/install-legacy-backup.sh
 ```
+
+O instalador entrega atomicamente o pacote completo consumido pelo cron:
+`/usr/local/sbin/pastorai-backup.sh`,
+`/usr/local/libexec/pastorai-backup/prepare-database-service.py` e o sidecar
+SHA-256 do auxiliar. O script instalado não depende do checkout nem de caminho
+relativo. Antes de criar credenciais efêmeras ou pausar containers, ele exige
+arquivo regular, dono `root:root`, modos `0700`/`0600` e checksum válido.
+Ausência, alteração ou permissão incorreta falham fechadas antes de qualquer
+efeito operacional.
 
 Agendamento diário, às 06:15 UTC (03:15 em Brasília):
 

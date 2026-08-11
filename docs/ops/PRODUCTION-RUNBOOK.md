@@ -248,8 +248,9 @@ systemctl list-timers pastorai-monitor.timer pastorai-backup.timer --all
 journalctl -u pastorai-monitor.service -n 50 --no-pager
 ```
 
-O modo padrão preserva o cron M02, não habilita `pastorai-backup.timer` e executa
-somente a primeira sondagem local. Se houver cron legado junto de timer
+O modo padrão preserva o cron M02, não habilita `pastorai-backup.timer`; o
+primeiro tick do monitor ocorre depois do commit da instalação e uma degradação
+operacional não desfaz os arquivos/timer válidos. Se houver cron legado junto de timer
 habilitado ou ativo, o instalador aborta antes de escrever arquivos para impedir
 dois backups diários. Arquivos, permissões e estado anterior dos timers são
 restaurados se qualquer etapa da instalação falhar. Uma migração
@@ -261,6 +262,9 @@ pacote com seu sidecar antes de publicar o manifesto sanitizado
 `/var/lib/pastorai-backup/backup-status.json`. A URL do banco é transformada em
 arquivos libpq temporários `0600`, montados apenas para o `pg_dump`; URL e senha
 não ficam em argv ou ambiente de Python, Docker, `pg_dump` ou outros auxiliares.
+O cron M02 deve receber o pacote completo por `sudo bash
+deploy/install-legacy-backup.sh`; o entrypoint em `/usr/local/sbin` verifica o
+auxiliar fixo e seu checksum antes de qualquer backup ou pausa de containers.
 As units usam `ProtectSystem=strict` e paths de escrita explícitos. O monitor
 usa `DynamicUser`, `ProtectHome=true`, não acessa Docker, `.env` ou `/root` e
 valida somente o manifesto. O backup é uma unidade privilegiada separada porque

@@ -55,6 +55,10 @@ unit_active() {
   run_systemctl is-active --quiet "$1" 2>/dev/null
 }
 
+unit_loaded() {
+  [ "$(run_systemctl show --property=LoadState --value "$1" 2>/dev/null || true)" = loaded ]
+}
+
 fail_if_requested() {
   if [ "${PASTORAI_INSTALL_FAIL_STEP:-}" = "$1" ]; then
     echo "Falha de teste injetada em $1." >&2
@@ -287,8 +291,11 @@ apply_install() {
   fail_if_requested copy || return 1
   run_systemctl daemon-reload || return 1
   fail_if_requested daemon-reload || return 1
-  run_systemctl start pastorai-monitor.service || return 1
-  fail_if_requested monitor-check || return 1
+  # `production_monitor.py` returns zero for operational degradation so the
+  # timer can keep observing and alerting.  This check is structural only: an
+  # unloaded unit can never become healthy on a later timer tick.
+  unit_loaded pastorai-monitor.service || return 1
+  fail_if_requested unit-load || return 1
   run_systemctl enable --now pastorai-monitor.timer || return 1
   fail_if_requested enable-monitor || return 1
   if [ "$BACKUP_TIMER_MODE" = enable ]; then
@@ -310,4 +317,5 @@ else
   echo "Nenhum agendador de backup alterado; use PASTORAI_BACKUP_TIMER_MODE=enable somente apos preflight."
 fi
 run_systemctl list-timers pastorai-backup.timer pastorai-monitor.timer --all --no-pager || true
-echo "Monitor instalado. Revise: journalctl -u pastorai-monitor.service -n 50 --no-pager"
+echo "Monitor instalado. O primeiro tick reportara estado operacional degradado sem desfazer a instalacao."
+echo "Revise: journalctl -u pastorai-monitor.service -n 50 --no-pager"

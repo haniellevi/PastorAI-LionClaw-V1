@@ -193,10 +193,12 @@ def test_backup_uses_libpq_files_and_always_traps_temporary_secret() -> None:
     assert "--env PGSERVICE=pastorai_backup" in source
     assert "--env PGSERVICEFILE=/run/pastorai-backup/pg_service.conf" in source
     assert "unset DATABASE_URL PGPASSWORD" in source
-    assert source.index("unset DATABASE_URL") < source.index("SCRIPT_DIR=")
+    assert source.index("unset DATABASE_URL") < source.index("DATABASE_SERVICE_HELPER=")
     assert 'rm -rf -- "${DATABASE_CREDENTIALS_DIR}"' in source
     assert "trap cleanup EXIT" in source
-    assert "prepare-database-service.py" in source
+    assert "validate_database_service_helper" in source
+    assert "PASTORAI_BACKUP_HELPER" in source
+    assert "PASTORAI_BACKUP_HELPER_SHA256" in source
     assert "PASTORAI_BACKUP_MONITOR_MANIFEST" in source
 
 
@@ -490,14 +492,18 @@ def test_actual_pgdump_has_no_database_url_or_password_in_proc(tmp_path: Path) -
                 r'''
                     test -r /tmp/pastorai-pgdump.pid
                     pid=$(cat /tmp/pastorai-pgdump.pid)
-                    test -r "/proc/$pid/cmdline"
-                    test -r "/proc/$pid/environ"
-                    for proc in /proc/[0-9]*; do
-                      [ -r "$proc/cmdline" ] || continue
-                      printf '%s\n' "---PID:${proc##*/}:ARGV---"
-                      tr '\000' '\n' <"$proc/cmdline"
-                      printf '%s\n' "---PID:${proc##*/}:ENV---"
-                      tr '\000' '\n' <"$proc/environ"
+                    # The target is held at a deterministic PostgreSQL lock,
+                    # so inspect its exact process and the container entrypoint
+                    # rather than racing every transient PID under /proc.
+                    # A missing target is a test failure, never evidence that
+                    # a credential was absent.
+                    for proc in 1 "$pid"; do
+                      test -r "/proc/$proc/cmdline"
+                      test -r "/proc/$proc/environ"
+                      printf '%s\n' "---PID:${proc}:ARGV---"
+                      tr '\000' '\n' <"/proc/$proc/cmdline"
+                      printf '%s\n' "---PID:${proc}:ENV---"
+                      tr '\000' '\n' <"/proc/$proc/environ"
                     done
                 ''',
             ],

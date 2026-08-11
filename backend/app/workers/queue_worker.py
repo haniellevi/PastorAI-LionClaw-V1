@@ -47,7 +47,7 @@ from hashlib import sha256
 from threading import Event, Lock, Thread
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -350,6 +350,39 @@ class ClaimOwnershipLost(RuntimeError):
     """Raised when a recovered queue item no longer belongs to this worker."""
 
 
+class AgentReplyRetryable(RuntimeError):
+    """A reply failed before Evolution could accept it and can be retried safely."""
+
+
+# A resposta do agente usa a própria tabela ``messages`` como ledger durável.
+# A migration MSG-IDEMP-1 já criou o índice parcial único outbound sobre
+# ``(igreja_id, provider_message_id)``.  Não há schema novo neste gate: o id
+# opaco abaixo é uma chave idempotente estável de ``evento + claim + resposta``;
+# os estados ficam em ``autor`` até a entrega ser confirmada.
+_AGENT_REPLY_PROVIDER_PREFIX = "agent-reply:"
+_AGENT_REPLY_PENDING = "ia_pendente"
+_AGENT_REPLY_IN_FLIGHT = "ia_em_transporte"
+_AGENT_REPLY_CONFIRMED = "ia"
+_AGENT_REPLY_AMBIGUOUS = "ia_ambigua"
+_AGENT_REPLY_FAILED = "ia_falhou"
+_AGENT_REPLY_SUPPRESSED = "ia_suprimida"
+
+
+@dataclass(frozen=True)
+class _AgentReplyIntent:
+    """Sanitized snapshot of one durable outbound agent intent.
+
+    ``ia_em_transporte`` is deliberately treated as unresolved by a later
+    recovery: the first process may have crossed the provider boundary before
+    crashing.  Only ``ia_pendente`` can start a new call automatically.
+    """
+
+    id: Any
+    state: str
+    response: str
+    provider_message_id: str
+
+
 # Resolver que baixa a mídia da Evolution e a sobe no Storage, devolvendo o
 # ponteiro (StoredMedia: .path/.mime/.nome/.tamanho). Injetado no worker para
 # manter a ingestão testável (sem rede) — tipado como Any para evitar acoplar a
@@ -372,6 +405,8 @@ class IngestionOutcome:
     texto: str | None = None
     inbound: bool = False
     igreja_id: Any | None = None
+    provider_message_id: str | None = None
+    claim_id: str | None = None
 
 
 def ingest_message_event(db: Session, parsed: ParsedMessage) -> IngestionResult:
@@ -471,6 +506,7 @@ def ingest_message_event_ex(
             texto=parsed.texto,
             inbound=inbound,
             igreja_id=igreja_id,
+            provider_message_id=parsed.provider_message_id,
         )
 
     # The advisory lock above may have waited behind the current winner. Check
@@ -610,7 +646,24 @@ def ingest_message_event_ex(
             parsed.provider_message_id,
             igreja_id,
         )
-        return IngestionOutcome(result=IngestionResult.DUPLICATE, igreja_id=igreja_id)
+        existing_message = _provider_message_after_fence(
+            db,
+            igreja_id,
+            parsed.provider_message_id,
+            inbound=inbound,
+        )
+        return IngestionOutcome(
+            result=IngestionResult.DUPLICATE,
+            conversation_id=(
+                existing_message.conversation_id if existing_message is not None else None
+            ),
+            instance=parsed.instance,
+            telefone=parsed.telefone_raw,
+            texto=parsed.texto,
+            inbound=inbound,
+            igreja_id=igreja_id,
+            provider_message_id=parsed.provider_message_id,
+        )
     return IngestionOutcome(
         result=IngestionResult.REGISTERED,
         conversation_id=conversation.id,
@@ -619,6 +672,7 @@ def ingest_message_event_ex(
         texto=parsed.texto,
         inbound=inbound,
         igreja_id=igreja_id,
+        provider_message_id=parsed.provider_message_id,
     )
 
 
@@ -1253,6 +1307,9 @@ class QueueWorker:
             and should_run_agent
             and outcome.inbound
         ):
+            # The claim survives Redis recovery in the serialized envelope and
+            # becomes part of the durable outbound reply idempotency key.
+            outcome.claim_id = envelope.claim_id
             if ownership_guard is not None:
                 ownership_guard()
             self._agent_runner(self._session_factory, outcome, ownership_guard)
@@ -1276,6 +1333,392 @@ class QueueWorker:
 # ---------------------------------------------------------------------------
 # Agent orchestration runner (delta-034)
 # ---------------------------------------------------------------------------
+def _agent_reply_intent_prefix(outcome: IngestionOutcome) -> str | None:
+    """Return the stable, opaque prefix for one inbound event/claim.
+
+    The final provider id includes a response fingerprint as well.  We query by
+    this prefix under a Postgres advisory fence, so a concurrent worker whose
+    agent produces a different wording still observes the first durable intent
+    before it can call Evolution.
+    """
+
+    if (
+        outcome.igreja_id is None
+        or not outcome.provider_message_id
+        or not outcome.claim_id
+    ):
+        return None
+    material = (
+        f"{outcome.igreja_id}:{outcome.provider_message_id}:{outcome.claim_id}"
+    ).encode("utf-8")
+    return f"{_AGENT_REPLY_PROVIDER_PREFIX}{sha256(material).hexdigest()}:"
+
+
+def _agent_reply_idempotency_key(prefix: str, response: str) -> str:
+    """Return an opaque key derived from the claim and the exact reply text."""
+
+    return f"{prefix}{sha256(response.encode('utf-8')).hexdigest()}"
+
+
+def _agent_reply_after_fence(
+    db: Session, igreja_id: Any, prefix: str
+) -> Message | None:
+    """Fence one reply plan and return its existing durable row, if any."""
+
+    get_bind = getattr(db, "get_bind", None)
+    if get_bind is not None and get_bind().dialect.name == "postgresql":
+        db.execute(
+            select(func.pg_advisory_xact_lock(_provider_message_lock_key(igreja_id, prefix)))
+        ).scalar_one_or_none()
+    return db.execute(
+        select(Message)
+        .where(
+            Message.igreja_id == igreja_id,
+            Message.direcao == "out",
+            Message.provider_message_id.like(f"{prefix}%"),
+        )
+        .order_by(Message.criado_em.asc())
+    ).scalars().first()
+
+
+def _intent_from_message(message: Message) -> _AgentReplyIntent:
+    return _AgentReplyIntent(
+        id=message.id,
+        state=message.autor,
+        response=message.texto or "",
+        provider_message_id=message.provider_message_id or "",
+    )
+
+
+def _scope_agent_session(session: Session, outcome: IngestionOutcome) -> None:
+    if outcome.igreja_id is not None:
+        mark_tenant_scoped(session, outcome.igreja_id, source="worker_agent")
+
+
+def _load_agent_reply_intent(
+    session_factory: Any, outcome: IngestionOutcome
+) -> _AgentReplyIntent | None:
+    prefix = _agent_reply_intent_prefix(outcome)
+    if prefix is None:
+        return None
+    session: Session = session_factory()
+    try:
+        _scope_agent_session(session, outcome)
+        existing = _agent_reply_after_fence(session, outcome.igreja_id, prefix)
+        return _intent_from_message(existing) if existing is not None else None
+    finally:
+        session.close()
+
+
+def _prepare_agent_reply_intent(
+    session_factory: Any, outcome: IngestionOutcome, response: str
+) -> _AgentReplyIntent | None:
+    """Persist a reply intent before the provider call.
+
+    Production Postgres serializes the prefix with an advisory transaction lock.
+    The existing outbound unique index remains the durable final barrier.  A
+    race always returns the first intent and never grants two transports.
+    """
+
+    prefix = _agent_reply_intent_prefix(outcome)
+    if prefix is None:
+        return None
+    session: Session = session_factory()
+    try:
+        _scope_agent_session(session, outcome)
+        existing = _agent_reply_after_fence(session, outcome.igreja_id, prefix)
+        if existing is not None:
+            return _intent_from_message(existing)
+
+        conversation = session.get(Conversation, outcome.conversation_id)
+        if conversation is None:
+            return None
+        message = Message(
+            igreja_id=conversation.igreja_id,
+            conversation_id=conversation.id,
+            direcao="out",
+            autor=_AGENT_REPLY_PENDING,
+            texto=response,
+            tipo="texto",
+            provider_message_id=_agent_reply_idempotency_key(prefix, response),
+        )
+        session.add(message)
+        try:
+            session.commit()
+        except IntegrityError:
+            # The database fence already serializes Postgres.  This catch is a
+            # second durable barrier for a collision or a compatible future
+            # backend that enforces the unique outbound index without advisory
+            # locks.
+            session.rollback()
+            existing = _agent_reply_after_fence(session, outcome.igreja_id, prefix)
+            if existing is None:
+                raise
+            return _intent_from_message(existing)
+        return _intent_from_message(message)
+    finally:
+        session.close()
+
+
+def _transition_agent_reply_intent(
+    session_factory: Any,
+    outcome: IngestionOutcome,
+    intent: _AgentReplyIntent,
+    *,
+    expected: str,
+    target: str,
+    refresh_snapshot: bool = False,
+    ownership_guard: ClaimGuard | None = None,
+) -> bool:
+    """Move an intent exactly once, optionally fenced by the live Redis claim.
+
+    The compare-and-set lives in PostgreSQL, rather than in an ORM object read
+    before the write.  Two recovered workers can otherwise both observe
+    ``ia_pendente`` and each commit an ``ia_em_transporte`` transition, opening
+    a second provider call.  ``UPDATE ... WHERE autor = expected RETURNING``
+    is the cross-process transport fence.
+    """
+
+    session: Session = session_factory()
+    try:
+        _scope_agent_session(session, outcome)
+        if ownership_guard is not None:
+            ownership_guard()
+        transitioned = session.execute(
+            update(Message)
+            .where(Message.id == intent.id, Message.autor == expected)
+            .values(autor=target)
+            .returning(Message.conversation_id, Message.texto)
+        ).one_or_none()
+        if transitioned is None:
+            return False
+        if refresh_snapshot:
+            session.execute(
+                update(Conversation)
+                .where(Conversation.id == transitioned.conversation_id)
+                .values(ultima_mensagem=transitioned.texto)
+            )
+        session.commit()
+        return True
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+def _quarantine_agent_reply(
+    session_factory: Any, outcome: IngestionOutcome, intent: _AgentReplyIntent
+) -> None:
+    """Best-effort durable quarantine after an ambiguous provider boundary."""
+
+    try:
+        _transition_agent_reply_intent(
+            session_factory,
+            outcome,
+            intent,
+            expected=_AGENT_REPLY_IN_FLIGHT,
+            target=_AGENT_REPLY_AMBIGUOUS,
+        )
+    except Exception:  # noqa: BLE001 - preserve the no-resend fence on DB trouble
+        logger.warning("Agent reply left unresolved after provider boundary")
+
+
+def _send_agent_reply(
+    client: Any, instance: str | None, telefone: str | None, response: str
+) -> str:
+    """Classify one provider call conservatively without exposing its response."""
+
+    classified = getattr(client, "send_text_classificado", None)
+    if classified is None:
+        classified = getattr(client, "send_text_classified", None)
+    try:
+        if callable(classified):
+            status = getattr(classified(instance, telefone, response), "status", None)
+            return status if isinstance(status, str) else "desconhecido"
+        sent = client.send_text(instance, telefone, response)
+    except Exception:  # noqa: BLE001 - an unclassified call may have reached Evolution
+        return "desconhecido"
+    return "aceito" if sent is True else "suprimido"
+
+
+def _deliver_agent_reply_intent(
+    session_factory: Any,
+    outcome: IngestionOutcome,
+    intent: _AgentReplyIntent,
+    ownership_guard: ClaimGuard | None,
+    *,
+    evolution_client: Any | None,
+) -> None:
+    """Run at most one Evolution transport for a durable reply intent.
+
+    Evolution does not provide an idempotency key contract.  Therefore an
+    in-flight, ambiguous, failed, or suppressed intent is never auto-sent
+    again; only a persisted ``ia_pendente`` intent can cross the provider
+    boundary.  Operators can reconcile quarantined rows safely before any
+    manual recovery.
+    """
+
+    if intent.state == _AGENT_REPLY_CONFIRMED:
+        return
+    if intent.state in {
+        _AGENT_REPLY_IN_FLIGHT,
+        _AGENT_REPLY_AMBIGUOUS,
+        _AGENT_REPLY_FAILED,
+        _AGENT_REPLY_SUPPRESSED,
+    }:
+        logger.warning("Agent reply requires reconciliation; automatic resend skipped")
+        return
+    if intent.state != _AGENT_REPLY_PENDING or not intent.response:
+        logger.warning("Agent reply intent is not eligible for automatic transport")
+        return
+
+    # Claim the durable intent before the call.  The conditional state move is
+    # the cross-process transport fence; a competing worker can only observe
+    # ``ia_em_transporte`` and therefore cannot start a second Evolution call.
+    if not _transition_agent_reply_intent(
+        session_factory,
+        outcome,
+        intent,
+        expected=_AGENT_REPLY_PENDING,
+        target=_AGENT_REPLY_IN_FLIGHT,
+        ownership_guard=ownership_guard,
+    ):
+        return
+
+    try:
+        # Immediate pre-effect guard.  If it fails, no provider call happened,
+        # so returning the intent to pending is safe for the recovered owner.
+        if ownership_guard is not None:
+            ownership_guard()
+    except ClaimOwnershipLost:
+        try:
+            _transition_agent_reply_intent(
+                session_factory,
+                outcome,
+                intent,
+                expected=_AGENT_REPLY_IN_FLIGHT,
+                target=_AGENT_REPLY_PENDING,
+            )
+        except Exception:  # noqa: BLE001 - leave unresolved rather than resend blindly
+            logger.warning("Agent reply ownership was lost before transport")
+        raise
+
+    def send_with(client: Any) -> str:
+        return _send_agent_reply(client, outcome.instance, outcome.telefone, intent.response)
+
+    if evolution_client is None:
+        from app.services.evolution import EvolutionClient  # noqa: PLC0415
+
+        with EvolutionClient() as client:
+            status = send_with(client)
+    else:
+        status = send_with(evolution_client)
+
+    if status == "aceito":
+        try:
+            # A stale owner must not write the post-send confirmation.  The
+            # durable in-flight row remains a no-resend fence for its successor.
+            if ownership_guard is not None:
+                ownership_guard()
+            if not _transition_agent_reply_intent(
+                session_factory,
+                outcome,
+                intent,
+                expected=_AGENT_REPLY_IN_FLIGHT,
+                target=_AGENT_REPLY_CONFIRMED,
+                refresh_snapshot=True,
+            ):
+                _quarantine_agent_reply(session_factory, outcome, intent)
+        except ClaimOwnershipLost:
+            raise
+        except Exception:  # noqa: BLE001 - accepted but durable outcome is uncertain
+            _quarantine_agent_reply(session_factory, outcome, intent)
+            logger.warning("Agent reply confirmation is unresolved; automatic resend skipped")
+        return
+
+    if status == "falhou_retentavel":
+        try:
+            released = _transition_agent_reply_intent(
+                session_factory,
+                outcome,
+                intent,
+                expected=_AGENT_REPLY_IN_FLIGHT,
+                target=_AGENT_REPLY_PENDING,
+            )
+        except Exception:  # noqa: BLE001 - do not retry if the durable state is unknown
+            _quarantine_agent_reply(session_factory, outcome, intent)
+            return
+        if released:
+            raise AgentReplyRetryable("Evolution rejected agent reply before send")
+        return
+
+    if status == "desconhecido":
+        _quarantine_agent_reply(session_factory, outcome, intent)
+        logger.warning("Agent reply transport is ambiguous; automatic resend skipped")
+        return
+
+    target = _AGENT_REPLY_SUPPRESSED if status == "suprimido" else _AGENT_REPLY_FAILED
+    try:
+        _transition_agent_reply_intent(
+            session_factory,
+            outcome,
+            intent,
+            expected=_AGENT_REPLY_IN_FLIGHT,
+            target=target,
+        )
+    except Exception:  # noqa: BLE001 - no further send after an unknown final write
+        _quarantine_agent_reply(session_factory, outcome, intent)
+
+
+def _run_agent_legacy(
+    session_factory: Any,
+    outcome: IngestionOutcome,
+    response: str,
+    ownership_guard: ClaimGuard | None,
+    *,
+    evolution_client: Any | None,
+) -> None:
+    """Compatibility path for old callers that lack a provider event/claim.
+
+    QueueWorker always supplies both fields.  This branch keeps focused legacy
+    unit tests and out-of-tree integrations working, but must not be used for
+    webhook-derived production replies because it has no durable intent key.
+    """
+
+    if ownership_guard is not None:
+        ownership_guard()
+    if evolution_client is None:
+        from app.services.evolution import EvolutionClient  # noqa: PLC0415
+
+        with EvolutionClient() as client:
+            sent = _send_agent_reply(client, outcome.instance, outcome.telefone, response)
+    else:
+        sent = _send_agent_reply(evolution_client, outcome.instance, outcome.telefone, response)
+    if sent != "aceito":
+        return
+    if ownership_guard is not None:
+        ownership_guard()
+    session: Session = session_factory()
+    try:
+        _scope_agent_session(session, outcome)
+        conv = session.get(Conversation, outcome.conversation_id)
+        if conv is not None:
+            session.add(
+                Message(
+                    igreja_id=conv.igreja_id,
+                    conversation_id=conv.id,
+                    direcao="out",
+                    autor="ia",
+                    texto=response,
+                )
+            )
+            conv.ultima_mensagem = response
+            session.commit()
+    finally:
+        session.close()
+
+
 def run_agent_for_message(
     session_factory: Any,
     outcome: IngestionOutcome,
@@ -1290,10 +1733,22 @@ def run_agent_for_message(
     Imports are deferred so the agent stack stays optional for ingestion tests.
     """
     from app.agent.runtime import process_inbound_message  # noqa: PLC0415
-    from app.db.models import Conversation, Message  # noqa: PLC0415
-    from app.services.evolution import EvolutionClient, EvolutionError  # noqa: PLC0415
 
     if outcome.conversation_id is None:
+        return
+
+    # A recovered claim must inspect the durable ledger before invoking the
+    # agent again.  Pending work reuses the persisted text; unresolved/provider
+    # ambiguous work is held for reconciliation and can never auto-resend.
+    intent = _load_agent_reply_intent(session_factory, outcome)
+    if intent is not None:
+        _deliver_agent_reply_intent(
+            session_factory,
+            outcome,
+            intent,
+            ownership_guard,
+            evolution_client=evolution_client,
+        )
         return
 
     if ownership_guard is not None:
@@ -1321,56 +1776,23 @@ def run_agent_for_message(
     if not result.handled or result.suppressed or not result.response:
         return
 
-    # Single exit: send the orchestrator reply through the official number.
-    if ownership_guard is not None:
-        ownership_guard()
-    try:
-        if evolution_client is None:
-            with EvolutionClient() as client:
-                sent = client.send_text(
-                    outcome.instance,
-                    outcome.telefone,
-                    result.response,
-                )
-        else:
-            # The long-running worker injects one shared client so its HTTP
-            # connection pool survives across inbound messages.
-            client = evolution_client
-            sent = client.send_text(
-                outcome.instance,
-                outcome.telefone,
-                result.response,
-            )
-    except EvolutionError:
-        logger.warning("Failed to send agent reply via Evolution")
+    intent = _prepare_agent_reply_intent(session_factory, outcome, result.response)
+    if intent is None:
+        _run_agent_legacy(
+            session_factory,
+            outcome,
+            result.response,
+            ownership_guard,
+            evolution_client=evolution_client,
+        )
         return
-    if sent is False:
-        # Outbound guard suppression is not a delivery and must not create a
-        # phantom outgoing message in the conversation history.
-        return
-
-    # Persist the outbound message and refresh the conversation snapshot.
-    if ownership_guard is not None:
-        ownership_guard()
-    session = session_factory()
-    try:
-        if outcome.igreja_id is not None:
-            mark_tenant_scoped(session, outcome.igreja_id, source="worker_agent")
-        conv = session.get(Conversation, outcome.conversation_id)
-        if conv is not None:
-            session.add(
-                Message(
-                    igreja_id=conv.igreja_id,
-                    conversation_id=conv.id,
-                    direcao="out",
-                    autor="ia",
-                    texto=result.response,
-                )
-            )
-            conv.ultima_mensagem = result.response
-            session.commit()
-    finally:
-        session.close()
+    _deliver_agent_reply_intent(
+        session_factory,
+        outcome,
+        intent,
+        ownership_guard,
+        evolution_client=evolution_client,
+    )
 
 
 # ---------------------------------------------------------------------------
