@@ -3814,9 +3814,12 @@ def _prepared_placeholder(**over) -> SimpleNamespace:
         asaas_customer_id="cus_1",
         asaas_subscription_id=None,
         asaas_setup_charge_id=None,
+        asaas_setup_reversed_payment_id=None,
         asaas_invoice_payment_id=None,
         asaas_invoice_url=None,
         asaas_setup_invoice_url=None,
+        asaas_invoice_reversal=None,
+        proxima_cobranca=None,
         setup_fee_contracted=0.0,
         setup_pago=False,
         limite=100,
@@ -3827,7 +3830,16 @@ def _prepared_placeholder(**over) -> SimpleNamespace:
 
 @pytest.mark.parametrize(
     "conflict",
-    ["plan", "customer", "cycle", "church", "status", "external_id", "setup"],
+    [
+        "plan",
+        "customer",
+        "cycle",
+        "church",
+        "status",
+        "external_id",
+        "operation_external_id",
+        "setup",
+    ],
 )
 def test_prepared_placeholder_conflict_fails_before_commit_claim_or_network(
     app, conflict: str
@@ -3846,6 +3858,8 @@ def test_prepared_placeholder_conflict_fails_before_commit_claim_or_network(
         sub.status = "ativa"
     elif conflict == "external_id":
         sub.asaas_subscription_id = "sub_other"
+    elif conflict == "operation_external_id":
+        op.asaas_subscription_id = "sub_other"
     elif conflict == "setup":
         sub.setup_fee_contracted = 59.9
 
@@ -3880,6 +3894,104 @@ def test_prepared_placeholder_conflict_fails_before_commit_claim_or_network(
         op.error,
     ) == op_before
     assert vars(sub) == sub_before
+    assert db.added == []
+
+
+def test_subscription_asaas_field_inventory_is_explicit() -> None:
+    asaas_fields = {
+        column.name
+        for column in Subscription.__table__.columns
+        if column.name.startswith("asaas_")
+    }
+
+    assert asaas_fields == {
+        "asaas_customer_id",
+        "asaas_subscription_id",
+        "asaas_setup_charge_id",
+        "asaas_setup_reversed_payment_id",
+        "asaas_invoice_url",
+        "asaas_setup_invoice_url",
+        "asaas_invoice_payment_id",
+        "asaas_invoice_reversal",
+    }
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("asaas_subscription_id", "sub_materialized"),
+        ("asaas_setup_charge_id", "pay_setup_materialized"),
+        ("asaas_setup_reversed_payment_id", "pay_setup_reversed"),
+        ("asaas_invoice_payment_id", "pay_monthly_materialized"),
+        ("asaas_invoice_url", "https://asaas.test/monthly-materialized"),
+        ("asaas_setup_invoice_url", "https://asaas.test/setup-materialized"),
+        ("asaas_invoice_reversal", "refunded"),
+        ("proxima_cobranca", "2026-09-01"),
+    ],
+)
+def test_prepared_placeholder_financial_marker_fails_without_side_effects(
+    app, field: str, value: object
+) -> None:
+    sub = _prepared_placeholder(**{field: value})
+    op = _ambiguous_subscription_intent(status="prepared", attempt_started_at=None)
+    asaas = _PreparedNoNetwork()
+    client, db = _client(
+        app,
+        planos=[_plano()],
+        asaas=asaas,
+        subscription=sub,
+        subscription_ops=[op],
+    )
+    op_before = vars(op).copy()
+    sub_before = vars(sub).copy()
+
+    response = client.post(
+        "/subscription",
+        json={"plano": "ate_100", "cpfCnpj": _CPF},
+        headers=_AUTH,
+    )
+
+    assert response.status_code == 409
+    assert asaas.calls == []
+    assert db.commits == 0
+    assert vars(op) == op_before
+    assert vars(sub) == sub_before
+    assert getattr(sub, field) == value
+    assert db.added == []
+
+
+def test_prepared_placeholder_reversal_history_combination_is_preserved(
+    app,
+) -> None:
+    sub = _prepared_placeholder(
+        asaas_setup_reversed_payment_id="pay_setup_reversed",
+        asaas_invoice_reversal="deleted",
+    )
+    op = _ambiguous_subscription_intent(status="prepared", attempt_started_at=None)
+    asaas = _PreparedNoNetwork()
+    client, db = _client(
+        app,
+        planos=[_plano()],
+        asaas=asaas,
+        subscription=sub,
+        subscription_ops=[op],
+    )
+    op_before = vars(op).copy()
+    sub_before = vars(sub).copy()
+
+    response = client.post(
+        "/subscription",
+        json={"plano": "ate_100", "cpfCnpj": _CPF},
+        headers=_AUTH,
+    )
+
+    assert response.status_code == 409
+    assert asaas.calls == []
+    assert db.commits == 0
+    assert vars(op) == op_before
+    assert vars(sub) == sub_before
+    assert sub.asaas_setup_reversed_payment_id == "pay_setup_reversed"
+    assert sub.asaas_invoice_reversal == "deleted"
     assert db.added == []
 
 
@@ -3922,6 +4034,41 @@ def test_prepared_placeholder_absent_or_matching_identity_can_proceed(
     assert len(asaas.calls) == 1
     assert op.status == "created"
     assert sub.plano == "ate_100"
+
+
+def test_prepared_placeholder_empty_financial_markers_can_proceed(app) -> None:
+    sub = _prepared_placeholder(
+        asaas_subscription_id="",
+        asaas_setup_charge_id=" ",
+        asaas_setup_reversed_payment_id="",
+        asaas_invoice_payment_id=" ",
+        asaas_invoice_url="",
+        asaas_setup_invoice_url=" ",
+        asaas_invoice_reversal="",
+        proxima_cobranca=None,
+        setup_pago=False,
+    )
+    op = _ambiguous_subscription_intent(
+        status="prepared", attempt_started_at=None
+    )
+    asaas = _FakeAsaas()
+    client, _db = _client(
+        app,
+        planos=[_plano()],
+        asaas=asaas,
+        subscription=sub,
+        subscription_ops=[op],
+    )
+
+    response = client.post(
+        "/subscription",
+        json={"plano": "ate_100", "cpfCnpj": _CPF},
+        headers=_AUTH,
+    )
+
+    assert response.status_code == 200
+    assert len(asaas.calls) == 1
+    assert op.status == "created"
 
 
 def test_checkout_reconcile_zero_matches_stays_reconciling_without_post(app) -> None:

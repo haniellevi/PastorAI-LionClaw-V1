@@ -342,13 +342,22 @@ def _prepared_placeholder_matches_intent(
         frozen_setup is not None and frozen_setup == placeholder_setup
     )
     placeholder_status = str(getattr(sub, "status", None) or "").strip().lower()
-    remote_fields = (
+    # `asaas_customer_id` fica fora desta lista de propósito: criar/resolver o
+    # customer não materializa assinatura nem cobrança, e uma rejeição 4xx
+    # legítima pode deixar esse vínculo para o retry. Ainda assim ele precisa
+    # corresponder exatamente a `op.customer_id` (checagem abaixo). Já
+    # `setup_pago` e `setup_fee_contracted` são estado contratual local; o
+    # primeiro evita recobrança e o segundo precisa bater com o snapshot.
+    materialized_financial_fields = (
         getattr(sub, "asaas_subscription_id", None),
         getattr(op, "asaas_subscription_id", None),
         getattr(sub, "asaas_setup_charge_id", None),
+        getattr(sub, "asaas_setup_reversed_payment_id", None),
         getattr(sub, "asaas_invoice_payment_id", None),
         getattr(sub, "asaas_invoice_url", None),
         getattr(sub, "asaas_setup_invoice_url", None),
+        getattr(sub, "asaas_invoice_reversal", None),
+        getattr(sub, "proxima_cobranca", None),
     )
     limit_valid, placeholder_limit = _normalized_limit(
         getattr(sub, "limite", None)
@@ -367,7 +376,9 @@ def _prepared_placeholder_matches_intent(
         and frozen_limit_valid
         and (placeholder_limit is None or placeholder_limit == frozen_limit)
         and placeholder_status in ("", "pendente")
-        and not any(str(value or "").strip() for value in remote_fields)
+        and not any(
+            str(value or "").strip() for value in materialized_financial_fields
+        )
     )
 
 
