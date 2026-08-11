@@ -70,6 +70,7 @@ SAFE_SERIALIZABLE_RE = re.compile(
     r"^set\s+transaction\s+isolation\s+level\s+serializable$", re.IGNORECASE
 )
 SAFE_COMMIT_RE = re.compile(r"^commit$", re.IGNORECASE)
+USAGE_ERROR_MESSAGE = "ERRO: argumentos inválidos. Use --help para opções suportadas."
 
 
 class MigrationRunnerError(RuntimeError):
@@ -84,6 +85,20 @@ class MigrationSelectionError(MigrationRunnerError):
 
 class MigrationExecutionError(MigrationRunnerError):
     exit_code = 5
+
+
+class CliUsageError(RuntimeError):
+    """Erro de uso deliberadamente sem detalhes fornecidos pelo operador."""
+
+
+class SanitizedArgumentParser(argparse.ArgumentParser):
+    """ArgumentParser que nunca reflete valores recebidos em argv."""
+
+    def error(self, _message: str) -> None:
+        # O argparse padrão inclui o argumento inesperado/valor inválido no
+        # stderr. Isso pode transformar uma DSN, token ou senha colada por
+        # engano em log persistente. O texto recebido não é sequer formatado.
+        raise CliUsageError
 
 
 @dataclass(frozen=True)
@@ -237,6 +252,36 @@ def resolve_selected_migration(
     if len(matches) != 1:
         raise MigrationSelectionError("a migration selecionada não existe ou é ambígua")
     return matches[0]
+
+
+def _parse_migration_basename(value: str) -> str:
+    """Recusa cedo formatos impossíveis, antes de ler o catálogo."""
+    if (
+        not isinstance(value, str)
+        or value != value.strip()
+        or "/" in value
+        or "\\" in value
+        or ":" in value
+        or PurePosixPath(value).name != value
+        or PureWindowsPath(value).name != value
+        or not MIGRATION_BASENAME_RE.fullmatch(value)
+    ):
+        raise argparse.ArgumentTypeError("migration inválida")
+    return value
+
+
+def _parse_sha256(value: str) -> str:
+    """Valida a forma do hash antes de descobrir ou ler migrations."""
+    if not isinstance(value, str) or not SHA256_RE.fullmatch(value):
+        raise argparse.ArgumentTypeError("SHA-256 inválido")
+    return value
+
+
+def _parse_confirmation(value: str) -> str:
+    """Aceita somente a confirmação literal antes de qualquer efeito lateral."""
+    if value != "APPLY":
+        raise argparse.ArgumentTypeError("confirmação inválida")
+    return value
 
 
 def _open_catalog_file(candidate: MigrationFile) -> int:
@@ -932,48 +977,59 @@ def cmd_apply(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = SanitizedArgumentParser(
+        prog="apply_migrations.py",
+        allow_abbrev=False,
         description=(
             "Executor fail-closed de uma migration aprovada. Não cria ledger e "
             "não aplica pendências automaticamente."
         )
     )
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(
+        dest="command", required=True, parser_class=SanitizedArgumentParser
+    )
 
-    sub.add_parser("list", help="lista arquivos versionados; não conecta")
+    sub.add_parser(
+        "list", help="lista arquivos versionados; não conecta", allow_abbrev=False
+    )
 
     p_status = sub.add_parser(
-        "status", help="preflight genérico read-only; falha se houver drift"
+        "status",
+        help="preflight genérico read-only; falha se houver drift",
+        allow_abbrev=False,
     )
     p_apply = sub.add_parser(
-        "apply", help="aplica somente um arquivo com nome, hash e confirmação"
+        "apply",
+        help="aplica somente um arquivo com nome, hash e confirmação",
+        allow_abbrev=False,
     )
-    p_apply.add_argument("--migration", default=None, help="basename exato do arquivo SQL")
-    p_apply.add_argument("--sha256", default=None, help="SHA-256 exato do arquivo")
+    p_apply.add_argument(
+        "--migration",
+        default=None,
+        type=_parse_migration_basename,
+        help="basename exato do arquivo SQL",
+    )
+    p_apply.add_argument(
+        "--sha256",
+        default=None,
+        type=_parse_sha256,
+        help="SHA-256 exato do arquivo",
+    )
     p_apply.add_argument(
         "--confirm",
         default=None,
+        type=_parse_confirmation,
         help="confirmação explícita; use exatamente APPLY",
     )
     return parser
 
 
-def _contains_legacy_database_argument(argv: list[str]) -> bool:
-    return any(
-        argument == "--database-url" or argument.startswith("--database-url=")
-        for argument in argv
-    )
-
-
 def main(argv: list[str]) -> int:
-    if _contains_legacy_database_argument(argv[1:]):
-        print(
-            f"ERRO: injete {DATABASE_URL_ENV} no ambiente do processo; "
-            "a URL não é aceita em argv.",
-            file=sys.stderr,
-        )
+    try:
+        args = build_parser().parse_args(argv[1:])
+    except CliUsageError:
+        print(USAGE_ERROR_MESSAGE, file=sys.stderr)
         return 2
-    args = build_parser().parse_args(argv[1:])
     handlers = {"list": cmd_list, "status": cmd_status, "apply": cmd_apply}
     return handlers[args.command](args)
 

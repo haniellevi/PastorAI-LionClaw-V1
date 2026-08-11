@@ -12,6 +12,8 @@ import builtins
 import hashlib
 import os
 from pathlib import Path
+import subprocess
+import sys
 from typing import Any
 
 import psycopg2
@@ -41,6 +43,112 @@ CURRENT_M06_MIGRATION = (
     / "migrations"
     / "20260810_031050_explicit_deny_policies_for_closed_tables.sql"
 )
+SENSITIVE_DSN = (
+    "postgresql://user%20synthetic:pass%2Fwith%20space@host.invalid/app"
+    "?token=query-token-secret&api_key=query-api-key&unicode=%E2%9C%93"
+)
+SENSITIVE_TOKEN = 'token synthetic with spaces/quotes"\\slashes|✓'
+SENSITIVE_DSN_COMPONENTS = (
+    SENSITIVE_DSN,
+    "user%20synthetic",
+    "pass%2Fwith%20space",
+    "host.invalid",
+    "query-token-secret",
+    "query-api-key",
+    "%E2%9C%93",
+)
+SENSITIVE_TOKEN_COMPONENTS = (
+    SENSITIVE_TOKEN,
+    "spaces",
+    'quotes"',
+    "\\slashes",
+    "|",
+    "✓",
+)
+
+
+def _run_cli_subprocess(argv: tuple[str, ...]) -> subprocess.CompletedProcess[str]:
+    """Executa a CLI isolada e falha se o parser alcançar I/O ou banco."""
+    program = f"""
+import sys
+from scripts import apply_migrations
+
+def forbidden_side_effect(*_args, **_kwargs):
+    raise RuntimeError("FORBIDDEN_SIDE_EFFECT")
+
+apply_migrations.discover_migrations = forbidden_side_effect
+apply_migrations._connect = forbidden_side_effect
+raise SystemExit(apply_migrations.main({['runner', *argv]!r}))
+"""
+    return subprocess.run(
+        [sys.executable, "-c", program],
+        cwd=Path(__file__).resolve().parents[1],
+        env={**os.environ, apply_migrations.DATABASE_URL_ENV: SENSITIVE_DSN},
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=10,
+    )
+
+
+def _assert_sanitized_usage_error(
+    result: subprocess.CompletedProcess[str], sensitive_values: tuple[str, ...]
+) -> None:
+    output = result.stdout + result.stderr
+
+    assert result.returncode == 2
+    assert result.stdout == ""
+    assert result.stderr == f"{apply_migrations.USAGE_ERROR_MESSAGE}\n"
+    assert "FORBIDDEN_SIDE_EFFECT" not in output
+    for value in sensitive_values:
+        assert value not in output
+
+
+def _run_valid_status_subprocess() -> subprocess.CompletedProcess[str]:
+    """Prova que a única URL aceita vem do ambiente, nunca de argv."""
+    program = """
+import os
+import sys
+from scripts import apply_migrations
+
+class Cursor:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+class Connection:
+    def cursor(self):
+        return Cursor()
+
+    def rollback(self):
+        pass
+
+    def close(self):
+        pass
+
+def fake_connect(url):
+    if url != os.environ[apply_migrations.DATABASE_URL_ENV]:
+        raise RuntimeError("WRONG_CONNECTION_SOURCE")
+    return Connection()
+
+apply_migrations.discover_migrations = lambda: []
+apply_migrations._connect = fake_connect
+apply_migrations._inspect_ledger_fail_closed = lambda *_args, **_kwargs: (
+    apply_migrations.LedgerState(relation_oid=1, applied_names=())
+)
+raise SystemExit(apply_migrations.main(["runner", "status"]))
+"""
+    return subprocess.run(
+        [sys.executable, "-c", program],
+        cwd=Path(__file__).resolve().parents[1],
+        env={**os.environ, apply_migrations.DATABASE_URL_ENV: SENSITIVE_DSN},
+        text=True,
+        capture_output=True,
+        check=False,
+        timeout=10,
+    )
 
 
 def _args(
@@ -132,6 +240,99 @@ def test_cli_never_accepts_or_echoes_database_url_in_argv(
     captured = capsys.readouterr()
     assert secret_url not in captured.out
     assert secret_url not in captured.err
+
+
+@pytest.mark.parametrize(
+    ("argv", "sensitive_values"),
+    (
+        (
+            ("status", "--database-ur1", SENSITIVE_DSN),
+            SENSITIVE_DSN_COMPONENTS,
+        ),
+        (
+            ("status", "--database-url", SENSITIVE_DSN),
+            SENSITIVE_DSN_COMPONENTS,
+        ),
+        (
+            ("status", f"--database-ur1={SENSITIVE_DSN}"),
+            SENSITIVE_DSN_COMPONENTS,
+        ),
+        (
+            ("status", "--unknown-option", SENSITIVE_DSN),
+            SENSITIVE_DSN_COMPONENTS,
+        ),
+        (
+            ("status", SENSITIVE_DSN),
+            SENSITIVE_DSN_COMPONENTS,
+        ),
+        (
+            ("apply", "--migration", SENSITIVE_DSN),
+            SENSITIVE_DSN_COMPONENTS,
+        ),
+        (
+            ("apply", "--sha256", SENSITIVE_DSN),
+            SENSITIVE_DSN_COMPONENTS,
+        ),
+        (
+            (
+                "apply",
+                "--migration",
+                "valid.sql",
+                "--sha256",
+                "0" * 64,
+                "--confirm",
+                SENSITIVE_TOKEN,
+            ),
+            SENSITIVE_TOKEN_COMPONENTS,
+        ),
+        (
+            ("apply", "--migration", "--confirm", SENSITIVE_DSN),
+            SENSITIVE_DSN_COMPONENTS,
+        ),
+        (
+            (
+                "status",
+                "--unknown-one",
+                SENSITIVE_DSN,
+                "--unknown-two",
+                SENSITIVE_TOKEN,
+            ),
+            (*SENSITIVE_DSN_COMPONENTS, *SENSITIVE_TOKEN_COMPONENTS),
+        ),
+        (
+            ("apply", "--migr", SENSITIVE_DSN),
+            SENSITIVE_DSN_COMPONENTS,
+        ),
+    ),
+    ids=(
+        "database-url-typo",
+        "legacy-database-url",
+        "database-url-typo-with-attached-dsn",
+        "unknown-option-followed-by-dsn",
+        "dsn-as-unexpected-positional",
+        "migration-value-is-dsn",
+        "sha256-value-is-dsn",
+        "confirmation-followed-by-token",
+        "option-without-value-followed-by-dsn",
+        "multiple-unknown-values",
+        "abbreviation-is-disabled",
+    ),
+)
+def test_cli_parser_never_echoes_sensitive_argv_or_reaches_side_effects(
+    argv: tuple[str, ...], sensitive_values: tuple[str, ...]
+) -> None:
+    _assert_sanitized_usage_error(_run_cli_subprocess(argv), sensitive_values)
+
+
+def test_valid_cli_status_uses_environment_without_putting_dsn_in_argv() -> None:
+    result = _run_valid_status_subprocess()
+    output = result.stdout + result.stderr
+
+    assert result.returncode == 0
+    assert "Ledger seguro: 0 registradas | 0 pendente(s)." in result.stdout
+    assert result.stderr == ""
+    assert SENSITIVE_DSN not in output
+    assert "WRONG_CONNECTION_SOURCE" not in output
 
 
 def test_resolve_database_url_uses_approved_environment_only(
