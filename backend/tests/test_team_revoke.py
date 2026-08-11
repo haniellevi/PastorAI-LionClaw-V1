@@ -18,7 +18,7 @@ from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
-from app.db.models import AppUser
+from app.db.models import AppUser, Celula, Igreja, Pessoa
 from app.db.session import get_db
 from app.deps import CurrentUser, get_current_user
 from app.services.clerk import get_clerk_client
@@ -50,20 +50,42 @@ class _Result:
 class _RevokeSession:
     """Routes the endpoint's two selects: target AppUser, then active-admin ids."""
 
-    def __init__(self, *, target=None, admin_ids=None) -> None:
+    def __init__(
+        self,
+        *,
+        target=None,
+        admin_ids=None,
+        active_cell_id=None,
+        igreja=None,
+    ) -> None:
         self.target = target
         self.admin_ids = admin_ids or []
+        self.active_cell_id = active_cell_id
+        self.igreja = igreja or SimpleNamespace(
+            id=uuid.UUID(_IGREJA_ID), dono_id=None
+        )
         self.committed = False
+        self.statements: list = []
 
     def execute(self, statement, params=None) -> _Result:
+        self.statements.append(statement)
         descriptions = getattr(statement, "column_descriptions", None)
         if not descriptions:
             # text() clause from set_tenant_context (RLS GUC / SET LOCAL ROLE).
             return _Result()
         if descriptions[0].get("entity") is AppUser:
             return _Result(scalar=self.target)
+        if descriptions[0].get("entity") is Pessoa:
+            return _Result(scalar=getattr(self.target, "pessoa_id", None))
+        if descriptions[0].get("entity") is Celula:
+            return _Result(scalar=self.active_cell_id)
+        if descriptions[0].get("entity") is Igreja:
+            return _Result(scalar=self.igreja.id)
         # UserRole.user_id projection (active admins).
         return _Result(scalars_list=self.admin_ids)
+
+    def get(self, model, pk):
+        return self.igreja if model is Igreja else None
 
     def commit(self) -> None:
         self.committed = True
@@ -83,12 +105,13 @@ def _admin(roles=("admin",)) -> CurrentUser:
     )
 
 
-def _target(*, status="ativo", uid: str = _TARGET_ID):
+def _target(*, status="ativo", uid: str = _TARGET_ID, pessoa_id=None):
     return SimpleNamespace(
         id=uuid.UUID(uid),
         igreja_id=uuid.UUID(_IGREJA_ID),
         clerk_user_id="clerk_target",
         status=status,
+        pessoa_id=pessoa_id,
     )
 
 
@@ -113,6 +136,14 @@ def test_revoke_member_marks_status_revogado(app) -> None:
     assert resp.json() == {"usuarioId": _TARGET_ID, "status": "revogado"}
     assert target.status == "revogado"
     assert session.committed is True
+    locked = [
+        str(statement).upper()
+        for statement in session.statements
+        if "FOR UPDATE" in str(statement).upper()
+    ]
+    igreja_lock = next(i for i, sql in enumerate(locked) if "FROM IGREJAS" in sql)
+    user_lock = next(i for i, sql in enumerate(locked) if "FROM APP_USERS" in sql)
+    assert igreja_lock < user_lock
 
 
 def test_revoke_non_last_admin_is_allowed(app) -> None:
@@ -126,6 +157,41 @@ def test_revoke_non_last_admin_is_allowed(app) -> None:
     assert resp.status_code == 200
     assert target.status == "revogado"
     assert session.committed is True
+
+
+def test_revoke_active_cell_leader_is_blocked_until_transfer(app) -> None:
+    pessoa_id = uuid.UUID("00000000-0000-0000-0000-0000000000d1")
+    target = _target(pessoa_id=pessoa_id)
+    session = _RevokeSession(
+        target=target,
+        admin_ids=[_OTHER_ADMIN],
+        active_cell_id=uuid.UUID("00000000-0000-0000-0000-0000000000e1"),
+    )
+
+    resp = _client(app, session=session, current_user=_admin()).delete(
+        f"/team/{_TARGET_ID}", headers=_AUTH
+    )
+
+    assert resp.status_code == 409
+    assert target.status == "ativo"
+    assert session.committed is False
+
+
+def test_revoke_owner_clears_owner_pointer(app) -> None:
+    target = _target()
+    igreja = SimpleNamespace(id=uuid.UUID(_IGREJA_ID), dono_id=target.id)
+    session = _RevokeSession(
+        target=target,
+        admin_ids=[_OTHER_ADMIN],
+        igreja=igreja,
+    )
+
+    resp = _client(app, session=session, current_user=_admin()).delete(
+        f"/team/{_TARGET_ID}", headers=_AUTH
+    )
+
+    assert resp.status_code == 200
+    assert igreja.dono_id is None
 
 
 # ---------------------------------------------------------------------------

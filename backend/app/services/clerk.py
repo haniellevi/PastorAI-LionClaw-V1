@@ -394,9 +394,11 @@ class ClerkClient:
     def create_user(self, email: str, password: str) -> str:
         """Create a Clerk user (email+password) and return its id.
 
-        If the e-mail already has a Clerk account (taken), reuse it and set the
-        password — the invitee controls the mailbox. Returns the clerk_user_id
-        either way. Raises ClerkAuthError on any failure.
+        Nunca reutiliza uma identidade global nem redefine senha quando o e-mail
+        já existe: o mesmo Clerk pode pertencer a outra igreja e
+        ``app_users.clerk_user_id`` é único. O caller faz um lookup prévio para
+        resposta acionável, mas este método também falha fechado no conflito
+        para cobrir a corrida lookup -> create.
         """
         secret = self._settings.clerk_secret_key
         if not secret:
@@ -424,14 +426,29 @@ class ClerkClient:
             logger.warning("Unexpected Clerk response shape in create_user")
             raise ClerkAuthError("Could not create user") from exc
 
-        # Não criou (e-mail provavelmente já cadastrado): reaproveita a conta
-        # existente e define a senha informada na ativação.
-        existing = self.find_user_id_by_email(email)
-        if existing:
-            self.set_user_password(existing, password)
-            return existing
-        logger.warning("Clerk create_user failed (status masked) and no existing user")
+        logger.warning("Clerk create_user failed (status masked)")
         raise ClerkAuthError("Could not create user")
+
+    def delete_user(self, clerk_user_id: str) -> None:
+        """Apaga uma identidade criada nesta operação para compensar falha local."""
+
+        secret = self._settings.clerk_secret_key
+        if not secret:
+            raise ClerkAuthError("Clerk secret key is not configured")
+        headers = {
+            "Authorization": f"Bearer {secret}",
+            "Content-Type": "application/json",
+        }
+        try:
+            resp = self._http_client().delete(
+                f"/users/{clerk_user_id}", headers=headers
+            )
+            if resp.status_code == 404:
+                return
+            resp.raise_for_status()
+        except httpx.HTTPError as exc:
+            logger.warning("Clerk delete_user failed: %s", type(exc).__name__)
+            raise ClerkAuthError("Could not delete user") from exc
 
 
 def get_clerk_client(request: Request) -> ClerkClient:

@@ -79,8 +79,8 @@ def assert_membro_elegivel(
     """Recusa (``MembroInelegivelError``) uma pessoa inelegível a membro de célula.
 
     Guarda COMPARTILHADA: concentrada aqui para valer em TODOS os pontos de
-    escrita (o seam ``ensure_active_membro`` — convite/ativação/link_cell/tool do
-    agente — e a entrada direta ``cells.add_cell_member``), sem duplicar a regra.
+    escrita (seam ``ensure_active_membro``, solicitações, multiplicação e tool do
+    agente), sem duplicar a regra.
     Usa ``getattr`` porque os fakes de teste modelam a pessoa/célula como
     ``SimpleNamespace`` parcial; em produção os atributos são colunas reais.
     """
@@ -101,6 +101,21 @@ def assert_membro_elegivel(
         raise MembroInelegivelError(
             "lider_nao_membro_propria_celula",
             "O líder da célula não pode ser membro da própria célula.",
+        )
+
+    leads_active_cell = db.execute(
+        select(Celula.id)
+        .where(
+            Celula.igreja_id == igreja_id,
+            Celula.lider_id == pessoa.id,
+            Celula.ativo.is_(True),
+        )
+        .limit(1)
+    ).scalar_one_or_none()
+    if leads_active_cell is not None:
+        raise MembroInelegivelError(
+            "active_leader_cannot_be_member",
+            "Pessoa que lidera uma célula ativa não pode ser adicionada como membro.",
         )
 
     if phone_matches_active_whatsapp(
@@ -216,7 +231,8 @@ def ensure_active_membro(
     pessoa_id: uuid.UUID,
     papel: str = "membro",
     pode_transferir: bool = False,
-) -> None:
+    reject_existing_active: bool = False,
+) -> CelulaMembro:
     """Garante uma linha ATIVA de celula_membro para (pessoa, célula).
 
     Idempotente: reativa a linha se já existir (não duplica). Se a pessoa já
@@ -235,21 +251,37 @@ def ensure_active_membro(
     chamar (achado de revisão externa do PR #134).
     """
     celula = db.execute(
-        select(Celula).where(Celula.id == celula_id, Celula.igreja_id == igreja_id)
+        select(Celula)
+        .where(Celula.id == celula_id, Celula.igreja_id == igreja_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
     ).scalar_one_or_none()
     if celula is None:
         raise ValueError("Célula fora do escopo da igreja — vínculo recusado")
+    if not bool(celula.ativo):
+        raise MembroInelegivelError(
+            "celula_inativa",
+            "Célula inativa não pode receber membros.",
+        )
+    if celula.lider_id is None:
+        raise MembroInelegivelError(
+            "celula_sem_lider",
+            "Célula sem líder não pode receber membros.",
+        )
 
     # Missão M7B-W1.2: guarda de elegibilidade no seam canônico. Carrega a pessoa
-    # UMA vez (reusada na promoção adiante) e recusa pastor / líder da própria
-    # célula / número do WhatsApp ANTES de qualquer escrita. Pessoa fora do
+    # UMA vez (reusada na promoção adiante) e recusa pastor / líder ativo /
+    # número do WhatsApp ANTES de qualquer escrita. Pessoa fora do
     # escopo do tenant (None) não é avaliável aqui — a FK barra o vínculo órfão.
     pessoa = db.execute(
-        select(Pessoa).where(Pessoa.id == pessoa_id, Pessoa.igreja_id == igreja_id)
+        select(Pessoa)
+        .where(Pessoa.id == pessoa_id, Pessoa.igreja_id == igreja_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
     ).scalar_one_or_none()
-    if pessoa is not None:
-        assert_membro_elegivel(db, igreja_id=igreja_id, celula=celula, pessoa=pessoa)
-
+    if pessoa is None:
+        raise ValueError("Pessoa fora do escopo da igreja — vínculo recusado")
+    assert_membro_elegivel(db, igreja_id=igreja_id, celula=celula, pessoa=pessoa)
     # D2: pessoa que já pertence a OUTRA célula (linha canônica ativa ou espelho
     # legado pessoas.celula_id) só é reatribuída com a capacidade
     # ``pode_transferir``. A recusa acontece AQUI — antes de desativar o vínculo
@@ -261,22 +293,39 @@ def ensure_active_membro(
     # preserva — ver ORDER BY abaixo) recusaria o primeiro vínculo de quem já
     # saiu de célula, e em transferência real (ativa + histórico) a query
     # devolveria 2 linhas → MultipleResultsFound.
-    outro_ativo = db.execute(
-        select(CelulaMembro).where(
-            CelulaMembro.pessoa_id == pessoa_id,
-            CelulaMembro.igreja_id == igreja_id,
-            CelulaMembro.ativo.is_(True),
-            CelulaMembro.celula_id != celula_id,
-        )
-    ).scalar_one_or_none()
-    espelho = getattr(pessoa, "celula_id", None) if pessoa is not None else None
+    ativos = list(
+        db.execute(
+            select(CelulaMembro)
+            .where(
+                CelulaMembro.pessoa_id == pessoa_id,
+                CelulaMembro.igreja_id == igreja_id,
+                CelulaMembro.ativo.is_(True),
+            )
+            .order_by(CelulaMembro.id.asc())
+            .with_for_update()
+        ).scalars().all()
+    )
+    outro_ativos = [
+        membro for membro in ativos if str(membro.celula_id) != str(celula_id)
+    ]
+    espelho = pessoa.celula_id
     espelho_em_outra = espelho is not None and str(espelho) != str(celula_id)
-    if outro_ativo is not None or espelho_em_outra:
+    if reject_existing_active and ativos:
+        raise MembroInelegivelError(
+            "member_already_active",
+            "Pessoa já está em uma célula ativa",
+        )
+    if reject_existing_active and espelho_em_outra:
+        raise MembroInelegivelError(
+            "member_already_active",
+            "Pessoa já está em uma célula ativa",
+        )
+    if outro_ativos or espelho_em_outra:
         if not pode_transferir:
             raise TransferenciaNaoAutorizadaError(
                 "Apenas um administrador pode transferir alguém de célula"
             )
-        if outro_ativo is not None:
+        for outro_ativo in outro_ativos:
             outro_ativo.ativo = False
 
     # Histórico anterior a este PR pode ter deixado mais de uma linha inativa
@@ -305,25 +354,28 @@ def ensure_active_membro(
             CelulaMembro.updated_at.desc().nullslast(),
             CelulaMembro.created_at.desc(),
         )
+        .with_for_update()
     ).scalars().all()
     existing = historico[0] if historico else None
     if existing is not None:
         existing.ativo = True
+        existing.papel = papel
+        membro = existing
     else:
-        db.add(
-            CelulaMembro(
-                igreja_id=igreja_id,
-                celula_id=celula_id,
-                pessoa_id=pessoa_id,
-                papel=papel,
-                ativo=True,
-            )
+        membro = CelulaMembro(
+            igreja_id=igreja_id,
+            celula_id=celula_id,
+            pessoa_id=pessoa_id,
+            papel=papel,
+            ativo=True,
         )
+        db.add(membro)
 
     # Vínculo ativo ⇒ a pessoa é, no mínimo, membro. Reusa a `pessoa` já carregada
     # acima (era uma 2ª query separada antes). Fora do tenant → no-op.
-    if pessoa is not None:
-        promote_tipo_para_membro(pessoa)
+    pessoa.celula_id = celula.id
+    promote_tipo_para_membro(pessoa)
+    return membro
 
 
 def promote_tipo_para_membro(pessoa: Pessoa) -> None:

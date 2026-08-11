@@ -155,10 +155,36 @@ class _Session:
         self.cells = list(cells)
         self.membros = list(membros)
         self.pessoas = list(pessoas)
+        if not self.pessoas and any(
+            str(getattr(cell, "igreja_id", "")) == str(_IGREJA_A)
+            for cell in self.cells
+        ):
+            active = next(
+                (
+                    membro
+                    for membro in self.membros
+                    if str(getattr(membro, "igreja_id", "")) == str(_IGREJA_A)
+                    and str(getattr(membro, "pessoa_id", "")) == str(_PESSOA_ID)
+                    and bool(getattr(membro, "ativo", False))
+                ),
+                None,
+            )
+            self.pessoas.append(
+                SimpleNamespace(
+                    id=_PESSOA_ID,
+                    igreja_id=_IGREJA_A,
+                    tipo="membro",
+                    telefone=None,
+                    celula_id=getattr(active, "celula_id", None),
+                    arquivada_em=None,
+                )
+            )
         self.whatsapp_conns = list(whatsapp_conns)
+        self.statements: list = []
         self.added: list = []
 
     def execute(self, statement, params=None) -> _Result:
+        self.statements.append(statement)
         descs = list(getattr(statement, "column_descriptions", []) or [])
         ent = descs[0].get("entity") if descs else None
         if ent is Celula:
@@ -183,8 +209,19 @@ class _Session:
             self.membros.append(obj)
 
 
-def _cell(cell_id: uuid.UUID, *, igreja_id: uuid.UUID, lider_id=None) -> SimpleNamespace:
-    return SimpleNamespace(id=cell_id, igreja_id=igreja_id, lider_id=lider_id)
+def _cell(
+    cell_id: uuid.UUID,
+    *,
+    igreja_id: uuid.UUID,
+    lider_id=uuid.UUID("00000000-0000-0000-0000-0000000000f0"),
+    ativo: bool = True,
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        id=cell_id,
+        igreja_id=igreja_id,
+        lider_id=lider_id,
+        ativo=ativo,
+    )
 
 
 def _membro(*, pessoa_id, celula_id, igreja_id, ativo, updated_at=None, created_at=None) -> SimpleNamespace:
@@ -283,6 +320,53 @@ def test_ensure_active_membro_cria_quando_nao_existe_nenhuma_linha() -> None:
     assert novos[0].ativo is True
     assert novos[0].celula_id == _CELULA_ID
     assert novos[0].pessoa_id == _PESSOA_ID
+    locked_entities = [
+        list(statement.column_descriptions)[0].get("entity")
+        for statement in session.statements
+        if getattr(statement, "column_descriptions", None)
+        and "FOR UPDATE" in str(statement).upper()
+    ]
+    assert Celula in locked_entities
+    assert Pessoa in locked_entities
+    assert CelulaMembro in locked_entities
+
+
+def test_ensure_active_membro_rechecks_inactive_cell_under_lock() -> None:
+    pessoa = _pessoa(tipo="membro")
+    session = _Session(
+        cells=[_cell(_CELULA_ID, igreja_id=_IGREJA_A, ativo=False)],
+        pessoas=[pessoa],
+    )
+
+    with pytest.raises(MembroInelegivelError) as exc:
+        ensure_active_membro(
+            session,
+            igreja_id=_IGREJA_A,
+            celula_id=_CELULA_ID,
+            pessoa_id=_PESSOA_ID,
+        )
+
+    assert exc.value.code == "celula_inativa"
+    assert session.added == []
+
+
+def test_ensure_active_membro_rechecks_leaderless_cell_under_lock() -> None:
+    pessoa = _pessoa(tipo="membro")
+    session = _Session(
+        cells=[_cell(_CELULA_ID, igreja_id=_IGREJA_A, lider_id=None)],
+        pessoas=[pessoa],
+    )
+
+    with pytest.raises(MembroInelegivelError) as exc:
+        ensure_active_membro(
+            session,
+            igreja_id=_IGREJA_A,
+            celula_id=_CELULA_ID,
+            pessoa_id=_PESSOA_ID,
+        )
+
+    assert exc.value.code == "celula_sem_lider"
+    assert session.added == []
 
 
 # ---------------------------------------------------------------------------
@@ -534,20 +618,24 @@ def test_ensure_active_membro_promocao_e_idempotente() -> None:
     assert len(novos) == 1
 
 
-def test_ensure_active_membro_nao_promove_pessoa_de_outro_tenant() -> None:
-    # A pessoa alvo pertence à igreja B; o vínculo é criado no escopo da igreja A.
-    # A promoção é tenant-scoped (filtra por igreja_id) — não pode tocar a
-    # pessoa da igreja B.
+def test_ensure_active_membro_recusa_pessoa_de_outro_tenant() -> None:
+    # A pessoa alvo pertence à igreja B; o seam fail-closed não cria vínculo
+    # órfão no tenant A nem toca a pessoa de B.
     pessoa_outro_tenant = _pessoa(igreja_id=_IGREJA_B, tipo="contato")
     session = _Session(
         cells=[_cell(_CELULA_ID, igreja_id=_IGREJA_A)], pessoas=[pessoa_outro_tenant]
     )
 
-    ensure_active_membro(
-        session, igreja_id=_IGREJA_A, celula_id=_CELULA_ID, pessoa_id=_PESSOA_ID
-    )
+    with pytest.raises(ValueError, match="Pessoa fora do escopo"):
+        ensure_active_membro(
+            session,
+            igreja_id=_IGREJA_A,
+            celula_id=_CELULA_ID,
+            pessoa_id=_PESSOA_ID,
+        )
 
     assert pessoa_outro_tenant.tipo == "contato"  # intocada
+    assert session.added == []
 
 
 # ---------------------------------------------------------------------------
@@ -584,20 +672,28 @@ def test_ensure_active_membro_recusa_lider_da_propria_celula() -> None:
     assert session.added == []
 
 
-def test_ensure_active_membro_lider_de_outra_celula_e_aceito() -> None:
-    # Líder de OUTRA célula (lider_id != esta pessoa) pode ser membro aqui: a
-    # regra 3 é ESTRITAMENTE sobre a própria célula.
+def test_ensure_active_membro_recusa_lider_ativo_de_outra_celula() -> None:
+    # A guarda canônica vale para todo writer: quem lidera qualquer célula ativa
+    # não pode acumular vínculo de membro em outra.
     pessoa = _pessoa(pessoa_id=_PESSOA_ID, tipo="lider")
-    cell = _cell(_CELULA_ID, igreja_id=_IGREJA_A, lider_id=_OTHER_CELULA_ID)
-    session = _Session(cells=[cell], pessoas=[pessoa])
-
-    ensure_active_membro(
-        session, igreja_id=_IGREJA_A, celula_id=_CELULA_ID, pessoa_id=_PESSOA_ID
+    cell = _cell(_CELULA_ID, igreja_id=_IGREJA_A)
+    led_cell = _cell(
+        _OTHER_CELULA_ID, igreja_id=_IGREJA_A, lider_id=_PESSOA_ID
     )
+    session = _Session(cells=[cell, led_cell], pessoas=[pessoa])
 
-    assert pessoa.tipo == "lider"  # preservado (não rebaixa)
-    novos = [o for o in session.added if isinstance(o, CelulaMembro)]
-    assert len(novos) == 1
+    with pytest.raises(MembroInelegivelError) as exc:
+        ensure_active_membro(
+            session,
+            igreja_id=_IGREJA_A,
+            celula_id=_CELULA_ID,
+            pessoa_id=_PESSOA_ID,
+        )
+
+    assert exc.value.code == "active_leader_cannot_be_member"
+    assert pessoa.celula_id is None
+    assert pessoa.tipo == "lider"
+    assert session.added == []
 
 
 def test_ensure_active_membro_recusa_numero_conectado_ao_whatsapp() -> None:

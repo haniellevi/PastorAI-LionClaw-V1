@@ -438,6 +438,26 @@ def test_link_cell_pastor_can_create_first_link(app) -> None:
     assert session.committed is True
 
 
+def test_link_cell_rejects_active_leader_of_another_cell(app) -> None:
+    pessoa = _pessoa(_PESSOA_ID, celula_id=None)
+    target = _cell(_NEW_CELL)
+    led_cell = _cell(_OLD_CELL, lider_id=_PESSOA_ID)
+    session = _LinkCellSession(pessoas=[pessoa], cells=[target, led_cell])
+    client = _client(app, session=session, current_user=_admin())
+
+    resp = client.post(
+        f"/contacts/{_PESSOA_ID}/cell",
+        headers=_AUTH,
+        json={"celulaId": str(_NEW_CELL)},
+    )
+
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["error"] == "active_leader_cannot_be_member"
+    assert pessoa.celula_id is None
+    assert session.added == []
+    assert session.committed is False
+
+
 # ---------------------------------------------------------------------------
 # 7) o vínculo satisfaz atomicamente a obrigação conectar_celula. Um refresh
 #    da fila não pode ressuscitar o item já resolvido.

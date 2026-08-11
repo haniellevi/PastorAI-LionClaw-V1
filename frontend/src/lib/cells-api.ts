@@ -5,6 +5,7 @@
  *   GET  /cells                                  -> Page<CellSummary>
  *   GET  /cells/{id}                             -> CellDetail (com alerts)
  *   POST /cells                                  -> CellSummary  (upsert)
+ *   POST /cells/{id}/membros                     -> CellMembro   (vínculo)
  *   POST /cells/{id}/alerts/{aid}/baixar         -> CellAlert    (tratado=true)
  *
  * Reaproveita o transporte autenticado (authedFetch) e o tratamento de 401
@@ -109,6 +110,27 @@ export async function fetchCellMembros(
     throw new ApiError(res.status, detail ?? "Não foi possível carregar os discípulos.");
   }
   return (await res.json()) as CellMembro[];
+}
+
+/**
+ * Vincula uma Pessoa já cadastrada à célula. Esta operação não cria usuário,
+ * convite ou acesso ao painel; acesso continua sendo responsabilidade de
+ * `/team/invite` na tela de Equipe.
+ */
+export async function addCellMember(
+  token: string,
+  cellId: string,
+  pessoaId: string,
+): Promise<CellMembro> {
+  const res = await authedFetch(token, `/cells/${cellId}/membros`, {
+    method: "POST",
+    body: JSON.stringify({ pessoaId }),
+  });
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível adicionar a pessoa à célula.");
+  }
+  return (await res.json()) as CellMembro;
 }
 
 // ---------------------------------------------------------------------------

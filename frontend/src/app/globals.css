@@ -2996,9 +2996,14 @@ table.data-table {
 .cell-detail-actions .btn {
   flex: 1;
 }
+.cell-detail-actions .ds-btn {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
 /* Alvo de toque no mobile — mesmo breakpoint/padrão do .modal-foot .btn. */
 @media (max-width: 600px) {
-  .cell-detail-actions .btn {
+  .cell-detail-actions .btn,
+  .cell-detail-actions .ds-btn {
     min-height: 44px;
   }
 }

@@ -12,15 +12,16 @@ from fastapi.testclient import TestClient
 
 from app.db.session import get_db
 from app.services.clerk import get_clerk_client
+from app.services.invite_identity import get_invite_identity_db
 from tests.conftest import FakeClerk, FakeSession, make_app_user
 
 _AUTH = {"Authorization": "Bearer good"}
 
 
 def _client(app) -> TestClient:
-    app.dependency_overrides[get_db] = lambda: FakeSession(
-        app_user=make_app_user(), roles=["admin"]
-    )
+    session = FakeSession(app_user=make_app_user(), roles=["admin"])
+    app.dependency_overrides[get_db] = lambda: session
+    app.dependency_overrides[get_invite_identity_db] = lambda: session
     app.dependency_overrides[get_clerk_client] = lambda: FakeClerk()
     return TestClient(app)
 

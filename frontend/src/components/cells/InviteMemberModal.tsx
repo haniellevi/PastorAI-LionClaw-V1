@@ -1,120 +1,114 @@
 "use client";
 
-/**
- * Modal de convite a partir do detalhe da célula (#celulas — delta-049).
- *
- * O líder da célula (ou admin/pastor) convida para ESTA célula. Dois modos:
- *  - Parte A: uma pessoa JÁ cadastrada e ainda SEM célula;
- *  - Parte B: uma pessoa NOVA (nome + e-mail) que completa o cadastro
- *    (telefone/WhatsApp) na ativação e só então vira a Pessoa-membro.
- * Em ambos o convidado entra como membro e recebe acesso por e-mail. O backend
- * valida a autoria (um líder só convida para a célula que lidera — 403).
- */
 import { useMemo, useState } from "react";
 
 import { StatusPill } from "@/components/dashboard/StatusPill";
+import { DsBanner } from "@/components/ds/Banner";
 import { Dialog as DsDialog } from "@/components/ds/Dialog";
 import { SessionExpiredError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
+import { addCellMember } from "@/lib/cells-api";
 import type { Contact } from "@/lib/contacts-api";
 import { ApiError } from "@/lib/dashboard-api";
 import { Icon } from "@/lib/icons";
-import { inviteMember, TeamConflictError } from "@/lib/team-api";
 
 interface Props {
   celulaId: string;
   celulaNome: string;
   contacts: Contact[];
   onClose: () => void;
-  onInvited: (text: string) => void;
+  onAdded: () => void;
 }
 
-export function InviteMemberModal({ celulaId, celulaNome, contacts, onClose, onInvited }: Props) {
+/**
+ * Vincula uma Pessoa já cadastrada à célula. Não cria conta, convite ou acesso
+ * ao painel; essa responsabilidade permanece separada na tela de Equipe.
+ */
+export function AddCellMemberModal({
+  celulaId,
+  celulaNome,
+  contacts,
+  onClose,
+  onAdded,
+}: Props) {
   const { token, expireSession } = useAuth();
-  const [modo, setModo] = useState<"existente" | "nova">("existente");
   const [query, setQuery] = useState("");
   const [pessoaId, setPessoaId] = useState<string | null>(null);
-  const [novoNome, setNovoNome] = useState("");
-  const [email, setEmail] = useState("");
-  const [needsEmail, setNeedsEmail] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const [success, setSuccess] = useState<string | null>(null);
 
-  // Candidatos: pessoas que ainda não estão em nenhuma célula (regra de célula
-  // única — quem já tem célula só pode ser transferido por um admin, à parte)
-  // e que não lideram célula ativa (liderar já é o vínculo de acesso; convidar
-  // duplicaria/confundiria o papel — achado C-01).
   const candidatos = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const semCelula = contacts.filter((c) => !c.celulaId && !c.liderDeCelula);
+    const elegiveis = contacts.filter(
+      (contact) =>
+        !contact.celulaId &&
+        !contact.liderDeCelula &&
+        contact.tipo !== "pastor" &&
+        !contact.semInteresse &&
+        !contact.arquivada,
+    );
     const base = q
-      ? semCelula.filter((c) =>
-          `${c.nome} ${c.telefone} ${c.email ?? ""}`.toLowerCase().includes(q),
+      ? elegiveis.filter((contact) =>
+          `${contact.nome} ${contact.telefone}`.toLowerCase().includes(q),
         )
-      : semCelula;
+      : elegiveis;
     return base.slice(0, 50);
   }, [contacts, query]);
 
-  const select = (c: Contact) => {
-    setPessoaId(c.id);
-    setEmail(c.email ?? "");
-    setNeedsEmail(!(c.email ?? "").trim());
-    setError(null);
-  };
-
-  const emailValid = (e: string) => /\S+@\S+\.\S+/.test(e.trim());
-  const ready =
-    emailValid(email) &&
-    (modo === "existente" ? pessoaId !== null : novoNome.trim().length > 0);
+  const selected = candidatos.find((contact) => contact.id === pessoaId) ?? null;
 
   async function submit() {
-    if (!token || !ready) return;
+    if (!token || !selected || sending) return;
     setSending(true);
     setError(null);
     try {
-      const dest = email.trim().toLowerCase();
-      const r = await inviteMember(token, {
-        email: dest,
-        celulaId,
-        ...(modo === "existente"
-          ? { pessoaId: pessoaId ?? undefined }
-          : { nome: novoNome.trim() }),
-      });
-      onInvited(
-        r.emailEnviado
-          ? `Convite enviado para ${dest}.`
-          : "Acesso criado, mas o e-mail de convite não saiu (e-mail não configurado no servidor).",
+      await addCellMember(token, celulaId, selected.id);
+      setSuccess(
+        `${selected.nome} foi adicionada à célula. O vínculo não cria acesso ao painel.`,
       );
+      onAdded();
     } catch (err) {
       if (err instanceof SessionExpiredError) {
         expireSession();
         return;
       }
-      if (err instanceof TeamConflictError) {
-        setError(err.message);
-      } else {
-        setError(err instanceof ApiError ? err.message : "Não foi possível enviar o convite.");
-      }
+      setError(
+        err instanceof ApiError
+          ? err.message
+          : "Não foi possível adicionar a pessoa à célula.",
+      );
     } finally {
       setSending(false);
     }
   }
 
   return (
-    // W5A: shell manual → DsDialog (Esc/trap/backdrop/retorno de foco do
-    // primitive); fechar bloqueado enquanto envia. O foco inicial vai para o
-    // campo do modo ativo via [data-autofocus].
     <DsDialog
       open
       onClose={() => {
         if (!sending) onClose();
       }}
-      title={`Convidar membro · ${celulaNome}`}
+      title={`Adicionar à célula · ${celulaNome}`}
     >
+      {success ? (
+        <div className="modal-form">
+          <DsBanner kind="info">{success}</DsBanner>
+          <p className="sub" style={{ color: "var(--muted)" }}>
+            Se esta pessoa também precisar entrar no sistema, conceda o acesso
+            separadamente em Equipe.
+          </p>
+          <div className="modal-foot">
+            <button type="button" className="btn btn-primary btn-sm" onClick={onClose}>
+              Concluir
+            </button>
+          </div>
+        </div>
+      ) : (
         <form
           className="modal-form"
-          onSubmit={(e) => {
-            e.preventDefault();
+          onSubmit={(event) => {
+            event.preventDefault();
             void submit();
           }}
         >
@@ -124,146 +118,80 @@ export function InviteMemberModal({ celulaId, celulaNome, contacts, onClose, onI
               <span>{error}</span>
             </div>
           ) : null}
+
           <p className="sub" style={{ color: "var(--muted)" }}>
-            O convidado entra como <strong>membro</strong> desta célula e recebe acesso
-            ao painel por e-mail. Quem ainda não está cadastrado completa o cadastro
-            (telefone/WhatsApp) ao ativar o convite.
+            Escolha uma Pessoa já cadastrada. Esta ação apenas cria o vínculo
+            com a célula e não concede acesso ao painel.
           </p>
 
-          {modo === "existente" ? (
-            <>
-              <div className="field">
-                <label htmlFor="invCellQuery">Pessoa</label>
-                <input
-                  id="invCellQuery"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Buscar por nome, telefone ou e-mail…"
-                  autoFocus
-                  data-autofocus=""
-                />
-                <div
-                  style={{
-                    maxHeight: 200,
-                    overflowY: "auto",
-                    border: "1px solid var(--border)",
-                    borderRadius: "var(--r-md)",
-                    marginTop: 6,
-                  }}
-                >
-                  {candidatos.length === 0 ? (
-                    <p className="sub" style={{ color: "var(--muted)", padding: "var(--s3)" }}>
-                      Nenhuma pessoa sem célula encontrada.
-                    </p>
-                  ) : (
-                    candidatos.map((c) => {
-                      const sel = pessoaId === c.id;
-                      return (
-                        <button
-                          type="button"
-                          key={c.id}
-                          onClick={() => select(c)}
-                          style={{
-                            display: "flex",
-                            justifyContent: "space-between",
-                            alignItems: "center",
-                            gap: 8,
-                            width: "100%",
-                            textAlign: "left",
-                            padding: "8px 12px",
-                            background: sel ? "var(--accent-soft)" : "transparent",
-                            border: "none",
-                            borderBottom: "1px solid var(--border)",
-                            cursor: "pointer",
-                            font: "inherit",
-                            color: "inherit",
-                          }}
-                        >
-                          <span style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
-                            <span className="nm">{c.nome}</span>
-                            <span className="sub mono" style={{ color: "var(--muted)" }}>
-                              {c.telefone}
-                              {c.email ? ` · ${c.email}` : " · sem e-mail"}
-                            </span>
-                          </span>
-                          {sel ? <StatusPill tone="accent">Selecionada</StatusPill> : null}
-                        </button>
-                      );
-                    })
-                  )}
-                </div>
-              </div>
-
-              {pessoaId && needsEmail ? (
-                <div className="field">
-                  <label htmlFor="invCellEmail">
-                    E-mail para login{" "}
-                    <span className="sub" style={{ color: "var(--muted)", fontWeight: 400 }}>
-                      — esta pessoa ainda não tem e-mail cadastrado
-                    </span>
-                  </label>
-                  <input
-                    id="invCellEmail"
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="membro@igreja.com.br"
-                  />
-                </div>
-              ) : null}
-
-              <button
-                type="button"
-                className="btn btn-sm"
-                onClick={() => {
-                  setModo("nova");
-                  setPessoaId(null);
-                  setQuery("");
-                  setEmail("");
-                  setNeedsEmail(false);
-                  setError(null);
-                }}
-              >
-                Não está na lista? Cadastrar pessoa nova
-              </button>
-            </>
-          ) : (
-            <>
-              <div className="field">
-                <label htmlFor="invCellNome">Nome</label>
-                <input
-                  id="invCellNome"
-                  value={novoNome}
-                  onChange={(e) => setNovoNome(e.target.value)}
-                  placeholder="Nome completo"
-                  autoFocus
-                  data-autofocus=""
-                />
-              </div>
-              <div className="field">
-                <label htmlFor="invCellNovoEmail">E-mail do convidado</label>
-                <input
-                  id="invCellNovoEmail"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="membro@igreja.com.br"
-                />
-              </div>
-              <button
-                type="button"
-                className="btn btn-sm"
-                onClick={() => {
-                  setModo("existente");
-                  setNovoNome("");
-                  setEmail("");
-                  setError(null);
-                }}
-              >
-                ← Voltar à busca de pessoa cadastrada
-              </button>
-            </>
-          )}
+          <div className="field">
+            <label htmlFor="addCellMemberQuery">Pessoa</label>
+            <input
+              id="addCellMemberQuery"
+              value={query}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setPessoaId(null);
+                setError(null);
+              }}
+              placeholder="Buscar por nome ou telefone…"
+              autoFocus
+              data-autofocus=""
+            />
+            <div
+              style={{
+                maxHeight: 220,
+                overflowY: "auto",
+                border: "1px solid var(--border)",
+                borderRadius: "var(--r-md)",
+                marginTop: 6,
+              }}
+            >
+              {candidatos.length === 0 ? (
+                <p className="sub" style={{ color: "var(--muted)", padding: "var(--s3)" }}>
+                  Nenhuma Pessoa elegível sem célula foi encontrada.
+                </p>
+              ) : (
+                candidatos.map((contact) => {
+                  const isSelected = pessoaId === contact.id;
+                  return (
+                    <button
+                      type="button"
+                      key={contact.id}
+                      onClick={() => {
+                        setPessoaId(contact.id);
+                        setError(null);
+                      }}
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        gap: 8,
+                        width: "100%",
+                        minHeight: 44,
+                        textAlign: "left",
+                        padding: "8px 12px",
+                        background: isSelected ? "var(--accent-soft)" : "transparent",
+                        border: "none",
+                        borderBottom: "1px solid var(--border)",
+                        cursor: "pointer",
+                        font: "inherit",
+                        color: "inherit",
+                      }}
+                    >
+                      <span style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
+                        <span className="nm">{contact.nome}</span>
+                        <span className="sub mono" style={{ color: "var(--muted)" }}>
+                          {contact.telefone}
+                        </span>
+                      </span>
+                      {isSelected ? <StatusPill tone="accent">Selecionada</StatusPill> : null}
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>
 
           <div className="modal-foot">
             <button type="button" className="btn btn-sm" onClick={onClose} disabled={sending}>
@@ -272,13 +200,14 @@ export function InviteMemberModal({ celulaId, celulaNome, contacts, onClose, onI
             <button
               type="submit"
               className="btn btn-primary btn-sm"
-              disabled={!ready || sending}
+              disabled={!selected || sending}
               aria-busy={sending || undefined}
             >
-              {sending ? "Enviando…" : "Enviar convite"}
+              {sending ? "Adicionando…" : "Adicionar à célula"}
             </button>
           </div>
         </form>
+      )}
     </DsDialog>
   );
 }

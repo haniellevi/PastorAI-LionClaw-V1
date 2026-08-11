@@ -234,7 +234,7 @@ def test_member_scope_reaches_count_and_rows_with_canonical_active_link(app) -> 
 
 
 @pytest.mark.parametrize(
-    "wide_role", ["admin", "pastor", "lider_g12", "lider_mult", "operador"]
+    "wide_role", ["admin", "pastor", "lider_g12"]
 )
 def test_accumulated_wide_role_wins_over_cell_leader_scope(app, wide_role) -> None:
     session = CellScopeSession(actor_pessoa_id=None, cells=[_cell()])
@@ -313,8 +313,26 @@ def test_pastoral_roles_receive_full_alerts_without_actor_lookup(app, role) -> N
     assert len(session.alert_statements) == 1
 
 
-@pytest.mark.parametrize("role", ["lider_g12", "lider_mult", "operador"])
-def test_nonpastoral_wide_role_omits_other_peoples_alerts(app, role) -> None:
+def test_lider_g12_wide_role_omits_other_peoples_alerts(app) -> None:
+    session = CellScopeSession(
+        actor_pessoa_id=_ACTOR_PESSOA_ID,
+        cells=[_cell(lider_id=_OTHER_PESSOA_ID)],
+        alerts=[_alert()],
+    )
+    client = _client(app, session=session, current_user=_current_user("lider_g12"))
+
+    response = client.get(f"/cells/{_CELL_ID}", headers=_AUTH)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["alerts"] == []
+    assert session.actor_lookups == 1
+    assert len(session.cell_statements) == 1
+    _assert_wide_detail_scope(session.cell_statements[0])
+    assert len(session.alert_statements) == 0
+
+
+@pytest.mark.parametrize("role", ["lider_mult", "operador"])
+def test_unscoped_operational_roles_fall_back_to_canonical_membership(app, role) -> None:
     session = CellScopeSession(
         actor_pessoa_id=_ACTOR_PESSOA_ID,
         cells=[_cell(lider_id=_OTHER_PESSOA_ID)],
@@ -326,9 +344,8 @@ def test_nonpastoral_wide_role_omits_other_peoples_alerts(app, role) -> None:
 
     assert response.status_code == 200, response.text
     assert response.json()["alerts"] == []
-    assert session.actor_lookups == 1
-    assert len(session.cell_statements) == 1
-    _assert_wide_detail_scope(session.cell_statements[0])
+    assert session.actor_lookups == 2
+    _assert_member_scope(session.cell_statements[0])
     assert len(session.alert_statements) == 0
 
 
