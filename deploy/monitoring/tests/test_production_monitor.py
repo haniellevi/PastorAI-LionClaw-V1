@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import datetime as dt
-import hashlib
+import json
 import os
 import sys
 import threading
@@ -16,22 +16,25 @@ import production_monitor as monitor  # noqa: E402
 UTC = dt.timezone.utc
 
 
-def _archive(
-    root: Path,
+def _manifest(
+    directory: Path,
     now: dt.datetime,
     *,
     stamp: str = "20260809T120000Z",
+    **overrides,
 ) -> Path:
-    archive = root / f"pastorai-backup-{stamp}.tar.gz"
-    archive.write_bytes(b"backup")
-    digest = hashlib.sha256(b"backup").hexdigest()
-    Path(str(archive) + ".sha256").write_text(
-        f"{digest}  {archive.name}\n",
-        encoding="utf-8",
-    )
-    stamp = now.timestamp()
-    os.utime(archive, (stamp, stamp))
-    return archive
+    payload = {
+        "version": 1,
+        "status": "verified",
+        "archive": f"pastorai-backup-{stamp}.tar.gz",
+        "sha256": "a" * 64,
+        "bytes": 123,
+        "completed_at": now.isoformat().replace("+00:00", "Z"),
+    }
+    payload.update(overrides)
+    path = directory / "backup-status.json"
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
 
 
 def _install_checks(monkeypatch, *, failed: set[str] | None = None) -> None:
@@ -59,12 +62,12 @@ def _install_checks(monkeypatch, *, failed: set[str] | None = None) -> None:
     )
 
 
-def test_recent_backup_with_checksum_is_healthy(tmp_path) -> None:
+def test_recent_verified_backup_manifest_is_healthy(tmp_path) -> None:
     now = dt.datetime(2026, 8, 9, 12, tzinfo=UTC)
-    _archive(tmp_path, now - dt.timedelta(hours=2))
+    manifest = _manifest(tmp_path, now - dt.timedelta(hours=2))
 
     result = monitor.check_backup(
-        {"MONITOR_BACKUP_ROOT": str(tmp_path)},
+        {"MONITOR_BACKUP_MANIFEST": str(manifest)},
         now=now,
     )
 
@@ -72,21 +75,13 @@ def test_recent_backup_with_checksum_is_healthy(tmp_path) -> None:
     assert result.name == "backup"
 
 
-def test_backup_check_selects_the_most_recent_package(tmp_path) -> None:
+def test_backup_manifest_uses_verified_completion_time_not_file_mtime(tmp_path) -> None:
     now = dt.datetime(2026, 8, 9, 12, tzinfo=UTC)
-    _archive(
-        tmp_path,
-        now - dt.timedelta(hours=40),
-        stamp="20260807T200000Z",
-    )
-    _archive(
-        tmp_path,
-        now - dt.timedelta(hours=1),
-        stamp="20260809T110000Z",
-    )
+    manifest = _manifest(tmp_path, now - dt.timedelta(hours=1))
+    os.utime(manifest, (now.timestamp() - 40 * 3600, now.timestamp() - 40 * 3600))
 
     result = monitor.check_backup(
-        {"MONITOR_BACKUP_ROOT": str(tmp_path)},
+        {"MONITOR_BACKUP_MANIFEST": str(manifest)},
         now=now,
     )
 
@@ -96,10 +91,10 @@ def test_backup_check_selects_the_most_recent_package(tmp_path) -> None:
 
 def test_stale_backup_fails_without_exposing_paths(tmp_path) -> None:
     now = dt.datetime(2026, 8, 9, 12, tzinfo=UTC)
-    _archive(tmp_path, now - dt.timedelta(hours=31))
+    manifest = _manifest(tmp_path, now - dt.timedelta(hours=31))
 
     result = monitor.check_backup(
-        {"MONITOR_BACKUP_ROOT": str(tmp_path)},
+        {"MONITOR_BACKUP_MANIFEST": str(manifest)},
         now=now,
     )
 
@@ -109,61 +104,42 @@ def test_stale_backup_fails_without_exposing_paths(tmp_path) -> None:
 
 
 @pytest.mark.parametrize(
-    ("sidecar", "expected_detail"),
+    "overrides",
     [
-        ("0" * 64 + "  pastorai-backup-20260809T120000Z.tar.gz\n", "checksum divergente"),
-        ("not-a-sha256  pastorai-backup-20260809T120000Z.tar.gz\n", "checksum lateral invalido"),
-        (
-            hashlib.sha256(b"backup").hexdigest() + "  outro-pacote.tar.gz\n",
-            "checksum lateral invalido",
-        ),
-        (
-            hashlib.sha256(b"backup").hexdigest()
-            + "  pastorai-backup-20260809T120000Z.tar.gz\nextra\n",
-            "checksum lateral invalido",
-        ),
+        {"status": "created"},
+        {"archive": "other.tar.gz"},
+        {"sha256": "not-a-sha256"},
+        {"bytes": 0},
+        {"completed_at": "not-a-timestamp"},
     ],
 )
-def test_backup_checksum_fails_closed(
-    tmp_path, sidecar: str, expected_detail: str
-) -> None:
+def test_backup_manifest_fails_closed(tmp_path, overrides: dict[str, object]) -> None:
     now = dt.datetime(2026, 8, 9, 12, tzinfo=UTC)
-    archive = _archive(tmp_path, now - dt.timedelta(hours=1))
-    Path(str(archive) + ".sha256").write_text(sidecar, encoding="utf-8")
+    manifest = _manifest(tmp_path, now - dt.timedelta(hours=1), **overrides)
 
-    result = monitor.check_backup({"MONITOR_BACKUP_ROOT": str(tmp_path)}, now=now)
+    result = monitor.check_backup({"MONITOR_BACKUP_MANIFEST": str(manifest)}, now=now)
 
     assert result.ok is False
-    assert result.detail == expected_detail
+    assert result.detail in {"manifesto invalido", "manifesto nao verificado"}
 
 
-def test_backup_missing_package_or_sidecar_is_unhealthy(tmp_path) -> None:
+def test_backup_missing_or_unreadable_manifest_is_unhealthy(tmp_path, monkeypatch) -> None:
     now = dt.datetime(2026, 8, 9, 12, tzinfo=UTC)
-    sidecar_only = tmp_path / "pastorai-backup-20260809T120000Z.tar.gz.sha256"
-    sidecar_only.write_text("0" * 64 + "  missing.tar.gz\n", encoding="utf-8")
+    manifest = tmp_path / "backup-status.json"
     assert monitor.check_backup(
-        {"MONITOR_BACKUP_ROOT": str(tmp_path)}, now=now
-    ).detail == "nenhum arquivo encontrado"
+        {"MONITOR_BACKUP_MANIFEST": str(manifest)}, now=now
+    ).detail == "indisponivel (FileNotFoundError)"
 
-    archive = _archive(tmp_path, now - dt.timedelta(hours=1))
-    Path(str(archive) + ".sha256").unlink()
-    result = monitor.check_backup({"MONITOR_BACKUP_ROOT": str(tmp_path)}, now=now)
-    assert result.ok is False
-    assert result.detail == "checksum lateral ausente"
+    _manifest(tmp_path, now - dt.timedelta(hours=1))
+    original_read_text = Path.read_text
 
+    def fail_manifest_read(path: Path, *args, **kwargs):
+        if path == manifest:
+            raise PermissionError("sensitive manifest path")
+        return original_read_text(path, *args, **kwargs)
 
-def test_backup_read_error_is_sanitized(monkeypatch, tmp_path) -> None:
-    now = dt.datetime(2026, 8, 9, 12, tzinfo=UTC)
-    archive = _archive(tmp_path, now - dt.timedelta(hours=1))
-    original_open = Path.open
-
-    def fail_archive_open(path: Path, *args, **kwargs):
-        if path == archive:
-            raise PermissionError("sensitive backup path")
-        return original_open(path, *args, **kwargs)
-
-    monkeypatch.setattr(Path, "open", fail_archive_open)
-    result = monitor.check_backup({"MONITOR_BACKUP_ROOT": str(tmp_path)}, now=now)
+    monkeypatch.setattr(Path, "read_text", fail_manifest_read)
+    result = monitor.check_backup({"MONITOR_BACKUP_MANIFEST": str(manifest)}, now=now)
 
     assert result.ok is False
     assert result.detail == "indisponivel (PermissionError)"

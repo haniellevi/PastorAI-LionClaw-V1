@@ -256,15 +256,16 @@ restaurados se qualquer etapa da instalação falhar. Uma migração
 futura para timer exige remover o cron em gate operacional próprio e então usar
 explicitamente `PASTORAI_BACKUP_TIMER_MODE=enable`; essa opção apenas habilita o
 timer e não executa um backup. A raiz canônica continua sendo
-`/root/pastorai-backups`. O monitor considera válido somente o pacote mais
-recente cujo SHA-256 real corresponde ao sidecar do mesmo arquivo. A URL do
-banco é transformada em arquivos libpq temporários `0600`, montados apenas para
-o `pg_dump`; URL e senha não ficam em argv ou ambiente desse processo.
+`/root/pastorai-backups`. O backup privilegiado compara o SHA-256 real do
+pacote com seu sidecar antes de publicar o manifesto sanitizado
+`/var/lib/pastorai-backup/backup-status.json`. A URL do banco é transformada em
+arquivos libpq temporários `0600`, montados apenas para o `pg_dump`; URL e senha
+não ficam em argv ou ambiente de Python, Docker, `pg_dump` ou outros auxiliares.
 As units usam `ProtectSystem=strict` e paths de escrita explícitos. O monitor
-não acessa Docker e mantém root apenas para verificar backups root-only. O
-backup é uma unidade privilegiada separada porque o socket Docker é
-root-equivalente; esse residual é documentado e não deve ser confundido com uma
-allowlist completa contra script comprometido.
+usa `DynamicUser`, `ProtectHome=true`, não acessa Docker, `.env` ou `/root` e
+valida somente o manifesto. O backup é uma unidade privilegiada separada porque
+o socket Docker é root-equivalente; esse residual é documentado e não deve ser
+confundido com uma allowlist completa contra script comprometido.
 O workflow `production-monitor.yml` faz os checks públicos e mantém uma issue
 deduplicada no GitHub. Procedimento, estados e limites de disaster recovery:
 [`deploy/monitoring/README.md`](../../deploy/monitoring/README.md).

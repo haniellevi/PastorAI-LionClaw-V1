@@ -11,6 +11,7 @@ User=root
 Group=root
 UMask=0077
 Environment=PASTORAI_BACKUP_LOCK_FILE=/run/pastorai-backup/backup.lock
+Environment=PASTORAI_BACKUP_MONITOR_MANIFEST=/var/lib/pastorai-backup/backup-status.json
 WorkingDirectory=/opt/pastorai-current/deploy
 ExecStart=/bin/bash /opt/pastorai-current/deploy/backup-production.sh
 TimeoutStartSec=3h
@@ -24,9 +25,11 @@ PrivateMounts=true
 ProtectHome=read-only
 ProtectSystem=strict
 ReadOnlyPaths=/opt/pastorai-current
-ReadWritePaths=/root/pastorai-backups
+ReadWritePaths=/root/pastorai-backups /var/lib/pastorai-backup
 RuntimeDirectory=pastorai-backup
 RuntimeDirectoryMode=0700
+StateDirectory=pastorai-backup
+StateDirectoryMode=0755
 ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectKernelLogs=true

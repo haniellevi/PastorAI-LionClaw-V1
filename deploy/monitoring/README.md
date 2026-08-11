@@ -13,7 +13,7 @@ e, portanto, Evolution não causa restart loop.
 | DB/Redis falha em `/ready` | HTTP 503, sem reinício automático | Brevo + GitHub issue |
 | Evolution/worker degrada | HTTP 200 `degraded`, sem reinício da API | Brevo + GitHub issue |
 | Heartbeat de worker expira | somente aquele worker fica `unhealthy` | readiness degradada |
-| Backup em `/root/pastorai-backups` ausente, velho ou com SHA-256 inválido | nenhum reinício | Brevo |
+| Manifesto de backup ausente, velho ou não verificado | nenhum reinício | Brevo |
 | TLS/páginas públicas falham | nenhum reinício | GitHub issue |
 
 Os relatórios expõem somente estados fechados e tipos de erro. URLs privadas,
@@ -38,10 +38,11 @@ cada execução de cinco minutos sem esconder mudanças reais de estado.
 ## Limites de privilégio das units
 
 As duas units usam `ProtectSystem=strict`, devices e namespaces privados,
-capabilities vazias e escrita limitada aos diretórios declarados. O monitor
-não recebe o socket Docker: ele roda como root somente porque precisa calcular
-o SHA-256 real de pacotes `0600` em `/root/pastorai-backups`; esse acesso não
-permite escrita fora de `/var/lib/pastorai-monitor` dentro da sandbox.
+capabilities vazias e escrita limitada aos diretórios declarados. O monitor usa
+`DynamicUser`, `ProtectHome=true` e não recebe Docker, o `.env` do release ou
+os pacotes privados. Ele lê somente
+`/var/lib/pastorai-backup/backup-status.json`, um manifesto sanitizado contendo
+idade, nome, bytes e SHA-256 já verificados pelo backup privilegiado.
 
 O backup é a fronteira privilegiada separada: precisa acessar o socket Docker
 para montar volumes e executar `pg_dump`. Esse socket é equivalente a root no
@@ -91,8 +92,10 @@ cada 30 minutos. Ele usa apenas o `GITHUB_TOKEN` do repositório e mantém uma
 
 ## Limite de recuperação
 
-O monitor seleciona o pacote mais recente, exige um sidecar bem formado para o
-mesmo nome e compara o SHA-256 real antes de avaliar a idade. O backup existente
-em `/root/pastorai-backups` é mantido na própria VPS. Isso cobre restauração
-lógica, mas não perda total da conta/região. Cópia externa criptografada ou
-backup diário gerenciado continua sendo um gate separado de disaster recovery.
+O backup privilegiado calcula e compara o SHA-256 real do pacote e seu sidecar
+antes de publicar atomically o manifesto sanitizado. O monitor falha fechado se
+o manifesto estiver ausente, malformado, não verificado ou atrasado; ele não
+tenta ler o pacote privado em `/root/pastorai-backups`. Esse backup local cobre
+restauração lógica, mas não perda total da conta/região. Cópia externa
+criptografada ou backup diário gerenciado continua sendo um gate separado de
+disaster recovery.

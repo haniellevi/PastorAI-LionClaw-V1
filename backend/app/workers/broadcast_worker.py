@@ -6,9 +6,11 @@ import datetime as dt
 import logging
 import os
 import signal
+import threading
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -124,15 +126,42 @@ class BroadcastWorker:
         self._inside_run = False
         self._last_heartbeat_monotonic = 0.0
         self._heartbeat_available = False
+        self._stop_requested = threading.Event()
+        self._transport_lock = threading.RLock()
+        self._transport_inflight = threading.Event()
 
     @property
     def enabled(self) -> bool:
         return self._enabled
 
     def stop(self, *_: Any) -> None:
-        """Request graceful shutdown; an in-flight result is still recorded."""
-        logger.info("Broadcast worker shutdown requested")
-        self._running = False
+        """Linearize shutdown against the next provider request.
+
+        Once this method holds ``_transport_lock`` no new Evolution request can
+        begin.  A request that acquired the lock first is already in progress;
+        it is allowed to finish and its truthful result is recorded instead of
+        being mislabeled as retroactively cancelled.
+        """
+        self._stop_requested.set()
+        if self._transport_inflight.is_set():
+            logger.info("Broadcast shutdown requested; transport already in progress")
+        else:
+            logger.info("Broadcast worker shutdown requested")
+        with self._transport_lock:
+            self._running = False
+
+    @contextmanager
+    def _transport_gate(self) -> Iterator[bool]:
+        """One local cancellation fence around DB proof + external transport."""
+        with self._transport_lock:
+            if self._stop_requested.is_set() or not self._should_continue():
+                yield False
+                return
+            self._transport_inflight.set()
+            try:
+                yield True
+            finally:
+                self._transport_inflight.clear()
 
     def _should_continue(self) -> bool:
         if self._inside_run:
@@ -164,6 +193,7 @@ class BroadcastWorker:
             lease_seconds=self._lease_seconds,
             send_interval_ms=self._send_interval_ms,
             should_continue=self._should_continue,
+            transport_gate=self._transport_gate,
         )
 
     def _sleep_interruptibly(self) -> None:
@@ -193,6 +223,7 @@ class BroadcastWorker:
 
     def run(self) -> None:
         """Stay alive until SIGTERM/SIGINT, processing only when boot-enabled."""
+        self._stop_requested.clear()
         self._running = True
         self._inside_run = True
         idle_ticks = 0

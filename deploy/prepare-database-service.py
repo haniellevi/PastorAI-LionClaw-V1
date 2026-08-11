@@ -64,8 +64,16 @@ def _safe_value(value: str) -> str:
 
 
 def _service_value(value: str) -> str:
-    """Quote a libpq service-file value without allowing line injection."""
-    return "'" + _safe_value(value).replace("\\", "\\\\").replace("'", "\\'") + "'"
+    """Validate an unquoted libpq service-file value.
+
+    ``pg_service.conf`` is not a conninfo string: quoting values makes libpq
+    reject the file.  Reject values whose whitespace or comment marker cannot
+    be represented safely instead of trying to invent an escaping dialect.
+    """
+    safe = _safe_value(value)
+    if safe != safe.strip() or safe.startswith("#"):
+        raise ValueError("componente de conexao invalido")
+    return safe
 
 
 def _pgpass_value(value: str) -> str:
@@ -136,10 +144,10 @@ def write_database_service(env_file: Path, target_dir: Path) -> None:
     passfile = target_dir / "pgpass"
     service_lines = [f"[{_SERVICE_NAME}]"]
     for key in ("host", "port", "dbname", "user"):
-        service_lines.append(f"{key} = {_service_value(connection[key])}")
-    service_lines.append(f"passfile = {_service_value(_CONTAINER_PASSFILE)}")
+        service_lines.append(f"{key}={_service_value(connection[key])}")
+    service_lines.append(f"passfile={_service_value(_CONTAINER_PASSFILE)}")
     for key, value in options:
-        service_lines.append(f"{key} = {_service_value(value)}")
+        service_lines.append(f"{key}={_service_value(value)}")
     pgpass_line = ":".join(
         _pgpass_value(connection[key])
         for key in ("host", "port", "dbname", "user", "password")

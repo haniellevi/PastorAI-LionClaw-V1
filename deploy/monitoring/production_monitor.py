@@ -9,7 +9,6 @@ for the application.  Notifications are deduplicated by persisted state.
 from __future__ import annotations
 
 import datetime as dt
-import hashlib
 import html
 import json
 import os
@@ -23,10 +22,10 @@ from pathlib import Path
 from typing import Any
 
 UTC = dt.timezone.utc
-DEFAULT_ENV_FILE = Path("/opt/pastorai-current/deploy/.env")
 DEFAULT_STATE_FILE = Path("/var/lib/pastorai-monitor/state.json")
-DEFAULT_BACKUP_ROOT = Path("/root/pastorai-backups")
+DEFAULT_BACKUP_MANIFEST = Path("/var/lib/pastorai-backup/backup-status.json")
 _SHA256_RE = re.compile(r"[0-9a-fA-F]{64}")
+_ARCHIVE_NAME_RE = re.compile(r"pastorai-backup-\d{8}T\d{6}Z\.tar\.gz")
 
 
 @dataclass(frozen=True)
@@ -46,29 +45,15 @@ def utcnow() -> dt.datetime:
     return dt.datetime.now(UTC)
 
 
-def parse_env_file(path: Path) -> dict[str, str]:
-    values: dict[str, str] = {}
-    if not path.exists():
-        return values
-    for raw in path.read_text(encoding="utf-8").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        if line.startswith("export "):
-            line = line[7:].lstrip()
-        key, value = line.split("=", 1)
-        value = value.strip()
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
-            value = value[1:-1]
-        values[key.strip()] = value
-    return values
-
-
 def load_config() -> dict[str, str]:
-    env_file = Path(os.environ.get("PASTORAI_ENV_FILE", DEFAULT_ENV_FILE))
-    config = parse_env_file(env_file)
-    config.update(os.environ)
-    return config
+    """Read only the allowlisted service environment supplied by systemd.
+
+    The monitor process intentionally never opens the deployment ``.env``: its
+    DynamicUser sandbox has neither a business need nor permission to inspect
+    application credentials.  The installer derives a small, allowlisted
+    EnvironmentFile for systemd to pass here.
+    """
+    return dict(os.environ)
 
 
 def request_json(url: str, *, timeout: float = 8.0) -> Any:
@@ -115,45 +100,42 @@ def check_readiness(config: dict[str, str]) -> CheckResult:
 def check_backup(
     config: dict[str, str], *, now: dt.datetime | None = None
 ) -> CheckResult:
-    root = Path(config.get("MONITOR_BACKUP_ROOT", DEFAULT_BACKUP_ROOT))
+    manifest_path = Path(
+        config.get("MONITOR_BACKUP_MANIFEST", DEFAULT_BACKUP_MANIFEST)
+    )
     try:
         max_age = max(1, int(config.get("MONITOR_BACKUP_MAX_AGE_HOURS", "30")))
     except ValueError:
         max_age = 30
     try:
-        archives = sorted(
-            root.glob("pastorai-backup-*.tar.gz"),
-            key=lambda item: item.stat().st_mtime,
-        )
-    except OSError as exc:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
         return CheckResult("backup", False, f"indisponivel ({type(exc).__name__})")
-    if not archives:
-        return CheckResult("backup", False, "nenhum arquivo encontrado")
-    latest = archives[-1]
-    checksum = Path(str(latest) + ".sha256")
+    if not isinstance(manifest, dict):
+        return CheckResult("backup", False, "manifesto invalido")
+    if manifest.get("version") != 1 or manifest.get("status") != "verified":
+        return CheckResult("backup", False, "manifesto nao verificado")
+    archive = manifest.get("archive")
+    digest = manifest.get("sha256")
+    bytes_written = manifest.get("bytes")
+    completed_at = manifest.get("completed_at")
+    if not isinstance(archive, str) or not _ARCHIVE_NAME_RE.fullmatch(archive):
+        return CheckResult("backup", False, "manifesto invalido")
+    if not isinstance(digest, str) or not _SHA256_RE.fullmatch(digest):
+        return CheckResult("backup", False, "manifesto invalido")
+    if type(bytes_written) is not int or bytes_written <= 0:
+        return CheckResult("backup", False, "manifesto invalido")
+    if not isinstance(completed_at, str):
+        return CheckResult("backup", False, "manifesto invalido")
     try:
-        if not checksum.is_file() or not latest.is_file():
-            return CheckResult("backup", False, "checksum lateral ausente")
-        checksum_lines = checksum.read_text(encoding="utf-8").splitlines()
-        if len(checksum_lines) != 1:
-            return CheckResult("backup", False, "checksum lateral invalido")
-        checksum_parts = checksum_lines[0].split(maxsplit=1)
-        if len(checksum_parts) != 2 or not _SHA256_RE.fullmatch(checksum_parts[0]):
-            return CheckResult("backup", False, "checksum lateral invalido")
-        referenced_name = checksum_parts[1].lstrip("*").strip()
-        if not referenced_name or Path(referenced_name).name != latest.name:
-            return CheckResult("backup", False, "checksum lateral invalido")
-        digest = hashlib.sha256()
-        with latest.open("rb") as archive:
-            for chunk in iter(lambda: archive.read(1024 * 1024), b""):
-                digest.update(chunk)
-        if digest.hexdigest().lower() != checksum_parts[0].lower():
-            return CheckResult("backup", False, "checksum divergente")
-        modified = dt.datetime.fromtimestamp(latest.stat().st_mtime, tz=UTC)
-    except (OSError, UnicodeError) as exc:
-        return CheckResult("backup", False, f"indisponivel ({type(exc).__name__})")
+        completed = dt.datetime.fromisoformat(completed_at.replace("Z", "+00:00"))
+        if completed.tzinfo is None:
+            raise ValueError("timestamp sem fuso")
+        completed = completed.astimezone(UTC)
+    except ValueError:
+        return CheckResult("backup", False, "manifesto invalido")
     checked_at = now or utcnow()
-    age_hours = max(0.0, (checked_at - modified).total_seconds() / 3600)
+    age_hours = max(0.0, (checked_at - completed).total_seconds() / 3600)
     if age_hours > max_age:
         return CheckResult("backup", False, f"atrasado age_hours={age_hours:.1f}")
     return CheckResult("backup", True, f"recente age_hours={age_hours:.1f}")

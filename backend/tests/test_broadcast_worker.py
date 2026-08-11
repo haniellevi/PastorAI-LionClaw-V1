@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from types import SimpleNamespace
 
 from app.services.broadcast_delivery import BroadcastCycleStats
@@ -299,6 +300,49 @@ def test_enabled_worker_runs_persistent_cycle_with_configured_limits() -> None:
     assert seen["max_deliveries"] == 10
     assert seen["max_attempts"] == 3
     assert seen["send_interval_ms"] == 0
+    assert callable(seen["transport_gate"])
+
+
+def test_stop_linearizes_with_an_already_started_transport() -> None:
+    transport_started = threading.Event()
+    release_transport = threading.Event()
+    stop_finished = threading.Event()
+    sends = []
+
+    def runner(_session_factory, _evolution, *, transport_gate, **_kwargs):
+        with transport_gate() as allowed:
+            assert allowed is True
+            sends.append("started")
+            transport_started.set()
+            assert release_transport.wait(timeout=5)
+        return BroadcastCycleStats(delivery_actions=1)
+
+    worker = BroadcastWorker(
+        settings=_settings(True),
+        session_factory=lambda: object(),
+        evolution=object(),
+        cycle_runner=runner,
+        heartbeat_publisher=lambda *_args: None,
+    )
+    dispatch = threading.Thread(target=worker.tick)
+    dispatch.start()
+    assert transport_started.wait(timeout=5)
+
+    def request_stop() -> None:
+        worker.stop()
+        stop_finished.set()
+
+    stopper = threading.Thread(target=request_stop)
+    stopper.start()
+    assert stop_finished.wait(timeout=0.1) is False
+    release_transport.set()
+    dispatch.join(timeout=5)
+    stopper.join(timeout=5)
+
+    assert not dispatch.is_alive()
+    assert not stopper.is_alive()
+    assert sends == ["started"]
+    assert stop_finished.is_set()
 
 
 def test_async_worker_stays_idle_while_external_sends_are_blocked() -> None:

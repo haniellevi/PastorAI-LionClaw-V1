@@ -51,18 +51,23 @@ e retenção de 14 dias. O script usa lock para impedir execuções simultâneas
 `DATABASE_URL` é convertida em arquivos libpq efêmeros (`pg_service.conf` e
 `pgpass`) dentro de diretório `0700`; ambos ficam em modo `600`, são montados
 somente-leitura no container e removidos por trap em sucesso, erro ou sinal.
-Nem a URL nem a senha chegam ao argv ou ao ambiente de `pg_dump`.
+Nem a URL nem a senha chegam ao argv ou ao ambiente de Python, Docker,
+`pg_dump` ou outro processo auxiliar. Depois de verificar o SHA-256 real contra
+o sidecar, o backup publica somente o manifesto sanitizado
+`/var/lib/pastorai-backup/backup-status.json`; ele não contém URL, senha, paths
+privados ou conteúdo do pacote.
 O instalador de observabilidade preserva este cron por padrão. Ele instala a
 unit `pastorai-backup.service` para uma migração futura, mas só habilita o timer
 com `PASTORAI_BACKUP_TIMER_MODE=enable` e recusa essa opção enquanto detectar o
 cron legado. O instalador aborta também quando o timer estiver ativo embora
 desabilitado, e restaura arquivos, modos e estado dos timers em falha. As units
 usam `ProtectSystem=strict`, capabilities vazias e escrita direta limitada aos
-destinos declarados. O monitor não recebe socket Docker e usa root apenas para
-ler e calcular SHA-256 de pacotes root-only. O backup continua uma fronteira
-root separada porque precisa do socket Docker; esse socket é root-equivalente,
-portanto a allowlist de escrita não é uma contenção contra script comprometido.
-Esse risco residual é explícito e nenhuma unit de monitoramento recebe o socket.
+destinos declarados. O monitor usa `DynamicUser`, não recebe socket Docker, não
+lê `.env` nem `/root` e consulta apenas o manifesto sanitizado. O backup
+continua uma fronteira root separada porque precisa do socket Docker; esse socket
+é root-equivalente, portanto a allowlist de escrita não é uma contenção contra
+script comprometido. Esse risco residual é explícito e nenhuma unit de
+monitoramento recebe o socket.
 
 Na estação Windows, `deploy/pull-encrypted-backup.ps1` copia o pacote mais
 recente aos domingos às 05:00, valida o SHA-256, criptografa, testa a

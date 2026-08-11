@@ -26,7 +26,9 @@ def _run_harness(*arguments: str) -> subprocess.CompletedProcess[str]:
             check=True,
             capture_output=True,
             text=True,
-            timeout=10,
+            # WSL can cold-start while controlled Docker/Systemd checks run.
+            # Keep the conversion bounded without making the test timing-flaky.
+            timeout=30,
         ).stdout.strip()
         command = [wsl, "-e", "sh", converted, *arguments]
     else:
@@ -43,19 +45,23 @@ def _run_harness(*arguments: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_backup_root_is_canonical_across_script_monitor_and_units() -> None:
+def test_root_backup_is_kept_privileged_and_monitor_uses_sanitized_manifest() -> None:
     expected = "/root/pastorai-backups"
-    files = (
+    privileged_files = (
         "deploy/backup-production.sh",
-        "deploy/monitoring/production_monitor.py",
         "deploy/monitoring/install.sh",
         "deploy/monitoring/systemd/pastorai-backup.service",
-        "deploy/monitoring/systemd/pastorai-monitor.service",
     )
 
-    for relative in files:
+    for relative in privileged_files:
         assert expected in _read(relative), relative
         assert "/var/backups/pastorai" not in _read(relative), relative
+    monitor = _read("deploy/monitoring/production_monitor.py")
+    monitor_unit = _read("deploy/monitoring/systemd/pastorai-monitor.service")
+    assert expected not in monitor
+    assert expected not in monitor_unit
+    assert "/var/lib/pastorai-backup/backup-status.json" in monitor
+    assert "/var/lib/pastorai-backup/backup-status.json" in monitor_unit
 
 
 def test_units_use_strict_filesystem_sandbox_and_explicit_privilege_boundaries() -> None:
@@ -72,12 +78,19 @@ def test_units_use_strict_filesystem_sandbox_and_explicit_privilege_boundaries()
     assert "RestrictNamespaces=true" in backup_unit
     assert "ReadOnlyPaths=/opt/pastorai-current" in backup_unit
 
-    assert "ProtectHome=read-only" in monitor_unit
+    assert "DynamicUser=yes" in monitor_unit
+    assert "User=root" not in monitor_unit
+    assert "Group=root" not in monitor_unit
+    assert "ProtectHome=true" in monitor_unit
     assert "ProtectSystem=strict" in monitor_unit
-    assert "ReadOnlyPaths=/root/pastorai-backups" in monitor_unit
+    assert "ReadOnlyPaths=-/var/lib/pastorai-backup/backup-status.json" in monitor_unit
     assert "ReadWritePaths=/var/lib/pastorai-monitor" in monitor_unit
     assert "StateDirectory=pastorai-monitor" in monitor_unit
-    assert "InaccessiblePaths=-/run/docker.sock -/var/run/docker.sock" in monitor_unit
+    assert (
+        "InaccessiblePaths=/root /home -/run/docker.sock -/var/run/docker.sock "
+        "-/opt/pastorai-current/deploy/.env /etc/shadow"
+    ) in monitor_unit
+    assert "/opt/pastorai-current/deploy/.env" in monitor_unit
     assert "CapabilityBoundingSet=" in monitor_unit
     assert "PrivateDevices=true" in monitor_unit
     assert "RestrictNamespaces=true" in monitor_unit
@@ -96,6 +109,8 @@ def test_installer_preserves_legacy_cron_and_requires_explicit_timer_opt_in() ->
     )
     assert "Cron legado detectado" in install
     assert '"$INSTALL_BIN" -d -m 0700 "$STATE_DIR" "$BACKUP_ROOT"' in install
+    assert '"$INSTALL_BIN" -d -m 0755 "$MANIFEST_DIR"' in install
+    assert "prepare_monitor_config.py" in install
 
 
 def test_duplicate_scheduler_preflight_runs_before_install_writes() -> None:

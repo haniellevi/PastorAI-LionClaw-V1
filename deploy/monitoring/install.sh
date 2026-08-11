@@ -11,9 +11,11 @@ INSTALL_DIR=${PASTORAI_MONITOR_INSTALL_DIR:-/opt/pastorai-monitor}
 CONFIG_FILE=${PASTORAI_MONITOR_CONFIG_FILE:-/etc/pastorai-monitor.env}
 APP_ENV_FILE=${PASTORAI_ENV_FILE:-/opt/pastorai-current/deploy/.env}
 BACKUP_ROOT=${PASTORAI_BACKUP_ROOT:-/root/pastorai-backups}
+BACKUP_MANIFEST=${PASTORAI_BACKUP_MONITOR_MANIFEST:-/var/lib/pastorai-backup/backup-status.json}
 STATE_DIR=${PASTORAI_MONITOR_STATE_DIR:-/var/lib/pastorai-monitor}
 SYSTEMD_DIR=${PASTORAI_SYSTEMD_DIR:-/etc/systemd/system}
 CONFIG_DIR=$(dirname -- "$CONFIG_FILE")
+MANIFEST_DIR=$(dirname -- "$BACKUP_MANIFEST")
 SYSTEMCTL=${PASTORAI_SYSTEMCTL_BIN:-systemctl}
 SYSTEMD_ANALYZE=${PASTORAI_SYSTEMD_ANALYZE_BIN:-systemd-analyze}
 INSTALL_BIN=${PASTORAI_INSTALL_BIN:-install}
@@ -67,6 +69,7 @@ fi
 
 for source_file in \
   "$SCRIPT_DIR/production_monitor.py" \
+  "$SCRIPT_DIR/prepare_monitor_config.py" \
   "$SCRIPT_DIR/systemd/pastorai-monitor.service" \
   "$SCRIPT_DIR/systemd/pastorai-monitor.timer" \
   "$SCRIPT_DIR/systemd/pastorai-backup.service" \
@@ -147,16 +150,11 @@ trap 'exit 143' TERM
 for unit in pastorai-monitor.service pastorai-monitor.timer pastorai-backup.service pastorai-backup.timer; do
   "$INSTALL_BIN" -m 0644 "$SCRIPT_DIR/systemd/$unit" "$STAGE_DIR/systemd/$unit"
 done
-{
-  printf 'PASTORAI_ENV_FILE=%s\n' "$APP_ENV_FILE"
-  printf 'MONITOR_ALERT_EMAIL=%s\n' "$ALERT_EMAIL"
-  printf 'MONITOR_BACKUP_ROOT=%s\n' "$BACKUP_ROOT"
-  printf 'MONITOR_BACKUP_MAX_AGE_HOURS=30\n'
-  printf 'MONITOR_REMINDER_HOURS=6\n'
-  printf 'MONITOR_RETRY_HOURS=1\n'
-  printf 'MONITOR_AMBIGUOUS_RETRY_HOURS=6\n'
-} >"$STAGE_DIR/pastorai-monitor.env"
-chmod 0600 "$STAGE_DIR/pastorai-monitor.env"
+# The staged EnvironmentFile is an explicit Brevo/monitor allowlist.  Do not
+# pass the deployment .env path or its inherited credentials to the monitor.
+env -i PATH="$PATH" python3 "$SCRIPT_DIR/prepare_monitor_config.py" \
+  "$APP_ENV_FILE" "$ALERT_EMAIL" "$BACKUP_MANIFEST" \
+  "$STAGE_DIR/pastorai-monitor.env"
 if command -v "$SYSTEMD_ANALYZE" >/dev/null 2>&1; then
   "$SYSTEMD_ANALYZE" verify "$STAGE_DIR/systemd/"*.service "$STAGE_DIR/systemd/"*.timer
 fi
@@ -206,11 +204,13 @@ restore_state() {
 INSTALL_DIR_EXISTED=0
 STATE_DIR_EXISTED=0
 BACKUP_ROOT_EXISTED=0
+MANIFEST_DIR_EXISTED=0
 SYSTEMD_DIR_EXISTED=0
 CONFIG_DIR_EXISTED=0
 INSTALL_DIR_MODE=
 STATE_DIR_MODE=
 BACKUP_ROOT_MODE=
+MANIFEST_DIR_MODE=
 SYSTEMD_DIR_MODE=
 CONFIG_DIR_MODE=
 if [ -d "$INSTALL_DIR" ]; then
@@ -224,6 +224,10 @@ fi
 if [ -d "$BACKUP_ROOT" ]; then
   BACKUP_ROOT_EXISTED=1
   BACKUP_ROOT_MODE=$(stat -c '%a' "$BACKUP_ROOT")
+fi
+if [ -d "$MANIFEST_DIR" ]; then
+  MANIFEST_DIR_EXISTED=1
+  MANIFEST_DIR_MODE=$(stat -c '%a' "$MANIFEST_DIR")
 fi
 if [ -d "$SYSTEMD_DIR" ]; then
   SYSTEMD_DIR_EXISTED=1
@@ -256,11 +260,13 @@ rollback_install() {
   [ "$INSTALL_DIR_EXISTED" -eq 0 ] || chmod "$INSTALL_DIR_MODE" "$INSTALL_DIR"
   [ "$STATE_DIR_EXISTED" -eq 0 ] || chmod "$STATE_DIR_MODE" "$STATE_DIR"
   [ "$BACKUP_ROOT_EXISTED" -eq 0 ] || chmod "$BACKUP_ROOT_MODE" "$BACKUP_ROOT"
+  [ "$MANIFEST_DIR_EXISTED" -eq 0 ] || chmod "$MANIFEST_DIR_MODE" "$MANIFEST_DIR"
   [ "$SYSTEMD_DIR_EXISTED" -eq 0 ] || chmod "$SYSTEMD_DIR_MODE" "$SYSTEMD_DIR"
   [ "$CONFIG_DIR_EXISTED" -eq 0 ] || chmod "$CONFIG_DIR_MODE" "$CONFIG_DIR"
   [ "$INSTALL_DIR_EXISTED" -eq 1 ] || rmdir "$INSTALL_DIR" >/dev/null 2>&1
   [ "$STATE_DIR_EXISTED" -eq 1 ] || rmdir "$STATE_DIR" >/dev/null 2>&1
   [ "$BACKUP_ROOT_EXISTED" -eq 1 ] || rmdir "$BACKUP_ROOT" >/dev/null 2>&1
+  [ "$MANIFEST_DIR_EXISTED" -eq 1 ] || rmdir "$MANIFEST_DIR" >/dev/null 2>&1
   [ "$CONFIG_DIR_EXISTED" -eq 1 ] || rmdir "$CONFIG_DIR" >/dev/null 2>&1
   [ "$SYSTEMD_DIR_EXISTED" -eq 1 ] || rmdir "$SYSTEMD_DIR" >/dev/null 2>&1
   set -e
@@ -270,6 +276,7 @@ ROLLBACK_READY=1
 apply_install() {
   "$INSTALL_BIN" -d -m 0755 "$INSTALL_DIR" || return 1
   "$INSTALL_BIN" -d -m 0700 "$STATE_DIR" "$BACKUP_ROOT" || return 1
+  "$INSTALL_BIN" -d -m 0755 "$MANIFEST_DIR" || return 1
   "$INSTALL_BIN" -d -m 0755 "$SYSTEMD_DIR" || return 1
   "$INSTALL_BIN" -d -m 0755 "$CONFIG_DIR" || return 1
   "$INSTALL_BIN" -m 0755 "$STAGE_DIR/production_monitor.py" "$INSTALL_DIR/production_monitor.py" || return 1

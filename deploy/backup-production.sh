@@ -5,10 +5,19 @@ set -euo pipefail
 # somente como root na VPS.
 umask 077
 
+# The active release file is the only credential source.  Scrub inherited
+# connection settings before *any* helper is launched: an environment unset in
+# a later subshell would still leave Python and other preflight helpers exposed.
+unset DATABASE_URL PGPASSWORD PGHOST PGHOSTADDR PGPORT PGDATABASE PGUSER \
+  PGSERVICE PGSERVICEFILE PGPASSFILE PGOPTIONS PGSSLMODE PGSSLCERT PGSSLKEY \
+  PGSSLROOTCERT PGSSLCRL PGCONNECT_TIMEOUT PGAPPNAME PGTARGETSESSIONATTRS \
+  PGCHANNELBINDING
+
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 BACKUP_ROOT="${PASTORAI_BACKUP_ROOT:-/root/pastorai-backups}"
 ENV_FILE="${PASTORAI_ENV_FILE:-/opt/pastorai-current/deploy/.env}"
 COMPOSE_FILE="${PASTORAI_COMPOSE_FILE:-/opt/pastorai-current/deploy/docker-compose.yml}"
+MONITOR_MANIFEST="${PASTORAI_BACKUP_MONITOR_MANIFEST:-/var/lib/pastorai-backup/backup-status.json}"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 BACKUP_DIR="${BACKUP_ROOT}/${STAMP}"
 ARCHIVE="${BACKUP_ROOT}/pastorai-backup-${STAMP}.tar.gz"
@@ -35,7 +44,12 @@ fi
 
 paused=0
 DATABASE_CREDENTIALS_DIR=""
+MONITOR_MANIFEST_TEMP=""
 cleanup() {
+  if [[ -n "${MONITOR_MANIFEST_TEMP}" ]]; then
+    rm -f -- "${MONITOR_MANIFEST_TEMP}"
+    MONITOR_MANIFEST_TEMP=""
+  fi
   if [[ -n "${DATABASE_CREDENTIALS_DIR}" ]]; then
     rm -rf -- "${DATABASE_CREDENTIALS_DIR}"
     DATABASE_CREDENTIALS_DIR=""
@@ -54,11 +68,10 @@ chmod 700 "${DATABASE_CREDENTIALS_DIR}"
 python3 "${SCRIPT_DIR}/prepare-database-service.py" \
   "${ENV_FILE}" "${DATABASE_CREDENTIALS_DIR}"
 
-# Do not inherit a URL/password into Docker or pg_dump.  libpq receives only
-# a service name; the mode-0600 service/pass files are mounted read-only and
-# removed by cleanup on success, error, signal, or interruption.
+# libpq receives only a service name; the mode-0600 service/pass files are
+# mounted read-only and removed by cleanup on success, error, signal, or
+# interruption.  The process environment was scrubbed before any helper above.
 (
-  unset DATABASE_URL PGPASSWORD PGHOST PGPORT PGUSER PGDATABASE PGSERVICE PGSERVICEFILE PGPASSFILE
   exec docker run --rm \
     --mount "type=bind,src=${DATABASE_CREDENTIALS_DIR},dst=/run/pastorai-backup,readonly" \
     --env PGSERVICE=pastorai_backup \
@@ -203,6 +216,21 @@ cd "${BACKUP_ROOT}"
 tar -czf "${ARCHIVE}" "${STAMP}"
 sha256sum "${ARCHIVE}" >"${ARCHIVE}.sha256"
 chmod 600 "${ARCHIVE}" "${ARCHIVE}.sha256"
+# A non-root monitor must not read the root-only archive.  Verify the artifact
+# while still privileged, then publish only bounded, non-secret metadata.
+sha256sum -c "${ARCHIVE}.sha256" >/dev/null
+MONITOR_MANIFEST_DIR="$(dirname -- "${MONITOR_MANIFEST}")"
+install -d -m 0755 "${MONITOR_MANIFEST_DIR}"
+MONITOR_MANIFEST_TEMP="$(mktemp "${MONITOR_MANIFEST_DIR}/.backup-status.XXXXXX")"
+ARCHIVE_DIGEST="$(sha256sum "${ARCHIVE}" | awk '{print $1}')"
+ARCHIVE_BYTES="$(stat -c '%s' "${ARCHIVE}")"
+COMPLETED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+printf '{"version":1,"status":"verified","archive":"%s","sha256":"%s","bytes":%s,"completed_at":"%s"}\n' \
+  "$(basename -- "${ARCHIVE}")" "${ARCHIVE_DIGEST}" "${ARCHIVE_BYTES}" "${COMPLETED_AT}" \
+  >"${MONITOR_MANIFEST_TEMP}"
+chmod 0644 "${MONITOR_MANIFEST_TEMP}"
+mv -f -- "${MONITOR_MANIFEST_TEMP}" "${MONITOR_MANIFEST}"
+MONITOR_MANIFEST_TEMP=""
 
 # Retém 14 dias na VPS. A cópia semanal da Hostinger e a cópia externa
 # criptografada são camadas separadas deste diretório local.
