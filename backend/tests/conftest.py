@@ -243,8 +243,17 @@ class FakeSession:
         if entity is BillingSettings:
             return _FakeResult(scalar=self.billing_settings)
         if entity is Subscription:
-            return _FakeResult(scalar=self.subscription)
+            subscription = self.subscription or next(
+                (
+                    obj
+                    for obj in self.added
+                    if isinstance(obj, Subscription)
+                ),
+                None,
+            )
+            return _FakeResult(scalar=subscription)
         if entity is BillingPlanChangeOperation:
+            bound = statement.compile().params
             pool = [
                 *self.plan_changes,
                 *(
@@ -253,8 +262,16 @@ class FakeSession:
                     if isinstance(o, BillingPlanChangeOperation)
                 ),
             ]
-            open_statuses = ("prepared", "processing", "reconciling")
-            pool = [o for o in pool if o.status in open_statuses]
+            statuses: list[str] = []
+            for key, value in bound.items():
+                if not re.fullmatch(r"status_\d+(_\d+)?", key):
+                    continue
+                if isinstance(value, (list, tuple, set)):
+                    statuses.extend(value)
+                else:
+                    statuses.append(value)
+            if statuses:
+                pool = [o for o in pool if o.status in statuses]
             return _FakeResult(scalar=pool[0] if pool else None, scalars_list=pool)
         if entity is BillingSubscriptionOperation:
             bound = statement.compile().params

@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.config import get_settings
 from app.db.models import (
     Base,
+    BillingPaymentOperation,
     BillingPlanChangeOperation,
     BillingSubscriptionOperation,
     Igreja,
@@ -24,10 +25,13 @@ from app.db.models import (
     Plano,
     Subscription,
 )
+from app.deps import CurrentUser
 from app.routers.subscription import (
     AsaasWebhookEvent,
+    CheckoutRequest,
     _adopt_open_subscription_intent,
     asaas_webhook,
+    create_checkout,
 )
 from app.services.billing import (
     PlanChangeConflict,
@@ -302,6 +306,178 @@ def test_checkout_intent_and_complimentary_grant_are_serialized(
 
     assert isinstance(reverse["complimentary"], Plano)
     assert reverse["operations"] == []
+
+
+@pytest.mark.parametrize(
+    "history_kind",
+    ["payment", "plan_change", "subscription_creation"],
+)
+def test_checkout_revalidates_cross_table_financial_history_after_waiting_for_lock(
+    engine_fx: Engine,
+    history_kind: str,
+) -> None:
+    """História concorrente vence a Igreja e bloqueia o POST sem estado parcial."""
+    factory = _factory(engine_fx)
+    _seed(factory)
+    history_staged = threading.Event()
+    checkout_started = threading.Event()
+    release_history = threading.Event()
+    errors: list[BaseException] = []
+    outcome: dict[str, object] = {}
+    application_name = f"billing-history-{history_kind}"
+
+    class NoNetworkAsaas:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def __getattr__(self, name: str):
+            def forbidden(*_args, **_kwargs):
+                self.calls.append(name)
+                raise AssertionError(
+                    f"histórico {history_kind} tocou o Asaas ({name})"
+                )
+
+            return forbidden
+
+    asaas = NoNetworkAsaas()
+
+    def insert_history() -> None:
+        try:
+            with factory() as db:
+                db.execute(text("set local lock_timeout = '8s'"))
+                # Simula um writer legado que ainda usa apenas o FK da
+                # Subscription. O checkout não pode perder essa linha entre o
+                # inventário inicial e o FOR UPDATE da assinatura.
+                if history_kind == "payment":
+                    db.add(
+                        BillingPaymentOperation(
+                            subscription_id=_SUB,
+                            purpose="setup",
+                            operation_key="setup:cross-table-race",
+                            asaas_payment_id="pay_cross_table_race",
+                            status="reversed",
+                            valor=59.9,
+                            invoice_url="https://example.invalid/setup-race",
+                        )
+                    )
+                elif history_kind == "plan_change":
+                    db.add(
+                        BillingPlanChangeOperation(
+                            subscription_id=_SUB,
+                            asaas_subscription_id="sub_cross_table_race",
+                            from_plano="ate_100",
+                            to_plano="101_200",
+                            to_preco=299,
+                            to_limite=200,
+                            to_descricao="PastorAI — plano 101_200",
+                            origin="manual",
+                            status="completed",
+                            notify_status="skipped",
+                        )
+                    )
+                else:
+                    db.add(
+                        BillingSubscriptionOperation(
+                            subscription_id=_SUB,
+                            operation_key="subscription:cross-table-history",
+                            customer_id="cus_cross_table_race",
+                            plano="ate_100",
+                            valor=199,
+                            limite=100,
+                            setup_fee=0,
+                            ciclo="MONTHLY",
+                            descricao="PastorAI — plano ate_100",
+                            asaas_subscription_id="sub_cross_table_history",
+                            status="created",
+                        )
+                    )
+                db.flush()
+                history_staged.set()
+                assert release_history.wait(timeout=10)
+                db.commit()
+        except BaseException as exc:  # noqa: BLE001 - transporta da thread
+            errors.append(exc)
+
+    def checkout() -> None:
+        try:
+            assert history_staged.wait(timeout=10)
+            with factory() as db:
+                db.execute(
+                    text("select set_config('application_name', :name, true)"),
+                    {"name": application_name},
+                )
+                db.execute(text("set local lock_timeout = '8s'"))
+                checkout_started.set()
+                try:
+                    create_checkout(
+                        CheckoutRequest(
+                            plano="ate_100",
+                            cpfCnpj="24971563792",
+                        ),
+                        db=db,
+                        current_user=CurrentUser(
+                            app_user_id=str(uuid.uuid4()),
+                            clerk_user_id="clerk_cross_table_race",
+                            igreja_id=str(_IGREJA),
+                            email="race@example.invalid",
+                            nome="Race",
+                            roles=frozenset({"admin"}),
+                            is_owner=True,
+                        ),
+                        asaas=asaas,
+                    )
+                except HTTPException as exc:
+                    outcome["status"] = exc.status_code
+                    outcome["detail"] = exc.detail
+        except BaseException as exc:  # noqa: BLE001 - transporta da thread
+            errors.append(exc)
+
+    history_thread = threading.Thread(target=insert_history)
+    checkout_thread = threading.Thread(target=checkout)
+    history_thread.start()
+    assert history_staged.wait(timeout=10)
+    checkout_thread.start()
+    assert checkout_started.wait(timeout=10)
+    assert _wait_for_application_lock(engine_fx, application_name)
+    release_history.set()
+    for thread in (history_thread, checkout_thread):
+        thread.join(timeout=12)
+        assert not thread.is_alive(), "histórico/checkout concorrente não terminou"
+
+    assert errors == []
+    assert outcome["status"] == 409
+    assert "reconciliação manual" in str(outcome["detail"])
+    assert asaas.calls == []
+
+    with factory.begin() as db:
+        igreja = db.get(Igreja, _IGREJA)
+        sub = db.get(Subscription, _SUB)
+        payments = db.execute(select(BillingPaymentOperation)).scalars().all()
+        changes = db.execute(select(BillingPlanChangeOperation)).scalars().all()
+        creations = db.execute(
+            select(BillingSubscriptionOperation)
+        ).scalars().all()
+        assert igreja is not None and sub is not None
+        assert igreja.plano == "ate_100"
+        assert sub.plano == "ate_100"
+        assert sub.asaas_subscription_id is None
+        assert sub.asaas_setup_charge_id is None
+        assert sub.asaas_invoice_payment_id is None
+        assert len(payments) == (1 if history_kind == "payment" else 0)
+        assert len(changes) == (1 if history_kind == "plan_change" else 0)
+        assert len(creations) == (
+            1 if history_kind == "subscription_creation" else 0
+        )
+        if payments:
+            assert payments[0].status == "reversed"
+            assert payments[0].asaas_payment_id == "pay_cross_table_race"
+        if changes:
+            assert changes[0].status == "completed"
+            assert changes[0].asaas_subscription_id == "sub_cross_table_race"
+        if creations:
+            assert creations[0].status == "created"
+            assert creations[0].attempt_started_at is None
+            assert creations[0].asaas_subscription_id == "sub_cross_table_history"
 
 
 class _NoNetworkAsaas:

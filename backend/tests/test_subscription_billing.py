@@ -3748,7 +3748,12 @@ def test_reconciliation_releases_transaction_before_get_then_relocks_canonically
 
     def lookup(ref: str) -> list[dict]:
         asaas.find_calls += 1
-        assert events == ["rollback_before_get"]
+        assert events == [
+            "church",
+            "plans",
+            "subscription",
+            "rollback_before_get",
+        ]
         events.append("remote_get")
         return list(asaas.found)
 
@@ -3786,7 +3791,10 @@ def test_reconciliation_releases_transaction_before_get_then_relocks_canonically
     )
 
     assert response.status_code == 200
-    assert events[:6] == [
+    assert events[:9] == [
+        "church",
+        "plans",
+        "subscription",
         "rollback_before_get",
         "remote_get",
         "church",
@@ -3914,6 +3922,352 @@ def test_subscription_asaas_field_inventory_is_explicit() -> None:
         "asaas_invoice_payment_id",
         "asaas_invoice_reversal",
     }
+
+
+def test_all_financial_operation_fields_are_inventoried_explicitly() -> None:
+    from app.routers import subscription as subscription_router
+
+    assert set(subscription_router._PAYMENT_OPERATION_INVENTORY_FIELDS) == {
+        column.name
+        for column in BillingPaymentOperation.__table__.columns
+        if column.name not in {"created_at", "updated_at"}
+    }
+    assert set(subscription_router._PLAN_CHANGE_OPERATION_INVENTORY_FIELDS) == {
+        column.name
+        for column in BillingPlanChangeOperation.__table__.columns
+        if column.name not in {"created_at", "updated_at"}
+    }
+    assert set(subscription_router._SUBSCRIPTION_OPERATION_INVENTORY_FIELDS) == {
+        column.name
+        for column in BillingSubscriptionOperation.__table__.columns
+        if column.name not in {"created_at", "updated_at"}
+    }
+
+
+def _payment_history(**over) -> BillingPaymentOperation:
+    base = dict(
+        subscription_id="00000000-0000-0000-0000-00000000su01",
+        purpose="setup",
+        operation_key="pastorai-setup-history-review8",
+        source_payment_id=None,
+        asaas_payment_id=None,
+        status="failed",
+        valor=50.0,
+        invoice_url=None,
+        error="rejeição definitiva",
+        attempt_started_at=None,
+    )
+    base.update(over)
+    return BillingPaymentOperation(**base)
+
+
+def _plan_change_history(**over) -> BillingPlanChangeOperation:
+    base = dict(
+        subscription_id="00000000-0000-0000-0000-00000000su01",
+        asaas_subscription_id="sub_remote_history",
+        from_plano="ate_100",
+        to_plano="101_200",
+        to_preco=299.0,
+        to_limite=200,
+        to_descricao="PastorAI — plano 101_200",
+        origin="manual",
+        status="completed",
+        notify_status="skipped",
+        attempt_started_at=None,
+    )
+    base.update(over)
+    return BillingPlanChangeOperation(**base)
+
+
+def _assert_new_subscription_history_conflict(
+    app,
+    *,
+    operations: list[BillingPaymentOperation] | None = None,
+    plan_changes: list[BillingPlanChangeOperation] | None = None,
+    extra_subscription_ops: list[BillingSubscriptionOperation] | None = None,
+) -> None:
+    sub = _prepared_placeholder()
+    current = _ambiguous_subscription_intent(
+        status="prepared", attempt_started_at=None
+    )
+    histories: list[object] = [
+        *(operations or []),
+        *(plan_changes or []),
+        *(extra_subscription_ops or []),
+    ]
+    histories_before = [vars(item).copy() for item in histories]
+    current_before = vars(current).copy()
+    sub_before = vars(sub).copy()
+    asaas = _PreparedNoNetwork()
+    client, db = _client(
+        app,
+        planos=[
+            _plano(),
+            _plano(
+                codigo="101_200",
+                nome="101–200 pessoas",
+                limite_pessoas=200,
+                preco_mensal=299,
+            ),
+        ],
+        asaas=asaas,
+        subscription=sub,
+        operations=operations,
+        plan_changes=plan_changes,
+        subscription_ops=[current, *(extra_subscription_ops or [])],
+    )
+    church_before = vars(db.igreja).copy()
+
+    response = client.post(
+        "/subscription",
+        json={"plano": "ate_100", "cpfCnpj": _CPF},
+        headers=_AUTH,
+    )
+
+    assert response.status_code == 409
+    assert asaas.calls == []
+    assert db.commits == 0
+    assert db.added == []
+    assert vars(current) == current_before
+    assert vars(sub) == sub_before
+    assert vars(db.igreja) == church_before
+    assert [vars(item) for item in histories] == histories_before
+
+
+@pytest.mark.parametrize(
+    ("operation_status", "overrides"),
+    [
+        ("prepared", {}),
+        ("creating", {"attempt_started_at": dt.datetime.now(dt.timezone.utc)}),
+        ("reconciling", {}),
+        ("created", {"asaas_payment_id": "pay_setup_created"}),
+        ("paid", {"asaas_payment_id": "pay_setup_paid"}),
+        ("reversed", {"asaas_payment_id": "pay_setup_reversed"}),
+        ("failed", {"asaas_payment_id": "pay_setup_failed_but_remote"}),
+        ("future_unknown", {}),
+    ],
+)
+def test_payment_history_blocks_new_subscription_before_claim_or_network(
+    app, operation_status: str, overrides: dict
+) -> None:
+    _assert_new_subscription_history_conflict(
+        app,
+        operations=[_payment_history(status=operation_status, **overrides)],
+    )
+
+
+def test_reversed_setup_history_missing_from_subscription_blocks_new_post(app) -> None:
+    _assert_new_subscription_history_conflict(
+        app,
+        operations=[
+            _payment_history(
+                status="reversed",
+                asaas_payment_id="pay_reversed_only_in_operation",
+                invoice_url="https://asaas.test/reversed-history",
+            )
+        ],
+    )
+
+
+@pytest.mark.parametrize(
+    "operation_status",
+    ["prepared", "processing", "reconciling", "completed", "failed", "future_unknown"],
+)
+def test_plan_change_remote_history_blocks_second_subscription_post(
+    app, operation_status: str
+) -> None:
+    _assert_new_subscription_history_conflict(
+        app,
+        plan_changes=[_plan_change_history(status=operation_status)],
+    )
+
+
+def test_historical_subscription_remote_id_blocks_new_post(app) -> None:
+    historical = _ambiguous_subscription_intent(
+        operation_key="pastorai-subcreate-historical-created",
+        status="created",
+        asaas_subscription_id="sub_only_in_history",
+        attempt_started_at=None,
+    )
+    _assert_new_subscription_history_conflict(
+        app, extra_subscription_ops=[historical]
+    )
+
+
+def test_unknown_historical_subscription_state_fails_closed(app) -> None:
+    historical = _ambiguous_subscription_intent(
+        operation_key="pastorai-subcreate-historical-unknown",
+        status="future_unknown",
+        customer_id=None,
+        attempt_started_at=None,
+    )
+    _assert_new_subscription_history_conflict(
+        app, extra_subscription_ops=[historical]
+    )
+
+
+def test_failed_payment_without_remote_markers_remains_safe_history(app) -> None:
+    sub = _prepared_placeholder()
+    current = _ambiguous_subscription_intent(
+        status="prepared", attempt_started_at=None
+    )
+    failed = _payment_history()
+    asaas = _FakeAsaas()
+    client, _db = _client(
+        app,
+        planos=[_plano()],
+        asaas=asaas,
+        subscription=sub,
+        operations=[failed],
+        subscription_ops=[current],
+    )
+
+    response = client.post(
+        "/subscription",
+        json={"plano": "ate_100", "cpfCnpj": _CPF},
+        headers=_AUTH,
+    )
+
+    assert response.status_code == 200
+    assert len(asaas.calls) == 1
+    assert current.status == "created"
+
+
+def test_history_materialized_after_claim_is_revalidated_before_asaas(app) -> None:
+    sub = _prepared_placeholder()
+    current = _ambiguous_subscription_intent(
+        status="prepared", attempt_started_at=None
+    )
+    history = _payment_history(
+        status="reversed",
+        asaas_payment_id="pay_race_after_claim",
+    )
+    asaas = _PreparedNoNetwork()
+    client, db = _client(
+        app,
+        planos=[_plano()],
+        asaas=asaas,
+        subscription=sub,
+        subscription_ops=[current],
+    )
+    original_commit = db.commit
+    history_before = vars(history).copy()
+
+    def commit_and_materialize_history() -> None:
+        original_commit()
+        if db.commits == 1:
+            # Simula outra transação que venceu logo após o commit do claim.
+            # A nova leitura canônica precisa barrar a chamada externa.
+            db.operations.append(history)
+
+    db.commit = commit_and_materialize_history
+
+    response = client.post(
+        "/subscription",
+        json={"plano": "ate_100", "cpfCnpj": _CPF},
+        headers=_AUTH,
+    )
+
+    assert response.status_code == 409
+    assert "reconciliação manual" in response.json()["detail"]
+    assert asaas.calls == []
+    assert db.commits == 1
+    assert db.added == []
+    assert vars(history) == history_before
+
+
+class _TrackedSubscriptionNoCreate:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+
+    def get_subscription_payment(self, subscription_id: str):
+        self.calls.append(("GET subscription payment", subscription_id))
+        return None
+
+    def create_checkout(self, **_kwargs):  # pragma: no cover - defesa do teste
+        self.calls.append(("POST subscription", "unexpected"))
+        raise AssertionError("assinatura rastreada nunca cria nova recorrência")
+
+
+def test_reconciled_plan_change_history_does_not_false_block_tracked_subscription(
+    app,
+) -> None:
+    sub = _subscription(
+        plano="101_200",
+        asaas_subscription_id="sub_remote_history",
+        asaas_setup_charge_id=None,
+        setup_fee_contracted=0.0,
+        setup_pago=True,
+    )
+    history = _plan_change_history()
+    asaas = _TrackedSubscriptionNoCreate()
+    client, _db = _client(
+        app,
+        planos=[
+            _plano(),
+            _plano(
+                codigo="101_200",
+                nome="101–200 pessoas",
+                limite_pessoas=200,
+                preco_mensal=299,
+            ),
+        ],
+        asaas=asaas,
+        subscription=sub,
+        plan_changes=[history],
+    )
+
+    response = client.post(
+        "/subscription",
+        json={"plano": "101_200"},
+        headers=_AUTH,
+    )
+
+    assert response.status_code == 200
+    assert asaas.calls == [("GET subscription payment", "sub_remote_history")]
+
+
+def test_divergent_plan_change_id_blocks_tracked_subscription_before_network(
+    app,
+) -> None:
+    sub = _subscription(
+        plano="101_200",
+        asaas_subscription_id="sub_current",
+        asaas_setup_charge_id=None,
+        setup_fee_contracted=0.0,
+        setup_pago=True,
+    )
+    history = _plan_change_history(asaas_subscription_id="sub_other")
+    asaas = _PreparedNoNetwork()
+    client, db = _client(
+        app,
+        planos=[
+            _plano(),
+            _plano(
+                codigo="101_200",
+                nome="101–200 pessoas",
+                limite_pessoas=200,
+                preco_mensal=299,
+            ),
+        ],
+        asaas=asaas,
+        subscription=sub,
+        plan_changes=[history],
+    )
+    history_before = vars(history).copy()
+    sub_before = vars(sub).copy()
+
+    response = client.post(
+        "/subscription",
+        json={"plano": "101_200"},
+        headers=_AUTH,
+    )
+
+    assert response.status_code == 409
+    assert asaas.calls == []
+    assert db.commits == 0
+    assert vars(history) == history_before
+    assert vars(sub) == sub_before
 
 
 @pytest.mark.parametrize(
