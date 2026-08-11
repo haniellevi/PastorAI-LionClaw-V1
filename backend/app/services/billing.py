@@ -1272,6 +1272,12 @@ def prepare_subscription_operation(
         )
         if getattr(superseded, "rowcount", 0) == 1:
             op.status = "superseded"
+            # A intenção antiga comprovadamente não atravessou a rede. Alinha o
+            # placeholder ao novo alvo dentro da MESMA transação que encerra a
+            # operação antiga e cria a substituta; assim a validação estrita do
+            # checkout nunca precisa aceitar um placeholder divergente.
+            sub.plano = plano
+            sub.limite = limite
             op = None
         else:
             # O rival pode ter avançado `prepared` para `created` entre nossa

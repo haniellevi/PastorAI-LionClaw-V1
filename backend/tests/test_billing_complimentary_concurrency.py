@@ -9,6 +9,7 @@ import uuid
 from collections.abc import Iterator
 
 import pytest
+from fastapi import HTTPException
 from sqlalchemy import create_engine, select, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -23,7 +24,11 @@ from app.db.models import (
     Plano,
     Subscription,
 )
-from app.routers.subscription import AsaasWebhookEvent, asaas_webhook
+from app.routers.subscription import (
+    AsaasWebhookEvent,
+    _adopt_open_subscription_intent,
+    asaas_webhook,
+)
 from app.services.billing import (
     PlanChangeConflict,
     assigned_complimentary_plan,
@@ -714,3 +719,251 @@ def test_webhook_and_autoupgrade_trigger_share_canonical_locks(
         assert sub.asaas_invoice_payment_id == "pay_pg17_rollback"
         assert len(people) == 100
         assert operations == []
+
+
+def test_reconciliation_webhook_and_trigger_converge_without_deadlock(
+    engine_fx: Engine,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """GET sem locks cede ao webhook/trigger e depois falha por snapshot stale."""
+    factory = _factory(engine_fx)
+    settings = get_settings()
+    monkeypatch.setattr(
+        settings, "asaas_webhook_token", _WEBHOOK_TOKEN, raising=False
+    )
+
+    with factory.begin() as db:
+        db.add_all(
+            [
+                Plano(
+                    codigo="ate_100",
+                    nome="Até 100 membros",
+                    limite_pessoas=100,
+                    preco_mensal=199,
+                    ativo=True,
+                    ordem=1,
+                ),
+                Plano(
+                    codigo="101_200",
+                    nome="101–200 membros",
+                    limite_pessoas=200,
+                    preco_mensal=299,
+                    ativo=True,
+                    ordem=2,
+                ),
+            ]
+        )
+    _apply_forward_migration(engine_fx)
+    _install_existing_autoupgrade_trigger(engine_fx)
+
+    errors: list[BaseException] = []
+
+    def sqlstate(exc: BaseException) -> str | None:
+        original = getattr(exc, "orig", None)
+        return getattr(original, "sqlstate", None) or getattr(
+            original, "pgcode", None
+        )
+
+    for index in range(1, 5):
+        igreja_id = uuid.UUID(f"51000000-0000-0000-0000-{index:012d}")
+        subscription_id = uuid.UUID(f"52000000-0000-0000-0000-{index:012d}")
+        operation_key = f"pastorai-subcreate-pg17-{index}"
+        remote_id = f"sub_reconcile_pg17_{index}"
+        with factory.begin() as db:
+            db.add(
+                Igreja(
+                    id=igreja_id,
+                    nome=f"Igreja reconciliação {index}",
+                    plano="ate_100",
+                    status="ativa",
+                )
+            )
+            db.flush()
+            db.add(
+                Subscription(
+                    id=subscription_id,
+                    igreja_id=igreja_id,
+                    plano="ate_100",
+                    status="pendente",
+                    pessoas=100,
+                    limite=100,
+                    asaas_customer_id=f"cus_reconcile_{index}",
+                    asaas_subscription_id=None,
+                    setup_pago=True,
+                    setup_fee_contracted=0,
+                )
+            )
+            db.flush()
+            db.add(
+                BillingSubscriptionOperation(
+                    subscription_id=subscription_id,
+                    operation_key=operation_key,
+                    customer_id=f"cus_reconcile_{index}",
+                    plano="ate_100",
+                    valor=199,
+                    limite=100,
+                    setup_fee=0,
+                    ciclo="MONTHLY",
+                    descricao="PastorAI — plano ate_100",
+                    status="reconciling",
+                )
+            )
+            db.add_all(
+                [
+                    Pessoa(
+                        igreja_id=igreja_id,
+                        nome=f"Membro reconciliação {index}-{member}",
+                        telefone=f"56{index:03d}{member:08d}",
+                        tipo="membro",
+                    )
+                    for member in range(1, 101)
+                ]
+            )
+
+        get_started = threading.Event()
+        release_get = threading.Event()
+        concurrent_start = threading.Barrier(2)
+        result: dict[str, object] = {"get_calls": 0}
+
+        class WaitingLookup:
+            def find_subscriptions_by_external_reference(self, ref: str):
+                assert ref == operation_key
+                result["get_calls"] = int(result["get_calls"]) + 1
+                get_started.set()
+                assert release_get.wait(timeout=12)
+                return [{
+                    "id": remote_id,
+                    "customer": f"cus_reconcile_{index}",
+                    "value": 199.0,
+                    "cycle": "MONTHLY",
+                    "description": "PastorAI — plano ate_100",
+                    "externalReference": operation_key,
+                }]
+
+        def reconcile() -> None:
+            try:
+                with factory() as db:
+                    db.execute(text("set local lock_timeout = '8s'"))
+                    sub = db.get(Subscription, subscription_id)
+                    op = db.execute(
+                        select(BillingSubscriptionOperation).where(
+                            BillingSubscriptionOperation.operation_key
+                            == operation_key
+                        )
+                    ).scalar_one()
+                    try:
+                        _adopt_open_subscription_intent(
+                            db, sub, WaitingLookup(), op, 0.0
+                        )
+                    except HTTPException as exc:
+                        result["reconcile_status"] = exc.status_code
+            except BaseException as exc:  # noqa: BLE001 - transporta da thread
+                errors.append(exc)
+
+        def trigger_member() -> None:
+            try:
+                assert get_started.wait(timeout=8)
+                with factory() as db:
+                    db.execute(text("set local lock_timeout = '8s'"))
+                    concurrent_start.wait(timeout=5)
+                    db.add(
+                        Pessoa(
+                            igreja_id=igreja_id,
+                            nome=f"Membro reconciliação {index}-101",
+                            telefone=f"56{index:03d}00000101",
+                            tipo="membro",
+                        )
+                    )
+                    db.commit()
+            except BaseException as exc:  # noqa: BLE001 - transporta da thread
+                errors.append(exc)
+
+        def deliver_webhook() -> None:
+            try:
+                assert get_started.wait(timeout=8)
+                with factory() as db:
+                    db.execute(text("set local lock_timeout = '8s'"))
+                    concurrent_start.wait(timeout=5)
+                    response = asaas_webhook(
+                        AsaasWebhookEvent(
+                            event="SUBSCRIPTION_UPDATED",
+                            subscription={
+                                "id": remote_id,
+                                "status": "ACTIVE",
+                                "externalReference": operation_key,
+                                "customer": f"cus_reconcile_{index}",
+                                "value": 199.0,
+                                "cycle": "MONTHLY",
+                                "description": "PastorAI — plano ate_100",
+                            },
+                        ),
+                        db=db,
+                        asaas_access_token=_WEBHOOK_TOKEN,
+                    )
+                    result["webhook_status"] = response.status
+            except BaseException as exc:  # noqa: BLE001 - transporta da thread
+                errors.append(exc)
+
+        threads = [
+            threading.Thread(target=reconcile),
+            threading.Thread(target=trigger_member),
+            threading.Thread(target=deliver_webhook),
+        ]
+        threads[0].start()
+        assert get_started.wait(timeout=8), "reconciliação não iniciou o GET"
+        threads[1].start()
+        threads[2].start()
+        for thread in threads[1:]:
+            thread.join(timeout=12)
+            assert not thread.is_alive(), "webhook/trigger não concluiu durante GET"
+        release_get.set()
+        threads[0].join(timeout=12)
+        assert not threads[0].is_alive(), "reconciliação não concluiu"
+
+        assert result == {
+            "get_calls": 1,
+            "webhook_status": "ativa",
+            "reconcile_status": 409,
+        }
+        with factory.begin() as db:
+            igreja = db.get(Igreja, igreja_id)
+            sub = db.get(Subscription, subscription_id)
+            operations = db.execute(
+                select(BillingSubscriptionOperation).where(
+                    BillingSubscriptionOperation.subscription_id == subscription_id
+                )
+            ).scalars().all()
+            people = db.execute(
+                select(Pessoa).where(Pessoa.igreja_id == igreja_id)
+            ).scalars().all()
+            assert igreja is not None and sub is not None
+            assert igreja.status == "ativa"
+            assert sub.status == "ativa"
+            assert sub.asaas_subscription_id == remote_id
+            assert len(operations) == 1
+            assert operations[0].status == "created"
+            assert operations[0].asaas_subscription_id == remote_id
+            assert len(people) == 101
+
+        # Evento repetido converge sem criar outra operação nem regredir estado.
+        with factory() as db:
+            repeated = asaas_webhook(
+                AsaasWebhookEvent(
+                    event="SUBSCRIPTION_UPDATED",
+                    subscription={
+                        "id": remote_id,
+                        "status": "ACTIVE",
+                        "externalReference": operation_key,
+                        "customer": f"cus_reconcile_{index}",
+                        "value": 199.0,
+                        "cycle": "MONTHLY",
+                        "description": "PastorAI — plano ate_100",
+                    },
+                ),
+                db=db,
+                asaas_access_token=_WEBHOOK_TOKEN,
+            )
+            assert repeated.status == "ativa"
+
+    assert [sqlstate(exc) for exc in errors if sqlstate(exc)] == []
+    assert errors == []

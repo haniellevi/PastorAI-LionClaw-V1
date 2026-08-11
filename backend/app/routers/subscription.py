@@ -21,6 +21,7 @@ import datetime as dt
 import logging
 import re
 import uuid
+from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
@@ -70,13 +71,13 @@ from app.services.billing import (
     find_operation_for_payment,
     find_settled_recovery,
     find_subscription_operation_by_key,
+    finish_operation,
     get_setup_fee_for_igreja,
     is_complimentary_plan,
     lock_igreja_for_billing,
     lock_plan_rows_for_billing,
     payment_matches_operation,
     prepare_subscription_operation,
-    reconcile_subscription_operation,
     subscription_matches_operation,
 )
 from app.services.billing_worker import queue_autoupgrade_if_over_limit
@@ -287,15 +288,99 @@ def _plano_ativo_or_422(db: Session, codigo: str) -> Plano:
     return plano
 
 
+def _normalized_money(value: object) -> Decimal | None:
+    try:
+        normalized = Decimal(str(value)).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+    return normalized if normalized.is_finite() else None
+
+
+def _normalized_limit(value: object) -> tuple[bool, int | None]:
+    if value is None:
+        return True, None
+    try:
+        numeric = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        return False, None
+    if (
+        not numeric.is_finite()
+        or numeric <= 0
+        or numeric != numeric.to_integral_value()
+    ):
+        return False, None
+    return True, int(numeric)
+
+
+def _optional_text_matches(value: object, expected: object) -> bool:
+    """Campo vazio é legado permitido; valor presente precisa ser idêntico."""
+    current = str(value or "").strip()
+    target = str(expected or "").strip()
+    return not current or current == target
+
+
+def _prepared_placeholder_matches_intent(
+    sub: Subscription,
+    op: BillingSubscriptionOperation,
+    *,
+    expected_igreja_id: object,
+) -> bool:
+    """Valida um placeholder PREPARED sem transformar ausência em wildcard.
+
+    Linhas antigas podem ter campos opcionais vazios. Esses vazios são aceitos,
+    mas qualquer identidade já materializada precisa apontar exatamente para a
+    intenção local. Uma Subscription com vínculo remoto ou estado financeiro
+    deixa de ser placeholder e nunca pode atravessar o claim de um novo POST.
+    """
+    frozen_setup = _normalized_money(getattr(op, "setup_fee", None))
+    placeholder_setup = _normalized_money(
+        getattr(sub, "setup_fee_contracted", None)
+    )
+    setup_matches = placeholder_setup is None or (
+        frozen_setup is not None and frozen_setup == placeholder_setup
+    )
+    placeholder_status = str(getattr(sub, "status", None) or "").strip().lower()
+    remote_fields = (
+        getattr(sub, "asaas_subscription_id", None),
+        getattr(op, "asaas_subscription_id", None),
+        getattr(sub, "asaas_setup_charge_id", None),
+        getattr(sub, "asaas_invoice_payment_id", None),
+        getattr(sub, "asaas_invoice_url", None),
+        getattr(sub, "asaas_setup_invoice_url", None),
+    )
+    limit_valid, placeholder_limit = _normalized_limit(
+        getattr(sub, "limite", None)
+    )
+    frozen_limit_valid, frozen_limit = _normalized_limit(op.limite)
+    return bool(
+        str(op.subscription_id) == str(sub.id)
+        and str(sub.igreja_id) == str(expected_igreja_id)
+        and _optional_text_matches(getattr(sub, "plano", None), op.plano)
+        and _optional_text_matches(
+            getattr(sub, "asaas_customer_id", None), op.customer_id
+        )
+        and _optional_text_matches(getattr(sub, "ciclo", None), op.ciclo)
+        and setup_matches
+        and limit_valid
+        and frozen_limit_valid
+        and (placeholder_limit is None or placeholder_limit == frozen_limit)
+        and placeholder_status in ("", "pendente")
+        and not any(str(value or "").strip() for value in remote_fields)
+    )
+
+
 def _validate_open_subscription_intent_target(
     db: Session,
     *,
     sub: Subscription,
     op: BillingSubscriptionOperation,
     requested_plan: str,
+    expected_igreja_id: object,
     allowed_statuses: tuple[str, ...] = ("creating", "reconciling"),
     require_customer: bool = True,
-    require_placeholder_match: bool = True,
+    plan_override: Plano | None = None,
 ) -> Plano:
     """Valida localmente uma intenção ambígua antes de qualquer GET no Asaas.
 
@@ -308,46 +393,27 @@ def _validate_open_subscription_intent_target(
     estruturalmente incompatível falha fechado sem consumir tentativa, alterar
     estado local ou consultar o provedor.
     """
-    plan = db.execute(
-        select(Plano).where(Plano.codigo == op.plano)
-    ).scalar_one_or_none()
+    plan = plan_override
+    if plan is None:
+        plan = db.execute(
+            select(Plano).where(Plano.codigo == op.plano)
+        ).scalar_one_or_none()
 
-    def normalized_money(value: object) -> Decimal | None:
-        try:
-            normalized = Decimal(str(value)).quantize(
-                Decimal("0.01"), rounding=ROUND_HALF_UP
-            )
-        except (InvalidOperation, TypeError, ValueError):
-            return None
-        return normalized if normalized.is_finite() else None
-
-    def normalized_limit(value: object) -> tuple[bool, int | None]:
-        if value is None:
-            return True, None
-        try:
-            numeric = Decimal(str(value))
-        except (InvalidOperation, TypeError, ValueError):
-            return False, None
-        if (
-            not numeric.is_finite()
-            or numeric <= 0
-            or numeric != numeric.to_integral_value()
-        ):
-            return False, None
-        return True, int(numeric)
-
-    catalog_price = normalized_money(
+    catalog_price = _normalized_money(
         plan.preco_mensal if plan is not None else None
     )
-    frozen_price = normalized_money(op.valor)
-    frozen_setup = normalized_money(op.setup_fee)
-    contracted_setup = normalized_money(
+    frozen_price = _normalized_money(op.valor)
+    frozen_setup = _normalized_money(op.setup_fee)
+    contracted_setup = _normalized_money(
         getattr(sub, "setup_fee_contracted", None)
     )
-    catalog_limit_valid, catalog_limit = normalized_limit(
+    setup_compatible = contracted_setup == frozen_setup
+    if op.status == "prepared":
+        setup_compatible = contracted_setup is None or setup_compatible
+    catalog_limit_valid, catalog_limit = _normalized_limit(
         getattr(plan, "limite_pessoas", None) if plan is not None else None
     )
-    frozen_limit_valid, frozen_limit = normalized_limit(op.limite)
+    frozen_limit_valid, frozen_limit = _normalized_limit(op.limite)
     operation_customer = str(op.customer_id or "").strip()
     subscription_customer = str(
         getattr(sub, "asaas_customer_id", None) or ""
@@ -362,14 +428,20 @@ def _validate_open_subscription_intent_target(
             not operation_customer and not subscription_customer
         ) or customer_compatible
 
+    placeholder_compatible = bool(
+        str(sub.igreja_id) == str(expected_igreja_id)
+        and str(op.subscription_id) == str(sub.id)
+        and str(sub.plano) == str(op.plano)
+    )
+    if op.status == "prepared":
+        placeholder_compatible = _prepared_placeholder_matches_intent(
+            sub, op, expected_igreja_id=expected_igreja_id
+        )
+
     compatible = bool(
         plan is not None
         and str(plan.codigo) == str(op.plano) == str(requested_plan)
-        and (
-            not require_placeholder_match
-            or str(sub.plano) == str(op.plano)
-        )
-        and str(op.subscription_id) == str(sub.id)
+        and placeholder_compatible
         and op.status in allowed_statuses
         and catalog_price is not None
         and catalog_price > 0
@@ -382,7 +454,7 @@ def _validate_open_subscription_intent_target(
         and catalog_limit == frozen_limit
         and frozen_setup is not None
         and frozen_setup >= 0
-        and contracted_setup == frozen_setup
+        and setup_compatible
         and bool(str(op.operation_key or "").strip())
         and customer_compatible
         and str(op.ciclo or "").upper() == "MONTHLY"
@@ -397,6 +469,185 @@ def _validate_open_subscription_intent_target(
             ),
         )
     return plan
+
+
+@dataclass(frozen=True)
+class _SubscriptionReconciliationSnapshot:
+    igreja_id: object
+    subscription_id: object
+    operation_key: str
+    plan_code: str
+    church_state: tuple[object, ...]
+    plan_state: tuple[object, ...]
+    operation_state: tuple[object, ...]
+    subscription_state: tuple[object, ...]
+    customer_id: str
+    value: Decimal
+    cycle: str
+    description: str
+
+
+def _subscription_reconciliation_snapshot(
+    *,
+    igreja: Igreja,
+    plan: Plano,
+    op: BillingSubscriptionOperation,
+    sub: Subscription,
+) -> _SubscriptionReconciliationSnapshot:
+    """Congela toda identidade usada antes de ceder tempo ao GET remoto."""
+    value = _normalized_money(op.valor)
+    if value is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Contratação local mudou durante a reconciliação",
+        )
+    return _SubscriptionReconciliationSnapshot(
+        igreja_id=igreja.id,
+        subscription_id=sub.id,
+        operation_key=str(op.operation_key),
+        plan_code=str(plan.codigo),
+        church_state=(
+            str(igreja.id),
+            str(getattr(igreja, "status", None) or ""),
+            str(getattr(igreja, "plano", None) or ""),
+            _normalized_money(getattr(igreja, "setup_fee_override", None)),
+            str(getattr(igreja, "dono_id", None) or ""),
+        ),
+        plan_state=(
+            str(plan.codigo),
+            str(getattr(plan, "nome", None) or ""),
+            _normalized_limit(getattr(plan, "limite_pessoas", None)),
+            _normalized_money(getattr(plan, "preco_mensal", None)),
+            bool(getattr(plan, "ativo", False)),
+            getattr(plan, "ordem", None),
+        ),
+        operation_state=(
+            str(getattr(op, "id", None) or ""),
+            str(op.subscription_id),
+            str(op.operation_key),
+            str(op.customer_id or ""),
+            str(op.plano),
+            _normalized_money(op.valor),
+            _normalized_limit(op.limite),
+            _normalized_money(op.setup_fee),
+            str(op.ciclo or "").upper(),
+            str(op.descricao or ""),
+            str(op.asaas_subscription_id or ""),
+            str(op.status or ""),
+            op.attempt_started_at,
+            str(op.error or ""),
+        ),
+        subscription_state=(
+            str(sub.id),
+            str(sub.igreja_id),
+            str(sub.plano or ""),
+            str(sub.status or ""),
+            getattr(sub, "pessoas", None),
+            _normalized_limit(getattr(sub, "limite", None)),
+            getattr(sub, "proxima_cobranca", None),
+            str(getattr(sub, "asaas_customer_id", None) or ""),
+            str(getattr(sub, "asaas_subscription_id", None) or ""),
+            str(getattr(sub, "asaas_setup_charge_id", None) or ""),
+            str(getattr(sub, "asaas_setup_reversed_payment_id", None) or ""),
+            str(getattr(sub, "asaas_invoice_url", None) or ""),
+            str(getattr(sub, "asaas_setup_invoice_url", None) or ""),
+            str(getattr(sub, "asaas_invoice_payment_id", None) or ""),
+            str(getattr(sub, "asaas_invoice_reversal", None) or ""),
+            bool(getattr(sub, "setup_pago", False)),
+            _normalized_money(getattr(sub, "setup_fee_contracted", None)),
+        ),
+        customer_id=str(op.customer_id or ""),
+        value=value,
+        cycle=str(op.ciclo or "").upper(),
+        description=str(op.descricao or ""),
+    )
+
+
+def _remote_matches_reconciliation_snapshot(
+    snapshot: _SubscriptionReconciliationSnapshot, remote: dict
+) -> bool:
+    return bool(
+        isinstance(remote, dict)
+        and remote.get("id")
+        and _normalized_money(remote.get("value")) == snapshot.value
+        and str(remote.get("customer") or "") == snapshot.customer_id
+        and str(remote.get("cycle") or "").upper() == snapshot.cycle
+        and str(remote.get("description") or "") == snapshot.description
+        and (
+            not remote.get("externalReference")
+            or str(remote["externalReference"]) == snapshot.operation_key
+        )
+    )
+
+
+def _reconciliation_conflict(db: Session) -> None:
+    db.rollback()
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=(
+            "A contratação mudou durante a consulta ao Asaas; "
+            "reconciliação manual obrigatória"
+        ),
+    )
+
+
+def _lock_and_revalidate_reconciliation(
+    db: Session,
+    snapshot: _SubscriptionReconciliationSnapshot,
+) -> tuple[Igreja, Plano, BillingSubscriptionOperation, Subscription]:
+    """Readquire Igreja -> Planos -> operação -> Subscription após o GET."""
+    igreja = lock_igreja_for_billing(db, snapshot.igreja_id)
+    if igreja is None or str(igreja.id) != str(snapshot.igreja_id):
+        _reconciliation_conflict(db)
+
+    # Leituras sem lock servem apenas para descobrir todos os planos que devem
+    # entrar no prefixo canônico. A identidade só é aceita depois dos locks.
+    op_candidate = find_subscription_operation_by_key(
+        db, snapshot.operation_key, for_update=False
+    )
+    sub_candidate = _subscription_by_id(db, snapshot.subscription_id)
+    plan_codes = {
+        code
+        for code in (
+            snapshot.plan_code,
+            getattr(igreja, "plano", None),
+            getattr(op_candidate, "plano", None),
+            getattr(sub_candidate, "plano", None),
+        )
+        if code
+    }
+    locked_plans = lock_plan_rows_for_billing(db, *plan_codes)
+    if set(map(str, plan_codes)).difference(locked_plans):
+        _reconciliation_conflict(db)
+
+    op = find_subscription_operation_by_key(
+        db, snapshot.operation_key, for_update=True
+    )
+    sub = _subscription_by_id(db, snapshot.subscription_id, for_update=True)
+    plan = locked_plans.get(snapshot.plan_code)
+    if op is None or sub is None or plan is None:
+        _reconciliation_conflict(db)
+
+    try:
+        _validate_open_subscription_intent_target(
+            db,
+            sub=sub,
+            op=op,
+            requested_plan=snapshot.plan_code,
+            expected_igreja_id=snapshot.igreja_id,
+            plan_override=plan,
+        )
+        current = _subscription_reconciliation_snapshot(
+            igreja=igreja,
+            plan=plan,
+            op=op,
+            sub=sub,
+        )
+    except HTTPException:
+        _reconciliation_conflict(db)
+    if current != snapshot:
+        _reconciliation_conflict(db)
+    return igreja, plan, op, sub
 
 
 def _parse_iso_date(value: object) -> dt.date | None:
@@ -1201,24 +1452,74 @@ def _adopt_open_subscription_intent(
 ) -> CheckoutResponse:
     """Reconcilia e ADOTA a assinatura de uma intenção com POST ambíguo.
 
-    Tudo vem do alvo CONGELADO na operação (plano, limite) — nunca do catálogo
-    atual: entre o POST perdido e o retry o master pode ter editado o preço ou
-    desativado o plano, e reinterpretar uma intenção antiga com valores novos
-    reescreveria o que o assinante contratou. Nenhum POST /subscriptions
-    acontece aqui: só o GET por externalReference.
+    O alvo financeiro vem congelado na operação, mas o catálogo atual precisa
+    continuar idêntico a ele antes e depois do GET. Se o master editar preço,
+    limite ou natureza do plano durante a consulta, a resposta é descartada e a
+    intenção continua aberta para reconciliação manual. Nenhum POST
+    /subscriptions acontece aqui: só o GET por externalReference.
     """
+    plan = _validate_open_subscription_intent_target(
+        db,
+        sub=sub,
+        op=op,
+        requested_plan=str(op.plano),
+        expected_igreja_id=sub.igreja_id,
+    )
+    igreja = db.execute(
+        select(Igreja).where(Igreja.id == sub.igreja_id)
+    ).scalar_one_or_none()
+    if igreja is None or str(igreja.id) != str(sub.igreja_id):
+        _reconciliation_conflict(db)
+    snapshot = _subscription_reconciliation_snapshot(
+        igreja=igreja,
+        plan=plan,
+        op=op,
+        sub=sub,
+    )
+
+    # Encerra a transação de leitura aberta pelas validações. A chamada remota
+    # roda sem row locks e sem transação de banco; somente o snapshot imutável é
+    # levado para fora da fronteira local.
+    db.rollback()
     try:
-        remote = reconcile_subscription_operation(db, asaas, op)
+        candidates = asaas.find_subscriptions_by_external_reference(
+            snapshot.operation_key
+        )
     except AsaasError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Não foi possível criar o checkout no Asaas",
         ) from exc
-    if remote is None:
+
+    _igreja, _plan, locked_op, locked_sub = _lock_and_revalidate_reconciliation(
+        db, snapshot
+    )
+    matches = [
+        candidate
+        for candidate in candidates
+        if _remote_matches_reconciliation_snapshot(snapshot, candidate)
+    ]
+    if len(matches) > 1:
+        finish_operation(
+            db,
+            locked_op,
+            ("creating", "reconciling"),
+            status="reconciling",
+            error="Múltiplas assinaturas encontradas; revisão manual obrigatória",
+            attempt_started_at=None,
+        )
+        logger.warning("Subscription create ambiguous on reconcile; kept blocking")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Contratação em reconciliação no Asaas — tente novamente",
         )
+    if not matches:
+        claim_transition(db, locked_op, "creating", "reconciling")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Contratação em reconciliação no Asaas — tente novamente",
+        )
+    remote = matches[0]
     # Assinatura ENCONTRADA e correspondente ao alvo congelado: ADOÇÃO ATÔMICA
     # — o vínculo na Subscription e o fechamento da operação vão no MESMO
     # commit. Antes dele, a operação segue aberta (encontrável): um crash aqui
@@ -1228,26 +1529,24 @@ def _adopt_open_subscription_intent(
     # O GET ao Asaas cede tempo para o webhook vencer. Recarrega na mesma
     # ordem de locks do webhook e preserva o snapshot financeiro que ele já
     # tenha confirmado/revertido para esta mesma assinatura remota.
-    db.refresh(op, with_for_update=True)
-    db.refresh(sub, with_for_update=True)
     preserve_payment_snapshot = (
-        sub.asaas_subscription_id == remote_id
-        and sub.status in ("ativa", "inadimplente")
+        locked_sub.asaas_subscription_id == remote_id
+        and locked_sub.status in ("ativa", "inadimplente")
     )
-    sub.plano = op.plano
-    sub.limite = op.limite
+    locked_sub.plano = locked_op.plano
+    locked_sub.limite = locked_op.limite
     if not preserve_payment_snapshot:
-        sub.status = "pendente"
-        sub.asaas_invoice_reversal = None
-    sub.asaas_subscription_id = remote_id
-    if op.customer_id:
-        sub.asaas_customer_id = op.customer_id
+        locked_sub.status = "pendente"
+        locked_sub.asaas_invoice_reversal = None
+    locked_sub.asaas_subscription_id = remote_id
+    if locked_op.customer_id:
+        locked_sub.asaas_customer_id = locked_op.customer_id
     elif remote.get("customer"):
-        sub.asaas_customer_id = str(remote["customer"])
-    op.status = "created"
-    op.asaas_subscription_id = remote_id
+        locked_sub.asaas_customer_id = str(remote["customer"])
+    locked_op.status = "created"
+    locked_op.asaas_subscription_id = remote_id
     db.commit()
-    return _resume_tracked_checkout(db, sub, asaas, setup_fee)
+    return _resume_tracked_checkout(db, locked_sub, asaas, setup_fee)
 
 
 @router.post("", response_model=CheckoutResponse)
@@ -1347,6 +1646,21 @@ def create_checkout(
         contractual_setup_fee = get_setup_fee_for_igreja(db, igreja)
     setup_fee = 0.0 if sub.setup_pago else contractual_setup_fee
 
+    # Uma operação prepared existente precisa ser um placeholder local coerente
+    # antes de qualquer retomada, supersession ou consulta remota. Isso também
+    # impede que um vínculo Asaas materializado seja tratado como placeholder.
+    aberta = find_open_subscription_operation(db, sub.id)
+    if aberta is not None and aberta.status == "prepared":
+        _validate_open_subscription_intent_target(
+            db,
+            sub=sub,
+            op=aberta,
+            requested_plan=aberta.plano,
+            expected_igreja_id=igreja_uuid,
+            allowed_statuses=("prepared",),
+            require_customer=False,
+        )
+
     # INVARIANTE: qualquer assinatura Asaas já rastreada NUNCA executa outro
     # POST /subscriptions. Mesmo plano retoma o vínculo atual; plano diferente
     # deve passar pelo endpoint de troca in-place, que usa PUT no mesmo id.
@@ -1370,7 +1684,6 @@ def create_checkout(
     # plano pode adotá-la mesmo após desativação. O catálogo ainda precisa
     # existir e continuar idêntico ao contrato congelado; edição financeira
     # exige reconciliação manual antes de qualquer consulta remota.
-    aberta = find_open_subscription_operation(db, sub.id)
     if (
         aberta is not None
         and aberta.plano == payload.plano
@@ -1381,6 +1694,7 @@ def create_checkout(
             sub=sub,
             op=aberta,
             requested_plan=payload.plano,
+            expected_igreja_id=igreja_uuid,
         )
         frozen_setup = (
             float(aberta.setup_fee)
@@ -1432,19 +1746,15 @@ def create_checkout(
     prepared_intent = find_open_subscription_operation(
         db, sub.id, for_update=True
     )
-    if (
-        prepared_intent is not None
-        and prepared_intent.status == "prepared"
-        and prepared_intent.plano == payload.plano
-    ):
+    if prepared_intent is not None and prepared_intent.status == "prepared":
         _validate_open_subscription_intent_target(
             db,
             sub=sub,
             op=prepared_intent,
-            requested_plan=payload.plano,
+            requested_plan=prepared_intent.plano,
+            expected_igreja_id=igreja_uuid,
             allowed_statuses=("prepared",),
             require_customer=False,
-            require_placeholder_match=False,
         )
 
     # A INTENÇÃO durável nasce (ou é adotada) ANTES do POST /subscriptions: a
@@ -1452,20 +1762,25 @@ def create_checkout(
     # perdida é reconciliada por BUSCA no retry, nunca com um segundo POST (a
     # externalReference localiza, mas não é idempotência de POST no Asaas).
     descricao = subscription_description(payload.plano)
-    try:
-        op = prepare_subscription_operation(
-            db,
-            sub=sub,
-            plano=payload.plano,
-            valor=float(plano_row.preco_mensal),
-            limite=plano_row.limite_pessoas,
-            descricao=descricao,
-            setup_fee=setup_fee,
-        )
-    except SubscriptionCreateConflict as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
-        ) from exc
+    if prepared_intent is not None and prepared_intent.plano == payload.plano:
+        # Já está travada e validada; reutilizá-la evita um commit vazio antes
+        # do claim. Conflitos PREPARED permanecem com zero commit e zero rede.
+        op = prepared_intent
+    else:
+        try:
+            op = prepare_subscription_operation(
+                db,
+                sub=sub,
+                plano=payload.plano,
+                valor=float(plano_row.preco_mensal),
+                limite=plano_row.limite_pessoas,
+                descricao=descricao,
+                setup_fee=setup_fee,
+            )
+        except SubscriptionCreateConflict as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+            ) from exc
 
     if op.status in ("creating", "reconciling"):
         # Corrida: outro request avançou a MESMA intenção enquanto líamos.
@@ -1474,6 +1789,7 @@ def create_checkout(
             sub=sub,
             op=op,
             requested_plan=payload.plano,
+            expected_igreja_id=igreja_uuid,
         )
         frozen_setup = (
             float(op.setup_fee) if op.setup_fee is not None else setup_fee
@@ -1487,9 +1803,9 @@ def create_checkout(
         sub=sub,
         op=op,
         requested_plan=payload.plano,
+        expected_igreja_id=igreja_uuid,
         allowed_statuses=("prepared",),
         require_customer=False,
-        require_placeholder_match=False,
     )
 
     setup_fee = float(op.setup_fee) if op.setup_fee is not None else setup_fee
