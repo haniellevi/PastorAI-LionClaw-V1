@@ -33,7 +33,7 @@ import uuid
 from collections.abc import Iterator
 
 import pytest
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, select, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
@@ -42,6 +42,8 @@ from sqlalchemy.orm import Session, sessionmaker
 # — paridade com produção. As sessões deste teste NÃO são marcadas ⇒ no-op.
 import app.db.session  # noqa: F401
 from app.db.models import Base, Igreja, Pessoa
+from app.domain.phone import normalize_phone
+from app.services import pessoa_dedup
 from app.services.pessoa_dedup import (
     find_active_pessoa_by_phone,
     insert_pessoa_or_get_winner,
@@ -56,22 +58,38 @@ from tests.conftest_rls import rls_database_url  # noqa: F401
 # ===========================================================================
 # Bloco 1 — unitário (sem Postgres): lógica de ramificação da guarda
 # ===========================================================================
-def _unique_violation() -> IntegrityError:
-    """IntegrityError com orig.pgcode == '23505' (unique_violation do Postgres)."""
+def _integrity_error(
+    *,
+    pgcode: str | None = None,
+    sqlstate: str | None = None,
+    constraint_name: str | None = None,
+) -> IntegrityError:
+    """Create a DBAPI-shaped error for both psycopg major versions."""
 
     class _Orig:
-        pgcode = "23505"
+        pass
 
-    return IntegrityError("insert", {}, _Orig())
+    orig = _Orig()
+    orig.pgcode = pgcode
+    orig.sqlstate = sqlstate
+    orig.diag = type("_Diag", (), {"constraint_name": constraint_name})()
+    return IntegrityError("insert", {}, orig)
+
+
+def _unique_violation(*, via_sqlstate: bool = False, constraint_name: str | None = None) -> IntegrityError:
+    """unique_violation from psycopg2 (pgcode) or psycopg3 (sqlstate)."""
+
+    return _integrity_error(
+        pgcode=None if via_sqlstate else "23505",
+        sqlstate="23505" if via_sqlstate else None,
+        constraint_name=constraint_name or "uq_pessoas_telefone_ativa",
+    )
 
 
 def _foreign_key_violation() -> IntegrityError:
     """IntegrityError NÃO-unique (23503) — deve subir inalterada."""
 
-    class _Orig:
-        pgcode = "23503"
-
-    return IntegrityError("insert", {}, _Orig())
+    return _integrity_error(pgcode="23503", constraint_name="pessoas_igreja_id_fkey")
 
 
 class _FakeNested:
@@ -97,11 +115,17 @@ class _FakeDB:
     """Session mínima: begin_nested/add/flush + execute do re-fetch."""
 
     def __init__(
-        self, *, raise_on_flush: IntegrityError | None, winners: list[Pessoa]
+        self,
+        *,
+        raise_on_flush: IntegrityError | None,
+        winners: list[Pessoa],
+        winner_batches: list[list[Pessoa]] | None = None,
     ) -> None:
         self._raise = raise_on_flush
         self._winners = winners
+        self._winner_batches = list(winner_batches or [])
         self.added: list[Pessoa] = []
+        self.execute_calls = 0
 
     def begin_nested(self) -> _FakeNested:
         return _FakeNested()
@@ -114,7 +138,9 @@ class _FakeDB:
             raise self._raise
 
     def execute(self, _stmt: object) -> _FakeResult:
-        return _FakeResult(self._winners)
+        self.execute_calls += 1
+        rows = self._winner_batches.pop(0) if self._winner_batches else self._winners
+        return _FakeResult(rows)
 
 
 _IGREJA = uuid.UUID("0e0e1e0e-0000-0000-0000-0000000000e1")
@@ -145,6 +171,17 @@ def test_unique_violation_refetches_and_returns_winner() -> None:
     assert got is not perdedora
 
 
+def test_psycopg3_sqlstate_unique_violation_refetches_and_returns_winner() -> None:
+    vencedora = _pessoa("11912345678")
+    db = _FakeDB(
+        raise_on_flush=_unique_violation(via_sqlstate=True), winners=[vencedora]
+    )
+    got = insert_pessoa_or_get_winner(
+        db, _pessoa("11912345678"), igreja_id=_IGREJA, canonical="11912345678"
+    )
+    assert got is vencedora
+
+
 def test_non_unique_integrity_error_bubbles_up() -> None:
     db = _FakeDB(raise_on_flush=_foreign_key_violation(), winners=[])
     with pytest.raises(IntegrityError):
@@ -153,14 +190,50 @@ def test_non_unique_integrity_error_bubbles_up() -> None:
         )
 
 
-def test_unique_violation_without_matching_winner_bubbles_up() -> None:
+def test_unique_violation_without_matching_winner_bubbles_up(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     # 23505 mas o re-fetch não acha vencedora canônica (ex.: colisão em outro
     # índice) — não mascarar: sobe.
     db = _FakeDB(raise_on_flush=_unique_violation(), winners=[])
+    monkeypatch.setattr(pessoa_dedup.time, "sleep", lambda _delay: None)
     with pytest.raises(IntegrityError):
         insert_pessoa_or_get_winner(
             db, _pessoa("11912345678"), igreja_id=_IGREJA, canonical="11912345678"
         )
+    assert db.execute_calls == 3
+
+
+def test_other_unique_constraint_bubbles_up_even_with_a_matching_winner() -> None:
+    vencedora = _pessoa("11912345678")
+    db = _FakeDB(
+        raise_on_flush=_unique_violation(constraint_name="uq_other_unique"),
+        winners=[vencedora],
+    )
+    with pytest.raises(IntegrityError):
+        insert_pessoa_or_get_winner(
+            db, _pessoa("11912345678"), igreja_id=_IGREJA, canonical="11912345678"
+        )
+    assert db.execute_calls == 0
+
+
+def test_winner_visibility_retry_is_bounded(monkeypatch: pytest.MonkeyPatch) -> None:
+    vencedora = _pessoa("11912345678")
+    db = _FakeDB(
+        raise_on_flush=_unique_violation(),
+        winners=[],
+        winner_batches=[[], [], [vencedora]],
+    )
+    sleeps: list[float] = []
+    monkeypatch.setattr(pessoa_dedup.time, "sleep", sleeps.append)
+
+    got = insert_pessoa_or_get_winner(
+        db, _pessoa("11912345678"), igreja_id=_IGREJA, canonical="11912345678"
+    )
+
+    assert got is vencedora
+    assert db.execute_calls == 3
+    assert sleeps == [0.01, 0.05]
 
 
 def test_refetch_ignores_suffix_collision_of_a_different_number() -> None:
@@ -206,7 +279,14 @@ def test_all_canonical_phone_writers_lock_before_lookup() -> None:
     )
     for writer in writers:
         source = inspect.getsource(writer)
-        assert source.index("lock_canonical_phone(") < source.index("stored_digits")
+        lock_at = source.index("lock_canonical_phone(")
+        lookup_at = source.index("stored_digits")
+        insert_at = source.index("insert_pessoa_or_get_winner(")
+        assert lock_at < lookup_at < insert_at
+        between_lock_and_insert = source[lock_at:insert_at]
+        assert "db.commit(" not in between_lock_and_insert
+        assert "db.rollback(" not in between_lock_and_insert
+        assert "db.begin(" not in between_lock_and_insert
 
 
 # ===========================================================================
@@ -259,7 +339,9 @@ def _seed_igrejas(factory: sessionmaker) -> None:
         session.close()
 
 
-def _count_active(factory: sessionmaker, igreja_id: uuid.UUID) -> int:
+def _count_active(
+    factory: sessionmaker, igreja_id: uuid.UUID, telefone: str = _TELEFONE
+) -> int:
     session = factory()
     try:
         return int(
@@ -268,11 +350,92 @@ def _count_active(factory: sessionmaker, igreja_id: uuid.UUID) -> int:
                     "select count(*) from pessoas where igreja_id = :i "
                     "and telefone = :t and arquivada_em is null"
                 ),
-                {"i": igreja_id, "t": _TELEFONE},
+                {"i": igreja_id, "t": telefone},
             ).scalar_one()
         )
     finally:
         session.close()
+
+
+def _active_with_canonical_phone(
+    factory: sessionmaker, igreja_id: uuid.UUID, canonical: str
+) -> list[Pessoa]:
+    session = factory()
+    try:
+        pessoas = session.execute(
+            select(Pessoa).where(
+                Pessoa.igreja_id == igreja_id,
+                Pessoa.arquivada_em.is_(None),
+            )
+        ).scalars()
+        return [pessoa for pessoa in pessoas if normalize_phone(pessoa.telefone) == canonical]
+    finally:
+        session.close()
+
+
+def _run_concurrent_creates(
+    factory: sessionmaker,
+    *,
+    igreja_id: uuid.UUID,
+    raw_phones: list[str],
+    acquire_advisory_lock: bool,
+) -> tuple[list[tuple[uuid.UUID, bool]], list[BaseException], list[threading.Thread]]:
+    """Run real concurrent creates and record ``(pessoa_id, created)``."""
+
+    barrier = threading.Barrier(len(raw_phones))
+    results: list[tuple[uuid.UUID, bool]] = []
+    errors: list[BaseException] = []
+
+    def worker(idx: int, raw_phone: str) -> None:
+        session = factory()
+        try:
+            canonical = normalize_phone(raw_phone)
+            assert canonical
+            novo = Pessoa(igreja_id=igreja_id, nome=f"P{idx}", telefone=raw_phone)
+            barrier.wait(timeout=10)
+            if acquire_advisory_lock:
+                lock_canonical_phone(
+                    session, igreja_id=igreja_id, canonical=canonical
+                )
+                pessoa = find_active_pessoa_by_phone(
+                    session, igreja_id=igreja_id, canonical=canonical
+                )
+                if pessoa is None:
+                    pessoa = insert_pessoa_or_get_winner(
+                        session, novo, igreja_id=igreja_id, canonical=canonical
+                    )
+                created = pessoa is novo
+            else:
+                pessoa = insert_pessoa_or_get_winner(
+                    session, novo, igreja_id=igreja_id, canonical=canonical
+                )
+                created = pessoa is novo
+            session.commit()
+            results.append((pessoa.id, created))
+        except BaseException as exc:  # noqa: BLE001 — reportar no thread principal
+            errors.append(exc)
+            session.rollback()
+        finally:
+            session.close()
+
+    threads = [
+        threading.Thread(target=worker, args=(idx, raw_phone))
+        for idx, raw_phone in enumerate(raw_phones)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=15)
+    return results, errors, threads
+
+
+def _waiting_advisory_locks(engine: Engine) -> int:
+    with engine.connect() as connection:
+        return int(
+            connection.execute(
+                text("select count(*) from pg_locks where locktype = 'advisory' and not granted")
+            ).scalar_one()
+        )
 
 
 @pytestmark_integration
@@ -286,37 +449,96 @@ def test_concurrent_creates_same_phone_yield_one_pessoa(engine_fx: Engine) -> No
     """
     _seed_igrejas(_factory(engine_fx))
     factory = _factory(engine_fx)
+    results, errors, threads = _run_concurrent_creates(
+        factory,
+        igreja_id=_IGREJA_A,
+        raw_phones=[_TELEFONE, _TELEFONE],
+        acquire_advisory_lock=False,
+    )
+    assert not errors, f"nenhum worker devia falhar: {errors!r}"
+    assert not any(thread.is_alive() for thread in threads)
+    assert len(results) == 2
+    assert len({pessoa_id for pessoa_id, _ in results}) == 1
+    assert sum(created for _, created in results) == 1
+    assert _count_active(factory, _IGREJA_A) == 1
+    assert _waiting_advisory_locks(engine_fx) == 0
 
-    barrier = threading.Barrier(2)
-    results: dict[int, uuid.UUID] = {}
-    errors: list[BaseException] = []
 
-    def worker(idx: int) -> None:
-        session = factory()
-        try:
-            novo = Pessoa(igreja_id=_IGREJA_A, nome=f"P{idx}", telefone=_TELEFONE)
-            barrier.wait(timeout=10)
-            pessoa = insert_pessoa_or_get_winner(
-                session, novo, igreja_id=_IGREJA_A, canonical=_TELEFONE
-            )
-            session.commit()
-            results[idx] = pessoa.id
-        except BaseException as exc:  # noqa: BLE001 — reportar no thread principal
-            errors.append(exc)
-            session.rollback()
-        finally:
-            session.close()
+@pytestmark_integration
+@pytest.mark.parametrize("workers", (2, 5, 10))
+def test_canonical_phone_variations_converge_under_advisory_lock(
+    engine_fx: Engine, workers: int
+) -> None:
+    _seed_igrejas(_factory(engine_fx))
+    factory = _factory(engine_fx)
+    variants = ["11912345678", "+55 11 91234-5678", "11 1234-5678"]
+    raw_phones = [variants[index % len(variants)] for index in range(workers)]
+    canonical = normalize_phone(raw_phones[0])
 
-    threads = [threading.Thread(target=worker, args=(i,)) for i in (0, 1)]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join(timeout=15)
+    results, errors, threads = _run_concurrent_creates(
+        factory,
+        igreja_id=_IGREJA_A,
+        raw_phones=raw_phones,
+        acquire_advisory_lock=True,
+    )
+
+    assert all(normalize_phone(raw_phone) == canonical for raw_phone in raw_phones)
+    assert not errors, f"nenhum worker devia falhar: {errors!r}"
+    assert not any(thread.is_alive() for thread in threads)
+    assert len(results) == workers
+    assert len({pessoa_id for pessoa_id, _ in results}) == 1
+    assert sum(created for _, created in results) == 1
+    assert len(_active_with_canonical_phone(factory, _IGREJA_A, canonical)) == 1
+    assert _waiting_advisory_locks(engine_fx) == 0
+
+
+@pytestmark_integration
+def test_repeated_two_way_race_converges_fifty_times(engine_fx: Engine) -> None:
+    _seed_igrejas(_factory(engine_fx))
+    factory = _factory(engine_fx)
+
+    for iteration in range(50):
+        telefone = f"119{12_340_000 + iteration:08d}"
+        results, errors, threads = _run_concurrent_creates(
+            factory,
+            igreja_id=_IGREJA_A,
+            raw_phones=[telefone, telefone],
+            acquire_advisory_lock=False,
+        )
+
+        assert not errors, f"iteration={iteration}: {errors!r}"
+        assert not any(thread.is_alive() for thread in threads)
+        assert len({pessoa_id for pessoa_id, _ in results}) == 1
+        assert sum(created for _, created in results) == 1
+        assert _count_active(factory, _IGREJA_A, telefone) == 1
+
+    assert _waiting_advisory_locks(engine_fx) == 0
+
+
+@pytestmark_integration
+def test_different_phones_same_tenant_remain_independent(engine_fx: Engine) -> None:
+    _seed_igrejas(_factory(engine_fx))
+    factory = _factory(engine_fx)
+    phones = ["11912345678", "21912345678"]
+
+    results, errors, threads = _run_concurrent_creates(
+        factory,
+        igreja_id=_IGREJA_A,
+        raw_phones=phones,
+        acquire_advisory_lock=True,
+    )
 
     assert not errors, f"nenhum worker devia falhar: {errors!r}"
-    assert set(results) == {0, 1}
-    assert results[0] == results[1], "ambas as chamadas devem convergir na mesma Pessoa"
-    assert _count_active(factory, _IGREJA_A) == 1
+    assert not any(thread.is_alive() for thread in threads)
+    assert len(results) == 2
+    assert len({pessoa_id for pessoa_id, _ in results}) == 2
+    assert all(created for _, created in results)
+    assert all(
+        len(_active_with_canonical_phone(factory, _IGREJA_A, normalize_phone(phone)))
+        == 1
+        for phone in phones
+    )
+    assert _waiting_advisory_locks(engine_fx) == 0
 
 
 @pytestmark_integration
@@ -340,6 +562,103 @@ def test_different_tenants_same_phone_coexist(engine_fx: Engine) -> None:
 
     assert _count_active(factory, _IGREJA_A) == 1
     assert _count_active(factory, _IGREJA_B) == 1
+
+
+@pytestmark_integration
+def test_other_unique_constraint_is_repropagated_and_outer_rollback_works(
+    engine_fx: Engine,
+) -> None:
+    _seed_igrejas(_factory(engine_fx))
+    factory = _factory(engine_fx)
+    with engine_fx.begin() as connection:
+        connection.execute(
+            text(
+                "create unique index uq_pessoas_email_hotfix "
+                "on pessoas (igreja_id, email) where email is not null"
+            )
+        )
+
+    session = factory()
+    try:
+        session.add(
+            Pessoa(
+                igreja_id=_IGREJA_A,
+                nome="Email owner",
+                telefone=_TELEFONE,
+                email="duplicate@example.test",
+            )
+        )
+        session.commit()
+
+        with pytest.raises(IntegrityError) as exc_info:
+            insert_pessoa_or_get_winner(
+                session,
+                Pessoa(
+                    igreja_id=_IGREJA_A,
+                    nome="Email contender",
+                    telefone="21912345678",
+                    email="duplicate@example.test",
+                ),
+                igreja_id=_IGREJA_A,
+                canonical="21912345678",
+            )
+
+        assert exc_info.value.orig.diag.constraint_name == "uq_pessoas_email_hotfix"
+        assert session.in_transaction()
+        session.rollback()
+        session.add(
+            Pessoa(
+                igreja_id=_IGREJA_A,
+                nome="Usable after rollback",
+                telefone="31912345678",
+                email="unique@example.test",
+            )
+        )
+        session.commit()
+    finally:
+        session.close()
+
+    assert _count_active(factory, _IGREJA_A, "31912345678") == 1
+
+
+@pytestmark_integration
+def test_deduplication_preserves_pending_outer_transaction_changes(
+    engine_fx: Engine,
+) -> None:
+    _seed_igrejas(_factory(engine_fx))
+    factory = _factory(engine_fx)
+    winner_session = factory()
+    try:
+        winner = Pessoa(igreja_id=_IGREJA_A, nome="Winner", telefone=_TELEFONE)
+        winner_session.add(winner)
+        winner_session.commit()
+        winner_id = winner.id
+    finally:
+        winner_session.close()
+
+    session = factory()
+    try:
+        pending = Pessoa(
+            igreja_id=_IGREJA_A,
+            nome="Pending outer transaction",
+            telefone="21912345678",
+        )
+        session.add(pending)
+        deduped = insert_pessoa_or_get_winner(
+            session,
+            Pessoa(igreja_id=_IGREJA_A, nome="Loser", telefone=_TELEFONE),
+            igreja_id=_IGREJA_A,
+            canonical=_TELEFONE,
+        )
+
+        assert deduped.id == winner_id
+        assert session.in_transaction()
+        session.commit()
+    finally:
+        session.close()
+
+    assert _count_active(factory, _IGREJA_A) == 1
+    assert _count_active(factory, _IGREJA_A, "21912345678") == 1
 
 
 @pytestmark_integration

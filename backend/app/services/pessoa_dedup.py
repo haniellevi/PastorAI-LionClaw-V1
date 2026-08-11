@@ -13,6 +13,7 @@ para o telefone bruto; ``insert_pessoa_or_get_winner`` traduz o
 from __future__ import annotations
 
 import hashlib
+import time
 import uuid
 
 from sqlalchemy import func, select, text
@@ -25,6 +26,23 @@ from app.domain.phone import normalize_phone, phone_suffix
 # Postgres SQLSTATE de unique_violation. Só ele é tratado como "perdi a corrida";
 # qualquer outra IntegrityError sobe inalterada (não é uma colisão de telefone).
 _PG_UNIQUE_VIOLATION = "23505"
+_PESSOA_PHONE_UNIQUE_CONSTRAINT = "uq_pessoas_telefone_ativa"
+_WINNER_RETRY_DELAYS_SECONDS = (0.0, 0.01, 0.05)
+
+
+def _is_pessoa_phone_unique_violation(exc: IntegrityError) -> bool:
+    """Return whether ``exc`` is exactly the active-Pessoa phone constraint."""
+
+    orig = exc.orig
+    sqlstates = (
+        getattr(orig, "pgcode", None),
+        getattr(orig, "sqlstate", None),
+    )
+    constraint_name = getattr(getattr(orig, "diag", None), "constraint_name", None)
+    return (
+        _PG_UNIQUE_VIOLATION in sqlstates
+        and constraint_name == _PESSOA_PHONE_UNIQUE_CONSTRAINT
+    )
 
 
 def lock_canonical_phone(
@@ -78,8 +96,8 @@ def insert_pessoa_or_get_winner(
     ``unique_violation`` de ``uq_pessoas_telefone_ativa`` — só o SAVEPOINT é
     desfeito (ROLLBACK TO SAVEPOINT), preservando qualquer coisa já pendente na
     transação externa (importante no queue_worker, cuja Session é compartilhada
-    no turno). Aí re-busca e devolve a Pessoa ATIVA vencedora. Qualquer outra
-    IntegrityError (não-unique) sobe inalterada.
+    no turno). Aí re-busca e devolve a Pessoa ATIVA vencedora. Só a constraint
+    exata é deduplicada; qualquer outra IntegrityError sobe inalterada.
 
     Retorna a Pessoa a usar (a recém-criada no caminho feliz, ou a vencedora).
     """
@@ -89,13 +107,16 @@ def insert_pessoa_or_get_winner(
             db.flush()
         return pessoa
     except IntegrityError as exc:
-        if getattr(exc.orig, "pgcode", None) != _PG_UNIQUE_VIOLATION:
+        if not _is_pessoa_phone_unique_violation(exc):
             raise
-        winner = find_active_pessoa_by_phone(
-            db, igreja_id=igreja_id, canonical=canonical
-        )
-        if winner is None:
-            # unique_violation mas nenhuma vencedora ATIVA casável — inesperado
-            # (ex.: colisão em algo que não é este índice). Não mascarar.
-            raise
-        return winner
+        for retry_delay in _WINNER_RETRY_DELAYS_SECONDS:
+            if retry_delay:
+                time.sleep(retry_delay)
+            winner = find_active_pessoa_by_phone(
+                db, igreja_id=igreja_id, canonical=canonical
+            )
+            if winner is not None:
+                return winner
+        # A visibilidade não estabilizou dentro do limite seguro: não inventar
+        # sucesso nem invalidar a transação externa; repropagar a causa original.
+        raise
