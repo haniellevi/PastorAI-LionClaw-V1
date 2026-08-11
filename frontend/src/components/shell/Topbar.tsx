@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Topbar do app shell: título/crumb da rota ativa, busca e chips de papéis
+ * Topbar do app shell: título/crumb da rota ativa e chips de papéis
  * (papéis detectados no cadastro — união acumulada).
  */
 import { InfoTip } from "@/components/ui/InfoTip";
@@ -57,10 +57,6 @@ export function Topbar({
           <h1 title={meta.title}>{meta.title}</h1>
           {meta.info ? <InfoTip text={meta.info} /> : null}
         </div>
-      </div>
-      <div className="search">
-        <Icon name="search" />
-        <input type="search" placeholder="Buscar contato, célula, conversa…" aria-label="Buscar" />
       </div>
       <div className="who" title="Papéis detectados no seu cadastro">
         <RoleBadgeList roles={user.roles} />

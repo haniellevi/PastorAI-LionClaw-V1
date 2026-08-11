@@ -20,14 +20,27 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import func, or_, select
+from sqlalchemy import false, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.db.models import Celula, ConsentRecord, Pessoa, PessoaArquivamentoEvento
+from app.db.models import (
+    Celula,
+    CelulaMembro,
+    ConsentRecord,
+    Conversation,
+    Pessoa,
+    PessoaArquivamentoEvento,
+)
 from app.db.session import get_db
-from app.deps import CurrentUser, get_current_user, require_role
+from app.deps import (
+    CurrentUser,
+    get_current_user,
+    require_central,
+    require_role,
+    resolve_actor_pessoa_id,
+)
 from app.domain.phone import normalize_phone, phone_suffix
 from app.services.pessoa_dedup import _PG_UNIQUE_VIOLATION, insert_pessoa_or_get_winner
 from app.services import pessoa_offboarding_service
@@ -42,6 +55,19 @@ router = APIRouter(prefix="/contacts", tags=["contacts"])
 # DERIVADO (celulas.lider_id em célula ativa), nunca um rótulo manual — a
 # aptidão (Reencontro) é a flag apto_lider (decisão do dono 2026-07-06).
 _TIPOS_PERMITIDOS = {"contato", "visitante", "membro", "pastor", "discipulo"}
+
+# Papéis com visão tenant-wide de Pessoas. ``has_any_role`` preserva a união dos
+# papéis e concede acesso implícito ao admin, mesmo sem listá-lo aqui.
+CONTACTS_TENANT_WIDE_ROLES = [
+    "pastor",
+    "lider_g12",
+    "lider_consol",
+]
+
+# Somente papéis que realmente operam uma caixa de entrada restrita recebem a
+# exceção de Pessoa por conversa atribuída. ``membro`` e ``lider_mult`` não a
+# herdam apenas porque uma Conversation foi associada artificialmente a eles.
+CONTACTS_RESTRICTED_INBOX_ROLES = {"lider_celula", "operador"}
 
 ContactView = Literal[
     "all",
@@ -155,6 +181,74 @@ def _contact_view_conditions(view: ContactView):
         or_(Pessoa.tipo.is_(None), Pessoa.tipo != "pastor"),
         ~leads_active_cell,
     )
+
+
+def _contact_scope_conditions(
+    db: Session,
+    current_user: CurrentUser,
+    *,
+    include_assigned_conversation: bool = False,
+):
+    """Return SQL predicates for the caller's row-level Pessoas visibility.
+
+    Tenant-wide roles retain the complete tenant view. A cell leader sees their
+    own Pessoa plus Pessoas with an active canonical membership in an active
+    cell they lead. Restricted inbox roles may additionally see Pessoas of
+    tenant Conversations currently assigned to the caller. Other restricted
+    roles see only their own Pessoa.
+
+    Every branch carries explicit tenant predicates in addition to RLS. When a
+    restricted caller has no linked Pessoa (and no detail exception applies),
+    ``false()`` makes count and row queries return an empty result fail-closed.
+    """
+
+    igreja_id = uuid.UUID(current_user.igreja_id)
+    tenant_condition = Pessoa.igreja_id == igreja_id
+
+    if current_user.has_any_role(CONTACTS_TENANT_WIDE_ROLES):
+        return (tenant_condition,)
+
+    actor_pessoa_id = resolve_actor_pessoa_id(db, current_user)
+    actor_uuid = uuid.UUID(actor_pessoa_id) if actor_pessoa_id else None
+    visible = []
+
+    if actor_uuid is not None:
+        visible.append(Pessoa.id == actor_uuid)
+
+        if "lider_celula" in current_user.roles:
+            active_member_of_led_cell = (
+                select(CelulaMembro.id)
+                .join(Celula, Celula.id == CelulaMembro.celula_id)
+                .where(
+                    CelulaMembro.igreja_id == igreja_id,
+                    CelulaMembro.pessoa_id == Pessoa.id,
+                    CelulaMembro.ativo.is_(True),
+                    Celula.igreja_id == igreja_id,
+                    Celula.lider_id == actor_uuid,
+                    Celula.ativo.is_(True),
+                )
+                .correlate(Pessoa)
+                .exists()
+            )
+            visible.append(active_member_of_led_cell)
+
+    if (
+        include_assigned_conversation
+        and current_user.roles & CONTACTS_RESTRICTED_INBOX_ROLES
+    ):
+        assigned_conversation = (
+            select(Conversation.id)
+            .where(
+                Conversation.igreja_id == igreja_id,
+                Conversation.pessoa_id == Pessoa.id,
+                Conversation.assumido_por == uuid.UUID(current_user.app_user_id),
+            )
+            .correlate(Pessoa)
+            .exists()
+        )
+        visible.append(assigned_conversation)
+
+    return (tenant_condition, or_(*visible) if visible else false())
 
 
 # ---------------------------------------------------------------------------
@@ -469,9 +563,14 @@ def list_contacts(
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> Page[ContactOut]:
-    """Return one filtered tenant page, newest first (RNF-09)."""
+    """Return one filtered, role-scoped tenant page, newest first (RNF-09)."""
 
-    conditions = _contact_view_conditions(view)
+    conditions = (
+        *_contact_view_conditions(view),
+        *_contact_scope_conditions(
+            db, current_user, include_assigned_conversation=True
+        ),
+    )
 
     total = db.execute(
         select(func.count()).select_from(Pessoa).where(*conditions)
@@ -506,9 +605,9 @@ def list_contacts(
 def create_contact(
     payload: CreateContactRequest,
     db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_role(CONTACTS_TENANT_WIDE_ROLES)),
 ) -> CreateContactResponse:
-    """Create a contact, deduping by normalized (telefone, igreja).
+    """Create a contact for a tenant-wide role, deduped by (telefone, igreja).
 
     When a contact with the same normalized phone already exists in the tenant,
     no duplicate is created: the existing record is returned with deduped=true.
@@ -592,9 +691,10 @@ def get_contact(
 ) -> ContactDetailOut:
     """Detalhe completo de uma pessoa para o painel de dados do chat (Parte B).
 
-    Tenant-scoped (RLS). Resolve, para exibição, os nomes da célula e do líder.
-    Leitura aberta a qualquer usuário autenticado do tenant (como GET /contacts);
-    a edição segue restrita ao admin (PATCH /contacts/{id}).
+    Tenant-wide roles see any Pessoa in the tenant. Restricted roles see their
+    own Pessoa, active members of an active cell they lead, or the Pessoa of a
+    tenant Conversation currently assigned to them. The visibility predicate is
+    applied before loading cell/leader labels; out-of-scope IDs return 404.
     """
 
     try:
@@ -604,8 +704,11 @@ def get_contact(
             status_code=status.HTTP_404_NOT_FOUND, detail="Contato não encontrado"
         ) from exc
 
+    scope_conditions = _contact_scope_conditions(
+        db, current_user, include_assigned_conversation=True
+    )
     pessoa = db.execute(
-        select(Pessoa).where(Pessoa.id == pessoa_uuid)
+        select(Pessoa).where(Pessoa.id == pessoa_uuid, *scope_conditions)
     ).scalar_one_or_none()
     if pessoa is None:
         raise HTTPException(
@@ -742,7 +845,7 @@ def link_cell(
     contact_id: str,
     payload: LinkCellRequest,
     db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_central),
 ) -> ContactOut:
     """Link a contact to an active, led cell.
 
@@ -750,8 +853,8 @@ def link_cell(
     follow-up promotion is performed by the database trigger
     `trg_link_cell_promote` when celula_id transitions to a value.
 
-    A person belongs to a single cell (delta-049): the first link is open to the
-    normal flow, but MOVING someone from one cell to another is admin-only.
+    A person belongs to a single cell (delta-049): pastor/admin may create the
+    first link, but MOVING someone from one cell to another remains admin-only.
     """
 
     try:
@@ -790,8 +893,8 @@ def link_cell(
 
     # D2: transferir alguém que já está numa célula para OUTRA é uma CAPACIDADE
     # decidida pelo domínio (pode_transferir); este adapter administrativo a
-    # deriva do papel admin — a primeira vinculação (sem célula) segue liberada
-    # ao fluxo normal. A recusa (403 via handler global em app.main) acontece
+    # deriva do papel admin — a dependência da rota já restringe qualquer
+    # vinculação à Central. A recusa (403 via handler global em app.main) acontece
     # DENTRO do ensure, antes de desativar o vínculo antigo — por isso o espelho
     # pessoas.celula_id só é tocado depois.
     igreja_uuid = uuid.UUID(current_user.igreja_id)

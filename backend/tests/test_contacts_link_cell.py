@@ -4,7 +4,8 @@ Nenhum teste dedicado existia para este endpoint (só citado em comentário de
 outro arquivo). Estes provam, offline (sem Postgres), que `link_cell` passa a
 criar/ativar `celula_membro` — não só o espelho legado `pessoas.celula_id`:
 
-  1. primeira vinculação (pessoa sem célula) cria a linha canônica ativa;
+  1. primeira vinculação por pastor/admin cria a linha canônica ativa, enquanto
+     líder de célula é barrado antes de leituras ou escrita de domínio;
   2. transferência (admin move pessoa de uma célula pra outra) desativa o
      vínculo canônico ANTIGO antes de ativar o novo — o índice único parcial
      (igreja_id, pessoa_id) WHERE ativo só permite 1 vínculo ativo por pessoa;
@@ -102,8 +103,10 @@ class _LinkCellSession:
         self.membros = list(membros)
         self.added: list = []
         self.committed = False
+        self.execute_count = 0
 
     def execute(self, statement, params=None) -> _Result:
+        self.execute_count += 1
         descs = list(getattr(statement, "column_descriptions", []) or [])
         ent = descs[0].get("entity") if descs else None
 
@@ -155,14 +158,25 @@ def _admin() -> CurrentUser:
     )
 
 
-def _non_admin() -> CurrentUser:
+def _cell_leader() -> CurrentUser:
     return CurrentUser(
         app_user_id=str(uuid.uuid4()),
         clerk_user_id="clerk_lider",
         igreja_id=_IGREJA_ID,
         email="lider@igrejapiloto.com.br",
         nome="Líder",
-        roles=frozenset({"lider"}),
+        roles=frozenset({"lider_celula"}),
+    )
+
+
+def _pastor() -> CurrentUser:
+    return CurrentUser(
+        app_user_id=str(uuid.uuid4()),
+        clerk_user_id="clerk_pastor",
+        igreja_id=_IGREJA_ID,
+        email="pastor@igrejapiloto.com.br",
+        nome="Pastor",
+        roles=frozenset({"pastor"}),
     )
 
 
@@ -312,7 +326,7 @@ def test_link_cell_still_rejects_inactive_cell(app) -> None:
 # 5) D2 — transferência é capacidade derivada do papel admin PELO ADAPTER; o
 #    domínio (ensure_active_membro) recusa antes de qualquer mutação.
 # ---------------------------------------------------------------------------
-def test_link_cell_non_admin_cannot_transfer(app) -> None:
+def test_link_cell_pastor_cannot_transfer(app) -> None:
     pessoa = _pessoa(_PESSOA_ID, celula_id=_OLD_CELL)
     old_cell = _cell(_OLD_CELL)
     new_cell = _cell(_NEW_CELL)
@@ -320,7 +334,7 @@ def test_link_cell_non_admin_cannot_transfer(app) -> None:
     session = _LinkCellSession(
         pessoas=[pessoa], cells=[old_cell, new_cell], membros=[old_membro]
     )
-    client = _client(app, session=session, current_user=_non_admin())
+    client = _client(app, session=session, current_user=_pastor())
 
     resp = client.post(
         f"/contacts/{_PESSOA_ID}/cell", headers=_AUTH, json={"celulaId": str(_NEW_CELL)}
@@ -334,13 +348,28 @@ def test_link_cell_non_admin_cannot_transfer(app) -> None:
     assert session.committed is False
 
 
-def test_link_cell_non_admin_first_link_still_allowed(app) -> None:
-    # Primeiro vínculo (pessoa sem célula) não é transferência — segue liberado
-    # ao fluxo normal, sem exigir admin.
+def test_link_cell_cell_leader_cannot_create_first_link(app) -> None:
     pessoa = _pessoa(_PESSOA_ID, celula_id=None)
     cell = _cell(_NEW_CELL)
     session = _LinkCellSession(pessoas=[pessoa], cells=[cell])
-    client = _client(app, session=session, current_user=_non_admin())
+    client = _client(app, session=session, current_user=_cell_leader())
+
+    resp = client.post(
+        f"/contacts/{_PESSOA_ID}/cell", headers=_AUTH, json={"celulaId": str(_NEW_CELL)}
+    )
+
+    assert resp.status_code == 403, resp.text
+    assert pessoa.celula_id is None
+    assert session.execute_count == 0  # dependency gate runs before domain reads
+    assert session.added == []
+    assert session.committed is False
+
+
+def test_link_cell_pastor_can_create_first_link(app) -> None:
+    pessoa = _pessoa(_PESSOA_ID, celula_id=None)
+    cell = _cell(_NEW_CELL)
+    session = _LinkCellSession(pessoas=[pessoa], cells=[cell])
+    client = _client(app, session=session, current_user=_pastor())
 
     resp = client.post(
         f"/contacts/{_PESSOA_ID}/cell", headers=_AUTH, json={"celulaId": str(_NEW_CELL)}

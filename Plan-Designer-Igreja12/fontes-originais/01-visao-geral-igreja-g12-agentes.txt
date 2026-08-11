@@ -1,0 +1,150 @@
+sistema de gestão de igrejas com comunicação ativa via whatsapp usando agentes de inteligencia artificial para comunicar dados do sistema com as pessoas certas, coletar dados para inserir no sistema.
+
+Desenvolver o sistema, criar os agentes de ia conectados ao sistema.
+
+Sistema foca no whatsapp - Podemos usar evolution ou a forma oficial de conexão do whatsapp.
+
+Multitenance - Temos uma gestão macro de todo o sistema e gerenciamento - cada igreja é cadastrada pelo macro - cada igreja coloca suas chaves de api ou conexão com seu provedor de inteligencia artificial - podemos usar varias formas de conexão - google, open ai, minimax, claude, deepseek, grok.
+
+Quando a igreja cadastra - 
+1- dados da igreja - conexão com provedor de IA para ativar um agente que auxilia no onboarding
+2- dados das pessoas no topo da cadeia de prinvilegios administrativos - a) Gerente do Sistema, depois essa pessoa configura totalmente a igreja.
+Dados da igreja, Estrutura administrativa - Estrutura Ministerial(precisa definir a visão de método de igreja(padrão é o g12(podemos mostrar a estrutrua e a pessoa pode alterar) mas pode ser outro e a pessoa customiza) - Cadastro das Pessoas (Começando por quem é responsável pelos cargos recem criados) - O cadastro das pessoas precisa de dados minimos (envia o convite para o whatsapp e a pessoa completa o cadastro minimo (nome completo, cpf, data de nascimento, e-mail com confirmação (login no sistema e a senha)
+
+
+MODELO G12 {
+
+GANHAR (CONTATOS(MOSTRA TODOS QUE ENTRARAM EM CONTATO COM O ZAP DA IGREJA E AINDA NÃO VISITARAM A IGREJA, CELULA E SO FALARAM NO ZAP DA IGREJA OU REDES SOCIAIS), PARTICIPANTES(PESSOAS QUE JA VISITARAM A IGREJA OU CELULA E AINDA NAO ACEITARAM JESUS) - TEM FILTROS E DASHBOARD TBM.
+Estrategias do Ganhar (MENU ONDE MOSTRAREMOS IDEIAS DE ESTRATEGIAS COM PASTA E ARQUIVOS, PARECIDO COM UM BLOG
+GANHAR - 
+VISITANTE - ENTRA SEM VINCULO ALGUM COM ALGUEM DA IGREJA E A EQUIPE DE CONSOLIDAÇÃO É RESPONSAVEL POR CONECTA-LO.
+CONEXÃO DO VISITANTE - Alguem da Consolidação assume a liderança provisoria, entra em contato - a missão da consolidação é identificar se esse visitante aceita ser acompanhado por alguem da igreja, levando em consideração a faixa etaria, local de moradia, precisamos de dados dessa pessoa (nome, telefone, endereço, atividade(estuda, trabalha, gosta de fazer o que? Hobbie? Tem algum pedido de oração, precisa de alguma ajuda? O agente de consolidação faz isso por uma conversa fluida e amigavel ou passa o contato para alguem da consolidação fazer essa captura de dados inicial e encaminhar para a melhor liderança de acordo com o perfil.
+Conectado a uma liderança, esperamos do lider a informação principal nesse momento, aceitou Jesus? O Sistema fica esperando essa resposta para conectar a pessoa a trilha da Visão, estamos no ganhar aqui, aguardando a pessoa ser Ganha.
+
+
+DISCIPULO GANHO -  ENTRA CADASTRADO PELO LIDER DE CELULA OU PELA EQUIPE DE CONSOLIDAÇÃO (caso seja aceite Jesus em algum evento da igreja)
+
+
+Se a pessoa for ganha estando vinculado a uma celula, o lider de celula se torna o consolidador e é aberto um pedido de supervisão da equipe de consolidação sobre essa pessoa, o lider agora precisa prestar conta e a equipe de consolidação deve ser alertada pelo sistema para cobrar o lider da respectiva consolidação.
+
+
+Se a pessoa for ganha em algum evento a equipe de consolidação deve iniciar a consolidação (procurar um lider para assumir a consolidação e passar os dados da pessoa para o novo lider dessa pessoa iniciar o processo de consolidação)
+
+
+
+CONSOLIDAR: 1- (DISCIPULOS(FILTROS POR SEXO, IDADE, DESCENDENCIA DE G12 PASTORAL, CELULAS) SÃO PESSOAS QUE JA ACEITARAM JESUS E ESTÃO NA TRILHA DA VISÃO, CONECTADOS A UMA CELULA), 
+2- CONSOLIDAÇÃO 
+(A-CONSOLIDAÇÕES INDIVIDUAIS(DASHBOARD DE TODOS QUE JÁ FORAM CONSOLIDADOS, MOSTRA OS CONTATOS DOS COORDENADORES DE CONSOLIDAÇÃO PARA TIRAR DÚVIDAS, QUE ESTÃO SENDO CONSOLIDADOS, UM GUIA DE COMO CONSOLIDAR(MOSTRA O PROCESSO DE CONSOLIDAÇÃO, DICAS, MATERIAIS PARA CONSOLIDAÇÃO(MOSTRA AS LIÇÕES DE CONSOLIDAÇÃO EM PDF, ONLINE, SCRIPTS PARA FONOVISITA), OS LÍDERES QUE ESTÃO CONSOLIDANDO, O RANKING DE MAIORES CONSOLIDADORES)
+B-UNIVERSIDADE DA VIDA (MOSTRA O GUIA SOBRE A UV, QUANDO SERÁ A PRÓXIMA TURMA. ULTIMAS (Submenus com as turmas que mostram todos que concluiram). Se a coordenação de consolidação abriu uma nova turma, aparece nesse menu (Turma Atual), a coordenação acessar tudo, os alunos acompanham o relatorio de presença para cada aula e avisos, pessoas de fora nao conseguem acessar. Quando abre uma turma, abre o relatorio de alunos, onde todos já devem estar vinculados a uma celula(é o lider de celula que matricula os discipulos na turma aberta e consegue acompanhar o desempenho e receber notificações dos seus discipulos na turma), a uv tem aula 1 a 4, depois tem o ENCONTRO COM DEUS, quem recebe o selo de apto para Encontro (feito pelo professor ou coordenador da UV) pode fazer a inscrição do Encontro e receber todos os detalhes do Encontro (quando abre a turma da uv, a coordenação deve preencher os dados do Encontro, valor da inscrição, local, data, detalhes e informações importantes, precisamos abrir um espaço especial apenas para a GESTÃO DO ENCONTRO, somente a coordenação e pastores acessam essa parte. A gestão começa decidindo se teremos encontro feminino e masculino ou todos juntos. Depois vem a Preparação para o Encontro, onde adicionamos todos que vão trabalhar no encontro( somente quem já fez encontro pode trabalhar e a coordenação do Encontro vai marca na lista de aptos a trabalharem todas as pessoas que vão trabalhar, os lideres de celula poderão enviar uma lista de discipulos aptos para trabalharem e a coordenação do encontro aprovará discipulo a discipulo que será aceito para servir naquele respectivo encontro. Na gestão do Encontro, teremos que definir a inscrição, valor, e a coordenação marcará  todos que ja estão inscritos e pagos. Na gestão definimos quem serão os ministrantes depois que definirmos quais serão as ministrações, o sistema enviará a ministração para o respectivo ministrante, então antes de tudo temos que cadastrar as ministrações do encontro, com todo material, nesse cadastro poderemos colocar os arquivos necessários para cada minsitração, cada ministração será uma pasta. Na gestão do encontro será definido a Consagração, datas de vigilias, estratégia de oração e jejum, estabelecimento dos guias(pessoas que ajudam cuidar acompanhando algumas pessoas que estão fazendo a uv, geralmente o guia é indicado por um lider de celula ou definido pela coordenação dentro de todos que trabalharão no encontro. A preparação do encontro começa 60 dias antes do encontro, ou seja, abre a turma e planeja tudo, e no espaço de 20 dias, a coordenação precisa criar tudo e fazer a primeira reunião com os guias e pessoas que servirão, nesses primeiros 20 dias serão decididos os professores das, ministrantes do encontro, guias, data de batismo após a aula 8 da uv, estrategias de consagração, valores de inscrição, compra de livros da UV, abertura de matriculas da nova turma para o publico, comunicação com a liderança de celula para verificar quantidade de aptos a fazerem a uv. Sempre que o sistema detectar um numero de Sonho para a UV (a igreja pode determinar 50 por exemplo, sempre que tivermos 50 pessoas consolidadas individualmente ou aceitando Jesus, o sistema alerta os pastores e coordenadores da consolidação que está na hora de fazer uma nova turma da UV). Depois do Encontro, a uv continua, com aulas 5 a 8 e acontece o Batismo. Sobre o Batismo, sempre abrimos uma turma de Batismo, ela é composta por todos que forem enviados pelos lideres de celula para serem batizados. Podemos ver as turmas passadas, com a lista de pessoas que se batizaram.
+Todo processo de consolidação é supervisionado pela equipe de consolidação.
+
+Processo de consolidação - Após os eventos da igreja o sistema precisa receber o relatorio da equipe de consolidação em até 2h depois do encerramento do evento, indicando as pessoas que foram salvas. Em até 12h os consolidadores devem conectar os novos ganhos a uma liderança de celula. O lider de celula tem 12h para fazer a fonovisita e marcar a visita 1 com a pessoa. Se a consolidação nao conseguir conectar com uma celula, deve assumir a consolidação da pessoa até conectar a uma liderança de celula.
+
+O novo convertido deve receber a fonovisita em até 24h após sua decisão e ter sua primeira visita marcada.
+
+Fonovisita (24) - Lições de Consolidação (primeira na semana da conversão) - demais visitas(cada igreja determina quantas são). Terminou as lições ou iniciou, e ja está conectado a uma celula, então a pessoa está apto para fazer a matrícula da Universidade da Vida.
+
+Universidade da Vida (UV) - 10 semanas no total (4 semanas iniciais 4 aulas de pre-encontro, semana 5 (Encontro com DEUS) - mais 4 semanas de pos encontro, ultima semana é o Batismo.
+
+
+DISCIPULAR
+Capacitação Destino (São 6 módulos com 10 aulas cada) - Veremos turmas passadas com seus respectivos alunos, um dashboard com total de alunos formados, total de numeros em cada modulo ja finalizado. Dados da turma atual (somente numeros de alunos). A matricula é feita pela coordenação que recebe a lista dos discipulos aptos(concluiram a uv) em suas respectivas celulas e vai confirmar matricula quando abrir nova turma.
+A gestão da CD, Abre uma turma (Pasta dos 6 Niveis, Cada aba do Nivel mostra a Sub-aba com cada uma das 10 aulas. No dashboard geral da turma mostra os matriculados com tabela de informações(verde bom desempenho(acima de 80% de presença nas aulas realizadas), amarelo(60 a 70%) e vermelho de 50% para baixo de presença nas aulas realizadas, mostra o aluno ativo em cada um dos niveis(nivel que ainda nao começou fica cinza bloqueado), se ativou o nivel 1 da turma e o aluno teve alguma presença em alguma aula, no dashboard principal mostra os niveis ativado, os professores, informações como dia, horario. A Aba de cada nivel, mostrará a lista de alunos ativados nesse nivel até que o status seja nivel concluido quando o aluno tiver mais 70% de assiduidade nas aulas, o professor lançará a frequencia a cada aula dada, então no dashboard do nivel, terá abas de cada aula, tema, materiais, listra de presença, observações. Quando o aluno concluir todos os 6 niveis ele recebe o certificado no seu cadastro do discipulo. A CD só poderá ter 2 modulos ativos por vez em cada turma, poderemos ter várias turmas ativas, mas dentro delas só poderá estar ativo 2 modulos por vez, geralmente 1 e 2, 3 e 4 e 5 e 6 juntos. Todos discipulo que concluir a CD recebe no seu cadastro Apto a Liderar, assim eles podem participar de uma multiplicação de celula.
+
+Treinamentos (Os coordenadores e pastores podem criar treinamentos), cada treinamento, pode ter materiais, aulas, links, e nivel para participar. qualquer pessoa da igreja pode participar do treinamento dependendo do nivel, se tiver nivel aparece para a pessoa o treinamento no menu do sistema.
+Células - uma celula pode ser cadastrada pela central de celula, escolhe a cobertura, o lider, local, dia e hora. Toda celula está vinculada a uma cobertura espiritual. O lider pode editar os dados da celula, e enviar para aprovação da central de celula, ele nao pode ficar mudando de dia sem aprovação. 
+Gestão da Célula - O lider pode adicionar participante(dados basicos pessoais), cada lider tem o dashboard de sua respectiva celula, ele pode enviar avisos, definir data de multiplicação, definir Auxiliares, Anfitrião, enviar relatorio semanal da realização da celula, Ele tem a funcionalidade - PLANEJAR CELULA(antes do dia da celula, ele define tema, musica, quebra gelo, oferta, avisos da igreja, ele pode distribuir cada tarefa da celula para um membro se quiser. REALIZAR CELULA (confirma a data, seleciona os membros  presentes, adiciona visitante(diz se aceitou Jesus ou não), teve oferta? Enviar relatorio para central?
+
+Concluiu a UV - Recebe o Certificado da UV - com o certificado a pessoa está apta a se matricular na CD(capacitação destino)
+
+Então ja teve o Ganhar, o COnsolidar, e a CD marca o inicio do Discipular.
+
+Para participar da CD, o membro deve estar numa celula e ter concluido a UV.
+
+A CD é dividida em 3 niveis, cada nivel tem 2 modulos com 10 aulas cada. 
+
+A CD poderá ser cadastrada no sistema, O Coordenador da CD lançará a lista de presença da respectiva aula, 
+
+Por ex: Aula 1.1 é a aula 1 do livro 1, teremos as aulas 1.1 a 1.10 - livro 1, Aulas 2.1 a 2.10 - livro 2.
+
+Quando o professor lançar a lista de presença de cada aula, poderemos atualizar o sistema de cadastro de cada discipulo.
+
+Concluidas as aulas , o aluno recebe o certificado da CD, então se torna um Lider Apto.
+
+Esse discipulo Apto a Liderar, e somente eles, podem participar de multiplicações de celulas, ou seja, Enviar.
+
+
+ENVIAR
+Dashboard que mostra o total de multiplicação, filtros do ano, semestre, por descendencia. Multiplicação de Celula, o lider pode CRIAR UMA MULTIPLICAÇÃO, ele seleciona o novo lider (alguem apto a liderar), seleciona os membros que irão para a nova celula, define o dia e hora da nova celula, endereço, anfitrião. Clica em Solicitar Multiplicação e a Central de Celulas vai analisar essa solicitação e aprovar ou nao. Aprovando, ja vai aparecer no organograma da igreja a nova celula criada e os dados atualizarão no sistema. O novo lider recebe a gestão de sua nova celula.
+
+Somente Aptos podem multiplicar, e somente lideres podem dar aula na CD e na UV, somente Lideres Aptos para frente podem consolidar pessoas.
+
+
+
+
+EQUIPES DE GESTÃO {A central de celula tem autoridade e privilegio para gerir todas as celulas, aprovar requisições de multiplicação, receber relatorios, dashboar com todos os dados de celulas da igreja.
+A coordenação de CD - pode criar turmas e gestão
+A coordenação de Consolidação é responsavel por supervisionar pessoas em processo de consolidação, distribuir pessoas nas celulas, organização a Universidade da Vida.}
+
+
+REGRAS DO SISTEMA {
+
+
+Se a gente mexe na trilha de maturidade, isso deve editar o cadastro do usuario e refletir em todo sistema, se eu mudei uma pessoa de visitante para consolidado, preciso indicar quem está consolidando, na verdade quem pode alterar essa trilha deve ser o pastor ou quem tem permissão para isso. Visitante pode entrar no sistema de qualquer maneira, basta falar no whatsapp e verificando que ele nao tem cadastro, entra como padrão visitante. a pessoa que faz parte do ministerio de consolidação é a unica que pode alterar visitante para status consolidado. para estar status consolidado a equipe de consolidação deve indicar um consolidador(lider de celula responsavel), quando a pessoa recebe as licoes de consolidação ela pode ser vinculada a uma celula com status de discipulo, mas se ela nao finalizou as consolidaçãoes(infomado pelo lider de celula no perfil da pessoa), ele fica vinculado a uma celula com status (em consolidação), quando a pessoa torna-se discipulo de uma celula (consolidação individual(fonovisita e visitas) concluida), ele entra na trilha da universidade da vida que é a ultima etada da consolidação, mas aqui ele ja é discipulo de uma celula e da igreja é claro. O lider de celula quanto termina a consolidação individual indica q ele está apto para fazer matricula da uv(universidade da vida), ele avança na trilha da Visão quando a adminsitração do curso da UV marca as presenças da pessoa(4 aulas antes do encontro, o encontro com DEUS, 4 aulas depois, batismo) , concluindo a uv, ele está apto a se matricular na CD(capacitação destino), a adminsitração do Curso CD lança presença, e temos o modulo de CD, 6 modulos(1 livro para cada modulo com 10 aulas cada). Quando a pessoa conclui pelo menos 4 livros da CD está apto a liderar uma celula e fazer parte de uma multiplicação da sua celula, ele é marcado com o selo dourado, Apto para Liderar. QUando lider de celula faz uma multiplicação de celula, ele pode gerar uma nova celula escolhendo um novo lider (apto) e selecionar os membros da celula mae para ir com o novo lider e gerar uma nova celula abaixo de sua liderança no organograma. 
+
+Sobre o organograma, alguem debaixo da hierarquia jamais pode ficar acima de outra pessoa com hierarquia maior.
+
+no organograma, sempre deixaremos a visualização engessada, de cima para baixo na hierarquia. Jamais alguem abaixo, por ex: um membro pode estar com um lider abaixo, sabemos que todo lider é um membro, mas podemos organizar o organograma para seguir o que foi definido pela administração do sistema.
+
+Acho que temos que ter essas especificações decididas pelo administrador. Quando preencher o organograma da igreja(estrutura ministerial, trilhas de maturidade(kanbam de acordo com a trilha ministerial), definição de estrutura administrativa(tesouraria, administração, secretaria)
+É possivel customizar o sistema de acordo com as especificações? Me ajude a preparar o prompt para fazer essa alteração, a ideia é que o sistema atenda todo tipo de igreja, podemos no futuro, ja carregar pressets de igrejas padrão, como ja temos uma igreja na visão g12, um onboard de uma nova igreja, pode escolher esse presset e carregar na criação do novo cliente do sistema 
+
+
+FUNCIONALIZADADE KANBAM { - GANHAR (Conhecendo - Participante) - CONSOLIDAR (Consolidação Individual - Universidade da Vida) - DISCIPULADO (CAPACITAÇÃO DESTINO - APTO A LIDERAR) - ENVIAR (LIDER) - VEJA QUE TEMOS UMA SEPARAÇÃO VISUAL MINIMALISTA DA MACRO ETAPA(GANHAR, CONSOLIDAR, DISCIPULAR E ENVIAR) E A ESTAPAS POSSIVEIS DAS PESSOAS NO SISTEMA.
+
+
+esse é o kanbam da trilha de maturidade das Igreja na Visão G12.}
+
+FUNCIONALIDADE ORGANOGRAMA - O NOME NO SISTEMA SERÁ: ARVORE MINISTERIAL - NOSSO FOCO É ORGANIZAR QUEM LIDERA QUEM NA IGREJA.
+
+PARA FAZERMOS ESSA ALTERAÇÃO NA ARVORE GENEALOGICA PRECISAMOS CONFIRMAR A ALTERAÇÃO DE CADASTRADO, SE MOVER UM CARD PARA DENTRO DO OUTRO INDICANDO VINCULO OU DESVINCULAR, PRECISAMOS ALTERAR O CADASTRO DA PESSOA INDICANDO NOVA LIDERANÇA, E QUANDO ISSO ACONTECE DEVEMOS CONECTAR AUTOMATICAMENTE, ESSA ARVORE É PARA QUEM RECEBE STATUS DE G12, ISSO INDICA Q ELE FAZ PARTE OU PODE FAZER PARTE DA EQUIPE G12 DE ALGUEM, NAS BOAS PRATICAS DA VISAO, SOMENTE QUEM ESTÁ APTO A LIDERAR PODERIA PARTICIPAR DESSE STATUS, MAS NA REALIDADE DE MUITAS IGREJAS, O PASTOR OU OUTRO LIDER PODE ESCOLHER ALGUEM QUE AINDA ESTEJA ANTES DA ETAPA DA CD PARA SER G12. TODO LIDER DE CELULA NO SEU CADASTRO TEM O ESPAÇO DA SUA EQUIPE DE 12 PARA PREENCHER.
+A IDEIA É QUE DEPOIS QUE LIDERA CELULA, O PROCESSSO NOS AJUDE A PREENCHER A EQUIPE DE 12 QUE SERÁ A NOVA CELULA, TEMOS ENTÃO A CELULA DE MULTIPLICAÇÃO QUE É A CELULA COMUM, ONDE ACEITAM VISITANTES E A CELULA G12 ONDE É UMA EQUIPE FECHADA FORMADA POR PESSOAS APTAS A LIDERAR, QUE LIDERA, OU QUE FORAM MARCADAS COMO 12 POR ALGUM LIDER DE CELULA.
+
+ESSE ORGANOGRAMA É PARA MONITORAR TODOS QUE SÃO G12 DA IGREJA. 
+
+O GESTOR DA IGREJA, PASTOR, OU SE FOR DEFINIDO O LIDER DA CENTRAL DE CELULAS, PODE TER O PRIVILEGIO DE APROVAR ALGUEM COM STATUS DE G12 CASO A PESSOA AINDA NAO TENHA CONCLUIDO A CD. eSSAS PESSOAS APARECEM NUMA TABELA DE LISTA AO LADO DO ORGANOGRAMA, ESSA LISTA MOSTRA O NOME DA PESSOA POR ORDEM ALFABETICA E MOSTRA TODOS OS APTOS A SEREM G12, MOSTRA A CELULA A QUE PERTENCE, E SE JA FAZ PARTE DA EQUIPE DE 12 DE ALGUM LIDER OU NAO, SE A PESSOA FAZ PARTE ELE TEM Q ESTAR CONECTADO A ALGUEM NO ORGANOGRAMA E MARCADO COM VERDE (G12 ATIVO)
+
+Cadastros
+1- Conhecendo - é a pessoa que inicia qualquer conversa com a igreja pelo whatsapp ou redes sociais e nao tem cadastro no sistema - Precisamos apenas do nome, telefone.
+2- Participante - pessoa que visita a igreja, ou faz parte de alguma celula, quando ela falar com a igreja pelo whatsapp, o sistema precisa verificar se o cadastro dela está desatualizado, estando, precisamos pegar o nome completo, data de nascimento, endereço, e-mail. Os preenchimentos de dados ministeriais e administrativos devem ser preenchidos por pessoas da gestão da igreja.
+3- Cadastro de nova igreja - temos que ter nome completo, cnpj se tiver, e-mail principal, nome do pastor principal, dados do gerente de conta(pessoa mais tecnica que auxilia o pastor ou pode ser o proprio pastor), o gerente precisa fornecer apenas nome, email e whatsapp e o restante dos seus dados ele mesmo atualiza.
+Temos que completar o cadastro da igreja, endereço, metodologia ministerial (G12 ou outra), equipe administrativa. Cada cargo temos que cadastrar o responsável, adicionar pessoa, Podemos enviar um email de convite para se cadastrar no sistema, e depois o gerente conecta a pessoa ao departamento certo.
+O gerente pode atualizar os lideres principais, e depois os respectivos lideres podem atualizar o quadro de pessoal dos departamentos e na questão ministerial demos iniciar por cima, pastor, lideres imediatos e assim por diante.
+4- Cadastro de Ministérios/ Redes - nome, o que faz, líderes.
+Equipe de Consolidação - Coordenador de Consolidação - responsavel por criar equipe, supervisionar e gerir tarefas.
+Equipe de Central de Célula - Coordenador de Celulas
+5- Cadastro de Celula - Comece os cadastros pelo pastor principal, cadastre os lideres primeiro, temos que ter notificações guiando o processo.
+
+
+
+
+
+
+organização do menu {
+GESTÃO MINISTERIAL
+GESTÃO ADMINISTRATIVA- (SUBMENUS : SECRETARIA - FINANCEIRO - MINISTÉRIOS (LOUVOR - OBREIROS - RECEPÇÃO - MIDIA DIGITAL, COORDENAÇÃO DE CONSOLIDAÇÃO, CENTRAL DE CELULA, COORDENAÇÃO DE CAPACITAÇÃO DESTINO)
+Cada ministerio desse, tem os lideres definidos, participantes, prinvilegios que vamos selecionar, dashbaord com informações, dicas, duvidas, materiais, treinamentos, comunicados.
+CONFIGURAÇÃO - MAIS ISOLADO, mensagens, tarefas agendadas
+
+}
+
+
+
+
+OUTRO MODELO (NÃO G12) {
+
+TEMOS QUE IDENTIFICAR AS FUNCIONALIDADES QUE TINHAM NO MODELO DA VISÃO QUE SERVE PARA OUTROS MODELOS, COMO A TRILHA DE CRESCIMENTO, GESTÃO ADMINISTRATIVA ACHO QUE É COMUM A TODAS AS IGREJAS, TEM Q SER PERSONALIZADA, MAS O QUE MUDA DE UMA IGREJA PARA OUTRA É A GESTÃO MINISTERIAL (G12 OU NÃO)
+
+vamos focar apenas na visão por enquanto, mas deixar o sistema pronto para essa futura atualização. Então la no inicio do processso vamos focar no onboard apenas no modelo da visão g12.
+
+}

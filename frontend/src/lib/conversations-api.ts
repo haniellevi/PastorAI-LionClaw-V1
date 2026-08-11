@@ -296,6 +296,43 @@ export interface TransferResult {
   assumidoPorNome: string | null;
 }
 
+/** Destino ativo e tenant-safe que pode receber uma conversa do inbox. */
+export interface InboxTransferTarget {
+  usuarioId: string;
+  nome: string;
+  papeis: string[];
+}
+
+export async function fetchInboxTransferTargets(
+  token: string,
+  pageSize = 200,
+): Promise<Page<InboxTransferTarget>> {
+  const items: InboxTransferTarget[] = [];
+  let page = 1;
+  let total = 0;
+
+  do {
+    const res = await authedFetch(
+      token,
+      `/team/inbox-lookup?page=${page}&pageSize=${pageSize}`,
+    );
+    if (!res.ok) {
+      const detail = await readDetail(res);
+      throw new ApiError(
+        res.status,
+        detail ?? "Não foi possível carregar os responsáveis do inbox.",
+      );
+    }
+    const chunk = (await res.json()) as Page<InboxTransferTarget>;
+    total = chunk.total;
+    items.push(...chunk.items);
+    if (chunk.items.length === 0) break;
+    page += 1;
+  } while (items.length < total);
+
+  return { items, page: 1, pageSize, total };
+}
+
 /**
  * Transfere o atendimento humano para outro usuário com acesso ao inbox. Admin
  * transfere qualquer conversa; o detentor atual transfere a que está atendendo

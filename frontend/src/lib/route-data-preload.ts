@@ -13,16 +13,29 @@ import {
   fetchWorkQueue,
 } from "./dashboard-api";
 import { fetchEvents } from "./events-api";
+import type { Role } from "./roles";
 
-export async function preloadRouteData(token: string, route: string): Promise<void> {
+export async function preloadRouteData(
+  token: string,
+  route: string,
+  roles: readonly Role[],
+): Promise<void> {
   let jobs: Promise<unknown>[] = [];
+  const canLinkCell = roles.some((role) => role === "admin" || role === "pastor");
+  const canAssignQueue = roles.some(
+    (role) =>
+      role === "admin" ||
+      role === "pastor" ||
+      role === "lider_g12" ||
+      role === "lider_consol",
+  );
 
   switch (route) {
     case "dashboard":
       jobs = [
         fetchWorkQueue(token),
-        fetchTeamLookup(token),
-        fetchCells(token),
+        ...(canAssignQueue ? [fetchTeamLookup(token)] : []),
+        ...(canLinkCell ? [fetchCells(token)] : []),
         fetchOverview(token),
       ];
       break;
@@ -30,7 +43,10 @@ export async function preloadRouteData(token: string, route: string): Promise<vo
       jobs = [fetchEvents(token)];
       break;
     case "ganhar":
-      jobs = [fetchPipeline(token, "ganhar"), fetchCells(token)];
+      jobs = [
+        fetchPipeline(token, "ganhar"),
+        ...(canLinkCell ? [fetchCells(token)] : []),
+      ];
       break;
     case "inbox":
       jobs = [fetchConversations(token)];
