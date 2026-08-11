@@ -23,13 +23,13 @@ import logging
 import uuid
 from dataclasses import dataclass, field
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.agent.graph import run_turn
 from app.agent.masking import log_agent_event, log_ai_usage
 from app.agent.nodes import ROUTE_HANDOFF, AgentState
-from app.agent.tools import TOOL_ARG_SCHEMA, TOOLS, ToolError
+from app.agent.tools import TOOL_ACTOR_ROLE_CONTEXT, TOOL_ARG_SCHEMA, TOOLS, ToolError
 from app.config import get_settings
 from app.db.models import (
     AgentConfig,
@@ -42,7 +42,7 @@ from app.db.models import (
     Pessoa,
     UserRole,
 )
-from app.domain.agent_authz import PrivilegeContext, tool_allowed
+from app.domain.agent_authz import PrivilegeContext, tool_allowed, tool_denial_reason
 from app.services.crypto import SecretDecryptionError, decrypt_secret
 from app.services.llm import LLMClient, LLMError
 
@@ -90,18 +90,30 @@ def _resolve_privilege(
 ) -> PrivilegeContext:
     """Resolve the interlocutor's privilege from their Pessoa (#10b Fase 2).
 
-    A WhatsApp contact has no Clerk login, so privilege is derived from (a) a
-    panel login linked to this pessoa (app_users.pessoa_id → user_roles), (b)
-    cells they lead (celulas.lider_id), plus their tipo/CSIM. Tenant-scoped (RLS
-    via Fase 0 + explicit igreja_id). The LLM never decides this.
+    Privilege is derived from (a) exactly one usable panel access linked to this
+    pessoa (active/legacy status + Clerk identity → user_roles), (b) active
+    cells they lead, plus their tipo/CSIM. Tenant-scoped (RLS via Fase 0 +
+    explicit igreja_id). The LLM never decides this.
     """
-    app_user_id = session.execute(
-        select(AppUser.id)
-        .where(AppUser.pessoa_id == pessoa.id, AppUser.igreja_id == igreja_id)
-        .limit(1)
-    ).scalar_one_or_none()
+    # Fail closed when the Pessoa has no usable access or inconsistent duplicate
+    # accesses. An invite, revoked account or row without Clerk identity may
+    # retain UserRole rows, but those rows must never authorize an agent tool.
+    app_user_ids = list(
+        session.execute(
+            select(AppUser.id)
+            .where(
+                AppUser.pessoa_id == pessoa.id,
+                AppUser.igreja_id == igreja_id,
+                AppUser.clerk_user_id.is_not(None),
+                or_(AppUser.status.is_(None), AppUser.status == "ativo"),
+            )
+            .order_by(AppUser.id.asc())
+            .limit(2)
+        ).scalars().all()
+    )
     roles: set[str] = set()
-    if app_user_id is not None:
+    if len(app_user_ids) == 1:
+        app_user_id = app_user_ids[0]
         roles = set(
             session.execute(
                 select(UserRole.papel).where(
@@ -113,7 +125,11 @@ def _resolve_privilege(
     leads_cells = (
         session.execute(
             select(Celula.id)
-            .where(Celula.lider_id == pessoa.id, Celula.igreja_id == igreja_id)
+            .where(
+                Celula.lider_id == pessoa.id,
+                Celula.igreja_id == igreja_id,
+                Celula.ativo.is_(True),
+            )
             .limit(1)
         ).scalar_one_or_none()
         is not None
@@ -233,19 +249,23 @@ def _execute_tools(
             logger.warning("Unknown tool requested by agent: %s", name)
             continue
         if not tool_allowed(ctx, name):
+            denial_reason = tool_denial_reason(ctx, name)
             audit.append(
                 {
                     "evento": "tool_negada",
                     "payload": {
                         "ferramenta": name,
-                        "motivo": "interlocutor sem privilégio ministerial",
+                        "motivo": denial_reason,
                         "tipo": ctx.tipo,
                     },
                 }
             )
             logger.info(
-                "Tool %s negada: pessoa %s sem privilégio (tipo=%s)",
-                name, ctx.pessoa_id, ctx.tipo,
+                "Tool %s negada para pessoa %s: %s (tipo=%s)",
+                name,
+                ctx.pessoa_id,
+                denial_reason,
+                ctx.tipo,
             )
             continue
         args = dict(call.get("args") or {})
@@ -267,7 +287,10 @@ def _execute_tools(
             logger.warning("Tool %s com args inválidos: %s", name, sorted(unexpected))
             continue
         try:
-            result = fn(session, igreja_id=igreja_id, **args)
+            trusted_args = dict(args)
+            if name in TOOL_ACTOR_ROLE_CONTEXT:
+                trusted_args["actor_roles"] = ctx.roles
+            result = fn(session, igreja_id=igreja_id, **trusted_args)
             executed.append(name)
             audit.append(
                 {"evento": "tool_call", "payload": {"ferramenta": name, "detalhe": result.detalhe}}

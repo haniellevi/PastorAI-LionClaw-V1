@@ -24,7 +24,7 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -66,6 +66,10 @@ from app.services.clerk import (
     ClerkClient,
     ClerkUnavailableError,
     get_clerk_client,
+)
+from app.services.invite_identity import (
+    assert_invite_email_available,
+    get_invite_identity_db,
 )
 from app.services.rate_limit import RateLimiter, get_rate_limiter
 
@@ -143,7 +147,9 @@ def _audit(
     )
 
 
-def _get_igreja_or_404(db: Session, igreja_id: str) -> Igreja:
+def _get_igreja_or_404(
+    db: Session, igreja_id: str, *, for_update: bool = False
+) -> Igreja:
     """Resolve uma igreja pelo id (404 se uuid inválido ou inexistente)."""
     try:
         ig_uuid = uuid.UUID(igreja_id)
@@ -151,9 +157,10 @@ def _get_igreja_or_404(db: Session, igreja_id: str) -> Igreja:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Igreja não encontrada"
         ) from exc
-    igreja = db.execute(
-        select(Igreja).where(Igreja.id == ig_uuid)
-    ).scalar_one_or_none()
+    query = select(Igreja).where(Igreja.id == ig_uuid)
+    if for_update:
+        query = query.with_for_update().execution_options(populate_existing=True)
+    igreja = db.execute(query).scalar_one_or_none()
     if igreja is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Igreja não encontrada"
@@ -388,6 +395,22 @@ def _activation_link(app_user_id: uuid.UUID, clerk: ClerkClient) -> str:
     return f"{base}/#ativar/{token}"
 
 
+def _usable_admin_ids(db: Session, ig_uuid: uuid.UUID) -> set[uuid.UUID]:
+    return set(
+        db.execute(
+            select(UserRole.user_id)
+            .join(AppUser, AppUser.id == UserRole.user_id)
+            .where(
+                UserRole.igreja_id == ig_uuid,
+                UserRole.papel == "admin",
+                AppUser.igreja_id == ig_uuid,
+                AppUser.clerk_user_id.is_not(None),
+                or_(AppUser.status.is_(None), AppUser.status == "ativo"),
+            )
+        ).scalars().all()
+    )
+
+
 @router.get("/me", response_model=PlatformAdminMe)
 def admin_me(
     admin: PlatformAdminUser = Depends(get_platform_admin),
@@ -455,6 +478,7 @@ def create_igreja(
     payload: CreateIgrejaRequest,
     db: Session = Depends(get_db),
     admin: PlatformAdminUser = Depends(get_platform_admin),
+    identity_db: Session = Depends(get_invite_identity_db),
     mailer: BrevoClient = Depends(get_brevo_client),
     clerk: ClerkClient = Depends(get_clerk_client),
 ) -> CreateIgrejaResponse:
@@ -473,6 +497,7 @@ def create_igreja(
 
     if payload.plano is not None:
         _validate_plano_or_422(db, payload.plano)
+    assert_invite_email_available(identity_db, clerk, email)
 
     igreja = Igreja(
         nome=payload.nome,
@@ -1420,16 +1445,6 @@ def list_igreja_admins(
     ]
 
 
-def _igreja_admin_users(db: Session, ig_uuid: uuid.UUID) -> list[AppUser]:
-    return list(
-        db.execute(
-            select(AppUser)
-            .join(UserRole, UserRole.user_id == AppUser.id)
-            .where(UserRole.igreja_id == ig_uuid, UserRole.papel == "admin")
-        ).scalars().all()
-    )
-
-
 class AddAdminResponse(BaseModel):
     id: str
     nome: str
@@ -1448,6 +1463,7 @@ def add_igreja_admin(
     payload: AdminSeed,
     db: Session = Depends(get_db),
     admin: PlatformAdminUser = Depends(get_platform_admin),
+    identity_db: Session = Depends(get_invite_identity_db),
     mailer: BrevoClient = Depends(get_brevo_client),
     clerk: ClerkClient = Depends(get_clerk_client),
 ) -> AddAdminResponse:
@@ -1458,11 +1474,7 @@ def add_igreja_admin(
     igreja = _get_igreja_or_404(db, igreja_id)
     ig_uuid = uuid.UUID(igreja_id)
     email = payload.email
-    if any(u.email.lower() == email for u in _igreja_admin_users(db, ig_uuid)):
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Já existe um administrador com esse e-mail nesta igreja.",
-        )
+    assert_invite_email_available(identity_db, clerk, email)
 
     app_user = AppUser(
         igreja_id=ig_uuid, nome=payload.nome, email=email, status="convidado"
@@ -1498,7 +1510,11 @@ class ResendInviteResponse(BaseModel):
 
 
 def _get_admin_user_or_404(
-    db: Session, ig_uuid: uuid.UUID, user_id: str
+    db: Session,
+    ig_uuid: uuid.UUID,
+    user_id: str,
+    *,
+    for_update: bool = False,
 ) -> AppUser:
     try:
         uid = uuid.UUID(user_id)
@@ -1506,9 +1522,14 @@ def _get_admin_user_or_404(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Admin não encontrado"
         ) from exc
-    user = db.execute(
-        select(AppUser).where(AppUser.id == uid, AppUser.igreja_id == ig_uuid)
-    ).scalar_one_or_none()
+    query = select(AppUser).where(
+        AppUser.id == uid, AppUser.igreja_id == ig_uuid
+    )
+    if for_update:
+        query = query.with_for_update(of=AppUser).execution_options(
+            populate_existing=True
+        )
+    user = db.execute(query).scalar_one_or_none()
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Admin não encontrado"
@@ -1532,10 +1553,10 @@ def resend_admin_invite(
     igreja = _get_igreja_or_404(db, igreja_id)
     ig_uuid = uuid.UUID(igreja_id)
     user = _get_admin_user_or_404(db, ig_uuid, user_id)
-    if user.status == "ativo":
+    if user.status != "convidado" or user.clerk_user_id is not None:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Este administrador já ativou o acesso.",
+            detail="Somente convites pendentes podem ser reenviados.",
         )
 
     sent = False
@@ -1571,35 +1592,34 @@ def remove_igreja_admin(
 
     Trava: não remove o ÚLTIMO admin (deixaria a igreja sem owner) -> 409.
     """
-    igreja = _get_igreja_or_404(db, igreja_id)
+    # Ordem comum de toda mutação admin/owner: Igreja -> AppUser -> UserRole.
+    igreja = _get_igreja_or_404(db, igreja_id, for_update=True)
     ig_uuid = uuid.UUID(igreja_id)
-
-    admin_count = int(
-        db.execute(
-            select(func.count())
-            .select_from(UserRole)
-            .where(UserRole.igreja_id == ig_uuid, UserRole.papel == "admin")
-        ).scalar_one()
-    )
-    if admin_count <= 1:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Não é possível remover o último administrador da igreja.",
+    user = _get_admin_user_or_404(db, ig_uuid, user_id, for_update=True)
+    role = db.execute(
+        select(UserRole)
+        .where(
+            UserRole.user_id == user.id,
+            UserRole.igreja_id == ig_uuid,
+            UserRole.papel == "admin",
         )
-
-    user = _get_admin_user_or_404(db, ig_uuid, user_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).scalar_one_or_none()
+    if role is not None:
+        usable_admin_ids = _usable_admin_ids(db, ig_uuid)
+        if user.id in usable_admin_ids and len(usable_admin_ids) <= 1:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Não é possível remover o último administrador ativo da igreja."
+                ),
+            )
     # #4: se removeu o DONO, a igreja fica sem dono (o master precisa reatribuir);
     # evita um dono_id apontando para quem não é mais admin.
     dono_limpo = igreja.dono_id == user.id
     if dono_limpo:
         igreja.dono_id = None
-    role = db.execute(
-        select(UserRole).where(
-            UserRole.user_id == user.id,
-            UserRole.igreja_id == ig_uuid,
-            UserRole.papel == "admin",
-        )
-    ).scalar_one_or_none()
     if role is not None:
         db.delete(role)
     _audit(
@@ -1632,20 +1652,31 @@ def set_igreja_dono(
     O dono precisa ser um administrador (papel admin) da própria igreja: 422 caso
     contrário. 404 se a igreja ou o usuário não existirem. Cross-tenant (BYPASSRLS).
     """
-    igreja = _get_igreja_or_404(db, igreja_id)
+    # Igreja é o serializador compartilhado com team update_roles/revoke. Só
+    # depois dela travamos e revalidamos acesso e papel, evitando que o ponteiro
+    # dono_id seja gravado para alguém rebaixado/revogado em paralelo.
+    igreja = _get_igreja_or_404(db, igreja_id, for_update=True)
     ig_uuid = uuid.UUID(igreja_id)
-    user = _get_admin_user_or_404(db, ig_uuid, payload.appUserId)
+    user = _get_admin_user_or_404(
+        db, ig_uuid, payload.appUserId, for_update=True
+    )
     is_admin = db.execute(
-        select(UserRole).where(
+        select(UserRole)
+        .where(
             UserRole.user_id == user.id,
             UserRole.igreja_id == ig_uuid,
             UserRole.papel == "admin",
         )
+        .with_for_update()
+        .execution_options(populate_existing=True)
     ).scalar_one_or_none()
-    if is_admin is None:
+    usable_access = (
+        user.clerk_user_id is not None and user.status in (None, "ativo")
+    )
+    if is_admin is None or not usable_access:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="O dono precisa ser um administrador da igreja.",
+            detail="O dono precisa ser um administrador ativo da igreja.",
         )
     igreja.dono_id = user.id
     _audit(

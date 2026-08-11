@@ -22,7 +22,8 @@ from sqlalchemy.orm import Session
 
 from app.db.models import RolePermission
 from app.db.session import get_db
-from app.deps import CurrentUser, require_role
+from app.deps import CurrentUser, get_current_user, require_role
+from app.domain.permissions import DEFAULT_PERMISSIONS
 
 logger = logging.getLogger("pastorai.roles")
 
@@ -68,15 +69,35 @@ class PermissionsMatrix(BaseModel):
 @router.get("/permissions", response_model=PermissionsMatrix)
 def get_permissions(
     db: Session = Depends(get_db),
-    current_user: CurrentUser = Depends(require_role(["admin"])),
+    current_user: CurrentUser = Depends(get_current_user),
 ) -> PermissionsMatrix:
-    """Return the tenant's role x screen matrix."""
-    rows = db.execute(select(RolePermission)).scalars().all()
-    matriz: dict[str, list[str]] = {role: [] for role in MATRIX_ROLES}
+    """Return the authenticated user's tenant role x screen matrix.
+
+    Reading the matrix is required by every authenticated shell so its menu and
+    preloads match the same server-side authorization source. Tenant isolation
+    remains enforced by ``get_current_user`` + the scoped database session;
+    replacing the matrix stays admin-only on PUT.
+    """
+    igreja_uuid = uuid.UUID(current_user.igreja_id)
+    rows = db.execute(
+        select(RolePermission).where(RolePermission.igreja_id == igreja_uuid)
+    ).scalars().all()
+    stored: dict[str, list[str]] = {}
     for row in rows:
-        matriz.setdefault(row.papel, [])
-        if row.tela not in matriz[row.papel]:
-            matriz[row.papel].append(row.tela)
+        stored.setdefault(row.papel, [])
+        if row.tela not in stored[row.papel]:
+            stored[row.papel].append(row.tela)
+
+    # Espelha screens_for_role: papel sem linha persistida ainda usa o default;
+    # papel customizado recebe exatamente suas linhas, sempre com dashboard.
+    # Assim shell e backend compartilham a mesma matriz EFETIVA inclusive para
+    # tenants antigos/ parcialmente semeados.
+    matriz: dict[str, list[str]] = {}
+    for role in MATRIX_ROLES:
+        telas = list(stored.get(role, sorted(DEFAULT_PERMISSIONS.get(role, ()))))
+        if MANDATORY_SCREEN not in telas:
+            telas.insert(0, MANDATORY_SCREEN)
+        matriz[role] = telas
     return PermissionsMatrix(matriz=matriz)
 
 
@@ -102,7 +123,9 @@ def update_permissions(
         final[role] = telas
 
     # Replace existing rows for this tenant.
-    existing = db.execute(select(RolePermission)).scalars().all()
+    existing = db.execute(
+        select(RolePermission).where(RolePermission.igreja_id == igreja_uuid)
+    ).scalars().all()
     for row in existing:
         db.delete(row)
     db.flush()

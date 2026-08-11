@@ -82,6 +82,8 @@ export interface WorkItem {
   pessoaId: string | null;
   responsavelId: string | null;
   prioridade: number | null;
+  /** Capacidade por item, resolvida no backend conforme a conversa atribuída. */
+  canMessage: boolean;
   /** ISO-8601 ou null quando o item não tem prazo. */
   prazo: string | null;
 }
@@ -93,6 +95,11 @@ export interface TeamMember {
   status: string | null;
   papeis: string[];
   pessoaId: string | null;
+}
+
+export interface TeamLookupMember extends TeamMember {
+  /** Tipos de item que este usuário pode receber, derivados no servidor. */
+  tiposFila: string[];
 }
 
 export interface Cell {
@@ -235,33 +242,229 @@ export async function readDetail(res: Response): Promise<string | null> {
 // ---------------------------------------------------------------------------
 // Leitura
 // ---------------------------------------------------------------------------
-export async function fetchWorkQueue(token: string, pageSize = 100): Promise<Page<WorkItem>> {
-  const res = await authedFetch(token, `/work-queue?page=1&pageSize=${pageSize}`);
+/**
+ * Lê uma página isolada da fila. O dashboard usa a página 1 para liberar a
+ * primeira dobra sem esperar a paginação completa; consumidores que precisam
+ * do conjunto inteiro continuam usando `fetchWorkQueue`.
+ */
+export async function fetchWorkQueuePage(
+  token: string,
+  page = 1,
+  pageSize = 100,
+  options?: { revalidate?: boolean },
+): Promise<Page<WorkItem>> {
+  const res = await authedFetch(
+    token,
+    `/work-queue?page=${page}&pageSize=${pageSize}`,
+    options?.revalidate ? { cache: "reload" } : undefined,
+  );
   if (!res.ok) {
     throw new ApiError(res.status, "Não foi possível carregar a fila de trabalho.");
   }
   return (await res.json()) as Page<WorkItem>;
 }
 
-export async function fetchTeam(token: string, pageSize = 100): Promise<Page<TeamMember>> {
-  const res = await authedFetch(token, `/team?page=1&pageSize=${pageSize}`);
-  if (!res.ok) {
-    throw new ApiError(res.status, "Não foi possível carregar a equipe.");
-  }
-  return (await res.json()) as Page<TeamMember>;
+export interface WorkQueueRemainder {
+  /** Somente itens posteriores à primeira página, sem repetir IDs já vistos. */
+  items: WorkItem[];
+  /** Total do snapshot estável confirmado ao fim da paginação. */
+  total: number;
+  /**
+   * Página 1 revalidada do mesmo snapshot. É opcional apenas para manter
+   * compatibilidade com consumidores que simulam o contrato em testes.
+   */
+  firstPage?: Page<WorkItem>;
+}
+
+const WORK_QUEUE_SNAPSHOT_ATTEMPTS = 3;
+
+interface WorkQueueSnapshot {
+  firstPage: Page<WorkItem>;
+  /** Todos os itens, deduplicados e na ordem observada entre as páginas. */
+  items: WorkItem[];
+  /** Totais coerentes entre páginas e quantidade única igual ao total. */
+  complete: boolean;
 }
 
 /**
- * Busca ENXUTA de membros (id, nome, papéis; e-mail vazio) para o painel
- * resolver o nome do responsável de cada item — liberada a qualquer papel. A
- * lista completa com e-mail (GET /team) é restrita a admin/pastor/lider_g12.
+ * Coleta uma visão integral da fila. Quando `firstPage` não é fornecida, toda
+ * a coleta ignora cache; isso permite comparar duas passagens completas e
+ * detectar também trocas compensadas nas páginas posteriores.
  */
-export async function fetchTeamLookup(token: string, pageSize = 200): Promise<Page<TeamMember>> {
-  const res = await authedFetch(token, `/team/lookup?page=1&pageSize=${pageSize}`);
-  if (!res.ok) {
-    throw new ApiError(res.status, "Não foi possível carregar a equipe.");
+async function collectWorkQueueSnapshot(
+  token: string,
+  pageSize: number,
+  initialFirstPage?: Page<WorkItem>,
+): Promise<WorkQueueSnapshot> {
+  const firstPage =
+    initialFirstPage ??
+    (await fetchWorkQueuePage(token, 1, pageSize, {
+      revalidate: true,
+    }));
+  const seenIds = new Set<string>();
+  const items: WorkItem[] = [];
+  for (const item of firstPage.items) {
+    if (seenIds.has(item.id)) continue;
+    seenIds.add(item.id);
+    items.push(item);
   }
-  return (await res.json()) as Page<TeamMember>;
+
+  let page = firstPage.page + 1;
+  let pageRequests = 0;
+  let totalsStayedStable = true;
+
+  // Duas páginas extras toleram duplicatas transitórias, sem permitir que um
+  // servidor instável repita páginas indefinidamente.
+  const safePageSize = Math.max(1, firstPage.pageSize);
+  const expectedRemainingPages = Math.max(
+    0,
+    Math.ceil(firstPage.total / safePageSize) - firstPage.page,
+  );
+  const maxPageRequests = Math.max(1, expectedRemainingPages + 2);
+  while (seenIds.size < firstPage.total && pageRequests < maxPageRequests) {
+    const chunk = await fetchWorkQueuePage(token, page, firstPage.pageSize, {
+      revalidate: true,
+    });
+    pageRequests += 1;
+    if (chunk.total !== firstPage.total) totalsStayedStable = false;
+    if (chunk.items.length === 0) break;
+
+    for (const item of chunk.items) {
+      if (seenIds.has(item.id)) continue;
+      seenIds.add(item.id);
+      items.push(item);
+    }
+    page += 1;
+  }
+
+  return {
+    firstPage,
+    items,
+    complete: totalsStayedStable && seenIds.size === firstPage.total,
+  };
+}
+
+function sameWorkQueueSnapshot(
+  left: WorkQueueSnapshot,
+  right: WorkQueueSnapshot,
+): boolean {
+  if (
+    !left.complete ||
+    !right.complete ||
+    left.firstPage.total !== right.firstPage.total ||
+    left.items.length !== right.items.length
+  ) {
+    return false;
+  }
+  return left.items.every((item, index) => item.id === right.items[index]?.id);
+}
+
+/**
+ * Completa uma primeira página já carregada. Separar as fases evita o waterfall
+ * visual, preserva deduplicação por ID e mantém a função completa abaixo para
+ * pré-carregamento e outros consumidores.
+ */
+export async function fetchRemainingWorkQueuePages(
+  token: string,
+  firstPage: Page<WorkItem>,
+): Promise<WorkQueueRemainder> {
+  let snapshot = await collectWorkQueueSnapshot(
+    token,
+    firstPage.pageSize,
+    firstPage,
+  );
+
+  for (let attempt = 0; attempt < WORK_QUEUE_SNAPSHOT_ATTEMPTS; attempt += 1) {
+    const verification = await collectWorkQueueSnapshot(token, firstPage.pageSize);
+    if (sameWorkQueueSnapshot(snapshot, verification)) {
+      const firstPageIds = new Set(
+        verification.firstPage.items.map((item) => item.id),
+      );
+      return {
+        firstPage: verification.firstPage,
+        items: verification.items.filter((item) => !firstPageIds.has(item.id)),
+        total: verification.firstPage.total,
+      };
+    }
+    snapshot = verification;
+  }
+
+  throw new ApiError(
+    409,
+    "A fila mudou enquanto era carregada. A primeira página permanece disponível; tente novamente para confirmar todas as ações.",
+  );
+}
+
+export async function fetchWorkQueue(token: string, pageSize = 100): Promise<Page<WorkItem>> {
+  const firstPage = await fetchWorkQueuePage(token, 1, pageSize);
+  if (firstPage.items.length >= firstPage.total) return firstPage;
+
+  const remainder = await fetchRemainingWorkQueuePages(token, firstPage);
+  const stableFirstPage = remainder.firstPage ?? firstPage;
+  const seenIds = new Set<string>();
+  const items = [...stableFirstPage.items, ...remainder.items].filter((item) => {
+    if (seenIds.has(item.id)) return false;
+    seenIds.add(item.id);
+    return true;
+  });
+  return {
+    items,
+    page: 1,
+    pageSize: stableFirstPage.pageSize,
+    total: remainder.total,
+  };
+}
+
+export async function fetchTeam(token: string, pageSize = 100): Promise<Page<TeamMember>> {
+  const items: TeamMember[] = [];
+  let page = 1;
+  let total = 0;
+
+  do {
+    const res = await authedFetch(token, `/team?page=${page}&pageSize=${pageSize}`);
+    if (!res.ok) {
+      throw new ApiError(res.status, "Não foi possível carregar a equipe.");
+    }
+    const chunk = (await res.json()) as Page<TeamMember>;
+    total = chunk.total;
+    items.push(...chunk.items);
+    if (chunk.items.length === 0) break;
+    page += 1;
+  } while (items.length < total);
+
+  return { items, page: 1, pageSize, total };
+}
+
+/**
+ * Busca ENXUTA de destinos elegíveis (id, nome, papéis, tipos de fila; e-mail
+ * vazio) para o seletor de atribuição. O backend a restringe aos mesmos papéis
+ * que podem atribuir a fila; os demais papéis não devem chamar este endpoint.
+ * A lista completa com e-mail (GET /team) mantém seu contrato administrativo.
+ */
+export async function fetchTeamLookup(
+  token: string,
+  pageSize = 200,
+): Promise<Page<TeamLookupMember>> {
+  const items: TeamLookupMember[] = [];
+  let page = 1;
+  let total = 0;
+
+  do {
+    const res = await authedFetch(
+      token,
+      `/team/lookup?page=${page}&pageSize=${pageSize}`,
+    );
+    if (!res.ok) {
+      throw new ApiError(res.status, "Não foi possível carregar a equipe.");
+    }
+    const chunk = (await res.json()) as Page<TeamLookupMember>;
+    total = chunk.total;
+    items.push(...chunk.items);
+    if (chunk.items.length === 0) break;
+    page += 1;
+  } while (items.length < total);
+
+  return { items, page: 1, pageSize, total };
 }
 
 export async function fetchOverview(token: string): Promise<OverviewStats> {
@@ -273,11 +476,23 @@ export async function fetchOverview(token: string): Promise<OverviewStats> {
 }
 
 export async function fetchCells(token: string, pageSize = 100): Promise<Page<Cell>> {
-  const res = await authedFetch(token, `/cells?page=1&pageSize=${pageSize}`);
-  if (!res.ok) {
-    throw new ApiError(res.status, "Não foi possível carregar as células.");
-  }
-  return (await res.json()) as Page<Cell>;
+  const items: Cell[] = [];
+  let page = 1;
+  let total = 0;
+
+  do {
+    const res = await authedFetch(token, `/cells?page=${page}&pageSize=${pageSize}`);
+    if (!res.ok) {
+      throw new ApiError(res.status, "Não foi possível carregar as células.");
+    }
+    const chunk = (await res.json()) as Page<Cell>;
+    total = chunk.total;
+    items.push(...chunk.items);
+    if (chunk.items.length === 0) break;
+    page += 1;
+  } while (items.length < total);
+
+  return { items, page: 1, pageSize, total };
 }
 
 // ---------------------------------------------------------------------------

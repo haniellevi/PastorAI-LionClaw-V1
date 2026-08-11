@@ -89,7 +89,7 @@ export function AppShell() {
       }
 
       preloadScreenModule(targetBase);
-      if (token) void preloadRouteData(token, targetBase);
+      if (token) void preloadRouteData(token, targetBase, user.roles, matrix);
     },
     [user, token, matrix],
   );

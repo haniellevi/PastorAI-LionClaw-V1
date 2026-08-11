@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PermissionsProvider } from "@/lib/permissions-context";
 
 vi.mock("@/lib/auth-context", () => ({
+  useOptionalAuth: () => null,
   useAuth: () => ({
     user: {
       appUserId: "u1",

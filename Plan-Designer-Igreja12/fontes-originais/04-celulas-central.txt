@@ -1,0 +1,73 @@
+Células - uma celula pode ser cadastrada pela central de celula, escolhe a cobertura, o lider, local, dia e hora. Toda celula está vinculada a uma cobertura espiritual. O lider pode editar os dados da celula, e enviar para aprovação da central de celula, ele nao pode ficar mudando de dia sem aprovação. 
+Gestão da Célula - O lider pode adicionar participante(dados basicos pessoais), cada lider tem o dashboard de sua respectiva celula, ele pode enviar avisos, definir data de multiplicação, definir Auxiliares, Anfitrião, enviar relatorio semanal da realização da celula, Ele tem a funcionalidade - PLANEJAR CELULA(antes do dia da celula, ele define tema, musica, quebra gelo, oferta, avisos da igreja, ele pode distribuir cada tarefa da celula para um membro se quiser. REALIZAR CELULA (confirma a data, seleciona os membros  presentes, adiciona visitante(diz se aceitou Jesus ou não), teve oferta? Enviar relatorio para central?
+
+
+Programação da Célula 
+
+1- Boas Vindas - 2 minutos
+2- Louvor - 5 a 10 minutos
+3- Quebra-gelo - 5 minutos
+4- Mensagem - 20 minutos
+5- Oração por Necessidades - 5 minutos
+6- Oração de Salvação - 5 minutos
+7- Oferta - 5 minutos
+8- Comunhão - 10 minutos
+
+
+Visao do Discipulo (membro da célula)
+Um espaço para relatório dashboard simplificado, podemos ter um contato de total de células realizadas(mostra a quantidade de reunioes que essa respectiva célula já realizou), minimalista [dia da célula - botão convidar amigo (mostra uma mensagem customizada por célula com um tom de amizade chamando para algo que está ajudando a pessoa que ta convidando a vencer muitas dificuldades, colocar o dia, o endereço e o link da localização(líder cadadastra na visão dele, líder configura a mensagem de convite), mural de avisos minimalista e discreto contendo os avisos da igreja e específicos da célula, o líder poderá criar avisos para a célula, podemos colocar avisos da igreja na cor vermelha e da célula na cor azul, podemos colocar um botão de grupo de whatsapp caso o líder cadastre o grupo da célula no whatsapp.
+
+NO painel da célula na visão do discípulo, mostraremos a lista dos participantes, começando pelo líder da célula, logo depois o auxiliar, e depois os demais participantes listados numericamente.
+No painel teremos a lista das ultimas células realizadas (numero - data - tema), aqui teremos uma rolagem interna dessa card de células realizadas, mas no topo podemos ter um botão destacado com a próxima célula confirmada, se o membro clica pode confirmar presença, indicar se vai levar visitante e colocar o nome para todos orarem, podemos ter algo dinâmico mostrando criando expectativa para próxima célula, dizendo: Expectativa de x participantes e y convidados. 
+
+
+Visao do líder de célula
+Dashboard topo - total de reuniões até o dia, total de visitantes que já visitaram a célula, total de membros, total de discípulos que precisam aceitar Jesus (ganhar), total em consolidação (consolidação individual), total na UV atual, total que já concluíram a uv, total batizados, total fazendo Capacitação Destino(cd), total que fizeram reencontro, total formados na CD.
+
+menu do líder - Editar Celula[Pode colocar nome, solicitar alteração de dia(envia notificação de confirmação para a central de célula pedindo autorização para mudar de dia), horario do mesmo jeito do dia, link da localização, endereço, , link do grupo de whatsapp, mensagem de convite customizada ou manter a padrão do sistema], avisos (painel de configurar avisos, ele pode receber avisos da igreja(seja da liderança acima ou da central de célula, ele pode criar os próprios avisos para os membros da sua célula), Discípulos [menu que abre o painel com a lista de todos os membros por ordem alfabética e numerados, um destaque para o auxiliar que sempre fica em primeiro lugar na lista, cada discípulo mostra as ultimas 5 reuniões marcando por bolinhas verdes para presença e vermelha para ausência, isso mostra a saúde espiritual do discípulo, o líder pode abrir clicando em cima do nome ou da linha do discípulo e abre os dados dele, a próxima meta na trilha da visão (estudar o ganhar, consolidar, discipular e enviar), o sistema pode mostrar as atividades do discípulo da célula, se ele já fez alguma participação na programação de alguma célula, ex: Abertura (atividade feita) - data, os dados podem mostrar data de aniversario, cadastro da família, nomes dos parentes que moram com ele, e marcando se são da igreja ou não, atividade principal (mostra se o discípulo é estudante, empresário, funcionário, horário de ocupação), o maior sonho do discípulo, a maior dificuldade, o que ele gostaria de fazer para servir na igreja. Temos que ter uma atualização cadastral do discípulo e quem faz isso é o líder de célula. Sempre que houver um dado pendente do discípulo, o sistema marcará com sinal de alerta amarelo indicando que o líder precisa dar atenção para aquele discípulo. 
+-Menu PLanejar próxima célula, [mostra o submenu MATERIAL DISPONIVEL, aqui mostra os matériais enviados pela central de celula, sermões, quebra-gelos, músicas para servir de inspiração para o lider de celula, ele pode buscar por tema]aqui vai mostrar se a próxima célula está confirmada ou não, sempre obedecendo a data e horário definido pelo líder de célula, clicando em confirmar, ele abre o menu de planejar programação, e abre na sequencia um processo de formulário para preenchermos cada etapa da célula, 1- abertura (responsável - abre um select com os nomes dos membros da célula), observação (se o líder tem alguma observação para falar com o responsável daquela etapa na semana), assim faremos para todas as etapas. Quando concluir, revisar programação, mostrará a lista com todos os reponsaveis. Confirmar. Quando confirmar, o sistema (agente) mandará uma mensagem para os respectivos responsáveis informando que ele é responsável por essa parte na próxima célula. MENU multiplicação - seguir o que foi definido no prd (Multiplicação de Celula, o lider pode CRIAR UMA MULTIPLICAÇÃO, ele seleciona o novo lider (alguem apto a liderar), seleciona os membros que irão para a nova celula, define o dia e hora da nova celula, endereço, anfitrião. Clica em Solicitar Multiplicação e a Central de Celulas vai analisar essa solicitação e aprovar ou nao. Aprovando, ja vai aparecer no organograma da igreja a nova celula criada e os dados atualizarão no sistema. O novo lider recebe a gestão de sua nova celula. Somente Aptos podem multiplicar, e somente lideres podem dar aula na CD e na UV, somente Lideres Aptos para frente podem consolidar pessoas.)
+
+Quando passar 2 horas da realização prevista da célula, o sistema do líder de célula recebe uma grande notificação para enviar relatório(se relatório não foi enviado), mas a qualquer momento depois do horário da célula, o líder pode clicar no botão Enviar Relatório. A funcionalidade Relatorio (Estava no PRD como realizar celula) será um card simplies, minimalista, vai preencher o tema, marcar se deu avisos, marcar se fez oferta, selecionar membros presentes, visitantes (aqui ele cadastra o nome e whatsapp dos respectivos visitantes), enviar relatorio, isso manda para a central de celula.
+
+
+
+Central de celulas
+-O admin cadastra os lideres ou lider da central de celula
+- Somente o lider, admin podem visualizar a central de celula (painel e menu lateral da central de celula)
+- Central de celula tem dashboard[total de celula, porcentagem e numero de relatorio recebidos e não recebidos, total de visitantes nas celulas do mês, total de participantes da celula do mês, percentual do total de membros da igreja que participam de celula, cada celula mostra a saude com os ultimos 10 reunioes, onde "circulo vermelho" mostra que nao teve celula(relatorio nao enviado, e verde para relatorio enviado]
+- Menu Central de Celula [gerenciar celula-lista de todas as celulas com campo de busca por nome do lider, filtro por descendencia(g12 pastoral), clicando na celula abre o painel daquela respectiva celula, mostrando dados, solicitações (multiplicação, alteração de dados), saude da celula onde mostra as informações que o lider de celula tbm via sobre a trilha da visão, avisos (central de celula pode configurar avisos, titulo, mensagem, para quem (listar homens, mulheres, todos, jovens, casais, nome do lider(seleciona por um campo de pesquisa um ou mais lideres e seleciona), quando(agora, agendar), material de apoio(central de celula pode enviar sermoes, quebra-gelo, música, temos que criar um banco de sermoes com buscador, banco de musica (com nome e link), banco de quebra-gelo, tudo isso com tags e classificações para busca por tema, isso vai para o menu materiais disponiveis do lider de celula]
+
+
+
+
+
+correções - claude designer
+
+
+Central de Celula
+-Precisamos editar materiais publicados, precisamos colocar material em rascunho (existe para quem envia, mas só aparece para lideres de celula quando clica em publicar), temos que melhorar essa questão do tema (tags que servirá para busca), podemos pedir que o tema seja gerado por ia naquele campo., NO conteudo podemos separar conteudo em texto, upload de arquivo(docx, pdf, txt) e podemos colcar o link somente para quando for musica. quando colcarmos o link da musica temos que gerar o nome e o cantor automaticamente pelo link do youtube, aceitaremos apenas links do youtube ou spotify.
+-Avisos - Os avisos da central são apenas os que a central cria para enviar para as celulas. O modulo avisos existe de forma geral para que admin/pastores também enviem notificações para usuarios do sistema.
+- Solicitações: quando clicar em pedir ajustes ja deve abrir campo "observação" para enviar a notificação solicitando ajuste/informação para aquela respectiva solicitação. Precisamos de um alert de confirmação por segurança informando todas as informações que serão aprovadas
+- Gerenciar Celulas - Falta editar celula, siginifica que o admin/pastor/lider da central de celula pode atualizar lider, anfitrião, auxiliar, adicionar membros, horario, dia, local, transferir uma celula pra baixo de outra liderança, e uma celula pode estar abaixo de uma liderança, automaticamente o lider de celula aparece abaixo daquele novo lider.
+- dashboard da central de celula, podemos colocar o numero como primeira informação da lista de celulas, podemos criar um filtro para listar das mais saudaveis para baixo ou da menos saudavel para baixo.
+
+-
+
+Células - O nome do menu é Minha Célula
+Visao do discipulo:
+- Falta um botão para confirmar expectativa de visitante, preenchemos o nome, observação e então confima.
+- tem q ter numeração de listagem de participantes, precisa identificar quem é o anfitrião(lider define)
+- Na lista das ultimas celulas, marca vermelho se o usuario estava ausente e mostra essa informação, e verde se ele particiou daquela respectiva reuniao.
+
+Visão do Lider:
+- quando envia relatorio: podemos desmarcar a pessoa que nao esteve, e começa ja tudo branco, e fica verde quando marca e monta essa lista de quem participou
+- tem que ter um botão de adicionar visitante, preenche um com nome e whatsapp e se aceitou Jesus ou nao e na frente add, e vai criando a lista de visitantes que deve ser atualizado de forma geral no banco da igreja, do ganhar
+- No planejamento, vamos iniciar editando a programação, em cada etapa da programação, escolhendo o responsável, 1-Observação(tem opção de adicionar uma observação), 2- Louvor, seleciona responsavel, escolhe se o responsavel pode escolher a musica ou o lider pode selecionar do banco de música( todas as músicas que pode ser adicionadas pela central ou pelos lideres de celula, a medida que cria vai aumentando essa lista de musica, para adicionar um musica, seja a central ou o líder, precisa clicar em add musica, colar o link e o link puxa o nome e o artista), 3- Quebra-gelo (do mesmo jeito de musica, seleciona responsavel, lider informa se responsavel pode criar do zero, ou seleciona do banco de quebra-gelo(soma de todos da tabela que recebe da central ou de todos os criados em todas as celulas), se for criar, colocar nome, conteudo, tema (pode ser gerado baseado no conteudo por ia), 4- Mensagem, escolhe responsavel, o lider de celula pode definir o tema(será o tema da celula da semana, escolher algum da central que ja puxa o sermão, ou sugerir tema(informar se tem sermão pronto, ou sugerir apenas o tema)), pode dizer que é tema livre(responsavel escolhe) e o lider no relatorio atualiza o campo tema da reuniao da semana baseado no que foi ministrado, oração por necessidade, oração de salvação, oferta e comunhão define apenas o responsavel e pode adicionar observação. 
+- tem que confirmar a data da celula e horario que ja vem preenchido sempre com o dia que foi definido e horario, só altera se for necessário e um aviso é enviado para a central de celula.
+- Aviso do lider de celula para a celula, nao precisa escolher publico, ja é o publico da celula. Falta desenvolver o agendar com data e horario. 
+- Editar celula, o lider pode editar dia e horario, 
+-Gestão de Discipulo - na lista de discipulos, quando clicamos aparece as informações, ali pode ter um botão para transferir discípulo para central de celula( indica exclusão da celula), o sistema mostra alteração pendente, central de celula vai confirmar,  na central essa solicitação de saida sempre exige que a aprovação aponte uma nova celula, ou saida da igreja (motivo, investigar com a pessoa, confirmar com ela pelo whatsapp). Entrada de membros nao precisa de confirmação( tem um botão de add participante no menu discipulos.
+
+
+
+Validade do avisos - passou da data ou a pessoa marcou como visto, some o aviso do mural

@@ -1568,6 +1568,7 @@ def list_my_led_cells(
         .where(
             Celula.igreja_id == igreja_id,
             Celula.lider_id == uuid.UUID(actor),
+            Celula.ativo.is_(True),
         )
         .order_by(Celula.nome.asc())
     ).scalars().all()

@@ -3,17 +3,19 @@
 Os três pontos que criam Pessoa por telefone (queue_worker de inbound, POST
 /contacts, ativação de convite) fazem "procura-antes-de-criar" — TOCTOU: duas
 criações concorrentes do MESMO telefone/tenant não se veem e ambas inseririam.
-``uq_pessoas_telefone_ativa`` (índice único PARCIAL em (igreja_id, telefone)
-onde ``arquivada_em IS NULL``) serializa a corrida no banco; ``insert_pessoa_or_
-get_winner`` traduz o ``unique_violation`` da perdedora em "usa a Pessoa
-vencedora" — o caminho feliz fica idêntico ao de hoje (padrão CONSOL-1).
+``lock_canonical_phone`` serializa formatos equivalentes pela chave canônica
+antes da busca/inserção. ``uq_pessoas_telefone_ativa`` (índice único PARCIAL em
+(igreja_id, telefone) onde ``arquivada_em IS NULL``) permanece como backstop
+para o telefone bruto; ``insert_pessoa_or_get_winner`` traduz o
+``unique_violation`` da perdedora em "usa a Pessoa vencedora".
 """
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -23,6 +25,23 @@ from app.domain.phone import normalize_phone, phone_suffix
 # Postgres SQLSTATE de unique_violation. Só ele é tratado como "perdi a corrida";
 # qualquer outra IntegrityError sobe inalterada (não é uma colisão de telefone).
 _PG_UNIQUE_VIOLATION = "23505"
+
+
+def lock_canonical_phone(
+    db: Session, *, igreja_id: uuid.UUID, canonical: str
+) -> None:
+    """Serializa writers do mesmo telefone canônico/tenant na transação atual."""
+
+    material = f"pessoa-phone:{igreja_id}:{canonical}".encode("utf-8")
+    key = int.from_bytes(
+        hashlib.blake2b(material, digest_size=8).digest(),
+        byteorder="big",
+        signed=True,
+    )
+    db.execute(
+        text("SELECT pg_advisory_xact_lock(:canonical_phone_key)"),
+        {"canonical_phone_key": key},
+    )
 
 
 def find_active_pessoa_by_phone(

@@ -65,7 +65,7 @@ from app.domain.conversations import (
     parse_message_event,
 )
 from app.domain.phone import normalize_phone, phone_suffix
-from app.services.pessoa_dedup import insert_pessoa_or_get_winner
+from app.services.pessoa_dedup import insert_pessoa_or_get_winner, lock_canonical_phone
 
 logger = logging.getLogger("pastorai.queue_worker")
 
@@ -344,6 +344,10 @@ def ingest_message_event_ex(
     # the Redis owner again before continuing with contact/media work.
     if ownership_guard is not None:
         ownership_guard()
+
+    lock_canonical_phone(
+        db, igreja_id=igreja_id, canonical=parsed.telefone
+    )
 
     # Dedupe person by CANONICAL telefone + igreja (RNF-16). Always look up an
     # existing contact before creating, matching across the +55 / 9th-digit

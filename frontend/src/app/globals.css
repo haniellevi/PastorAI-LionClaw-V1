@@ -1197,25 +1197,6 @@ input[type="checkbox"] {
   color: var(--muted); /* F4: breadcrumb é texto essencial — faint reprovava AA */
   font-size: 13px;
 }
-.topbar .search {
-  margin-left: auto;
-  position: relative;
-}
-.topbar .search svg {
-  position: absolute;
-  left: 9px;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 15px;
-  height: 15px;
-  color: var(--faint);
-}
-.topbar .search input {
-  padding-left: 30px;
-  width: 240px;
-  background: var(--surface);
-  font-size: 13px;
-}
 .topbar .icon-btn {
   width: 34px;
   height: 34px;
@@ -1240,6 +1221,9 @@ input[type="checkbox"] {
   flex-wrap: wrap;
   justify-content: flex-end;
   max-width: 340px;
+}
+.topbar .who {
+  margin-left: auto;
 }
 /* role-chip — pílula de papel de usuário compartilhada (Topbar + RoleTags
    das telas #equipe, ver components/ui/RoleBadge.tsx). Lead usa o par
@@ -1950,7 +1934,7 @@ button.jr-row:focus-visible {
   align-items: center;
   gap: 4px;
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.03em;
   padding: 2px 7px;
@@ -2095,6 +2079,10 @@ button.jr-row:focus-visible {
   border-radius: 0;
   box-shadow: none;
 }
+.mc--member .mc-area:not(.mc-area--meeting) .card,
+.mc--leader .mc-leader-stack > .card {
+  padding-inline: var(--s3);
+}
 .mc--member .mc-area:not(.mc-area--meeting) .panel-title,
 .mc--leader .mc-leader-stack > .card > .panel-title,
 .mc--leader .mc-report-picker > .panel-title {
@@ -2104,12 +2092,12 @@ button.jr-row:focus-visible {
 .mc--leader .mc-report-picker > .section-body {
   padding-inline: 0;
 }
-.mc--member .notice-item,
-.mc--member .material-item,
-.mc--member .hist-item {
+.mc .notice-item,
+.mc .material-item,
+.mc .hist-item {
   padding-inline: 0;
 }
-.mc--member .notice-item {
+.mc .notice-item {
   padding-left: var(--s3);
 }
 
@@ -2149,7 +2137,7 @@ button.jr-row:focus-visible {
 }
 .agenda-section {
   min-width: 0;
-  padding-top: var(--s3);
+  padding: var(--s3) var(--s3) 0;
   border-top: 1px solid var(--border-subtle);
 }
 .agenda-section .panel-title,
@@ -2166,6 +2154,18 @@ button.jr-row:focus-visible {
 }
 .agenda-row-action {
   cursor: pointer;
+}
+.agenda .cal-cell:focus-visible,
+.agenda .cal-ev:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+.agenda .agenda-day:focus-visible,
+.agenda .agenda-month:focus-visible,
+.agenda .agenda-section .list-row[role="button"]:focus-visible,
+.agenda .agenda-row-action:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 .agenda-empty {
   margin-top: var(--s4);
@@ -2221,13 +2221,13 @@ button.jr-row:focus-visible {
   }
   .agenda .cal-head > div {
     padding: 7px 2px;
-    font-size: 10px;
+    font-size: 12px;
     letter-spacing: 0;
   }
   .agenda .cal-ev {
     min-height: 18px;
     padding: 2px 4px;
-    font-size: 10.5px;
+    font-size: 12px;
   }
   /* VIS-2-MOBILE-CALENDAR-ARCH-1: até 640px a grade mensal desktop (.cal, com
      chips hora+título) sai de cena e entra a variante mobile (.cal-m) rendida
@@ -2303,7 +2303,7 @@ button.jr-row:focus-visible {
     border-radius: 999px;
     background: var(--action-primary);
     color: var(--text-on-action);
-    font-size: 10px;
+    font-size: 12px;
     font-weight: 600;
     line-height: 1;
   }
@@ -2766,6 +2766,16 @@ button.jr-row:focus-visible {
 .cell-detail-actions .btn {
   white-space: nowrap;
 }
+.agenda .screen-head .actions .btn,
+.agenda .screen-head .actions .ds-btn,
+.mc .screen-head .actions .btn,
+.mc .screen-head .actions .ds-btn,
+.mc .meeting-actions .btn,
+.mc .meeting-actions .ds-btn,
+.mc .chip-actions .btn,
+.mc .chip-actions .ds-btn {
+  white-space: nowrap;
+}
 
 /* alvo de toque ≥44px no mobile pros controles de modal e selects */
 @media (max-width: 600px) {
@@ -2986,9 +2996,14 @@ table.data-table {
 .cell-detail-actions .btn {
   flex: 1;
 }
+.cell-detail-actions .ds-btn {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
 /* Alvo de toque no mobile — mesmo breakpoint/padrão do .modal-foot .btn. */
 @media (max-width: 600px) {
-  .cell-detail-actions .btn {
+  .cell-detail-actions .btn,
+  .cell-detail-actions .ds-btn {
     min-height: 44px;
   }
 }
@@ -4710,7 +4725,7 @@ table.data-table {
 .cal-head > div {
   padding: 8px;
   text-align: center;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--muted);
   text-transform: uppercase;
@@ -4897,7 +4912,7 @@ table.data-table {
   color: var(--fg);
 }
 .agenda-month-head .count {
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--accent);
   background: var(--accent-soft);
@@ -4915,7 +4930,7 @@ table.data-table {
   gap: 3px;
 }
 .agenda-month-list li {
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--muted);
   white-space: nowrap;
   overflow: hidden;
@@ -4958,7 +4973,7 @@ table.data-table {
   color: var(--muted);
 }
 .agenda-month-empty {
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--muted);
 }
 
@@ -5577,7 +5592,7 @@ table.data-table {
 }
 .mc-hero-stat .k {
   margin-top: 4px;
-  font-size: 11.5px;
+  font-size: 12px;
   color: color-mix(in oklch, var(--text-on-action) 82%, transparent);
 }
 
@@ -5870,6 +5885,9 @@ table.data-table {
   .dh-grid {
     grid-template-columns: minmax(0, 1fr) 320px;
   }
+  .dh-grid.dh-grid--home {
+    grid-template-columns: minmax(0, 840px);
+  }
 }
 .dh .ds-banner {
   margin-bottom: var(--s4);
@@ -6010,8 +6028,28 @@ table.data-table {
   padding: 0 var(--s3);
   font-size: 13px;
 }
+.dh-queue-more {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  margin-top: var(--s2);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: 650 13px/1.3 var(--font);
+  color: var(--action-primary);
+  cursor: pointer;
+}
+.dh-queue-more:hover {
+  color: var(--action-primary-hover);
+}
+.dh-queue-more:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-control);
+}
 
-/* ---- resumo da semana (disclosure nativa DEPOIS da fila) ---- */
+/* ---- resumo do escopo (disclosure nativa depois da fila) ---- */
 .dh-summary {
   margin-top: var(--s4);
 }
@@ -6070,6 +6108,7 @@ table.data-table {
 }
 .dh-summary-row.is-link {
   cursor: pointer;
+  text-decoration: none;
 }
 .dh-summary-row.is-link:hover .dh-summary-label {
   color: var(--action-primary);
@@ -6127,11 +6166,108 @@ table.data-table {
   color: var(--text-secondary);
 }
 
+/* Agenda, célula, avisos e atalhos em um único painel contínuo. */
+.dh-context-body,
+.dh-context-list,
+.dh-shortcuts {
+  display: flex;
+  flex-direction: column;
+}
+.dh-context-section {
+  padding: var(--s3) 0;
+  border-top: 1px solid var(--border-subtle);
+}
+.dh-context-section:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+.dh-context-section:last-child {
+  padding-bottom: 0;
+}
+.dh-context-title {
+  margin-bottom: var(--s2);
+  font: 650 13px/1.3 var(--font);
+  color: var(--text-secondary);
+}
+.dh-context-row,
+.dh-shortcut {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s3);
+  width: 100%;
+  min-height: 44px;
+  padding: var(--s2) 0;
+  border: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  background: transparent;
+  text-align: left;
+  color: var(--text-primary);
+}
+.dh-context-row:last-child,
+.dh-shortcut:last-child {
+  border-bottom: 0;
+}
+.dh-context-row.is-link,
+.dh-shortcut {
+  cursor: pointer;
+  text-decoration: none;
+}
+.dh-context-row.is-link:hover .dh-context-name,
+.dh-shortcut:hover .dh-context-name {
+  color: var(--action-primary);
+}
+.dh-context-row:focus-visible,
+.dh-shortcut:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-control);
+}
+.dh-context-icon,
+.dh-shortcut-icon {
+  flex: none;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: var(--radius-control);
+  background: var(--selection-soft);
+  color: var(--action-primary);
+}
+.dh-context-icon svg,
+.dh-shortcut-icon svg {
+  width: 16px;
+  height: 16px;
+}
+.dh-context-copy {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+.dh-context-name {
+  font: 650 13px/1.35 var(--font);
+  color: var(--text-primary);
+}
+.dh-context-meta,
+.dh-context-empty {
+  font: var(--type-meta);
+  color: var(--text-secondary);
+}
+.dh-context-meta {
+  overflow-wrap: anywhere;
+}
+.dh-context-skeleton {
+  display: grid;
+  gap: var(--s2);
+}
+
 /* jornada: contagens reais por etapa + barra de lapidação (proporção entre
    as contagens absolutas exibidas — sem tendência/percentual novo). */
 .dh-journey-row {
   display: block;
   width: 100%;
+  min-height: 44px;
   padding: var(--s2) 0;
   border: 0;
   background: transparent;
@@ -6141,10 +6277,12 @@ table.data-table {
 .dh-journey-row:last-of-type {
   border-bottom: 0;
 }
-button.dh-journey-row {
+.dh-journey-row.is-link {
   cursor: pointer;
+  color: var(--text-primary);
+  text-decoration: none;
 }
-button.dh-journey-row:hover .dh-journey-label {
+.dh-journey-row.is-link:hover .dh-journey-label {
   color: var(--action-primary);
 }
 .dh-journey-row:focus-visible {
@@ -6206,12 +6344,16 @@ button.dh-journey-row:hover .dh-journey-label {
   color: var(--text-secondary);
 }
 .dh-journey-cta {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
   border: 0;
   background: transparent;
   padding: 0;
   font: 650 12px/1.3 var(--font);
   color: var(--action-primary);
   cursor: pointer;
+  text-decoration: none;
 }
 .dh-journey-cta:hover {
   color: var(--action-primary-hover);
@@ -6334,6 +6476,17 @@ button.dh-journey-row:hover .dh-journey-label {
   .dh-filter-btn {
     min-height: 44px;
     min-width: 44px;
+  }
+}
+
+@media (max-width: 560px) {
+  .dh-summary-row {
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr) auto;
+    column-gap: var(--s2);
+  }
+  .dh-summary-hint {
+    grid-column: 2 / 4;
   }
 }
 
@@ -6713,6 +6866,9 @@ button.dh-journey-row:hover .dh-journey-label {
 .mc .muted-note {
   color: var(--text-secondary);
   font: var(--type-meta);
+}
+.mc .notice-time {
+  font-size: 12px;
 }
 
 /* hero da célula: azul mineral calmo (antes: teal) */

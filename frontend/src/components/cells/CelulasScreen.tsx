@@ -4,8 +4,9 @@
  * Tela #celulas (legada, deep-link fora do menu — delta-012).
  *
  * Estrutura G12 da igreja: grid de células (data como cards), detalhe lateral
- * com membros/visitantes e alertas, e criar/editar célula (api-cells) exigindo
- * cobertura_espiritual. Edição é restrita ao líder da célula ou a um superior
+ * com membros/visitantes e alertas, e edição leve da célula (api-cells) exigindo
+ * cobertura_espiritual. A criação fica exclusivamente na Central de Células.
+ * Edição é restrita ao líder da célula ou a um superior
  * na hierarquia (delta-007): papéis de liderança veem a ação; o backend ainda
  * valida e devolve 403 quando o líder não cobre aquela célula específica.
  * Alertas sobre liderados podem ser marcados como tratados no detalhe.
@@ -33,16 +34,17 @@ import { Icon, type IconKey } from "@/lib/icons";
 import { isLeader, type Role } from "@/lib/roles";
 
 import { CellFormModal } from "./CellFormModal";
-import { InviteMemberModal } from "./InviteMemberModal";
+import { AddCellMemberModal } from "./InviteMemberModal";
+import { currentLeaderReadOnlyOption } from "./cell-leadership";
 
 interface Toast {
   kind: "ok" | "err";
   text: string;
 }
 
-/** Papéis que podem criar células (espelha CELL_CREATE_ROLES + admin). */
-function canCreateCells(roles: readonly Role[]): boolean {
-  return roles.some((r) => r === "admin" || r === "pastor" || r === "lider_g12");
+/** A tela legada permite vínculo somente a admin/pastor; a Central já é restrita. */
+export function canAddMemberInLegacy(roles: readonly Role[]): boolean {
+  return roles.some((role) => role === "admin" || role === "pastor");
 }
 
 export function CelulasScreen() {
@@ -70,7 +72,7 @@ export function CelulasScreen() {
 
   const roles = user?.roles ?? [];
   const canManage = isLeader(roles);
-  const canCreate = canCreateCells(roles);
+  const canAddMember = canAddMemberInLegacy(roles);
 
   const handleSessionError = useCallback(
     (err: unknown): boolean => {
@@ -201,15 +203,13 @@ export function CelulasScreen() {
     [token, detail, flashToast, handleSessionError],
   );
 
-  const handleInvited = useCallback(
-    (text: string) => {
-      setShowInvite(false);
-      flashToast({ kind: "ok", text });
-      // O convite vinculou a pessoa à célula: recarrega para refletir o membro.
+  const handleMemberAdded = useCallback(
+    () => {
+      // O sucesso permanece no modal; aqui sincronizamos apenas as leituras.
       void load("retry");
       if (selectedId) void openDetail(selectedId);
     },
-    [flashToast, load, selectedId, openDetail],
+    [load, selectedId, openDetail],
   );
 
   // Membros e visitantes da célula selecionada (derivados de api-contacts).
@@ -246,20 +246,12 @@ export function CelulasScreen() {
     [contacts],
   );
 
-  // Elegíveis a líder (regra 2026-07-06): apto (Reencontro) + sem célula própria
-  // + fora do CSIM. Ao editar, o líder ATUAL entra mesmo fora do filtro
-  // (grandfather — o backend aceita reenviar o mesmo líder).
-  const leaderOptions = useMemo(() => {
-    const eligible = contacts.filter(
-      (c) => c.aptoLider && !c.liderDeCelula && !c.semInteresse,
-    );
-    const currentId = editing?.liderId;
-    if (currentId && !eligible.some((c) => c.id === currentId)) {
-      const current = contacts.find((c) => c.id === currentId);
-      if (current) return [current, ...eligible];
-    }
-    return eligible;
-  }, [contacts, editing]);
+  // A tela legada nunca consulta /team. Liderança é somente leitura aqui e a
+  // Central é a superfície única para aprovar ou trocar líder.
+  const leaderOptions = useMemo(
+    () => currentLeaderReadOnlyOption(contacts, editing?.liderId),
+    [contacts, editing],
+  );
 
   // Sugestões de cobertura espiritual: só tipo='pastor' (decisão do dono:
   // 'lider' é legado e não volta como semântica; G12 pastoral formal fica para
@@ -273,25 +265,6 @@ export function CelulasScreen() {
 
   return (
     <div className="screen" key="celulas">
-      <div className="screen-head">
-        <div className="actions">
-          {canCreate ? (
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={() => {
-                setEditing(null);
-                setFormError(null);
-                setShowForm(true);
-              }}
-            >
-              <Icon name="ganhar" />
-              <span>Nova célula</span>
-            </button>
-          ) : null}
-        </div>
-      </div>
-
       {error ? (
         <div className="error-banner" role="alert">
           <Icon name="alert" />
@@ -344,8 +317,8 @@ export function CelulasScreen() {
               <div className="empty-state" style={{ padding: "var(--s6)" }}>
                 <Icon name="central-celula" />
                 <p>
-                  <strong>Nenhuma célula cadastrada.</strong>{" "}
-                  {canCreate ? "Crie a primeira célula para estruturar a Visão G12." : "Aguarde a liderança cadastrar as células."}
+                  <strong>Nenhuma célula cadastrada.</strong> A criação é feita na
+                  Central de Células por administradores e pastores.
                 </p>
               </div>
             </div>
@@ -406,6 +379,7 @@ export function CelulasScreen() {
             visitantes={visitantes}
             leaderName={leaderName(detail?.liderId ?? null)}
             canEdit={canManage}
+            canAddMember={canAddMember}
             busyAlert={busyAlert}
             onInvite={() => setShowInvite(true)}
             onEdit={() => {
@@ -426,6 +400,7 @@ export function CelulasScreen() {
           cell={editing}
           leaders={leaderOptions}
           coverageOptions={coverageOptions}
+          canManageLeadership={false}
           busy={saving}
           error={formError}
           onClose={() => {
@@ -437,13 +412,13 @@ export function CelulasScreen() {
         />
       ) : null}
 
-      {showInvite && detail ? (
-        <InviteMemberModal
+      {showInvite && detail && canAddMember ? (
+        <AddCellMemberModal
           celulaId={detail.id}
           celulaNome={detail.nome}
           contacts={contacts}
           onClose={() => setShowInvite(false)}
-          onInvited={handleInvited}
+          onAdded={handleMemberAdded}
         />
       ) : null}
 
@@ -469,6 +444,7 @@ function CellDetailPanel({
   visitantes,
   leaderName,
   canEdit,
+  canAddMember,
   busyAlert,
   onInvite,
   onEdit,
@@ -483,6 +459,7 @@ function CellDetailPanel({
   visitantes: Contact[];
   leaderName: string;
   canEdit: boolean;
+  canAddMember: boolean;
   busyAlert: string | null;
   onInvite: () => void;
   onEdit: () => void;
@@ -565,16 +542,20 @@ function CellDetailPanel({
         </div>
       </dl>
 
-      {canEdit ? (
+      {canEdit || canAddMember ? (
         <div className="cell-detail-actions">
-          <button type="button" className="btn" onClick={onEdit}>
-            <Icon name="document" />
-            <span>Editar célula</span>
-          </button>
-          <button type="button" className="btn btn-primary" onClick={onInvite}>
-            <Icon name="plus" />
-            <span>Convidar membro</span>
-          </button>
+          {canEdit ? (
+            <button type="button" className="btn" onClick={onEdit}>
+              <Icon name="document" />
+              <span>Editar célula</span>
+            </button>
+          ) : null}
+          {canAddMember ? (
+            <button type="button" className="btn btn-primary" onClick={onInvite}>
+              <Icon name="plus" />
+              <span>Adicionar à célula</span>
+            </button>
+          ) : null}
         </div>
       ) : null}
 

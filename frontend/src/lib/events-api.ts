@@ -114,12 +114,66 @@ export interface UpdateEventInput {
 // ---------------------------------------------------------------------------
 // Leitura
 // ---------------------------------------------------------------------------
-export async function fetchEvents(token: string, pageSize = 200): Promise<Page<EventItem>> {
-  const res = await authedFetch(token, `/events?page=1&pageSize=${pageSize}`);
+function localIsoDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+async function fetchEventPage(
+  token: string,
+  page: number,
+  pageSize: number,
+  fromDate?: string,
+): Promise<Page<EventItem>> {
+  const query = new URLSearchParams({
+    page: String(page),
+    pageSize: String(pageSize),
+  });
+  if (fromDate) query.set("fromDate", fromDate);
+
+  const res = await authedFetch(token, `/events?${query.toString()}`);
   if (!res.ok) {
     throw new ApiError(res.status, "Não foi possível carregar a agenda.");
   }
   return (await res.json()) as Page<EventItem>;
+}
+
+/**
+ * Agenda completa para a tela de calendário. Mantém a compatibilidade da tela
+ * existente, que ainda precisa de passado, futuro e recorrências para montar as
+ * visões de semana/mês/ano.
+ */
+export async function fetchEvents(token: string, pageSize = 200): Promise<Page<EventItem>> {
+  const items: EventItem[] = [];
+  let page = 1;
+  let total = 0;
+
+  do {
+    const chunk = await fetchEventPage(token, page, pageSize);
+    total = chunk.total;
+    items.push(...chunk.items);
+    if (chunk.items.length === 0) break;
+    page += 1;
+  } while (items.length < total);
+
+  return { items, page: 1, pageSize, total };
+}
+
+/**
+ * Read model leve do Painel de Hoje. O backend filtra antes de paginar e
+ * devolve o total real de eventos futuros visíveis ao papel atual. Assim o
+ * dashboard recebe a primeira informação útil em uma única página, sem baixar
+ * todo o histórico da Agenda. Rascunhos `a_confirmar` só vêm para pastor/admin,
+ * conforme o gate do próprio endpoint.
+ */
+export async function fetchUpcomingEvents(
+  token: string,
+  now = new Date(),
+  pageSize = 6,
+): Promise<Page<EventItem>> {
+  return fetchEventPage(token, 1, pageSize, localIsoDate(now));
 }
 
 // ---------------------------------------------------------------------------

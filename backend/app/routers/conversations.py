@@ -26,7 +26,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import desc, func, select
+from sqlalchemy import desc, func, or_, select
 from sqlalchemy.orm import Session, aliased
 
 from app.db.models import (
@@ -374,9 +374,14 @@ def transfer_conversation(
                 detail="Assuma o atendimento antes de transferir.",
             )
 
+    igreja_id = uuid.UUID(current_user.igreja_id)
     target_id = uuid.UUID(payload.toUserId)
     target = db.execute(
-        select(AppUser).where(AppUser.id == target_id)
+        select(AppUser).where(
+            AppUser.id == target_id,
+            AppUser.igreja_id == igreja_id,
+            or_(AppUser.status.is_(None), AppUser.status == "ativo"),
+        )
     ).scalar_one_or_none()
     if target is None:
         raise HTTPException(
@@ -384,7 +389,10 @@ def transfer_conversation(
             detail="Usuário de destino não encontrado",
         )
     target_roles = db.execute(
-        select(UserRole.papel).where(UserRole.user_id == target_id)
+        select(UserRole.papel).where(
+            UserRole.user_id == target_id,
+            UserRole.igreja_id == igreja_id,
+        )
     ).scalars().all()
     if not can_access_inbox(target_roles):
         raise HTTPException(

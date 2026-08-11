@@ -129,13 +129,55 @@ def _membro(*, pessoa_id, celula_id, ativo) -> SimpleNamespace:
     )
 
 
+class _NoTouchSession:
+    """Falha se a defesa da tool deixar um papel negado chegar ao banco."""
+
+    def execute(self, *args, **kwargs):  # pragma: no cover - não deve rodar
+        raise AssertionError("papel negado não pode ler o banco")
+
+    def add(self, *args, **kwargs):  # pragma: no cover - não deve rodar
+        raise AssertionError("papel negado não pode escrever no banco")
+
+    def flush(self):  # pragma: no cover - não deve rodar
+        raise AssertionError("papel negado não pode escrever no banco")
+
+
+@pytest.mark.parametrize(
+    "actor_roles",
+    [
+        frozenset(),
+        frozenset({"membro"}),
+        frozenset({"lider_celula"}),
+        frozenset({"lider_g12"}),
+        frozenset({"lider_consol"}),
+        frozenset({"lider_mult"}),
+        frozenset({"operador", "lider_celula"}),
+    ],
+)
+def test_vincular_celula_nega_nao_central_antes_de_uuid_ou_banco(
+    actor_roles: frozenset[str],
+) -> None:
+    with pytest.raises(ToolError, match="Central de Células"):
+        vincular_celula(
+            _NoTouchSession(),
+            igreja_id="uuid-não-confiável",
+            pessoa_id="uuid-não-confiável",
+            celula_id="uuid-não-confiável",
+            actor_roles=actor_roles,
+        )
+
+
 def test_vincular_celula_first_link_creates_celula_membro() -> None:
     pessoa = _pessoa(_PESSOA_ID, celula_id=None)
     cell = _cell(_NEW_CELL)
     session = _ToolSession(pessoas=[pessoa], cells=[cell])
 
     result = vincular_celula(
-        session, igreja_id=_IGREJA_ID, pessoa_id=_PESSOA_ID, celula_id=_NEW_CELL
+        session,
+        igreja_id=_IGREJA_ID,
+        pessoa_id=_PESSOA_ID,
+        celula_id=_NEW_CELL,
+        actor_roles={"membro", "pastor"},
     )
 
     assert result.ok is True
@@ -146,6 +188,26 @@ def test_vincular_celula_first_link_creates_celula_membro() -> None:
     assert novos[0].pessoa_id == pessoa.id
     assert novos[0].celula_id == cell.id
     assert novos[0].ativo is True
+
+
+def test_vincular_celula_recusa_lider_ativo_de_outra_celula() -> None:
+    pessoa = _pessoa(_PESSOA_ID, celula_id=None, tipo="lider")
+    target = _cell(_NEW_CELL)
+    led_cell = _cell(_OLD_CELL, lider_id=_PESSOA_ID)
+    session = _ToolSession(pessoas=[pessoa], cells=[target, led_cell])
+
+    with pytest.raises(ToolError, match="lidera uma célula ativa"):
+        vincular_celula(
+            session,
+            igreja_id=_IGREJA_ID,
+            pessoa_id=_PESSOA_ID,
+            celula_id=_NEW_CELL,
+            actor_roles={"pastor"},
+        )
+
+    assert pessoa.celula_id is None
+    assert pessoa.tipo == "lider"
+    assert session.added == []
 
 
 def test_vincular_celula_recusa_transferencia_sem_mutacao_parcial() -> None:
@@ -162,7 +224,11 @@ def test_vincular_celula_recusa_transferencia_sem_mutacao_parcial() -> None:
 
     with pytest.raises(ToolError, match="administrador"):
         vincular_celula(
-            session, igreja_id=_IGREJA_ID, pessoa_id=_PESSOA_ID, celula_id=_NEW_CELL
+            session,
+            igreja_id=_IGREJA_ID,
+            pessoa_id=_PESSOA_ID,
+            celula_id=_NEW_CELL,
+            actor_roles={"pastor"},
         )
 
     assert old_membro.ativo is True  # vínculo antigo intacto
@@ -180,7 +246,11 @@ def test_vincular_celula_mesma_celula_e_idempotente_nao_e_transferencia() -> Non
     session = _ToolSession(pessoas=[pessoa], cells=[old_cell], membros=[old_membro])
 
     result = vincular_celula(
-        session, igreja_id=_IGREJA_ID, pessoa_id=_PESSOA_ID, celula_id=_OLD_CELL
+        session,
+        igreja_id=_IGREJA_ID,
+        pessoa_id=_PESSOA_ID,
+        celula_id=_OLD_CELL,
+        actor_roles={"pastor"},
     )
 
     assert result.ok is True
@@ -195,7 +265,11 @@ def test_vincular_celula_still_rejects_inactive_cell() -> None:
 
     with pytest.raises(ToolError, match="inativa"):
         vincular_celula(
-            session, igreja_id=_IGREJA_ID, pessoa_id=_PESSOA_ID, celula_id=_NEW_CELL
+            session,
+            igreja_id=_IGREJA_ID,
+            pessoa_id=_PESSOA_ID,
+            celula_id=_NEW_CELL,
+            actor_roles={"pastor"},
         )
     assert session.added == []
 
@@ -207,7 +281,11 @@ def test_vincular_celula_still_rejects_leaderless_cell() -> None:
 
     with pytest.raises(ToolError, match="sem líder"):
         vincular_celula(
-            session, igreja_id=_IGREJA_ID, pessoa_id=_PESSOA_ID, celula_id=_NEW_CELL
+            session,
+            igreja_id=_IGREJA_ID,
+            pessoa_id=_PESSOA_ID,
+            celula_id=_NEW_CELL,
+            actor_roles={"pastor"},
         )
     assert session.added == []
 
@@ -224,7 +302,11 @@ def test_vincular_celula_recusa_pastor_sem_mutar_espelho() -> None:
 
     with pytest.raises(ToolError, match="[Pp]astor"):
         vincular_celula(
-            session, igreja_id=_IGREJA_ID, pessoa_id=_PESSOA_ID, celula_id=_NEW_CELL
+            session,
+            igreja_id=_IGREJA_ID,
+            pessoa_id=_PESSOA_ID,
+            celula_id=_NEW_CELL,
+            actor_roles={"pastor"},
         )
     assert pessoa.celula_id is None  # espelho NÃO mutado antes da recusa
     assert session.added == []
@@ -244,7 +326,11 @@ def test_vincular_celula_recusa_nao_desativa_vinculo_antigo() -> None:
 
     with pytest.raises(ToolError, match="[Pp]astor"):
         vincular_celula(
-            session, igreja_id=_IGREJA_ID, pessoa_id=_PESSOA_ID, celula_id=_NEW_CELL
+            session,
+            igreja_id=_IGREJA_ID,
+            pessoa_id=_PESSOA_ID,
+            celula_id=_NEW_CELL,
+            actor_roles={"pastor"},
         )
     assert old_membro.ativo is True  # vínculo antigo intacto (guarda antes de mutar)
     assert pessoa.celula_id == _OLD_CELL  # espelho inalterado

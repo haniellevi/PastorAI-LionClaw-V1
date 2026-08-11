@@ -32,9 +32,9 @@ import uuid
 from typing import Literal
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field, field_validator, model_validator
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.db.models import Conversation, Event, EventNotifyTarget
@@ -287,6 +287,23 @@ class ConfirmEventRequest(BaseModel):
         return value
 
 
+def _visible_event_filters(current_user: CurrentUser) -> list:
+    """Tenant and publication predicates shared by event reads.
+
+    Pending Google imports are editorial drafts. Keeping this rule in the
+    backend protects both the collection and direct-by-id reads; write routes
+    already require pastor/admin and therefore retain access to confirmation.
+    """
+    filters = [Event.igreja_id == uuid.UUID(current_user.igreja_id)]
+    if not current_user.has_any_role(["pastor"]):
+        # Registros legados podem ter status NULL e continuam publicados. A
+        # fronteira oculta somente o rascunho editorial explícito.
+        filters.append(
+            or_(Event.status.is_(None), Event.status != STATUS_A_CONFIRMAR)
+        )
+    return filters
+
+
 def _get_event(
     db: Session,
     current_user: CurrentUser,
@@ -317,7 +334,7 @@ def _get_event(
 
     stmt = select(Event).where(
         Event.id == event_uuid,
-        Event.igreja_id == uuid.UUID(current_user.igreja_id),
+        *_visible_event_filters(current_user),
     )
     if for_update:
         stmt = stmt.with_for_update()
@@ -332,22 +349,45 @@ def _get_event(
 @router.get("", response_model=Page[EventOut])
 def list_events(
     pagination: PaginationParams = Depends(),
+    from_date: dt.date | None = Query(default=None, alias="fromDate"),
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
 ) -> Page[EventOut]:
-    """Return the tenant's events, soonest first (RNF-09)."""
+    """Return visible tenant events, soonest first (RNF-09).
+
+    ``fromDate`` is an additive dashboard/read-model filter: it excludes past
+    and date-less recurring rows before pagination, so the first response can
+    contain useful future events without downloading the whole history.
+
+    Imported events awaiting editorial confirmation are drafts. Only the same
+    roles that can call ``POST /events/{id}/confirm`` (pastor or implicit admin)
+    may list them; ordinary members only receive published/confirmed events.
+    The count uses the exact same predicates, so ``total`` never leaks or
+    overstates hidden drafts.
+    """
+    filters = _visible_event_filters(current_user)
+    if from_date is not None:
+        filters.append(Event.data >= from_date)
+
     rows = db.execute(
         select(Event)
-        .order_by(Event.data.asc())
+        .where(*filters)
+        .order_by(
+            Event.data.asc().nulls_last(),
+            Event.hora.asc().nulls_last(),
+            Event.id.asc(),
+        )
         .offset(pagination.offset)
         .limit(pagination.limit)
     ).scalars().all()
-    total = len(db.execute(select(Event.id)).scalars().all())
+    total = db.execute(
+        select(func.count()).select_from(Event).where(*filters)
+    ).scalar_one()
     return Page[EventOut](
         items=[EventOut.from_model(e) for e in rows],
         page=pagination.page,
         pageSize=pagination.page_size,
-        total=total,
+        total=int(total),
     )
 
 

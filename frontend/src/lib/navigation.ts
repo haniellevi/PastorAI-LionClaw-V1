@@ -192,8 +192,8 @@ export const SCREEN_META: Record<
   },
   dashboard: {
     title: "Painel de Hoje",
-    crumb: "Pendências de hoje",
-    info: "Fila de trabalho pastoral — o que exige sua ação hoje.",
+    crumb: "O que precisa de atenção",
+    info: "Ações, agenda e contexto dentro das suas responsabilidades.",
   },
   inbox: {
     title: "Conversas",

@@ -16,6 +16,14 @@ from collections.abc import Iterable
 
 ADMIN_ROLE = "admin"
 
+# Papéis cuja responsabilidade é ampla o bastante para enxergar a fila da
+# igreja. Um usuário pode acumular papéis: qualquer papel amplo prevalece sobre
+# um papel restrito, para que ``lider_celula + lider_g12`` não seja rebaixado ao
+# escopo de uma única célula.
+TENANT_QUEUE_SCOPE_ROLES: frozenset[str] = frozenset(
+    {ADMIN_ROLE, "pastor", "lider_g12", "lider_consol"}
+)
+
 # Roles allowed to resolve each work_queue_items.tipo (besides admin).
 TIPO_RESOLVER_ROLES: dict[str, frozenset[str]] = {
     "visitante": frozenset({"lider_celula", "lider_consol", "lider_g12", "pastor"}),
@@ -71,6 +79,11 @@ def resolvable_tipos(roles: Iterable[str]) -> set[str]:
     return {
         tipo for tipo, allowed in TIPO_RESOLVER_ROLES.items() if role_set & allowed
     }
+
+
+def has_tenant_queue_scope(roles: Iterable[str]) -> bool:
+    """True quando algum papel acumulado concede escopo de fila da igreja."""
+    return bool(set(roles) & TENANT_QUEUE_SCOPE_ROLES)
 
 
 def primary_role(roles: Iterable[str]) -> str:

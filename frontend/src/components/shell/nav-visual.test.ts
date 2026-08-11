@@ -51,12 +51,16 @@ describe("tooltip do colapsado — visível no hover E no foco de teclado, sem m
   });
 });
 
-describe("topbar — título trunca em vez de quebrar linha ou sobrepor busca/chips", () => {
+describe("topbar — título trunca em vez de quebrar linha ou sobrepor os papéis", () => {
   it(".topbar h1 trunca com reticências (nowrap + ellipsis) em largura estreita", () => {
     const body = rule(String.raw`\.topbar h1`);
     expect(body).toContain("white-space: nowrap");
     expect(body).toContain("text-overflow: ellipsis");
     expect(body).toContain("min-width: 0");
+  });
+
+  it("os papéis permanecem alinhados à direita depois da remoção da busca decorativa", () => {
+    expect(rule(String.raw`\.topbar \.who`)).toContain("margin-left: auto");
   });
 });
 

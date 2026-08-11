@@ -1,13 +1,11 @@
 "use client";
 
 /**
- * Tela #dashboard — fila de trabalho pastoral (SPEC screen `dashboard`).
+ * Tela #dashboard, composta por responsabilidades acumuladas (screen `dashboard`).
  *
- * Gate 7 (Onda 4A · Diamante Lapidado): o painel opera como FILA pastoral —
- * a fila domina a primeira dobra (desktop e mobile); resumo da semana e KPIs
- * viram disclosure DEPOIS da fila (<details> nativo); jornada e próximas
- * ações ficam na rail secundária. Nenhum dado, ação, callback ou regra de
- * urgência mudou — só a hierarquia visual.
+ * Quando há capacidade operacional, a fila autorizada domina a primeira dobra.
+ * Membro, operador e liderança sem tipo de fila recebem Agenda, avisos, célula
+ * e atalhos reais, sem um template pastoral indevido.
  *
  *  - work-queue-item por tipo com ações diretas (assumir/atribuir/mensagem/
  *    conectar à célula/fonovisita), consumindo api-queue-action, api-link-cell,
@@ -19,48 +17,95 @@
  * Estados: loading / empty / populated. Falha ao carregar mostra banner de erro
  * com "tentar novamente" preservando o último conteúdo carregado.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 
 import { DsBanner } from "@/components/ds/Banner";
 import { DsButton } from "@/components/ds/Button";
 import { Dialog as DsDialog } from "@/components/ds/Dialog";
 import { DsEmptyState } from "@/components/ds/EmptyState";
 import { DsField } from "@/components/ds/Field";
-import { DsToastRegion } from "@/components/ds/Toast";
+import { DsToast, DsToastRegion } from "@/components/ds/Toast";
 import { SessionExpiredError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
+import {
+  getMyNotices,
+  listNotices,
+  type DiscipleNotice,
+  type Notice,
+  type NoticePage,
+} from "@/lib/cell-notices-api";
+import {
+  getLedCellsTodayContext,
+  getNextMeeting,
+  type LedCellsTodayContext,
+  type NextMeetingBody,
+  type NextMeetingResponse,
+} from "@/lib/cells-api";
 import {
   ApiError,
   StaleItemError,
   clearAuthedResponseCache,
   fetchCells,
   fetchOverview,
+  fetchRemainingWorkQueuePages,
   fetchTeamLookup,
-  fetchWorkQueue,
+  fetchWorkQueuePage,
   linkCell,
   queueAction,
   queueFonovisita,
   sendInternalMessage,
   type Cell,
   type OverviewStats,
-  type TeamMember,
+  type TeamLookupMember,
   type WorkItem,
 } from "@/lib/dashboard-api";
+import {
+  resolveDashboardResponsibilities,
+  type DashboardShortcutTarget,
+} from "@/lib/dashboard-responsibilities";
 import { compareUrgency } from "@/lib/deadline";
+import { fetchUpcomingEvents, type EventItem } from "@/lib/events-api";
 import { Icon, type IconKey } from "@/lib/icons";
 import { canSee } from "@/lib/permissions";
 import { usePermissions } from "@/lib/permissions-context";
-import { isLeader } from "@/lib/roles";
+import { normalizeRoles, ROLE_DEFS, sortedRoles } from "@/lib/roles";
 import { useHashRoute } from "@/lib/use-hash-route";
 
 import { NextActions } from "./NextActions";
+import { TodayContext } from "./TodayContext";
 import { WorkQueueItem } from "./WorkQueueItem";
 
 const TICK_MS = 30_000;
 const RESOLVE_ANIM_MS = 220;
+const DASHBOARD_QUEUE_PAGE_SIZE = 25;
 
 type Tab = "todos" | "meus";
 type ModalKind = "assign" | "message" | "linkCell";
+
+function activateDashboardLink(
+  event: ReactMouseEvent<HTMLAnchorElement>,
+  target: string,
+  onNavigate: (target: string) => void,
+): void {
+  if (
+    event.button !== 0 ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.shiftKey ||
+    event.altKey
+  ) {
+    return;
+  }
+  event.preventDefault();
+  onNavigate(target);
+}
 
 interface ModalState {
   kind: ModalKind;
@@ -72,7 +117,36 @@ interface Toast {
   text: string;
 }
 
-/** Linha do resumo da semana. `value` undefined = dado indisponível ("—"). */
+type CellContextMode = "leader" | "member" | "general";
+
+function toDashboardNotice(notice: Notice): DiscipleNotice {
+  return {
+    id: notice.id,
+    origem: notice.origem,
+    escopo: notice.escopo,
+    titulo: notice.titulo,
+    conteudo: notice.conteudo,
+    publicado_em: notice.publicado_em ?? "",
+  };
+}
+
+function noticesForResponsibility(
+  page: NoticePage,
+  ledContext: LedCellsTodayContext | null,
+): DiscipleNotice[] {
+  const ledCellIds = new Set(ledContext?.cells.map((cell) => cell.id) ?? []);
+  return page.items
+    .filter(
+      (notice) =>
+        notice.escopo === "igreja" ||
+        (notice.escopo === "celula" &&
+          notice.celula_id != null &&
+          ledCellIds.has(notice.celula_id)),
+    )
+    .map(toDashboardNotice);
+}
+
+/** Linha do resumo do escopo. `value` undefined = dado indisponível ("—"). */
 interface SummaryRow {
   key: string;
   label: string;
@@ -89,14 +163,37 @@ export function DashboardScreen() {
   const [, navigate] = useHashRoute();
 
   const [items, setItems] = useState<WorkItem[]>([]);
-  const [members, setMembers] = useState<TeamMember[]>([]);
+  const [members, setMembers] = useState<TeamLookupMember[]>([]);
   const [cells, setCells] = useState<Cell[]>([]);
   const [overview, setOverview] = useState<OverviewStats | null>(null);
+  const [events, setEvents] = useState<EventItem[]>([]);
+  const [meeting, setMeeting] = useState<NextMeetingBody | null>(null);
+  const [notices, setNotices] = useState<DiscipleNotice[]>([]);
   const [loading, setLoading] = useState(true);
-  const [loaded, setLoaded] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [queueTotal, setQueueTotal] = useState(0);
+  const [queueHydrating, setQueueHydrating] = useState(false);
+  const [queueHydrationError, setQueueHydrationError] = useState<{
+    key: string;
+    message: string;
+  } | null>(null);
+  const [loadedOperationsKey, setLoadedOperationsKey] = useState<string | null>(null);
+  const [contextLoading, setContextLoading] = useState(true);
+  const [loadedContextKey, setLoadedContextKey] = useState<string | null>(null);
+  const [operationError, setOperationError] = useState<{
+    key: string;
+    message: string;
+  } | null>(null);
+  const [teamUnavailable, setTeamUnavailable] = useState(false);
+  const [cellsUnavailable, setCellsUnavailable] = useState(false);
+  const [overviewUnavailable, setOverviewUnavailable] = useState(false);
+  const [supplementsReady, setSupplementsReady] = useState(false);
+  const [contextError, setContextError] = useState<{
+    key: string;
+    message: string;
+  } | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [tab, setTab] = useState<Tab>("todos");
+  const [queueExpanded, setQueueExpanded] = useState(false);
 
   const [busyItemId, setBusyItemId] = useState<string | null>(null);
   const [resolvingIds, setResolvingIds] = useState<Set<string>>(new Set());
@@ -104,11 +201,64 @@ export function DashboardScreen() {
   const [modal, setModal] = useState<ModalState | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
 
-  const leader = user ? isLeader(user.roles) : false;
+  const rolesKey = [...(user?.roles ?? [])].sort().join("|");
+  const responsibilities = resolveDashboardResponsibilities(user?.roles ?? []);
+  const normalizedRoles = normalizeRoles(user?.roles ?? []);
+  const {
+    hasWorkQueue,
+    canLinkCell,
+    canAssignQueue,
+    showOverview,
+    showTeamWorkload,
+  } = responsibilities;
+  const canSeeCalendar = user ? canSee("calendario", user.roles, matrix) : false;
+  const canSeeMyCell = user ? canSee("minha-celula", user.roles, matrix) : false;
+  const cellContextMode: CellContextMode = normalizedRoles.includes("lider_celula")
+    ? "leader"
+    : normalizedRoles.includes("membro")
+      ? "member"
+      : "general";
+  const showCellMeeting = canSeeMyCell && cellContextMode !== "general";
+  const shortcutTargets = responsibilities.shortcutCandidates
+    .filter((target) => (user ? canSee(target, user.roles, matrix) : false))
+    .slice(0, 4) as DashboardShortcutTarget[];
+  const operationsKey =
+    token && hasWorkQueue ? `${token}:${rolesKey || "sem-papel"}` : null;
+  const contextKey = token
+    ? `${token}:${rolesKey || "sem-papel"}:${canSeeCalendar ? "agenda" : "sem-agenda"}:${cellContextMode}:${
+        showCellMeeting ? "reuniao" : "sem-reuniao"
+      }`
+    : null;
+  const operationsReady = operationsKey != null && loadedOperationsKey === operationsKey;
+  const contextReady = contextKey != null && loadedContextKey === contextKey;
+  const canUseAssignment = canAssignQueue && supplementsReady && !teamUnavailable;
+  const canUseCellLink = canLinkCell && supplementsReady && !cellsUnavailable;
   const memberById = useMemo(
     () => new Map(members.map((m) => [m.usuarioId, m])),
     [members],
   );
+  const operationsRequest = useRef(0);
+  const contextRequest = useRef(0);
+  const locallyRemovedItemIds = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (canUseCellLink) return;
+    setCells([]);
+    setModal((current) => (current?.kind === "linkCell" ? null : current));
+  }, [canUseCellLink]);
+
+  useEffect(() => {
+    if (canUseAssignment) return;
+    setModal((current) => (current?.kind === "assign" ? null : current));
+  }, [canUseAssignment]);
+
+  useEffect(() => {
+    setModal((current) => {
+      if (current?.kind !== "message") return current;
+      const fresh = items.find((item) => item.id === current.item.id);
+      return fresh?.canMessage ? { ...current, item: fresh } : null;
+    });
+  }, [items]);
 
   // ---- carga de dados -----------------------------------------------------
   const handleSessionError = useCallback(
@@ -122,79 +272,303 @@ export function DashboardScreen() {
     [expireSession],
   );
 
-  const load = useCallback(
-    async (mode: "initial" | "retry") => {
-      if (!token) return;
+  const loadOperations = useCallback(
+    async (mode: "initial" | "retry", expectedKey: string) => {
+      if (!token || !hasWorkQueue) return;
+      const requestId = ++operationsRequest.current;
       if (mode === "initial") setLoading(true);
+      setQueueHydrating(false);
+      setQueueHydrationError(null);
+      setSupplementsReady(false);
+      locallyRemovedItemIds.current = new Set();
       if (mode === "retry") {
-        clearAuthedResponseCache(token, [
+        const paths = [
           "/work-queue?",
-          "/team/lookup?",
-          "/cells?",
+          ...(canAssignQueue ? ["/team/lookup?"] : []),
+          ...(canLinkCell ? ["/cells?"] : []),
           "/dashboard/overview",
-        ]);
+        ];
+        clearAuthedResponseCache(token, paths);
       }
-      setError(null);
+      setOperationError(null);
+
+      const supplementsPromise = Promise.allSettled([
+        canAssignQueue ? fetchTeamLookup(token) : Promise.resolve(null),
+        canLinkCell ? fetchCells(token) : Promise.resolve(null),
+        showOverview ? fetchOverview(token) : Promise.resolve(null),
+      ]);
+
       try {
-        const [queue, team, cellPage, ov] = await Promise.all([
-          fetchWorkQueue(token),
-          fetchTeamLookup(token),
-          fetchCells(token),
-          // Visão geral (#2) é aditiva: uma falha não derruba a fila.
-          fetchOverview(token).catch(() => null),
-        ]);
-        setItems(queue.items);
-        setMembers(team.items);
-        setCells(cellPage.items);
-        setOverview(ov);
-        setLoaded(true);
+        const firstPage = await fetchWorkQueuePage(
+          token,
+          1,
+          DASHBOARD_QUEUE_PAGE_SIZE,
+        );
+        if (requestId !== operationsRequest.current) return;
+
+        setItems(firstPage.items);
+        setQueueTotal(firstPage.total);
+        setLoadedOperationsKey(expectedKey);
+        setLoading(false);
+
+        const needsHydration = firstPage.items.length < firstPage.total;
+        setQueueHydrating(needsHydration);
+
+        const applySupplements = async () => {
+          const [teamResult, cellResult, overviewResult] = await supplementsPromise;
+          if (requestId !== operationsRequest.current) return;
+
+          const expired = [teamResult, cellResult, overviewResult].find(
+            (result) =>
+              result.status === "rejected" &&
+              result.reason instanceof SessionExpiredError,
+          );
+          if (
+            expired &&
+            expired.status === "rejected" &&
+            handleSessionError(expired.reason)
+          ) {
+            return;
+          }
+
+          const team = teamResult.status === "fulfilled" ? teamResult.value : null;
+          const cellPage = cellResult.status === "fulfilled" ? cellResult.value : null;
+          const nextOverview =
+            overviewResult.status === "fulfilled" ? overviewResult.value : null;
+
+          setMembers(team?.items ?? []);
+          setCells(cellPage?.items ?? []);
+          setOverview(nextOverview);
+          setTeamUnavailable(canAssignQueue && teamResult.status === "rejected");
+          setCellsUnavailable(canLinkCell && cellResult.status === "rejected");
+          setOverviewUnavailable(showOverview && overviewResult.status === "rejected");
+          setSupplementsReady(true);
+        };
+
+        const hydrateQueue = async () => {
+          if (!needsHydration) return;
+          try {
+            const remainder = await fetchRemainingWorkQueuePages(token, firstPage);
+            if (requestId !== operationsRequest.current) return;
+
+            const stableFirstPage = remainder.firstPage ?? firstPage;
+            const completeServerItems = [
+              ...stableFirstPage.items,
+              ...remainder.items,
+            ];
+            const removedIds = locallyRemovedItemIds.current;
+            const removedCount = completeServerItems.filter((item) =>
+              removedIds.has(item.id),
+            ).length;
+
+            setItems((current) => {
+              const currentById = new Map(current.map((item) => [item.id, item]));
+              const seen = new Set<string>();
+              const next: WorkItem[] = [];
+              for (const serverItem of completeServerItems) {
+                if (seen.has(serverItem.id) || removedIds.has(serverItem.id)) continue;
+                seen.add(serverItem.id);
+                next.push(currentById.get(serverItem.id) ?? serverItem);
+              }
+              return next;
+            });
+            setQueueTotal(Math.max(0, remainder.total - removedCount));
+          } catch (err) {
+            if (requestId !== operationsRequest.current) return;
+            if (handleSessionError(err)) return;
+            setQueueHydrationError({
+              key: expectedKey,
+              message:
+                err instanceof ApiError
+                  ? err.message
+                  : "A fila foi carregada parcialmente. Tente novamente para buscar todas as ações.",
+            });
+          } finally {
+            if (requestId === operationsRequest.current) setQueueHydrating(false);
+          }
+        };
+
+        await Promise.allSettled([applySupplements(), hydrateQueue()]);
       } catch (err) {
+        if (requestId !== operationsRequest.current) return;
         if (handleSessionError(err)) return;
         const message =
           err instanceof ApiError
             ? err.message
             : "Não foi possível carregar a fila de trabalho.";
-        setError(message);
+        setOperationError({ key: expectedKey, message });
       } finally {
-        setLoading(false);
+        if (requestId === operationsRequest.current) setLoading(false);
       }
     },
-    [token, handleSessionError],
+    [
+      token,
+      hasWorkQueue,
+      canAssignQueue,
+      canLinkCell,
+      showOverview,
+      handleSessionError,
+    ],
   );
 
   useEffect(() => {
-    if (!leader) {
+    if (!operationsKey) {
+      operationsRequest.current += 1;
+      setItems([]);
+      setQueueTotal(0);
+      setQueueHydrating(false);
+      setQueueHydrationError(null);
+      locallyRemovedItemIds.current = new Set();
+      setMembers([]);
+      setCells([]);
+      setOverview(null);
+      setTeamUnavailable(false);
+      setCellsUnavailable(false);
+      setOverviewUnavailable(false);
+      setSupplementsReady(false);
+      setModal(null);
+      setLoadedOperationsKey(null);
       setLoading(false);
       return;
     }
-    void load("initial");
-  }, [leader, load]);
+    setItems([]);
+    setQueueTotal(0);
+    setQueueHydrating(false);
+    setQueueHydrationError(null);
+    locallyRemovedItemIds.current = new Set();
+    setMembers([]);
+    setCells([]);
+    setOverview(null);
+    setTeamUnavailable(false);
+    setCellsUnavailable(false);
+    setOverviewUnavailable(false);
+    setSupplementsReady(false);
+    setModal(null);
+    setLoadedOperationsKey(null);
+    void loadOperations("initial", operationsKey);
+  }, [operationsKey, loadOperations]);
+
+  const loadContext = useCallback(
+    async (mode: "initial" | "retry", expectedKey: string) => {
+      if (!token) return;
+      const requestId = ++contextRequest.current;
+      if (mode === "initial") setContextLoading(true);
+      if (mode === "retry") {
+        clearAuthedResponseCache(token, [
+          ...(canSeeCalendar ? ["/events?"] : []),
+          ...(showCellMeeting && cellContextMode === "leader"
+            ? ["/cells/me/leading", "/cells/"]
+            : []),
+          ...(showCellMeeting && cellContextMode === "member"
+            ? ["/cells/me/next-meeting"]
+            : []),
+          ...(cellContextMode === "member"
+            ? ["/cells/me/notices"]
+            : ["/cell-notices?"]),
+        ]);
+      }
+      setContextError(null);
+
+      const meetingPromise: Promise<
+        LedCellsTodayContext | NextMeetingResponse | null
+      > =
+        showCellMeeting && cellContextMode === "leader"
+          ? getLedCellsTodayContext(token)
+          : showCellMeeting && cellContextMode === "member"
+            ? getNextMeeting(token)
+            : Promise.resolve(null);
+      const noticePromise: Promise<DiscipleNotice[] | NoticePage> =
+        cellContextMode === "member" ? getMyNotices(token) : listNotices(token);
+      const [eventResult, meetingResult, noticeResult] = await Promise.allSettled([
+        canSeeCalendar ? fetchUpcomingEvents(token) : Promise.resolve(null),
+        meetingPromise,
+        noticePromise,
+      ]);
+      if (requestId !== contextRequest.current) return;
+
+      const failures = [eventResult, meetingResult, noticeResult].filter(
+        (result) => result.status === "rejected",
+      );
+      const expired = failures.find(
+        (result) =>
+          result.status === "rejected" && result.reason instanceof SessionExpiredError,
+      );
+      if (expired && expired.status === "rejected" && handleSessionError(expired.reason)) {
+        return;
+      }
+
+      if (eventResult.status === "fulfilled") {
+        setEvents(eventResult.value?.items ?? []);
+      }
+      if (meetingResult.status === "fulfilled") {
+        setMeeting(meetingResult.value?.meeting ?? null);
+      } else {
+        setMeeting(null);
+      }
+      if (noticeResult.status === "fulfilled") {
+        if (Array.isArray(noticeResult.value)) {
+          setNotices(noticeResult.value);
+        } else {
+          const ledContext =
+            cellContextMode === "leader" && meetingResult.status === "fulfilled"
+              ? (meetingResult.value as LedCellsTodayContext | null)
+              : null;
+          setNotices(noticesForResponsibility(noticeResult.value, ledContext));
+        }
+      }
+
+      if (failures.length > 0) {
+        setContextError({
+          key: expectedKey,
+          message:
+            failures.length === 3
+              ? "Não foi possível carregar agenda, reunião e avisos."
+              : "Algumas informações de hoje não puderam ser atualizadas.",
+        });
+      }
+      setLoadedContextKey(expectedKey);
+      setContextLoading(false);
+    },
+    [
+      token,
+      canSeeCalendar,
+      showCellMeeting,
+      cellContextMode,
+      handleSessionError,
+    ],
+  );
+
+  useEffect(() => {
+    if (!contextKey) {
+      contextRequest.current += 1;
+      setEvents([]);
+      setMeeting(null);
+      setNotices([]);
+      setLoadedContextKey(null);
+      setContextLoading(false);
+      return;
+    }
+    setEvents([]);
+    setMeeting(null);
+    setNotices([]);
+    setLoadedContextKey(null);
+    void loadContext("initial", contextKey);
+  }, [contextKey, loadContext]);
 
   // ---- tick para transição de prazos (sem reload) -------------------------
   useEffect(() => {
-    if (!leader) return;
+    if (!hasWorkQueue) return;
     const id = window.setInterval(() => setNow(Date.now()), TICK_MS);
     return () => window.clearInterval(id);
-  }, [leader]);
+  }, [hasWorkQueue]);
 
-  // ---- toast efêmero ------------------------------------------------------
-  const toastTimer = useRef<number | null>(null);
-  const flashToast = useCallback((t: Toast) => {
-    setToast(t);
-    if (toastTimer.current) window.clearTimeout(toastTimer.current);
-    toastTimer.current = window.setTimeout(() => setToast(null), 3200);
-  }, []);
-  useEffect(
-    () => () => {
-      if (toastTimer.current) window.clearTimeout(toastTimer.current);
-    },
-    [],
-  );
+  // Sucesso some sozinho; erro permanece até a pessoa fechar.
+  const flashToast = useCallback((nextToast: Toast) => setToast(nextToast), []);
 
   // ---- itens abertos, filtrados e ordenados -------------------------------
   const openItems = useMemo(
-    () => items.filter((i) => i.status !== "resolvido"),
-    [items],
+    () => (operationsReady ? items.filter((i) => i.status !== "resolvido") : []),
+    [items, operationsReady],
   );
 
   const visibleItems = useMemo(() => {
@@ -204,6 +578,17 @@ export function DashboardScreen() {
         : openItems;
     return [...filtered].sort((a, b) => compareUrgency(a, b, now));
   }, [openItems, tab, user, now]);
+  const displayedItems = queueExpanded ? visibleItems : visibleItems.slice(0, 3);
+  const queueComplete =
+    operationsReady && !queueHydrating && queueHydrationError?.key !== operationsKey;
+  const showQueueToggle = queueExpanded || visibleItems.length > 3;
+  const queueToggleLabel = queueExpanded
+    ? "Mostrar menos"
+    : queueComplete
+      ? `Ver todas as ${visibleItems.length} ações`
+      : `Ver ${visibleItems.length} ações já carregadas`;
+
+  useEffect(() => setQueueExpanded(false), [operationsKey, tab]);
 
   // ---- hero: saudação + data + nº de ações pendentes ----------------------
   const firstName = user?.nome ? user.nome.trim().split(/\s+/)[0] : "";
@@ -220,9 +605,11 @@ export function DashboardScreen() {
     });
     return full.charAt(0).toUpperCase() + full.slice(1);
   }, []);
-  const acoesHoje = openItems.length;
+  const acoesAbertas = queueComplete
+    ? openItems.length
+    : Math.max(queueTotal, openItems.length);
 
-  // ---- resumo da semana (dados reais; sem deltas inventados) ---------------
+  // ---- resumo do escopo (dados reais; sem deltas inventados) ----------------
   const relatoriosPendentes = useMemo(
     () => openItems.filter((i) => i.tipo === "relatorio").length,
     [openItems],
@@ -258,7 +645,7 @@ export function DashboardScreen() {
       label: "Relatórios pendentes",
       icon: "document",
       value: relatoriosPendentes,
-      sub: "células nesta semana",
+      sub: "itens abertos no seu escopo",
       target: "relatorios",
     },
     {
@@ -281,6 +668,8 @@ export function DashboardScreen() {
 
   // ---- helpers de mutação -------------------------------------------------
   const removeWithAnim = useCallback((id: string) => {
+    locallyRemovedItemIds.current.add(id);
+    setQueueTotal((current) => Math.max(0, current - 1));
     setResolvingIds((prev) => new Set(prev).add(id));
     window.setTimeout(() => {
       setItems((prev) => prev.filter((i) => i.id !== id));
@@ -348,7 +737,7 @@ export function DashboardScreen() {
 
   const handleAssign = useCallback(
     async (item: WorkItem, responsavelId: string) => {
-      if (!token) return;
+      if (!canUseAssignment || !token) return;
       setBusyItemId(item.id);
       clearConflict(item.id);
       setModal(null);
@@ -371,12 +760,21 @@ export function DashboardScreen() {
         setBusyItemId(null);
       }
     },
-    [token, clearConflict, patchItem, memberById, flashToast, handleSessionError, handleStale],
+    [
+      canUseAssignment,
+      token,
+      clearConflict,
+      patchItem,
+      memberById,
+      flashToast,
+      handleSessionError,
+      handleStale,
+    ],
   );
 
   const handleMessage = useCallback(
     async (item: WorkItem, mensagem: string) => {
-      if (!token) return;
+      if (!item.canMessage || !token) return;
       setBusyItemId(item.id);
       setModal(null);
       try {
@@ -397,7 +795,7 @@ export function DashboardScreen() {
 
   const handleLinkCell = useCallback(
     async (item: WorkItem, celulaId: string) => {
-      if (!token || !item.pessoaId) return;
+      if (!canUseCellLink || !token || !item.pessoaId) return;
       setBusyItemId(item.id);
       setModal(null);
       try {
@@ -414,7 +812,7 @@ export function DashboardScreen() {
         setBusyItemId(null);
       }
     },
-    [token, flashToast, removeWithAnim, handleSessionError],
+    [canUseCellLink, token, flashToast, removeWithAnim, handleSessionError],
   );
 
   const handleFonovisita = useCallback(
@@ -440,17 +838,28 @@ export function DashboardScreen() {
     [token, flashToast, handleSessionError],
   );
 
-  // ---- view de membro (sem papel de liderança) ----------------------------
-  if (!leader) {
-    return <MemberWelcome />;
-  }
+  const handleRefresh = useCallback(() => {
+    if (operationsKey) void loadOperations("retry", operationsKey);
+    if (contextKey) void loadContext("retry", contextKey);
+  }, [operationsKey, contextKey, loadOperations, loadContext]);
 
-  const showSkeleton = loading && !loaded;
-  const isEmpty = loaded && visibleItems.length === 0;
+  const showSkeleton = hasWorkQueue && loading && !operationsReady;
+  const showContextSkeleton = contextLoading && !contextReady;
+  const isEmpty =
+    operationsReady &&
+    visibleItems.length === 0 &&
+    (queueComplete || (tab === "todos" && queueTotal === 0));
+  const isPartialFilterEmpty =
+    operationsReady && visibleItems.length === 0 && !isEmpty;
+  const unavailableOperationParts = [
+    ...(teamUnavailable ? ["equipe"] : []),
+    ...(cellsUnavailable ? ["células"] : []),
+    ...(overviewUnavailable ? ["visão geral"] : []),
+  ];
 
   return (
     <div className="screen dashboard dh" key="dashboard">
-      {/* Cabeçalho curto e calmo: data · saudação · contador real · Atualizar. */}
+      {/* Cabeçalho curto e calmo: data, saudação, contador real e Atualizar. */}
       <header className="dh-hero">
         <div className="dh-greet">
           <p className="dh-date">{todayLabel}</p>
@@ -459,52 +868,108 @@ export function DashboardScreen() {
             {firstName ? `, ${firstName}` : ""}
           </h2>
           {showSkeleton ? (
-            <div className="sk-line sk-md" />
-          ) : acoesHoje > 0 ? (
+            <div className="sk-line sk-md" aria-hidden="true" />
+          ) : hasWorkQueue && operationError?.key === operationsKey ? (
+            <p className="dh-lead">Não foi possível confirmar suas ações agora.</p>
+          ) : hasWorkQueue && acoesAbertas > 0 ? (
             <p className="dh-lead">
               Você tem{" "}
               <strong>
-                {acoesHoje} {acoesHoje === 1 ? "ação" : "ações"}
+                {acoesAbertas} {acoesAbertas === 1 ? "ação" : "ações"}
               </strong>{" "}
-              que {acoesHoje === 1 ? "precisa" : "precisam"} de atenção hoje.
+              que {acoesAbertas === 1 ? "precisa" : "precisam"} de atenção.
             </p>
+          ) : hasWorkQueue ? (
+            <p className="dh-lead">{responsibilities.emptyQueueText}</p>
           ) : (
-            <p className="dh-lead">Nenhuma ação pastoral pendente agora.</p>
+            <p className="dh-lead">
+              Agenda, avisos e seus espaços reunidos para orientar o próximo passo.
+            </p>
           )}
         </div>
         <DsButton
           variant="secondary"
-          onClick={() => void load("retry")}
-          disabled={loading}
+          onClick={handleRefresh}
+          disabled={loading || queueHydrating || contextLoading}
         >
           Atualizar
         </DsButton>
       </header>
 
-      {error ? (
+      {hasWorkQueue && operationError?.key === operationsKey ? (
         <DsBanner
           kind="error"
           action={
             <DsButton
               variant="secondary"
-              onClick={() => void load("retry")}
-              disabled={loading}
+              onClick={handleRefresh}
+              disabled={loading || queueHydrating || contextLoading}
             >
               Tentar novamente
             </DsButton>
           }
         >
-          {error}
+          {operationError.message}
         </DsBanner>
       ) : null}
 
-      <div className="dh-grid">
-        {/* Coluna principal: a fila domina a primeira dobra. */}
-        <section className="dh-main" aria-label="Fila de trabalho pastoral">
+      {queueHydrationError?.key === operationsKey ? (
+        <DsBanner
+          kind="degraded"
+          action={
+            <DsButton
+              variant="secondary"
+              onClick={handleRefresh}
+              disabled={loading || queueHydrating || contextLoading}
+            >
+              Tentar novamente
+            </DsButton>
+          }
+        >
+          {queueHydrationError.message} {openItems.length} de {queueTotal} ações estão
+          disponíveis.
+        </DsBanner>
+      ) : null}
+
+      {operationsReady && supplementsReady && unavailableOperationParts.length > 0 ? (
+        <DsBanner kind="degraded">
+          {queueComplete
+            ? "A fila está atualizada."
+            : "As ações já carregadas permanecem disponíveis."}{" "}
+          Dados complementares indisponíveis agora:{" "}
+          {unavailableOperationParts.join(", ")}.
+        </DsBanner>
+      ) : null}
+
+      {contextError?.key === contextKey ? (
+        <DsBanner
+          kind="degraded"
+          action={
+            <DsButton
+              variant="secondary"
+              onClick={handleRefresh}
+              disabled={loading || queueHydrating || contextLoading}
+            >
+              Tentar novamente
+            </DsButton>
+          }
+        >
+          {contextError.message}
+        </DsBanner>
+      ) : null}
+
+      <div className={`dh-grid${hasWorkQueue ? "" : " dh-grid--home"}`}>
+        {/* A fila autorizada domina a primeira dobra quando existe. */}
+        {hasWorkQueue ? (
+          <section
+            className="dh-main"
+            aria-label={responsibilities.queueTitle}
+            aria-busy={loading || queueHydrating}
+          >
           <div className="dh-queue-head">
             <div className="dh-queue-titles">
-              <h3 className="dh-queue-title">Fila de trabalho pastoral</h3>
-              <p className="dh-queue-sub">o que exige ação hoje</p>
+              <h3 className="dh-queue-title">{responsibilities.queueTitle}</h3>
+              <p className="dh-queue-sub">{responsibilities.queueHint}</p>
             </div>
             <div className="dh-filter" role="group" aria-label="Filtrar fila">
               <button
@@ -526,8 +991,16 @@ export function DashboardScreen() {
             </div>
           </div>
 
+          {operationsReady && queueHydrating ? (
+            <p className="dh-queue-sub" role="status" aria-live="polite">
+              {tab === "meus"
+                ? "Conferindo todas as páginas para completar suas ações."
+                : `${openItems.length} de ${queueTotal} ações carregadas. Completando a fila.`}
+            </p>
+          ) : null}
+
           {showSkeleton ? (
-            <div className="dh-queue">
+            <div className="dh-queue" aria-hidden="true">
               {Array.from({ length: 4 }).map((_, i) => (
                 <div className="dh-item skeleton" key={i}>
                   <span className="dh-avatar sk-icon" />
@@ -538,15 +1011,34 @@ export function DashboardScreen() {
                 </div>
               ))}
             </div>
+          ) : !operationsReady ? (
+            <DsEmptyState
+              title="A fila não pôde ser carregada."
+              hint="Use Tentar novamente para buscar as ações autorizadas."
+            />
+          ) : isPartialFilterEmpty ? (
+            <DsEmptyState
+              title={
+                tab === "meus"
+                  ? "Conferindo suas ações."
+                  : "A fila está disponível parcialmente."
+              }
+              hint={
+                queueHydrating
+                  ? "Aguarde a carga das páginas restantes."
+                  : "Use Tentar novamente para confirmar todas as ações."
+              }
+            />
           ) : isEmpty ? (
             <DsEmptyState
               title="Fila zerada."
-              hint="Nenhuma pendência pastoral aberta agora."
+              hint={responsibilities.emptyQueueText}
             />
           ) : (
-            <div className="dh-queue">
-              {visibleItems.map((item) => (
-                <WorkQueueItem
+            <>
+              <div className="dh-queue" id="dashboard-work-queue">
+                {displayedItems.map((item) => (
+                  <WorkQueueItem
                   key={item.id}
                   item={item}
                   now={now}
@@ -555,24 +1047,43 @@ export function DashboardScreen() {
                       ? memberById.get(item.responsavelId)?.nome ?? null
                       : null
                   }
+                  canLinkCell={canUseCellLink}
+                  canAssignQueue={canUseAssignment}
                   busy={busyItemId === item.id}
                   resolving={resolvingIds.has(item.id)}
                   conflict={conflicts[item.id] ?? null}
                   onAssume={handleAssume}
-                  onAssign={(it) => setModal({ kind: "assign", item: it })}
-                  onMessage={(it) => setModal({ kind: "message", item: it })}
-                  onLinkCell={(it) => setModal({ kind: "linkCell", item: it })}
+                  onAssign={(it) => {
+                    if (canUseAssignment) setModal({ kind: "assign", item: it });
+                  }}
+                  onMessage={(it) => {
+                    if (it.canMessage) setModal({ kind: "message", item: it });
+                  }}
+                  onLinkCell={(it) => {
+                    if (canUseCellLink) setModal({ kind: "linkCell", item: it });
+                  }}
                   onFonovisita={handleFonovisita}
-                />
-              ))}
-            </div>
+                  />
+                ))}
+              </div>
+              {showQueueToggle ? (
+                <button
+                  type="button"
+                  className="dh-queue-more"
+                  aria-expanded={queueExpanded}
+                  aria-controls="dashboard-work-queue"
+                  onClick={() => setQueueExpanded((current) => !current)}
+                >
+                  {queueToggleLabel}
+                </button>
+              ) : null}
+            </>
           )}
 
-          {/* Resumo da semana: DEPOIS da fila, recolhido por padrão
-              (disclosure nativa <details> — mesmos dados dos antigos tiles/KPIs). */}
-          {!showSkeleton ? (
+          {/* Totais do escopo atual ficam depois da fila e recolhidos por padrão. */}
+          {!showSkeleton && operationsReady && supplementsReady && showOverview ? (
             <details className="dh-summary">
-              <summary className="dh-summary-toggle">Resumo da semana</summary>
+              <summary className="dh-summary-toggle">Resumo do seu escopo</summary>
               <div className="dh-summary-body">
                 {summaryRows.map((row) => (
                   <SummaryLine
@@ -589,30 +1100,66 @@ export function DashboardScreen() {
               </div>
             </details>
           ) : null}
-        </section>
+          </section>
+        ) : (
+          <section className="dh-main" aria-label={responsibilities.homeTitle}>
+            <TodayContext
+              title={responsibilities.homeTitle}
+              loading={showContextSkeleton}
+              events={events}
+              meeting={meeting}
+              notices={notices}
+              showEvents={canSeeCalendar}
+              showMeeting={showCellMeeting}
+              shortcuts={shortcutTargets}
+              onNavigate={navigate}
+            />
+          </section>
+        )}
 
-        {/* Rail secundária: jornada real da semana + próximas ações reais. */}
-        <aside className="dh-side">
+        {hasWorkQueue ? (
+          <aside className="dh-side" aria-label="Contexto das suas responsabilidades">
           {showSkeleton ? (
-            <div className="dh-panel">
+            <div className="dh-panel" aria-hidden="true">
               <div className="sk-line sk-md" />
               <div className="sk-line sk-sm" />
             </div>
           ) : (
             <>
-              <JourneyCard
-                overview={overview}
-                canSeeAgente={user ? canSee("agente", user.roles, matrix) : false}
-                canNavigate={(target) => (user ? canSee(target, user.roles, matrix) : false)}
+              <TodayContext
+                title="Hoje no seu contexto"
+                loading={showContextSkeleton}
+                events={events}
+                meeting={meeting}
+                notices={notices}
+                showEvents={canSeeCalendar}
+                showMeeting={showCellMeeting}
+                shortcuts={shortcutTargets}
                 onNavigate={navigate}
               />
-              <NextActions items={openItems} members={members} />
+              {operationsReady && supplementsReady && showOverview ? (
+                <JourneyCard
+                  overview={overview}
+                  canSeeAgente={user ? canSee("agente", user.roles, matrix) : false}
+                  canNavigate={(target) =>
+                    user ? canSee(target, user.roles, matrix) : false
+                  }
+                  onNavigate={navigate}
+                />
+              ) : null}
+              {operationsReady && supplementsReady && showTeamWorkload ? (
+                <NextActions items={openItems} members={members} />
+              ) : null}
             </>
           )}
-        </aside>
+          </aside>
+        ) : null}
       </div>
 
-      {modal ? (
+      {modal &&
+      (modal.kind !== "linkCell" || canUseCellLink) &&
+      (modal.kind !== "assign" || canUseAssignment) &&
+      (modal.kind !== "message" || modal.item.canMessage) ? (
         <ActionModal
           modal={modal}
           members={members}
@@ -624,40 +1171,20 @@ export function DashboardScreen() {
         />
       ) : null}
 
-      {/* Feedback: visual da fundação; COMPORTAMENTO atual preservado
-          (ok e err somem em 3200ms via flashToast — DsToast mudaria o err
-          para persistente, o que seria delta funcional). */}
       <DsToastRegion>
         {toast ? (
-          <div className={`ds-toast ds-toast--${toast.kind}`} role="status">
-            <span className="ds-toast-icon" aria-hidden="true">
-              <Icon name={toast.kind === "ok" ? "check" : "alert"} />
-            </span>
-            <span className="ds-toast-text">{toast.text}</span>
-          </div>
+          toast.kind === "ok" ? (
+            <DsToast
+              kind="ok"
+              text={toast.text}
+              duration={3200}
+              onDismiss={() => setToast(null)}
+            />
+          ) : (
+            <DsToast kind="err" text={toast.text} onDismiss={() => setToast(null)} />
+          )
         ) : null}
       </DsToastRegion>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// View de membro
-// ---------------------------------------------------------------------------
-function MemberWelcome() {
-  return (
-    <div className="screen" key="dashboard-membro">
-      <div className="card card-pad" style={{ maxWidth: 560 }}>
-        <div className="member-head">
-          <Icon name="user" />
-          <span>Bem-vindo(a) à sua igreja</span>
-        </div>
-        <p className="member-lead">
-          Você acompanha aqui sua trilha de crescimento e os próximos eventos. As
-          ferramentas de liderança aparecem automaticamente quando você assume um
-          papel ministerial.
-        </p>
-      </div>
     </div>
   );
 }
@@ -677,7 +1204,7 @@ function ActionModal({
   onLinkCell,
 }: {
   modal: ModalState;
-  members: TeamMember[];
+  members: TeamLookupMember[];
   cells: Cell[];
   onClose: () => void;
   onAssign: (item: WorkItem, responsavelId: string) => void;
@@ -687,6 +1214,9 @@ function ActionModal({
   const { kind, item } = modal;
   const [text, setText] = useState("");
   const activeCells = cells.filter((c) => c.ativo && c.liderId);
+  const eligibleMembers = members.filter((member) =>
+    member.tiposFila.includes(item.tipo),
+  );
 
   const title =
     kind === "assign"
@@ -699,10 +1229,10 @@ function ActionModal({
     <DsDialog open onClose={onClose} title={title} description={item.titulo}>
       {kind === "assign" ? (
         <div className="dh-picker">
-          {members.length === 0 ? (
+          {eligibleMembers.length === 0 ? (
             <p className="dh-picker-empty">Nenhum membro disponível para atribuição.</p>
           ) : (
-            members.map((m) => (
+            eligibleMembers.map((m) => (
               <button
                 type="button"
                 key={m.usuarioId}
@@ -710,7 +1240,11 @@ function ActionModal({
                 onClick={() => onAssign(item, m.usuarioId)}
               >
                 <span className="dh-picker-nm">{m.nome}</span>
-                <span className="dh-picker-sub">{m.email}</span>
+                <span className="dh-picker-sub">
+                  {sortedRoles(normalizeRoles(m.papeis))
+                    .map((role) => ROLE_DEFS[role].label)
+                    .join(" · ")}
+                </span>
               </button>
             ))
           )}
@@ -772,7 +1306,7 @@ function ActionModal({
 }
 
 // ---------------------------------------------------------------------------
-// Linha do resumo da semana (mesmos dados dos antigos tiles/KPIs; clicável só
+// Linha do resumo do escopo (mesmos dados dos antigos tiles/KPIs; clicável só
 // quando a rota é permitida ao usuário — mesma regra canSee do tile antigo).
 // ---------------------------------------------------------------------------
 function SummaryLine({
@@ -799,18 +1333,18 @@ function SummaryLine({
     return <div className="dh-summary-row">{inner}</div>;
   }
   return (
-    <button
-      type="button"
+    <a
+      href={`#${row.target}`}
       className="dh-summary-row is-link"
-      onClick={() => onNavigate(row.target!)}
+      onClick={(event) => activateDashboardLink(event, row.target!, onNavigate)}
     >
       {inner}
-    </button>
+    </a>
   );
 }
 
 // ---------------------------------------------------------------------------
-// "A jornada esta semana" — totais por etapa G12 (dado real de overview).
+// "Jornada no seu escopo" usa os totais atuais por etapa do overview.
 // Barra de lapidação (Direção D): proporção entre as contagens ABSOLUTAS já
 // exibidas — nenhuma métrica nova, sem tendência.
 // ---------------------------------------------------------------------------
@@ -843,9 +1377,9 @@ function JourneyCard({
   );
 
   return (
-    <section className="dh-panel dh-journey" aria-label="A jornada esta semana">
+    <section className="dh-panel dh-journey" aria-label="Jornada no seu escopo">
       <h3 className="dh-panel-title">
-        A jornada esta semana
+        Jornada no seu escopo
         {scopeLabel ? <span className="dh-panel-count"> · {scopeLabel}</span> : null}
       </h3>
       <div>
@@ -871,14 +1405,16 @@ function JourneyCard({
             </>
           );
           return can ? (
-            <button
-              type="button"
-              className="dh-journey-row"
+            <a
+              href={`#${stage.route}`}
+              className="dh-journey-row is-link"
               key={stage.key}
-              onClick={() => onNavigate(stage.route)}
+              onClick={(event) =>
+                activateDashboardLink(event, stage.route, onNavigate)
+              }
             >
               {content}
-            </button>
+            </a>
           ) : (
             <div className="dh-journey-row" key={stage.key}>
               {content}
@@ -887,10 +1423,14 @@ function JourneyCard({
         })}
         {canSeeAgente ? (
           <div className="dh-journey-foot">
-            A cada estágio, o agente cobra prazos e avisa quem precisa agir.{" "}
-            <button type="button" className="dh-journey-cta" onClick={() => onNavigate("agente")}>
-              Configurar agente →
-            </button>
+            Instruções e automações da igreja.{" "}
+            <a
+              href="#agente"
+              className="dh-journey-cta"
+              onClick={(event) => activateDashboardLink(event, "agente", onNavigate)}
+            >
+              Configurar agente
+            </a>
           </div>
         ) : null}
       </div>

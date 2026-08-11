@@ -63,6 +63,17 @@ describe("Topbar — title nativo no h1 truncado", () => {
   });
 });
 
+describe("Topbar — sem busca decorativa", () => {
+  it("não renderiza searchbox nem o placeholder sem comportamento", () => {
+    render("dashboard");
+
+    expect(container.querySelector('input[type="search"], [role="searchbox"]')).toBeNull();
+    expect(
+      container.querySelector('input[placeholder="Buscar contato, célula, conversa…"]'),
+    ).toBeNull();
+  });
+});
+
 /**
  * Wave Visual W2 (revisão externa, reforço #2): Topbar passou a delegar a
  * renderização dos papéis pra RoleBadgeList (era JSX inline). Cobre o
