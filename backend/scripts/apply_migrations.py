@@ -7,10 +7,12 @@ lista de pendências. Escrita requer, sempre, o basename versionado, o SHA-256
 esperado e ``--confirm APPLY``:
 
     python scripts/apply_migrations.py apply \
-      --database-url "postgresql://..." \
       --migration 20260810_031050_explicit_deny_policies_for_closed_tables.sql \
       --sha256 <sha256-exato> \
       --confirm APPLY
+
+O destino é injetado exclusivamente pela variável de ambiente
+``M06_MIGRATION_DATABASE_URL``; a CLI não aceita DSN em argv nem a exibe.
 
 ``status`` continua exclusivamente read-only, mas falha fechado quando a
 situação genérica do ledger não pode ser demonstrada como segura. Não há modo
@@ -28,10 +30,10 @@ import stat
 import sys
 from dataclasses import dataclass
 from pathlib import PurePosixPath, PureWindowsPath
-from urllib.parse import urlsplit, urlunsplit
 
 
 MIGRATIONS_DIR = pathlib.Path(__file__).resolve().parent.parent / "migrations"
+DATABASE_URL_ENV = "M06_MIGRATION_DATABASE_URL"
 LEDGER_SCHEMA = "public"
 LEDGER_NAME = "schema_migrations"
 BOOKKEEPING_TABLE = f"{LEDGER_SCHEMA}.{LEDGER_NAME}"
@@ -52,15 +54,22 @@ TABLE_PRIVILEGES = (
 COLUMN_PRIVILEGES = ("SELECT", "INSERT", "UPDATE", "REFERENCES")
 SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 MIGRATION_BASENAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*\.sql$")
-OUTER_BEGIN_RE = re.compile(r"^\s*begin\s*;\s*(?:--.*)?$", re.IGNORECASE)
-OUTER_COMMIT_RE = re.compile(r"^\s*commit\s*;\s*(?:--.*)?$", re.IGNORECASE)
-TRANSACTION_SETTING_RE = re.compile(
-    r"^\s*set\s+transaction\b.*;\s*(?:--.*)?$", re.IGNORECASE
-)
-SERIALIZABLE_SETTING_RE = re.compile(
-    r"^\s*set\s+transaction\s+isolation\s+level\s+serializable\s*;\s*(?:--.*)?$",
+DOLLAR_QUOTE_START_RE = re.compile(r"\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$")
+TRANSACTION_CONTROL_RE = re.compile(
+    r"^(?:"
+    r"begin\b|start\s+transaction\b|commit\b|end\b|"
+    r"rollback\b|abort\b|savepoint\b|release(?:\s+savepoint)?\b|"
+    r"prepare\s+transaction\b|"
+    r"set\s+(?:(?:local|session)\s+)?transaction\b|"
+    r"set\s+session\s+characteristics\s+as\s+transaction\b"
+    r")",
     re.IGNORECASE,
 )
+SAFE_BEGIN_RE = re.compile(r"^begin$", re.IGNORECASE)
+SAFE_SERIALIZABLE_RE = re.compile(
+    r"^set\s+transaction\s+isolation\s+level\s+serializable$", re.IGNORECASE
+)
+SAFE_COMMIT_RE = re.compile(r"^commit$", re.IGNORECASE)
 
 
 class MigrationRunnerError(RuntimeError):
@@ -78,6 +87,52 @@ class MigrationExecutionError(MigrationRunnerError):
 
 
 @dataclass(frozen=True)
+class FileIdentity:
+    """Identidade estável usada para recusar troca de arquivo durante o apply."""
+
+    device: int
+    inode: int
+    size: int
+    mtime_ns: int
+    ctime_ns: int
+
+    @classmethod
+    def from_stat(cls, result: os.stat_result) -> "FileIdentity":
+        return cls(
+            device=int(result.st_dev),
+            inode=int(result.st_ino),
+            size=int(result.st_size),
+            mtime_ns=int(result.st_mtime_ns),
+            # No Windows, lstat e fstat podem expor ctime distintos para o
+            # mesmo arquivo em volumes sincronizados. Inode, tamanho e mtime
+            # continuam conferidos; em POSIX ctime reforça a detecção de swap.
+            ctime_ns=int(result.st_ctime_ns) if os.name != "nt" else 0,
+        )
+
+
+@dataclass(frozen=True)
+class MigrationFile:
+    """Entrada imutável do catálogo, ancorada na raiz versionada."""
+
+    path: pathlib.Path
+    root: pathlib.Path
+    root_identity: FileIdentity
+    identity: FileIdentity
+
+    @property
+    def name(self) -> str:
+        return self.path.name
+
+
+@dataclass(frozen=True)
+class SqlStatement:
+    """Statement SQL e sua forma sem comentários para validação de controle."""
+
+    raw: str
+    normalized: str
+
+
+@dataclass(frozen=True)
 class LedgerState:
     """Snapshot read-only do ledger já validado."""
 
@@ -92,66 +147,75 @@ def normalize_url(url: str) -> str:
     return url
 
 
-def mask_url(url: str) -> str:
-    """Mascara a senha de uma DSN antes de qualquer exibição."""
-    try:
-        parts = urlsplit(url)
-        if parts.password:
-            safe_netloc = parts.netloc.replace(f":{parts.password}@", ":***@")
-            parts = parts._replace(netloc=safe_netloc)
-        return urlunsplit(parts)
-    except ValueError:
-        return "<url ilegível>"
-
-
 def resolve_database_url(args: argparse.Namespace) -> str | None:
-    """A flag tem prioridade; o fallback legado não é impresso."""
-    raw = getattr(args, "database_url", None) or os.environ.get(
-        "STAGING_DATABASE_URL"
+    """Lê a URL somente do ambiente; o atributo privado existe para testes."""
+    raw = getattr(args, "_database_url_for_test", None) or os.environ.get(
+        DATABASE_URL_ENV
     )
     return normalize_url(raw) if raw else None
 
 
 def _migration_root() -> pathlib.Path:
+    configured = pathlib.Path(MIGRATIONS_DIR)
     try:
-        root = MIGRATIONS_DIR.resolve(strict=True)
+        configured_stat = configured.lstat()
     except FileNotFoundError as exc:
         raise MigrationRunnerError("diretório versionado de migrations não existe") from exc
-    if not root.is_dir():
+    if stat.S_ISLNK(configured_stat.st_mode):
+        raise MigrationRunnerError("diretório versionado de migrations não pode usar symlink")
+    if not stat.S_ISDIR(configured_stat.st_mode):
         raise MigrationRunnerError("diretório versionado de migrations é inválido")
+    root = configured.resolve(strict=True)
+    configured_absolute = configured.absolute()
+    if os.path.normcase(os.fspath(root)) != os.path.normcase(
+        os.fspath(configured_absolute)
+    ):
+        raise MigrationRunnerError("diretório versionado de migrations não pode usar symlink")
     return root
 
 
-def _validate_catalog(paths: list[pathlib.Path], root: pathlib.Path) -> None:
+def _validate_catalog(paths: list[pathlib.Path], root: pathlib.Path) -> list[MigrationFile]:
     seen: set[str] = set()
     seen_casefold: set[str] = set()
+    root_identity = FileIdentity.from_stat(root.lstat())
+    candidates: list[MigrationFile] = []
 
     for path in paths:
-        if path.parent.resolve() != root:
+        if path.parent != root:
             raise MigrationSelectionError("catálogo contém arquivo fora da raiz versionada")
-        if path.is_symlink() or not path.is_file():
+        try:
+            path_stat = path.lstat()
+        except FileNotFoundError as exc:
+            raise MigrationSelectionError("catálogo mudou durante a validação") from exc
+        if stat.S_ISLNK(path_stat.st_mode) or not stat.S_ISREG(path_stat.st_mode):
             raise MigrationSelectionError("catálogo contém arquivo não regular ou symlink")
-        if not stat.S_ISREG(path.stat().st_mode):
-            raise MigrationSelectionError("catálogo contém arquivo não regular")
         if not MIGRATION_BASENAME_RE.fullmatch(path.name):
             raise MigrationSelectionError("catálogo contém basename de migration inválido")
         if path.name in seen or path.name.casefold() in seen_casefold:
             raise MigrationSelectionError("catálogo contém nome de migration duplicado")
         seen.add(path.name)
         seen_casefold.add(path.name.casefold())
+        candidates.append(
+            MigrationFile(
+                path=path,
+                root=root,
+                root_identity=root_identity,
+                identity=FileIdentity.from_stat(path_stat),
+            )
+        )
+    return candidates
 
 
-def discover_migrations() -> list[pathlib.Path]:
+def discover_migrations() -> list[MigrationFile]:
     """Retorna somente arquivos SQL regulares e inequívocos, por basename."""
     root = _migration_root()
     migrations = sorted(root.glob("*.sql"), key=lambda path: path.name)
-    _validate_catalog(migrations, root)
-    return migrations
+    return _validate_catalog(migrations, root)
 
 
 def resolve_selected_migration(
-    selected_name: str | None, migrations: list[pathlib.Path]
-) -> pathlib.Path:
+    selected_name: str | None, migrations: list[MigrationFile]
+) -> MigrationFile:
     """Aceita somente um basename regular já presente no catálogo versionado."""
     if not isinstance(selected_name, str) or not selected_name:
         raise MigrationSelectionError("informe --migration com o basename exato")
@@ -169,17 +233,87 @@ def resolve_selected_migration(
             "--migration aceita somente basename regular dentro do diretório versionado"
         )
 
-    matches = [path for path in migrations if path.name == selected_name]
+    matches = [candidate for candidate in migrations if candidate.name == selected_name]
     if len(matches) != 1:
         raise MigrationSelectionError("a migration selecionada não existe ou é ambígua")
     return matches[0]
 
 
-def _read_verified_migration(path: pathlib.Path, expected_hash: str | None) -> str:
+def _open_catalog_file(candidate: MigrationFile) -> int:
+    """Abre o arquivo por descriptor e recusa symlink/troca após o catálogo."""
+    try:
+        root_stat = candidate.root.lstat()
+    except FileNotFoundError as exc:
+        raise MigrationSelectionError("diretório de migrations mudou durante a validação") from exc
+    if (
+        stat.S_ISLNK(root_stat.st_mode)
+        or not stat.S_ISDIR(root_stat.st_mode)
+        or FileIdentity.from_stat(root_stat) != candidate.root_identity
+    ):
+        raise MigrationSelectionError("diretório de migrations mudou durante a validação")
+
+    file_flags = (
+        os.O_RDONLY
+        | getattr(os, "O_BINARY", 0)
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    use_dir_fd = os.open in os.supports_dir_fd and hasattr(os, "O_DIRECTORY")
+    if use_dir_fd:
+        root_flags = os.O_RDONLY | os.O_DIRECTORY | getattr(os, "O_CLOEXEC", 0)
+        try:
+            root_fd = os.open(os.fspath(candidate.root), root_flags)
+        except OSError as exc:
+            raise MigrationSelectionError("não foi possível abrir o diretório de migrations") from exc
+        try:
+            if FileIdentity.from_stat(os.fstat(root_fd)) != candidate.root_identity:
+                raise MigrationSelectionError("diretório de migrations mudou durante a validação")
+            return os.open(candidate.name, file_flags, dir_fd=root_fd)
+        except OSError as exc:
+            raise MigrationSelectionError("arquivo de migration mudou durante a validação") from exc
+        finally:
+            os.close(root_fd)
+
+    try:
+        candidate_stat = candidate.path.lstat()
+        if (
+            stat.S_ISLNK(candidate_stat.st_mode)
+            or not stat.S_ISREG(candidate_stat.st_mode)
+            or FileIdentity.from_stat(candidate_stat) != candidate.identity
+        ):
+            raise MigrationSelectionError("arquivo de migration mudou durante a validação")
+        return os.open(os.fspath(candidate.path), file_flags)
+    except OSError as exc:
+        raise MigrationSelectionError("arquivo de migration mudou durante a validação") from exc
+
+
+def _read_verified_migration(candidate: MigrationFile, expected_hash: str | None) -> str:
     if not isinstance(expected_hash, str) or not SHA256_RE.fullmatch(expected_hash):
         raise MigrationSelectionError("--sha256 deve ter exatamente 64 caracteres hexadecimais")
 
-    content = path.read_bytes()
+    try:
+        fd = _open_catalog_file(candidate)
+    except MigrationSelectionError:
+        raise
+    try:
+        initial_stat = os.fstat(fd)
+        if (
+            not stat.S_ISREG(initial_stat.st_mode)
+            or FileIdentity.from_stat(initial_stat) != candidate.identity
+        ):
+            raise MigrationSelectionError("arquivo de migration mudou durante a validação")
+        chunks: list[bytes] = []
+        while chunk := os.read(fd, 1024 * 1024):
+            chunks.append(chunk)
+        final_stat = os.fstat(fd)
+        if FileIdentity.from_stat(final_stat) != candidate.identity:
+            raise MigrationSelectionError("arquivo de migration mudou durante a validação")
+        content = b"".join(chunks)
+    except OSError as exc:
+        raise MigrationSelectionError("não foi possível ler a migration selecionada") from exc
+    finally:
+        os.close(fd)
+
     actual_hash = hashlib.sha256(content).hexdigest()
     if actual_hash != expected_hash.lower():
         raise MigrationSelectionError("o SHA-256 informado não confere com a migration selecionada")
@@ -190,62 +324,150 @@ def _read_verified_migration(path: pathlib.Path, expected_hash: str | None) -> s
         raise MigrationSelectionError("a migration selecionada não é UTF-8 válida") from exc
 
 
-def _is_ignorable_line(line: str) -> bool:
-    stripped = line.strip()
-    return not stripped or stripped.startswith("--")
+def _split_sql_statements(sql: str) -> list[SqlStatement]:
+    """Divide SQL em statements ignorando comentários, strings e dollar quotes."""
+    statements: list[SqlStatement] = []
+    raw: list[str] = []
+    normalized: list[str] = []
+    index = 0
+    quote: str | None = None
+    dollar_tag: str | None = None
+    block_depth = 0
+
+    def emit() -> None:
+        raw_statement = "".join(raw)
+        normalized_statement = "".join(normalized)
+        if normalized_statement.strip():
+            statements.append(SqlStatement(raw_statement, normalized_statement))
+        raw.clear()
+        normalized.clear()
+
+    while index < len(sql):
+        char = sql[index]
+
+        if block_depth:
+            if sql.startswith("/*", index):
+                raw.extend(("/", "*"))
+                normalized.extend((" ", " "))
+                block_depth += 1
+                index += 2
+            elif sql.startswith("*/", index):
+                raw.extend(("*", "/"))
+                normalized.extend((" ", " "))
+                block_depth -= 1
+                index += 2
+            else:
+                raw.append(char)
+                normalized.append("\n" if char == "\n" else " ")
+                index += 1
+            continue
+
+        if dollar_tag is not None:
+            if sql.startswith(dollar_tag, index):
+                raw.append(dollar_tag)
+                normalized.append(dollar_tag)
+                index += len(dollar_tag)
+                dollar_tag = None
+            else:
+                raw.append(char)
+                normalized.append(char)
+                index += 1
+            continue
+
+        if quote is not None:
+            raw.append(char)
+            normalized.append(char)
+            if char == quote:
+                if index + 1 < len(sql) and sql[index + 1] == quote:
+                    raw.append(sql[index + 1])
+                    normalized.append(sql[index + 1])
+                    index += 2
+                    continue
+                quote = None
+            index += 1
+            continue
+
+        if sql.startswith("--", index):
+            while index < len(sql) and sql[index] != "\n":
+                raw.append(sql[index])
+                normalized.append(" ")
+                index += 1
+            continue
+        if sql.startswith("/*", index):
+            raw.extend(("/", "*"))
+            normalized.extend((" ", " "))
+            block_depth = 1
+            index += 2
+            continue
+        if char in ("'", '"'):
+            quote = char
+            raw.append(char)
+            normalized.append(char)
+            index += 1
+            continue
+        if char == "$":
+            match = DOLLAR_QUOTE_START_RE.match(sql, index)
+            if match is not None:
+                dollar_tag = match.group(0)
+                raw.append(dollar_tag)
+                normalized.append(dollar_tag)
+                index = match.end()
+                continue
+        if char == ";":
+            emit()
+            index += 1
+            continue
+
+        raw.append(char)
+        normalized.append(char)
+        index += 1
+
+    emit()
+    return statements
+
+
+def _compact_sql(statement: SqlStatement) -> str:
+    return " ".join(statement.normalized.split())
 
 
 def prepare_transactional_sql(sql: str) -> str:
-    """Remove apenas um wrapper externo ``BEGIN``/``COMMIT`` inequívoco.
+    """Aceita apenas o wrapper externo conhecido; qualquer outro controle aborta.
 
-    O executor cria sua própria transação para que a migration e a inserção no
-    ledger tenham o mesmo commit. Qualquer controle transacional menos claro é
-    recusado; tentar "adivinhar" SQL arbitrário enfraqueceria a atomicidade.
+    O executor mantém uma única transação que engloba migration e ledger. O
+    scanner ignora strings, comentários e dollar quotes para não confundir uma
+    palavra literal com um comando, mas não tenta reinterpretar SQL arbitrário.
     """
-    lines = sql.splitlines(keepends=True)
-    begin_lines = [index for index, line in enumerate(lines) if OUTER_BEGIN_RE.fullmatch(line)]
-    commit_lines = [index for index, line in enumerate(lines) if OUTER_COMMIT_RE.fullmatch(line)]
-    transaction_setting_lines = [
-        index for index, line in enumerate(lines) if TRANSACTION_SETTING_RE.fullmatch(line)
+    statements = _split_sql_statements(sql)
+    controls = [
+        (index, _compact_sql(statement))
+        for index, statement in enumerate(statements)
+        if TRANSACTION_CONTROL_RE.match(_compact_sql(statement))
     ]
-    if any(
-        not SERIALIZABLE_SETTING_RE.fullmatch(lines[index])
-        for index in transaction_setting_lines
-    ):
-        raise MigrationSelectionError(
-            "a migration contém isolamento transacional não suportado pelo executor atômico"
-        )
-    if len(transaction_setting_lines) > 1:
-        raise MigrationSelectionError(
-            "a migration contém controles transacionais ambíguos"
-        )
+    if not controls:
+        return sql
 
-    if not begin_lines and not commit_lines:
-        return "".join(
-            line
-            for index, line in enumerate(lines)
-            if index not in transaction_setting_lines
+    safe_wrapper = (
+        len(controls) in (2, 3)
+        and controls[0][0] == 0
+        and controls[-1][0] == len(statements) - 1
+        and SAFE_BEGIN_RE.fullmatch(controls[0][1])
+        and SAFE_COMMIT_RE.fullmatch(controls[-1][1])
+        and (
+            len(controls) == 2
+            or (
+                controls[1][0] == 1
+                and SAFE_SERIALIZABLE_RE.fullmatch(controls[1][1])
+            )
         )
-    if len(begin_lines) != 1 or len(commit_lines) != 1:
-        raise MigrationSelectionError(
-            "a migration contém controle transacional não suportado pelo executor atômico"
-        )
+    )
+    if safe_wrapper:
+        body_start = 2 if len(controls) == 3 else 1
+        body = statements[body_start:-1]
+        if body:
+            return ";\n".join(statement.raw.strip() for statement in body) + ";\n"
 
-    begin_index = begin_lines[0]
-    commit_index = commit_lines[0]
-    if begin_index >= commit_index:
-        raise MigrationSelectionError("wrapper transacional da migration é inválido")
-    if any(not _is_ignorable_line(line) for line in lines[:begin_index]) or any(
-        not _is_ignorable_line(line) for line in lines[commit_index + 1 :]
-    ):
-        raise MigrationSelectionError(
-            "o wrapper transacional deve envolver todo o conteúdo executável"
-        )
-
-    return "".join(
-        line
-        for index, line in enumerate(lines[begin_index + 1 : commit_index], begin_index + 1)
-        if index not in transaction_setting_lines
+    raise MigrationSelectionError(
+        "a migration contém controle transacional não suportado pelo executor atômico"
     )
 
 
@@ -351,6 +573,91 @@ def _table_privileges(server_version: int) -> tuple[str, ...]:
     return (*TABLE_PRIVILEGES, "MAINTAIN") if server_version >= 170000 else TABLE_PRIVILEGES
 
 
+def _role_has_ledger_privilege(
+    cur,
+    role_oid: int,
+    relation_oid: int,
+    columns: tuple[str, ...],
+    table_privileges: tuple[str, ...],
+) -> bool:
+    for privilege in table_privileges:
+        cur.execute(
+            "select has_table_privilege(%s, %s, %s)",
+            (role_oid, relation_oid, privilege),
+        )
+        if cur.fetchone()[0]:
+            return True
+    for column in columns:
+        for privilege in COLUMN_PRIVILEGES:
+            cur.execute(
+                "select has_column_privilege(%s, %s, %s, %s)",
+                (role_oid, relation_oid, column, privilege),
+            )
+            if cur.fetchone()[0]:
+                return True
+    return False
+
+
+def _validate_reachable_ledger_roles(
+    cur,
+    principal: str,
+    relation_oid: int,
+    relation_owner_oid: int,
+    columns: tuple[str, ...],
+    table_privileges: tuple[str, ...],
+) -> None:
+    """Recusa acesso presente ou potencial por INHERIT, SET ou ADMIN OPTION."""
+    cur.execute(
+        """
+        with recursive admin_set_reachable(role_oid) as (
+            select r.oid
+            from pg_catalog.pg_roles r
+            where r.rolname = %s
+
+            union
+
+            select membership.roleid
+            from admin_set_reachable
+            join pg_catalog.pg_auth_members membership
+              on membership.member = admin_set_reachable.role_oid
+            where membership.set_option or membership.admin_option
+        )
+        select r.oid,
+               r.rolname,
+               r.rolsuper,
+               r.rolbypassrls,
+               r.rolcreaterole
+        from admin_set_reachable
+        join pg_catalog.pg_roles r on r.oid = admin_set_reachable.role_oid
+        """,
+        (principal,),
+    )
+    for (
+        role_oid,
+        _role_name,
+        role_superuser,
+        role_bypass_rls,
+        role_create_role,
+    ) in cur.fetchall():
+        if (
+            role_superuser
+            or role_bypass_rls
+            or role_create_role
+            or role_oid == relation_owner_oid
+            or _role_has_ledger_privilege(
+                cur,
+                int(role_oid),
+                relation_oid,
+                columns,
+                table_privileges,
+            )
+        ):
+            raise MigrationRunnerError(
+                "ledger possui caminho de membership ou privilégio efetivo para papel público; "
+                "abra o gate separado de hardening"
+            )
+
+
 def _validate_ledger_security(cur, relation_oid: int, columns: tuple[str, ...], rls_enabled: bool) -> None:
     if not rls_enabled:
         raise MigrationRunnerError(
@@ -358,43 +665,59 @@ def _validate_ledger_security(cur, relation_oid: int, columns: tuple[str, ...], 
         )
 
     cur.execute(
-        "select rolname, rolbypassrls from pg_catalog.pg_roles where rolname = any(%s)",
+        """
+        select oid, rolname, rolsuper, rolbypassrls, rolcreaterole
+        from pg_catalog.pg_roles
+        where rolname = any(%s)
+        """,
         (list(REQUIRED_LEDGER_ROLES),),
     )
-    roles = {name: bool(bypass_rls) for name, bypass_rls in cur.fetchall()}
+    roles = {
+        name: {
+            "oid": int(role_oid),
+            "superuser": bool(superuser),
+            "bypass_rls": bool(bypass_rls),
+            "create_role": bool(create_role),
+        }
+        for role_oid, name, superuser, bypass_rls, create_role in cur.fetchall()
+    }
     if set(roles) != set(REQUIRED_LEDGER_ROLES):
         raise MigrationRunnerError(
             "roles esperados do ledger estão ausentes; abra o gate separado de hardening"
         )
-    if roles["anon"] or roles["authenticated"] or not roles["service_role"]:
+    if (
+        roles["anon"]["superuser"]
+        or roles["anon"]["bypass_rls"]
+        or roles["anon"]["create_role"]
+        or roles["authenticated"]["superuser"]
+        or roles["authenticated"]["bypass_rls"]
+        or roles["authenticated"]["create_role"]
+        or not roles["service_role"]["bypass_rls"]
+    ):
         raise MigrationRunnerError(
             "roles do ledger não atendem ao contrato de segurança; abra o gate separado de hardening"
         )
 
     cur.execute("show server_version_num")
     server_version = int(cur.fetchone()[0])
+    if server_version < 160000:
+        raise MigrationRunnerError(
+            "PostgreSQL 16+ é necessário para validar memberships do ledger"
+        )
+    cur.execute("select relowner from pg_catalog.pg_class where oid = %s", (relation_oid,))
+    relation_owner = cur.fetchone()
+    if relation_owner is None:
+        raise MigrationRunnerError("ledger ausente durante a validação de segurança")
+    table_privileges = _table_privileges(server_version)
     for role in ("anon", "authenticated"):
-        for privilege in _table_privileges(server_version):
-            cur.execute(
-                "select has_table_privilege(%s, %s, %s)",
-                (role, relation_oid, privilege),
-            )
-            if cur.fetchone()[0]:
-                raise MigrationRunnerError(
-                    "ledger possui privilégio efetivo para papel público; "
-                    "abra o gate separado de hardening"
-                )
-        for column in columns:
-            for privilege in COLUMN_PRIVILEGES:
-                cur.execute(
-                    "select has_column_privilege(%s, %s, %s, %s)",
-                    (role, relation_oid, column, privilege),
-                )
-                if cur.fetchone()[0]:
-                    raise MigrationRunnerError(
-                        "ledger possui privilégio por coluna para papel público; "
-                        "abra o gate separado de hardening"
-                    )
+        _validate_reachable_ledger_roles(
+            cur,
+            role,
+            relation_oid,
+            int(relation_owner[0]),
+            columns,
+            table_privileges,
+        )
 
 
 def inspect_ledger(
@@ -478,7 +801,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     url = resolve_database_url(args)
     if not url:
         print(
-            "ERRO: informe o destino com --database-url ou STAGING_DATABASE_URL.",
+            f"ERRO: injete {DATABASE_URL_ENV} no ambiente do processo.",
             file=sys.stderr,
         )
         return 2
@@ -503,7 +826,6 @@ def cmd_status(args: argparse.Namespace) -> int:
         conn.close()
 
     pending_count = len(catalog_names) - len(state.applied_names)
-    print(f"Destino: {mask_url(url)}")
     print(
         f"Ledger seguro: {len(state.applied_names)} registradas | "
         f"{pending_count} pendente(s)."
@@ -522,13 +844,6 @@ def _has_single_file_selection(args: argparse.Namespace) -> bool:
 
 def cmd_apply(args: argparse.Namespace) -> int:
     """Aplica somente um arquivo já conferido, nunca uma lista de pendências."""
-    url = resolve_database_url(args)
-    if not url:
-        print(
-            "ERRO: informe o destino com --database-url ou STAGING_DATABASE_URL.",
-            file=sys.stderr,
-        )
-        return 2
     if not _has_single_file_selection(args):
         print(
             "ERRO: aplicação genérica está bloqueada. Informe --migration, "
@@ -549,6 +864,14 @@ def cmd_apply(args: argparse.Namespace) -> int:
         sql = prepare_transactional_sql(_read_verified_migration(selected, args.sha256))
     except MigrationRunnerError as error:
         return _print_abort(error)
+
+    url = resolve_database_url(args)
+    if not url:
+        print(
+            f"ERRO: injete {DATABASE_URL_ENV} no ambiente do processo.",
+            file=sys.stderr,
+        )
+        return 2
 
     catalog_names = tuple(path.name for path in migrations)
     conn = _connect(url)
@@ -625,12 +948,6 @@ def build_parser() -> argparse.ArgumentParser:
     p_apply = sub.add_parser(
         "apply", help="aplica somente um arquivo com nome, hash e confirmação"
     )
-    for command in (p_status, p_apply):
-        command.add_argument(
-            "--database-url",
-            default=None,
-            help="connection string do banco alvo; senão usa STAGING_DATABASE_URL",
-        )
     p_apply.add_argument("--migration", default=None, help="basename exato do arquivo SQL")
     p_apply.add_argument("--sha256", default=None, help="SHA-256 exato do arquivo")
     p_apply.add_argument(
@@ -641,7 +958,21 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _contains_legacy_database_argument(argv: list[str]) -> bool:
+    return any(
+        argument == "--database-url" or argument.startswith("--database-url=")
+        for argument in argv
+    )
+
+
 def main(argv: list[str]) -> int:
+    if _contains_legacy_database_argument(argv[1:]):
+        print(
+            f"ERRO: injete {DATABASE_URL_ENV} no ambiente do processo; "
+            "a URL não é aceita em argv.",
+            file=sys.stderr,
+        )
+        return 2
     args = build_parser().parse_args(argv[1:])
     handlers = {"list": cmd_list, "status": cmd_status, "apply": cmd_apply}
     return handlers[args.command](args)
