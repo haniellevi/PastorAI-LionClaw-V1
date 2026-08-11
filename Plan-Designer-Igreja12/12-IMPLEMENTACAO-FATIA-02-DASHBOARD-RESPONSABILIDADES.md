@@ -2,11 +2,13 @@
 
 Data: 2026-08-11
 
-Status: `PASS LOCAL`, pronto para PR rascunho empilhado sobre a Fatia 01
+Status: `PR RASCUNHO ABERTO`, empilhado sobre a Fatia 01
 
 Base: `fd90ccb9676eaee017be8f2bd7c023280c93e7c4`
 
 Branch local: `codex/ux02-dashboard-responsabilidades`
+
+PR rascunho: [#248](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/248)
 
 Grafo: fresco, porém `NÃO COMPROVADO` por integridade estrutural; validação por
 leitura direta, testes completos, build e revisão independente
@@ -141,7 +143,8 @@ expectativas e testes por papel.
 
 ## Gate de aceite
 
-O código pode seguir para PR rascunho empilhado sobre a Fatia 01. Revisão,
-merge, migration, deploy, smoke de produção e ativação permanecem gates
-separados. A recomendação é revisar primeiro a linguagem e a matriz por papel,
-depois executar smoke autenticado local com contas representativas.
+O código está no PR rascunho [#248](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/248),
+empilhado sobre a Fatia 01. Revisão, merge, migration, deploy, smoke de produção
+e ativação permanecem gates separados. A recomendação é revisar primeiro a
+linguagem e a matriz por papel, depois executar smoke autenticado local com
+contas representativas.
