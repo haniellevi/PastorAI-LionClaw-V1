@@ -32,6 +32,7 @@ from app.db.models import (
     Conversation,
     Pessoa,
     PessoaArquivamentoEvento,
+    WorkQueueItem,
 )
 from app.db.session import get_db
 from app.deps import (
@@ -50,6 +51,9 @@ from app.routers._common import Page, PaginationParams
 logger = logging.getLogger("pastorai.contacts")
 
 router = APIRouter(prefix="/contacts", tags=["contacts"])
+
+_CELL_CONNECTION_QUEUE_TYPE = "conectar_celula"
+_OPEN_QUEUE_STATUSES = ("aberto", "assumido")
 
 # Tipos atribuíveis manualmente. "lider" saiu de propósito: líder de célula é
 # DERIVADO (celulas.lider_id em célula ativa), nunca um rótulo manual — a
@@ -907,12 +911,51 @@ def link_cell(
     )
     pessoa.celula_id = celula.id
     db.flush()  # fires trg_link_cell_promote (acompanhamento -> consolidado)
+    _resolve_cell_connection_queue_items(
+        db,
+        igreja_id=igreja_uuid,
+        pessoa_id=pessoa.id,
+    )
+    db.flush()
     db.refresh(pessoa)
     # Deriva ANTES do commit (RLS: SET LOCAL reverte no commit).
     lider_de_celula = _leads_active_cell(db, pessoa.id)
     db.commit()
 
     return ContactOut.from_model(pessoa, lider_de_celula=lider_de_celula)
+
+
+def _resolve_cell_connection_queue_items(
+    db: Session,
+    *,
+    igreja_id: uuid.UUID,
+    pessoa_id: uuid.UUID,
+) -> None:
+    """Encerra pendências abertas cuja obrigação foi satisfeita pelo vínculo.
+
+    O filtro explícito por tenant, pessoa e ``conectar_celula`` evita fechar
+    outros trabalhos da mesma pessoa. ``NULL`` é um estado operacional legado
+    aceito pela listagem da fila; ``resolvido`` e qualquer estado futuro não
+    entram na seleção. O lock torna chamadas concorrentes idempotentes e todas
+    as mudanças seguem no mesmo commit do vínculo canônico.
+    """
+
+    items = db.execute(
+        select(WorkQueueItem)
+        .where(
+            WorkQueueItem.igreja_id == igreja_id,
+            WorkQueueItem.pessoa_id == pessoa_id,
+            WorkQueueItem.tipo == _CELL_CONNECTION_QUEUE_TYPE,
+            or_(
+                WorkQueueItem.status.is_(None),
+                WorkQueueItem.status.in_(_OPEN_QUEUE_STATUSES),
+            ),
+        )
+        .order_by(WorkQueueItem.id.asc())
+        .with_for_update()
+    ).scalars().all()
+    for item in items:
+        item.status = "resolvido"
 
 
 def _get_pessoa_or_404(db: Session, pessoa_id: str) -> Pessoa:

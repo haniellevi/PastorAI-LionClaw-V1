@@ -102,7 +102,7 @@ describe("fronteiras de carregamento do frontend", () => {
   it("antecipa chunk e dados por intenção usando cache curto por sessão", () => {
     expect(appShell).toContain("preloadScreenModule(targetBase)");
     expect(appShell).toContain(
-      "preloadRouteData(token, targetBase, user.roles)",
+      "preloadRouteData(token, targetBase, user.roles, matrix)",
     );
 
     for (const source of [sidebar, bottomNav]) {

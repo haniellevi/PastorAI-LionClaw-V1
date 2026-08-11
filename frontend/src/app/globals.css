@@ -5880,6 +5880,9 @@ table.data-table {
   .dh-grid {
     grid-template-columns: minmax(0, 1fr) 320px;
   }
+  .dh-grid.dh-grid--home {
+    grid-template-columns: minmax(0, 840px);
+  }
 }
 .dh .ds-banner {
   margin-bottom: var(--s4);
@@ -6020,8 +6023,28 @@ table.data-table {
   padding: 0 var(--s3);
   font-size: 13px;
 }
+.dh-queue-more {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  margin-top: var(--s2);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: 650 13px/1.3 var(--font);
+  color: var(--action-primary);
+  cursor: pointer;
+}
+.dh-queue-more:hover {
+  color: var(--action-primary-hover);
+}
+.dh-queue-more:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-control);
+}
 
-/* ---- resumo da semana (disclosure nativa DEPOIS da fila) ---- */
+/* ---- resumo do escopo (disclosure nativa depois da fila) ---- */
 .dh-summary {
   margin-top: var(--s4);
 }
@@ -6080,6 +6103,7 @@ table.data-table {
 }
 .dh-summary-row.is-link {
   cursor: pointer;
+  text-decoration: none;
 }
 .dh-summary-row.is-link:hover .dh-summary-label {
   color: var(--action-primary);
@@ -6137,11 +6161,108 @@ table.data-table {
   color: var(--text-secondary);
 }
 
+/* Agenda, célula, avisos e atalhos em um único painel contínuo. */
+.dh-context-body,
+.dh-context-list,
+.dh-shortcuts {
+  display: flex;
+  flex-direction: column;
+}
+.dh-context-section {
+  padding: var(--s3) 0;
+  border-top: 1px solid var(--border-subtle);
+}
+.dh-context-section:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+.dh-context-section:last-child {
+  padding-bottom: 0;
+}
+.dh-context-title {
+  margin-bottom: var(--s2);
+  font: 650 13px/1.3 var(--font);
+  color: var(--text-secondary);
+}
+.dh-context-row,
+.dh-shortcut {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s3);
+  width: 100%;
+  min-height: 44px;
+  padding: var(--s2) 0;
+  border: 0;
+  border-bottom: 1px solid var(--border-subtle);
+  background: transparent;
+  text-align: left;
+  color: var(--text-primary);
+}
+.dh-context-row:last-child,
+.dh-shortcut:last-child {
+  border-bottom: 0;
+}
+.dh-context-row.is-link,
+.dh-shortcut {
+  cursor: pointer;
+  text-decoration: none;
+}
+.dh-context-row.is-link:hover .dh-context-name,
+.dh-shortcut:hover .dh-context-name {
+  color: var(--action-primary);
+}
+.dh-context-row:focus-visible,
+.dh-shortcut:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-control);
+}
+.dh-context-icon,
+.dh-shortcut-icon {
+  flex: none;
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: var(--radius-control);
+  background: var(--selection-soft);
+  color: var(--action-primary);
+}
+.dh-context-icon svg,
+.dh-shortcut-icon svg {
+  width: 16px;
+  height: 16px;
+}
+.dh-context-copy {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+.dh-context-name {
+  font: 650 13px/1.35 var(--font);
+  color: var(--text-primary);
+}
+.dh-context-meta,
+.dh-context-empty {
+  font: var(--type-meta);
+  color: var(--text-secondary);
+}
+.dh-context-meta {
+  overflow-wrap: anywhere;
+}
+.dh-context-skeleton {
+  display: grid;
+  gap: var(--s2);
+}
+
 /* jornada: contagens reais por etapa + barra de lapidação (proporção entre
    as contagens absolutas exibidas — sem tendência/percentual novo). */
 .dh-journey-row {
   display: block;
   width: 100%;
+  min-height: 44px;
   padding: var(--s2) 0;
   border: 0;
   background: transparent;
@@ -6151,10 +6272,12 @@ table.data-table {
 .dh-journey-row:last-of-type {
   border-bottom: 0;
 }
-button.dh-journey-row {
+.dh-journey-row.is-link {
   cursor: pointer;
+  color: var(--text-primary);
+  text-decoration: none;
 }
-button.dh-journey-row:hover .dh-journey-label {
+.dh-journey-row.is-link:hover .dh-journey-label {
   color: var(--action-primary);
 }
 .dh-journey-row:focus-visible {
@@ -6216,12 +6339,16 @@ button.dh-journey-row:hover .dh-journey-label {
   color: var(--text-secondary);
 }
 .dh-journey-cta {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
   border: 0;
   background: transparent;
   padding: 0;
   font: 650 12px/1.3 var(--font);
   color: var(--action-primary);
   cursor: pointer;
+  text-decoration: none;
 }
 .dh-journey-cta:hover {
   color: var(--action-primary-hover);
@@ -6344,6 +6471,17 @@ button.dh-journey-row:hover .dh-journey-label {
   .dh-filter-btn {
     min-height: 44px;
     min-width: 44px;
+  }
+}
+
+@media (max-width: 560px) {
+  .dh-summary-row {
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr) auto;
+    column-gap: var(--s2);
+  }
+  .dh-summary-hint {
+    grid-column: 2 / 4;
   }
 }
 

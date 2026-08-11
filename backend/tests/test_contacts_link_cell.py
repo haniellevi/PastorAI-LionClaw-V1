@@ -24,11 +24,12 @@ from __future__ import annotations
 import uuid
 from types import SimpleNamespace
 
+import pytest
 import sqlalchemy as sa
 from fastapi.testclient import TestClient
 from sqlalchemy.sql import operators as sa_operators
 
-from app.db.models import AppUser, Celula, CelulaMembro, Pessoa
+from app.db.models import AppUser, Celula, CelulaMembro, Pessoa, WorkQueueItem
 from app.db.session import get_db
 from app.deps import CurrentUser, get_current_user
 
@@ -55,6 +56,9 @@ class _Result:
     def scalar_one_or_none(self):
         return self._scalar
 
+    def scalar_one(self):
+        return self._scalar
+
     def scalars(self):
         items = self._scalars_list
         return SimpleNamespace(all=lambda: list(items), first=lambda: (items[0] if items else None))
@@ -71,6 +75,13 @@ def _right_value(right):
 
 
 def _row_matches(row, node) -> bool:
+    children = getattr(node, "clauses", None)
+    if children is not None:
+        matches = [_row_matches(row, child) for child in children]
+        if getattr(node, "operator", None) is sa_operators.or_:
+            return any(matches)
+        return all(matches)
+
     left = getattr(node, "left", None)
     right = getattr(node, "right", None)
     if left is not None and right is not None:
@@ -82,10 +93,9 @@ def _row_matches(row, node) -> bool:
         op = getattr(node, "operator", None)
         if op is sa_operators.ne:
             return str(actual) != str(value)
+        if op is sa_operators.in_op:
+            return actual in value
         return str(actual) == str(value)
-    children = getattr(node, "clauses", None)
-    if children is not None:
-        return all(_row_matches(row, c) for c in children)
     return True
 
 
@@ -97,13 +107,24 @@ def _filter(rows, statement):
 
 
 class _LinkCellSession:
-    def __init__(self, *, pessoas=(), cells=(), membros=()) -> None:
+    def __init__(
+        self,
+        *,
+        pessoas=(),
+        cells=(),
+        membros=(),
+        work_items=(),
+        fail_flush_at: int | None = None,
+    ) -> None:
         self.pessoas = list(pessoas)
         self.cells = list(cells)
         self.membros = list(membros)
+        self.work_items = list(work_items)
         self.added: list = []
         self.committed = False
         self.execute_count = 0
+        self.flush_count = 0
+        self.fail_flush_at = fail_flush_at
 
     def execute(self, statement, params=None) -> _Result:
         self.execute_count += 1
@@ -119,6 +140,16 @@ class _LinkCellSession:
         if ent is CelulaMembro:
             rows = _filter(self.membros, statement)
             return _Result(scalar=(rows[0] if rows else None), scalars_list=rows)
+        if ent is WorkQueueItem:
+            rows = _filter(self.work_items, statement)
+            return _Result(scalar=(rows[0] if rows else None), scalars_list=rows)
+
+        # GET /work-queue first issues SELECT count(*) FROM work_queue_items.
+        # Its column description has entity=None, so route it by FROM table.
+        froms = list(getattr(statement, "get_final_froms", lambda: [])())
+        if any(getattr(table, "name", None) == "work_queue_items" for table in froms):
+            rows = _filter(self.work_items, statement)
+            return _Result(scalar=len(rows), scalars_list=rows)
         return _Result()  # text() do set_tenant_context (RLS GUC)
 
     def add(self, obj) -> None:
@@ -129,7 +160,9 @@ class _LinkCellSession:
             self.membros.append(obj)
 
     def flush(self) -> None:
-        pass
+        self.flush_count += 1
+        if self.flush_count == self.fail_flush_at:
+            raise RuntimeError("falha simulada antes de encerrar a fila")
 
     def refresh(self, obj) -> None:
         pass
@@ -217,6 +250,28 @@ def _membro(*, pessoa_id, celula_id, ativo) -> SimpleNamespace:
         celula_id=celula_id,
         papel="membro",
         ativo=ativo,
+    )
+
+
+def _work_item(
+    *,
+    pessoa_id: uuid.UUID,
+    status: str | None = "aberto",
+    tipo: str = "conectar_celula",
+    igreja_id: str = _IGREJA_ID,
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        id=uuid.uuid4(),
+        igreja_id=igreja_id,
+        tipo=tipo,
+        titulo="Conectar pessoa a uma célula",
+        contexto=None,
+        pessoa_id=pessoa_id,
+        responsavel_id=None,
+        status=status,
+        prazo=None,
+        prioridade=1,
+        created_at=None,
     )
 
 
@@ -381,3 +436,146 @@ def test_link_cell_pastor_can_create_first_link(app) -> None:
     assert len(novos) == 1
     assert novos[0].ativo is True
     assert session.committed is True
+
+
+# ---------------------------------------------------------------------------
+# 7) o vínculo satisfaz atomicamente a obrigação conectar_celula. Um refresh
+#    da fila não pode ressuscitar o item já resolvido.
+# ---------------------------------------------------------------------------
+def test_link_cell_resolves_connection_item_and_refresh_hides_it(app) -> None:
+    pessoa = _pessoa(_PESSOA_ID, celula_id=None)
+    cell = _cell(_NEW_CELL)
+    item = _work_item(pessoa_id=pessoa.id)
+    session = _LinkCellSession(
+        pessoas=[pessoa], cells=[cell], work_items=[item]
+    )
+    client = _client(app, session=session, current_user=_admin())
+
+    linked = client.post(
+        f"/contacts/{pessoa.id}/cell",
+        headers=_AUTH,
+        json={"celulaId": str(cell.id)},
+    )
+    refreshed = client.get("/work-queue", headers=_AUTH)
+
+    assert linked.status_code == 200, linked.text
+    assert item.status == "resolvido"
+    assert refreshed.status_code == 200, refreshed.text
+    assert refreshed.json()["items"] == []
+    assert refreshed.json()["total"] == 0
+
+
+def test_link_cell_resolves_only_matching_open_connection_items(app) -> None:
+    pessoa = _pessoa(_PESSOA_ID, celula_id=None)
+    other_person = _pessoa(uuid.uuid4(), celula_id=None)
+    other_person.sem_interesse = True
+    other_person.sem_interesse_motivo = "Contato comercial"
+    cell = _cell(_NEW_CELL)
+    open_item = _work_item(pessoa_id=pessoa.id, status="aberto")
+    assumed_item = _work_item(pessoa_id=pessoa.id, status="assumido")
+    legacy_item = _work_item(pessoa_id=pessoa.id, status=None)
+    already_resolved = _work_item(pessoa_id=pessoa.id, status="resolvido")
+    unrelated_type = _work_item(
+        pessoa_id=pessoa.id, status="aberto", tipo="atendimento"
+    )
+    other_person_item = _work_item(pessoa_id=other_person.id, status="aberto")
+    other_tenant_item = _work_item(
+        pessoa_id=pessoa.id,
+        status="aberto",
+        igreja_id="00000000-0000-0000-0000-000000000002",
+    )
+    session = _LinkCellSession(
+        pessoas=[pessoa, other_person],
+        cells=[cell],
+        work_items=[
+            open_item,
+            assumed_item,
+            legacy_item,
+            already_resolved,
+            unrelated_type,
+            other_person_item,
+            other_tenant_item,
+        ],
+    )
+    client = _client(app, session=session, current_user=_admin())
+
+    response = client.post(
+        f"/contacts/{pessoa.id}/cell",
+        headers=_AUTH,
+        json={"celulaId": str(cell.id)},
+    )
+
+    assert response.status_code == 200, response.text
+    assert [open_item.status, assumed_item.status, legacy_item.status] == [
+        "resolvido",
+        "resolvido",
+        "resolvido",
+    ]
+    assert already_resolved.status == "resolvido"
+    assert unrelated_type.status == "aberto"
+    assert other_person_item.status == "aberto"
+    assert other_tenant_item.status == "aberto"
+    assert other_person.sem_interesse is True
+    assert other_person.sem_interesse_motivo == "Contato comercial"
+
+
+def test_link_cell_retry_is_idempotent_for_membership_and_queue(app) -> None:
+    pessoa = _pessoa(_PESSOA_ID, celula_id=None)
+    cell = _cell(_NEW_CELL)
+    item = _work_item(pessoa_id=pessoa.id)
+    session = _LinkCellSession(
+        pessoas=[pessoa], cells=[cell], work_items=[item]
+    )
+    client = _client(app, session=session, current_user=_admin())
+    path = f"/contacts/{pessoa.id}/cell"
+    payload = {"celulaId": str(cell.id)}
+
+    first = client.post(path, headers=_AUTH, json=payload)
+    second = client.post(path, headers=_AUTH, json=payload)
+
+    assert first.status_code == 200, first.text
+    assert second.status_code == 200, second.text
+    assert item.status == "resolvido"
+    novos = [obj for obj in session.added if isinstance(obj, CelulaMembro)]
+    assert len(novos) == 1
+    assert novos[0].ativo is True
+
+
+def test_link_cell_failure_before_queue_resolution_leaves_item_open(app) -> None:
+    pessoa = _pessoa(_PESSOA_ID, celula_id=None)
+    cell = _cell(_NEW_CELL)
+    item = _work_item(pessoa_id=pessoa.id)
+    session = _LinkCellSession(
+        pessoas=[pessoa],
+        cells=[cell],
+        work_items=[item],
+        fail_flush_at=1,
+    )
+    client = _client(app, session=session, current_user=_admin())
+
+    with pytest.raises(RuntimeError, match="falha simulada"):
+        client.post(
+            f"/contacts/{pessoa.id}/cell",
+            headers=_AUTH,
+            json={"celulaId": str(cell.id)},
+        )
+
+    assert item.status == "aberto"
+    assert session.committed is False
+
+
+def test_link_cell_invalid_contact_uuid_does_not_touch_queue(app) -> None:
+    item = _work_item(pessoa_id=_PESSOA_ID)
+    session = _LinkCellSession(cells=[_cell(_NEW_CELL)], work_items=[item])
+    client = _client(app, session=session, current_user=_admin())
+
+    response = client.post(
+        "/contacts/uuid-invalido/cell",
+        headers=_AUTH,
+        json={"celulaId": str(_NEW_CELL)},
+    )
+
+    assert response.status_code == 404
+    assert item.status == "aberto"
+    assert session.execute_count == 0
+    assert session.committed is False
