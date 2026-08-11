@@ -79,8 +79,8 @@ def assert_membro_elegivel(
     """Recusa (``MembroInelegivelError``) uma pessoa inelegível a membro de célula.
 
     Guarda COMPARTILHADA: concentrada aqui para valer em TODOS os pontos de
-    escrita (o seam ``ensure_active_membro`` — convite/ativação/link_cell/tool do
-    agente — e a entrada direta ``cells.add_cell_member``), sem duplicar a regra.
+    escrita (seam ``ensure_active_membro``, solicitações, multiplicação e tool do
+    agente), sem duplicar a regra.
     Usa ``getattr`` porque os fakes de teste modelam a pessoa/célula como
     ``SimpleNamespace`` parcial; em produção os atributos são colunas reais.
     """
@@ -101,6 +101,21 @@ def assert_membro_elegivel(
         raise MembroInelegivelError(
             "lider_nao_membro_propria_celula",
             "O líder da célula não pode ser membro da própria célula.",
+        )
+
+    leads_active_cell = db.execute(
+        select(Celula.id)
+        .where(
+            Celula.igreja_id == igreja_id,
+            Celula.lider_id == pessoa.id,
+            Celula.ativo.is_(True),
+        )
+        .limit(1)
+    ).scalar_one_or_none()
+    if leads_active_cell is not None:
+        raise MembroInelegivelError(
+            "active_leader_cannot_be_member",
+            "Pessoa que lidera uma célula ativa não pode ser adicionada como membro.",
         )
 
     if phone_matches_active_whatsapp(
@@ -217,7 +232,6 @@ def ensure_active_membro(
     papel: str = "membro",
     pode_transferir: bool = False,
     reject_existing_active: bool = False,
-    forbid_active_leader: bool = False,
 ) -> CelulaMembro:
     """Garante uma linha ATIVA de celula_membro para (pessoa, célula).
 
@@ -256,8 +270,8 @@ def ensure_active_membro(
         )
 
     # Missão M7B-W1.2: guarda de elegibilidade no seam canônico. Carrega a pessoa
-    # UMA vez (reusada na promoção adiante) e recusa pastor / líder da própria
-    # célula / número do WhatsApp ANTES de qualquer escrita. Pessoa fora do
+    # UMA vez (reusada na promoção adiante) e recusa pastor / líder ativo /
+    # número do WhatsApp ANTES de qualquer escrita. Pessoa fora do
     # escopo do tenant (None) não é avaliável aqui — a FK barra o vínculo órfão.
     pessoa = db.execute(
         select(Pessoa)
@@ -268,22 +282,6 @@ def ensure_active_membro(
     if pessoa is None:
         raise ValueError("Pessoa fora do escopo da igreja — vínculo recusado")
     assert_membro_elegivel(db, igreja_id=igreja_id, celula=celula, pessoa=pessoa)
-    if forbid_active_leader:
-        leads_active_cell = db.execute(
-            select(Celula.id)
-            .where(
-                Celula.igreja_id == igreja_id,
-                Celula.lider_id == pessoa_id,
-                Celula.ativo.is_(True),
-            )
-            .limit(1)
-        ).scalar_one_or_none()
-        if leads_active_cell is not None:
-            raise MembroInelegivelError(
-                "active_leader_cannot_be_member",
-                "Pessoa que lidera uma célula ativa não pode ser adicionada como membro.",
-            )
-
     # D2: pessoa que já pertence a OUTRA célula (linha canônica ativa ou espelho
     # legado pessoas.celula_id) só é reatribuída com a capacidade
     # ``pode_transferir``. A recusa acontece AQUI — antes de desativar o vínculo

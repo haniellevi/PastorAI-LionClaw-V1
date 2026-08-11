@@ -13,6 +13,11 @@ from app.db.session import get_db
 from app.deps import CurrentUser, get_current_user
 from app.services.brevo import get_brevo_client
 from app.services.clerk import get_clerk_client
+from app.services.invite_identity import (
+    assert_invite_email_available,
+    get_invite_identity_db,
+    invite_email_advisory_key,
+)
 from tests.conftest import FakeClerk
 
 _IGREJA_ID = "00000000-0000-0000-0000-000000000001"
@@ -200,11 +205,16 @@ def _pessoa(pessoa_id: uuid.UUID, *, celula_id=None, email: str | None = None) -
     )
 
 
-def _client(app, *, session, current_user, clerk=None) -> TestClient:
+def _client(
+    app, *, session, current_user, clerk=None, identity_session=None
+) -> TestClient:
     app.dependency_overrides[get_db] = lambda: session
     app.dependency_overrides[get_current_user] = lambda: current_user
     app.dependency_overrides[get_clerk_client] = lambda: clerk or FakeClerk()
     app.dependency_overrides[get_brevo_client] = lambda: _FakeBrevo()
+    app.dependency_overrides[get_invite_identity_db] = (
+        lambda: identity_session or session
+    )
     return TestClient(app)
 
 
@@ -327,6 +337,45 @@ def test_invite_rejects_existing_global_clerk_identity_before_write(app) -> None
     assert session.added == []
     assert clerk.create_calls == 0
     assert "PG_ADVISORY_XACT_LOCK" in str(session.statements[0]).upper()
+
+
+def test_team_and_platform_invites_share_the_same_normalized_email_lock() -> None:
+    from app.routers import platform_admin, team
+
+    assert team.assert_invite_email_available is assert_invite_email_available
+    assert platform_admin.assert_invite_email_available is assert_invite_email_available
+    assert invite_email_advisory_key(" Pessoa@Igreja.ORG ") == (
+        invite_email_advisory_key("pessoa@igreja.org")
+    )
+
+
+def test_invite_rejects_pending_access_from_another_church(app) -> None:
+    tenant_session = _InviteSession()
+    other_church_pending = SimpleNamespace(
+        id=uuid.uuid4(),
+        igreja_id=uuid.uuid4(),
+        email="pendente@igreja.org",
+        status="convidado",
+        clerk_user_id=None,
+    )
+    global_identity_session = _InviteSession(app_users=[other_church_pending])
+
+    resp = _client(
+        app,
+        session=tenant_session,
+        identity_session=global_identity_session,
+        current_user=_admin(),
+    ).post(
+        "/team/invite",
+        json={"nome": "Novo", "email": "pendente@igreja.org"},
+        headers=_AUTH,
+    )
+
+    assert resp.status_code == 409
+    assert tenant_session.added == []
+    assert "PG_ADVISORY_XACT_LOCK" in str(
+        global_identity_session.statements[0]
+    ).upper()
 
 
 def test_invite_fails_closed_when_clerk_lookup_is_unavailable(app) -> None:

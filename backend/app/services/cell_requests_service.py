@@ -226,7 +226,7 @@ def _apply_payload(
             )
         ).scalar_one_or_none()
         # M7B-W1.2: guarda compartilhada ANTES de desativar/inserir — recusa
-        # pastor / líder da célula de destino / número do WhatsApp (este é o 6º
+        # pastor / qualquer líder ativo / número do WhatsApp (este é o 6º
         # ponto de escrita de celula_membro; não passa pelo seam ensure_active_membro).
         # MembroInelegivelError vira 409 no handler global. Guarda antes da mutação
         # para a recusa não deixar o vínculo antigo desativado (a transação inteira

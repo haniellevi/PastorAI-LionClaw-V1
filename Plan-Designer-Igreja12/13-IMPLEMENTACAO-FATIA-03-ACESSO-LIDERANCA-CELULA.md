@@ -11,8 +11,9 @@ Branch local: `codex/ux03-cell-access-leadership`
 PR rascunho: [#250](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/250),
 empilhado sobre a Fatia 02
 
-Grafo: fresco, porém `NÃO COMPROVADO` por integridade estrutural; decisões por
-leitura direta, testes e revisão independente
+Grafo: `NÃO COMPROVADO`; não havia manifesto/índice com raiz, commit, horário e
+integridade demonstráveis. Decisões por leitura direta, testes e revisão
+independente
 
 ## Objetivo
 
@@ -44,7 +45,7 @@ flowchart LR
 - o convite não recebe `celulaId` e nunca move a Pessoa;
 - Pessoa já vinculada ou que já lidera pode receber acesso;
 - convite novo começa com papel base `membro`;
-- e-mail existente no tenant ou no Clerk é recusado;
+- e-mail existente em qualquer igreja ou no Clerk é recusado;
 - falha de consulta ao Clerk interrompe o convite, sem criar estado local;
 - reenviar é permitido somente para convite realmente pendente;
 - token revogado ou já ativado não reabre acesso.
@@ -120,6 +121,8 @@ cadastro correto. Telefone auto-informado não é prova de identidade.
 - último administrador considera somente acesso utilizável, não convite ou
   revogado com papel residual;
 - owner precisa continuar sendo administrador utilizável;
+- todas as superfícies de convite compartilham a mesma trava advisory de e-mail
+  e uma consulta global estreita, sem desmontar o RLS da sessão principal;
 - criação de Pessoa por telefone usa a mesma advisory lock canônica em ativação,
   Pessoas e inbound do WhatsApp;
 - criação Clerk que vence e falha no commit local recebe compensação best-effort;
@@ -139,41 +142,67 @@ cadastro correto. Telefone auto-informado não é prova de identidade.
 - reparo automático de dados legados;
 - suporte de uma identidade Clerk a várias igrejas;
 - decisão de produto sobre permitir célula ativa sem líder. O runtime atual
-  permite o cadastro, mas bloqueia novos membros enquanto não houver líder;
-- smoke autenticado visual e concorrência/RLS em PostgreSQL real.
+  permite o cadastro, mas bloqueia novos membros enquanto não houver líder.
 
 ## Auditoria pré-implantação
 
 O arquivo
 [`auditorias/03-acesso-lideranca-celula-readonly.sql`](auditorias/03-acesso-lideranca-celula-readonly.sql)
 contém somente `SELECT`. Ele mede divergências legadas sem reparar ou escrever
-dados. A execução em staging ou produção continua dependendo de gate humano
-específico.
+dados. Em 2026-08-11 ele foi executado contra o banco DEV dentro de transação
+`REPEATABLE READ READ ONLY`, encerrada com `ROLLBACK`.
+
+Resultado DEV:
+
+- `0` célula ativa sem líder;
+- `0` líder sem papel derivado;
+- `0` líder sem exatamente um acesso utilizável;
+- `0` papel derivado sem liderança ativa;
+- `0` pessoa liderando mais de uma célula ativa;
+- `0` vínculo espelho divergente, convite legado de célula, acesso duplicado,
+  dono inutilizável ou e-mail duplicado;
+- `1` acesso sem papel ministerial, explicado integralmente pelo
+  `platform_admin`; divergência não explicada: `0`.
+
+Nenhum identificador ou nome do resultado foi gravado no repositório. Staging e
+produção continuam dependendo de gate humano próprio.
 
 ## Validação consolidada
 
-- Backend completo, repetido pelo agente principal: `2260 passed`, `135 skipped`,
+- Backend completo, repetido após a revisão da PR: `2265 passed`, `135 skipped`,
   `64 warnings`.
 - Frontend completo: `83` arquivos e `694` testes aprovados.
 - Typecheck e build de produção Next.js: `PASS`.
 - `compileall` do backend e `git diff --check`: `PASS`.
-- Revisão independente de segurança: `367` testes focais aprovados e nenhum
-  P0/P1 reproduzível remanescente no diff congelado.
+- A revisão da PR encontrou quatro P1 reproduzíveis: vínculo da Parte B perdido
+  com `autoflush=False`, reserva de e-mail não global, fixtures de concorrência
+  inválidas e dois writers que aceitavam líder ativo como membro. Os quatro
+  foram corrigidos antes desta consolidação.
+- Re-revisão independente do diff combinado: `PASS`, sem P0/P1 reproduzível.
+- PostgreSQL descartável real, com o mesmo driver do CI: suíte RLS
+  `120 passed`, `7 deselected`; os dez casos antes vermelhos passaram `10/10`.
 - Travas de `AppUser` compiladas como `FOR UPDATE OF app_users`, evitando lock
   indevido sobre o lado anulável do `LEFT JOIN` eager.
-- Concorrência PostgreSQL e RLS reais: `NÃO MEDIDO`, porque
-  `RLS_TEST_DATABASE_URL` não está disponível neste ambiente.
-- Smoke visual autenticado nos breakpoints-alvo: ainda não executado.
-- A auditoria SQL somente leitura foi revisada estaticamente, mas não executada
-  contra banco algum.
+- Smoke autenticado DEV: login e Painel de Hoje validados para admin, pastor,
+  líderes G12, consolidação, célula e multiplicação, operador e membro.
+- Central de Células: admin validado em `360`, `390`, `414`, `768`, `1024` e
+  `1440` px; matriz de papéis validada em `390` e `1440` px. Não houve overflow
+  horizontal nem quebra de texto interno nos botões observados.
+- Rotas restritas redirecionaram operador, membro, líder de consolidação e líder
+  de multiplicação ao dashboard; pastor e líder G12 mantiveram suas superfícies
+  autorizadas; nenhuma ação de escrita foi confirmada no smoke.
+- Limite do ambiente DEV: Redis indisponível deixou o rate limit local em
+  fail-open. As telas auditadas não produziram resposta `5xx`, mas esse ponto não
+  prova a postura do ambiente implantado.
 
 ## Gate de aceite
 
 Antes de merge:
 
-1. executar a auditoria somente leitura e revisar cada divergência;
-2. smoke autenticado com admin, pastor, líder, operador e membro;
-3. testar acesso, vínculo e liderança como ações separadas;
-4. verificar 360, 390, 768, 1024 e 1440 px;
-5. decidir se célula ativa sem líder continua válida;
-6. manter migration, merge, deploy e produção como gates separados.
+1. `CONCLUÍDO`: auditoria DEV somente leitura e explicação das divergências;
+2. `CONCLUÍDO`: smoke autenticado por papel, sem escrita de dados;
+3. `CONCLUÍDO EM TESTES`: acesso, vínculo e liderança como ações separadas;
+4. `CONCLUÍDO`: 360, 390, 414, 768, 1024 e 1440 px;
+5. `PENDENTE DE PRODUTO`: decidir se célula ativa sem líder continua válida;
+6. `PENDENTE DE NOVO GATE`: ready for review, merge, migration, deploy e produção
+   continuam separados.

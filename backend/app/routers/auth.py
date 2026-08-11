@@ -634,6 +634,10 @@ def activate(
             _prepare_cadastro_pessoa(
                 db, app_user, payload.telefone or "", normalized
             )
+            # SessionLocal usa autoflush=False. Persiste o vínculo preparado
+            # antes da releitura populate_existing; sem isto, a releitura
+            # restaura pessoa_id/celula_pendente_id antigos e orfana a Pessoa.
+            db.flush()
         else:
             _lock_pessoa_and_assert_unique_access(
                 db,

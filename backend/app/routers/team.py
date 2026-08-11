@@ -5,21 +5,21 @@ Endpoints (RF-40 / RF-04 / F3):
   - PUT    /team/{usuarioId}/roles  edit accumulated roles (union)
   - DELETE /team/{usuarioId}      revoke access (soft: status -> 'revogado')
 
-A duplicate email in the tenant is rejected (409). Roles are stored as the union
-of user_roles (F3). Removing/demoting (roles) or revoking (access) the LAST
-active admin is blocked so a tenant never loses its administrator. Config screens
-are admin-only (delta-005).
+A duplicate e-mail anywhere in the platform is rejected (409), matching Clerk's
+global identity namespace. Roles are stored as the union of user_roles (F3).
+Removing/demoting (roles) or revoking (access) the LAST active admin is blocked
+so a tenant never loses its administrator. Config screens are admin-only
+(delta-005).
 """
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-from sqlalchemy import func, or_, select, text
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.config import get_settings
@@ -36,8 +36,12 @@ from app.domain.conversations import INBOX_ROLES, can_access_inbox
 from app.domain.work_queue import TIPO_RESOLVER_ROLES, resolvable_tipos
 from app.routers._common import Page, PaginationParams
 from app.services.brevo import BrevoClient, BrevoError, get_brevo_client
-from app.services.clerk import ClerkAuthError, ClerkClient, get_clerk_client
+from app.services.clerk import ClerkClient, get_clerk_client
 from app.services.cell_leadership import resolve_effective_access
+from app.services.invite_identity import (
+    assert_invite_email_available,
+    get_invite_identity_db,
+)
 
 logger = logging.getLogger("pastorai.team")
 
@@ -234,21 +238,6 @@ def _lock_admin_floor(db: Session, igreja_id: uuid.UUID) -> None:
         )
 
 
-def _lock_invite_email(db: Session, email: str) -> None:
-    """Serializa convites pelo e-mail global normalizado sem exigir migration."""
-
-    material = f"team-invite-email:{email}".encode("utf-8")
-    key = int.from_bytes(
-        hashlib.blake2b(material, digest_size=8).digest(),
-        byteorder="big",
-        signed=True,
-    )
-    db.execute(
-        text("SELECT pg_advisory_xact_lock(:team_invite_email_key)"),
-        {"team_invite_email_key": key},
-    )
-
-
 @router.get("", response_model=Page[TeamMemberOut])
 def list_members(
     pagination: PaginationParams = Depends(),
@@ -440,6 +429,7 @@ def invite_member(
     payload: InviteRequest,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(require_role(["admin"])),
+    identity_db: Session = Depends(get_invite_identity_db),
     mailer: BrevoClient = Depends(get_brevo_client),
     clerk: ClerkClient = Depends(get_clerk_client),
 ) -> InviteResponse:
@@ -453,35 +443,9 @@ def invite_member(
     igreja_uuid = uuid.UUID(current_user.igreja_id)
     email = str(payload.email).strip().lower()
 
-    # app_users.email ainda não possui UNIQUE. A trava global acompanha o
-    # namespace global do Clerk e fecha dois convites simultâneos, inclusive
-    # de igrejas diferentes, antes das duas reconsultas abaixo.
-    _lock_invite_email(db, email)
-    existing = db.execute(
-        select(AppUser).where(
-            AppUser.igreja_id == igreja_uuid,
-            func.lower(AppUser.email) == email,
-        )
-    ).scalar_one_or_none()
-    if existing is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Já existe um usuário com este e-mail",
-        )
-    try:
-        clerk_existing = clerk.find_user_id_by_email(email)
-    except ClerkAuthError as exc:
-        # Lookup é pré-condição de segurança: sem resposta confiável não criamos
-        # um convite que poderia tomar a identidade global de outra igreja.
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Não foi possível validar o e-mail para convite",
-        ) from exc
-    if clerk_existing is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Este e-mail não está disponível para um novo acesso",
-        )
+    # A sessão dedicada mantém a trava até esta rota terminar e enxerga todos
+    # os tenants sem desfazer o pin RLS da sessão principal.
+    assert_invite_email_available(identity_db, clerk, email)
 
     if payload.pessoaId:
         # Parte A — a pessoa JÁ está cadastrada (tem telefone). RLS escopa a

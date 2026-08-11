@@ -190,6 +190,26 @@ def test_vincular_celula_first_link_creates_celula_membro() -> None:
     assert novos[0].ativo is True
 
 
+def test_vincular_celula_recusa_lider_ativo_de_outra_celula() -> None:
+    pessoa = _pessoa(_PESSOA_ID, celula_id=None, tipo="lider")
+    target = _cell(_NEW_CELL)
+    led_cell = _cell(_OLD_CELL, lider_id=_PESSOA_ID)
+    session = _ToolSession(pessoas=[pessoa], cells=[target, led_cell])
+
+    with pytest.raises(ToolError, match="lidera uma célula ativa"):
+        vincular_celula(
+            session,
+            igreja_id=_IGREJA_ID,
+            pessoa_id=_PESSOA_ID,
+            celula_id=_NEW_CELL,
+            actor_roles={"pastor"},
+        )
+
+    assert pessoa.celula_id is None
+    assert pessoa.tipo == "lider"
+    assert session.added == []
+
+
 def test_vincular_celula_recusa_transferencia_sem_mutacao_parcial() -> None:
     # D2: o agente passa pode_transferir=False — reatribuir quem já pertence a
     # OUTRA célula é recusado PELO DOMÍNIO antes de qualquer escrita. Nada de

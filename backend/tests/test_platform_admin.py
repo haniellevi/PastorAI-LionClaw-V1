@@ -32,6 +32,7 @@ from app.db.models import (
 from app.db.session import get_db
 from app.services.brevo import BrevoError, get_brevo_client
 from app.services.clerk import ClerkUnavailableError, get_clerk_client
+from app.services.invite_identity import get_invite_identity_db
 from tests.conftest import FakeClerk, make_app_user
 
 # Catálogo padrão usado pelo fake quando o teste não fornece planos: os 3
@@ -247,9 +248,10 @@ class FakeMailer:
         self.sent.append(to_email)
 
 
-def _wire(app, *, db, clerk, mailer=None) -> TestClient:
+def _wire(app, *, db, clerk, mailer=None, identity_db=None) -> TestClient:
     app.dependency_overrides[get_db] = lambda: db
     app.dependency_overrides[get_clerk_client] = lambda: clerk
+    app.dependency_overrides[get_invite_identity_db] = lambda: identity_db or db
     if mailer is not None:
         app.dependency_overrides[get_brevo_client] = lambda: mailer
     return TestClient(app)

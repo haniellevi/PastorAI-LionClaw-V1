@@ -18,14 +18,13 @@ and must never expose cross-tenant data.
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import re
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import func, or_, select, text
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -58,6 +57,10 @@ from app.services.clerk import (
     ClerkClient,
     ClerkUnavailableError,
     get_clerk_client,
+)
+from app.services.invite_identity import (
+    assert_invite_email_available,
+    get_invite_identity_db,
 )
 from app.services.rate_limit import RateLimiter, get_rate_limiter
 
@@ -383,47 +386,6 @@ def _activation_link(app_user_id: uuid.UUID, clerk: ClerkClient) -> str:
     return f"{base}/#ativar/{token}"
 
 
-def _lock_invite_email(db: Session, email: str) -> None:
-    material = f"platform-invite-email:{email}".encode("utf-8")
-    key = int.from_bytes(
-        hashlib.blake2b(material, digest_size=8).digest(),
-        byteorder="big",
-        signed=True,
-    )
-    db.execute(
-        text("SELECT pg_advisory_xact_lock(:platform_invite_email_key)"),
-        {"platform_invite_email_key": key},
-    )
-
-
-def _assert_invite_email_available(
-    db: Session, clerk: ClerkClient, email: str
-) -> None:
-    """Serializa e revalida a identidade global antes de persistir convite."""
-
-    _lock_invite_email(db, email)
-    existing = db.execute(
-        select(AppUser.id).where(func.lower(AppUser.email) == email).limit(1)
-    ).scalar_one_or_none()
-    if existing is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Já existe um acesso com este e-mail.",
-        )
-    try:
-        clerk_existing = clerk.find_user_id_by_email(email)
-    except ClerkAuthError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Não foi possível validar o e-mail para convite.",
-        ) from exc
-    if clerk_existing is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Este e-mail não está disponível para um novo acesso.",
-        )
-
-
 def _usable_admin_ids(db: Session, ig_uuid: uuid.UUID) -> set[uuid.UUID]:
     return set(
         db.execute(
@@ -507,6 +469,7 @@ def create_igreja(
     payload: CreateIgrejaRequest,
     db: Session = Depends(get_db),
     admin: PlatformAdminUser = Depends(get_platform_admin),
+    identity_db: Session = Depends(get_invite_identity_db),
     mailer: BrevoClient = Depends(get_brevo_client),
     clerk: ClerkClient = Depends(get_clerk_client),
 ) -> CreateIgrejaResponse:
@@ -525,7 +488,7 @@ def create_igreja(
 
     if payload.plano is not None:
         _validate_plano_or_422(db, payload.plano)
-    _assert_invite_email_available(db, clerk, email)
+    assert_invite_email_available(identity_db, clerk, email)
 
     igreja = Igreja(
         nome=payload.nome,
@@ -1437,6 +1400,7 @@ def add_igreja_admin(
     payload: AdminSeed,
     db: Session = Depends(get_db),
     admin: PlatformAdminUser = Depends(get_platform_admin),
+    identity_db: Session = Depends(get_invite_identity_db),
     mailer: BrevoClient = Depends(get_brevo_client),
     clerk: ClerkClient = Depends(get_clerk_client),
 ) -> AddAdminResponse:
@@ -1447,7 +1411,7 @@ def add_igreja_admin(
     igreja = _get_igreja_or_404(db, igreja_id)
     ig_uuid = uuid.UUID(igreja_id)
     email = payload.email
-    _assert_invite_email_available(db, clerk, email)
+    assert_invite_email_available(identity_db, clerk, email)
 
     app_user = AppUser(
         igreja_id=ig_uuid, nome=payload.nome, email=email, status="convidado"

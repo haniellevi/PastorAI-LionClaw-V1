@@ -167,6 +167,7 @@ def _seed(factory: sessionmaker, status_inicial: str) -> None:
                 id=_CELL,
                 igreja_id=_IGREJA,
                 nome="Célula",
+                lider_id=_PASTOR,
                 cobertura_espiritual="Rede",
                 dia_reuniao="quinta",
             )

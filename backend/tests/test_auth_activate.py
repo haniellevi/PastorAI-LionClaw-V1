@@ -7,13 +7,19 @@ chosen password and links it, flipping the account to 'ativo'. Validated offline
 
 from __future__ import annotations
 
+import datetime as dt
+import uuid
 from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine, event
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 
-from app.db.models import AppUser, Celula, Pessoa
+from app.db.models import AppUser, Base, Celula, Igreja, Pessoa, UserRole
 from app.db.session import get_db
+from app.routers import auth as auth_router
 from app.services.clerk import get_clerk_client
 from tests.conftest import FakeClerk
 
@@ -402,6 +408,122 @@ def test_activate_parte_b_legacy_pending_cell_creates_person_without_membership(
     assert nova.celula_id is None
     assert invited.pessoa_id == nova.id
     assert invited.celula_pendente_id is None
+
+
+def test_activate_parte_b_persists_link_before_locked_reload(
+    app, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Prova a regressão de SessionLocal(autoflush=False) com Session real.
+
+    A preparação escreve os atributos apenas na instância ORM. A releitura com
+    ``populate_existing`` restaura os valores antigos se ``activate`` não fizer
+    flush explícito antes do lock.
+    """
+
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+        future=True,
+    )
+
+    @event.listens_for(engine, "connect")
+    def _sqlite_functions(dbapi_connection, _connection_record) -> None:
+        dbapi_connection.create_function(
+            "now", 0, lambda: dt.datetime.now(dt.timezone.utc).isoformat()
+        )
+        dbapi_connection.create_function(
+            "gen_random_uuid", 0, lambda: uuid.uuid4().hex
+        )
+
+    Base.metadata.create_all(
+        engine,
+        tables=[
+            Igreja.__table__,
+            Pessoa.__table__,
+            AppUser.__table__,
+            UserRole.__table__,
+            Celula.__table__,
+        ],
+    )
+    factory = sessionmaker(
+        bind=engine,
+        autoflush=False,
+        expire_on_commit=False,
+        future=True,
+    )
+    session = factory()
+    try:
+        # Inclui dígito hexadecimal alfabético para o SQLite preservar TEXT;
+        # UUIDs só numéricos recebem afinidade NUMERIC nesse dialeto de teste.
+        igreja_id = uuid.UUID("00000000-0000-0000-0000-00000000001a")
+        session.add(Igreja(id=igreja_id, nome="Igreja", status="ativa"))
+        session.flush()
+        session.add(
+            AppUser(
+                id=uuid.UUID(_AID),
+                igreja_id=igreja_id,
+                pessoa_id=None,
+                celula_pendente_id=uuid.UUID(_CELULA_ID),
+                nome="Convite Parte B",
+                email="parte-b@igreja.org",
+                status="convidado",
+            )
+        )
+        session.commit()
+
+        created_person_id = uuid.UUID("00000000-0000-0000-0000-0000000000f1")
+
+        def _prepare_without_implicit_flush(
+            db, app_user, telefone_raw: str, normalized: str
+        ) -> None:
+            pessoa = Pessoa(
+                id=created_person_id,
+                igreja_id=igreja_id,
+                nome=app_user.nome,
+                telefone=telefone_raw,
+                email=app_user.email,
+                tipo="membro",
+            )
+            db.add(pessoa)
+            db.flush()  # como insert_pessoa_or_get_winner: só Pessoa já existe
+            app_user.pessoa_id = pessoa.id
+            app_user.celula_pendente_id = None
+
+        monkeypatch.setattr(
+            auth_router, "_prepare_cadastro_pessoa", _prepare_without_implicit_flush
+        )
+        monkeypatch.setattr(
+            auth_router, "sync_role_after_activation", lambda db, app_user: None
+        )
+        client = _wire(
+            app,
+            session=session,
+            clerk=FakeClerk(
+                invite_app_user_id=_AID,
+                created_clerk_id="clerk_real_session",
+            ),
+        )
+
+        resp = client.post(
+            "/auth/activate",
+            json={
+                "token": "tok",
+                "password": "umaSenha123",
+                "telefone": "(11) 98888-7766",
+            },
+        )
+
+        assert resp.status_code == 200, resp.text
+        session.expire_all()
+        persisted = session.get(AppUser, uuid.UUID(_AID))
+        assert persisted is not None
+        assert persisted.pessoa_id == created_person_id
+        assert persisted.celula_pendente_id is None
+        assert persisted.clerk_user_id == "clerk_real_session"
+    finally:
+        session.close()
+        engine.dispose()
 
 
 @pytest.mark.parametrize("tipo", ["membro", "pastor", "lider"])

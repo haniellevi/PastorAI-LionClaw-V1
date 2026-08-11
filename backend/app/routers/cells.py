@@ -718,7 +718,6 @@ def add_cell_member(
         pessoa_id=pessoa_uuid,
         papel=payload.papel,
         reject_existing_active=True,
-        forbid_active_leader=True,
     )
     try:
         db.flush()

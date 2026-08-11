@@ -672,20 +672,28 @@ def test_ensure_active_membro_recusa_lider_da_propria_celula() -> None:
     assert session.added == []
 
 
-def test_ensure_active_membro_lider_de_outra_celula_e_aceito() -> None:
-    # Líder de OUTRA célula (lider_id != esta pessoa) pode ser membro aqui: a
-    # regra 3 é ESTRITAMENTE sobre a própria célula.
+def test_ensure_active_membro_recusa_lider_ativo_de_outra_celula() -> None:
+    # A guarda canônica vale para todo writer: quem lidera qualquer célula ativa
+    # não pode acumular vínculo de membro em outra.
     pessoa = _pessoa(pessoa_id=_PESSOA_ID, tipo="lider")
-    cell = _cell(_CELULA_ID, igreja_id=_IGREJA_A, lider_id=_OTHER_CELULA_ID)
-    session = _Session(cells=[cell], pessoas=[pessoa])
-
-    ensure_active_membro(
-        session, igreja_id=_IGREJA_A, celula_id=_CELULA_ID, pessoa_id=_PESSOA_ID
+    cell = _cell(_CELULA_ID, igreja_id=_IGREJA_A)
+    led_cell = _cell(
+        _OTHER_CELULA_ID, igreja_id=_IGREJA_A, lider_id=_PESSOA_ID
     )
+    session = _Session(cells=[cell, led_cell], pessoas=[pessoa])
 
-    assert pessoa.tipo == "lider"  # preservado (não rebaixa)
-    novos = [o for o in session.added if isinstance(o, CelulaMembro)]
-    assert len(novos) == 1
+    with pytest.raises(MembroInelegivelError) as exc:
+        ensure_active_membro(
+            session,
+            igreja_id=_IGREJA_A,
+            celula_id=_CELULA_ID,
+            pessoa_id=_PESSOA_ID,
+        )
+
+    assert exc.value.code == "active_leader_cannot_be_member"
+    assert pessoa.celula_id is None
+    assert pessoa.tipo == "lider"
+    assert session.added == []
 
 
 def test_ensure_active_membro_recusa_numero_conectado_ao_whatsapp() -> None:
