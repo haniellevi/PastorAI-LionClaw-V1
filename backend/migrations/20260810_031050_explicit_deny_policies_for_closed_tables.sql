@@ -22,8 +22,9 @@
 begin;
 
 -- PostgreSQL 16 introduziu as opções individuais de membership. A migration
--- precisa da opção SET para auditar caminhos que contornariam RLS com SET ROLE;
--- em versão anterior, falha fechada em vez de alegar uma proteção incompleta.
+-- precisa de SET e ADMIN para auditar tanto caminhos atuais de SET ROLE quanto
+-- memberships que podem habilitar SET ROLE posteriormente; em versão anterior,
+-- falha fechada em vez de alegar uma proteção incompleta.
 set transaction isolation level serializable;
 
 do $migration$
@@ -257,8 +258,9 @@ begin
 
         -- REVOKE ALL PRIVILEGES cobre todos os privilégios de tabela aplicáveis
         -- ao servidor (inclusive MAINTAIN no PostgreSQL 17), sem tocar no
-        -- service_role. O REVOKE por coluna é indispensável: ACLs de coluna não
-        -- são removidas automaticamente por um REVOKE de tabela.
+        -- service_role. PostgreSQL também remove as ACLs de coluna
+        -- correspondentes ao revogar a ACL da tabela; a revogação explícita por
+        -- coluna abaixo é uma defesa redundante e deixa a pós-condição auditável.
         execute format(
             'revoke all privileges on table public.%I from public, anon, authenticated',
             target_table
@@ -367,39 +369,50 @@ begin
                 end loop;
             end loop;
 
-            -- INHERIT e SET são atributos diferentes desde PostgreSQL 16. As
-            -- verificações has_* acima capturam privilégios herdados; este CTE
-            -- percorre somente cadeias transitivas que permitem SET ROLE. Um
-            -- papel alcançável não pode contornar a negação se for superuser,
-            -- BYPASSRLS, proprietário ou ainda enxergar qualquer ACL da tabela.
+            -- INHERIT, SET e ADMIN são atributos diferentes desde PostgreSQL
+            -- 16. As verificações has_* acima capturam privilégios herdados.
+            -- Este CTE percorre tanto SET ROLE atual quanto ADMIN OPTION: quem
+            -- administra uma membership pode conceder a si mesmo SET depois.
+            -- UNION deduplica papéis e termina mesmo diante de múltiplos
+            -- caminhos ou de um catálogo corrompido com ciclo. Um papel
+            -- alcançável não pode contornar a negação se for superuser,
+            -- BYPASSRLS, CREATEROLE, proprietário ou ainda enxergar uma ACL.
             for reachable_role in
-                with recursive set_reachable(role_oid, role_path) as (
-                    select r.oid, array[r.oid]
+                with recursive admin_set_reachable(role_oid) as (
+                    select r.oid
                       from pg_roles r
                      where r.rolname = target_role
 
-                    union all
+                    union
 
-                    select membership.roleid,
-                           set_reachable.role_path || membership.roleid
-                      from set_reachable
-                      join pg_auth_members membership
-                        on membership.member = set_reachable.role_oid
-                     where membership.set_option
-                       and not membership.roleid = any(set_reachable.role_path)
+                    select membership.roleid
+                       from admin_set_reachable
+                       join pg_auth_members membership
+                        on membership.member = admin_set_reachable.role_oid
+                     where membership.set_option or membership.admin_option
                 )
                 select distinct r.oid,
-                                r.rolname,
-                                r.rolsuper,
-                                r.rolbypassrls
-                  from set_reachable
-                  join pg_roles r on r.oid = set_reachable.role_oid
+                                 r.rolname,
+                                 r.rolsuper,
+                                 r.rolbypassrls,
+                                 r.rolcreaterole
+                  from admin_set_reachable
+                  join pg_roles r on r.oid = admin_set_reachable.role_oid
             loop
                 if reachable_role.rolsuper or reachable_role.rolbypassrls then
                     raise exception using
                         errcode = 'P0001',
                         message = format(
-                            'M06 fail-closed: SET ROLE-reachable role %I has BYPASSRLS or SUPERUSER',
+                            'M06 fail-closed: ADMIN/SET-reachable role %I has BYPASSRLS or SUPERUSER',
+                            reachable_role.rolname
+                        );
+                end if;
+
+                if reachable_role.rolcreaterole then
+                    raise exception using
+                        errcode = 'P0001',
+                        message = format(
+                            'M06 fail-closed: ADMIN/SET-reachable role %I has CREATEROLE',
                             reachable_role.rolname
                         );
                 end if;
@@ -413,7 +426,7 @@ begin
                     raise exception using
                         errcode = 'P0001',
                         message = format(
-                            'M06 fail-closed: SET ROLE-reachable role %I owns public.%I',
+                            'M06 fail-closed: ADMIN/SET-reachable role %I owns public.%I',
                             reachable_role.rolname,
                             target_table
                         );
@@ -429,7 +442,7 @@ begin
                         raise exception using
                             errcode = 'P0001',
                             message = format(
-                                'M06 fail-closed: SET ROLE-reachable role %I has effective %s '
+                                'M06 fail-closed: ADMIN/SET-reachable role %I has effective %s '
                                 'table privilege on public.%I',
                                 reachable_role.rolname,
                                 target_privilege,
@@ -451,7 +464,7 @@ begin
                             raise exception using
                                 errcode = 'P0001',
                                 message = format(
-                                    'M06 fail-closed: SET ROLE-reachable role %I has effective %s '
+                                    'M06 fail-closed: ADMIN/SET-reachable role %I has effective %s '
                                     'column privilege on public.%I.%I',
                                     reachable_role.rolname,
                                     column_privilege,

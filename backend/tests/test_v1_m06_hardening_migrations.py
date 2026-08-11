@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -16,6 +17,12 @@ from tests.conftest_rls import rls_database_url  # noqa: F401
 
 MIGRATIONS = Path(__file__).resolve().parents[1] / "migrations"
 POLICIES = MIGRATIONS / "20260810_031050_explicit_deny_policies_for_closed_tables.sql"
+RUNBOOK = (
+    Path(__file__).resolve().parents[2]
+    / "docs"
+    / "security"
+    / "2026-08-10-v1-m06-hardening.md"
+)
 POLICY_NAME = "service_role_bypass_only"
 POLICY_TABLES = (
     "password_reset_tokens",
@@ -74,9 +81,10 @@ def test_closed_tables_migration_is_structurally_fail_closed() -> None:
     assert "revoke select (%i), insert (%i), update (%i), references (%i)" in sql
     assert "has_table_privilege(target_role, target_oid, target_privilege)" in sql
     assert "has_column_privilege(" in sql
-    assert "with recursive set_reachable" in sql
-    assert "membership.set_option" in sql
+    assert "with recursive admin_set_reachable" in sql
+    assert "membership.set_option or membership.admin_option" in sql
     assert "rolbypassrls" in sql
+    assert "rolcreaterole" in sql
     assert "c.relowner = reachable_role.oid" in sql
     assert "service_role_before" in sql
     assert "from pg_policy" in sql
@@ -94,6 +102,16 @@ def test_closed_tables_migration_is_structurally_fail_closed() -> None:
     assert "disable row level security" not in sql
     assert "using (true)" not in sql
     assert "with check (true)" not in sql
+
+
+def test_m06_runbook_records_current_migration_hash_and_admin_model() -> None:
+    runbook = RUNBOOK.read_text(encoding="utf-8")
+    migration_hash = hashlib.sha256(POLICIES.read_bytes()).hexdigest()
+
+    assert POLICIES.name in runbook
+    assert f"SHA-256: {migration_hash}" in runbook
+    assert "ADMIN OPTION" in runbook
+    assert "CREATEROLE" in runbook
 
 
 def _drop_and_create_database(admin_url: object, database: str) -> None:
@@ -527,11 +545,13 @@ def _grant_membership(
     *,
     inherit: bool,
     set_role: bool,
+    admin: bool = False,
 ) -> None:
     with engine.begin() as conn:
         conn.exec_driver_sql(
             f"grant {granted_role} to {member_role} "
-            f"with inherit {'true' if inherit else 'false'}, "
+            f"with admin {'true' if admin else 'false'}, "
+            f"inherit {'true' if inherit else 'false'}, "
             f"set {'true' if set_role else 'false'}"
         )
 
@@ -557,6 +577,42 @@ def _assert_cannot_set_role(engine: Engine, role: str, target_role: str) -> None
             conn.exec_driver_sql(f"set local session authorization {role}")
             with pytest.raises(DBAPIError, match="permission denied to set role"):
                 conn.exec_driver_sql(f"set local role {target_role}")
+        finally:
+            transaction.rollback()
+
+
+def _enable_set_role_via_admin_option(
+    engine: Engine,
+    role: str,
+    target_role: str,
+) -> None:
+    """Prova o caminho PostgreSQL real que ADMIN OPTION pode habilitar."""
+    with engine.begin() as conn:
+        conn.exec_driver_sql(f"set local session authorization {role}")
+        conn.exec_driver_sql(
+            f"grant {target_role} to {role} "
+            "with inherit false, set true"
+        )
+    _assert_can_set_role(engine, role, target_role)
+
+
+def _assert_assumed_role_can_read(
+    engine: Engine,
+    session_role: str,
+    target_role: str,
+    table: str,
+) -> None:
+    with engine.connect() as conn:
+        transaction = conn.begin()
+        try:
+            conn.exec_driver_sql(f"set local session authorization {session_role}")
+            conn.exec_driver_sql(f"set local role {target_role}")
+            assert (
+                conn.exec_driver_sql(
+                    f"select count(*) from public.{table}"
+                ).scalar_one()
+                == 1
+            )
         finally:
             transaction.rollback()
 
@@ -810,7 +866,7 @@ def test_direct_set_role_path_with_table_grant_aborts_and_rolls_back(
     _assert_migration_rejected_without_changes(
         m06_tables,
         migration,
-        r"SET ROLE-reachable role m06_direct_set_table has effective SELECT "
+        r"ADMIN/SET-reachable role m06_direct_set_table has effective SELECT "
         r"table privilege on public\.password_reset_tokens",
     )
 
@@ -845,7 +901,7 @@ def test_transitive_set_role_path_with_table_grant_aborts_and_rolls_back(
     _assert_migration_rejected_without_changes(
         m06_tables,
         migration,
-        r"SET ROLE-reachable role m06_set_leaf has effective SELECT table privilege "
+        r"ADMIN/SET-reachable role m06_set_leaf has effective SELECT table privilege "
         r"on public\.password_reset_tokens",
     )
 
@@ -872,7 +928,7 @@ def test_noinherit_set_role_path_to_bypassrls_aborts_and_rolls_back(
     _assert_migration_rejected_without_changes(
         m06_tables,
         migration,
-        r"SET ROLE-reachable role m06_set_bypass has BYPASSRLS or SUPERUSER",
+        r"ADMIN/SET-reachable role m06_set_bypass has BYPASSRLS or SUPERUSER",
     )
 
 
@@ -897,7 +953,7 @@ def test_set_role_path_to_table_owner_aborts_and_rolls_back(
     _assert_migration_rejected_without_changes(
         m06_tables,
         migration,
-        r"SET ROLE-reachable role m06_set_owner owns public\.password_reset_tokens",
+        r"ADMIN/SET-reachable role m06_set_owner owns public\.password_reset_tokens",
     )
 
 
@@ -923,7 +979,7 @@ def test_set_role_path_with_column_grant_aborts_and_rolls_back(
     _assert_migration_rejected_without_changes(
         m06_tables,
         migration,
-        r"SET ROLE-reachable role m06_set_column has effective REFERENCES column privilege "
+        r"ADMIN/SET-reachable role m06_set_column has effective REFERENCES column privilege "
         r"on public\.password_reset_tokens\.id",
     )
 
@@ -948,6 +1004,332 @@ def test_membership_without_set_role_and_without_inheritance_is_not_false_positi
     _assert_cannot_set_role(m06_tables, "anon", "m06_no_set")
 
     _apply_migration(m06_tables, migration)
+    _assert_closed_grants(m06_tables)
+
+
+@pytest.mark.rls_integration
+def test_admin_option_to_bypassrls_aborts_and_cannot_be_made_safe_by_set_false(
+    m06_tables: Engine,
+) -> None:
+    """ADMIN permite reemitir a membership com SET, mesmo quando SET era false."""
+    migration = POLICIES.read_text(encoding="utf-8")
+    _create_auxiliary_role(
+        m06_tables,
+        "m06_admin_bypass",
+        "nologin noinherit bypassrls",
+    )
+    with m06_tables.begin() as conn:
+        conn.exec_driver_sql(
+            "grant select on table public.password_reset_tokens to m06_admin_bypass"
+        )
+    _grant_membership(
+        m06_tables,
+        "m06_admin_bypass",
+        "anon",
+        inherit=False,
+        set_role=False,
+        admin=True,
+    )
+    _assert_cannot_set_role(m06_tables, "anon", "m06_admin_bypass")
+
+    _assert_migration_rejected_without_changes(
+        m06_tables,
+        migration,
+        r"ADMIN/SET-reachable role m06_admin_bypass has BYPASSRLS or SUPERUSER",
+    )
+
+    _enable_set_role_via_admin_option(m06_tables, "anon", "m06_admin_bypass")
+    _assert_assumed_role_can_read(
+        m06_tables,
+        "anon",
+        "m06_admin_bypass",
+        "password_reset_tokens",
+    )
+
+
+@pytest.mark.rls_integration
+def test_admin_option_path_to_table_owner_aborts_and_rolls_back(
+    m06_tables: Engine,
+) -> None:
+    migration = POLICIES.read_text(encoding="utf-8")
+    _create_auxiliary_role(m06_tables, "m06_admin_owner", "nologin noinherit")
+    with m06_tables.begin() as conn:
+        conn.exec_driver_sql(
+            "alter table public.password_reset_tokens owner to m06_admin_owner"
+        )
+    _grant_membership(
+        m06_tables,
+        "m06_admin_owner",
+        "authenticated",
+        inherit=False,
+        set_role=False,
+        admin=True,
+    )
+
+    _assert_migration_rejected_without_changes(
+        m06_tables,
+        migration,
+        r"ADMIN/SET-reachable role m06_admin_owner owns public\.password_reset_tokens",
+    )
+
+
+@pytest.mark.rls_integration
+def test_admin_option_path_with_table_grant_aborts_and_rolls_back(
+    m06_tables: Engine,
+) -> None:
+    migration = POLICIES.read_text(encoding="utf-8")
+    _create_auxiliary_role(m06_tables, "m06_admin_table", "nologin noinherit")
+    with m06_tables.begin() as conn:
+        conn.exec_driver_sql(
+            "grant select on table public.password_reset_tokens to m06_admin_table"
+        )
+    _grant_membership(
+        m06_tables,
+        "m06_admin_table",
+        "anon",
+        inherit=False,
+        set_role=False,
+        admin=True,
+    )
+
+    _assert_migration_rejected_without_changes(
+        m06_tables,
+        migration,
+        r"ADMIN/SET-reachable role m06_admin_table has effective SELECT table privilege "
+        r"on public\.password_reset_tokens",
+    )
+
+
+@pytest.mark.rls_integration
+def test_admin_option_path_with_column_grant_aborts_and_rolls_back(
+    m06_tables: Engine,
+) -> None:
+    migration = POLICIES.read_text(encoding="utf-8")
+    _create_auxiliary_role(m06_tables, "m06_admin_column", "nologin noinherit")
+    with m06_tables.begin() as conn:
+        conn.exec_driver_sql(
+            "grant references (id) on table public.password_reset_tokens "
+            "to m06_admin_column"
+        )
+    _grant_membership(
+        m06_tables,
+        "m06_admin_column",
+        "authenticated",
+        inherit=False,
+        set_role=False,
+        admin=True,
+    )
+
+    _assert_migration_rejected_without_changes(
+        m06_tables,
+        migration,
+        r"ADMIN/SET-reachable role m06_admin_column has effective REFERENCES column privilege "
+        r"on public\.password_reset_tokens\.id",
+    )
+
+
+@pytest.mark.rls_integration
+def test_admin_option_path_to_createrole_aborts_and_rolls_back(
+    m06_tables: Engine,
+) -> None:
+    migration = POLICIES.read_text(encoding="utf-8")
+    _create_auxiliary_role(
+        m06_tables,
+        "m06_admin_createrole",
+        "nologin noinherit createrole",
+    )
+    _grant_membership(
+        m06_tables,
+        "m06_admin_createrole",
+        "authenticated",
+        inherit=False,
+        set_role=False,
+        admin=True,
+    )
+
+    _assert_migration_rejected_without_changes(
+        m06_tables,
+        migration,
+        r"ADMIN/SET-reachable role m06_admin_createrole has CREATEROLE",
+    )
+
+
+@pytest.mark.rls_integration
+def test_admin_then_set_transitive_path_to_bypassrls_aborts_and_rolls_back(
+    m06_tables: Engine,
+) -> None:
+    migration = POLICIES.read_text(encoding="utf-8")
+    _create_auxiliary_role(m06_tables, "m06_admin_middle", "nologin noinherit")
+    _create_auxiliary_role(
+        m06_tables,
+        "m06_admin_then_set_bypass",
+        "nologin noinherit bypassrls",
+    )
+    _grant_membership(
+        m06_tables,
+        "m06_admin_then_set_bypass",
+        "m06_admin_middle",
+        inherit=False,
+        set_role=True,
+    )
+    _grant_membership(
+        m06_tables,
+        "m06_admin_middle",
+        "anon",
+        inherit=False,
+        set_role=False,
+        admin=True,
+    )
+
+    _assert_migration_rejected_without_changes(
+        m06_tables,
+        migration,
+        r"ADMIN/SET-reachable role m06_admin_then_set_bypass has BYPASSRLS or SUPERUSER",
+    )
+
+
+@pytest.mark.rls_integration
+def test_set_then_admin_transitive_path_to_bypassrls_aborts_and_rolls_back(
+    m06_tables: Engine,
+) -> None:
+    migration = POLICIES.read_text(encoding="utf-8")
+    _create_auxiliary_role(m06_tables, "m06_set_middle", "nologin noinherit")
+    _create_auxiliary_role(
+        m06_tables,
+        "m06_set_then_admin_bypass",
+        "nologin noinherit bypassrls",
+    )
+    _grant_membership(
+        m06_tables,
+        "m06_set_then_admin_bypass",
+        "m06_set_middle",
+        inherit=False,
+        set_role=False,
+        admin=True,
+    )
+    _grant_membership(
+        m06_tables,
+        "m06_set_middle",
+        "authenticated",
+        inherit=False,
+        set_role=True,
+    )
+
+    _assert_migration_rejected_without_changes(
+        m06_tables,
+        migration,
+        r"ADMIN/SET-reachable role m06_set_then_admin_bypass has BYPASSRLS or SUPERUSER",
+    )
+
+
+@pytest.mark.rls_integration
+def test_multiple_admin_and_set_paths_to_bypassrls_abort_without_looping(
+    m06_tables: Engine,
+) -> None:
+    migration = POLICIES.read_text(encoding="utf-8")
+    _create_auxiliary_role(m06_tables, "m06_multi_admin", "nologin noinherit")
+    _create_auxiliary_role(m06_tables, "m06_multi_set", "nologin noinherit")
+    _create_auxiliary_role(
+        m06_tables,
+        "m06_multi_bypass",
+        "nologin noinherit bypassrls",
+    )
+    _grant_membership(
+        m06_tables,
+        "m06_multi_bypass",
+        "m06_multi_admin",
+        inherit=False,
+        set_role=True,
+    )
+    _grant_membership(
+        m06_tables,
+        "m06_multi_bypass",
+        "m06_multi_set",
+        inherit=False,
+        set_role=False,
+        admin=True,
+    )
+    _grant_membership(
+        m06_tables,
+        "m06_multi_admin",
+        "anon",
+        inherit=False,
+        set_role=False,
+        admin=True,
+    )
+    _grant_membership(
+        m06_tables,
+        "m06_multi_set",
+        "anon",
+        inherit=False,
+        set_role=True,
+    )
+
+    _assert_migration_rejected_without_changes(
+        m06_tables,
+        migration,
+        r"ADMIN/SET-reachable role m06_multi_bypass has BYPASSRLS or SUPERUSER",
+    )
+
+
+@pytest.mark.rls_integration
+def test_postgresql_rejects_membership_cycles_and_safe_paths_remain_allowed(
+    m06_tables: Engine,
+) -> None:
+    migration = POLICIES.read_text(encoding="utf-8")
+    _create_auxiliary_role(m06_tables, "m06_cycle_a", "nologin noinherit")
+    _create_auxiliary_role(m06_tables, "m06_cycle_b", "nologin noinherit")
+    _grant_membership(
+        m06_tables,
+        "m06_cycle_b",
+        "m06_cycle_a",
+        inherit=False,
+        set_role=True,
+    )
+    with m06_tables.begin() as conn:
+        with pytest.raises(DBAPIError, match="is a member"):
+            conn.exec_driver_sql(
+                "grant m06_cycle_a to m06_cycle_b "
+                "with admin false, inherit false, set true"
+            )
+
+    _grant_membership(
+        m06_tables,
+        "m06_cycle_a",
+        "anon",
+        inherit=False,
+        set_role=True,
+    )
+    _apply_migration(m06_tables, migration)
+    _apply_migration(m06_tables, migration)
+    _assert_closed_grants(m06_tables)
+
+
+@pytest.mark.rls_integration
+def test_admin_option_to_safe_role_is_not_false_positive_after_self_granting_set(
+    m06_tables: Engine,
+) -> None:
+    migration = POLICIES.read_text(encoding="utf-8")
+    _create_auxiliary_role(m06_tables, "m06_admin_safe", "nologin noinherit")
+    _grant_membership(
+        m06_tables,
+        "m06_admin_safe",
+        "anon",
+        inherit=False,
+        set_role=False,
+        admin=True,
+    )
+    _assert_cannot_set_role(m06_tables, "anon", "m06_admin_safe")
+
+    _apply_migration(m06_tables, migration)
+    _apply_migration(m06_tables, migration)
+    _enable_set_role_via_admin_option(m06_tables, "anon", "m06_admin_safe")
+    _assert_table_privilege_denied(
+        m06_tables,
+        "m06_admin_safe",
+        "password_reset_tokens",
+        "select count(*) from public.password_reset_tokens",
+    )
     _assert_closed_grants(m06_tables)
 
 
