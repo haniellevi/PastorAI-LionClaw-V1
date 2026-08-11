@@ -6,6 +6,7 @@
  */
 import { InfoTip } from "@/components/ui/InfoTip";
 import { RoleBadgeList } from "@/components/ui/RoleBadge";
+import { DiamondMark } from "@/components/brand/DiamondMark";
 import type { SessionUser } from "@/lib/auth-context";
 import { Icon } from "@/lib/icons";
 import { SCREEN_META, groupLabelForScreen } from "@/lib/navigation";
@@ -47,6 +48,11 @@ export function Topbar({
         >
           <Icon name="menu" />
         </button>
+      ) : null}
+      {!menuButton ? (
+        <span className="topbar-brand-mark" aria-hidden="true">
+          <DiamondMark size={24} title="" />
+        </span>
       ) : null}
       <div className="tb-titles">
         {group ? <span className="tb-eyebrow">{group}</span> : null}

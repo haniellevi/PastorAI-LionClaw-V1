@@ -14,11 +14,10 @@ Um requisito antigo nunca deve apagar uma evolução já existente. Quando houve
 ## Estado do programa
 
 - Planejamento inicial: concluído em 2026-08-10 sobre a base `3f085ec7228d770649b0d9041f0e16154fe37629`.
-- Fatia 01: publicada no PR rascunho [#247](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/247), sem merge ou deploy.
-- Fatia 02: publicada no PR rascunho [#248](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/248), empilhado sobre a Fatia 01.
-- Fatia 03: publicada no PR rascunho [#250](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/250), empilhado sobre a Fatia 02, sem merge ou deploy.
-- Grafo: fresco, mas estruturalmente não comprovado; decisões usam leitura direta, testes e revisão do diff.
-- Produção: nenhuma das fatias locais foi implantada.
+- Fatias 01, 02 e 03: integradas à `main` pelos PRs [#247](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/247), [#248](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/248) e [#250](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/250).
+- Fatia 04: implementação visual local em `codex/redesign-diamante-ui`, aguardando aceite e sem PR.
+- Grafo: não usado nesta fatia; decisões usam leitura direta, testes e inspeção visual.
+- Produção: não revalidada por esta fatia visual; nenhuma mudança desta branch foi publicada.
 - Data da última atualização: 2026-08-11.
 
 ## Índice
@@ -37,6 +36,7 @@ Um requisito antigo nunca deve apagar uma evolução já existente. Quando houve
 - [11-IMPLEMENTACAO-FATIA-01-ESCOPO-E-POLISH.md](11-IMPLEMENTACAO-FATIA-01-ESCOPO-E-POLISH.md): escopos, segurança operacional e quick wins visuais já publicados em PR rascunho.
 - [12-IMPLEMENTACAO-FATIA-02-DASHBOARD-RESPONSABILIDADES.md](12-IMPLEMENTACAO-FATIA-02-DASHBOARD-RESPONSABILIDADES.md): composição do Painel de Hoje por papéis acumulados, contexto real e critérios de aceite.
 - [13-IMPLEMENTACAO-FATIA-03-ACESSO-LIDERANCA-CELULA.md](13-IMPLEMENTACAO-FATIA-03-ACESSO-LIDERANCA-CELULA.md): separação entre acesso, vínculo e liderança, invariantes transacionais e auditoria pré-implantação.
+- [14-IMPLEMENTACAO-FATIA-04-OPERACAO-PASTORAL-GUIADA.md](14-IMPLEMENTACAO-FATIA-04-OPERACAO-PASTORAL-GUIADA.md): direção Diamante Lapidado aplicada à primeira fatia visual de Minha Célula.
 - [auditorias/03-acesso-lideranca-celula-readonly.sql](auditorias/03-acesso-lideranca-celula-readonly.sql): consultas somente leitura para medir divergências legadas antes de qualquer reparo.
 - [FONTES-E-RASTREABILIDADE.md](FONTES-E-RASTREABILIDADE.md): fontes, evidências, limites e método de atualização.
 
@@ -58,6 +58,7 @@ Um requisito antigo nunca deve apagar uma evolução já existente. Quando houve
 
 ## Gate permanente
 
-O dono do produto aprovou o avanço das Fatias 01, 02 e 03. Essa aprovação não autoriza merge,
-migration, alteração de banco, configuração externa, envio real, deploy ou
-produção. Cada um desses passos permanece um gate humano separado.
+O dono do produto aprovou a implementação local da Fatia 04. Essa aprovação não
+autoriza commit, push, PR, merge, migration, alteração de banco, configuração
+externa, envio real, deploy ou produção. Cada passo permanece um gate humano
+separado.

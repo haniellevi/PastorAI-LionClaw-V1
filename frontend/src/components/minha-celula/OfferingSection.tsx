@@ -8,7 +8,7 @@
  */
 import { useState } from "react";
 
-import { Button } from "@/components/ui/Button";
+import { DsButton } from "@/components/ds/Button";
 import { Field } from "@/components/ui/Field";
 import { Icon } from "@/lib/icons";
 import { ApiError } from "@/lib/dashboard-api";
@@ -71,11 +71,7 @@ export function OfferingSection({
   }
 
   return (
-    <section className="card" aria-label="Oferta e observações">
-      <div className="panel-title">
-        <Icon name="card" /> Oferta e observações
-      </div>
-
+    <div className="mc-report-section-content mc-report-closing-fields">
       {error ? (
         <div className="error-banner" role="alert">
           <Icon name="alert" />
@@ -109,20 +105,18 @@ export function OfferingSection({
 
         {!locked ? (
           <div className="section-actions">
-            <Button
-              variant="default"
-              size="sm"
+            <DsButton
+              variant="primary"
               onClick={() => void save()}
               loading={busy}
-              loadingText="Salvando…"
               disabled={Boolean(valorError)}
             >
               <Icon name="check" />
-              <span>Salvar rascunho</span>
-            </Button>
+              <span>{busy ? "Salvando rascunho…" : "Salvar rascunho"}</span>
+            </DsButton>
           </div>
         ) : null}
       </div>
-    </section>
+    </div>
   );
 }

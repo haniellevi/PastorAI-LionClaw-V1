@@ -74,6 +74,28 @@ describe("Topbar — sem busca decorativa", () => {
   });
 });
 
+describe("Topbar — marca Diamante Lapidado", () => {
+  it("mantém a marca compacta no app e evita competir com o hambúrguer do admin", () => {
+    render("dashboard");
+    const mark = container.querySelector(".topbar-brand-mark svg");
+    expect(mark).not.toBeNull();
+    expect(mark?.getAttribute("aria-hidden")).toBe("true");
+    expect(mark?.querySelectorAll("polygon")).toHaveLength(8);
+
+    act(() => {
+      root.render(
+        h(Topbar, {
+          user,
+          route: "dashboard",
+          onMenuToggle: vi.fn(),
+          menuButton: true,
+        }),
+      );
+    });
+    expect(container.querySelector(".topbar-brand-mark")).toBeNull();
+  });
+});
+
 /**
  * Wave Visual W2 (revisão externa, reforço #2): Topbar passou a delegar a
  * renderização dos papéis pra RoleBadgeList (era JSX inline). Cobre o
