@@ -14,8 +14,8 @@ Um requisito antigo nunca deve apagar uma evolução já existente. Quando houve
 ## Estado do programa
 
 - Planejamento inicial: concluído em 2026-08-10 sobre a base `3f085ec7228d770649b0d9041f0e16154fe37629`.
-- Fatia 01: publicada em PR rascunho, sem merge ou deploy.
-- Fatia 02: implementada e validada localmente em branch isolada, sobre a Fatia 01.
+- Fatia 01: publicada no PR rascunho [#247](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/247), sem merge ou deploy.
+- Fatia 02: publicada no PR rascunho [#248](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/248), empilhado sobre a Fatia 01.
 - Grafo: fresco, mas estruturalmente não comprovado; decisões usam leitura direta, testes e revisão do diff.
 - Produção: nenhuma das fatias locais foi implantada.
 - Data da última atualização: 2026-08-11.
