@@ -2,13 +2,14 @@
 
 Data: 2026-08-11
 
-Status: `VALIDADO LOCALMENTE; PR RASCUNHO PENDENTE`
+Status: `PR RASCUNHO ABERTO`
 
 Base: `8c9f91712352a2e85afc389114930a4f3cd72f3f`
 
 Branch local: `codex/ux03-cell-access-leadership`
 
-PR rascunho: ainda não aberto
+PR rascunho: [#250](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/250),
+empilhado sobre a Fatia 02
 
 Grafo: fresco, porém `NÃO COMPROVADO` por integridade estrutural; decisões por
 leitura direta, testes e revisão independente
