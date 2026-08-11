@@ -8,6 +8,10 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const globals = readFileSync(join(__dirname, "globals.css"), "utf8");
+const dashboard = readFileSync(
+  join(__dirname, "../components/dashboard/DashboardScreen.tsx"),
+  "utf8",
+);
 const cssWithoutComments = globals.replace(/\/\*[\s\S]*?\*\//g, "");
 const cssRules = [...cssWithoutComments.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((match) => ({
   selectors: match[1]!.split(",").map((selector) => selector.trim()),
@@ -84,5 +88,49 @@ describe("tipografia operacional — piso de 12px nesta onda", () => {
     const match = bodyFor(selector, "font-size").match(/font-size:\s*([\d.]+)px/);
     expect(match, `font-size em px não encontrado: ${selector}`).not.toBeNull();
     expect(Number(match![1])).toBeGreaterThanOrEqual(12);
+  });
+});
+
+describe("Farol de Hoje — hierarquia visual sem rail persistente", () => {
+  it("mantém a fila em uma superfície única e leva o contexto para depois", () => {
+    expect(bodyFor(".dh-grid", "display: block")).toContain("display: block");
+    expect(bodyFor(".dh-workboard")).toContain("background: var(--surface-raised)");
+    expect(bodyFor(".dh-support", "margin-top: var(--s5)")).toContain(
+      "margin-top: var(--s5)",
+    );
+    expect(dashboard).not.toContain('className="dh-side"');
+    expect(dashboard.indexOf('className="dh-main dh-workboard"')).toBeLessThan(
+      dashboard.indexOf('className="dh-support"'),
+    );
+  });
+
+  it("eleva ações e filtros desktop ao alvo interno de 40px", () => {
+    expect(bodyFor(".dh-filter-btn", "min-height: 40px")).toContain(
+      "min-height: 40px",
+    );
+    expect(bodyFor(".dh-item-actions .ds-btn", "min-height: 40px")).toContain(
+      "min-height: 40px",
+    );
+  });
+
+  it("preserva Quiet Operations sem elevação ou eyebrows repetidos", () => {
+    for (const selector of [".dh-hero", ".dh-workboard", ".dh-panel"]) {
+      expect(bodyFor(selector, "background: var(--surface-raised)")).not.toContain(
+        "box-shadow",
+      );
+    }
+    expect(globals).not.toContain("--dh-panel-shadow");
+    expect(globals).not.toContain(".dh-panel-kicker");
+    expect(dashboard).not.toContain("dh-panel-kicker");
+  });
+
+  it("usa caminho G12 explícito e skeleton estático dentro do dashboard", () => {
+    expect(bodyFor(".dh-journey-track")).toContain(
+      "grid-template-columns: repeat(4",
+    );
+    expect(bodyFor(".dh .sk-line", "background-color")).toContain(
+      "background-color: var(--surface-panel)",
+    );
+    expect(dashboard).not.toContain("dh-journey-bar");
   });
 });

@@ -4,6 +4,7 @@
  * pendências por pessoa (itens sem responsável caem em "Não atribuídos").
  */
 import type { TeamMember, WorkItem } from "@/lib/dashboard-api";
+import { Icon } from "@/lib/icons";
 import { normalizeRoles, primaryRoleLabel } from "@/lib/roles";
 
 import { StatusPill, type PillTone } from "./StatusPill";
@@ -68,8 +69,15 @@ export function NextActions({
   });
 
   return (
-    <section className="dh-panel" aria-label="Próximas ações por responsável">
-      <h3 className="dh-panel-title">Próximas ações por responsável</h3>
+    <section className="dh-panel dh-team-workload" aria-label="Pendências por responsável">
+      <header className="dh-panel-head">
+        <span className="dh-panel-symbol" aria-hidden="true">
+          <Icon name="team" />
+        </span>
+        <span>
+          <h3 className="dh-panel-title">Pendências por responsável</h3>
+        </span>
+      </header>
       {groups.length === 0 ? (
         <div className="dh-person-row">
           <span className="dh-person-sub">Nenhuma pendência atribuída.</span>

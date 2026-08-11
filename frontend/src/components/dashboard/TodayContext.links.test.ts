@@ -26,7 +26,12 @@ afterEach(() => {
   container.remove();
 });
 
-function renderContext(onNavigate = vi.fn()) {
+type TodayContextProps = Parameters<typeof TodayContext>[0];
+
+function renderContext(
+  onNavigate = vi.fn(),
+  overrides: Partial<TodayContextProps> = {},
+) {
   act(() => {
     root.render(
       createElement(TodayContext, {
@@ -59,6 +64,7 @@ function renderContext(onNavigate = vi.fn()) {
         shortcuts: ["inbox"],
         onNavigate,
         now: new Date(2026, 7, 11, 9, 0, 0),
+        ...overrides,
       }),
     );
   });
@@ -96,5 +102,30 @@ describe("TodayContext navigation semantics", () => {
     );
     expect(modifiedAllowed).toBe(true);
     expect(onNavigate).not.toHaveBeenCalled();
+  });
+
+  it("puts responsibility shortcuts first when the role depends on them", () => {
+    renderContext(vi.fn(), { prioritizeShortcuts: true });
+
+    const firstLink = container.querySelector<HTMLAnchorElement>(".dh-context-body a");
+    expect(firstLink?.getAttribute("href")).toBe("#inbox");
+  });
+
+  it("distinguishes unavailable sources from genuinely empty sections", () => {
+    renderContext(vi.fn(), {
+      events: [],
+      meeting: null,
+      notices: [],
+      eventsUnavailable: true,
+      meetingUnavailable: true,
+      noticesUnavailable: true,
+    });
+
+    expect(container.textContent).toContain("Agenda indisponível agora");
+    expect(container.textContent).toContain("Reunião indisponível agora");
+    expect(container.textContent).toContain("Avisos indisponíveis agora");
+    expect(container.textContent).not.toContain("Nenhum evento futuro publicado");
+    expect(container.textContent).not.toContain("Nenhuma próxima reunião planejada");
+    expect(container.textContent).not.toContain("Nenhum aviso novo");
   });
 });

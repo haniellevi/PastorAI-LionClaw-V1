@@ -7275,6 +7275,638 @@ table.data-table {
 }
 
 /* ===========================================================================
+   GATE 7.2 — FAROL DE HOJE (Onda 5 · organização visual aprovada)
+   Evolui a base Quiet Operations sem alterar dados ou capacidades:
+   - uma única superfície operacional domina a primeira dobra;
+   - contexto e Caminho G12 aparecem depois da fila, nunca em rail persistente;
+   - o diamante aparece uma vez, no farol do dia, como assinatura funcional;
+   - movimento é curto e informativo; o reduced-motion global o neutraliza.
+   =========================================================================== */
+
+/* Farol compacto, não hero de landing page. */
+.dh-hero {
+  position: relative;
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--s4);
+  min-height: 116px;
+  margin-bottom: var(--s4);
+  padding: var(--s4) var(--s5);
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-dialog);
+  background: var(--surface-raised);
+}
+.dh-hero::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: var(--diamond-700);
+}
+.dh-hero.has-actions::after {
+  background: var(--state-warn);
+}
+.dh-hero-facet {
+  position: relative;
+  display: grid;
+  width: 42px;
+  height: 48px;
+  place-items: center;
+  clip-path: polygon(50% 0, 92% 27%, 68% 78%, 50% 100%, 32% 78%, 8% 27%);
+  background: var(--diamond-900);
+  animation: dh-facet-arrive var(--motion-expressive) var(--ease-out-expressive) both;
+}
+.dh-hero-facet::before,
+.dh-hero-facet::after,
+.dh-hero-facet > span {
+  content: "";
+  position: absolute;
+  background: var(--diamond-500);
+  opacity: 0.78;
+}
+.dh-hero-facet::before {
+  inset: 0 49% 0 auto;
+  width: 1px;
+  transform: rotate(28deg);
+}
+.dh-hero-facet::after {
+  inset: 0 auto 0 49%;
+  width: 1px;
+  transform: rotate(-28deg);
+}
+.dh-hero-facet > span {
+  width: 78%;
+  height: 1px;
+  top: 28%;
+}
+@keyframes dh-facet-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(5px) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.dh-date {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+  margin-bottom: 6px;
+  color: var(--action-primary);
+  letter-spacing: 0.09em;
+}
+.dh-date span:last-child {
+  color: var(--text-secondary);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+.dh-title {
+  font: var(--type-display);
+  letter-spacing: -0.025em;
+}
+.dh-lead {
+  max-width: 62ch;
+  margin-top: 6px;
+}
+.dh-hero-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--s3);
+}
+.dh-focus-state {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  min-height: 36px;
+  padding: 0 var(--s3);
+  border-radius: var(--radius-pill);
+  background: var(--surface-panel);
+  color: var(--text-secondary);
+  font: var(--type-label);
+  white-space: nowrap;
+}
+.dh-focus-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--state-ok);
+}
+.dh-hero.has-actions .dh-focus-dot {
+  background: var(--state-warn);
+  animation: dh-beacon 720ms var(--ease-out-productive) 2;
+}
+@keyframes dh-beacon {
+  50% {
+    box-shadow: 0 0 0 6px color-mix(in oklch, var(--state-warn) 18%, transparent);
+  }
+}
+.dh-hero-actions .ds-btn {
+  min-height: 40px;
+  white-space: nowrap;
+}
+
+/* Fluxo vertical: nenhuma rail persistente em desktop amplo. */
+.dh-grid,
+.dh-grid.dh-grid--home {
+  display: block;
+}
+.dh-main,
+.dh-support {
+  min-width: 0;
+}
+.dh-workboard {
+  padding: var(--s5);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-dialog);
+  background: var(--surface-raised);
+}
+.dh-home-main {
+  max-width: 1040px;
+}
+.dh-home-main > .dh-panel {
+  min-height: 320px;
+}
+.dh-support {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: var(--s4);
+  margin-top: var(--s5);
+}
+.dh-support > .dh-context {
+  grid-column: span 7;
+}
+.dh-support > .dh-journey {
+  grid-column: span 5;
+}
+.dh-support > .dh-team-workload {
+  grid-column: 1 / -1;
+}
+
+/* Cabeçalhos com ícone, kicker e título: calor sem decorar cada linha. */
+.dh-panel {
+  padding: var(--s5);
+  border-color: var(--border-subtle);
+  background: var(--surface-raised);
+}
+.dh-panel-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  margin-bottom: var(--s4);
+}
+.dh-panel-symbol,
+.dh-queue-symbol {
+  flex: none;
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 12px;
+  background: var(--selection-soft);
+  color: var(--action-primary);
+}
+.dh-panel-symbol svg,
+.dh-queue-symbol svg {
+  width: 19px;
+  height: 19px;
+}
+.dh-panel-head .dh-panel-title {
+  margin: 0;
+  color: var(--text-primary);
+  font: var(--type-h3);
+}
+
+/* Superfície operacional principal. */
+.dh-queue-head {
+  align-items: center;
+  padding-bottom: var(--s4);
+}
+.dh-queue-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  min-width: 0;
+}
+.dh-queue-titles {
+  min-width: 0;
+}
+.dh-queue-title-line {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+.dh-queue-title {
+  display: block;
+  font: var(--type-h2);
+}
+.dh-queue-title:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+.dh-queue-count {
+  display: inline-grid;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 8px;
+  place-items: center;
+  border-radius: var(--radius-pill);
+  background: var(--state-warn-soft);
+  color: var(--state-warn);
+  font: 750 13px/1 var(--font);
+  font-variant-numeric: tabular-nums;
+}
+.dh-queue-sub,
+.dh-queue-progress {
+  display: block;
+  margin: 3px 0 0;
+  font: var(--type-meta);
+  color: var(--text-secondary);
+}
+.dh-queue-progress {
+  padding: var(--s2) 0;
+}
+.dh-filter {
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--surface-panel);
+}
+.dh-filter-btn {
+  min-height: 40px;
+}
+.dh-filter-btn.active {
+  background: var(--surface-raised);
+  outline: 1px solid var(--border-emphasis);
+}
+
+.dh-queue {
+  margin-top: var(--s1);
+}
+.dh-item {
+  position: relative;
+  align-items: center;
+  margin-inline: calc(var(--s2) * -1);
+  padding: var(--s4) var(--s2) var(--s4) var(--s3);
+  border-bottom-color: var(--border-subtle);
+  transition:
+    background-color var(--motion-fast) var(--ease-out-productive),
+    transform var(--motion-fast) var(--ease-out-productive);
+}
+.dh-item::before {
+  content: "";
+  position: absolute;
+  inset: var(--s3) auto var(--s3) 0;
+  width: 3px;
+  border-radius: var(--radius-pill);
+  background: var(--diamond-500);
+  opacity: 0.75;
+}
+.dh-item[data-kind="h"]::before {
+  background: var(--state-warn);
+}
+.dh-item[data-kind="r"]::before {
+  background: var(--state-danger);
+}
+.dh-item:hover,
+.dh-item:focus-within {
+  background: var(--surface-panel);
+}
+.dh-item:hover {
+  transform: translateX(2px);
+}
+.dh-item-title {
+  font: 700 15px/1.4 var(--font);
+}
+.dh-item-actions {
+  gap: var(--s2);
+}
+.dh-item-actions .ds-btn {
+  min-height: 40px;
+  white-space: nowrap;
+}
+.dh-avatar {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+}
+.dh .skeleton,
+.dh .sk-line,
+.dh .sk-icon {
+  animation: none;
+  background-image: none;
+}
+.dh .sk-line,
+.dh .sk-icon {
+  background-color: var(--surface-panel);
+}
+
+/* Disclosure secundário: métricas honestas, fora da primeira leitura. */
+.dh-summary {
+  margin-top: var(--s4);
+  padding-top: var(--s2);
+  border-top: 1px solid var(--border-subtle);
+}
+.dh-summary-body {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: var(--s5);
+  padding-top: var(--s2);
+}
+.dh-summary-ic {
+  background: var(--selection-soft);
+  color: var(--action-primary);
+}
+
+/* Contexto do dia. Blocos prioritários viram destinos claros, não cards KPIs. */
+.dh-context-section {
+  padding: var(--s3) 0;
+}
+.dh-context-title {
+  color: var(--text-secondary);
+  letter-spacing: 0.01em;
+}
+.dh-context-row,
+.dh-shortcut {
+  border-radius: var(--radius-control);
+  transition:
+    background-color var(--motion-fast) var(--ease-out-productive),
+    color var(--motion-fast) var(--ease-out-productive);
+}
+.dh-context-row.is-link:hover,
+.dh-shortcut:hover {
+  background: var(--surface-panel);
+}
+.dh-context-empty {
+  padding: var(--s2) 0;
+}
+.dh-context-empty.is-unavailable {
+  color: var(--state-warn);
+}
+.dh-shortcuts-section.is-priority {
+  padding-top: 0;
+  border-top: 0;
+}
+.dh-shortcuts-section.is-priority .dh-shortcuts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s2);
+}
+.dh-shortcuts-section.is-priority .dh-shortcut {
+  min-height: 76px;
+  padding: var(--s3);
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-panel);
+}
+.dh-shortcuts-section.is-priority .dh-shortcut:hover {
+  border-color: var(--selection-strong);
+  background: var(--selection-soft);
+}
+
+/* Caminho G12: quatro etapas explícitas, sem barras que pareçam porcentagem. */
+.dh-journey-track {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(58px, 1fr));
+  gap: var(--s2);
+  padding: var(--s2) 0;
+}
+.dh-journey-track::before {
+  content: "";
+  position: absolute;
+  top: 31px;
+  right: 8%;
+  left: 8%;
+  height: 2px;
+  background: var(--border-emphasis);
+}
+.dh-journey-item {
+  min-width: 0;
+}
+.dh-journey-row {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  min-width: 0;
+  min-height: 98px;
+  padding: 0 var(--s1);
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s2);
+  border: 0;
+  text-align: center;
+  text-decoration: none;
+}
+.dh-journey-row.is-link {
+  color: var(--text-primary);
+}
+.dh-journey-node {
+  display: grid;
+  width: 46px;
+  height: 46px;
+  place-items: center;
+  border: 3px solid var(--surface-raised);
+  border-radius: 50%;
+  background: var(--selection-soft);
+  color: var(--diamond-700);
+  box-shadow: 0 0 0 1px var(--border-emphasis);
+  transition:
+    transform var(--motion-fast) var(--ease-out-productive),
+    background-color var(--motion-fast) var(--ease-out-productive);
+}
+.dh-journey-node svg {
+  width: 19px;
+  height: 19px;
+}
+.dh-journey-node.consolidar {
+  color: var(--diamond-600);
+}
+.dh-journey-node.discipular {
+  color: var(--diamond-900);
+}
+.dh-journey-node.enviar {
+  background: var(--diamond-900);
+  color: var(--text-on-action);
+}
+.dh-journey-row.is-link:hover .dh-journey-node {
+  transform: translateY(-3px);
+  background: var(--diamond-100);
+}
+.dh-journey-row.is-link:hover .dh-journey-node.enviar {
+  background: var(--diamond-700);
+}
+.dh-journey-row:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 3px;
+  border-radius: var(--radius-control);
+}
+.dh-journey-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+.dh-journey-label {
+  font: var(--type-label);
+}
+.dh-journey-meta {
+  color: var(--text-secondary);
+  font: var(--type-meta);
+  white-space: nowrap;
+}
+.dh-journey-val {
+  color: var(--text-primary);
+}
+.dh-journey-diamond {
+  position: absolute;
+  z-index: 2;
+  top: 23px;
+  right: 0;
+  width: 17px;
+  height: 17px;
+  clip-path: polygon(50% 0, 100% 35%, 50% 100%, 0 35%);
+  background: var(--diamond-500);
+}
+.dh-journey-foot {
+  margin-top: var(--s2);
+  padding-top: var(--s3);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.dh-team-workload .dh-person-row {
+  min-height: 52px;
+}
+
+@media (max-width: 1100px) {
+  .dh-support {
+    grid-template-columns: 1fr;
+  }
+  .dh-support > .dh-context,
+  .dh-support > .dh-journey,
+  .dh-support > .dh-team-workload {
+    grid-column: 1;
+  }
+}
+
+@media (max-width: 860px) {
+  .dh-hero {
+    grid-template-columns: 42px minmax(0, 1fr);
+    align-items: center;
+    gap: var(--s3);
+    min-height: 0;
+    padding: var(--s4);
+  }
+  .dh-hero-facet {
+    width: 36px;
+    height: 42px;
+  }
+  .dh-hero-actions {
+    grid-column: 1 / -1;
+    justify-content: space-between;
+  }
+  .dh-hero > .ds-btn {
+    align-self: auto;
+  }
+  .dh-workboard,
+  .dh-panel {
+    padding: var(--s4);
+  }
+  .dh-item {
+    margin-inline: 0;
+    padding-inline: var(--s2);
+  }
+  .dh-item-actions .ds-btn {
+    min-height: 44px;
+  }
+}
+
+@media (max-width: 560px) {
+  .dh-title {
+    font-size: 26px;
+  }
+  .dh-date {
+    gap: 4px var(--s2);
+  }
+  .dh-date span:last-child {
+    width: 100%;
+  }
+  .dh-focus-state {
+    min-height: 34px;
+    padding-inline: var(--s2);
+  }
+  .dh-workboard {
+    padding: var(--s3);
+  }
+  .dh-queue-head,
+  .dh-queue-heading {
+    align-items: flex-start;
+  }
+  .dh-queue-head {
+    flex-direction: column;
+  }
+  .dh-queue-symbol {
+    width: 38px;
+    height: 38px;
+  }
+  .dh-queue-title,
+  .dh-queue-sub {
+    display: block;
+    margin-left: 0;
+  }
+  .dh-filter {
+    width: 100%;
+  }
+  .dh-filter-btn {
+    flex: 1;
+    min-height: 44px;
+  }
+  .dh-item {
+    align-items: flex-start;
+  }
+  .dh-item-actions {
+    padding-left: 0;
+  }
+  .dh-summary-body {
+    grid-template-columns: 1fr;
+  }
+  .dh-shortcuts-section.is-priority .dh-shortcuts {
+    grid-template-columns: 1fr;
+  }
+  .dh-panel-head {
+    align-items: flex-start;
+  }
+  .dh-journey-track {
+    gap: var(--s1);
+  }
+  .dh-journey-row {
+    min-height: 92px;
+    padding-inline: 0;
+  }
+  .dh-journey-node {
+    width: 42px;
+    height: 42px;
+  }
+  .dh-journey-track::before {
+    top: 29px;
+  }
+  .dh-journey-diamond {
+    top: 21px;
+  }
+  .dh-journey-label,
+  .dh-journey-meta {
+    font-size: 12px;
+  }
+}
+
+/* ===========================================================================
    GATE 8 — CONVERSAS (Onda 4B · Diamante Lapidado). Regras EXCLUSIVAS da
    Inbox: tudo escopado sob .ib (classe do container da tela #inbox) ou em
    classes novas ib-*. Nenhuma regra genérica de outra tela é alterada.

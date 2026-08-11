@@ -7,6 +7,8 @@ import type { WorkItem } from "@/lib/dashboard-api";
 
 const authState = vi.hoisted(() => ({
   roles: ["admin"] as string[],
+  nome: "Pessoa Teste",
+  chatNome: null as string | null,
   expireSession: vi.fn(),
 }));
 
@@ -33,7 +35,8 @@ vi.mock("@/lib/auth-context", () => ({
     token: "tok-1",
     user: {
       appUserId: "u1",
-      nome: "Pessoa Teste",
+      nome: authState.nome,
+      chatNome: authState.chatNome,
       roles: authState.roles,
     },
     expireSession: authState.expireSession,
@@ -132,6 +135,8 @@ function buttonWithText(text: string): HTMLButtonElement | undefined {
 
 beforeEach(() => {
   authState.roles = ["admin"];
+  authState.nome = "Pessoa Teste";
+  authState.chatNome = null;
   authState.expireSession.mockClear();
   for (const mock of Object.values(apiMock)) mock.mockReset();
 
@@ -294,6 +299,17 @@ describe("DashboardScreen — autorização para conectar à célula", () => {
 });
 
 describe("DashboardScreen — navegação semântica", () => {
+  it("prefere o nome de conversa e remove títulos pastorais da saudação", async () => {
+    authState.nome = "Pastor Daniel Oliveira";
+    authState.chatNome = "Pr. Daniel";
+
+    await renderScreen();
+
+    expect(container.querySelector(".dh-title")?.textContent).toMatch(
+      /^(Bom dia|Boa tarde|Boa noite), Daniel$/,
+    );
+  });
+
   it("expõe resumo, Jornada e agente como links hash reais", async () => {
     authState.roles = ["admin"];
     await renderScreen();
@@ -401,9 +417,112 @@ describe("DashboardScreen — autorização para atribuir fila", () => {
     expect(pickerText).not.toContain("Membro Inelegível");
     expect(pickerText).not.toContain("@example.com");
   });
+
+  it("move o foco para a fila mesmo se o modal fechar durante a atribuição", async () => {
+    const assignment = deferred<{ status: string; responsavelId: string }>();
+    apiMock.fetchWorkQueuePage.mockResolvedValue({
+      items: [
+        { ...workItem, responsavelId: "u1", status: "assumido" },
+        {
+          ...workItem,
+          id: "q2",
+          titulo: "Outra ação sob cuidado",
+          responsavelId: "u1",
+          status: "assumido",
+        },
+      ],
+      page: 1,
+      pageSize: 25,
+      total: 2,
+    });
+    apiMock.fetchTeamLookup.mockResolvedValue({
+      items: [
+        {
+          usuarioId: "u2",
+          nome: "Pastor Dois",
+          email: "pastor2@example.com",
+          status: null,
+          papeis: ["pastor"],
+          pessoaId: "p2",
+          tiposFila: [
+            "visitante",
+            "atendimento",
+            "relatorio",
+            "conectar_celula",
+            "fonovisita",
+          ],
+        },
+      ],
+      page: 1,
+      pageSize: 100,
+      total: 1,
+    });
+    apiMock.queueAction.mockReturnValue(assignment.promise);
+    await renderScreen();
+
+    act(() => buttonWithText("Meus")?.click());
+    act(() =>
+      (
+        container.querySelector(
+          '[aria-label="Atribuir responsável: Conectar Pessoa Teste a uma célula"]',
+        ) as HTMLButtonElement | null
+      )?.click(),
+    );
+    act(() =>
+      (container.querySelector(".dh-picker-row") as HTMLButtonElement | null)?.click(),
+    );
+    await flush();
+    act(() =>
+      (container.querySelector(".ds-dialog-close") as HTMLButtonElement | null)?.click(),
+    );
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    const assignmentButtons = [
+      ...container.querySelectorAll<HTMLButtonElement>(
+        '[aria-label^="Atribuir responsável:"]',
+      ),
+    ];
+    expect(assignmentButtons).toHaveLength(2);
+    expect(assignmentButtons.every((button) => button.disabled)).toBe(true);
+    act(() => assignmentButtons[1]?.click());
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+
+    assignment.resolve({ status: "assumido", responsavelId: "u2" });
+    await flush();
+
+    expect(container.textContent).not.toContain(workItem.titulo);
+    expect(container.textContent).toContain("Outra ação sob cuidado");
+    expect(document.activeElement).toBe(
+      container.querySelector("#dashboard-queue-title"),
+    );
+  });
 });
 
 describe("DashboardScreen — composição por responsabilidades", () => {
+  it("anuncia a atualização e expõe o estado ocupado no botão", async () => {
+    const firstPage = deferred<{
+      items: WorkItem[];
+      page: number;
+      pageSize: number;
+      total: number;
+    }>();
+    apiMock.fetchWorkQueuePage.mockReturnValue(firstPage.promise);
+
+    await renderScreen();
+
+    expect(buttonWithText("Atualizar")?.getAttribute("aria-busy")).toBe("true");
+    expect(container.querySelector('[role="status"]')?.textContent).toContain(
+      "Atualizando as informações de hoje.",
+    );
+
+    firstPage.resolve({ items: [workItem], page: 1, pageSize: 25, total: 1 });
+    await flush();
+
+    expect(buttonWithText("Atualizar")?.hasAttribute("aria-busy")).toBe(false);
+    expect(container.querySelector('[role="status"]')?.textContent).toContain(
+      "1 ação disponível.",
+    );
+  });
+
   it("mostra Agenda, próxima reunião e avisos reais ao membro sem carregar fila", async () => {
     authState.roles = ["membro"];
     apiMock.fetchEvents.mockResolvedValue({
@@ -830,9 +949,40 @@ describe("DashboardScreen — composição por responsabilidades", () => {
     await renderScreen();
 
     expect(container.textContent).toContain("Culto de ensino");
+    expect(container.textContent).toContain("Reunião indisponível agora");
+    expect(container.textContent).not.toContain("Nenhuma próxima reunião planejada");
     expect(container.textContent).toContain(
       "Algumas informações de hoje não puderam ser atualizadas.",
     );
+  });
+
+  it("não mostra vazio falso de avisos quando falha o escopo das células lideradas", async () => {
+    authState.roles = ["lider_celula"];
+    apiMock.getLedCellsTodayContext.mockRejectedValueOnce(
+      new Error("contexto da liderança offline"),
+    );
+    apiMock.listNotices.mockResolvedValue({
+      items: [
+        {
+          id: "notice-cell",
+          origem: "manual",
+          escopo: "celula",
+          titulo: "Aviso da célula",
+          conteudo: "Cuidado local",
+          publicado_em: "2026-08-11T12:00:00Z",
+          celula_id: "c1",
+        },
+      ],
+      page: 1,
+      page_size: 50,
+      total: 1,
+    });
+
+    await renderScreen();
+
+    expect(container.textContent).toContain("Avisos indisponíveis agora");
+    expect(container.textContent).not.toContain("Nenhum aviso novo");
+    expect(container.textContent).not.toContain("Aviso da célula");
   });
 
   it("distingue indisponibilidade total do contexto", async () => {
@@ -846,5 +996,11 @@ describe("DashboardScreen — composição por responsabilidades", () => {
     expect(container.textContent).toContain(
       "Não foi possível carregar agenda, reunião e avisos.",
     );
+    expect(container.textContent).toContain("Agenda indisponível agora");
+    expect(container.textContent).toContain("Reunião indisponível agora");
+    expect(container.textContent).toContain("Avisos indisponíveis agora");
+    expect(container.textContent).not.toContain("Nenhum evento futuro publicado");
+    expect(container.textContent).not.toContain("Nenhuma próxima reunião planejada");
+    expect(container.textContent).not.toContain("Nenhum aviso novo");
   });
 });

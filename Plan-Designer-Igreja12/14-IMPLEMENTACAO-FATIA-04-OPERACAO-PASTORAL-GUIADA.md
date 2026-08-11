@@ -2,7 +2,7 @@
 
 Data: 2026-08-11
 
-Status: `IMPLEMENTAÇÃO LOCAL, AGUARDANDO ACEITE VISUAL`
+Status: `APROVADA, PR #253 ABERTO E PRONTO PARA REVISÃO`
 
 Base: `32951dd6d29ab977f9d02bc6e46ea7f28275c7bd`
 
@@ -142,11 +142,10 @@ de cards idênticos.
 
 ## Gates restantes
 
-- aceite visual explícito da fatia em dados de demonstração;
-- commit e PR separados;
-- revisão independente e CI;
+- PR [#253](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/253) com CI verde;
 - merge separado;
 - deploy separado;
 - smoke autenticado por papel em produção.
 
-Esta autorização não inclui commit, push, PR, merge ou produção.
+O aceite visual e a publicação do PR já ocorreram. A autorização não inclui
+merge nem produção.

@@ -24,6 +24,7 @@ export function DsButton({
   disabled,
   className,
   children,
+  "aria-busy": ariaBusy,
   ...rest
 }: DsButtonProps) {
   const classes = [
@@ -43,7 +44,7 @@ export function DsButton({
       {...rest}
       className={classes}
       disabled={disabled || loading}
-      aria-busy={loading || undefined}
+      aria-busy={loading || ariaBusy || undefined}
     >
       {loading ? <span className="ds-spinner" aria-hidden="true" /> : null}
       {children}
