@@ -2,11 +2,13 @@
 
 Data: 2026-08-11
 
-Status: `PASS LOCAL`, aguardando gate humano para commit ou próxima fatia
+Status: `PR RASCUNHO`, publicado e aguardando revisão humana
 
-Base: `4a0e1af74c464ecd1830614dae9cc87c4648827a`
+Commit da fatia: `fd90ccb9676eaee017be8f2bd7c023280c93e7c4`
 
 Branch local: `codex/ux01-fatia1-scopes`
+
+PR rascunho: [#247](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/247)
 
 Grafo: `NÃO COMPROVADO`; validação por leitura direta, testes e auditoria autenticada do produto atual
 
@@ -116,5 +118,6 @@ do repositório, porque continha um nome de exibição da sessão autenticada.
 
 ## Gate
 
-Nenhum commit, stage, push, PR, merge, migration, deploy ou alteração externa foi
-feito. A próxima ação depende de escolha explícita do dono do produto.
+Commit, push e PR rascunho foram autorizados e concluídos. Não houve merge,
+migration, deploy, alteração de banco, produção ou envio externo. Esses passos
+continuam dependendo de autorização explícita do dono do produto.

@@ -11,14 +11,14 @@ Este diretório é o centro de planejamento integrado de UX, produto e experiên
 
 Um requisito antigo nunca deve apagar uma evolução já existente. Quando houver conflito, registrar a divergência, validar a operação atual e decidir conscientemente se há algo melhor a incorporar.
 
-## Estado desta entrega
+## Estado do programa
 
-- Natureza: planejamento e acervo, sem alteração no código do produto.
-- Base auditada: `3f085ec7228d770649b0d9041f0e16154fe37629`.
-- Branch: checkout em `detached HEAD`, alinhado a `origin/main` no preflight.
-- Grafo: não comprovado, leitura direta de documentação e código.
-- Produção autenticada: não medida nesta entrega.
-- Data: 2026-08-10.
+- Planejamento inicial: concluído em 2026-08-10 sobre a base `3f085ec7228d770649b0d9041f0e16154fe37629`.
+- Fatia 01: publicada em PR rascunho, sem merge ou deploy.
+- Fatia 02: implementada e validada localmente em branch isolada, sobre a Fatia 01.
+- Grafo: fresco, mas estruturalmente não comprovado; decisões usam leitura direta, testes e revisão do diff.
+- Produção: nenhuma das fatias locais foi implantada.
+- Data da última atualização: 2026-08-11.
 
 ## Índice
 
@@ -33,6 +33,8 @@ Um requisito antigo nunca deve apagar uma evolução já existente. Quando houve
 - [08-ROADMAP-PRIORIZADO.md](08-ROADMAP-PRIORIZADO.md): implementação futura em fatias verticais, sem execução nesta fase.
 - [09-DECISOES-PENDENTES.md](09-DECISOES-PENDENTES.md): escolhas de produto que não devem ser inferidas pelo time.
 - [10-FLUXOS-E-WIREFRAMES.md](10-FLUXOS-E-WIREFRAMES.md): fluxos críticos e wireframes determinísticos desktop/mobile.
+- [11-IMPLEMENTACAO-FATIA-01-ESCOPO-E-POLISH.md](11-IMPLEMENTACAO-FATIA-01-ESCOPO-E-POLISH.md): escopos, segurança operacional e quick wins visuais já publicados em PR rascunho.
+- [12-IMPLEMENTACAO-FATIA-02-DASHBOARD-RESPONSABILIDADES.md](12-IMPLEMENTACAO-FATIA-02-DASHBOARD-RESPONSABILIDADES.md): composição do Painel de Hoje por papéis acumulados, contexto real e critérios de aceite.
 - [FONTES-E-RASTREABILIDADE.md](FONTES-E-RASTREABILIDADE.md): fontes, evidências, limites e método de atualização.
 
 ## Vocabulário de status
@@ -53,4 +55,6 @@ Um requisito antigo nunca deve apagar uma evolução já existente. Quando houve
 
 ## Gate permanente
 
-Nada neste diretório autoriza implementação, migration, alteração de banco, configuração externa, envio real, commit, push, PR, merge ou deploy. A próxima etapa exige aprovação explícita da direção e das fatias escolhidas.
+O dono do produto aprovou as Fatias 01 e 02. Essa aprovação não autoriza merge,
+migration, alteração de banco, configuração externa, envio real, deploy ou
+produção. Cada um desses passos permanece um gate humano separado.

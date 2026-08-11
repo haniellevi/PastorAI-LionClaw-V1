@@ -8,8 +8,9 @@ const apiMock = vi.hoisted(() => ({
   fetchCells: vi.fn(),
   fetchOverview: vi.fn(),
   fetchTeamLookup: vi.fn(),
-  fetchWorkQueue: vi.fn(),
+  fetchWorkQueuePage: vi.fn(),
   fetchEvents: vi.fn(),
+  fetchUpcomingEvents: vi.fn(),
 }));
 
 vi.mock("./contacts-api", () => ({
@@ -24,11 +25,12 @@ vi.mock("./dashboard-api", () => ({
   fetchCells: apiMock.fetchCells,
   fetchOverview: apiMock.fetchOverview,
   fetchTeamLookup: apiMock.fetchTeamLookup,
-  fetchWorkQueue: apiMock.fetchWorkQueue,
+  fetchWorkQueuePage: apiMock.fetchWorkQueuePage,
 }));
 
 vi.mock("./events-api", () => ({
   fetchEvents: apiMock.fetchEvents,
+  fetchUpcomingEvents: apiMock.fetchUpcomingEvents,
 }));
 
 const { preloadRouteData } = await import("./route-data-preload");
@@ -42,27 +44,39 @@ beforeEach(() => {
 
 describe("preloadRouteData — capacidades do dashboard", () => {
   const roleCases: Array<
-    [role: Role, canLinkCell: boolean, canAssignQueue: boolean]
+    [
+      role: Role,
+      canLinkCell: boolean,
+      canAssignQueue: boolean,
+      hasWorkQueue: boolean,
+      canSeeCalendar: boolean,
+    ]
   > = [
-    ["admin", true, true],
-    ["pastor", true, true],
-    ["lider_g12", false, true],
-    ["lider_consol", false, true],
-    ["lider_celula", false, false],
-    ["lider_mult", false, false],
-    ["operador", false, false],
-    ["membro", false, false],
+    ["admin", true, true, true, true],
+    ["pastor", true, true, true, true],
+    ["lider_g12", false, true, true, true],
+    ["lider_consol", false, true, true, true],
+    ["lider_celula", false, false, true, true],
+    ["lider_mult", false, false, false, true],
+    ["operador", false, false, false, false],
+    ["membro", false, false, false, true],
   ];
 
   it.each(roleCases)(
     "pré-carrega células conforme o papel %s",
-    async (role, canLinkCell, canAssignQueue) => {
+    async (role, canLinkCell, canAssignQueue, hasWorkQueue, canSeeCalendar) => {
       await preloadRouteData("tok-1", "dashboard", [role]);
       await preloadRouteData("tok-1", "ganhar", [role]);
 
-      expect(apiMock.fetchWorkQueue).toHaveBeenCalledOnce();
+      expect(apiMock.fetchWorkQueuePage).toHaveBeenCalledTimes(hasWorkQueue ? 1 : 0);
+      if (hasWorkQueue) {
+        expect(apiMock.fetchWorkQueuePage).toHaveBeenCalledWith("tok-1", 1, 25);
+      }
       expect(apiMock.fetchTeamLookup).toHaveBeenCalledTimes(canAssignQueue ? 1 : 0);
-      expect(apiMock.fetchOverview).toHaveBeenCalledOnce();
+      expect(apiMock.fetchOverview).toHaveBeenCalledTimes(hasWorkQueue ? 1 : 0);
+      expect(apiMock.fetchUpcomingEvents).toHaveBeenCalledTimes(
+        canSeeCalendar ? 1 : 0,
+      );
       expect(apiMock.fetchPipeline).toHaveBeenCalledWith("tok-1", "ganhar");
       expect(apiMock.fetchCells).toHaveBeenCalledTimes(canLinkCell ? 2 : 0);
     },
@@ -86,8 +100,19 @@ describe("preloadRouteData — capacidades do dashboard", () => {
     expect(apiMock.fetchCells).not.toHaveBeenCalled();
   });
 
+  it("usa a mesma matriz efetiva da sessão ao decidir o preload opcional", async () => {
+    await preloadRouteData(
+      "tok-1",
+      "dashboard",
+      ["membro"],
+      { membro: ["dashboard"] },
+    );
+
+    expect(apiMock.fetchUpcomingEvents).not.toHaveBeenCalled();
+  });
+
   it("mantém falhas de prefetch silenciosas com allSettled", async () => {
-    apiMock.fetchWorkQueue.mockRejectedValueOnce(new Error("offline"));
+    apiMock.fetchWorkQueuePage.mockRejectedValueOnce(new Error("offline"));
 
     await expect(
       preloadRouteData("tok-1", "dashboard", ["lider_celula"]),

@@ -1,10 +1,10 @@
 """Dashboard router — visão geral (totais por tipo/etapa + KPIs) do tenant (#2).
 
 Escopo por papel: admin/pastor e líderes sênior (G12/consolidação) veem a
-IGREJA INTEIRA; líder de célula vê só as pessoas das células que ele lidera (via
-AppUser.pessoa_id → celulas.lider_id). Tenant-scoped por RLS: a sessão já vem
-marcada por ``get_current_user`` (seam ``mark_tenant_scoped`` + listener
-``after_begin``). Sem agregação cross-tenant.
+IGREJA INTEIRA; líder de célula vê só os vínculos ativos das células ativas que
+ele lidera (via AppUser.pessoa_id → celulas.lider_id → celula_membro).
+Tenant-scoped por RLS: a sessão já vem marcada por ``get_current_user`` (seam
+``mark_tenant_scoped`` + listener ``after_begin``). Sem agregação cross-tenant.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from pydantic import BaseModel
 from sqlalchemy import Text, case, cast, func, select
 from sqlalchemy.orm import Session
 
-from app.db.models import AppUser, Celula, Pessoa
+from app.db.models import AppUser, Celula, CelulaMembro, Pessoa
 from app.db.session import get_db
 from app.deps import CurrentUser, require_screen
 from app.domain.dashboard_overview import (
@@ -76,7 +76,10 @@ def overview(
         scope = "celula"
         has_cells = (
             select(Celula.id)
-            .where(Celula.lider_id == AppUser.pessoa_id)
+            .where(
+                Celula.lider_id == AppUser.pessoa_id,
+                Celula.ativo.is_(True),
+            )
             .exists()
         )
         scope_row = (
@@ -96,8 +99,17 @@ def overview(
         ):
             return OverviewOut.empty(scope)
         pessoa_id = scope_row["pessoa_id"]
-        cell_ids = select(Celula.id).where(Celula.lider_id == pessoa_id)
-        person_filter = Pessoa.celula_id.in_(cell_ids)
+        person_filter = (
+            select(CelulaMembro.id)
+            .join(Celula, Celula.id == CelulaMembro.celula_id)
+            .where(
+                CelulaMembro.pessoa_id == Pessoa.id,
+                CelulaMembro.ativo.is_(True),
+                Celula.ativo.is_(True),
+                Celula.lider_id == pessoa_id,
+            )
+            .exists()
+        )
         cell_filter = Celula.lider_id == pessoa_id
 
     # porTipo: CSIM entra no bucket "sem_interesse"; senão, o tipo. tipo NULL cai
@@ -137,7 +149,11 @@ def overview(
     # Uma única linha agregada substitui porTipo, porEtapa e os três KPIs de
     # Pessoa. COUNT ... FILTER preserva a semântica anterior sem materializar
     # pessoas no processo da API.
-    pessoa_q = select(*pessoa_columns).select_from(Pessoa)
+    pessoa_q = (
+        select(*pessoa_columns)
+        .select_from(Pessoa)
+        .where(Pessoa.arquivada_em.is_(None))
+    )
     if person_filter is not None:
         pessoa_q = pessoa_q.where(person_filter)
     pessoa = db.execute(pessoa_q).mappings().one()

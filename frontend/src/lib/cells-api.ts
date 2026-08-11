@@ -260,6 +260,69 @@ export async function getMyLedCells(token: string): Promise<LedCell[]> {
   return (await res.json()) as LedCell[];
 }
 
+/** Contexto agregado das células que o usuário realmente lidera. */
+export interface LedCellsTodayContext {
+  cells: LedCell[];
+  meeting: NextMeetingBody | null;
+}
+
+function meetingSlot(reuniao: Reuniao): number {
+  const time = reuniao.hora ?? "23:59";
+  return new Date(`${reuniao.data}T${time}:00`).getTime();
+}
+
+/**
+ * Resolve a próxima reunião entre TODAS as células lideradas pelo ator.
+ *
+ * Não consulta `/cells/me/next-meeting`: esse endpoint representa a célula em
+ * que a pessoa é membro e pode apontar para outra célula. Em empate, a ordem é
+ * estável por nome/id da célula e id da reunião.
+ */
+export async function getLedCellsTodayContext(
+  token: string,
+  now = new Date(),
+): Promise<LedCellsTodayContext> {
+  const cells = [...(await getMyLedCells(token))].sort(
+    (a, b) =>
+      a.nome.localeCompare(b.nome, "pt-BR", { sensitivity: "base" }) ||
+      a.id.localeCompare(b.id),
+  );
+  if (cells.length === 0) return { cells, meeting: null };
+
+  const meetingsByCell = await Promise.all(
+    cells.map(async (cell) => ({ cell, meetings: await listReunioes(token, cell.id) })),
+  );
+  const nowTime = now.getTime();
+  const next = meetingsByCell
+    .flatMap(({ cell, meetings }) =>
+      meetings.map((reuniao) => ({ cell, reuniao, slot: meetingSlot(reuniao) })),
+    )
+    .filter(({ slot }) => Number.isFinite(slot) && slot >= nowTime)
+    .sort(
+      (a, b) =>
+        a.slot - b.slot ||
+        a.cell.nome.localeCompare(b.cell.nome, "pt-BR", { sensitivity: "base" }) ||
+        a.cell.id.localeCompare(b.cell.id) ||
+        a.reuniao.id.localeCompare(b.reuniao.id),
+    )[0];
+
+  if (!next) return { cells, meeting: null };
+  return {
+    cells,
+    meeting: {
+      id: next.reuniao.id,
+      celula_id: next.cell.id,
+      data: next.reuniao.data,
+      hora: next.reuniao.hora,
+      local: null,
+      tema: `${next.cell.nome}: ${next.reuniao.tema ?? "Reunião da célula"}`,
+      // A presença pessoal não faz parte do contrato de leitura do líder e não
+      // é exibida pelo dashboard; mantemos o estado neutro do schema compartilhado.
+      minha_presenca: "nao_confirmou",
+    },
+  };
+}
+
 /**
  * Histórico paginado das reuniões PASSADAS do membro (projeção mínima).
  * Mais recentes primeiro. Sem célula → página vazia (não erro).
