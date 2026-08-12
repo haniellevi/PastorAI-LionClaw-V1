@@ -15,7 +15,8 @@ Um requisito antigo nunca deve apagar uma evolução já existente. Quando houve
 
 - Planejamento inicial: concluído em 2026-08-10 sobre a base `3f085ec7228d770649b0d9041f0e16154fe37629`.
 - Fatias 01, 02 e 03: integradas à `main` pelos PRs [#247](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/247), [#248](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/248) e [#250](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/250).
-- Fatia 04: implementação visual local em `codex/redesign-diamante-ui`, aguardando aceite e sem PR.
+- Fatia 04: aprovada visualmente e publicada no PR [#253](https://github.com/haniellevi/PastorAI-LionClaw-V1/pull/253), ainda sem merge ou produção.
+- Fatia 05: implementação local do novo Painel de Hoje em `codex/redesign-dashboard-diamante`, empilhada sobre a Fatia 04 e aguardando aceite visual do preview.
 - Grafo: não usado nesta fatia; decisões usam leitura direta, testes e inspeção visual.
 - Produção: não revalidada por esta fatia visual; nenhuma mudança desta branch foi publicada.
 - Data da última atualização: 2026-08-11.
@@ -37,6 +38,7 @@ Um requisito antigo nunca deve apagar uma evolução já existente. Quando houve
 - [12-IMPLEMENTACAO-FATIA-02-DASHBOARD-RESPONSABILIDADES.md](12-IMPLEMENTACAO-FATIA-02-DASHBOARD-RESPONSABILIDADES.md): composição do Painel de Hoje por papéis acumulados, contexto real e critérios de aceite.
 - [13-IMPLEMENTACAO-FATIA-03-ACESSO-LIDERANCA-CELULA.md](13-IMPLEMENTACAO-FATIA-03-ACESSO-LIDERANCA-CELULA.md): separação entre acesso, vínculo e liderança, invariantes transacionais e auditoria pré-implantação.
 - [14-IMPLEMENTACAO-FATIA-04-OPERACAO-PASTORAL-GUIADA.md](14-IMPLEMENTACAO-FATIA-04-OPERACAO-PASTORAL-GUIADA.md): direção Diamante Lapidado aplicada à primeira fatia visual de Minha Célula.
+- [15-IMPLEMENTACAO-FATIA-05-FAROL-DE-HOJE.md](15-IMPLEMENTACAO-FATIA-05-FAROL-DE-HOJE.md): Painel de Hoje reorganizado como farol operacional, com prioridades por responsabilidade e caminho G12 vivo.
 - [auditorias/03-acesso-lideranca-celula-readonly.sql](auditorias/03-acesso-lideranca-celula-readonly.sql): consultas somente leitura para medir divergências legadas antes de qualquer reparo.
 - [FONTES-E-RASTREABILIDADE.md](FONTES-E-RASTREABILIDADE.md): fontes, evidências, limites e método de atualização.
 
@@ -58,7 +60,7 @@ Um requisito antigo nunca deve apagar uma evolução já existente. Quando houve
 
 ## Gate permanente
 
-O dono do produto aprovou a implementação local da Fatia 04. Essa aprovação não
-autoriza commit, push, PR, merge, migration, alteração de banco, configuração
-externa, envio real, deploy ou produção. Cada passo permanece um gate humano
-separado.
+O dono do produto aprovou a implementação e a publicação do PR da Fatia 04, e
+autorizou preparar a Fatia 05 em PR separado. Isso não autoriza merge,
+migration, alteração de banco, configuração externa, envio real, deploy ou
+produção. Cada passo permanece um gate humano separado.
