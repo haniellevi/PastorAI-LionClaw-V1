@@ -81,7 +81,13 @@ export function EnviarScreen() {
   const registradas = data?.registradas ?? [];
 
   return (
-    <div className="screen" key="enviar">
+    <div className="screen journey-screen journey-screen--enviar" key="enviar">
+      <div className="screen-head">
+        <div className="titles">
+          <h2>Multiplicações</h2>
+          <p>Acompanhe pedidos e registros que fortalecem a próxima geração.</p>
+        </div>
+      </div>
       <div className="info-banner" role="note">
         <Icon name="info" />
         <span>

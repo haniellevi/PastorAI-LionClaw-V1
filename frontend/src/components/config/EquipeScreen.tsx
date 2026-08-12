@@ -455,8 +455,12 @@ export function EquipeScreen() {
   const showSkeleton = loading && !loaded;
 
   return (
-    <div className="screen" key="equipe">
+    <div className="screen admin-screen team-screen" key="equipe">
       <div className="screen-head">
+        <div className="titles">
+          <h2>Acessos da equipe</h2>
+          <p>Convide pessoas e mantenha os papéis necessários para o cuidado da igreja.</p>
+        </div>
         <div className="actions">
           {podeConvidar ? (
             <button

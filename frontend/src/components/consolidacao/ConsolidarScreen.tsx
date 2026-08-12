@@ -123,8 +123,12 @@ export function ConsolidarScreen() {
   ];
 
   return (
-    <div className="screen" key="consolidar">
+    <div className="screen journey-screen journey-screen--consolidar" key="consolidar">
       <div className="screen-head">
+        <div className="titles">
+          <h2>Cuidado de novos discípulos</h2>
+          <p>Priorize decisões recentes e acompanhe o avanço de cada pessoa.</p>
+        </div>
         <div className="actions">
           <button
             type="button"

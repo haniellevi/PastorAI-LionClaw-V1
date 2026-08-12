@@ -367,8 +367,12 @@ export function AgenteScreen() {
   const cronReady = cronNome.trim().length > 0;
 
   return (
-    <div className="screen" key="agente">
+    <div className="screen admin-screen agent-screen" key="agente">
       <div className="screen-head">
+        <div className="titles">
+          <h2>Assistente da igreja</h2>
+          <p>Revise comportamento, credencial e rotinas do agente com contexto.</p>
+        </div>
         <div className="actions">
           <StatusPill tone={loading ? "muted" : credentialTone(credentialState)}>
             {loading ? "Carregando…" : credentialLabel(credentialState)}
@@ -376,7 +380,7 @@ export function AgenteScreen() {
         </div>
       </div>
 
-      <div className="tabs" style={{ marginBottom: "var(--s4)" }}>
+      <div className="tabs admin-tabs" style={{ marginBottom: "var(--s4)" }}>
         <button
           type="button"
           className={`tab${tab === "behavior" ? " active" : ""}`}

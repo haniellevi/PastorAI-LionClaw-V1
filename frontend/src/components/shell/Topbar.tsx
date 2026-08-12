@@ -60,7 +60,7 @@ export function Topbar({
           {/* Gate 6 (M7B-Visual-W1, revisão externa achado #4): o h1 trunca com
               reticências em telas estreitas — title nativo dá ao mouse o texto
               completo sem JS/tooltip próprio. */}
-          <h1 title={meta.title}>{meta.title}</h1>
+          <h1 id="screen-title" title={meta.title}>{meta.title}</h1>
           {meta.info ? <InfoTip text={meta.info} /> : null}
         </div>
       </div>

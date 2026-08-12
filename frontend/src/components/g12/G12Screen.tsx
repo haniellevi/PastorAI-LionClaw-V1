@@ -110,8 +110,12 @@ export function G12Screen() {
   const showSkeleton = loading && !loaded;
 
   return (
-    <div className="screen" key="g12">
+    <div className="screen journey-screen g12-screen" key="g12">
       <div className="screen-head">
+        <div className="titles">
+          <h2>Rede de discipulado</h2>
+          <p>Navegue pela descendência e pelos indicadores da liderança.</p>
+        </div>
         <div className="actions">
           <button type="button" className="btn btn-sm" onClick={() => void load("retry")} disabled={loading}>
             <Icon name="refresh" />

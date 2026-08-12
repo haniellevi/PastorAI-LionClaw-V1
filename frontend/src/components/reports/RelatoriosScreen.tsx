@@ -228,8 +228,12 @@ export function RelatoriosScreen() {
   );
 
   return (
-    <div className="screen" key="relatorios">
+    <div className="screen operations-screen reports-screen" key="relatorios">
       <div className="screen-head">
+        <div className="titles">
+          <h2>Relatórios de células</h2>
+          <p>Acompanhe o que chegou e o que ainda precisa de cuidado nesta semana.</p>
+        </div>
         <div className="actions">
           <div className="tabs">
             <button

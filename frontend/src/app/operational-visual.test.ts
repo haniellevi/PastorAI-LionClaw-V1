@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const globals = readFileSync(join(__dirname, "globals.css"), "utf8");
+const tokens = readFileSync(join(__dirname, "design-tokens.css"), "utf8");
 const dashboard = readFileSync(
   join(__dirname, "../components/dashboard/DashboardScreen.tsx"),
   "utf8",
@@ -88,6 +89,151 @@ describe("tipografia operacional — piso de 12px nesta onda", () => {
     const match = bodyFor(selector, "font-size").match(/font-size:\s*([\d.]+)px/);
     expect(match, `font-size em px não encontrado: ${selector}`).not.toBeNull();
     expect(Number(match![1])).toBeGreaterThanOrEqual(12);
+  });
+});
+
+describe("fundação sistêmica — superfícies e carregamento", () => {
+  it("mantém superfícies planas e separa a tela pelo cabeçalho, não por sombra", () => {
+    expect(bodyFor(".card", "background: var(--surface)")).not.toContain("box-shadow");
+    const screenHead = bodyFor(".screen-head", "border-bottom");
+    expect(screenHead).toContain("border-bottom: 1px solid var(--border-subtle)");
+    expect(screenHead).toContain("padding-bottom: var(--s4)");
+  });
+
+  it("usa skeleton estático e reduz o gutter horizontal no telefone", () => {
+    expect(bodyFor(".screen-loading-line", "background: var(--surface-panel)")).not.toContain(
+      "animation",
+    );
+    expect(globals).toContain("padding-inline: var(--s4)");
+  });
+});
+
+describe("Agenda e Conversas — composição operacional", () => {
+  const agenda = readFileSync(
+    join(__dirname, "../components/calendario/CalendarioScreen.tsx"),
+    "utf8",
+  );
+  const inbox = readFileSync(join(__dirname, "../components/inbox/InboxScreen.tsx"), "utf8");
+
+  it("mantém a agenda como um workspace único abaixo do cabeçalho", () => {
+    expect(agenda).toContain('className="agenda-workspace"');
+    expect(bodyFor(".agenda-workspace > .ds-tabs-wrap > .ds-tabpanel", "padding-top")).toContain(
+      "padding-top: var(--s5)",
+    );
+    expect(bodyFor(".agenda .cal", "border-radius: var(--radius-panel)")).not.toContain(
+      "box-shadow",
+    );
+  });
+
+  it("explica o propósito das conversas antes da lista de atendimento", () => {
+    expect(inbox).toContain("Atendimentos pelo WhatsApp");
+    expect(inbox).toContain("Converse, assuma ou encaminhe cada cuidado no momento certo.");
+    expect(bodyFor(".ib .ib-head", "align-items: flex-end")).toContain(
+      "align-items: flex-end",
+    );
+  });
+});
+
+describe("Pessoas, células e Jornada — foco antes de densidade", () => {
+  const ganhar = readFileSync(join(__dirname, "../components/contacts/GanharScreen.tsx"), "utf8");
+  const contatos = readFileSync(join(__dirname, "../components/contacts/ContatosScreen.tsx"), "utf8");
+  const celulas = readFileSync(join(__dirname, "../components/cells/CelulasScreen.tsx"), "utf8");
+  const g12 = readFileSync(join(__dirname, "../components/g12/G12Screen.tsx"), "utf8");
+  const central = readFileSync(
+    join(__dirname, "../components/central-celula/CentralCelulaScreen.tsx"),
+    "utf8",
+  );
+
+  it("explica a finalidade de cada área antes das listas e dos números", () => {
+    expect(ganhar).toContain("Organize novos contatos e visitantes antes do próximo passo da jornada.");
+    expect(contatos).toContain("Encontre, atualize e acompanhe cada pessoa com clareza.");
+    expect(celulas).toContain("Veja saúde, liderança e vínculos de cada célula.");
+    expect(g12).toContain("Navegue pela descendência e pelos indicadores da liderança.");
+  });
+
+  it("mantém a Central como workspace único e usa superfícies sem elevação", () => {
+    expect(central).toContain('className="cc-workspace"');
+    expect(globals).toMatch(
+      /\.cc-workspace > \.ds-tabs-wrap > \.ds-tabpanel\s*\{\s*padding-top: var\(--s5\);/,
+    );
+    expect(bodyFor(".cell-card:hover", "background: var(--surface-2)")).not.toContain(
+      "box-shadow",
+    );
+    expect(bodyFor(".slot.has-team:hover", "background: var(--selection-soft)")).not.toContain(
+      "box-shadow",
+    );
+  });
+
+  it("compacta a escala de números operacionais sem sacrificar a hierarquia", () => {
+    expect(bodyFor(".stat .val", "font-size: 26px")).toContain("font-size: 26px");
+    expect(bodyFor(".central-card .cc-val", "font-size: 24px")).toContain("font-size: 24px");
+    expect(tokens).toContain("--type-h1: 700 24px/1.2 var(--font-display)");
+    expect(tokens).toContain("--type-h2: 650 19px/1.3 var(--font-display)");
+  });
+});
+
+describe("Administração e operação — contexto antes de configuração", () => {
+  const setup = readFileSync(join(__dirname, "../components/config/SetupChecklistScreen.tsx"), "utf8");
+  const equipe = readFileSync(join(__dirname, "../components/config/EquipeScreen.tsx"), "utf8");
+  const permissoes = readFileSync(join(__dirname, "../components/config/PermissoesScreen.tsx"), "utf8");
+  const agente = readFileSync(join(__dirname, "../components/config/AgenteScreen.tsx"), "utf8");
+  const whatsapp = readFileSync(join(__dirname, "../components/whatsapp/WhatsappScreen.tsx"), "utf8");
+  const comunicados = readFileSync(join(__dirname, "../components/comunicados/ComunicadosScreen.tsx"), "utf8");
+
+  it("explica cada decisão administrativa antes dos controles", () => {
+    expect(setup).toContain("Conclua o que libera a operação da sua igreja com segurança.");
+    expect(equipe).toContain("Convide pessoas e mantenha os papéis necessários para o cuidado da igreja.");
+    expect(permissoes).toContain("Defina o que cada responsabilidade pode acessar no painel.");
+    expect(agente).toContain("Revise comportamento, credencial e rotinas do agente com contexto.");
+    expect(whatsapp).toContain("Conecte e acompanhe o canal usado no cuidado e na comunicação da igreja.");
+    expect(comunicados).toContain("Prepare o comunicado, revise o alcance e envie no momento certo.");
+  });
+
+  it("mantém matrizes, cards e etapas administrativas em superfícies calmas", () => {
+    expect(bodyFor(".admin-screen .card", "background: var(--surface-raised)")).toContain(
+      "box-shadow: none",
+    );
+    expect(bodyFor(".admin-screen .perm-wrap", "border: 1px solid var(--border-subtle)")).toContain(
+      "border-radius: var(--radius-control)",
+    );
+    expect(bodyFor(".operations-screen .bc-steps", "background: var(--surface-panel)")).toContain(
+      "border-radius: var(--radius-control)",
+    );
+  });
+
+  it("preserva alvos de toque e opções responsivas nas telas administrativas", () => {
+    const mobileStart = globals.indexOf("@media (max-width: 860px)", globals.indexOf("Administração e operação"));
+    const rules = globals.slice(mobileStart, globals.indexOf("GATE 7.2", mobileStart));
+    expect(rules).toContain(".admin-screen .btn");
+    expect(rules).toContain("min-height: 44px");
+    expect(rules).toContain(".admin-screen .role-pick");
+    expect(rules).toContain("grid-template-columns: 1fr");
+  });
+});
+
+describe("Estados de borda — informação antes de frustração", () => {
+  const locked = readFileSync(join(__dirname, "../components/consolidacao/LockedScreen.tsx"), "utf8");
+  const denied = readFileSync(join(__dirname, "../components/consolidacao/AccessDenied.tsx"), "utf8");
+  const central = readFileSync(
+    join(__dirname, "../components/central-celula/CentralCelulaScreen.tsx"),
+    "utf8",
+  );
+  const screenView = readFileSync(join(__dirname, "../components/shell/ScreenView.tsx"), "utf8");
+
+  it("usa a mesma superfície calma para bloqueio, acesso restrito e áreas futuras", () => {
+    expect(locked).toContain('className="screen journey-screen locked-screen"');
+    expect(denied).toContain('className="screen journey-screen access-screen"');
+    expect(central).toContain('className="screen cc access-screen"');
+    expect(screenView).toContain('className="screen scaffold-screen"');
+    expect(bodyFor(".access-screen .card", "background: var(--surface-raised)")).toContain(
+      "box-shadow: none",
+    );
+  });
+
+  it("troca linguagem técnica de sprint por uma orientação clara", () => {
+    expect(screenView).toContain("Esta área está sendo preparada");
+    expect(screenView).toContain("O conteúdo operacional chega em");
+    expect(screenView).not.toContain("Casca pronta — conteúdo na próxima sprint");
   });
 });
 
