@@ -8,7 +8,7 @@
  */
 import { useState } from "react";
 
-import { Button } from "@/components/ui/Button";
+import { DsButton } from "@/components/ds/Button";
 import { Icon } from "@/lib/icons";
 import { ApiError } from "@/lib/dashboard-api";
 import { submitReport, MeetingConflictError } from "@/lib/cell-meetings-api";
@@ -50,8 +50,7 @@ export function SubmitReportButton({
   }
 
   return (
-    <section className="card" aria-label="Enviar relatório">
-      <div className="section-body">
+    <div className="mc-report-submit" aria-label="Enviar relatório">
         <p className="muted-note">
           Ao enviar, o relatório é consolidado e <strong>bloqueado para edição</strong>.
           Confira presença, visitantes, registros e oferta antes de confirmar.
@@ -65,19 +64,17 @@ export function SubmitReportButton({
         ) : null}
 
         <div className="section-actions">
-          <Button
+          <DsButton
             variant="primary"
-            size="md"
+            size="lg"
             block
             onClick={() => void submit()}
             loading={busy}
-            loadingText="Enviando…"
           >
             <Icon name="send" />
-            <span>Enviar relatório</span>
-          </Button>
+            <span>{busy ? "Enviando relatório…" : "Enviar relatório"}</span>
+          </DsButton>
         </div>
-      </div>
-    </section>
+    </div>
   );
 }
