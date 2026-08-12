@@ -214,11 +214,16 @@ describe("Administração e operação — contexto antes de configuração", ()
 describe("Estados de borda — informação antes de frustração", () => {
   const locked = readFileSync(join(__dirname, "../components/consolidacao/LockedScreen.tsx"), "utf8");
   const denied = readFileSync(join(__dirname, "../components/consolidacao/AccessDenied.tsx"), "utf8");
+  const central = readFileSync(
+    join(__dirname, "../components/central-celula/CentralCelulaScreen.tsx"),
+    "utf8",
+  );
   const screenView = readFileSync(join(__dirname, "../components/shell/ScreenView.tsx"), "utf8");
 
   it("usa a mesma superfície calma para bloqueio, acesso restrito e áreas futuras", () => {
     expect(locked).toContain('className="screen journey-screen locked-screen"');
     expect(denied).toContain('className="screen journey-screen access-screen"');
+    expect(central).toContain('className="screen cc access-screen"');
     expect(screenView).toContain('className="screen scaffold-screen"');
     expect(bodyFor(".access-screen .card", "background: var(--surface-raised)")).toContain(
       "box-shadow: none",

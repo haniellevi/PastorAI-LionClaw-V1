@@ -77,7 +77,7 @@ export function CentralCelulaScreen() {
   // Guarda de papel: a Central é exclusiva de pastor/admin.
   if (!isCentral) {
     return (
-      <div className="screen cc" key="central-celula">
+      <div className="screen cc access-screen" key="central-celula">
         <div className="card">
           <DsEmptyState
             illustration={<Icon name="lock" />}
