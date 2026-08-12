@@ -52,6 +52,7 @@ describe("Topbar — title nativo no h1 truncado", () => {
   it("h1 tem title=texto completo do título (mesmo texto do conteúdo visível)", () => {
     render("dashboard");
     const h1 = container.querySelector("h1")!;
+    expect(h1.id).toBe("screen-title");
     expect(h1.getAttribute("title")).toBe(SCREEN_META.dashboard!.title);
     expect(h1.textContent).toBe(SCREEN_META.dashboard!.title);
   });

@@ -671,6 +671,25 @@ input[type="checkbox"] {
   white-space: nowrap;
   border: 0;
 }
+.skip-link {
+  position: fixed;
+  z-index: 70;
+  top: var(--s2);
+  left: var(--s2);
+  padding: var(--s2) var(--s3);
+  border-radius: var(--radius-control);
+  background: var(--action-primary);
+  color: var(--text-on-action);
+  font: var(--type-label);
+  text-decoration: none;
+  transform: translateY(-160%);
+  transition: transform var(--motion-fast) var(--ease-out-productive);
+}
+.skip-link:focus-visible {
+  transform: translateY(0);
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 3px;
+}
 .app {
   display: grid;
   /* Gate 6.2: a coluna segue a LARGURA REAL da sidebar (248px expandida,
@@ -1154,6 +1173,9 @@ input[type="checkbox"] {
   flex-direction: column;
   overflow: hidden;
 }
+.main:focus {
+  outline: none;
+}
 .topbar {
   position: sticky;
   top: 0;
@@ -1283,32 +1305,26 @@ input[type="checkbox"] {
   min-height: 0;
   overflow-y: auto;
   padding: var(--s5);
-  animation: fade 0.22s ease;
-}
-@keyframes fade {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
 }
 .screen-head {
   display: flex;
-  align-items: flex-end;
+  align-items: flex-start;
   gap: var(--s4);
   margin-bottom: var(--s5);
+  padding-bottom: var(--s4);
+  border-bottom: 1px solid var(--border-subtle);
   flex-wrap: wrap;
 }
 .screen-head .titles h2 {
-  font-size: 20px;
+  font: var(--type-h2);
+  text-wrap: balance;
 }
 .screen-head .titles p {
   color: var(--muted);
   margin-top: 4px;
-  font-size: 13.5px;
+  max-width: 65ch;
+  font: var(--type-body);
+  text-wrap: pretty;
 }
 .screen-head .actions {
   margin-left: auto;
@@ -1389,9 +1405,8 @@ input[type="checkbox"] {
 }
 .card {
   background: var(--surface);
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--r-lg);
-  box-shadow: var(--shadow);
 }
 .card-pad {
   padding: var(--s4);
@@ -5978,8 +5993,51 @@ table.data-table {
   }
   /* Folga p/ o conteúdo rolável não ficar sob a barra. */
   .screen {
-    padding-bottom: calc(56px + env(safe-area-inset-bottom));
+    padding-inline: var(--s4);
+    padding-bottom: calc(56px + var(--s4) + env(safe-area-inset-bottom));
   }
+}
+
+/* Carregamento de tela: formas estáticas, sem spinner ou shimmer decorativo. */
+.screen-loading {
+  display: grid;
+  align-content: start;
+  gap: var(--s5);
+}
+.screen-loading-head,
+.screen-loading-surface {
+  display: grid;
+  gap: var(--s2);
+}
+.screen-loading-head {
+  max-width: 30rem;
+}
+.screen-loading-surface {
+  min-height: 13rem;
+  align-content: start;
+  padding: var(--s5);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  background: var(--surface-raised);
+}
+.screen-loading-line {
+  display: block;
+  height: 12px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-panel);
+}
+.screen-loading-line--title {
+  width: min(16rem, 70%);
+  height: 24px;
+}
+.screen-loading-line--copy {
+  width: min(24rem, 92%);
+}
+.screen-loading-line--label {
+  width: 7rem;
+}
+.screen-loading-line--wide {
+  width: 100%;
 }
 
 /* data-table → cards empilhados no telefone (rótulo via data-label). */

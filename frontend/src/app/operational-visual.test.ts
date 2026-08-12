@@ -91,6 +91,22 @@ describe("tipografia operacional — piso de 12px nesta onda", () => {
   });
 });
 
+describe("fundação sistêmica — superfícies e carregamento", () => {
+  it("mantém superfícies planas e separa a tela pelo cabeçalho, não por sombra", () => {
+    expect(bodyFor(".card", "background: var(--surface)")).not.toContain("box-shadow");
+    const screenHead = bodyFor(".screen-head", "border-bottom");
+    expect(screenHead).toContain("border-bottom: 1px solid var(--border-subtle)");
+    expect(screenHead).toContain("padding-bottom: var(--s4)");
+  });
+
+  it("usa skeleton estático e reduz o gutter horizontal no telefone", () => {
+    expect(bodyFor(".screen-loading-line", "background: var(--surface-panel)")).not.toContain(
+      "animation",
+    );
+    expect(globals).toContain("padding-inline: var(--s4)");
+  });
+});
+
 describe("Farol de Hoje — hierarquia visual sem rail persistente", () => {
   it("mantém a fila em uma superfície única e leva o contexto para depois", () => {
     expect(bodyFor(".dh-grid", "display: block")).toContain("display: block");

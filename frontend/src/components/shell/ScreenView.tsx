@@ -39,10 +39,16 @@ import { SCREEN_META } from "@/lib/navigation";
 
 function ScreenLoading() {
   return (
-    <div className="screen" role="status" aria-live="polite" aria-busy="true">
-      <div className="card" style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <span className="spinner" aria-hidden="true" />
-        <span>Carregando tela…</span>
+    <div className="screen screen-loading" role="status" aria-live="polite" aria-busy="true">
+      <span className="sr-only">Carregando tela…</span>
+      <div className="screen-loading-head" aria-hidden="true">
+        <span className="screen-loading-line screen-loading-line--title" />
+        <span className="screen-loading-line screen-loading-line--copy" />
+      </div>
+      <div className="screen-loading-surface" aria-hidden="true">
+        <span className="screen-loading-line screen-loading-line--label" />
+        <span className="screen-loading-line screen-loading-line--wide" />
+        <span className="screen-loading-line screen-loading-line--wide" />
       </div>
     </div>
   );
