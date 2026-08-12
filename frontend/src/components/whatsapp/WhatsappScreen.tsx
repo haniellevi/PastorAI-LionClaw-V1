@@ -339,8 +339,12 @@ export function WhatsappScreen() {
   const primaryAction: "connect" | "reconnect" = info?.numero ? "reconnect" : "connect";
 
   return (
-    <div className="screen" key="whatsapp">
+    <div className="screen admin-screen whatsapp-screen" key="whatsapp">
       <div className="screen-head">
+        <div className="titles">
+          <h2>Número oficial do WhatsApp</h2>
+          <p>Conecte e acompanhe o canal usado no cuidado e na comunicação da igreja.</p>
+        </div>
         <div className="actions">
           <button
             type="button"

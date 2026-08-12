@@ -172,6 +172,45 @@ describe("Pessoas, células e Jornada — foco antes de densidade", () => {
   });
 });
 
+describe("Administração e operação — contexto antes de configuração", () => {
+  const setup = readFileSync(join(__dirname, "../components/config/SetupChecklistScreen.tsx"), "utf8");
+  const equipe = readFileSync(join(__dirname, "../components/config/EquipeScreen.tsx"), "utf8");
+  const permissoes = readFileSync(join(__dirname, "../components/config/PermissoesScreen.tsx"), "utf8");
+  const agente = readFileSync(join(__dirname, "../components/config/AgenteScreen.tsx"), "utf8");
+  const whatsapp = readFileSync(join(__dirname, "../components/whatsapp/WhatsappScreen.tsx"), "utf8");
+  const comunicados = readFileSync(join(__dirname, "../components/comunicados/ComunicadosScreen.tsx"), "utf8");
+
+  it("explica cada decisão administrativa antes dos controles", () => {
+    expect(setup).toContain("Conclua o que libera a operação da sua igreja com segurança.");
+    expect(equipe).toContain("Convide pessoas e mantenha os papéis necessários para o cuidado da igreja.");
+    expect(permissoes).toContain("Defina o que cada responsabilidade pode acessar no painel.");
+    expect(agente).toContain("Revise comportamento, credencial e rotinas do agente com contexto.");
+    expect(whatsapp).toContain("Conecte e acompanhe o canal usado no cuidado e na comunicação da igreja.");
+    expect(comunicados).toContain("Prepare o comunicado, revise o alcance e envie no momento certo.");
+  });
+
+  it("mantém matrizes, cards e etapas administrativas em superfícies calmas", () => {
+    expect(bodyFor(".admin-screen .card", "background: var(--surface-raised)")).toContain(
+      "box-shadow: none",
+    );
+    expect(bodyFor(".admin-screen .perm-wrap", "border: 1px solid var(--border-subtle)")).toContain(
+      "border-radius: var(--radius-control)",
+    );
+    expect(bodyFor(".operations-screen .bc-steps", "background: var(--surface-panel)")).toContain(
+      "border-radius: var(--radius-control)",
+    );
+  });
+
+  it("preserva alvos de toque e opções responsivas nas telas administrativas", () => {
+    const mobileStart = globals.indexOf("@media (max-width: 860px)", globals.indexOf("Administração e operação"));
+    const rules = globals.slice(mobileStart, globals.indexOf("GATE 7.2", mobileStart));
+    expect(rules).toContain(".admin-screen .btn");
+    expect(rules).toContain("min-height: 44px");
+    expect(rules).toContain(".admin-screen .role-pick");
+    expect(rules).toContain("grid-template-columns: 1fr");
+  });
+});
+
 describe("Farol de Hoje — hierarquia visual sem rail persistente", () => {
   it("mantém a fila em uma superfície única e leva o contexto para depois", () => {
     expect(bodyFor(".dh-grid", "display: block")).toContain("display: block");

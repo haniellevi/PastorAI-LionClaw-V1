@@ -7501,6 +7501,139 @@ table.data-table {
 }
 
 /* ===========================================================================
+   Administração e operação — mesma clareza da navegação pastoral, sem mudar
+   contratos sensíveis de cobrança, acesso, conexão ou envio.
+   =========================================================================== */
+.admin-screen .screen-head,
+.operations-screen .screen-head,
+.profile-screen .screen-head {
+  margin-bottom: var(--s4);
+}
+.admin-screen .card,
+.operations-screen .card,
+.profile-screen .card {
+  background: var(--surface-raised);
+  border-color: var(--border-subtle);
+  border-radius: var(--radius-panel);
+  box-shadow: none;
+}
+.admin-screen .panel-title,
+.operations-screen .panel-title {
+  color: var(--text-primary);
+  font: var(--type-label);
+}
+.admin-screen .qitem:hover,
+.operations-screen .qitem:hover,
+.operations-screen .list-row:hover,
+.profile-screen .config-row:hover {
+  background: var(--surface-panel);
+}
+.admin-tabs {
+  width: fit-content;
+  max-width: 100%;
+}
+.admin-screen .info-banner,
+.operations-screen .info-banner {
+  background: var(--state-info-soft);
+  border-color: var(--border-emphasis);
+  color: var(--text-secondary);
+}
+.admin-screen .info-banner strong,
+.operations-screen .info-banner strong {
+  color: var(--text-primary);
+}
+.admin-screen .error-banner[role="status"] {
+  background: var(--state-info-soft) !important;
+  border-color: var(--border-emphasis);
+  color: var(--text-primary) !important;
+}
+.admin-screen .perm-wrap {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--surface-raised);
+}
+.admin-screen .perm-table th,
+.admin-screen .perm-table td {
+  border-color: var(--border-subtle);
+}
+.admin-screen .perm-table thead th,
+.admin-screen .perm-table tbody th,
+.admin-screen .perm-table td.locked {
+  background: var(--surface-panel);
+}
+.admin-screen .config-row {
+  border-color: var(--border-subtle);
+}
+.admin-screen .meter {
+  height: 10px;
+  background: var(--surface-panel);
+}
+.admin-screen .meter > span {
+  background: var(--action-primary);
+}
+.admin-screen .role-pick label {
+  border-color: var(--border-subtle);
+  border-radius: var(--radius-control);
+}
+.admin-screen .role-pick label.on {
+  border-color: var(--selection-strong);
+  background: var(--selection-soft);
+}
+.admin-screen .conn-grid {
+  gap: var(--s4);
+}
+.admin-screen .conn-row {
+  border-color: var(--border-subtle);
+}
+.operations-screen .bc-steps {
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--surface-panel);
+}
+.operations-screen .bc-step.active .bc-step-n {
+  border-color: var(--selection-strong);
+  color: var(--action-primary);
+}
+.operations-screen .bc-step.done .bc-step-n {
+  background: var(--action-primary);
+  border-color: var(--action-primary);
+}
+.admin-screen .btn:focus-visible,
+.operations-screen .btn:focus-visible,
+.profile-screen .ds-btn:focus-visible,
+.admin-screen .role-pick label:focus-within {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+@media (max-width: 860px) {
+  .admin-screen .btn,
+  .admin-screen .ds-btn,
+  .operations-screen .btn,
+  .operations-screen .ds-btn,
+  .profile-screen .ds-btn {
+    min-height: 44px;
+  }
+  .admin-tabs {
+    width: 100%;
+  }
+  .admin-tabs .tab {
+    flex: 1 1 auto;
+    min-height: 40px;
+  }
+  .admin-screen .role-pick {
+    grid-template-columns: 1fr;
+  }
+  .operations-screen .bc-steps {
+    overflow-x: auto;
+  }
+  .operations-screen .bc-step {
+    min-width: max-content;
+  }
+}
+
+/* ===========================================================================
    GATE 7.2 — FAROL DE HOJE (Onda 5 · organização visual aprovada)
    Evolui a base Quiet Operations sem alterar dados ou capacidades:
    - uma única superfície operacional domina a primeira dobra;
