@@ -26,6 +26,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 
+import { DiamondMark } from "@/components/brand/DiamondMark";
 import { DsBanner } from "@/components/ds/Banner";
 import { DsButton } from "@/components/ds/Button";
 import { Dialog as DsDialog } from "@/components/ds/Dialog";
@@ -936,9 +937,7 @@ export function DashboardScreen() {
           hasWorkQueue && acoesAbertas > 0 ? " has-actions" : " is-calm"
         }`}
       >
-        <span className="dh-hero-facet" aria-hidden="true">
-          <span />
-        </span>
+        <DiamondMark className="dh-hero-mark" size={42} title="" />
         <div className="dh-greet">
           <p className="dh-date">
             <span>Seu dia em foco</span>

@@ -7287,10 +7287,10 @@ table.data-table {
 .dh-hero {
   position: relative;
   display: grid;
-  grid-template-columns: 48px minmax(0, 1fr) auto;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--s4);
-  min-height: 116px;
+  min-height: 104px;
   margin-bottom: var(--s4);
   padding: var(--s4) var(--s5);
   overflow: hidden;
@@ -7308,38 +7308,11 @@ table.data-table {
 .dh-hero.has-actions::after {
   background: var(--state-warn);
 }
-.dh-hero-facet {
-  position: relative;
-  display: grid;
+.dh-hero-mark {
+  display: block;
   width: 42px;
-  height: 48px;
-  place-items: center;
-  clip-path: polygon(50% 0, 92% 27%, 68% 78%, 50% 100%, 32% 78%, 8% 27%);
-  background: var(--diamond-900);
+  height: 42px;
   animation: dh-facet-arrive var(--motion-expressive) var(--ease-out-expressive) both;
-}
-.dh-hero-facet::before,
-.dh-hero-facet::after,
-.dh-hero-facet > span {
-  content: "";
-  position: absolute;
-  background: var(--diamond-500);
-  opacity: 0.78;
-}
-.dh-hero-facet::before {
-  inset: 0 49% 0 auto;
-  width: 1px;
-  transform: rotate(28deg);
-}
-.dh-hero-facet::after {
-  inset: 0 auto 0 49%;
-  width: 1px;
-  transform: rotate(-28deg);
-}
-.dh-hero-facet > span {
-  width: 78%;
-  height: 1px;
-  top: 28%;
 }
 @keyframes dh-facet-arrive {
   from {
@@ -7367,8 +7340,8 @@ table.data-table {
   text-transform: none;
 }
 .dh-title {
-  font: var(--type-display);
-  letter-spacing: -0.025em;
+  font: var(--type-h1);
+  letter-spacing: -0.02em;
 }
 .dh-lead {
   max-width: 62ch;
@@ -7378,6 +7351,7 @@ table.data-table {
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  flex-wrap: wrap;
   gap: var(--s3);
 }
 .dh-focus-state {
@@ -7504,7 +7478,7 @@ table.data-table {
 }
 .dh-queue-title {
   display: block;
-  font: var(--type-h2);
+  font: 650 18px/1.3 var(--font-display);
 }
 .dh-queue-title:focus-visible {
   outline: 2px solid var(--focus-ring);
@@ -7584,7 +7558,7 @@ table.data-table {
   transform: translateX(2px);
 }
 .dh-item-title {
-  font: 700 15px/1.4 var(--font);
+  font: 700 14px/1.4 var(--font);
 }
 .dh-item-actions {
   gap: var(--s2);
@@ -7794,22 +7768,37 @@ table.data-table {
   .dh-support > .dh-team-workload {
     grid-column: 1;
   }
-}
-
-@media (max-width: 860px) {
   .dh-hero {
-    grid-template-columns: 42px minmax(0, 1fr);
+    grid-template-columns: 38px minmax(0, 1fr);
     align-items: center;
     gap: var(--s3);
     min-height: 0;
     padding: var(--s4);
   }
-  .dh-hero-facet {
+  .dh-hero-mark {
     width: 36px;
-    height: 42px;
+    height: 36px;
   }
   .dh-hero-actions {
     grid-column: 1 / -1;
+    justify-content: flex-start;
+    padding-left: calc(36px + var(--s3));
+  }
+  .dh-item {
+    flex-wrap: wrap;
+  }
+  .dh-item-actions {
+    width: 100%;
+    justify-content: flex-start;
+    padding-left: calc(42px + var(--s3));
+  }
+}
+
+@media (max-width: 860px) {
+  .dh-hero {
+    padding: var(--s4);
+  }
+  .dh-hero-actions {
     justify-content: space-between;
   }
   .dh-hero > .ds-btn {
@@ -7830,7 +7819,19 @@ table.data-table {
 
 @media (max-width: 560px) {
   .dh-title {
-    font-size: 26px;
+    font-size: 24px;
+  }
+  .dh-hero {
+    grid-template-columns: 32px minmax(0, 1fr);
+    gap: var(--s2);
+    padding: var(--s3);
+  }
+  .dh-hero-mark {
+    width: 30px;
+    height: 30px;
+  }
+  .dh-hero-actions {
+    padding-left: 0;
   }
   .dh-date {
     gap: 4px var(--s2);
@@ -7860,6 +7861,9 @@ table.data-table {
   .dh-queue-sub {
     display: block;
     margin-left: 0;
+  }
+  .dh-queue-title {
+    font-size: 17px;
   }
   .dh-filter {
     width: 100%;

@@ -124,6 +124,38 @@ describe("Farol de Hoje — hierarquia visual sem rail persistente", () => {
     expect(dashboard).not.toContain("dh-panel-kicker");
   });
 
+  it("usa a marca canônica e a escala tipográfica de produto", () => {
+    expect(dashboard).toContain('import { DiamondMark } from "@/components/brand/DiamondMark"');
+    expect(dashboard).toContain('<DiamondMark className="dh-hero-mark" size={42} title="" />');
+    expect(dashboard).not.toContain("dh-hero-facet");
+    expect(bodyFor(".dh-title", "font: var(--type-h1)")).toContain(
+      "font: var(--type-h1)",
+    );
+    expect(bodyFor(".dh-queue-title", "font: 650 18px")).toContain(
+      "font: 650 18px/1.3 var(--font-display)",
+    );
+    expect(bodyFor(".dh-item-title", "font: 700 14px")).toContain(
+      "font: 700 14px/1.4 var(--font)",
+    );
+  });
+
+  it("reorganiza o farol e as ações antes de comprimir a fila no tablet", () => {
+    const dashboardResponsiveStart = globals.indexOf(".dh-team-workload .dh-person-row");
+    const tabletStart = globals.indexOf(
+      "@media (max-width: 1100px)",
+      dashboardResponsiveStart,
+    );
+    const mobileStart = globals.indexOf("@media (max-width: 860px)", tabletStart);
+    const tabletRules = globals.slice(tabletStart, mobileStart);
+
+    expect(tabletStart).toBeGreaterThanOrEqual(0);
+    expect(mobileStart).toBeGreaterThan(tabletStart);
+    expect(tabletRules).toContain(".dh-hero-actions");
+    expect(tabletRules).toContain("grid-column: 1 / -1");
+    expect(tabletRules).toContain(".dh-item-actions");
+    expect(tabletRules).toContain("width: 100%");
+  });
+
   it("usa caminho G12 explícito e skeleton estático dentro do dashboard", () => {
     expect(bodyFor(".dh-journey-track")).toContain(
       "grid-template-columns: repeat(4",
