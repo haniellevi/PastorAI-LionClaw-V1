@@ -319,7 +319,7 @@ export function WhatsappScreen() {
   // ---- bloqueio de acesso (admin only) -----------------------------------
   if (!allowed) {
     return (
-      <div className="screen" key="whatsapp-denied">
+      <div className="screen admin-screen access-screen" key="whatsapp-denied">
         <div className="card">
           <div className="access-denied">
             <Icon name="lock" className="access-ic" />

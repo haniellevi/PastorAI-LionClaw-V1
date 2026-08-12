@@ -252,7 +252,7 @@ export function ScreenView({ route, param }: { route: string; param?: string | n
   }
 
   return (
-    <div className="screen" key={route}>
+    <div className="screen scaffold-screen" key={route}>
       <div className="screen-head">
         <div className="titles">
           <h2>{meta.title}</h2>
@@ -263,10 +263,10 @@ export function ScreenView({ route, param }: { route: string; param?: string | n
       <div className="card">
         <div className="scaffold">
           <Icon name="construction" className="scaffold-ic" />
-          <h3>Casca pronta — conteúdo na próxima sprint</h3>
+          <h3>Esta área está sendo preparada</h3>
           <p>
-            A fundação visual, o roteamento por hash e a sidebar já estão ativos. A
-            implementação completa desta tela chega nas próximas entregas do roadmap.
+            A estrutura e a navegação já estão prontas. O conteúdo operacional chega em
+            uma próxima entrega.
           </p>
           <span className="route-tag">#{route}</span>
         </div>

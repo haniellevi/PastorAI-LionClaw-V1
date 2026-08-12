@@ -211,6 +211,27 @@ describe("Administração e operação — contexto antes de configuração", ()
   });
 });
 
+describe("Estados de borda — informação antes de frustração", () => {
+  const locked = readFileSync(join(__dirname, "../components/consolidacao/LockedScreen.tsx"), "utf8");
+  const denied = readFileSync(join(__dirname, "../components/consolidacao/AccessDenied.tsx"), "utf8");
+  const screenView = readFileSync(join(__dirname, "../components/shell/ScreenView.tsx"), "utf8");
+
+  it("usa a mesma superfície calma para bloqueio, acesso restrito e áreas futuras", () => {
+    expect(locked).toContain('className="screen journey-screen locked-screen"');
+    expect(denied).toContain('className="screen journey-screen access-screen"');
+    expect(screenView).toContain('className="screen scaffold-screen"');
+    expect(bodyFor(".access-screen .card", "background: var(--surface-raised)")).toContain(
+      "box-shadow: none",
+    );
+  });
+
+  it("troca linguagem técnica de sprint por uma orientação clara", () => {
+    expect(screenView).toContain("Esta área está sendo preparada");
+    expect(screenView).toContain("O conteúdo operacional chega em");
+    expect(screenView).not.toContain("Casca pronta — conteúdo na próxima sprint");
+  });
+});
+
 describe("Farol de Hoje — hierarquia visual sem rail persistente", () => {
   it("mantém a fila em uma superfície única e leva o contexto para depois", () => {
     expect(bodyFor(".dh-grid", "display: block")).toContain("display: block");

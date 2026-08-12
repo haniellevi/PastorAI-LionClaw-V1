@@ -703,7 +703,7 @@ export function InboxScreen() {
   // ---- bloqueio de acesso (US-11) -----------------------------------------
   if (!allowed) {
     return (
-      <div className="screen" key="inbox-denied">
+        <div className="screen operations-screen access-screen" key="inbox-denied">
         <div className="card">
           <div className="access-denied">
             <Icon name="lock" className="access-ic" />

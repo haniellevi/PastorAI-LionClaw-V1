@@ -7509,6 +7509,29 @@ table.data-table {
 .profile-screen .screen-head {
   margin-bottom: var(--s4);
 }
+.access-screen .screen-head,
+.locked-screen .screen-head,
+.scaffold-screen .screen-head {
+  margin-bottom: var(--s4);
+}
+.access-screen .card,
+.locked-screen .card,
+.scaffold-screen .card {
+  background: var(--surface-raised);
+  border-color: var(--border-subtle);
+  border-radius: var(--radius-panel);
+  box-shadow: none;
+}
+.access-screen .access-denied,
+.scaffold-screen .scaffold {
+  min-height: min(42dvh, 360px);
+  padding-block: var(--s7);
+}
+.locked-screen .soon-banner {
+  border-color: var(--border-emphasis);
+  background: var(--state-info-soft);
+  color: var(--text-secondary);
+}
 .admin-screen .card,
 .operations-screen .card,
 .profile-screen .card {

@@ -8,7 +8,7 @@ import { Icon } from "@/lib/icons";
 
 export function AccessDenied({ title, route }: { title: string; route: string }) {
   return (
-    <div className="screen" key={route}>
+    <div className="screen journey-screen access-screen" key={route}>
       <div className="screen-head">
         <div className="titles">
           <h2>{title}</h2>
