@@ -156,6 +156,21 @@ describe("Farol de Hoje — hierarquia visual sem rail persistente", () => {
     expect(tabletRules).toContain("width: 100%");
   });
 
+  it("mantém todos os controles do Dashboard com ao menos 44px no tablet", () => {
+    const dashboardResponsiveStart = globals.indexOf(".dh-team-workload .dh-person-row");
+    const tabletStart = globals.indexOf(
+      "@media (max-width: 860px)",
+      dashboardResponsiveStart,
+    );
+    const mobileStart = globals.indexOf("@media (max-width: 560px)", tabletStart);
+    const tabletRules = globals.slice(tabletStart, mobileStart);
+
+    expect(tabletRules).toContain(".dh-hero-actions .ds-btn");
+    expect(tabletRules).toContain(".dh-item-actions .ds-btn");
+    expect(tabletRules).toContain(".dh-filter-btn");
+    expect(tabletRules).toContain("min-height: 44px");
+  });
+
   it("usa caminho G12 explícito e skeleton estático dentro do dashboard", () => {
     expect(bodyFor(".dh-journey-track")).toContain(
       "grid-template-columns: repeat(4",

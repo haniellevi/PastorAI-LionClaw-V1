@@ -7812,7 +7812,9 @@ table.data-table {
     margin-inline: 0;
     padding-inline: var(--s2);
   }
-  .dh-item-actions .ds-btn {
+  .dh-hero-actions .ds-btn,
+  .dh-item-actions .ds-btn,
+  .dh-filter-btn {
     min-height: 44px;
   }
 }
