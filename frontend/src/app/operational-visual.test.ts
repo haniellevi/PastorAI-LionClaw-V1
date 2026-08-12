@@ -107,6 +107,32 @@ describe("fundação sistêmica — superfícies e carregamento", () => {
   });
 });
 
+describe("Agenda e Conversas — composição operacional", () => {
+  const agenda = readFileSync(
+    join(__dirname, "../components/calendario/CalendarioScreen.tsx"),
+    "utf8",
+  );
+  const inbox = readFileSync(join(__dirname, "../components/inbox/InboxScreen.tsx"), "utf8");
+
+  it("mantém a agenda como um workspace único abaixo do cabeçalho", () => {
+    expect(agenda).toContain('className="agenda-workspace"');
+    expect(bodyFor(".agenda-workspace > .ds-tabs-wrap > .ds-tabpanel", "padding-top")).toContain(
+      "padding-top: var(--s5)",
+    );
+    expect(bodyFor(".agenda .cal", "border-radius: var(--radius-panel)")).not.toContain(
+      "box-shadow",
+    );
+  });
+
+  it("explica o propósito das conversas antes da lista de atendimento", () => {
+    expect(inbox).toContain("Atendimentos pelo WhatsApp");
+    expect(inbox).toContain("Converse, assuma ou encaminhe cada cuidado no momento certo.");
+    expect(bodyFor(".ib .ib-head", "align-items: flex-end")).toContain(
+      "align-items: flex-end",
+    );
+  });
+});
+
 describe("Farol de Hoje — hierarquia visual sem rail persistente", () => {
   it("mantém a fila em uma superfície única e leva o contexto para depois", () => {
     expect(bodyFor(".dh-grid", "display: block")).toContain("display: block");
