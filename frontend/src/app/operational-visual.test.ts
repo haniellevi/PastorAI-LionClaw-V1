@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const globals = readFileSync(join(__dirname, "globals.css"), "utf8");
+const tokens = readFileSync(join(__dirname, "design-tokens.css"), "utf8");
 const dashboard = readFileSync(
   join(__dirname, "../components/dashboard/DashboardScreen.tsx"),
   "utf8",
@@ -130,6 +131,44 @@ describe("Agenda e Conversas — composição operacional", () => {
     expect(bodyFor(".ib .ib-head", "align-items: flex-end")).toContain(
       "align-items: flex-end",
     );
+  });
+});
+
+describe("Pessoas, células e Jornada — foco antes de densidade", () => {
+  const ganhar = readFileSync(join(__dirname, "../components/contacts/GanharScreen.tsx"), "utf8");
+  const contatos = readFileSync(join(__dirname, "../components/contacts/ContatosScreen.tsx"), "utf8");
+  const celulas = readFileSync(join(__dirname, "../components/cells/CelulasScreen.tsx"), "utf8");
+  const g12 = readFileSync(join(__dirname, "../components/g12/G12Screen.tsx"), "utf8");
+  const central = readFileSync(
+    join(__dirname, "../components/central-celula/CentralCelulaScreen.tsx"),
+    "utf8",
+  );
+
+  it("explica a finalidade de cada área antes das listas e dos números", () => {
+    expect(ganhar).toContain("Organize novos contatos e visitantes antes do próximo passo da jornada.");
+    expect(contatos).toContain("Encontre, atualize e acompanhe cada pessoa com clareza.");
+    expect(celulas).toContain("Veja saúde, liderança e vínculos de cada célula.");
+    expect(g12).toContain("Navegue pela descendência e pelos indicadores da liderança.");
+  });
+
+  it("mantém a Central como workspace único e usa superfícies sem elevação", () => {
+    expect(central).toContain('className="cc-workspace"');
+    expect(globals).toMatch(
+      /\.cc-workspace > \.ds-tabs-wrap > \.ds-tabpanel\s*\{\s*padding-top: var\(--s5\);/,
+    );
+    expect(bodyFor(".cell-card:hover", "background: var(--surface-2)")).not.toContain(
+      "box-shadow",
+    );
+    expect(bodyFor(".slot.has-team:hover", "background: var(--selection-soft)")).not.toContain(
+      "box-shadow",
+    );
+  });
+
+  it("compacta a escala de números operacionais sem sacrificar a hierarquia", () => {
+    expect(bodyFor(".stat .val", "font-size: 26px")).toContain("font-size: 26px");
+    expect(bodyFor(".central-card .cc-val", "font-size: 24px")).toContain("font-size: 24px");
+    expect(tokens).toContain("--type-h1: 700 24px/1.2 var(--font-display)");
+    expect(tokens).toContain("--type-h2: 650 19px/1.3 var(--font-display)");
   });
 });
 

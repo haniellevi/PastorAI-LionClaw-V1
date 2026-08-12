@@ -1560,7 +1560,7 @@ input[type="checkbox"] {
 }
 .stat .val {
   font-family: var(--font-display);
-  font-size: 30px;
+  font-size: 26px;
   font-weight: 640;
   letter-spacing: -0.02em;
   margin-top: 8px;
@@ -2045,7 +2045,7 @@ button.jr-row:focus-visible {
 .tab.active {
   background: var(--surface);
   color: var(--fg);
-  box-shadow: var(--shadow-sm);
+  box-shadow: inset 0 0 0 1px var(--border-emphasis);
 }
 /* No mobile, o strip de abas no cabeçalho do painel (ex.: #enviar, 4 abas com
    rótulos longos) cai para a própria linha e quebra em pílulas, sem vazar na
@@ -3865,18 +3865,15 @@ table.data-table {
   text-align: left;
   width: 100%;
   background: var(--surface);
-  transition: border-color 0.12s, box-shadow 0.12s, transform 0.05s;
+  transition: border-color var(--motion-fast) var(--ease-out-productive), background var(--motion-fast) var(--ease-out-productive);
 }
 .cell-card:hover {
   border-color: var(--accent);
-  box-shadow: var(--shadow);
-}
-.cell-card:active {
-  transform: translateY(1px);
+  background: var(--surface-2);
 }
 .cell-card.sel {
   border-color: var(--accent);
-  box-shadow: var(--shadow-sm);
+  background: var(--selection-soft);
 }
 .cell-card.skeleton {
   cursor: default;
@@ -4019,7 +4016,7 @@ table.data-table {
   min-height: 64px;
   text-align: left;
   background: transparent;
-  transition: border-color 0.12s, box-shadow 0.12s;
+  transition: border-color var(--motion-fast) var(--ease-out-productive), background var(--motion-fast) var(--ease-out-productive);
 }
 .slot.filled {
   background: var(--surface);
@@ -4030,7 +4027,7 @@ table.data-table {
 }
 .slot.has-team:hover {
   border-color: var(--accent);
-  box-shadow: var(--shadow-sm);
+  background: var(--selection-soft);
 }
 .slot[disabled] {
   cursor: default;
@@ -4126,6 +4123,116 @@ table.data-table {
   width: 16px;
   height: 16px;
   flex: none;
+}
+
+/* ===========================================================================
+   Jornada e Pessoas — a tela explica a responsabilidade antes de abrir dados.
+   A estrutura permanece a mesma; estes ajustes só dão ritmo, contraste e
+   resposta tátil às superfícies operacionais existentes.
+   =========================================================================== */
+.journey-screen .screen-head,
+.people-screen .screen-head,
+.cells-screen .screen-head {
+  margin-bottom: var(--s4);
+}
+.journey-screen .stat,
+.cells-screen .stat {
+  background: var(--surface-raised);
+  border-color: var(--border-subtle);
+}
+.journey-screen .stat .lbl svg,
+.cells-screen .stat .lbl svg {
+  color: var(--action-primary);
+}
+.journey-screen .card,
+.people-screen .card,
+.cells-screen .card,
+.g12-screen .card,
+.cc .card {
+  background: var(--surface-raised);
+  border-color: var(--border-subtle);
+  border-radius: var(--radius-panel);
+}
+.journey-screen .panel-title,
+.people-screen .panel-title,
+.cells-screen .panel-title,
+.g12-screen .panel-title,
+.cc .panel-title {
+  color: var(--text-primary);
+  font: var(--type-label);
+}
+.journey-screen .qitem:hover,
+.people-screen .qitem:hover,
+.cells-screen .list-row:hover,
+.g12-screen .data-table tbody tr:hover,
+.cc .health-row:hover {
+  background: var(--surface-panel);
+}
+.journey-screen .info-banner {
+  background: var(--state-info-soft);
+  border-color: var(--border-emphasis);
+  color: var(--text-secondary);
+}
+.journey-screen .info-banner strong {
+  color: var(--text-primary);
+}
+.journey-screen .lock-note,
+.cells-screen .lock-note {
+  color: var(--text-secondary);
+  font: var(--type-meta);
+}
+.people-screen .filter-tabs {
+  margin-bottom: var(--s3);
+}
+.people-screen > .sub {
+  max-width: 68ch;
+  color: var(--text-secondary);
+}
+.cells-screen .cell-card:focus-visible,
+.g12-screen .slot:focus-visible,
+.cc .central-card:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+@media (max-width: 860px) {
+  .journey-screen .btn,
+  .people-screen .btn,
+  .cells-screen .btn,
+  .g12-screen .btn,
+  .cc .btn {
+    min-height: 44px;
+  }
+  .journey-screen .stat-grid,
+  .cells-screen .stat-grid {
+    gap: var(--s3);
+  }
+  .journey-screen .panel-title .right,
+  .g12-screen .panel-title .right {
+    width: 100%;
+    margin-left: 0;
+  }
+}
+
+@media (max-width: 560px) {
+  .journey-screen .stat,
+  .cells-screen .stat {
+    padding: var(--s3);
+  }
+  .journey-screen .stat .val,
+  .cells-screen .stat .val {
+    font-size: 24px;
+  }
+  .g12-screen .org-grid {
+    gap: var(--s2);
+    padding: var(--s3);
+  }
+  .g12-screen .slot {
+    padding: var(--s3);
+  }
+  .cc-workspace > .ds-tabs-wrap > .ds-tabpanel {
+    padding-top: var(--s4);
+  }
 }
 
 /* nota auxiliar discreta (usada nas telas de célula) */
@@ -6552,7 +6659,7 @@ table.data-table {
   border: 1px solid var(--warn);
 }
 .central-card .cc-val {
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 660;
   letter-spacing: -0.02em;
 }
@@ -6719,7 +6826,7 @@ table.data-table {
 
 /* ---- mobile: alvos ≥44px (DESIGN.md §11) ---- */
 @media (max-width: 860px) {
-  .cc .ds-btn {
+.cc .ds-btn {
     min-height: 44px;
   }
 }
@@ -7385,6 +7492,12 @@ table.data-table {
   .dh-summary-hint {
     grid-column: 2 / 4;
   }
+}
+.cc-workspace {
+  min-width: 0;
+}
+.cc-workspace > .ds-tabs-wrap > .ds-tabpanel {
+  padding-top: var(--s5);
 }
 
 /* ===========================================================================

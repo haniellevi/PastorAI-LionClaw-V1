@@ -102,33 +102,35 @@ export function CentralCelulaScreen() {
         </div>
       </div>
 
-      <CentralTabs active={tab} onChange={setTab} badges={badges}>
-        {tab === "dashboard" ? (
-          <DashboardPanel
-            dashboard={dashboard}
-            loading={loadingDash}
-            error={dashError}
-            onRetry={() => void loadDashboard("initial")}
-            onGoTo={setTab}
-          />
-        ) : null}
+      <section className="cc-workspace" aria-label="Gestão central das células">
+        <CentralTabs active={tab} onChange={setTab} badges={badges}>
+          {tab === "dashboard" ? (
+            <DashboardPanel
+              dashboard={dashboard}
+              loading={loadingDash}
+              error={dashError}
+              onRetry={() => void loadDashboard("initial")}
+              onGoTo={setTab}
+            />
+          ) : null}
 
-        {tab === "cells" && token ? (
-          <ManageCellsPanel token={token} onToast={flashToast} onChanged={refreshDashboard} />
-        ) : null}
+          {tab === "cells" && token ? (
+            <ManageCellsPanel token={token} onToast={flashToast} onChanged={refreshDashboard} />
+          ) : null}
 
-        {tab === "requests" && token ? (
-          <RequestsPanel token={token} onToast={flashToast} onChanged={refreshDashboard} />
-        ) : null}
+          {tab === "requests" && token ? (
+            <RequestsPanel token={token} onToast={flashToast} onChanged={refreshDashboard} />
+          ) : null}
 
-        {tab === "notices" && token ? (
-          <NoticesPanel token={token} onToast={flashToast} onChanged={refreshDashboard} />
-        ) : null}
+          {tab === "notices" && token ? (
+            <NoticesPanel token={token} onToast={flashToast} onChanged={refreshDashboard} />
+          ) : null}
 
-        {tab === "materials" && token ? (
-          <MaterialsPanel token={token} onToast={flashToast} onChanged={refreshDashboard} />
-        ) : null}
-      </CentralTabs>
+          {tab === "materials" && token ? (
+            <MaterialsPanel token={token} onToast={flashToast} onChanged={refreshDashboard} />
+          ) : null}
+        </CentralTabs>
+      </section>
 
       <DsToastRegion>
         {toast ? (
