@@ -231,7 +231,7 @@ a {
 .aside-kicker {
   display: inline-block;
   margin-top: var(--s5);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.18em;
   text-transform: uppercase;
@@ -239,7 +239,7 @@ a {
   font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
 }
 .login-aside h2 {
-  color: #fff;
+  color: var(--text-on-action);
   font-size: 32px;
   line-height: 1.1;
   max-width: 17ch;
@@ -289,7 +289,7 @@ a {
   text-underline-offset: 3px;
 }
 .aside-foot a:hover {
-  color: #fff;
+  color: var(--text-on-action);
 }
 
 .login-main {
@@ -311,17 +311,10 @@ a {
   padding: 28px;
   position: relative;
   overflow: hidden;
-  background: oklch(100% 0 0 / 0.92);
+  background: color-mix(in oklch, var(--surface-raised) 92%, var(--ice-50));
   border: 1px solid var(--border);
   border-radius: 18px;
   box-shadow: var(--shadow-raised);
-}
-.login-card::before {
-  content: "";
-  position: absolute;
-  inset: 0 0 auto;
-  height: 4px;
-  background: var(--diamond-600);
 }
 .login-card-head {
   margin-bottom: var(--s5);
@@ -333,7 +326,7 @@ a {
   margin-bottom: 9px;
   color: var(--accent);
   font-family: var(--mono);
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 650;
   letter-spacing: 0.12em;
   text-transform: uppercase;
@@ -386,7 +379,7 @@ a {
   gap: 7px;
   margin-top: var(--s4);
   color: var(--muted);
-  font-size: 11.5px;
+  font-size: 12px;
   line-height: 1.45;
   text-align: center;
 }
@@ -1416,7 +1409,7 @@ input[type="checkbox"] {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 560;
   padding: 2px 8px;
   border-radius: 999px;
@@ -1712,7 +1705,7 @@ button.tile:focus-visible {
   letter-spacing: -0.01em;
 }
 .kpi-hint {
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--muted);
 }
 
@@ -1938,7 +1931,7 @@ button.jr-row:focus-visible {
   align-items: center;
   gap: 5px;
   margin-top: 6px;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 560;
   color: oklch(52% 0.16 25);
 }
@@ -2544,7 +2537,7 @@ button.jr-row:focus-visible {
   border-radius: 50%;
   background: var(--diamond-100);
   color: var(--diamond-700);
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 750;
 }
 
@@ -3435,14 +3428,7 @@ button.jr-row:focus-visible {
 .sk-line {
   height: 10px;
   border-radius: 999px;
-  background: linear-gradient(
-    90deg,
-    var(--surface-2) 0%,
-    var(--border) 50%,
-    var(--surface-2) 100%
-  );
-  background-size: 200% 100%;
-  animation: sk-shimmer 1.3s ease-in-out infinite;
+  background: var(--surface-panel);
   margin: 6px 0;
 }
 .sk-sm {
@@ -3456,23 +3442,7 @@ button.jr-row:focus-visible {
   height: 24px;
 }
 .qicon.sk-icon {
-  background: var(--surface-2);
-  animation: sk-shimmer 1.3s ease-in-out infinite;
-  background-image: linear-gradient(
-    90deg,
-    var(--surface-2) 0%,
-    var(--border) 50%,
-    var(--surface-2) 100%
-  );
-  background-size: 200% 100%;
-}
-@keyframes sk-shimmer {
-  0% {
-    background-position: 200% 0;
-  }
-  100% {
-    background-position: -200% 0;
-  }
+  background: var(--surface-panel);
 }
 
 /* view de membro */
@@ -3680,7 +3650,7 @@ table.data-table {
 }
 .data-table thead th {
   text-align: left;
-  font-size: 11.5px;
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--muted); /* F4: cabeçalho de coluna é texto essencial — faint reprovava AA */
@@ -3735,7 +3705,7 @@ table.data-table {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--faint);
   margin: var(--s2) 0 var(--s3);
 }
@@ -3995,7 +3965,7 @@ table.data-table {
   color: var(--fg);
 }
 .org-leader .ol-count .cap {
-  font-size: 10.5px;
+  font-size: 12px;
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -4056,11 +4026,11 @@ table.data-table {
   text-overflow: ellipsis;
 }
 .slot .s-body .rl {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
 }
 .slot .s-body .team-n {
-  font-size: 10.5px;
+  font-size: 12px;
   color: var(--accent);
   font-family: var(--mono);
   font-weight: 600;
@@ -4431,7 +4401,7 @@ table.data-table {
   color: var(--accent);
 }
 .choice .cs {
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--muted);
   margin-top: 3px;
   line-height: 1.45;
@@ -4484,7 +4454,7 @@ table.data-table {
   background: var(--surface);
   display: grid;
   place-items: center;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--muted);
   flex: none;
@@ -4530,7 +4500,7 @@ table.data-table {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 11px;
+  font-size: 12px;
   padding: 2px 8px;
   border: 1px solid var(--border);
   border-radius: 999px;
@@ -4555,7 +4525,7 @@ table.data-table {
   gap: 4px;
 }
 .filter-bar label {
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -4661,7 +4631,7 @@ table.data-table {
   background: var(--surface);
 }
 .cd-level-h {
-  font-size: 11px;
+  font-size: 12px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   font-weight: 600;
@@ -4672,7 +4642,7 @@ table.data-table {
   align-items: baseline;
 }
 .cd-level-h span {
-  font-size: 10.5px;
+  font-size: 12px;
   letter-spacing: 0.02em;
   color: var(--faint);
   text-transform: none;
@@ -4698,13 +4668,13 @@ table.data-table {
   color: var(--fg);
 }
 .cd-aulas {
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
 .cd-seal {
   margin-left: auto;
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 600;
   padding: 2px 8px;
   border-radius: 999px;
@@ -4827,8 +4797,8 @@ table.data-table {
 }
 .conv.active {
   background: var(--accent-soft);
-  /* barra lateral teal sutil (segue o arredondamento), sem borda preta */
-  box-shadow: inset 3px 0 0 var(--accent);
+  outline: 2px solid var(--selection-strong);
+  outline-offset: -2px;
 }
 .conv-sub {
   display: flex;
@@ -4857,7 +4827,7 @@ table.data-table {
   border-radius: 999px;
   background: var(--accent);
   color: var(--accent-fg);
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   display: grid;
   place-items: center;
@@ -4891,7 +4861,7 @@ table.data-table {
   text-overflow: ellipsis;
 }
 .conv-top time {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
 }
 .conv .snippet {
@@ -4936,7 +4906,7 @@ table.data-table {
 .thread-head .who .who-tipo,
 .conv-top .conv-tipo {
   flex-shrink: 0;
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 560;
   color: var(--muted);
   background: var(--surface-2);
@@ -4992,13 +4962,13 @@ table.data-table {
 }
 .msg time {
   display: block;
-  font-size: 10px;
+  font-size: 12px;
   opacity: 0.7;
   margin-top: 3px;
   text-align: right;
 }
 .msg .tag {
-  font-size: 10px;
+  font-size: 12px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -5009,7 +4979,7 @@ table.data-table {
 /* Nome de quem respondeu (Parte A) — só nas mensagens enviadas por humano */
 .msg-author {
   display: block;
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 700;
   margin-bottom: 2px;
   opacity: 0.85;
@@ -5323,7 +5293,7 @@ table.data-table {
 .panel-tipo {
   display: inline-block;
   margin-top: 3px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   color: var(--accent);
   background: var(--accent-soft);
@@ -5335,7 +5305,7 @@ table.data-table {
   background: var(--danger-soft);
 }
 .panel-section h4 {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -5609,7 +5579,7 @@ table.data-table {
   border-radius: 999px;
   border: 1.5px solid var(--border-strong);
   background: var(--surface);
-  font-size: 11.5px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--muted);
   flex: none;
@@ -5993,7 +5963,7 @@ table.data-table {
 }
 .role-pick .rk {
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 12px;
   color: var(--muted);
   margin-left: auto;
   letter-spacing: 0.04em;
@@ -6020,7 +5990,7 @@ table.data-table {
 .perm-table thead th {
   background: var(--surface-2);
   font-weight: 600;
-  font-size: 11px;
+  font-size: 12px;
   letter-spacing: 0.02em;
   white-space: nowrap;
 }
@@ -6468,16 +6438,16 @@ table.data-table {
 .notice-item {
   padding: var(--s3) var(--s4);
   border-bottom: 1px solid var(--border);
-  border-left: 3px solid transparent;
+  border-left: 1px solid var(--border);
 }
 .notice-item:last-child {
   border-bottom: none;
 }
 .notice-item.origem-celula {
-  border-left-color: var(--info);
+  background: color-mix(in oklch, var(--state-info-soft) 58%, var(--surface-raised));
 }
 .notice-item.origem-central {
-  border-left-color: var(--danger);
+  background: color-mix(in oklch, var(--state-danger-soft) 46%, var(--surface-raised));
 }
 .notice-head {
   display: flex;
@@ -6495,7 +6465,7 @@ table.data-table {
 }
 .notice-time {
   margin-top: 6px;
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--muted);
 }
 
@@ -6673,7 +6643,7 @@ table.data-table {
 }
 .central-card .cc-delta {
   margin-top: 4px;
-  font-size: 11.5px;
+  font-size: 12px;
   color: var(--muted);
 }
 /* Estado de alerta do card: a borda já muda de cor — o rótulo "Atenção"
@@ -6756,7 +6726,8 @@ table.data-table {
 }
 .req-row.active {
   background: var(--surface-2);
-  box-shadow: inset 3px 0 0 var(--accent);
+  outline: 2px solid var(--selection-strong);
+  outline-offset: -2px;
 }
 .req-row .nm {
   font-weight: 560;
@@ -6778,7 +6749,7 @@ table.data-table {
 }
 .payload-view dt {
   color: var(--muted);
-  font-size: 11.5px;
+  font-size: 12px;
 }
 .payload-view dd {
   margin: 0 0 var(--s2);
@@ -6818,7 +6789,8 @@ table.data-table {
 }
 .cc-cell-row--active {
   background: var(--surface-2);
-  box-shadow: inset 3px 0 0 var(--accent);
+  outline: 2px solid var(--selection-strong);
+  outline-offset: -2px;
 }
 .cc-req-close {
   margin-left: var(--s2);
@@ -7684,7 +7656,7 @@ table.data-table {
   content: "";
   position: absolute;
   inset: 0 auto 0 0;
-  width: 4px;
+  width: 1px;
   background: var(--diamond-700);
 }
 .dh-hero.has-actions::after {
@@ -7694,17 +7666,6 @@ table.data-table {
   display: block;
   width: 42px;
   height: 42px;
-  animation: dh-facet-arrive var(--motion-expressive) var(--ease-out-expressive) both;
-}
-@keyframes dh-facet-arrive {
-  from {
-    opacity: 0;
-    transform: translateY(5px) scale(0.92);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
 }
 .dh-date {
   display: flex;
@@ -7756,12 +7717,6 @@ table.data-table {
 }
 .dh-hero.has-actions .dh-focus-dot {
   background: var(--state-warn);
-  animation: dh-beacon 720ms var(--ease-out-productive) 2;
-}
-@keyframes dh-beacon {
-  50% {
-    box-shadow: 0 0 0 6px color-mix(in oklch, var(--state-warn) 18%, transparent);
-  }
 }
 .dh-hero-actions .ds-btn {
   min-height: 40px;
@@ -7921,7 +7876,7 @@ table.data-table {
   content: "";
   position: absolute;
   inset: var(--s3) auto var(--s3) 0;
-  width: 3px;
+  width: 1px;
   border-radius: var(--radius-pill);
   background: var(--diamond-500);
   opacity: 0.75;
@@ -7937,7 +7892,7 @@ table.data-table {
   background: var(--surface-panel);
 }
 .dh-item:hover {
-  transform: translateX(2px);
+  transform: none;
 }
 .dh-item-title {
   font: 700 14px/1.4 var(--font);
@@ -8411,7 +8366,8 @@ table.data-table {
 }
 .ib .conv.active {
   background: var(--selection-soft);
-  box-shadow: inset 3px 0 0 var(--selection-strong);
+  outline: 2px solid var(--selection-strong);
+  outline-offset: -2px;
 }
 .ib .conv .av {
   background: var(--selection-soft);
