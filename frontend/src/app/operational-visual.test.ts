@@ -167,8 +167,8 @@ describe("Pessoas, células e Jornada — foco antes de densidade", () => {
   it("compacta a escala de números operacionais sem sacrificar a hierarquia", () => {
     expect(bodyFor(".stat .val", "font-size: 26px")).toContain("font-size: 26px");
     expect(bodyFor(".central-card .cc-val", "font-size: 24px")).toContain("font-size: 24px");
-    expect(tokens).toContain("--type-h1: 700 24px/1.2 var(--font-display)");
-    expect(tokens).toContain("--type-h2: 650 19px/1.3 var(--font-display)");
+    expect(tokens).toContain("--type-h1: 700 22px/1.22 var(--font-display)");
+    expect(tokens).toContain("--type-h2: 650 18px/1.32 var(--font-display)");
   });
 });
 
@@ -325,5 +325,42 @@ describe("Farol de Hoje — hierarquia visual sem rail persistente", () => {
       "background-color: var(--surface-panel)",
     );
     expect(dashboard).not.toContain("dh-journey-bar");
+  });
+});
+
+describe("polimento transversal — leitura antes de efeito", () => {
+  it("mantém textos operacionais no piso de 12px", () => {
+    const operationalSelectors = [
+      ".pill",
+      ".data-table thead th",
+      ".slot .s-body .rl",
+      ".slot .s-body .team-n",
+      ".filter-bar label",
+      ".conv-top time",
+      ".msg time",
+      ".msg .tag",
+      ".role-pick .rk",
+      ".notice-time",
+      ".payload-view dt",
+    ];
+
+    for (const selector of operationalSelectors) {
+      const match = bodyFor(selector, "font-size").match(/font-size:\s*([\d.]+)px/);
+      expect(match, `font-size em px não encontrado: ${selector}`).not.toBeNull();
+      expect(Number(match![1])).toBeGreaterThanOrEqual(12);
+    }
+  });
+
+  it("usa superfícies estáticas e seleção por contorno, sem faixas laterais", () => {
+    expect(globals).not.toContain("sk-shimmer");
+    expect(globals).not.toContain("dh-facet-arrive");
+    expect(globals).not.toContain("dh-beacon");
+    expect(globals).not.toContain(".login-card::before");
+    expect(bodyFor(".notice-item")).toContain("border-left: 1px solid var(--border)");
+
+    for (const selector of [".conv.active", ".req-row.active", ".cc-cell-row--active", ".ib .conv.active"]) {
+      const body = bodyFor(selector, "outline: 2px solid var(--selection-strong)");
+      expect(body).not.toContain("box-shadow");
+    }
   });
 });
