@@ -149,6 +149,7 @@ describe("Pessoas, células e Jornada — foco antes de densidade", () => {
     expect(contatos).toContain("Encontre, atualize e acompanhe cada pessoa com clareza.");
     expect(celulas).toContain("Veja saúde, liderança e vínculos de cada célula.");
     expect(g12).toContain("Navegue pela descendência e pelos indicadores da liderança.");
+    expect(central).toContain("Veja quem precisa de atenção hoje e decida o próximo passo de cada célula.");
   });
 
   it("mantém a Central como workspace único e usa superfícies sem elevação", () => {

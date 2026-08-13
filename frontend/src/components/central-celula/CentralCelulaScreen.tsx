@@ -98,14 +98,15 @@ export function CentralCelulaScreen() {
       <div className="screen-head">
         <div className="titles">
           <h2>Central de Célula</h2>
-          <p>Supervisão das células: saúde, relatórios, solicitações, avisos e materiais.</p>
+          <p>Veja quem precisa de atenção hoje e decida o próximo passo de cada célula.</p>
         </div>
       </div>
 
       <section className="cc-workspace" aria-label="Gestão central das células">
         <CentralTabs active={tab} onChange={setTab} badges={badges}>
-          {tab === "dashboard" ? (
+          {tab === "dashboard" && token ? (
             <DashboardPanel
+              token={token}
               dashboard={dashboard}
               loading={loadingDash}
               error={dashError}

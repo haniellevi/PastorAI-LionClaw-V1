@@ -17,7 +17,7 @@ interface TabDef {
 }
 
 const TABS: TabDef[] = [
-  { id: "dashboard", label: "Dashboard" },
+  { id: "dashboard", label: "Hoje" },
   { id: "cells", label: "Gerenciar células" },
   { id: "requests", label: "Solicitações" },
   { id: "notices", label: "Avisos" },
