@@ -656,7 +656,7 @@ def test_pending_outer_phone_unique_violation_bubbles_without_winner_lookup(
             )
 
         assert not isinstance(exc_info.value, PendingRollbackError)
-        assert getattr(exc_info.value.orig, "pgcode", None) == "23505"
+        assert (getattr(exc_info.value.orig, "pgcode", None) or getattr(exc_info.value.orig, "sqlstate", None)) == "23505"
         assert exc_info.value.orig.diag.constraint_name == "uq_pessoas_telefone_ativa"
         assert not session.is_active
         assert sa_inspect(candidate).transient
@@ -785,7 +785,7 @@ def test_pending_outer_other_unique_violation_bubbles_without_winner_lookup(
             )
 
         assert not isinstance(exc_info.value, PendingRollbackError)
-        assert getattr(exc_info.value.orig, "pgcode", None) == "23505"
+        assert (getattr(exc_info.value.orig, "pgcode", None) or getattr(exc_info.value.orig, "sqlstate", None)) == "23505"
         assert exc_info.value.orig.diag.constraint_name == "uq_pessoas_email_pending_hotfix"
         assert not session.is_active
         assert sa_inspect(candidate).transient
