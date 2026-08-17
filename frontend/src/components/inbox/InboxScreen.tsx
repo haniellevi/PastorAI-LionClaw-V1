@@ -703,7 +703,7 @@ export function InboxScreen() {
   // ---- bloqueio de acesso (US-11) -----------------------------------------
   if (!allowed) {
     return (
-      <div className="screen" key="inbox-denied">
+        <div className="screen operations-screen access-screen" key="inbox-denied">
         <div className="card">
           <div className="access-denied">
             <Icon name="lock" className="access-ic" />
@@ -726,6 +726,10 @@ export function InboxScreen() {
   return (
     <div className={`screen screen-chat ib${selected ? " thread-open" : ""}`} key="inbox">
       <div className="screen-head ib-head">
+        <div className="titles">
+          <h2>Atendimentos pelo WhatsApp</h2>
+          <p>Converse, assuma ou encaminhe cada cuidado no momento certo.</p>
+        </div>
         <div className="actions">
           <DsButton
             variant="secondary"

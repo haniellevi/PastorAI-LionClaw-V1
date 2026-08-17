@@ -117,7 +117,13 @@ export function PerfilScreen() {
   );
 
   return (
-    <div className="screen" key="perfil">
+    <div className="screen profile-screen" key="perfil">
+      <div className="screen-head">
+        <div className="titles">
+          <h2>Seu perfil</h2>
+          <p>Atualize como seu nome aparece e mantenha a conta protegida.</p>
+        </div>
+      </div>
       <div className="dash-grid">
         <form className="card card-pad" onSubmit={saveNome}>
           <h3>Dados de exibição</h3>

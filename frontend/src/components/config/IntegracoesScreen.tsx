@@ -18,7 +18,13 @@ export function IntegracoesScreen() {
   const [msg, setMsg] = useState<string | null>(null);
 
   return (
-    <div className="screen" key="integracoes">
+    <div className="screen admin-screen integrations-screen" key="integracoes">
+      <div className="screen-head">
+        <div className="titles">
+          <h2>Integrações</h2>
+          <p>Conecte o calendário e defina quem recebe os alertas da igreja.</p>
+        </div>
+      </div>
       {msg ? (
         <div className="info-banner" role="status">
           {msg}

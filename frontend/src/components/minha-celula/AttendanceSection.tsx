@@ -8,7 +8,7 @@
  */
 import { useMemo, useState } from "react";
 
-import { Button } from "@/components/ui/Button";
+import { DsButton } from "@/components/ds/Button";
 import { Toggle } from "@/components/ui/Toggle";
 import { Icon } from "@/lib/icons";
 import { ApiError } from "@/lib/dashboard-api";
@@ -16,6 +16,18 @@ import { setRealAttendance } from "@/lib/cell-meetings-api";
 import type { CellMember } from "@/lib/cells-api";
 import type { ReportPresenca } from "@/lib/cell-meetings-api";
 import type { FlashToast } from "./types";
+
+function personLabel(name: string): { primary: string; secondary: string | null; initials: string } {
+  const trimmed = name.trim();
+  if (/^\+?[\d\s().-]{8,}$/.test(trimmed)) {
+    return { primary: "Contato sem nome", secondary: trimmed, initials: "?" };
+  }
+  const parts = trimmed.split(/\s+/).filter(Boolean);
+  const initials = parts.length > 1
+    ? `${parts[0]![0] ?? ""}${parts.at(-1)?.[0] ?? ""}`
+    : trimmed.slice(0, 2);
+  return { primary: trimmed || "Pessoa sem nome", secondary: null, initials: initials.toUpperCase() || "?" };
+}
 
 export function AttendanceSection({
   token,
@@ -47,8 +59,6 @@ export function AttendanceSection({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const present = Object.values(state).filter(Boolean).length;
-
   async function save() {
     setBusy(true);
     setError(null);
@@ -70,14 +80,7 @@ export function AttendanceSection({
   }
 
   return (
-    <section className="card" aria-label="Presença">
-      <div className="panel-title">
-        <Icon name="team" /> Presença
-        {members.length ? (
-          <span className="count">· {present}/{members.length}</span>
-        ) : null}
-      </div>
-
+    <div className="mc-report-section-content">
       {error ? (
         <div className="error-banner" role="alert">
           <Icon name="alert" />
@@ -94,37 +97,42 @@ export function AttendanceSection({
         </div>
       ) : (
         <>
-          <div>
-            {members.map((m) => (
-              <div className="list-row" key={m.pessoa_id}>
-                <div className="grow" style={{ minWidth: 0 }}>
-                  <div className="nm">{m.nome}</div>
+          <div className="mc-attendance-grid">
+            {members.map((m, index) => {
+              const label = personLabel(m.nome);
+              return (
+                <div className="list-row" key={m.pessoa_id}>
+                  <span className={`mc-person-avatar tone-${index % 4}`} aria-hidden="true">
+                    {label.initials}
+                  </span>
+                  <div className="grow" style={{ minWidth: 0 }}>
+                    <div className="nm">{label.primary}</div>
+                    {label.secondary ? <div className="sub">{label.secondary}</div> : null}
+                  </div>
+                  <Toggle
+                    checked={!!state[m.pessoa_id]}
+                    onChange={(v) => setState((s) => ({ ...s, [m.pessoa_id]: v }))}
+                    label={`Presença de ${label.primary}${label.secondary ? `, telefone ${label.secondary}` : ""}`}
+                    disabled={locked || busy}
+                  />
                 </div>
-                <Toggle
-                  checked={!!state[m.pessoa_id]}
-                  onChange={(v) => setState((s) => ({ ...s, [m.pessoa_id]: v }))}
-                  label={`Presença de ${m.nome}`}
-                  disabled={locked || busy}
-                />
-              </div>
-            ))}
+              );
+            })}
           </div>
           {!locked ? (
             <div className="section-actions">
-              <Button
-                variant="default"
-                size="sm"
+              <DsButton
+                variant="primary"
                 onClick={() => void save()}
                 loading={busy}
-                loadingText="Salvando…"
               >
                 <Icon name="check" />
-                <span>Salvar presença</span>
-              </Button>
+                <span>{busy ? "Salvando presença…" : "Salvar presença"}</span>
+              </DsButton>
             </div>
           ) : null}
         </>
       )}
-    </section>
+    </div>
   );
 }

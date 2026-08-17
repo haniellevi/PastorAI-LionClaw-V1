@@ -51,12 +51,25 @@ describe("resolveDashboardResponsibilities", () => {
 
     expect(result.hasWorkQueue).toBe(false);
     expect(result.homeTitle).toBe("Seus espaços de atuação");
+    expect(result.prioritizeShortcuts).toBe(true);
     expect(result.shortcutCandidates).toEqual([
-      "minha-celula",
       "inbox",
       "ganhar",
+      "calendario",
+      "minha-celula",
       "g12",
       "enviar",
+    ]);
+  });
+
+  it("prioriza o caminho de multiplicação quando não há operação acumulada", () => {
+    const result = resolveDashboardResponsibilities(["membro", "lider_mult"]);
+
+    expect(result.prioritizeShortcuts).toBe(true);
+    expect(result.shortcutCandidates).toEqual([
+      "enviar",
+      "g12",
+      "minha-celula",
       "calendario",
     ]);
   });

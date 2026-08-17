@@ -2,7 +2,7 @@
 
 /**
  * Minha Célula — visão do LÍDER (Células PR: Líder). Orquestra a gestão da célula:
- *   • planejar reunião pontual (US-06) e relatar a reunião em seções (US-07..11);
+ *   • planejar reunião pontual (US-06) e relatar a reunião em etapas (US-07..11);
  *   • discípulos (US-12) e campos sensíveis via Solicitação (US-13/14);
  *   • publicar/inativar avisos da célula (US-12A/12B) e ler materiais (US-21).
  *
@@ -14,6 +14,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { DsBanner } from "@/components/ds/Banner";
 import { DsButton } from "@/components/ds/Button";
+import { Tabs } from "@/components/ds/Tabs";
 import { DsToast, DsToastRegion } from "@/components/ds/Toast";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/lib/icons";
@@ -49,7 +50,7 @@ import { MaterialsFeed } from "./MaterialsFeed";
 import { formatMeetingDate } from "./format";
 import type { CellToast } from "./types";
 
-/** Contexto exibido no hero da célula (nome + dados de agenda/cobertura). Os
+/** Contexto exibido no cabeçalho da célula (nome + dados de agenda/cobertura). Os
  *  campos sensíveis vêm de fetchCellDetail; nome tem fallback via getMyLedCells.
  *  Endereço e nº de visitantes ainda não existem na API do líder (lacuna). */
 type CellContext = {
@@ -58,6 +59,14 @@ type CellContext = {
   horario: string | null;
   coberturaEspiritual: string | null;
 };
+
+type LeaderArea =
+  | "relatorio"
+  | "pessoas"
+  | "avisos"
+  | "materiais"
+  | "solicitacoes"
+  | "dados";
 
 /** Campos sensíveis da célula (viram Solicitação, RF-14). */
 const CELL_SENSITIVE: { tipo: SensitiveCellRequestType; label: string }[] = [
@@ -77,6 +86,7 @@ export function MinhaCelulaLider() {
   const [materials, setMaterials] = useState<Material[]>([]);
   const [cellCtx, setCellCtx] = useState<CellContext | null>(null);
   const [selectedReuniaoId, setSelectedReuniaoId] = useState<string>("");
+  const [activeArea, setActiveArea] = useState<LeaderArea>("relatorio");
 
   const [loading, setLoading] = useState(true);
   const [loaded, setLoaded] = useState(false);
@@ -178,6 +188,17 @@ export function MinhaCelulaLider() {
     () => reunioes.find((r) => r.id === selectedReuniaoId) ?? null,
     [reunioes, selectedReuniaoId],
   );
+  const leaderTabs = useMemo(
+    () => [
+      { id: "relatorio", label: "Relatório" },
+      { id: "pessoas", label: "Pessoas", badge: activeMembers.length },
+      { id: "avisos", label: "Avisos" },
+      { id: "materiais", label: "Materiais" },
+      { id: "solicitacoes", label: "Solicitações" },
+      { id: "dados", label: "Dados da célula" },
+    ],
+    [activeMembers.length],
+  );
 
   /** Linha de contexto do hero: "dia hora · cobertura: X" (só as partes que há). */
   const heroMeta = useMemo(() => {
@@ -212,182 +233,201 @@ export function MinhaCelulaLider() {
 
   return (
     <div className="screen mc mc--leader" key="minha-celula-lider">
-      <div className="screen-head">
-        {/* PR212-CORRECTIVE-1: o h1 "Minha Célula" é da Topbar (SCREEN_META);
-            repetir o mesmo texto aqui duplicava o título na tela. Fica só o
-            subtítulo (as ações do cabeçalho seguem inalteradas). */}
-        <div className="titles">
-          <p>Conduza a próxima reunião e mantenha o relatório em dia.</p>
-        </div>
-        {cellId ? (
-          <div className="actions">
-            <DsButton variant="primary" onClick={() => setShowPlan(true)}>
-              <Icon name="calendar" />
-              <span>Planejar reunião</span>
-            </DsButton>
+      <div className="mc-shell">
+        <div className="screen-head mc-screen-head">
+          <div className="titles">
+            <p>Cuide da sua célula e conclua cada reunião com clareza.</p>
           </div>
+          {cellId ? (
+            <div className="actions">
+              <DsButton variant="secondary" onClick={() => setShowPlan(true)}>
+                <Icon name="calendar" />
+                <span>Planejar reunião</span>
+              </DsButton>
+            </div>
+          ) : null}
+        </div>
+
+        {error ? (
+          <DsBanner
+            kind="error"
+            action={
+              <DsButton
+                variant="secondary"
+                onClick={() => void load("retry")}
+                disabled={loading}
+              >
+                Tentar novamente
+              </DsButton>
+            }
+          >
+            {error}
+          </DsBanner>
         ) : null}
-      </div>
 
-      {error ? (
-        <DsBanner
-          kind="error"
-          action={
-            <DsButton
-              variant="secondary"
-              onClick={() => void load("retry")}
-              disabled={loading}
-            >
-              Tentar novamente
-            </DsButton>
-          }
-        >
-          {error}
-        </DsBanner>
-      ) : null}
-
-      {showSkeleton ? (
-        <div className="mc-stack">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <div className="card skeleton" key={i} style={{ padding: "var(--s5)" }}>
-              <div className="sk-line sk-sm" />
-              <div className="sk-line sk-lg" />
-            </div>
-          ))}
-        </div>
-      ) : !cellId ? (
-        <div className="card">
-          <div className="scaffold">
-            <Icon name="team" className="scaffold-ic" />
-            <h3>Nenhuma célula vinculada</h3>
-            <p>
-              Você ainda não tem uma célula sob sua liderança com dados carregáveis.
-              Assim que a Central vincular ou houver uma reunião, o painel aparece aqui.
-            </p>
+        {showSkeleton ? (
+          <div className="mc-stack" aria-label="Carregando sua célula">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div className="card skeleton" key={i} style={{ padding: "var(--s5)" }}>
+                <div className="sk-line sk-sm" />
+                <div className="sk-line sk-lg" />
+              </div>
+            ))}
           </div>
-        </div>
-      ) : (
-        <div className="mc-stack mc-leader-stack">
-          {/* Contexto da célula — nome, agenda, cobertura e nº de membros */}
-          {cellCtx ? (
-            <section className="mc-hero" aria-label="Contexto da célula">
-              <div className="mc-hero-ic" aria-hidden="true">
-                <Icon name="central-celula" />
-              </div>
-              <div className="mc-hero-body">
-                <div className="mc-hero-name">{cellCtx.nome}</div>
-                {heroMeta ? <div className="mc-hero-meta">{heroMeta}</div> : null}
-              </div>
-              <div className="mc-hero-stats">
-                <div className="mc-hero-stat">
-                  <div className="v">{activeMembers.length}</div>
-                  <div className="k">
-                    {activeMembers.length === 1 ? "membro" : "membros"}
-                  </div>
-                </div>
-              </div>
-            </section>
-          ) : null}
-
-          {/* Reunião a relatar */}
-          <section className="mc-report-picker" aria-label="Reunião">
-            <div className="panel-title">
-              <Icon name="calendar" /> Relatório da reunião
-            </div>
-            <div className="section-body">
-              {reunioes.length === 0 ? (
-                <p className="muted-note">
-                  Nenhuma reunião ainda. Use “Planejar reunião” para criar a primeira.
-                </p>
-              ) : (
-                <div className="field">
-                  <label htmlFor="reuniao-picker">Escolha a reunião</label>
-                  <select
-                    id="reuniao-picker"
-                    value={selectedReuniaoId}
-                    onChange={(e) => setSelectedReuniaoId(e.target.value)}
-                  >
-                    {reunioes.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {formatMeetingDate(r.data)}
-                        {r.tema ? ` — ${r.tema}` : ""}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-            </div>
-          </section>
-
-          {selectedReuniao ? (
-            <MeetingReportForm
-              key={selectedReuniao.id}
-              token={token!}
-              reuniaoId={selectedReuniao.id}
-              members={activeMembers}
-              onToast={flashToast}
-            />
-          ) : null}
-
-          {/* Discípulos (leitura) */}
-          <DisciplesList members={members} />
-
-          <section className="card" aria-label="Dados sensíveis da célula">
-            <div className="panel-title">
-              <Icon name="shield" /> Dados da célula
-            </div>
-            <div className="section-body">
-              <p className="muted-note">
-                Alterações passam por aprovação da Central e não mudam na hora.
+        ) : !cellId ? (
+          <div className="card">
+            <div className="scaffold">
+              <Icon name="team" className="scaffold-ic" />
+              <h2>Nenhuma célula vinculada</h2>
+              <p>
+                Você ainda não tem uma célula sob sua liderança com dados carregáveis.
+                Assim que a Central vincular ou houver uma reunião, o painel aparece aqui.
               </p>
-              <div className="chip-actions">
-                {CELL_SENSITIVE.map((f) => (
-                  <Button
-                    key={f.tipo}
-                    variant="default"
-                    size="sm"
-                    onClick={() => openSensitive(f.tipo)}
-                  >
-                    <Icon name="lock" />
-                    <span>{f.label}</span>
-                  </Button>
-                ))}
-                <Button
-                  variant="default"
-                  size="sm"
-                  onClick={() => setShowMult(true)}
-                >
-                  <Icon name="send" />
-                  <span>Solicitar multiplicação</span>
-                </Button>
-              </div>
             </div>
-          </section>
+          </div>
+        ) : (
+          <div className="mc-leader-workspace">
+            {cellCtx ? (
+              <section className="mc-cell-context" aria-labelledby="mc-cell-name">
+                <div className="mc-cell-context-icon" aria-hidden="true">
+                  <Icon name="central-celula" />
+                </div>
+                <div className="mc-cell-context-body">
+                  <h2 id="mc-cell-name">{cellCtx.nome}</h2>
+                  {heroMeta ? <p>{heroMeta}</p> : null}
+                </div>
+                <div className="mc-cell-count" aria-label={`${activeMembers.length} ${activeMembers.length === 1 ? "membro" : "membros"}`}>
+                  <strong>{activeMembers.length}</strong>
+                  <span>{activeMembers.length === 1 ? "membro" : "membros"}</span>
+                </div>
+              </section>
+            ) : null}
 
-          {/* Avisos da célula */}
-          <CellNoticeForm
-            token={token!}
-            cellId={cellId}
-            onToast={flashToast}
-            onPublished={() => setNoticesReload((n) => n + 1)}
-          />
-          <LeaderNoticesFeed
-            token={token!}
-            reloadToken={noticesReload}
-            onToast={flashToast}
-          />
+            <Tabs
+              tabs={leaderTabs}
+              active={activeArea}
+              onChange={(id) => setActiveArea(id as LeaderArea)}
+              label="Áreas da sua célula"
+            >
+              {activeArea === "relatorio" ? (
+                <div className="mc-area-panel mc-area-panel--report">
+                  <section className="mc-report-picker" aria-labelledby="mc-report-picker-title">
+                    <div className="mc-report-picker-copy">
+                      <h2 id="mc-report-picker-title">Relatório da reunião</h2>
+                      <p>Escolha uma reunião e avance por uma etapa de cada vez.</p>
+                    </div>
+                    {reunioes.length === 0 ? (
+                      <p className="muted-note">
+                        Nenhuma reunião ainda. Use “Planejar reunião” para criar a primeira.
+                      </p>
+                    ) : (
+                      <div className="field mc-report-select">
+                        <label htmlFor="reuniao-picker">Reunião</label>
+                        <select
+                          id="reuniao-picker"
+                          value={selectedReuniaoId}
+                          onChange={(e) => setSelectedReuniaoId(e.target.value)}
+                        >
+                          {reunioes.map((r) => (
+                            <option key={r.id} value={r.id}>
+                              {formatMeetingDate(r.data)}
+                              {r.tema ? ` — ${r.tema}` : ""}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                  </section>
 
-          {/* Materiais (leitura) */}
-          <MaterialsFeed materials={materials} />
+                  {selectedReuniao ? (
+                    <MeetingReportForm
+                      key={selectedReuniao.id}
+                      token={token!}
+                      reuniaoId={selectedReuniao.id}
+                      members={activeMembers}
+                      onToast={flashToast}
+                    />
+                  ) : null}
+                </div>
+              ) : null}
 
-          {/* Minhas solicitações */}
-          <MyRequestsList
-            token={token!}
-            reloadToken={requestsReload}
-            onToast={flashToast}
-          />
+              {activeArea === "pessoas" ? (
+                <div className="mc-area-panel">
+                  <DisciplesList members={members} />
+                </div>
+              ) : null}
+
+              {activeArea === "avisos" ? (
+                <div className="mc-area-panel mc-area-stack">
+                  <CellNoticeForm
+                    token={token!}
+                    cellId={cellId}
+                    onToast={flashToast}
+                    onPublished={() => setNoticesReload((n) => n + 1)}
+                  />
+                  <LeaderNoticesFeed
+                    token={token!}
+                    reloadToken={noticesReload}
+                    onToast={flashToast}
+                  />
+                </div>
+              ) : null}
+
+              {activeArea === "materiais" ? (
+                <div className="mc-area-panel">
+                  <MaterialsFeed materials={materials} />
+                </div>
+              ) : null}
+
+              {activeArea === "solicitacoes" ? (
+                <div className="mc-area-panel">
+                  <MyRequestsList
+                    token={token!}
+                    reloadToken={requestsReload}
+                    onToast={flashToast}
+                  />
+                </div>
+              ) : null}
+
+              {activeArea === "dados" ? (
+                <div className="mc-area-panel">
+                  <section className="card" aria-labelledby="mc-sensitive-title">
+                    <div className="panel-title" id="mc-sensitive-title">
+                      <Icon name="shield" /> Dados da célula
+                    </div>
+                    <div className="section-body">
+                      <p className="muted-note">
+                        Alterações passam por aprovação da Central e não mudam na hora.
+                      </p>
+                      <div className="chip-actions">
+                        {CELL_SENSITIVE.map((f) => (
+                          <Button
+                            key={f.tipo}
+                            variant="default"
+                            size="sm"
+                            onClick={() => openSensitive(f.tipo)}
+                          >
+                            <Icon name="lock" />
+                            <span>{f.label}</span>
+                          </Button>
+                        ))}
+                        <Button
+                          variant="default"
+                          size="sm"
+                          onClick={() => setShowMult(true)}
+                        >
+                          <Icon name="send" />
+                          <span>Solicitar multiplicação</span>
+                        </Button>
+                      </div>
+                    </div>
+                  </section>
+                </div>
+              ) : null}
+            </Tabs>
+          </div>
+        )}
         </div>
-      )}
 
       {showPlan && token && cellId ? (
         <PlanMeetingModal

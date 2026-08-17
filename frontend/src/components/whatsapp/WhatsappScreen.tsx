@@ -319,7 +319,7 @@ export function WhatsappScreen() {
   // ---- bloqueio de acesso (admin only) -----------------------------------
   if (!allowed) {
     return (
-      <div className="screen" key="whatsapp-denied">
+      <div className="screen admin-screen access-screen" key="whatsapp-denied">
         <div className="card">
           <div className="access-denied">
             <Icon name="lock" className="access-ic" />
@@ -339,8 +339,12 @@ export function WhatsappScreen() {
   const primaryAction: "connect" | "reconnect" = info?.numero ? "reconnect" : "connect";
 
   return (
-    <div className="screen" key="whatsapp">
+    <div className="screen admin-screen whatsapp-screen" key="whatsapp">
       <div className="screen-head">
+        <div className="titles">
+          <h2>Número oficial do WhatsApp</h2>
+          <p>Conecte e acompanhe o canal usado no cuidado e na comunicação da igreja.</p>
+        </div>
         <div className="actions">
           <button
             type="button"
