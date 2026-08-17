@@ -45,7 +45,8 @@ O instalador entrega atomicamente o pacote completo consumido pelo cron:
 `/usr/local/libexec/pastorai-backup/prepare-database-service.py` e o sidecar
 SHA-256 do auxiliar. O script instalado não depende do checkout nem de caminho
 relativo. Antes de criar credenciais efêmeras ou pausar containers, ele exige
-arquivo regular, dono `root:root`, modos `0700`/`0600` e checksum válido.
+arquivo regular sem symlink nem hardlink (`nlink=1`), dono `root:root`, modos
+`0700`/`0600` e checksum válido.
 Ausência, alteração ou permissão incorreta falham fechadas antes de qualquer
 efeito operacional.
 

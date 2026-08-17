@@ -47,7 +47,7 @@ from hashlib import sha256
 from threading import Event, Lock, Thread
 from typing import Any
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -354,18 +354,31 @@ class AgentReplyRetryable(RuntimeError):
     """A reply failed before Evolution could accept it and can be retried safely."""
 
 
+class AgentRunDisposition(str, Enum):
+    """Whether this worker completed a safe agent turn for the queue claim."""
+
+    COMPLETED = "completed"
+    IN_FLIGHT = "in_flight"
+
+
 # A resposta do agente usa a própria tabela ``messages`` como ledger durável.
 # A migration MSG-IDEMP-1 já criou o índice parcial único outbound sobre
-# ``(igreja_id, provider_message_id)``.  Não há schema novo neste gate: o id
-# opaco abaixo é uma chave idempotente estável de ``evento + claim + resposta``;
-# os estados ficam em ``autor`` até a entrega ser confirmada.
+# ``(igreja_id, provider_message_id)``.  The opaque provider id below is
+# derived only from the inbound event + queue claim, never from the response.
+# ``ia_reservada`` is committed *before* the agent executes mutable tools;
+# ``ia_executando`` is deliberately quarantined after a crash because the
+# process may have crossed a non-transactional tool boundary already.
 _AGENT_REPLY_PROVIDER_PREFIX = "agent-reply:"
+_AGENT_REPLY_RESERVED = "ia_reservada"
+_AGENT_REPLY_EXECUTING = "ia_executando"
 _AGENT_REPLY_PENDING = "ia_pendente"
 _AGENT_REPLY_IN_FLIGHT = "ia_em_transporte"
 _AGENT_REPLY_CONFIRMED = "ia"
 _AGENT_REPLY_AMBIGUOUS = "ia_ambigua"
+_AGENT_REPLY_EXECUTION_AMBIGUOUS = "ia_execucao_ambigua"
 _AGENT_REPLY_FAILED = "ia_falhou"
 _AGENT_REPLY_SUPPRESSED = "ia_suprimida"
+_AGENT_REPLY_NO_RESPONSE = "ia_sem_resposta"
 
 
 @dataclass(frozen=True)
@@ -381,6 +394,94 @@ class _AgentReplyIntent:
     state: str
     response: str
     provider_message_id: str
+
+
+@dataclass
+class _LocalAgentExecutionLock:
+    """Small fallback for non-PostgreSQL test adapters in one process only."""
+
+    lock: Lock
+    users: int = 0
+
+
+_LOCAL_AGENT_EXECUTION_LOCKS: dict[str, _LocalAgentExecutionLock] = {}
+_LOCAL_AGENT_EXECUTION_LOCKS_GUARD = Lock()
+
+
+class _AgentExecutionLease:
+    """Hold a session advisory lock while one agent turn is executing.
+
+    PostgreSQL is the production contract.  The local lock only keeps focused
+    SQLite/fake-session tests deterministic; it is never used for production
+    cross-process fencing.
+    """
+
+    def __init__(self, session_factory: Any, outcome: "IngestionOutcome", key: str) -> None:
+        self._session_factory = session_factory
+        self._outcome = outcome
+        self._key = key
+        self._session: Session | None = None
+        self._local: _LocalAgentExecutionLock | None = None
+
+    def acquire(self) -> bool:
+        session: Session = self._session_factory()
+        try:
+            _scope_agent_session(session, self._outcome)
+            get_bind = getattr(session, "get_bind", None)
+            dialect = get_bind().dialect.name if callable(get_bind) else None
+            if dialect == "postgresql":
+                lock_key = _agent_execution_lock_key(self._outcome, self._key)
+                acquired = bool(
+                    session.execute(select(func.pg_try_advisory_lock(lock_key))).scalar_one()
+                )
+                # pg_try_advisory_lock is session-scoped.  Finish the implicit
+                # transaction so no database transaction spans the agent call.
+                session.commit()
+                if acquired:
+                    self._session = session
+                    return True
+                session.close()
+                return False
+        except Exception:
+            session.rollback()
+            session.close()
+            raise
+        else:
+            session.close()
+
+        with _LOCAL_AGENT_EXECUTION_LOCKS_GUARD:
+            local = _LOCAL_AGENT_EXECUTION_LOCKS.get(self._key)
+            if local is None:
+                local = _LocalAgentExecutionLock(lock=Lock())
+                _LOCAL_AGENT_EXECUTION_LOCKS[self._key] = local
+            local.users += 1
+        if not local.lock.acquire(blocking=False):
+            with _LOCAL_AGENT_EXECUTION_LOCKS_GUARD:
+                local.users -= 1
+                if local.users == 0 and _LOCAL_AGENT_EXECUTION_LOCKS.get(self._key) is local:
+                    del _LOCAL_AGENT_EXECUTION_LOCKS[self._key]
+            return False
+        self._local = local
+        return True
+
+    def close(self) -> None:
+        if self._session is not None:
+            session = self._session
+            self._session = None
+            try:
+                lock_key = _agent_execution_lock_key(self._outcome, self._key)
+                session.execute(select(func.pg_advisory_unlock(lock_key))).scalar_one()
+                session.commit()
+            finally:
+                session.close()
+        if self._local is not None:
+            local = self._local
+            self._local = None
+            local.lock.release()
+            with _LOCAL_AGENT_EXECUTION_LOCKS_GUARD:
+                local.users -= 1
+                if local.users == 0 and _LOCAL_AGENT_EXECUTION_LOCKS.get(self._key) is local:
+                    del _LOCAL_AGENT_EXECUTION_LOCKS[self._key]
 
 
 # Resolver que baixa a mídia da Evolution e a sobe no Storage, devolvendo o
@@ -1312,7 +1413,18 @@ class QueueWorker:
             outcome.claim_id = envelope.claim_id
             if ownership_guard is not None:
                 ownership_guard()
-            self._agent_runner(self._session_factory, outcome, ownership_guard)
+            agent_disposition = self._agent_runner(
+                self._session_factory,
+                outcome,
+                ownership_guard,
+            )
+            if agent_disposition is AgentRunDisposition.IN_FLIGHT:
+                # A previous process still holds the durable execution lease.
+                # Do not ACK this recovered raw claim: its current owner stops
+                # and leaves it discoverable once the active lease finishes or
+                # expires.  Treating it as success would lose recovery after a
+                # crash before the agent persisted its terminal state.
+                raise ClaimOwnershipLost("Agent execution is already in flight")
 
         # Finalization is the last effect. Until it succeeds the same claim stays
         # recoverable. A stale owner cannot finalize after another worker moved
@@ -1333,14 +1445,8 @@ class QueueWorker:
 # ---------------------------------------------------------------------------
 # Agent orchestration runner (delta-034)
 # ---------------------------------------------------------------------------
-def _agent_reply_intent_prefix(outcome: IngestionOutcome) -> str | None:
-    """Return the stable, opaque prefix for one inbound event/claim.
-
-    The final provider id includes a response fingerprint as well.  We query by
-    this prefix under a Postgres advisory fence, so a concurrent worker whose
-    agent produces a different wording still observes the first durable intent
-    before it can call Evolution.
-    """
+def _agent_reply_idempotency_key(outcome: IngestionOutcome) -> str | None:
+    """Return one stable durable key for an inbound event and its queue claim."""
 
     if (
         outcome.igreja_id is None
@@ -1351,34 +1457,50 @@ def _agent_reply_intent_prefix(outcome: IngestionOutcome) -> str | None:
     material = (
         f"{outcome.igreja_id}:{outcome.provider_message_id}:{outcome.claim_id}"
     ).encode("utf-8")
-    return f"{_AGENT_REPLY_PROVIDER_PREFIX}{sha256(material).hexdigest()}:"
+    return f"{_AGENT_REPLY_PROVIDER_PREFIX}{sha256(material).hexdigest()}"
 
 
-def _agent_reply_idempotency_key(prefix: str, response: str) -> str:
-    """Return an opaque key derived from the claim and the exact reply text."""
+def _agent_execution_lock_key(outcome: IngestionOutcome, provider_message_id: str) -> int:
+    """Use a distinct PostgreSQL advisory-lock namespace for agent execution."""
 
-    return f"{prefix}{sha256(response.encode('utf-8')).hexdigest()}"
+    return _provider_message_lock_key(
+        outcome.igreja_id,
+        f"agent-execution:{provider_message_id}",
+    )
 
 
 def _agent_reply_after_fence(
-    db: Session, igreja_id: Any, prefix: str
+    db: Session, igreja_id: Any, provider_message_id: str
 ) -> Message | None:
-    """Fence one reply plan and return its existing durable row, if any."""
+    """Fence one reply plan and return its existing durable row, if any.
+
+    The ``:<response-hash>`` suffix was part of the pre-single-flight key.
+    Read it only for recovery compatibility: all new plans use the exact,
+    stable claim-derived key above.
+    """
 
     get_bind = getattr(db, "get_bind", None)
     if get_bind is not None and get_bind().dialect.name == "postgresql":
         db.execute(
-            select(func.pg_advisory_xact_lock(_provider_message_lock_key(igreja_id, prefix)))
+            select(
+                func.pg_advisory_xact_lock(
+                    _provider_message_lock_key(igreja_id, provider_message_id)
+                )
+            )
         ).scalar_one_or_none()
     return db.execute(
         select(Message)
         .where(
             Message.igreja_id == igreja_id,
             Message.direcao == "out",
-            Message.provider_message_id.like(f"{prefix}%"),
+            or_(
+                Message.provider_message_id == provider_message_id,
+                Message.provider_message_id.like(f"{provider_message_id}:%"),
+            ),
         )
-        .order_by(Message.criado_em.asc())
-    ).scalars().first()
+        .order_by(Message.criado_em.asc(), Message.id.asc())
+        .limit(1)
+    ).scalar_one_or_none()
 
 
 def _intent_from_message(message: Message) -> _AgentReplyIntent:
@@ -1398,14 +1520,69 @@ def _scope_agent_session(session: Session, outcome: IngestionOutcome) -> None:
 def _load_agent_reply_intent(
     session_factory: Any, outcome: IngestionOutcome
 ) -> _AgentReplyIntent | None:
-    prefix = _agent_reply_intent_prefix(outcome)
-    if prefix is None:
+    provider_message_id = _agent_reply_idempotency_key(outcome)
+    if provider_message_id is None:
         return None
     session: Session = session_factory()
     try:
         _scope_agent_session(session, outcome)
-        existing = _agent_reply_after_fence(session, outcome.igreja_id, prefix)
+        existing = _agent_reply_after_fence(
+            session,
+            outcome.igreja_id,
+            provider_message_id,
+        )
         return _intent_from_message(existing) if existing is not None else None
+    finally:
+        session.close()
+
+
+def _reserve_agent_reply_intent(
+    session_factory: Any, outcome: IngestionOutcome
+) -> _AgentReplyIntent | None:
+    """Persist a single-flight reservation before mutable agent work starts."""
+
+    provider_message_id = _agent_reply_idempotency_key(outcome)
+    if provider_message_id is None:
+        return None
+    session: Session = session_factory()
+    try:
+        _scope_agent_session(session, outcome)
+        existing = _agent_reply_after_fence(
+            session,
+            outcome.igreja_id,
+            provider_message_id,
+        )
+        if existing is not None:
+            return _intent_from_message(existing)
+
+        conversation = session.get(Conversation, outcome.conversation_id)
+        if conversation is None:
+            return None
+        message = Message(
+            igreja_id=conversation.igreja_id,
+            conversation_id=conversation.id,
+            direcao="out",
+            autor=_AGENT_REPLY_RESERVED,
+            texto=None,
+            tipo="texto",
+            provider_message_id=provider_message_id,
+        )
+        session.add(message)
+        try:
+            session.commit()
+        except IntegrityError:
+            # The unique outbound index remains the durable final barrier if a
+            # compatible backend cannot supply the PostgreSQL advisory lock.
+            session.rollback()
+            existing = _agent_reply_after_fence(
+                session,
+                outcome.igreja_id,
+                provider_message_id,
+            )
+            if existing is None:
+                raise
+            return _intent_from_message(existing)
+        return _intent_from_message(message)
     finally:
         session.close()
 
@@ -1420,14 +1597,42 @@ def _prepare_agent_reply_intent(
     race always returns the first intent and never grants two transports.
     """
 
-    prefix = _agent_reply_intent_prefix(outcome)
-    if prefix is None:
+    provider_message_id = _agent_reply_idempotency_key(outcome)
+    if provider_message_id is None:
         return None
     session: Session = session_factory()
     try:
         _scope_agent_session(session, outcome)
-        existing = _agent_reply_after_fence(session, outcome.igreja_id, prefix)
+        existing = _agent_reply_after_fence(
+            session,
+            outcome.igreja_id,
+            provider_message_id,
+        )
         if existing is not None:
+            if existing.autor in {_AGENT_REPLY_RESERVED, _AGENT_REPLY_EXECUTING}:
+                transitioned = session.execute(
+                    update(Message)
+                    .where(
+                        Message.id == existing.id,
+                        Message.autor.in_(
+                            {_AGENT_REPLY_RESERVED, _AGENT_REPLY_EXECUTING}
+                        ),
+                    )
+                    .values(autor=_AGENT_REPLY_PENDING, texto=response)
+                    .returning(Message.id)
+                ).scalar_one_or_none()
+                if transitioned is not None:
+                    session.commit()
+                    session.refresh(existing)
+                else:
+                    session.rollback()
+                    existing = _agent_reply_after_fence(
+                        session,
+                        outcome.igreja_id,
+                        provider_message_id,
+                    )
+                    if existing is None:
+                        raise RuntimeError("Agent reply reservation disappeared")
             return _intent_from_message(existing)
 
         conversation = session.get(Conversation, outcome.conversation_id)
@@ -1440,7 +1645,7 @@ def _prepare_agent_reply_intent(
             autor=_AGENT_REPLY_PENDING,
             texto=response,
             tipo="texto",
-            provider_message_id=_agent_reply_idempotency_key(prefix, response),
+            provider_message_id=provider_message_id,
         )
         session.add(message)
         try:
@@ -1451,7 +1656,11 @@ def _prepare_agent_reply_intent(
             # backend that enforces the unique outbound index without advisory
             # locks.
             session.rollback()
-            existing = _agent_reply_after_fence(session, outcome.igreja_id, prefix)
+            existing = _agent_reply_after_fence(
+                session,
+                outcome.igreja_id,
+                provider_message_id,
+            )
             if existing is None:
                 raise
             return _intent_from_message(existing)
@@ -1524,6 +1733,44 @@ def _quarantine_agent_reply(
         logger.warning("Agent reply left unresolved after provider boundary")
 
 
+def _quarantine_agent_execution(
+    session_factory: Any,
+    outcome: IngestionOutcome,
+    intent: _AgentReplyIntent,
+) -> None:
+    """Fence an agent turn whose side effects can no longer be proven absent."""
+
+    try:
+        _transition_agent_reply_intent(
+            session_factory,
+            outcome,
+            intent,
+            expected=_AGENT_REPLY_EXECUTING,
+            target=_AGENT_REPLY_EXECUTION_AMBIGUOUS,
+        )
+    except Exception:  # noqa: BLE001 - retain the execution fence on DB trouble
+        logger.warning("Agent execution left unresolved; automatic rerun skipped")
+
+
+def _release_agent_execution_reservation(
+    session_factory: Any,
+    outcome: IngestionOutcome,
+    intent: _AgentReplyIntent,
+) -> None:
+    """Return a pre-agent reservation only when no mutable turn started."""
+
+    try:
+        _transition_agent_reply_intent(
+            session_factory,
+            outcome,
+            intent,
+            expected=_AGENT_REPLY_EXECUTING,
+            target=_AGENT_REPLY_RESERVED,
+        )
+    except Exception:  # noqa: BLE001 - a failed release remains safely fenced
+        logger.warning("Agent reservation ownership was lost before execution")
+
+
 def _send_agent_reply(
     client: Any, instance: str | None, telefone: str | None, response: str
 ) -> str:
@@ -1562,10 +1809,14 @@ def _deliver_agent_reply_intent(
     if intent.state == _AGENT_REPLY_CONFIRMED:
         return
     if intent.state in {
+        _AGENT_REPLY_RESERVED,
+        _AGENT_REPLY_EXECUTING,
         _AGENT_REPLY_IN_FLIGHT,
         _AGENT_REPLY_AMBIGUOUS,
+        _AGENT_REPLY_EXECUTION_AMBIGUOUS,
         _AGENT_REPLY_FAILED,
         _AGENT_REPLY_SUPPRESSED,
+        _AGENT_REPLY_NO_RESPONSE,
     }:
         logger.warning("Agent reply requires reconciliation; automatic resend skipped")
         return
@@ -1725,22 +1976,151 @@ def run_agent_for_message(
     ownership_guard: ClaimGuard | None = None,
     *,
     evolution_client: Any | None = None,
-) -> None:
+) -> AgentRunDisposition:
     """Drive the orchestrator for one persisted inbound message and reply.
 
     The orchestrator produces a single reply; we send it through the official
     number and persist the outbound message. Handoff suppresses the auto reply.
-    Imports are deferred so the agent stack stays optional for ingestion tests.
+    A durable reservation and session advisory lock are acquired before calling
+    the orchestrator because its tools may mutate tenant state.  An unresolved
+    execution is quarantined rather than run a second time.
     """
     from app.agent.runtime import process_inbound_message  # noqa: PLC0415
 
     if outcome.conversation_id is None:
-        return
+        return AgentRunDisposition.COMPLETED
 
-    # A recovered claim must inspect the durable ledger before invoking the
-    # agent again.  Pending work reuses the persisted text; unresolved/provider
-    # ambiguous work is held for reconciliation and can never auto-resend.
-    intent = _load_agent_reply_intent(session_factory, outcome)
+    provider_message_id = _agent_reply_idempotency_key(outcome)
+    if provider_message_id is None:
+        # Compatibility path for out-of-tree callers that predate durable queue
+        # claims.  QueueWorker always reaches the durable path below.
+        if ownership_guard is not None:
+            ownership_guard()
+        session: Session = session_factory()
+        try:
+            if outcome.igreja_id is not None:
+                _scope_agent_session(session, outcome)
+                log_if_not_scoped(session, source="worker_agent")
+            result = process_inbound_message(
+                session,
+                conversation_id=outcome.conversation_id,
+                texto=outcome.texto,
+            )
+        finally:
+            session.close()
+        if result.handled and not result.suppressed and result.response:
+            _run_agent_legacy(
+                session_factory,
+                outcome,
+                result.response,
+                ownership_guard,
+                evolution_client=evolution_client,
+            )
+        return AgentRunDisposition.COMPLETED
+
+    if ownership_guard is not None:
+        ownership_guard()
+
+    # Commit the durable row before acquiring the execution lease.  A crash in
+    # this gap leaves ``ia_reservada`` and a recovered owner may safely start
+    # the agent.  The unique outbound provider id is the stable claim key.
+    intent = _reserve_agent_reply_intent(session_factory, outcome)
+    if intent is None:
+        return AgentRunDisposition.COMPLETED
+
+    execution_lease = _AgentExecutionLease(
+        session_factory,
+        outcome,
+        provider_message_id,
+    )
+    if not execution_lease.acquire():
+        return AgentRunDisposition.IN_FLIGHT
+
+    try:
+        # Reload after acquiring the cross-process lease.  A worker that sees
+        # ``ia_executando`` only after the prior process died cannot prove
+        # whether mutable tools ran, so it quarantines instead of rerunning.
+        intent = _load_agent_reply_intent(session_factory, outcome)
+        if intent is None:
+            return AgentRunDisposition.COMPLETED
+        if intent.state == _AGENT_REPLY_EXECUTING:
+            _quarantine_agent_execution(session_factory, outcome, intent)
+            return AgentRunDisposition.COMPLETED
+
+        if intent.state == _AGENT_REPLY_RESERVED:
+            if not _transition_agent_reply_intent(
+                session_factory,
+                outcome,
+                intent,
+                expected=_AGENT_REPLY_RESERVED,
+                target=_AGENT_REPLY_EXECUTING,
+                ownership_guard=ownership_guard,
+            ):
+                intent = _load_agent_reply_intent(session_factory, outcome)
+            else:
+                try:
+                    # Immediate pre-effect check.  If it fails, no agent/tool
+                    # call happened and a recovered owner may resume the same
+                    # persisted reservation.
+                    if ownership_guard is not None:
+                        ownership_guard()
+                except ClaimOwnershipLost:
+                    _release_agent_execution_reservation(
+                        session_factory,
+                        outcome,
+                        intent,
+                    )
+                    raise
+
+                session: Session = session_factory()
+                try:
+                    # Fase 0 (#10b): RLS por igreja também no caminho do agente
+                    # — é aqui que tools, retrieval da KB e memória leem/escrevem
+                    # dados do tenant.
+                    _scope_agent_session(session, outcome)
+                    log_if_not_scoped(session, source="worker_agent")
+                    result = process_inbound_message(
+                        session,
+                        conversation_id=outcome.conversation_id,
+                        texto=outcome.texto,
+                    )
+                except BaseException:
+                    # A process failure after ``ia_executando`` may have crossed
+                    # a non-transactional tool boundary.  Do not re-run it.
+                    _quarantine_agent_execution(session_factory, outcome, intent)
+                    raise
+                finally:
+                    session.close()
+
+                try:
+                    if ownership_guard is not None:
+                        ownership_guard()
+                except ClaimOwnershipLost:
+                    _quarantine_agent_execution(session_factory, outcome, intent)
+                    raise
+
+                if not result.handled or result.suppressed or not result.response:
+                    _transition_agent_reply_intent(
+                        session_factory,
+                        outcome,
+                        intent,
+                        expected=_AGENT_REPLY_EXECUTING,
+                        target=_AGENT_REPLY_NO_RESPONSE,
+                    )
+                    return AgentRunDisposition.COMPLETED
+
+                try:
+                    intent = _prepare_agent_reply_intent(
+                        session_factory,
+                        outcome,
+                        result.response,
+                    )
+                except Exception:
+                    _quarantine_agent_execution(session_factory, outcome, intent)
+                    raise
+    finally:
+        execution_lease.close()
+
     if intent is not None:
         _deliver_agent_reply_intent(
             session_factory,
@@ -1749,50 +2129,7 @@ def run_agent_for_message(
             ownership_guard,
             evolution_client=evolution_client,
         )
-        return
-
-    if ownership_guard is not None:
-        ownership_guard()
-    session: Session = session_factory()
-    try:
-        # Fase 0 (#10b): RLS por igreja também no caminho do agente — é aqui que
-        # tools, retrieval da KB e memória vão ler/escrever dados do tenant. A
-        # sessão reaberta é marcada pelo seam (D3): mark_tenant_scoped pina o
-        # tenant e o listener after_begin reaplica o escopo em cada transação.
-        if outcome.igreja_id is not None:
-            mark_tenant_scoped(session, outcome.igreja_id, source="worker_agent")
-            # Sinal de observabilidade (PR1/feat-004) no ponto de amostra do
-            # seam no worker: se a sessão reaberta NÃO ficou tenant-scoped
-            # (perda de contexto / BYPASSRLS inesperado / fallback), emite log
-            # estruturado sem PII (só source/role/igreja_id). É a fonte do
-            # gatilho de rollback da SPEC §9/10.
-            log_if_not_scoped(session, source="worker_agent")
-        result = process_inbound_message(
-            session, conversation_id=outcome.conversation_id, texto=outcome.texto
-        )
-    finally:
-        session.close()
-
-    if not result.handled or result.suppressed or not result.response:
-        return
-
-    intent = _prepare_agent_reply_intent(session_factory, outcome, result.response)
-    if intent is None:
-        _run_agent_legacy(
-            session_factory,
-            outcome,
-            result.response,
-            ownership_guard,
-            evolution_client=evolution_client,
-        )
-        return
-    _deliver_agent_reply_intent(
-        session_factory,
-        outcome,
-        intent,
-        ownership_guard,
-        evolution_client=evolution_client,
-    )
+    return AgentRunDisposition.COMPLETED
 
 
 # ---------------------------------------------------------------------------

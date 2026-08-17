@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shlex
 import shutil
 import subprocess
 from pathlib import Path
@@ -30,7 +31,18 @@ def test_systemd_units_have_a_controlled_writable_surface() -> None:
         wsl = shutil.which("wsl.exe") or shutil.which("wsl")
         if wsl is None:
             pytest.skip("WSL with systemd is required for the controlled sandbox harness")
-        command = [wsl, "-u", "root", "-e", "bash", _wsl_path(HARNESS)]
+        deploy = _wsl_path(ROOT / "deploy")
+        relative = HARNESS.relative_to(ROOT / "deploy").as_posix()
+        script = f"""
+            set -eu
+            sandbox=$(mktemp -d)
+            trap 'rm -rf -- "$sandbox"' EXIT
+            mkdir -p "$sandbox/deploy"
+            cp -a {shlex.quote(deploy)}/. "$sandbox/deploy/"
+            find "$sandbox/deploy" -type f -name '*.sh' -exec sed -i 's/\\r$//' {{}} +
+            exec bash "$sandbox/deploy/{relative}"
+        """
+        command = [wsl, "-u", "root", "-e", "sh", "-lc", script]
     else:
         if os.geteuid() != 0:
             pytest.skip("root with a running systemd manager is required")

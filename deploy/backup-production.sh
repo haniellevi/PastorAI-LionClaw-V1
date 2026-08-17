@@ -35,7 +35,7 @@ if [[ ! -s "${ENV_FILE}" || ! -s "${COMPOSE_FILE}" ]]; then
 fi
 
 validate_database_service_helper() {
-  local helper_stat checksum_stat expected actual
+  local helper_stat checksum_stat helper_links checksum_links expected actual
   if [[ ! -f "${DATABASE_SERVICE_HELPER}" || -L "${DATABASE_SERVICE_HELPER}" \
     || ! -f "${DATABASE_SERVICE_HELPER_SHA256}" || -L "${DATABASE_SERVICE_HELPER_SHA256}" ]]; then
     echo "ERRO: pacote de credencial do backup incompleto" >&2
@@ -45,6 +45,12 @@ validate_database_service_helper() {
   checksum_stat="$(stat -c '%u:%g:%a' "${DATABASE_SERVICE_HELPER_SHA256}")"
   if [[ "${helper_stat}" != "0:0:700" || "${checksum_stat}" != "0:0:600" ]]; then
     echo "ERRO: permissao do pacote de credencial do backup invalida" >&2
+    return 1
+  fi
+  helper_links="$(stat -c '%h' "${DATABASE_SERVICE_HELPER}")"
+  checksum_links="$(stat -c '%h' "${DATABASE_SERVICE_HELPER_SHA256}")"
+  if [[ "${helper_links}" != "1" || "${checksum_links}" != "1" ]]; then
+    echo "ERRO: pacote de credencial do backup com hardlink nao permitido" >&2
     return 1
   fi
   expected="$(tr -d '[:space:]' <"${DATABASE_SERVICE_HELPER_SHA256}")"

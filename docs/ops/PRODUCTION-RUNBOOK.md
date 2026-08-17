@@ -264,7 +264,8 @@ arquivos libpq temporários `0600`, montados apenas para o `pg_dump`; URL e senh
 não ficam em argv ou ambiente de Python, Docker, `pg_dump` ou outros auxiliares.
 O cron M02 deve receber o pacote completo por `sudo bash
 deploy/install-legacy-backup.sh`; o entrypoint em `/usr/local/sbin` verifica o
-auxiliar fixo e seu checksum antes de qualquer backup ou pausa de containers.
+auxiliar fixo e seu checksum, ambos arquivos regulares sem symlink nem hardlink
+(`nlink=1`), antes de qualquer backup ou pausa de containers.
 As units usam `ProtectSystem=strict` e paths de escrita explícitos. O monitor
 usa `DynamicUser`, `ProtectHome=true`, não acessa Docker, `.env` ou `/root` e
 valida somente o manifesto. O backup é uma unidade privilegiada separada porque

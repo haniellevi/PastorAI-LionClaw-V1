@@ -37,6 +37,26 @@ def _wsl_path(path: Path) -> str:
     ).stdout.strip()
 
 
+def _wsl_harness_command(harness: Path) -> list[str]:
+    """Run a Linux shell harness from an LF-only disposable deploy copy."""
+
+    wsl = shutil.which("wsl.exe") or shutil.which("wsl")
+    if wsl is None:
+        pytest.skip("WSL is required for the controlled backup harness")
+    deploy = _wsl_path(ROOT / "deploy")
+    relative = harness.relative_to(ROOT / "deploy").as_posix()
+    script = f"""
+        set -eu
+        sandbox=$(mktemp -d)
+        trap 'rm -rf -- "$sandbox"' EXIT
+        mkdir -p "$sandbox/deploy"
+        cp -a {shlex.quote(deploy)}/. "$sandbox/deploy/"
+        find "$sandbox/deploy" -type f -name '*.sh' -exec sed -i 's/\\r$//' {{}} +
+        exec sh "$sandbox/deploy/{relative}"
+    """
+    return [wsl, "-u", "root", "-e", "sh", "-lc", script]
+
+
 def test_database_service_helper_writes_restricted_libpq_files_without_output(
     tmp_path: Path,
 ) -> None:
@@ -204,10 +224,7 @@ def test_backup_uses_libpq_files_and_always_traps_temporary_secret() -> None:
 
 def test_backup_secret_never_reaches_pgdump_proc_argv_environment_logs_or_residual_file() -> None:
     if os.name == "nt":
-        wsl = shutil.which("wsl.exe") or shutil.which("wsl")
-        if wsl is None:
-            pytest.skip("WSL is required for the controlled backup harness")
-        command = [wsl, "-u", "root", "-e", "sh", _wsl_path(HARNESS)]
+        command = _wsl_harness_command(HARNESS)
     else:
         if os.geteuid() != 0:
             pytest.skip("root is required to exercise the backup root guard")

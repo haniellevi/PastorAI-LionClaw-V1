@@ -29,18 +29,25 @@ fail_if_requested() {
 }
 
 validate_source() {
-  local path="$1"
+  local path="$1" links
   [[ -f "${path}" && ! -L "${path}" ]] || {
     echo "ERRO: artefato do backup ausente" >&2
+    return 1
+  }
+  links="$(stat -c '%h' "${path}")"
+  [[ "${links}" == "1" ]] || {
+    echo "ERRO: artefato do backup com hardlink nao permitido" >&2
     return 1
   }
 }
 
 validate_installed_file() {
-  local path="$1" expected_mode="$2" actual
+  local path="$1" expected_mode="$2" actual links
   [[ -f "${path}" && ! -L "${path}" ]] || return 1
   actual="$(stat -c '%u:%g:%a' "${path}")"
-  [[ "${actual}" == "0:0:${expected_mode}" ]]
+  [[ "${actual}" == "0:0:${expected_mode}" ]] || return 1
+  links="$(stat -c '%h' "${path}")"
+  [[ "${links}" == "1" ]]
 }
 
 validate_source "${SOURCE_BACKUP}"

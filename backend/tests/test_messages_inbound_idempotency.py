@@ -48,7 +48,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker
 
 import app.db.session  # noqa: F401 - registra o listener after_begin (paridade prod)
-from app.db.models import Base, Conversation, Igreja, WhatsappConnection
+from app.db.models import Base, Conversation, Igreja, Message, WhatsappConnection
 from app.domain.conversations import ParsedMessage
 from app.domain.phone import normalize_phone
 from app.workers.queue_worker import (
@@ -164,7 +164,12 @@ def _seed_agent_conversation(factory: sessionmaker, *, igreja_id: uuid.UUID) -> 
         session.close()
 
 
-def _agent_outcome(conversation_id: uuid.UUID) -> worker_module.IngestionOutcome:
+def _agent_outcome(
+    conversation_id: uuid.UUID,
+    *,
+    provider_message_id: str = "AGENT-DELIVERY-ONCE",
+    claim_id: str = "stable-claim-1",
+) -> worker_module.IngestionOutcome:
     return worker_module.IngestionOutcome(
         result=IngestionResult.REGISTERED,
         conversation_id=conversation_id,
@@ -173,8 +178,8 @@ def _agent_outcome(conversation_id: uuid.UUID) -> worker_module.IngestionOutcome
         texto="Oi",
         inbound=True,
         igreja_id=_IGREJA_A,
-        provider_message_id="AGENT-DELIVERY-ONCE",
-        claim_id="stable-claim-1",
+        provider_message_id=provider_message_id,
+        claim_id=claim_id,
     )
 
 
@@ -697,7 +702,7 @@ def test_agent_reply_loss_before_transport_releases_pending_without_provider_cal
     def guard() -> None:
         nonlocal guard_calls
         guard_calls += 1
-        if guard_calls == 3:
+        if guard_calls == 6:
             raise ClaimOwnershipLost("lease lost immediately before transport")
 
     with pytest.raises(ClaimOwnershipLost):
@@ -724,7 +729,7 @@ def test_agent_reply_loss_during_transport_never_retries_an_inflight_call(
     def guard() -> None:
         nonlocal guard_calls
         guard_calls += 1
-        if guard_calls == 4:
+        if guard_calls == 7:
             raise ClaimOwnershipLost("lease lost after provider transport")
 
     outcome = _agent_outcome(conversation_id)
@@ -737,45 +742,203 @@ def test_agent_reply_loss_during_transport_never_retries_an_inflight_call(
     assert _agent_reply_states(factory, _IGREJA_A) == ["ia_em_transporte"]
 
 
-def test_agent_reply_concurrent_recovered_claims_start_one_evolution_call(
-    msg_engine_fx: Engine, monkeypatch
+@pytest.mark.parametrize("workers", [2, 5, 10])
+def test_agent_reply_concurrent_recovered_claims_execute_once_before_transport(
+    msg_engine_fx: Engine, monkeypatch, workers: int
 ) -> None:
+    """PostgreSQL single-flight holds under 2/5/10 concurrent claim recoveries."""
+
     factory = _factory(msg_engine_fx)
-    conversation_id = _seed_agent_delivery(factory)
-    barrier = threading.Barrier(2)
-    agent_calls: list[str] = []
-    agent_lock = threading.Lock()
+    _seed_igreja_with_connection(factory, igreja_id=_IGREJA_A, instance="igreja-1")
 
     from app.agent import runtime as runtime_module
 
-    def process(_session, **_kwargs):
-        barrier.wait(timeout=10)
-        with agent_lock:
-            agent_calls.append("agent")
-        return SimpleNamespace(handled=True, suppressed=False, response="Resposta concorrente")
+    for repetition in range(3):
+        conversation_id = _seed_agent_conversation(factory, igreja_id=_IGREJA_A)
+        start = threading.Barrier(workers)
+        agent_started = threading.Event()
+        release_agent = threading.Event()
+        agent_calls: list[str] = []
+        agent_lock = threading.Lock()
+        outcomes: list[BaseException] = []
+        dispositions: list[worker_module.AgentRunDisposition] = []
 
-    monkeypatch.setattr(runtime_module, "process_inbound_message", process)
-    evolution = _ClassifiedEvolution("aceito")
-    outcomes: list[BaseException] = []
-
-    def worker() -> None:
-        try:
-            run_agent_for_message(
-                factory,
-                _agent_outcome(conversation_id),
-                evolution_client=evolution,
+        def process(_session, **_kwargs):
+            with agent_lock:
+                agent_calls.append("agent")
+            agent_started.set()
+            assert release_agent.wait(timeout=10)
+            return SimpleNamespace(
+                handled=True,
+                suppressed=False,
+                response="Resposta concorrente",
             )
-        except BaseException as exc:  # noqa: BLE001 - surface worker failure to test
-            outcomes.append(exc)
 
-    threads = [threading.Thread(target=worker) for _ in range(2)]
-    for thread in threads:
-        thread.start()
-    for thread in threads:
-        thread.join(timeout=20)
+        monkeypatch.setattr(runtime_module, "process_inbound_message", process)
+        evolution = _ClassifiedEvolution("aceito")
+        outcome = _agent_outcome(
+            conversation_id,
+            provider_message_id=f"AGENT-CONCURRENT-{workers}-{repetition}",
+            claim_id=f"stable-concurrent-claim-{workers}-{repetition}",
+        )
 
-    assert not outcomes
-    assert all(not thread.is_alive() for thread in threads)
-    assert agent_calls == ["agent", "agent"]
+        def worker() -> None:
+            try:
+                start.wait(timeout=10)
+                disposition = run_agent_for_message(
+                    factory,
+                    outcome,
+                    evolution_client=evolution,
+                )
+                dispositions.append(disposition)
+            except BaseException as exc:  # noqa: BLE001 - surface worker failure to test
+                outcomes.append(exc)
+
+        threads = [threading.Thread(target=worker) for _ in range(workers)]
+        for thread in threads:
+            thread.start()
+        assert agent_started.wait(timeout=10)
+        release_agent.set()
+        for thread in threads:
+            thread.join(timeout=20)
+
+        assert not outcomes
+        assert all(not thread.is_alive() for thread in threads)
+        assert agent_calls == ["agent"]
+        assert len(evolution.calls) <= 1
+        assert _agent_reply_states(factory, _IGREJA_A)[-1:] == ["ia"]
+        assert worker_module.AgentRunDisposition.COMPLETED in dispositions
+
+
+def test_agent_reply_reservation_survives_crash_before_agent_and_uses_stable_key(
+    msg_engine_fx: Engine, monkeypatch
+) -> None:
+    """A committed reservation can be retried without deriving identity from text."""
+
+    factory = _factory(msg_engine_fx)
+    conversation_id = _seed_agent_delivery(factory)
+    outcome = _agent_outcome(
+        conversation_id,
+        provider_message_id="AGENT-RESERVATION-CRASH",
+        claim_id="stable-reservation-crash",
+    )
+    key = worker_module._agent_reply_idempotency_key(outcome)
+    assert key is not None
+
+    # Simulate a process crash after its durable reservation commit but before
+    # it acquired the execution lease or invoked the agent.
+    reserved = worker_module._reserve_agent_reply_intent(factory, outcome)
+    assert reserved is not None
+    assert reserved.provider_message_id == key
+    assert reserved.state == worker_module._AGENT_REPLY_RESERVED
+    assert reserved.response == ""
+
+    agent_calls = _stub_agent(monkeypatch, response="Resposta não participa da chave")
+    evolution = _ClassifiedEvolution("aceito")
+    run_agent_for_message(factory, outcome, evolution_client=evolution)
+
+    assert agent_calls == ["agent"]
+    assert len(evolution.calls) == 1
+    session = factory()
+    try:
+        message = session.execute(
+            text(
+                "select provider_message_id, autor from messages "
+                "where igreja_id = :i and provider_message_id = :key"
+            ),
+            {"i": str(_IGREJA_A), "key": key},
+        ).one()
+    finally:
+        session.close()
+    assert message.provider_message_id == key
+    assert message.autor == "ia"
+
+
+def test_agent_reply_owner_loss_after_reservation_runs_no_agent_or_tool(
+    msg_engine_fx: Engine, monkeypatch
+) -> None:
+    """A lease loss immediately before the turn leaves a recoverable reservation."""
+
+    factory = _factory(msg_engine_fx)
+    conversation_id = _seed_agent_delivery(factory)
+    agent_calls = _stub_agent(monkeypatch)
+    evolution = _ClassifiedEvolution("aceito")
+    guard_calls = 0
+
+    def guard() -> None:
+        nonlocal guard_calls
+        guard_calls += 1
+        if guard_calls == 3:
+            raise ClaimOwnershipLost("lease lost before agent execution")
+
+    outcome = _agent_outcome(
+        conversation_id,
+        provider_message_id="AGENT-OWNER-LOSS",
+        claim_id="stable-owner-loss",
+    )
+    with pytest.raises(ClaimOwnershipLost):
+        run_agent_for_message(factory, outcome, guard, evolution_client=evolution)
+
+    assert agent_calls == []
+    assert evolution.calls == []
+    assert _agent_reply_states(factory, _IGREJA_A) == ["ia_reservada"]
+
+    # The retry owns the same persisted claim and performs the one permitted
+    # agent turn; no stale owner can have produced an earlier side effect.
+    run_agent_for_message(factory, outcome, evolution_client=evolution)
+    assert agent_calls == ["agent"]
     assert len(evolution.calls) == 1
     assert _agent_reply_states(factory, _IGREJA_A) == ["ia"]
+
+
+def test_agent_reply_recovers_legacy_response_hash_intent_without_rerunning_agent(
+    msg_engine_fx: Engine, monkeypatch
+) -> None:
+    """A pre-single-flight intent remains the only durable plan after upgrade."""
+
+    factory = _factory(msg_engine_fx)
+    conversation_id = _seed_agent_delivery(factory)
+    outcome = _agent_outcome(
+        conversation_id,
+        provider_message_id="AGENT-LEGACY-INTENT",
+        claim_id="stable-legacy-intent",
+    )
+    stable_key = worker_module._agent_reply_idempotency_key(outcome)
+    assert stable_key is not None
+
+    session = factory()
+    try:
+        session.add(
+            Message(
+                igreja_id=_IGREJA_A,
+                conversation_id=conversation_id,
+                direcao="out",
+                autor="ia_pendente",
+                texto="Resposta já persistida antes da atualização",
+                provider_message_id=f"{stable_key}:legacy-response-hash",
+            )
+        )
+        session.commit()
+    finally:
+        session.close()
+
+    agent_calls = _stub_agent(monkeypatch)
+    evolution = _ClassifiedEvolution("aceito")
+    run_agent_for_message(factory, outcome, evolution_client=evolution)
+
+    assert agent_calls == []
+    assert evolution.calls == [
+        ("igreja-1", "5511988887777", "Resposta já persistida antes da atualização")
+    ]
+    session = factory()
+    try:
+        count = session.execute(
+            text(
+                "select count(*) from messages where igreja_id = :i "
+                "and direcao = 'out' and provider_message_id like :key"
+            ),
+            {"i": str(_IGREJA_A), "key": f"{stable_key}%"},
+        ).scalar_one()
+    finally:
+        session.close()
+    assert count == 1

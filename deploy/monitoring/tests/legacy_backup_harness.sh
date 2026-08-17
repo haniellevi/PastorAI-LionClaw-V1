@@ -78,6 +78,8 @@ install_package
 [[ "$(stat -c '%u:%g:%a' "${BACKUP_SCRIPT}")" == '0:0:700' ]]
 [[ "$(stat -c '%u:%g:%a' "${HELPER}")" == '0:0:700' ]]
 [[ "$(stat -c '%u:%g:%a' "${HELPER_SHA256}")" == '0:0:600' ]]
+[[ "$(stat -c '%h' "${HELPER}")" == '1' ]]
+[[ "$(stat -c '%h' "${HELPER_SHA256}")" == '1' ]]
 : >"${LOG}"
 set +e
 (
@@ -114,5 +116,35 @@ run_backup_expect_preflight_failure
 install_package
 chmod 0755 "${HELPER}"
 run_backup_expect_preflight_failure
+
+# A regular file with another hardlink has a second writable name outside the
+# fixed helper directory.  Reject both helper and checksum before any Docker
+# action, even when owner, mode and digest still look valid.
+install_package
+ln "${HELPER}" "${SANDBOX}/helper-hardlink"
+run_backup_expect_preflight_failure
+rm -f -- "${SANDBOX}/helper-hardlink"
+install_package
+ln "${HELPER_SHA256}" "${SANDBOX}/checksum-hardlink"
+run_backup_expect_preflight_failure
+rm -f -- "${SANDBOX}/checksum-hardlink"
+
+# Installation must reject a hardlinked source helper before it snapshots or
+# overwrites the live package.  Use a copied source so the repository file is
+# never hardlinked by this controlled test.
+SOURCE_HELPER="${SANDBOX}/source-helper.py"
+cp "${DEPLOY_DIR}/prepare-database-service.py" "${SOURCE_HELPER}"
+ln "${SOURCE_HELPER}" "${SANDBOX}/source-helper-hardlink"
+before="$(sha256sum "${HELPER}" | awk '{print $1}')"
+set +e
+PASTORAI_LEGACY_BACKUP_INSTALL_TEST_MODE=1 \
+PASTORAI_LEGACY_BACKUP_TARGET="${BACKUP_SCRIPT}" \
+PASTORAI_LEGACY_BACKUP_HELPER_DIR="${HELPER_DIR}" \
+PASTORAI_LEGACY_BACKUP_HELPER_SOURCE="${SOURCE_HELPER}" \
+bash "${INSTALL_SCRIPT}" >/dev/null 2>&1
+status=$?
+set -e
+[[ "${status}" -ne 0 ]]
+[[ "$(sha256sum "${HELPER}" | awk '{print $1}')" == "${before}" ]]
 
 printf 'LEGACY_BACKUP_OK\n'
