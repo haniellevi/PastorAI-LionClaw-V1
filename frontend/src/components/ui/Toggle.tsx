@@ -11,14 +11,15 @@ export interface ToggleProps {
 
 export function Toggle({ checked, onChange, label, disabled }: ToggleProps) {
   return (
-    <label className="switch" aria-label={label}>
+    <label className="switch">
+      <span className="sr-only">{label}</span>
       <input
         type="checkbox"
         checked={checked}
         disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
       />
-      <span className="sw-track" />
+      <span className="sw-track" aria-hidden="true" />
     </label>
   );
 }

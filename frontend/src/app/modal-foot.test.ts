@@ -81,6 +81,25 @@ describe("nowrap escopado — a base quebra dentro do botão; os grupos com wrap
     expect(m![1]).toMatch(/white-space:\s*nowrap/);
   });
 
+  it("nowrap fica escopado aos grupos com wrap da Agenda e Minha Célula", () => {
+    const selectors = [
+      ".agenda .screen-head .actions .btn",
+      ".agenda .screen-head .actions .ds-btn",
+      ".mc .screen-head .actions .btn",
+      ".mc .screen-head .actions .ds-btn",
+      ".mc .meeting-actions .btn",
+      ".mc .meeting-actions .ds-btn",
+      ".mc .chip-actions .btn",
+      ".mc .chip-actions .ds-btn",
+    ];
+    const scopedRule = [...globals.matchAll(/([^{}]+)\{([^{}]*)\}/g)].find(
+      ([, header, body]) =>
+        selectors.every((selector) => header!.includes(selector)) &&
+        /white-space:\s*nowrap/.test(body!),
+    );
+    expect(scopedRule, "regra de nowrap escopada da Agenda/Minha Célula não encontrada").toBeTruthy();
+  });
+
   it("o alvo de toque de 44px do .modal-foot no mobile segue declarado", () => {
     expect(globals).toMatch(/\.modal-foot \.btn\s*\{\s*min-height:\s*44px/);
   });

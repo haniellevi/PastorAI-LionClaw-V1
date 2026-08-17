@@ -11,8 +11,7 @@
 import { DsBanner } from "@/components/ds/Banner";
 import { DsButton } from "@/components/ds/Button";
 import { Dialog as DsDialog } from "@/components/ds/Dialog";
-import type { Conversation } from "@/lib/conversations-api";
-import type { TeamMember } from "@/lib/dashboard-api";
+import type { Conversation, InboxTransferTarget } from "@/lib/conversations-api";
 import { Icon } from "@/lib/icons";
 
 import { displayName } from "./conversation-format";
@@ -21,6 +20,8 @@ const ROLE_LABEL: Record<string, string> = {
   admin: "Administrador",
   pastor: "Pastor",
   lider_g12: "Líder G12",
+  lider_consol: "Líder de consolidação",
+  lider_celula: "Líder de célula",
   operador: "Operador",
 };
 
@@ -41,7 +42,7 @@ export function TransferConversationModal({
   onConfirm,
 }: {
   conversation: Conversation;
-  members: TeamMember[];
+  members: InboxTransferTarget[];
   loading: boolean;
   busy: boolean;
   error: string | null;

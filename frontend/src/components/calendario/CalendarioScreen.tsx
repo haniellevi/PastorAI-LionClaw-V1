@@ -548,14 +548,15 @@ export function CalendarioScreen() {
         </div>
       </div>
 
-      <Tabs
-        tabs={agendaTabs}
-        active={view}
-        // A primitive é agnóstica de domínio (id: string); aqui os ids vêm de
-        // `VIEWS`, que já é `AgendaTab` — o cast só devolve o tipo do domínio.
-        onChange={(id) => setView(id as AgendaTab)}
-        label="Visualização da agenda"
-      >
+      <section className="agenda-workspace" aria-label="Agenda da igreja">
+        <Tabs
+          tabs={agendaTabs}
+          active={view}
+          // A primitive é agnóstica de domínio (id: string); aqui os ids vêm de
+          // `VIEWS`, que já é `AgendaTab` — o cast só devolve o tipo do domínio.
+          onChange={(id) => setView(id as AgendaTab)}
+          label="Visualização da agenda"
+        >
         {error ? (
           <div className="error-banner" role="alert">
             <Icon name="alert" />
@@ -889,7 +890,8 @@ export function CalendarioScreen() {
             </div>
           </div>
         )}
-      </Tabs>
+        </Tabs>
+      </section>
 
       {selected && !editing ? (
         <EventDetailModal

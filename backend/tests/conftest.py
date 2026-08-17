@@ -384,6 +384,9 @@ class FakeClerk:
         raise_invite: bool = False,
         created_clerk_id: str = "clerk_new_user",
         raise_create: bool = False,
+        existing_clerk_id: str | None = None,
+        raise_find: bool = False,
+        raise_delete: bool = False,
     ) -> None:
         self._clerk_user_id = clerk_user_id
         self._login_result = login_result
@@ -393,6 +396,12 @@ class FakeClerk:
         self._raise_invite = raise_invite
         self._created_clerk_id = created_clerk_id
         self._raise_create = raise_create
+        self._existing_clerk_id = existing_clerk_id
+        self._raise_find = raise_find
+        self._raise_delete = raise_delete
+        self.create_calls = 0
+        self.set_password_calls = 0
+        self.delete_calls = 0
 
     def verify_session_token(self, token: str) -> ClerkIdentity:
         if self._raise_verify:
@@ -416,12 +425,23 @@ class FakeClerk:
         return self._invite_app_user_id or "00000000-0000-0000-0000-0000000000a1"
 
     def create_user(self, email: str, password: str) -> str:
+        self.create_calls += 1
         if self._raise_create:
             raise ClerkAuthError("create failed")
         return self._created_clerk_id
 
+    def find_user_id_by_email(self, email: str) -> str | None:
+        if self._raise_find:
+            raise ClerkAuthError("lookup failed")
+        return self._existing_clerk_id
+
     def set_user_password(self, clerk_user_id: str, password: str) -> None:
-        pass
+        self.set_password_calls += 1
+
+    def delete_user(self, clerk_user_id: str) -> None:
+        self.delete_calls += 1
+        if self._raise_delete:
+            raise ClerkAuthError("delete failed")
 
 
 # ---------------------------------------------------------------------------

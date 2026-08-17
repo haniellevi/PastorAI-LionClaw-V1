@@ -50,8 +50,12 @@ export function ConsolIndividualScreen() {
   const showSkeleton = c.loading && !c.loaded;
 
   return (
-    <div className="screen" key="consol-individual">
+    <div className="screen journey-screen journey-screen--consolidar" key="consol-individual">
       <div className="screen-head">
+        <div className="titles">
+          <h2>Trilhas em andamento</h2>
+          <p>Acompanhe cada etapa da consolidação individual.</p>
+        </div>
         <div className="actions">
           <button type="button" className="btn btn-primary" onClick={() => c.openDecision()}>
             <Icon name="plus" />

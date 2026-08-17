@@ -32,7 +32,6 @@ export function DeadlineBadge({
     <span
       className={`ddl ${TONE_CLASS[info.tone]}`.trim()}
       data-state={info.state}
-      role="status"
     >
       <Icon name="clock" />
       {label}

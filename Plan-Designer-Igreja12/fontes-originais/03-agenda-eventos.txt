@@ -1,0 +1,209 @@
+# Módulo Agenda de Eventos — Especificação UX/UI e Regras de Negócio
+
+**Produto:** Igreja12 · `app.igreja12.com.br`
+**Área:** Igreja → Agenda
+**Versão:** 1.0 (protótipo)
+
+---
+
+## 1. Objetivo
+
+Ajudar a liderança autorizada a **criar, comunicar e editar o calendário da igreja** com o mínimo esforço mental possível.
+
+A Agenda é a **fonte única dos eventos** da igreja. O assistente de IA atua sobre essa base para enviar lembretes de planejamento e comunicar cada evento aos públicos certos, no momento certo.
+
+**Princípio de UX condutor:** "pegar na mão" do usuário leigo — cada ação deve ser óbvia, guiada e exigir o mínimo de decisões. Nada de jargão de calendário ou telas vazias sem orientação.
+
+**Para quem:**
+- **Pastor / Admin** → criam, editam, confirmam e configuram o planejamento.
+- **Líder e demais papéis** → visualizam a agenda e são notificados; não confirmam nem configuram.
+
+---
+
+## 2. Estrutura do módulo
+
+A Agenda é um **módulo com abas internas**. As abas administrativas só aparecem para quem tem privilégio de confirmar (Pastor/Admin).
+
+| Aba | Função | Acesso |
+|-----|--------|--------|
+| **Semana** | Visão principal (padrão). Agenda fixa de domingo a sábado, cada dia com seus eventos. | Todos |
+| **Mês** | Calendário mensal + lista de eventos do mês. | Todos |
+| **Ano** | Visão anual: 12 meses, cada um com a listagem de seus eventos. | Todos |
+| **A confirmar** | Fila de eventos importados aguardando confirmação. | Pastor/Admin |
+| **Planejamento** | Configuração do lembrete semanal automático do assistente. | Pastor/Admin |
+
+**Hierarquia de visualização:** a **Semana** é a visão principal e fica fixa. **Mês** e **Ano** são apenas alternâncias de escala. A semana mostra cada dia com clareza; mês e ano dão a visão macro mantendo a listagem de eventos por período.
+
+---
+
+## 3. Interface das visões
+
+### 3.1 Semana (principal)
+
+A visão de abertura do módulo.
+
+- **Cabeçalho:** navegação ‹ › entre semanas + intervalo da semana ("22 – 28 de junho · Semana atual · 2026") + botão **+ Novo evento**.
+- **Banner de configuração inicial** (discreto, âmbar): "Defina a agenda semanal base da igreja" → abre o assistente passo a passo (ver §6).
+- **Grade de 7 colunas** (domingo→sábado). Cada dia é um card com:
+  - Cabeçalho com sigla do dia (DOM, SEG…) e número.
+  - **Hoje** destacado em teal (fundo claro + borda).
+  - Chips de evento com horário, nome e local.
+  - Selo verde **"Células liberadas"** quando o dia permite células.
+  - Texto discreto **"Dia livre"** quando não há nada marcado.
+- **Responsivo:** desktop em 7 colunas; mobile empilha em coluna única (um dia por linha).
+
+### 3.2 Mês
+
+- **Calendário mensal** (grade gerada dinamicamente, dias do mês corretos por dia da semana).
+  - Dia atual destacado em teal.
+  - Badge colorido no dia para cada evento, com cor por tipo.
+- **Coluna lateral:**
+  - Botão **+ Novo evento**.
+  - **"Eventos de junho"** — lista completa dos eventos do mês (data, dia, nome, local) clicável.
+  - **Legenda** de cores por tipo de evento.
+- **Responsivo:** lateral empilha abaixo do calendário no mobile.
+
+### 3.3 Ano
+
+- **2026 · Visão anual** com os 12 meses em grade (3 colunas no desktop, 1 no mobile).
+- Cada mês é um card com **a listagem dos seus eventos** (nome + dia), com bolinha colorida por tipo. Contador de eventos no canto. Mês atual destacado.
+
+### 3.4 Paleta de cores dos eventos (semântica)
+
+| Cor | Tipo |
+|-----|------|
+| Coral `#fb7185` | Cultos |
+| Teal `#0d9488` | Reuniões / Liderança |
+| Verde `#0e9f6e` | Células & Encontros |
+| Índigo `#6366f1` | Eventos especiais (casais, jovens, louvor) |
+| Âmbar `#d97706` | Conferências / Vigílias |
+| **Vermelho `#ef4444`** | **Reservado para "a confirmar"** (sobrepõe a cor do tipo) |
+
+---
+
+## 4. Interações com eventos
+
+### 4.1 Clicar em um dia → criar evento já contextualizado
+
+Clicar **dentro de um dia** (na Semana ou no Mês) abre o card **Novo evento** já configurado com aquele dia — exibido como um destaque no topo do formulário ("Segunda-feira", "25/06/2026" etc.).
+
+- **Na visão Semana:** o evento é criado por **dia da semana** (recorrência fixa — "toda semana neste dia").
+- **Nas visões Mês e Ano:** o evento é criado por **data específica**.
+
+### 4.2 Clicar em um evento → ver informações
+
+Clicar em qualquer evento (chip da semana, badge do mês, item das listas) abre o **card de detalhe** com:
+- Nome e status do evento.
+- **Horário**, **Local** e **Público** (quem é comunicado).
+- Quando aplicável, ações conforme o privilégio do usuário (ver §5).
+
+O cursor muda ao passar o mouse, sinalizando que o evento é clicável.
+
+---
+
+## 5. Eventos "a confirmar" e privilégios
+
+### 5.1 Identificação visual (todos os calendários)
+
+Todo evento pendente de confirmação é marcado de forma **minimalista** com um **sinal de alerta vermelho (⚠)** ao lado — na Semana, no Mês, no Ano e em todas as listas. O chip/borda do evento também assume o vermelho de "a confirmar".
+
+Essa marcação é **informativa para todos** os usuários: qualquer um vê que existe um evento ainda não confirmado.
+
+### 5.2 Quem pode confirmar (Pastor / Admin)
+
+- Vê as abas **"A confirmar"** e **"Planejamento"**.
+- Ao abrir um evento pendente, vê o botão **"Editar e confirmar"** → abre o fluxo de confirmação (§5.4).
+
+### 5.3 Usuário sem privilégio (Líder e demais)
+
+- **Não vê** as abas "A confirmar" e "Planejamento".
+- Ao abrir um evento pendente, vê apenas o aviso: *"Este evento ainda será confirmado pela liderança. Você será avisado quando estiver definido."* — **sem** opção de confirmar.
+
+> O conceito de papel é definido no login (Pastor = acesso total / Líder = sem confirmar), permitindo testar ambos os cenários.
+
+### 5.4 Fluxo de confirmação de um evento
+
+Confirmar um evento importado significa definir como ele será comunicado. O card de confirmação reúne:
+
+1. **Quem precisa ser avisado** — seleção de públicos/papéis (Líderes, Toda a igreja, Discípulos, Visitantes, Casais…).
+2. **Quando notificar** — antecedência (7 dias antes, 3 dias antes, no dia).
+3. **Mensagem** — texto que será enviado, com botão **"Sugerir com IA"** que gera uma mensagem customizada para aquele evento.
+4. Ação final: **Confirmar e agendar**.
+
+---
+
+## 6. Cadastro da agenda semanal base (onboarding)
+
+Na primeira vez, o admin cadastra a **agenda semanal base** através de um assistente passo a passo, **um dia de cada vez, de domingo a sábado**:
+
+1. Para cada dia, pergunta: **"O que acontece na igreja neste dia?"**
+   - **Tem evento fixo** → abre o formulário de novo evento.
+   - **Dia livre** → segue para a pergunta seguinte.
+2. Se for **dia livre**, pergunta: **"A igreja pode fazer células neste dia?"**
+   - **Sim** → o dia é marcado como **"Células liberadas"** (selo verde na semana).
+   - **Não** → o dia permanece livre.
+3. Barra de progresso indica o avanço (dia X de 7). Ao concluir, a semana base passa a aparecer na aba **Semana** e o assistente já pode lembrar do planejamento.
+
+---
+
+## 7. Criação e importação de eventos
+
+### 7.1 Como adicionar um evento
+
+Três caminhos:
+1. Botão **+ Novo evento**.
+2. **Clicar em um dia** no calendário (já vem contextualizado — §4.1).
+3. **Importar** (Google Calendar — §7.3).
+4. *(Evolução futura)* Pedir ao assistente para adicionar o evento **na própria conversa** com o admin/pastor.
+
+### 7.2 Dados de um evento
+
+Campos mínimos:
+- **Nome do evento**
+- **Local**
+- **Horário**
+- **Data** (visão mês/ano) **ou dia da semana** (visão semana)
+- **Público** — quem será comunicado
+
+### 7.3 Importação (Google Calendar)
+
+- Eventos podem ser importados do Google Calendar (e adicionados um a um).
+- **Todo evento importado entra como "a confirmar"** (marcado em vermelho — §5.1), até que um usuário com privilégio o confirme definindo público, antecedência e mensagem.
+
+---
+
+## 8. Planejamento semanal automático (assistente)
+
+Aba **Planejamento** (Pastor/Admin). Configura o lembrete que o assistente envia para preparar a semana seguinte.
+
+- **Dia do lembrete** — dia da semana escolhido para o planejamento (ex.: quinta-feira).
+- **Horário** — ex.: 09h00.
+- **Quem o assistente deve notificar** — papéis selecionados (Pastor, Admin, Coordenadores, Secretaria…).
+- **Lembrete automático ativo** — liga/desliga.
+- **Prévia da mensagem** — mostra o texto que o agente enviará.
+
+**Comportamento:** no dia e horário configurados, o assistente envia, por mensagem, aos responsáveis um lembrete de planejamento da semana seguinte — **já listando os eventos previstos** e **perguntando se há algo a adicionar ou alterar**. O usuário pode responder e criar/ajustar eventos pela própria conversa.
+
+---
+
+## 9. Regras de negócio (resumo)
+
+1. A agenda é a fonte única de eventos; comunicação e lembretes derivam dela.
+2. Apenas **Pastor/Admin** criam, editam, confirmam e configuram o planejamento.
+3. Evento **importado** nasce como **"a confirmar"** e só é comunicado após confirmação.
+4. **Confirmar** = definir público + antecedência + mensagem (assistente pode sugerir o texto).
+5. Eventos a confirmar são sinalizados em **vermelho com ⚠** em todos os calendários, para todos os usuários.
+6. A opção de **confirmar/editar** só é exibida a quem tem privilégio; demais veem aviso informativo.
+7. Na visão **Semana**, eventos são por **dia da semana** (recorrentes); em **Mês/Ano**, por **data**.
+8. Um **dia livre** pode ser marcado como liberado para **células**.
+9. O **lembrete de planejamento** é automático, no dia/horário configurados, para os papéis escolhidos.
+
+---
+
+## 10. Diretrizes visuais
+
+- **Tipografia:** Sora (títulos/números) + Inter (texto).
+- **Cor base:** teal `#0d9488` / verde-escuro `#0f3a36`; cor reservada à **sinalização**, não à decoração.
+- **Vermelho** é exclusivo de "a confirmar" / alerta.
+- **Layout adaptável:** desktop em colunas, mobile empilhado; textos e alvos de toque legíveis (mínimo 44px no mobile).
+- **Tom condutor:** banners e textos curtos que orientam o próximo passo, nunca telas vazias.

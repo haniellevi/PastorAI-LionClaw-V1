@@ -20,18 +20,21 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, field_validator
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, false, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.db.models import (
     AppUser,
+    Celula,
+    CelulaMembro,
     Consolidacao,
     ConsolidacaoEtapa,
+    Conversation,
     Pessoa,
     WorkQueueItem,
 )
 from app.db.session import get_db
-from app.deps import CurrentUser, get_current_user
+from app.deps import CurrentUser, get_current_user, resolve_actor_pessoa_id
 from app.domain.consolidation import (
     CONSOLIDATION_ROLES,
     can_conclude,
@@ -47,16 +50,96 @@ logger = logging.getLogger("pastorai.pipeline")
 
 router = APIRouter(tags=["pipeline"])
 
-# Papéis que podem MOVER pessoas na jornada / registrar fonovisita. 'membro'
-# (papel padrão de quem é convidado) fica de fora — coerente com os gates dos
-# endpoints irmãos (assign/advance-stage). Admin passa implicitamente.
-PIPELINE_WRITE_ROLES = [
-    "operador",
-    "lider_celula",
+# Papéis com visão/atuação tenant-wide. Admin passa implicitamente por
+# CurrentUser.has_any_role; papéis acumulados amplos sempre vencem o escopo
+# restrito de líder de célula.
+PIPELINE_TENANT_WIDE_ROLES = [
     "lider_consol",
     "lider_g12",
     "pastor",
 ]
+
+# Papéis que podem registrar fonovisita; 'membro' fica de fora.
+PIPELINE_WRITE_ROLES = [
+    *PIPELINE_TENANT_WIDE_ROLES,
+    "lider_celula",
+    "operador",
+]
+
+# Promover muda a etapa pastoral da Pessoa e exige atuação tenant-wide. Papéis
+# restritos continuam podendo registrar fonovisita dentro do seu escopo.
+PIPELINE_PROMOTE_ROLES = PIPELINE_TENANT_WIDE_ROLES
+
+
+def _pipeline_scope_filters(
+    db: Session,
+    current_user: CurrentUser,
+    *,
+    allow_own_person: bool,
+) -> list:
+    """Return row predicates for the authenticated actor's pipeline scope.
+
+    Wide roles keep the complete explicit tenant view. Restricted reads are
+    the union of the actor's own Pessoa, active members of an active cell they
+    lead, and (for operadores) Pessoas whose tenant Conversation is currently
+    assigned to their AppUser. Writes omit the own-Pessoa convenience but use
+    the same capability predicates. An empty union fails closed.
+    """
+
+    igreja_id = uuid.UUID(current_user.igreja_id)
+    tenant_filter = Pessoa.igreja_id == igreja_id
+    # Equivalent to ``IS NULL`` while preserving the legacy pipeline SQL
+    # contract that reserves the literal ``IS NULL`` check for etapa=ganhar.
+    active_filter = Pessoa.arquivada_em.is_not_distinct_from(None)
+    pipeline_filter = Pessoa.sem_interesse.is_(False)
+
+    if current_user.has_any_role(PIPELINE_TENANT_WIDE_ROLES):
+        return [tenant_filter, active_filter, pipeline_filter]
+
+    actor_pessoa_id = resolve_actor_pessoa_id(db, current_user)
+    actor_id = uuid.UUID(actor_pessoa_id) if actor_pessoa_id else None
+    visible = []
+
+    if allow_own_person and actor_id is not None:
+        visible.append(Pessoa.id == actor_id)
+
+    if "lider_celula" in current_user.roles and actor_id is not None:
+        membro_da_celula_liderada = (
+            select(CelulaMembro.id)
+            .join(Celula, Celula.id == CelulaMembro.celula_id)
+            .where(
+                CelulaMembro.igreja_id == igreja_id,
+                CelulaMembro.pessoa_id == Pessoa.id,
+                CelulaMembro.ativo.is_(True),
+                Celula.igreja_id == igreja_id,
+                Celula.ativo.is_(True),
+                Celula.lider_id == actor_id,
+            )
+            .correlate(Pessoa)
+            .exists()
+        )
+        visible.append(membro_da_celula_liderada)
+
+    if "operador" in current_user.roles:
+        conversa_atribuida = (
+            select(Conversation.id)
+            .where(
+                Conversation.igreja_id == igreja_id,
+                Conversation.pessoa_id == Pessoa.id,
+                Conversation.assumido_por
+                == uuid.UUID(current_user.app_user_id),
+            )
+            .correlate(Pessoa)
+            .exists()
+        )
+        visible.append(conversa_atribuida)
+
+    return [
+        tenant_filter,
+        active_filter,
+        pipeline_filter,
+        or_(*visible) if visible else false(),
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -188,7 +271,14 @@ def list_pipeline(
     contadas no dashboard mas nunca apareciam na tela Ganhar (PIPE-1).
     """
 
-    filters = [Pessoa.sem_interesse.is_(False)]
+    # Keep the established top-level ``sem_interesse AND etapa`` shape while
+    # making tenant/eligibility/role scope inseparable from the base predicate.
+    # ``self_group`` avoids SQLAlchemy flattening the scope into an extra
+    # top-level clause (a structural contract covered by test_pipeline_csim).
+    scoped_visibility = and_(
+        *_pipeline_scope_filters(db, current_user, allow_own_person=True),
+    ).self_group()
+    filters = [scoped_visibility]
     if etapa is not None:
         normalized = etapa.strip().lower()
         if normalized not in VALID_ETAPAS:
@@ -232,14 +322,17 @@ def update_pipeline(
 ) -> PipelineUpdateResponse:
     """Move a person along the pipeline, enforcing F2 promotion rules."""
 
-    if not current_user.has_any_role(PIPELINE_WRITE_ROLES):
+    if not current_user.has_any_role(PIPELINE_PROMOTE_ROLES):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Você não tem permissão para mover pessoas na jornada",
         )
 
     pessoa = db.execute(
-        select(Pessoa).where(Pessoa.id == uuid.UUID(payload.pessoaId))
+        select(Pessoa).where(
+            Pessoa.id == uuid.UUID(payload.pessoaId),
+            *_pipeline_scope_filters(db, current_user, allow_own_person=False),
+        )
     ).scalar_one_or_none()
     if pessoa is None:
         raise HTTPException(
@@ -294,7 +387,10 @@ def queue_fonovisita(
         )
 
     pessoa = db.execute(
-        select(Pessoa).where(Pessoa.id == uuid.UUID(payload.pessoaId))
+        select(Pessoa).where(
+            Pessoa.id == uuid.UUID(payload.pessoaId),
+            *_pipeline_scope_filters(db, current_user, allow_own_person=False),
+        )
     ).scalar_one_or_none()
     if pessoa is None:
         raise HTTPException(
@@ -344,7 +440,9 @@ def assign_consolidador(
     """Assign the responsible consolidador to a consolidation (delta-018).
 
     Setting `responsavel_id` is what later enables that user (and only that
-    user) to confirm stages via /pipeline/advance-stage.
+    user) to confirm stages via /pipeline/advance-stage. The assigner's role
+    gates this management action; the destination may hold any accumulated
+    roles, but must be an active account in the same tenant.
     """
 
     if not current_user.has_any_role(CONSOLIDATION_ROLES):
@@ -353,9 +451,11 @@ def assign_consolidador(
             detail="Você não tem permissão para atribuir consolidador",
         )
 
+    igreja_id = uuid.UUID(current_user.igreja_id)
     consolidacao = db.execute(
         select(Consolidacao).where(
-            Consolidacao.id == uuid.UUID(payload.consolidacaoId)
+            Consolidacao.id == uuid.UUID(payload.consolidacaoId),
+            Consolidacao.igreja_id == igreja_id,
         )
     ).scalar_one_or_none()
     if consolidacao is None:
@@ -365,7 +465,11 @@ def assign_consolidador(
         )
 
     responsavel = db.execute(
-        select(AppUser).where(AppUser.id == uuid.UUID(payload.responsavelId))
+        select(AppUser).where(
+            AppUser.id == uuid.UUID(payload.responsavelId),
+            AppUser.igreja_id == igreja_id,
+            or_(AppUser.status.is_(None), AppUser.status == "ativo"),
+        )
     ).scalar_one_or_none()
     if responsavel is None:
         raise HTTPException(

@@ -24,6 +24,7 @@ import { ScreenView } from "./ScreenView";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
 import { useDrawerA11y } from "./useDrawerA11y";
+import { useRouteMainFocus } from "./useRouteMainFocus";
 
 /** Telas bloqueadas no MVP (locked-em-breve): não renderizam conteúdo. */
 const LOCKED_SCREENS = new Set(["universidade-vida", "capacitacao"]);
@@ -69,6 +70,7 @@ export function AppShell() {
   const resolvedBase = allowed ? base : "dashboard";
   const resolvedRoute = allowed ? route : "dashboard";
   const resolvedParam = allowed ? param : null;
+  const mainRef = useRouteMainFocus(resolvedRoute);
 
   const warmRoute = useCallback(
     (target: string) => {
@@ -89,7 +91,7 @@ export function AppShell() {
       }
 
       preloadScreenModule(targetBase);
-      if (token) void preloadRouteData(token, targetBase);
+      if (token) void preloadRouteData(token, targetBase, user.roles, matrix);
     },
     [user, token, matrix],
   );
@@ -133,6 +135,18 @@ export function AppShell() {
 
   return (
     <div className="app">
+      <a
+        className="skip-link"
+        href="#main-content"
+        onClick={(event) => {
+          // A aplicação usa hashes para rotas. O salto precisa focar o main
+          // sem transformar #main-content em uma rota inválida.
+          event.preventDefault();
+          mainRef.current?.focus({ preventScroll: true });
+        }}
+      >
+        Ir para o conteúdo principal
+      </a>
       {mobileOpen ? (
         // Botão semântico (não div aria-hidden clicável); fora do tab order —
         // Esc e o trap do drawer cobrem o teclado (useDrawerA11y).
@@ -159,7 +173,13 @@ export function AppShell() {
           navigate("login");
         }}
       />
-      <main className="main">
+      <main
+        ref={mainRef}
+        id="main-content"
+        className="main"
+        tabIndex={-1}
+        aria-labelledby="screen-title"
+      >
         <Topbar
           user={user}
           route={resolvedBase}

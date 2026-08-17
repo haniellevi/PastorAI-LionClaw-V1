@@ -52,6 +52,7 @@ describe("Topbar — title nativo no h1 truncado", () => {
   it("h1 tem title=texto completo do título (mesmo texto do conteúdo visível)", () => {
     render("dashboard");
     const h1 = container.querySelector("h1")!;
+    expect(h1.id).toBe("screen-title");
     expect(h1.getAttribute("title")).toBe(SCREEN_META.dashboard!.title);
     expect(h1.textContent).toBe(SCREEN_META.dashboard!.title);
   });
@@ -60,6 +61,39 @@ describe("Topbar — title nativo no h1 truncado", () => {
     render("inbox");
     const h1 = container.querySelector("h1")!;
     expect(h1.getAttribute("title")).toBe(SCREEN_META.inbox!.title);
+  });
+});
+
+describe("Topbar — sem busca decorativa", () => {
+  it("não renderiza searchbox nem o placeholder sem comportamento", () => {
+    render("dashboard");
+
+    expect(container.querySelector('input[type="search"], [role="searchbox"]')).toBeNull();
+    expect(
+      container.querySelector('input[placeholder="Buscar contato, célula, conversa…"]'),
+    ).toBeNull();
+  });
+});
+
+describe("Topbar — marca Diamante Lapidado", () => {
+  it("mantém a marca compacta no app e evita competir com o hambúrguer do admin", () => {
+    render("dashboard");
+    const mark = container.querySelector(".topbar-brand-mark svg");
+    expect(mark).not.toBeNull();
+    expect(mark?.getAttribute("aria-hidden")).toBe("true");
+    expect(mark?.querySelectorAll("polygon")).toHaveLength(8);
+
+    act(() => {
+      root.render(
+        h(Topbar, {
+          user,
+          route: "dashboard",
+          onMenuToggle: vi.fn(),
+          menuButton: true,
+        }),
+      );
+    });
+    expect(container.querySelector(".topbar-brand-mark")).toBeNull();
   });
 });
 

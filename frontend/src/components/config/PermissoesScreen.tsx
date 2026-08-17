@@ -183,8 +183,12 @@ export function PermissoesScreen() {
   const showSkeleton = loading && !loaded;
 
   return (
-    <div className="screen" key="permissoes">
+    <div className="screen admin-screen permissions-screen" key="permissoes">
       <div className="screen-head">
+        <div className="titles">
+          <h2>Permissões por papel</h2>
+          <p>Defina o que cada responsabilidade pode acessar no painel.</p>
+        </div>
         <div className="actions">
           <button type="button" className="btn" onClick={discard} disabled={!dirty || saving}>
             Descartar

@@ -43,9 +43,25 @@ export const ROLE_ORDER: Role[] = [
   "membro",
 ];
 
+/**
+ * Papéis derivados de relações do domínio, não concedidos manualmente na tela
+ * de Equipe. `lider_celula` nasce de `celulas.lider_id` em célula ativa.
+ */
+export const DERIVED_ROLES: readonly Role[] = ["lider_celula"];
+
+/** Papéis que o administrador pode conceder ou remover manualmente. */
+export const EDITABLE_ROLE_ORDER: Role[] = ROLE_ORDER.filter(
+  (role) => !DERIVED_ROLES.includes(role),
+);
+
 /** Mantém apenas papéis conhecidos (resiliência a dados externos). */
 export function normalizeRoles(roles: readonly string[]): Role[] {
   return roles.filter((r): r is Role => r in ROLE_DEFS);
+}
+
+/** Remove papéis derivados de um payload de edição sem alterar os demais. */
+export function editableRoles(roles: Iterable<Role>): Role[] {
+  return Array.from(roles).filter((role) => !DERIVED_ROLES.includes(role));
 }
 
 /** Papéis ordenados pela hierarquia de exibição. */

@@ -10,27 +10,40 @@ import {
   fetchCells,
   fetchOverview,
   fetchTeamLookup,
-  fetchWorkQueue,
+  fetchWorkQueuePage,
 } from "./dashboard-api";
-import { fetchEvents } from "./events-api";
+import { resolveDashboardResponsibilities } from "./dashboard-responsibilities";
+import { fetchEvents, fetchUpcomingEvents } from "./events-api";
+import { canSee, DEFAULT_PERMISSIONS, type PermissionMatrix } from "./permissions";
+import type { Role } from "./roles";
 
-export async function preloadRouteData(token: string, route: string): Promise<void> {
+export async function preloadRouteData(
+  token: string,
+  route: string,
+  roles: readonly Role[],
+  matrix: PermissionMatrix = DEFAULT_PERMISSIONS,
+): Promise<void> {
   let jobs: Promise<unknown>[] = [];
+  const responsibilities = resolveDashboardResponsibilities(roles);
 
   switch (route) {
     case "dashboard":
       jobs = [
-        fetchWorkQueue(token),
-        fetchTeamLookup(token),
-        fetchCells(token),
-        fetchOverview(token),
+        ...(responsibilities.hasWorkQueue ? [fetchWorkQueuePage(token, 1, 25)] : []),
+        ...(responsibilities.canAssignQueue ? [fetchTeamLookup(token)] : []),
+        ...(responsibilities.canLinkCell ? [fetchCells(token)] : []),
+        ...(responsibilities.showOverview ? [fetchOverview(token)] : []),
+        ...(canSee("calendario", roles, matrix) ? [fetchUpcomingEvents(token)] : []),
       ];
       break;
     case "calendario":
       jobs = [fetchEvents(token)];
       break;
     case "ganhar":
-      jobs = [fetchPipeline(token, "ganhar"), fetchCells(token)];
+      jobs = [
+        fetchPipeline(token, "ganhar"),
+        ...(responsibilities.canLinkCell ? [fetchCells(token)] : []),
+      ];
       break;
     case "inbox":
       jobs = [fetchConversations(token)];

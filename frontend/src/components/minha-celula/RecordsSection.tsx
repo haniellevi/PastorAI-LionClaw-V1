@@ -8,7 +8,7 @@
  */
 import { useState } from "react";
 
-import { Button } from "@/components/ui/Button";
+import { DsButton } from "@/components/ds/Button";
 import { StatusPill, type PillTone } from "@/components/dashboard/StatusPill";
 import { Icon } from "@/lib/icons";
 import { ApiError } from "@/lib/dashboard-api";
@@ -92,12 +92,7 @@ export function RecordsSection({
   }
 
   return (
-    <section className="card" aria-label="Registros">
-      <div className="panel-title">
-        <Icon name="document" /> Registros
-        {records.length ? <span className="count">· {records.length}</span> : null}
-      </div>
-
+    <div className="mc-report-section-content">
       {error ? (
         <div className="error-banner" role="alert">
           <Icon name="alert" />
@@ -180,21 +175,19 @@ export function RecordsSection({
               </div>
             ) : null}
             <div className="section-actions">
-              <Button
+              <DsButton
                 type="submit"
-                variant="default"
-                size="sm"
+                variant="primary"
                 loading={busy}
-                loadingText="Adicionando…"
                 disabled={!conteudo.trim()}
               >
                 <Icon name="plus" />
-                <span>Adicionar registro</span>
-              </Button>
+                <span>{busy ? "Adicionando registro…" : "Adicionar registro"}</span>
+              </DsButton>
             </div>
           </form>
         ) : null}
       </div>
-    </section>
+    </div>
   );
 }

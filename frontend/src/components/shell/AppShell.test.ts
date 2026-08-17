@@ -17,6 +17,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PermissionsProvider } from "@/lib/permissions-context";
 
 vi.mock("@/lib/auth-context", () => ({
+  useOptionalAuth: () => null,
   useAuth: () => ({
     user: {
       appUserId: "u1",
@@ -83,6 +84,35 @@ afterEach(() => {
 });
 
 describe("AppShell — Sidebar e BottomNav concordam na rota já resolvida", () => {
+  it("oferece salto para o conteúdo e nomeia o landmark principal pelo título da tela", () => {
+    window.location.hash = "#dashboard";
+    render();
+
+    const skip = container.querySelector<HTMLAnchorElement>(".skip-link");
+    const main = container.querySelector<HTMLElement>("#main-content");
+    expect(skip?.getAttribute("href")).toBe("#main-content");
+    expect(main?.getAttribute("aria-labelledby")).toBe("screen-title");
+    expect(main?.getAttribute("tabindex")).toBe("-1");
+
+    act(() => skip?.click());
+    expect(document.activeElement).toBe(main);
+    expect(window.location.hash).toBe("#dashboard");
+  });
+
+  it("move o foco para o conteúdo principal depois de trocar de rota", () => {
+    window.location.hash = "#dashboard";
+    render();
+
+    const firstNav = container.querySelector<HTMLElement>(".nav-item");
+    firstNav?.focus();
+    act(() => {
+      window.location.hash = "#inbox";
+      window.dispatchEvent(new Event("hashchange"));
+    });
+
+    expect(document.activeElement).toBe(container.querySelector("#main-content"));
+  });
+
   it("deep-link bloqueado (#universidade-vida, locked): AppShell resolve pra #dashboard e Sidebar+BottomNav mostram EXATAMENTE UM aria-current=page cada, no mesmo alvo", () => {
     window.location.hash = "#universidade-vida";
     render();
