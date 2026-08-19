@@ -135,7 +135,9 @@ def check_backup(
     except ValueError:
         return CheckResult("backup", False, "manifesto invalido")
     checked_at = now or utcnow()
-    age_hours = max(0.0, (checked_at - completed).total_seconds() / 3600)
+    if completed > checked_at:
+        return CheckResult("backup", False, "manifesto invalido")
+    age_hours = (checked_at - completed).total_seconds() / 3600
     if age_hours > max_age:
         return CheckResult("backup", False, f"atrasado age_hours={age_hours:.1f}")
     return CheckResult("backup", True, f"recente age_hours={age_hours:.1f}")

@@ -75,6 +75,19 @@ def test_recent_verified_backup_manifest_is_healthy(tmp_path) -> None:
     assert result.name == "backup"
 
 
+def test_future_verified_backup_manifest_fails_closed(tmp_path) -> None:
+    now = dt.datetime(2026, 8, 9, 12, tzinfo=UTC)
+    manifest = _manifest(tmp_path, now + dt.timedelta(seconds=1))
+
+    result = monitor.check_backup(
+        {"MONITOR_BACKUP_MANIFEST": str(manifest)},
+        now=now,
+    )
+
+    assert result.ok is False
+    assert result.detail == "manifesto invalido"
+
+
 def test_backup_manifest_uses_verified_completion_time_not_file_mtime(tmp_path) -> None:
     now = dt.datetime(2026, 8, 9, 12, tzinfo=UTC)
     manifest = _manifest(tmp_path, now - dt.timedelta(hours=1))
