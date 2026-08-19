@@ -21,7 +21,7 @@ estado atual de PR, SHA, checks ou prioridade.
 | Frente | PR | SHA da PR | Merge em `main` | Evidência |
 |---|---:|---|---|---|
 | Hotfix Pessoa | #252 | `57c6acabaa92a4b326d0a6b939d19963d68da684` | `91862f3dd6988122cf7d7aa1b4be1b7a4358b2ed` | PR mesclada; validação de concorrência e revisão independente concluídas no fluxo da missão |
-| M08 readiness/observabilidade | #249 | `5c7055d577ae51163b322d1874bbfe943d769c2b` | `9e5bab9962c83628bf30d427921ad6125134511a` | CI 3/3 verde, `REVIEW_PASS` independente, Ready e merge em gates separados |
+| M08 readiness/observabilidade | #249 | `5c7055d577ae51163b322d1874bbfe943d769c2b` | `9e5bab9962c83628bf30d427921ad6125134511a` | Integrada após CI 3/3 e `REVIEW_PASS`; reaberta abaixo por falha de integração posterior |
 
 `origin/main` confirmado neste registro: `9e5bab9962c83628bf30d427921ad6125134511a`.
 O merge de #249 tem como pais a `main` anterior
@@ -29,10 +29,15 @@ O merge de #249 tem como pais a `main` anterior
 
 ### Fila vigente
 
-1. **P3 atual — M01 / PR #234:** corretivo REVIEW-9 de billing/Asaas. Nenhuma
-   nova implementação foi iniciada neste registro.
-2. **P4 — M06 / PR #244:** hardening, após a conclusão de M01.
-3. **P5 — E-mail Brevo**, **P6 — M09 / PR #245**, **P7 — Células** e
+1. **P2 reaberta — M08 / PR #249:** a execução RLS da árvore de merge da PR
+   documental falhou em
+   `test_agent_reply_concurrent_recovered_claims_execute_once_before_transport[10]`.
+   O estado observado foi `ia_execucao_ambigua` onde o teste exige `ia`.
+   Reproduzir contra PostgreSQL descartável e corrigir antes de M01.
+2. **P3 — M01 / PR #234:** corretivo REVIEW-9 de billing/Asaas, somente após
+   a revalidação de M08.
+3. **P4 — M06 / PR #244:** hardening, após a conclusão de M01.
+4. **P5 — E-mail Brevo**, **P6 — M09 / PR #245**, **P7 — Células** e
    **P8 — PR #257**, na ordem original, salvo decisão humana explícita.
 
 ### PRs consultadas ao vivo
@@ -258,11 +263,13 @@ Próximos gates possíveis, sempre separados:
 4. Ready;
 5. merge.
 
-### P2 — M08 / PR #249 — CONCLUÍDA EM 2026-08-19
+### P2 — M08 / PR #249 — REABERTA EM 2026-08-19
 
 O bloco abaixo é a fila histórica do corretivo REVIEW-7. A PR foi revisada,
 passou CI 3/3, foi marcada Ready e mesclada em
-`9e5bab9962c83628bf30d427921ad6125134511a`. Consultar a seção 0.
+`9e5bab9962c83628bf30d427921ad6125134511a`. A execução RLS posterior na
+árvore de merge da PR #258 falhou no cenário de 10 workers, portanto o aceite
+M08 não permanece comprovado e a seção 0 prevalece.
 
 Pendente no corretivo local REVIEW-7:
 
@@ -375,8 +382,8 @@ Pendente:
 
 ```text
 PR #252 Hotfix Pessoa [CONCLUÍDA]
-  -> integração segura da M08 [CONCLUÍDA]
-     -> revisão e merge da PR #249 [CONCLUÍDA]
+  -> integração segura da M08 [PR #249 MESCLADA; ACEITE REABERTO]
+     -> corretivo M08 e nova validação integrada
 
 M01 billing -----------\
 M06 hardening ----------+-> SHA final de main -> migrations/deploy/smokes
@@ -546,7 +553,7 @@ produção. Esta estimativa deve ser recalculada após cada `REVIEW_PASS`.
 | Coordenação | `019fcac8-89fb-7661-8e13-390901ad9cb2` | ativa |
 | M01 | `019fde2d-6c4b-7621-acaa-7f380bf3bd0f` | aguardando prioridade |
 | M06 | `019fde31-4247-7d63-a463-1b0f8698fcf4` | aguardando retry |
-| M08 | `019fde09-2e44-79e2-b8a6-0abc29b3bf53` | concluída: PR #249 mesclada em `9e5bab9` |
+| M08 | `019fde09-2e44-79e2-b8a6-0abc29b3bf53` | reaberta: falha RLS integrada no cenário concorrente de 10 workers |
 | M09 | `019fbb01-09d2-72f1-a50d-4bfb9c6c5801` | aguardando browser retry |
 | Pessoa | `019ff1dd-b635-7520-9fcf-38f5d8ab85d6` | concluída: PR #252 mesclada em `91862f3` |
 | E-mail | `019ff1d9-d317-7302-abd8-505013762b29` | bloqueada no commit local |
@@ -609,3 +616,7 @@ PROXIMO GATE: <uma única ação que exige autorização>
   SHA `5c7055d` e CI 3/3 verde antes de Ready e merge. P3/M01 passa a ser a
   primeira missão não concluída. Nenhuma migration, deploy, flag, canário ou
   produção foi acionada.
+- 2026-08-19: a árvore de merge da PR documental #258 revelou falha RLS
+  integrada em `test_agent_reply_concurrent_recovered_claims_execute_once_before_transport[10]`:
+  `ia_execucao_ambigua` foi persistido onde o teste exige `ia`. P2/M08 foi
+  reaberta; M01 não pode iniciar até reprodução, corretivo, CI e nova revisão.
