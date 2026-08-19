@@ -159,6 +159,18 @@ services:
       REDIS_URL: redis://redis:6379/0
       EVOLUTION_API_URL: http://evolution-api:8080
     command: ["python", "-m", "app.workers.queue_worker"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "from app.config import get_settings; from app.services.worker_health import worker_heartbeat_alive; raise SystemExit(0 if worker_heartbeat_alive(get_settings().redis_url, 'queue-worker') else 1)",
+        ]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
 
   # --------------------------------------------------------------------------
   # Worker de cron — motor de SLA + execução de crons (tick configurável)
@@ -178,6 +190,18 @@ services:
       REDIS_URL: redis://redis:6379/0
       EVOLUTION_API_URL: http://evolution-api:8080
     command: ["python", "-m", "app.workers.cron_worker"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "from app.config import get_settings; from app.services.worker_health import worker_heartbeat_alive; raise SystemExit(0 if worker_heartbeat_alive(get_settings().redis_url, 'cron-worker') else 1)",
+        ]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
 
   # --------------------------------------------------------------------------
   # Worker de broadcasts — obrigatório e monitorado por heartbeat no Redis.
@@ -200,6 +224,18 @@ services:
       REDIS_URL: redis://redis:6379/0
       EVOLUTION_API_URL: http://evolution-api:8080
     command: ["python", "-m", "app.workers.broadcast_worker"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "from app.config import get_settings; from app.services.worker_health import worker_heartbeat_alive; raise SystemExit(0 if worker_heartbeat_alive(get_settings().redis_url, 'broadcast-worker') else 1)",
+        ]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
 
 volumes:
   redis_data:

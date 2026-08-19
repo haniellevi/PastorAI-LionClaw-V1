@@ -1,0 +1,86 @@
+name: Production monitor
+
+on:
+  schedule:
+    - cron: "17,47 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: production-monitor
+  cancel-in-progress: false
+
+jobs:
+  public-health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Probe public production endpoints
+        id: probe
+        continue-on-error: true
+        run: python deploy/monitoring/external_probe.py
+
+      - name: Maintain one deduplicated incident issue
+        if: always()
+        uses: actions/github-script@v7
+        env:
+          PROBE_OUTCOME: ${{ steps.probe.outcome }}
+        with:
+          script: |
+            const fs = require('fs');
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const label = 'production-monitor';
+            const title = '[Monitor] Produção PastorAI indisponível';
+            let report = { ok: false, checks: [] };
+            try {
+              report = JSON.parse(fs.readFileSync('production-monitor-report.json', 'utf8'));
+            } catch (_) {
+              report.checks = [{ name: 'external-probe', ok: false, detail: 'relatório ausente' }];
+            }
+            const failed = report.checks.filter(item => !item.ok);
+            const healthy = process.env.PROBE_OUTCOME === 'success' && report.ok === true;
+            const lines = failed.length
+              ? failed.map(item => `- **${item.name}**: ${item.detail}`).join('\n')
+              : '- Falha sem detalhe público.';
+            try {
+              await github.rest.issues.getLabel({ owner, repo, name: label });
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              await github.rest.issues.createLabel({
+                owner, repo, name: label, color: 'B60205',
+                description: 'Incidente detectado pelo monitor de produção'
+              });
+            }
+            const open = await github.paginate(github.rest.issues.listForRepo, {
+              owner, repo, state: 'open', labels: label, per_page: 100
+            });
+            const incidents = open.filter(item => !item.pull_request && item.title === title);
+            if (!healthy && incidents.length === 0) {
+              await github.rest.issues.create({
+                owner, repo, title,
+                body: `O monitor externo detectou uma falha.\n\n${lines}\n\nVerificação: ${report.checked_at || new Date().toISOString()}`,
+                labels: [label]
+              });
+            } else if (!healthy && incidents.length > 0) {
+              await github.rest.issues.update({
+                owner, repo, issue_number: incidents[0].number,
+                body: `O monitor externo ainda detecta falha.\n\n${lines}\n\nVerificação: ${report.checked_at || new Date().toISOString()}`
+              });
+            } else if (healthy) {
+              for (const incident of incidents) {
+                await github.rest.issues.createComment({
+                  owner, repo, issue_number: incident.number,
+                  body: `Produção recuperada em ${report.checked_at || new Date().toISOString()}.`
+                });
+                await github.rest.issues.update({
+                  owner, repo, issue_number: incident.number,
+                  state: 'closed', state_reason: 'completed'
+                });
+              }
+            }

@@ -14,7 +14,8 @@ Design notes:
   `messages(igreja_id, provider_message_id)` where inbound) is the durable
   second barrier — `ingest_message_event_ex` catches the resulting
   IntegrityError and returns DUPLICATE instead of persisting twice or
-  re-running the agent.
+  treating a fresh provider redelivery as new work. A recovered copy of the
+  exact same queue claim may resume effects that were not finalized yet.
 - Official number only (US-07): a message is only persisted when its instance
   matches a registered `whatsapp_connections.instance`. Personal conversations
   (any other number/instance) are dropped.
@@ -43,10 +44,10 @@ from dataclasses import dataclass
 from enum import Enum
 from functools import partial
 from hashlib import sha256
-from threading import Event, Thread
+from threading import Event, Lock, Thread
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -66,6 +67,7 @@ from app.domain.conversations import (
 )
 from app.domain.phone import normalize_phone, phone_suffix
 from app.services.pessoa_dedup import insert_pessoa_or_get_winner, lock_canonical_phone
+from app.services.worker_health import publish_worker_heartbeat
 
 logger = logging.getLogger("pastorai.queue_worker")
 
@@ -81,6 +83,7 @@ MAX_ATTEMPTS = 5
 BRPOP_TIMEOUT = 5  # seconds
 WORKER_LEASE_SECONDS = 30
 WORKER_HEARTBEAT_SECONDS = 10
+WORKER_PROGRESS_TIMEOUT_SECONDS = WORKER_LEASE_SECONDS * 2
 REDIS_CONNECT_TIMEOUT_SECONDS = 3
 # Must exceed BRPOP_TIMEOUT so the client socket does not time out before the
 # blocking Redis command returns normally.
@@ -110,11 +113,78 @@ return 0
 """
 
 _MOVE_FAILED_CLAIM_SCRIPT = """
-if redis.call('LREM', KEYS[1], 1, ARGV[1]) == 1 then
-    redis.call('LPUSH', KEYS[2], ARGV[2])
-    return 1
+-- A failed claim must never disappear if Redis rejects a later write.  Redis
+-- does not roll back earlier Lua mutations after a command error, so validate
+-- every key first, persist the replacement first, and only then remove the
+-- original claim.  A rare failure after LPUSH leaves a recoverable duplicate;
+-- the next owner sees the replacement and removes the original without
+-- enqueueing a second copy.
+local lease_type = redis.call('TYPE', KEYS[1]).ok
+local processing_type = redis.call('TYPE', KEYS[2]).ok
+local target_type = redis.call('TYPE', KEYS[3]).ok
+if lease_type ~= 'string' or processing_type ~= 'list' then
+    return 0
 end
-return 0
+if target_type ~= 'none' and target_type ~= 'list' then
+    return -1
+end
+if redis.call('GET', KEYS[1]) ~= ARGV[1] then
+    return 0
+end
+
+local processing_items = redis.call('LRANGE', KEYS[2], 0, -1)
+local owned = false
+for _, item in ipairs(processing_items) do
+    if item == ARGV[2] then
+        owned = true
+        break
+    end
+end
+if not owned then
+    return 0
+end
+
+-- Test-only failure points exercise Redis's non-transactional error model in
+-- a real Redis 7 server.  Runtime callers never pass ARGV[4].
+local failure = ARGV[4] or ''
+if failure == 'before_destination' or failure == 'target_write_error' then
+    return -10
+end
+
+local destination_has_replacement = false
+if target_type == 'list' then
+    local target_items = redis.call('LRANGE', KEYS[3], 0, -1)
+    for _, item in ipairs(target_items) do
+        if item == ARGV[3] then
+            destination_has_replacement = true
+            break
+        end
+    end
+end
+if not destination_has_replacement then
+    local pushed = redis.pcall('LPUSH', KEYS[3], ARGV[3])
+    if type(pushed) == 'table' and pushed.err then
+        return -11
+    end
+end
+
+if failure == 'after_destination' or failure == 'before_source' then
+    return -12
+end
+
+local removed = redis.pcall('LREM', KEYS[2], 1, ARGV[2])
+if type(removed) == 'table' and removed.err then
+    return -13
+end
+if removed ~= 1 then
+    -- The destination is deliberately retained.  Returning a non-success
+    -- fences this worker; a later owner can reconcile the original claim.
+    return -14
+end
+if failure == 'after_source' then
+    return -15
+end
+return 1
 """
 
 _OWNS_CLAIM_SCRIPT = """
@@ -139,6 +209,37 @@ for _, item in ipairs(items) do
     if item == ARGV[2] then
         if redis.call('GET', KEYS[3]) == ARGV[3] then
             return redis.call('DEL', KEYS[3])
+        end
+        return 0
+    end
+end
+return 0
+"""
+
+_FENCE_CLAIM_SCRIPT = """
+if redis.call('GET', KEYS[1]) ~= ARGV[1] then
+    return 0
+end
+local items = redis.call('LRANGE', KEYS[2], 0, -1)
+for _, item in ipairs(items) do
+    if item == ARGV[2] then
+        redis.call('EXPIRE', KEYS[1], ARGV[3])
+        return 1
+    end
+end
+return 0
+"""
+
+_MARK_DONE_IF_OWNED_SCRIPT = """
+if redis.call('GET', KEYS[1]) ~= ARGV[1] then
+    return 0
+end
+local items = redis.call('LRANGE', KEYS[2], 0, -1)
+for _, item in ipairs(items) do
+    if item == ARGV[2] then
+        if redis.call('GET', KEYS[3]) == ARGV[3] then
+            redis.call('SET', KEYS[3], ARGV[4], 'EX', ARGV[5])
+            return 1
         end
         return 0
     end
@@ -194,20 +295,38 @@ def _provider_message_exists_after_fence(
     advisory locks; the durable unique index remains their idempotency seam.
     Production is Postgres and always takes this path.
     """
+    return (
+        _provider_message_after_fence(
+            db,
+            igreja_id,
+            provider_message_id,
+            inbound=inbound,
+        )
+        is not None
+    )
+
+
+def _provider_message_after_fence(
+    db: Session,
+    igreja_id: Any,
+    provider_message_id: str,
+    *,
+    inbound: bool,
+) -> Message | None:
+    """Fence one provider event and return the already persisted row, if any."""
     get_bind = getattr(db, "get_bind", None)
     if get_bind is None or get_bind().dialect.name != "postgresql":
-        return False
+        return None
 
     lock_key = _provider_message_lock_key(igreja_id, provider_message_id)
     db.execute(select(func.pg_advisory_xact_lock(lock_key))).scalar_one_or_none()
-    existing = db.execute(
-        select(Message.id).where(
+    return db.execute(
+        select(Message).where(
             Message.igreja_id == igreja_id,
             Message.provider_message_id == provider_message_id,
             Message.direcao == ("in" if inbound else "out"),
         )
     ).scalar_one_or_none()
-    return existing is not None
 
 
 class IngestionResult(str, Enum):
@@ -219,8 +338,150 @@ class IngestionResult(str, Enum):
     IGNORED = "ignored"
 
 
+class ProcessingClaim(str, Enum):
+    """How this envelope relates to the Redis idempotency marker."""
+
+    NEW = "new"
+    RESUMED = "resumed"
+    REJECTED = "rejected"
+
+
 class ClaimOwnershipLost(RuntimeError):
     """Raised when a recovered queue item no longer belongs to this worker."""
+
+
+class AgentReplyRetryable(RuntimeError):
+    """A reply failed before Evolution could accept it and can be retried safely."""
+
+
+class AgentRunDisposition(str, Enum):
+    """Whether this worker completed a safe agent turn for the queue claim."""
+
+    COMPLETED = "completed"
+    IN_FLIGHT = "in_flight"
+
+
+# A resposta do agente usa a própria tabela ``messages`` como ledger durável.
+# A migration MSG-IDEMP-1 já criou o índice parcial único outbound sobre
+# ``(igreja_id, provider_message_id)``.  The opaque provider id below is
+# derived only from the inbound event + queue claim, never from the response.
+# ``ia_reservada`` is committed *before* the agent executes mutable tools;
+# ``ia_executando`` is deliberately quarantined after a crash because the
+# process may have crossed a non-transactional tool boundary already.
+_AGENT_REPLY_PROVIDER_PREFIX = "agent-reply:"
+_AGENT_REPLY_RESERVED = "ia_reservada"
+_AGENT_REPLY_EXECUTING = "ia_executando"
+_AGENT_REPLY_PENDING = "ia_pendente"
+_AGENT_REPLY_IN_FLIGHT = "ia_em_transporte"
+_AGENT_REPLY_CONFIRMED = "ia"
+_AGENT_REPLY_AMBIGUOUS = "ia_ambigua"
+_AGENT_REPLY_EXECUTION_AMBIGUOUS = "ia_execucao_ambigua"
+_AGENT_REPLY_FAILED = "ia_falhou"
+_AGENT_REPLY_SUPPRESSED = "ia_suprimida"
+_AGENT_REPLY_NO_RESPONSE = "ia_sem_resposta"
+
+
+@dataclass(frozen=True)
+class _AgentReplyIntent:
+    """Sanitized snapshot of one durable outbound agent intent.
+
+    ``ia_em_transporte`` is deliberately treated as unresolved by a later
+    recovery: the first process may have crossed the provider boundary before
+    crashing.  Only ``ia_pendente`` can start a new call automatically.
+    """
+
+    id: Any
+    state: str
+    response: str
+    provider_message_id: str
+
+
+@dataclass
+class _LocalAgentExecutionLock:
+    """Small fallback for non-PostgreSQL test adapters in one process only."""
+
+    lock: Lock
+    users: int = 0
+
+
+_LOCAL_AGENT_EXECUTION_LOCKS: dict[str, _LocalAgentExecutionLock] = {}
+_LOCAL_AGENT_EXECUTION_LOCKS_GUARD = Lock()
+
+
+class _AgentExecutionLease:
+    """Hold a session advisory lock while one agent turn is executing.
+
+    PostgreSQL is the production contract.  The local lock only keeps focused
+    SQLite/fake-session tests deterministic; it is never used for production
+    cross-process fencing.
+    """
+
+    def __init__(self, session_factory: Any, outcome: "IngestionOutcome", key: str) -> None:
+        self._session_factory = session_factory
+        self._outcome = outcome
+        self._key = key
+        self._session: Session | None = None
+        self._local: _LocalAgentExecutionLock | None = None
+
+    def acquire(self) -> bool:
+        session: Session = self._session_factory()
+        try:
+            _scope_agent_session(session, self._outcome)
+            get_bind = getattr(session, "get_bind", None)
+            dialect = get_bind().dialect.name if callable(get_bind) else None
+            if dialect == "postgresql":
+                lock_key = _agent_execution_lock_key(self._outcome, self._key)
+                acquired = bool(
+                    session.execute(select(func.pg_try_advisory_lock(lock_key))).scalar_one()
+                )
+                # pg_try_advisory_lock is session-scoped.  Finish the implicit
+                # transaction so no database transaction spans the agent call.
+                session.commit()
+                if acquired:
+                    self._session = session
+                    return True
+                session.close()
+                return False
+        except Exception:
+            session.rollback()
+            session.close()
+            raise
+        else:
+            session.close()
+
+        with _LOCAL_AGENT_EXECUTION_LOCKS_GUARD:
+            local = _LOCAL_AGENT_EXECUTION_LOCKS.get(self._key)
+            if local is None:
+                local = _LocalAgentExecutionLock(lock=Lock())
+                _LOCAL_AGENT_EXECUTION_LOCKS[self._key] = local
+            local.users += 1
+        if not local.lock.acquire(blocking=False):
+            with _LOCAL_AGENT_EXECUTION_LOCKS_GUARD:
+                local.users -= 1
+                if local.users == 0 and _LOCAL_AGENT_EXECUTION_LOCKS.get(self._key) is local:
+                    del _LOCAL_AGENT_EXECUTION_LOCKS[self._key]
+            return False
+        self._local = local
+        return True
+
+    def close(self) -> None:
+        if self._session is not None:
+            session = self._session
+            self._session = None
+            try:
+                lock_key = _agent_execution_lock_key(self._outcome, self._key)
+                session.execute(select(func.pg_advisory_unlock(lock_key))).scalar_one()
+                session.commit()
+            finally:
+                session.close()
+        if self._local is not None:
+            local = self._local
+            self._local = None
+            local.lock.release()
+            with _LOCAL_AGENT_EXECUTION_LOCKS_GUARD:
+                local.users -= 1
+                if local.users == 0 and _LOCAL_AGENT_EXECUTION_LOCKS.get(self._key) is local:
+                    del _LOCAL_AGENT_EXECUTION_LOCKS[self._key]
 
 
 # Resolver que baixa a mídia da Evolution e a sobe no Storage, devolvendo o
@@ -245,6 +506,8 @@ class IngestionOutcome:
     texto: str | None = None
     inbound: bool = False
     igreja_id: Any | None = None
+    provider_message_id: str | None = None
+    claim_id: str | None = None
 
 
 def ingest_message_event(db: Session, parsed: ParsedMessage) -> IngestionResult:
@@ -324,12 +587,13 @@ def ingest_message_event_ex(
         )
         return IngestionOutcome(result=IngestionResult.IGNORED)
 
-    if _provider_message_exists_after_fence(
+    existing_message = _provider_message_after_fence(
         db,
         igreja_id,
         parsed.provider_message_id,
         inbound=inbound,
-    ):
+    )
+    if existing_message is not None:
         logger.info(
             "Duplicate provider message %s for igreja %s (DB fence)",
             parsed.provider_message_id,
@@ -337,7 +601,13 @@ def ingest_message_event_ex(
         )
         return IngestionOutcome(
             result=IngestionResult.DUPLICATE,
+            conversation_id=existing_message.conversation_id,
+            instance=parsed.instance,
+            telefone=parsed.telefone_raw,
+            texto=parsed.texto,
+            inbound=inbound,
             igreja_id=igreja_id,
+            provider_message_id=parsed.provider_message_id,
         )
 
     # The advisory lock above may have waited behind the current winner. Check
@@ -481,7 +751,24 @@ def ingest_message_event_ex(
             parsed.provider_message_id,
             igreja_id,
         )
-        return IngestionOutcome(result=IngestionResult.DUPLICATE, igreja_id=igreja_id)
+        existing_message = _provider_message_after_fence(
+            db,
+            igreja_id,
+            parsed.provider_message_id,
+            inbound=inbound,
+        )
+        return IngestionOutcome(
+            result=IngestionResult.DUPLICATE,
+            conversation_id=(
+                existing_message.conversation_id if existing_message is not None else None
+            ),
+            instance=parsed.instance,
+            telefone=parsed.telefone_raw,
+            texto=parsed.texto,
+            inbound=inbound,
+            igreja_id=igreja_id,
+            provider_message_id=parsed.provider_message_id,
+        )
     return IngestionOutcome(
         result=IngestionResult.REGISTERED,
         conversation_id=conversation.id,
@@ -490,6 +777,7 @@ def ingest_message_event_ex(
         texto=parsed.texto,
         inbound=inbound,
         igreja_id=igreja_id,
+        provider_message_id=parsed.provider_message_id,
     )
 
 
@@ -631,9 +919,25 @@ class WebhookQueue:
         )
 
     def assert_claim_owned(self, worker_id: str, raw: str) -> None:
-        """Abort side effects when lease recovery transferred this item."""
+        """Fence the next effect with a live lease and private-list ownership.
+
+        The check and lease renewal are one Redis operation.  A worker whose
+        lease expired cannot revive it after a recovery worker registered the
+        new owner, while a legitimate bounded effect gets a full lease window
+        immediately before it starts.
+        """
         try:
-            owned = self.owns_claim(worker_id, raw)
+            owned = bool(
+                self._redis.eval(
+                    _FENCE_CLAIM_SCRIPT,
+                    2,
+                    self._lease_key(worker_id),
+                    self.processing_queue(worker_id),
+                    worker_id,
+                    raw,
+                    str(WORKER_LEASE_SECONDS),
+                )
+            )
         except Exception as exc:  # noqa: BLE001 - unverifiable means unsafe
             raise ClaimOwnershipLost(
                 "Webhook queue claim ownership could not be verified"
@@ -695,6 +999,10 @@ class WebhookQueue:
         retry, so it may resume an in-flight claim. A separate delivery gets a
         different token and is rejected before DB/media work. ``done`` is final.
         """
+        return self.claim_processing(message_id, claim_id) is not ProcessingClaim.REJECTED
+
+    def claim_processing(self, message_id: str, claim_id: str) -> ProcessingClaim:
+        """Create, resume or reject the envelope's idempotency claim."""
         key = f"{PROCESSED_PREFIX}{message_id}"
         marker = self._claim_marker(claim_id)
         claimed = self._redis.set(
@@ -704,8 +1012,10 @@ class WebhookQueue:
             ex=PROCESSED_TTL_SECONDS,
         )
         if claimed:
-            return True
-        return self._redis.get(key) == marker
+            return ProcessingClaim.NEW
+        if self._redis.get(key) == marker:
+            return ProcessingClaim.RESUMED
+        return ProcessingClaim.REJECTED
 
     def mark_processed(self, message_id: str, claim_id: str) -> None:
         """Finalize an idempotency marker owned by this envelope."""
@@ -721,6 +1031,30 @@ class WebhookQueue:
         )
         if not finalized:
             raise RuntimeError("Webhook idempotency claim ownership was lost")
+
+    def mark_processed_if_owned(
+        self,
+        message_id: str,
+        claim_id: str,
+        worker_id: str,
+        raw: str,
+    ) -> bool:
+        """Finalize only while this live worker owns the exact raw claim."""
+        key = f"{PROCESSED_PREFIX}{message_id}"
+        return bool(
+            self._redis.eval(
+                _MARK_DONE_IF_OWNED_SCRIPT,
+                3,
+                self._lease_key(worker_id),
+                self.processing_queue(worker_id),
+                key,
+                worker_id,
+                raw,
+                self._claim_marker(claim_id),
+                _PROCESSED_MARKER,
+                str(PROCESSED_TTL_SECONDS),
+            )
+        )
 
     def release_processed(self, message_id: str, claim_id: str) -> None:
         """Release a previously-claimed message id so a retry can reprocess it.
@@ -760,26 +1094,43 @@ class WebhookQueue:
         raw: str,
         envelope: _Envelope,
     ) -> None:
-        """Atomically ack a failed claim into ready or dead-letter state."""
-        envelope.attempts += 1
-        if envelope.attempts >= MAX_ATTEMPTS:
-            logger.error(
-                "Webhook exhausted retries (%d), moving to dead-letter",
-                envelope.attempts,
-            )
+        """Move a failed claim only while its worker still owns a live lease."""
+        next_attempts = envelope.attempts + 1
+        replacement = _Envelope(
+            payload=envelope.payload,
+            attempts=next_attempts,
+            claim_id=envelope.claim_id,
+        )
+        if next_attempts >= MAX_ATTEMPTS:
             target = DEAD_LETTER_QUEUE
         else:
             target = WEBHOOK_QUEUE
-        moved = self._redis.eval(
-            _MOVE_FAILED_CLAIM_SCRIPT,
-            2,
-            self.processing_queue(worker_id),
-            target,
-            raw,
-            envelope.to_json(),
-        )
-        if not moved:
-            raise RuntimeError("Webhook failed claim was no longer owned")
+        try:
+            moved = self._redis.eval(
+                _MOVE_FAILED_CLAIM_SCRIPT,
+                3,
+                self._lease_key(worker_id),
+                self.processing_queue(worker_id),
+                target,
+                worker_id,
+                raw,
+                replacement.to_json(),
+            )
+        except Exception as exc:  # noqa: BLE001 - unverifiable means unsafe
+            raise ClaimOwnershipLost(
+                "Webhook failed claim ownership could not be verified"
+            ) from exc
+        if moved != 1:
+            # A Lua error, wrong destination type, timeout, or deliberately
+            # recoverable partial transition is never success.  The original
+            # claim remains recoverable or the replacement is already durable;
+            # stopping this worker avoids a stale retry/dead-letter mutation.
+            raise ClaimOwnershipLost("Webhook failed claim was no longer owned")
+        if target == DEAD_LETTER_QUEUE:
+            logger.error(
+                "Webhook exhausted retries (%d), moving to dead-letter",
+                next_attempts,
+            )
 
 
 class QueueWorker:
@@ -789,9 +1140,14 @@ class QueueWorker:
         self,
         queue: WebhookQueue | None = None,
         session_factory: Any | None = None,
-        agent_runner: "Callable[[Any, IngestionOutcome], None] | None" = None,
+        agent_runner: (
+            "Callable[[Any, IngestionOutcome, ClaimGuard | None], None] | None"
+        ) = None,
         media_resolver: MediaResolver | None = None,
         worker_id: str | None = None,
+        heartbeat_publisher: Callable[[str, int], None] | None = None,
+        progress_clock: Callable[[], float] = time.monotonic,
+        progress_timeout_seconds: float = WORKER_PROGRESS_TIMEOUT_SECONDS,
     ) -> None:
         self._queue = queue or WebhookQueue()
         self._session_factory = session_factory or get_session_factory()
@@ -806,6 +1162,71 @@ class QueueWorker:
         self._running = False
         self._heartbeat_stop = Event()
         self._heartbeat_thread: Thread | None = None
+        self._health_state = "ready"
+        self._progress_clock = progress_clock
+        self._progress_timeout_seconds = max(
+            float(WORKER_LEASE_SECONDS),
+            float(progress_timeout_seconds),
+        )
+        self._progress_lock = Lock()
+        self._last_progress_at = self._progress_clock()
+        self._heartbeat_publisher = heartbeat_publisher or (
+            lambda state, ttl: publish_worker_heartbeat(
+                None,
+                worker_name="queue-worker",
+                state=state,
+                ttl_seconds=ttl,
+                client=self._queue._redis,  # noqa: SLF001 - same module owner
+            )
+        )
+
+    def _record_progress(self) -> None:
+        with self._progress_lock:
+            self._last_progress_at = self._progress_clock()
+
+    def _progress_stale(self) -> bool:
+        with self._progress_lock:
+            last_progress_at = self._last_progress_at
+        return (
+            self._progress_clock() - last_progress_at
+            > self._progress_timeout_seconds
+        )
+
+    def _heartbeat_once(self) -> bool:
+        """Renew lease/health only while the main consumer made recent progress."""
+        if self._progress_stale():
+            logger.error("Webhook worker stalled; lease renewal stopped")
+            self._publish_health("error")
+            self._running = False
+            return False
+        try:
+            renewed = self._queue.refresh_worker_lease(self._worker_id)
+        except Exception as exc:  # noqa: BLE001 - lease loss stops consumption
+            logger.error(
+                "Webhook worker lease renewal failed error_type=%s",
+                type(exc).__name__,
+            )
+            self._publish_health("error")
+            self._running = False
+            return False
+        if not renewed:
+            logger.error("Webhook worker lease expired; stopping consumer")
+            self._publish_health("error")
+            self._running = False
+            return False
+        self._publish_health()
+        return True
+
+    def _publish_health(self, state: str | None = None) -> None:
+        if state is not None:
+            self._health_state = state
+        try:
+            self._heartbeat_publisher(self._health_state, WORKER_LEASE_SECONDS)
+        except Exception as exc:  # noqa: BLE001 - telemetry cannot stop ingestion
+            logger.warning(
+                "Queue worker heartbeat failed error_type=%s",
+                type(exc).__name__,
+            )
 
     def stop(self, *_: Any) -> None:
         """Request a graceful shutdown (used as a SIGTERM/SIGINT handler)."""
@@ -813,24 +1234,23 @@ class QueueWorker:
         self._running = False
 
     def _heartbeat_loop(self) -> None:
-        """Renew this worker's lease while a claimed item is being processed."""
+        """Renew a claim lease only inside the bounded progress window."""
         while not self._heartbeat_stop.wait(WORKER_HEARTBEAT_SECONDS):
-            try:
-                renewed = self._queue.refresh_worker_lease(self._worker_id)
-            except Exception:  # noqa: BLE001 - lease loss must stop consumption
-                logger.exception("Failed to renew webhook worker lease")
-                self._running = False
+            if not self._heartbeat_once():
                 return
-            if not renewed:
-                logger.error("Webhook worker lease expired; stopping consumer")
-                self._running = False
-                return
+
+    def _assert_effect_ownership(self, raw: str) -> None:
+        """Fence an effect and count that successful fence as main-loop progress."""
+        self._queue.assert_claim_owned(self._worker_id, raw)
+        self._record_progress()
 
     def run(self) -> None:
         """Block draining the queue until stopped (graceful shutdown)."""
         self._running = True
         self._heartbeat_stop.clear()
         self._queue.register_worker(self._worker_id)
+        self._record_progress()
+        self._publish_health("ready")
         heartbeat = Thread(
             target=self._heartbeat_loop,
             name=f"webhook-lease-{self._worker_id[:8]}",
@@ -848,6 +1268,10 @@ class QueueWorker:
             while self._running:
                 if not self._queue.refresh_worker_lease(self._worker_id):
                     logger.error("Webhook worker lease expired; stopping consumer")
+                    self._publish_health("error")
+                    break
+                self._record_progress()
+                if not self._running:
                     break
                 now = time.monotonic()
                 if now >= next_recovery_at:
@@ -858,13 +1282,19 @@ class QueueWorker:
                         )
                     next_recovery_at = now + WORKER_HEARTBEAT_SECONDS
                 raw = self._queue.claim(self._worker_id, timeout=BRPOP_TIMEOUT)
+                self._record_progress()
                 if raw is None:
                     continue
+                self._publish_health("running")
                 self._handle_raw(raw)
+                self._record_progress()
+                if self._running:
+                    self._publish_health("ready")
         finally:
             self._running = False
             self._heartbeat_stop.set()
             heartbeat.join(timeout=REDIS_SOCKET_TIMEOUT_SECONDS + 1)
+            self._publish_health("stopped")
             self._queue.unregister_worker(self._worker_id)
             logger.info("Queue worker %s stopped", self._worker_id)
 
@@ -875,11 +1305,7 @@ class QueueWorker:
             logger.error("Discarding malformed envelope from queue")
             self._queue.ack(self._worker_id, raw)
             return
-        ownership_guard = partial(
-            self._queue.assert_claim_owned,
-            self._worker_id,
-            raw,
-        )
+        ownership_guard = partial(self._assert_effect_ownership, raw)
         try:
             ownership_guard()
             self.handle_envelope(envelope, claimed_raw=raw)
@@ -892,7 +1318,14 @@ class QueueWorker:
             return
         except Exception:  # noqa: BLE001 - any error triggers a bounded retry
             logger.exception("Webhook processing failed; scheduling reprocess")
-            self._queue.transition_failed_claim(self._worker_id, raw, envelope)
+            try:
+                self._queue.transition_failed_claim(self._worker_id, raw, envelope)
+            except ClaimOwnershipLost:
+                # The raw item remains in (or was recovered from) the private
+                # list. A stale worker must not retry/dead-letter it after its
+                # lease expires; stop and let the current owner recover it.
+                logger.warning("Webhook claim ownership lost during failure handling")
+                self._running = False
             return
         self._queue.ack(self._worker_id, raw)
 
@@ -913,19 +1346,16 @@ class QueueWorker:
             return IngestionResult.IGNORED
 
         ownership_guard = (
-            partial(
-                self._queue.assert_claim_owned,
-                self._worker_id,
-                claimed_raw,
-            )
+            partial(self._assert_effect_ownership, claimed_raw)
             if claimed_raw is not None
             else None
         )
 
-        if not self._queue.mark_processed_if_new(
+        processing_claim = self._queue.claim_processing(
             parsed.provider_message_id,
             envelope.claim_id,
-        ):
+        )
+        if processing_claim is ProcessingClaim.REJECTED:
             logger.info("Skipping duplicate message %s", parsed.provider_message_id)
             return IngestionResult.DUPLICATE
 
@@ -969,23 +1399,49 @@ class QueueWorker:
                     ) from exc
             raise
 
-        # A hard crash before this write leaves a retryable ``processing``
-        # marker. A crash after the DB commit is safe: recovery retries and the
-        # durable unique index returns DUPLICATE before this marker is finalized.
-        self._queue.mark_processed(parsed.provider_message_id, envelope.claim_id)
-
         # Hand the persisted inbound message to the orchestrator (delta-034).
-        # Agent failures must NOT requeue the (already committed) ingestion, so
-        # they are caught and logged rather than propagated.
+        # A recovered envelope may observe the already committed inbound row.
+        # It resumes the agent only when it owns the same in-flight claim; a new
+        # delivery rejected by Redis never re-runs the agent.
+        should_run_agent = outcome.result is IngestionResult.REGISTERED or (
+            processing_claim is ProcessingClaim.RESUMED
+            and outcome.result is IngestionResult.DUPLICATE
+        )
         if (
             self._agent_runner is not None
-            and outcome.result is IngestionResult.REGISTERED
+            and should_run_agent
             and outcome.inbound
         ):
-            try:
-                self._agent_runner(self._session_factory, outcome)
-            except Exception:  # noqa: BLE001 - agent errors never lose the message
-                logger.exception("Agent orchestration failed for %s", parsed.provider_message_id)
+            # The claim survives Redis recovery in the serialized envelope and
+            # becomes part of the durable outbound reply idempotency key.
+            outcome.claim_id = envelope.claim_id
+            if ownership_guard is not None:
+                ownership_guard()
+            agent_disposition = self._agent_runner(
+                self._session_factory,
+                outcome,
+                ownership_guard,
+            )
+            if agent_disposition is AgentRunDisposition.IN_FLIGHT:
+                # A previous process still holds the durable execution lease.
+                # Do not ACK this recovered raw claim: its current owner stops
+                # and leaves it discoverable once the active lease finishes or
+                # expires.  Treating it as success would lose recovery after a
+                # crash before the agent persisted its terminal state.
+                raise ClaimOwnershipLost("Agent execution is already in flight")
+
+        # Finalization is the last effect. Until it succeeds the same claim stays
+        # recoverable. A stale owner cannot finalize after another worker moved
+        # the raw item out of its private processing list.
+        if claimed_raw is None:
+            self._queue.mark_processed(parsed.provider_message_id, envelope.claim_id)
+        elif not self._queue.mark_processed_if_owned(
+            parsed.provider_message_id,
+            envelope.claim_id,
+            self._worker_id,
+            claimed_raw,
+        ):
+            raise ClaimOwnershipLost("Webhook claim was recovered before finalization")
 
         return outcome.result
 
@@ -993,79 +1449,514 @@ class QueueWorker:
 # ---------------------------------------------------------------------------
 # Agent orchestration runner (delta-034)
 # ---------------------------------------------------------------------------
-def run_agent_for_message(
-    session_factory: Any,
-    outcome: IngestionOutcome,
-    *,
-    evolution_client: Any | None = None,
-) -> None:
-    """Drive the orchestrator for one persisted inbound message and reply.
+def _agent_reply_idempotency_key(outcome: IngestionOutcome) -> str | None:
+    """Return one stable durable key for an inbound event and its queue claim."""
 
-    The orchestrator produces a single reply; we send it through the official
-    number and persist the outbound message. Handoff suppresses the auto reply.
-    Imports are deferred so the agent stack stays optional for ingestion tests.
+    if (
+        outcome.igreja_id is None
+        or not outcome.provider_message_id
+        or not outcome.claim_id
+    ):
+        return None
+    material = (
+        f"{outcome.igreja_id}:{outcome.provider_message_id}:{outcome.claim_id}"
+    ).encode("utf-8")
+    return f"{_AGENT_REPLY_PROVIDER_PREFIX}{sha256(material).hexdigest()}"
+
+
+def _agent_execution_lock_key(outcome: IngestionOutcome, provider_message_id: str) -> int:
+    """Use a distinct PostgreSQL advisory-lock namespace for agent execution."""
+
+    return _provider_message_lock_key(
+        outcome.igreja_id,
+        f"agent-execution:{provider_message_id}",
+    )
+
+
+def _agent_reply_after_fence(
+    db: Session, igreja_id: Any, provider_message_id: str
+) -> Message | None:
+    """Fence one reply plan and return its existing durable row, if any.
+
+    The ``:<response-hash>`` suffix was part of the pre-single-flight key.
+    Read it only for recovery compatibility: all new plans use the exact,
+    stable claim-derived key above.
     """
-    from app.agent.runtime import process_inbound_message  # noqa: PLC0415
-    from app.db.models import Conversation, Message  # noqa: PLC0415
-    from app.services.evolution import EvolutionClient, EvolutionError  # noqa: PLC0415
 
-    if outcome.conversation_id is None:
-        return
+    get_bind = getattr(db, "get_bind", None)
+    if get_bind is not None and get_bind().dialect.name == "postgresql":
+        db.execute(
+            select(
+                func.pg_advisory_xact_lock(
+                    _provider_message_lock_key(igreja_id, provider_message_id)
+                )
+            )
+        ).scalar_one_or_none()
+    return db.execute(
+        select(Message)
+        .where(
+            Message.igreja_id == igreja_id,
+            Message.direcao == "out",
+            or_(
+                Message.provider_message_id == provider_message_id,
+                Message.provider_message_id.like(f"{provider_message_id}:%"),
+            ),
+        )
+        .order_by(Message.criado_em.asc(), Message.id.asc())
+        .limit(1)
+    ).scalar_one_or_none()
 
+
+def _intent_from_message(message: Message) -> _AgentReplyIntent:
+    return _AgentReplyIntent(
+        id=message.id,
+        state=message.autor,
+        response=message.texto or "",
+        provider_message_id=message.provider_message_id or "",
+    )
+
+
+def _scope_agent_session(session: Session, outcome: IngestionOutcome) -> None:
+    if outcome.igreja_id is not None:
+        mark_tenant_scoped(session, outcome.igreja_id, source="worker_agent")
+
+
+def _load_agent_reply_intent(
+    session_factory: Any, outcome: IngestionOutcome
+) -> _AgentReplyIntent | None:
+    provider_message_id = _agent_reply_idempotency_key(outcome)
+    if provider_message_id is None:
+        return None
     session: Session = session_factory()
     try:
-        # Fase 0 (#10b): RLS por igreja também no caminho do agente — é aqui que
-        # tools, retrieval da KB e memória vão ler/escrever dados do tenant. A
-        # sessão reaberta é marcada pelo seam (D3): mark_tenant_scoped pina o
-        # tenant e o listener after_begin reaplica o escopo em cada transação.
-        if outcome.igreja_id is not None:
-            mark_tenant_scoped(session, outcome.igreja_id, source="worker_agent")
-            # Sinal de observabilidade (PR1/feat-004) no ponto de amostra do
-            # seam no worker: se a sessão reaberta NÃO ficou tenant-scoped
-            # (perda de contexto / BYPASSRLS inesperado / fallback), emite log
-            # estruturado sem PII (só source/role/igreja_id). É a fonte do
-            # gatilho de rollback da SPEC §9/10.
-            log_if_not_scoped(session, source="worker_agent")
-        result = process_inbound_message(
-            session, conversation_id=outcome.conversation_id, texto=outcome.texto
+        _scope_agent_session(session, outcome)
+        existing = _agent_reply_after_fence(
+            session,
+            outcome.igreja_id,
+            provider_message_id,
         )
+        return _intent_from_message(existing) if existing is not None else None
     finally:
         session.close()
 
-    if not result.handled or result.suppressed or not result.response:
-        return
 
-    # Single exit: send the orchestrator reply through the official number.
+def _reserve_agent_reply_intent(
+    session_factory: Any, outcome: IngestionOutcome
+) -> _AgentReplyIntent | None:
+    """Persist a single-flight reservation before mutable agent work starts."""
+
+    provider_message_id = _agent_reply_idempotency_key(outcome)
+    if provider_message_id is None:
+        return None
+    session: Session = session_factory()
     try:
-        if evolution_client is None:
-            with EvolutionClient() as client:
-                sent = client.send_text(
-                    outcome.instance,
-                    outcome.telefone,
-                    result.response,
-                )
-        else:
-            # The long-running worker injects one shared client so its HTTP
-            # connection pool survives across inbound messages.
-            client = evolution_client
-            sent = client.send_text(
-                outcome.instance,
-                outcome.telefone,
-                result.response,
+        _scope_agent_session(session, outcome)
+        existing = _agent_reply_after_fence(
+            session,
+            outcome.igreja_id,
+            provider_message_id,
+        )
+        if existing is not None:
+            return _intent_from_message(existing)
+
+        conversation = session.get(Conversation, outcome.conversation_id)
+        if conversation is None:
+            return None
+        message = Message(
+            igreja_id=conversation.igreja_id,
+            conversation_id=conversation.id,
+            direcao="out",
+            autor=_AGENT_REPLY_RESERVED,
+            texto=None,
+            tipo="texto",
+            provider_message_id=provider_message_id,
+        )
+        session.add(message)
+        try:
+            session.commit()
+        except IntegrityError:
+            # The unique outbound index remains the durable final barrier if a
+            # compatible backend cannot supply the PostgreSQL advisory lock.
+            session.rollback()
+            existing = _agent_reply_after_fence(
+                session,
+                outcome.igreja_id,
+                provider_message_id,
             )
-    except EvolutionError:
-        logger.warning("Failed to send agent reply via Evolution")
+            if existing is None:
+                raise
+            return _intent_from_message(existing)
+        return _intent_from_message(message)
+    finally:
+        session.close()
+
+
+def _prepare_agent_reply_intent(
+    session_factory: Any, outcome: IngestionOutcome, response: str
+) -> _AgentReplyIntent | None:
+    """Persist a reply intent before the provider call.
+
+    Production Postgres serializes the prefix with an advisory transaction lock.
+    The existing outbound unique index remains the durable final barrier.  A
+    race always returns the first intent and never grants two transports.
+    """
+
+    provider_message_id = _agent_reply_idempotency_key(outcome)
+    if provider_message_id is None:
+        return None
+    session: Session = session_factory()
+    try:
+        _scope_agent_session(session, outcome)
+        existing = _agent_reply_after_fence(
+            session,
+            outcome.igreja_id,
+            provider_message_id,
+        )
+        if existing is not None:
+            if existing.autor in {_AGENT_REPLY_RESERVED, _AGENT_REPLY_EXECUTING}:
+                transitioned = session.execute(
+                    update(Message)
+                    .where(
+                        Message.id == existing.id,
+                        Message.autor.in_(
+                            {_AGENT_REPLY_RESERVED, _AGENT_REPLY_EXECUTING}
+                        ),
+                    )
+                    .values(autor=_AGENT_REPLY_PENDING, texto=response)
+                    .returning(Message.id)
+                ).scalar_one_or_none()
+                if transitioned is not None:
+                    session.commit()
+                    session.refresh(existing)
+                else:
+                    session.rollback()
+                    existing = _agent_reply_after_fence(
+                        session,
+                        outcome.igreja_id,
+                        provider_message_id,
+                    )
+                    if existing is None:
+                        raise RuntimeError("Agent reply reservation disappeared")
+            return _intent_from_message(existing)
+
+        conversation = session.get(Conversation, outcome.conversation_id)
+        if conversation is None:
+            return None
+        message = Message(
+            igreja_id=conversation.igreja_id,
+            conversation_id=conversation.id,
+            direcao="out",
+            autor=_AGENT_REPLY_PENDING,
+            texto=response,
+            tipo="texto",
+            provider_message_id=provider_message_id,
+        )
+        session.add(message)
+        try:
+            session.commit()
+        except IntegrityError:
+            # The database fence already serializes Postgres.  This catch is a
+            # second durable barrier for a collision or a compatible future
+            # backend that enforces the unique outbound index without advisory
+            # locks.
+            session.rollback()
+            existing = _agent_reply_after_fence(
+                session,
+                outcome.igreja_id,
+                provider_message_id,
+            )
+            if existing is None:
+                raise
+            return _intent_from_message(existing)
+        return _intent_from_message(message)
+    finally:
+        session.close()
+
+
+def _transition_agent_reply_intent(
+    session_factory: Any,
+    outcome: IngestionOutcome,
+    intent: _AgentReplyIntent,
+    *,
+    expected: str,
+    target: str,
+    refresh_snapshot: bool = False,
+    ownership_guard: ClaimGuard | None = None,
+) -> bool:
+    """Move an intent exactly once, optionally fenced by the live Redis claim.
+
+    The compare-and-set lives in PostgreSQL, rather than in an ORM object read
+    before the write.  Two recovered workers can otherwise both observe
+    ``ia_pendente`` and each commit an ``ia_em_transporte`` transition, opening
+    a second provider call.  ``UPDATE ... WHERE autor = expected RETURNING``
+    is the cross-process transport fence.
+    """
+
+    session: Session = session_factory()
+    try:
+        _scope_agent_session(session, outcome)
+        if ownership_guard is not None:
+            ownership_guard()
+        transitioned = session.execute(
+            update(Message)
+            .where(Message.id == intent.id, Message.autor == expected)
+            .values(autor=target)
+            .returning(Message.conversation_id, Message.texto)
+        ).one_or_none()
+        if transitioned is None:
+            return False
+        if refresh_snapshot:
+            session.execute(
+                update(Conversation)
+                .where(Conversation.id == transitioned.conversation_id)
+                .values(ultima_mensagem=transitioned.texto)
+            )
+        session.commit()
+        return True
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+def _quarantine_agent_reply(
+    session_factory: Any, outcome: IngestionOutcome, intent: _AgentReplyIntent
+) -> None:
+    """Best-effort durable quarantine after an ambiguous provider boundary."""
+
+    try:
+        _transition_agent_reply_intent(
+            session_factory,
+            outcome,
+            intent,
+            expected=_AGENT_REPLY_IN_FLIGHT,
+            target=_AGENT_REPLY_AMBIGUOUS,
+        )
+    except Exception:  # noqa: BLE001 - preserve the no-resend fence on DB trouble
+        logger.warning("Agent reply left unresolved after provider boundary")
+
+
+def _quarantine_agent_execution(
+    session_factory: Any,
+    outcome: IngestionOutcome,
+    intent: _AgentReplyIntent,
+) -> None:
+    """Fence an agent turn whose side effects can no longer be proven absent."""
+
+    try:
+        _transition_agent_reply_intent(
+            session_factory,
+            outcome,
+            intent,
+            expected=_AGENT_REPLY_EXECUTING,
+            target=_AGENT_REPLY_EXECUTION_AMBIGUOUS,
+        )
+    except Exception:  # noqa: BLE001 - retain the execution fence on DB trouble
+        logger.warning("Agent execution left unresolved; automatic rerun skipped")
+
+
+def _release_agent_execution_reservation(
+    session_factory: Any,
+    outcome: IngestionOutcome,
+    intent: _AgentReplyIntent,
+) -> None:
+    """Return a pre-agent reservation only when no mutable turn started."""
+
+    try:
+        _transition_agent_reply_intent(
+            session_factory,
+            outcome,
+            intent,
+            expected=_AGENT_REPLY_EXECUTING,
+            target=_AGENT_REPLY_RESERVED,
+        )
+    except Exception:  # noqa: BLE001 - a failed release remains safely fenced
+        logger.warning("Agent reservation ownership was lost before execution")
+
+
+def _send_agent_reply(
+    client: Any, instance: str | None, telefone: str | None, response: str
+) -> str:
+    """Classify one provider call conservatively without exposing its response."""
+
+    classified = getattr(client, "send_text_classificado", None)
+    if classified is None:
+        classified = getattr(client, "send_text_classified", None)
+    try:
+        if callable(classified):
+            status = getattr(classified(instance, telefone, response), "status", None)
+            return status if isinstance(status, str) else "desconhecido"
+        sent = client.send_text(instance, telefone, response)
+    except Exception:  # noqa: BLE001 - an unclassified call may have reached Evolution
+        return "desconhecido"
+    return "aceito" if sent is True else "suprimido"
+
+
+def _deliver_agent_reply_intent(
+    session_factory: Any,
+    outcome: IngestionOutcome,
+    intent: _AgentReplyIntent,
+    ownership_guard: ClaimGuard | None,
+    *,
+    evolution_client: Any | None,
+) -> None:
+    """Run at most one Evolution transport for a durable reply intent.
+
+    Evolution does not provide an idempotency key contract.  Therefore an
+    in-flight, ambiguous, failed, or suppressed intent is never auto-sent
+    again; only a persisted ``ia_pendente`` intent can cross the provider
+    boundary.  Operators can reconcile quarantined rows safely before any
+    manual recovery.
+    """
+
+    if intent.state == _AGENT_REPLY_CONFIRMED:
         return
-    if sent is False:
-        # Outbound guard suppression is not a delivery and must not create a
-        # phantom outgoing message in the conversation history.
+    if intent.state in {
+        _AGENT_REPLY_RESERVED,
+        _AGENT_REPLY_EXECUTING,
+        _AGENT_REPLY_IN_FLIGHT,
+        _AGENT_REPLY_AMBIGUOUS,
+        _AGENT_REPLY_EXECUTION_AMBIGUOUS,
+        _AGENT_REPLY_FAILED,
+        _AGENT_REPLY_SUPPRESSED,
+        _AGENT_REPLY_NO_RESPONSE,
+    }:
+        logger.warning("Agent reply requires reconciliation; automatic resend skipped")
+        return
+    if intent.state != _AGENT_REPLY_PENDING or not intent.response:
+        logger.warning("Agent reply intent is not eligible for automatic transport")
         return
 
-    # Persist the outbound message and refresh the conversation snapshot.
-    session = session_factory()
+    # Claim the durable intent before the call.  The conditional state move is
+    # the cross-process transport fence; a competing worker can only observe
+    # ``ia_em_transporte`` and therefore cannot start a second Evolution call.
+    if not _transition_agent_reply_intent(
+        session_factory,
+        outcome,
+        intent,
+        expected=_AGENT_REPLY_PENDING,
+        target=_AGENT_REPLY_IN_FLIGHT,
+        ownership_guard=ownership_guard,
+    ):
+        return
+
     try:
-        if outcome.igreja_id is not None:
-            mark_tenant_scoped(session, outcome.igreja_id, source="worker_agent")
+        # Immediate pre-effect guard.  If it fails, no provider call happened,
+        # so returning the intent to pending is safe for the recovered owner.
+        if ownership_guard is not None:
+            ownership_guard()
+    except ClaimOwnershipLost:
+        try:
+            _transition_agent_reply_intent(
+                session_factory,
+                outcome,
+                intent,
+                expected=_AGENT_REPLY_IN_FLIGHT,
+                target=_AGENT_REPLY_PENDING,
+            )
+        except Exception:  # noqa: BLE001 - leave unresolved rather than resend blindly
+            logger.warning("Agent reply ownership was lost before transport")
+        raise
+
+    def send_with(client: Any) -> str:
+        return _send_agent_reply(client, outcome.instance, outcome.telefone, intent.response)
+
+    if evolution_client is None:
+        from app.services.evolution import EvolutionClient  # noqa: PLC0415
+
+        with EvolutionClient() as client:
+            status = send_with(client)
+    else:
+        status = send_with(evolution_client)
+
+    if status == "aceito":
+        try:
+            # A stale owner must not write the post-send confirmation.  The
+            # durable in-flight row remains a no-resend fence for its successor.
+            if ownership_guard is not None:
+                ownership_guard()
+            if not _transition_agent_reply_intent(
+                session_factory,
+                outcome,
+                intent,
+                expected=_AGENT_REPLY_IN_FLIGHT,
+                target=_AGENT_REPLY_CONFIRMED,
+                refresh_snapshot=True,
+            ):
+                _quarantine_agent_reply(session_factory, outcome, intent)
+        except ClaimOwnershipLost:
+            raise
+        except Exception:  # noqa: BLE001 - accepted but durable outcome is uncertain
+            _quarantine_agent_reply(session_factory, outcome, intent)
+            logger.warning("Agent reply confirmation is unresolved; automatic resend skipped")
+        return
+
+    if status == "falhou_retentavel":
+        try:
+            released = _transition_agent_reply_intent(
+                session_factory,
+                outcome,
+                intent,
+                expected=_AGENT_REPLY_IN_FLIGHT,
+                target=_AGENT_REPLY_PENDING,
+            )
+        except Exception:  # noqa: BLE001 - do not retry if the durable state is unknown
+            _quarantine_agent_reply(session_factory, outcome, intent)
+            return
+        if released:
+            raise AgentReplyRetryable("Evolution rejected agent reply before send")
+        return
+
+    if status == "desconhecido":
+        _quarantine_agent_reply(session_factory, outcome, intent)
+        logger.warning("Agent reply transport is ambiguous; automatic resend skipped")
+        return
+
+    target = _AGENT_REPLY_SUPPRESSED if status == "suprimido" else _AGENT_REPLY_FAILED
+    try:
+        _transition_agent_reply_intent(
+            session_factory,
+            outcome,
+            intent,
+            expected=_AGENT_REPLY_IN_FLIGHT,
+            target=target,
+        )
+    except Exception:  # noqa: BLE001 - no further send after an unknown final write
+        _quarantine_agent_reply(session_factory, outcome, intent)
+
+
+def _run_agent_legacy(
+    session_factory: Any,
+    outcome: IngestionOutcome,
+    response: str,
+    ownership_guard: ClaimGuard | None,
+    *,
+    evolution_client: Any | None,
+) -> None:
+    """Compatibility path for old callers that lack a provider event/claim.
+
+    QueueWorker always supplies both fields.  This branch keeps focused legacy
+    unit tests and out-of-tree integrations working, but must not be used for
+    webhook-derived production replies because it has no durable intent key.
+    """
+
+    if ownership_guard is not None:
+        ownership_guard()
+    if evolution_client is None:
+        from app.services.evolution import EvolutionClient  # noqa: PLC0415
+
+        with EvolutionClient() as client:
+            sent = _send_agent_reply(client, outcome.instance, outcome.telefone, response)
+    else:
+        sent = _send_agent_reply(evolution_client, outcome.instance, outcome.telefone, response)
+    if sent != "aceito":
+        return
+    if ownership_guard is not None:
+        ownership_guard()
+    session: Session = session_factory()
+    try:
+        _scope_agent_session(session, outcome)
         conv = session.get(Conversation, outcome.conversation_id)
         if conv is not None:
             session.add(
@@ -1074,13 +1965,175 @@ def run_agent_for_message(
                     conversation_id=conv.id,
                     direcao="out",
                     autor="ia",
-                    texto=result.response,
+                    texto=response,
                 )
             )
-            conv.ultima_mensagem = result.response
+            conv.ultima_mensagem = response
             session.commit()
     finally:
         session.close()
+
+
+def run_agent_for_message(
+    session_factory: Any,
+    outcome: IngestionOutcome,
+    ownership_guard: ClaimGuard | None = None,
+    *,
+    evolution_client: Any | None = None,
+) -> AgentRunDisposition:
+    """Drive the orchestrator for one persisted inbound message and reply.
+
+    The orchestrator produces a single reply; we send it through the official
+    number and persist the outbound message. Handoff suppresses the auto reply.
+    A durable reservation and session advisory lock are acquired before calling
+    the orchestrator because its tools may mutate tenant state.  An unresolved
+    execution is quarantined rather than run a second time.
+    """
+    from app.agent.runtime import process_inbound_message  # noqa: PLC0415
+
+    if outcome.conversation_id is None:
+        return AgentRunDisposition.COMPLETED
+
+    provider_message_id = _agent_reply_idempotency_key(outcome)
+    if provider_message_id is None:
+        # Compatibility path for out-of-tree callers that predate durable queue
+        # claims.  QueueWorker always reaches the durable path below.
+        if ownership_guard is not None:
+            ownership_guard()
+        session: Session = session_factory()
+        try:
+            if outcome.igreja_id is not None:
+                _scope_agent_session(session, outcome)
+                log_if_not_scoped(session, source="worker_agent")
+            result = process_inbound_message(
+                session,
+                conversation_id=outcome.conversation_id,
+                texto=outcome.texto,
+            )
+        finally:
+            session.close()
+        if result.handled and not result.suppressed and result.response:
+            _run_agent_legacy(
+                session_factory,
+                outcome,
+                result.response,
+                ownership_guard,
+                evolution_client=evolution_client,
+            )
+        return AgentRunDisposition.COMPLETED
+
+    if ownership_guard is not None:
+        ownership_guard()
+
+    # Commit the durable row before acquiring the execution lease.  A crash in
+    # this gap leaves ``ia_reservada`` and a recovered owner may safely start
+    # the agent.  The unique outbound provider id is the stable claim key.
+    intent = _reserve_agent_reply_intent(session_factory, outcome)
+    if intent is None:
+        return AgentRunDisposition.COMPLETED
+
+    execution_lease = _AgentExecutionLease(
+        session_factory,
+        outcome,
+        provider_message_id,
+    )
+    if not execution_lease.acquire():
+        return AgentRunDisposition.IN_FLIGHT
+
+    try:
+        # Reload after acquiring the cross-process lease.  A worker that sees
+        # ``ia_executando`` only after the prior process died cannot prove
+        # whether mutable tools ran, so it quarantines instead of rerunning.
+        intent = _load_agent_reply_intent(session_factory, outcome)
+        if intent is None:
+            return AgentRunDisposition.COMPLETED
+        if intent.state == _AGENT_REPLY_EXECUTING:
+            _quarantine_agent_execution(session_factory, outcome, intent)
+            return AgentRunDisposition.COMPLETED
+
+        if intent.state == _AGENT_REPLY_RESERVED:
+            if not _transition_agent_reply_intent(
+                session_factory,
+                outcome,
+                intent,
+                expected=_AGENT_REPLY_RESERVED,
+                target=_AGENT_REPLY_EXECUTING,
+                ownership_guard=ownership_guard,
+            ):
+                intent = _load_agent_reply_intent(session_factory, outcome)
+            else:
+                try:
+                    # Immediate pre-effect check.  If it fails, no agent/tool
+                    # call happened and a recovered owner may resume the same
+                    # persisted reservation.
+                    if ownership_guard is not None:
+                        ownership_guard()
+                except ClaimOwnershipLost:
+                    _release_agent_execution_reservation(
+                        session_factory,
+                        outcome,
+                        intent,
+                    )
+                    raise
+
+                session: Session = session_factory()
+                try:
+                    # Fase 0 (#10b): RLS por igreja também no caminho do agente
+                    # — é aqui que tools, retrieval da KB e memória leem/escrevem
+                    # dados do tenant.
+                    _scope_agent_session(session, outcome)
+                    log_if_not_scoped(session, source="worker_agent")
+                    result = process_inbound_message(
+                        session,
+                        conversation_id=outcome.conversation_id,
+                        texto=outcome.texto,
+                    )
+                except BaseException:
+                    # A process failure after ``ia_executando`` may have crossed
+                    # a non-transactional tool boundary.  Do not re-run it.
+                    _quarantine_agent_execution(session_factory, outcome, intent)
+                    raise
+                finally:
+                    session.close()
+
+                try:
+                    if ownership_guard is not None:
+                        ownership_guard()
+                except ClaimOwnershipLost:
+                    _quarantine_agent_execution(session_factory, outcome, intent)
+                    raise
+
+                if not result.handled or result.suppressed or not result.response:
+                    _transition_agent_reply_intent(
+                        session_factory,
+                        outcome,
+                        intent,
+                        expected=_AGENT_REPLY_EXECUTING,
+                        target=_AGENT_REPLY_NO_RESPONSE,
+                    )
+                    return AgentRunDisposition.COMPLETED
+
+                try:
+                    intent = _prepare_agent_reply_intent(
+                        session_factory,
+                        outcome,
+                        result.response,
+                    )
+                except Exception:
+                    _quarantine_agent_execution(session_factory, outcome, intent)
+                    raise
+    finally:
+        execution_lease.close()
+
+    if intent is not None:
+        _deliver_agent_reply_intent(
+            session_factory,
+            outcome,
+            intent,
+            ownership_guard,
+            evolution_client=evolution_client,
+        )
+    return AgentRunDisposition.COMPLETED
 
 
 # ---------------------------------------------------------------------------
