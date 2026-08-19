@@ -32,7 +32,8 @@ um tick longo que atravessa várias unidades de trabalho continua saudável.
 
 Antes de chamar a Evolution, o queue-worker grava uma intenção de saída em
 `messages`, protegida pelo índice outbound existente e por fence transacional.
-A chave opaca deriva do evento, claim e fingerprint da resposta. Apenas a
+A chave opaca deriva exclusivamente de igreja, evento e claim, sem conteúdo ou
+fingerprint da resposta. Apenas a
 intenção `ia_pendente` pode iniciar transporte; `ia_em_transporte`,
 `ia_ambigua`, falha e supressão nunca são reenviadas automaticamente. Uma
 resposta aceita só vira `ia` depois da persistência final. Se houver timeout,

@@ -29,6 +29,17 @@ class Result:
     detail: str
 
 
+def https_origin(url: str) -> tuple[str, int] | None:
+    try:
+        parsed = urllib.parse.urlsplit(url)
+        if parsed.scheme != "https" or parsed.hostname is None:
+            return None
+        port = parsed.port or 443
+    except ValueError:
+        return None
+    return parsed.hostname, port
+
+
 def endpoint(name: str, url: str, kind: str) -> Result:
     request = urllib.request.Request(
         url,
@@ -47,8 +58,11 @@ def endpoint(name: str, url: str, kind: str) -> Result:
         return Result(name, False, f"indisponivel ({type(exc).__name__})")
     if not 200 <= status < 300:
         return Result(name, False, f"HTTP {status}")
-    if urllib.parse.urlsplit(final_url).scheme != "https":
+    final_origin = https_origin(final_url)
+    if final_origin is None:
         return Result(name, False, "redirecionamento sem HTTPS")
+    if final_origin != https_origin(url):
+        return Result(name, False, "redirecionamento inesperado")
     if kind in {"health", "ready"}:
         try:
             body = json.loads(raw.decode("utf-8"))
