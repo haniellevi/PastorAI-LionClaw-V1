@@ -48,6 +48,7 @@ from threading import Event, Lock, Thread
 from typing import Any
 
 from sqlalchemy import func, or_, select, update
+from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -420,7 +421,7 @@ class _AgentExecutionLease:
         self._session_factory = session_factory
         self._outcome = outcome
         self._key = key
-        self._session: Session | None = None
+        self._connection: Connection | None = None
         self._local: _LocalAgentExecutionLock | None = None
 
     def acquire(self) -> bool:
@@ -428,26 +429,44 @@ class _AgentExecutionLease:
         try:
             _scope_agent_session(session, self._outcome)
             get_bind = getattr(session, "get_bind", None)
-            dialect = get_bind().dialect.name if callable(get_bind) else None
-            if dialect == "postgresql":
+            bind = get_bind() if callable(get_bind) else None
+            dialect = getattr(getattr(bind, "dialect", None), "name", None)
+        finally:
+            session.close()
+
+        if dialect == "postgresql":
+            connect = getattr(bind, "connect", None)
+            if not callable(connect):
+                connect = getattr(getattr(bind, "engine", None), "connect", None)
+            if not callable(connect):
+                raise RuntimeError(
+                    "PostgreSQL agent execution lease requires a connectable bind"
+                )
+
+            connection: Connection = connect()
+            try:
                 lock_key = _agent_execution_lock_key(self._outcome, self._key)
                 acquired = bool(
-                    session.execute(select(func.pg_try_advisory_lock(lock_key))).scalar_one()
+                    connection.execute(
+                        select(func.pg_try_advisory_lock(lock_key))
+                    ).scalar_one()
                 )
-                # pg_try_advisory_lock is session-scoped.  Finish the implicit
-                # transaction so no database transaction spans the agent call.
-                session.commit()
-                if acquired:
-                    self._session = session
-                    return True
-                session.close()
-                return False
-        except Exception:
-            session.rollback()
-            session.close()
-            raise
-        else:
-            session.close()
+                # The lock is session-scoped, so finish the transaction while
+                # keeping its physical connection checked out until close().
+                connection.commit()
+            except Exception:
+                try:
+                    # A failed commit may leave a session advisory lock alive.
+                    # Do not return that physical connection to the pool.
+                    connection.invalidate()
+                finally:
+                    connection.close()
+                raise
+            if acquired:
+                self._connection = connection
+                return True
+            connection.close()
+            return False
 
         with _LOCAL_AGENT_EXECUTION_LOCKS_GUARD:
             local = _LOCAL_AGENT_EXECUTION_LOCKS.get(self._key)
@@ -465,15 +484,24 @@ class _AgentExecutionLease:
         return True
 
     def close(self) -> None:
-        if self._session is not None:
-            session = self._session
-            self._session = None
+        if self._connection is not None:
+            connection = self._connection
+            self._connection = None
             try:
                 lock_key = _agent_execution_lock_key(self._outcome, self._key)
-                session.execute(select(func.pg_advisory_unlock(lock_key))).scalar_one()
-                session.commit()
+                released = bool(
+                    connection.execute(
+                        select(func.pg_advisory_unlock(lock_key))
+                    ).scalar_one()
+                )
+                connection.commit()
+                if not released:
+                    connection.invalidate()
+            except Exception:
+                connection.invalidate()
+                raise
             finally:
-                session.close()
+                connection.close()
         if self._local is not None:
             local = self._local
             self._local = None

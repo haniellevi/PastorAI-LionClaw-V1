@@ -43,7 +43,7 @@ from collections.abc import Iterator
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, func, select, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker
 
@@ -808,6 +808,127 @@ def test_agent_reply_concurrent_recovered_claims_execute_once_before_transport(
         assert len(evolution.calls) <= 1
         assert _agent_reply_states(factory, _IGREJA_A)[-1:] == ["ia"]
         assert worker_module.AgentRunDisposition.COMPLETED in dispositions
+
+
+def test_agent_execution_lease_keeps_postgres_connection_checked_out(
+    msg_engine_fx: Engine,
+) -> None:
+    """A competing PostgreSQL session cannot reenter the live agent lease."""
+
+    engine = create_engine(
+        msg_engine_fx.url,
+        future=True,
+        pool_size=1,
+        max_overflow=1,
+        pool_timeout=2,
+    )
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    outcome = _agent_outcome(
+        uuid.uuid4(),
+        provider_message_id="AGENT-LEASE-CONNECTION",
+        claim_id="stable-lease-connection",
+    )
+    provider_message_id = worker_module._agent_reply_idempotency_key(outcome)
+    assert provider_message_id is not None
+    lock_key = worker_module._agent_execution_lock_key(outcome, provider_message_id)
+    lease = worker_module._AgentExecutionLease(
+        factory,
+        outcome,
+        provider_message_id,
+    )
+    lease_closed = False
+    try:
+        assert lease.acquire()
+        competing = factory()
+        competing_acquired = False
+        try:
+            competing_acquired = bool(
+                competing.execute(
+                    select(func.pg_try_advisory_lock(lock_key))
+                ).scalar_one()
+            )
+            assert not competing_acquired
+        finally:
+            if competing_acquired:
+                competing.execute(select(func.pg_advisory_unlock(lock_key))).scalar_one()
+            competing.commit()
+            competing.close()
+
+        lease.close()
+        lease_closed = True
+        verifier = factory()
+        try:
+            assert bool(
+                verifier.execute(
+                    select(func.pg_try_advisory_lock(lock_key))
+                ).scalar_one()
+            )
+            verifier.execute(select(func.pg_advisory_unlock(lock_key))).scalar_one()
+            verifier.commit()
+        finally:
+            verifier.close()
+    finally:
+        if not lease_closed:
+            lease.close()
+        engine.dispose()
+
+
+def test_agent_execution_lease_invalidates_after_acquire_commit_failure(
+    msg_engine_fx: Engine, monkeypatch
+) -> None:
+    """A failed acquire commit cannot leave the advisory lock in the pool."""
+
+    engine = create_engine(
+        msg_engine_fx.url,
+        future=True,
+        pool_size=1,
+        max_overflow=1,
+        pool_timeout=2,
+    )
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    outcome = _agent_outcome(
+        uuid.uuid4(),
+        provider_message_id="AGENT-LEASE-COMMIT-FAILURE",
+        claim_id="stable-lease-commit-failure",
+    )
+    provider_message_id = worker_module._agent_reply_idempotency_key(outcome)
+    assert provider_message_id is not None
+    lock_key = worker_module._agent_execution_lock_key(outcome, provider_message_id)
+    lease = worker_module._AgentExecutionLease(
+        factory,
+        outcome,
+        provider_message_id,
+    )
+
+    def fail_commit(_connection) -> None:
+        raise RuntimeError("forced commit failure after advisory lock")
+
+    try:
+        with monkeypatch.context() as context:
+            context.setattr(worker_module.Connection, "commit", fail_commit)
+            with pytest.raises(RuntimeError, match="forced commit failure"):
+                lease.acquire()
+
+        # Hold the pooled connection that would retain the lock in the old
+        # implementation, then use an overflow connection as a true competitor.
+        pooled_connection = engine.connect()
+        competing_connection = engine.connect()
+        try:
+            assert bool(
+                competing_connection.execute(
+                    select(func.pg_try_advisory_lock(lock_key))
+                ).scalar_one()
+            )
+            competing_connection.execute(
+                select(func.pg_advisory_unlock(lock_key))
+            ).scalar_one()
+            competing_connection.commit()
+        finally:
+            competing_connection.close()
+            pooled_connection.close()
+    finally:
+        lease.close()
+        engine.dispose()
 
 
 def test_agent_reply_reservation_survives_crash_before_agent_and_uses_stable_key(
