@@ -42,7 +42,7 @@ transferência automática das identidades DEV existentes.
 
 | Item | Estado verificado | Consequência operacional |
 |---|---|---|
-| origin/main | 25d3876771bb8ffb0b160d79d6b548f31510186e | Base única para toda nova integração e release candidate. |
+| origin/main | cc89c0c1b9966219f921f80c9ee28e03ba152537 | Base única para toda nova integração e release candidate. |
 | PR #260 / M08 | MERGED em fd1cf373... | O corretivo de concorrência de claims recuperados está integrado; não reabrir esse código por um estado histórico. |
 | PR #261 / monitor M08 | MERGED em 5d7059df... | O workflow de monitor agora falha fechado quando produção não está saudável. |
 | PR #262 / readiness Supabase | MERGED em f2c3132... e implantada | Readiness tolera conexão saudável lenta via Supavisor sem relaxar Redis/Evolution. |
@@ -50,8 +50,8 @@ transferência automática das identidades DEV existentes.
 | PR #258 | MERGED em 1b9acb42... | Este mapa é o guia operacional canônico; seus estados são atualizados por preflight vivo. |
 | M00 / PR #263 | MERGED em 5a0f12f... | Tooling Linux/Docker/MCPs, Node 24, Python 3.13, PostgreSQL 17 e CI base foram validados e integrados. |
 | PR #245 / M09 | MERGED em 25d3876... | Baseline E2E/performance foi atualizado para a main vigente, revalidado e integrado. |
-| PR #234 / M01 | OPEN/DRAFT, atualização pendente | Próximo gate serial: atualizar contra 25d3876..., revalidar findings e só então corrigir. |
-| PR #244 / M06 | OPEN/DRAFT, atualização pendente | Entra depois de M01. |
+| PR #234 / M01 | MERGED em cc89c0c... | Cortesia administrada pelo master, billing durável e migration PG17 foram revalidados e integrados. |
+| PR #244 / M06 | OPEN/DRAFT; 73 commits atrás da main no preflight | Próximo gate serial: atualizar contra cc89c0c..., revalidar o hardening e só então corrigir. |
 | PR #257 | OPEN/READY, pós-V1 | Preservar; não integrar nesta trilha. |
 | Brevo | Recuperado no commit 6dd42a8356ecd94908d794d7eac4e8f237fd2325, com uma fixture pendente | Materializar o artefato recuperado no worktree proprietário; não recriar automaticamente. |
 | Células | Recuperado no commit 05c0aad7839d835fdbfaa762c84f9d7b94f8568d | Continua pós-V1; preservar sem desenvolver ou integrar nesta trilha. |
@@ -98,8 +98,8 @@ Regras que valem para todas as sessões:
 | M00-Tooling | Linux, Docker, MCPs, Node, Supabase local e CI base | Acessos | concluída na PR #263 / 5a0f12f... |
 | Acessos | Supabase DEV, Vercel, Hostinger, Brevo e recuperação de artefatos | todas as fases de código | read-only até haver autorização específica |
 | M09 | PR #245, E2E e performance | auditoria read-only de M01/M06 e recuperação Brevo | concluída na PR #245 / 25d3876... |
-| M01 | PR #234, planos cortesia e billing | auditoria read-only de M06/Brevo | integra depois de M09 e antes de M06 |
-| M06 | PR #244, RLS, executor e hardening | recuperação Brevo | integra depois de M01 |
+| M01 | PR #234, planos cortesia e billing | auditoria read-only de M06/Brevo | concluída na PR #234 / cc89c0c... |
+| M06 | PR #244, RLS, executor e hardening | recuperação Brevo | próximo gate: atualiza depois de M01 |
 | Brevo | recuperar ou recriar gate de e-mail | preparação de RC/acessos read-only | integra depois de M06 |
 | RC/Release | candidate, DEV, produção e encerramento | nenhuma escrita de missão | estritamente serial |
 | Revisão | revisão independente no SHA final de cada missão | implementação de outras worktrees sem sobreposição | read-only; não reutiliza o worktree do implementador |
@@ -199,25 +199,29 @@ externos ou pendentes. Backend, frontend, RLS, tooling e E2E ficaram verdes no
 GitHub, sem comentários. A Fase B de performance autenticada continua sendo
 prova do SHA efetivamente implantado, não uma razão para antecipar deploy.
 
-### Fase E — M01 / PR #234
+### Fase E — M01 / PR #234 — CONCLUÍDA
 
-Depois de M09, atualizar #234 contra a nova main e revalidar os findings
-históricos antes de corrigir. Não assumir que o antigo REVIEW-9 ainda descreve
-a árvore integrada.
+A PR #234 foi atualizada contra a main, revalidada e integrada em
+`cc89c0c1b9966219f921f80c9ee28e03ba152537`. O aceite agora cobre plano de
+preço zero como cortesia administrada pelo master, ausência da cortesia no
+catálogo do tenant, bloqueio de checkout/troca antes de qualquer chamada Asaas,
+concorrência/reconciliação fail-closed e a migration
+`20260810_042300_exclude_complimentary_plans_from_billing_autoupgrade.sql`.
 
-O aceite inclui plano de preço zero como cortesia administrada pelo master,
-ausência da cortesia no catálogo do tenant, bloqueio de checkout/troca antes de
-qualquer chamada Asaas, concorrência/reconciliação fail-closed e a migration
-20260810_042300_exclude_complimentary_plans_from_billing_autoupgrade.sql.
-Todos os testes desta fase usam rede bloqueada e PostgreSQL 17 descartável.
+No SHA da PR, a validação local passou backend completo (2.458 passed, 175
+skipped), 175 testes RLS em PostgreSQL 17 descartável, seis cenários da
+migration real, lint, typecheck, 784 testes Vitest, build, cinco E2E locais e
+`npm audit --omit=dev --audit-level=high` sem vulnerabilidades. Os cinco gates
+do GitHub passaram sem comentários. Nenhuma credencial ou chamada Asaas real
+foi usada nessa missão.
 
-ASAAS_BILLING_ENABLED=false continua o padrão. Não há teste ou cobrança Asaas
+`ASAAS_BILLING_ENABLED=false` continua o padrão. Não há teste ou cobrança Asaas
 em produção nesta V1.
 
 ### Fase F — M06 / PR #244
 
-Depois de M01, atualizar #244 e revalidar sem perder os contratos das missões
-anteriores. O aceite abrange CSP frame-ancestors, Referrer-Policy,
+Com a M01 integrada, atualizar #244 contra `cc89c0c...` e revalidar sem perder
+os contratos das missões anteriores. O aceite abrange CSP frame-ancestors, Referrer-Policy,
 Permissions-Policy, policies deny, ACL/RLS, ausência de caminhos SET ROLE e
 executor de migration fail-closed por arquivo, nome e SHA.
 
@@ -336,6 +340,9 @@ seção 1.
 - M09 foi integrada pela PR #245 em
   25d3876771bb8ffb0b160d79d6b548f31510186e, com o baseline E2E atualizado
   para Node 24 e evidência por tentativa.
+- M01 foi integrada pela PR #234 em
+  cc89c0c1b9966219f921f80c9ee28e03ba152537, após atualização para a main e
+  validação de billing, concorrência, migration real em PostgreSQL 17 e CI.
 - A falha concorrente que motivou #260 é histórica como problema de código;
   ela não reabre M08 enquanto a main atual permanecer comprovada. O problema
   era a aceitação operacional registrada na issue #259, agora resolvida.
