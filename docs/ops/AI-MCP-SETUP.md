@@ -297,7 +297,7 @@ Validações executadas em 2026-08-20:
 - `npm audit` da raiz e do frontend: 0 vulnerabilidades;
 - frontend: lint e typecheck limpos, 732 testes aprovados e build de produção
   concluído;
-- backend: 2.371 testes aprovados e 166 ignorados na suite completa;
+- backend: 2.377 testes aprovados e 166 ignorados na suite completa;
 - gate RLS reproduzido contra PostgreSQL 17 descartável: 135 testes aprovados,
   7 desmarcados, mais 9 testes de rota offline;
 - ambiente Python criado com `uv venv --seed`, lock instalado com hashes,
