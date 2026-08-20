@@ -42,17 +42,17 @@ transferência automática das identidades DEV existentes.
 
 | Item | Estado verificado | Consequência operacional |
 |---|---|---|
-| origin/main | f2c3132b2a1d5060c4ba236374f0475416973be2 | Base única para toda nova integração e release candidate. |
+| origin/main | 25d3876771bb8ffb0b160d79d6b548f31510186e | Base única para toda nova integração e release candidate. |
 | PR #260 / M08 | MERGED em fd1cf373... | O corretivo de concorrência de claims recuperados está integrado; não reabrir esse código por um estado histórico. |
 | PR #261 / monitor M08 | MERGED em 5d7059df... | O workflow de monitor agora falha fechado quando produção não está saudável. |
 | PR #262 / readiness Supabase | MERGED em f2c3132... e implantada | Readiness tolera conexão saudável lenta via Supavisor sem relaxar Redis/Evolution. |
 | Issue #259 | CLOSED em 2026-08-20 | Incidente resolvido após health/ready locais e públicos, backup verificado e duas execuções saudáveis do monitor. |
-| PR #258 | OPEN/DRAFT, branch codex/v1-finalization-map-m08-status | Documento desta missão; deve ser refeito contra a main viva e passar pelo gate documental próprio. |
-| M00 | Artefatos locais de bootstrap no worktree isolado, ainda sem commit ou PR | Classificar e atualizar sobre f2c3132...; não é evidência de CI nem entra na cadeia antes de revisão. |
-| PR #245 / M09 | OPEN/READY, CLEAN no último preflight | Entra primeiro na sequência de integração após M00. |
-| PR #234 / M01 | OPEN/DRAFT, CLEAN no último preflight | Entra depois de M09. |
-| PR #244 / M06 | OPEN/DRAFT, CLEAN no último preflight | Entra depois de M01. |
-| PR #257 | OPEN/READY, CLEAN no último preflight | Preservar como pós-V1; não integrar nesta trilha. |
+| PR #258 | MERGED em 1b9acb42... | Este mapa é o guia operacional canônico; seus estados são atualizados por preflight vivo. |
+| M00 / PR #263 | MERGED em 5a0f12f... | Tooling Linux/Docker/MCPs, Node 24, Python 3.13, PostgreSQL 17 e CI base foram validados e integrados. |
+| PR #245 / M09 | MERGED em 25d3876... | Baseline E2E/performance foi atualizado para a main vigente, revalidado e integrado. |
+| PR #234 / M01 | OPEN/DRAFT, atualização pendente | Próximo gate serial: atualizar contra 25d3876..., revalidar findings e só então corrigir. |
+| PR #244 / M06 | OPEN/DRAFT, atualização pendente | Entra depois de M01. |
+| PR #257 | OPEN/READY, pós-V1 | Preservar; não integrar nesta trilha. |
 | Brevo | Recuperado no commit 6dd42a8356ecd94908d794d7eac4e8f237fd2325, com uma fixture pendente | Materializar o artefato recuperado no worktree proprietário; não recriar automaticamente. |
 | Células | Recuperado no commit 05c0aad7839d835fdbfaa762c84f9d7b94f8568d | Continua pós-V1; preservar sem desenvolver ou integrar nesta trilha. |
 
@@ -95,9 +95,9 @@ Regras que valem para todas as sessões:
 |---|---|---|---|
 | Central-Map | mapa, sequência, preflights e evidência | todas as sessões read-only | só esta sessão edita o mapa; não integra código |
 | M08-OPS | M08, monitor e recuperação operacional | — | concluída em f2c3132...; preservar evidência, sem abrir novo código nesta trilha |
-| M00-Tooling | Linux, Docker, MCPs, Node, Supabase local e CI base | Acessos | deve concluir antes de M09 |
+| M00-Tooling | Linux, Docker, MCPs, Node, Supabase local e CI base | Acessos | concluída na PR #263 / 5a0f12f... |
 | Acessos | Supabase DEV, Vercel, Hostinger, Brevo e recuperação de artefatos | todas as fases de código | read-only até haver autorização específica |
-| M09 | PR #245, E2E e performance | auditoria read-only de M01/M06 e recuperação Brevo | integra antes de M01 |
+| M09 | PR #245, E2E e performance | auditoria read-only de M01/M06 e recuperação Brevo | concluída na PR #245 / 25d3876... |
 | M01 | PR #234, planos cortesia e billing | auditoria read-only de M06/Brevo | integra depois de M09 e antes de M06 |
 | M06 | PR #244, RLS, executor e hardening | recuperação Brevo | integra depois de M01 |
 | Brevo | recuperar ou recriar gate de e-mail | preparação de RC/acessos read-only | integra depois de M06 |
@@ -146,37 +146,26 @@ ativo até o encerramento de todo o projeto, por decisão do responsável. A
 revogação e a remoção do material local são itens obrigatórios do fechamento
 final, não uma dependência para iniciar M00.
 
-### Fase B — M00: tooling, Docker, MCPs e runtime
+### Fase B — M00: tooling, Docker, MCPs e runtime — CONCLUÍDA
 
-M00 transforma o bootstrap local em uma base versionável e reproduzível, sem
-apagar arquivos já criados no checkout principal.
+A PR #263 foi integrada em `5a0f12f5062bfd45d780dacf29090c8f34a66da8` após
+validação local e quatro checks verdes. Ela versiona Node 24.19.0, Python
+3.13.14, Supabase CLI 2.115.0, o doctor, Docker Engine + Compose, PostgreSQL
+17 descartável para RLS, Supabase local em loopback e o inventário MCP sem
+segredos. Docker Desktop segue dispensável no Linux.
 
-O worktree M00 contém artefatos locais de bootstrap sem commit nem PR. Ele deve
-ser atualizado contra `main@f2c3132...` e classificado antes de qualquer
-commit; resultados anteriores não substituem revisão independente, CI ou merge
-desta missão.
-
-- classificar o diff local e levar somente os arquivos seguros para uma branch
-  M00 dedicada: configuração MCP local sem segredo, versões de Node/Python,
-  comandos de doctor/Supabase, documentação e templates seguros;
-- adicionar o template deploy/.env.example se algum comando versionado o
-  referenciar; nenhum .env real pode ser aberto ou incluído;
-- manter Docker Engine + Compose: Docker Desktop não é requisito no Linux;
-- migrar Node 20 EOL para Node 24 LTS de forma consistente no Linux, CI e
-  frontend/Vercel;
-- alinhar a integração RLS a PostgreSQL 17 e fixar Actions por SHA com runner
-  suportado;
-- provar npm ci, doctor, lint/typecheck/test/build, backend/RLS em PG17,
-  docker compose config com template seguro e Supabase local/MCP saudáveis.
-
-M00 encerra apenas após revisão independente, CI e merge. M09 não inicia sua
-integração antes dessa base, pois seus workflows e testes dependem dela.
+O template seguro `deploy/.env.example` permite validar Compose sem abrir ou
+criar `.env` real. O Supabase local, Vercel, Hostinger e Brevo foram testados
+por reachability sem credenciais; no Devin, os MCPs genérico/DEV/PROD do
+Supabase permanecem preservados, porém desabilitados por padrão. Os arquivos
+não rastreados do checkout principal não foram removidos e ficam para o
+fechamento final do projeto.
 
 ### Fase C — mapa e acessos
 
-Esta revisão do mapa consolida o encerramento de M08. A PR #258 ainda precisa
-de seu próprio preflight, revisão documental, CI aplicável e gate de merge. Ao
-ser integrada, passa a ser o guia operacional canônico de encerramento da V1.
+Este mapa foi integrado pela PR #258 em `1b9acb42...` e é o guia operacional
+canônico de encerramento da V1. Atualizações de estado só entram depois do
+preflight, CI e merge da missão correspondente.
 
 Em paralelo e sem mutação externa:
 
@@ -196,21 +185,19 @@ Em paralelo e sem mutação externa:
 - preservar a implementação Células recuperada no commit
   05c0aad7839d835fdbfaa762c84f9d7b94f8568d exclusivamente para pós-V1.
 
-### Fase D — M09 / PR #245
+### Fase D — M09 / PR #245 — CONCLUÍDA
 
-Depois de M00, atualizar #245 para a main vigente e resolver os findings
-abertos sem ampliar o escopo:
+A PR #245 foi atualizada contra M00, revalidada e integrada em
+`25d3876771bb8ffb0b160d79d6b548f31510186e`. O workflow E2E agora usa Node
+24.19.0, Ubuntu 24.04 e Actions fixadas por SHA. Os cinco fluxos rodam em
+Chromium contra API mock estritamente loopback; cada tentativa preserva
+snapshot sanitizado mesmo após falha de asserção.
 
-- anexar métricas/evidências mesmo quando uma asserção falhar;
-- aceitar corretamente URL loopback HTTP na porta canônica 80 sem relaxar o
-  bloqueio de URLs externas;
-- atualizar a base Node/Actions conforme M00, sem voltar a tags mutáveis;
-- comprovar IPv4, IPv6, falhas antecipadas, zero requisições externas e
-  artefatos em sucesso e falha.
-
-Exigir revisão independente no SHA atualizado, CI completa, Ready e merge. A
-Fase B de performance autenticada permanece uma prova do SHA implantado, não
-uma condição para antecipar deploy de uma branch antiga.
+A revalidação local no SHA `e7e20837e7aba333d91b3b3d07bd59319644f655` passou
+audit, lint, typecheck, 783 testes Vitest, build e cinco E2E, sem requests
+externos ou pendentes. Backend, frontend, RLS, tooling e E2E ficaram verdes no
+GitHub, sem comentários. A Fase B de performance autenticada continua sendo
+prova do SHA efetivamente implantado, não uma razão para antecipar deploy.
 
 ### Fase E — M01 / PR #234
 
@@ -343,6 +330,12 @@ seção 1.
 - A prontidão Supabase/Supavisor foi endurecida e implantada pela PR #262 em
   f2c3132b2a1d5060c4ba236374f0475416973be2; a issue #259 foi encerrada após
   verificações saudáveis e backup/monitor validados.
+- M00 foi integrado pela PR #263 em
+  5a0f12f5062bfd45d780dacf29090c8f34a66da8, sem remover os arquivos locais
+  não rastreados do checkout principal.
+- M09 foi integrada pela PR #245 em
+  25d3876771bb8ffb0b160d79d6b548f31510186e, com o baseline E2E atualizado
+  para Node 24 e evidência por tentativa.
 - A falha concorrente que motivou #260 é histórica como problema de código;
   ela não reabre M08 enquanto a main atual permanecer comprovada. O problema
   era a aceitação operacional registrada na issue #259, agora resolvida.
