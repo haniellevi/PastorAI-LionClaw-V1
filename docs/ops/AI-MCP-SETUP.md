@@ -117,7 +117,7 @@ PASTORAI_ENV_FILE=.env.example docker compose \
 Para subir serviços, copie o template para `deploy/.env`, use modo `600` e
 preencha somente esse arquivo ignorado pelo Git. Não execute a stack completa
 enquanto o Supabase DEV e o Clerk de teste não estiverem definidos. Mantenha
-`ALLOW_REAL_SENDS=false`.
+`ALLOW_REAL_SENDS=false` e `BREVO_SEND_MODE=off`.
 
 ## 3. Codex no Linux
 
@@ -256,7 +256,9 @@ Brevo e Asaas já existem em:
 - testes dedicados em `backend/tests/`.
 
 Brevo runtime usa `BREVO_API_KEY`; o MCP usa `BREVO_MCP_TOKEN`. O remetente e o
-domínio precisam estar verificados no Brevo antes do canário.
+domínio precisam estar verificados no Brevo antes do canário. No runtime,
+`BREVO_SEND_MODE=off` é o padrão; canário exige allowlist explícita e não libera
+os demais provedores cobertos por `ALLOW_REAL_SENDS`.
 
 Asaas deve começar com:
 

@@ -49,9 +49,10 @@ cp deploy/.env.example deploy/.env
 chmod 600 deploy/.env
 ```
 
-Ele nasce com `APP_ENV=development`, `ALLOW_REAL_SENDS=false`, Asaas Sandbox e
-segredos vazios. Não o promova para produção; produção segue o runbook canônico
-e preserva o `.env` do release ativo.
+Ele nasce com `APP_ENV=development`, `ALLOW_REAL_SENDS=false`,
+`BREVO_SEND_MODE=off`, Asaas Sandbox e segredos vazios. Não o promova para
+produção; produção segue o runbook canônico e preserva o `.env` do release
+ativo.
 
 Para validar somente a sintaxe do Compose sem criar um `.env` nem iniciar
 containers, execute da raiz do repositório:

@@ -159,15 +159,17 @@ docker compose build backend
 docker compose up -d
 docker compose ps
 # Prova pós-restart sem imprimir o .env nem qualquer segredo. Todos os
-# processos capazes de faturar devem confirmar as duas travas fechadas.
+# processos capazes de enviar/faturar devem confirmar as travas fechadas.
 for service in backend queue-worker cron-worker; do
   if ! docker compose exec -T "$service" sh -lc '
       [ "${ALLOW_REAL_SENDS+x}" = "x" ] &&
       [ "$ALLOW_REAL_SENDS" = "false" ] &&
       [ "${ASAAS_BILLING_ENABLED+x}" = "x" ] &&
       [ "$ASAAS_BILLING_ENABLED" = "false" ] &&
-      echo "billing gates: CLOSED"'; then
-    echo "billing gates: OPEN or unverifiable for ${service}" >&2
+      [ "${BREVO_SEND_MODE+x}" = "x" ] &&
+      [ "$BREVO_SEND_MODE" = "off" ] &&
+      echo "external-send gates: CLOSED"'; then
+    echo "external-send gates: OPEN or unverifiable for ${service}" >&2
     exit 1
   fi
 done
@@ -176,10 +178,13 @@ curl -fsS http://127.0.0.1:8000/ready
 ln -sfn "/opt/pastorai-releases/${PASTORAI_RELEASE_SHA}" /opt/pastorai-current
 ```
 
-O esperado é uma linha `billing gates: CLOSED` por serviço. Qualquer ausência
-ou valor diferente de `false` interrompe o deploy: mutações Asaas só podem
-existir quando `ALLOW_REAL_SENDS=true` **e** `ASAAS_BILLING_ENABLED=true`, em um
-gate financeiro posterior e explicitamente aprovado.
+O esperado é uma linha `external-send gates: CLOSED` por serviço. Qualquer
+ausência ou valor diferente de `false`/`off` interrompe o deploy: mutações
+Asaas só podem existir quando `ALLOW_REAL_SENDS=true` **e**
+`ASAAS_BILLING_ENABLED=true`, em um gate financeiro posterior e explicitamente
+aprovado. Brevo permanece em `BREVO_SEND_MODE=off` até seu canário separado;
+`canary` e `live` não são estados aceitáveis antes dos smokes sem efeitos
+externos.
 
 Portas públicas proibidas:
 
@@ -237,7 +242,7 @@ No projeto Vercel, confirmar sem revelar valores:
 
 ## 8. Smokes sem efeitos externos
 
-Com `ALLOW_REAL_SENDS=false`:
+Com `ALLOW_REAL_SENDS=false` **e** `BREVO_SEND_MODE=off`:
 
 ```bash
 curl -fsS https://api.igreja12.com.br/health
@@ -257,15 +262,17 @@ Validar também:
 - ausência de placeholders no `.env`;
 - frontend sem referências ao Supabase DEV ou localhost.
 
-Mesmo depois desses smokes, mantenha `ASAAS_BILLING_ENABLED=false` enquanto as
-igrejas-piloto estiverem em cortesia. Não habilite a flag sem inventário das
-assinaturas rastreadas, backup fresco e canário financeiro separado.
+Mesmo depois desses smokes, mantenha `ASAAS_BILLING_ENABLED=false` e
+`BREVO_SEND_MODE=off` enquanto as igrejas-piloto estiverem em cortesia. Não
+habilite a flag financeira sem inventário das assinaturas rastreadas, backup
+fresco e canário financeiro separado.
 
-Somente após esses smokes decidir o gate separado
-`ALLOW_REAL_SENDS=true`. A leitura do QR da Evolution e qualquer canário de
-e-mail/WhatsApp/cobrança ocorrem em uma janela controlada. O recebimento real
-do e-mail de recuperação pelo Brevo pertence a esse canário pós-gate, usando
-uma conta de teste e um único envio observado.
+Somente após esses smokes decidir, em gates separados, `ALLOW_REAL_SENDS=true`
+para os provedores globais e `BREVO_SEND_MODE=canary` para e-mail. A leitura do
+QR da Evolution e qualquer canário de e-mail/WhatsApp/cobrança ocorrem em uma
+janela controlada. O recebimento real do e-mail de recuperação pelo Brevo exige
+allowlist com uma conta de teste e um único envio observado; `live` continua
+sendo uma promoção posterior.
 
 ## 9. Monitoramento e backup
 
