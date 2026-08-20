@@ -8,6 +8,15 @@ SaaS de gestão pastoral (jornada G12: ganhar → consolidar → discipular → 
 - **Serviços externos**: Supabase, Clerk, Evolution API (WhatsApp), OpenAI, Asaas (billing), Brevo (e-mail de convite), Google Calendar.
 - **Docs do pipeline**: `docs/Docs<id>/` (PRD, SPEC, sprints, design).
 
+## Propostas arquiteturais em avaliação
+
+- **Hermes Agent + WhatsApp oficial da Meta:** a proposta de hospedar o Hermes na
+  VPS Hostinger, usá-lo como cérebro conversacional e preservar o Igreja 12 como
+  autoridade de dados e regras está em [`IDEIA-AGENTE-HERMES.md`](IDEIA-AGENTE-HERMES.md).
+  O documento define segurança, níveis de permissão, papel residual do LangGraph e
+  plano de experimento. **É uma proposta, não descreve a stack atual nem autoriza a
+  retirada de Evolution ou LangGraph.**
+
 ## Regras de Trabalho — SEGUIR SEMPRE
 
 ### Bootstrap obrigatorio de contexto
