@@ -26,7 +26,7 @@ def _release_activation_block() -> str:
     return text[start:end]
 
 
-def _billing_gate_script() -> str:
+def _external_send_gate_script() -> str:
     block = _release_activation_block()
     gate = block.index("for service in backend queue-worker cron-worker")
     start = block.index("sh -lc '", gate) + len("sh -lc '")
@@ -50,7 +50,7 @@ def _posix_shell() -> str:
     pytest.skip("shell POSIX indisponível para validar o gate operacional")
 
 
-def test_billing_gate_exits_before_health_and_symlink() -> None:
+def test_external_send_gate_exits_before_health_and_symlink() -> None:
     block = _release_activation_block()
 
     gate = block.index("for service in backend queue-worker cron-worker")
@@ -65,7 +65,11 @@ def test_billing_gate_exits_before_health_and_symlink() -> None:
     billing_closed = block.index(
         '[ "$ASAAS_BILLING_ENABLED" = "false" ]', billing_present
     )
-    hard_stop = block.index("exit 1", billing_closed)
+    brevo_present = block.index(
+        '[ "${BREVO_SEND_MODE+x}" = "x" ]', billing_closed
+    )
+    brevo_closed = block.index('[ "$BREVO_SEND_MODE" = "off" ]', brevo_present)
+    hard_stop = block.index("exit 1", brevo_closed)
     guard_end = block.index("fi", hard_stop)
     loop_end = block.index("done", guard_end)
     health = block.index("curl -fsS", loop_end)
@@ -77,6 +81,8 @@ def test_billing_gate_exits_before_health_and_symlink() -> None:
         < allow_closed
         < billing_present
         < billing_closed
+        < brevo_present
+        < brevo_closed
         < hard_stop
     )
     assert hard_stop < guard_end < loop_end < health < symlink
@@ -86,34 +92,48 @@ def test_billing_gate_exits_before_health_and_symlink() -> None:
 
 
 @pytest.mark.parametrize(
-    ("allow_real_sends", "asaas_billing_enabled", "expected_closed"),
     (
-        ("false", "false", True),
-        (None, "false", False),
-        ("", "false", False),
-        ("true", "false", False),
-        ("FALSE", "false", False),
-        ("false", None, False),
-        ("false", "", False),
-        ("false", "true", False),
-        ("false", "disabled", False),
+        "allow_real_sends",
+        "asaas_billing_enabled",
+        "brevo_send_mode",
+        "expected_closed",
+    ),
+    (
+        ("false", "false", "off", True),
+        (None, "false", "off", False),
+        ("", "false", "off", False),
+        ("true", "false", "off", False),
+        ("FALSE", "false", "off", False),
+        ("false", None, "off", False),
+        ("false", "", "off", False),
+        ("false", "true", "off", False),
+        ("false", "disabled", "off", False),
+        ("false", "false", None, False),
+        ("false", "false", "", False),
+        ("false", "false", "canary", False),
+        ("false", "false", "live", False),
+        ("false", "false", "OFF", False),
     ),
 )
-def test_billing_gate_shell_accepts_only_two_explicit_false_values(
+def test_external_send_gate_shell_accepts_only_explicit_closed_values(
     allow_real_sends: str | None,
     asaas_billing_enabled: str | None,
+    brevo_send_mode: str | None,
     expected_closed: bool,
 ) -> None:
     env = os.environ.copy()
     env.pop("ALLOW_REAL_SENDS", None)
     env.pop("ASAAS_BILLING_ENABLED", None)
+    env.pop("BREVO_SEND_MODE", None)
     if allow_real_sends is not None:
         env["ALLOW_REAL_SENDS"] = allow_real_sends
     if asaas_billing_enabled is not None:
         env["ASAAS_BILLING_ENABLED"] = asaas_billing_enabled
+    if brevo_send_mode is not None:
+        env["BREVO_SEND_MODE"] = brevo_send_mode
 
     result = subprocess.run(
-        [_posix_shell(), "-c", _billing_gate_script()],
+        [_posix_shell(), "-c", _external_send_gate_script()],
         env=env,
         text=True,
         capture_output=True,
@@ -121,4 +141,4 @@ def test_billing_gate_shell_accepts_only_two_explicit_false_values(
     )
 
     assert (result.returncode == 0) is expected_closed
-    assert ("billing gates: CLOSED" in result.stdout) is expected_closed
+    assert ("external-send gates: CLOSED" in result.stdout) is expected_closed
