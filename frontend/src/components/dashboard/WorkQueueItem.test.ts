@@ -162,6 +162,24 @@ describe("WorkQueueItem — ação principal por tipo (Gate 7)", () => {
   it("busy: todas as ações desabilitadas", () => {
     render(baseItem({ tipo: "visitante" }), { busy: true });
     for (const [, meta] of buttons()) expect(meta.disabled).toBe(true);
+    for (const button of container.querySelectorAll("button")) {
+      expect(button.getAttribute("aria-busy")).toBe("true");
+    }
+  });
+
+  it("expõe a linha como item e dá contexto às ações repetidas", () => {
+    render(baseItem({ tipo: "atendimento", titulo: "Atender Ana Souza" }));
+
+    expect(container.querySelector('.dh-item[role="listitem"]')).not.toBeNull();
+    expect(buttonWithText("Assumir")?.getAttribute("aria-label")).toBe(
+      "Assumir: Atender Ana Souza",
+    );
+    expect(buttonWithText("Atribuir")?.getAttribute("aria-label")).toBe(
+      "Atribuir responsável: Atender Ana Souza",
+    );
+    expect(buttonWithText("Mensagem")?.getAttribute("aria-label")).toBe(
+      "Enviar mensagem: Atender Ana Souza",
+    );
   });
 
   it("callbacks preservados: clique dispara o handler correto", () => {

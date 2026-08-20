@@ -388,8 +388,12 @@ export function GanharScreen() {
   );
 
   return (
-    <div className="screen" key="ganhar">
+    <div className="screen journey-screen journey-screen--ganhar" key="ganhar">
       <div className="screen-head">
+        <div className="titles">
+          <h2>Base de entrada</h2>
+          <p>Organize novos contatos e visitantes antes do próximo passo da jornada.</p>
+        </div>
         <div className="actions">
           <button
             type="button"
@@ -440,7 +444,7 @@ export function GanharScreen() {
 
       <div className="card">
         <div className="panel-title">
-          Base de entrada
+          Pessoas que chegaram
           <div className="right">
             <div className="tabs">
               <button

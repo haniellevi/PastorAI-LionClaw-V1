@@ -264,7 +264,13 @@ export function CelulasScreen() {
   const showSkeleton = loading && !loaded;
 
   return (
-    <div className="screen" key="celulas">
+    <div className="screen cells-screen" key="celulas">
+      <div className="screen-head">
+        <div className="titles">
+          <h2>Células da igreja</h2>
+          <p>Veja saúde, liderança e vínculos de cada célula.</p>
+        </div>
+      </div>
       {error ? (
         <div className="error-banner" role="alert">
           <Icon name="alert" />

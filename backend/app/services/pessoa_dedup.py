@@ -13,9 +13,10 @@ para o telefone bruto; ``insert_pessoa_or_get_winner`` traduz o
 from __future__ import annotations
 
 import hashlib
+import time
 import uuid
 
-from sqlalchemy import func, select, text
+from sqlalchemy import func, inspect, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -25,6 +26,52 @@ from app.domain.phone import normalize_phone, phone_suffix
 # Postgres SQLSTATE de unique_violation. Só ele é tratado como "perdi a corrida";
 # qualquer outra IntegrityError sobe inalterada (não é uma colisão de telefone).
 _PG_UNIQUE_VIOLATION = "23505"
+_PESSOA_PHONE_UNIQUE_CONSTRAINT = "uq_pessoas_telefone_ativa"
+_WINNER_RETRY_DELAYS_SECONDS = (0.0, 0.01, 0.05)
+
+
+def _is_pessoa_phone_unique_violation(exc: IntegrityError) -> bool:
+    """Return whether ``exc`` is exactly the active-Pessoa phone constraint."""
+
+    orig = exc.orig
+    sqlstates = (
+        getattr(orig, "pgcode", None),
+        getattr(orig, "sqlstate", None),
+    )
+    constraint_name = getattr(getattr(orig, "diag", None), "constraint_name", None)
+    return (
+        _PG_UNIQUE_VIOLATION in sqlstates
+        and constraint_name == _PESSOA_PHONE_UNIQUE_CONSTRAINT
+    )
+
+
+def _require_transient_candidate(db: Session, pessoa: Pessoa) -> None:
+    """Reject a candidate already attached to any Session.
+
+    ``Session.begin_nested()`` flushes pending state before it opens the
+    SAVEPOINT.  Keeping the candidate transient until the SAVEPOINT exists is
+    what lets this helper distinguish its collision from an earlier failure in
+    the caller's transaction.
+    """
+
+    state = inspect(pessoa)
+    if state.transient and state.session is None:
+        return
+
+    if state.session is not None and state.session is not db:
+        state_name = "associada a outra Session"
+    elif state.pending:
+        state_name = "pending"
+    elif state.persistent:
+        state_name = "persistent"
+    elif state.detached:
+        state_name = "detached"
+    else:
+        state_name = "associada a uma Session"
+    raise ValueError(
+        "A Pessoa candidata deve estar transitória e não associada a uma "
+        f"Session; recebeu estado {state_name}."
+    )
 
 
 def lock_canonical_phone(
@@ -73,29 +120,39 @@ def insert_pessoa_or_get_winner(
 ) -> Pessoa:
     """Insere ``pessoa`` num SAVEPOINT; na corrida, devolve a vencedora.
 
-    O INSERT roda dentro de ``db.begin_nested()`` (SAVEPOINT): se uma criação
-    concorrente do mesmo telefone/tenant já venceu, o flush levanta
-    ``unique_violation`` de ``uq_pessoas_telefone_ativa`` — só o SAVEPOINT é
-    desfeito (ROLLBACK TO SAVEPOINT), preservando qualquer coisa já pendente na
-    transação externa (importante no queue_worker, cuja Session é compartilhada
-    no turno). Aí re-busca e devolve a Pessoa ATIVA vencedora. Qualquer outra
-    IntegrityError (não-unique) sobe inalterada.
+    Primeiro faz flush do estado que já estava pendente na transação externa.
+    Isso fica propositalmente FORA da captura de colisão da candidata porque
+    ``Session.begin_nested()`` também autofluxa antes de estabelecer o
+    SAVEPOINT. Se esse estado anterior falhar, o erro original deve subir sem
+    procurar vencedora. A candidata deve estar transitória e só é adicionada
+    depois de o SAVEPOINT ser aberto. Se ela perder a corrida, o seu flush
+    levanta ``unique_violation`` de ``uq_pessoas_telefone_ativa`` — só o
+    SAVEPOINT é desfeito (ROLLBACK TO SAVEPOINT), preservando o estado externo
+    já enviado mas ainda não commitado. Aí re-busca e devolve a Pessoa ATIVA
+    vencedora. Só a constraint exata é deduplicada; qualquer outra
+    IntegrityError sobe inalterada.
 
     Retorna a Pessoa a usar (a recém-criada no caminho feliz, ou a vencedora).
     """
+    _require_transient_candidate(db, pessoa)
+    db.flush()
+    savepoint = db.begin_nested()
     try:
-        with db.begin_nested():
+        with savepoint:
             db.add(pessoa)
             db.flush()
         return pessoa
     except IntegrityError as exc:
-        if getattr(exc.orig, "pgcode", None) != _PG_UNIQUE_VIOLATION:
+        if not _is_pessoa_phone_unique_violation(exc):
             raise
-        winner = find_active_pessoa_by_phone(
-            db, igreja_id=igreja_id, canonical=canonical
-        )
-        if winner is None:
-            # unique_violation mas nenhuma vencedora ATIVA casável — inesperado
-            # (ex.: colisão em algo que não é este índice). Não mascarar.
-            raise
-        return winner
+        for retry_delay in _WINNER_RETRY_DELAYS_SECONDS:
+            if retry_delay:
+                time.sleep(retry_delay)
+            winner = find_active_pessoa_by_phone(
+                db, igreja_id=igreja_id, canonical=canonical
+            )
+            if winner is not None:
+                return winner
+        # A visibilidade não estabilizou dentro do limite seguro: não inventar
+        # sucesso nem invalidar a transação externa; repropagar a causa original.
+        raise

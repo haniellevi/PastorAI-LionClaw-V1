@@ -359,7 +359,13 @@ export function AssinaturaScreen() {
   ) : null;
 
   return (
-    <div className="screen" key="assinatura">
+    <div className="screen admin-screen subscription-screen" key="assinatura">
+      <div className="screen-head">
+        <div className="titles">
+          <h2>Assinatura da igreja</h2>
+          <p>Acompanhe plano, consumo e próximos passos sem surpresa de cobrança.</p>
+        </div>
+      </div>
       {error ? (
         <div className="error-banner" role="alert">
           <Icon name="alert" />
@@ -522,7 +528,7 @@ export function AssinaturaScreen() {
       ) : null}
 
       {!showSkeleton ? (
-        <div className="tabs" style={{ marginBottom: "var(--s4)" }}>
+        <div className="tabs admin-tabs" style={{ marginBottom: "var(--s4)" }}>
           <button
             type="button"
             className={`tab${tab === "overview" ? " active" : ""}`}

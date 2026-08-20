@@ -127,6 +127,10 @@ export function TodayContext({
   showEvents,
   showMeeting,
   shortcuts,
+  prioritizeShortcuts = false,
+  eventsUnavailable = false,
+  meetingUnavailable = false,
+  noticesUnavailable = false,
   onNavigate,
   now = new Date(),
 }: {
@@ -138,15 +142,166 @@ export function TodayContext({
   showEvents: boolean;
   showMeeting: boolean;
   shortcuts: readonly DashboardShortcutTarget[];
+  prioritizeShortcuts?: boolean;
+  eventsUnavailable?: boolean;
+  meetingUnavailable?: boolean;
+  noticesUnavailable?: boolean;
   onNavigate: (target: string) => void;
   now?: Date;
 }) {
   const upcoming = selectUpcomingEvents(events, now);
   const recentNotices = notices.slice(0, 2);
 
+  const shortcutsSection = shortcuts.length > 0 ? (
+    <nav
+      className={`dh-context-section dh-shortcuts-section${
+        prioritizeShortcuts ? " is-priority" : ""
+      }`}
+      aria-labelledby="dh-shortcuts-title"
+    >
+      <h4 id="dh-shortcuts-title" className="dh-context-title">
+        Seus espaços
+      </h4>
+      <div className="dh-shortcuts">
+        {shortcuts.map((target) => {
+          const meta = SHORTCUT_META[target];
+          return (
+            <a
+              href={`#${target}`}
+              className="dh-shortcut"
+              key={target}
+              onClick={(click) => activateHashLink(click, target, onNavigate)}
+            >
+              <span className="dh-shortcut-icon" aria-hidden="true">
+                <Icon name={meta.icon} />
+              </span>
+              <span className="dh-context-copy">
+                <span className="dh-context-name">{meta.label}</span>
+                <span className="dh-context-meta">{meta.description}</span>
+              </span>
+            </a>
+          );
+        })}
+      </div>
+    </nav>
+  ) : null;
+
+  const meetingSection = showMeeting ? (
+    <section className="dh-context-section" aria-labelledby="dh-meeting-title">
+      <h4 id="dh-meeting-title" className="dh-context-title">
+        Sua próxima reunião
+      </h4>
+      {meetingUnavailable ? (
+        <p className="dh-context-empty is-unavailable">
+          Reunião indisponível agora. Tente atualizar.
+        </p>
+      ) : meeting ? (
+        <a
+          href="#minha-celula"
+          className="dh-context-row is-link"
+          onClick={(click) => activateHashLink(click, "minha-celula", onNavigate)}
+        >
+          <span className="dh-context-icon" aria-hidden="true">
+            <Icon name="central-celula" />
+          </span>
+          <span className="dh-context-copy">
+            <span className="dh-context-name">{meeting.tema ?? "Reunião da célula"}</span>
+            <time
+              className="dh-context-meta"
+              dateTime={`${meeting.data}T${meeting.hora ?? "00:00"}`}
+            >
+              {whenLabel(meeting.data, meeting.hora, now)}
+              {meeting.local ? ` · ${meeting.local}` : ""}
+            </time>
+          </span>
+        </a>
+      ) : (
+        <p className="dh-context-empty">Nenhuma próxima reunião planejada.</p>
+      )}
+    </section>
+  ) : null;
+
+  const eventsSection = showEvents ? (
+    <section className="dh-context-section" aria-labelledby="dh-upcoming-title">
+      <h4 id="dh-upcoming-title" className="dh-context-title">
+        Próximos eventos
+      </h4>
+      {eventsUnavailable ? (
+        <p className="dh-context-empty is-unavailable">
+          Agenda indisponível agora. Tente atualizar.
+        </p>
+      ) : upcoming.length > 0 ? (
+        <div className="dh-context-list">
+          {upcoming.map((event) => (
+            <a
+              href="#calendario"
+              className="dh-context-row is-link"
+              key={event.id}
+              onClick={(click) => activateHashLink(click, "calendario", onNavigate)}
+            >
+              <span className="dh-context-icon" aria-hidden="true">
+                <Icon name="calendar" />
+              </span>
+              <span className="dh-context-copy">
+                <span className="dh-context-name">{event.titulo}</span>
+                <time
+                  className="dh-context-meta"
+                  dateTime={`${event.data}T${event.hora ?? "00:00"}`}
+                >
+                  {whenLabel(event.data!, event.hora, now)}
+                  {event.status === "a_confirmar"
+                    ? " · Pendente de confirmação"
+                    : ""}
+                </time>
+              </span>
+            </a>
+          ))}
+        </div>
+      ) : (
+        <p className="dh-context-empty">Nenhum evento futuro publicado.</p>
+      )}
+    </section>
+  ) : null;
+
+  const noticesSection = (
+    <section className="dh-context-section" aria-labelledby="dh-notices-title">
+      <h4 id="dh-notices-title" className="dh-context-title">
+        Avisos
+      </h4>
+      {noticesUnavailable ? (
+        <p className="dh-context-empty is-unavailable">
+          Avisos indisponíveis agora. Tente atualizar.
+        </p>
+      ) : recentNotices.length > 0 ? (
+        <div className="dh-context-list">
+          {recentNotices.map((notice) => (
+            <article className="dh-context-row" key={notice.id}>
+              <span className="dh-context-icon" aria-hidden="true">
+                <Icon name="bell" />
+              </span>
+              <span className="dh-context-copy">
+                <span className="dh-context-name">{notice.titulo}</span>
+                <span className="dh-context-meta">{notice.conteudo}</span>
+              </span>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <p className="dh-context-empty">Nenhum aviso novo.</p>
+      )}
+    </section>
+  );
+
   return (
     <section className="dh-panel dh-context" aria-label={title} aria-busy={loading}>
-      <h3 className="dh-panel-title">{title}</h3>
+      <header className="dh-panel-head">
+        <span className="dh-panel-symbol" aria-hidden="true">
+          <Icon name="calendar" />
+        </span>
+        <span>
+          <h3 className="dh-panel-title">{title}</h3>
+        </span>
+      </header>
 
       {loading ? (
         <div className="dh-context-skeleton" aria-hidden="true">
@@ -156,122 +311,11 @@ export function TodayContext({
         </div>
       ) : (
         <div className="dh-context-body">
-          {showEvents ? (
-            <section className="dh-context-section" aria-labelledby="dh-upcoming-title">
-              <h4 id="dh-upcoming-title" className="dh-context-title">
-                Próximos eventos
-              </h4>
-              {upcoming.length > 0 ? (
-                <div className="dh-context-list">
-                  {upcoming.map((event) => (
-                    <a
-                      href="#calendario"
-                      className="dh-context-row is-link"
-                      key={event.id}
-                      onClick={(click) => activateHashLink(click, "calendario", onNavigate)}
-                    >
-                      <span className="dh-context-icon" aria-hidden="true">
-                        <Icon name="calendar" />
-                      </span>
-                      <span className="dh-context-copy">
-                        <span className="dh-context-name">{event.titulo}</span>
-                        <time className="dh-context-meta" dateTime={`${event.data}T${event.hora ?? "00:00"}`}>
-                          {whenLabel(event.data!, event.hora, now)}
-                          {event.status === "a_confirmar"
-                            ? " · Pendente de confirmação"
-                            : ""}
-                        </time>
-                      </span>
-                    </a>
-                  ))}
-                </div>
-              ) : (
-                <p className="dh-context-empty">Nenhum evento futuro publicado.</p>
-              )}
-            </section>
-          ) : null}
-
-          {showMeeting ? (
-            <section className="dh-context-section" aria-labelledby="dh-meeting-title">
-              <h4 id="dh-meeting-title" className="dh-context-title">
-                Sua próxima reunião
-              </h4>
-              {meeting ? (
-                <a
-                  href="#minha-celula"
-                  className="dh-context-row is-link"
-                  onClick={(click) =>
-                    activateHashLink(click, "minha-celula", onNavigate)
-                  }
-                >
-                  <span className="dh-context-icon" aria-hidden="true">
-                    <Icon name="central-celula" />
-                  </span>
-                  <span className="dh-context-copy">
-                    <span className="dh-context-name">{meeting.tema ?? "Reunião da célula"}</span>
-                    <time className="dh-context-meta" dateTime={`${meeting.data}T${meeting.hora ?? "00:00"}`}>
-                      {whenLabel(meeting.data, meeting.hora, now)}
-                      {meeting.local ? ` · ${meeting.local}` : ""}
-                    </time>
-                  </span>
-                </a>
-              ) : (
-                <p className="dh-context-empty">Nenhuma próxima reunião planejada.</p>
-              )}
-            </section>
-          ) : null}
-
-          <section className="dh-context-section" aria-labelledby="dh-notices-title">
-            <h4 id="dh-notices-title" className="dh-context-title">
-              Avisos
-            </h4>
-            {recentNotices.length > 0 ? (
-              <div className="dh-context-list">
-                {recentNotices.map((notice) => (
-                  <article className="dh-context-row" key={notice.id}>
-                    <span className="dh-context-icon" aria-hidden="true">
-                      <Icon name="bell" />
-                    </span>
-                    <span className="dh-context-copy">
-                      <span className="dh-context-name">{notice.titulo}</span>
-                      <span className="dh-context-meta">{notice.conteudo}</span>
-                    </span>
-                  </article>
-                ))}
-              </div>
-            ) : (
-              <p className="dh-context-empty">Nenhum aviso novo.</p>
-            )}
-          </section>
-
-          {shortcuts.length > 0 ? (
-            <nav className="dh-context-section" aria-labelledby="dh-shortcuts-title">
-              <h4 id="dh-shortcuts-title" className="dh-context-title">
-                Seus espaços
-              </h4>
-              <div className="dh-shortcuts">
-                {shortcuts.map((target) => {
-                  const meta = SHORTCUT_META[target];
-                  return (
-                    <a
-                      href={`#${target}`}
-                      className="dh-shortcut"
-                      key={target}
-                      onClick={(click) => activateHashLink(click, target, onNavigate)}
-                    >
-                      <span className="dh-shortcut-icon" aria-hidden="true">
-                        <Icon name={meta.icon} />
-                      </span>
-                      <span className="dh-context-copy">
-                        <span className="dh-context-name">{meta.label}</span>
-                        <span className="dh-context-meta">{meta.description}</span>
-                      </span>
-                    </a>
-                  );
-                })}
-              </div>
-            </nav>
-          ) : null}
+          {prioritizeShortcuts ? shortcutsSection : null}
+          {meetingSection}
+          {eventsSection}
+          {noticesSection}
+          {prioritizeShortcuts ? null : shortcutsSection}
         </div>
       )}
     </section>

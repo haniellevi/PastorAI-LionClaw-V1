@@ -591,6 +591,7 @@ def run_pending_plan_changes(
     session_factory: Callable[[], Session] | None = None,
     asaas: AsaasClient | None = None,
     evolution: EvolutionClient | None = None,
+    progress_callback: Callable[[], None] | None = None,
 ) -> int:
     """Processa as trocas de plano abertas em todos os tenants.
 
@@ -639,9 +640,13 @@ def run_pending_plan_changes(
         work: list[tuple[str, uuid.UUID, uuid.UUID]] = [
             ("process", op_id, igreja_id) for op_id, igreja_id in open_rows
         ] + [("notify", op_id, igreja_id) for op_id, igreja_id in notify_rows]
+        if progress_callback is not None:
+            progress_callback()
 
         completed = 0
         for kind, op_id, igreja_id in work:
+            if progress_callback is not None:
+                progress_callback()
             tenant_session = session_factory()
             try:
                 mark_tenant_scoped(tenant_session, igreja_id, source="cron_billing")
@@ -677,6 +682,8 @@ def run_pending_plan_changes(
                 tenant_session.rollback()
             finally:
                 tenant_session.close()
+                if progress_callback is not None:
+                    progress_callback()
         return completed
     finally:
         if owns_evolution:

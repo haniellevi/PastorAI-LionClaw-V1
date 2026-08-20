@@ -104,7 +104,13 @@ export function SetupChecklistScreen() {
   const pending = items?.filter((i) => !i.done).length ?? 0;
 
   return (
-    <div className="screen" key="setup">
+    <div className="screen admin-screen setup-screen" key="setup">
+      <div className="screen-head">
+        <div className="titles">
+          <h2>Primeiros passos</h2>
+          <p>Conclua o que libera a operação da sua igreja com segurança.</p>
+        </div>
+      </div>
       {error ? (
         <div className="error-banner" role="alert">
           <Icon name="alert" />
@@ -122,7 +128,7 @@ export function SetupChecklistScreen() {
 
       <div className="card">
         <div className="panel-title">
-          Configuração Inicial
+          Checklist de ativação
           <span className="count">
             {items
               ? pending === 0

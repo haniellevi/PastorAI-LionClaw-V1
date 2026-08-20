@@ -85,7 +85,9 @@ export function WorkQueueItem({
     <div
       className={`dh-item${resolving ? " resolving" : ""}`}
       data-q={item.id}
+      data-kind={visual.cls}
       data-state={resolving ? "resolving" : "pending"}
+      role="listitem"
     >
       <span className={`dh-avatar ${visual.cls}`} aria-hidden="true">
         <Icon name={visual.icon} />
@@ -112,14 +114,24 @@ export function WorkQueueItem({
 
       <div className="dh-item-actions">
         {showLinkCellAction ? (
-          <DsButton disabled={busy} onClick={() => onLinkCell(item)}>
+          <DsButton
+            disabled={busy}
+            aria-busy={busy || undefined}
+            aria-label={`Conectar à célula: ${item.titulo}`}
+            onClick={() => onLinkCell(item)}
+          >
             <Icon name="link" />
             <span>Conectar à célula</span>
           </DsButton>
         ) : null}
 
         {isFonovisita ? (
-          <DsButton disabled={busy} onClick={() => onFonovisita(item)}>
+          <DsButton
+            disabled={busy}
+            aria-busy={busy || undefined}
+            aria-label={`Registrar fonovisita: ${item.titulo}`}
+            onClick={() => onFonovisita(item)}
+          >
             <Icon name="phone" />
             <span>Fonovisita</span>
           </DsButton>
@@ -128,19 +140,33 @@ export function WorkQueueItem({
         <DsButton
           variant={assumeIsPrimary ? "primary" : "tertiary"}
           disabled={busy || assumido}
+          aria-busy={busy || undefined}
+          aria-label={`${assumido ? "Assumido" : "Assumir"}: ${item.titulo}`}
           onClick={() => onAssume(item)}
         >
           {assumido ? "Assumido" : "Assumir"}
         </DsButton>
 
         {canAssignQueue ? (
-          <DsButton variant="tertiary" disabled={busy} onClick={() => onAssign(item)}>
+          <DsButton
+            variant="tertiary"
+            disabled={busy}
+            aria-busy={busy || undefined}
+            aria-label={`Atribuir responsável: ${item.titulo}`}
+            onClick={() => onAssign(item)}
+          >
             Atribuir
           </DsButton>
         ) : null}
 
         {item.canMessage ? (
-          <DsButton variant="tertiary" disabled={busy} onClick={() => onMessage(item)}>
+          <DsButton
+            variant="tertiary"
+            disabled={busy}
+            aria-busy={busy || undefined}
+            aria-label={`Enviar mensagem: ${item.titulo}`}
+            onClick={() => onMessage(item)}
+          >
             Mensagem
           </DsButton>
         ) : null}

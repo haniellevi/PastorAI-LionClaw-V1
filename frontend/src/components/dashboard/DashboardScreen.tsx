@@ -26,6 +26,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 
+import { DiamondMark } from "@/components/brand/DiamondMark";
 import { DsBanner } from "@/components/ds/Banner";
 import { DsButton } from "@/components/ds/Button";
 import { Dialog as DsDialog } from "@/components/ds/Dialog";
@@ -117,7 +118,29 @@ interface Toast {
   text: string;
 }
 
+interface ContextUnavailable {
+  events: boolean;
+  meeting: boolean;
+  notices: boolean;
+}
+
 type CellContextMode = "leader" | "member" | "general";
+
+const DASHBOARD_HONORIFIC =
+  /^(?:pr(?:a)?\.?|pastor(?:a)?|bispo(?:a)?|ap\.?|ap[oó]stol(?:o|a))$/i;
+
+/** Usa o nome de conversa quando existe e evita saudações como "Boa noite, Pr.". */
+export function dashboardGreetingName(
+  chatName: string | null | undefined,
+  fullName: string | null | undefined,
+): string {
+  const parts = (chatName?.trim() || fullName?.trim() || "")
+    .split(/\s+/)
+    .map((part) => part.replace(/,$/, ""))
+    .filter(Boolean);
+
+  return parts.find((part) => !DASHBOARD_HONORIFIC.test(part)) ?? parts[0] ?? "";
+}
 
 function toDashboardNotice(notice: Notice): DiscipleNotice {
   return {
@@ -191,6 +214,11 @@ export function DashboardScreen() {
     key: string;
     message: string;
   } | null>(null);
+  const [contextUnavailable, setContextUnavailable] = useState<ContextUnavailable>({
+    events: false,
+    meeting: false,
+    notices: false,
+  });
   const [now, setNow] = useState(() => Date.now());
   const [tab, setTab] = useState<Tab>("todos");
   const [queueExpanded, setQueueExpanded] = useState(false);
@@ -200,6 +228,7 @@ export function DashboardScreen() {
   const [conflicts, setConflicts] = useState<Record<string, string>>({});
   const [modal, setModal] = useState<ModalState | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
+  const [queueFocusRequest, setQueueFocusRequest] = useState(0);
 
   const rolesKey = [...(user?.roles ?? [])].sort().join("|");
   const responsibilities = resolveDashboardResponsibilities(user?.roles ?? []);
@@ -240,6 +269,8 @@ export function DashboardScreen() {
   const operationsRequest = useRef(0);
   const contextRequest = useRef(0);
   const locallyRemovedItemIds = useRef<Set<string>>(new Set());
+  const modalRef = useRef<ModalState | null>(modal);
+  modalRef.current = modal;
 
   useEffect(() => {
     if (canUseCellLink) return;
@@ -276,7 +307,7 @@ export function DashboardScreen() {
     async (mode: "initial" | "retry", expectedKey: string) => {
       if (!token || !hasWorkQueue) return;
       const requestId = ++operationsRequest.current;
-      if (mode === "initial") setLoading(true);
+      setLoading(true);
       setQueueHydrating(false);
       setQueueHydrationError(null);
       setSupplementsReady(false);
@@ -452,7 +483,7 @@ export function DashboardScreen() {
     async (mode: "initial" | "retry", expectedKey: string) => {
       if (!token) return;
       const requestId = ++contextRequest.current;
-      if (mode === "initial") setContextLoading(true);
+      setContextLoading(true);
       if (mode === "retry") {
         clearAuthedResponseCache(token, [
           ...(canSeeCalendar ? ["/events?"] : []),
@@ -497,6 +528,15 @@ export function DashboardScreen() {
         return;
       }
 
+      const leaderCellScopeUnavailable =
+        cellContextMode === "leader" && meetingResult.status === "rejected";
+
+      setContextUnavailable({
+        events: canSeeCalendar && eventResult.status === "rejected",
+        meeting: showCellMeeting && meetingResult.status === "rejected",
+        notices: noticeResult.status === "rejected" || leaderCellScopeUnavailable,
+      });
+
       if (eventResult.status === "fulfilled") {
         setEvents(eventResult.value?.items ?? []);
       }
@@ -505,7 +545,7 @@ export function DashboardScreen() {
       } else {
         setMeeting(null);
       }
-      if (noticeResult.status === "fulfilled") {
+      if (noticeResult.status === "fulfilled" && !leaderCellScopeUnavailable) {
         if (Array.isArray(noticeResult.value)) {
           setNotices(noticeResult.value);
         } else {
@@ -544,6 +584,7 @@ export function DashboardScreen() {
       setEvents([]);
       setMeeting(null);
       setNotices([]);
+      setContextUnavailable({ events: false, meeting: false, notices: false });
       setLoadedContextKey(null);
       setContextLoading(false);
       return;
@@ -551,6 +592,7 @@ export function DashboardScreen() {
     setEvents([]);
     setMeeting(null);
     setNotices([]);
+    setContextUnavailable({ events: false, meeting: false, notices: false });
     setLoadedContextKey(null);
     void loadContext("initial", contextKey);
   }, [contextKey, loadContext]);
@@ -590,8 +632,13 @@ export function DashboardScreen() {
 
   useEffect(() => setQueueExpanded(false), [operationsKey, tab]);
 
+  useEffect(() => {
+    if (queueFocusRequest === 0) return;
+    document.getElementById("dashboard-queue-title")?.focus();
+  }, [queueFocusRequest]);
+
   // ---- hero: saudação + data + nº de ações pendentes ----------------------
-  const firstName = user?.nome ? user.nome.trim().split(/\s+/)[0] : "";
+  const firstName = dashboardGreetingName(user?.chatNome, user?.nome);
   const greeting = useMemo(() => {
     const h = new Date().getHours();
     return h < 12 ? "Bom dia" : h < 18 ? "Boa tarde" : "Boa noite";
@@ -729,7 +776,7 @@ export function DashboardScreen() {
           text: err instanceof ApiError ? err.message : "Não foi possível assumir.",
         });
       } finally {
-        setBusyItemId(null);
+        setBusyItemId((current) => (current === item.id ? null : current));
       }
     },
     [token, user, clearConflict, patchItem, flashToast, handleSessionError, handleStale],
@@ -740,12 +787,23 @@ export function DashboardScreen() {
       if (!canUseAssignment || !token) return;
       setBusyItemId(item.id);
       clearConflict(item.id);
-      setModal(null);
       try {
         const res = await queueAction(token, item.id, "assign", responsavelId);
+        const leavesPersonalFilter =
+          tab === "meus" && user != null && res.responsavelId !== user.appUserId;
+        const currentModal = modalRef.current;
+        const ownsOrClosedModal =
+          currentModal == null ||
+          (currentModal.kind === "assign" && currentModal.item.id === item.id);
         patchItem(item.id, { status: res.status, responsavelId: res.responsavelId });
         const name = memberById.get(responsavelId)?.nome ?? "responsável";
         flashToast({ kind: "ok", text: `Atribuído a ${name}.` });
+        setModal((current) =>
+          current?.kind === "assign" && current.item.id === item.id ? null : current,
+        );
+        if (leavesPersonalFilter && ownsOrClosedModal) {
+          setQueueFocusRequest((request) => request + 1);
+        }
       } catch (err) {
         if (handleSessionError(err)) return;
         if (err instanceof StaleItemError) {
@@ -757,7 +815,7 @@ export function DashboardScreen() {
           text: err instanceof ApiError ? err.message : "Não foi possível atribuir.",
         });
       } finally {
-        setBusyItemId(null);
+        setBusyItemId((current) => (current === item.id ? null : current));
       }
     },
     [
@@ -766,6 +824,8 @@ export function DashboardScreen() {
       clearConflict,
       patchItem,
       memberById,
+      tab,
+      user,
       flashToast,
       handleSessionError,
       handleStale,
@@ -776,10 +836,12 @@ export function DashboardScreen() {
     async (item: WorkItem, mensagem: string) => {
       if (!item.canMessage || !token) return;
       setBusyItemId(item.id);
-      setModal(null);
       try {
         await sendInternalMessage(token, item.id, mensagem);
         flashToast({ kind: "ok", text: "Mensagem enviada pelo WhatsApp." });
+        setModal((current) =>
+          current?.kind === "message" && current.item.id === item.id ? null : current,
+        );
       } catch (err) {
         if (handleSessionError(err)) return;
         flashToast({
@@ -787,7 +849,7 @@ export function DashboardScreen() {
           text: err instanceof ApiError ? err.message : "Não foi possível enviar.",
         });
       } finally {
-        setBusyItemId(null);
+        setBusyItemId((current) => (current === item.id ? null : current));
       }
     },
     [token, flashToast, handleSessionError],
@@ -797,11 +859,20 @@ export function DashboardScreen() {
     async (item: WorkItem, celulaId: string) => {
       if (!canUseCellLink || !token || !item.pessoaId) return;
       setBusyItemId(item.id);
-      setModal(null);
       try {
         await linkCell(token, item.pessoaId, celulaId);
+        const currentModal = modalRef.current;
+        const ownsOrClosedModal =
+          currentModal == null ||
+          (currentModal.kind === "linkCell" && currentModal.item.id === item.id);
         flashToast({ kind: "ok", text: "Conectado à célula." });
         removeWithAnim(item.id);
+        setModal((current) =>
+          current?.kind === "linkCell" && current.item.id === item.id
+            ? null
+            : current,
+        );
+        if (ownsOrClosedModal) setQueueFocusRequest((request) => request + 1);
       } catch (err) {
         if (handleSessionError(err)) return;
         flashToast({
@@ -809,7 +880,7 @@ export function DashboardScreen() {
           text: err instanceof ApiError ? err.message : "Não foi possível conectar.",
         });
       } finally {
-        setBusyItemId(null);
+        setBusyItemId((current) => (current === item.id ? null : current));
       }
     },
     [canUseCellLink, token, flashToast, removeWithAnim, handleSessionError],
@@ -832,7 +903,7 @@ export function DashboardScreen() {
           text: err instanceof ApiError ? err.message : "Não foi possível agendar.",
         });
       } finally {
-        setBusyItemId(null);
+        setBusyItemId((current) => (current === item.id ? null : current));
       }
     },
     [token, flashToast, handleSessionError],
@@ -851,6 +922,7 @@ export function DashboardScreen() {
     (queueComplete || (tab === "todos" && queueTotal === 0));
   const isPartialFilterEmpty =
     operationsReady && visibleItems.length === 0 && !isEmpty;
+  const dashboardUpdating = loading || queueHydrating || contextLoading;
   const unavailableOperationParts = [
     ...(teamUnavailable ? ["equipe"] : []),
     ...(cellsUnavailable ? ["células"] : []),
@@ -859,10 +931,19 @@ export function DashboardScreen() {
 
   return (
     <div className="screen dashboard dh" key="dashboard">
-      {/* Cabeçalho curto e calmo: data, saudação, contador real e Atualizar. */}
-      <header className="dh-hero">
+      {/* Farol compacto: calor pastoral, estado real do dia e uma ação quieta. */}
+      <header
+        className={`dh-hero${
+          hasWorkQueue && acoesAbertas > 0 ? " has-actions" : " is-calm"
+        }`}
+      >
+        <DiamondMark className="dh-hero-mark" size={42} title="" />
         <div className="dh-greet">
-          <p className="dh-date">{todayLabel}</p>
+          <p className="dh-date">
+            <span>Seu dia em foco</span>
+            <span aria-hidden="true">·</span>
+            <span>{todayLabel}</span>
+          </p>
           <h2 className="dh-title">
             {greeting}
             {firstName ? `, ${firstName}` : ""}
@@ -887,14 +968,34 @@ export function DashboardScreen() {
             </p>
           )}
         </div>
-        <DsButton
-          variant="secondary"
-          onClick={handleRefresh}
-          disabled={loading || queueHydrating || contextLoading}
-        >
-          Atualizar
-        </DsButton>
+        <div className="dh-hero-actions">
+          {hasWorkQueue && !showSkeleton && operationError?.key !== operationsKey ? (
+            <span className="dh-focus-state" aria-hidden="true">
+              <span className="dh-focus-dot" />
+              {acoesAbertas > 0
+                ? `${acoesAbertas} ${acoesAbertas === 1 ? "cuidado" : "cuidados"}`
+                : "Tudo em ordem"}
+            </span>
+          ) : null}
+          <DsButton
+            variant="secondary"
+            onClick={handleRefresh}
+            disabled={dashboardUpdating}
+            aria-busy={dashboardUpdating || undefined}
+          >
+            <Icon name="refresh" />
+            <span>Atualizar</span>
+          </DsButton>
+        </div>
       </header>
+
+      <p className="sr-only" role="status" aria-live="polite">
+        {dashboardUpdating
+          ? "Atualizando as informações de hoje."
+          : hasWorkQueue && operationsReady && queueComplete
+            ? `${openItems.length} ${openItems.length === 1 ? "ação disponível" : "ações disponíveis"}.`
+            : "Informações de hoje atualizadas."}
+      </p>
 
       {hasWorkQueue && operationError?.key === operationsKey ? (
         <DsBanner
@@ -962,14 +1063,28 @@ export function DashboardScreen() {
         {/* A fila autorizada domina a primeira dobra quando existe. */}
         {hasWorkQueue ? (
           <section
-            className="dh-main"
+            className="dh-main dh-workboard"
             aria-label={responsibilities.queueTitle}
             aria-busy={loading || queueHydrating}
           >
           <div className="dh-queue-head">
-            <div className="dh-queue-titles">
-              <h3 className="dh-queue-title">{responsibilities.queueTitle}</h3>
-              <p className="dh-queue-sub">{responsibilities.queueHint}</p>
+            <div className="dh-queue-heading">
+              <span className="dh-queue-symbol" aria-hidden="true">
+                <Icon name="bell" />
+              </span>
+              <div className="dh-queue-titles">
+                <span className="dh-queue-title-line">
+                  <h3 id="dashboard-queue-title" className="dh-queue-title" tabIndex={-1}>
+                    {responsibilities.queueTitle}
+                  </h3>
+                  {!showSkeleton && operationsReady ? (
+                    <span className="dh-queue-count" aria-hidden="true">
+                      {acoesAbertas}
+                    </span>
+                  ) : null}
+                </span>
+                <p className="dh-queue-sub">{responsibilities.queueHint}</p>
+              </div>
             </div>
             <div className="dh-filter" role="group" aria-label="Filtrar fila">
               <button
@@ -992,7 +1107,7 @@ export function DashboardScreen() {
           </div>
 
           {operationsReady && queueHydrating ? (
-            <p className="dh-queue-sub" role="status" aria-live="polite">
+            <p className="dh-queue-progress">
               {tab === "meus"
                 ? "Conferindo todas as páginas para completar suas ações."
                 : `${openItems.length} de ${queueTotal} ações carregadas. Completando a fila.`}
@@ -1036,7 +1151,7 @@ export function DashboardScreen() {
             />
           ) : (
             <>
-              <div className="dh-queue" id="dashboard-work-queue">
+              <div className="dh-queue" id="dashboard-work-queue" role="list">
                 {displayedItems.map((item) => (
                   <WorkQueueItem
                   key={item.id}
@@ -1049,7 +1164,7 @@ export function DashboardScreen() {
                   }
                   canLinkCell={canUseCellLink}
                   canAssignQueue={canUseAssignment}
-                  busy={busyItemId === item.id}
+                  busy={busyItemId !== null}
                   resolving={resolvingIds.has(item.id)}
                   conflict={conflicts[item.id] ?? null}
                   onAssume={handleAssume}
@@ -1083,7 +1198,7 @@ export function DashboardScreen() {
           {/* Totais do escopo atual ficam depois da fila e recolhidos por padrão. */}
           {!showSkeleton && operationsReady && supplementsReady && showOverview ? (
             <details className="dh-summary">
-              <summary className="dh-summary-toggle">Resumo do seu escopo</summary>
+              <summary className="dh-summary-toggle">Visão geral do seu cuidado</summary>
               <div className="dh-summary-body">
                 {summaryRows.map((row) => (
                   <SummaryLine
@@ -1102,7 +1217,7 @@ export function DashboardScreen() {
           ) : null}
           </section>
         ) : (
-          <section className="dh-main" aria-label={responsibilities.homeTitle}>
+          <section className="dh-main dh-home-main" aria-label={responsibilities.homeTitle}>
             <TodayContext
               title={responsibilities.homeTitle}
               loading={showContextSkeleton}
@@ -1112,13 +1227,17 @@ export function DashboardScreen() {
               showEvents={canSeeCalendar}
               showMeeting={showCellMeeting}
               shortcuts={shortcutTargets}
+              prioritizeShortcuts={responsibilities.prioritizeShortcuts}
+              eventsUnavailable={contextUnavailable.events}
+              meetingUnavailable={contextUnavailable.meeting}
+              noticesUnavailable={contextUnavailable.notices}
               onNavigate={navigate}
             />
           </section>
         )}
 
         {hasWorkQueue ? (
-          <aside className="dh-side" aria-label="Contexto das suas responsabilidades">
+          <div className="dh-support" aria-label="Contexto das suas responsabilidades">
           {showSkeleton ? (
             <div className="dh-panel" aria-hidden="true">
               <div className="sk-line sk-md" />
@@ -1135,9 +1254,13 @@ export function DashboardScreen() {
                 showEvents={canSeeCalendar}
                 showMeeting={showCellMeeting}
                 shortcuts={shortcutTargets}
+                prioritizeShortcuts={false}
+                eventsUnavailable={contextUnavailable.events}
+                meetingUnavailable={contextUnavailable.meeting}
+                noticesUnavailable={contextUnavailable.notices}
                 onNavigate={navigate}
               />
-              {operationsReady && supplementsReady && showOverview ? (
+              {operationsReady && supplementsReady && showOverview && !overviewUnavailable ? (
                 <JourneyCard
                   overview={overview}
                   canSeeAgente={user ? canSee("agente", user.roles, matrix) : false}
@@ -1152,7 +1275,7 @@ export function DashboardScreen() {
               ) : null}
             </>
           )}
-          </aside>
+          </div>
         ) : null}
       </div>
 
@@ -1164,6 +1287,7 @@ export function DashboardScreen() {
           modal={modal}
           members={members}
           cells={cells}
+          busy={busyItemId !== null}
           onClose={() => setModal(null)}
           onAssign={handleAssign}
           onMessage={handleMessage}
@@ -1198,6 +1322,7 @@ function ActionModal({
   modal,
   members,
   cells,
+  busy,
   onClose,
   onAssign,
   onMessage,
@@ -1206,6 +1331,7 @@ function ActionModal({
   modal: ModalState;
   members: TeamLookupMember[];
   cells: Cell[];
+  busy: boolean;
   onClose: () => void;
   onAssign: (item: WorkItem, responsavelId: string) => void;
   onMessage: (item: WorkItem, mensagem: string) => void;
@@ -1237,6 +1363,8 @@ function ActionModal({
                 type="button"
                 key={m.usuarioId}
                 className="dh-picker-row"
+                disabled={busy}
+                aria-busy={busy || undefined}
                 onClick={() => onAssign(item, m.usuarioId)}
               >
                 <span className="dh-picker-nm">{m.nome}</span>
@@ -1261,6 +1389,8 @@ function ActionModal({
                 type="button"
                 key={c.id}
                 className="dh-picker-row"
+                disabled={busy}
+                aria-busy={busy || undefined}
                 onClick={() => onLinkCell(item, c.id)}
               >
                 <span className="dh-picker-nm">{c.nome}</span>
@@ -1283,6 +1413,7 @@ function ActionModal({
             as="textarea"
             rows={4}
             value={text}
+            disabled={busy}
             onChange={(e) => setText(e.target.value)}
             placeholder="Escreva a mensagem que será enviada pelo número oficial…"
             helper="Enviada pelo número oficial da igreja."
@@ -1291,10 +1422,10 @@ function ActionModal({
             data-autofocus=""
           />
           <div className="dh-modal-foot">
-            <DsButton variant="tertiary" onClick={onClose}>
+            <DsButton variant="tertiary" disabled={busy} onClick={onClose}>
               Cancelar
             </DsButton>
-            <DsButton type="submit" disabled={!text.trim()}>
+            <DsButton type="submit" disabled={!text.trim()} loading={busy}>
               <Icon name="send" />
               <span>Enviar</span>
             </DsButton>
@@ -1344,15 +1475,19 @@ function SummaryLine({
 }
 
 // ---------------------------------------------------------------------------
-// "Jornada no seu escopo" usa os totais atuais por etapa do overview.
-// Barra de lapidação (Direção D): proporção entre as contagens ABSOLUTAS já
-// exibidas — nenhuma métrica nova, sem tendência.
+// O Caminho vivo usa somente as contagens atuais por etapa do overview.
+// A linha conecta as quatro etapas sem transformar os totais em percentual.
 // ---------------------------------------------------------------------------
-const JOURNEY_STAGES: Array<{ key: string; label: string; route: string }> = [
-  { key: "ganhar", label: "Ganhar", route: "ganhar" },
-  { key: "consolidar", label: "Consolidar", route: "consolidar" },
-  { key: "discipular", label: "Discipular", route: "g12" },
-  { key: "enviar", label: "Enviar", route: "enviar" },
+const JOURNEY_STAGES: Array<{
+  key: string;
+  label: string;
+  route: string;
+  icon: IconKey;
+}> = [
+  { key: "ganhar", label: "Ganhar", route: "ganhar", icon: "ganhar" },
+  { key: "consolidar", label: "Consolidar", route: "consolidar", icon: "consolidar" },
+  { key: "discipular", label: "Discipular", route: "g12", icon: "discipular" },
+  { key: "enviar", label: "Enviar", route: "enviar", icon: "enviar" },
 ];
 
 function JourneyCard({
@@ -1371,56 +1506,59 @@ function JourneyCard({
       ? "sua célula"
       : "sua igreja"
     : null;
-  const maxStage = Math.max(
-    1,
-    ...JOURNEY_STAGES.map((s) => overview?.porEtapa?.[s.key] ?? 0),
-  );
-
   return (
     <section className="dh-panel dh-journey" aria-label="Jornada no seu escopo">
-      <h3 className="dh-panel-title">
-        Jornada no seu escopo
-        {scopeLabel ? <span className="dh-panel-count"> · {scopeLabel}</span> : null}
-      </h3>
-      <div>
+      <header className="dh-panel-head">
+        <span className="dh-panel-symbol" aria-hidden="true">
+          <Icon name="g12" />
+        </span>
+        <span>
+          <h3 className="dh-panel-title">
+            Jornada G12
+            {scopeLabel ? <span className="dh-panel-count"> · {scopeLabel}</span> : null}
+          </h3>
+        </span>
+      </header>
+      <div className="dh-journey-track" role="list">
         {JOURNEY_STAGES.map((stage) => {
           const value = overview?.porEtapa?.[stage.key];
           const display = value == null ? "—" : value;
           const can = canNavigate(stage.route);
           const content = (
             <>
-              <span className="dh-journey-line">
-                <span className={`dh-journey-dot ${stage.key}`} aria-hidden="true" />
-                <span className="dh-journey-label">{stage.label}</span>
-                <span className="dh-journey-val num">{display}</span>
+              <span className={`dh-journey-node ${stage.key}`} aria-hidden="true">
+                <Icon name={stage.icon} />
               </span>
-              {value != null ? (
-                <span className="dh-journey-bar" aria-hidden="true">
-                  <span
-                    className={`dh-journey-fill ${stage.key}`}
-                    style={{ width: `${Math.round((value / maxStage) * 100)}%` }}
-                  />
+              <span className="dh-journey-copy">
+                <span className="dh-journey-label">{stage.label}</span>
+                <span className="dh-journey-meta">
+                  <strong className="dh-journey-val num">{display}</strong>{" "}
+                  {value === 1 ? "pessoa" : "pessoas"}
                 </span>
-              ) : null}
+              </span>
             </>
           );
-          return can ? (
-            <a
-              href={`#${stage.route}`}
-              className="dh-journey-row is-link"
-              key={stage.key}
-              onClick={(event) =>
-                activateDashboardLink(event, stage.route, onNavigate)
-              }
-            >
-              {content}
-            </a>
-          ) : (
-            <div className="dh-journey-row" key={stage.key}>
-              {content}
+          return (
+            <div className="dh-journey-item" key={stage.key} role="listitem">
+              {can ? (
+                <a
+                  href={`#${stage.route}`}
+                  className="dh-journey-row is-link"
+                  onClick={(event) =>
+                    activateDashboardLink(event, stage.route, onNavigate)
+                  }
+                >
+                  {content}
+                </a>
+              ) : (
+                <div className="dh-journey-row">{content}</div>
+              )}
             </div>
           );
         })}
+        <span className="dh-journey-diamond" aria-hidden="true" />
+      </div>
+      <div>
         {canSeeAgente ? (
           <div className="dh-journey-foot">
             Instruções e automações da igreja.{" "}

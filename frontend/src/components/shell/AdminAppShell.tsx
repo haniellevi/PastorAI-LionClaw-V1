@@ -19,6 +19,7 @@ import { ScreenView } from "./ScreenView";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
 import { useDrawerA11y } from "./useDrawerA11y";
+import { useRouteMainFocus } from "./useRouteMainFocus";
 
 /** Telas acessíveis fora do menu (o próprio perfil). */
 const ALWAYS_ALLOWED = new Set(["perfil"]);
@@ -56,6 +57,7 @@ export function AdminAppShell() {
   const resolvedBase = allowed ? base : ADMIN_HOME;
   const resolvedRoute = allowed ? route : ADMIN_HOME;
   const resolvedParam = allowed ? param : null;
+  const mainRef = useRouteMainFocus(resolvedRoute);
 
   useEffect(() => {
     if (route !== resolvedRoute) navigate(resolvedRoute);
@@ -77,6 +79,18 @@ export function AdminAppShell() {
 
   return (
     <div className="app">
+      <a
+        className="skip-link"
+        href="#main-content"
+        onClick={(event) => {
+          // A aplicação usa hashes para rotas. O salto precisa focar o main
+          // sem transformar #main-content em uma rota inválida.
+          event.preventDefault();
+          mainRef.current?.focus({ preventScroll: true });
+        }}
+      >
+        Ir para o conteúdo principal
+      </a>
       {mobileOpen ? (
         // Botão semântico (não div aria-hidden clicável); fora do tab order —
         // Esc e o trap do drawer cobrem o teclado (useDrawerA11y).
@@ -103,7 +117,13 @@ export function AdminAppShell() {
           navigate("login");
         }}
       />
-      <main className="main">
+      <main
+        ref={mainRef}
+        id="main-content"
+        className="main"
+        tabIndex={-1}
+        aria-labelledby="screen-title"
+      >
         <Topbar
           user={user}
           route={resolvedBase}

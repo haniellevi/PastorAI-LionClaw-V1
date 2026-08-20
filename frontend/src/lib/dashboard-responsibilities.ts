@@ -23,6 +23,8 @@ export interface DashboardResponsibilities {
   queueHint: string;
   emptyQueueText: string;
   homeTitle: string;
+  /** Atalhos viram o primeiro bloco quando eles são a própria tarefa do papel. */
+  prioritizeShortcuts: boolean;
   shortcutCandidates: DashboardShortcutTarget[];
 }
 
@@ -53,6 +55,28 @@ const SHORTCUT_ORDER: readonly DashboardShortcutTarget[] = [
   "g12",
   "enviar",
   "calendario",
+];
+
+const OPERATOR_SHORTCUT_ORDER: readonly DashboardShortcutTarget[] = [
+  "inbox",
+  "ganhar",
+  "calendario",
+  "minha-celula",
+  "central-celula",
+  "consolidar",
+  "g12",
+  "enviar",
+];
+
+const MULTIPLICATION_SHORTCUT_ORDER: readonly DashboardShortcutTarget[] = [
+  "enviar",
+  "g12",
+  "minha-celula",
+  "calendario",
+  "inbox",
+  "ganhar",
+  "consolidar",
+  "central-celula",
 ];
 
 function hasAny(roles: ReadonlySet<string>, candidates: ReadonlySet<Role>): boolean {
@@ -138,6 +162,14 @@ export function resolveDashboardResponsibilities(
     for (const target of SHORTCUTS_BY_ROLE[role]) allowedShortcuts.add(target);
   }
 
+  const prioritizeShortcuts =
+    queueScope === null && (roles.has("operador") || roles.has("lider_mult"));
+  const shortcutOrder = roles.has("operador")
+    ? OPERATOR_SHORTCUT_ORDER
+    : roles.has("lider_mult")
+      ? MULTIPLICATION_SHORTCUT_ORDER
+      : SHORTCUT_ORDER;
+
   return {
     queueScope,
     hasWorkQueue: queueScope !== null,
@@ -149,6 +181,7 @@ export function resolveDashboardResponsibilities(
     queueHint: copy.hint,
     emptyQueueText: copy.empty,
     homeTitle: homeTitle(roles),
-    shortcutCandidates: SHORTCUT_ORDER.filter((target) => allowedShortcuts.has(target)),
+    prioritizeShortcuts,
+    shortcutCandidates: shortcutOrder.filter((target) => allowedShortcuts.has(target)),
   };
 }

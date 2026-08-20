@@ -18,9 +18,10 @@ import re
 import time
 import uuid
 from collections import defaultdict
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, ContextManager
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, func, or_, select, update
@@ -71,6 +72,7 @@ DELIVERY_WORK_STATUSES = frozenset(
 )
 
 SessionFactory = Callable[[], Session]
+TransportGate = Callable[[], ContextManager[bool]]
 
 
 @dataclass(frozen=True)
@@ -859,6 +861,52 @@ def _claim_next_delivery(
         session.close()
 
 
+def _renew_delivery_transport_fence(
+    session_factory: SessionFactory,
+    claim: DeliveryClaim,
+    *,
+    now: dt.datetime,
+    worker_id: str,
+    lease_seconds: int,
+) -> bool:
+    """Atomically prove ownership immediately before the external transport.
+
+    Claiming and the provider call intentionally happen in separate transactions:
+    the database transaction must never remain open across a network request.  A
+    worker may lose its lease in that gap, though, so the second conditional
+    update is the transport fence.  Only its current owner with a live lease can
+    renew the fence and start an Evolution request.
+    """
+    session = session_factory()
+    try:
+        mark_tenant_scoped(
+            session, claim.igreja_id, source="broadcast_delivery_transport_fence"
+        )
+        lease_until = now + dt.timedelta(seconds=max(1, lease_seconds))
+        renewed = session.execute(
+            update(BroadcastEntrega)
+            .where(
+                BroadcastEntrega.id == claim.entrega_id,
+                BroadcastEntrega.igreja_id == claim.igreja_id,
+                BroadcastEntrega.status == "em_envio",
+                BroadcastEntrega.claim_por == worker_id,
+                BroadcastEntrega.lease_ate.is_not(None),
+                BroadcastEntrega.lease_ate > now,
+            )
+            .values(lease_ate=lease_until, atualizado_em=now)
+        )
+        if int(renewed.rowcount or 0) != 1:
+            session.rollback()
+            return False
+        session.commit()
+        return True
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
 def _record_delivery_result(
     session_factory: SessionFactory,
     claim: DeliveryClaim,
@@ -885,6 +933,8 @@ def _record_delivery_result(
             delivery is None
             or delivery.status != "em_envio"
             or delivery.claim_por != worker_id
+            or delivery.lease_ate is None
+            or delivery.lease_ate <= now
         ):
             # The reaper may already have quarantined an expired claim. Never
             # overwrite ``desconhecido`` with a late HTTP result.
@@ -925,6 +975,12 @@ def _record_delivery_result(
         session.close()
 
 
+@contextmanager
+def _default_transport_gate(can_continue: Callable[[], bool]) -> Iterator[bool]:
+    """Keep direct callers safe while workers provide the shared process gate."""
+    yield bool(can_continue())
+
+
 def dispatch_pending_deliveries(
     session_factory: SessionFactory,
     evolution: EvolutionClient,
@@ -936,11 +992,13 @@ def dispatch_pending_deliveries(
     lease_seconds: int = DEFAULT_DELIVERY_LEASE_SECONDS,
     send_interval_ms: int = DEFAULT_SEND_INTERVAL_MS,
     should_continue: Callable[[], bool] | None = None,
+    transport_gate: TransportGate | None = None,
     sleeper: Callable[[float], None] = time.sleep,
 ) -> int:
     """Dispatch a bounded, round-robin batch across discovered tenants."""
     fixed_now = _as_utc(now) if now is not None else None
     can_continue = should_continue or (lambda: True)
+    enter_transport = transport_gate or (lambda: _default_transport_gate(can_continue))
     church_ids = _discover_delivery_tenants(session_factory)
     blocked: set[uuid.UUID] = set()
     actions = 0
@@ -978,33 +1036,73 @@ def dispatch_pending_deliveries(
                 continue  # a recipient was suppressed during revalidation
 
             claim = decision.claim
-            transport_phone = evolution_delivery_phone(claim.telefone)
-            if transport_phone is None:
-                outcome = BroadcastSendResult(
-                    status="falhou_permanente", error_class="telefone_invalido"
-                )
-            else:
-                try:
-                    outcome = evolution.send_text_classificado(
-                        claim.instance, transport_phone, claim.mensagem
+            # The worker gate linearizes local cancellation against the start of
+            # the network call.  The database fence below separately protects
+            # ownership/lease across processes.  No DB transaction spans HTTP.
+            with enter_transport() as transport_allowed:
+                attempt_now = fixed_now or utc_now()
+                if not transport_allowed or not can_continue():
+                    _record_delivery_result(
+                        session_factory,
+                        claim,
+                        BroadcastSendResult(
+                            status="falhou_retentavel",
+                            error_class="cancelado_antes_do_envio",
+                            consume_retry_budget=False,
+                        ),
+                        now=attempt_now,
+                        worker_id=worker_id,
+                        max_attempts=max_attempts,
                     )
-                except Exception:  # noqa: BLE001 - unknown means no automatic retry
+                    continue
+                try:
+                    owns_transport = _renew_delivery_transport_fence(
+                        session_factory,
+                        claim,
+                        now=attempt_now,
+                        worker_id=worker_id,
+                        lease_seconds=lease_seconds,
+                    )
+                except Exception:  # noqa: BLE001 - never send after fence failure
                     logger.exception(
-                        "Unexpected broadcast transport failure execucao_id=%s",
+                        "Broadcast transport fence failed execucao_id=%s",
                         claim.execucao_id,
                     )
-                    outcome = BroadcastSendResult(
-                        status="desconhecido", error_class="erro_nao_classificado"
+                    continue
+                if not owns_transport:
+                    logger.info(
+                        "Broadcast transport skipped reason=lost_ownership execucao_id=%s",
+                        claim.execucao_id,
                     )
+                    continue
 
-            _record_delivery_result(
-                session_factory,
-                claim,
-                outcome,
-                now=fixed_now or utc_now(),
-                worker_id=worker_id,
-                max_attempts=max_attempts,
-            )
+                transport_phone = evolution_delivery_phone(claim.telefone)
+                if transport_phone is None:
+                    outcome = BroadcastSendResult(
+                        status="falhou_permanente", error_class="telefone_invalido"
+                    )
+                else:
+                    try:
+                        outcome = evolution.send_text_classificado(
+                            claim.instance, transport_phone, claim.mensagem
+                        )
+                    except Exception:  # noqa: BLE001 - unknown means no automatic retry
+                        logger.exception(
+                            "Unexpected broadcast transport failure execucao_id=%s",
+                            claim.execucao_id,
+                        )
+                        outcome = BroadcastSendResult(
+                            status="desconhecido", error_class="erro_nao_classificado"
+                        )
+
+                _record_delivery_result(
+                    session_factory,
+                    claim,
+                    outcome,
+                    now=fixed_now or utc_now(),
+                    worker_id=worker_id,
+                    max_attempts=max_attempts,
+                )
             if send_interval_ms > 0:
                 remaining_seconds = send_interval_ms / 1000
                 while remaining_seconds > 0 and can_continue():
@@ -1030,6 +1128,7 @@ def run_delivery_cycle(
     lease_seconds: int = DEFAULT_DELIVERY_LEASE_SECONDS,
     send_interval_ms: int = DEFAULT_SEND_INTERVAL_MS,
     should_continue: Callable[[], bool] | None = None,
+    transport_gate: TransportGate | None = None,
 ) -> BroadcastCycleStats:
     """Run reaper, materialization, and bounded delivery in that order."""
     current = _as_utc(now or utc_now())
@@ -1053,6 +1152,7 @@ def run_delivery_cycle(
         lease_seconds=lease_seconds,
         send_interval_ms=send_interval_ms,
         should_continue=should_continue,
+        transport_gate=transport_gate,
     )
     return BroadcastCycleStats(
         reaped=reaped,

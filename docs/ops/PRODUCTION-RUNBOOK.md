@@ -1,6 +1,6 @@
 # PastorAI V1 — runbook canônico de produção
 
-Atualizado em 2026-08-07. Este é o procedimento operacional vigente para o
+Atualizado em 2026-08-10. Este é o procedimento operacional vigente para o
 Igreja 12. Não contém segredos; valores reais ficam somente nos provedores e no
 `.env` do release ativo, acessível por `/opt/pastorai-current/deploy/.env`.
 
@@ -164,6 +164,7 @@ for service in backend queue-worker cron-worker; do
   fi
 done
 curl -fsS http://127.0.0.1:8000/health
+curl -fsS http://127.0.0.1:8000/ready
 ln -sfn "/opt/pastorai-releases/${PASTORAI_RELEASE_SHA}" /opt/pastorai-current
 ```
 
@@ -232,7 +233,9 @@ Com `ALLOW_REAL_SENDS=false`:
 
 ```bash
 curl -fsS https://api.igreja12.com.br/health
+curl -fsS https://api.igreja12.com.br/ready
 curl -fsS http://127.0.0.1:8000/health
+curl -fsS http://127.0.0.1:8000/ready
 docker compose ps
 ```
 
@@ -256,7 +259,49 @@ e-mail/WhatsApp/cobrança ocorrem em uma janela controlada. O recebimento real
 do e-mail de recuperação pelo Brevo pertence a esse canário pós-gate, usando
 uma conta de teste e um único envio observado.
 
-## 9. Rollback
+## 9. Monitoramento e backup
+
+`/health` é liveness barata. `/ready` verifica DB e Redis como dependências
+obrigatórias; Evolution e workers aparecem como sinais opcionais. Uma falha
+opcional gera `degraded` e alerta, mas não derruba a API nem cria restart loop.
+
+Após o release ser aprovado e o symlink estável apontar para ele:
+
+```bash
+cd /opt/pastorai-current
+MONITOR_ALERT_EMAIL=seu-email@dominio.com sh deploy/monitoring/install.sh
+systemctl list-timers pastorai-monitor.timer pastorai-backup.timer --all
+journalctl -u pastorai-monitor.service -n 50 --no-pager
+```
+
+O modo padrão preserva o cron M02, não habilita `pastorai-backup.timer`; o
+primeiro tick do monitor ocorre depois do commit da instalação e uma degradação
+operacional não desfaz os arquivos/timer válidos. Se houver cron legado junto de timer
+habilitado ou ativo, o instalador aborta antes de escrever arquivos para impedir
+dois backups diários. Arquivos, permissões e estado anterior dos timers são
+restaurados se qualquer etapa da instalação falhar. Uma migração
+futura para timer exige remover o cron em gate operacional próprio e então usar
+explicitamente `PASTORAI_BACKUP_TIMER_MODE=enable`; essa opção apenas habilita o
+timer e não executa um backup. A raiz canônica continua sendo
+`/root/pastorai-backups`. O backup privilegiado compara o SHA-256 real do
+pacote com seu sidecar antes de publicar o manifesto sanitizado
+`/var/lib/pastorai-backup/backup-status.json`. A URL do banco é transformada em
+arquivos libpq temporários `0600`, montados apenas para o `pg_dump`; URL e senha
+não ficam em argv ou ambiente de Python, Docker, `pg_dump` ou outros auxiliares.
+O cron M02 deve receber o pacote completo por `sudo bash
+deploy/install-legacy-backup.sh`; o entrypoint em `/usr/local/sbin` verifica o
+auxiliar fixo e seu checksum, ambos arquivos regulares sem symlink nem hardlink
+(`nlink=1`), antes de qualquer backup ou pausa de containers.
+As units usam `ProtectSystem=strict` e paths de escrita explícitos. O monitor
+usa `DynamicUser`, `ProtectHome=true`, não acessa Docker, `.env` ou `/root` e
+valida somente o manifesto. O backup é uma unidade privilegiada separada porque
+o socket Docker é root-equivalente; esse residual é documentado e não deve ser
+confundido com uma allowlist completa contra script comprometido.
+O workflow `production-monitor.yml` faz os checks públicos e mantém uma issue
+deduplicada no GitHub. Procedimento, estados e limites de disaster recovery:
+[`deploy/monitoring/README.md`](../../deploy/monitoring/README.md).
+
+## 10. Rollback
 
 - Backend: apontar `/opt/pastorai-current` para o SHA anterior e recriar os
   containers a partir desse release; nunca restaurar ou apagar `deploy/.env` e
@@ -265,7 +310,7 @@ uma conta de teste e um único envio observado.
 - Banco: migrations aditivas não são revertidas automaticamente. Corrigir por
   nova migration revisada; não executar rollback destrutivo improvisado.
 
-## 10. Evidência mínima de conclusão
+## 11. Evidência mínima de conclusão
 
 Registrar:
 
@@ -273,7 +318,8 @@ Registrar:
 - IDs das migrations aplicadas;
 - resultado de testes/CI;
 - `docker compose ps`;
-- health local e público;
+- liveness/readiness local e pública;
+- timers do monitor/backup e data do último backup válido;
 - CORS e login;
 - deployment/aliases Vercel;
 - estado explícito de `ALLOW_REAL_SENDS`, `ASAAS_BILLING_ENABLED` e

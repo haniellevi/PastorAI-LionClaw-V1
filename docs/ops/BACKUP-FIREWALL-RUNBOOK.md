@@ -1,6 +1,6 @@
 # PastorAI — backup e firewall de produção
 
-Atualizado em 2026-08-07. Este documento não contém segredos.
+Atualizado em 2026-08-10. Este documento não contém segredos.
 
 ## Estado verificado
 
@@ -36,9 +36,19 @@ Script versionado: `deploy/backup-production.sh`.
 Instalação esperada na VPS:
 
 ```bash
-install -o root -g root -m 700 backup-production.sh \
-  /usr/local/sbin/pastorai-backup.sh
+cd /opt/pastorai-current
+sudo bash deploy/install-legacy-backup.sh
 ```
+
+O instalador entrega atomicamente o pacote completo consumido pelo cron:
+`/usr/local/sbin/pastorai-backup.sh`,
+`/usr/local/libexec/pastorai-backup/prepare-database-service.py` e o sidecar
+SHA-256 do auxiliar. O script instalado não depende do checkout nem de caminho
+relativo. Antes de criar credenciais efêmeras ou pausar containers, ele exige
+arquivo regular sem symlink nem hardlink (`nlink=1`), dono `root:root`, modos
+`0700`/`0600` e checksum válido.
+Ausência, alteração ou permissão incorreta falham fechadas antes de qualquer
+efeito operacional.
 
 Agendamento diário, às 06:15 UTC (03:15 em Brasília):
 
@@ -47,7 +57,27 @@ Agendamento diário, às 06:15 UTC (03:15 em Brasília):
 ```
 
 Os pacotes ficam em `/root/pastorai-backups`, modo `600`, com checksum SHA-256
-e retenção de 14 dias. O script usa lock para impedir execuções simultâneas.
+e retenção de 14 dias. O script usa lock para impedir execuções simultâneas. A
+`DATABASE_URL` é convertida em arquivos libpq efêmeros (`pg_service.conf` e
+`pgpass`) dentro de diretório `0700`; ambos ficam em modo `600`, são montados
+somente-leitura no container e removidos por trap em sucesso, erro ou sinal.
+Nem a URL nem a senha chegam ao argv ou ao ambiente de Python, Docker,
+`pg_dump` ou outro processo auxiliar. Depois de verificar o SHA-256 real contra
+o sidecar, o backup publica somente o manifesto sanitizado
+`/var/lib/pastorai-backup/backup-status.json`; ele não contém URL, senha, paths
+privados ou conteúdo do pacote.
+O instalador de observabilidade preserva este cron por padrão. Ele instala a
+unit `pastorai-backup.service` para uma migração futura, mas só habilita o timer
+com `PASTORAI_BACKUP_TIMER_MODE=enable` e recusa essa opção enquanto detectar o
+cron legado. O instalador aborta também quando o timer estiver ativo embora
+desabilitado, e restaura arquivos, modos e estado dos timers em falha. As units
+usam `ProtectSystem=strict`, capabilities vazias e escrita direta limitada aos
+destinos declarados. O monitor usa `DynamicUser`, não recebe socket Docker, não
+lê `.env` nem `/root` e consulta apenas o manifesto sanitizado. O backup
+continua uma fronteira root separada porque precisa do socket Docker; esse socket
+é root-equivalente, portanto a allowlist de escrita não é uma contenção contra
+script comprometido. Esse risco residual é explícito e nenhuma unit de
+monitoramento recebe o socket.
 
 Na estação Windows, `deploy/pull-encrypted-backup.ps1` copia o pacote mais
 recente aos domingos às 05:00, valida o SHA-256, criptografa, testa a
