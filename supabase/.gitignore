@@ -1,0 +1,14 @@
+# Supabase
+.branches
+.temp
+signing_keys.json
+
+# Credenciais e overrides locais
+.env
+.env.*
+!.env.example
+
+# dotenvx
+.env.keys
+.env.local
+.env.*.local

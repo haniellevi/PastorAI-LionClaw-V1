@@ -1,0 +1,17 @@
+{
+  "name": "pastorai-infrastructure-tooling",
+  "private": true,
+  "engines": {
+    "node": "24.19.0"
+  },
+  "scripts": {
+    "doctor": "bash deploy/check-local-tooling.sh",
+    "supabase": "SUPABASE_TELEMETRY_DISABLED=1 supabase",
+    "supabase:start": "bash deploy/start-local-supabase.sh",
+    "supabase:status": "SUPABASE_TELEMETRY_DISABLED=1 supabase status",
+    "supabase:stop": "SUPABASE_TELEMETRY_DISABLED=1 supabase stop"
+  },
+  "devDependencies": {
+    "supabase": "2.115.0"
+  }
+}

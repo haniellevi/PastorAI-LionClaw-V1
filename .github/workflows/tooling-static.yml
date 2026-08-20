@@ -1,0 +1,78 @@
+# Validação estática dos artefatos de tooling local. Não inicia Supabase,
+# não chama MCP e não usa credenciais ou rede de serviços externos.
+name: Tooling Static Checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tooling-static-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tooling-static:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24.19.0"
+
+      - name: Validar .mcp.json sem conectar
+        run: |
+          node - <<'NODE'
+          const fs = require("fs");
+          const config = JSON.parse(fs.readFileSync(".mcp.json", "utf8"));
+          const server = config.mcpServers?.["supabase-local"];
+          if (!server || server.type !== "http" || typeof server.url !== "string") {
+            throw new Error("supabase-local HTTP ausente em .mcp.json");
+          }
+
+          const url = new URL(server.url);
+          if (url.protocol !== "http:" || url.hostname !== "127.0.0.1" || url.port !== "54321" || url.pathname !== "/mcp") {
+            throw new Error("URL local do MCP Supabase fora do contrato esperado");
+          }
+
+          const expected = ["database", "debugging", "development", "docs"];
+          const actual = (url.searchParams.get("features") || "").split(",").filter(Boolean).sort();
+          if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+            throw new Error(`features MCP inesperadas: ${actual.join(",")}`);
+          }
+          console.log(".mcp.json válido (verificação estática)");
+          NODE
+
+      - name: Validar supabase/config.toml sem CLI
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import tomllib
+
+          config = tomllib.loads(Path("supabase/config.toml").read_text())
+          assert config["project_id"] == "pastorai-local"
+          assert config["api"]["port"] == 54321
+          assert config["db"]["major_version"] == 17
+          assert config["db"]["migrations"]["enabled"] is False
+          assert config["db"]["seed"]["enabled"] is False
+          print("supabase/config.toml válido (verificação estática)")
+          PY
+
+      - name: Validar sintaxe dos scripts Bash
+        run: |
+          test -x deploy/check-local-tooling.sh
+          test -x deploy/start-local-supabase.sh
+          bash -n deploy/check-local-tooling.sh
+          bash -n deploy/start-local-supabase.sh
+
+      - name: Validar Compose com template seguro
+        run: |
+          PASTORAI_ENV_FILE=.env.example docker compose \
+            --env-file deploy/.env.example \
+            -f deploy/docker-compose.yml config --quiet
