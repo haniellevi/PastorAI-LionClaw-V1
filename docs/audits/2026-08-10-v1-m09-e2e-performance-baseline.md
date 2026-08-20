@@ -1,10 +1,16 @@
 # V1-09 / M09 — baseline E2E e performance (Fase A)
 
-**Início:** 2026-08-09 · **fechamento da coleta:** 2026-08-10
+**Início:** 2026-08-09 · **fechamento da coleta inicial:** 2026-08-10 ·
+**revalidação de integração:** 2026-08-20
 
-**Status:** `PHASE_A_BASELINE_PASS` · aceite final ainda pendente
+**Status:** `PHASE_A_BASELINE_PASS` · revalidada localmente no SHA atual;
+aceite final de produção ainda pendente
 
-**Código da aplicação medido:** `3f085ec7228d770649b0d9041f0e16154fe37629`
+**Código da aplicação medido originalmente:**
+`3f085ec7228d770649b0d9041f0e16154fe37629`
+
+**SHA do harness revalidado:** `e7e20837e7aba333d91b3b3d07bd59319644f655`
+(sobre a base M00 integrada em `5a0f12f5062bfd45d780dacf29090c8f34a66da8`)
 
 **Branch do laboratório:** `codex/v1-m09-e2e-performance`
 
@@ -20,16 +26,21 @@ credenciais, caminho além da raiz, query ou fragmento. A representação bruta
 também precisa ser canônica, sem controles, whitespace ou barras invertidas; a
 falha acontece antes de qualquer rede.
 
-Isto **não é o aceite final da M09**. A Fase B depende dos deploys aprovados de
-M06/M07/M08 e precisa repetir as medições no SHA efetivamente implantado.
+No SHA de revalidação, cada tentativa também grava um snapshot em `afterEach`.
+Assim, requests sanitizados, timeline e bloqueio de rede permanecem disponíveis
+mesmo se uma asserção falhar. O mock foi atualizado para os contratos atuais de
+permissões, avisos e preloads de Inbox/Ganhar, sem abrir acesso a nenhum serviço
+real.
+
+Isto **não é o aceite final da M09**. A Fase B precisa repetir as medições no
+SHA efetivamente implantado após os gates restantes da V1.
 
 ## O que foi medido
 
 Ambiente local:
 
 - `next build` de produção, sem alterar componentes da aplicação;
-- Node `v22.22.3` na coleta local; o workflow versionado usa Node 20, igual ao
-  CI existente do frontend;
+- Node `v24.19.0`; o workflow versionado usa a mesma versão, alinhada ao M00;
 - Playwright `1.62.1`, Chromium;
 - latência deliberada do mock: login 280 ms, `/auth/me` 320 ms, cada leitura do
   dashboard 140 ms;
@@ -41,10 +52,10 @@ Ambiente local:
 
 | Sinal | Meta V1 | Gate da Fase A | Resultado local |
 | --- | ---: | ---: | ---: |
-| Feedback visual após ação | p75 ≤ 250 ms | amostra < 500 ms | login 98,5 ms; navegação p75 96,3 ms |
-| Página aquecida completa | p75 < 1.000 ms | p75 < 1.000 ms | **116,8 ms** (8 amostras) |
-| Login novo → dashboard completo | separado do warm; alvo provisório PROD p75 ≤ 5 s | amostra local < 4 s | **955,3 ms** |
-| Sessão restaurada → dashboard completo | separado do warm; alvo provisório PROD p75 ≤ 5 s | amostra local < 4 s | **1.039 ms** |
+| Feedback visual após ação | p75 ≤ 250 ms | amostra < 500 ms | login 81,9 ms; navegação p75 85,7 ms |
+| Página aquecida completa | p75 < 1.000 ms | p75 < 1.000 ms | **109,9 ms** (8 amostras) |
+| Login novo → dashboard completo | separado do warm; alvo provisório PROD p75 ≤ 5 s | amostra local < 4 s | **1.437,7 ms** |
+| Sessão restaurada → dashboard completo | separado do warm; alvo provisório PROD p75 ≤ 5 s | amostra local < 4 s | **1.581 ms** |
 | Erros JS / `console.error` | zero | zero | **zero** |
 | Requisições externas no laboratório | zero | zero | **zero** |
 
@@ -83,17 +94,25 @@ next build: PASS
 Essas contagens registram a coleta inicial e não representam a suíte ampliada
 pelos corretivos posteriores do guard de loopback.
 
-### Revalidação atual
+### Revalidação de integração atual
 
-Após os corretivos do guard de loopback, a revalidação local com o guard no SHA
-`87f59fb573026dc659658421f0d925242fadf266` aprovou **62 arquivos e 569
-testes**. A aplicação usada nas medições de performance permanece baseada em
-`3f085ec7228d770649b0d9041f0e16154fe37629`; o SHA do guard identifica o
-harness revalidado, não uma nova medição ou implantação da aplicação.
+No SHA `e7e20837e7aba333d91b3b3d07bd59319644f655`, sobre a main que já contém
+M00, a execução local aprovou:
 
-As evidências JSON ficam em `frontend/test-results/metrics/` durante cada run e
-incluem SHA, versão do Node, timeline, requests sanitizados e arrays de erros.
-O diretório é artefato de CI, não arquivo versionado.
+```text
+npm audit --omit=dev --audit-level=high: 0 vulnerabilidades
+lint: PASS
+typecheck: PASS
+Vitest: 86 arquivos, 783 testes PASS
+next build: PASS
+Playwright: 5 fluxos PASS (20,5 s)
+```
+
+Os cinco snapshots de outcome não registraram requests externos nem requests
+locais pendentes. As evidências JSON ficam em
+`frontend/test-results/<teste>/metrics/` durante cada run e incluem SHA, versão
+do Node, timeline, requests sanitizados e arrays de erros. O diretório é
+artefato de CI, não arquivo versionado.
 
 ## Waterfalls encontrados
 
@@ -144,14 +163,10 @@ o fim da validação de auth e o início das leituras do dashboard. Não é bloc
 da Fase A e ainda não pode ser classificado em produção. M06/M08 devem terminar
 antes de qualquer mudança no fluxo de produção.
 
-`M09-DEPENDENCY-NANOID-1` — `npm audit --omit=dev` encontra uma vulnerabilidade
-alta em `nanoid@3.3.16` (`GHSA-2v37-7h3g-55p8`), transitiva por
-`next → postcss`. Ela já estava no lockfile de `origin/main` antes da M09 e não
-há import direto de `nanoid`, `customAlphabet` ou `customRandom` no frontend.
-O advisory exige tamanho zero controlável pelo atacante para produzir o loop,
-mas a versão corrigida é `3.3.17`; a aplicabilidade e o upgrade devem ser
-tratados em missão de dependência própria. A branch M09 não aplicou override em
-produção. Referência: <https://github.com/advisories/GHSA-2v37-7h3g-55p8>.
+`M09-DEPENDENCY-NANOID-1` — finding histórico encerrado para esta integração:
+`npm audit --omit=dev --audit-level=high` retornou 0 vulnerabilidades no
+lockfile atual. Não foi aplicado override de dependência pela M09; qualquer novo
+advisory deve ser reavaliado em uma missão própria.
 
 ## Fase B — checklist de aceite final
 
