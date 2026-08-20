@@ -42,7 +42,7 @@ transferência automática das identidades DEV existentes.
 
 | Item | Estado verificado | Consequência operacional |
 |---|---|---|
-| origin/main | cc89c0c1b9966219f921f80c9ee28e03ba152537 | Base única para toda nova integração e release candidate. |
+| origin/main | 8427ece74d9620b85177c347a0e4db707551f48c | M06 e o gate Brevo estão integrados; esta é a base única para o release candidate. |
 | PR #260 / M08 | MERGED em fd1cf373... | O corretivo de concorrência de claims recuperados está integrado; não reabrir esse código por um estado histórico. |
 | PR #261 / monitor M08 | MERGED em 5d7059df... | O workflow de monitor agora falha fechado quando produção não está saudável. |
 | PR #262 / readiness Supabase | MERGED em f2c3132... e implantada | Readiness tolera conexão saudável lenta via Supavisor sem relaxar Redis/Evolution. |
@@ -51,9 +51,9 @@ transferência automática das identidades DEV existentes.
 | M00 / PR #263 | MERGED em 5a0f12f... | Tooling Linux/Docker/MCPs, Node 24, Python 3.13, PostgreSQL 17 e CI base foram validados e integrados. |
 | PR #245 / M09 | MERGED em 25d3876... | Baseline E2E/performance foi atualizado para a main vigente, revalidado e integrado. |
 | PR #234 / M01 | MERGED em cc89c0c... | Cortesia administrada pelo master, billing durável e migration PG17 foram revalidados e integrados. |
-| PR #244 / M06 | OPEN/DRAFT; 73 commits atrás da main no preflight | Próximo gate serial: atualizar contra cc89c0c..., revalidar o hardening e só então corrigir. |
+| PR #244 / M06 | MERGED em a292b5e... | Hardening de frontend, RLS/policies e executor de migrations foi revalidado e integrado. |
 | PR #257 | OPEN/READY, pós-V1 | Preservar; não integrar nesta trilha. |
-| Brevo | Recuperado no commit 6dd42a8356ecd94908d794d7eac4e8f237fd2325, com uma fixture pendente | Materializar o artefato recuperado no worktree proprietário; não recriar automaticamente. |
+| Brevo | PR #237 integrou a base de e-mail em 9987bf10...; PR #266 foi MERGED em 8427ece... | O SHA histórico 6dd42a... não existe no repositório; gate dedicado, revisão P1 e cinco checks foram concluídos. |
 | Células | Recuperado no commit 05c0aad7839d835fdbfaa762c84f9d7b94f8568d | Continua pós-V1; preservar sem desenvolver ou integrar nesta trilha. |
 
 O número de checks verdes, review threads e distância de cada branch em relação
@@ -99,8 +99,8 @@ Regras que valem para todas as sessões:
 | Acessos | Supabase DEV, Vercel, Hostinger, Brevo e recuperação de artefatos | todas as fases de código | read-only até haver autorização específica |
 | M09 | PR #245, E2E e performance | auditoria read-only de M01/M06 e recuperação Brevo | concluída na PR #245 / 25d3876... |
 | M01 | PR #234, planos cortesia e billing | auditoria read-only de M06/Brevo | concluída na PR #234 / cc89c0c... |
-| M06 | PR #244, RLS, executor e hardening | recuperação Brevo | próximo gate: atualiza depois de M01 |
-| Brevo | recuperar ou recriar gate de e-mail | preparação de RC/acessos read-only | integra depois de M06 |
+| M06 | PR #244, RLS, executor e hardening | recuperação Brevo | concluída na PR #244 / a292b5e... |
+| Brevo | gate de e-mail transacional | preparação de RC/acessos read-only | concluída na PR #266 / 8427ece... |
 | RC/Release | candidate, DEV, produção e encerramento | nenhuma escrita de missão | estritamente serial |
 | Revisão | revisão independente no SHA final de cada missão | implementação de outras worktrees sem sobreposição | read-only; não reutiliza o worktree do implementador |
 
@@ -179,9 +179,9 @@ Em paralelo e sem mutação externa:
   VPS;
 - preparar token MCP Brevo separado da chave de runtime e confirmar
   domínio/remetente;
-- materializar e verificar a implementação Brevo recuperada no commit
-  6dd42a8356ecd94908d794d7eac4e8f237fd2325; há uma fixture pendente e não há
-  recriação automática;
+- tratar a PR #237 (`9987bf10e06d5015c832a58b45f55e366a1f307a`) como a base
+  já integrada de e-mail transacional. O SHA de recuperação `6dd42a...` não
+  existe localmente nem no GitHub e não deve ser usado como evidência;
 - preservar a implementação Células recuperada no commit
   05c0aad7839d835fdbfaa762c84f9d7b94f8568d exclusivamente para pós-V1.
 
@@ -218,27 +218,39 @@ foi usada nessa missão.
 `ASAAS_BILLING_ENABLED=false` continua o padrão. Não há teste ou cobrança Asaas
 em produção nesta V1.
 
-### Fase F — M06 / PR #244
+### Fase F — M06 / PR #244 — CONCLUÍDA
 
-Com a M01 integrada, atualizar #244 contra `cc89c0c...` e revalidar sem perder
-os contratos das missões anteriores. O aceite abrange CSP frame-ancestors, Referrer-Policy,
-Permissions-Policy, policies deny, ACL/RLS, ausência de caminhos SET ROLE e
-executor de migration fail-closed por arquivo, nome e SHA.
+A PR #244 foi atualizada contra M01 e integrada em
+`a292b5ee250e24c8e5d76abc6199b32265604429`. O aceite cobriu CSP
+frame-ancestors, Referrer-Policy, Permissions-Policy, policies deny, ACL/RLS,
+ausência de caminhos `SET ROLE` e executor de migrations fail-closed por
+arquivo, nome e SHA.
 
-A migration
-20260810_031050_explicit_deny_policies_for_closed_tables.sql é provada apenas
-em PostgreSQL 17 descartável nesta fase. Revisão independente, CI, Ready e
-merge são gates separados.
+A validação local passou os 58 cenários focados do executor/RLS, 233 testes
+RLS em PostgreSQL 17 descartável, backend completo (2.497 passed, 233 skipped),
+lint, typecheck, 786 testes Vitest, build, smoke de headers, cinco E2E e audit
+npm sem high vulnerabilities. Os cinco checks da PR passaram. Depois de o
+endpoint do GitHub manter um merge pendente, o mesmo HEAD revisado foi integrado
+por avanço rápido verificado, sem `--force`; o GitHub reconheceu a PR como
+merged em 2026-08-20.
 
-### Fase G — Brevo
+### Fase G — Brevo / PR #266 — CONCLUÍDA
 
-A recuperação Brevo foi concluída no commit
-6dd42a8356ecd94908d794d7eac4e8f237fd2325 e resta uma fixture pendente. Esse
-commit não é uma PR nem uma integração. A missão deve começar por materializar
-o artefato no worktree proprietário, verificar integridade/testes/ausência de
-segredos e concluir a fixture. Não há recriação planejada; se o artefato não
-puder ser materializado, a sessão Central deve reabrir a triagem de recuperação
-antes de autorizar qualquer alternativa.
+A base de e-mails transacionais já veio da PR #237, cujo commit
+`9987bf10e06d5015c832a58b45f55e366a1f307a` é ancestral de main. O SHA histórico
+`6dd42a8356ecd94908d794d7eac4e8f237fd2325` não existe localmente nem no GitHub;
+portanto, não há artefato a recuperar nem fixture herdada a concluir.
+
+A PR #266 foi integrada em `8427ece74d9620b85177c347a0e4db707551f48c`. Seu
+HEAD revisado foi `5f1c403b11664233358fbefdd03200cab08e0a99`. A suíte completa
+do backend e os testes focados de Brevo, outbound guard, configuração e runbook
+passaram localmente; os cinco checks do GitHub passaram no HEAD final.
+
+Uma revisão P1 identificou que o loop pós-restart ainda não validava o gate
+independente. A correção exige `BREVO_SEND_MODE=off` em backend, queue-worker e
+cron-worker antes dos health/smokes, e o teste do runbook prova que ausência,
+vazio, `canary`, `live` ou `OFF` falham fechado. A thread foi respondida e
+resolvida antes do merge.
 
 Depois de M06, o gate Brevo mantém o contrato mínimo:
 
@@ -248,9 +260,9 @@ Depois de M06, o gate Brevo mantém o contrato mínimo:
   provedores no canário de e-mail;
 - erro de configuração ou upstream falha fechado e nunca simula sucesso.
 
-Cobrir convite, recuperação de senha, configuração ausente, destinatário fora
-da allowlist, falha HTTP e ausência de rede nos modos bloqueados. Só depois de
-revisão, CI, Ready e merge o gate pode participar do RC.
+O aceite cobriu convite, recuperação de senha, configuração ausente,
+destinatário fora da allowlist, falha HTTP e ausência de rede nos modos
+bloqueados. O próximo gate serial é o release candidate local.
 
 ### Fase H — release candidate, DEV e produção
 
