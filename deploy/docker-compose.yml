@@ -11,6 +11,8 @@
 #   broadcast-worker   sempre ativo; fica ocioso enquanto as flags estão false
 #
 # O banco do APP é o Supabase (gerenciado, externo). O frontend vai na Vercel.
+# PASTORAI_ENV_FILE permite validar com .env.example sem criar/copiar segredos;
+# em operação normal o padrão continua sendo deploy/.env.
 #
 # >>> 1º teste (só conectar a Evolution / QR):
 #       docker compose up -d redis evolution-postgres evolution-api
@@ -118,7 +120,7 @@ services:
       redis:
         condition: service_healthy
     env_file:
-      - .env
+      - ${PASTORAI_ENV_FILE:-.env}
     environment:
       # Sobrescreve os hosts p/ a rede interna do compose
       REDIS_URL: redis://redis:6379/0
@@ -154,7 +156,7 @@ services:
       redis:
         condition: service_healthy
     env_file:
-      - .env
+      - ${PASTORAI_ENV_FILE:-.env}
     environment:
       REDIS_URL: redis://redis:6379/0
       EVOLUTION_API_URL: http://evolution-api:8080
@@ -185,7 +187,7 @@ services:
       redis:
         condition: service_healthy
     env_file:
-      - .env
+      - ${PASTORAI_ENV_FILE:-.env}
     environment:
       REDIS_URL: redis://redis:6379/0
       EVOLUTION_API_URL: http://evolution-api:8080
@@ -219,7 +221,7 @@ services:
       redis:
         condition: service_healthy
     env_file:
-      - .env
+      - ${PASTORAI_ENV_FILE:-.env}
     environment:
       REDIS_URL: redis://redis:6379/0
       EVOLUTION_API_URL: http://evolution-api:8080
