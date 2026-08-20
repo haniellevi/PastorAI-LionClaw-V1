@@ -113,7 +113,9 @@ curl -fsS http://127.0.0.1:8000/ready
 
 O workflow `.github/workflows/production-monitor.yml` executa de fora da VPS a
 cada 30 minutos. Ele usa apenas o `GITHUB_TOKEN` do repositório e mantém uma
-única issue de incidente, fechando-a quando a produção se recupera.
+única issue de incidente, fechando-a quando a produção se recupera. A manutenção
+da issue roda mesmo se o probe falhar; em seguida, o job falha para que o
+histórico do GitHub Actions também sinalize a indisponibilidade.
 
 ## Limite de recuperação
 
