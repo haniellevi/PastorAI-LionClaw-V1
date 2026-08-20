@@ -1,9 +1,11 @@
 """Testes do guard de envios não-produção (B2).
 
 Garante que, fora de produção e sem override, os métodos de efeito externo
-(WhatsApp, cobrança, e-mail, LLM, calendário) NÃO tocam a rede — retornam um
-valor neutro e logam ``[OUTBOUND_DISABLED]`` sem expor segredo. Qualquer ambiente
-só toca a rede com ``ALLOW_REAL_SENDS=true``.
+(WhatsApp, cobrança, e-mail, LLM, calendário) NÃO tocam a rede e logam
+``[OUTBOUND_DISABLED]`` sem expor segredo. O Brevo agora sinaliza o bloqueio com
+``BrevoError`` para nunca fingir que o e-mail foi enviado; os demais provedores
+mantêm seus retornos neutros. Qualquer ambiente só toca os provedores globais com
+``ALLOW_REAL_SENDS=true``.
 """
 
 from __future__ import annotations
@@ -243,22 +245,18 @@ def test_asaas_mutations_fail_closed_in_production(
 
 def test_send_invite_blocked(monkeypatch) -> None:
     _block_network(monkeypatch)
-    assert (
+    with pytest.raises(BrevoError, match="desabilitado"):
         BrevoClient(_settings()).send_invite(
             to_email="t@x.com", nome="T", activation_link="http://x/a"
         )
-        == ""
-    )
 
 
 def test_send_password_reset_blocked(monkeypatch) -> None:
     _block_network(monkeypatch)
-    assert (
+    with pytest.raises(BrevoError, match="desabilitado"):
         BrevoClient(_settings()).send_password_reset(
             to_email="t@x.com", reset_link="http://x/r"
         )
-        == ""
-    )
 
 
 @pytest.mark.parametrize(
@@ -386,9 +384,10 @@ def test_sandbox_log_has_no_secret_or_pii(monkeypatch, caplog) -> None:
     _block_network(monkeypatch)
     with caplog.at_level("INFO", logger="pastorai.outbound"):
         EvolutionClient(_settings()).send_text("igreja-1", "5511999990000", "texto secreto")
-        BrevoClient(_settings()).send_invite(
-            to_email="alguem@real.com", nome="N", activation_link="http://x/a"
-        )
+        with pytest.raises(BrevoError, match="desabilitado"):
+            BrevoClient(_settings()).send_invite(
+                to_email="alguem@real.com", nome="N", activation_link="http://x/a"
+            )
     blob = "\n".join(r.getMessage() for r in caplog.records)
     assert "[OUTBOUND_DISABLED]" in blob
     assert "send_text" in blob
@@ -420,13 +419,18 @@ def test_meta_all_guarded_methods_block_network(monkeypatch) -> None:
         lambda: evo.reconnect("i"),
         lambda: evo.disconnect("i"),
         lambda: asa.create_checkout(nome="n", email="e@x.com", plano="ate_100", valor=1.0),
-        lambda: bre.send_invite(to_email="e@x.com", nome="n", activation_link="l"),
-        lambda: bre.send_password_reset(to_email="e@x.com", reset_link="l"),
         lambda: LLMClient("openai", "k", "gpt-5.6-luna").complete("s", "u"),
         lambda: gcal.delete_event("evt"),
     ]
     for call in calls:
         call()  # não deve levantar AssertionError do transport bloqueante
+
+    for call in (
+        lambda: bre.send_invite(to_email="e@x.com", nome="n", activation_link="l"),
+        lambda: bre.send_password_reset(to_email="e@x.com", reset_link="l"),
+    ):
+        with pytest.raises(BrevoError, match="desabilitado"):
+            call()
 
     # create_event sinaliza via GoogleCalendarError (também sem tocar a rede)
     with pytest.raises(GoogleCalendarError):

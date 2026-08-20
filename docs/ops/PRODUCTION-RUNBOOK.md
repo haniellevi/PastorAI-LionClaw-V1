@@ -76,6 +76,8 @@ ASAAS_BILLING_ENABLED
 BREVO_API_KEY
 BREVO_FROM_EMAIL
 BREVO_FROM_NAME
+BREVO_SEND_MODE
+BREVO_CANARY_RECIPIENTS
 GOOGLE_OAUTH_CLIENT_ID
 GOOGLE_OAUTH_CLIENT_SECRET
 GOOGLE_OAUTH_REDIRECT_URI
@@ -87,6 +89,12 @@ novo usa OAuth por igreja. Nunca imprimir, versionar ou incluir o `.env` no
 tarball de deploy. O pacote de backup é uma exceção operacional controlada:
 fica restrito a root e só sai da VPS criptografado, conforme o runbook de
 backup.
+
+O Brevo inicia com `BREVO_SEND_MODE=off`. Para um teste controlado, usar
+`canary` e preencher `BREVO_CANARY_RECIPIENTS` com a lista CSV de destinatários
+autorizados; lista vazia ou malformada bloqueia o envio. Promover para `live`
+só depois da verificação do canário e com reinício dos processos que consomem
+essas variáveis.
 
 ## 4. Migrations do Supabase
 

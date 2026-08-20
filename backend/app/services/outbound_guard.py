@@ -1,10 +1,11 @@
 """Guard de efeitos externos reais (B2).
 
-Efeitos externos — enviar WhatsApp (Evolution), cobrar (Asaas), e-mail (Brevo),
-gastar token de LLM e criar/editar evento no Google Calendar — NÃO devem
-disparar antes de uma ativação operacional explícita. Todos os ambientes,
-inclusive produção, ficam bloqueados até ``ALLOW_REAL_SENDS=true``. Cobrança
-Asaas exige ainda o opt-in separado ``ASAAS_BILLING_ENABLED=true``.
+Efeitos externos — enviar WhatsApp (Evolution), cobrar (Asaas), gastar token
+de LLM e criar/editar evento no Google Calendar — NÃO devem disparar antes de
+uma ativação operacional explícita. Todos os ambientes, inclusive produção,
+ficam bloqueados até ``ALLOW_REAL_SENDS=true``. Cobrança Asaas exige ainda o
+opt-in separado ``ASAAS_BILLING_ENABLED=true``. Brevo usa o gate dedicado
+``BREVO_SEND_MODE`` para permitir canário de e-mail sem abrir estes provedores.
 
 O guard age na CAMADA DE SERVIÇO de propósito: alguns envios são disparados de
 forma autônoma (worker do agente, cron de SLA) sem passar por nenhum router —
