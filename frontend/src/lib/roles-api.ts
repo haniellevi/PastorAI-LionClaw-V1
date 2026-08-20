@@ -26,6 +26,7 @@ const MATRIX_ROLES: MatrixRole[] = [
   "lider_consol",
   "lider_celula",
   "lider_mult",
+  "operador",
   "membro",
 ];
 

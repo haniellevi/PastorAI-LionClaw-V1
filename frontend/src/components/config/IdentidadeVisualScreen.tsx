@@ -157,7 +157,13 @@ export function IdentidadeVisualScreen() {
   const previewLogo = previewUrl ?? (showSavedLogo ? savedLogo : null);
 
   return (
-    <div className="screen" key="identidade">
+    <div className="screen admin-screen identity-screen" key="identidade">
+      <div className="screen-head">
+        <div className="titles">
+          <h2>Identidade da igreja</h2>
+          <p>Cuide do nome e da marca que acompanham a experiência do painel.</p>
+        </div>
+      </div>
       <div className="card card-pad" style={{ marginBottom: "var(--s4)" }}>
         <div className="panel-title">
           <Icon name="image" /> Identidade Visual

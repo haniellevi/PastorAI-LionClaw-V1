@@ -86,6 +86,27 @@ describe("RolePick — seleção múltipla de papéis (#equipe)", () => {
     expect(inputs.every((i) => i.disabled)).toBe(true);
   });
 
+  it("mantém papel derivado visível e marcado, mas não editável", () => {
+    const onToggle = vi.fn();
+    render(
+      h(RolePick, {
+        options,
+        selected: new Set<Role>(["lider_celula", "membro"]),
+        onToggle,
+        locked: { lider_celula: "Gerido pela Central de Células" },
+      }),
+    );
+
+    const derived = container.querySelector(
+      '.role-pick input[value="lider_celula"]',
+    ) as HTMLInputElement;
+    expect(derived.checked).toBe(true);
+    expect(derived.disabled).toBe(true);
+    expect(derived.closest("label")?.textContent).toContain("derivado da célula");
+    act(() => derived.click());
+    expect(onToggle).not.toHaveBeenCalled();
+  });
+
   it("legenda 'liderança'/'membro' reflete ROLE_DEFS[role].lead", () => {
     render(h(RolePick, { options, selected: new Set<Role>(), onToggle: vi.fn() }));
     const rks = Array.from(container.querySelectorAll(".role-pick label .rk")).map((el) => el.textContent);

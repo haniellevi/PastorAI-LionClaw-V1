@@ -21,6 +21,8 @@ import type { CellSummary, UpsertCellInput } from "@/lib/cells-api";
 import type { Contact } from "@/lib/contacts-api";
 import { Icon } from "@/lib/icons";
 
+import type { CellLeaderOption } from "./cell-leadership";
+
 const DIAS_SEMANA = [
   "Domingo",
   "Segunda-feira",
@@ -34,10 +36,12 @@ const DIAS_SEMANA = [
 export interface CellFormModalProps {
   /** Célula em edição; ausente = criação. */
   cell?: CellSummary | null;
-  /** Pessoas elegíveis como líder da célula (aptas, sem célula ativa). */
-  leaders: Contact[];
+  /** Pessoas avaliadas para liderança, incluindo bloqueios e o líder atual. */
+  leaders: CellLeaderOption[];
   /** Sugestões para a cobertura espiritual (pastores; não exclui quem já tem célula). */
   coverageOptions: Contact[];
+  /** Somente a Central pode trocar liderança ou ativar/desativar a célula. */
+  canManageLeadership: boolean;
   busy: boolean;
   error: string | null;
   onClose: () => void;
@@ -48,6 +52,7 @@ export function CellFormModal({
   cell,
   leaders,
   coverageOptions,
+  canManageLeadership,
   busy,
   error,
   onClose,
@@ -62,6 +67,13 @@ export function CellFormModal({
   const [ativo, setAtivo] = useState(cell?.ativo ?? true);
   const [touched, setTouched] = useState(false);
 
+  const currentLeaderOption = leaders.find((option) => option.id === liderId);
+  const leadershipBlocked =
+    canManageLeadership && currentLeaderOption?.blocksSave === true;
+  const blockedLeaderOptions = leaders.filter(
+    (option) => !option.selectable && !option.current,
+  );
+
   // Valor legado de dia ("Quinta 20h") vira opção extra do select: editar sem
   // mexer no campo preserva a string antiga em vez de apagá-la.
   const legacyDia =
@@ -75,7 +87,7 @@ export function CellFormModal({
 
   const submit = () => {
     setTouched(true);
-    if (!nome.trim() || !cobertura.trim()) return;
+    if (!nome.trim() || !cobertura.trim() || leadershipBlocked) return;
     onSubmit({
       id: cell?.id ?? null,
       nome: nome.trim(),
@@ -145,14 +157,51 @@ export function CellFormModal({
                 id="cf-lider"
                 value={liderId}
                 onChange={(e) => setLiderId(e.target.value)}
+                disabled={!canManageLeadership}
+                aria-describedby="cf-lider-help"
               >
                 <option value="">Sem líder definido</option>
                 {leaders.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.nome}
+                  <option
+                    key={p.id}
+                    value={p.id}
+                    disabled={!p.selectable && p.id !== liderId}
+                  >
+                    {p.nome}{p.reason ? ` · ${p.reason}` : ""}
                   </option>
                 ))}
               </select>
+              <p id="cf-lider-help" className="sub" style={{ color: "var(--muted)", marginTop: 6 }}>
+                {canManageLeadership
+                  ? "Somente pessoas aptas e com acesso ativo ao painel podem assumir a liderança."
+                  : "Liderança é gerida exclusivamente na Central de Células."}
+              </p>
+              {canManageLeadership && currentLeaderOption?.reason ? (
+                <p
+                  id="cf-leader-status"
+                  className="sub"
+                  role={leadershipBlocked ? "alert" : "status"}
+                  style={{ color: "var(--warn)", marginTop: 6 }}
+                >
+                  {currentLeaderOption.reason}.
+                </p>
+              ) : null}
+              {canManageLeadership && blockedLeaderOptions.length > 0 ? (
+                <details className="sub" style={{ color: "var(--muted)", marginTop: 6 }}>
+                  <summary>
+                    Ver por que {blockedLeaderOptions.length}{" "}
+                    {blockedLeaderOptions.length === 1 ? "Pessoa não pode" : "Pessoas não podem"}{" "}
+                    assumir agora
+                  </summary>
+                  <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+                    {blockedLeaderOptions.map((option) => (
+                      <li key={option.id}>
+                        {option.nome}: {option.reason}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              ) : null}
             </div>
           </div>
 
@@ -186,9 +235,16 @@ export function CellFormModal({
               type="checkbox"
               checked={ativo}
               onChange={(e) => setAtivo(e.target.checked)}
+              disabled={!canManageLeadership}
+              aria-describedby="cf-active-help"
             />
             <span>Célula ativa</span>
           </label>
+          <p id="cf-active-help" className="sub" style={{ color: "var(--muted)" }}>
+            {canManageLeadership
+              ? "Desativar preserva o histórico e retira a célula dos fluxos ativos."
+              : "Ativação e desativação são geridas exclusivamente na Central de Células."}
+          </p>
 
           <div className="modal-foot">
             <button type="button" className="btn btn-sm" onClick={onClose} disabled={busy}>
@@ -200,6 +256,8 @@ export function CellFormModal({
               size="sm"
               loading={busy}
               loadingText="Salvando…"
+              disabled={leadershipBlocked}
+              aria-describedby={leadershipBlocked ? "cf-leader-status" : undefined}
             >
               {editing ? "Salvar alterações" : "Criar célula"}
             </Button>

@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Símbolo Igreja 12 — Diamante Lapidado">
+  <!--
+    Diamante Lapidado — rota A aprovada (Gate 4/4.1).
+    Geometria canônica: diamante FECHADO; as linhas internas são planos gráficos
+    simplificados (8 planos), não uma contagem de facetas. Proibido: fenda/linha
+    vertical central no pavilhão, estrela, brilho, glow, feixe, gradiente.
+    Cores = render hex dos tokens: diamond-700 #2B5CB4 · diamond-600 #2E77D0 ·
+    diamond-900 #1B3B6F · linhas ice-50 #F7FAFD (3 níveis tonais).
+  -->
+  <g stroke="#F7FAFD" stroke-width="2.5" stroke-linejoin="round">
+    <polygon points="14,18 38,18 26,42 4,42" fill="#2B5CB4"/>
+    <polygon points="38,18 26,42 50,42" fill="#2E77D0"/>
+    <polygon points="38,18 62,18 50,42" fill="#2E77D0"/>
+    <polygon points="62,18 74,42 50,42" fill="#2E77D0"/>
+    <polygon points="62,18 86,18 96,42 74,42" fill="#2B5CB4"/>
+    <polygon points="4,42 26,42 50,90" fill="#1B3B6F"/>
+    <polygon points="26,42 74,42 50,90" fill="#2B5CB4"/>
+    <polygon points="74,42 96,42 50,90" fill="#1B3B6F"/>
+  </g>
+</svg>

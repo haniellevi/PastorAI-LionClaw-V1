@@ -94,9 +94,13 @@
 
   /* Tipografia — papéis (famílias vêm de --font/--font-display do globals.css,
      carregadas via @fontsource no layout) */
-  --type-display: 700 32px/1.15 var(--font-display);
-  --type-h1: 700 26px/1.2 var(--font-display);
-  --type-h2: 650 20px/1.25 var(--font-display);
+  /* A escala prioriza leitura operacional: presença sem competir com a tarefa.
+     H1/H2 foram compactados após o smoke visual em telas reais. */
+  /* Produto de uso frequente: a hierarquia vem do peso e do ritmo, não de
+     títulos que ocupam a primeira dobra. */
+  --type-display: 700 28px/1.15 var(--font-display);
+  --type-h1: 700 22px/1.22 var(--font-display);
+  --type-h2: 650 18px/1.32 var(--font-display);
   --type-h3: 700 16px/1.35 var(--font);
   --type-body: 450 14px/1.5 var(--font);
   --type-label: 650 13px/1.35 var(--font);

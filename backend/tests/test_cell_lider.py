@@ -190,6 +190,8 @@ class LiderSession:
             return _R(scalar=(rows[0].id if rows else None))
         if ent is Celula:
             rows = self._filter(self.cells, statement)
+            if self._wants_active(statement):
+                rows = [r for r in rows if getattr(r, "ativo", True) is True]
             return _R(scalar=(rows[0] if rows else None), scalars=rows)
         if ent is CelulaReuniao:
             rows = self._filter(self.reunioes, statement)
@@ -259,12 +261,14 @@ def make_cell(
     cell_id: str = _CELL,
     igreja_id: str = _TENANT,
     lider_id: str | None = _LEADER,
+    ativo: bool = True,
 ):
     return SimpleNamespace(
         id=cell_id,
         igreja_id=igreja_id,
         nome="Célula Central",
         lider_id=lider_id,
+        ativo=ativo,
         anfitriao_id=None,
         auxiliar_id=None,
         endereco="Rua das Flores, 100",
@@ -1231,6 +1235,15 @@ def test_list_my_led_cells_returns_led_cell(app) -> None:
 def test_list_my_led_cells_empty_when_not_leader(app) -> None:
     # Ator é MEMBRO mas não LIDERA esta célula (lider_id de outro) → lista vazia.
     session = _leader_session(cells=[make_cell(cell_id=_CELL, lider_id=_OUTSIDER)])
+    resp = _wire(app, session=session).get("/cells/me/leading", headers=_AUTH)
+    assert resp.status_code == 200, resp.text
+    assert resp.json() == []
+
+
+def test_list_my_led_cells_excludes_inactive_cell(app) -> None:
+    session = _leader_session(
+        cells=[make_cell(cell_id=_CELL, lider_id=_LEADER, ativo=False)]
+    )
     resp = _wire(app, session=session).get("/cells/me/leading", headers=_AUTH)
     assert resp.status_code == 200, resp.text
     assert resp.json() == []

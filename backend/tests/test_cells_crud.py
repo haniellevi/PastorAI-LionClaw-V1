@@ -24,7 +24,7 @@ from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
-from app.db.models import AppUser, Celula, CelulaMembro, CellAlert, Pessoa
+from app.db.models import AppUser, Celula, CelulaMembro, CellAlert, Pessoa, UserRole
 from app.db.session import get_db
 from app.services.clerk import get_clerk_client
 from tests.conftest import FakeClerk, make_app_user
@@ -71,6 +71,7 @@ class CellSession:
         members=None,
         pessoas=None,
         actor_pessoa_id=None,
+        accesses=None,
     ) -> None:
         self.app_user = app_user
         self.roles = roles
@@ -78,8 +79,21 @@ class CellSession:
         self.members = members or []
         self.pessoas = pessoas or []
         self.actor_pessoa_id = actor_pessoa_id
+        self.accesses = list(accesses) if accesses is not None else [
+            SimpleNamespace(
+                id=uuid.uuid5(uuid.NAMESPACE_URL, f"access:{p.id}"),
+                igreja_id=uuid.UUID(_TENANT),
+                pessoa_id=p.id,
+                clerk_user_id=f"clerk_{p.id}",
+                status="ativo",
+            )
+            for p in self.pessoas
+        ]
+        self.role_rows: list = []
         self.added: list = []
+        self.deleted: list = []
         self.committed = False
+        self.rolled_back = False
 
     @staticmethod
     def _eq_predicates(statement) -> dict[str, str]:
@@ -133,7 +147,11 @@ class CellSession:
         if ent is AppUser and name == "pessoa_id":
             return _R(scalar=self.actor_pessoa_id)
         if ent is AppUser:
-            return _R(scalar=self.app_user)
+            preds = self._eq_predicates(statement)
+            if "clerk_user_id" in preds:
+                return _R(scalar=self.app_user)
+            rows = self._filter(self.accesses, statement)
+            return _R(scalar=(rows[0] if rows else None), scalars=rows)
         if ent is Celula:
             rows = self._filter(self.cells, statement)
             if self._wants_active(statement):
@@ -149,10 +167,17 @@ class CellSession:
             return _R(rows=[(p.id, p.lider_id) for p in self.pessoas])
         if ent is Pessoa:
             rows = self._filter(self.pessoas, statement)
+            if name == "id":
+                return _R(scalar=(rows[0].id if rows else None))
             return _R(scalar=(rows[0] if rows else None))
         if ent is CellAlert:
             return _R(scalars=[])
-        # set_config text / func.count / UserRole.papel projection.
+        if ent is UserRole and name == "papel":
+            return _R(scalars=self.roles)
+        if ent is UserRole:
+            rows = self._filter(self.role_rows, statement)
+            return _R(scalar=(rows[0] if rows else None), scalars=rows)
+        # set_config text / func.count.
         return _R(scalars=self.roles)
 
     def add(self, obj) -> None:
@@ -161,6 +186,13 @@ class CellSession:
         self.added.append(obj)
         if isinstance(obj, CelulaMembro):
             self.members.append(obj)
+        if isinstance(obj, UserRole):
+            self.role_rows.append(obj)
+
+    def delete(self, obj) -> None:
+        self.deleted.append(obj)
+        if obj in self.role_rows:
+            self.role_rows.remove(obj)
 
     def flush(self) -> None:
         pass
@@ -170,6 +202,9 @@ class CellSession:
 
     def commit(self) -> None:
         self.committed = True
+
+    def rollback(self) -> None:
+        self.rolled_back = True
 
     def close(self) -> None:  # pragma: no cover
         pass
@@ -273,7 +308,11 @@ def _full_payload(**over) -> dict:
 
 # ---- create ---------------------------------------------------------------
 def test_create_cell_sets_new_fields(app) -> None:
-    session = CellSession(app_user=make_app_user(), roles=["pastor"])
+    session = CellSession(
+        app_user=make_app_user(),
+        roles=["pastor"],
+        pessoas=[make_pessoa(pessoa_id=_P1)],
+    )
     resp = _wire(app, session=session).post(
         "/cells",
         headers=_AUTH,
@@ -282,6 +321,7 @@ def test_create_cell_sets_new_fields(app) -> None:
             horario="20:00",
             endereco="Rua A, 100",
             linkGrupo="https://chat.whatsapp.com/x",
+            liderId=_P1,
         ),
     )
     assert resp.status_code == 200, resp.text
@@ -289,6 +329,16 @@ def test_create_cell_sets_new_fields(app) -> None:
     assert body["horario"] == "20:00"
     assert body["endereco"] == "Rua A, 100"
     assert body["linkGrupo"] == "https://chat.whatsapp.com/x"
+    assert session.committed is True
+
+
+def test_central_can_create_active_cell_without_leader(app) -> None:
+    session = CellSession(app_user=make_app_user(), roles=["pastor"])
+    resp = _wire(app, session=session).post(
+        "/cells", headers=_AUTH, json=_full_payload()
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["liderId"] is None
     assert session.committed is True
 
 
@@ -301,7 +351,7 @@ def test_create_cell_forbidden_for_member(app) -> None:
 
 
 def test_create_cell_with_sensitive_forbidden_for_non_central(app) -> None:
-    # F3 (fechado): lider_g12 pode criar, mas NÃO com campos sensíveis.
+    # Cadastro de célula pertence à Central, com ou sem campos sensíveis.
     session = CellSession(app_user=make_app_user(), roles=["lider_g12"])
     resp = _wire(app, session=session).post(
         "/cells",
@@ -312,8 +362,7 @@ def test_create_cell_with_sensitive_forbidden_for_non_central(app) -> None:
     assert session.committed is False
 
 
-def test_create_cell_leve_only_allowed_for_non_central(app) -> None:
-    # Sem sensível, o lider_g12 mantém a permissão pré-existente de criar célula.
+def test_create_cell_leve_only_still_forbidden_for_non_central(app) -> None:
     session = CellSession(app_user=make_app_user(), roles=["lider_g12"])
     resp = _wire(app, session=session).post(
         "/cells",
@@ -322,9 +371,8 @@ def test_create_cell_leve_only_allowed_for_non_central(app) -> None:
             nome="Célula do Líder", linkGrupo="https://chat.whatsapp.com/z"
         ),
     )
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["nome"] == "Célula do Líder"
-    assert session.committed is True
+    assert resp.status_code == 403
+    assert session.committed is False
 
 
 def test_create_cell_rejects_bad_horario(app) -> None:
@@ -608,6 +656,74 @@ def test_central_can_edit_sensitive(app) -> None:
     assert session.committed is True
 
 
+def test_edit_subset_preserves_omitted_rich_fields(app) -> None:
+    cell = make_cell(
+        nome="Antiga",
+        cobertura="Rede Antiga",
+        dia_reuniao="Quarta-feira",
+        horario="19:30",
+        endereco="Rua A, 100",
+        anfitriao_id=_P1,
+        auxiliar_id=_P2,
+        link_grupo="https://chat.whatsapp.com/grupo",
+        link_localizacao="https://maps.example/celula",
+        mensagem_convite="Esperamos você!",
+    )
+    session = CellSession(
+        app_user=make_app_user(), roles=["pastor"], cells=[cell]
+    )
+
+    resp = _wire(app, session=session).post(
+        "/cells",
+        headers=_AUTH,
+        json={
+            "id": _CELL,
+            "nome": "Nova",
+            "coberturaEspiritual": "Rede Nova",
+        },
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert cell.nome == "Nova"
+    assert cell.cobertura_espiritual == "Rede Nova"
+    assert cell.dia_reuniao == "Quarta-feira"
+    assert cell.horario == "19:30"
+    assert cell.endereco == "Rua A, 100"
+    assert str(cell.anfitriao_id) == _P1
+    assert str(cell.auxiliar_id) == _P2
+    assert cell.link_grupo == "https://chat.whatsapp.com/grupo"
+    assert cell.link_localizacao == "https://maps.example/celula"
+    assert cell.mensagem_convite == "Esperamos você!"
+    assert session.committed is True
+
+
+def test_edit_explicit_null_clears_only_sent_optional_field(app) -> None:
+    cell = make_cell(
+        endereco="Rua A, 100",
+        horario="19:30",
+        link_grupo="https://chat.whatsapp.com/grupo",
+    )
+    session = CellSession(
+        app_user=make_app_user(), roles=["pastor"], cells=[cell]
+    )
+
+    resp = _wire(app, session=session).post(
+        "/cells",
+        headers=_AUTH,
+        json={
+            "id": _CELL,
+            "nome": "Célula Central",
+            "coberturaEspiritual": "Rede Azul",
+            "endereco": None,
+        },
+    )
+
+    assert resp.status_code == 200, resp.text
+    assert cell.endereco is None
+    assert cell.horario == "19:30"
+    assert cell.link_grupo == "https://chat.whatsapp.com/grupo"
+
+
 def test_non_central_leader_cannot_change_sensitive(app) -> None:
     # Líder da célula (via hierarquia), papel não-Central: mudar endereço = 403.
     cell = make_cell(lider_id=_LP, endereco=None)
@@ -854,7 +970,7 @@ def test_add_member_rejects_person_who_leads_an_active_cell(app) -> None:
         f"/cells/{_CELL}/membros", headers=_AUTH, json={"pessoaId": _P1}
     )
     assert resp.status_code == 409
-    assert "lidera uma célula ativa" in resp.json()["detail"]
+    assert resp.json()["detail"]["error"] == "active_leader_cannot_be_member"
     assert session.committed is False
 
 

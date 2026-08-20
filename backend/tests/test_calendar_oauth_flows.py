@@ -133,12 +133,22 @@ def stub_tick(monkeypatch):
     """Neutraliza SLA, crons e billing; conta os dois fluxos sob teste."""
     calls = {"sla": 0, "crons": 0}
 
-    def _sla(session, engine, now, session_factory=None):
+    def _sla(
+        session,
+        engine,
+        now,
+        session_factory=None,
+        progress_callback=None,
+    ):
         calls["sla"] += 1
+        if progress_callback is not None:
+            progress_callback()
         return 7
 
-    def _crons(session, *, engine, now, last_run):
+    def _crons(session, *, engine, now, last_run, progress_callback=None):
         calls["crons"] += 1
+        if progress_callback is not None:
+            progress_callback()
         return 5
 
     monkeypatch.setattr(cw, "run_all_igrejas", _sla)
@@ -146,7 +156,7 @@ def stub_tick(monkeypatch):
     monkeypatch.setattr(
         cw,
         "run_pending_plan_changes",
-        lambda session, session_factory=None: 0,
+        lambda session, session_factory=None, progress_callback=None: 0,
     )
     return calls
 
@@ -270,10 +280,10 @@ def test_purge_close_failure_after_error_preserves_zero(stub_tick) -> None:
 
 
 def test_purge_mark_cross_tenant_failure_is_contained(stub_tick, monkeypatch) -> None:
+    conflict_error = cw.mark_cross_tenant.__globals__["TenantPinConflictError"]
+
     def _boom(session, *, source):
-        raise cw.mark_cross_tenant.__globals__["TenantPinConflictError"](  # type: ignore[attr-defined]
-            "já pinada"
-        )
+        raise conflict_error("já pinada")
 
     purge_session = _PurgeSession(rowcount=1)
     monkeypatch.setattr(cw, "mark_cross_tenant", _boom)

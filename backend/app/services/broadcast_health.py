@@ -1,47 +1,41 @@
-"""Redis heartbeat shared by the broadcast worker and API capabilities."""
+"""Broadcast compatibility wrappers around generic worker health."""
 
 from __future__ import annotations
 
-import redis
+from app.services.worker_health import (
+    ALIVE_STATES,
+    heartbeat_key,
+    publish_worker_heartbeat,
+    worker_heartbeat_state,
+)
 
-HEARTBEAT_KEY = "pastorai:broadcast-worker:heartbeat:v1"
+HEARTBEAT_KEY = heartbeat_key("broadcast-worker")
 READY_VALUE = "ready"
 IDLE_VALUE = "idle"
 
 
-def _client(redis_url: str):
-    return redis.Redis.from_url(
+def publish_broadcast_worker_state(
+    redis_url: str, *, state: str, ttl_seconds: int
+) -> None:
+    publish_worker_heartbeat(
         redis_url,
-        decode_responses=True,
-        socket_connect_timeout=1,
-        socket_timeout=1,
+        worker_name="broadcast-worker",
+        state=state,
+        ttl_seconds=ttl_seconds,
     )
 
 
 def publish_broadcast_worker_heartbeat(
     redis_url: str, *, enabled: bool, ttl_seconds: int
 ) -> None:
-    client = _client(redis_url)
-    try:
-        client.setex(
-            HEARTBEAT_KEY,
-            max(5, ttl_seconds),
-            READY_VALUE if enabled else IDLE_VALUE,
-        )
-    finally:
-        client.close()
+    publish_worker_heartbeat(
+        redis_url,
+        worker_name="broadcast-worker",
+        state=READY_VALUE if enabled else IDLE_VALUE,
+        ttl_seconds=ttl_seconds,
+    )
 
 
 def broadcast_worker_ready(redis_url: str) -> bool:
-    if not redis_url:
-        return False
-    try:
-        client = _client(redis_url)
-    except (ValueError, redis.RedisError):
-        return False
-    try:
-        return client.get(HEARTBEAT_KEY) == READY_VALUE
-    except redis.RedisError:
-        return False
-    finally:
-        client.close()
+    state = worker_heartbeat_state(redis_url, "broadcast-worker")
+    return state in ALIVE_STATES and state != IDLE_VALUE

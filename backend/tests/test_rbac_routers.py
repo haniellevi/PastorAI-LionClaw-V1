@@ -12,8 +12,11 @@ e que um papel operacional passa o gate de papel (não 403). Offline com fakes.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from fastapi.testclient import TestClient
 
+from app.db.models import RolePermission
 from app.db.session import get_db
 from app.services.clerk import get_clerk_client
 from tests.conftest import FakeClerk, FakeSession, make_app_user
@@ -39,6 +42,52 @@ def test_get_team_forbidden_for_membro(app) -> None:
     assert resp.status_code == 403
 
 
+# ---- matriz de permissões da sessão --------------------------------------
+def test_get_role_permissions_allowed_for_membro_and_tenant_scoped(app) -> None:
+    rows = [
+        SimpleNamespace(papel="membro", tela="dashboard"),
+        SimpleNamespace(papel="membro", tela="calendario"),
+    ]
+
+    class PermissionsSession(FakeSession):
+        def execute(self, statement, params=None):
+            descriptions = getattr(statement, "column_descriptions", None)
+            if descriptions and descriptions[0].get("entity") is RolePermission:
+                return SimpleNamespace(
+                    scalars=lambda: SimpleNamespace(all=lambda: list(rows))
+                )
+            return super().execute(statement, params)
+
+    app_user = make_app_user()
+    session = PermissionsSession(
+        app_user=app_user,
+        roles=["membro"],
+    )
+    app.dependency_overrides[get_db] = lambda: session
+    app.dependency_overrides[get_clerk_client] = lambda: FakeClerk()
+
+    resp = TestClient(app).get(
+        "/roles/permissions?igrejaId=00000000-0000-0000-0000-000000000999",
+        headers=_AUTH,
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["matriz"]["membro"] == ["dashboard", "calendario"]
+    assert "inbox" in resp.json()["matriz"]["operador"]
+    # O cliente não escolhe o tenant: o seam fixa a sessão na igreja do token,
+    # e a consulta de RolePermission fica sob a RLS dessa sessão.
+    assert session.info["tenant_igreja_id"] == str(app_user.igreja_id)
+
+
+def test_put_role_permissions_remains_forbidden_for_membro(app) -> None:
+    resp = _client(app, ["membro"]).put(
+        "/roles/permissions",
+        json={"matriz": {"membro": ["dashboard"]}},
+        headers=_AUTH,
+    )
+    assert resp.status_code == 403
+
+
 # ---- mutação da jornada ---------------------------------------------------
 def test_put_pipeline_forbidden_for_membro(app) -> None:
     resp = _client(app, ["membro"]).put(
@@ -54,11 +103,11 @@ def test_post_fonovisita_forbidden_for_membro(app) -> None:
     assert resp.status_code == 403
 
 
-# ---- papel operacional passa o gate (não é barrado por 403) ---------------
+# ---- papel autorizado passa o gate (não é barrado por 403) -----------------
 def test_put_pipeline_allowed_role_passes_gate(app) -> None:
-    # lider_celula passa o gate de papel; o fluxo segue (404 por pessoa ausente
+    # lider_consol passa o gate de papel; o fluxo segue (404 por pessoa ausente
     # no fake), mas NÃO é barrado por 403.
-    resp = _client(app, ["lider_celula"]).put(
+    resp = _client(app, ["lider_consol"]).put(
         "/pipeline", json={"pessoaId": _PID, "etapa": "consolidar"}, headers=_AUTH
     )
     assert resp.status_code != 403

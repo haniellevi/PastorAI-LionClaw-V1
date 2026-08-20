@@ -15,25 +15,30 @@ export interface RolePickProps {
   selected: Set<Role>;
   onToggle: (role: Role, on: boolean) => void;
   disabled?: boolean;
+  /** Papéis derivados exibidos para contexto, mas não editáveis. */
+  locked?: Partial<Record<Role, string>>;
 }
 
-export function RolePick({ options, selected, onToggle, disabled }: RolePickProps) {
+export function RolePick({ options, selected, onToggle, disabled, locked }: RolePickProps) {
   return (
     <div className="role-pick">
       {options.map((role) => {
         const on = selected.has(role);
         const def = ROLE_DEFS[role];
+        const lockedReason = locked?.[role];
         return (
-          <label key={role} className={on ? "on" : ""}>
+          <label key={role} className={on ? "on" : ""} title={lockedReason}>
             <input
               type="checkbox"
               value={role}
               checked={on}
-              disabled={disabled}
+              disabled={disabled || Boolean(lockedReason)}
               onChange={(e) => onToggle(role, e.target.checked)}
             />
             <span>{def.label}</span>
-            <span className="rk">{def.lead ? "liderança" : "membro"}</span>
+            <span className="rk">
+              {lockedReason ? "derivado da célula" : def.lead ? "liderança" : "membro"}
+            </span>
           </label>
         );
       })}
