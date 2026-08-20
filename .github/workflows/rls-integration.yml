@@ -96,7 +96,9 @@ jobs:
             tests/test_messages_inbound_idempotency.py \
             tests/test_consolidacao_open_unique_concurrency.py \
             tests/test_contacts_reactivate_unarchive_concurrency.py \
-            tests/test_calendar_oauth_concurrency.py
+            tests/test_calendar_oauth_concurrency.py \
+            tests/test_billing_complimentary_autoupgrade_migration.py \
+            tests/test_billing_complimentary_concurrency.py
 
       - name: Rodar test_pessoa_offboarding_router.py (offline, FakeSession — sem marker/Postgres)
         # Sem `-m rls_integration`: os testes deste arquivo não usam Postgres

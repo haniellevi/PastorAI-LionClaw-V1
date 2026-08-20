@@ -21,6 +21,8 @@ import datetime as dt
 import logging
 import re
 import uuid
+from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
@@ -30,6 +32,8 @@ from sqlalchemy.orm import Session
 from app.config import get_settings
 from app.db.models import (
     BillingPaymentOperation,
+    BillingPlanChangeOperation,
+    BillingSubscriptionOperation,
     Igreja,
     Plano,
     Subscription,
@@ -54,8 +58,10 @@ from app.services.billing import (
     OPEN_OPERATION_STATUSES,
     PlanChangeConflict,
     SubscriptionCreateConflict,
+    assigned_complimentary_plan,
     claim_transition,
     current_headcount,
+    current_headcount_for_igreja,
     ensure_payment_operation,
     ensure_plan_change_operation,
     find_any_open_operation,
@@ -66,10 +72,13 @@ from app.services.billing import (
     find_operation_for_payment,
     find_settled_recovery,
     find_subscription_operation_by_key,
+    finish_operation,
     get_setup_fee_for_igreja,
+    is_complimentary_plan,
+    lock_igreja_for_billing,
+    lock_plan_rows_for_billing,
     payment_matches_operation,
     prepare_subscription_operation,
-    reconcile_subscription_operation,
     subscription_matches_operation,
 )
 from app.services.billing_worker import queue_autoupgrade_if_over_limit
@@ -77,6 +86,23 @@ from app.services.billing_worker import queue_autoupgrade_if_over_limit
 logger = logging.getLogger("pastorai.subscription")
 
 router = APIRouter(prefix="/subscription", tags=["subscription"])
+
+_COMPLIMENTARY_SELF_SERVICE_DETAIL = (
+    "O plano de cortesia é gerenciado pelo administrador da plataforma"
+)
+
+
+def _reject_complimentary_self_service(db: Session, igreja: Igreja | None) -> None:
+    """Bloqueia qualquer mutação financeira iniciada por uma igreja cortesia.
+
+    Esta guarda deve rodar antes de placeholder, commit, operação durável ou
+    chamada Asaas. Somente o painel master pode retirar a concessão.
+    """
+    if assigned_complimentary_plan(db, igreja) is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=_COMPLIMENTARY_SELF_SERVICE_DETAIL,
+        )
 
 
 class SubscriptionOut(BaseModel):
@@ -117,6 +143,9 @@ class SubscriptionOut(BaseModel):
     # CPF/CNPJ visível, sem "Plano atual", sem troca de plano, com retomada.
     hasTrackedSubscription: bool = False  # noqa: N815
     checkoutRequired: bool = False  # noqa: N815
+    # Plano de cortesia concedido pelo master. Não há recorrência no Asaas e
+    # nenhuma ação financeira deve ser oferecida ao tenant.
+    isComplimentary: bool = False  # noqa: N815
 
     @classmethod
     def from_model(
@@ -159,6 +188,7 @@ class SubscriptionOut(BaseModel):
             ),
             hasTrackedSubscription=rastreada,
             checkoutRequired=not rastreada,
+            isComplimentary=False,
         )
 
 
@@ -259,6 +289,872 @@ def _plano_ativo_or_422(db: Session, codigo: str) -> Plano:
     return plano
 
 
+def _normalized_money(value: object) -> Decimal | None:
+    try:
+        normalized = Decimal(str(value)).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+    return normalized if normalized.is_finite() else None
+
+
+def _normalized_limit(value: object) -> tuple[bool, int | None]:
+    if value is None:
+        return True, None
+    try:
+        numeric = Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        return False, None
+    if (
+        not numeric.is_finite()
+        or numeric <= 0
+        or numeric != numeric.to_integral_value()
+    ):
+        return False, None
+    return True, int(numeric)
+
+
+def _optional_text_matches(value: object, expected: object) -> bool:
+    """Campo vazio é legado permitido; valor presente precisa ser idêntico."""
+    current = str(value or "").strip()
+    target = str(expected or "").strip()
+    return not current or current == target
+
+
+def _prepared_placeholder_matches_intent(
+    sub: Subscription,
+    op: BillingSubscriptionOperation,
+    *,
+    expected_igreja_id: object,
+) -> bool:
+    """Valida um placeholder PREPARED sem transformar ausência em wildcard.
+
+    Linhas antigas podem ter campos opcionais vazios. Esses vazios são aceitos,
+    mas qualquer identidade já materializada precisa apontar exatamente para a
+    intenção local. Uma Subscription com vínculo remoto ou estado financeiro
+    deixa de ser placeholder e nunca pode atravessar o claim de um novo POST.
+    """
+    frozen_setup = _normalized_money(getattr(op, "setup_fee", None))
+    placeholder_setup = _normalized_money(
+        getattr(sub, "setup_fee_contracted", None)
+    )
+    setup_matches = placeholder_setup is None or (
+        frozen_setup is not None and frozen_setup == placeholder_setup
+    )
+    placeholder_status = str(getattr(sub, "status", None) or "").strip().lower()
+    # `asaas_customer_id` fica fora desta lista de propósito: criar/resolver o
+    # customer não materializa assinatura nem cobrança, e uma rejeição 4xx
+    # legítima pode deixar esse vínculo para o retry. Ainda assim ele precisa
+    # corresponder exatamente a `op.customer_id` (checagem abaixo). Já
+    # `setup_pago` e `setup_fee_contracted` são estado contratual local; o
+    # primeiro evita recobrança e o segundo precisa bater com o snapshot.
+    materialized_financial_fields = (
+        getattr(sub, "asaas_subscription_id", None),
+        getattr(op, "asaas_subscription_id", None),
+        getattr(sub, "asaas_setup_charge_id", None),
+        getattr(sub, "asaas_setup_reversed_payment_id", None),
+        getattr(sub, "asaas_invoice_payment_id", None),
+        getattr(sub, "asaas_invoice_url", None),
+        getattr(sub, "asaas_setup_invoice_url", None),
+        getattr(sub, "asaas_invoice_reversal", None),
+        getattr(sub, "proxima_cobranca", None),
+    )
+    limit_valid, placeholder_limit = _normalized_limit(
+        getattr(sub, "limite", None)
+    )
+    frozen_limit_valid, frozen_limit = _normalized_limit(op.limite)
+    return bool(
+        str(op.subscription_id) == str(sub.id)
+        and str(sub.igreja_id) == str(expected_igreja_id)
+        and _optional_text_matches(getattr(sub, "plano", None), op.plano)
+        and _optional_text_matches(
+            getattr(sub, "asaas_customer_id", None), op.customer_id
+        )
+        and _optional_text_matches(getattr(sub, "ciclo", None), op.ciclo)
+        and setup_matches
+        and limit_valid
+        and frozen_limit_valid
+        and (placeholder_limit is None or placeholder_limit == frozen_limit)
+        and placeholder_status in ("", "pendente")
+        and not any(
+            str(value or "").strip() for value in materialized_financial_fields
+        )
+    )
+
+
+_PAYMENT_OPERATION_INVENTORY_FIELDS = (
+    "id",
+    "subscription_id",
+    "purpose",
+    "operation_key",
+    "source_payment_id",
+    "asaas_payment_id",
+    "status",
+    "valor",
+    "invoice_url",
+    "error",
+    "attempt_started_at",
+)
+_PLAN_CHANGE_OPERATION_INVENTORY_FIELDS = (
+    "id",
+    "subscription_id",
+    "asaas_subscription_id",
+    "from_plano",
+    "to_plano",
+    "to_preco",
+    "to_limite",
+    "to_descricao",
+    "origin",
+    "status",
+    "notify_status",
+    "error",
+    "attempt_started_at",
+)
+_SUBSCRIPTION_OPERATION_INVENTORY_FIELDS = (
+    "id",
+    "subscription_id",
+    "operation_key",
+    "customer_id",
+    "plano",
+    "valor",
+    "limite",
+    "setup_fee",
+    "ciclo",
+    "descricao",
+    "asaas_subscription_id",
+    "status",
+    "error",
+    "attempt_started_at",
+)
+_KNOWN_PAYMENT_OPERATION_STATUSES = frozenset(
+    {"prepared", "creating", "reconciling", "created", "paid", "reversed", "failed"}
+)
+_KNOWN_PAYMENT_OPERATION_PURPOSES = frozenset({"setup", "monthly_recovery"})
+_KNOWN_PLAN_CHANGE_OPERATION_STATUSES = frozenset(
+    {"prepared", "processing", "reconciling", "completed", "failed"}
+)
+_KNOWN_SUBSCRIPTION_OPERATION_STATUSES = frozenset(
+    {"prepared", "creating", "reconciling", "created", "failed", "superseded"}
+)
+_OPEN_SUBSCRIPTION_OPERATION_STATUSES = frozenset(
+    {"prepared", "creating", "reconciling"}
+)
+_SAFE_SUBSCRIPTION_HISTORY_STATUSES = frozenset({"failed", "superseded"})
+
+
+@dataclass(frozen=True)
+class _FinancialOperationsInventory:
+    payments: tuple[BillingPaymentOperation, ...]
+    plan_changes: tuple[BillingPlanChangeOperation, ...]
+    subscription_creations: tuple[BillingSubscriptionOperation, ...]
+
+
+@dataclass(frozen=True)
+class _LockedSubscriptionCreationScope:
+    igreja: Igreja
+    plans: dict[str, Plano]
+    inventory: _FinancialOperationsInventory
+    subscription: Subscription
+    current_operation: BillingSubscriptionOperation | None
+
+
+def _operation_rows_state(rows: tuple[object, ...], fields: tuple[str, ...]) -> tuple:
+    return tuple(
+        tuple(getattr(row, field, None) for field in fields)
+        for row in rows
+    )
+
+
+def _financial_operations_state(
+    inventory: _FinancialOperationsInventory,
+) -> tuple[tuple, tuple, tuple]:
+    """Snapshot explícito de todos os identificadores e estados financeiros."""
+    return (
+        _operation_rows_state(
+            inventory.payments, _PAYMENT_OPERATION_INVENTORY_FIELDS
+        ),
+        _operation_rows_state(
+            inventory.plan_changes, _PLAN_CHANGE_OPERATION_INVENTORY_FIELDS
+        ),
+        _operation_rows_state(
+            inventory.subscription_creations,
+            _SUBSCRIPTION_OPERATION_INVENTORY_FIELDS,
+        ),
+    )
+
+
+def _related_operation_rows(
+    db: Session,
+    model,
+    subscription_id: object,
+    *,
+    for_update: bool,
+) -> tuple:
+    statement = (
+        select(model)
+        .where(model.subscription_id == subscription_id)
+        .order_by(model.id)
+    )
+    if for_update:
+        statement = statement.with_for_update(of=model).execution_options(
+            populate_existing=True
+        )
+    return tuple(db.execute(statement).scalars().all())
+
+
+def _load_financial_operations(
+    db: Session, subscription_id: object, *, for_update: bool
+) -> _FinancialOperationsInventory:
+    """Carrega/fecha operações na ordem Payment -> PlanChange -> Subscription.
+
+    O chamador adquire Igreja e Planos antes deste helper e só trava a
+    Subscription depois. Nenhum caminho deste checkout usa a ordem inversa.
+    """
+    return _FinancialOperationsInventory(
+        payments=_related_operation_rows(
+            db, BillingPaymentOperation, subscription_id, for_update=for_update
+        ),
+        plan_changes=_related_operation_rows(
+            db, BillingPlanChangeOperation, subscription_id, for_update=for_update
+        ),
+        subscription_creations=_related_operation_rows(
+            db,
+            BillingSubscriptionOperation,
+            subscription_id,
+            for_update=for_update,
+        ),
+    )
+
+
+def _financial_inventory_plan_codes(
+    inventory: _FinancialOperationsInventory,
+) -> set[str]:
+    codes = {
+        str(code)
+        for op in inventory.plan_changes
+        for code in (op.from_plano, op.to_plano)
+        if code
+    }
+    codes.update(
+        str(op.plano) for op in inventory.subscription_creations if op.plano
+    )
+    return codes
+
+
+def _financial_history_conflict(db: Session) -> None:
+    db.rollback()
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=(
+            "Histórico financeiro local divergente; reconciliação manual "
+            "obrigatória antes de consultar o Asaas"
+        ),
+    )
+
+
+def _validate_new_subscription_financial_inventory(
+    db: Session,
+    *,
+    sub: Subscription,
+    inventory: _FinancialOperationsInventory,
+    current_operation: BillingSubscriptionOperation | None,
+) -> None:
+    """Prova localmente que nenhum efeito financeiro remoto precede um POST.
+
+    Este guard só é usado no trilho que ainda não possui assinatura remota. Um
+    histórico perfeitamente reconciliado permanece no trilho de retomada da
+    assinatura já rastreada e, portanto, nunca tenta criar outra recorrência.
+    """
+    direct_markers = (
+        getattr(sub, "asaas_subscription_id", None),
+        getattr(sub, "asaas_setup_charge_id", None),
+        getattr(sub, "asaas_setup_reversed_payment_id", None),
+        getattr(sub, "asaas_invoice_payment_id", None),
+        getattr(sub, "asaas_invoice_url", None),
+        getattr(sub, "asaas_setup_invoice_url", None),
+        getattr(sub, "asaas_invoice_reversal", None),
+        getattr(sub, "proxima_cobranca", None),
+    )
+    if any(str(value or "").strip() for value in direct_markers):
+        _financial_history_conflict(db)
+
+    current_key = (
+        str(current_operation.operation_key)
+        if current_operation is not None
+        else None
+    )
+    for op in inventory.subscription_creations:
+        operation_status = str(op.status or "").strip().lower()
+        remote_id = str(op.asaas_subscription_id or "").strip()
+        if operation_status not in _KNOWN_SUBSCRIPTION_OPERATION_STATUSES:
+            _financial_history_conflict(db)
+        if remote_id:
+            _financial_history_conflict(db)
+        if current_key is not None and str(op.operation_key) == current_key:
+            if operation_status not in _OPEN_SUBSCRIPTION_OPERATION_STATUSES:
+                _financial_history_conflict(db)
+            continue
+        if operation_status not in _SAFE_SUBSCRIPTION_HISTORY_STATUSES:
+            _financial_history_conflict(db)
+
+    # Uma troca de plano só existe para uma assinatura remota materializada:
+    # até uma linha `failed` carrega esse id por contrato. Se o espelho principal
+    # está vazio, qualquer linha desta tabela exige reconciliação manual.
+    for op in inventory.plan_changes:
+        operation_status = str(op.status or "").strip().lower()
+        remote_id = str(op.asaas_subscription_id or "").strip()
+        if (
+            operation_status not in _KNOWN_PLAN_CHANGE_OPERATION_STATUSES
+            or not remote_id
+        ):
+            _financial_history_conflict(db)
+        _financial_history_conflict(db)
+
+    # Sem assinatura remota, somente uma tentativa definitivamente rejeitada e
+    # sem qualquer id/link/fonte remota é história segura. Setup pago, reversão,
+    # recovery, estado aberto ou combinação desconhecida exigem conciliação.
+    for op in inventory.payments:
+        operation_status = str(op.status or "").strip().lower()
+        purpose = str(op.purpose or "").strip().lower()
+        remote_markers = (
+            op.source_payment_id,
+            op.asaas_payment_id,
+            op.invoice_url,
+        )
+        safe_failed_attempt = bool(
+            operation_status == "failed"
+            and purpose in _KNOWN_PAYMENT_OPERATION_PURPOSES
+            and not any(str(value or "").strip() for value in remote_markers)
+            and op.attempt_started_at is None
+        )
+        if (
+            operation_status not in _KNOWN_PAYMENT_OPERATION_STATUSES
+            or purpose not in _KNOWN_PAYMENT_OPERATION_PURPOSES
+            or not safe_failed_attempt
+        ):
+            _financial_history_conflict(db)
+
+
+def _validate_tracked_subscription_financial_inventory(
+    db: Session,
+    *,
+    sub: Subscription,
+    inventory: _FinancialOperationsInventory,
+) -> None:
+    """Confirma que operações remotas apontam para a assinatura rastreada.
+
+    Este trilho nunca cria outra recorrência. Ele permite apenas histórias
+    conhecidas que estejam integralmente reconciliadas com a Subscription.
+    """
+    subscription_id = str(sub.asaas_subscription_id or "").strip()
+    if not subscription_id or subscription_id == "sandbox":
+        _financial_history_conflict(db)
+
+    for op in inventory.subscription_creations:
+        operation_status = str(op.status or "").strip().lower()
+        remote_id = str(op.asaas_subscription_id or "").strip()
+        if operation_status not in _KNOWN_SUBSCRIPTION_OPERATION_STATUSES:
+            _financial_history_conflict(db)
+        if remote_id and remote_id != subscription_id:
+            _financial_history_conflict(db)
+        if operation_status == "created" and remote_id != subscription_id:
+            _financial_history_conflict(db)
+        if (
+            operation_status in _OPEN_SUBSCRIPTION_OPERATION_STATUSES
+            and remote_id != subscription_id
+        ):
+            _financial_history_conflict(db)
+
+    for op in inventory.plan_changes:
+        operation_status = str(op.status or "").strip().lower()
+        remote_id = str(op.asaas_subscription_id or "").strip()
+        if (
+            operation_status not in _KNOWN_PLAN_CHANGE_OPERATION_STATUSES
+            or remote_id != subscription_id
+        ):
+            _financial_history_conflict(db)
+
+    for op in inventory.payments:
+        operation_status = str(op.status or "").strip().lower()
+        purpose = str(op.purpose or "").strip().lower()
+        payment_id = str(op.asaas_payment_id or "").strip()
+        invoice_url = str(op.invoice_url or "").strip()
+        source_id = str(op.source_payment_id or "").strip()
+        if (
+            operation_status not in _KNOWN_PAYMENT_OPERATION_STATUSES
+            or purpose not in _KNOWN_PAYMENT_OPERATION_PURPOSES
+        ):
+            _financial_history_conflict(db)
+
+        if purpose == "setup":
+            active_id = str(sub.asaas_setup_charge_id or "").strip()
+            reversed_id = str(
+                getattr(sub, "asaas_setup_reversed_payment_id", None) or ""
+            ).strip()
+            setup_url = str(sub.asaas_setup_invoice_url or "").strip()
+            if source_id:
+                _financial_history_conflict(db)
+            if operation_status == "failed":
+                valid = not payment_id and not invoice_url and op.attempt_started_at is None
+            elif operation_status in {"prepared", "creating", "reconciling"}:
+                valid = not payment_id and not invoice_url
+            elif operation_status == "created":
+                valid = bool(
+                    payment_id
+                    and payment_id == active_id
+                    and invoice_url == setup_url
+                )
+            elif operation_status == "paid":
+                valid = bool(
+                    payment_id
+                    and payment_id == active_id
+                    and sub.setup_pago
+                    and payment_id != reversed_id
+                )
+            else:  # reversed
+                valid = bool(
+                    payment_id
+                    and payment_id == reversed_id
+                    and not sub.setup_pago
+                    and payment_id != active_id
+                )
+            if not valid:
+                _financial_history_conflict(db)
+            continue
+
+        # monthly_recovery: a operação referencia a mensalidade revertida da
+        # própria assinatura; a nova cobrança é canônica nesta tabela.
+        current_invoice_id = str(sub.asaas_invoice_payment_id or "").strip()
+        if not source_id or source_id != current_invoice_id:
+            _financial_history_conflict(db)
+        if operation_status == "failed":
+            valid = not payment_id and not invoice_url and op.attempt_started_at is None
+        elif operation_status in {"prepared", "creating", "reconciling"}:
+            valid = not payment_id and not invoice_url
+        else:
+            valid = bool(payment_id)
+        if not valid:
+            _financial_history_conflict(db)
+
+
+def _lock_subscription_creation_scope(
+    db: Session,
+    *,
+    igreja_id: object,
+    subscription_id: object,
+    requested_plan: str,
+    expected_operation_key: str | None,
+    tracked_subscription: bool = False,
+) -> _LockedSubscriptionCreationScope:
+    """Trava e revalida Igreja -> Planos -> operações -> Subscription."""
+    igreja = lock_igreja_for_billing(db, igreja_id)
+    if igreja is None or str(igreja.id) != str(igreja_id):
+        _financial_history_conflict(db)
+
+    # Leituras sem lock descobrem o conjunto completo de planos. A identidade
+    # só é aceita após travar operações e Subscription e recalcular o conjunto.
+    sub_candidate = _subscription_by_id(db, subscription_id)
+    discovered = _load_financial_operations(db, subscription_id, for_update=False)
+    plan_codes = _financial_inventory_plan_codes(discovered)
+    plan_codes.update(
+        str(code)
+        for code in (
+            requested_plan,
+            getattr(igreja, "plano", None),
+            getattr(sub_candidate, "plano", None),
+        )
+        if code
+    )
+    locked_plans = lock_plan_rows_for_billing(db, *plan_codes)
+    if set(plan_codes).difference(locked_plans):
+        _financial_history_conflict(db)
+
+    inventory = _load_financial_operations(db, subscription_id, for_update=True)
+    sub = _subscription_by_id(db, subscription_id, for_update=True)
+    if (
+        sub is None
+        or str(sub.id) != str(subscription_id)
+        or str(sub.igreja_id) != str(igreja.id)
+    ):
+        _financial_history_conflict(db)
+
+    # Uma inserção legada que ainda não usa o lock da Igreja pode ter ficado
+    # invisível na consulta acima e segurado apenas o FK/key-share da
+    # Subscription. O FOR UPDATE da Subscription espera esse writer concluir;
+    # esta releitura, já depois da espera, detecta a nova linha sem adquirir
+    # locks fora da ordem canônica. Escritas posteriores ficam bloqueadas pela
+    # própria Subscription até o fim desta transação.
+    post_subscription_inventory = _load_financial_operations(
+        db, subscription_id, for_update=False
+    )
+    if _financial_operations_state(post_subscription_inventory) != (
+        _financial_operations_state(inventory)
+    ):
+        _financial_history_conflict(db)
+
+    current_codes = _financial_inventory_plan_codes(inventory)
+    current_codes.update(
+        str(code)
+        for code in (
+            requested_plan,
+            getattr(igreja, "plano", None),
+            getattr(sub, "plano", None),
+        )
+        if code
+    )
+    if current_codes.difference(locked_plans):
+        _financial_history_conflict(db)
+
+    current_operation = None
+    if expected_operation_key is not None:
+        current_operation = next(
+            (
+                op
+                for op in inventory.subscription_creations
+                if str(op.operation_key) == str(expected_operation_key)
+            ),
+            None,
+        )
+        if current_operation is None:
+            _financial_history_conflict(db)
+    else:
+        open_operations = [
+            op
+            for op in inventory.subscription_creations
+            if str(op.status or "").strip().lower()
+            in _OPEN_SUBSCRIPTION_OPERATION_STATUSES
+        ]
+        if len(open_operations) > 1:
+            _financial_history_conflict(db)
+        current_operation = open_operations[0] if open_operations else None
+
+    if tracked_subscription:
+        _validate_tracked_subscription_financial_inventory(
+            db, sub=sub, inventory=inventory
+        )
+    else:
+        _validate_new_subscription_financial_inventory(
+            db,
+            sub=sub,
+            inventory=inventory,
+            current_operation=current_operation,
+        )
+    return _LockedSubscriptionCreationScope(
+        igreja=igreja,
+        plans=locked_plans,
+        inventory=inventory,
+        subscription=sub,
+        current_operation=current_operation,
+    )
+
+
+def _validate_open_subscription_intent_target(
+    db: Session,
+    *,
+    sub: Subscription,
+    op: BillingSubscriptionOperation,
+    requested_plan: str,
+    expected_igreja_id: object,
+    allowed_statuses: tuple[str, ...] = ("creating", "reconciling"),
+    require_customer: bool = True,
+    plan_override: Plano | None = None,
+) -> Plano:
+    """Valida localmente uma intenção ambígua antes de qualquer GET no Asaas.
+
+    Uma intenção `creating`/`reconciling` só pode ser retomada quando ainda
+    aponta para o placeholder e para um plano local existente e pago. Plano
+    pago inativo continua válido (grandfathering), mas o catálogo precisa ser
+    idêntico ao alvo financeiro congelado: uma edição posterior exige
+    reconciliação manual, pois já não é seguro adotar automaticamente a
+    recorrência remota. Qualquer alvo ausente, alterado, cortesia, zero ou
+    estruturalmente incompatível falha fechado sem consumir tentativa, alterar
+    estado local ou consultar o provedor.
+    """
+    plan = plan_override
+    if plan is None:
+        plan = db.execute(
+            select(Plano).where(Plano.codigo == op.plano)
+        ).scalar_one_or_none()
+
+    catalog_price = _normalized_money(
+        plan.preco_mensal if plan is not None else None
+    )
+    frozen_price = _normalized_money(op.valor)
+    frozen_setup = _normalized_money(op.setup_fee)
+    contracted_setup = _normalized_money(
+        getattr(sub, "setup_fee_contracted", None)
+    )
+    setup_compatible = contracted_setup == frozen_setup
+    if op.status == "prepared":
+        setup_compatible = contracted_setup is None or setup_compatible
+    catalog_limit_valid, catalog_limit = _normalized_limit(
+        getattr(plan, "limite_pessoas", None) if plan is not None else None
+    )
+    frozen_limit_valid, frozen_limit = _normalized_limit(op.limite)
+    operation_customer = str(op.customer_id or "").strip()
+    subscription_customer = str(
+        getattr(sub, "asaas_customer_id", None) or ""
+    ).strip()
+    customer_compatible = (
+        bool(operation_customer)
+        and bool(subscription_customer)
+        and operation_customer == subscription_customer
+    )
+    if not require_customer:
+        customer_compatible = (
+            not operation_customer and not subscription_customer
+        ) or customer_compatible
+
+    placeholder_compatible = bool(
+        str(sub.igreja_id) == str(expected_igreja_id)
+        and str(op.subscription_id) == str(sub.id)
+        and str(sub.plano) == str(op.plano)
+    )
+    if op.status == "prepared":
+        placeholder_compatible = _prepared_placeholder_matches_intent(
+            sub, op, expected_igreja_id=expected_igreja_id
+        )
+
+    compatible = bool(
+        plan is not None
+        and str(plan.codigo) == str(op.plano) == str(requested_plan)
+        and placeholder_compatible
+        and op.status in allowed_statuses
+        and catalog_price is not None
+        and catalog_price > 0
+        and not is_complimentary_plan(plan)
+        and frozen_price is not None
+        and frozen_price > 0
+        and catalog_price == frozen_price
+        and catalog_limit_valid
+        and frozen_limit_valid
+        and catalog_limit == frozen_limit
+        and frozen_setup is not None
+        and frozen_setup >= 0
+        and setup_compatible
+        and bool(str(op.operation_key or "").strip())
+        and customer_compatible
+        and str(op.ciclo or "").upper() == "MONTHLY"
+        and op.descricao == subscription_description(op.plano)
+    )
+    if not compatible:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Contratação local inválida; reconciliação manual obrigatória "
+                "antes de consultar o Asaas"
+            ),
+        )
+    return plan
+
+
+@dataclass(frozen=True)
+class _SubscriptionReconciliationSnapshot:
+    igreja_id: object
+    subscription_id: object
+    operation_key: str
+    plan_code: str
+    church_state: tuple[object, ...]
+    plan_state: tuple[object, ...]
+    operation_state: tuple[object, ...]
+    subscription_state: tuple[object, ...]
+    customer_id: str
+    value: Decimal
+    cycle: str
+    description: str
+    financial_operations_state: tuple[tuple, tuple, tuple]
+
+
+def _subscription_reconciliation_snapshot(
+    *,
+    igreja: Igreja,
+    plan: Plano,
+    op: BillingSubscriptionOperation,
+    sub: Subscription,
+    financial_operations_state: tuple[tuple, tuple, tuple],
+) -> _SubscriptionReconciliationSnapshot:
+    """Congela toda identidade usada antes de ceder tempo ao GET remoto."""
+    value = _normalized_money(op.valor)
+    if value is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Contratação local mudou durante a reconciliação",
+        )
+    return _SubscriptionReconciliationSnapshot(
+        igreja_id=igreja.id,
+        subscription_id=sub.id,
+        operation_key=str(op.operation_key),
+        plan_code=str(plan.codigo),
+        church_state=(
+            str(igreja.id),
+            str(getattr(igreja, "status", None) or ""),
+            str(getattr(igreja, "plano", None) or ""),
+            _normalized_money(getattr(igreja, "setup_fee_override", None)),
+            str(getattr(igreja, "dono_id", None) or ""),
+        ),
+        plan_state=(
+            str(plan.codigo),
+            str(getattr(plan, "nome", None) or ""),
+            _normalized_limit(getattr(plan, "limite_pessoas", None)),
+            _normalized_money(getattr(plan, "preco_mensal", None)),
+            bool(getattr(plan, "ativo", False)),
+            getattr(plan, "ordem", None),
+        ),
+        operation_state=(
+            str(getattr(op, "id", None) or ""),
+            str(op.subscription_id),
+            str(op.operation_key),
+            str(op.customer_id or ""),
+            str(op.plano),
+            _normalized_money(op.valor),
+            _normalized_limit(op.limite),
+            _normalized_money(op.setup_fee),
+            str(op.ciclo or "").upper(),
+            str(op.descricao or ""),
+            str(op.asaas_subscription_id or ""),
+            str(op.status or ""),
+            op.attempt_started_at,
+            str(op.error or ""),
+        ),
+        subscription_state=(
+            str(sub.id),
+            str(sub.igreja_id),
+            str(sub.plano or ""),
+            str(sub.status or ""),
+            getattr(sub, "pessoas", None),
+            _normalized_limit(getattr(sub, "limite", None)),
+            getattr(sub, "proxima_cobranca", None),
+            str(getattr(sub, "asaas_customer_id", None) or ""),
+            str(getattr(sub, "asaas_subscription_id", None) or ""),
+            str(getattr(sub, "asaas_setup_charge_id", None) or ""),
+            str(getattr(sub, "asaas_setup_reversed_payment_id", None) or ""),
+            str(getattr(sub, "asaas_invoice_url", None) or ""),
+            str(getattr(sub, "asaas_setup_invoice_url", None) or ""),
+            str(getattr(sub, "asaas_invoice_payment_id", None) or ""),
+            str(getattr(sub, "asaas_invoice_reversal", None) or ""),
+            bool(getattr(sub, "setup_pago", False)),
+            _normalized_money(getattr(sub, "setup_fee_contracted", None)),
+        ),
+        customer_id=str(op.customer_id or ""),
+        value=value,
+        cycle=str(op.ciclo or "").upper(),
+        description=str(op.descricao or ""),
+        financial_operations_state=financial_operations_state,
+    )
+
+
+def _remote_matches_reconciliation_snapshot(
+    snapshot: _SubscriptionReconciliationSnapshot, remote: dict
+) -> bool:
+    return bool(
+        isinstance(remote, dict)
+        and remote.get("id")
+        and _normalized_money(remote.get("value")) == snapshot.value
+        and str(remote.get("customer") or "") == snapshot.customer_id
+        and str(remote.get("cycle") or "").upper() == snapshot.cycle
+        and str(remote.get("description") or "") == snapshot.description
+        and (
+            not remote.get("externalReference")
+            or str(remote["externalReference"]) == snapshot.operation_key
+        )
+    )
+
+
+def _reconciliation_conflict(db: Session) -> None:
+    db.rollback()
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail=(
+            "A contratação mudou durante a consulta ao Asaas; "
+            "reconciliação manual obrigatória"
+        ),
+    )
+
+
+def _lock_and_revalidate_reconciliation(
+    db: Session,
+    snapshot: _SubscriptionReconciliationSnapshot,
+) -> tuple[Igreja, Plano, BillingSubscriptionOperation, Subscription]:
+    """Readquire Igreja -> Planos -> operação -> Subscription após o GET."""
+    igreja = lock_igreja_for_billing(db, snapshot.igreja_id)
+    if igreja is None or str(igreja.id) != str(snapshot.igreja_id):
+        _reconciliation_conflict(db)
+
+    # Leituras sem lock servem apenas para descobrir todos os planos que devem
+    # entrar no prefixo canônico. A identidade só é aceita depois dos locks.
+    op_candidate = find_subscription_operation_by_key(
+        db, snapshot.operation_key, for_update=False
+    )
+    sub_candidate = _subscription_by_id(db, snapshot.subscription_id)
+    discovered_inventory = _load_financial_operations(
+        db, snapshot.subscription_id, for_update=False
+    )
+    plan_codes = {
+        code
+        for code in (
+            snapshot.plan_code,
+            getattr(igreja, "plano", None),
+            getattr(op_candidate, "plano", None),
+            getattr(sub_candidate, "plano", None),
+        )
+        if code
+    }
+    plan_codes.update(_financial_inventory_plan_codes(discovered_inventory))
+    locked_plans = lock_plan_rows_for_billing(db, *plan_codes)
+    if set(map(str, plan_codes)).difference(locked_plans):
+        _reconciliation_conflict(db)
+
+    locked_inventory = _load_financial_operations(
+        db, snapshot.subscription_id, for_update=True
+    )
+    op = find_subscription_operation_by_key(
+        db, snapshot.operation_key, for_update=True
+    )
+    sub = _subscription_by_id(db, snapshot.subscription_id, for_update=True)
+    plan = locked_plans.get(snapshot.plan_code)
+    if op is None or sub is None or plan is None:
+        _reconciliation_conflict(db)
+
+    post_subscription_inventory = _load_financial_operations(
+        db, snapshot.subscription_id, for_update=False
+    )
+    if _financial_operations_state(post_subscription_inventory) != (
+        _financial_operations_state(locked_inventory)
+    ):
+        _reconciliation_conflict(db)
+
+    try:
+        _validate_new_subscription_financial_inventory(
+            db,
+            sub=sub,
+            inventory=locked_inventory,
+            current_operation=op,
+        )
+        _validate_open_subscription_intent_target(
+            db,
+            sub=sub,
+            op=op,
+            requested_plan=snapshot.plan_code,
+            expected_igreja_id=snapshot.igreja_id,
+            plan_override=plan,
+        )
+        current = _subscription_reconciliation_snapshot(
+            igreja=igreja,
+            plan=plan,
+            op=op,
+            sub=sub,
+            financial_operations_state=_financial_operations_state(
+                locked_inventory
+            ),
+        )
+    except HTTPException:
+        _reconciliation_conflict(db)
+    if current != snapshot:
+        _reconciliation_conflict(db)
+    return igreja, plan, op, sub
+
+
 def _parse_iso_date(value: object) -> dt.date | None:
     """dueDate do payload Asaas (ISO yyyy-mm-dd) — None quando ausente/ilegível."""
     if not value:
@@ -336,13 +1232,95 @@ def _apply_monthly_payment_link(
         sub.proxima_cobranca = due
 
 
-def _reconcile_legacy_setup_charge(
+def _subscription_by_id(
+    db: Session, subscription_id: object, *, for_update: bool = False
+) -> Subscription | None:
+    statement = select(Subscription).where(Subscription.id == subscription_id)
+    if for_update:
+        statement = statement.with_for_update().execution_options(
+            populate_existing=True
+        )
+    return db.execute(statement).scalar_one_or_none()
+
+
+def _lock_webhook_owner_and_plans(
+    db: Session,
+    candidate: Subscription,
+    *extra_plan_codes: str | None,
+) -> tuple[Igreja, frozenset[str]] | None:
+    """Adquire o prefixo canônico do webhook: Igreja -> Planos.
+
+    A primeira leitura da Subscription é apenas um localizador. Depois de
+    travar a Igreja, todos os planos observados (Igreja, Subscription e
+    operação) são travados em ordem estável. A Subscription só será travada
+    por `_lock_webhook_subscription`, depois da operação pertinente.
+    """
+    igreja = lock_igreja_for_billing(db, candidate.igreja_id)
+    if igreja is None or str(igreja.id) != str(candidate.igreja_id):
+        return None
+    required_codes = {
+        str(code)
+        for code in (
+            getattr(igreja, "plano", None),
+            getattr(candidate, "plano", None),
+            *extra_plan_codes,
+        )
+        if code
+    }
+    locked_plans = lock_plan_rows_for_billing(db, *required_codes)
+    if required_codes.difference(locked_plans):
+        logger.warning(
+            "Asaas webhook billing scope references a missing plan; acknowledged"
+        )
+        return None
+    return igreja, frozenset(locked_plans)
+
+
+def _lock_webhook_subscription(
+    db: Session,
+    candidate: Subscription,
+    *,
+    locked_igreja: Igreja,
+    locked_plan_codes: frozenset[str],
+) -> Subscription | None:
+    """Trava e revalida a Subscription no fim da ordem canônica."""
+    expected_id = str(candidate.id)
+    expected_igreja_id = str(candidate.igreja_id)
+    locked = _subscription_by_id(db, candidate.id, for_update=True)
+    if (
+        locked is None
+        or str(locked.id) != expected_id
+        or str(locked.igreja_id) != expected_igreja_id
+        or str(locked.igreja_id) != str(locked_igreja.id)
+    ):
+        logger.warning(
+            "Asaas webhook subscription ownership changed while locking; "
+            "acknowledged"
+        )
+        return None
+    current_codes = {
+        str(code)
+        for code in (
+            getattr(locked_igreja, "plano", None),
+            getattr(locked, "plano", None),
+        )
+        if code
+    }
+    if current_codes.difference(locked_plan_codes):
+        logger.warning(
+            "Asaas webhook subscription plan changed while locking; acknowledged"
+        )
+        return None
+    return locked
+
+
+def _find_legacy_setup_candidate(
     db: Session,
     payment: dict,
     payment_id: str | None,
     new_status: str | None,
     reversal: str | None,
-) -> WebhookResponse | None:
+) -> Subscription | None:
     """Setup pago por checkout ANTERIOR à migration (sem charge id rastreado).
 
     O cliente antigo criava a cobrança de setup sem persistir o id, então a
@@ -369,11 +1347,20 @@ def _reconcile_legacy_setup_charge(
         .where(
             Subscription.asaas_customer_id == str(payment["customer"]),
         )
-        .with_for_update()
     ).scalars().all()
     if len(assinaturas_do_customer) != 1:
         return None
-    legada = assinaturas_do_customer[0]
+    return assinaturas_do_customer[0]
+
+
+def _reconcile_legacy_setup_charge(
+    db: Session,
+    legada: Subscription,
+    payment_id: str,
+    new_status: str | None,
+    reversal: str | None,
+) -> WebhookResponse | None:
+    """Aplica setup legado após Igreja -> Planos -> Subscription e revalidação."""
     if legada.setup_pago or legada.asaas_setup_charge_id is not None:
         return None
     if reversal:
@@ -422,7 +1409,13 @@ def _apply_setup_charge_event(
 
 
 def _apply_operation_event(
-    db: Session, op, payment: dict, new_status: str | None, reversal: str | None
+    db: Session,
+    op,
+    payment: dict,
+    new_status: str | None,
+    reversal: str | None,
+    *,
+    locked_sub: Subscription | None = None,
 ) -> WebhookResponse:
     """Evento de cobrança avulsa nascida de OPERAÇÃO durável.
 
@@ -430,11 +1423,9 @@ def _apply_operation_event(
     pelo shape do payload. Convergente para eventos duplicados/fora de ordem.
     """
     payment_id = str(payment["id"]) if payment.get("id") else None
-    sub = db.execute(
-        select(Subscription)
-        .where(Subscription.id == op.subscription_id)
-        .with_for_update()
-    ).scalar_one_or_none()
+    sub = locked_sub or _subscription_by_id(
+        db, op.subscription_id, for_update=True
+    )
     if sub is None:
         return WebhookResponse(received=True, status=None)
 
@@ -730,6 +1721,23 @@ def get_subscription(
     log_if_not_scoped(db, source="http")
     igreja_uuid = uuid.UUID(current_user.igreja_id)
 
+    igreja = db.execute(
+        select(Igreja).where(Igreja.id == igreja_uuid)
+    ).scalar_one_or_none()
+    plano_cortesia = assigned_complimentary_plan(db, igreja)
+    if plano_cortesia is not None:
+        return SubscriptionOut(
+            plano=plano_cortesia.codigo,
+            status="ativa",
+            pessoas=current_headcount_for_igreja(db, igreja_uuid),
+            limite=plano_cortesia.limite_pessoas,
+            setupPago=True,
+            setupFeeContracted=0.0,
+            hasTrackedSubscription=False,
+            checkoutRequired=False,
+            isComplimentary=True,
+        )
+
     sub = db.execute(
         select(Subscription).where(Subscription.igreja_id == igreja_uuid)
     ).scalar_one_or_none()
@@ -949,24 +1957,85 @@ def _adopt_open_subscription_intent(
 ) -> CheckoutResponse:
     """Reconcilia e ADOTA a assinatura de uma intenção com POST ambíguo.
 
-    Tudo vem do alvo CONGELADO na operação (plano, limite) — nunca do catálogo
-    atual: entre o POST perdido e o retry o master pode ter editado o preço ou
-    desativado o plano, e reinterpretar uma intenção antiga com valores novos
-    reescreveria o que o assinante contratou. Nenhum POST /subscriptions
-    acontece aqui: só o GET por externalReference.
+    O alvo financeiro vem congelado na operação, mas o catálogo atual precisa
+    continuar idêntico a ele antes e depois do GET. Se o master editar preço,
+    limite ou natureza do plano durante a consulta, a resposta é descartada e a
+    intenção continua aberta para reconciliação manual. Nenhum POST
+    /subscriptions acontece aqui: só o GET por externalReference.
     """
+    scope = _lock_subscription_creation_scope(
+        db,
+        igreja_id=sub.igreja_id,
+        subscription_id=sub.id,
+        requested_plan=str(op.plano),
+        expected_operation_key=str(op.operation_key),
+    )
+    sub = scope.subscription
+    op = scope.current_operation
+    if op is None:
+        _financial_history_conflict(db)
+    plan = scope.plans.get(str(op.plano))
+    if plan is None:
+        _financial_history_conflict(db)
+    plan = _validate_open_subscription_intent_target(
+        db,
+        sub=sub,
+        op=op,
+        requested_plan=str(op.plano),
+        expected_igreja_id=sub.igreja_id,
+        plan_override=plan,
+    )
+    snapshot = _subscription_reconciliation_snapshot(
+        igreja=scope.igreja,
+        plan=plan,
+        op=op,
+        sub=sub,
+        financial_operations_state=_financial_operations_state(scope.inventory),
+    )
+
+    # Encerra a transação de leitura aberta pelas validações. A chamada remota
+    # roda sem row locks e sem transação de banco; somente o snapshot imutável é
+    # levado para fora da fronteira local.
+    db.rollback()
     try:
-        remote = reconcile_subscription_operation(db, asaas, op)
+        candidates = asaas.find_subscriptions_by_external_reference(
+            snapshot.operation_key
+        )
     except AsaasError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Não foi possível criar o checkout no Asaas",
         ) from exc
-    if remote is None:
+
+    _igreja, _plan, locked_op, locked_sub = _lock_and_revalidate_reconciliation(
+        db, snapshot
+    )
+    matches = [
+        candidate
+        for candidate in candidates
+        if _remote_matches_reconciliation_snapshot(snapshot, candidate)
+    ]
+    if len(matches) > 1:
+        finish_operation(
+            db,
+            locked_op,
+            ("creating", "reconciling"),
+            status="reconciling",
+            error="Múltiplas assinaturas encontradas; revisão manual obrigatória",
+            attempt_started_at=None,
+        )
+        logger.warning("Subscription create ambiguous on reconcile; kept blocking")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Contratação em reconciliação no Asaas — tente novamente",
         )
+    if not matches:
+        claim_transition(db, locked_op, "creating", "reconciling")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Contratação em reconciliação no Asaas — tente novamente",
+        )
+    remote = matches[0]
     # Assinatura ENCONTRADA e correspondente ao alvo congelado: ADOÇÃO ATÔMICA
     # — o vínculo na Subscription e o fechamento da operação vão no MESMO
     # commit. Antes dele, a operação segue aberta (encontrável): um crash aqui
@@ -976,26 +2045,24 @@ def _adopt_open_subscription_intent(
     # O GET ao Asaas cede tempo para o webhook vencer. Recarrega na mesma
     # ordem de locks do webhook e preserva o snapshot financeiro que ele já
     # tenha confirmado/revertido para esta mesma assinatura remota.
-    db.refresh(op, with_for_update=True)
-    db.refresh(sub, with_for_update=True)
     preserve_payment_snapshot = (
-        sub.asaas_subscription_id == remote_id
-        and sub.status in ("ativa", "inadimplente")
+        locked_sub.asaas_subscription_id == remote_id
+        and locked_sub.status in ("ativa", "inadimplente")
     )
-    sub.plano = op.plano
-    sub.limite = op.limite
+    locked_sub.plano = locked_op.plano
+    locked_sub.limite = locked_op.limite
     if not preserve_payment_snapshot:
-        sub.status = "pendente"
-        sub.asaas_invoice_reversal = None
-    sub.asaas_subscription_id = remote_id
-    if op.customer_id:
-        sub.asaas_customer_id = op.customer_id
+        locked_sub.status = "pendente"
+        locked_sub.asaas_invoice_reversal = None
+    locked_sub.asaas_subscription_id = remote_id
+    if locked_op.customer_id:
+        locked_sub.asaas_customer_id = locked_op.customer_id
     elif remote.get("customer"):
-        sub.asaas_customer_id = str(remote["customer"])
-    op.status = "created"
-    op.asaas_subscription_id = remote_id
+        locked_sub.asaas_customer_id = str(remote["customer"])
+    locked_op.status = "created"
+    locked_op.asaas_subscription_id = remote_id
     db.commit()
-    return _resume_tracked_checkout(db, sub, asaas, setup_fee)
+    return _resume_tracked_checkout(db, locked_sub, asaas, setup_fee)
 
 
 @router.post("", response_model=CheckoutResponse)
@@ -1019,20 +2086,70 @@ def create_checkout(
     if igreja is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Igreja não encontrada")
 
+    _reject_complimentary_self_service(db, igreja)
+
+    # Cortesia é concessão administrativa, não um produto de autosserviço. A
+    # checagem acontece antes de criar o placeholder local, garantindo zero
+    # mutação e zero chamada ao Asaas mesmo em request manual.
+    requested_plan = db.execute(
+        select(Plano).where(Plano.codigo == payload.plano)
+    ).scalar_one_or_none()
+    if is_complimentary_plan(requested_plan):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Plano de cortesia só pode ser atribuído pelo administrador da plataforma",
+        )
+
     sub = db.execute(
         select(Subscription).where(Subscription.igreja_id == igreja_uuid)
     ).scalar_one_or_none()
+    if sub is None:
+        # O placeholder e a intenção durável precisam nascer sob o MESMO lock
+        # usado pela concessão de cortesia. Depois de acordar, releia a
+        # Subscription: outro checkout pode ter vencido a corrida enquanto
+        # aguardávamos a Igreja.
+        igreja = lock_igreja_for_billing(db, igreja_uuid)
+        if igreja is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Igreja não encontrada",
+            )
+        _reject_complimentary_self_service(db, igreja)
+        sub = db.execute(
+            select(Subscription).where(Subscription.igreja_id == igreja_uuid)
+        ).scalar_one_or_none()
+
     if sub is None:
         if payload.cpfCnpj is None:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="CPF ou CNPJ obrigatório para iniciar o checkout",
             )
+        # Ordem canônica: Igreja -> Planos -> operação -> Subscription. O row
+        # lock do plano impede que ele vire cortesia entre esta validação e o
+        # commit atômico do placeholder com a intenção de contratação.
+        locked_new_plan = lock_plan_rows_for_billing(db, payload.plano).get(
+            payload.plano
+        )
+        if locked_new_plan is None or not locked_new_plan.ativo:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Plano inválido ou inativo",
+            )
+        if is_complimentary_plan(locked_new_plan):
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=(
+                    "Plano de cortesia só pode ser atribuído pelo "
+                    "administrador da plataforma"
+                ),
+            )
         sub = Subscription(igreja_id=igreja_uuid, plano=payload.plano)
         db.add(sub)
-        # Persistida JÁ: a intenção durável de criação referencia sub.id
-        # (server_default) antes de qualquer chamada externa.
-        db.commit()
+        # O flush obtém o UUID server-side sem liberar Igreja/Plano. O commit
+        # só ocorre em prepare_subscription_operation, junto com a intenção;
+        # nunca fica um placeholder pago órfão visível para o master.
+        db.flush()
 
     contracted_setup_fee = getattr(sub, "setup_fee_contracted", None)
     # `setup_pago` é estado, não preço contratual. Uma confirmação pode ser
@@ -1045,33 +2162,87 @@ def create_checkout(
         contractual_setup_fee = get_setup_fee_for_igreja(db, igreja)
     setup_fee = 0.0 if sub.setup_pago else contractual_setup_fee
 
-    # INVARIANTE: mesmo plano + assinatura Asaas já rastreada NUNCA executa
-    # outro POST /subscriptions — em qualquer status (pendente, ativa,
-    # inadimplente ou revertida) o caminho é a retomada. Troca de plano
-    # (plano diferente) segue o fluxo de criação — semântica de produto
-    # preservada (risco da recorrência antiga reportado ao dono à parte).
-    # A retomada NÃO consulta o catálogo: um plano desativado pelo master
-    # depois da contratação (grandfathering) não pode travar o assinante.
-    if (
-        sub.asaas_subscription_id
-        and sub.asaas_subscription_id != "sandbox"
-        and sub.plano == payload.plano
-    ):
-        return _resume_tracked_checkout(
-            db, sub, asaas, contractual_setup_fee
+    # Uma operação prepared existente precisa ser um placeholder local coerente
+    # antes de qualquer retomada, supersession ou consulta remota. Isso também
+    # impede que um vínculo Asaas materializado seja tratado como placeholder.
+    aberta = find_open_subscription_operation(db, sub.id)
+    if aberta is not None and aberta.status == "prepared":
+        _validate_open_subscription_intent_target(
+            db,
+            sub=sub,
+            op=aberta,
+            requested_plan=aberta.plano,
+            expected_igreja_id=igreja_uuid,
+            allowed_statuses=("prepared",),
+            require_customer=False,
         )
 
-    # RECONCILIAÇÃO ANTES DO CATÁLOGO: se o POST anterior pode ter criado a
-    # assinatura no Asaas (`creating`/`reconciling`), o retry do MESMO plano
-    # precisa poder adotá-la mesmo que o master tenha desativado o plano nesse
-    # intervalo — senão a recorrência remota segue cobrando com o registro
-    # local não rastreado, e não existe worker que reconcilie criações.
-    aberta = find_open_subscription_operation(db, sub.id)
+    if (
+        aberta is not None
+        and aberta.status in ("creating", "reconciling")
+        and aberta.plano != payload.plano
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Já existe uma contratação do plano {aberta.plano} em "
+                "reconciliação. Conclua-a antes de escolher outro plano."
+            ),
+        )
+
+    # INVARIANTE: qualquer assinatura Asaas já rastreada NUNCA executa outro
+    # POST /subscriptions. Mesmo plano retoma o vínculo atual; plano diferente
+    # deve passar pelo endpoint de troca in-place, que usa PUT no mesmo id.
+    # A retomada NÃO consulta o catálogo: um plano desativado pelo master
+    # depois da contratação (grandfathering) não pode travar o assinante.
+    if sub.asaas_subscription_id and sub.asaas_subscription_id != "sandbox":
+        if sub.plano != payload.plano:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Esta igreja já possui uma assinatura Asaas. "
+                    "Use a troca de plano para atualizar a recorrência existente."
+                ),
+            )
+        tracked_scope = _lock_subscription_creation_scope(
+            db,
+            igreja_id=igreja_uuid,
+            subscription_id=sub.id,
+            requested_plan=payload.plano,
+            expected_operation_key=(
+                str(aberta.operation_key) if aberta is not None else None
+            ),
+            tracked_subscription=True,
+        )
+        igreja = tracked_scope.igreja
+        sub = tracked_scope.subscription
+        tracked_setup_fee = getattr(sub, "setup_fee_contracted", None)
+        contracted_setup_fee = (
+            float(tracked_setup_fee)
+            if tracked_setup_fee is not None
+            else get_setup_fee_for_igreja(db, igreja)
+        )
+        return _resume_tracked_checkout(
+            db, sub, asaas, contracted_setup_fee
+        )
+
+    # RECONCILIAÇÃO ANTES DO GATE DE PLANO ATIVO: se o POST anterior pode ter
+    # criado a assinatura no Asaas (`creating`/`reconciling`), o retry do MESMO
+    # plano pode adotá-la mesmo após desativação. O catálogo ainda precisa
+    # existir e continuar idêntico ao contrato congelado; edição financeira
+    # exige reconciliação manual antes de qualquer consulta remota.
     if (
         aberta is not None
         and aberta.plano == payload.plano
         and aberta.status in ("creating", "reconciling")
     ):
+        _validate_open_subscription_intent_target(
+            db,
+            sub=sub,
+            op=aberta,
+            requested_plan=payload.plano,
+            expected_igreja_id=igreja_uuid,
+        )
         frozen_setup = (
             float(aberta.setup_fee)
             if aberta.setup_fee is not None
@@ -1092,34 +2263,134 @@ def create_checkout(
     # sim o plano precisa estar ATIVO no catálogo.
     plano_row = _plano_ativo_or_422(db, payload.plano)
 
+    # Última revalidação sob os locks canônicos. Além de Igreja e catálogo,
+    # fecha TODAS as operações financeiras antes da Subscription: um histórico
+    # remoto que ficou apenas numa tabela de operação nunca atravessa o claim.
+    scope = _lock_subscription_creation_scope(
+        db,
+        igreja_id=igreja_uuid,
+        subscription_id=sub.id,
+        requested_plan=payload.plano,
+        expected_operation_key=(
+            str(aberta.operation_key) if aberta is not None else None
+        ),
+    )
+    igreja = scope.igreja
+    sub = scope.subscription
+    _reject_complimentary_self_service(db, igreja)
+    locked_plan = scope.plans.get(payload.plano)
+    if (
+        locked_plan is None
+        or not locked_plan.ativo
+        or is_complimentary_plan(locked_plan)
+        or float(locked_plan.preco_mensal) != float(plano_row.preco_mensal)
+        or locked_plan.limite_pessoas != plano_row.limite_pessoas
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="O plano foi alterado ou virou cortesia; recarregue antes de continuar",
+        )
+    plano_row = locked_plan
+
+    # Uma intenção PREPARED ainda não atravessou a rede, mas também não pode
+    # usar um contrato congelado que deixou de corresponder ao catálogo. Trava
+    # a operação depois de Igreja/Plano e valida antes de qualquer commit,
+    # tentativa ou POST. Intenção de outro plano segue o fluxo seguro de
+    # supersession dentro de prepare_subscription_operation.
+    prepared_intent = scope.current_operation
+    if prepared_intent is not None and prepared_intent.status == "prepared":
+        _validate_open_subscription_intent_target(
+            db,
+            sub=sub,
+            op=prepared_intent,
+            requested_plan=prepared_intent.plano,
+            expected_igreja_id=igreja_uuid,
+            allowed_statuses=("prepared",),
+            require_customer=False,
+            plan_override=scope.plans.get(str(prepared_intent.plano)),
+        )
+
     # A INTENÇÃO durável nasce (ou é adotada) ANTES do POST /subscriptions: a
     # operation_key vira a externalReference da assinatura — uma resposta
     # perdida é reconciliada por BUSCA no retry, nunca com um segundo POST (a
     # externalReference localiza, mas não é idempotência de POST no Asaas).
     descricao = subscription_description(payload.plano)
-    try:
-        op = prepare_subscription_operation(
-            db,
-            sub=sub,
-            plano=payload.plano,
-            valor=float(plano_row.preco_mensal),
-            limite=plano_row.limite_pessoas,
-            descricao=descricao,
-            setup_fee=setup_fee,
-        )
-    except SubscriptionCreateConflict as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
-        ) from exc
+    if prepared_intent is not None and prepared_intent.plano == payload.plano:
+        # Já está travada e validada; reutilizá-la evita um commit vazio antes
+        # do claim. Conflitos PREPARED permanecem com zero commit e zero rede.
+        op = prepared_intent
+    else:
+        try:
+            op = prepare_subscription_operation(
+                db,
+                sub=sub,
+                plano=payload.plano,
+                valor=float(plano_row.preco_mensal),
+                limite=plano_row.limite_pessoas,
+                descricao=descricao,
+                setup_fee=setup_fee,
+            )
+        except SubscriptionCreateConflict as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+            ) from exc
+
+    # `prepare_subscription_operation` pode ter comitado uma nova intenção e
+    # liberado os locks. Reabre o MESMO escopo e revalida todo o histórico
+    # imediatamente antes do claim/commit que autoriza o POST.
+    claim_scope = _lock_subscription_creation_scope(
+        db,
+        igreja_id=igreja_uuid,
+        subscription_id=sub.id,
+        requested_plan=payload.plano,
+        expected_operation_key=str(op.operation_key),
+    )
+    igreja = claim_scope.igreja
+    sub = claim_scope.subscription
+    op = claim_scope.current_operation
+    if op is None:
+        _financial_history_conflict(db)
+    plano_row = claim_scope.plans.get(payload.plano)
+    if plano_row is None:
+        _financial_history_conflict(db)
 
     if op.status in ("creating", "reconciling"):
         # Corrida: outro request avançou a MESMA intenção enquanto líamos.
+        _validate_open_subscription_intent_target(
+            db,
+            sub=sub,
+            op=op,
+            requested_plan=payload.plano,
+            expected_igreja_id=igreja_uuid,
+        )
         frozen_setup = (
             float(op.setup_fee) if op.setup_fee is not None else setup_fee
         )
         return _adopt_open_subscription_intent(
             db, sub, asaas, op, frozen_setup
         )
+
+    _validate_open_subscription_intent_target(
+        db,
+        sub=sub,
+        op=op,
+        requested_plan=payload.plano,
+        expected_igreja_id=igreja_uuid,
+        allowed_statuses=("prepared",),
+        require_customer=False,
+        plan_override=plano_row,
+    )
+
+    # Placeholders legados podem ter identidade opcional vazia, mas a intenção
+    # PREPARED já foi validada contra igreja, catálogo e inventário completos.
+    # Canonicalize apenas esses vazios dentro da mesma transação do claim; uma
+    # divergência não vazia continua falhando antes daqui.
+    if not str(getattr(sub, "plano", None) or "").strip():
+        sub.plano = op.plano
+    if getattr(sub, "limite", None) is None:
+        sub.limite = op.limite
+    if getattr(sub, "setup_fee_contracted", None) is None:
+        sub.setup_fee_contracted = op.setup_fee
 
     setup_fee = float(op.setup_fee) if op.setup_fee is not None else setup_fee
     checkout_value = float(op.valor)
@@ -1142,12 +2413,43 @@ def create_checkout(
     customer_persist_failed = False
     customer_resolved_this_attempt = False
 
+    def _relock_before_subscription_post(*, require_customer: bool) -> None:
+        """Revalida o inventário e mantém os locks até o próximo commit."""
+        nonlocal igreja, sub, op, setup_fee, checkout_value, checkout_limit
+        network_scope = _lock_subscription_creation_scope(
+            db,
+            igreja_id=igreja_uuid,
+            subscription_id=sub.id,
+            requested_plan=payload.plano,
+            expected_operation_key=str(op.operation_key),
+        )
+        locked_op = network_scope.current_operation
+        locked_plan = network_scope.plans.get(payload.plano)
+        if locked_op is None or locked_plan is None:
+            _financial_history_conflict(db)
+        _validate_open_subscription_intent_target(
+            db,
+            sub=network_scope.subscription,
+            op=locked_op,
+            requested_plan=payload.plano,
+            expected_igreja_id=igreja_uuid,
+            allowed_statuses=("creating",),
+            require_customer=require_customer,
+            plan_override=locked_plan,
+        )
+        igreja = network_scope.igreja
+        sub = network_scope.subscription
+        op = locked_op
+        setup_fee = float(op.setup_fee) if op.setup_fee is not None else setup_fee
+        checkout_value = float(op.valor)
+        checkout_limit = op.limite
+
     def _apply_created_subscription(
         customer_id: str, subscription_id: str, incoming_status: str
     ) -> bool:
-        # Mesma ordem de locks do webhook de criação: operação antes da
-        # Subscription. Se o webhook venceu a callback, refresh traz o estado
-        # autoritativo e evita rebaixá-lo para o snapshot provisório do POST.
+        # O chamador já mantém Igreja -> Planos -> operações -> Subscription.
+        # Se o webhook venceu a callback, refresh traz o estado autoritativo e
+        # evita rebaixá-lo para o snapshot provisório do POST.
         db.refresh(op, with_for_update=True)
         db.refresh(sub, with_for_update=True)
         preserve_payment_status = (
@@ -1189,6 +2491,11 @@ def create_checkout(
                 db, op, "creating", "prepared", attempt_started_at=None
             )
             raise AsaasError("Falha ao persistir o customer resolvido") from exc
+        # O commit acima torna o customer durável antes do POST remoto e
+        # libera os row locks. Readquire imediatamente o escopo canônico; o
+        # cliente Asaas só executa POST /subscriptions depois que esta callback
+        # retorna, ainda sob estes novos locks. Conflito local permanece 409.
+        _relock_before_subscription_post(require_customer=True)
 
     def _track_created_subscription(customer_id: str, subscription_id: str) -> None:
         # Chamado pelo AsaasClient IMEDIATAMENTE após o POST /subscriptions:
@@ -1200,6 +2507,11 @@ def create_checkout(
         _apply_created_subscription(customer_id, subscription_id, "pendente")
         db.commit()
 
+    # O claim comitou e liberou os locks. Revalida todo o histórico e mantém o
+    # escopo canônico fechado enquanto o cliente resolve o customer. Se a
+    # callback precisar comitá-lo, ela própria readquire o mesmo escopo antes
+    # de permitir o POST da assinatura.
+    _relock_before_subscription_post(require_customer=False)
     try:
         result = asaas.create_checkout(
             nome=current_user.nome,
@@ -1259,6 +2571,24 @@ def create_checkout(
             setupInvoiceUrl=None,
             asaasSubscriptionId=None,
         )
+
+    # A callback obrigatória persistiu os dois vínculos logo após o POST e
+    # liberou os locks. Antes do snapshot final, fecha novamente todo o
+    # histórico como assinatura rastreada; qualquer divergência concorrente
+    # falha sem sobrescrever o que já foi registrado.
+    final_scope = _lock_subscription_creation_scope(
+        db,
+        igreja_id=igreja_uuid,
+        subscription_id=sub.id,
+        requested_plan=payload.plano,
+        expected_operation_key=str(op.operation_key),
+        tracked_subscription=True,
+    )
+    igreja = final_scope.igreja
+    sub = final_scope.subscription
+    if final_scope.current_operation is None:
+        _financial_history_conflict(db)
+    op = final_scope.current_operation
 
     # O webhook também pode chegar entre a callback acima e o retorno final do
     # cliente; relê sob os mesmos locks antes de aplicar o snapshot do POST.
@@ -1322,6 +2652,7 @@ def resume_tracked_checkout(
     igreja = db.execute(
         select(Igreja).where(Igreja.id == igreja_uuid)
     ).scalar_one_or_none()
+    _reject_complimentary_self_service(db, igreja)
     sub = db.execute(
         select(Subscription).where(Subscription.igreja_id == igreja_uuid)
     ).scalar_one_or_none()
@@ -1440,6 +2771,12 @@ def recover_invoice(
     cobrança avulsa de recuperação via operação durável. Nunca cria assinatura.
     """
     igreja_uuid = uuid.UUID(current_user.igreja_id)
+    igreja = db.execute(
+        select(Igreja).where(Igreja.id == igreja_uuid)
+    ).scalar_one_or_none()
+    if igreja is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Igreja não encontrada")
+    _reject_complimentary_self_service(db, igreja)
     sub = db.execute(
         select(Subscription).where(Subscription.igreja_id == igreja_uuid)
     ).scalar_one_or_none()
@@ -1684,6 +3021,7 @@ def create_setup_charge_action(
     ).scalar_one_or_none()
     if igreja is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Igreja não encontrada")
+    _reject_complimentary_self_service(db, igreja)
     sub = db.execute(
         select(Subscription).where(Subscription.igreja_id == igreja_uuid)
     ).scalar_one_or_none()
@@ -1785,6 +3123,19 @@ def list_planos_disponiveis(
     rows = db.execute(
         select(Plano).where(Plano.ativo.is_(True)).order_by(Plano.ordem, Plano.codigo)
     ).scalars().all()
+    igreja_uuid = uuid.UUID(current_user.igreja_id)
+    igreja = db.execute(
+        select(Igreja).where(Igreja.id == igreja_uuid)
+    ).scalar_one_or_none()
+    if igreja is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Igreja não encontrada")
+    # Planos gratuitos não são ofertados para contratação. A única exceção é
+    # o plano já concedido a esta igreja, exibido apenas como plano atual.
+    rows = [
+        p
+        for p in rows
+        if not is_complimentary_plan(p) or p.codigo == igreja.plano
+    ]
     planos = [
         PlanoPublicOut(
             codigo=p.codigo,
@@ -1794,12 +3145,6 @@ def list_planos_disponiveis(
         )
         for p in rows
     ]
-    igreja_uuid = uuid.UUID(current_user.igreja_id)
-    igreja = db.execute(
-        select(Igreja).where(Igreja.id == igreja_uuid)
-    ).scalar_one_or_none()
-    if igreja is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Igreja não encontrada")
     return PlanCatalogOut(planos=planos, setupFee=get_setup_fee_for_igreja(db, igreja))
 
 
@@ -1839,8 +3184,21 @@ def change_plan(
     assinatura ativa, setup quitado, sem reversão nem recuperação pendente.
     Não solicita CPF/CNPJ (o cliente Asaas já existe).
     """
-    plano_row = _plano_ativo_or_422(db, payload.plano)
     igreja_uuid = uuid.UUID(current_user.igreja_id)
+    igreja = db.execute(
+        select(Igreja).where(Igreja.id == igreja_uuid)
+    ).scalar_one_or_none()
+    if igreja is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Igreja não encontrada")
+    _reject_complimentary_self_service(db, igreja)
+
+    plano_row = _plano_ativo_or_422(db, payload.plano)
+
+    if is_complimentary_plan(plano_row):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Plano de cortesia só pode ser atribuído pelo administrador da plataforma",
+        )
     sub = db.execute(
         select(Subscription).where(Subscription.igreja_id == igreja_uuid)
     ).scalar_one_or_none()
@@ -1998,45 +3356,139 @@ def asaas_webhook(
     # na externalReference) — nunca inferidas pela ausência de
     # payment.subscription no payload.
     if payment:
-        op = find_operation_for_payment(
+        op_candidate = find_operation_for_payment(
             db,
             payment_id=payment_id,
             external_reference=payment.get("externalReference"),
+            for_update=False,
         )
-        if op is not None:
-            return _apply_operation_event(db, op, payment, new_status, reversal)
+        if op_candidate is not None:
+            op_key = str(op_candidate.operation_key)
+            op_subscription_id = str(op_candidate.subscription_id)
+            sub_candidate = _subscription_by_id(db, op_candidate.subscription_id)
+            scope = (
+                _lock_webhook_owner_and_plans(db, sub_candidate)
+                if sub_candidate is not None
+                else None
+            )
+            if scope is not None:
+                locked_igreja, locked_plan_codes = scope
+                # Ordem canônica: Igreja -> Planos -> operação -> Subscription.
+                op = find_operation_for_payment(
+                    db,
+                    payment_id=payment_id,
+                    external_reference=payment.get("externalReference"),
+                )
+                if (
+                    op is not None
+                    and str(op.operation_key) == op_key
+                    and str(op.subscription_id) == op_subscription_id
+                ):
+                    locked_sub = _lock_webhook_subscription(
+                        db,
+                        sub_candidate,
+                        locked_igreja=locked_igreja,
+                        locked_plan_codes=locked_plan_codes,
+                    )
+                    if (
+                        locked_sub is not None
+                        and str(locked_sub.id) == str(op.subscription_id)
+                    ):
+                        return _apply_operation_event(
+                            db,
+                            op,
+                            payment,
+                            new_status,
+                            reversal,
+                            locked_sub=locked_sub,
+                        )
+            logger.warning(
+                "Asaas webhook payment operation changed while locking; "
+                "acknowledged"
+            )
+            return WebhookResponse(received=True, status=None)
 
     if payment_id:
-        setup_sub = db.execute(
+        setup_candidate = db.execute(
             select(Subscription)
             .where(Subscription.asaas_setup_charge_id == payment_id)
-            .with_for_update()
         ).scalar_one_or_none()
-        if setup_sub is not None:
-            _apply_setup_charge_event(db, setup_sub, new_status, reversal)
-            return WebhookResponse(received=True, status=new_status)
+        if setup_candidate is not None:
+            scope = _lock_webhook_owner_and_plans(db, setup_candidate)
+            if scope is not None:
+                locked_igreja, locked_plan_codes = scope
+                setup_sub = _lock_webhook_subscription(
+                    db,
+                    setup_candidate,
+                    locked_igreja=locked_igreja,
+                    locked_plan_codes=locked_plan_codes,
+                )
+                if (
+                    setup_sub is not None
+                    and str(setup_sub.asaas_setup_charge_id) == payment_id
+                ):
+                    _apply_setup_charge_event(db, setup_sub, new_status, reversal)
+                    return WebhookResponse(received=True, status=new_status)
+            logger.warning(
+                "Asaas webhook setup binding changed while locking; acknowledged"
+            )
+            return WebhookResponse(received=True, status=None)
 
     # A payment without an Asaas subscription can only be a setup charge.
     # Never use its externalReference as authority for a monthly status
     # transition; that would let another one-time charge alter access.
     if payment and not payment.get("subscription"):
-        legacy = _reconcile_legacy_setup_charge(
+        legacy_candidate = _find_legacy_setup_candidate(
             db, payment, payment_id, new_status, reversal
         )
-        if legacy is not None:
-            return legacy
+        if legacy_candidate is not None:
+            scope = _lock_webhook_owner_and_plans(db, legacy_candidate)
+            if scope is not None:
+                locked_igreja, locked_plan_codes = scope
+                legacy_sub = _lock_webhook_subscription(
+                    db,
+                    legacy_candidate,
+                    locked_igreja=locked_igreja,
+                    locked_plan_codes=locked_plan_codes,
+                )
+                # Revalida a unicidade e o customer depois de qualquer espera.
+                current_candidates = db.execute(
+                    select(Subscription).where(
+                        Subscription.asaas_customer_id
+                        == str(payment["customer"])
+                    )
+                ).scalars().all()
+                if (
+                    legacy_sub is not None
+                    and len(current_candidates) == 1
+                    and str(current_candidates[0].id) == str(legacy_sub.id)
+                    and str(legacy_sub.asaas_customer_id)
+                    == str(payment["customer"])
+                ):
+                    legacy = _reconcile_legacy_setup_charge(
+                        db,
+                        legacy_sub,
+                        str(payment_id),
+                        new_status,
+                        reversal,
+                    )
+                    if legacy is not None:
+                        return legacy
         logger.info("Asaas webhook for unknown one-time payment; acknowledged")
         return WebhookResponse(received=True, status=None)
 
     asaas_sub_id = payment.get("subscription") or subscription.get("id")
-    sub: Subscription | None = None
+    sub_candidate: Subscription | None = None
+    resolution = "unknown"
+    create_op_candidate: BillingSubscriptionOperation | None = None
     if asaas_sub_id:
-        sub = db.execute(
+        sub_candidate = db.execute(
             select(Subscription)
             .where(Subscription.asaas_subscription_id == str(asaas_sub_id))
-            .with_for_update()
         ).scalar_one_or_none()
-    if sub is None:
+        if sub_candidate is not None:
+            resolution = "tracked"
+    if sub_candidate is None:
         # O webhook pode vencer a callback do POST /subscriptions: nesse
         # intervalo o id remoto ainda não está na Subscription local, mas a
         # operation_key já foi persistida e é a externalReference do recurso.
@@ -2050,54 +3502,110 @@ def asaas_webhook(
         if external_ref:
             # Formato novo (CORRECTIVE-6): a externalReference é a
             # operation_key da intenção durável de criação.
-            create_op = find_subscription_operation_by_key(db, str(external_ref))
-            if create_op is not None:
-                candidate = db.execute(
-                    select(Subscription).where(
-                        Subscription.id == create_op.subscription_id
-                    ).with_for_update()
-                ).scalar_one_or_none()
-                tracked_remote = getattr(create_op, "asaas_subscription_id", None)
-                remote_matches = bool(
-                    candidate is not None
-                    and asaas_sub_id
-                    and (not tracked_remote or str(tracked_remote) == str(asaas_sub_id))
-                    and subscription_matches_operation(create_op, subscription)
+            create_op_candidate = find_subscription_operation_by_key(
+                db, str(external_ref), for_update=False
+            )
+            if create_op_candidate is not None:
+                sub_candidate = _subscription_by_id(
+                    db, create_op_candidate.subscription_id
                 )
-                if remote_matches:
-                    sub = candidate
-                    sub.plano = create_op.plano
-                    sub.limite = create_op.limite
-                    sub.asaas_subscription_id = str(asaas_sub_id)
-                    if getattr(create_op, "customer_id", None):
-                        sub.asaas_customer_id = create_op.customer_id
-                    frozen_setup = getattr(create_op, "setup_fee", None)
-                    if frozen_setup is not None:
-                        sub.setup_fee_contracted = frozen_setup
-                        if float(frozen_setup) == 0:
-                            sub.setup_pago = True
-                    create_op.asaas_subscription_id = str(asaas_sub_id)
-                    create_op.status = "created"
-                    create_op.attempt_started_at = None
-                elif candidate is not None:
-                    logger.warning(
-                        "Asaas webhook creation intent does not match remote "
-                        "subscription id; acknowledged"
-                    )
+                resolution = "creation"
             elif not payment:
                 # Compat: assinaturas antigas carregam o igreja_id.
                 try:
                     igreja_uuid = uuid.UUID(str(external_ref))
-                    sub = db.execute(
+                    sub_candidate = db.execute(
                         select(Subscription).where(
                             Subscription.igreja_id == igreja_uuid
                         )
                     ).scalar_one_or_none()
+                    if sub_candidate is not None:
+                        resolution = "legacy"
                 except ValueError:
-                    sub = None
-    if sub is None:
+                    sub_candidate = None
+    if sub_candidate is None:
         logger.info("Asaas webhook for unknown subscription; acknowledged")
         return WebhookResponse(received=True, status=None)
+
+    create_plan = (
+        str(create_op_candidate.plano)
+        if create_op_candidate is not None
+        else None
+    )
+    scope = _lock_webhook_owner_and_plans(db, sub_candidate, create_plan)
+    if scope is None:
+        return WebhookResponse(received=True, status=None)
+    locked_igreja, locked_plan_codes = scope
+
+    create_op: BillingSubscriptionOperation | None = None
+    if create_op_candidate is not None:
+        expected_key = str(create_op_candidate.operation_key)
+        expected_subscription_id = str(create_op_candidate.subscription_id)
+        # Prefixo já adquirido; agora a operação antecede a Subscription.
+        create_op = find_subscription_operation_by_key(db, expected_key)
+        if (
+            create_op is None
+            or str(create_op.operation_key) != expected_key
+            or str(create_op.subscription_id) != expected_subscription_id
+            or str(create_op.plano) not in locked_plan_codes
+        ):
+            logger.warning(
+                "Asaas webhook creation intent changed while locking; acknowledged"
+            )
+            return WebhookResponse(received=True, status=None)
+
+    sub = _lock_webhook_subscription(
+        db,
+        sub_candidate,
+        locked_igreja=locked_igreja,
+        locked_plan_codes=locked_plan_codes,
+    )
+    if sub is None:
+        return WebhookResponse(received=True, status=None)
+
+    if resolution == "tracked":
+        if str(sub.asaas_subscription_id) != str(asaas_sub_id):
+            logger.warning(
+                "Asaas webhook remote subscription changed while locking; "
+                "acknowledged"
+            )
+            return WebhookResponse(received=True, status=None)
+    elif resolution == "legacy":
+        tracked_remote = getattr(sub, "asaas_subscription_id", None)
+        if tracked_remote and str(tracked_remote) != str(asaas_sub_id):
+            logger.warning(
+                "Asaas legacy webhook conflicts with tracked subscription; "
+                "acknowledged"
+            )
+            return WebhookResponse(received=True, status=None)
+    elif resolution == "creation":
+        tracked_remote = getattr(create_op, "asaas_subscription_id", None)
+        remote_matches = bool(
+            create_op is not None
+            and str(create_op.subscription_id) == str(sub.id)
+            and asaas_sub_id
+            and (not tracked_remote or str(tracked_remote) == str(asaas_sub_id))
+            and subscription_matches_operation(create_op, subscription)
+        )
+        if not remote_matches:
+            logger.warning(
+                "Asaas webhook creation intent does not match remote "
+                "subscription id; acknowledged"
+            )
+            return WebhookResponse(received=True, status=None)
+        sub.plano = create_op.plano
+        sub.limite = create_op.limite
+        sub.asaas_subscription_id = str(asaas_sub_id)
+        if getattr(create_op, "customer_id", None):
+            sub.asaas_customer_id = create_op.customer_id
+        frozen_setup = getattr(create_op, "setup_fee", None)
+        if frozen_setup is not None:
+            sub.setup_fee_contracted = frozen_setup
+            if float(frozen_setup) == 0:
+                sub.setup_pago = True
+        create_op.asaas_subscription_id = str(asaas_sub_id)
+        create_op.status = "created"
+        create_op.attempt_started_at = None
 
     # Recuperação aberta é uma barreira separada do snapshot do ciclo mensal.
     # Assim B pode avançar e preservar seu próprio status/link, enquanto a

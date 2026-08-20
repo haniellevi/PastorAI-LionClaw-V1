@@ -21,7 +21,7 @@ from zoneinfo import ZoneInfo
 import httpx
 
 from app.config import Settings, get_settings
-from app.services.outbound_guard import external_sends_allowed, log_suppressed
+from app.services.outbound_guard import asaas_billing_writes_allowed, log_suppressed
 
 logger = logging.getLogger("pastorai.asaas")
 MIN_UNDEFINED_PAYMENT_VALUE = 5.0
@@ -197,7 +197,7 @@ class AsaasClient:
         (a retry would duplicate it). A taxa de setup NÃO é criada aqui: o
         router a emite como operação durável retry-safe.
         """
-        if not external_sends_allowed(self._settings):
+        if not asaas_billing_writes_allowed(self._settings):
             self._suppress_or_reject_mutation("create_checkout")
             return CheckoutResult(
                 customer_id="sandbox",
@@ -279,12 +279,9 @@ class AsaasClient:
         """Most recent payment payload of an existing subscription.
 
         Read-only (never creates charges): used by checkout resume and link
-        recovery. Returns None when Asaas has not generated the payment yet or
-        sends are sandboxed in this environment.
+        recovery. Returns None when Asaas has not generated the payment yet.
+        Read-only reconciliation remains available while writes are disabled.
         """
-        if not external_sends_allowed(self._settings):
-            log_suppressed("Asaas", "get_subscription_payment")
-            return None
         base_url, api_key = self._require_config()
         headers = self._headers(api_key)
         try:
@@ -307,9 +304,6 @@ class AsaasClient:
 
     def get_subscription(self, subscription_id: str) -> dict | None:
         """Full payload of an existing subscription (read-only reconciliation)."""
-        if not external_sends_allowed(self._settings):
-            log_suppressed("Asaas", "get_subscription")
-            return None
         base_url, api_key = self._require_config()
         headers = self._headers(api_key)
         try:
@@ -335,7 +329,7 @@ class AsaasClient:
         ciclo — nunca cria outra recorrência. Em staging/dev retorna None
         quando sandboxed; em produção com o gate fechado falha fechado.
         """
-        if not external_sends_allowed(self._settings):
+        if not asaas_billing_writes_allowed(self._settings):
             self._suppress_or_reject_mutation("update_subscription")
             return None
         base_url, api_key = self._require_config()
@@ -386,7 +380,7 @@ class AsaasClient:
         por ela em vez de repetir a chamada. Em staging/dev retorna None
         quando sandboxed; em produção com o gate fechado falha fechado.
         """
-        if not external_sends_allowed(self._settings):
+        if not asaas_billing_writes_allowed(self._settings):
             self._suppress_or_reject_mutation("create_one_time_charge")
             return None
         if 0 < valor < MIN_UNDEFINED_PAYMENT_VALUE:
@@ -431,9 +425,6 @@ class AsaasClient:
         operation_key da intenção durável (a externalReference localiza, mas
         NÃO é garantia de idempotência do POST), nunca repetindo o POST.
         """
-        if not external_sends_allowed(self._settings):
-            log_suppressed("Asaas", "find_subscriptions_by_external_reference")
-            return []
         base_url, api_key = self._require_config()
         headers = self._headers(api_key)
         try:
@@ -463,9 +454,6 @@ class AsaasClient:
         resposta perdida de POST /payments é resolvida procurando a cobrança
         pela operation_key, nunca repetindo o POST às cegas.
         """
-        if not external_sends_allowed(self._settings):
-            log_suppressed("Asaas", "find_payments_by_external_reference")
-            return []
         base_url, api_key = self._require_config()
         headers = self._headers(api_key)
         try:
@@ -490,9 +478,6 @@ class AsaasClient:
 
     def get_payment(self, payment_id: str) -> dict | None:
         """Full payload of an existing payment (read-only)."""
-        if not external_sends_allowed(self._settings):
-            log_suppressed("Asaas", "get_payment")
-            return None
         base_url, api_key = self._require_config()
         headers = self._headers(api_key)
         try:
@@ -520,7 +505,7 @@ class AsaasClient:
         Em staging/dev retorna None quando sandboxed; em produção com o gate
         fechado falha fechado.
         """
-        if not external_sends_allowed(self._settings):
+        if not asaas_billing_writes_allowed(self._settings):
             self._suppress_or_reject_mutation("restore_payment")
             return None
         base_url, api_key = self._require_config()

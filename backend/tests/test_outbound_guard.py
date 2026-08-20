@@ -17,7 +17,10 @@ from app.services.brevo import BrevoClient, BrevoError
 from app.services.evolution import EvolutionClient, EvolutionError
 from app.services.google_calendar import GoogleCalendarClient, GoogleCalendarError
 from app.services.llm import LLMClient
-from app.services.outbound_guard import external_sends_allowed
+from app.services.outbound_guard import (
+    asaas_billing_writes_allowed,
+    external_sends_allowed,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -100,12 +103,33 @@ def test_external_sends_enabled_matrix(app_env, allow, expected) -> None:
     assert external_sends_allowed(s) is expected
 
 
+@pytest.mark.parametrize(
+    "allow,billing,expected",
+    [
+        (False, False, False),
+        (False, True, False),
+        (True, False, False),
+        (True, True, True),
+    ],
+)
+def test_asaas_billing_requires_both_gates(allow, billing, expected) -> None:
+    settings = Settings(
+        allow_real_sends=allow,
+        asaas_billing_enabled=billing,
+    )
+
+    assert settings.asaas_billing_writes_enabled is expected
+    assert asaas_billing_writes_allowed(settings) is expected
+
+
 def test_default_settings_block_sends() -> None:
     """O default (sem env) é seguro: development + allow_real_sends=False."""
     s = Settings()
     assert s.is_production is False
     assert s.allow_real_sends is False
     assert s.external_sends_enabled is False
+    assert s.asaas_billing_enabled is False
+    assert s.asaas_billing_writes_enabled is False
 
 
 # ---------------------------------------------------------------------------
@@ -196,11 +220,22 @@ def test_create_checkout_blocked(monkeypatch) -> None:
     ],
     ids=["checkout", "plan-change", "one-time-charge", "restore-payment"],
 )
+@pytest.mark.parametrize(
+    "allow,billing",
+    [(False, False), (False, True), (True, False)],
+    ids=["both-off", "global-off", "billing-off"],
+)
 def test_asaas_mutations_fail_closed_in_production(
-    monkeypatch, operation
+    monkeypatch, operation, allow, billing
 ) -> None:
     _block_network(monkeypatch)
-    client = AsaasClient(_settings(app_env="production"))
+    client = AsaasClient(
+        _settings(
+            app_env="production",
+            allow_real_sends=allow,
+            asaas_billing_enabled=billing,
+        )
+    )
 
     with pytest.raises(AsaasError, match="desabilitadas"):
         operation(client)
@@ -286,6 +321,37 @@ def test_send_text_allowed_with_override(monkeypatch) -> None:
     )
     assert ok is True
     assert len(seen) == 1 and seen[0].url.path.endswith("/message/sendText/igreja-1")
+
+
+def test_asaas_mutation_allowed_only_with_both_gates(monkeypatch) -> None:
+    seen = _capture_network(
+        monkeypatch,
+        httpx.Response(
+            200,
+            json={"id": "sub_1", "value": 299.0, "description": "Plano 200"},
+        ),
+    )
+    result = AsaasClient(
+        _settings(allow_real_sends=True, asaas_billing_enabled=True)
+    ).update_subscription("sub_1", valor=299.0, descricao="Plano 200")
+
+    assert result is not None and result["id"] == "sub_1"
+    assert len(seen) == 1
+    assert seen[0].method == "PUT"
+
+
+def test_asaas_read_is_independent_from_billing_write_gates(monkeypatch) -> None:
+    seen = _capture_network(
+        monkeypatch,
+        httpx.Response(200, json={"id": "sub_1", "status": "ACTIVE"}),
+    )
+    result = AsaasClient(
+        _settings(allow_real_sends=False, asaas_billing_enabled=False)
+    ).get_subscription("sub_1")
+
+    assert result is not None and result["status"] == "ACTIVE"
+    assert len(seen) == 1
+    assert seen[0].method == "GET"
 
 
 def test_send_text_blocked_in_production_without_activation(monkeypatch) -> None:

@@ -166,6 +166,14 @@ class _WorkerSession(FakeSession):
 
     def __init__(self, **kw) -> None:
         kw.setdefault("planos", _ladder_catalog())
+        subscription = kw.get("subscription")
+        kw.setdefault(
+            "igreja",
+            SimpleNamespace(
+                id=getattr(subscription, "igreja_id", _IGREJA_A),
+                plano=getattr(subscription, "plano", "ate_100"),
+            ),
+        )
         super().__init__(**kw)
         self.info: dict = {}
         self.closed = False
@@ -359,6 +367,88 @@ def test_worker_cancels_stale_prepared_autoupgrade_before_asaas(
     assert op.status == "failed"
     assert op.notify_status == "skipped"
     assert "contagem atual de membros" in op.error
+    assert notified == []
+
+
+def test_worker_never_mutates_asaas_for_complimentary_church(monkeypatch) -> None:
+    op = _op()
+    sub = _sub()
+    complimentary_plan = SimpleNamespace(
+        codigo="teste_free",
+        nome="Cortesia piloto",
+        preco_mensal=0.0,
+        limite_pessoas=100,
+        ativo=True,
+    )
+    tenant = _WorkerSession(
+        subscription=sub,
+        igreja=SimpleNamespace(id=_IGREJA_A, plano="teste_free"),
+        plan_changes=[op],
+        planos=[complimentary_plan],
+    )
+    asaas = _WorkerAsaas()
+    notified = _spy_notify(monkeypatch)
+
+    completed = run_pending_plan_changes(
+        _Discovery([(op, _IGREJA_A)]),
+        session_factory=_factory_queue([tenant]),
+        asaas=asaas,
+        evolution=object(),
+    )
+
+    assert completed == 0
+    assert asaas.puts == 0
+    assert asaas.gets == 0
+    assert op.status == "failed"
+    assert op.notify_status == "skipped"
+    assert "cortesia" in op.error
+    assert notified == []
+
+
+def test_worker_blocks_historical_reconciling_target_that_became_complimentary(
+    monkeypatch,
+) -> None:
+    op = _op(status="reconciling", error=None)
+    sub = _sub()
+    igreja = SimpleNamespace(id=_IGREJA_A, plano="ate_100")
+    paid_current = SimpleNamespace(
+        codigo="ate_100",
+        nome="Até 100",
+        preco_mensal=199.0,
+        limite_pessoas=100,
+        ativo=True,
+    )
+    converted_target = SimpleNamespace(
+        codigo="101_200",
+        nome="Cortesia convertida",
+        preco_mensal=0.0,
+        limite_pessoas=200,
+        ativo=True,
+    )
+    tenant = _WorkerSession(
+        subscription=sub,
+        igreja=igreja,
+        plan_changes=[op],
+        planos=[paid_current, converted_target],
+    )
+    asaas = _WorkerAsaas()
+    notified = _spy_notify(monkeypatch)
+
+    completed = run_pending_plan_changes(
+        _Discovery([(op, _IGREJA_A)]),
+        session_factory=_factory_queue([tenant]),
+        asaas=asaas,
+        evolution=object(),
+    )
+
+    assert completed == 0
+    assert asaas.gets == 0
+    assert asaas.puts == 0
+    assert op.status == "reconciling"
+    assert "conciliação manual" in op.error
+    assert sub.plano == "ate_100"
+    assert sub.limite == 100
+    assert igreja.plano == "ate_100"
     assert notified == []
 
 
@@ -915,6 +1005,19 @@ def test_queue_autoupgrade_advances_past_an_inactive_intermediate_tier() -> None
     assert op.to_limite is None
 
 
+def test_queue_autoupgrade_never_selects_zero_price_intermediate_tier() -> None:
+    sub = _sub(plano="ate_100", limite=100, pessoas=50)
+    catalog = _ladder_catalog()
+    catalog[0].preco_mensal = 0
+    db = _WorkerSession(subscription=sub, planos=catalog)
+    db.pessoas_count = 150
+
+    assert queue_autoupgrade_if_over_limit(db, sub) is True
+    op = next(o for o in db.added if isinstance(o, BillingPlanChangeOperation))
+    assert op.to_plano == "acima_201"
+    assert float(op.to_preco) == 499.0
+
+
 def test_worker_completes_the_queued_autoupgrade(monkeypatch) -> None:
     # Ponta a ponta: o endpoint enfileira (releitura canônica) e o worker
     # conclui pelo trilho durável — PUT in-place, nunca POST.
@@ -952,3 +1055,42 @@ def test_worker_completes_the_queued_autoupgrade(monkeypatch) -> None:
     assert sub.limite is None
     assert igreja.plano == "acima_201"
     assert notified == [_IGREJA_A]
+
+
+def test_worker_locks_church_before_any_plan_row(monkeypatch) -> None:
+    """O worker segue o prefixo Igreja -> Planos usado pelo trigger SQL."""
+    sub = _sub()
+    igreja = SimpleNamespace(id=_IGREJA_A, plano="ate_100")
+    op = _op()
+    tenant = _WorkerSession(
+        subscription=sub,
+        igreja=igreja,
+        plan_changes=[op],
+        planos=_ladder_catalog(),
+    )
+    tenant.pessoas_count = 101
+    events: list[str] = []
+    original_lock_church = billing_worker.lock_igreja_for_billing
+    original_lock_plans = billing_worker.lock_plan_rows_for_billing
+
+    def lock_church(*args, **kwargs):
+        events.append("church")
+        return original_lock_church(*args, **kwargs)
+
+    def lock_plans(*args, **kwargs):
+        events.append("plans")
+        return original_lock_plans(*args, **kwargs)
+
+    monkeypatch.setattr(billing_worker, "lock_igreja_for_billing", lock_church)
+    monkeypatch.setattr(billing_worker, "lock_plan_rows_for_billing", lock_plans)
+    _spy_notify(monkeypatch)
+
+    completed = run_pending_plan_changes(
+        _Discovery([(op, _IGREJA_A)]),
+        session_factory=_factory_queue([tenant]),
+        asaas=_WorkerAsaas(),
+        evolution=object(),
+    )
+
+    assert completed == 1
+    assert events[:2] == ["church", "plans"]

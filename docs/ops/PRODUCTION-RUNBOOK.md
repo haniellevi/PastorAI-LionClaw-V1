@@ -30,14 +30,17 @@ APP_ENV=production
 APP_BASE_URL=https://api.igreja12.com.br
 FRONTEND_URL=https://app.igreja12.com.br
 ALLOW_REAL_SENDS=false
+ASAAS_BILLING_ENABLED=false
 BROADCAST_ASYNC_ENABLED=false
 CALENDAR_OAUTH_RETURN_ORIGINS=https://admin.igreja12.com.br
 ```
 
-- `ALLOW_REAL_SENDS=false` bloqueia WhatsApp, Asaas, Brevo, LLM e Google até
-  os smokes de saúde/login terminarem. Em produção, mutações de billing Asaas,
-  conexão Evolution e envios Brevo retornam erro controlado: não alteram o
-  estado local nem confirmam e-mail/conexão que não aconteceu.
+- `ALLOW_REAL_SENDS=false` bloqueia os efeitos externos até os smokes de
+  saúde/login terminarem. Em produção, conexão Evolution e envios Brevo
+  retornam erro controlado em vez de simular sucesso.
+- `ASAAS_BILLING_ENABLED=false` mantém toda mutação financeira Asaas desligada
+  mesmo depois de `ALLOW_REAL_SENDS=true`. Cobrança só é possível com os dois
+  opt-ins; leituras de reconciliação e o webhook autenticado continuam ativos.
 - `BROADCAST_ASYNC_ENABLED=false` mantém o worker persistente inativo e faz
   qualquer novo comunicado falhar antes de ser persistido; não existe fallback
   síncrono capaz de contornar o ledger/heartbeat.
@@ -69,6 +72,7 @@ Integrações:
 ASAAS_API_URL
 ASAAS_API_KEY
 ASAAS_WEBHOOK_TOKEN
+ASAAS_BILLING_ENABLED
 BREVO_API_KEY
 BREVO_FROM_EMAIL
 BREVO_FROM_NAME
@@ -146,10 +150,28 @@ docker compose config --quiet
 docker compose build backend
 docker compose up -d
 docker compose ps
+# Prova pós-restart sem imprimir o .env nem qualquer segredo. Todos os
+# processos capazes de faturar devem confirmar as duas travas fechadas.
+for service in backend queue-worker cron-worker; do
+  if ! docker compose exec -T "$service" sh -lc '
+      [ "${ALLOW_REAL_SENDS+x}" = "x" ] &&
+      [ "$ALLOW_REAL_SENDS" = "false" ] &&
+      [ "${ASAAS_BILLING_ENABLED+x}" = "x" ] &&
+      [ "$ASAAS_BILLING_ENABLED" = "false" ] &&
+      echo "billing gates: CLOSED"'; then
+    echo "billing gates: OPEN or unverifiable for ${service}" >&2
+    exit 1
+  fi
+done
 curl -fsS http://127.0.0.1:8000/health
 curl -fsS http://127.0.0.1:8000/ready
 ln -sfn "/opt/pastorai-releases/${PASTORAI_RELEASE_SHA}" /opt/pastorai-current
 ```
+
+O esperado é uma linha `billing gates: CLOSED` por serviço. Qualquer ausência
+ou valor diferente de `false` interrompe o deploy: mutações Asaas só podem
+existir quando `ALLOW_REAL_SENDS=true` **e** `ASAAS_BILLING_ENABLED=true`, em um
+gate financeiro posterior e explicitamente aprovado.
 
 Portas públicas proibidas:
 
@@ -227,6 +249,10 @@ Validar também:
 - ausência de placeholders no `.env`;
 - frontend sem referências ao Supabase DEV ou localhost.
 
+Mesmo depois desses smokes, mantenha `ASAAS_BILLING_ENABLED=false` enquanto as
+igrejas-piloto estiverem em cortesia. Não habilite a flag sem inventário das
+assinaturas rastreadas, backup fresco e canário financeiro separado.
+
 Somente após esses smokes decidir o gate separado
 `ALLOW_REAL_SENDS=true`. A leitura do QR da Evolution e qualquer canário de
 e-mail/WhatsApp/cobrança ocorrem em uma janela controlada. O recebimento real
@@ -296,4 +322,6 @@ Registrar:
 - timers do monitor/backup e data do último backup válido;
 - CORS e login;
 - deployment/aliases Vercel;
-- estado explícito de `ALLOW_REAL_SENDS` e `BROADCAST_ASYNC_ENABLED`.
+- estado explícito de `ALLOW_REAL_SENDS`, `ASAAS_BILLING_ENABLED` e
+  `BROADCAST_ASYNC_ENABLED`, incluindo a prova pós-restart de que billing
+  permaneceu fechado por padrão, sem imprimir o `.env`.

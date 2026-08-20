@@ -151,9 +151,11 @@ produção com o gate fechado, mutações financeiras Asaas, conexão Evolution 
 envios Brevo falham fechado para nunca simular sucesso local; os demais canais
 continuam suprimidos sem efeito externo.
 
-Trava única e explícita: `external_sends_enabled = ALLOW_REAL_SENDS`. Produção,
+Trava global explícita: `external_sends_enabled = ALLOW_REAL_SENDS`. Produção,
 staging e desenvolvimento só executam efeitos externos quando o operador muda
-`ALLOW_REAL_SENDS=true`; em staging/dev use apenas credenciais sandbox.
+`ALLOW_REAL_SENDS=true`; em staging/dev use apenas credenciais sandbox. Asaas
+tem uma segunda trava: mutações financeiras também exigem
+`ASAAS_BILLING_ENABLED=true`; leituras e webhook autenticado são independentes.
 
 Permanecem sempre ativos (auth/infra do próprio ambiente, senão staging não
 funciona): login/identidade Clerk, OAuth do Google, Supabase Storage, leituras da

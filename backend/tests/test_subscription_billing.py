@@ -202,12 +202,14 @@ def _client(
     plan_changes=None,
     subscription_ops=None,
     igreja_status: str = "ativa",
+    igreja_plano: str | None = None,
 ) -> tuple[TestClient, FakeSession]:
     app_user = make_app_user(igreja_status=igreja_status)
     igreja = SimpleNamespace(
         id=app_user.igreja_id,
         setup_fee_override=setup_fee_override,
         status=igreja_status,
+        plano=igreja_plano,
     )
     db = FakeSession(
         app_user=app_user,
@@ -245,6 +247,72 @@ def test_checkout_charges_price_and_saves_limit_from_planos_table(app) -> None:
     added_subs = [o for o in db.added if isinstance(o, Subscription)]
     assert len(added_subs) == 1  # a intenção durável também entra em db.added
     assert added_subs[0].limite == 150
+
+
+def test_new_checkout_keeps_church_and_plan_locked_until_intent_commit(
+    app, monkeypatch
+) -> None:
+    """Placeholder e intenção nascem no mesmo commit sob a ordem canônica."""
+    from app.routers import subscription as subscription_router
+
+    events: list[str] = []
+    original_lock_church = subscription_router.lock_igreja_for_billing
+    original_lock_plans = subscription_router.lock_plan_rows_for_billing
+    original_prepare = subscription_router.prepare_subscription_operation
+
+    def lock_church(*args, **kwargs):
+        events.append("lock_church")
+        return original_lock_church(*args, **kwargs)
+
+    def lock_plans(*args, **kwargs):
+        events.append("lock_plans")
+        return original_lock_plans(*args, **kwargs)
+
+    def prepare(*args, **kwargs):
+        events.append("prepare_intent")
+        return original_prepare(*args, **kwargs)
+
+    monkeypatch.setattr(subscription_router, "lock_igreja_for_billing", lock_church)
+    monkeypatch.setattr(subscription_router, "lock_plan_rows_for_billing", lock_plans)
+    monkeypatch.setattr(subscription_router, "prepare_subscription_operation", prepare)
+
+    client, db = _client(app, planos=[_plano()], asaas=_FakeAsaas())
+    original_add = db.add
+    original_flush = db.flush
+    original_commit = db.commit
+
+    def add(obj) -> None:
+        if isinstance(obj, Subscription):
+            events.append("add_placeholder")
+        original_add(obj)
+
+    def flush() -> None:
+        events.append("flush_placeholder")
+        original_flush()
+
+    def commit() -> None:
+        events.append("commit")
+        original_commit()
+
+    db.add = add
+    db.flush = flush
+    db.commit = commit
+
+    response = client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    )
+
+    assert response.status_code == 200
+    canonical_prefix = [
+        events.index("lock_church"),
+        events.index("lock_plans"),
+        events.index("add_placeholder"),
+        events.index("flush_placeholder"),
+        events.index("prepare_intent"),
+    ]
+    assert canonical_prefix == sorted(canonical_prefix)
+    assert "commit" not in events[: events.index("prepare_intent")]
+    assert events.index("commit") > events.index("prepare_intent")
 
 
 def test_sandbox_checkout_keeps_one_retryable_prepared_intent(app) -> None:
@@ -1431,12 +1499,14 @@ def test_retry_still_adopts_pending_snapshot_from_a_new_billing_cycle(app) -> No
     assert db.igreja.status == "ativa"  # PENDING não é inadimplência
 
 
-def test_plan_change_still_creates_new_subscription(app) -> None:
-    # Troca de plano (plano DIFERENTE do vinculado) segue o fluxo normal de
-    # criação — a retomada vale só para retry do mesmo plano pendente.
+def test_tracked_subscription_requires_change_plan_instead_of_second_checkout(
+    app,
+) -> None:
+    # Uma recorrência rastreada nunca pode gerar outro POST. Plano diferente
+    # deve seguir a troca in-place da assinatura existente.
     asaas = _FakeAsaas()
     sub = _subscription(status="pendente", plano="ate_100")
-    client, _db = _client(
+    client, db = _client(
         app,
         planos=[_plano(codigo="101_200", preco_mensal=299, limite_pessoas=200)],
         asaas=asaas,
@@ -1447,9 +1517,13 @@ def test_plan_change_still_creates_new_subscription(app) -> None:
         "/subscription", json={"plano": "101_200", "cpfCnpj": _CPF}, headers=_AUTH
     )
 
-    assert resp.status_code == 200
-    assert len(asaas.calls) == 1  # create_checkout chamado (fluxo legítimo)
-    assert asaas.calls[0]["plano"] == "101_200"
+    assert resp.status_code == 409
+    assert "troca de plano" in resp.json()["detail"]
+    assert asaas.calls == []
+    assert not [
+        op for op in db.added if isinstance(op, BillingSubscriptionOperation)
+    ]
+    assert sub.plano == "ate_100"
 
 
 def test_get_subscription_withholds_reversed_invoice_link(app) -> None:
@@ -2945,6 +3019,95 @@ def test_checkout_rejects_plano_inativo(app) -> None:
     assert resp.status_code == 422
 
 
+def test_checkout_rejects_complimentary_plan_without_mutation_or_asaas(app) -> None:
+    asaas = _FakeAsaas()
+    client, db = _client(
+        app,
+        planos=[_plano(codigo="teste_free", preco_mensal=0)],
+        asaas=asaas,
+    )
+
+    resp = client.post(
+        "/subscription",
+        json={"plano": "teste_free", "cpfCnpj": _CPF},
+        headers=_AUTH,
+    )
+
+    assert resp.status_code == 422
+    assert "administrador da plataforma" in resp.json()["detail"]
+    assert asaas.calls == []
+    assert not any(isinstance(obj, Subscription) for obj in db.added)
+
+
+def test_complimentary_church_cannot_contract_paid_plan_or_create_placeholder(
+    app,
+) -> None:
+    asaas = _FakeAsaas()
+    client, db = _client(
+        app,
+        planos=[
+            _plano(codigo="teste_free", preco_mensal=0),
+            _plano(codigo="ate_100", preco_mensal=199),
+        ],
+        asaas=asaas,
+        igreja_plano="teste_free",
+    )
+
+    resp = client.post(
+        "/subscription",
+        json={"plano": "ate_100", "cpfCnpj": _CPF},
+        headers=_AUTH,
+    )
+
+    assert resp.status_code == 409
+    assert "administrador da plataforma" in resp.json()["detail"]
+    assert asaas.calls == []
+    assert asaas.charge_calls == []
+    assert not any(isinstance(obj, Subscription) for obj in db.added)
+    assert db.commits == 0
+
+
+@pytest.mark.parametrize(
+    "path,payload",
+    [
+        ("/subscription/resume", None),
+        ("/subscription/recover-invoice", None),
+        ("/subscription/setup-charge", None),
+        ("/subscription/change-plan", {"plano": "ate_100"}),
+    ],
+    ids=["resume", "recovery", "setup", "plan-change"],
+)
+def test_complimentary_church_blocks_all_financial_self_service_before_mutation(
+    app, path, payload
+) -> None:
+    class _NoAsaasCalls:
+        def __getattr__(self, name):  # pragma: no cover - defesa do teste
+            raise AssertionError(f"cortesia não pode tocar o Asaas ({name})")
+
+    sub = _subscription(
+        asaas_subscription_id="sub_should_not_be_touched",
+        asaas_invoice_reversal="refunded",
+        setup_pago=False,
+    )
+    client, db = _client(
+        app,
+        planos=[
+            _plano(codigo="teste_free", preco_mensal=0),
+            _plano(codigo="ate_100", preco_mensal=199),
+        ],
+        asaas=_NoAsaasCalls(),
+        subscription=sub,
+        igreja_plano="teste_free",
+    )
+
+    resp = client.post(path, json=payload, headers=_AUTH)
+
+    assert resp.status_code == 409
+    assert "administrador da plataforma" in resp.json()["detail"]
+    assert db.added == []
+    assert db.commits == 0
+
+
 def test_checkout_rejects_unmatched_codigo_when_other_planos_active(app) -> None:
     # Dois planos ATIVOS no catálogo, nenhum com o código pedido — se o
     # filtro de código fosse ignorado (como no fake antigo), isso devolveria
@@ -2999,6 +3162,74 @@ def test_list_planos_omits_inactive(app) -> None:
     resp = client.get("/subscription/planos", headers=_AUTH)
     assert resp.status_code == 200
     assert resp.json()["planos"] == []
+
+
+def test_list_planos_hides_complimentary_from_other_churches(app) -> None:
+    client, _db = _client(
+        app,
+        planos=[
+            _plano(codigo="teste_free", nome="Cortesia", preco_mensal=0),
+            _plano(codigo="ate_100", preco_mensal=199),
+        ],
+    )
+
+    resp = client.get("/subscription/planos", headers=_AUTH)
+
+    assert resp.status_code == 200
+    assert [p["codigo"] for p in resp.json()["planos"]] == ["ate_100"]
+
+
+def test_get_subscription_exposes_master_assigned_complimentary_plan(app) -> None:
+    asaas = _RecoveryAsaas()
+    client, db = _client(
+        app,
+        planos=[
+            _plano(
+                codigo="teste_free",
+                nome="Cortesia de testes",
+                preco_mensal=0,
+                limite_pessoas=50,
+            )
+        ],
+        asaas=asaas,
+        setup_fee_default=59.9,
+        setup_fee_override=99.0,
+        subscription=_subscription(
+            status=None,
+            asaas_customer_id=None,
+            asaas_subscription_id=None,
+            asaas_setup_charge_id=None,
+        ),
+        igreja_plano="teste_free",
+    )
+    db.pessoas_count = 7
+
+    resp = client.get("/subscription", headers=_AUTH)
+
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "plano": "teste_free",
+        "status": "ativa",
+        "pessoas": 7,
+        "limite": 50,
+        "proximaCobranca": None,
+        "setupPago": True,
+        "setupFeeContracted": 0.0,
+        "invoiceUrl": None,
+        "setupInvoiceUrl": None,
+        "invoiceReversal": None,
+        "recoveryInvoiceUrl": None,
+        "recoveryRequired": False,
+        "setupRecoveryRequired": False,
+        "hasTrackedSubscription": False,
+        "checkoutRequired": False,
+        "isComplimentary": True,
+    }
+    assert asaas.calls == []
+
+    catalog = client.get("/subscription/planos", headers=_AUTH)
+    assert [p["codigo"] for p in catalog.json()["planos"]] == ["teste_free"]
+    assert catalog.json()["setupFee"] == 0.0
 
 
 def test_list_planos_forbidden_for_non_owner_admin(app) -> None:
@@ -3112,6 +3343,199 @@ def _adopt_created_sub(db) -> None:
     db.subscription = created
 
 
+def _ambiguous_subscription_intent(**over) -> BillingSubscriptionOperation:
+    base = dict(
+        subscription_id="00000000-0000-0000-0000-00000000su01",
+        operation_key="pastorai-subcreate-local-validation",
+        customer_id="cus_1",
+        plano="ate_100",
+        valor=199.0,
+        limite=100,
+        setup_fee=0.0,
+        ciclo="MONTHLY",
+        descricao="PastorAI — plano ate_100",
+        status="reconciling",
+        attempt_started_at=dt.datetime.now(dt.timezone.utc),
+    )
+    base.update(over)
+    return BillingSubscriptionOperation(**base)
+
+
+class _NoAsaasCalls:
+    """Qualquer método acessado prova que a validação local chegou tarde."""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def __getattr__(self, name):
+        def forbidden(*_args, **_kwargs):
+            self.calls.append(name)
+            raise AssertionError(f"alvo local inválido não pode chamar Asaas ({name})")
+
+        return forbidden
+
+
+@pytest.mark.parametrize(
+    ("case", "operation_status"),
+    [
+        ("removed", "creating"),
+        ("removed", "reconciling"),
+        ("complimentary", "reconciling"),
+        ("invalid_catalog_price", "reconciling"),
+        ("changed_catalog_price", "reconciling"),
+        ("changed_catalog_limit", "reconciling"),
+        ("changed_catalog_price", "prepared"),
+        ("changed_catalog_limit", "prepared"),
+        ("zero_frozen_price", "reconciling"),
+        ("changed_setup_contract", "reconciling"),
+        ("changed_customer", "reconciling"),
+        ("missing_operation_key", "reconciling"),
+        ("incompatible_placeholder", "reconciling"),
+        ("invalid_cycle", "reconciling"),
+        ("invalid_description", "reconciling"),
+    ],
+)
+def test_ambiguous_checkout_validates_local_target_before_any_asaas_call(
+    app,
+    case: str,
+    operation_status: str,
+) -> None:
+    """Catálogo/intenção divergente falha sem GET, tentativa ou mutação."""
+    plan = _plano()
+    plans = [plan]
+    sub = _subscription(
+        status=None,
+        asaas_subscription_id=None,
+        asaas_setup_charge_id=None,
+        setup_fee_contracted=0.0,
+        setup_pago=False,
+    )
+    op_overrides: dict[str, object] = {"status": operation_status}
+
+    if case == "removed":
+        plans = []
+    elif case == "complimentary":
+        plan.preco_mensal = 0
+    elif case == "invalid_catalog_price":
+        plan.preco_mensal = -1
+    elif case == "changed_catalog_price":
+        plan.preco_mensal = 249
+    elif case == "changed_catalog_limit":
+        plan.limite_pessoas = 150
+    elif case == "zero_frozen_price":
+        op_overrides["valor"] = 0
+    elif case == "changed_setup_contract":
+        sub.setup_fee_contracted = 59.9
+    elif case == "changed_customer":
+        sub.asaas_customer_id = "cus_changed"
+    elif case == "missing_operation_key":
+        op_overrides["operation_key"] = ""
+    elif case == "incompatible_placeholder":
+        sub.plano = "101_200"
+    elif case == "invalid_cycle":
+        op_overrides["ciclo"] = "YEARLY"
+    elif case == "invalid_description":
+        op_overrides["descricao"] = "alvo local incompatível"
+
+    op = _ambiguous_subscription_intent(**op_overrides)
+    asaas = _NoAsaasCalls()
+    client, db = _client(
+        app,
+        planos=plans,
+        asaas=asaas,
+        subscription=sub,
+        subscription_ops=[op],
+    )
+    op_before = (
+        op.status,
+        op.attempt_started_at,
+        op.asaas_subscription_id,
+        op.customer_id,
+        op.error,
+    )
+    sub_before = (
+        sub.plano,
+        sub.status,
+        sub.asaas_subscription_id,
+        sub.asaas_customer_id,
+        sub.setup_fee_contracted,
+        sub.setup_pago,
+    )
+    igreja_before = (db.igreja.plano, db.igreja.status)
+
+    response = client.post(
+        "/subscription",
+        json={"plano": "ate_100", "cpfCnpj": _CPF},
+        headers=_AUTH,
+    )
+
+    assert response.status_code in (409, 422)
+    assert asaas.calls == []
+    assert (
+        op.status,
+        op.attempt_started_at,
+        op.asaas_subscription_id,
+        op.customer_id,
+        op.error,
+    ) == op_before
+    assert (
+        sub.plano,
+        sub.status,
+        sub.asaas_subscription_id,
+        sub.asaas_customer_id,
+        sub.setup_fee_contracted,
+        sub.setup_pago,
+    ) == sub_before
+    assert (db.igreja.plano, db.igreja.status) == igreja_before
+    assert db.commits == 0
+    assert db.refresh_calls == []
+    assert not any(isinstance(obj, Subscription) for obj in db.added)
+    assert not any(isinstance(obj, BillingSubscriptionOperation) for obj in db.added)
+
+
+def test_inactive_paid_plan_can_resume_its_matching_ambiguous_intent(app) -> None:
+    """Grandfathering pago inativo mantém um único GET e zero novo POST."""
+    plan = _plano(ativo=False)
+    sub = _subscription(
+        status=None,
+        asaas_subscription_id=None,
+        asaas_setup_charge_id=None,
+        setup_fee_contracted=0.0,
+        setup_pago=True,
+    )
+    op = _ambiguous_subscription_intent(status="reconciling")
+    asaas = _LostResponseAsaas()
+    asaas.found = [
+        {
+            "id": "sub_asaas_inactive_paid",
+            "customer": "cus_1",
+            "value": 199.0,
+            "cycle": "MONTHLY",
+            "description": "PastorAI — plano ate_100",
+        }
+    ]
+    client, _db = _client(
+        app,
+        planos=[plan],
+        asaas=asaas,
+        subscription=sub,
+        subscription_ops=[op],
+    )
+
+    response = client.post(
+        "/subscription",
+        json={"plano": "ate_100", "cpfCnpj": _CPF},
+        headers=_AUTH,
+    )
+
+    assert response.status_code == 200
+    assert plan.ativo is False
+    assert asaas.find_calls == 1
+    assert asaas.create_calls == 0
+    assert op.status == "created"
+    assert sub.asaas_subscription_id == "sub_asaas_inactive_paid"
+
+
 def test_checkout_lost_response_reconciles_without_second_post(app) -> None:
     asaas = _LostResponseAsaas()
     client, db = _client(app, planos=[_plano()], asaas=asaas)
@@ -3151,7 +3575,7 @@ def test_checkout_lost_response_reconciles_without_second_post(app) -> None:
     assert resp2.json()["invoiceUrl"] == "https://asaas.test/m1"
 
 
-def test_reconciled_adoption_preserves_webhook_that_won_during_lookup(app) -> None:
+def test_reconciled_adoption_discards_lookup_when_webhook_wins_during_get(app) -> None:
     asaas = _LostResponseAsaas()
     client, db = _client(app, planos=[_plano()], asaas=asaas)
 
@@ -3172,6 +3596,7 @@ def test_reconciled_adoption_preserves_webhook_that_won_during_lookup(app) -> No
     def lookup_after_webhook(ref: str):
         # Enquanto o retry esperava o GET, o webhook resolveu a intenção e
         # confirmou a primeira cobrança no banco.
+        asaas.find_calls += 1
         op.status = "created"
         op.asaas_subscription_id = "sub_asaas_9"
         sub.asaas_subscription_id = "sub_asaas_9"
@@ -3182,17 +3607,822 @@ def test_reconciled_adoption_preserves_webhook_that_won_during_lookup(app) -> No
         return [remote]
 
     asaas.find_subscriptions_by_external_reference = lookup_after_webhook
+    commits_before = db.commits
     resp = client.post(
         "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
     )
 
-    assert resp.status_code == 200
+    assert resp.status_code == 409
+    assert asaas.find_calls == 1
     assert sub.status == "ativa"
     assert sub.asaas_invoice_payment_id == "pay_m1"
     assert sub.asaas_invoice_url == "https://asaas.test/m1-confirmed"
     assert op.status == "created"
-    assert any(obj is op and lock is True for obj, lock in db.refresh_calls)
-    assert any(obj is sub and lock is True for obj, lock in db.refresh_calls)
+    assert op.asaas_subscription_id == "sub_asaas_9"
+    assert db.commits == commits_before
+
+
+@pytest.mark.parametrize(
+    "changed_field",
+    [
+        "church_status",
+        "plan_code",
+        "plan_price",
+        "plan_limit",
+        "setup",
+        "cycle",
+        "description",
+        "operation_status",
+        "operation_attempt",
+        "subscription_status",
+        "subscription_customer",
+    ],
+)
+def test_reconciliation_revalidates_every_local_snapshot_after_remote_get(
+    app, changed_field: str
+) -> None:
+    """Um GET iniciado nunca autoriza adoção com estado local já obsoleto."""
+    plan = _plano()
+    sub = _subscription(
+        status="pendente",
+        asaas_subscription_id=None,
+        asaas_setup_charge_id=None,
+        setup_fee_contracted=0.0,
+        setup_pago=True,
+    )
+    op = _ambiguous_subscription_intent(status="reconciling")
+    asaas = _LostResponseAsaas()
+    asaas.found = [{
+        "id": "sub_remote_frozen",
+        "customer": "cus_1",
+        "value": 199.0,
+        "cycle": "MONTHLY",
+        "description": "PastorAI — plano ate_100",
+    }]
+    client, db = _client(
+        app,
+        planos=[plan],
+        asaas=asaas,
+        subscription=sub,
+        subscription_ops=[op],
+    )
+
+    def mutate_while_get_is_in_flight(_ref: str) -> list[dict]:
+        asaas.find_calls += 1
+        if changed_field == "church_status":
+            db.igreja.status = "suspensa"
+        elif changed_field == "plan_code":
+            plan.codigo = "catalogo_movido"
+        elif changed_field == "plan_price":
+            plan.preco_mensal = 249
+        elif changed_field == "plan_limit":
+            plan.limite_pessoas = 150
+        elif changed_field == "setup":
+            op.setup_fee = 59.9
+        elif changed_field == "cycle":
+            op.ciclo = "YEARLY"
+        elif changed_field == "description":
+            op.descricao = "Contrato alterado durante o GET"
+        elif changed_field == "operation_status":
+            op.status = "creating"
+        elif changed_field == "operation_attempt":
+            op.attempt_started_at = dt.datetime(2026, 8, 10, tzinfo=dt.timezone.utc)
+        elif changed_field == "subscription_status":
+            sub.status = "inadimplente"
+        elif changed_field == "subscription_customer":
+            sub.asaas_customer_id = "cus_changed_during_get"
+        return list(asaas.found)
+
+    asaas.find_subscriptions_by_external_reference = mutate_while_get_is_in_flight
+    commits_before = db.commits
+    response = client.post(
+        "/subscription",
+        json={"plano": "ate_100", "cpfCnpj": _CPF},
+        headers=_AUTH,
+    )
+
+    assert response.status_code == 409
+    assert asaas.find_calls == 1
+    assert asaas.create_calls == 0
+    assert op.asaas_subscription_id is None
+    assert sub.asaas_subscription_id is None
+    assert db.commits == commits_before
+    # A própria mutação concorrente pode ter mudado o status, mas a operação
+    # continua aberta/recuperável e jamais foi adotada por este request.
+    assert op.status in ("creating", "reconciling")
+
+
+def test_reconciliation_releases_transaction_before_get_then_relocks_canonically(
+    app, monkeypatch
+) -> None:
+    from app.routers import subscription as subscription_router
+
+    plan = _plano()
+    sub = _prepared_placeholder(status="pendente", setup_pago=True)
+    op = _ambiguous_subscription_intent(status="reconciling")
+    asaas = _LostResponseAsaas()
+    asaas.found = [{
+        "id": "sub_remote_ordered",
+        "customer": "cus_1",
+        "value": 199.0,
+        "cycle": "MONTHLY",
+        "description": "PastorAI — plano ate_100",
+    }]
+    client, db = _client(
+        app,
+        planos=[plan],
+        asaas=asaas,
+        subscription=sub,
+        subscription_ops=[op],
+    )
+    events: list[str] = []
+    original_rollback = db.rollback
+    original_lock_church = subscription_router.lock_igreja_for_billing
+    original_lock_plans = subscription_router.lock_plan_rows_for_billing
+    original_find_op = subscription_router.find_subscription_operation_by_key
+    original_find_sub = subscription_router._subscription_by_id
+
+    def rollback() -> None:
+        events.append("rollback_before_get")
+        original_rollback()
+
+    def lookup(ref: str) -> list[dict]:
+        asaas.find_calls += 1
+        assert events == [
+            "church",
+            "plans",
+            "subscription",
+            "rollback_before_get",
+        ]
+        events.append("remote_get")
+        return list(asaas.found)
+
+    def lock_church(*args, **kwargs):
+        events.append("church")
+        return original_lock_church(*args, **kwargs)
+
+    def lock_plans(*args, **kwargs):
+        events.append("plans")
+        return original_lock_plans(*args, **kwargs)
+
+    def find_op(*args, **kwargs):
+        if kwargs.get("for_update"):
+            events.append("operation")
+        return original_find_op(*args, **kwargs)
+
+    def find_sub(*args, **kwargs):
+        if kwargs.get("for_update"):
+            events.append("subscription")
+        return original_find_sub(*args, **kwargs)
+
+    db.rollback = rollback
+    asaas.find_subscriptions_by_external_reference = lookup
+    monkeypatch.setattr(subscription_router, "lock_igreja_for_billing", lock_church)
+    monkeypatch.setattr(subscription_router, "lock_plan_rows_for_billing", lock_plans)
+    monkeypatch.setattr(
+        subscription_router, "find_subscription_operation_by_key", find_op
+    )
+    monkeypatch.setattr(subscription_router, "_subscription_by_id", find_sub)
+
+    response = client.post(
+        "/subscription",
+        json={"plano": "ate_100", "cpfCnpj": _CPF},
+        headers=_AUTH,
+    )
+
+    assert response.status_code == 200
+    assert events[:9] == [
+        "church",
+        "plans",
+        "subscription",
+        "rollback_before_get",
+        "remote_get",
+        "church",
+        "plans",
+        "operation",
+        "subscription",
+    ]
+
+
+class _PreparedNoNetwork:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    def __getattr__(self, name):
+        def forbidden(*_args, **_kwargs):
+            self.calls.append(name)
+            raise AssertionError(f"placeholder conflitante tocou Asaas ({name})")
+
+        return forbidden
+
+
+def _prepared_placeholder(**over) -> SimpleNamespace:
+    base = dict(
+        status="pendente",
+        asaas_customer_id="cus_1",
+        asaas_subscription_id=None,
+        asaas_setup_charge_id=None,
+        asaas_setup_reversed_payment_id=None,
+        asaas_invoice_payment_id=None,
+        asaas_invoice_url=None,
+        asaas_setup_invoice_url=None,
+        asaas_invoice_reversal=None,
+        proxima_cobranca=None,
+        setup_fee_contracted=0.0,
+        setup_pago=False,
+        limite=100,
+    )
+    base.update(over)
+    return _subscription(**base)
+
+
+@pytest.mark.parametrize(
+    "conflict",
+    [
+        "plan",
+        "customer",
+        "cycle",
+        "church",
+        "status",
+        "external_id",
+        "operation_external_id",
+        "setup",
+    ],
+)
+def test_prepared_placeholder_conflict_fails_before_commit_claim_or_network(
+    app, conflict: str
+) -> None:
+    sub = _prepared_placeholder()
+    op = _ambiguous_subscription_intent(status="prepared", attempt_started_at=None)
+    if conflict == "plan":
+        sub.plano = "101_200"
+    elif conflict == "customer":
+        sub.asaas_customer_id = "cus_other"
+    elif conflict == "cycle":
+        sub.ciclo = "YEARLY"
+    elif conflict == "church":
+        sub.igreja_id = "00000000-0000-0000-0000-00000000ffff"
+    elif conflict == "status":
+        sub.status = "ativa"
+    elif conflict == "external_id":
+        sub.asaas_subscription_id = "sub_other"
+    elif conflict == "operation_external_id":
+        op.asaas_subscription_id = "sub_other"
+    elif conflict == "setup":
+        sub.setup_fee_contracted = 59.9
+
+    asaas = _PreparedNoNetwork()
+    client, db = _client(
+        app,
+        planos=[_plano()],
+        asaas=asaas,
+        subscription=sub,
+        subscription_ops=[op],
+    )
+    op_before = (
+        op.status,
+        op.attempt_started_at,
+        op.asaas_subscription_id,
+        op.error,
+    )
+    sub_before = vars(sub).copy()
+    response = client.post(
+        "/subscription",
+        json={"plano": "ate_100", "cpfCnpj": _CPF},
+        headers=_AUTH,
+    )
+
+    assert response.status_code == 409
+    assert asaas.calls == []
+    assert db.commits == 0
+    assert (
+        op.status,
+        op.attempt_started_at,
+        op.asaas_subscription_id,
+        op.error,
+    ) == op_before
+    assert vars(sub) == sub_before
+    assert db.added == []
+
+
+def test_subscription_asaas_field_inventory_is_explicit() -> None:
+    asaas_fields = {
+        column.name
+        for column in Subscription.__table__.columns
+        if column.name.startswith("asaas_")
+    }
+
+    assert asaas_fields == {
+        "asaas_customer_id",
+        "asaas_subscription_id",
+        "asaas_setup_charge_id",
+        "asaas_setup_reversed_payment_id",
+        "asaas_invoice_url",
+        "asaas_setup_invoice_url",
+        "asaas_invoice_payment_id",
+        "asaas_invoice_reversal",
+    }
+
+
+def test_all_financial_operation_fields_are_inventoried_explicitly() -> None:
+    from app.routers import subscription as subscription_router
+
+    assert set(subscription_router._PAYMENT_OPERATION_INVENTORY_FIELDS) == {
+        column.name
+        for column in BillingPaymentOperation.__table__.columns
+        if column.name not in {"created_at", "updated_at"}
+    }
+    assert set(subscription_router._PLAN_CHANGE_OPERATION_INVENTORY_FIELDS) == {
+        column.name
+        for column in BillingPlanChangeOperation.__table__.columns
+        if column.name not in {"created_at", "updated_at"}
+    }
+    assert set(subscription_router._SUBSCRIPTION_OPERATION_INVENTORY_FIELDS) == {
+        column.name
+        for column in BillingSubscriptionOperation.__table__.columns
+        if column.name not in {"created_at", "updated_at"}
+    }
+
+
+def _payment_history(**over) -> BillingPaymentOperation:
+    base = dict(
+        subscription_id="00000000-0000-0000-0000-00000000su01",
+        purpose="setup",
+        operation_key="pastorai-setup-history-review8",
+        source_payment_id=None,
+        asaas_payment_id=None,
+        status="failed",
+        valor=50.0,
+        invoice_url=None,
+        error="rejeição definitiva",
+        attempt_started_at=None,
+    )
+    base.update(over)
+    return BillingPaymentOperation(**base)
+
+
+def _plan_change_history(**over) -> BillingPlanChangeOperation:
+    base = dict(
+        subscription_id="00000000-0000-0000-0000-00000000su01",
+        asaas_subscription_id="sub_remote_history",
+        from_plano="ate_100",
+        to_plano="101_200",
+        to_preco=299.0,
+        to_limite=200,
+        to_descricao="PastorAI — plano 101_200",
+        origin="manual",
+        status="completed",
+        notify_status="skipped",
+        attempt_started_at=None,
+    )
+    base.update(over)
+    return BillingPlanChangeOperation(**base)
+
+
+def _assert_new_subscription_history_conflict(
+    app,
+    *,
+    operations: list[BillingPaymentOperation] | None = None,
+    plan_changes: list[BillingPlanChangeOperation] | None = None,
+    extra_subscription_ops: list[BillingSubscriptionOperation] | None = None,
+) -> None:
+    sub = _prepared_placeholder()
+    current = _ambiguous_subscription_intent(
+        status="prepared", attempt_started_at=None
+    )
+    histories: list[object] = [
+        *(operations or []),
+        *(plan_changes or []),
+        *(extra_subscription_ops or []),
+    ]
+    histories_before = [vars(item).copy() for item in histories]
+    current_before = vars(current).copy()
+    sub_before = vars(sub).copy()
+    asaas = _PreparedNoNetwork()
+    client, db = _client(
+        app,
+        planos=[
+            _plano(),
+            _plano(
+                codigo="101_200",
+                nome="101–200 pessoas",
+                limite_pessoas=200,
+                preco_mensal=299,
+            ),
+        ],
+        asaas=asaas,
+        subscription=sub,
+        operations=operations,
+        plan_changes=plan_changes,
+        subscription_ops=[current, *(extra_subscription_ops or [])],
+    )
+    church_before = vars(db.igreja).copy()
+
+    response = client.post(
+        "/subscription",
+        json={"plano": "ate_100", "cpfCnpj": _CPF},
+        headers=_AUTH,
+    )
+
+    assert response.status_code == 409
+    assert asaas.calls == []
+    assert db.commits == 0
+    assert db.added == []
+    assert vars(current) == current_before
+    assert vars(sub) == sub_before
+    assert vars(db.igreja) == church_before
+    assert [vars(item) for item in histories] == histories_before
+
+
+@pytest.mark.parametrize(
+    ("operation_status", "overrides"),
+    [
+        ("prepared", {}),
+        ("creating", {"attempt_started_at": dt.datetime.now(dt.timezone.utc)}),
+        ("reconciling", {}),
+        ("created", {"asaas_payment_id": "pay_setup_created"}),
+        ("paid", {"asaas_payment_id": "pay_setup_paid"}),
+        ("reversed", {"asaas_payment_id": "pay_setup_reversed"}),
+        ("failed", {"asaas_payment_id": "pay_setup_failed_but_remote"}),
+        ("future_unknown", {}),
+    ],
+)
+def test_payment_history_blocks_new_subscription_before_claim_or_network(
+    app, operation_status: str, overrides: dict
+) -> None:
+    _assert_new_subscription_history_conflict(
+        app,
+        operations=[_payment_history(status=operation_status, **overrides)],
+    )
+
+
+def test_reversed_setup_history_missing_from_subscription_blocks_new_post(app) -> None:
+    _assert_new_subscription_history_conflict(
+        app,
+        operations=[
+            _payment_history(
+                status="reversed",
+                asaas_payment_id="pay_reversed_only_in_operation",
+                invoice_url="https://asaas.test/reversed-history",
+            )
+        ],
+    )
+
+
+@pytest.mark.parametrize(
+    "operation_status",
+    ["prepared", "processing", "reconciling", "completed", "failed", "future_unknown"],
+)
+def test_plan_change_remote_history_blocks_second_subscription_post(
+    app, operation_status: str
+) -> None:
+    _assert_new_subscription_history_conflict(
+        app,
+        plan_changes=[_plan_change_history(status=operation_status)],
+    )
+
+
+def test_historical_subscription_remote_id_blocks_new_post(app) -> None:
+    historical = _ambiguous_subscription_intent(
+        operation_key="pastorai-subcreate-historical-created",
+        status="created",
+        asaas_subscription_id="sub_only_in_history",
+        attempt_started_at=None,
+    )
+    _assert_new_subscription_history_conflict(
+        app, extra_subscription_ops=[historical]
+    )
+
+
+def test_unknown_historical_subscription_state_fails_closed(app) -> None:
+    historical = _ambiguous_subscription_intent(
+        operation_key="pastorai-subcreate-historical-unknown",
+        status="future_unknown",
+        customer_id=None,
+        attempt_started_at=None,
+    )
+    _assert_new_subscription_history_conflict(
+        app, extra_subscription_ops=[historical]
+    )
+
+
+def test_failed_payment_without_remote_markers_remains_safe_history(app) -> None:
+    sub = _prepared_placeholder()
+    current = _ambiguous_subscription_intent(
+        status="prepared", attempt_started_at=None
+    )
+    failed = _payment_history()
+    asaas = _FakeAsaas()
+    client, _db = _client(
+        app,
+        planos=[_plano()],
+        asaas=asaas,
+        subscription=sub,
+        operations=[failed],
+        subscription_ops=[current],
+    )
+
+    response = client.post(
+        "/subscription",
+        json={"plano": "ate_100", "cpfCnpj": _CPF},
+        headers=_AUTH,
+    )
+
+    assert response.status_code == 200
+    assert len(asaas.calls) == 1
+    assert current.status == "created"
+
+
+def test_history_materialized_after_claim_is_revalidated_before_asaas(app) -> None:
+    sub = _prepared_placeholder()
+    current = _ambiguous_subscription_intent(
+        status="prepared", attempt_started_at=None
+    )
+    history = _payment_history(
+        status="reversed",
+        asaas_payment_id="pay_race_after_claim",
+    )
+    asaas = _PreparedNoNetwork()
+    client, db = _client(
+        app,
+        planos=[_plano()],
+        asaas=asaas,
+        subscription=sub,
+        subscription_ops=[current],
+    )
+    original_commit = db.commit
+    history_before = vars(history).copy()
+
+    def commit_and_materialize_history() -> None:
+        original_commit()
+        if db.commits == 1:
+            # Simula outra transação que venceu logo após o commit do claim.
+            # A nova leitura canônica precisa barrar a chamada externa.
+            db.operations.append(history)
+
+    db.commit = commit_and_materialize_history
+
+    response = client.post(
+        "/subscription",
+        json={"plano": "ate_100", "cpfCnpj": _CPF},
+        headers=_AUTH,
+    )
+
+    assert response.status_code == 409
+    assert "reconciliação manual" in response.json()["detail"]
+    assert asaas.calls == []
+    assert db.commits == 1
+    assert db.added == []
+    assert vars(history) == history_before
+
+
+class _TrackedSubscriptionNoCreate:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str]] = []
+
+    def get_subscription_payment(self, subscription_id: str):
+        self.calls.append(("GET subscription payment", subscription_id))
+        return None
+
+    def create_checkout(self, **_kwargs):  # pragma: no cover - defesa do teste
+        self.calls.append(("POST subscription", "unexpected"))
+        raise AssertionError("assinatura rastreada nunca cria nova recorrência")
+
+
+def test_reconciled_plan_change_history_does_not_false_block_tracked_subscription(
+    app,
+) -> None:
+    sub = _subscription(
+        plano="101_200",
+        asaas_subscription_id="sub_remote_history",
+        asaas_setup_charge_id=None,
+        setup_fee_contracted=0.0,
+        setup_pago=True,
+    )
+    history = _plan_change_history()
+    asaas = _TrackedSubscriptionNoCreate()
+    client, _db = _client(
+        app,
+        planos=[
+            _plano(),
+            _plano(
+                codigo="101_200",
+                nome="101–200 pessoas",
+                limite_pessoas=200,
+                preco_mensal=299,
+            ),
+        ],
+        asaas=asaas,
+        subscription=sub,
+        plan_changes=[history],
+    )
+
+    response = client.post(
+        "/subscription",
+        json={"plano": "101_200"},
+        headers=_AUTH,
+    )
+
+    assert response.status_code == 200
+    assert asaas.calls == [("GET subscription payment", "sub_remote_history")]
+
+
+def test_divergent_plan_change_id_blocks_tracked_subscription_before_network(
+    app,
+) -> None:
+    sub = _subscription(
+        plano="101_200",
+        asaas_subscription_id="sub_current",
+        asaas_setup_charge_id=None,
+        setup_fee_contracted=0.0,
+        setup_pago=True,
+    )
+    history = _plan_change_history(asaas_subscription_id="sub_other")
+    asaas = _PreparedNoNetwork()
+    client, db = _client(
+        app,
+        planos=[
+            _plano(),
+            _plano(
+                codigo="101_200",
+                nome="101–200 pessoas",
+                limite_pessoas=200,
+                preco_mensal=299,
+            ),
+        ],
+        asaas=asaas,
+        subscription=sub,
+        plan_changes=[history],
+    )
+    history_before = vars(history).copy()
+    sub_before = vars(sub).copy()
+
+    response = client.post(
+        "/subscription",
+        json={"plano": "101_200"},
+        headers=_AUTH,
+    )
+
+    assert response.status_code == 409
+    assert asaas.calls == []
+    assert db.commits == 0
+    assert vars(history) == history_before
+    assert vars(sub) == sub_before
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("asaas_subscription_id", "sub_materialized"),
+        ("asaas_setup_charge_id", "pay_setup_materialized"),
+        ("asaas_setup_reversed_payment_id", "pay_setup_reversed"),
+        ("asaas_invoice_payment_id", "pay_monthly_materialized"),
+        ("asaas_invoice_url", "https://asaas.test/monthly-materialized"),
+        ("asaas_setup_invoice_url", "https://asaas.test/setup-materialized"),
+        ("asaas_invoice_reversal", "refunded"),
+        ("proxima_cobranca", "2026-09-01"),
+    ],
+)
+def test_prepared_placeholder_financial_marker_fails_without_side_effects(
+    app, field: str, value: object
+) -> None:
+    sub = _prepared_placeholder(**{field: value})
+    op = _ambiguous_subscription_intent(status="prepared", attempt_started_at=None)
+    asaas = _PreparedNoNetwork()
+    client, db = _client(
+        app,
+        planos=[_plano()],
+        asaas=asaas,
+        subscription=sub,
+        subscription_ops=[op],
+    )
+    op_before = vars(op).copy()
+    sub_before = vars(sub).copy()
+
+    response = client.post(
+        "/subscription",
+        json={"plano": "ate_100", "cpfCnpj": _CPF},
+        headers=_AUTH,
+    )
+
+    assert response.status_code == 409
+    assert asaas.calls == []
+    assert db.commits == 0
+    assert vars(op) == op_before
+    assert vars(sub) == sub_before
+    assert getattr(sub, field) == value
+    assert db.added == []
+
+
+def test_prepared_placeholder_reversal_history_combination_is_preserved(
+    app,
+) -> None:
+    sub = _prepared_placeholder(
+        asaas_setup_reversed_payment_id="pay_setup_reversed",
+        asaas_invoice_reversal="deleted",
+    )
+    op = _ambiguous_subscription_intent(status="prepared", attempt_started_at=None)
+    asaas = _PreparedNoNetwork()
+    client, db = _client(
+        app,
+        planos=[_plano()],
+        asaas=asaas,
+        subscription=sub,
+        subscription_ops=[op],
+    )
+    op_before = vars(op).copy()
+    sub_before = vars(sub).copy()
+
+    response = client.post(
+        "/subscription",
+        json={"plano": "ate_100", "cpfCnpj": _CPF},
+        headers=_AUTH,
+    )
+
+    assert response.status_code == 409
+    assert asaas.calls == []
+    assert db.commits == 0
+    assert vars(op) == op_before
+    assert vars(sub) == sub_before
+    assert sub.asaas_setup_reversed_payment_id == "pay_setup_reversed"
+    assert sub.asaas_invoice_reversal == "deleted"
+    assert db.added == []
+
+
+@pytest.mark.parametrize("placeholder_shape", ["absent_fields", "matching"])
+def test_prepared_placeholder_absent_or_matching_identity_can_proceed(
+    app, placeholder_shape: str
+) -> None:
+    if placeholder_shape == "absent_fields":
+        sub = _prepared_placeholder(
+            plano="",
+            status=None,
+            limite=None,
+            asaas_customer_id=None,
+            setup_fee_contracted=None,
+        )
+        op = _ambiguous_subscription_intent(
+            status="prepared", customer_id=None, attempt_started_at=None
+        )
+    else:
+        sub = _prepared_placeholder()
+        op = _ambiguous_subscription_intent(
+            status="prepared", attempt_started_at=None
+        )
+    asaas = _FakeAsaas()
+    client, _db = _client(
+        app,
+        planos=[_plano()],
+        asaas=asaas,
+        subscription=sub,
+        subscription_ops=[op],
+    )
+
+    response = client.post(
+        "/subscription",
+        json={"plano": "ate_100", "cpfCnpj": _CPF},
+        headers=_AUTH,
+    )
+
+    assert response.status_code == 200
+    assert len(asaas.calls) == 1
+    assert op.status == "created"
+    assert sub.plano == "ate_100"
+
+
+def test_prepared_placeholder_empty_financial_markers_can_proceed(app) -> None:
+    sub = _prepared_placeholder(
+        asaas_subscription_id="",
+        asaas_setup_charge_id=" ",
+        asaas_setup_reversed_payment_id="",
+        asaas_invoice_payment_id=" ",
+        asaas_invoice_url="",
+        asaas_setup_invoice_url=" ",
+        asaas_invoice_reversal="",
+        proxima_cobranca=None,
+        setup_pago=False,
+    )
+    op = _ambiguous_subscription_intent(
+        status="prepared", attempt_started_at=None
+    )
+    asaas = _FakeAsaas()
+    client, _db = _client(
+        app,
+        planos=[_plano()],
+        asaas=asaas,
+        subscription=sub,
+        subscription_ops=[op],
+    )
+
+    response = client.post(
+        "/subscription",
+        json={"plano": "ate_100", "cpfCnpj": _CPF},
+        headers=_AUTH,
+    )
+
+    assert response.status_code == 200
+    assert len(asaas.calls) == 1
+    assert op.status == "created"
 
 
 def test_checkout_reconcile_zero_matches_stays_reconciling_without_post(app) -> None:
@@ -3367,6 +4597,7 @@ def test_abandoned_subscription_claim_stays_reconciling_without_second_post(app)
     sub = _subscription(
         asaas_subscription_id=None,
         asaas_setup_charge_id=None,
+        setup_fee_contracted=0.0,
         setup_pago=False,
     )
     client, db = _client(
@@ -3466,9 +4697,10 @@ def test_customer_persistence_failure_returns_intent_to_prepared(app) -> None:
     original_commit = db.commit
 
     def fail_customer_commit_once() -> None:
-        # sub placeholder, prepare op e claim já fizeram três commits. O quarto
-        # é a callback que persiste o customer antes do POST /subscriptions.
-        if db.commits == 3:
+        # Placeholder + intenção agora nascem no mesmo commit; depois, o claim
+        # faz o segundo. O terceiro é a callback que persiste o customer antes
+        # do POST /subscriptions.
+        if db.commits == 2:
             db.commits += 1
             raise RuntimeError("falha transitória no commit do customer")
         original_commit()
@@ -3911,9 +5143,10 @@ def test_deactivated_plan_without_open_intent_still_returns_422(app) -> None:
     assert not [o for o in db.added if isinstance(o, BillingSubscriptionOperation)]
 
 
-def test_adoption_uses_the_frozen_target_not_the_edited_catalog(app) -> None:
-    # O master editou preço e limite DEPOIS da intenção: a adoção usa o alvo
-    # congelado na operação — nunca reinterpreta a contratação antiga.
+def test_adoption_rejects_catalog_changed_after_the_frozen_intent(app) -> None:
+    # O master editou preço e limite DEPOIS da intenção: a adoção automática
+    # falha localmente. O remoto pode existir com o contrato antigo, mas essa
+    # divergência exige reconciliação manual e nenhum GET é autorizado.
     plano = _plano()
     asaas = _LostResponseAsaas()
     client, db = _client(app, planos=[plano], asaas=asaas)
@@ -3929,6 +5162,16 @@ def test_adoption_uses_the_frozen_target_not_the_edited_catalog(app) -> None:
     plano.limite_pessoas = 5
 
     _adopt_created_sub(db)
+    created_sub = next(o for o in db.added if isinstance(o, Subscription))
+    op_before = (op.status, op.asaas_subscription_id, op.attempt_started_at)
+    sub_before = (
+        created_sub.plano,
+        created_sub.limite,
+        created_sub.status,
+        created_sub.asaas_subscription_id,
+        created_sub.asaas_customer_id,
+    )
+    commits_before = db.commits
     asaas.found = [{
         "id": "sub_asaas_9",
         "customer": "cus_1",
@@ -3940,10 +5183,18 @@ def test_adoption_uses_the_frozen_target_not_the_edited_catalog(app) -> None:
         "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
     )
 
-    assert resp.status_code == 200
-    created_sub = next(o for o in db.added if isinstance(o, Subscription))
-    assert created_sub.limite == 100  # não o 5 novo do catálogo
-    assert float(op.valor) == 199.0  # nem o preço novo
+    assert resp.status_code == 409
+    assert asaas.find_calls == 0
+    assert asaas.create_calls == 1  # só o POST inicial, nunca um segundo
+    assert (op.status, op.asaas_subscription_id, op.attempt_started_at) == op_before
+    assert (
+        created_sub.plano,
+        created_sub.limite,
+        created_sub.status,
+        created_sub.asaas_subscription_id,
+        created_sub.asaas_customer_id,
+    ) == sub_before
+    assert db.commits == commits_before
 
 
 # ---------------------------------------------------------------------------
@@ -4012,7 +5263,7 @@ def test_prepared_intent_is_superseded_when_the_user_picks_another_plan(
     assert asaas.create_calls == ["ate_100", "101_200"]
 
 
-def test_prepared_retry_uses_the_intent_price_and_limit_after_catalog_edit(
+def test_prepared_retry_rejects_catalog_edit_before_any_new_post(
     app,
 ) -> None:
     asaas = _RejectingThenTrackingAsaas()
@@ -4027,6 +5278,21 @@ def test_prepared_retry_uses_the_intent_price_and_limit_after_catalog_edit(
     assert op.status == "prepared"
     assert op.limite == 100
     _adopt_created_sub(db)
+    sub = db.subscription
+    op_before = (
+        op.status,
+        op.valor,
+        op.limite,
+        op.attempt_started_at,
+        op.error,
+    )
+    sub_before = (
+        sub.plano,
+        sub.status,
+        sub.asaas_customer_id,
+        sub.asaas_subscription_id,
+    )
+    commits_before = db.commits
 
     plano.preco_mensal = 999
     plano.limite_pessoas = 5
@@ -4034,12 +5300,22 @@ def test_prepared_retry_uses_the_intent_price_and_limit_after_catalog_edit(
         "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
     )
 
-    assert second.status_code == 200
-    assert asaas.values == [199.0, 199.0]
-    tracked = next(o for o in db.added if isinstance(o, Subscription))
-    assert tracked.limite == 100
-    assert float(op.valor) == 199.0
-    assert op.limite == 100
+    assert second.status_code == 409
+    assert asaas.values == [199.0]
+    assert (
+        op.status,
+        op.valor,
+        op.limite,
+        op.attempt_started_at,
+        op.error,
+    ) == op_before
+    assert (
+        sub.plano,
+        sub.status,
+        sub.asaas_customer_id,
+        sub.asaas_subscription_id,
+    ) == sub_before
+    assert db.commits == commits_before
 
 
 def test_ambiguous_intent_for_another_plan_still_conflicts(app) -> None:

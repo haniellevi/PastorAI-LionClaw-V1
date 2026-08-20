@@ -53,8 +53,18 @@ def _sub(**over):
     return SimpleNamespace(**base)
 
 
-def _igreja(status: str = "ativa"):
-    return SimpleNamespace(id=_IGREJA_ID, status=status)
+def _igreja(status: str = "ativa", plano: str | None = "ate_100"):
+    return SimpleNamespace(id=_IGREJA_ID, status=status, plano=plano)
+
+
+def _plan(codigo: str = "ate_100"):
+    return SimpleNamespace(
+        codigo=codigo,
+        nome=codigo,
+        limite_pessoas=100,
+        preco_mensal=199,
+        ativo=True,
+    )
 
 
 class _Result:
@@ -88,6 +98,7 @@ class _WebhookDb:
         legacy_candidates=None,
         operations=None,
         subscription_create_ops=None,
+        plans=None,
     ) -> None:
         self.sub = sub
         self.igreja = igreja
@@ -98,9 +109,12 @@ class _WebhookDb:
         self.operations = operations or []
         # Intenções duráveis de criação de assinatura (externalReference nova).
         self.subscription_create_ops = subscription_create_ops or []
+        self.plans = plans or [_plan()]
         self.commits = 0
         self.flushes = 0
         self.subscription_locks = 0
+        self.lock_trace: list[str] = []
+        self.before_subscription_lock = None
 
     def add(self, obj) -> None:
         self.operations.append(obj)
@@ -121,6 +135,11 @@ class _WebhookDb:
                 ),
                 None,
             )
+            if (
+                match is not None
+                and getattr(statement, "_for_update_arg", None) is not None
+            ):
+                self.lock_trace.append("operation")
             return _Result(match)
         if any(key.startswith("source_payment_id") for key in bound):
             # find_settled_recovery: recovery PAGA que liquidou a fonte.
@@ -178,17 +197,36 @@ class _WebhookDb:
                     if str(getattr(op, "asaas_payment_id", None)) == str(value) or str(
                         getattr(op, "operation_key", None)
                     ) == str(value):
+                        if getattr(statement, "_for_update_arg", None) is not None:
+                            self.lock_trace.append("operation")
                         return _Result(op)
                 return _Result(None)
         # Subscription por id (dispatch do evento de operação).
         if not isinstance(statement, Update):
             sub_id = bound.get("id_1")
-            if sub_id is not None and self.sub is not None and str(sub_id) == str(
-                getattr(self.sub, "id", None)
-            ):
+            candidates = [
+                candidate
+                for candidate in [self.sub, *self.legacy_candidates]
+                if candidate is not None
+            ]
+            matched_sub = next(
+                (
+                    candidate
+                    for candidate in candidates
+                    if sub_id is not None
+                    and str(sub_id) == str(getattr(candidate, "id", None))
+                ),
+                None,
+            )
+            if matched_sub is not None:
                 if getattr(statement, "_for_update_arg", None) is not None:
                     self.subscription_locks += 1
-                return _Result(self.sub)
+                    self.lock_trace.append("subscription")
+                    callback = self.before_subscription_lock
+                    if callback is not None:
+                        self.before_subscription_lock = None
+                        callback(matched_sub)
+                return _Result(matched_sub)
         if any(key.startswith("asaas_customer_id") for key in bound):
             if getattr(statement, "_for_update_arg", None) is not None:
                 self.subscription_locks += 1
@@ -241,7 +279,31 @@ class _WebhookDb:
 
 
 def _client(app, db: _WebhookDb, monkeypatch) -> TestClient:
+    from app.routers import subscription as subscription_router
+
     monkeypatch.setattr(get_settings(), "asaas_webhook_token", _TOKEN, raising=False)
+
+    def lock_church(_session, igreja_id):
+        db.lock_trace.append("church")
+        if db.igreja is None or str(db.igreja.id) != str(igreja_id):
+            return None
+        return db.igreja
+
+    def lock_plans(_session, *plan_codes):
+        db.lock_trace.append("plans")
+        requested = {str(code) for code in plan_codes if code}
+        return {
+            plan.codigo: plan
+            for plan in db.plans
+            if str(plan.codigo) in requested
+        }
+
+    monkeypatch.setattr(
+        subscription_router, "lock_igreja_for_billing", lock_church
+    )
+    monkeypatch.setattr(
+        subscription_router, "lock_plan_rows_for_billing", lock_plans
+    )
     app.dependency_overrides[get_db] = lambda: db
     return TestClient(app)
 
@@ -277,6 +339,62 @@ def _post(client: TestClient, event: str, payment: dict):
         json={"event": event, "payment": payment},
         headers=_HDR,
     )
+
+
+def test_authenticated_webhook_works_with_billing_write_gates_off(
+    app, monkeypatch
+) -> None:
+    settings = get_settings()
+    monkeypatch.setattr(settings, "allow_real_sends", False, raising=False)
+    monkeypatch.setattr(settings, "asaas_billing_enabled", False, raising=False)
+    db = _WebhookDb(sub=_sub(), igreja=_igreja("ativa"))
+    client = _client(app, db, monkeypatch)
+
+    resp = _post(client, "PAYMENT_CONFIRMED", _payment(status="CONFIRMED"))
+
+    assert resp.status_code == 200
+    assert resp.json() == {"received": True, "status": "ativa"}
+    assert db.commits == 1
+
+
+def test_monthly_webhook_locks_church_plans_then_subscription(
+    app, monkeypatch
+) -> None:
+    db = _WebhookDb(sub=_sub(status="pendente"), igreja=_igreja("ativa"))
+    client = _client(app, db, monkeypatch)
+
+    response = _post(
+        client,
+        "PAYMENT_CONFIRMED",
+        _payment(status="CONFIRMED", payment_id="pay_canonical"),
+    )
+
+    assert response.status_code == 200
+    assert db.lock_trace[:3] == ["church", "plans", "subscription"]
+
+
+def test_tracked_subscription_is_revalidated_after_canonical_locks(
+    app, monkeypatch
+) -> None:
+    sub = _sub(status="pendente")
+    db = _WebhookDb(sub=sub, igreja=_igreja("ativa"))
+    db.before_subscription_lock = lambda locked: setattr(
+        locked, "asaas_subscription_id", "sub_changed_while_waiting"
+    )
+    client = _client(app, db, monkeypatch)
+
+    response = _post(
+        client,
+        "PAYMENT_CONFIRMED",
+        _payment(status="CONFIRMED", payment_id="pay_revalidate"),
+    )
+
+    assert response.json() == {"received": True, "status": None}
+    assert sub.status == "pendente"
+    assert sub.asaas_invoice_payment_id is None
+    assert db.igreja.status == "ativa"
+    assert db.commits == 0
+    assert db.lock_trace[:3] == ["church", "plans", "subscription"]
 
 
 def test_payment_created_pending_preserva_igreja_ativa(app, monkeypatch) -> None:
@@ -975,6 +1093,13 @@ def test_recovery_charge_confirmation_regularizes_access_not_setup(
         assert db.sub.asaas_invoice_reversal is None  # dívida quitada
         assert db.igreja.status == "ativa"  # guarda atômica reativa a igreja
         assert db.sub.setup_pago is False  # recovery NUNCA é confundida com setup
+
+    assert db.lock_trace[:4] == [
+        "church",
+        "plans",
+        "operation",
+        "subscription",
+    ]
 
 
 @pytest.mark.parametrize("conflicting_id", ["pay_duplicate", None])
@@ -1763,6 +1888,12 @@ def test_subscription_event_resolves_new_external_reference_via_operation(
     assert resp.status_code == 200
     assert resp.json()["status"] == "ativa"
     assert db.sub.status == "ativa"
+    assert db.lock_trace[:4] == [
+        "church",
+        "plans",
+        "operation",
+        "subscription",
+    ]
 
 
 def test_subscription_event_rejects_contract_that_differs_from_frozen_intent(
