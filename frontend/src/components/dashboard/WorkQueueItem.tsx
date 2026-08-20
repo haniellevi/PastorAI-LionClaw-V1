@@ -8,12 +8,14 @@
  * tipo, prazo com ícone+texto (nunca só cor), ação PRINCIPAL do tipo como
  * botão primário e secundárias como botões textuais quietos. Nenhuma ação foi
  * removida nem mudou de callback/condição:
- *  - visitante/conectar_celula → principal: Conectar à célula;
+ *  - visitante/conectar_celula → principal: Conectar à célula quando a
+ *                                capacidade explícita permite;
  *  - fonovisita               → principal: Fonovisita (mesma semântica — não
  *                                remove a pendência atual);
  *  - atendimento/relatorio    → principal: Assumir;
- *  - Assumir/Atribuir/Mensagem seguem presentes em todos os tipos, com as
- *    mesmas regras de disabled (busy / já assumido).
+ *  - Assumir segue presente em todos os tipos; Mensagem só aparece quando a
+ *    capacidade por item veio confirmada pelo servidor; Atribuir depende da
+ *    capacidade explícita recebida do painel.
  */
 import { DsButton } from "@/components/ds/Button";
 import { Icon, type IconKey } from "@/lib/icons";
@@ -37,6 +39,10 @@ export interface WorkQueueItemProps {
   now: number;
   /** Nome do responsável atual, resolvido pela equipe (ou null). */
   responsibleName: string | null;
+  /** Capacidade já resolvida pelo painel; o item não infere papéis. */
+  canLinkCell: boolean;
+  /** Capacidade de atribuir itens da fila, já resolvida pelo painel. */
+  canAssignQueue: boolean;
   /** Desabilita ações enquanto uma requisição do item está em curso. */
   busy?: boolean;
   /** Marca a saída animada (resolved) antes da remoção da lista. */
@@ -54,6 +60,8 @@ export function WorkQueueItem({
   item,
   now,
   responsibleName,
+  canLinkCell,
+  canAssignQueue,
   busy = false,
   resolving = false,
   conflict = null,
@@ -64,18 +72,22 @@ export function WorkQueueItem({
   onFonovisita,
 }: WorkQueueItemProps) {
   const visual = TYPE_VISUAL[item.tipo] ?? DEFAULT_VISUAL;
-  const canLinkCell = item.tipo === "visitante" || item.tipo === "conectar_celula";
+  const isLinkCellItem =
+    item.tipo === "visitante" || item.tipo === "conectar_celula";
+  const showLinkCellAction = canLinkCell && isLinkCellItem;
   const isFonovisita = item.tipo === "fonovisita";
   const deadlinePrefix = isFonovisita ? "fonovisita" : "prazo";
   const assumido = item.status === "assumido";
   // Ação principal do TIPO: Conectar à célula > Fonovisita > Assumir.
-  const assumeIsPrimary = !canLinkCell && !isFonovisita;
+  const assumeIsPrimary = !showLinkCellAction && !isFonovisita;
 
   return (
     <div
       className={`dh-item${resolving ? " resolving" : ""}`}
       data-q={item.id}
+      data-kind={visual.cls}
       data-state={resolving ? "resolving" : "pending"}
+      role="listitem"
     >
       <span className={`dh-avatar ${visual.cls}`} aria-hidden="true">
         <Icon name={visual.icon} />
@@ -101,15 +113,25 @@ export function WorkQueueItem({
       </div>
 
       <div className="dh-item-actions">
-        {canLinkCell ? (
-          <DsButton disabled={busy} onClick={() => onLinkCell(item)}>
+        {showLinkCellAction ? (
+          <DsButton
+            disabled={busy}
+            aria-busy={busy || undefined}
+            aria-label={`Conectar à célula: ${item.titulo}`}
+            onClick={() => onLinkCell(item)}
+          >
             <Icon name="link" />
             <span>Conectar à célula</span>
           </DsButton>
         ) : null}
 
         {isFonovisita ? (
-          <DsButton disabled={busy} onClick={() => onFonovisita(item)}>
+          <DsButton
+            disabled={busy}
+            aria-busy={busy || undefined}
+            aria-label={`Registrar fonovisita: ${item.titulo}`}
+            onClick={() => onFonovisita(item)}
+          >
             <Icon name="phone" />
             <span>Fonovisita</span>
           </DsButton>
@@ -118,18 +140,36 @@ export function WorkQueueItem({
         <DsButton
           variant={assumeIsPrimary ? "primary" : "tertiary"}
           disabled={busy || assumido}
+          aria-busy={busy || undefined}
+          aria-label={`${assumido ? "Assumido" : "Assumir"}: ${item.titulo}`}
           onClick={() => onAssume(item)}
         >
           {assumido ? "Assumido" : "Assumir"}
         </DsButton>
 
-        <DsButton variant="tertiary" disabled={busy} onClick={() => onAssign(item)}>
-          Atribuir
-        </DsButton>
+        {canAssignQueue ? (
+          <DsButton
+            variant="tertiary"
+            disabled={busy}
+            aria-busy={busy || undefined}
+            aria-label={`Atribuir responsável: ${item.titulo}`}
+            onClick={() => onAssign(item)}
+          >
+            Atribuir
+          </DsButton>
+        ) : null}
 
-        <DsButton variant="tertiary" disabled={busy} onClick={() => onMessage(item)}>
-          Mensagem
-        </DsButton>
+        {item.canMessage ? (
+          <DsButton
+            variant="tertiary"
+            disabled={busy}
+            aria-busy={busy || undefined}
+            aria-label={`Enviar mensagem: ${item.titulo}`}
+            onClick={() => onMessage(item)}
+          >
+            Mensagem
+          </DsButton>
+        ) : null}
       </div>
     </div>
   );

@@ -59,6 +59,17 @@ function maskPhone(phone: string): string {
 export function GanharScreen() {
   const { token, user, expireSession } = useAuth();
   const canOpenContact = user ? isAdmin(user.roles) : false;
+  const canLinkCell =
+    user?.roles.some((role) => role === "admin" || role === "pastor") ?? false;
+  const canAdvancePipeline =
+    user?.roles.some((role) =>
+      [
+        "admin",
+        "pastor",
+        "lider_g12",
+        "lider_consol",
+      ].includes(role),
+    ) ?? false;
 
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [cells, setCells] = useState<Cell[]>([]);
@@ -71,6 +82,13 @@ export function GanharScreen() {
   const [linkTarget, setLinkTarget] = useState<Contact | null>(null);
   const [linkError, setLinkError] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast | null>(null);
+
+  useEffect(() => {
+    if (canLinkCell) return;
+    setCells([]);
+    setLinkTarget(null);
+    setLinkError(null);
+  }, [canLinkCell]);
 
   const handleSessionError = useCallback(
     (err: unknown): boolean => {
@@ -88,17 +106,20 @@ export function GanharScreen() {
       if (!token) return;
       if (mode === "initial") setLoading(true);
       if (mode === "retry") {
-        clearAuthedResponseCache(token, ["/pipeline?", "/cells?"]);
+        clearAuthedResponseCache(
+          token,
+          canLinkCell ? ["/pipeline?", "/cells?"] : ["/pipeline?"],
+        );
       }
       setError(null);
       try {
         const [page, cellPage] = await Promise.all([
           fetchPipeline(token, "ganhar"),
-          fetchCells(token),
+          canLinkCell ? fetchCells(token) : Promise.resolve(null),
         ]);
         // CSIM (sem interesse) está fora da Visão G12 — não entra na base de "Ganhar".
         setContacts(page.items.filter((c) => !c.semInteresse));
-        setCells(cellPage.items);
+        setCells(cellPage?.items ?? []);
         setLoaded(true);
       } catch (err) {
         if (handleSessionError(err)) return;
@@ -111,7 +132,7 @@ export function GanharScreen() {
         setLoading(false);
       }
     },
-    [token, handleSessionError],
+    [token, canLinkCell, handleSessionError],
   );
 
   useEffect(() => {
@@ -174,7 +195,7 @@ export function GanharScreen() {
 
   const handlePromote = useCallback(
     async (c: Contact) => {
-      if (!token) return;
+      if (!canAdvancePipeline || !token) return;
       setBusyId(c.id);
       try {
         await promoteContact(token, c.id, "consolidar");
@@ -190,12 +211,12 @@ export function GanharScreen() {
         setBusyId(null);
       }
     },
-    [token, flashToast, handleSessionError],
+    [canAdvancePipeline, token, flashToast, handleSessionError],
   );
 
   const handleLink = useCallback(
     async (celulaId: string) => {
-      if (!token || !linkTarget) return;
+      if (!canLinkCell || !token || !linkTarget) return;
       setBusyId(linkTarget.id);
       setLinkError(null);
       try {
@@ -212,7 +233,7 @@ export function GanharScreen() {
         setBusyId(null);
       }
     },
-    [token, linkTarget, flashToast, handleSessionError],
+    [canLinkCell, token, linkTarget, flashToast, handleSessionError],
   );
 
   const showSkeleton = loading && !loaded;
@@ -242,7 +263,7 @@ export function GanharScreen() {
         width: "1px",
         cell: (c) => (
           <div className="row-actions">
-            {!c.celulaId ? (
+            {canLinkCell && !c.celulaId ? (
               <button
                 type="button"
                 className="btn btn-sm"
@@ -272,7 +293,7 @@ export function GanharScreen() {
         ),
       },
     ],
-    [busyId, canOpenContact, openContact],
+    [busyId, canLinkCell, canOpenContact, openContact],
   );
 
   const visitantesColumns: Array<Column<Contact>> = useMemo(
@@ -306,7 +327,7 @@ export function GanharScreen() {
           const canPromote = meetsPromotionCriteria(c);
           return (
             <div className="row-actions">
-              {!c.celulaId ? (
+              {canLinkCell && !c.celulaId ? (
                 <button
                   type="button"
                   className="btn btn-sm"
@@ -320,23 +341,25 @@ export function GanharScreen() {
                   Vincular célula
                 </button>
               ) : null}
-              <button
-                type="button"
-                className="btn btn-sm btn-primary"
-                disabled={!canPromote || busyId === c.id}
-                aria-disabled={!canPromote || undefined}
-                title={
-                  canPromote
-                    ? undefined
-                    : "Visitante só pode ser promovido com 3+ presenças em célula ou decisão por Jesus"
-                }
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (canPromote) void handlePromote(c);
-                }}
-              >
-                Promover
-              </button>
+              {canAdvancePipeline ? (
+                <button
+                  type="button"
+                  className="btn btn-sm btn-primary"
+                  disabled={!canPromote || busyId === c.id}
+                  aria-disabled={!canPromote || undefined}
+                  title={
+                    canPromote
+                      ? undefined
+                      : "Visitante só pode ser promovido com 3+ presenças em célula ou decisão por Jesus"
+                  }
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (canPromote) void handlePromote(c);
+                  }}
+                >
+                  Promover
+                </button>
+              ) : null}
               {canOpenContact ? (
                 <button
                   type="button"
@@ -354,12 +377,23 @@ export function GanharScreen() {
         },
       },
     ],
-    [busyId, canOpenContact, handlePromote, openContact],
+    [
+      busyId,
+      canAdvancePipeline,
+      canLinkCell,
+      canOpenContact,
+      handlePromote,
+      openContact,
+    ],
   );
 
   return (
-    <div className="screen" key="ganhar">
+    <div className="screen journey-screen journey-screen--ganhar" key="ganhar">
       <div className="screen-head">
+        <div className="titles">
+          <h2>Base de entrada</h2>
+          <p>Organize novos contatos e visitantes antes do próximo passo da jornada.</p>
+        </div>
         <div className="actions">
           <button
             type="button"
@@ -410,7 +444,7 @@ export function GanharScreen() {
 
       <div className="card">
         <div className="panel-title">
-          Base de entrada
+          Pessoas que chegaram
           <div className="right">
             <div className="tabs">
               <button
@@ -470,7 +504,7 @@ export function GanharScreen() {
         )}
       </div>
 
-      {linkTarget ? (
+      {canLinkCell && linkTarget ? (
         <LinkCellModal
           cells={cells}
           contactName={linkTarget.nome}

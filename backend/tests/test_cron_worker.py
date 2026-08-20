@@ -14,6 +14,7 @@ from types import SimpleNamespace
 
 from app.workers.cron_worker import (
     CronWorker,
+    WORKER_HEARTBEAT_TTL_SECONDS,
     parse_interval,
     run_due_crons,
     _should_run,
@@ -83,8 +84,12 @@ class FakeEngine:
         self.calls: list[uuid.UUID] = []
         self._handled = handled
 
-    def run_for_igreja(self, session, igreja_id, now=None) -> list:
+    def run_for_igreja(
+        self, session, igreja_id, now=None, *, progress_callback=None
+    ) -> list:
         self.calls.append(igreja_id)
+        if progress_callback is not None:
+            progress_callback()
         return [object()] * self._handled
 
 
@@ -207,12 +212,12 @@ def test_tick_runs_sla_sweep_and_due_crons(monkeypatch) -> None:
     monkeypatch.setattr(
         worker_module,
         "run_all_igrejas",
-        lambda s, e, now, session_factory=None: 3,
+        lambda s, e, now, session_factory=None, progress_callback=None: 3,
     )
     monkeypatch.setattr(
         worker_module,
         "run_pending_plan_changes",
-        lambda s, session_factory=None: 0,
+        lambda s, session_factory=None, progress_callback=None: 0,
     )
 
     worker = CronWorker(
@@ -234,13 +239,15 @@ def test_tick_includes_autoupgrade_plan_change_pass(monkeypatch) -> None:
     monkeypatch.setattr(
         worker_module,
         "run_all_igrejas",
-        lambda s, e, now, session_factory=None: 0,
+        lambda s, e, now, session_factory=None, progress_callback=None: 0,
     )
     seen: dict = {}
 
-    def _fake_pass(s, session_factory=None):
+    def _fake_pass(s, session_factory=None, progress_callback=None):
         seen["session"] = s
         seen["factory"] = session_factory
+        if progress_callback is not None:
+            progress_callback()
         return 2
 
     monkeypatch.setattr(worker_module, "run_pending_plan_changes", _fake_pass)
@@ -266,10 +273,10 @@ def test_tick_isolates_plan_change_failure_from_sla_and_crons(monkeypatch) -> No
     monkeypatch.setattr(
         worker_module,
         "run_all_igrejas",
-        lambda s, e, now, session_factory=None: 3,
+        lambda s, e, now, session_factory=None, progress_callback=None: 3,
     )
 
-    def _boom(s, session_factory=None):
+    def _boom(s, session_factory=None, progress_callback=None):
         raise RuntimeError("billing pass exploded")
 
     monkeypatch.setattr(worker_module, "run_pending_plan_changes", _boom)
@@ -292,7 +299,11 @@ def test_run_closes_engine_created_by_worker_even_after_tick_error(
 
     engine = ClosingEngine()
     monkeypatch.setattr(worker_module, "SlaEngine", lambda: engine)
-    worker = CronWorker(session_factory=lambda: object(), tick_seconds=300)
+    worker = CronWorker(
+        session_factory=lambda: object(),
+        tick_seconds=300,
+        heartbeat_publisher=lambda *_args: None,
+    )
 
     def stop_and_fail(now=None):
         worker.stop()
@@ -311,6 +322,7 @@ def test_run_does_not_close_injected_engine(monkeypatch) -> None:
         session_factory=lambda: object(),
         engine=engine,
         tick_seconds=300,
+        heartbeat_publisher=lambda *_args: None,
     )
 
     def stop_after_tick(now=None):
@@ -327,3 +339,109 @@ def test_run_does_not_close_injected_engine(monkeypatch) -> None:
     worker.run()
 
     assert engine.close_calls == 0
+
+
+def test_run_publishes_worker_progress_states(monkeypatch) -> None:
+    heartbeats: list[tuple[str, int]] = []
+    worker = CronWorker(
+        session_factory=lambda: object(),
+        engine=ClosingEngine(),
+        tick_seconds=300,
+        heartbeat_publisher=lambda state, ttl: heartbeats.append((state, ttl)),
+    )
+
+    def stop_after_tick(now=None):
+        worker.stop()
+        return {
+            "sla_handled": 0,
+            "crons_run": 0,
+            "oauth_flows_purged": 0,
+            "plan_changes_completed": 0,
+        }
+
+    monkeypatch.setattr(worker, "tick", stop_after_tick)
+
+    worker.run()
+
+    assert heartbeats == [
+        ("running", WORKER_HEARTBEAT_TTL_SECONDS),
+        ("ready", WORKER_HEARTBEAT_TTL_SECONDS),
+        ("stopped", WORKER_HEARTBEAT_TTL_SECONDS),
+    ]
+
+
+def test_long_tick_with_cooperative_progress_keeps_heartbeat_alive() -> None:
+    now = [0.0]
+    heartbeats: list[tuple[str, int]] = []
+    worker = CronWorker(
+        session_factory=lambda: object(),
+        engine=ClosingEngine(),
+        tick_seconds=300,
+        heartbeat_publisher=lambda state, ttl: heartbeats.append((state, ttl)),
+        progress_clock=lambda: now[0],
+        progress_timeout_seconds=10,
+    )
+    worker._running = True  # noqa: SLF001
+
+    # The total operation lasts far beyond the ten-second progress TTL, but
+    # cooperative boundaries renew progress before each watchdog observation.
+    for _ in range(4):
+        now[0] += 4
+        worker._record_progress()  # noqa: SLF001
+        now[0] += 4
+        worker._record_progress()  # noqa: SLF001
+        assert worker._heartbeat_once() is True  # noqa: SLF001
+
+    assert worker._running is True  # noqa: SLF001
+    assert heartbeats == [
+        ("ready", WORKER_HEARTBEAT_TTL_SECONDS),
+    ] * 4
+
+
+def test_stuck_tick_stops_heartbeat_without_blind_renewal() -> None:
+    now = [0.0]
+    heartbeats: list[tuple[str, int]] = []
+    worker = CronWorker(
+        session_factory=lambda: object(),
+        engine=ClosingEngine(),
+        tick_seconds=300,
+        heartbeat_publisher=lambda state, ttl: heartbeats.append((state, ttl)),
+        progress_clock=lambda: now[0],
+        progress_timeout_seconds=10,
+    )
+    worker._running = True  # noqa: SLF001
+    worker._record_progress()  # noqa: SLF001
+    now[0] = 11
+
+    assert worker._heartbeat_once() is False  # noqa: SLF001
+    assert worker._running is False  # noqa: SLF001
+    assert heartbeats == [("error", WORKER_HEARTBEAT_TTL_SECONDS)]
+
+
+def test_tick_threads_progress_callback_through_all_long_phases(monkeypatch) -> None:
+    import app.workers.cron_worker as worker_module
+
+    session = FakeCronSession([])
+    callbacks: list[object] = []
+
+    def sla(_session, _engine, _now, *, session_factory, progress_callback):
+        callbacks.append(progress_callback)
+        progress_callback()
+        return 0
+
+    def billing(_session, *, session_factory, progress_callback):
+        callbacks.append(progress_callback)
+        progress_callback()
+        return 0
+
+    monkeypatch.setattr(worker_module, "run_all_igrejas", sla)
+    monkeypatch.setattr(worker_module, "run_pending_plan_changes", billing)
+    worker = CronWorker(
+        session_factory=lambda: session,
+        engine=FakeEngine(),
+        tick_seconds=300,
+    )
+
+    worker.tick(now=_T0)
+
+    assert callbacks == [worker._record_progress, worker._record_progress]  # noqa: SLF001

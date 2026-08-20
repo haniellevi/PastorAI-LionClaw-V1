@@ -36,6 +36,7 @@ const apiMock = vi.hoisted(() => ({
   fetchConversations: vi.fn(),
   fetchMessages: vi.fn(),
   fetchConversationPhoto: vi.fn(),
+  fetchInboxTransferTargets: vi.fn(),
   sendMessage: vi.fn(),
 }));
 
@@ -46,6 +47,7 @@ vi.mock("@/lib/conversations-api", async (importOriginal) => {
     fetchConversations: apiMock.fetchConversations,
     fetchMessages: apiMock.fetchMessages,
     fetchConversationPhoto: apiMock.fetchConversationPhoto,
+    fetchInboxTransferTargets: apiMock.fetchInboxTransferTargets,
     sendMessage: apiMock.sendMessage,
   };
 });
@@ -156,6 +158,7 @@ let root: Root;
 
 beforeEach(() => {
   pending = [];
+  auth.user.roles = ["pastor"];
 
   // jsdom não implementa matchMedia; o inbox usa para o master-detail mobile.
   // matches=false ⇒ desktop (lista + thread lado a lado, seleção automática).
@@ -179,6 +182,19 @@ beforeEach(() => {
   });
   apiMock.fetchConversationPhoto.mockReset();
   apiMock.fetchConversationPhoto.mockResolvedValue(null);
+  apiMock.fetchInboxTransferTargets.mockReset();
+  apiMock.fetchInboxTransferTargets.mockResolvedValue({
+    items: [
+      {
+        usuarioId: "u-2",
+        nome: "Responsável disponível",
+        papeis: ["lider_consol"],
+      },
+    ],
+    page: 1,
+    pageSize: 200,
+    total: 1,
+  });
   apiMock.sendMessage.mockReset();
   apiMock.sendMessage.mockResolvedValue(undefined);
   apiMock.fetchMessages.mockReset();
@@ -228,6 +244,44 @@ function selectConversation(nome: string) {
     convButton(nome).dispatchEvent(new MouseEvent("click", { bubbles: true }));
   });
 }
+
+describe("InboxScreen — destinos de transferência por capacidade", () => {
+  it.each(["lider_celula", "operador"])(
+    "%s carrega o diretório enxuto do inbox sem depender do lookup da fila",
+    async (role) => {
+      auth.user.roles = [role];
+      apiMock.fetchConversations.mockResolvedValue({
+        items: [
+          {
+            ...CONV_A,
+            estado: "humano",
+            assumidoPor: "u-1",
+            assumidoPorNome: "Responsável atual",
+          },
+        ],
+        page: 1,
+        pageSize: 100,
+        total: 1,
+      });
+
+      await renderInbox();
+      const transfer = container.querySelector<HTMLButtonElement>(
+        'button[aria-label="Transferir conversa"]',
+      );
+      if (!transfer) throw new Error("ação de transferência não encontrada");
+
+      await act(async () => {
+        transfer.click();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(apiMock.fetchInboxTransferTargets).toHaveBeenCalledWith("tok-1");
+      expect(container.textContent).toContain("Transferir conversa");
+      expect(container.textContent).toContain("Responsável disponível");
+    },
+  );
+});
 
 describe("InboxScreen — timeout da lista de conversas", () => {
   it("distingue timeout de cancelamento e mostra erro na carga inicial e no retry", async () => {

@@ -51,7 +51,7 @@ export function LockedScreen({ variant }: { variant: LockedVariant }) {
   const cfg = CONFIG[variant];
 
   return (
-    <div className="screen" key={variant}>
+    <div className="screen journey-screen locked-screen" key={variant}>
       <div className="screen-head">
         <div className="titles">
           <h2>{cfg.title}</h2>

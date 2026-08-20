@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import datetime as dt
+import threading
 import uuid
+from contextlib import contextmanager
 from types import SimpleNamespace
 
 import pytest
@@ -277,6 +279,9 @@ def _install_in_memory_dispatch(monkeypatch):
 
     monkeypatch.setattr(delivery, "_claim_next_delivery", claim_next)
     monkeypatch.setattr(delivery, "_record_delivery_result", record)
+    monkeypatch.setattr(
+        delivery, "_renew_delivery_transport_fence", lambda *args, **kwargs: True
+    )
     return state
 
 
@@ -322,6 +327,131 @@ def test_ambiguous_result_is_never_retried(monkeypatch) -> None:
     assert actions == 1
     assert evolution.calls == 1
     assert state["status"] == "desconhecido"
+
+
+def test_cancel_after_claim_before_transport_never_calls_evolution(monkeypatch) -> None:
+    state = _install_in_memory_dispatch(monkeypatch)
+    evolution = _SequenceEvolution([BroadcastSendResult("aceito")])
+
+    @contextmanager
+    def cancelled_gate():
+        yield False
+
+    actions = delivery.dispatch_pending_deliveries(
+        lambda: None,
+        evolution,
+        now=dt.datetime(2026, 8, 5, tzinfo=UTC),
+        worker_id="worker-1",
+        limit=1,
+        send_interval_ms=0,
+        transport_gate=lambda: cancelled_gate(),
+    )
+
+    assert actions == 1
+    assert evolution.calls == 0
+    assert state["status"] == "falhou_retentavel"
+
+
+def test_cancellation_between_claim_and_transport_never_calls_evolution(monkeypatch) -> None:
+    state = _install_in_memory_dispatch(monkeypatch)
+    evolution = _SequenceEvolution([BroadcastSendResult("aceito")])
+    checks = iter((True, True, True, False))
+
+    actions = delivery.dispatch_pending_deliveries(
+        lambda: None,
+        evolution,
+        now=dt.datetime(2026, 8, 5, tzinfo=UTC),
+        worker_id="worker-1",
+        limit=1,
+        send_interval_ms=0,
+        should_continue=lambda: next(checks),
+    )
+
+    assert actions == 1
+    assert evolution.calls == 0
+    assert state["status"] == "falhou_retentavel"
+
+
+def test_lost_transport_fence_never_calls_evolution_or_overwrites_claim(monkeypatch) -> None:
+    state = _install_in_memory_dispatch(monkeypatch)
+    monkeypatch.setattr(
+        delivery, "_renew_delivery_transport_fence", lambda *args, **kwargs: False
+    )
+    evolution = _SequenceEvolution([BroadcastSendResult("aceito")])
+
+    actions = delivery.dispatch_pending_deliveries(
+        lambda: None,
+        evolution,
+        now=dt.datetime(2026, 8, 5, tzinfo=UTC),
+        worker_id="stale-worker",
+        limit=1,
+        send_interval_ms=0,
+    )
+
+    assert actions == 1
+    assert evolution.calls == 0
+    assert state["status"] == "em_envio"
+
+
+def test_two_workers_only_owner_of_transport_fence_can_send(monkeypatch) -> None:
+    igreja_id = uuid.uuid4()
+    claim = delivery.DeliveryClaim(
+        igreja_id=igreja_id,
+        entrega_id=uuid.uuid4(),
+        execucao_id=uuid.uuid4(),
+        instance="igreja-1",
+        telefone="11999990000",
+        mensagem="aviso",
+    )
+    fence_lock = threading.Lock()
+    fence_owner: dict[str, str | None] = {"worker": None}
+    calls_lock = threading.Lock()
+    sent_by: list[str] = []
+
+    monkeypatch.setattr(
+        delivery, "_discover_delivery_tenants", lambda _factory: [igreja_id]
+    )
+    monkeypatch.setattr(
+        delivery,
+        "_claim_next_delivery",
+        lambda *args, **kwargs: delivery.ClaimDecision(claim=claim, progressed=True),
+    )
+    monkeypatch.setattr(delivery, "_record_delivery_result", lambda *args, **kwargs: True)
+
+    def renew(_factory, _claim, *, worker_id, **_kwargs):
+        with fence_lock:
+            if fence_owner["worker"] is None:
+                fence_owner["worker"] = worker_id
+            return fence_owner["worker"] == worker_id
+
+    class Evolution:
+        def send_text_classificado(self, *_args):
+            with calls_lock:
+                sent_by.append(threading.current_thread().name)
+            return BroadcastSendResult("aceito")
+
+    monkeypatch.setattr(delivery, "_renew_delivery_transport_fence", renew)
+    threads = [
+        threading.Thread(
+            name=worker_id,
+            target=delivery.dispatch_pending_deliveries,
+            args=(lambda: None, Evolution()),
+            kwargs={
+                "now": dt.datetime(2026, 8, 5, tzinfo=UTC),
+                "worker_id": worker_id,
+                "limit": 1,
+                "send_interval_ms": 0,
+            },
+        )
+        for worker_id in ("worker-a", "worker-b")
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=5)
+
+    assert all(not thread.is_alive() for thread in threads)
+    assert len(sent_by) == 1
 
 
 def test_long_send_interval_keeps_liveness_callback_active(monkeypatch) -> None:
@@ -397,6 +527,9 @@ def test_optout_between_safe_failure_and_retry_suppresses(monkeypatch) -> None:
 
     monkeypatch.setattr(delivery, "_claim_next_delivery", claim_next)
     monkeypatch.setattr(delivery, "_record_delivery_result", record)
+    monkeypatch.setattr(
+        delivery, "_renew_delivery_transport_fence", lambda *args, **kwargs: True
+    )
     evolution = _SequenceEvolution(
         [BroadcastSendResult("falhou_retentavel", "connect_error")]
     )

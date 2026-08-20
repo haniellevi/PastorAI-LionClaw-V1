@@ -270,21 +270,44 @@ class SlaEngine:
             self._evolution.close()
 
     def run_for_igreja(
-        self, session: Session, igreja_id: uuid.UUID, now: dt.datetime | None = None
+        self,
+        session: Session,
+        igreja_id: uuid.UUID,
+        now: dt.datetime | None = None,
+        *,
+        progress_callback: Callable[[], None] | None = None,
     ) -> list[SlaBreach]:
         """Scan + dispatch for one igreja, returning the breaches handled."""
         now = now or _now()
         instance = _instance(session, igreja_id)
         breaches = scan_breaches(session, igreja_id, now)
+        if progress_callback is not None:
+            progress_callback()
         handled: list[SlaBreach] = []
         for breach in breaches:
-            if self._dispatch(session, breach, instance):
+            if progress_callback is not None:
+                progress_callback()
+            if self._dispatch(
+                session,
+                breach,
+                instance,
+                progress_callback=progress_callback,
+            ):
                 handled.append(breach)
+            if progress_callback is not None:
+                progress_callback()
         session.commit()
+        if progress_callback is not None:
+            progress_callback()
         return handled
 
     def _dispatch(
-        self, session: Session, breach: SlaBreach, instance: str | None
+        self,
+        session: Session,
+        breach: SlaBreach,
+        instance: str | None,
+        *,
+        progress_callback: Callable[[], None] | None = None,
     ) -> bool:
         """Charge or escalate one breach exactly once (idempotent, SEC-4).
 
@@ -365,6 +388,8 @@ class SlaEngine:
         if instance:
             for phone in recipients:
                 attempted = True
+                if progress_callback is not None:
+                    progress_callback()
                 try:
                     if self._evolution.send_text(instance, phone, texto) is not False:
                         sent_to.append(phone)
@@ -374,6 +399,9 @@ class SlaEngine:
                         breach.status.value,
                         breach.item_id,
                     )
+                finally:
+                    if progress_callback is not None:
+                        progress_callback()
         else:
             logger.info(
                 "No official WhatsApp instance for igreja %s; SLA logged only",
@@ -411,6 +439,7 @@ def run_all_igrejas(
     now: dt.datetime | None = None,
     *,
     session_factory: Callable[[], Session] | None = None,
+    progress_callback: Callable[[], None] | None = None,
 ) -> int:
     """Run the SLA engine for every igreja with an SLA-relevant open item.
 
@@ -454,6 +483,8 @@ def run_all_igrejas(
             .scalars()
             .all()
         )
+        if progress_callback is not None:
+            progress_callback()
 
         total = 0
         for igreja_id in igreja_ids:
@@ -462,7 +493,16 @@ def run_all_igrejas(
             tenant_session = session_factory()
             try:
                 mark_tenant_scoped(tenant_session, igreja_id, source="cron_sla")
-                total += len(engine.run_for_igreja(tenant_session, igreja_id, now))
+                if progress_callback is None:
+                    handled = engine.run_for_igreja(tenant_session, igreja_id, now)
+                else:
+                    handled = engine.run_for_igreja(
+                        tenant_session,
+                        igreja_id,
+                        now,
+                        progress_callback=progress_callback,
+                    )
+                total += len(handled)
             except Exception:  # noqa: BLE001 - one tenant must not break others
                 logger.exception("SLA engine failed for igreja %s", igreja_id)
                 tenant_session.rollback()
@@ -470,6 +510,8 @@ def run_all_igrejas(
                 # Fecha SEMPRE (inclusive na exceção): sem isso a conexão
                 # voltaria ao pool no papel authenticated com o GUC do tenant.
                 tenant_session.close()
+                if progress_callback is not None:
+                    progress_callback()
         return total
     finally:
         if owns_engine:

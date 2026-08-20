@@ -30,6 +30,7 @@ from app.db.models import (
 )
 from app.db.session import get_db
 from app.deps import REVOKED_USER_STATUS, CurrentUser, require_role
+from app.services.billing import assigned_complimentary_plan
 
 router = APIRouter(prefix="/setup", tags=["setup"])
 
@@ -97,9 +98,14 @@ def get_setup_checklist(
         sub = db.execute(
             select(Subscription).where(Subscription.igreja_id == igreja_uuid)
         ).scalar_one_or_none()
+        # A concessão master é autoritativa mesmo se restou um placeholder
+        # local de checkout sem assinatura remota.
+        complimentary = assigned_complimentary_plan(db, igreja)
         items.append(
             SetupItemOut(
-                id="assinatura", screen="assinatura", done=bool(sub and sub.status == "ativa")
+                id="assinatura",
+                screen="assinatura",
+                done=bool((sub and sub.status == "ativa") or complimentary),
             )
         )
 

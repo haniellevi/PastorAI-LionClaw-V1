@@ -42,6 +42,7 @@ from app.db.models import (
     AgentConversationLog,
     AppUser,
     BillingPlanChangeOperation,
+    Igreja,
     Plano,
     Subscription,
     UserRole,
@@ -60,11 +61,14 @@ from app.services.asaas import (
 from app.services.billing import (
     OPEN_PLAN_CHANGE_STATUSES,
     PlanChangeConflict,
+    assigned_complimentary_plan,
     claim_transition,
     current_headcount,
     ensure_plan_change_operation,
     find_open_plan_change,
     finish_operation,
+    lock_igreja_for_billing,
+    lock_plan_rows_for_billing,
 )
 from app.services.evolution import EvolutionClient, EvolutionError
 
@@ -322,6 +326,32 @@ def _process_operation(
     if sub is None:
         return False
 
+    # Prefixo canônico compartilhado com trigger/master: Igreja -> Planos.
+    # Este lock precisa anteceder o retarget e qualquer chamada ao helper de
+    # troca, senão o worker pode formar o ciclo Planos -> Igreja.
+    igreja = lock_igreja_for_billing(db, igreja_id)
+    if igreja is None:
+        return False
+    if assigned_complimentary_plan(db, igreja) is not None:
+        # Defesa em profundidade: o master é a única autoridade para retirar
+        # cortesia. Uma intenção ainda local é encerrada sem PUT; estados que
+        # talvez já tenham atravessado a rede ficam para conciliação manual.
+        if op.status == "prepared":
+            finish_operation(
+                db,
+                op,
+                ("prepared",),
+                status="failed",
+                notify_status="skipped",
+                error="Auto-upgrade bloqueado: igreja em plano de cortesia",
+            )
+        else:
+            logger.error(
+                "Complimentary church has an ambiguous Asaas plan change (%s)",
+                op.id,
+            )
+        return False
+
     # Uma operação PREPARED ainda não tocou o Asaas. Revalida o porte antes
     # do primeiro PUT para não executar uma intenção antiga criada quando o
     # sistema ainda contava todos os cadastros (ou antes de um membro ser
@@ -335,6 +365,10 @@ def _process_operation(
             # operação já ocupa o claim. Nunca a adotar ou reprecificar por
             # coincidência de alvo; o proprietário dela mantém prioridade.
             return False
+        # Serializa a seleção/retarget com qualquer conversão pago <-> cortesia
+        # no catálogo. O commit do claim abaixo libera o lock somente depois de
+        # a operação corrigida ficar visível.
+        lock_plan_rows_for_billing(db, *PLAN_ORDER)
         alvo_atual = _next_ladder_target(db, sub)
         if alvo_atual is None:
             finish_operation(
@@ -432,9 +466,17 @@ def _next_ladder_target(db: Session, sub: Subscription) -> Plano | None:
         return None
     for proximo in PLAN_ORDER[idx + 1 :]:
         plano_row = db.execute(
-            select(Plano).where(Plano.codigo == proximo, Plano.ativo.is_(True))
+            select(Plano).where(
+                Plano.codigo == proximo,
+                Plano.ativo.is_(True),
+                Plano.preco_mensal > 0,
+            )
         ).scalar_one_or_none()
-        if plano_row is None or plano_row.preco_mensal is None:
+        if (
+            plano_row is None
+            or plano_row.preco_mensal is None
+            or float(plano_row.preco_mensal) <= 0
+        ):
             continue
         alvo_limite = plano_row.limite_pessoas
         if alvo_limite is None or membros <= int(alvo_limite):
@@ -455,8 +497,17 @@ def queue_autoupgrade_if_over_limit(db: Session, sub: Subscription) -> bool:
     Nenhuma chamada externa acontece nesta função. Retorna True quando
     enfileirou.
     """
+    igreja = lock_igreja_for_billing(db, sub.igreja_id)
+    if igreja is None:
+        return False
+    if assigned_complimentary_plan(db, igreja) is not None:
+        return False
     if not sub.asaas_subscription_id or sub.asaas_subscription_id == "sandbox":
         return False
+    # A operação e a conversão do catálogo compartilham os mesmos row locks.
+    # Selecionar só depois deles impede congelar um alvo que virou cortesia na
+    # corrida entre a leitura e o INSERT durável.
+    lock_plan_rows_for_billing(db, *PLAN_ORDER)
     alvo = _next_ladder_target(db, sub)
     if alvo is None:
         return False
@@ -540,6 +591,7 @@ def run_pending_plan_changes(
     session_factory: Callable[[], Session] | None = None,
     asaas: AsaasClient | None = None,
     evolution: EvolutionClient | None = None,
+    progress_callback: Callable[[], None] | None = None,
 ) -> int:
     """Processa as trocas de plano abertas em todos os tenants.
 
@@ -588,9 +640,13 @@ def run_pending_plan_changes(
         work: list[tuple[str, uuid.UUID, uuid.UUID]] = [
             ("process", op_id, igreja_id) for op_id, igreja_id in open_rows
         ] + [("notify", op_id, igreja_id) for op_id, igreja_id in notify_rows]
+        if progress_callback is not None:
+            progress_callback()
 
         completed = 0
         for kind, op_id, igreja_id in work:
+            if progress_callback is not None:
+                progress_callback()
             tenant_session = session_factory()
             try:
                 mark_tenant_scoped(tenant_session, igreja_id, source="cron_billing")
@@ -603,6 +659,15 @@ def run_pending_plan_changes(
                     _retry_pending_notification(
                         tenant_session, evolution, op_id, igreja_id
                     )
+            except PlanChangeConflict:
+                # Alvo ausente/cortesia/zero ou conflito local: a guarda central
+                # já preservou o estado seguro e, quando ambíguo, sinalizou
+                # conciliação manual sem GET/PUT no Asaas.
+                logger.warning(
+                    "Plan change blocked for manual reconciliation (igreja %s)",
+                    igreja_id,
+                )
+                tenant_session.rollback()
             except AsaasError:
                 # Falha/timeout remoto: a operação ficou `reconciling` (plano
                 # local intacto) e o próximo tick reconcilia — sem PUT repetido.
@@ -617,6 +682,8 @@ def run_pending_plan_changes(
                 tenant_session.rollback()
             finally:
                 tenant_session.close()
+                if progress_callback is not None:
+                    progress_callback()
         return completed
     finally:
         if owns_evolution:

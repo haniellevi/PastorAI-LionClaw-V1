@@ -368,3 +368,11 @@ export function useAuth(): AuthContextValue {
   }
   return ctx;
 }
+
+/**
+ * Variante para providers reutilizáveis que também são montados isoladamente
+ * em testes/storybooks. No app real, AppProviders sempre entrega AuthProvider.
+ */
+export function useOptionalAuth(): AuthContextValue | null {
+  return useContext(AuthContext);
+}

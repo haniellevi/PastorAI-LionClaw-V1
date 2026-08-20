@@ -36,6 +36,7 @@ from app.db.models import (
     CelulaSolicitacaoEvento,
     Multiplicacao,
     Pessoa,
+    UserRole,
 )
 from app.db.session import get_db
 from app.services.clerk import get_clerk_client
@@ -115,6 +116,7 @@ class ReqSession:
         solicitacoes=None,
         eventos=None,
         multiplicacoes=None,
+        accesses=None,
     ) -> None:
         self.app_user = app_user
         self.roles = roles
@@ -125,7 +127,19 @@ class ReqSession:
         self.solicitacoes = solicitacoes or []
         self.eventos = eventos or []
         self.multiplicacoes = multiplicacoes or []
+        self.accesses = list(accesses) if accesses is not None else [
+            SimpleNamespace(
+                id=uuid.uuid5(uuid.NAMESPACE_URL, f"access:{p.id}"),
+                igreja_id=uuid.UUID(_TENANT),
+                pessoa_id=p.id,
+                clerk_user_id=f"clerk_{p.id}",
+                status="ativo",
+            )
+            for p in self.pessoas
+        ]
+        self.role_rows: list = []
         self.added: list = []
+        self.deleted: list = []
         self.committed = False
         self.rolled_back = False
 
@@ -185,7 +199,14 @@ class ReqSession:
         if ent is AppUser and name == "pessoa_id":
             return _Res(scalar=self.actor_pessoa_id)
         if ent is AppUser:
-            return _Res(scalar=self.app_user)
+            eqs, _ins = self._preds(statement)
+            if "clerk_user_id" in eqs:
+                return _Res(scalar=self.app_user)
+            rows = self._filter(self.accesses, statement)
+            if name == "id":
+                ids = [row.id for row in rows]
+                return _Res(scalar=(ids[0] if ids else None), scalars=ids)
+            return _Res(scalar=(rows[0] if rows else None), scalars=rows)
         if ent is Pessoa:
             rows = self._filter(self.pessoas, statement)
             if name == "id":
@@ -210,7 +231,12 @@ class ReqSession:
             rows = self._filter(self.multiplicacoes, statement)
             rows = self._order(rows, statement)
             return _Res(scalar=(rows[0] if rows else None), scalars=rows)
-        # set_config text / UserRole.papel projection.
+        if ent is UserRole and name == "papel":
+            return _Res(scalars=self.roles)
+        if ent is UserRole:
+            rows = self._filter(self.role_rows, statement)
+            return _Res(scalar=(rows[0] if rows else None), scalars=rows)
+        # set_config text.
         return _Res(scalars=self.roles)
 
     def add(self, obj) -> None:
@@ -227,6 +253,13 @@ class ReqSession:
             self.membros.append(obj)
         elif isinstance(obj, Multiplicacao):
             self.multiplicacoes.append(obj)
+        elif isinstance(obj, UserRole):
+            self.role_rows.append(obj)
+
+    def delete(self, obj) -> None:
+        self.deleted.append(obj)
+        if obj in self.role_rows:
+            self.role_rows.remove(obj)
 
     def flush(self) -> None:
         pass
@@ -255,6 +288,7 @@ def make_cell(
     igreja_id: str = _TENANT,
     lider_id: str | None = _LEADER,
     dia_reuniao: str = "quinta",
+    ativo: bool = True,
 ):
     return SimpleNamespace(
         id=cell_id,
@@ -267,7 +301,7 @@ def make_cell(
         endereco="Rua das Flores, 100",
         dia_reuniao=dia_reuniao,
         horario="20:00",
-        ativo=True,
+        ativo=ativo,
     )
 
 
@@ -659,6 +693,26 @@ def test_approve_blocked_when_actor_is_author_403(app) -> None:
     assert session.committed is False
 
 
+def test_approve_rejects_stale_origin_leadership_under_lock(app) -> None:
+    solic = make_solicitacao(
+        tipo="alterar_dia",
+        status="aguardando",
+        solicitante_id=_LEADER,
+        payload_proposto={"dia_reuniao": "sexta"},
+    )
+    cell = make_cell(lider_id=_OUTSIDER, dia_reuniao="quinta")
+    session = _central_session(cells=[cell], solicitacoes=[solic])
+
+    resp = _wire(app, session=session).post(
+        f"/cell-requests/{_SOLIC}/approve", headers=_AUTH, json={}
+    )
+
+    assert resp.status_code == 409
+    assert cell.dia_reuniao == "quinta"
+    assert solic.status == "aguardando"
+    assert session.committed is False
+
+
 def test_write_endpoints_503_when_flag_off(app, monkeypatch) -> None:
     # Gate de rollout (CELULAS_REQUESTS_ENABLED off) barra a escrita sensível.
     from app.config import get_settings
@@ -740,6 +794,25 @@ def test_resubmit_from_ajuste_back_to_aguardando(app) -> None:
     assert body["status"] == "aguardando"
     assert body["payload_proposto"] == {"dia_reuniao": "sabado"}
     assert any(e.acao == "reenviada" for e in session.eventos)
+
+
+def test_resubmit_rejects_when_author_is_no_longer_active_cell_leader(app) -> None:
+    solic = make_solicitacao(
+        status="ajuste_solicitado", solicitante_id=_LEADER
+    )
+    session = _leader_session(
+        cells=[make_cell(lider_id=_OUTSIDER)], solicitacoes=[solic]
+    )
+
+    resp = _wire(app, session=session).put(
+        f"/cell-requests/{_SOLIC}/resubmit",
+        headers=_AUTH,
+        json={"payload_proposto": {"dia_reuniao": "sabado"}},
+    )
+
+    assert resp.status_code == 409
+    assert solic.status == "ajuste_solicitado"
+    assert session.committed is False
 
 
 def test_resubmit_404_when_not_author(app) -> None:
@@ -949,9 +1022,10 @@ def test_approve_transfer_promotes_contato_and_creates_binding(app) -> None:
     # M7B-W1.2: transferir_membro aprovado cria vínculo ativo na destino, sincroniza
     # o espelho e PROMOVE tipo (contato → membro) — invariante vínculo ativo ⇒ membro.
     dest = make_cell(cell_id=_DEST_CELL, lider_id=_LEADER)
-    pessoa = make_pessoa(_MEMBER, "Discípulo", celula_id=None, tipo="contato")
+    pessoa = make_pessoa(_MEMBER, "Discípulo", celula_id=_CELL, tipo="contato")
     session = _central_session(
         cells=[make_cell(lider_id=_LEADER), dest],
+        membros=[make_membro(pessoa_id=_MEMBER, celula_id=_CELL)],
         pessoas=[
             make_pessoa(_LEADER, "Líder"),
             make_pessoa(_PASTOR, "Pastor Central"),
@@ -1012,12 +1086,115 @@ def test_approve_transfer_rejects_pastor_409(app) -> None:
     assert not any(isinstance(o, CelulaMembro) for o in session.added)
 
 
+def test_approve_transfer_rejects_inactive_destination(app) -> None:
+    pessoa = make_pessoa(_MEMBER, "Discípulo", celula_id=_CELL, tipo="membro")
+    session = _central_session(
+        cells=[
+            make_cell(lider_id=_LEADER),
+            make_cell(cell_id=_DEST_CELL, lider_id=None, ativo=False),
+        ],
+        membros=[make_membro(pessoa_id=_MEMBER, celula_id=_CELL)],
+        pessoas=[
+            make_pessoa(_LEADER, "Líder"),
+            make_pessoa(_PASTOR, "Pastor Central"),
+            pessoa,
+        ],
+        solicitacoes=[
+            make_solicitacao(
+                tipo="transferir_membro",
+                payload_proposto={
+                    "pessoa_id": _MEMBER,
+                    "celula_destino_id": _DEST_CELL,
+                },
+            )
+        ],
+    )
+
+    resp = _wire(app, session=session).post(
+        f"/cell-requests/{_SOLIC}/approve", headers=_AUTH, json={}
+    )
+
+    assert resp.status_code == 409
+    assert pessoa.celula_id == _CELL
+
+
+def test_approve_transfer_rejects_stale_source_membership(app) -> None:
+    stale_cell = "00000000-0000-0000-0000-0000000000e9"
+    pessoa = make_pessoa(_MEMBER, "Discípulo", celula_id=stale_cell, tipo="membro")
+    session = _central_session(
+        cells=[make_cell(), make_cell(cell_id=_DEST_CELL)],
+        membros=[make_membro(pessoa_id=_MEMBER, celula_id=stale_cell)],
+        pessoas=[
+            make_pessoa(_LEADER, "Líder"),
+            make_pessoa(_PASTOR, "Pastor Central"),
+            pessoa,
+        ],
+        solicitacoes=[
+            make_solicitacao(
+                tipo="transferir_membro",
+                payload_proposto={
+                    "pessoa_id": _MEMBER,
+                    "celula_destino_id": _DEST_CELL,
+                },
+            )
+        ],
+    )
+
+    resp = _wire(app, session=session).post(
+        f"/cell-requests/{_SOLIC}/approve", headers=_AUTH, json={}
+    )
+
+    assert resp.status_code == 409
+    assert not any(
+        isinstance(obj, CelulaMembro) and str(obj.celula_id) == _DEST_CELL
+        for obj in session.added
+    )
+
+
+def test_approve_remove_rejects_stale_source_membership(app) -> None:
+    stale_cell = "00000000-0000-0000-0000-0000000000e9"
+    pessoa = make_pessoa(_MEMBER, "Discípulo", celula_id=stale_cell, tipo="membro")
+    membership = make_membro(pessoa_id=_MEMBER, celula_id=stale_cell)
+    session = _central_session(
+        cells=[make_cell()],
+        membros=[membership],
+        pessoas=[
+            make_pessoa(_LEADER, "Líder"),
+            make_pessoa(_PASTOR, "Pastor Central"),
+            pessoa,
+        ],
+        solicitacoes=[
+            make_solicitacao(
+                tipo="remover_membro",
+                payload_proposto={"pessoa_id": _MEMBER},
+            )
+        ],
+    )
+
+    resp = _wire(app, session=session).post(
+        f"/cell-requests/{_SOLIC}/approve", headers=_AUTH, json={}
+    )
+
+    assert resp.status_code == 409
+    assert membership.ativo is True
+    assert pessoa.celula_id == stale_cell
+
+
 def test_approve_multiplication_accepts_external_leader(app) -> None:
     # Apto sem célula, EXTERNO à origem: vira lider_id da nova célula SEM ganhar
     # vínculo em celula_membro (liderança é celulas.lider_id; enum não tem 'lider').
     session = _multiplication_session()
     externo = make_pessoa(_OUTSIDER, "Apto Sem Célula", celula_id=None)
     session.pessoas.append(externo)
+    session.accesses.append(
+        SimpleNamespace(
+            id=uuid.uuid5(uuid.NAMESPACE_URL, f"access:{_OUTSIDER}"),
+            igreja_id=uuid.UUID(_TENANT),
+            pessoa_id=_OUTSIDER,
+            clerk_user_id="clerk_outsider",
+            status="ativo",
+        )
+    )
     payload = _multiplication_payload(with_key=True)
     payload["novo_lider_id"] = _OUTSIDER
     payload["membros_transferidos_ids"] = [_MEMBER, _MEMBER2]

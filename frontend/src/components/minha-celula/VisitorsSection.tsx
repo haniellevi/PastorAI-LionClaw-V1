@@ -9,7 +9,7 @@
  */
 import { useState } from "react";
 
-import { Button } from "@/components/ui/Button";
+import { DsButton } from "@/components/ds/Button";
 import { Field } from "@/components/ui/Field";
 import { StatusPill } from "@/components/dashboard/StatusPill";
 import { Icon } from "@/lib/icons";
@@ -101,12 +101,7 @@ export function VisitorsSection({
   );
 
   return (
-    <section className="card" aria-label="Visitantes">
-      <div className="panel-title">
-        <Icon name="user" /> Visitantes
-        {visitors.length ? <span className="count">· {visitors.length}</span> : null}
-      </div>
-
+    <div className="mc-report-section-content">
       {error ? (
         <div className="error-banner" role="alert">
           <Icon name="alert" />
@@ -127,17 +122,15 @@ export function VisitorsSection({
                   <div className="nm">{e.nome_visitante}</div>
                 </div>
                 {!locked ? (
-                  <Button
-                    variant="default"
-                    size="sm"
+                  <DsButton
+                    variant="secondary"
                     onClick={() => void confirmExpected(e)}
                     loading={pendingId === e.id}
-                    loadingText="Confirmando…"
                     disabled={busy || (pendingId !== null && pendingId !== e.id)}
                   >
                     <Icon name="check" />
-                    <span>Confirmar presente</span>
-                  </Button>
+                    <span>{pendingId === e.id ? "Confirmando…" : "Confirmar presente"}</span>
+                  </DsButton>
                 ) : null}
               </div>
             ))}
@@ -197,21 +190,19 @@ export function VisitorsSection({
               />
             </div>
             <div className="section-actions">
-              <Button
+              <DsButton
                 type="submit"
-                variant="default"
-                size="sm"
+                variant="primary"
                 loading={busy}
-                loadingText="Registrando…"
                 disabled={!nome.trim()}
               >
                 <Icon name="plus" />
-                <span>Registrar visitante</span>
-              </Button>
+                <span>{busy ? "Registrando visitante…" : "Registrar visitante"}</span>
+              </DsButton>
             </div>
           </form>
         ) : null}
       </div>
-    </section>
+    </div>
   );
 }

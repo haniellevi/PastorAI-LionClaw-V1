@@ -5,13 +5,24 @@ set -euo pipefail
 # somente como root na VPS.
 umask 077
 
-BACKUP_ROOT="/root/pastorai-backups"
-ENV_FILE="/opt/pastorai-current/deploy/.env"
-COMPOSE_FILE="/opt/pastorai-current/deploy/docker-compose.yml"
+# The active release file is the only credential source.  Scrub inherited
+# connection settings before *any* helper is launched: an environment unset in
+# a later subshell would still leave Python and other preflight helpers exposed.
+unset DATABASE_URL PGPASSWORD PGHOST PGHOSTADDR PGPORT PGDATABASE PGUSER \
+  PGSERVICE PGSERVICEFILE PGPASSFILE PGOPTIONS PGSSLMODE PGSSLCERT PGSSLKEY \
+  PGSSLROOTCERT PGSSLCRL PGCONNECT_TIMEOUT PGAPPNAME PGTARGETSESSIONATTRS \
+  PGCHANNELBINDING
+
+BACKUP_ROOT="${PASTORAI_BACKUP_ROOT:-/root/pastorai-backups}"
+ENV_FILE="${PASTORAI_ENV_FILE:-/opt/pastorai-current/deploy/.env}"
+COMPOSE_FILE="${PASTORAI_COMPOSE_FILE:-/opt/pastorai-current/deploy/docker-compose.yml}"
+MONITOR_MANIFEST="${PASTORAI_BACKUP_MONITOR_MANIFEST:-/var/lib/pastorai-backup/backup-status.json}"
+DATABASE_SERVICE_HELPER="${PASTORAI_BACKUP_HELPER:-/usr/local/libexec/pastorai-backup/prepare-database-service.py}"
+DATABASE_SERVICE_HELPER_SHA256="${PASTORAI_BACKUP_HELPER_SHA256:-/usr/local/libexec/pastorai-backup/prepare-database-service.py.sha256}"
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 BACKUP_DIR="${BACKUP_ROOT}/${STAMP}"
 ARCHIVE="${BACKUP_ROOT}/pastorai-backup-${STAMP}.tar.gz"
-LOCK_FILE="/var/lock/pastorai-backup.lock"
+LOCK_FILE="${PASTORAI_BACKUP_LOCK_FILE:-/var/lock/pastorai-backup.lock}"
 
 if [[ "${EUID}" -ne 0 ]]; then
   echo "ERRO: execute como root" >&2
@@ -23,6 +34,42 @@ if [[ ! -s "${ENV_FILE}" || ! -s "${COMPOSE_FILE}" ]]; then
   exit 1
 fi
 
+validate_database_service_helper() {
+  local helper_stat checksum_stat helper_links checksum_links expected actual
+  if [[ ! -f "${DATABASE_SERVICE_HELPER}" || -L "${DATABASE_SERVICE_HELPER}" \
+    || ! -f "${DATABASE_SERVICE_HELPER_SHA256}" || -L "${DATABASE_SERVICE_HELPER_SHA256}" ]]; then
+    echo "ERRO: pacote de credencial do backup incompleto" >&2
+    return 1
+  fi
+  helper_stat="$(stat -c '%u:%g:%a' "${DATABASE_SERVICE_HELPER}")"
+  checksum_stat="$(stat -c '%u:%g:%a' "${DATABASE_SERVICE_HELPER_SHA256}")"
+  if [[ "${helper_stat}" != "0:0:700" || "${checksum_stat}" != "0:0:600" ]]; then
+    echo "ERRO: permissao do pacote de credencial do backup invalida" >&2
+    return 1
+  fi
+  helper_links="$(stat -c '%h' "${DATABASE_SERVICE_HELPER}")"
+  checksum_links="$(stat -c '%h' "${DATABASE_SERVICE_HELPER_SHA256}")"
+  if [[ "${helper_links}" != "1" || "${checksum_links}" != "1" ]]; then
+    echo "ERRO: pacote de credencial do backup com hardlink nao permitido" >&2
+    return 1
+  fi
+  expected="$(tr -d '[:space:]' <"${DATABASE_SERVICE_HELPER_SHA256}")"
+  if [[ ! "${expected}" =~ ^[0-9a-fA-F]{64}$ ]]; then
+    echo "ERRO: checksum do pacote de credencial do backup invalido" >&2
+    return 1
+  fi
+  actual="$(sha256sum "${DATABASE_SERVICE_HELPER}" | awk '{print $1}')"
+  if [[ "${actual}" != "${expected,,}" ]]; then
+    echo "ERRO: checksum do pacote de credencial do backup divergente" >&2
+    return 1
+  fi
+}
+
+# The legacy cron starts only this script from /usr/local/sbin.  Validate its
+# fixed, separately-installed helper before creating credentials, pausing any
+# container, or beginning a backup.  No checkout-relative file is trusted.
+validate_database_service_helper
+
 mkdir -p "${BACKUP_ROOT}" "${BACKUP_DIR}"
 chmod 700 "${BACKUP_ROOT}" "${BACKUP_DIR}"
 
@@ -33,39 +80,47 @@ if ! flock -n 9; then
 fi
 
 paused=0
+DATABASE_CREDENTIALS_DIR=""
+MONITOR_MANIFEST_TEMP=""
 cleanup() {
-  unset DATABASE_URL
+  if [[ -n "${MONITOR_MANIFEST_TEMP}" ]]; then
+    rm -f -- "${MONITOR_MANIFEST_TEMP}"
+    MONITOR_MANIFEST_TEMP=""
+  fi
+  if [[ -n "${DATABASE_CREDENTIALS_DIR}" ]]; then
+    rm -rf -- "${DATABASE_CREDENTIALS_DIR}"
+    DATABASE_CREDENTIALS_DIR=""
+  fi
   if [[ "${paused}" -eq 1 ]]; then
     docker unpause pastorai_evolution pastorai_evo_postgres pastorai_redis \
       >/dev/null 2>&1 || true
   fi
 }
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
-DATABASE_URL="$(ENV_FILE="${ENV_FILE}" python3 - <<'PY'
-import os
-from pathlib import Path
+DATABASE_CREDENTIALS_DIR="$(mktemp -d "${BACKUP_ROOT}/.pg-credentials.XXXXXX")"
+chmod 700 "${DATABASE_CREDENTIALS_DIR}"
+python3 "${DATABASE_SERVICE_HELPER}" \
+  "${ENV_FILE}" "${DATABASE_CREDENTIALS_DIR}"
 
-for raw in Path(os.environ["ENV_FILE"]).read_text().splitlines():
-    raw = raw.strip()
-    if raw and not raw.startswith("#") and "=" in raw:
-        key, value = raw.split("=", 1)
-        if key.strip() == "DATABASE_URL":
-            print(value.strip().strip('"').strip("'"))
-            break
-else:
-    raise SystemExit("DATABASE_URL ausente")
-PY
-)"
-
-docker run --rm -e DATABASE_URL="${DATABASE_URL}" postgres:17-alpine \
-  sh -c 'exec pg_dump --dbname="$DATABASE_URL" --format=custom --compress=9 --no-owner --no-acl --schema=public' \
-  >"${BACKUP_DIR}/supabase-prod-public.dump"
+# libpq receives only a service name; the mode-0600 service/pass files are
+# mounted read-only and removed by cleanup on success, error, signal, or
+# interruption.  The process environment was scrubbed before any helper above.
+(
+  exec docker run --rm \
+    --mount "type=bind,src=${DATABASE_CREDENTIALS_DIR},dst=/run/pastorai-backup,readonly" \
+    --env PGSERVICE=pastorai_backup \
+    --env PGSERVICEFILE=/run/pastorai-backup/pg_service.conf \
+    postgres:17-alpine \
+    pg_dump --format=custom --compress=9 --no-owner --no-acl --schema=public
+) >"${BACKUP_DIR}/supabase-prod-public.dump"
+rm -rf -- "${DATABASE_CREDENTIALS_DIR}"
+DATABASE_CREDENTIALS_DIR=""
 docker run --rm -i postgres:17-alpine pg_restore --list \
   <"${BACKUP_DIR}/supabase-prod-public.dump" \
   >"${BACKUP_DIR}/supabase-prod-public.list"
-unset DATABASE_URL
-
 BACKUP_DIR="${BACKUP_DIR}" ENV_FILE="${ENV_FILE}" python3 - <<'PY'
 import json
 import os
@@ -198,6 +253,21 @@ cd "${BACKUP_ROOT}"
 tar -czf "${ARCHIVE}" "${STAMP}"
 sha256sum "${ARCHIVE}" >"${ARCHIVE}.sha256"
 chmod 600 "${ARCHIVE}" "${ARCHIVE}.sha256"
+# A non-root monitor must not read the root-only archive.  Verify the artifact
+# while still privileged, then publish only bounded, non-secret metadata.
+sha256sum -c "${ARCHIVE}.sha256" >/dev/null
+MONITOR_MANIFEST_DIR="$(dirname -- "${MONITOR_MANIFEST}")"
+install -d -m 0755 "${MONITOR_MANIFEST_DIR}"
+MONITOR_MANIFEST_TEMP="$(mktemp "${MONITOR_MANIFEST_DIR}/.backup-status.XXXXXX")"
+ARCHIVE_DIGEST="$(sha256sum "${ARCHIVE}" | awk '{print $1}')"
+ARCHIVE_BYTES="$(stat -c '%s' "${ARCHIVE}")"
+COMPLETED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+printf '{"version":1,"status":"verified","archive":"%s","sha256":"%s","bytes":%s,"completed_at":"%s"}\n' \
+  "$(basename -- "${ARCHIVE}")" "${ARCHIVE_DIGEST}" "${ARCHIVE_BYTES}" "${COMPLETED_AT}" \
+  >"${MONITOR_MANIFEST_TEMP}"
+chmod 0644 "${MONITOR_MANIFEST_TEMP}"
+mv -f -- "${MONITOR_MANIFEST_TEMP}" "${MONITOR_MANIFEST}"
+MONITOR_MANIFEST_TEMP=""
 
 # Retém 14 dias na VPS. A cópia semanal da Hostinger e a cópia externa
 # criptografada são camadas separadas deste diretório local.

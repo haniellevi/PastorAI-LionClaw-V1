@@ -19,6 +19,7 @@ const authState = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/auth-context", () => ({
+  useOptionalAuth: () => null,
   useAuth: () => ({ user: { roles: authState.roles } }),
 }));
 

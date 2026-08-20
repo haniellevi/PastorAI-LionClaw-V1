@@ -11,6 +11,8 @@
 #   broadcast-worker   sempre ativo; fica ocioso enquanto as flags estão false
 #
 # O banco do APP é o Supabase (gerenciado, externo). O frontend vai na Vercel.
+# PASTORAI_ENV_FILE permite validar com .env.example sem criar/copiar segredos;
+# em operação normal o padrão continua sendo deploy/.env.
 #
 # >>> 1º teste (só conectar a Evolution / QR):
 #       docker compose up -d redis evolution-postgres evolution-api
@@ -118,7 +120,7 @@ services:
       redis:
         condition: service_healthy
     env_file:
-      - .env
+      - ${PASTORAI_ENV_FILE:-.env}
     environment:
       # Sobrescreve os hosts p/ a rede interna do compose
       REDIS_URL: redis://redis:6379/0
@@ -154,11 +156,23 @@ services:
       redis:
         condition: service_healthy
     env_file:
-      - .env
+      - ${PASTORAI_ENV_FILE:-.env}
     environment:
       REDIS_URL: redis://redis:6379/0
       EVOLUTION_API_URL: http://evolution-api:8080
     command: ["python", "-m", "app.workers.queue_worker"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "from app.config import get_settings; from app.services.worker_health import worker_heartbeat_alive; raise SystemExit(0 if worker_heartbeat_alive(get_settings().redis_url, 'queue-worker') else 1)",
+        ]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
 
   # --------------------------------------------------------------------------
   # Worker de cron — motor de SLA + execução de crons (tick configurável)
@@ -173,11 +187,23 @@ services:
       redis:
         condition: service_healthy
     env_file:
-      - .env
+      - ${PASTORAI_ENV_FILE:-.env}
     environment:
       REDIS_URL: redis://redis:6379/0
       EVOLUTION_API_URL: http://evolution-api:8080
     command: ["python", "-m", "app.workers.cron_worker"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "from app.config import get_settings; from app.services.worker_health import worker_heartbeat_alive; raise SystemExit(0 if worker_heartbeat_alive(get_settings().redis_url, 'cron-worker') else 1)",
+        ]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
 
   # --------------------------------------------------------------------------
   # Worker de broadcasts — obrigatório e monitorado por heartbeat no Redis.
@@ -195,11 +221,23 @@ services:
       redis:
         condition: service_healthy
     env_file:
-      - .env
+      - ${PASTORAI_ENV_FILE:-.env}
     environment:
       REDIS_URL: redis://redis:6379/0
       EVOLUTION_API_URL: http://evolution-api:8080
     command: ["python", "-m", "app.workers.broadcast_worker"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "from app.config import get_settings; from app.services.worker_health import worker_heartbeat_alive; raise SystemExit(0 if worker_heartbeat_alive(get_settings().redis_url, 'broadcast-worker') else 1)",
+        ]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
 
 volumes:
   redis_data:

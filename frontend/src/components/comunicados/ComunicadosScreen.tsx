@@ -297,7 +297,13 @@ export function ComunicadosScreen() {
   const showSkeleton = loading && !loaded;
 
   return (
-    <div className="screen" key="comunicados">
+    <div className="screen operations-screen communications-screen" key="comunicados">
+      <div className="screen-head">
+        <div className="titles">
+          <h2>Comunicação da igreja</h2>
+          <p>Prepare o comunicado, revise o alcance e envie no momento certo.</p>
+        </div>
+      </div>
       {error ? (
         <div className="error-banner" role="alert">
           <Icon name="alert" />

@@ -521,6 +521,8 @@ def test_responsavel_cannot_mark_read_others_conversation(app) -> None:
 _CONV_TRANSFER = "/conversations/00000000-0000-0000-0000-0000000000aa/transfer"
 _TARGET_ID = "00000000-0000-0000-0000-0000000000c9"
 _SELF_ID = "00000000-0000-0000-0000-0000000000a1"  # = make_app_user().id
+_IGREJA_ID = "00000000-0000-0000-0000-000000000001"
+_OTHER_IGREJA_ID = "00000000-0000-0000-0000-000000000002"
 
 
 class TransferSession:
@@ -530,35 +532,76 @@ class TransferSession:
     de transferência faz a 2ª (o destino). Roteamos por ordem de chamada.
     """
 
-    def __init__(self, *, app_user, roles, conv, target, target_roles) -> None:
+    def __init__(
+        self,
+        *,
+        app_user,
+        roles,
+        conv,
+        target,
+        target_roles,
+        target_roles_igreja_id=_IGREJA_ID,
+    ) -> None:
         self.app_user = app_user
         self.roles = roles
         self.conv = conv
         self.target = target
         self.target_roles = target_roles
+        self.target_roles_igreja_id = target_roles_igreja_id
         self._appuser = 0
         self._userrole = 0
         self.committed = False
+        self.flushes = 0
+        self.target_statements: list = []
+        self.target_role_statements: list = []
 
     def execute(self, statement, params=None) -> _DelResult:
         descs = list(getattr(statement, "column_descriptions", []) or [])
         ent = descs[0].get("entity") if descs else None
         if ent is AppUser:
             self._appuser += 1
-            return _DelResult(
-                scalar=self.app_user if self._appuser == 1 else self.target
-            )
+            if self._appuser == 1:
+                return _DelResult(scalar=self.app_user)
+
+            self.target_statements.append(statement)
+            target = self.target
+            if target is None:
+                return _DelResult()
+            where_clause = getattr(statement, "whereclause", None)
+            where = str(
+                where_clause.compile(compile_kwargs={"literal_binds": True})
+            ).lower()
+            target_igreja = str(getattr(target, "igreja_id", _IGREJA_ID))
+            target_status = getattr(target, "status", "ativo")
+            if "app_users.igreja_id" in where and target_igreja != _IGREJA_ID:
+                return _DelResult()
+            if (
+                "app_users.status" in where
+                and target_status not in {None, "ativo"}
+            ):
+                return _DelResult()
+            return _DelResult(scalar=target)
         if ent is Conversation:
             return _DelResult(scalar=self.conv)
         if ent is UserRole:
             self._userrole += 1
-            return _DelResult(
-                scalars=self.roles if self._userrole == 1 else self.target_roles
-            )
+            if self._userrole == 1:
+                return _DelResult(scalars=self.roles)
+            self.target_role_statements.append(statement)
+            where_clause = getattr(statement, "whereclause", None)
+            where = str(
+                where_clause.compile(compile_kwargs={"literal_binds": True})
+            ).lower()
+            if (
+                "user_roles.igreja_id" in where
+                and self.target_roles_igreja_id != _IGREJA_ID
+            ):
+                return _DelResult(scalars=[])
+            return _DelResult(scalars=self.target_roles)
         return _DelResult()
 
     def flush(self) -> None:
-        pass
+        self.flushes += 1
 
     def commit(self) -> None:
         self.committed = True
@@ -577,6 +620,22 @@ def _held_conv(estado="humano", holder=_SELF_ID):
     )
 
 
+def _transfer_target(
+    *,
+    igreja_id=_IGREJA_ID,
+    status="ativo",
+    nome="Pastora Ana",
+    chat_nome=None,
+):
+    return SimpleNamespace(
+        id=_TARGET_ID,
+        igreja_id=uuid.UUID(igreja_id),
+        status=status,
+        nome=nome,
+        chat_nome=chat_nome,
+    )
+
+
 def test_transfer_requires_auth(app) -> None:
     client = _client(app, roles=["admin"])
     assert client.post(_CONV_TRANSFER, json={"toUserId": _TARGET_ID}).status_code == 401
@@ -589,7 +648,7 @@ def test_member_forbidden_on_transfer(app) -> None:
 
 
 def test_transfer_by_holder_succeeds(app) -> None:
-    target = SimpleNamespace(id=_TARGET_ID, nome="Pastora Ana", chat_nome=None)
+    target = _transfer_target()
     session = TransferSession(
         app_user=make_app_user(),
         roles=["pastor"],
@@ -605,6 +664,22 @@ def test_transfer_by_holder_succeeds(app) -> None:
     assert body["assumidoPorNome"] == "Pastora Ana"
     assert body["estado"] == "humano"
     assert session.committed is True
+    assert session.flushes == 1
+    target_where = str(
+        session.target_statements[0].whereclause.compile(
+            compile_kwargs={"literal_binds": True}
+        )
+    ).lower()
+    assert "app_users.igreja_id" in target_where
+    assert "app_users.status is null" in target_where
+    assert "app_users.status = 'ativo'" in target_where
+    role_where = str(
+        session.target_role_statements[0].whereclause.compile(
+            compile_kwargs={"literal_binds": True}
+        )
+    ).lower()
+    assert "user_roles.user_id" in role_where
+    assert "user_roles.igreja_id" in role_where
 
 
 def test_transfer_non_admin_not_holder_conflict(app) -> None:
@@ -621,7 +696,7 @@ def test_transfer_non_admin_not_holder_conflict(app) -> None:
 
 
 def test_transfer_rejects_target_without_inbox_access(app) -> None:
-    target = SimpleNamespace(id=_TARGET_ID, nome="Membro", chat_nome=None)
+    target = _transfer_target(nome="Membro")
     session = TransferSession(
         app_user=make_app_user(),
         roles=["admin"],  # admin pula a trava de detentor
@@ -632,11 +707,13 @@ def test_transfer_rejects_target_without_inbox_access(app) -> None:
     client = _del_client(app, session)
     resp = client.post(_CONV_TRANSFER, json={"toUserId": _TARGET_ID}, headers=_AUTH)
     assert resp.status_code == 422
+    assert session.flushes == 0
+    assert session.committed is False
 
 
 def test_transfer_to_cell_leader_succeeds(app) -> None:
     # #5: líder de célula passou a ser destino válido (responsável, visão restrita).
-    target = SimpleNamespace(id=_TARGET_ID, nome="Líder Célula", chat_nome=None)
+    target = _transfer_target(nome="Líder Célula")
     session = TransferSession(
         app_user=make_app_user(),
         roles=["admin"],
@@ -647,6 +724,26 @@ def test_transfer_to_cell_leader_succeeds(app) -> None:
     client = _del_client(app, session)
     resp = client.post(_CONV_TRANSFER, json={"toUserId": _TARGET_ID}, headers=_AUTH)
     assert resp.status_code == 200
+    assert resp.json()["assumidoPor"] == _TARGET_ID
+
+
+@pytest.mark.parametrize("caller_role", ["lider_celula", "operador"])
+def test_restricted_holder_can_transfer_to_eligible_target(app, caller_role) -> None:
+    session = TransferSession(
+        app_user=make_app_user(),
+        roles=[caller_role],
+        conv=_held_conv(),
+        target=_transfer_target(),
+        target_roles=["pastor"],
+    )
+
+    resp = _del_client(app, session).post(
+        _CONV_TRANSFER,
+        json={"toUserId": _TARGET_ID},
+        headers=_AUTH,
+    )
+
+    assert resp.status_code == 200, resp.text
     assert resp.json()["assumidoPor"] == _TARGET_ID
 
 
@@ -675,6 +772,65 @@ def test_transfer_target_not_found(app) -> None:
     client = _del_client(app, session)
     resp = client.post(_CONV_TRANSFER, json={"toUserId": _TARGET_ID}, headers=_AUTH)
     assert resp.status_code == 404
+
+
+@pytest.mark.parametrize(
+    "target",
+    [
+        _transfer_target(igreja_id=_OTHER_IGREJA_ID),
+        _transfer_target(status="revogado"),
+        _transfer_target(status="convidado"),
+    ],
+    ids=["cross-tenant", "revoked", "invited"],
+)
+def test_transfer_rejects_inactive_or_cross_tenant_target_without_mutation(
+    app, target
+) -> None:
+    conv = _held_conv(estado="ia", holder=None)
+    session = TransferSession(
+        app_user=make_app_user(),
+        roles=["admin"],
+        conv=conv,
+        target=target,
+        target_roles=["pastor"],
+    )
+
+    resp = _del_client(app, session).post(
+        _CONV_TRANSFER,
+        json={"toUserId": _TARGET_ID},
+        headers=_AUTH,
+    )
+
+    assert resp.status_code == 404, resp.text
+    assert conv.estado == "ia"
+    assert conv.assumido_por is None
+    assert session.target_role_statements == []
+    assert session.flushes == 0
+    assert session.committed is False
+
+
+def test_transfer_rejects_capability_from_role_row_of_other_tenant(app) -> None:
+    conv = _held_conv(estado="ia", holder=None)
+    session = TransferSession(
+        app_user=make_app_user(),
+        roles=["admin"],
+        conv=conv,
+        target=_transfer_target(),
+        target_roles=["pastor"],
+        target_roles_igreja_id=_OTHER_IGREJA_ID,
+    )
+
+    resp = _del_client(app, session).post(
+        _CONV_TRANSFER,
+        json={"toUserId": _TARGET_ID},
+        headers=_AUTH,
+    )
+
+    assert resp.status_code == 422, resp.text
+    assert conv.estado == "ia"
+    assert conv.assumido_por is None
+    assert session.flushes == 0
+    assert session.committed is False
 
 
 def test_transfer_rejects_invalid_user_id(app) -> None:

@@ -59,6 +59,17 @@ afterEach(() => {
 });
 
 describe("AdminAppShell — deep-link parametrizado", () => {
+  it("oferece salto para o conteúdo principal na superfície administrativa", () => {
+    window.location.hash = "#setup";
+
+    act(() => root.render(h(AdminAppShell)));
+
+    const skip = container.querySelector<HTMLAnchorElement>(".skip-link");
+    const main = container.querySelector<HTMLElement>("#main-content");
+    expect(skip?.getAttribute("href")).toBe("#main-content");
+    expect(main?.getAttribute("aria-labelledby")).toBe("screen-title");
+  });
+
   it("preserva o ID de #contatos/<id> até o ScreenView", () => {
     window.location.hash = "#contatos/p1";
 

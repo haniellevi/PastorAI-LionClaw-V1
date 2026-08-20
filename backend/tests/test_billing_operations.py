@@ -554,6 +554,30 @@ class _PlanAsaas:
 
 
 def _change(db, asaas, sub, *, to_plano: str = "101_200"):
+    # A troca real sempre parte do catálogo; desde o hardening de cortesia o
+    # alvo é relido sob row lock antes do PUT. Os testes antigos chamavam o
+    # serviço diretamente sem semear essa dependência obrigatória.
+    if not db.planos:
+        db.planos.extend(
+            [
+                SimpleNamespace(
+                    codigo="ate_100",
+                    nome="Até 100 membros",
+                    preco_mensal=199.0,
+                    limite_pessoas=100,
+                    ativo=True,
+                ),
+                SimpleNamespace(
+                    codigo="101_200",
+                    nome="101–200 membros",
+                    preco_mensal=299.0,
+                    limite_pessoas=200,
+                    ativo=True,
+                ),
+            ]
+        )
+    if db.igreja is None:
+        db.igreja = SimpleNamespace(id=sub.igreja_id, plano=sub.plano)
     return ensure_plan_change_operation(
         db,
         asaas,
@@ -1281,3 +1305,85 @@ def test_same_plan_prepared_intent_is_reused() -> None:
     assert not [
         o for o in db.added if isinstance(o, BillingSubscriptionOperation)
     ]
+
+
+class _ScalarResult:
+    def __init__(self, value=None, *, rowcount=0) -> None:
+        self._value = value
+        self.rowcount = rowcount
+
+    def scalar_one_or_none(self):
+        return self._value
+
+
+class _FailClosedIntentSession(_ConfFakeSession):
+    """Expõe ao teste os estados que o fake legado filtrava como 'não abertos'."""
+
+    def execute(self, statement, params=None):
+        if (
+            getattr(statement, "column_descriptions", None)
+            and statement.column_descriptions[0].get("entity")
+            is BillingSubscriptionOperation
+            and "status NOT IN" in str(statement)
+        ):
+            blockers = [
+                op
+                for op in self.subscription_ops
+                if op.status not in ("failed", "superseded")
+            ]
+            return _ScalarResult(blockers[0] if blockers else None)
+        return super().execute(statement, params)
+
+
+@pytest.mark.parametrize("estado", ["created", "future_unknown", None])
+def test_untracked_non_terminal_intent_blocks_a_new_subscription(estado) -> None:
+    antiga = _prepared_intent(status=estado)
+    db = _FailClosedIntentSession(subscription_ops=[antiga])
+
+    with pytest.raises(SubscriptionCreateConflict, match="conciliação manual"):
+        _prepare(db, _intent_sub(), "101_200", 299.0, 200)
+
+    assert not [
+        op for op in db.added if isinstance(op, BillingSubscriptionOperation)
+    ]
+
+
+class _SupersedeCasRaceSession(_ConfFakeSession):
+    def __init__(self, *, rival_status: str) -> None:
+        self.antiga = _prepared_intent()
+        super().__init__(subscription_ops=[self.antiga])
+        self.rival_status = rival_status
+        self._raced = False
+
+    def _apply_conditional_update(self, statement):
+        if not self._raced:
+            self._raced = True
+            self.antiga.status = self.rival_status
+            if self.rival_status == "created":
+                self.antiga.asaas_subscription_id = "sub_remote_race"
+            return _ScalarResult(rowcount=0)
+        return super()._apply_conditional_update(statement)
+
+
+def test_supersede_cas_loss_to_created_blocks_a_replacement() -> None:
+    db = _SupersedeCasRaceSession(rival_status="created")
+
+    with pytest.raises(SubscriptionCreateConflict, match="conciliação manual"):
+        _prepare(db, _intent_sub(), "101_200", 299.0, 200)
+
+    assert db.antiga.status == "created"
+    assert not [
+        op for op in db.added if isinstance(op, BillingSubscriptionOperation)
+    ]
+
+
+@pytest.mark.parametrize("estado", ["failed", "superseded"])
+def test_supersede_cas_loss_to_safe_terminal_allows_replacement(estado) -> None:
+    db = _SupersedeCasRaceSession(rival_status=estado)
+
+    nova = _prepare(db, _intent_sub(), "101_200", 299.0, 200)
+
+    assert db.antiga.status == estado
+    assert nova is not db.antiga
+    assert nova.status == "prepared"
+    assert nova.plano == "101_200"

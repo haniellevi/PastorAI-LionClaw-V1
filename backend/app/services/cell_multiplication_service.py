@@ -41,6 +41,7 @@ from sqlalchemy.orm import Session
 from app.db.models import Celula, CelulaMembro, Multiplicacao, Pessoa
 from app.domain.multiplication import STATUS_CONCLUIDA
 from app.services.celula_membro import assert_membro_elegivel, promote_tipo_para_membro
+from app.services.cell_leadership import set_cell_leadership
 
 # Papel do vínculo em celula_membro — o enum celula_membro_papel só aceita
 # membro/auxiliar/anfitriao ('lider' NÃO existe: liderança é celulas.lider_id).
@@ -120,61 +121,7 @@ def execute_multiplication(
     novo_lider_id = uuid.UUID(str(payload["novo_lider_id"]))
     membros_ids = [uuid.UUID(str(m)) for m in payload["membros_transferidos_ids"]]
 
-    # 2. Validação com o banco (regra 2026-07-06): apto + não-CSIM + não lidera
-    #    célula ativa. Membership na origem NÃO é exigida — a Central pode
-    #    escolher qualquer apto sem célula do tenant.
-    novo_lider = db.execute(
-        select(Pessoa).where(
-            Pessoa.id == novo_lider_id, Pessoa.igreja_id == igreja_id
-        )
-    ).scalar_one_or_none()
-    if novo_lider is None:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="novo_lider_id: pessoa não encontrada nesta igreja",
-        )
-    # Defesa em profundidade (revisão externa PR#163): `approve()` já checou
-    # `referenced_pessoa_ids` (inclui `novo_lider_id`) via
-    # `assert_pessoas_nao_arquivadas` ANTES de chamar esta função — o único
-    # caller hoje. Este assert não duplica a checagem (não faz query nova; o
-    # objeto já está em mãos) — só impede um caller FUTURO de pular a
-    # validação em silêncio caso chame `execute_multiplication` direto.
-    # ``getattr`` porque os fakes de teste modelam a pessoa como
-    # ``SimpleNamespace`` parcial (mesmo padrão de ``assert_membro_elegivel``).
-    assert getattr(novo_lider, "arquivada_em", None) is None, (
-        "invariante: novo_lider_id arquivado deveria ter sido recusado antes de chegar aqui"
-    )
-    if bool(novo_lider.sem_interesse):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=(
-                "novo_lider_id: pessoa fora da igreja não pode liderar célula"
-            ),
-        )
-    if not bool(novo_lider.apto_lider):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=(
-                "novo_lider_id: pessoa ainda não fez o Reencontro "
-                "(não apta a liderar)"
-            ),
-        )
-    ja_lidera = db.execute(
-        select(Celula.id)
-        .where(
-            Celula.igreja_id == igreja_id,
-            Celula.lider_id == novo_lider_id,
-            Celula.ativo.is_(True),
-        )
-        .limit(1)
-    ).scalar_one_or_none()
-    if ja_lidera is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="novo_lider_id: pessoa já lidera uma célula ativa",
-        )
-
-    # 2b. FKs de pessoa da NOVA célula (anfitrião/auxiliar) validadas no tenant
+    # 2. FKs de pessoa da NOVA célula (anfitrião/auxiliar) validadas no tenant
     #     ANTES de qualquer escrita — a FK do Postgres bypassa RLS.
     anfitriao_id = _to_uuid(payload.get("anfitriao_id"))
     auxiliar_id = _to_uuid(payload.get("auxiliar_id"))
@@ -184,17 +131,26 @@ def execute_multiplication(
         _assert_pessoa_in_tenant(db, igreja_id, auxiliar_id, "auxiliar_id")
 
     # 3. Nova célula (herda cobertura_espiritual — NOT NULL — da origem).
+    #    O serviço de liderança valida aptidão + exatamente um acesso ativo e
+    #    cria o papel derivado na MESMA transação auditada da aprovação.
     nova_celula = Celula(
         igreja_id=igreja_id,
         nome=str(payload["nome_nova_celula"]),
-        lider_id=novo_lider_id,
+        lider_id=None,
         cobertura_espiritual=cell_origin.cobertura_espiritual,
         dia_reuniao=payload.get("dia_reuniao"),
         horario=payload.get("horario"),
         endereco=payload.get("endereco"),
         anfitriao_id=anfitriao_id,
         auxiliar_id=auxiliar_id,
-        ativo=True,
+        ativo=False,
+    )
+    set_cell_leadership(
+        db,
+        igreja_id=igreja_id,
+        cell=nova_celula,
+        new_leader_id=novo_lider_id,
+        new_active=True,
     )
     db.add(nova_celula)
     db.flush()  # popula nova_celula.id para os vínculos/sincronizações abaixo.

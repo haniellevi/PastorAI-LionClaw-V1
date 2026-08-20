@@ -102,6 +102,7 @@ def test_one_time_charge_rejects_value_below_asaas_minimum_before_network() -> N
     settings = Settings(
         app_env="staging",
         allow_real_sends=True,
+        asaas_billing_enabled=True,
         asaas_api_url="https://api-sandbox.asaas.com/v3",
         asaas_api_key="sandbox-key",
         asaas_setup_fee=3.0,
@@ -116,19 +117,11 @@ def test_one_time_charge_rejects_value_below_asaas_minimum_before_network() -> N
         )
 
 
-def test_invoice_link_lookups_stay_offline_without_send_permission() -> None:
-    """Recovery/operações respeitam o outbound guard: fora de produção (sem
-    ALLOW_REAL_SENDS) devolvem vazio sem tocar a rede."""
+def test_billing_writes_stay_offline_without_dedicated_permission() -> None:
+    """O gate dedicado bloqueia apenas mutações; leituras são independentes."""
     client = AsaasClient()
 
-    assert client.get_subscription_invoice_url("sub_x") is None
-    assert client.get_payment_invoice_url("pay_x") is None
-    assert client.get_subscription_payment("sub_x") is None
-    assert client.get_payment("pay_x") is None
     assert client.restore_payment("pay_x") is None
-    assert client.find_payments_by_external_reference("pastorai-setup-x") == []
-    assert client.find_subscriptions_by_external_reference("pastorai-subcreate-x") == []
-    assert client.get_subscription("sub_x") is None
     assert (
         client.update_subscription("sub_x", valor=299.0, descricao="PastorAI — plano x")
         is None
@@ -148,6 +141,7 @@ def _sends_allowed_settings() -> Settings:
     return Settings(
         app_env="staging",
         allow_real_sends=True,
+        asaas_billing_enabled=True,
         asaas_api_url="https://api-sandbox.asaas.com/v3",
         asaas_api_key="sandbox-key",
         asaas_setup_fee=0.0,

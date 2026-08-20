@@ -50,6 +50,9 @@ const BRL = new Intl.NumberFormat("pt-BR", {
   maximumFractionDigits: 0,
 });
 
+const COMPLIMENTARY_ADMIN_MESSAGE =
+  "Somente o administrador da plataforma pode retirar este plano de cortesia.";
+
 function formatLimit(limite: number | null): string {
   return limite == null ? "Ilimitado" : `${limite} membros`;
 }
@@ -301,7 +304,9 @@ export function AssinaturaScreen() {
   // precisa continuar sendo a de contratação — com CPF/CNPJ e ação de
   // retomada —, nunca a de assinante.
   const placeholder = isPlaceholderSubscription(sub);
-  // Só uma assinatura RASTREADA conta como assinante para a UI.
+  const complimentary = Boolean(sub?.isComplimentary);
+  // Assinatura Asaas rastreada OU cortesia concedida pelo master contam como
+  // acesso ativo. Placeholder continua sendo contratação incompleta.
   const assinante = sub != null && !placeholder;
   // O plano salvo no placeholder pode ter saído do catálogo ativo: ainda
   // assim precisa existir uma ação de retomada (o backend reconcilia a
@@ -318,7 +323,8 @@ export function AssinaturaScreen() {
   const planChangeBlocked =
     assinante &&
     sub != null &&
-    (uiState !== "active" ||
+    (complimentary ||
+      uiState !== "active" ||
       !sub.setupPago ||
       sub.invoiceReversal != null ||
       hasOutstandingRecovery);
@@ -328,7 +334,11 @@ export function AssinaturaScreen() {
   const pct = limite ? Math.min(100, Math.round((membros / limite) * 100)) : 0;
   const over = limite != null && membros >= limite;
   const currentIndex = current ? catalog.findIndex((p) => p.code === current.code) : -1;
-  const nextPlan = currentIndex >= 0 ? catalog[currentIndex + 1] ?? null : null;
+  const nextPlan = complimentary
+    ? null
+    : currentIndex >= 0
+      ? catalog[currentIndex + 1] ?? null
+      : null;
   const frozenCheckoutRecovery = planoSalvoForaDoCatalogo && sub ? (
     <div className="card-pad" style={{ borderBottom: "1px solid var(--border)" }}>
       <p className="sub" style={{ color: "var(--muted)", marginTop: 0 }}>
@@ -349,7 +359,13 @@ export function AssinaturaScreen() {
   ) : null;
 
   return (
-    <div className="screen" key="assinatura">
+    <div className="screen admin-screen subscription-screen" key="assinatura">
+      <div className="screen-head">
+        <div className="titles">
+          <h2>Assinatura da igreja</h2>
+          <p>Acompanhe plano, consumo e próximos passos sem surpresa de cobrança.</p>
+        </div>
+      </div>
       {error ? (
         <div className="error-banner" role="alert">
           <Icon name="alert" />
@@ -512,7 +528,7 @@ export function AssinaturaScreen() {
       ) : null}
 
       {!showSkeleton ? (
-        <div className="tabs" style={{ marginBottom: "var(--s4)" }}>
+        <div className="tabs admin-tabs" style={{ marginBottom: "var(--s4)" }}>
           <button
             type="button"
             className={`tab${tab === "overview" ? " active" : ""}`}
@@ -553,14 +569,23 @@ export function AssinaturaScreen() {
                 <div>
                   <h4>Plano {current?.label ?? sub.plano}</h4>
                   <div className="sub" style={{ color: "var(--muted)", marginTop: 3 }}>
-                    {sub.setupPago ? "Mensalidade ativa · setup quitado" : "Setup pendente"}
+                    {complimentary
+                      ? "Cortesia da plataforma · sem cobrança"
+                      : sub.setupPago
+                        ? "Mensalidade ativa · setup quitado"
+                        : "Setup pendente"}
                   </div>
+                  {complimentary ? (
+                    <p className="helper" style={{ margin: "var(--s2) 0 0" }}>
+                      {COMPLIMENTARY_ADMIN_MESSAGE}
+                    </p>
+                  ) : null}
                 </div>
                 <SubscriptionPill state={uiState} />
               </div>
               <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginTop: "var(--s4)" }}>
                 <span className="val num" style={{ fontSize: 30, fontWeight: 640 }}>
-                  {current ? BRL.format(current.preco) : "—"}
+                  {complimentary ? BRL.format(0) : current ? BRL.format(current.preco) : "—"}
                 </span>
                 <span style={{ color: "var(--muted)" }}>/mês</span>
               </div>
@@ -607,19 +632,21 @@ export function AssinaturaScreen() {
               <h4 style={{ marginBottom: "var(--s4)" }}>Detalhes da assinatura</h4>
               <div className="config-row">
                 <span style={{ color: "var(--muted)" }}>Próxima cobrança</span>
-                <span className="mono num">{formatDate(sub.proximaCobranca)}</span>
+                <span className="mono num">
+                  {complimentary ? "Sem cobrança" : formatDate(sub.proximaCobranca)}
+                </span>
               </div>
               <div className="config-row">
                 <span style={{ color: "var(--muted)" }}>Taxa de setup</span>
                 {sub.setupPago ? (
-                  <StatusPill tone="ok">Pago</StatusPill>
+                  <StatusPill tone="ok">{complimentary ? "Isento" : "Pago"}</StatusPill>
                 ) : (
                   <span className="mono num">
                     {BRL.format(sub.setupFeeContracted ?? setupFee)}
                   </span>
                 )}
               </div>
-              {sub.setupRecoveryRequired ? (
+              {!complimentary && sub.setupRecoveryRequired ? (
                 <div className="config-row">
                   <span style={{ color: "var(--muted)" }}>
                     Setup em aberto sem cobrança ativa
@@ -698,8 +725,9 @@ export function AssinaturaScreen() {
           {assinante && planChangeBlocked ? (
             <div className="card-pad" style={{ borderBottom: "1px solid var(--border)" }}>
               <p className="sub" style={{ color: "var(--muted)", margin: 0 }}>
-                Regularize as cobranças pendentes (mensalidade e taxa de setup)
-                para poder mudar de plano.
+                {complimentary
+                  ? COMPLIMENTARY_ADMIN_MESSAGE
+                  : "Regularize as cobranças pendentes (mensalidade e taxa de setup) para poder mudar de plano."}
               </p>
             </div>
           ) : null}
@@ -742,7 +770,9 @@ export function AssinaturaScreen() {
                           disabled={changingPlan || planChangeBlocked}
                           title={
                             planChangeBlocked
-                              ? "Regularize as cobranças pendentes para mudar de plano."
+                              ? complimentary
+                                ? COMPLIMENTARY_ADMIN_MESSAGE
+                                : "Regularize as cobranças pendentes para mudar de plano."
                               : undefined
                           }
                         >

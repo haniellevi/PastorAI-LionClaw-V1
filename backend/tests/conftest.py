@@ -243,8 +243,17 @@ class FakeSession:
         if entity is BillingSettings:
             return _FakeResult(scalar=self.billing_settings)
         if entity is Subscription:
-            return _FakeResult(scalar=self.subscription)
+            subscription = self.subscription or next(
+                (
+                    obj
+                    for obj in self.added
+                    if isinstance(obj, Subscription)
+                ),
+                None,
+            )
+            return _FakeResult(scalar=subscription)
         if entity is BillingPlanChangeOperation:
+            bound = statement.compile().params
             pool = [
                 *self.plan_changes,
                 *(
@@ -253,8 +262,16 @@ class FakeSession:
                     if isinstance(o, BillingPlanChangeOperation)
                 ),
             ]
-            open_statuses = ("prepared", "processing", "reconciling")
-            pool = [o for o in pool if o.status in open_statuses]
+            statuses: list[str] = []
+            for key, value in bound.items():
+                if not re.fullmatch(r"status_\d+(_\d+)?", key):
+                    continue
+                if isinstance(value, (list, tuple, set)):
+                    statuses.extend(value)
+                else:
+                    statuses.append(value)
+            if statuses:
+                pool = [o for o in pool if o.status in statuses]
             return _FakeResult(scalar=pool[0] if pool else None, scalars_list=pool)
         if entity is BillingSubscriptionOperation:
             bound = statement.compile().params
@@ -384,6 +401,9 @@ class FakeClerk:
         raise_invite: bool = False,
         created_clerk_id: str = "clerk_new_user",
         raise_create: bool = False,
+        existing_clerk_id: str | None = None,
+        raise_find: bool = False,
+        raise_delete: bool = False,
     ) -> None:
         self._clerk_user_id = clerk_user_id
         self._login_result = login_result
@@ -393,6 +413,12 @@ class FakeClerk:
         self._raise_invite = raise_invite
         self._created_clerk_id = created_clerk_id
         self._raise_create = raise_create
+        self._existing_clerk_id = existing_clerk_id
+        self._raise_find = raise_find
+        self._raise_delete = raise_delete
+        self.create_calls = 0
+        self.set_password_calls = 0
+        self.delete_calls = 0
 
     def verify_session_token(self, token: str) -> ClerkIdentity:
         if self._raise_verify:
@@ -416,12 +442,23 @@ class FakeClerk:
         return self._invite_app_user_id or "00000000-0000-0000-0000-0000000000a1"
 
     def create_user(self, email: str, password: str) -> str:
+        self.create_calls += 1
         if self._raise_create:
             raise ClerkAuthError("create failed")
         return self._created_clerk_id
 
+    def find_user_id_by_email(self, email: str) -> str | None:
+        if self._raise_find:
+            raise ClerkAuthError("lookup failed")
+        return self._existing_clerk_id
+
     def set_user_password(self, clerk_user_id: str, password: str) -> None:
-        pass
+        self.set_password_calls += 1
+
+    def delete_user(self, clerk_user_id: str) -> None:
+        self.delete_calls += 1
+        if self._raise_delete:
+            raise ClerkAuthError("delete failed")
 
 
 # ---------------------------------------------------------------------------

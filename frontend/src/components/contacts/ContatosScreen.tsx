@@ -644,8 +644,12 @@ export function ContatosScreen({ selectedId }: { selectedId?: string | null }) {
       : Math.min(pageStart + contacts.length - 1, pagination.total);
 
   return (
-    <div className="screen" key="contatos">
+    <div className="screen people-screen" key="contatos">
       <div className="screen-head">
+        <div className="titles">
+          <h2>Pessoas e acompanhamento</h2>
+          <p>Encontre, atualize e acompanhe cada pessoa com clareza.</p>
+        </div>
         <div className="actions">
           <button
             type="button"

@@ -251,6 +251,7 @@ def _mk_app_user(
     pessoa_id: uuid.UUID | None = None,
     status: str = "ativo",
     admin: bool = False,
+    clerk_user_id: str | None = None,
 ) -> uuid.UUID:
     """app_user avulso (sem papel por padrão) — para cenários de MÚLTIPLOS
     app_users por Pessoa (não há UNIQUE em app_users.pessoa_id)."""
@@ -261,6 +262,7 @@ def _mk_app_user(
             igreja_id=igreja_id,
             nome="Usuário",
             email=f"{app_user_id}@teste.com",
+            clerk_user_id=clerk_user_id,
             status=status,
             pessoa_id=pessoa_id,
         )
@@ -1699,6 +1701,7 @@ def test_approve_refuses_when_referenced_pessoa_arquivada_toctou(
             id=sol_id,
             igreja_id=ctx["igreja_id"],
             celula_id=celula_id,
+            solicitante_id=outro_lider_id,
             pessoa_id=alvo_id,
             tipo="remover_membro",
             status="aguardando",
@@ -2607,6 +2610,7 @@ def test_approve_vs_archive_concurrent_alterar_anfitriao_never_both(
             id=sol_id,
             igreja_id=ctx["igreja_id"],
             celula_id=celula_id,
+            solicitante_id=lider_id,
             tipo="alterar_anfitriao",
             status="aguardando",
             payload_proposto={"anfitriao_id": str(alvo_id)},
@@ -2659,6 +2663,7 @@ def test_approve_vs_archive_concurrent_alterar_auxiliar_never_both(
             id=sol_id,
             igreja_id=ctx["igreja_id"],
             celula_id=celula_id,
+            solicitante_id=lider_id,
             tipo="alterar_auxiliar",
             status="aguardando",
             payload_proposto={"auxiliar_id": str(alvo_id)},
@@ -2706,12 +2711,24 @@ def test_approve_vs_archive_concurrent_transferir_membro_never_both(
     central_pessoa_id = _mk_pessoa(session_setup, ctx["igreja_id"], nome="Central")
     lider_origem_id = _mk_pessoa(session_setup, ctx["igreja_id"], nome="Líder origem")
     lider_destino_id = _mk_pessoa(session_setup, ctx["igreja_id"], nome="Líder destino")
-    alvo_id = _mk_pessoa(session_setup, ctx["igreja_id"], nome="Alvo transferência")
+    alvo_id = _mk_pessoa(
+        session_setup, ctx["igreja_id"], nome="Alvo transferência", tipo="membro"
+    )
     celula_origem_id = _mk_celula(
         session_setup, ctx["igreja_id"], nome="Origem", lider_id=lider_origem_id
     )
     celula_destino_id = _mk_celula(
         session_setup, ctx["igreja_id"], nome="Destino", lider_id=lider_destino_id
+    )
+    session_setup.get(Pessoa, alvo_id).celula_id = celula_origem_id
+    session_setup.add(
+        CelulaMembro(
+            igreja_id=ctx["igreja_id"],
+            celula_id=celula_origem_id,
+            pessoa_id=alvo_id,
+            papel="membro",
+            ativo=True,
+        )
     )
     sol_id = uuid.uuid4()
     session_setup.add(
@@ -2719,6 +2736,7 @@ def test_approve_vs_archive_concurrent_transferir_membro_never_both(
             id=sol_id,
             igreja_id=ctx["igreja_id"],
             celula_id=celula_origem_id,
+            solicitante_id=lider_origem_id,
             pessoa_id=alvo_id,
             tipo="transferir_membro",
             status="aguardando",
@@ -2778,9 +2796,16 @@ def test_approve_vs_archive_concurrent_multiplicacao_never_both(
     alvo_id = _mk_pessoa(
         session_setup, ctx["igreja_id"], nome="Alvo novo líder", apto_lider=True
     )
+    _mk_app_user(
+        session_setup,
+        ctx["igreja_id"],
+        pessoa_id=alvo_id,
+        clerk_user_id=f"clerk_{alvo_id}",
+    )
     celula_origem_id = _mk_celula(
         session_setup, ctx["igreja_id"], nome="Origem", lider_id=lider_origem_id
     )
+    session_setup.get(Pessoa, membro_id).celula_id = celula_origem_id
     session_setup.add(
         CelulaMembro(
             igreja_id=ctx["igreja_id"],
@@ -2796,6 +2821,7 @@ def test_approve_vs_archive_concurrent_multiplicacao_never_both(
             id=sol_id,
             igreja_id=ctx["igreja_id"],
             celula_id=celula_origem_id,
+            solicitante_id=lider_origem_id,
             tipo="multiplicacao",
             status="aguardando",
             payload_proposto={
@@ -2865,6 +2891,7 @@ def test_approve_vs_archive_alterar_anfitriao_approve_wins_deterministic(
             id=sol_id,
             igreja_id=ctx["igreja_id"],
             celula_id=celula_id,
+            solicitante_id=lider_id,
             tipo="alterar_anfitriao",
             status="aguardando",
             payload_proposto={"anfitriao_id": str(alvo_id)},
