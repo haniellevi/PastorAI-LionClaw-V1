@@ -29,10 +29,17 @@ from app.services.worker_health import (
 
 logger = logging.getLogger("pastorai.readiness")
 
+# Supabase/Supavisor can take a few seconds to establish a fresh TLS-backed
+# connection even when the database is healthy.  Keep the probe aligned with
+# the application's five-second connection budget while retaining a short
+# statement deadline for the trivial SELECT 1.
 _PROBE_TIMEOUT_SECONDS = 2.0
-_DATABASE_TIMEOUT_SECONDS = 1
+_DATABASE_PROBE_TIMEOUT_SECONDS = 7.0
+_DATABASE_CONNECT_TIMEOUT_SECONDS = 5
+_DATABASE_STATEMENT_TIMEOUT_SECONDS = 1
 _REDIS_TIMEOUT_SECONDS = 1.0
 _EVOLUTION_TIMEOUT_SECONDS = 1.5
+_PROBE_POLL_SECONDS = 0.05
 _PROBE_CONCURRENCY_LIMIT = 3
 _PROBE_SLOTS = BoundedSemaphore(_PROBE_CONCURRENCY_LIMIT)
 _PROBE_EXECUTOR = ThreadPoolExecutor(
@@ -82,9 +89,11 @@ def _check_database() -> None:
     )
     kwargs.update(dict(url.query))
     existing_options = str(kwargs.get("options", "")).strip()
-    statement_timeout = f"-c statement_timeout={_DATABASE_TIMEOUT_SECONDS * 1000}"
+    statement_timeout = (
+        f"-c statement_timeout={_DATABASE_STATEMENT_TIMEOUT_SECONDS * 1000}"
+    )
     kwargs["options"] = f"{existing_options} {statement_timeout}".strip()
-    kwargs["connect_timeout"] = _DATABASE_TIMEOUT_SECONDS
+    kwargs["connect_timeout"] = _DATABASE_CONNECT_TIMEOUT_SECONDS
     with closing(psycopg2.connect(**kwargs)) as connection:
         with connection.cursor() as cursor:
             cursor.execute("SELECT 1")
@@ -146,25 +155,36 @@ async def _bounded_probe(
         return "busy", None
 
     try:
-        # Keep the concurrent Future itself. Cancelling an asyncio wrapper only
-        # cancels a queued job; a running driver call retains its slot until the
-        # real work completes. The done callback is therefore the single release
-        # point for success, error, timeout and cancellation.
+        # Keep the concurrent Future itself. A running driver call retains its
+        # slot until the real work completes; a queued call can still be
+        # cancelled on timeout or request cancellation.
         future = _PROBE_EXECUTOR.submit(probe)
     except BaseException:
         slots.release()
         raise
-    future.add_done_callback(lambda _future: slots.release())
+
+    def finish_probe(_future) -> None:
+        slots.release()
+
+    future.add_done_callback(finish_probe)
 
     try:
-        payload = await asyncio.wait_for(
-            asyncio.wrap_future(future),
-            timeout=timeout_seconds,
-        )
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout_seconds
+        while not future.done():
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                raise TimeoutError
+            await asyncio.sleep(min(_PROBE_POLL_SECONDS, remaining))
+        payload = future.result()
         return "ok", payload
     except TimeoutError:
+        future.cancel()
         logger.warning("readiness_probe_failed dependency=%s error_type=Timeout", name)
         return "timeout", None
+    except asyncio.CancelledError:
+        future.cancel()
+        raise
     except Exception as exc:  # noqa: BLE001 - every dependency failure is a result
         logger.warning(
             "readiness_probe_failed dependency=%s error_type=%s",
@@ -192,11 +212,16 @@ async def collect_readiness(
     """Collect required and optional states with one bounded timeout each."""
     settings = settings or get_settings()
     timeout = _PROBE_TIMEOUT_SECONDS if timeout_seconds is None else timeout_seconds
+    database_timeout = (
+        _DATABASE_PROBE_TIMEOUT_SECONDS
+        if timeout_seconds is None
+        else timeout_seconds
+    )
 
     database_task = _bounded_probe(
         "database",
         _check_database,
-        timeout_seconds=timeout,
+        timeout_seconds=database_timeout,
     )
     redis_task = _bounded_probe(
         "redis",

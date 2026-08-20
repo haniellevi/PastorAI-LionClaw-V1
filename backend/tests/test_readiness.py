@@ -23,6 +23,22 @@ def _settings(*, evolution_url: str = "http://evolution-api:8080"):
     )
 
 
+@pytest.fixture(autouse=True)
+def _isolate_probe_runtime(monkeypatch):
+    """Do not reuse worker threads across the event loop created by each test."""
+    import app.services.readiness as readiness
+
+    executor = ThreadPoolExecutor(max_workers=readiness._PROBE_CONCURRENCY_LIMIT)
+    monkeypatch.setattr(readiness, "_PROBE_EXECUTOR", executor)
+    monkeypatch.setattr(
+        readiness,
+        "_PROBE_SLOTS",
+        threading.BoundedSemaphore(readiness._PROBE_CONCURRENCY_LIMIT),
+    )
+    yield
+    executor.shutdown(wait=True, cancel_futures=True)
+
+
 def _install_probes(monkeypatch, *, database=None, redis=None, evolution=None):
     import app.services.readiness as readiness
 
@@ -215,8 +231,11 @@ def test_database_probe_sets_driver_deadlines(monkeypatch) -> None:
 
     readiness._check_database()
 
-    assert seen["connect_timeout"] == readiness._DATABASE_TIMEOUT_SECONDS
-    assert "statement_timeout=1000" in str(seen["options"])
+    assert seen["connect_timeout"] == readiness._DATABASE_CONNECT_TIMEOUT_SECONDS
+    assert (
+        f"statement_timeout={readiness._DATABASE_STATEMENT_TIMEOUT_SECONDS * 1000}"
+        in str(seen["options"])
+    )
     assert seen["sslmode"] == "require"
     assert seen["user"] == "app_user"
     assert seen["dbname"] == "app"
@@ -226,6 +245,65 @@ def test_database_probe_sets_driver_deadlines(monkeypatch) -> None:
     }
     assert seen["sql"] == "SELECT 1"
     assert connection.closed is True
+
+
+def test_default_probe_budget_covers_database_driver_deadlines() -> None:
+    import app.services.readiness as readiness
+
+    driver_budget = (
+        readiness._DATABASE_CONNECT_TIMEOUT_SECONDS
+        + readiness._DATABASE_STATEMENT_TIMEOUT_SECONDS
+    )
+
+    assert readiness._DATABASE_PROBE_TIMEOUT_SECONDS > driver_budget
+
+
+def test_database_gets_extended_budget_without_relaxing_other_probes(
+    monkeypatch,
+) -> None:
+    import app.services.readiness as readiness
+
+    seen: dict[str, float] = {}
+
+    async def capture_probe(name, _probe, *, timeout_seconds):
+        seen[name] = timeout_seconds
+        payload = (
+            {
+                "queue-worker": "ready",
+                "cron-worker": "running",
+                "broadcast-worker": "idle",
+            }
+            if name == "redis"
+            else None
+        )
+        return "ok", payload
+
+    monkeypatch.setattr(readiness, "_bounded_probe", capture_probe)
+
+    report = asyncio.run(collect_readiness(_settings()))
+
+    assert report.status == "ready"
+    assert seen == {
+        "database": readiness._DATABASE_PROBE_TIMEOUT_SECONDS,
+        "redis": readiness._PROBE_TIMEOUT_SECONDS,
+        "evolution": readiness._PROBE_TIMEOUT_SECONDS,
+    }
+
+
+def test_slow_healthy_database_beyond_general_timeout_is_ready(monkeypatch) -> None:
+    import app.services.readiness as readiness
+
+    def slow_database() -> None:
+        # Exercise the production incident boundary: a healthy Supavisor
+        # connection that takes longer than the normal dependency budget.
+        time.sleep(readiness._PROBE_TIMEOUT_SECONDS + 0.1)
+
+    _install_probes(monkeypatch, database=slow_database)
+
+    report = asyncio.run(collect_readiness(_settings()))
+
+    assert report.status == "ready"
+    assert report.http_status == 200
 
 
 def test_repeated_timeouts_have_strict_concurrency_limit_and_recover(
@@ -250,14 +328,24 @@ def test_repeated_timeouts_have_strict_concurrency_limit_and_recover(
                 active -= 1
 
     _install_probes(monkeypatch, database=slow, redis=slow, evolution=slow)
-    monkeypatch.setattr(readiness, "_PROBE_SLOTS", threading.BoundedSemaphore(3))
+    slots = threading.BoundedSemaphore(3)
+    monkeypatch.setattr(readiness, "_PROBE_SLOTS", slots)
 
     async def exercise():
         reports = await asyncio.gather(
             *(collect_readiness(_settings(), timeout_seconds=0.001) for _ in range(8))
         )
         release.set()
-        await asyncio.sleep(0.05)
+        for _ in range(100):
+            acquired = 0
+            while acquired < 3 and slots.acquire(blocking=False):
+                acquired += 1
+            for _slot in range(acquired):
+                slots.release()
+            if acquired == 3:
+                break
+            await asyncio.sleep(0.01)
+        assert acquired == 3
         _install_probes(monkeypatch)
         recovered = await collect_readiness(_settings(), timeout_seconds=0.1)
         return reports, recovered
@@ -269,7 +357,7 @@ def test_repeated_timeouts_have_strict_concurrency_limit_and_recover(
         "busy" in set(report.required.values()) | set(report.optional.values())
         for report in reports
     )
-    assert recovered.status == "ready"
+    assert recovered.status == "ready", recovered.public_payload()
 
 
 def test_cancelled_queued_probe_releases_exact_slot_and_recovers(
@@ -345,6 +433,13 @@ def test_cancelled_running_probe_holds_slot_until_real_completion(
         finally:
             finished.set()
 
+    async def wait_for_event(event: threading.Event) -> bool:
+        for _ in range(100):
+            if event.is_set():
+                return True
+            await asyncio.sleep(0.01)
+        return event.is_set()
+
     async def exercise() -> None:
         task = asyncio.create_task(
             readiness._bounded_probe(  # noqa: SLF001
@@ -353,7 +448,7 @@ def test_cancelled_running_probe_holds_slot_until_real_completion(
                 timeout_seconds=1,
             )
         )
-        assert await asyncio.to_thread(started.wait, 1)
+        assert await wait_for_event(started)
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
@@ -366,7 +461,7 @@ def test_cancelled_running_probe_holds_slot_until_real_completion(
         assert busy == ("busy", None)
 
         release.set()
-        assert await asyncio.to_thread(finished.wait, 1)
+        assert await wait_for_event(finished)
         for _ in range(10):
             recovered = await readiness._bounded_probe(  # noqa: SLF001
                 "running-recovery",
