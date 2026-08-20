@@ -43,6 +43,8 @@ export interface LoginMetrics {
   dashboardCompleteMs: number;
 }
 
+const browserSafetyByPage = new WeakMap<Page, BrowserSafety>();
+
 export async function resetHarness(request: APIRequestContext): Promise<void> {
   const response = await request.post(`${API_URL}/__e2e/reset`);
   expect(response.ok()).toBeTruthy();
@@ -86,6 +88,7 @@ export async function armBrowserSafety(page: Page): Promise<BrowserSafety> {
     safety.externalRequests.push(target.href);
     await route.abort("blockedbyclient");
   });
+  browserSafetyByPage.set(page, safety);
   return safety;
 }
 
@@ -93,6 +96,12 @@ export function expectCleanBrowser(safety: BrowserSafety): void {
   expect(safety.externalRequests, "requisições externas bloqueadas").toEqual([]);
   expect(safety.pageErrors, "erros JavaScript não tratados").toEqual([]);
   expect(safety.consoleErrors, "console.error no navegador").toEqual([]);
+}
+
+export async function expectDashboardContextReady(page: Page): Promise<void> {
+  await expect(page.getByText("Acompanhar visitante E2E")).toBeVisible();
+  await expect(page.getByText("Nenhum evento futuro publicado.")).toBeVisible();
+  await expect(page.getByText("Nenhum aviso novo.")).toBeVisible();
 }
 
 export async function loginThroughUi(page: Page): Promise<LoginMetrics> {
@@ -108,7 +117,7 @@ export async function loginThroughUi(page: Page): Promise<LoginMetrics> {
   });
   const feedbackAt = await page.evaluate(() => performance.now());
 
-  await expect(page.getByText("Acompanhar visitante E2E")).toBeVisible();
+  await expectDashboardContextReady(page);
   const dashboardAt = await page.evaluate(() => performance.now());
   return {
     feedbackMs: feedbackAt - startedAt,
@@ -157,9 +166,58 @@ export async function attachJson(
     body: Buffer.from(body, "utf8"),
     contentType: "application/json",
   });
-  const metricsDir = path.join(process.cwd(), "test-results", "metrics");
-  await mkdir(metricsDir, { recursive: true });
-  await writeFile(path.join(metricsDir, `${name}.json`), body, "utf8");
+  const metricsPath = testInfo.outputPath("metrics", `${name}.json`);
+  await mkdir(path.dirname(metricsPath), { recursive: true });
+  await writeFile(metricsPath, body, "utf8");
+}
+
+/**
+ * Registra a fotografia mínima do laboratório no fim de toda tentativa. O hook
+ * que chama esta função roda mesmo após uma asserção falhar, preservando as
+ * requisições sanitizadas, o timeline e o bloqueio de rede para diagnóstico.
+ */
+export async function attachM09OutcomeSnapshot(
+  page: Page,
+  request: APIRequestContext,
+  testInfo: TestInfo,
+): Promise<void> {
+  const [requests, resources] = await Promise.all([
+    captureHarnessRequests(request),
+    captureResourceTimeline(page),
+  ]);
+
+  await attachJson(testInfo, "m09-outcome-snapshot", {
+    status: testInfo.status,
+    expectedStatus: testInfo.expectedStatus,
+    retry: testInfo.retry,
+    requests,
+    resources,
+    browserSafety: browserSafetyByPage.get(page) ?? null,
+  });
+}
+
+async function captureHarnessRequests(
+  request: APIRequestContext,
+): Promise<HarnessRequest[] | { error: string }> {
+  try {
+    const response = await request.get(`${API_URL}/__e2e/requests`);
+    if (!response.ok()) return { error: `HTTP ${response.status()}` };
+    const body = (await response.json()) as { requests?: HarnessRequest[] };
+    return Array.isArray(body.requests) ? body.requests : { error: "corpo inválido" };
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "falha desconhecida" };
+  }
+}
+
+async function captureResourceTimeline(
+  page: Page,
+): Promise<Awaited<ReturnType<typeof resourceTimeline>> | { error: string }> {
+  if (page.isClosed()) return { error: "página já fechada" };
+  try {
+    return await resourceTimeline(page);
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : "falha desconhecida" };
+  }
 }
 
 export function percentile75(values: number[]): number {

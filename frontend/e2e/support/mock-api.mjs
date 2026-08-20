@@ -170,6 +170,35 @@ const server = createServer(async (request, response) => {
       sendJson(response, 200, profile);
       return;
     }
+    if (method === "GET" && pathname === "/roles/permissions") {
+      record.status = 200;
+      sendJson(response, 200, {
+        matriz: {
+          pastor: [
+            "dashboard",
+            "inbox",
+            "ganhar",
+            "consolidar",
+            "consol-individual",
+            "universidade-vida",
+            "capacitacao",
+            "g12",
+            "central-celula",
+            "enviar",
+            "calendario",
+            "celulas",
+            "relatorios",
+          ],
+          lider_g12: [],
+          lider_consol: [],
+          lider_celula: [],
+          lider_mult: [],
+          operador: [],
+          membro: [],
+        },
+      });
+      return;
+    }
     if (method === "GET" && pathname === "/work-queue") {
       record.status = 200;
       sendJson(
@@ -213,6 +242,21 @@ const server = createServer(async (request, response) => {
         porTipo: { visitante: 1, membro: 8 },
         porEtapa: { ganhar: 1, consolidar: 2 },
       });
+      return;
+    }
+    if (method === "GET" && pathname === "/conversations") {
+      record.status = 200;
+      sendJson(response, 200, page([]));
+      return;
+    }
+    if (method === "GET" && pathname === "/pipeline") {
+      record.status = 200;
+      sendJson(response, 200, page([]));
+      return;
+    }
+    if (method === "GET" && pathname === "/cell-notices") {
+      record.status = 200;
+      sendJson(response, 200, { items: [], page: 1, page_size: 50, total: 0 });
       return;
     }
     if (method === "GET" && pathname === "/events") {

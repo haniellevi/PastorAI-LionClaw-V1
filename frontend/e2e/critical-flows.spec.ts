@@ -3,6 +3,8 @@ import { expect, test } from "@playwright/test";
 import {
   armBrowserSafety,
   attachJson,
+  attachM09OutcomeSnapshot,
+  expectDashboardContextReady,
   expectCleanBrowser,
   harnessRequests,
   LOCAL_TOKEN,
@@ -33,6 +35,10 @@ function expectParallelDashboardReads(
   const starts = reads.map((entry) => entry.startedAt);
   expect(Math.max(...starts) - Math.min(...starts)).toBeLessThan(100);
 }
+
+test.afterEach(async ({ page, request }, testInfo) => {
+  await attachM09OutcomeSnapshot(page, request, testInfo);
+});
 
 test.describe("M09 · gates críticos locais e sem efeitos externos", () => {
   test("login novo dá feedback imediato e carrega o dashboard sem /auth/me", async ({
@@ -79,7 +85,7 @@ test.describe("M09 · gates críticos locais e sem efeitos externos", () => {
 
     const startedAt = Date.now();
     await page.goto("/#dashboard", { waitUntil: "domcontentloaded" });
-    await expect(page.getByText("Acompanhar visitante E2E")).toBeVisible();
+    await expectDashboardContextReady(page);
     const dashboardCompleteMs = Date.now() - startedAt;
 
     const requests = await harnessRequests(request);
@@ -121,7 +127,7 @@ test.describe("M09 · gates críticos locais e sem efeitos externos", () => {
     await agenda.click();
     await expect(page.getByText(/^Nenhum evento em /)).toBeVisible();
     await dashboard.click();
-    await expect(page.getByText("Acompanhar visitante E2E")).toBeVisible();
+    await expectDashboardContextReady(page);
 
     const samples: Array<{ feedbackMs: number; completeMs: number }> = [];
     for (let index = 0; index < 8; index += 1) {
@@ -137,7 +143,7 @@ test.describe("M09 · gates críticos locais e sem efeitos externos", () => {
       });
 
       await dashboard.click();
-      await expect(page.getByText("Acompanhar visitante E2E")).toBeVisible();
+      await expectDashboardContextReady(page);
     }
 
     const feedbackP75 = percentile75(samples.map((sample) => sample.feedbackMs));
