@@ -17,6 +17,11 @@ O destino é injetado exclusivamente pela variável de ambiente
 ``status`` continua exclusivamente read-only, mas falha fechado quando a
 situação genérica do ledger não pode ser demonstrada como segura. Não há modo
 genérico de ``apply``.
+
+``harden-ledger`` é uma operação de controle excepcional e igualmente
+explícita: ela endurece somente o ledger já existente, sem criar, reconciliar
+ou registrar migrations. Ela é necessária quando um ledger histórico válido em
+estrutura ainda não tem RLS/ACLs compatíveis com o executor de arquivo único.
 """
 
 from __future__ import annotations
@@ -38,8 +43,8 @@ LEDGER_SCHEMA = "public"
 LEDGER_NAME = "schema_migrations"
 BOOKKEEPING_TABLE = f"{LEDGER_SCHEMA}.{LEDGER_NAME}"
 EXPECTED_LEDGER_COLUMNS = (
-    ("name", "text", True),
-    ("applied_at", "timestamp with time zone", True),
+    ("name", "text", True, None),
+    ("applied_at", "timestamp with time zone", True, "now()"),
 )
 REQUIRED_LEDGER_ROLES = ("anon", "authenticated", "service_role")
 TABLE_PRIVILEGES = (
@@ -52,6 +57,8 @@ TABLE_PRIVILEGES = (
     "TRIGGER",
 )
 COLUMN_PRIVILEGES = ("SELECT", "INSERT", "UPDATE", "REFERENCES")
+LEDGER_HARDEN_CONFIRMATION = "HARDEN_LEDGER"
+LEDGER_DENY_POLICY_NAME = "migration_ledger_service_role_bypass_only"
 SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 MIGRATION_BASENAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*\.sql$")
 DOLLAR_QUOTE_START_RE = re.compile(r"\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$")
@@ -280,6 +287,13 @@ def _parse_sha256(value: str) -> str:
 def _parse_confirmation(value: str) -> str:
     """Aceita somente a confirmação literal antes de qualquer efeito lateral."""
     if value != "APPLY":
+        raise argparse.ArgumentTypeError("confirmação inválida")
+    return value
+
+
+def _parse_hardening_confirmation(value: str) -> str:
+    """Aceita a confirmação própria do único hardening permitido."""
+    if value != LEDGER_HARDEN_CONFIRMATION:
         raise argparse.ArgumentTypeError("confirmação inválida")
     return value
 
@@ -568,8 +582,12 @@ def _validate_ledger_schema(cur, relation_oid: int) -> tuple[str, ...]:
         """
         select a.attname,
                pg_catalog.format_type(a.atttypid, a.atttypmod),
-               a.attnotnull
+               a.attnotnull,
+               pg_catalog.pg_get_expr(default_value.adbin, default_value.adrelid)
         from pg_catalog.pg_attribute a
+        left join pg_catalog.pg_attrdef default_value
+          on default_value.adrelid = a.attrelid
+         and default_value.adnum = a.attnum
         where a.attrelid = %s
           and a.attnum > 0
           and not a.attisdropped
@@ -577,7 +595,10 @@ def _validate_ledger_schema(cur, relation_oid: int) -> tuple[str, ...]:
         """,
         (relation_oid,),
     )
-    columns = tuple((name, data_type, bool(not_null)) for name, data_type, not_null in cur.fetchall())
+    columns = tuple(
+        (name, data_type, bool(not_null), default)
+        for name, data_type, not_null, default in cur.fetchall()
+    )
     if columns != EXPECTED_LEDGER_COLUMNS:
         raise MigrationRunnerError(
             "schema do ledger é incompatível; abra o gate separado de hardening"
@@ -614,6 +635,23 @@ def _validate_ledger_schema(cur, relation_oid: int) -> tuple[str, ...]:
     return tuple(column[0] for column in columns)
 
 
+def _read_ledger_applied_names(cur) -> tuple[str, ...]:
+    cur.execute(f"select name from {BOOKKEEPING_TABLE} order by applied_at, name")
+    return tuple(row[0] for row in cur.fetchall())
+
+
+def _validate_ledger_catalog_entries(
+    cur, catalog_names: tuple[str, ...]
+) -> tuple[str, ...]:
+    applied_names = _read_ledger_applied_names(cur)
+    unknown = sorted(set(applied_names) - set(catalog_names))
+    if unknown:
+        raise MigrationRunnerError(
+            "ledger contém migration desconhecida; abra o gate separado de reconciliação"
+        )
+    return applied_names
+
+
 def _table_privileges(server_version: int) -> tuple[str, ...]:
     return (*TABLE_PRIVILEGES, "MAINTAIN") if server_version >= 170000 else TABLE_PRIVILEGES
 
@@ -641,6 +679,122 @@ def _role_has_ledger_privilege(
             if cur.fetchone()[0]:
                 return True
     return False
+
+
+def _snapshot_ledger_role_privileges(
+    cur,
+    role_name: str,
+    relation_oid: int,
+    columns: tuple[str, ...],
+    table_privileges: tuple[str, ...],
+) -> dict[str, bool]:
+    """Captura privilégios efetivos para provar que o hardening não os reduz."""
+    snapshot: dict[str, bool] = {}
+    for privilege in table_privileges:
+        cur.execute(
+            "select has_table_privilege(%s, %s, %s)",
+            (role_name, relation_oid, privilege),
+        )
+        snapshot[f"table:{privilege}"] = bool(cur.fetchone()[0])
+    for column in columns:
+        for privilege in COLUMN_PRIVILEGES:
+            cur.execute(
+                "select has_column_privilege(%s, %s, %s, %s)",
+                (role_name, relation_oid, column, privilege),
+            )
+            snapshot[f"column:{column}:{privilege}"] = bool(cur.fetchone()[0])
+    return snapshot
+
+
+def _ledger_deny_policy_state(cur, relation_oid: int) -> tuple[int, int]:
+    """Conta policies e a única policy deny permitida para o ledger."""
+    cur.execute(
+        """
+        select count(*),
+               count(*) filter (
+                   where p.polname = %s
+                     and p.polcmd = '*'
+                     and p.polpermissive is false
+                     and p.polroles = array[0::oid]
+                     and pg_catalog.pg_get_expr(p.polqual, p.polrelid) = 'false'
+                     and pg_catalog.pg_get_expr(p.polwithcheck, p.polrelid) = 'false'
+               )
+        from pg_catalog.pg_policy p
+        where p.polrelid = %s
+        """,
+        (LEDGER_DENY_POLICY_NAME, relation_oid),
+    )
+    policy_count, exact_count = cur.fetchone()
+    return int(policy_count), int(exact_count)
+
+
+def _validate_ledger_hardening_baseline(
+    cur, relation_oid: int, rls_enabled: bool
+) -> None:
+    """Aceita apenas o estado histórico inseguro ou o estado final idempotente."""
+    policy_count, exact_count = _ledger_deny_policy_state(cur, relation_oid)
+    if not rls_enabled and policy_count == 0:
+        return
+    if rls_enabled and policy_count == 1 and exact_count == 1:
+        return
+    raise MigrationRunnerError(
+        "ledger possui estado de RLS ou policy inesperado; abra o gate separado de hardening"
+    )
+
+
+def _ensure_ledger_deny_policy(cur, relation_oid: int) -> None:
+    policy_count, exact_count = _ledger_deny_policy_state(cur, relation_oid)
+    if policy_count == 0:
+        cur.execute(
+            f"create policy {LEDGER_DENY_POLICY_NAME} on {BOOKKEEPING_TABLE} "
+            "as restrictive for all to public using (false) with check (false)"
+        )
+        return
+    if policy_count != 1 or exact_count != 1:
+        raise MigrationRunnerError(
+            "ledger possui policy inesperada; a transação foi revertida"
+        )
+
+
+def _validate_required_ledger_roles(cur) -> None:
+    cur.execute(
+        """
+        select oid, rolname, rolsuper, rolbypassrls, rolcreaterole
+        from pg_catalog.pg_roles
+        where rolname = any(%s)
+        """,
+        (list(REQUIRED_LEDGER_ROLES),),
+    )
+    roles = {
+        name: {
+            "oid": int(role_oid),
+            "superuser": bool(superuser),
+            "bypass_rls": bool(bypass_rls),
+            "create_role": bool(create_role),
+        }
+        for role_oid, name, superuser, bypass_rls, create_role in cur.fetchall()
+    }
+    if set(roles) != set(REQUIRED_LEDGER_ROLES):
+        raise MigrationRunnerError(
+            "roles esperados do ledger estão ausentes; abra o gate separado de hardening"
+        )
+    if (
+        roles["anon"]["superuser"]
+        or roles["anon"]["bypass_rls"]
+        or roles["anon"]["create_role"]
+        or roles["authenticated"]["superuser"]
+        or roles["authenticated"]["bypass_rls"]
+        or roles["authenticated"]["create_role"]
+        or not roles["service_role"]["bypass_rls"]
+    ):
+        raise MigrationRunnerError(
+            "roles do ledger não atendem ao contrato de segurança; abra o gate separado de hardening"
+        )
+
+
+def _server_version_number(cur) -> int:
+    cur.execute("show server_version_num")
+    return int(cur.fetchone()[0])
 
 
 def _validate_reachable_ledger_roles(
@@ -709,42 +863,9 @@ def _validate_ledger_security(cur, relation_oid: int, columns: tuple[str, ...], 
             "ledger não tem RLS habilitado; abra o gate separado de hardening"
         )
 
-    cur.execute(
-        """
-        select oid, rolname, rolsuper, rolbypassrls, rolcreaterole
-        from pg_catalog.pg_roles
-        where rolname = any(%s)
-        """,
-        (list(REQUIRED_LEDGER_ROLES),),
-    )
-    roles = {
-        name: {
-            "oid": int(role_oid),
-            "superuser": bool(superuser),
-            "bypass_rls": bool(bypass_rls),
-            "create_role": bool(create_role),
-        }
-        for role_oid, name, superuser, bypass_rls, create_role in cur.fetchall()
-    }
-    if set(roles) != set(REQUIRED_LEDGER_ROLES):
-        raise MigrationRunnerError(
-            "roles esperados do ledger estão ausentes; abra o gate separado de hardening"
-        )
-    if (
-        roles["anon"]["superuser"]
-        or roles["anon"]["bypass_rls"]
-        or roles["anon"]["create_role"]
-        or roles["authenticated"]["superuser"]
-        or roles["authenticated"]["bypass_rls"]
-        or roles["authenticated"]["create_role"]
-        or not roles["service_role"]["bypass_rls"]
-    ):
-        raise MigrationRunnerError(
-            "roles do ledger não atendem ao contrato de segurança; abra o gate separado de hardening"
-        )
+    _validate_required_ledger_roles(cur)
 
-    cur.execute("show server_version_num")
-    server_version = int(cur.fetchone()[0])
+    server_version = _server_version_number(cur)
     if server_version < 160000:
         raise MigrationRunnerError(
             "PostgreSQL 16+ é necessário para validar memberships do ledger"
@@ -773,13 +894,7 @@ def inspect_ledger(
     columns = _validate_ledger_schema(cur, relation_oid)
     _validate_ledger_security(cur, relation_oid, columns, rls_enabled)
 
-    cur.execute(f"select name from {BOOKKEEPING_TABLE} order by applied_at, name")
-    applied_names = tuple(row[0] for row in cur.fetchall())
-    unknown = sorted(set(applied_names) - set(catalog_names))
-    if unknown:
-        raise MigrationRunnerError(
-            "ledger contém migration desconhecida; abra o gate separado de reconciliação"
-        )
+    applied_names = _validate_ledger_catalog_entries(cur, catalog_names)
 
     if require_generic_consistency:
         expected_prefix = catalog_names[: len(applied_names)]
@@ -876,6 +991,111 @@ def cmd_status(args: argparse.Namespace) -> int:
         f"{pending_count} pendente(s)."
     )
     print("Status é read-only; aplicação genérica permanece bloqueada.")
+    return 0
+
+
+def cmd_harden_ledger(args: argparse.Namespace) -> int:
+    """Endurece somente o ledger histórico existente, em transação atômica.
+
+    Esta não é uma aplicação de migration e não altera os nomes já registrados.
+    O único estado inicial aceito é o ledger estruturalmente válido sem RLS e
+    sem policies, ou o estado final já endurecido. Qualquer drift faz rollback.
+    """
+    if getattr(args, "confirm", None) != LEDGER_HARDEN_CONFIRMATION:
+        print(
+            f"ERRO: hardening do ledger requer --confirm {LEDGER_HARDEN_CONFIRMATION}.",
+            file=sys.stderr,
+        )
+        return 4
+
+    try:
+        migrations = discover_migrations()
+    except MigrationRunnerError as error:
+        return _print_abort(error)
+    catalog_names = tuple(path.name for path in migrations)
+
+    url = resolve_database_url(args)
+    if not url:
+        print(
+            f"ERRO: injete {DATABASE_URL_ENV} no ambiente do processo.",
+            file=sys.stderr,
+        )
+        return 2
+
+    conn = _connect(url)
+    try:
+        with conn.cursor() as cur:
+            # Deve ser a primeira instrução da transação para cobrir leitura,
+            # lock, RLS, policy, ACL e a verificação pós-condição no mesmo commit.
+            cur.execute("set transaction isolation level serializable")
+            _ledger_relation(cur)
+            cur.execute(f"lock table {BOOKKEEPING_TABLE} in access exclusive mode")
+
+            relation_oid, rls_enabled = _ledger_relation(cur)
+            columns = _validate_ledger_schema(cur, relation_oid)
+            _validate_ledger_catalog_entries(cur, catalog_names)
+            _validate_required_ledger_roles(cur)
+            _validate_ledger_hardening_baseline(cur, relation_oid, rls_enabled)
+
+            server_version = _server_version_number(cur)
+            service_role_before = _snapshot_ledger_role_privileges(
+                cur,
+                "service_role",
+                relation_oid,
+                columns,
+                _table_privileges(server_version),
+            )
+
+            cur.execute(f"alter table {BOOKKEEPING_TABLE} enable row level security")
+            _ensure_ledger_deny_policy(cur, relation_oid)
+            if _ledger_deny_policy_state(cur, relation_oid) != (1, 1):
+                raise MigrationRunnerError(
+                    "policy deny do ledger não atingiu a pós-condição esperada; "
+                    "a transação foi revertida"
+                )
+            cur.execute(
+                f"revoke all privileges on table {BOOKKEEPING_TABLE} "
+                "from public, anon, authenticated"
+            )
+            for column in columns:
+                cur.execute(
+                    f"revoke select ({column}), insert ({column}), update ({column}), "
+                    f"references ({column}) on table {BOOKKEEPING_TABLE} "
+                    "from public, anon, authenticated"
+                )
+
+            service_role_after = _snapshot_ledger_role_privileges(
+                cur,
+                "service_role",
+                relation_oid,
+                columns,
+                _table_privileges(server_version),
+            )
+            if service_role_after != service_role_before:
+                raise MigrationRunnerError(
+                    "hardening reduziria privilégios efetivos de service_role; "
+                    "abra o gate separado de hardening"
+                )
+
+            _validate_ledger_security(cur, relation_oid, columns, rls_enabled=True)
+        conn.commit()
+    except MigrationRunnerError as error:
+        _rollback_quietly(conn)
+        return _print_abort(error)
+    except Exception:  # noqa: BLE001 - não expor SQL, DSN ou credenciais
+        _rollback_quietly(conn)
+        print(
+            "ERRO: hardening do ledger falhou e a transação foi revertida.",
+            file=sys.stderr,
+        )
+        return MigrationExecutionError.exit_code
+    finally:
+        conn.close()
+
+    print(
+        "OK — ledger existente endurecido com RLS, policy deny e ACLs verificadas. "
+        "Nenhuma migration foi aplicada ou registrada."
+    )
     return 0
 
 
@@ -998,6 +1218,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="preflight genérico read-only; falha se houver drift",
         allow_abbrev=False,
     )
+    p_harden = sub.add_parser(
+        "harden-ledger",
+        help="endurece somente o ledger existente após confirmação explícita",
+        allow_abbrev=False,
+    )
+    p_harden.add_argument(
+        "--confirm",
+        default=None,
+        type=_parse_hardening_confirmation,
+        help=f"confirmação explícita; use exatamente {LEDGER_HARDEN_CONFIRMATION}",
+    )
     p_apply = sub.add_parser(
         "apply",
         help="aplica somente um arquivo com nome, hash e confirmação",
@@ -1030,7 +1261,12 @@ def main(argv: list[str]) -> int:
     except CliUsageError:
         print(USAGE_ERROR_MESSAGE, file=sys.stderr)
         return 2
-    handlers = {"list": cmd_list, "status": cmd_status, "apply": cmd_apply}
+    handlers = {
+        "list": cmd_list,
+        "status": cmd_status,
+        "harden-ledger": cmd_harden_ledger,
+        "apply": cmd_apply,
+    }
     return handlers[args.command](args)
 
 

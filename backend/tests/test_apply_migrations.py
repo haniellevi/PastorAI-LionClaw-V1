@@ -223,6 +223,19 @@ def test_generic_apply_is_blocked_before_any_database_connection(
     assert "aplicação genérica está bloqueada" in capsys.readouterr().err
 
 
+def test_harden_ledger_requires_its_own_confirmation_before_connection(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(
+        apply_migrations,
+        "_connect",
+        lambda _url: pytest.fail("ledger hardening must not connect without confirmation"),
+    )
+
+    assert apply_migrations.cmd_harden_ledger(_args(confirm="APPLY")) == 4
+    assert "HARDEN_LEDGER" in capsys.readouterr().err
+
+
 @pytest.mark.parametrize(
     "argv",
     (
@@ -286,6 +299,10 @@ def test_cli_never_accepts_or_echoes_database_url_in_argv(
             SENSITIVE_TOKEN_COMPONENTS,
         ),
         (
+            ("harden-ledger", "--confirm", SENSITIVE_TOKEN),
+            SENSITIVE_TOKEN_COMPONENTS,
+        ),
+        (
             ("apply", "--migration", "--confirm", SENSITIVE_DSN),
             SENSITIVE_DSN_COMPONENTS,
         ),
@@ -313,6 +330,7 @@ def test_cli_never_accepts_or_echoes_database_url_in_argv(
         "migration-value-is-dsn",
         "sha256-value-is-dsn",
         "confirmation-followed-by-token",
+        "hardening-confirmation-followed-by-token",
         "option-without-value-followed-by-dsn",
         "multiple-unknown-values",
         "abbreviation-is-disabled",
@@ -696,6 +714,27 @@ def _reset_secure_ledger(url: str, entries: tuple[str, ...] = ()) -> None:
             )
 
 
+def _reset_insecure_ledger(url: str, entries: tuple[str, ...] = ()) -> None:
+    _reset_secure_ledger(url, entries)
+    with _test_connection(url) as conn, conn.cursor() as cur:
+        cur.execute("alter table public.schema_migrations disable row level security")
+
+
+def _ledger_rls_and_policy_state(url: str) -> tuple[bool, tuple[tuple[str, bool], ...]]:
+    with _test_connection(url) as conn, conn.cursor() as cur:
+        cur.execute(
+            "select relrowsecurity from pg_catalog.pg_class "
+            "where oid = 'public.schema_migrations'::regclass"
+        )
+        rls_enabled = bool(cur.fetchone()[0])
+        cur.execute(
+            "select polname, polpermissive from pg_catalog.pg_policy "
+            "where polrelid = 'public.schema_migrations'::regclass order by polname"
+        )
+        policies = tuple((str(name), bool(permissive)) for name, permissive in cur.fetchall())
+    return rls_enabled, policies
+
+
 def _table_exists(url: str, table: str) -> bool:
     with _test_connection(url) as conn, conn.cursor() as cur:
         cur.execute("select to_regclass(%s)", (f"public.{table}",))
@@ -976,6 +1015,196 @@ def test_single_apply_rejects_ledger_without_rls_without_writes(
     )
     assert not _table_exists(executor_database_url, "executor_rls_block")
     assert _ledger_names(executor_database_url) == ()
+
+
+@pytest.mark.rls_integration
+def test_harden_ledger_secures_drifted_history_and_preserves_single_file_apply(
+    executor_database_url: str, migration_root: Path
+) -> None:
+    _write_migration(migration_root, "0001_first.sql", "select 1;")
+    drifted = _write_migration(migration_root, "0002_drifted.sql", "select 1;")
+    target = _write_migration(
+        migration_root,
+        "0003_selected.sql",
+        "create table public.executor_after_ledger_hardening (id integer primary key);",
+    )
+    _reset_insecure_ledger(executor_database_url, (drifted.name,))
+    with _test_connection(executor_database_url) as conn, conn.cursor() as cur:
+        cur.execute(
+            "grant select, insert, update, delete, truncate, references, trigger "
+            "on public.schema_migrations to public, anon, authenticated"
+        )
+        cur.execute(
+            "grant select (name), insert (name), update (name), references (name) "
+            "on public.schema_migrations to public"
+        )
+
+    harden_args = _args(
+        database_url=executor_database_url,
+        confirm=apply_migrations.LEDGER_HARDEN_CONFIRMATION,
+    )
+    assert apply_migrations.cmd_harden_ledger(harden_args) == 0
+
+    rls_enabled, policies = _ledger_rls_and_policy_state(executor_database_url)
+    assert rls_enabled is True
+    assert policies == ((apply_migrations.LEDGER_DENY_POLICY_NAME, False),)
+    with _test_connection(executor_database_url) as conn, conn.cursor() as cur:
+        cur.execute("select 'public.schema_migrations'::regclass::oid")
+        relation_oid = int(cur.fetchone()[0])
+        assert apply_migrations._ledger_deny_policy_state(cur, relation_oid) == (1, 1)
+        for role in ("anon", "authenticated"):
+            for privilege in (*apply_migrations.TABLE_PRIVILEGES, "MAINTAIN"):
+                cur.execute(
+                    "select has_table_privilege(%s, 'public.schema_migrations', %s)",
+                    (role, privilege),
+                )
+                assert cur.fetchone()[0] is False
+            for column in ("name", "applied_at"):
+                for privilege in apply_migrations.COLUMN_PRIVILEGES:
+                    cur.execute(
+                        "select has_column_privilege(%s, 'public.schema_migrations', %s, %s)",
+                        (role, column, privilege),
+                    )
+                    assert cur.fetchone()[0] is False
+        cur.execute(
+            "select has_table_privilege('service_role', 'public.schema_migrations', 'select')"
+        )
+        assert cur.fetchone()[0] is True
+
+    assert (
+        apply_migrations.cmd_apply(
+            _args(
+                database_url=executor_database_url,
+                migration=target.name,
+                sha256=_sha256(target),
+                confirm="APPLY",
+            )
+        )
+        == 0
+    )
+    assert _table_exists(executor_database_url, "executor_after_ledger_hardening")
+    assert _ledger_names(executor_database_url) == (drifted.name, target.name)
+    assert apply_migrations.cmd_harden_ledger(harden_args) == 0
+
+
+@pytest.mark.rls_integration
+def test_harden_ledger_rejects_unknown_history_without_writes(
+    executor_database_url: str, migration_root: Path
+) -> None:
+    _write_migration(migration_root, "0001_known.sql", "select 1;")
+    _reset_insecure_ledger(executor_database_url, ("0000_unknown.sql",))
+
+    assert (
+        apply_migrations.cmd_harden_ledger(
+            _args(
+                database_url=executor_database_url,
+                confirm=apply_migrations.LEDGER_HARDEN_CONFIRMATION,
+            )
+        )
+        == 7
+    )
+    assert _ledger_rls_and_policy_state(executor_database_url) == (False, ())
+    assert _ledger_names(executor_database_url) == ("0000_unknown.sql",)
+
+
+@pytest.mark.rls_integration
+def test_harden_ledger_rejects_missing_applied_at_default_without_writes(
+    executor_database_url: str, migration_root: Path
+) -> None:
+    _write_migration(migration_root, "0001_known.sql", "select 1;")
+    _reset_insecure_ledger(executor_database_url)
+    with _test_connection(executor_database_url) as conn, conn.cursor() as cur:
+        cur.execute("alter table public.schema_migrations alter column applied_at drop default")
+
+    assert (
+        apply_migrations.cmd_harden_ledger(
+            _args(
+                database_url=executor_database_url,
+                confirm=apply_migrations.LEDGER_HARDEN_CONFIRMATION,
+            )
+        )
+        == 7
+    )
+    assert _ledger_rls_and_policy_state(executor_database_url) == (False, ())
+
+
+@pytest.mark.rls_integration
+def test_harden_ledger_rejects_unexpected_policy_without_writes(
+    executor_database_url: str, migration_root: Path
+) -> None:
+    _write_migration(migration_root, "0001_known.sql", "select 1;")
+    _reset_insecure_ledger(executor_database_url)
+    with _test_connection(executor_database_url) as conn, conn.cursor() as cur:
+        cur.execute(
+            "create policy unexpected_ledger_policy on public.schema_migrations "
+            "for select to public using (true)"
+        )
+
+    assert (
+        apply_migrations.cmd_harden_ledger(
+            _args(
+                database_url=executor_database_url,
+                confirm=apply_migrations.LEDGER_HARDEN_CONFIRMATION,
+            )
+        )
+        == 7
+    )
+    assert _ledger_rls_and_policy_state(executor_database_url) == (
+        False,
+        (("unexpected_ledger_policy", True),),
+    )
+
+
+@pytest.mark.rls_integration
+def test_harden_ledger_rolls_back_if_service_role_would_lose_access(
+    executor_database_url: str, migration_root: Path
+) -> None:
+    _write_migration(migration_root, "0001_known.sql", "select 1;")
+    _reset_insecure_ledger(executor_database_url)
+    with _test_connection(executor_database_url) as conn, conn.cursor() as cur:
+        cur.execute("revoke all privileges on public.schema_migrations from service_role")
+        cur.execute("grant select on public.schema_migrations to public")
+
+    assert (
+        apply_migrations.cmd_harden_ledger(
+            _args(
+                database_url=executor_database_url,
+                confirm=apply_migrations.LEDGER_HARDEN_CONFIRMATION,
+            )
+        )
+        == 7
+    )
+    assert _ledger_rls_and_policy_state(executor_database_url) == (False, ())
+    with _test_connection(executor_database_url) as conn, conn.cursor() as cur:
+        cur.execute(
+            "select has_table_privilege('service_role', 'public.schema_migrations', 'select')"
+        )
+        assert cur.fetchone()[0] is True
+
+
+@pytest.mark.rls_integration
+def test_harden_ledger_rejects_reachable_privileged_membership(
+    executor_database_url: str, migration_root: Path
+) -> None:
+    _write_migration(migration_root, "0001_known.sql", "select 1;")
+    _reset_insecure_ledger(executor_database_url)
+    with _test_connection(executor_database_url) as conn, conn.cursor() as cur:
+        cur.execute("create role m06_ledger_writer nologin nobypassrls nocreaterole")
+        cur.execute("grant select on public.schema_migrations to m06_ledger_writer")
+        cur.execute(
+            "grant m06_ledger_writer to anon with inherit false, set true, admin false"
+        )
+
+    assert (
+        apply_migrations.cmd_harden_ledger(
+            _args(
+                database_url=executor_database_url,
+                confirm=apply_migrations.LEDGER_HARDEN_CONFIRMATION,
+            )
+        )
+        == 7
+    )
+    assert _ledger_rls_and_policy_state(executor_database_url) == (False, ())
 
 
 @pytest.mark.rls_integration
