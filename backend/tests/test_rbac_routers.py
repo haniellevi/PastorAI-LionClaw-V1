@@ -47,6 +47,9 @@ def test_get_role_permissions_allowed_for_membro_and_tenant_scoped(app) -> None:
     rows = [
         SimpleNamespace(papel="membro", tela="dashboard"),
         SimpleNamespace(papel="membro", tela="calendario"),
+        SimpleNamespace(papel="lider_celula", tela="dashboard"),
+        SimpleNamespace(papel="lider_celula", tela="minha-celula"),
+        SimpleNamespace(papel="lider_celula", tela="central-celula"),
     ]
 
     class PermissionsSession(FakeSession):
@@ -73,6 +76,10 @@ def test_get_role_permissions_allowed_for_membro_and_tenant_scoped(app) -> None:
 
     assert resp.status_code == 200
     assert resp.json()["matriz"]["membro"] == ["dashboard", "calendario"]
+    assert resp.json()["matriz"]["lider_celula"] == [
+        "dashboard",
+        "minha-celula",
+    ]
     assert "inbox" in resp.json()["matriz"]["operador"]
     # O cliente não escolhe o tenant: o seam fixa a sessão na igreja do token,
     # e a consulta de RolePermission fica sob a RLS dessa sessão.
@@ -86,6 +93,45 @@ def test_put_role_permissions_remains_forbidden_for_membro(app) -> None:
         headers=_AUTH,
     )
     assert resp.status_code == 403
+
+
+def test_put_role_permissions_strips_central_grant_from_cell_leader(app) -> None:
+    class WritablePermissionsSession(FakeSession):
+        def delete(self, obj) -> None:
+            raise AssertionError("fixture não deve ter linhas antigas")
+
+    app_user = make_app_user()
+    session = WritablePermissionsSession(app_user=app_user, roles=["admin"])
+    app.dependency_overrides[get_db] = lambda: session
+    app.dependency_overrides[get_clerk_client] = lambda: FakeClerk()
+
+    resp = TestClient(app).put(
+        "/roles/permissions",
+        json={
+            "matriz": {
+                "lider_celula": [
+                    "dashboard",
+                    "minha-celula",
+                    "central-celula",
+                ]
+            }
+        },
+        headers=_AUTH,
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["matriz"]["lider_celula"] == [
+        "dashboard",
+        "minha-celula",
+    ]
+    persisted = {
+        (row.papel, row.tela)
+        for row in session.added
+        if isinstance(row, RolePermission)
+    }
+    assert ("lider_celula", "central-celula") not in persisted
+    assert ("lider_celula", "minha-celula") in persisted
+    assert session.commits == 1
 
 
 # ---- mutação da jornada ---------------------------------------------------

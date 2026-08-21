@@ -142,8 +142,8 @@ def test_assistant_replies_with_role_screens(app) -> None:
     assert resp.status_code == 200
     body = resp.json()
     assert body["resposta"]
-    # central-celula is allowed for the role; locked/forbidden screens never leak.
-    assert "central-celula" in body["telasSugeridas"]
+    # Concessão legada não reabre a Central para líder comum.
+    assert "central-celula" not in body["telasSugeridas"]
     assert "permissoes" not in body["telasSugeridas"]
 
 

@@ -19,6 +19,8 @@ import {
 import type { Role } from "./roles";
 
 const RELATORIOS = "relatorios";
+const CENTRAL_CELULA = "central-celula";
+const CENTRAL_SCREENS = [CENTRAL_CELULA, RELATORIOS] as const;
 
 const NAO_CENTRAL: Role[] = [
   "operador",
@@ -30,19 +32,21 @@ const NAO_CENTRAL: Role[] = [
 ];
 
 describe("CENTRAL_ONLY — matriz customizada não reabre a tela", () => {
-  it("declara relatorios como Central-only e pastor como papel Central", () => {
-    expect(CENTRAL_ONLY).toContain(RELATORIOS);
+  it("declara Central de Célula e relatórios como Central-only", () => {
+    expect(CENTRAL_ONLY).toEqual(expect.arrayContaining([...CENTRAL_SCREENS]));
     expect(CENTRAL_ROLE).toBe("pastor");
   });
 
-  it.each(NAO_CENTRAL)("matriz persistida concedendo relatorios a %s é ignorada", (papel) => {
-    const matrix: PermissionMatrix = { [papel]: ["dashboard", RELATORIOS] };
-    expect(canSee(RELATORIOS, [papel], matrix)).toBe(false);
-    expect(allowedScreens([papel], matrix)).not.toContain(RELATORIOS);
+  it.each(NAO_CENTRAL)("matriz persistida não concede Central a %s", (papel) => {
+    const matrix: PermissionMatrix = { [papel]: ["dashboard", ...CENTRAL_SCREENS] };
+    for (const tela of CENTRAL_SCREENS) {
+      expect(canSee(tela, [papel], matrix)).toBe(false);
+      expect(allowedScreens([papel], matrix)).not.toContain(tela);
+    }
   });
 
-  it.each(NAO_CENTRAL)("default também nega relatorios a %s", (papel) => {
-    expect(canSee(RELATORIOS, [papel])).toBe(false);
+  it.each(NAO_CENTRAL)("default também nega telas Central-only a %s", (papel) => {
+    for (const tela of CENTRAL_SCREENS) expect(canSee(tela, [papel])).toBe(false);
   });
 
   it("somar papéis não-Central não desbloqueia", () => {
@@ -92,7 +96,7 @@ describe("CENTRAL_ONLY — sem regressão nas demais telas", () => {
 
   it("allowedScreens remove só a Central-only", () => {
     const matrix: PermissionMatrix = {
-      lider_celula: ["inbox", "minha-celula", RELATORIOS],
+      lider_celula: ["inbox", "minha-celula", CENTRAL_CELULA, RELATORIOS],
     };
     expect(allowedScreens(["lider_celula"], matrix).sort()).toEqual(
       ["dashboard", "inbox", "minha-celula"].sort(),
