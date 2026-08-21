@@ -50,12 +50,12 @@ export const LEGACY = ["celulas", "relatorios"] as const;
  * é aplicada ANTES da matriz, não depois; linhas já salvas em `role_permissions`
  * não são apagadas, apenas ignoradas para estas telas.
  *
- * `relatorios` lista relatórios de TODAS as células com oferta e observações;
- * GET /reports exige a Central (`require_central`), então oferecer a tela a
- * outro papel só renderizaria um 403. Espelha CENTRAL_ONLY de
+ * `central-celula` e `relatorios` expõem a visão tenant-wide da Central; seus
+ * endpoints exigem pastor/admin, então oferecer essas telas a outro papel só
+ * renderizaria um 403 ou "Acesso restrito". Espelha CENTRAL_ONLY de
  * `backend/app/domain/permissions.py`.
  */
-export const CENTRAL_ONLY = ["relatorios"] as const;
+export const CENTRAL_ONLY = ["central-celula", "relatorios"] as const;
 
 /** Papel que enxerga as telas CENTRAL_ONLY (espelha CENTRAL_ROLE do backend). */
 export const CENTRAL_ROLE = "pastor";
@@ -68,6 +68,11 @@ export const ALL_SCREENS: readonly string[] = [
 
 const ADMIN_ONLY_SET = new Set<string>(ADMIN_ONLY);
 const CENTRAL_ONLY_SET = new Set<string>(CENTRAL_ONLY);
+
+/** True para telas exclusivas da Central (pastor/admin), mesmo contra matriz legada. */
+export function isCentralOnlyScreen(screenId: string): boolean {
+  return CENTRAL_ONLY_SET.has(screenId);
+}
 
 /**
  * Matriz default papel -> telas liberadas (seed role_permissions).

@@ -23,29 +23,35 @@ from app.domain.permissions import (
 )
 
 RELATORIOS = "relatorios"
+CENTRAL_CELULA = "central-celula"
+CENTRAL_SCREENS = (CENTRAL_CELULA, RELATORIOS)
 
 NAO_CENTRAL = ["operador", "lider_celula", "lider_g12", "lider_mult", "lider_consol", "membro"]
 
 
-def test_relatorios_is_declared_central_only() -> None:
-    assert RELATORIOS in CENTRAL_ONLY
+def test_tenant_wide_cell_screens_are_declared_central_only() -> None:
+    assert {CENTRAL_CELULA, RELATORIOS} <= CENTRAL_ONLY
     assert CENTRAL_ROLE == "pastor"
 
 
 # ---------------------------------------------------------------------------
 # Matriz customizada persistida NÃO reabre a tela
 # ---------------------------------------------------------------------------
+@pytest.mark.parametrize("tela", CENTRAL_SCREENS)
 @pytest.mark.parametrize("papel", NAO_CENTRAL)
-def test_persisted_matrix_granting_relatorios_is_ignored(papel: str) -> None:
-    """O caso do finding: linha salva `papel -> relatorios` não vale."""
-    matrix = {papel: {RELATORIOS}}
-    assert can_access_screen(frozenset({papel}), RELATORIOS, matrix) is False
-    assert RELATORIOS not in screens_for_role(papel, matrix)
+def test_persisted_matrix_granting_central_screen_is_ignored(
+    papel: str, tela: str
+) -> None:
+    """Uma linha salva `papel -> tela Central` não reabre a superfície."""
+    matrix = {papel: {tela}}
+    assert can_access_screen(frozenset({papel}), tela, matrix) is False
+    assert tela not in screens_for_role(papel, matrix)
 
 
+@pytest.mark.parametrize("tela", CENTRAL_SCREENS)
 @pytest.mark.parametrize("papel", NAO_CENTRAL)
-def test_default_matrix_also_denies_relatorios(papel: str) -> None:
-    assert can_access_screen(frozenset({papel}), RELATORIOS, {}) is False
+def test_default_matrix_also_denies_central_screen(papel: str, tela: str) -> None:
+    assert can_access_screen(frozenset({papel}), tela, {}) is False
 
 
 def test_accumulated_roles_do_not_unlock_relatorios() -> None:
@@ -91,9 +97,18 @@ def test_custom_matrix_keeps_other_screens_for_non_central_roles() -> None:
 
 
 def test_screens_for_role_only_removes_central_only() -> None:
-    matrix = {"lider_celula": {"inbox", "minha-celula", RELATORIOS}}
+    matrix = {
+        "lider_celula": {
+            "inbox", "minha-celula", CENTRAL_CELULA, RELATORIOS
+        }
+    }
     screens = screens_for_role("lider_celula", matrix)
     assert screens == frozenset({"inbox", "minha-celula", "dashboard"})
+
+
+def test_screens_for_role_also_removes_admin_only_legacy_grant() -> None:
+    matrix = {"pastor": {"inbox", "comunicados"}}
+    assert screens_for_role("pastor", matrix) == frozenset({"dashboard", "inbox"})
 
 
 def test_dashboard_still_granted_to_everyone() -> None:
