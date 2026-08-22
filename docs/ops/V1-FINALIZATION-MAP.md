@@ -1,6 +1,6 @@
 # PastorAI / Igreja 12 — mapa central de finalização da V1
 
-Atualizado em 2026-08-20 (America/Sao_Paulo).
+Atualizado em 2026-08-21 (America/Sao_Paulo).
 
 Este é o mapa operacional para encerrar a V1. Ele centraliza a ordem de
 trabalho, os gates, o paralelismo permitido e as decisões de escopo. Dados de
@@ -42,7 +42,7 @@ transferência automática das identidades DEV existentes.
 
 | Item | Estado verificado | Consequência operacional |
 |---|---|---|
-| origin/main | 8427ece74d9620b85177c347a0e4db707551f48c | M06 e o gate Brevo estão integrados; esta é a base única para o release candidate. |
+| origin/main / RC | 281e69c2fef80cfbcb27eab5ca4f85981e4adc0c | Código congelado, cinco workflows verdes e backend/frontend implantados no mesmo SHA. |
 | PR #260 / M08 | MERGED em fd1cf373... | O corretivo de concorrência de claims recuperados está integrado; não reabrir esse código por um estado histórico. |
 | PR #261 / monitor M08 | MERGED em 5d7059df... | O workflow de monitor agora falha fechado quando produção não está saudável. |
 | PR #262 / readiness Supabase | MERGED em f2c3132... e implantada | Readiness tolera conexão saudável lenta via Supavisor sem relaxar Redis/Evolution. |
@@ -55,6 +55,10 @@ transferência automática das identidades DEV existentes.
 | PR #257 | OPEN/READY, pós-V1 | Preservar; não integrar nesta trilha. |
 | Brevo | PR #237 integrou a base de e-mail em 9987bf10...; PR #266 foi MERGED em 8427ece... | O SHA histórico 6dd42a... não existe no repositório; gate dedicado, revisão P1 e cinco checks foram concluídos. |
 | Células | Recuperado no commit 05c0aad7839d835fdbfaa762c84f9d7b94f8568d | Continua pós-V1; preservar sem desenvolver ou integrar nesta trilha. |
+| Clerk | DEV em produção, seis vínculos reconciliados | Piloto alinhado à decisão aprovada; configuração LIVE e vínculos anteriores preservados para rollback. |
+| Supabase PROD | M06/M01 verificadas e ledger reconciliado | Recibos metadata-only registrados no ledger oficial, sem reaplicar DDL. |
+| Frontend PROD | `dpl_CdwTcTE8HZHvxs9t92Ak6sHxebAp` | Três aliases no RC, headers M06 presentes e zero erro de runtime na janela verificada. |
+| Estado de release | V1_RELEASE_READY | Gates operacionais concluídos; tag/release e housekeeping seguem como últimos gates formais. |
 
 O número de checks verdes, review threads e distância de cada branch em relação
 à main não é reproduzido aqui como fato permanente. Deve ser consultado no
@@ -264,31 +268,45 @@ O aceite cobriu convite, recuperação de senha, configuração ausente,
 destinatário fora da allowlist, falha HTTP e ausência de rede nos modos
 bloqueados. O próximo gate serial é o release candidate local.
 
-### Fase H — release candidate, DEV e produção
+### Fase H — release candidate, DEV e produção — OPERACIONALMENTE CONCLUÍDA
 
-1. Congelar um SHA de main em checkout limpo e executar backend completo,
-   frontend completo, RLS PG17, M09, builds Docker/Compose, auditorias e
-   varredura de segredos.
-2. Reindexar CRG e Graphify nesse SHA; se não for possível provar frescor e
-   integridade, registrar NAO_COMPROVADO e não usar o grafo como evidência.
-3. Em PostgreSQL descartável, aplicar todas as migrations faltantes e registrar
-   nome, SHA-256, ordem e resultados. As migrations novas esperadas executam
-   por nome, nesta ordem: M06
-   20260810_031050_explicit_deny_policies_for_closed_tables.sql e M01
-   20260810_042300_exclude_complimentary_plans_from_billing_autoupgrade.sql.
-4. Com autorização, aplicar no Supabase DEV uma migration por vez, reconciliar
-   ledger antes de qualquer aplicação e executar advisors, RLS, billing
-   sandbox, login Clerk DEV e smokes.
-5. Fazer preflight read-only de produção, backup criptografado e teste real de
-   restauração antes de tocar PROD.
-6. Com autorização específica, aplicar migrations PROD uma por vez, implantar
-   backend e frontend no mesmo SHA e validar health, readiness, CORS, Clerk
-   DEV, RBAC/RLS, workers e portas.
-7. Executar Brevo em modo canary com um único destinatário autorizado. A
-   promoção para live, outros provedores e broadcast assíncrono têm gates
-   próprios. Asaas PROD permanece desligado.
-8. Provar rollback de código com release/deployment anterior; migrations são
-   forward-only e exigem forward-fix ou restauração aprovada em incidente.
+O RC foi congelado em `281e69c2fef80cfbcb27eab5ca4f85981e4adc0c`. A
+validação local passou backend completo, frontend completo, cinco E2E, RLS em
+PostgreSQL 17, Docker/Compose e auditorias. O CRG foi comprovado nesse SHA;
+Graphify ficou `NAO_COMPROVADO` e não foi usado como evidência.
+
+No Supabase PROD `pffafnchtxbimpwyaczq`, o DDL de M06 e M01 já estava presente
+e correspondia aos arquivos do RC. Os hashes foram reconfirmados e o ledger
+oficial recebeu somente recibos metadata-only nas versões `20260810031050` e
+`20260810042300`; o DDL não foi reaplicado. A pós-condição manteve 53/53 tabelas
+com RLS, quatro policies fechadas exatas, ACLs negadas e função de autoupgrade
+endurecida.
+
+O backup `pastorai-backup-20260821T213637Z.tar.gz`, SHA-256
+`940e14a331838cd1499c47d7bc2adea3bd897cc2f292e6e3f326f67612459c0e`, foi
+restaurado em PostgreSQL 17 e PostgreSQL 16 descartáveis. Storage e volumes
+foram verificados estruturalmente, e uma cópia cifrada externa à VPS teve
+checksum e leitura comprovados.
+
+Produção ficou alinhada no RC:
+
+- backend: `/opt/pastorai-releases/281e69c2fef80cfbcb27eab5ca4f85981e4adc0c`;
+- frontend: `dpl_CdwTcTE8HZHvxs9t92Ak6sHxebAp`;
+- aliases: `app.`, `admin.` e `painel.igreja12.com.br`;
+- Clerk DEV: seis vínculos auditados reconciliados em uma transação, sem criar,
+  excluir ou alterar identidades no Clerk;
+- smokes read-only: administrador, pastor, líder, membro e master aprovados;
+- Brevo: exatamente um canário recebido, seguido de retorno para `off` e
+  allowlist vazia;
+- rollback: backend `f2c3132...` e frontend `dpl_3Xs...` aprovados;
+- roll-forward: RC restaurado, health/readiness/login/headers/flags aprovados;
+- estabilidade: duas execuções locais saudáveis e workflows GitHub
+  `32543076877` e `32543098661` verdes após o roll-forward.
+
+A evidência completa está em `docs/releases/v1/v1-closure-evidence.md`. O estado
+é `V1_RELEASE_READY` até a integração documental, publicação da tag/release e
+revogação dos acessos temporários. Migrations são forward-only e continuam
+exigindo forward-fix ou restauração aprovada em incidente.
 
 ## 6. Gates de migrations, deploy e integrações externas
 
@@ -331,9 +349,11 @@ conter SHA de main, PRs/commits, migrations, releases backend/frontend,
 health/readiness, login/CORS/RLS, flags, canários, backup/restauração,
 monitoramento, riscos aceitos e rollback.
 
-Use V1_CODE_COMPLETE, V1_RELEASE_CANDIDATE ou V1_BLOCKED enquanto algum gate
-estiver pendente. V1_ENCERRADA só é permitido depois de todas as evidências da
-seção 1.
+Use V1_CODE_COMPLETE, V1_RELEASE_CANDIDATE, V1_RELEASE_READY ou V1_BLOCKED
+enquanto algum gate estiver pendente. Em 2026-08-21 o estado é
+`V1_RELEASE_READY`: os gates operacionais passaram, mas a tag/release e o
+housekeeping ainda precisam ser comprovados. `V1_ENCERRADA` só é permitido
+depois de todas as evidências da seção 1.
 
 ## 8. Histórico preservado
 
