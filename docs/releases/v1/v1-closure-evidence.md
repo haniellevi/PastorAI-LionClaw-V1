@@ -1,14 +1,51 @@
 # PastorAI / Igreja 12 — evidência de fechamento da V1
 
-Atualizado em 2026-08-21 (UTC). Este registro não contém credenciais, tokens,
+Atualizado em 2026-08-22 (UTC). Este registro não contém credenciais, tokens,
 identificadores de usuários nem destinatários de canário.
 
 ## Estado deste registro
 
-**V1_RELEASE_READY**. Os gates operacionais foram aprovados no SHA de código
-`281e69c2fef80cfbcb27eab5ca4f85981e4adc0c`. A declaração
-`V1_ENCERRADA` depende da integração deste registro, publicação controlada da
-tag/release e housekeeping final com revogação do acesso temporário.
+**V1_ENCERRADA**. Os gates operacionais foram aprovados no SHA de código
+`281e69c2fef80cfbcb27eab5ca4f85981e4adc0c`. Este registro foi integrado pela
+PR #274 em `ea40cda3dbe596b1d17035c242762df257068cf0`; a tag anotada e o
+GitHub Release `v1.0.0` foram publicados no SHA de código; a declaração final e
+o housekeeping foram integrados pela PR #275 em
+`ba9dba77a464101fc8eb5a67a9bcd42de17d429d`.
+
+## Revalidação independente pós-encerramento
+
+Revalidado em 2026-08-22 entre 01:50 e 02:03 UTC, sem escrita em produção:
+
+- GitHub: PRs #274 e #275 estão `MERGED`; a referência remota `v1.0.0` resolve
+  para o objeto anotado `08eada056490a26af758ddcf712df34c07079f99`, que aponta
+  para o SHA de código; o Release é público, não é draft nem prerelease.
+- CI do RC: `Backend Tests`, `Frontend CI`, `E2E Critical`, `RLS Integration`
+  e `Tooling Static Checks` terminaram com `success` no HEAD da PR #271, cujo
+  merge commit é o SHA de código da V1.
+- Monitor público: a execução agendada `32544604262`, já na `main` documental
+  final, terminou com `success`. Sondas externas posteriores retornaram
+  `/health = ok` e `/ready = ready`, com database, Redis, Evolution,
+  queue-worker, cron-worker e broadcast-worker em `ok`.
+- Vercel: `dpl_CdwTcTE8HZHvxs9t92Ak6sHxebAp` continua como deployment de
+  produção mais recente, em estado `READY`, com `gitCommitSha` igual ao SHA de
+  código. `app.`, `admin.` e `painel.igreja12.com.br` retornaram HTTP 200 com
+  CSP `frame-ancestors 'none'`, Referrer-Policy e Permissions-Policy. Não houve
+  erro de runtime agregado na janela de 24 horas consultada.
+- Supabase PROD `pffafnchtxbimpwyaczq`: projeto `ACTIVE_HEALTHY`, PostgreSQL
+  17; 53/53 tabelas públicas com RLS. As quatro tabelas fechadas mantêm uma
+  única policy restritiva exata e nenhuma ACL efetiva de tabela ou coluna para
+  `anon`/`authenticated`. A função M01 continua excluindo preço zero e existem
+  zero operações automáticas `prepared` inválidas. Os recibos M06/M01 seguem
+  no ledger.
+- Advisors do Supabase: um `WARN` de segurança intencional e já aceito para
+  `current_igreja_id()`; 75 recomendações `INFO` de performance (51 FKs sem
+  índice de cobertura e 24 índices ainda sem uso), sem finding P0--P2 novo.
+
+O acesso SSH temporário foi revogado no fechamento. Por isso, esta revalidação
+não releu o symlink, os contadores de restart, as flags nem o manifesto de
+backup na VPS; esses itens continuam sustentados pela prova de fechamento
+abaixo. Os planos de controle públicos, Vercel e Supabase não indicaram
+regressão posterior.
 
 ## Release candidate e CI
 
@@ -180,5 +217,5 @@ desligados.
 - O único WARN de segurança aceito é a execução de `current_igreja_id()` por
   `authenticated`, necessária às policies RLS. Dívidas de índices são
   informativas e pós-V1.
-- A tag remota, GitHub Release e housekeeping são os últimos gates posteriores
-  à integração deste documento; até lá o estado não é `V1_ENCERRADA`.
+- A tag remota, o GitHub Release e o housekeeping foram concluídos. A PR #275
+  integrou a declaração final; o estado canônico é `V1_ENCERRADA`.

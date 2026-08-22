@@ -1,6 +1,6 @@
 # PastorAI V1 — runbook canônico de produção
 
-Atualizado em 2026-08-10. Este é o procedimento operacional vigente para o
+Atualizado em 2026-08-22. Este é o procedimento operacional vigente para o
 Igreja 12. Não contém segredos; valores reais ficam somente nos provedores e no
 `.env` do release ativo, acessível por `/opt/pastorai-current/deploy/.env`.
 
@@ -22,6 +22,20 @@ Backup, teste de restauração e firewall: consulte
 O Clerk permanece deliberadamente na instância DEV durante esta promoção. Não
 misture `pk_live/sk_live` com o issuer DEV: publishable key, secret key, issuer
 e JWKS precisam pertencer à mesma instância.
+
+### Baseline imutável da V1
+
+- estado: `V1_ENCERRADA`, piloto controlado;
+- código backend/frontend: `281e69c2fef80cfbcb27eab5ca4f85981e4adc0c`;
+- tag e GitHub Release: `v1.0.0`;
+- frontend: Vercel `dpl_CdwTcTE8HZHvxs9t92Ak6sHxebAp`;
+- Supabase PROD: `pffafnchtxbimpwyaczq`, PostgreSQL 17;
+- evidência detalhada: [`../releases/v1/v1-closure-evidence.md`](../releases/v1/v1-closure-evidence.md).
+
+Commits documentais posteriores em `main` não mudam esse SHA de release. O
+acesso SSH temporário do fechamento foi revogado; uma nova manutenção na VPS
+exige credencial temporária própria, alvo nominal, rollback e nova revogação ao
+final. Mantenha o console de recuperação da Hostinger disponível.
 
 ## 2. Travas obrigatórias no primeiro deploy
 
@@ -114,6 +128,19 @@ Já registradas em PROD em 2026-08-05:
 - `broadcast_delivery_20260805`;
 - `calendar_fk_indexes_20260805`;
 - `security_definer_execute_hardening_20260805`.
+
+Reconciliadas no ledger durante o fechamento da V1, sem reaplicar o DDL que já
+estava presente:
+
+- `20260810_031050_explicit_deny_policies_for_closed_tables` — versão
+  `20260810031050`;
+- `20260810_042300_exclude_complimentary_plans_from_billing_autoupgrade` —
+  versão `20260810042300`.
+
+Em 2026-08-22, o preflight read-only reconfirmou 53/53 tabelas públicas com
+RLS, quatro policies M06 exatas, nenhuma ACL efetiva de `anon`/`authenticated`
+nas tabelas fechadas e zero operação automática `prepared` inválida. Não
+reaplique essas migrations; qualquer correção futura é forward-only.
 
 A migration de broadcasts não ativa broadcasts legados e não faz backfill.
 
