@@ -6606,6 +6606,129 @@ table.data-table {
    dashboard, saúde (10 bolinhas), master-detail de solicitações.
    Reusa .card/.pill; abas migradas ao primitive da fundação (Gate 10).
    =========================================================================== */
+/* Hoje na Central: fila de exceções antes dos totais. */
+.cc-today {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+}
+.cc-today-head h3 {
+  font: var(--type-h2);
+  color: var(--text-primary);
+}
+.cc-today-head p {
+  max-width: 68ch;
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+.cc-today-queue {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  overflow: hidden;
+}
+.cc-today-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding: var(--s3) var(--s4);
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.cc-today-queue li:last-child .cc-today-row,
+.cc-today-row:last-child {
+  border-bottom: none;
+}
+.cc-today-row:hover,
+.cc-today-row:focus-visible {
+  background: var(--surface-2);
+}
+.cc-today-row:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+.cc-today-ic {
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  flex: none;
+  background: var(--surface-2);
+  color: var(--text-secondary);
+}
+.cc-today-ic.r {
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+.cc-today-ic.h {
+  background: var(--urgent-soft);
+  color: var(--urgent);
+}
+.cc-today-ic.v {
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+.cc-today-ic svg {
+  width: 16px;
+  height: 16px;
+}
+.cc-today-body {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.cc-today-body strong {
+  font-size: 14px;
+  font-weight: 650;
+}
+.cc-today-meta {
+  color: var(--text-secondary);
+  font-size: 12.5px;
+}
+.cc-today-action {
+  flex: none;
+  color: var(--action-primary);
+  font-size: 13px;
+  font-weight: 650;
+}
+.cc-today-summary {
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  padding: var(--s3) var(--s4);
+}
+.cc-today-summary > summary {
+  cursor: pointer;
+  font-size: 13.5px;
+  font-weight: 650;
+  color: var(--text-secondary);
+}
+.cc-today-summary[open] > summary {
+  margin-bottom: var(--s3);
+}
+@media (max-width: 860px) {
+  .cc-today-row {
+    align-items: flex-start;
+    min-height: 56px;
+  }
+  .cc-today-action {
+    align-self: center;
+  }
+}
+
 /* Cards do painel (WorkQueuePanel) */
 .central-cards {
   display: grid;
