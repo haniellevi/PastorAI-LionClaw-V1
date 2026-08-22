@@ -1,6 +1,6 @@
 # PastorAI / Igreja 12 — registro central de missões pós-V1
 
-Atualizado em 2026-08-22 (America/Sao_Paulo). A V1 permanece
+Atualizado em 2026-08-22 (America/Sao_Paulo) após integração da PR #257. A V1 permanece
 `V1_ENCERRADA`; este documento não altera a tag `v1.0.0` nem autoriza ativação
 de integrações externas.
 
@@ -16,11 +16,14 @@ de integrações externas.
 ## Missões
 
 1. **PR #257 — fluxo da Central de Células.**
-   - Motivo: a PR permanece aberta e não pertenceu ao fechamento da V1.
-   - Estado: não draft; HEAD `bbd331f...`; no preflight estava 87 commits atrás
-     e 1 à frente de `main`.
-   - Pré-requisito: atualizar em worktree isolado, revisar contra o RBAC final
-     da PR #271 e repetir frontend, backend relevante e smokes por papel.
+   - Motivo: a PR permanecia aberta e não pertenceu ao fechamento da V1.
+   - Estado: **MERGED** em `bae285b...` (squash merge a partir do HEAD
+     `b969c9a1de170d9c48e0729a9f867e2c95bb9232`); 5/5 checks do GitHub Actions
+     verdes e validações locais (793 testes, typecheck, lint, build e 5 E2E)
+     executados com sucesso.
+   - Evidência: aba "Hoje" exibe fila de exceções prioritárias sem duplicar
+     contagem de multiplicações; totais da igreja permanecem acessíveis via
+     `details` colapsível.
 
 2. **Células — transferência/remoção de membros.**
    - Motivo: capacidade explicitamente excluída da V1.
