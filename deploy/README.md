@@ -41,6 +41,28 @@ Nunca sobrescreva um `.env` existente. Em primeira instalação, copie o templat
 preencha os valores diretamente no console da VPS e mantenha o arquivo com modo
 `600`; em upgrades, preserve o arquivo já validado.
 
+Para uma preparação **local**, o template seguro e versionado é
+[`deploy/.env.example`](.env.example):
+
+```bash
+cp deploy/.env.example deploy/.env
+chmod 600 deploy/.env
+```
+
+Ele nasce com `APP_ENV=development`, `ALLOW_REAL_SENDS=false`,
+`BREVO_SEND_MODE=off`, Asaas Sandbox e segredos vazios. Não o promova para
+produção; produção segue o runbook canônico e preserva o `.env` do release
+ativo.
+
+Para validar somente a sintaxe do Compose sem criar um `.env` nem iniciar
+containers, execute da raiz do repositório:
+
+```bash
+PASTORAI_ENV_FILE=.env.example docker compose \
+  --env-file deploy/.env.example \
+  -f deploy/docker-compose.yml config --quiet
+```
+
 Gere os segredos rápidos:
 
 ```bash

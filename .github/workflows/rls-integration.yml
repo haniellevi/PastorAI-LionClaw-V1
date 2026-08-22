@@ -33,7 +33,7 @@ jobs:
     # Postgres DESCARTAVEL: servico efemero do runner, destruido ao fim do job.
     services:
       postgres:
-        image: postgres:16.14-trixie@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b
+        image: postgres:17.6-trixie@sha256:00bc86618629af00d2937fdc5a5d63db3ff8450acf52f0636ec813c7f4902929
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -82,7 +82,7 @@ jobs:
           print("guard OK: alvo descartavel")
           PY
 
-      - name: Rodar suite rls_integration (T1-T6 + TOCTOU SEC-4B confirm + approve + transitions + create + W3 arquivamento + W3.2A preflight/archive + MSG-IDEMP-1 + CONSOL-1 consolidação aberta única + FECH-2 reactivate/unarchive + OAuth callback/finish races)
+      - name: Rodar suite rls_integration (T1-T6 + executor M06 + TOCTOU SEC-4B confirm + approve + transitions + create + W3 arquivamento + W3.2A preflight/archive + MSG-IDEMP-1 + CONSOL-1 consolidação aberta única + FECH-2 reactivate/unarchive + OAuth callback/finish races)
         run: |
           "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pytest -m rls_integration -o addopts= -rA \
             --junitxml=rls-results.xml \
@@ -96,7 +96,11 @@ jobs:
             tests/test_messages_inbound_idempotency.py \
             tests/test_consolidacao_open_unique_concurrency.py \
             tests/test_contacts_reactivate_unarchive_concurrency.py \
-            tests/test_calendar_oauth_concurrency.py
+            tests/test_calendar_oauth_concurrency.py \
+            tests/test_v1_m06_hardening_migrations.py \
+            tests/test_apply_migrations.py \
+            tests/test_billing_complimentary_autoupgrade_migration.py \
+            tests/test_billing_complimentary_concurrency.py
 
       - name: Rodar test_pessoa_offboarding_router.py (offline, FakeSession — sem marker/Postgres)
         # Sem `-m rls_integration`: os testes deste arquivo não usam Postgres

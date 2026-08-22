@@ -10,7 +10,8 @@
  *
  * Regras refletidas na UI (garantidas no backend):
  *  - `admin` tem acesso total e não participa da matriz (não é linha editável);
- *  - `dashboard` é garantido a TODO papel — a coluna é travada (não editável).
+ *  - `dashboard` é garantido a TODO papel — a coluna é travada (não editável);
+ *  - telas Central-only ficam travadas para papéis diferentes de `pastor`.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -18,7 +19,12 @@ import { SessionExpiredError } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { ApiError } from "@/lib/dashboard-api";
 import { Icon } from "@/lib/icons";
-import { MENU_SCREENS, type PermissionMatrix } from "@/lib/permissions";
+import {
+  CENTRAL_ROLE,
+  isCentralOnlyScreen,
+  MENU_SCREENS,
+  type PermissionMatrix,
+} from "@/lib/permissions";
 import { usePermissions } from "@/lib/permissions-context";
 import { fetchPermissions, savePermissions } from "@/lib/roles-api";
 import { ROLE_DEFS, ROLE_ORDER, type Role } from "@/lib/roles";
@@ -262,6 +268,17 @@ export function PermissoesScreen() {
                             title="Dashboard é garantido a todos"
                           >
                             ●
+                          </td>
+                        );
+                      }
+                      if (role !== CENTRAL_ROLE && isCentralOnlyScreen(screen)) {
+                        return (
+                          <td
+                            key={screen}
+                            className="locked"
+                            title="Tela exclusiva de pastor e administrador"
+                          >
+                            —
                           </td>
                         );
                       }

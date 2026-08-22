@@ -16,7 +16,7 @@ import datetime as dt
 import logging
 import uuid
 
-from sqlalchemy import func, select, update
+from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -27,6 +27,7 @@ from app.db.models import (
     BillingSubscriptionOperation,
     Igreja,
     Pessoa,
+    Plano,
     Subscription,
 )
 from app.services.asaas import (
@@ -53,6 +54,15 @@ OPEN_OPERATION_STATUSES = ("prepared", "creating", "reconciling", "created")
 OPEN_PLAN_CHANGE_STATUSES = ("prepared", "processing", "reconciling")
 # Estados abertos da CRIAÇÃO de assinatura (claim único por Subscription).
 OPEN_SUBSCRIPTION_OP_STATUSES = ("prepared", "creating", "reconciling")
+# Estados terminais comprovadamente seguros para liberar uma concessão de
+# cortesia. A guarda administrativa usa o COMPLEMENTO desta lista: um status
+# novo/desconhecido também bloqueia (fail-closed), assim como `created`, porque
+# ambos podem representar uma recorrência remota viva ainda não rastreada na
+# linha principal de Subscription.
+SUBSCRIPTION_CREATION_SAFE_TERMINAL_STATUSES = ("failed", "superseded")
+# Mesma regra fail-closed para conversão do catálogo pago <-> cortesia. Apenas
+# uma troca concluída ou definitivamente rejeitada não ocupa mais o plano.
+PLAN_CHANGE_SAFE_TERMINAL_STATUSES = ("completed", "failed")
 # Lease da TENTATIVA de PUT: um `processing` mais velho que isto é uma tentativa
 # abandonada (crash entre o claim e o PUT, ou processo morto no meio) e pode ser
 # retomada. Folgado sobre o timeout de 20s do cliente HTTP.
@@ -143,10 +153,187 @@ def get_setup_fee_default(db: Session) -> float:
 
 
 def get_setup_fee_for_igreja(db: Session, igreja: Igreja) -> float:
-    """Resolve the church exception before the global master default."""
+    """Resolve a única regra de setup aplicável a todas as superfícies.
+
+    Cortesia concedida pelo master é sempre isenta, mesmo se a igreja ainda
+    tiver override legado. Planos pagos preservam a exceção por igreja e, em
+    seguida, o padrão global.
+    """
+    if assigned_complimentary_plan(db, igreja) is not None:
+        return 0.0
     if igreja.setup_fee_override is not None:
         return float(igreja.setup_fee_override)
     return get_setup_fee_default(db)
+
+
+def is_complimentary_plan(plano: Plano | None) -> bool:
+    """A zero-priced plan is a master-granted entitlement, never a checkout.
+
+    ``preco_mensal`` is constrained to non-negative values by the admin API.
+    Keeping the rule on the catalog avoids a second per-tenant exemption flag
+    and makes MRR naturally remain zero for test churches.
+    """
+    if plano is None or plano.preco_mensal is None:
+        return False
+    try:
+        return float(plano.preco_mensal) == 0.0
+    except (TypeError, ValueError):
+        return False
+
+
+def assigned_complimentary_plan(
+    db: Session, igreja: Igreja | None
+) -> Plano | None:
+    """Return the complimentary plan assigned by the platform master, if any.
+
+    Inactive plans remain valid for already-assigned churches (grandfathering),
+    matching the existing paid-plan semantics.  Inactive only prevents new
+    assignments in the UI; it must not silently revoke an existing grant.
+    """
+    plan_code = getattr(igreja, "plano", None) if igreja is not None else None
+    if not plan_code:
+        return None
+    plano = db.execute(
+        select(Plano).where(Plano.codigo == plan_code)
+    ).scalar_one_or_none()
+    return plano if is_complimentary_plan(plano) else None
+
+
+def lock_igreja_for_billing(db: Session, igreja_id) -> Igreja | None:
+    """Serializa checkout e concessão/remoção de cortesia pela mesma igreja.
+
+    O lock vive até o próximo commit/rollback. Checkout persiste a intenção
+    durável antes de liberá-lo; o master, ao acordar, obrigatoriamente enxerga a
+    intenção. Na ordem inversa, o checkout enxerga a cortesia antes de criar
+    placeholder, operação ou chamada remota.
+    """
+    return db.execute(
+        select(Igreja)
+        .where(Igreja.id == igreja_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).scalar_one_or_none()
+
+
+def find_blocking_subscription_creation(
+    db: Session, subscription_id
+) -> BillingSubscriptionOperation | None:
+    """Retorna criação que impede cortesia, incluindo estado desconhecido.
+
+    `prepared` ainda pode criar recorrência; `creating`/`reconciling` são
+    ambíguos; `created` representa recurso remoto. Só `failed` e `superseded`
+    são terminais seguros. O complemento torna futuras extensões fail-closed.
+    """
+    return db.execute(
+        select(BillingSubscriptionOperation)
+        .where(
+            BillingSubscriptionOperation.subscription_id == subscription_id,
+            or_(
+                BillingSubscriptionOperation.status.is_(None),
+                BillingSubscriptionOperation.status.not_in(
+                    SUBSCRIPTION_CREATION_SAFE_TERMINAL_STATUSES
+                ),
+            ),
+        )
+        .order_by(BillingSubscriptionOperation.created_at.desc())
+        .limit(1)
+        .with_for_update(of=BillingSubscriptionOperation)
+        .execution_options(populate_existing=True)
+    ).scalar_one_or_none()
+
+
+def find_blocking_subscription_creation_for_plan(
+    db: Session, plan_code: str
+) -> BillingSubscriptionOperation | None:
+    """Localiza criação não terminal que usa ou aponta para um plano.
+
+    A operação carrega o alvo congelado em ``plano``; os vínculos atuais da
+    Subscription e da Igreja também entram para cobrir registros legados. O
+    complemento dos estados terminais mantém a conversão pago/cortesia
+    fail-closed diante de estado novo ou nulo.
+    """
+    return db.execute(
+        select(BillingSubscriptionOperation)
+        .join(
+            Subscription,
+            Subscription.id == BillingSubscriptionOperation.subscription_id,
+        )
+        .join(Igreja, Igreja.id == Subscription.igreja_id)
+        .where(
+            or_(
+                BillingSubscriptionOperation.status.is_(None),
+                BillingSubscriptionOperation.status.not_in(
+                    SUBSCRIPTION_CREATION_SAFE_TERMINAL_STATUSES
+                ),
+            ),
+            or_(
+                BillingSubscriptionOperation.plano == plan_code,
+                Subscription.plano == plan_code,
+                Igreja.plano == plan_code,
+            ),
+        )
+        .order_by(BillingSubscriptionOperation.created_at.desc())
+        .limit(1)
+        .with_for_update(of=BillingSubscriptionOperation)
+        .execution_options(populate_existing=True)
+    ).scalar_one_or_none()
+
+
+def lock_plan_rows_for_billing(db: Session, *plan_codes: str | None) -> dict[str, Plano]:
+    """Trava planos em ordem estável para serializar catálogo e operações.
+
+    A ordenação evita inversões quando uma troca envolve plano atual e alvo.
+    O mesmo row lock é usado pela edição master e pelas criações Python; o
+    trigger SQL aplica `FOR UPDATE` ao alvo pelo mesmo motivo.
+    """
+    codes = sorted({str(code) for code in plan_codes if code})
+    if not codes:
+        return {}
+    rows = db.execute(
+        select(Plano)
+        .where(Plano.codigo.in_(codes))
+        .order_by(Plano.codigo)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).scalars().all()
+    return {row.codigo: row for row in rows}
+
+
+def find_blocking_plan_change_for_plan(
+    db: Session, plan_code: str
+) -> BillingPlanChangeOperation | None:
+    """Localiza troca não terminal que usa ou aponta para um plano.
+
+    Inclui vínculo atual tanto em `subscriptions` quanto em `igrejas`, além de
+    `from_plano`/`to_plano`. Status desconhecido bloqueia por segurança; somente
+    `completed` e `failed` são terminais comprovados.
+    """
+    return db.execute(
+        select(BillingPlanChangeOperation)
+        .join(
+            Subscription,
+            Subscription.id == BillingPlanChangeOperation.subscription_id,
+        )
+        .join(Igreja, Igreja.id == Subscription.igreja_id)
+        .where(
+            or_(
+                BillingPlanChangeOperation.status.is_(None),
+                BillingPlanChangeOperation.status.not_in(
+                    PLAN_CHANGE_SAFE_TERMINAL_STATUSES
+                ),
+            ),
+            or_(
+                BillingPlanChangeOperation.from_plano == plan_code,
+                BillingPlanChangeOperation.to_plano == plan_code,
+                Subscription.plano == plan_code,
+                Igreja.plano == plan_code,
+            ),
+        )
+        .order_by(BillingPlanChangeOperation.created_at.desc())
+        .limit(1)
+        .with_for_update(of=BillingPlanChangeOperation)
+        .execution_options(populate_existing=True)
+    ).scalar_one_or_none()
 
 
 def find_open_operation(
@@ -238,7 +425,11 @@ def find_settled_recovery(
 
 
 def find_operation_for_payment(
-    db: Session, *, payment_id: str | None, external_reference: str | None
+    db: Session,
+    *,
+    payment_id: str | None,
+    external_reference: str | None,
+    for_update: bool = True,
 ) -> BillingPaymentOperation | None:
     """Resolve a operação dona de um payment do webhook (id ou operation_key).
 
@@ -246,21 +437,25 @@ def find_operation_for_payment(
     ``payment.subscription`` no payload.
     """
     if payment_id:
-        op = db.execute(
-            select(BillingPaymentOperation).where(
-                BillingPaymentOperation.asaas_payment_id == payment_id
-            ).with_for_update()
-        ).scalar_one_or_none()
+        statement = select(BillingPaymentOperation).where(
+            BillingPaymentOperation.asaas_payment_id == payment_id
+        )
+        if for_update:
+            statement = statement.with_for_update().execution_options(
+                populate_existing=True
+            )
+        op = db.execute(statement).scalar_one_or_none()
         if op is not None:
             return op
     if external_reference:
-        op = db.execute(
-            select(BillingPaymentOperation)
-            .where(
-                BillingPaymentOperation.operation_key == str(external_reference)
+        statement = select(BillingPaymentOperation).where(
+            BillingPaymentOperation.operation_key == str(external_reference)
+        )
+        if for_update:
+            statement = statement.with_for_update().execution_options(
+                populate_existing=True
             )
-            .with_for_update()
-        ).scalar_one_or_none()
+        op = db.execute(statement).scalar_one_or_none()
         # A operation_key localiza uma intenção, não autoriza rebind. Se ela
         # já pertence a outro payment, este webhook é um duplicado remoto
         # conflitante e não pode alterar a operação original.
@@ -617,8 +812,8 @@ def _apply_reconciled_payment_state(
                 sub.asaas_invoice_reversal = "refunded"
 
 
-def current_headcount(db: Session, sub: Subscription) -> int:
-    """Porte faturável — membros ativos, não todos os cadastros de pessoas.
+def current_headcount_for_igreja(db: Session, igreja_id) -> int:
+    """Porte faturável da igreja — membros ativos, não todos os cadastros.
 
     A coluna legada ``subscriptions.pessoas`` espelha esta contagem, mas pode
     estar desatualizada entre eventos — e o objeto ORM carregado antes de uma
@@ -631,7 +826,7 @@ def current_headcount(db: Session, sub: Subscription) -> int:
         select(func.count())
         .select_from(Pessoa)
         .where(
-            Pessoa.igreja_id == sub.igreja_id,
+            Pessoa.igreja_id == igreja_id,
             Pessoa.tipo.in_(BILLABLE_MEMBER_TYPES),
             Pessoa.sem_interesse.is_(False),
             Pessoa.arquivada_em.is_(None),
@@ -642,6 +837,11 @@ def current_headcount(db: Session, sub: Subscription) -> int:
     except (TypeError, ValueError):
         contagem = 0
     return contagem
+
+
+def current_headcount(db: Session, sub: Subscription) -> int:
+    """Compatibility wrapper for billing paths that already hold a subscription."""
+    return current_headcount_for_igreja(db, sub.igreja_id)
 
 
 def find_open_plan_change(
@@ -690,6 +890,22 @@ def _complete_plan_change(
     fecha a operação velha e reserva a aplicação local na MESMA transação; se
     ela já fechou, a resposta atrasada não escreve plano nem entitlement.
     """
+    # A chamada remota acontece depois de um commit e, portanto, sem locks.
+    # Recomece sempre pelo prefixo canônico antes de fechar a operação e tocar
+    # a Subscription: Igreja -> Planos -> operação -> Subscription.
+    igreja = lock_igreja_for_billing(db, sub.igreja_id)
+    if igreja is None:
+        db.rollback()
+        return False
+    locked_plans = lock_plan_rows_for_billing(
+        db, igreja.plano, sub.plano, op.to_plano
+    )
+    if is_complimentary_plan(locked_plans.get(igreja.plano)):
+        # Estado legado/ambíguo: o remoto pode ter mudado, mas a cortesia é a
+        # autoridade local. Preserve a operação para conciliação manual.
+        db.rollback()
+        return False
+
     claimed = db.execute(
         update(BillingPlanChangeOperation)
         .where(
@@ -704,11 +920,7 @@ def _complete_plan_change(
 
     sub.plano = op.to_plano
     sub.limite = op.to_limite
-    igreja = db.execute(
-        select(Igreja).where(Igreja.id == sub.igreja_id)
-    ).scalar_one_or_none()
-    if igreja is not None:
-        igreja.plano = op.to_plano
+    igreja.plano = op.to_plano
     op.status = "completed"
     op.attempt_started_at = None
     db.commit()
@@ -738,14 +950,99 @@ def ensure_plan_change_operation(
     ambígua preserva o plano atual e mantém a operação recuperável. Nunca cria
     outra recorrência.
     """
+    # Prefixo canônico compartilhado com trigger, master e worker. Se a
+    # cortesia vencer, ela fica visível antes de qualquer GET/PUT; se esta
+    # operação vencer, sua intenção fica visível antes de liberar os locks.
+    igreja = lock_igreja_for_billing(db, sub.igreja_id)
+    if igreja is None:
+        raise PlanChangeConflict("Igreja não encontrada para a troca de plano")
+    locked_plans = lock_plan_rows_for_billing(
+        db, igreja.plano, sub.plano, to_plano
+    )
+    if is_complimentary_plan(locked_plans.get(igreja.plano)):
+        raise PlanChangeConflict(
+            "O plano de cortesia é gerenciado pelo administrador da plataforma"
+        )
     op = find_open_plan_change(db, sub.id)
 
     if op is not None and op.to_plano != to_plano:
         # Duas solicitações concorrentes para planos DIFERENTES nunca se
-        # atropelam silenciosamente: a segunda é rejeitada com conflito.
+        # atropelam silenciosamente. Faça esta validação antes de interpretar
+        # o catálogo do alvo congelado, pois ele pode nem estar entre os planos
+        # solicitados por este caller.
         raise PlanChangeConflict(
             f"Já existe uma troca em andamento para o plano {op.to_plano}"
         )
+
+    # Uma operação histórica pode apontar para um plano que depois virou
+    # cortesia. Nem reconciliação nem recovery podem usar esse snapshot para
+    # GET/PUT e, sobretudo, nunca podem aplicar localmente o valor zero. Estados
+    # ambíguos permanecem abertos, com sinalização explícita para conciliação
+    # manual; ``prepared`` é seguro para encerrar porque ainda não tocou a rede.
+    effective_target = op.to_plano if op is not None else to_plano
+    target_plan = locked_plans.get(effective_target)
+    try:
+        frozen_price = float(op.to_preco) if op is not None else float(to_preco)
+    except (TypeError, ValueError):
+        frozen_price = 0.0
+    unsafe_financial_target = bool(
+        target_plan is None
+        or is_complimentary_plan(target_plan)
+        or frozen_price <= 0
+    )
+    if unsafe_financial_target:
+        detail = (
+            "Plano alvo ausente, virou cortesia ou tem valor zero; "
+            "conciliação manual obrigatória antes de retomar a troca"
+        )
+        if op is not None and op.status == "prepared":
+            finish_operation(
+                db,
+                op,
+                ("prepared",),
+                status="failed",
+                notify_status="skipped",
+                error=detail,
+            )
+        elif op is not None and op.status in ("processing", "reconciling"):
+            result = db.execute(
+                update(BillingPlanChangeOperation)
+                .where(
+                    BillingPlanChangeOperation.id == op.id,
+                    BillingPlanChangeOperation.status == op.status,
+                )
+                .values(error=detail)
+            )
+            db.commit()
+            if getattr(result, "rowcount", 0) == 1:
+                op.error = detail
+        raise PlanChangeConflict(detail)
+
+    # Operações processing/reconciling podem já ter atravessado a rede e devem
+    # continuar reconciliáveis com o alvo congelado, mesmo se o catálogo mudou.
+    # `prepared` e operação nova ainda não tocaram o Asaas: exigem que o alvo
+    # continue ativo, pago e exatamente igual ao snapshot recebido pelo caller.
+    if op is None or op.status == "prepared":
+        target_plan = locked_plans.get(to_plano)
+        target_changed = bool(
+            target_plan is None
+            or not target_plan.ativo
+            or is_complimentary_plan(target_plan)
+            or float(target_plan.preco_mensal) != float(to_preco)
+            or target_plan.limite_pessoas != to_limite
+        )
+        if target_changed:
+            if op is not None:
+                finish_operation(
+                    db,
+                    op,
+                    ("prepared",),
+                    status="failed",
+                    error="Plano alvo alterado antes do envio; recarregue.",
+                )
+            raise PlanChangeConflict(
+                "O plano foi alterado ou virou cortesia; recarregue antes de continuar"
+            )
 
     if op is None:
         op = BillingPlanChangeOperation(
@@ -854,19 +1151,22 @@ def ensure_plan_change_operation(
 
 
 def find_open_subscription_operation(
-    db: Session, subscription_id
+    db: Session, subscription_id, *, for_update: bool = False
 ) -> BillingSubscriptionOperation | None:
     """A criação de assinatura em andamento desta Subscription, se houver."""
-    return db.execute(
-        select(BillingSubscriptionOperation).where(
-            BillingSubscriptionOperation.subscription_id == subscription_id,
-            BillingSubscriptionOperation.status.in_(OPEN_SUBSCRIPTION_OP_STATUSES),
+    statement = select(BillingSubscriptionOperation).where(
+        BillingSubscriptionOperation.subscription_id == subscription_id,
+        BillingSubscriptionOperation.status.in_(OPEN_SUBSCRIPTION_OP_STATUSES),
+    )
+    if for_update:
+        statement = statement.with_for_update().execution_options(
+            populate_existing=True
         )
-    ).scalar_one_or_none()
+    return db.execute(statement).scalar_one_or_none()
 
 
 def find_subscription_operation_by_key(
-    db: Session, operation_key: str
+    db: Session, operation_key: str, *, for_update: bool = True
 ) -> BillingSubscriptionOperation | None:
     """Resolve a intenção de criação pela operation_key (webhook novo formato).
 
@@ -874,11 +1174,14 @@ def find_subscription_operation_by_key(
     operation_key da intenção durável — o webhook a resolve por aqui; o
     formato legado (igreja_id) continua no fallback do próprio webhook.
     """
-    return db.execute(
-        select(BillingSubscriptionOperation).where(
-            BillingSubscriptionOperation.operation_key == str(operation_key)
-        ).with_for_update()
-    ).scalar_one_or_none()
+    statement = select(BillingSubscriptionOperation).where(
+        BillingSubscriptionOperation.operation_key == str(operation_key)
+    )
+    if for_update:
+        statement = statement.with_for_update().execution_options(
+            populate_existing=True
+        )
+    return db.execute(statement).scalar_one_or_none()
 
 
 def subscription_matches_operation(
@@ -931,23 +1234,68 @@ def prepare_subscription_operation(
     trocar de alvo poderia abandonar uma recorrência viva — conflito explícito.
     """
     op = find_open_subscription_operation(db, sub.id)
+    if op is None:
+        # `created` fica fora do índice parcial de operações abertas, mas ainda
+        # representa uma recorrência remota. Se o vínculo principal estiver
+        # atrasado (crash/falha parcial), criar outra intenção poderia emitir um
+        # segundo POST. Estados novos/desconhecidos também falham fechados.
+        blocking = find_blocking_subscription_creation(db, sub.id)
+        if blocking is not None:
+            if blocking.status in OPEN_SUBSCRIPTION_OP_STATUSES:
+                # Uma intenção pode ter nascido entre as duas leituras. Adote-a
+                # somente pelo fluxo normal abaixo; o alvo continua congelado.
+                op = blocking
+            else:
+                raise SubscriptionCreateConflict(
+                    "Contratação anterior requer conciliação manual antes de uma nova tentativa"
+                )
     if op is not None and op.plano != plano:
         if op.status != "prepared" or op.asaas_subscription_id:
             raise SubscriptionCreateConflict(
                 f"Já existe uma contratação em andamento para o plano {op.plano}"
             )
-        # Substituição SEGURA: a linha antiga não é retargetada silenciosamente
-        # — ela fecha em estado terminal com o motivo, e só quem vencer o
-        # rowcount segue para criar a nova intenção.
-        if claim_transition(
-            db,
-            op,
-            "prepared",
-            "superseded",
-            error=f"Substituída pela contratação do plano {plano}",
-        ):
+        # Substituição SEGURA e ATÔMICA: não use `claim_transition` aqui porque
+        # seu commit abriria uma janela entre fechar a intenção antiga e criar
+        # a nova. O checkout mantém o lock da igreja e fecha+insere no mesmo
+        # commit; uma concessão de cortesia nunca atravessa esse intervalo.
+        superseded = db.execute(
+            update(BillingSubscriptionOperation)
+            .where(
+                BillingSubscriptionOperation.id == op.id,
+                BillingSubscriptionOperation.status == "prepared",
+                BillingSubscriptionOperation.asaas_subscription_id.is_(None),
+            )
+            .values(
+                status="superseded",
+                error=f"Substituída pela contratação do plano {plano}",
+            )
+        )
+        if getattr(superseded, "rowcount", 0) == 1:
+            op.status = "superseded"
+            # A intenção antiga comprovadamente não atravessou a rede. Alinha o
+            # placeholder ao novo alvo dentro da MESMA transação que encerra a
+            # operação antiga e cria a substituta; assim a validação estrita do
+            # checkout nunca precisa aceitar um placeholder divergente.
+            sub.plano = plano
+            sub.limite = limite
             op = None
         else:
+            # O rival pode ter avançado `prepared` para `created` entre nossa
+            # leitura e o CAS. Releia A MESMA linha, sem row lock (o webhook
+            # usa operação -> assinatura e não podemos inverter essa ordem).
+            refreshed = db.execute(
+                select(BillingSubscriptionOperation)
+                .where(BillingSubscriptionOperation.id == op.id)
+                .execution_options(populate_existing=True)
+            ).scalar_one_or_none()
+            if (
+                refreshed is not None
+                and refreshed.status
+                not in SUBSCRIPTION_CREATION_SAFE_TERMINAL_STATUSES
+            ):
+                raise SubscriptionCreateConflict(
+                    "Contratação anterior requer conciliação manual antes de uma nova tentativa"
+                )
             op = find_open_subscription_operation(db, sub.id)
             if op is not None and op.plano != plano:
                 raise SubscriptionCreateConflict(
@@ -980,6 +1328,11 @@ def prepare_subscription_operation(
         db.rollback()
         op = find_open_subscription_operation(db, sub.id)
         if op is None:
+            blocking = find_blocking_subscription_creation(db, sub.id)
+            if blocking is not None:
+                raise SubscriptionCreateConflict(
+                    "Contratação anterior requer conciliação manual antes de uma nova tentativa"
+                ) from None
             raise
         if op.plano != plano:
             raise SubscriptionCreateConflict(

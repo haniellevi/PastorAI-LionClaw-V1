@@ -6,6 +6,7 @@ Centralizes configuration and validates required variables at startup
 
 from __future__ import annotations
 
+import re
 from functools import lru_cache
 from urllib.parse import urlparse
 
@@ -17,6 +18,8 @@ MIN_SESSION_SECRET_LEN = 32
 
 # Hostnames that are never acceptable as a production CORS origin (MEDIO-001).
 _LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
+_BREVO_CANARY_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_BREVO_SEND_MODES = frozenset({"off", "canary", "live"})
 
 
 def _is_valid_production_origin(url: str) -> bool:
@@ -66,9 +69,9 @@ class Settings(BaseSettings):
     frontend_url: str = Field(default="http://localhost:3000")
 
     # ---- Guard de envios externos (B2) --------------------------------------
-    # Efeitos REAIS (WhatsApp, cobrança, e-mail, LLM, agenda) ficam DESLIGADOS
-    # por padrão em TODOS os ambientes. Produção também exige opt-in explícito:
-    # isso permite validar login/saúde antes de liberar qualquer saída externa.
+    # Efeitos REAIS (WhatsApp, cobrança, LLM, agenda) ficam DESLIGADOS por
+    # padrão em TODOS os ambientes. O e-mail Brevo usa seu gate próprio para
+    # permitir canário sem abrir os demais provedores.
     allow_real_sends: bool = Field(default=False)
 
     # ---- Agenda: aviso de confirmação (EVT-7 PR1) ---------------------------
@@ -157,6 +160,10 @@ class Settings(BaseSettings):
     asaas_api_key: str = Field(default="")
     # Shared token used to validate inbound Asaas webhooks (asaas-access-token).
     asaas_webhook_token: str = Field(default="")
+    # Gate financeiro dedicado. Mesmo com ALLOW_REAL_SENDS=true, nenhuma
+    # mutação Asaas é permitida até este opt-in também estar explícito.
+    # Leituras e o webhook autenticado não dependem deste flag.
+    asaas_billing_enabled: bool = Field(default=False)
     # One-time setup fee charged on the first checkout (BRL).
     asaas_setup_fee: float = Field(default=0.0, ge=0)
 
@@ -165,6 +172,12 @@ class Settings(BaseSettings):
     brevo_api_key: str = Field(default="")
     brevo_from_email: str = Field(default="no-reply@igreja12.com.br")
     brevo_from_name: str = Field(default="Igreja 12")
+    # Gate exclusivo de e-mail transacional. `canary` só libera destinatários
+    # explicitamente listados; `live` é uma promoção operacional separada.
+    brevo_send_mode: str = Field(default="off")
+    # CSV simples para manter o formato KEY=VALUE dos arquivos de ambiente.
+    # O parsing/validação ocorre no ponto de envio e falha fechado.
+    brevo_canary_recipients: str = Field(default="")
 
     # ---- Google Calendar (sync de eventos - RF-39) --------------------------
     google_calendar_api_url: str = Field(
@@ -261,12 +274,46 @@ class Settings(BaseSettings):
         """Se efeitos externos reais podem disparar (guard B2).
 
         Todos os ambientes ficam bloqueados por padrão. Somente
-        ``ALLOW_REAL_SENDS=true`` libera WhatsApp, cobrança, e-mail, LLM e
-        Google Calendar. Em produção isso funciona como gate operacional de
-        ativação depois dos smokes de login/saúde; mutações financeiras
-        bloqueadas falham fechado, sem simular sucesso local.
+        ``ALLOW_REAL_SENDS=true`` libera o gate global de WhatsApp, LLM e
+        Google Calendar. Para mutações financeiras Asaas ele é apenas a
+        primeira trava: ``ASAAS_BILLING_ENABLED=true`` também é obrigatório.
+        Brevo é deliberadamente separado: seu canário não pode habilitar os
+        demais provedores. Em produção, mutações bloqueadas falham fechado.
         """
         return self.allow_real_sends
+
+    @field_validator("brevo_send_mode")
+    @classmethod
+    def _validate_brevo_send_mode(cls, value: str) -> str:
+        normalized = value.strip().lower()
+        if normalized not in _BREVO_SEND_MODES:
+            raise ValueError("BREVO_SEND_MODE deve ser off, canary ou live")
+        return normalized
+
+    @property
+    def brevo_canary_recipient_allowlist(self) -> frozenset[str]:
+        """Destinatários normalizados do canário, sem liberar valor inválido.
+
+        A variável continua string CSV para não exigir JSON nos `.env`. Não
+        aceitamos entradas vazias intermediárias ou e-mails malformados: no
+        modo canary isso é configuração insegura e o cliente interrompe o envio
+        antes de montar qualquer requisição HTTP.
+        """
+        raw = self.brevo_canary_recipients
+        if not raw.strip():
+            return frozenset()
+        recipients = [entry.strip().casefold() for entry in raw.split(",")]
+        if any(
+            not entry or not _BREVO_CANARY_EMAIL_RE.fullmatch(entry)
+            for entry in recipients
+        ):
+            raise ValueError("BREVO_CANARY_RECIPIENTS contém destinatário inválido")
+        return frozenset(recipients)
+
+    @property
+    def asaas_billing_writes_enabled(self) -> bool:
+        """True somente com os dois opt-ins necessários para cobrar no Asaas."""
+        return self.external_sends_enabled and self.asaas_billing_enabled
 
     @property
     def effective_jwks_url(self) -> str:

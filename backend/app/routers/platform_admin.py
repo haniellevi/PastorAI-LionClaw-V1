@@ -51,7 +51,16 @@ from app.deps import PlatformAdminUser, get_platform_admin
 from app.domain.permissions import DEFAULT_PERMISSIONS
 from app.services.asaas import MIN_UNDEFINED_PAYMENT_VALUE
 from app.services.brevo import BrevoClient, BrevoError, get_brevo_client
-from app.services.billing import get_setup_fee_default, get_setup_fee_for_igreja
+from app.services.billing import (
+    find_blocking_plan_change_for_plan,
+    find_blocking_subscription_creation,
+    find_blocking_subscription_creation_for_plan,
+    get_setup_fee_default,
+    get_setup_fee_for_igreja,
+    is_complimentary_plan,
+    lock_igreja_for_billing,
+    lock_plan_rows_for_billing,
+)
 from app.services.clerk import (
     ClerkAuthError,
     ClerkClient,
@@ -568,16 +577,60 @@ def update_igreja(
             status_code=status.HTTP_404_NOT_FOUND, detail="Igreja não encontrada"
         ) from exc
 
-    igreja = db.execute(
-        select(Igreja).where(Igreja.id == ig_uuid)
-    ).scalar_one_or_none()
+    igreja = lock_igreja_for_billing(db, ig_uuid)
     if igreja is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Igreja não encontrada"
         )
 
+    existing_subscription = None
+    target_plan = None
+    source_plan = None
     if payload.plano is not None:
         _validate_plano_or_422(db, payload.plano)
+        # Ordem canônica compartilhada com o trigger: Igreja -> Planos
+        # (ordenados). Depois desse prefixo, a concessão trava primeiro a
+        # intenção de checkout e só então a Subscription, acompanhando a ordem
+        # usada pela callback de criação (operação -> Subscription).
+        locked_plans = lock_plan_rows_for_billing(db, igreja.plano, payload.plano)
+        target_plan = locked_plans.get(payload.plano)
+        source_plan = locked_plans.get(igreja.plano) if igreja.plano else None
+        existing_subscription = db.execute(
+            select(Subscription).where(Subscription.igreja_id == ig_uuid)
+        ).scalar_one_or_none()
+        blocking_creation = None
+        if is_complimentary_plan(target_plan) and payload.plano != igreja.plano:
+            blocking_creation = (
+                find_blocking_subscription_creation(db, existing_subscription.id)
+                if existing_subscription is not None
+                else None
+            )
+        # A linha pode ter sido atualizada pela callback enquanto aguardávamos
+        # a operação. Releia sob lock antes de decidir pelo id rastreado.
+        existing_subscription = db.execute(
+            select(Subscription)
+            .where(Subscription.igreja_id == ig_uuid)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        ).scalar_one_or_none()
+        if is_complimentary_plan(target_plan) and payload.plano != igreja.plano:
+            tracked_subscription_id = (
+                getattr(existing_subscription, "asaas_subscription_id", None)
+                if existing_subscription is not None
+                else None
+            )
+            if (
+                tracked_subscription_id
+                and tracked_subscription_id != "sandbox"
+            ) or blocking_creation is not None:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        "Esta igreja possui assinatura rastreada ou contratação "
+                        "em aberto. Concilie-a manualmente antes de conceder cortesia; "
+                        "nenhum cancelamento é feito automaticamente."
+                    ),
+                )
 
     antes = {
         "nome": igreja.nome,
@@ -595,6 +648,16 @@ def update_igreja(
         igreja.status = payload.status
     if payload.plano is not None:
         igreja.plano = payload.plano
+        if existing_subscription is not None and (
+            is_complimentary_plan(source_plan)
+            or is_complimentary_plan(target_plan)
+        ):
+            # Cortesia e sua retirada são decisões master locais. Mantemos o
+            # espelho da Subscription coerente, sem criar/cancelar cobrança.
+            existing_subscription.plano = payload.plano
+            existing_subscription.limite = (
+                target_plan.limite_pessoas if target_plan is not None else None
+            )
     if "setupFeeOverride" in payload.model_fields_set:
         igreja.setup_fee_override = payload.setupFeeOverride
     _audit(
@@ -1757,14 +1820,24 @@ def _plano_out(p: Plano, em_uso: int = 0) -> PlanoOut:
     )
 
 
-def _get_plano_or_404(db: Session, plano_id: str) -> Plano:
+def _get_plano_or_404(
+    db: Session, plano_id: str, *, for_update: bool = False
+) -> Plano:
     try:
         pid = uuid.UUID(plano_id)
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Plano não encontrado"
         ) from exc
-    plano = db.execute(select(Plano).where(Plano.id == pid)).scalar_one_or_none()
+    statement = select(Plano).where(Plano.id == pid)
+    if for_update:
+        # Se a transação esperou outro editor/worker, force a releitura do
+        # estado já confirmado em vez de reutilizar um objeto antigo do
+        # identity map da sessão.
+        statement = statement.with_for_update().execution_options(
+            populate_existing=True
+        )
+    plano = db.execute(statement).scalar_one_or_none()
     if plano is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Plano não encontrado"
@@ -1855,13 +1928,45 @@ def update_plano(
     O ``codigo`` não muda (as igrejas o referenciam). Atualização parcial: só
     os campos enviados são alterados — ``limitePessoas: null`` marca ilimitado.
     """
-    plano = _get_plano_or_404(db, plano_id)
+    plano = _get_plano_or_404(db, plano_id, for_update=True)
     fields = payload.model_fields_set
     if not fields:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Informe ao menos um campo para atualizar",
         )
+    changes_billing_mode = False
+    if "precoMensal" in fields and payload.precoMensal is not None:
+        changes_billing_mode = (
+            (float(plano.preco_mensal) == 0.0)
+            != (float(payload.precoMensal) == 0.0)
+        )
+        blocking_change = (
+            find_blocking_plan_change_for_plan(db, plano.codigo)
+            if changes_billing_mode
+            else None
+        )
+        blocking_creation = (
+            find_blocking_subscription_creation_for_plan(db, plano.codigo)
+            if changes_billing_mode
+            else None
+        )
+        if blocking_change is not None or blocking_creation is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Há uma operação de assinatura em aberto usando este plano. "
+                    "Concilie a operação antes de alterar entre pago e cortesia."
+                ),
+            )
+        if changes_billing_mode and _igrejas_no_plano(db, plano.codigo) > 0:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Não altere um plano em uso entre pago e cortesia. "
+                    "Crie outro plano e migre apenas igrejas sem assinatura."
+                ),
+            )
     if "nome" in fields and payload.nome is not None:
         plano.nome = payload.nome
     if "limitePessoas" in fields:  # null explícito = ilimitado

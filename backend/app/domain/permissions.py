@@ -26,12 +26,12 @@ ADMIN_ONLY = frozenset({"comunicados", "contatos"})
 # `operador -> relatorios` não reabre a tela. As linhas salvas NÃO são apagadas;
 # a concessão incompatível é apenas ignorada para estas telas.
 #
-# `relatorios` lista relatórios de TODAS as células com oferta e observações; o
-# gate real do dado é `require_central` em GET /reports (REPORT-SOT-1) e esta
-# regra impede que a navegação ofereça uma tela que responderia 403.
+# `central-celula` e `relatorios` expõem a visão tenant-wide da Central. Os gates
+# reais dos dados exigem pastor/admin; esta regra impede que navegação e
+# assistente ofereçam telas que responderiam 403 ou só exibiriam "Acesso restrito".
 # 'pastor' espelha CENTRAL_ROLES de app/deps.py (importar de lá seria circular).
 CENTRAL_ROLE = "pastor"
-CENTRAL_ONLY = frozenset({"relatorios"})
+CENTRAL_ONLY = frozenset({"central-celula", "relatorios"})
 
 # Default papel -> telas (ESPELHO de DEFAULT_PERMISSIONS em permissions.ts).
 # Vale quando o tenant NUNCA customizou a matriz (sem linhas em role_permissions);
@@ -94,6 +94,9 @@ def screens_for_role(role: str, tenant_matrix: dict[str, set[str]]) -> frozenset
         screens = frozenset(tenant_matrix[role]) | {DASHBOARD}
     else:
         screens = DEFAULT_PERMISSIONS.get(role, frozenset()) | {DASHBOARD}
+    # Papéis não-admin nunca recebem telas administrativas pela matriz. O
+    # `admin` é tratado antes e não passa por esta função.
+    screens -= ADMIN_ONLY
     if role != CENTRAL_ROLE:
         screens -= CENTRAL_ONLY
     return screens

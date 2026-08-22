@@ -1,0 +1,46 @@
+name: Production monitor
+
+on:
+  schedule:
+    - cron: "17,47 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: production-monitor
+  cancel-in-progress: false
+
+jobs:
+  public-health:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Probe public production endpoints
+        id: probe
+        continue-on-error: true
+        run: python3 deploy/monitoring/external_probe.py
+
+      - name: Maintain one deduplicated incident issue
+        if: always()
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          PROBE_OUTCOME: ${{ steps.probe.outcome }}
+        with:
+          script: |
+            const { maintainIncident } = require('./deploy/monitoring/maintain_incident.js');
+            await maintainIncident({
+              github,
+              context,
+              probeOutcome: process.env.PROBE_OUTCOME,
+            });
+
+      - name: Fail workflow when production is unhealthy
+        if: always()
+        env:
+          PROBE_OUTCOME: ${{ steps.probe.outcome }}
+        run: python3 deploy/monitoring/assert_probe_healthy.py

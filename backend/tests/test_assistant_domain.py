@@ -42,7 +42,7 @@ def test_admin_gets_all_known_screens_except_locked() -> None:
 
 def test_role_only_sees_its_permitted_screens_plus_dashboard() -> None:
     allowed = allowed_screens_for_roles(_ROLE_MAP, ["lider_celula"])
-    assert allowed == {"dashboard", "ganhar", "central-celula", "g12"}
+    assert allowed == {"dashboard", "ganhar", "g12"}
     # A config screen the role lacks must not appear.
     assert "permissoes" not in allowed
     assert "enviar" not in allowed
@@ -67,11 +67,17 @@ def test_admin_still_sees_admin_only_screens() -> None:
 
 
 # ---- suggest_screens ------------------------------------------------------
-def test_suggests_only_allowed_screen_for_intent() -> None:
+def test_never_suggests_central_to_common_cell_leader() -> None:
     allowed = allowed_screens_for_roles(_ROLE_MAP, ["lider_celula"])
     telas = suggest_screens("preciso ver a central de célula", allowed)
-    assert "central-celula" in telas
+    assert "central-celula" not in telas
     assert all(t in allowed for t in telas)
+
+
+def test_suggests_central_to_pastor() -> None:
+    allowed = allowed_screens_for_roles(_ROLE_MAP, ["pastor"])
+    telas = suggest_screens("preciso ver a central de célula", allowed)
+    assert "central-celula" in telas
 
 
 def test_does_not_suggest_screen_outside_role() -> None:

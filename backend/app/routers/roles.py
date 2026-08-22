@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 from app.db.models import RolePermission
 from app.db.session import get_db
 from app.deps import CurrentUser, get_current_user, require_role
-from app.domain.permissions import DEFAULT_PERMISSIONS
+from app.domain.permissions import screens_for_role
 
 logger = logging.getLogger("pastorai.roles")
 
@@ -88,16 +88,14 @@ def get_permissions(
         if row.tela not in stored[row.papel]:
             stored[row.papel].append(row.tela)
 
-    # Espelha screens_for_role: papel sem linha persistida ainda usa o default;
-    # papel customizado recebe exatamente suas linhas, sempre com dashboard.
-    # Assim shell e backend compartilham a mesma matriz EFETIVA inclusive para
-    # tenants antigos/ parcialmente semeados.
+    # Retorna a matriz EFETIVA: defaults quando o papel nunca foi customizado e
+    # filtros fail-closed para telas admin/Central-only mesmo quando uma linha
+    # legada persistida ainda as concede.
+    tenant_matrix = {role: set(telas) for role, telas in stored.items()}
     matriz: dict[str, list[str]] = {}
     for role in MATRIX_ROLES:
-        telas = list(stored.get(role, sorted(DEFAULT_PERMISSIONS.get(role, ()))))
-        if MANDATORY_SCREEN not in telas:
-            telas.insert(0, MANDATORY_SCREEN)
-        matriz[role] = telas
+        effective = screens_for_role(role, tenant_matrix)
+        matriz[role] = [MANDATORY_SCREEN, *sorted(effective - {MANDATORY_SCREEN})]
     return PermissionsMatrix(matriz=matriz)
 
 
@@ -114,13 +112,15 @@ def update_permissions(
     """
     igreja_uuid = uuid.UUID(current_user.igreja_id)
 
-    # Force dashboard for every role in the matrix.
+    # Persiste somente a matriz EFETIVA. Concessões incompatíveis de telas
+    # admin/Central-only são removidas antes de gravar e devolver a resposta.
+    requested = {
+        role: set(payload.matriz.get(role, [])) for role in MATRIX_ROLES
+    }
     final: dict[str, list[str]] = {}
     for role in MATRIX_ROLES:
-        telas = list(payload.matriz.get(role, []))
-        if MANDATORY_SCREEN not in telas:
-            telas.insert(0, MANDATORY_SCREEN)
-        final[role] = telas
+        effective = screens_for_role(role, requested)
+        final[role] = [MANDATORY_SCREEN, *sorted(effective - {MANDATORY_SCREEN})]
 
     # Replace existing rows for this tenant.
     existing = db.execute(

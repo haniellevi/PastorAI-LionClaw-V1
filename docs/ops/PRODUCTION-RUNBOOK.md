@@ -1,6 +1,6 @@
 # PastorAI V1 — runbook canônico de produção
 
-Atualizado em 2026-08-07. Este é o procedimento operacional vigente para o
+Atualizado em 2026-08-22. Este é o procedimento operacional vigente para o
 Igreja 12. Não contém segredos; valores reais ficam somente nos provedores e no
 `.env` do release ativo, acessível por `/opt/pastorai-current/deploy/.env`.
 
@@ -23,6 +23,20 @@ O Clerk permanece deliberadamente na instância DEV durante esta promoção. Nã
 misture `pk_live/sk_live` com o issuer DEV: publishable key, secret key, issuer
 e JWKS precisam pertencer à mesma instância.
 
+### Baseline imutável da V1
+
+- estado: `V1_ENCERRADA`, piloto controlado;
+- código backend/frontend: `281e69c2fef80cfbcb27eab5ca4f85981e4adc0c`;
+- tag e GitHub Release: `v1.0.0`;
+- frontend: Vercel `dpl_CdwTcTE8HZHvxs9t92Ak6sHxebAp`;
+- Supabase PROD: `pffafnchtxbimpwyaczq`, PostgreSQL 17;
+- evidência detalhada: [`../releases/v1/v1-closure-evidence.md`](../releases/v1/v1-closure-evidence.md).
+
+Commits documentais posteriores em `main` não mudam esse SHA de release. O
+acesso SSH temporário do fechamento foi revogado; uma nova manutenção na VPS
+exige credencial temporária própria, alvo nominal, rollback e nova revogação ao
+final. Mantenha o console de recuperação da Hostinger disponível.
+
 ## 2. Travas obrigatórias no primeiro deploy
 
 ```ini
@@ -30,14 +44,17 @@ APP_ENV=production
 APP_BASE_URL=https://api.igreja12.com.br
 FRONTEND_URL=https://app.igreja12.com.br
 ALLOW_REAL_SENDS=false
+ASAAS_BILLING_ENABLED=false
 BROADCAST_ASYNC_ENABLED=false
 CALENDAR_OAUTH_RETURN_ORIGINS=https://admin.igreja12.com.br
 ```
 
-- `ALLOW_REAL_SENDS=false` bloqueia WhatsApp, Asaas, Brevo, LLM e Google até
-  os smokes de saúde/login terminarem. Em produção, mutações de billing Asaas,
-  conexão Evolution e envios Brevo retornam erro controlado: não alteram o
-  estado local nem confirmam e-mail/conexão que não aconteceu.
+- `ALLOW_REAL_SENDS=false` bloqueia os efeitos externos até os smokes de
+  saúde/login terminarem. Em produção, conexão Evolution e envios Brevo
+  retornam erro controlado em vez de simular sucesso.
+- `ASAAS_BILLING_ENABLED=false` mantém toda mutação financeira Asaas desligada
+  mesmo depois de `ALLOW_REAL_SENDS=true`. Cobrança só é possível com os dois
+  opt-ins; leituras de reconciliação e o webhook autenticado continuam ativos.
 - `BROADCAST_ASYNC_ENABLED=false` mantém o worker persistente inativo e faz
   qualquer novo comunicado falhar antes de ser persistido; não existe fallback
   síncrono capaz de contornar o ledger/heartbeat.
@@ -69,9 +86,12 @@ Integrações:
 ASAAS_API_URL
 ASAAS_API_KEY
 ASAAS_WEBHOOK_TOKEN
+ASAAS_BILLING_ENABLED
 BREVO_API_KEY
 BREVO_FROM_EMAIL
 BREVO_FROM_NAME
+BREVO_SEND_MODE
+BREVO_CANARY_RECIPIENTS
 GOOGLE_OAUTH_CLIENT_ID
 GOOGLE_OAUTH_CLIENT_SECRET
 GOOGLE_OAUTH_REDIRECT_URI
@@ -83,6 +103,12 @@ novo usa OAuth por igreja. Nunca imprimir, versionar ou incluir o `.env` no
 tarball de deploy. O pacote de backup é uma exceção operacional controlada:
 fica restrito a root e só sai da VPS criptografado, conforme o runbook de
 backup.
+
+O Brevo inicia com `BREVO_SEND_MODE=off`. Para um teste controlado, usar
+`canary` e preencher `BREVO_CANARY_RECIPIENTS` com a lista CSV de destinatários
+autorizados; lista vazia ou malformada bloqueia o envio. Promover para `live`
+só depois da verificação do canário e com reinício dos processos que consomem
+essas variáveis.
 
 ## 4. Migrations do Supabase
 
@@ -102,6 +128,19 @@ Já registradas em PROD em 2026-08-05:
 - `broadcast_delivery_20260805`;
 - `calendar_fk_indexes_20260805`;
 - `security_definer_execute_hardening_20260805`.
+
+Reconciliadas no ledger durante o fechamento da V1, sem reaplicar o DDL que já
+estava presente:
+
+- `20260810_031050_explicit_deny_policies_for_closed_tables` — versão
+  `20260810031050`;
+- `20260810_042300_exclude_complimentary_plans_from_billing_autoupgrade` —
+  versão `20260810042300`.
+
+Em 2026-08-22, o preflight read-only reconfirmou 53/53 tabelas públicas com
+RLS, quatro policies M06 exatas, nenhuma ACL efetiva de `anon`/`authenticated`
+nas tabelas fechadas e zero operação automática `prepared` inválida. Não
+reaplique essas migrations; qualquer correção futura é forward-only.
 
 A migration de broadcasts não ativa broadcasts legados e não faz backfill.
 
@@ -146,9 +185,33 @@ docker compose config --quiet
 docker compose build backend
 docker compose up -d
 docker compose ps
+# Prova pós-restart sem imprimir o .env nem qualquer segredo. Todos os
+# processos capazes de enviar/faturar devem confirmar as travas fechadas.
+for service in backend queue-worker cron-worker; do
+  if ! docker compose exec -T "$service" sh -lc '
+      [ "${ALLOW_REAL_SENDS+x}" = "x" ] &&
+      [ "$ALLOW_REAL_SENDS" = "false" ] &&
+      [ "${ASAAS_BILLING_ENABLED+x}" = "x" ] &&
+      [ "$ASAAS_BILLING_ENABLED" = "false" ] &&
+      [ "${BREVO_SEND_MODE+x}" = "x" ] &&
+      [ "$BREVO_SEND_MODE" = "off" ] &&
+      echo "external-send gates: CLOSED"'; then
+    echo "external-send gates: OPEN or unverifiable for ${service}" >&2
+    exit 1
+  fi
+done
 curl -fsS http://127.0.0.1:8000/health
+curl -fsS http://127.0.0.1:8000/ready
 ln -sfn "/opt/pastorai-releases/${PASTORAI_RELEASE_SHA}" /opt/pastorai-current
 ```
+
+O esperado é uma linha `external-send gates: CLOSED` por serviço. Qualquer
+ausência ou valor diferente de `false`/`off` interrompe o deploy: mutações
+Asaas só podem existir quando `ALLOW_REAL_SENDS=true` **e**
+`ASAAS_BILLING_ENABLED=true`, em um gate financeiro posterior e explicitamente
+aprovado. Brevo permanece em `BREVO_SEND_MODE=off` até seu canário separado;
+`canary` e `live` não são estados aceitáveis antes dos smokes sem efeitos
+externos.
 
 Portas públicas proibidas:
 
@@ -206,11 +269,13 @@ No projeto Vercel, confirmar sem revelar valores:
 
 ## 8. Smokes sem efeitos externos
 
-Com `ALLOW_REAL_SENDS=false`:
+Com `ALLOW_REAL_SENDS=false` **e** `BREVO_SEND_MODE=off`:
 
 ```bash
 curl -fsS https://api.igreja12.com.br/health
+curl -fsS https://api.igreja12.com.br/ready
 curl -fsS http://127.0.0.1:8000/health
+curl -fsS http://127.0.0.1:8000/ready
 docker compose ps
 ```
 
@@ -224,13 +289,61 @@ Validar também:
 - ausência de placeholders no `.env`;
 - frontend sem referências ao Supabase DEV ou localhost.
 
-Somente após esses smokes decidir o gate separado
-`ALLOW_REAL_SENDS=true`. A leitura do QR da Evolution e qualquer canário de
-e-mail/WhatsApp/cobrança ocorrem em uma janela controlada. O recebimento real
-do e-mail de recuperação pelo Brevo pertence a esse canário pós-gate, usando
-uma conta de teste e um único envio observado.
+Mesmo depois desses smokes, mantenha `ASAAS_BILLING_ENABLED=false` e
+`BREVO_SEND_MODE=off` enquanto as igrejas-piloto estiverem em cortesia. Não
+habilite a flag financeira sem inventário das assinaturas rastreadas, backup
+fresco e canário financeiro separado.
 
-## 9. Rollback
+Somente após esses smokes decidir, em gates separados, `ALLOW_REAL_SENDS=true`
+para os provedores globais e `BREVO_SEND_MODE=canary` para e-mail. A leitura do
+QR da Evolution e qualquer canário de e-mail/WhatsApp/cobrança ocorrem em uma
+janela controlada. O recebimento real do e-mail de recuperação pelo Brevo exige
+allowlist com uma conta de teste e um único envio observado; `live` continua
+sendo uma promoção posterior.
+
+## 9. Monitoramento e backup
+
+`/health` é liveness barata. `/ready` verifica DB e Redis como dependências
+obrigatórias; Evolution e workers aparecem como sinais opcionais. Uma falha
+opcional gera `degraded` e alerta, mas não derruba a API nem cria restart loop.
+
+Após o release ser aprovado e o symlink estável apontar para ele:
+
+```bash
+cd /opt/pastorai-current
+MONITOR_ALERT_EMAIL=seu-email@dominio.com sh deploy/monitoring/install.sh
+systemctl list-timers pastorai-monitor.timer pastorai-backup.timer --all
+journalctl -u pastorai-monitor.service -n 50 --no-pager
+```
+
+O modo padrão preserva o cron M02, não habilita `pastorai-backup.timer`; o
+primeiro tick do monitor ocorre depois do commit da instalação e uma degradação
+operacional não desfaz os arquivos/timer válidos. Se houver cron legado junto de timer
+habilitado ou ativo, o instalador aborta antes de escrever arquivos para impedir
+dois backups diários. Arquivos, permissões e estado anterior dos timers são
+restaurados se qualquer etapa da instalação falhar. Uma migração
+futura para timer exige remover o cron em gate operacional próprio e então usar
+explicitamente `PASTORAI_BACKUP_TIMER_MODE=enable`; essa opção apenas habilita o
+timer e não executa um backup. A raiz canônica continua sendo
+`/root/pastorai-backups`. O backup privilegiado compara o SHA-256 real do
+pacote com seu sidecar antes de publicar o manifesto sanitizado
+`/var/lib/pastorai-backup/backup-status.json`. A URL do banco é transformada em
+arquivos libpq temporários `0600`, montados apenas para o `pg_dump`; URL e senha
+não ficam em argv ou ambiente de Python, Docker, `pg_dump` ou outros auxiliares.
+O cron M02 deve receber o pacote completo por `sudo bash
+deploy/install-legacy-backup.sh`; o entrypoint em `/usr/local/sbin` verifica o
+auxiliar fixo e seu checksum, ambos arquivos regulares sem symlink nem hardlink
+(`nlink=1`), antes de qualquer backup ou pausa de containers.
+As units usam `ProtectSystem=strict` e paths de escrita explícitos. O monitor
+usa `DynamicUser`, `ProtectHome=true`, não acessa Docker, `.env` ou `/root` e
+valida somente o manifesto. O backup é uma unidade privilegiada separada porque
+o socket Docker é root-equivalente; esse residual é documentado e não deve ser
+confundido com uma allowlist completa contra script comprometido.
+O workflow `production-monitor.yml` faz os checks públicos e mantém uma issue
+deduplicada no GitHub. Procedimento, estados e limites de disaster recovery:
+[`deploy/monitoring/README.md`](../../deploy/monitoring/README.md).
+
+## 10. Rollback
 
 - Backend: apontar `/opt/pastorai-current` para o SHA anterior e recriar os
   containers a partir desse release; nunca restaurar ou apagar `deploy/.env` e
@@ -239,7 +352,7 @@ uma conta de teste e um único envio observado.
 - Banco: migrations aditivas não são revertidas automaticamente. Corrigir por
   nova migration revisada; não executar rollback destrutivo improvisado.
 
-## 10. Evidência mínima de conclusão
+## 11. Evidência mínima de conclusão
 
 Registrar:
 
@@ -247,7 +360,10 @@ Registrar:
 - IDs das migrations aplicadas;
 - resultado de testes/CI;
 - `docker compose ps`;
-- health local e público;
+- liveness/readiness local e pública;
+- timers do monitor/backup e data do último backup válido;
 - CORS e login;
 - deployment/aliases Vercel;
-- estado explícito de `ALLOW_REAL_SENDS` e `BROADCAST_ASYNC_ENABLED`.
+- estado explícito de `ALLOW_REAL_SENDS`, `ASAAS_BILLING_ENABLED` e
+  `BROADCAST_ASYNC_ENABLED`, incluindo a prova pós-restart de que billing
+  permaneceu fechado por padrão, sem imprimir o `.env`.

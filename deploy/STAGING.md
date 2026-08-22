@@ -135,25 +135,28 @@ Marque **todos** antes de considerar staging pronto:
       projeto de produção durante o B1.
 - [ ] **RLS efetiva** — após o login da conta de teste, uma consulta cross-tenant
       retorna só a igreja piloto (prova que a RLS funciona no clone).
-- [ ] **Guard de envios off** — com `APP_ENV=staging` e `ALLOW_REAL_SENDS=false`,
-      uma ação de envio (responder no inbox, abrir checkout, convidar membro,
-      criar evento) apenas loga `[SANDBOX]`; nenhuma mensagem, cobrança, e-mail,
-      custo de LLM ou evento real dispara.
+- [ ] **Guard de envios off** — com `APP_ENV=staging`,
+      `ALLOW_REAL_SENDS=false` e `BREVO_SEND_MODE=off`, uma ação de envio
+      (responder no inbox, abrir checkout, convidar membro, criar evento) não
+      toca a rede; Brevo falha fechado e os demais provedores são suprimidos.
+      Nenhuma mensagem, cobrança, e-mail, custo de LLM ou evento real dispara.
 
 ---
 
 ## Guard de envios (B2)
 
-Em todos os ambientes, os efeitos externos reais ficam **desligados por padrão** por
-um guard na camada de serviço (`app/services/outbound_guard.py`). Em staging/dev,
-viram **no-op logado** (`[OUTBOUND_DISABLED] …`) e retornam um valor neutro. Em
-produção com o gate fechado, mutações financeiras Asaas, conexão Evolution e
-envios Brevo falham fechado para nunca simular sucesso local; os demais canais
-continuam suprimidos sem efeito externo.
+Em todos os ambientes, os efeitos externos reais ficam **desligados por padrão**.
+O guard em `app/services/outbound_guard.py` cobre WhatsApp, Asaas, LLM e
+Calendar; em staging/dev eles são no-op logado (`[OUTBOUND_DISABLED] …`). Brevo
+tem gate dedicado e falha fechado em qualquer modo bloqueado, para nunca simular
+sucesso de e-mail.
 
-Trava única e explícita: `external_sends_enabled = ALLOW_REAL_SENDS`. Produção,
-staging e desenvolvimento só executam efeitos externos quando o operador muda
-`ALLOW_REAL_SENDS=true`; em staging/dev use apenas credenciais sandbox.
+Trava global explícita: `external_sends_enabled = ALLOW_REAL_SENDS`. Produção,
+staging e desenvolvimento só executam esses provedores globais quando o operador
+muda `ALLOW_REAL_SENDS=true`; em staging/dev use apenas credenciais sandbox.
+Asaas tem uma segunda trava: mutações financeiras também exigem
+`ASAAS_BILLING_ENABLED=true`. Brevo exige `BREVO_SEND_MODE=canary` com allowlist
+explícita ou `live`; `off` é obrigatório nos smokes sem efeitos externos.
 
 Permanecem sempre ativos (auth/infra do próprio ambiente, senão staging não
 funciona): login/identidade Clerk, OAuth do Google, Supabase Storage, leituras da

@@ -48,11 +48,13 @@ O MESMO deployment Vercel serve **três subdomínios**, roteados por Host no
 - CORS do backend deriva `admin.` e `painel.` de `app.` automaticamente
   (`config.py::cors_origins`).
 
-⚠️ **Envios externos em produção:** `external_sends_enabled = ALLOW_REAL_SENDS`.
-O primeiro deploy usa `ALLOW_REAL_SENDS=false`; WhatsApp/e-mail/LLM/Google ficam
-suprimidos. Mutações financeiras Asaas, conexão Evolution e envios Brevo falham
-fechado, sem confirmar mudanças locais, conexão ou e-mail inexistentes. A
-liberação para `true` é um gate operacional separado após os smokes.
+⚠️ **Envios externos em produção:** `ALLOW_REAL_SENDS` é o gate global de
+WhatsApp/LLM/Google; Brevo usa `BREVO_SEND_MODE` separado. O primeiro deploy usa
+`ALLOW_REAL_SENDS=false` **e** `BREVO_SEND_MODE=off`; nenhum e-mail pode sair.
+Mutações financeiras Asaas, conexão Evolution e envios Brevo falham fechado,
+sem confirmar mudança, conexão ou e-mail inexistentes. A liberação de cada gate
+é operacional e separada depois dos smokes; Brevo começa por `canary` com
+destinatário explicitamente autorizado.
 
 ---
 
@@ -165,7 +167,8 @@ select column_name,is_nullable from information_schema.columns
   (`queue_worker`/`cron_worker`). Para deploy de backend use sempre `--no-deps backend`.
 - ❌ `git pull` / qualquer git **na VPS** — ela não tem `.git`; deploy é por tarball.
 - ❌ Reaplicar migration em prod sem verificar que já está aplicada.
-- ❌ Editar o `.env` de produção / mexer em `ALLOW_REAL_SENDS`.
+- ❌ Editar o `.env` de produção / mexer em `ALLOW_REAL_SENDS` ou
+  `BREVO_SEND_MODE`.
 - ❌ SSH automatizado/IA para a VPS com IP **inferido** (o harness bloqueia; o alvo
   precisa ser nomeado e autorizado por humano).
 - ❌ Qualquer escrita em `pffafnchtxbimpwyaczq` sem provar o ref e ter autorização.

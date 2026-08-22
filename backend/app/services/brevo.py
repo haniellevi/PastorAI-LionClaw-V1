@@ -13,7 +13,7 @@ import logging
 import httpx
 
 from app.config import Settings, get_settings
-from app.services.outbound_guard import external_sends_allowed, log_suppressed
+from app.services.outbound_guard import log_suppressed
 
 logger = logging.getLogger("pastorai.brevo")
 
@@ -193,13 +193,34 @@ class BrevoClient:
     def __init__(self, settings: Settings | None = None) -> None:
         self._settings = settings or get_settings()
 
-    def _suppress_or_reject_send(self, action: str) -> None:
-        """Keep non-prod sandboxing, but never fake an e-mail in production."""
+    def _reject_suppressed_send(self, action: str, detail: str) -> None:
+        """Bloqueia o envio sem devolver um falso sucesso ao chamador."""
         log_suppressed("Brevo", action)
-        if self._settings.is_production:
-            raise BrevoError(
-                "Envio de e-mail desabilitado em produção; "
-                "ative ALLOW_REAL_SENDS para enviar"
+        raise BrevoError(detail)
+
+    def _assert_delivery_allowed(self, *, to_email: str, action: str) -> None:
+        """Aplica o gate Brevo sem tocar no gate global de outros provedores."""
+        mode = self._settings.brevo_send_mode
+        if mode == "off":
+            self._reject_suppressed_send(
+                action, "Envio de e-mail desabilitado pelo modo Brevo off"
+            )
+        if mode != "canary":
+            return  # `live` foi validado por Settings e libera qualquer destinatário.
+
+        try:
+            allowlist = self._settings.brevo_canary_recipient_allowlist
+        except ValueError:
+            self._reject_suppressed_send(
+                action, "Configuração do canário Brevo é inválida"
+            )
+        if not allowlist:
+            self._reject_suppressed_send(
+                action, "Canário Brevo sem destinatário autorizado"
+            )
+        if to_email.strip().casefold() not in allowlist:
+            self._reject_suppressed_send(
+                action, "Destinatário não autorizado para o canário Brevo"
             )
 
     def _require_config(self) -> tuple[str, str, str, str]:
@@ -211,26 +232,24 @@ class BrevoClient:
             raise BrevoError("Brevo API is not configured")
         return base_url.rstrip("/"), api_key, from_email, from_name
 
-    def send_invite(self, *, to_email: str, nome: str, activation_link: str) -> str:
-        """Send the activation email; returns the Brevo message id."""
-        if not external_sends_allowed(self._settings):
-            self._suppress_or_reject_send("send_invite")
-            return ""
+    def _send_transactional(
+        self,
+        *,
+        to: list[dict[str, str]],
+        subject: str,
+        html_content: str,
+        text_content: str,
+    ) -> str:
         base_url, api_key, from_email, from_name = self._require_config()
         headers = {
             "api-key": api_key,
             "accept": "application/json",
             "content-type": "application/json",
         }
-        html_content, text_content = _activation_contents(
-            nome,
-            activation_link,
-            self._settings.frontend_url,
-        )
         payload = {
             "sender": {"name": from_name, "email": from_email},
-            "to": [{"email": to_email, "name": nome}],
-            "subject": "Você foi convidado para a Igreja 12",
+            "to": to,
+            "subject": subject,
             "htmlContent": html_content,
             "textContent": text_content,
         }
@@ -241,47 +260,46 @@ class BrevoClient:
                 body = resp.json()
         except httpx.HTTPError as exc:
             logger.warning("Brevo send failed: %s", type(exc).__name__)
-            raise BrevoError("Falha ao enviar e-mail de convite") from exc
-        except (ValueError, KeyError) as exc:
+            raise BrevoError("Falha ao enviar e-mail pelo Brevo") from exc
+        except ValueError as exc:
             logger.warning("Unexpected Brevo response shape")
             raise BrevoError("Resposta inesperada do Brevo") from exc
-        return str(body.get("messageId", ""))
+
+        message_id = body.get("messageId") if isinstance(body, dict) else None
+        if not isinstance(message_id, str) or not message_id.strip():
+            logger.warning("Unexpected Brevo response shape")
+            raise BrevoError("Resposta inesperada do Brevo")
+        return message_id
+
+    def send_invite(self, *, to_email: str, nome: str, activation_link: str) -> str:
+        """Send the activation email; returns the Brevo message id."""
+        self._assert_delivery_allowed(to_email=to_email, action="send_invite")
+        html_content, text_content = _activation_contents(
+            nome,
+            activation_link,
+            self._settings.frontend_url,
+        )
+        return self._send_transactional(
+            to=[{"email": to_email, "name": nome}],
+            subject="Você foi convidado para a Igreja 12",
+            html_content=html_content,
+            text_content=text_content,
+        )
 
     def send_password_reset(self, *, to_email: str, reset_link: str) -> str:
         """Send the password-reset email; returns the Brevo message id."""
-        if not external_sends_allowed(self._settings):
-            self._suppress_or_reject_send("send_password_reset")
-            return ""
-        base_url, api_key, from_email, from_name = self._require_config()
-        headers = {
-            "api-key": api_key,
-            "accept": "application/json",
-            "content-type": "application/json",
-        }
+        self._assert_delivery_allowed(to_email=to_email, action="send_password_reset")
         html_content, text_content = _reset_contents(
             reset_link,
             self._settings.frontend_url,
             self._settings.password_reset_ttl_minutes,
         )
-        payload = {
-            "sender": {"name": from_name, "email": from_email},
-            "to": [{"email": to_email}],
-            "subject": "Redefina sua senha com segurança — Igreja 12",
-            "htmlContent": html_content,
-            "textContent": text_content,
-        }
-        try:
-            with httpx.Client(base_url=base_url, timeout=15.0) as client:
-                resp = client.post("/smtp/email", headers=headers, json=payload)
-                resp.raise_for_status()
-                body = resp.json()
-        except httpx.HTTPError as exc:
-            logger.warning("Brevo reset send failed: %s", type(exc).__name__)
-            raise BrevoError("Falha ao enviar e-mail de redefinição") from exc
-        except (ValueError, KeyError) as exc:
-            logger.warning("Unexpected Brevo response shape")
-            raise BrevoError("Resposta inesperada do Brevo") from exc
-        return str(body.get("messageId", ""))
+        return self._send_transactional(
+            to=[{"email": to_email}],
+            subject="Redefina sua senha com segurança — Igreja 12",
+            html_content=html_content,
+            text_content=text_content,
+        )
 
 
 def get_brevo_client() -> BrevoClient:
