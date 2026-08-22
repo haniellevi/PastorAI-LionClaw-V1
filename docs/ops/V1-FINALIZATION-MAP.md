@@ -1,9 +1,11 @@
 # PastorAI / Igreja 12 — mapa central de finalização da V1
 
-Atualizado em 2026-08-22 (America/Sao_Paulo). **V1_ENCERRADA.**
+Atualizado e revalidado em 2026-08-22 (America/Sao_Paulo).
+**V1_ENCERRADA.**
 
-Este é o mapa operacional para encerrar a V1. Ele centraliza a ordem de
-trabalho, os gates, o paralelismo permitido e as decisões de escopo. Dados de
+Este é o mapa histórico do fechamento da V1 e a base de transição para o
+pós-V1. Ele centraliza a ordem de trabalho, os gates, o paralelismo permitido
+e as decisões de escopo. Dados de
 GitHub, CI, ambiente e produção são temporais: antes de agir, faça preflight
 vivo. Relatórios antigos continuam úteis como evidência, mas não definem a
 prioridade atual nem autorizam ações.
@@ -32,7 +34,9 @@ Itens explicitamente **pós-V1**:
 
 - PR #257 e o trabalho de transferência/remoção de membros de Células;
 - migração de Clerk DEV para Clerk Production;
-- cobrança real Asaas em produção.
+- cobrança real Asaas em produção;
+- ativação do broadcast assíncrono e dos envios reais via Evolution;
+- promoção do Brevo de `off`/canário para `live`.
 
 O piloto Clerk DEV deve permanecer limitado e controlado. Antes de uma abertura
 pública, a migração para Clerk Production será uma missão própria; não há
@@ -42,7 +46,8 @@ transferência automática das identidades DEV existentes.
 
 | Item | Estado verificado | Consequência operacional |
 |---|---|---|
-| origin/main / RC | 281e69c2fef80cfbcb27eab5ca4f85981e4adc0c | Código congelado, cinco workflows verdes e backend/frontend implantados no mesmo SHA. |
+| Código V1 / tag `v1.0.0` | 281e69c2fef80cfbcb27eab5ca4f85981e4adc0c | Código congelado, cinco workflows verdes e backend/frontend implantados no mesmo SHA. Commits documentais posteriores em `main` não alteram o artefato da V1. |
+| Documentação de fechamento | PR #274 em ea40cda3... e PR #275 em ba9dba77... | Evidência, tag/release e declaração `V1_ENCERRADA` estão versionadas em `main`. |
 | PR #260 / M08 | MERGED em fd1cf373... | O corretivo de concorrência de claims recuperados está integrado; não reabrir esse código por um estado histórico. |
 | PR #261 / monitor M08 | MERGED em 5d7059df... | O workflow de monitor agora falha fechado quando produção não está saudável. |
 | PR #262 / readiness Supabase | MERGED em f2c3132... e implantada | Readiness tolera conexão saudável lenta via Supavisor sem relaxar Redis/Evolution. |
@@ -52,9 +57,9 @@ transferência automática das identidades DEV existentes.
 | PR #245 / M09 | MERGED em 25d3876... | Baseline E2E/performance foi atualizado para a main vigente, revalidado e integrado. |
 | PR #234 / M01 | MERGED em cc89c0c... | Cortesia administrada pelo master, billing durável e migration PG17 foram revalidados e integrados. |
 | PR #244 / M06 | MERGED em a292b5e... | Hardening de frontend, RLS/policies e executor de migrations foi revalidado e integrado. |
-| PR #257 | OPEN/READY, pós-V1 | Preservar; não integrar nesta trilha. |
+| PR #257 | OPEN/não draft, 87 commits atrás e 1 à frente no preflight | Missão pós-V1; atualizar contra `main`, revisar e revalidar antes de qualquer integração. |
 | Brevo | PR #237 integrou a base de e-mail em 9987bf10...; PR #266 foi MERGED em 8427ece... | O SHA histórico 6dd42a... não existe no repositório; gate dedicado, revisão P1 e cinco checks foram concluídos. |
-| Células | Recuperado no commit 05c0aad7839d835fdbfaa762c84f9d7b94f8568d | Continua pós-V1; preservar sem desenvolver ou integrar nesta trilha. |
+| Células | Referência histórica 05c0aad... não encontrada no clone nem no GitHub | Recuperação pós-V1 ainda não comprovada; não tratar esse SHA como artefato preservado. |
 | Clerk | DEV em produção, seis vínculos reconciliados | Piloto alinhado à decisão aprovada; configuração LIVE e vínculos anteriores preservados para rollback. |
 | Supabase PROD | M06/M01 verificadas e ledger reconciliado | Recibos metadata-only registrados no ledger oficial, sem reaplicar DDL. |
 | Frontend PROD | `dpl_CdwTcTE8HZHvxs9t92Ak6sHxebAp` | Três aliases no RC, headers M06 presentes e zero erro de runtime na janela verificada. |
@@ -121,9 +126,10 @@ M00 e preparação de acessos read-only
          RC local  ->  Supabase DEV  ->  Produção
 ~~~
 
-PR #257 e Células não entram nessa cadeia. Seus branches, achados e artefatos
-devem ser preservados para o backlog pós-V1, sem novo desenvolvimento ou merge
-na trilha de encerramento.
+PR #257 e Células não entram nessa cadeia. A branch da PR #257 deve ser
+preservada para o backlog pós-V1. A implementação histórica de Células precisa
+ser localizada e validada novamente, pois o SHA citado antes não existe nas
+fontes Git disponíveis; não há artefato comprovado para integrar.
 
 ## 5. Sequência de execução aprovada
 
@@ -145,10 +151,10 @@ M08 foi encerrada em 2026-08-20 sem migrations nem alteração de flags:
    instalado preservando o cron legado, executou duas verificações saudáveis e
    a issue #259 foi encerrada.
 
-O acesso SSH temporário criado apenas para esse deploy permanece deliberadamente
-ativo até o encerramento de todo o projeto, por decisão do responsável. A
-revogação e a remoção do material local são itens obrigatórios do fechamento
-final, não uma dependência para iniciar M00.
+O acesso SSH temporário criado apenas para esse deploy foi mantido durante os
+gates seguintes e revogado no fechamento final. A chave foi retirada da VPS e
+do Hostinger, o material local foi removido e uma nova tentativa de conexão foi
+negada, conforme a evidência da PR #275.
 
 ### Fase B — M00: tooling, Docker, MCPs e runtime — CONCLUÍDA
 
@@ -186,8 +192,9 @@ Em paralelo e sem mutação externa:
 - tratar a PR #237 (`9987bf10e06d5015c832a58b45f55e366a1f307a`) como a base
   já integrada de e-mail transacional. O SHA de recuperação `6dd42a...` não
   existe localmente nem no GitHub e não deve ser usado como evidência;
-- preservar a implementação Células recuperada no commit
-  05c0aad7839d835fdbfaa762c84f9d7b94f8568d exclusivamente para pós-V1.
+- não usar a referência histórica de Células `05c0aad...` como prova: ela não
+  está no clone nem no GitHub e precisa ser recuperada da origem que ainda
+  possua o objeto ou reconstruída em missão pós-V1.
 
 ### Fase D — M09 / PR #245 — CONCLUÍDA
 
@@ -310,6 +317,15 @@ criado em
 https://github.com/haniellevi/PastorAI-LionClaw-V1/releases/tag/v1.0.0. O
 estado é `V1_ENCERRADA`. Migrations são forward-only e continuam exigindo
 forward-fix ou restauração aprovada em incidente.
+
+Revalidação independente em 2026-08-22 confirmou: Release/tag remotos no SHA
+de código; monitor agendado `32544604262` verde; `/health` e `/ready` públicos
+saudáveis; deployment Vercel ainda `READY` no SHA de código, três aliases HTTP
+200, headers M06 presentes e zero erro de runtime agregado em 24h; Supabase
+PROD `ACTIVE_HEALTHY` em PostgreSQL 17, 53/53 tabelas públicas com RLS, M06/M01
+íntegras e ledger reconciliado. Como o SSH temporário já foi revogado, symlink,
+flags, contadores de reinício e manifesto de backup não foram relidos nessa
+revalidação; permanecem cobertos pela evidência de fechamento.
 
 ## 6. Gates de migrations, deploy e integrações externas
 
