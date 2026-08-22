@@ -1,6 +1,6 @@
 # PastorAI / Igreja 12 — mapa central de finalização da V1
 
-Atualizado em 2026-08-21 (America/Sao_Paulo).
+Atualizado em 2026-08-22 (America/Sao_Paulo). **V1_ENCERRADA.**
 
 Este é o mapa operacional para encerrar a V1. Ele centraliza a ordem de
 trabalho, os gates, o paralelismo permitido e as decisões de escopo. Dados de
@@ -58,7 +58,7 @@ transferência automática das identidades DEV existentes.
 | Clerk | DEV em produção, seis vínculos reconciliados | Piloto alinhado à decisão aprovada; configuração LIVE e vínculos anteriores preservados para rollback. |
 | Supabase PROD | M06/M01 verificadas e ledger reconciliado | Recibos metadata-only registrados no ledger oficial, sem reaplicar DDL. |
 | Frontend PROD | `dpl_CdwTcTE8HZHvxs9t92Ak6sHxebAp` | Três aliases no RC, headers M06 presentes e zero erro de runtime na janela verificada. |
-| Estado de release | V1_RELEASE_READY | Gates operacionais concluídos; tag/release e housekeeping seguem como últimos gates formais. |
+| Estado de release | V1_ENCERRADA | Tag `v1.0.0` publicada no SHA de código `281e69c2...`, GitHub Release criado, evidência integrada em `ea40cda3...` (PR #274) e housekeeping concluído. |
 
 O número de checks verdes, review threads e distância de cada branch em relação
 à main não é reproduzido aqui como fato permanente. Deve ser consultado no
@@ -303,10 +303,13 @@ Produção ficou alinhada no RC:
 - estabilidade: duas execuções locais saudáveis e workflows GitHub
   `32543076877` e `32543098661` verdes após o roll-forward.
 
-A evidência completa está em `docs/releases/v1/v1-closure-evidence.md`. O estado
-é `V1_RELEASE_READY` até a integração documental, publicação da tag/release e
-revogação dos acessos temporários. Migrations são forward-only e continuam
-exigindo forward-fix ou restauração aprovada em incidente.
+A evidência completa está em `docs/releases/v1/v1-closure-evidence.md`. A tag
+anotada `v1.0.0` foi publicada no SHA de código `281e69c2...`, referenciando o
+SHA documental `ea40cda3...` (PR #274, squash merge). O GitHub Release foi
+criado em
+https://github.com/haniellevi/PastorAI-LionClaw-V1/releases/tag/v1.0.0. O
+estado é `V1_ENCERRADA`. Migrations são forward-only e continuam exigindo
+forward-fix ou restauração aprovada em incidente.
 
 ## 6. Gates de migrations, deploy e integrações externas
 
@@ -350,10 +353,11 @@ health/readiness, login/CORS/RLS, flags, canários, backup/restauração,
 monitoramento, riscos aceitos e rollback.
 
 Use V1_CODE_COMPLETE, V1_RELEASE_CANDIDATE, V1_RELEASE_READY ou V1_BLOCKED
-enquanto algum gate estiver pendente. Em 2026-08-21 o estado é
-`V1_RELEASE_READY`: os gates operacionais passaram, mas a tag/release e o
-housekeeping ainda precisam ser comprovados. `V1_ENCERRADA` só é permitido
-depois de todas as evidências da seção 1.
+enquanto algum gate estiver pendente. Em 2026-08-22 o estado é
+`V1_ENCERRADA`: todos os gates da seção 1 foram comprovados, a tag `v1.0.0`
+foi publicada no SHA de código `281e69c2...`, o GitHub Release foi criado, a
+evidência foi integrada em `ea40cda3...` (PR #274) e o housekeeping foi
+concluído com revogação dos acessos temporários.
 
 ## 8. Histórico preservado
 
