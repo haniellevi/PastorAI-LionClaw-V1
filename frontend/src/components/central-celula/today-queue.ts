@@ -1,4 +1,8 @@
-import type { CellHealth, PendingReportItem } from "@/lib/cell-central-api";
+import type {
+  CellHealth,
+  CentralDashboard,
+  PendingReportItem,
+} from "@/lib/cell-central-api";
 import type { CellRequest } from "@/lib/cell-requests-api";
 import type { MultiplicacaoPendente } from "@/lib/multiplicacoes-api";
 
@@ -36,6 +40,15 @@ const KIND_WEIGHT: Record<TodayKind, number> = {
 
 export function requestTypeLabel(tipo: string): string {
   return REQUEST_LABELS[tipo] ?? tipo;
+}
+
+export function countActionableItems(dashboard: CentralDashboard | null): number {
+  if (!dashboard) return 0;
+  return (
+    dashboard.relatorios_pendentes +
+    dashboard.solicitacoes_aguardando +
+    dashboard.celulas_com_alerta
+  );
 }
 
 export function healthNeedsAttention(cell: CellHealth): boolean {

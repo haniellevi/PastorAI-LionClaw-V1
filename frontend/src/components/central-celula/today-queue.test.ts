@@ -4,7 +4,7 @@ import type { CellHealth, PendingReportItem } from "@/lib/cell-central-api";
 import type { CellRequest } from "@/lib/cell-requests-api";
 import type { MultiplicacaoPendente } from "@/lib/multiplicacoes-api";
 
-import { buildTodayQueue, healthNeedsAttention } from "./today-queue";
+import { buildTodayQueue, countActionableItems, healthNeedsAttention } from "./today-queue";
 
 function report(partial: Partial<PendingReportItem> = {}): PendingReportItem {
   return {
@@ -92,6 +92,21 @@ describe("buildTodayQueue", () => {
         health: [health({ status: "saudavel", vermelhos: 0, alertas: 0 })],
       }),
     ).toEqual([]);
+  });
+});
+
+describe("countActionableItems", () => {
+  it("não conta multiplicações duas vezes dentro das solicitações", () => {
+    expect(
+      countActionableItems({
+        relatorios_pendentes: 2,
+        solicitacoes_aguardando: 3,
+        celulas_com_alerta: 1,
+        multiplicacoes_pendentes: 2,
+        avisos_recentes: 4,
+        materiais_recentes: 5,
+      }),
+    ).toBe(6);
   });
 });
 

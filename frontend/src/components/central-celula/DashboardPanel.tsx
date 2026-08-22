@@ -6,12 +6,14 @@
  * ficam recolhidos. Sem endpoint novo: reusa dashboard, pending-reports,
  * requests, multiplicações e health.
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { DsBanner } from "@/components/ds/Banner";
 import { DsButton } from "@/components/ds/Button";
 import { DsEmptyState } from "@/components/ds/EmptyState";
 import { formatLongDate, formatPublishedAt } from "@/components/minha-celula/format";
+import { SessionExpiredError } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 import { Icon, type IconKey } from "@/lib/icons";
 import {
   getHealth,
@@ -27,7 +29,12 @@ import {
   type MultiplicacaoPendente,
 } from "@/lib/multiplicacoes-api";
 
-import { buildTodayQueue, type TodayItem, type TodayKind } from "./today-queue";
+import {
+  buildTodayQueue,
+  countActionableItems,
+  type TodayItem,
+  type TodayKind,
+} from "./today-queue";
 import type { CentralTab } from "./types";
 
 interface CardDef {
@@ -121,6 +128,7 @@ export function DashboardPanel({
   onRetry: () => void;
   onGoTo: (tab: CentralTab) => void;
 }) {
+  const { expireSession } = useAuth();
   const [reports, setReports] = useState<PendingReportItem[]>([]);
   const [requests, setRequests] = useState<CellRequest[]>([]);
   const [multiplications, setMultiplications] = useState<MultiplicacaoPendente[]>([]);
@@ -128,39 +136,52 @@ export function DashboardPanel({
   const [queueLoading, setQueueLoading] = useState(true);
   const [queueLoaded, setQueueLoaded] = useState(false);
   const [queueError, setQueueError] = useState<string | null>(null);
+  const [queueNonce, setQueueNonce] = useState(0);
 
-  const loadQueue = useCallback(
-    async (mode: "initial" | "retry") => {
-      if (mode === "initial") setQueueLoading(true);
-      setQueueError(null);
-      try {
-        const [reportPage, requestPage, multiplicationList, healthList] = await Promise.all([
-          getPendingReports(token, 1, 8),
-          listRequests(token, "aguardando", 1, 8),
-          getMultiplicacoesList(token),
-          getHealth(token, 1, 12),
-        ]);
+  useEffect(() => {
+    let cancelled = false;
+    setReports([]);
+    setRequests([]);
+    setMultiplications([]);
+    setHealth([]);
+    setQueueLoading(true);
+    setQueueLoaded(false);
+    setQueueError(null);
+
+    Promise.all([
+      getPendingReports(token, 1, 8),
+      listRequests(token, "aguardando", 1, 8),
+      getMultiplicacoesList(token),
+      getHealth(token, 1, 12),
+    ])
+      .then(([reportPage, requestPage, multiplicationList, healthList]) => {
+        if (cancelled) return;
         setReports(reportPage.items);
         setRequests(requestPage.items);
         setMultiplications(multiplicationList.pendentes);
         setHealth(healthList.cells);
         setQueueLoaded(true);
-      } catch (err) {
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        if (err instanceof SessionExpiredError) {
+          expireSession();
+          return;
+        }
         setQueueError(
           err instanceof ApiError
             ? err.message
             : "Não foi possível carregar o que precisa de atenção hoje.",
         );
-      } finally {
-        setQueueLoading(false);
-      }
-    },
-    [token],
-  );
+      })
+      .finally(() => {
+        if (!cancelled) setQueueLoading(false);
+      });
 
-  useEffect(() => {
-    void loadQueue("initial");
-  }, [loadQueue]);
+    return () => {
+      cancelled = true;
+    };
+  }, [token, expireSession, queueNonce]);
 
   const queue = useMemo(
     () =>
@@ -176,11 +197,7 @@ export function DashboardPanel({
   const shownQueue = queue.slice(0, 8);
   const showQueueSkeleton = queueLoading && !queueLoaded;
   const showTotalsSkeleton = loading && !dashboard;
-  const pendingCount =
-    (dashboard?.relatorios_pendentes ?? 0) +
-    (dashboard?.solicitacoes_aguardando ?? 0) +
-    (dashboard?.celulas_com_alerta ?? 0) +
-    (dashboard?.multiplicacoes_pendentes ?? 0);
+  const pendingCount = countActionableItems(dashboard);
 
   return (
     <section className="cc-today" aria-label="Hoje na Central">
@@ -188,7 +205,7 @@ export function DashboardPanel({
         <h3>Hoje na Central</h3>
         <p>
           {pendingCount > 0
-            ? `${pendingCount} ${pendingCount === 1 ? "pendência pede" : "pendências pedem"} atenção. Abra a pessoa, não o número.`
+            ? `${pendingCount} ${pendingCount === 1 ? "pendência pede" : "pendências pedem"} atenção. Abra a pendência, não apenas o número.`
             : "Nenhuma exceção aberta. Os totais da igreja ficam abaixo, se precisar conferir."}
         </p>
       </header>
@@ -212,7 +229,7 @@ export function DashboardPanel({
           action={
             <DsButton
               variant="secondary"
-              onClick={() => void loadQueue("retry")}
+              onClick={() => setQueueNonce((nonce) => nonce + 1)}
               disabled={queueLoading}
             >
               Tentar novamente
