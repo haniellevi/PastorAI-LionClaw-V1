@@ -71,6 +71,7 @@ from app.services.invite_identity import (
     assert_invite_email_available,
     get_invite_identity_db,
 )
+from app.services.frontend_auth_links import build_frontend_auth_link
 from app.services.rate_limit import RateLimiter, get_rate_limiter
 
 logger = logging.getLogger("pastorai.platform_admin")
@@ -391,8 +392,11 @@ def _activation_link(app_user_id: uuid.UUID, clerk: ClerkClient) -> str:
     Token de convite assinado (expira em 7 dias) — não o id cru.
     """
     token = clerk.mint_invite_token(str(app_user_id))
-    base = get_settings().frontend_url.rstrip("/")
-    return f"{base}/#ativar/{token}"
+    return build_frontend_auth_link(
+        get_settings().frontend_url,
+        "ativar",
+        token,
+    )
 
 
 def _usable_admin_ids(db: Session, ig_uuid: uuid.UUID) -> set[uuid.UUID]:

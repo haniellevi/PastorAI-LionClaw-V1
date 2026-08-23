@@ -9,6 +9,8 @@ import dynamic from "next/dynamic";
 import { SessionUnavailable } from "@/components/auth/SessionUnavailable";
 import { AppProviders } from "@/components/providers/AppProviders";
 import { useAuth } from "@/lib/auth-context";
+import { resolveRootSurface } from "@/lib/public-auth-flow";
+import { useHashRoute } from "@/lib/use-hash-route";
 
 const AppShell = dynamic(
   () => import("@/components/shell/AppShell").then((module) => module.AppShell),
@@ -38,16 +40,23 @@ function PageLoading() {
 
 function HomeContent() {
   const { status, retrySession } = useAuth();
+  const [route] = useHashRoute();
+  const surface = resolveRootSurface(status, route);
 
-  if (status === "loading") {
+  // Convites e recuperação sempre vencem uma sessão antiga de outro tenant.
+  if (surface === "login") {
+    return <LoginScreen />;
+  }
+
+  if (surface === "loading") {
     return <PageLoading />;
   }
 
-  if (status === "authenticated") {
+  if (surface === "app") {
     return <AppShell />;
   }
 
-  if (status === "unavailable") {
+  if (surface === "unavailable") {
     return <SessionUnavailable onRetry={retrySession} />;
   }
 

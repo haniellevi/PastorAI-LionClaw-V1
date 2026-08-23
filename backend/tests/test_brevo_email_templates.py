@@ -52,7 +52,7 @@ def test_invalid_brevo_send_mode_is_rejected(mode: str) -> None:
 
 def test_invite_uses_shared_brand_layout_and_plain_text(monkeypatch) -> None:
     payload = _capture_payload(monkeypatch)
-    link = "https://app.igreja12.com.br/#ativar/token?source=email&next=painel"
+    link = "https://app.igreja12.com.br/ativar/token"
 
     message_id = BrevoClient(_settings()).send_invite(
         to_email="raniel@example.com",
@@ -62,7 +62,13 @@ def test_invite_uses_shared_brand_layout_and_plain_text(monkeypatch) -> None:
 
     assert message_id == "message-123"
     assert payload["subject"] == "Você foi convidado para a Igreja 12"
-    assert payload["to"] == [{"email": "raniel@example.com", "name": "Raniel <Admin>"}]
+    assert payload["to"] == [
+        {
+            "email": "raniel@example.com",
+            "name": "Raniel <Admin>",
+            "contactPixelTrackingConsent": False,
+        }
+    ]
     assert "<!doctype html>" in payload["htmlContent"]
     assert "Gestão pastoral inteligente" in payload["htmlContent"]
     assert "/brand/diamante-simbolo-128.png" in payload["htmlContent"]
@@ -80,7 +86,7 @@ def test_invite_uses_shared_brand_layout_and_plain_text(monkeypatch) -> None:
 
 def test_password_reset_explains_expiry_and_single_use(monkeypatch) -> None:
     payload = _capture_payload(monkeypatch)
-    link = "https://app.igreja12.com.br/#redefinir-senha/safe-token"
+    link = "https://app.igreja12.com.br/redefinir-senha/safe-token"
 
     message_id = BrevoClient(_settings(password_reset_ttl_minutes=45)).send_password_reset(
         to_email="raniel@example.com",
@@ -94,6 +100,12 @@ def test_password_reset_explains_expiry_and_single_use(monkeypatch) -> None:
     assert "só pode ser usado uma vez" in payload["htmlContent"]
     assert "45 minutos" in payload["textContent"]
     assert link in payload["textContent"]
+    assert payload["to"] == [
+        {
+            "email": "raniel@example.com",
+            "contactPixelTrackingConsent": False,
+        }
+    ]
 
 
 @pytest.mark.parametrize(
@@ -137,7 +149,13 @@ def test_canary_only_allows_explicit_recipient_without_global_send_gate(monkeypa
         )
         == "message-123"
     )
-    assert payload["to"] == [{"email": "canary@example.com", "name": "Canário"}]
+    assert payload["to"] == [
+        {
+            "email": "canary@example.com",
+            "name": "Canário",
+            "contactPixelTrackingConsent": False,
+        }
+    ]
 
 
 @pytest.mark.parametrize(

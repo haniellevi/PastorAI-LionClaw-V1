@@ -89,7 +89,7 @@ function AuthSecurityNote() {
 }
 
 export function LoginScreen() {
-  const { login, consumeReturnTo, accessMessage } = useAuth();
+  const { login, logout, consumeReturnTo, accessMessage } = useAuth();
   const [route, navigate] = useHashRoute();
 
   // Modo derivado da hash. Tokens vêm como #redefinir-senha/<token> e #ativar/<token>.
@@ -196,6 +196,7 @@ export function LoginScreen() {
     setRStatus("loading");
     try {
       await resetPassword(resetToken, rPass);
+      logout();
       setRStatus("done");
     } catch (err) {
       setRError(
@@ -268,6 +269,7 @@ export function LoginScreen() {
         aPass,
         aInfo?.precisaCadastro ? aTel.trim() : undefined,
       );
+      logout();
       setAStatus("done");
     } catch (err) {
       setAError(

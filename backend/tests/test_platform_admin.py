@@ -269,11 +269,13 @@ class FakeMailer:
     def __init__(self, fail: bool = False) -> None:
         self.fail = fail
         self.sent: list[str] = []
+        self.links: list[str] = []
 
     def send_invite(self, to_email: str, nome: str, activation_link: str) -> None:
         if self.fail:
             raise BrevoError("falha simulada")
         self.sent.append(to_email)
+        self.links.append(activation_link)
 
 
 def _wire(app, *, db, clerk, mailer=None, identity_db=None) -> TestClient:
@@ -411,6 +413,9 @@ def test_admin_creates_church_and_invites(app) -> None:
     assert body["emailEnviado"] is True
     # Email is normalized to lowercase by the validator before the invite.
     assert mailer.sent == ["pastor@nova.org"]
+    assert len(mailer.links) == 1
+    assert "/ativar/" in mailer.links[0]
+    assert "#" not in mailer.links[0]
     assert db.committed is True
 
 

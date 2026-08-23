@@ -12,6 +12,7 @@ const admin = read("admin", "page.tsx");
 const providers = read("..", "components", "providers", "AppProviders.tsx");
 const authContext = read("..", "lib", "auth-context.tsx");
 const adminAuthContext = read("..", "lib", "admin-auth-context.tsx");
+const publicAuthFlow = read("..", "lib", "public-auth-flow.ts");
 const screenView = read("..", "components", "shell", "ScreenView.tsx");
 const screenLoaders = read("..", "components", "shell", "screen-loaders.ts");
 const appShell = read("..", "components", "shell", "AppShell.tsx");
@@ -61,7 +62,8 @@ describe("fronteiras de carregamento do frontend", () => {
     expect(admin).not.toContain("AppProviders");
     expect(providers).toContain("<AuthProvider>");
     expect(providers).toContain("<PermissionsProvider>");
-    expect(home).toContain('status === "unavailable"');
+    expect(home).toContain("resolveRootSurface(status, route)");
+    expect(publicAuthFlow).toContain('status === "unavailable"');
     expect(gestao).toContain('status === "unavailable"');
     expect(admin).toContain('status === "unavailable"');
     expect(home).toContain("<SessionUnavailable onRetry={retrySession}");
