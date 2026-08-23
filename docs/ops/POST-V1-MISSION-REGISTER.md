@@ -1,17 +1,17 @@
 # PastorAI / Igreja 12 — registro central de missões pós-V1
 
-Atualizado em 2026-08-22 (America/Sao_Paulo) após integração da PR #257. A V1 permanece
+Atualizado em 2026-08-23 (America/Sao_Paulo) após validação de produção da PR #279 e checagens de integridade prévias. A V1 permanece
 `V1_ENCERRADA`; este documento não altera a tag `v1.0.0` nem autoriza ativação
 de integrações externas.
 
 ## Baseline obrigatório
 
-- código V1 em produção: `281e69c2fef80cfbcb27eab5ca4f85981e4adc0c`;
-- frontend: `dpl_CdwTcTE8HZHvxs9t92Ak6sHxebAp`;
+- código V1 em produção: `903394fe0e36a3aad450bf11eee732f7e4e0d77c`;
+- frontend (Vercel): `pastorai-frontend-prod` com SHA `903394fe0e36a3aad450bf11eee732f7e4e0d77c`;
 - Supabase PROD: `pffafnchtxbimpwyaczq`;
-- Clerk: instância DEV restrita ao piloto;
+- Clerk: estado a confirmar (verificação de instância PROD pendente).
 - flags externas: Asaas real, broadcast e Brevo live fechados;
-- fonte de verdade: `origin/main` atualizado e worktree limpo por missão.
+- fonte de verdade: `origin/main` atualizado.
 
 ## Missões
 
@@ -27,16 +27,22 @@ de integrações externas.
 
 2. **Células — transferência/remoção de membros.**
    - Motivo: capacidade explicitamente excluída da V1.
-   - Estado: a referência histórica `05c0aad...` não existe no clone nem no
-     GitHub; a recuperação ainda não é comprovada.
-   - Pré-requisito: localizar a origem que possua o objeto/arquivos ou
-     reconstruir a mudança a partir da especificação, antes de revisar código.
+   - Estado: **MISSÃO 2 CONCLUÍDA e DEPLOYADA em produção** no SHA
+     `903394fe0e36a3aad450bf11eee732f7e4e0d77c`.
+   - Evidência: rota `/cells/{cell_id}/membros/transferir` e
+     `/cells/{cell_id}/membros/remover` ativas no OpenAPI de produção; produção
+     do frontend em Vercel no commit acima.
 
 3. **Clerk Production.**
    - Motivo: retirar o piloto da instância DEV antes de abertura pública.
-   - Pré-requisito: mapear identidades, criar backup e rollback dos seis
-     vínculos, trocar secret/publishable/issuer/JWKS como conjunto e repetir os
-     smokes de administrador, pastor, líder, membro e master.
+   - Estado: **BLOCKED** no escopo de verificação atual.
+   - Bloqueios: não foi possível extrair prova técnica não-confidencial de
+     `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` em produção pelo pipeline disponível,
+     nem validar `CLERK_SECRET_KEY` / `CLERK_JWT_ISSUER` no VPS a partir desta
+     sessão.
+   - Ação seguinte obrigatória: obter evidência de prefixo `pk_live_` e issuer/JWKS
+     de produção, seguido de smoke completo por perfil (master, admin/pastor,
+     líder, membro).
 
 4. **Asaas real.**
    - Motivo: habilitar cobrança apenas depois da validação comercial e
@@ -61,6 +67,17 @@ de integrações externas.
    - Pré-requisito: medir consultas e crescimento real antes de criar ou remover
      índices. O `WARN` de `current_igreja_id()` continua aceito enquanto for
      necessário às policies RLS.
+
+## Ativação pós-deploy PR #279 (2026-08-23)
+
+Revalidação de produção realizada nesta sessão:
+
+- **FRONTEND_SHA**: `903394fe0e36a3aad450bf11eee732f7e4e0d77c` (Vercel deployment READY, target `production`, URL `pastorai-frontend-prod-8ve7k9wro-raniel-levis-projects.vercel.app`).
+- **BACKEND_SHA**: `903394fe0e36a3aad450bf11eee732f7e4e0d77c` (OpenAPI em `https://api.igreja12.com.br` com `/cells/{cell_id}/membros/transferir` e `/cells/{cell_id}/membros/remover`).
+- **Artefatos sensíveis**: nenhum encontrado no worktree; padrões de exclusão (`clerk_*_prod.*`, `migrate_clerk_production.py`, `target_users*.json`) já estão em `.git/info/exclude`.
+- **Vercel env (production)**: nenhuma variável encontrada; o frontend depende de `NEXT_PUBLIC_API_URL` para apontar ao backend. Sem ela, o código cai no fallback `http://localhost:8000`, portanto o frontend de produção ainda não chama o backend PROD.
+- **Clerk no frontend**: não aplicável — o frontend não utiliza Clerk (`@clerk/nextjs` não consta em `package.json`, nenhum `pk_` nos chunks). A verificação de `CLERK_SECRET_KEY`/`CLERK_JWT_ISSUER` no VPS não foi possível por falta de acesso SSH à instância `76.13.234.127`.
+- **Status**: **BLOCKED** — o próximo gate é autorizar e aplicar `NEXT_PUBLIC_API_URL=https://api.igreja12.com.br` no Vercel (com redeploy), seguido de acesso ao VPS para confirmar instância Clerk PROD e smoke por perfil.
 
 ## Paralelismo seguro
 
