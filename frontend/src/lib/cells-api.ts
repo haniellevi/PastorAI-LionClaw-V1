@@ -133,6 +133,58 @@ export async function addCellMember(
   return (await res.json()) as CellMembro;
 }
 
+/**
+ * Transfere um membro da célula atual para a destino (Células pós-V1 — Central).
+ * Execução direta: desativa o vínculo na origem, cria no destino, atualiza o
+ * espelho e grava auditoria, na mesma transação. ``motivo`` é opcional.
+ */
+export async function transferCellMember(
+  token: string,
+  cellId: string,
+  pessoaId: string,
+  celulaDestinoId: string,
+  motivo?: string,
+): Promise<CellMembro> {
+  const res = await authedFetch(token, `/cells/${cellId}/membros/transferir`, {
+    method: "POST",
+    body: JSON.stringify({
+      pessoaId,
+      celula_destino_id: celulaDestinoId,
+      ...(motivo ? { motivo } : {}),
+    }),
+  });
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível transferir o membro.");
+  }
+  return (await res.json()) as CellMembro;
+}
+
+/**
+ * Remove um membro da célula (Células pós-V1 — Central). Execução direta:
+ * desativa o vínculo, limpa o espelho ``pessoas.celula_id`` e grava auditoria,
+ * na mesma transação. A pessoa NÃO é deletada. ``motivo`` é opcional.
+ */
+export async function removeCellMember(
+  token: string,
+  cellId: string,
+  pessoaId: string,
+  motivo?: string,
+): Promise<CellMembro> {
+  const res = await authedFetch(token, `/cells/${cellId}/membros/remover`, {
+    method: "POST",
+    body: JSON.stringify({
+      pessoaId,
+      ...(motivo ? { motivo } : {}),
+    }),
+  });
+  if (!res.ok) {
+    const detail = await readDetail(res);
+    throw new ApiError(res.status, detail ?? "Não foi possível remover o membro.");
+  }
+  return (await res.json()) as CellMembro;
+}
+
 // ---------------------------------------------------------------------------
 // Escrita
 // ---------------------------------------------------------------------------

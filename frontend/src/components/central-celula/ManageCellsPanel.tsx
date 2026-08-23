@@ -41,6 +41,7 @@ import { Icon } from "@/lib/icons";
 import { CellHealthList } from "./CellHealthList";
 import { PendingReportsList } from "./PendingReportsList";
 import { MultiplicationsList } from "./MultiplicationsList";
+import { TransferRemoveMemberModal } from "./TransferRemoveMemberModal";
 import type { CentralToast } from "./types";
 
 export function cellMemberAddBlockReason(
@@ -82,6 +83,12 @@ export function ManageCellsPanel({
   const [membrosError, setMembrosError] = useState<string | null>(null);
   // Bump para reexecutar o fetch dos membros (retry manual e após vínculo).
   const [membrosNonce, setMembrosNonce] = useState(0);
+
+  // Pós-V1: modal de transferência/remoção de membro (execução direta Central).
+  const [memberAction, setMemberAction] = useState<{
+    mode: "transferir" | "remover";
+    pessoaId: string;
+  } | null>(null);
 
   const load = useCallback(async () => {
     setLoadError(null);
@@ -239,6 +246,20 @@ export function ManageCellsPanel({
     [onChanged, load],
   );
 
+  const handleMemberActionDone = useCallback(() => {
+    setMembrosNonce((n) => n + 1);
+    void load();
+    onChanged();
+  }, [load, onChanged]);
+
+  const memberActionPessoa = useMemo(
+    () =>
+      memberAction
+        ? (contacts.find((c) => c.id === memberAction.pessoaId) ?? null)
+        : null,
+    [memberAction, contacts],
+  );
+
   const showEmpty = loaded && !loadError && cells.length === 0;
 
   return (
@@ -387,6 +408,38 @@ export function ManageCellsPanel({
                           <div className="nm">{membroNome(m.pessoaId)}</div>
                         </div>
                         <StatusPill tone="ok">Ativo</StatusPill>
+                        <div style={{ display: "flex", gap: 6, marginLeft: 8 }}>
+                          <DsButton
+                            variant="secondary"
+                            size="md"
+                            onClick={() =>
+                              setMemberAction({
+                                mode: "transferir",
+                                pessoaId: m.pessoaId,
+                              })
+                            }
+                            aria-label={`Transferir ${membroNome(m.pessoaId)}`}
+                            title="Transferir para outra célula"
+                          >
+                            <Icon name="transfer" />
+                            <span>Transferir</span>
+                          </DsButton>
+                          <DsButton
+                            variant="danger"
+                            size="md"
+                            onClick={() =>
+                              setMemberAction({
+                                mode: "remover",
+                                pessoaId: m.pessoaId,
+                              })
+                            }
+                            aria-label={`Remover ${membroNome(m.pessoaId)}`}
+                            title="Remover da célula"
+                          >
+                            <Icon name="close" />
+                            <span>Remover</span>
+                          </DsButton>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -425,6 +478,17 @@ export function ManageCellsPanel({
           contacts={contacts}
           onClose={() => setShowInvite(false)}
           onAdded={handleMemberAdded}
+        />
+      ) : null}
+
+      {memberAction && selectedCell && memberActionPessoa ? (
+        <TransferRemoveMemberModal
+          origem={selectedCell}
+          pessoa={memberActionPessoa}
+          cells={cells}
+          mode={memberAction.mode}
+          onClose={() => setMemberAction(null)}
+          onDone={handleMemberActionDone}
         />
       ) : null}
     </div>

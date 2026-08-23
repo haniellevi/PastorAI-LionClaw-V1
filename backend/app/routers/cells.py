@@ -18,14 +18,14 @@ import re
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import false, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db.models import AppUser, Celula, CelulaMembro, CellAlert, Pessoa
 from app.db.session import get_db
-from app.deps import CENTRAL_ROLES, CurrentUser, get_current_user, require_central
+from app.deps import CENTRAL_ROLES, CurrentUser, get_current_user, require_central, resolve_actor_pessoa_id
 from app.domain.hierarchy import is_leader_or_superior
 from app.routers._common import Page, PaginationParams
 from app.services.celula_membro import (
@@ -33,6 +33,7 @@ from app.services.celula_membro import (
     ensure_active_membro,
 )
 from app.services.cell_leadership import set_cell_leadership
+from app.services.cell_member_management import remover_membro, transferir_membro
 
 logger = logging.getLogger("pastorai.cells")
 
@@ -152,6 +153,75 @@ class AddMemberRequest(BaseModel):
         if value not in CELL_MEMBER_ROLES:
             raise ValueError(f"papel inválido: {value}")
         return value
+
+
+class TransferMemberRequest(BaseModel):
+    """Transferência direta de membro entre células (Células pós-V1 — Central).
+
+    ``celula_destino_id`` é a célula de destino (deve ser ativa, com líder, do
+    mesmo tenant). ``motivo`` é opcional (limite 1000 chars).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    pessoaId: str  # noqa: N815
+    celula_destino_id: str
+    motivo: str | None = None
+
+    @field_validator("pessoaId", "celula_destino_id")
+    @classmethod
+    def _uuid(cls, value: str) -> str:
+        try:
+            uuid.UUID(value)
+        except (ValueError, AttributeError) as exc:
+            raise ValueError("UUID inválido") from exc
+        return value
+
+    @field_validator("motivo")
+    @classmethod
+    def _motivo(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        trimmed = value.strip()
+        if not trimmed:
+            return None
+        if len(trimmed) > 1000:
+            raise ValueError("motivo deve ter no máximo 1000 caracteres")
+        return trimmed
+
+
+class RemoveMemberRequest(BaseModel):
+    """Remoção direta de membro da célula (Células pós-V1 — Central).
+
+    ``motivo`` é opcional (limite 1000 chars). A pessoa NÃO é deletada — só
+    perde o vínculo ativo e o espelho ``pessoas.celula_id`` é limpo.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    pessoaId: str  # noqa: N815
+    motivo: str | None = None
+
+    @field_validator("pessoaId")
+    @classmethod
+    def _uuid(cls, value: str) -> str:
+        try:
+            uuid.UUID(value)
+        except (ValueError, AttributeError) as exc:
+            raise ValueError("pessoaId inválido") from exc
+        return value
+
+    @field_validator("motivo")
+    @classmethod
+    def _motivo(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        trimmed = value.strip()
+        if not trimmed:
+            return None
+        if len(trimmed) > 1000:
+            raise ValueError("motivo deve ter no máximo 1000 caracteres")
+        return trimmed
 
 
 class UpsertCellRequest(BaseModel):
@@ -736,6 +806,94 @@ def add_cell_member(
             },
         ) from exc
     return MemberOut.from_model(membro)
+
+
+@router.post(
+    "/cells/{cell_id}/membros/transferir",
+    response_model=MemberOut,
+    status_code=status.HTTP_201_CREATED,
+)
+def transfer_cell_member(
+    cell_id: str,
+    payload: TransferMemberRequest,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_central),
+) -> MemberOut:
+    """Central transfere um membro da célula ``cell_id`` para a destino (pós-V1).
+
+    Execução DIRETA — sem fluxo de solicitação, sem segregação 3.1. Aplica os
+    efeitos de domínio (desativar origem, criar destino, atualizar espelho) e
+    grava o evento ``transferido`` na trilha append-only ``celula_membro_evento``,
+    na MESMA transação. Falha parcial → rollback total.
+
+    Autorização: Central (pastor/admin). ``igreja_id`` deriva do contexto
+    autenticado; ``cell_id`` é a origem (URL), ``celula_destino_id`` vem do
+    payload. Ambas devem ser ativas, com líder e do mesmo tenant.
+    """
+    igreja_id = uuid.UUID(current_user.igreja_id)
+    # Validação rápida de UUID da URL (404 se malformado — não vaza 422).
+    try:
+        celula_origem_id = uuid.UUID(cell_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Célula não encontrada"
+        ) from exc
+
+    actor = resolve_actor_pessoa_id(db, current_user)
+    actor_uuid = uuid.UUID(actor) if actor else None
+
+    novo_membro = transferir_membro(
+        db,
+        igreja_id=igreja_id,
+        celula_origem_id=celula_origem_id,
+        pessoa_id=uuid.UUID(payload.pessoaId),
+        celula_destino_id=uuid.UUID(payload.celula_destino_id),
+        actor_id=actor_uuid,
+        motivo=payload.motivo,
+    )
+    return MemberOut.from_model(novo_membro)
+
+
+@router.post(
+    "/cells/{cell_id}/membros/remover",
+    response_model=MemberOut,
+)
+def remove_cell_member(
+    cell_id: str,
+    payload: RemoveMemberRequest,
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_central),
+) -> MemberOut:
+    """Central remove um membro da célula ``cell_id`` (pós-V1). NÃO deleta a pessoa.
+
+    Execução DIRETA — sem fluxo de solicitação. Desativa o vínculo ativo, limpa
+    o espelho ``pessoas.celula_id`` e grava o evento ``removido`` na trilha
+    append-only ``celula_membro_evento``, na MESMA transação. Falha parcial →
+    rollback total. A pessoa permanece cadastrada (apenas sem célula).
+
+    Autorização: Central (pastor/admin). ``igreja_id`` deriva do contexto
+    autenticado; ``cell_id`` é a origem (URL).
+    """
+    igreja_id = uuid.UUID(current_user.igreja_id)
+    try:
+        celula_origem_id = uuid.UUID(cell_id)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Célula não encontrada"
+        ) from exc
+
+    actor = resolve_actor_pessoa_id(db, current_user)
+    actor_uuid = uuid.UUID(actor) if actor else None
+
+    desativado = remover_membro(
+        db,
+        igreja_id=igreja_id,
+        celula_origem_id=celula_origem_id,
+        pessoa_id=uuid.UUID(payload.pessoaId),
+        actor_id=actor_uuid,
+        motivo=payload.motivo,
+    )
+    return MemberOut.from_model(desativado)
 
 
 @router.get("/descendencias", response_model=list[TreeNode])

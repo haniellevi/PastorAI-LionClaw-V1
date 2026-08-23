@@ -359,6 +359,60 @@ class CelulaMembro(Base):
     )
 
 
+class CelulaMembroEvento(Base):
+    """Trilha de auditoria APPEND-ONLY de transferência/remoção direta de membros.
+
+    Pós-V1: a Central gerencia membros por execução DIRETA (POST
+    /cells/{id}/membros/transferir e /remover), sem fluxo de solicitação. Cada
+    operação grava uma linha imutável aqui, na MESMA transação SQL que aplica os
+    efeitos de domínio. Falha parcial → rollback total (domínio + auditoria).
+
+    Blindada no banco pelo trigger ``trg_celula_membro_evento_append_only``
+    (UPDATE/DELETE levantam exceção). ``acao`` ∈ {transferido, removido}.
+    ``celula_origem_id`` é sempre a célula de onde a pessoa sai;
+    ``celula_destino_id`` é NULL para remoção e preenchida para transferência.
+    ``actor_id`` é a Pessoa da Central que executou. ``motivo`` é opcional.
+    SEM ``updated_at`` (append-only: cada operação é uma linha imutável).
+    ``igreja_id`` próprio + RLS própria. ``actor_id``/``pessoa_id`` ON DELETE
+    SET NULL; estruturais (igreja/celula_origem/celula_destino) ON DELETE CASCADE.
+    """
+
+    __tablename__ = "celula_membro_evento"
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    igreja_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("igrejas.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    pessoa_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("pessoas.id", ondelete="SET NULL"),
+        nullable=False,
+    )
+    celula_origem_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("celulas.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    celula_destino_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("celulas.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+    acao: Mapped[str] = mapped_column(String, nullable=False)
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("pessoas.id", ondelete="SET NULL"), nullable=True
+    )
+    motivo: Mapped[str | None] = mapped_column(Text, nullable=True)
+    payload_snapshot: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+
 class CelulaReuniao(Base):
     """Ocorrência materializada de uma célula (Células PR2).
 
