@@ -46,6 +46,7 @@ from app.services.clerk import (
     ClerkUnavailableError,
     get_clerk_client,
 )
+from app.services.frontend_auth_links import build_frontend_auth_link
 from app.services.rate_limit import RateLimiter, get_rate_limiter
 from app.services.storage import logo_public_url
 
@@ -333,8 +334,11 @@ def forgot_password(
             )
         )
         db.commit()
-        base = get_settings().frontend_url.rstrip("/")
-        link = f"{base}/#redefinir-senha/{token}"
+        link = build_frontend_auth_link(
+            settings.frontend_url,
+            "redefinir-senha",
+            token,
+        )
         try:
             mailer.send_password_reset(to_email=payload.email, reset_link=link)
         except BrevoError:

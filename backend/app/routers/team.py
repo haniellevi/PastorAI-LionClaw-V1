@@ -38,6 +38,7 @@ from app.routers._common import Page, PaginationParams
 from app.services.brevo import BrevoClient, BrevoError, get_brevo_client
 from app.services.clerk import ClerkClient, get_clerk_client
 from app.services.cell_leadership import resolve_effective_access
+from app.services.frontend_auth_links import build_frontend_auth_link
 from app.services.invite_identity import (
     assert_invite_email_available,
     get_invite_identity_db,
@@ -162,8 +163,11 @@ class InboxLookupOut(BaseModel):
 def _activation_link(app_user_id: uuid.UUID, clerk: ClerkClient) -> str:
     """Link de ativação com token de convite assinado (expira em 7 dias)."""
     token = clerk.mint_invite_token(str(app_user_id))
-    base = get_settings().frontend_url.rstrip("/")
-    return f"{base}/#ativar/{token}"
+    return build_frontend_auth_link(
+        get_settings().frontend_url,
+        "ativar",
+        token,
+    )
 
 
 def _active_admin_user_ids(db: Session, igreja_id: uuid.UUID) -> set[uuid.UUID]:

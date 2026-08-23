@@ -26,6 +26,7 @@ from fastapi.testclient import TestClient
 from app.config import Settings
 from app.db.models import PasswordResetToken
 from app.db.session import get_db
+from app.routers import auth as auth_router
 from app.services.brevo import get_brevo_client
 from app.services.clerk import ClerkAuthError, ClerkClient, get_clerk_client
 from tests.conftest import FakeSession, make_app_user
@@ -277,6 +278,43 @@ class _UnknownEmailClerk:
         return None
 
 
+class _NoopLimiter:
+    def enforce_ip(self, *args) -> None:
+        pass
+
+    def enforce_account(self, *args) -> None:
+        pass
+
+
+def test_forgot_password_generates_tracker_safe_path_without_testclient(
+    monkeypatch,
+) -> None:
+    session = _RecordingSession()
+    mailer = _RecordingMailer()
+    settings = SimpleNamespace(
+        frontend_url="https://app.igreja12.com.br",
+        rate_limit_forgot_password_ip_limit=5,
+        rate_limit_forgot_password_account_limit=5,
+    )
+    monkeypatch.setattr(auth_router, "get_settings", lambda: settings)
+
+    result = auth_router.forgot_password(
+        request=object(),
+        payload=auth_router.ForgotPasswordRequest(email="pastor@igreja.com"),
+        db=session,
+        clerk=_KnownEmailClerk(),
+        mailer=mailer,
+        limiter=_NoopLimiter(),
+    )
+
+    assert result == {"status": "ok"}
+    assert len(mailer.links) == 1
+    assert mailer.links[0].startswith(
+        "https://app.igreja12.com.br/redefinir-senha/"
+    )
+    assert "#" not in mailer.links[0]
+
+
 def test_forgot_password_persists_jti_and_expiry_not_the_raw_token(app) -> None:
     session = _RecordingSession()
     mailer = _RecordingMailer()
@@ -297,6 +335,8 @@ def test_forgot_password_persists_jti_and_expiry_not_the_raw_token(app) -> None:
     assert row.expires_at > datetime.now(timezone.utc)
     assert not hasattr(row, "token")  # nunca o token em claro persistido
     assert mailer.links and "token-for-clerk_user_1" in mailer.links[0]
+    assert "/redefinir-senha/" in mailer.links[0]
+    assert "#" not in mailer.links[0]
 
 
 def test_forgot_password_same_response_regardless_of_email_existing(app) -> None:

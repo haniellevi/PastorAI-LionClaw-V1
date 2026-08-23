@@ -235,7 +235,7 @@ class BrevoClient:
     def _send_transactional(
         self,
         *,
-        to: list[dict[str, str]],
+        to: list[dict[str, object]],
         subject: str,
         html_content: str,
         text_content: str,
@@ -280,7 +280,13 @@ class BrevoClient:
             self._settings.frontend_url,
         )
         return self._send_transactional(
-            to=[{"email": to_email, "name": nome}],
+            to=[
+                {
+                    "email": to_email,
+                    "name": nome,
+                    "contactPixelTrackingConsent": False,
+                }
+            ],
             subject="Você foi convidado para a Igreja 12",
             html_content=html_content,
             text_content=text_content,
@@ -295,7 +301,7 @@ class BrevoClient:
             self._settings.password_reset_ttl_minutes,
         )
         return self._send_transactional(
-            to=[{"email": to_email}],
+            to=[{"email": to_email, "contactPixelTrackingConsent": False}],
             subject="Redefina sua senha com segurança — Igreja 12",
             html_content=html_content,
             text_content=text_content,
