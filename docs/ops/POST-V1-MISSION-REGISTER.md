@@ -72,12 +72,12 @@ de integrações externas.
 
 Revalidação de produção realizada nesta sessão:
 
-- **FRONTEND_SHA**: `903394fe0e36a3aad450bf11eee732f7e4e0d77c` (Vercel deployment READY, target `production`, URL `pastorai-frontend-prod-8ve7k9wro-raniel-levis-projects.vercel.app`).
+- **FRONTEND_SHA**: `903394fe0e36a3aad450bf11eee732f7e4e0d77c` (redeploy Vercel production: `https://pastorai-frontend-prod-mc2wlzp16-raniel-levis-projects.vercel.app`, alias `https://pastorai-frontend-prod.vercel.app`).
 - **BACKEND_SHA**: `903394fe0e36a3aad450bf11eee732f7e4e0d77c` (OpenAPI em `https://api.igreja12.com.br` com `/cells/{cell_id}/membros/transferir` e `/cells/{cell_id}/membros/remover`).
 - **Artefatos sensíveis**: nenhum encontrado no worktree; padrões de exclusão (`clerk_*_prod.*`, `migrate_clerk_production.py`, `target_users*.json`) já estão em `.git/info/exclude`.
-- **Vercel env (production)**: nenhuma variável encontrada; o frontend depende de `NEXT_PUBLIC_API_URL` para apontar ao backend. Sem ela, o código cai no fallback `http://localhost:8000`, portanto o frontend de produção ainda não chama o backend PROD.
+- **Vercel env (production)**: adicionada `NEXT_PUBLIC_API_URL=https://api.igreja12.com.br` (não-sensível, target `production`) e reimplantado. Confirmação: os chunks do novo deploy contêm `api.igreja12.com.br` e não contêm `localhost:8000`.
 - **Clerk no frontend**: não aplicável — o frontend não utiliza Clerk (`@clerk/nextjs` não consta em `package.json`, nenhum `pk_` nos chunks). A verificação de `CLERK_SECRET_KEY`/`CLERK_JWT_ISSUER` no VPS não foi possível por falta de acesso SSH à instância `76.13.234.127`.
-- **Status**: **BLOCKED** — o próximo gate é autorizar e aplicar `NEXT_PUBLIC_API_URL=https://api.igreja12.com.br` no Vercel (com redeploy), seguido de acesso ao VPS para confirmar instância Clerk PROD e smoke por perfil.
+- **Status**: **BLOCKED** — o próximo gate é obter acesso SSH ao VPS `76.13.234.127` (ou a saída redigida do comando `grep -E 'CLERK_SECRET_KEY|CLERK_JWT_ISSUER|CLERK_JWKS_URL' /opt/pastorai-current/.env`) para confirmar que a instância Clerk é PROD, seguido de smoke por perfil.
 
 ## Paralelismo seguro
 
