@@ -144,9 +144,11 @@ reaplique essas migrations; qualquer correção futura é forward-only.
 
 A migration de broadcasts não ativa broadcasts legados e não faz backfill.
 
-A migration `20260824_180000_asaas_formal_isolation.sql` acompanha o release
-de isolamento formal do Asaas. Antes de aplicá-la, confirmar que não existem
-IDs Asaas duplicados em `subscriptions`. Depois, verificar:
+A migration `20260824_180000_asaas_formal_isolation.sql` foi aplicada em
+Supabase PROD em 2026-08-24 pelo mecanismo nativo de migrations, registrada no
+ledger `supabase_migrations.schema_migrations` como versão `20260824202348` e
+nome `asaas_formal_isolation_20260824`. O preflight confirmou ausência de IDs
+Asaas duplicados em `subscriptions`. A verificação pós-aplicação confirmou:
 
 - índices únicos parciais dos IDs remotos e das referências `pastorai-`;
 - índices parciais das operações financeiras abertas por idade;

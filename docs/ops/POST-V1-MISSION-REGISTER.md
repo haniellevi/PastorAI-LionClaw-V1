@@ -1,13 +1,13 @@
 # PastorAI / Igreja 12: registro central de missões pós-V1
 
-Atualizado em 2026-08-24 (America/Sao_Paulo) após o deploy da PR #284 e o
-preflight operacional somente leitura do Asaas. A V1 permanece
+Atualizado em 2026-08-24 (America/Sao_Paulo) após o deploy da PR #287 e a
+verificação pós-deploy do isolamento formal do Asaas. A V1 permanece
 `V1_ENCERRADA`; este documento não altera a tag `v1.0.0`, não autoriza
 integrações externas e não abre gates de produção.
 
 ## Baseline obrigatório
 
-- código do backend em produção: `1e89e5867f535b47aaec813f5742298ca97e13c0`;
+- código do backend em produção: `e8b06d0afa167790b068e262be10669b21d28e08`;
 - frontend Vercel `pastorai-frontend-prod`: deployment
   `dpl_B1moarLm6raSzQU3DqMf33RvKiCo`, `READY`, target `production`, SHA
   `1e89e5867f535b47aaec813f5742298ca97e13c0`;
@@ -19,8 +19,8 @@ integrações externas e não abre gates de produção.
   `ALLOW_REAL_SENDS=false`, `ASAAS_BILLING_ENABLED=false`,
   `BREVO_SEND_MODE=off` e `BROADCAST_ASYNC_ENABLED=false`;
 - fonte de verdade do código: `origin/main` em
-  `ee3c24d8095df6f84439492a6eacccc212d1507c`; produção ainda serve o SHA
-  informado para cada camada acima.
+  `e8b06d0afa167790b068e262be10669b21d28e08`; produção serve o SHA informado
+  para cada camada acima.
 
 ## Missões
 
@@ -52,10 +52,12 @@ integrações externas e não abre gates de produção.
      release.
 
 4. **Asaas real.**
-   - Estado: **BLOCKED / CODE READY, OPERAÇÃO NOT_READY**.
+   - Estado: **HARDENING DEPLOYED / OPERAÇÃO NOT_READY / GATES FECHADOS**.
    - Código: a PR #284 endureceu os gates antes da rede e diferenciou bloqueio
-     local de falha remota ambígua. O backend completo passou com 2.582 testes
-     e 239 skips antes do merge; o SHA está implantado nos quatro processos de
+     local de falha remota ambígua. A PR #287 acrescentou isolamento formal na
+     conta compartilhada, propriedade revalidada, conciliação paginada, claim
+     durável para restore, ledger de webhook, unicidade de IDs remotos e sinal
+     de readiness. O SHA da PR #287 está implantado nos quatro processos de
      aplicação.
    - Preflight operacional de 2026-08-24: concluído somente leitura, sem
      cobrança, migration, canário ou alteração de flags. Ver a seção dedicada
@@ -64,14 +66,13 @@ integrações externas e não abre gates de produção.
      compartilhada. Somente recursos com `externalReference` no namespace
      reservado `pastorai-` pertencem à integração; os recursos existentes sem
      esse marcador são externos ou legados e permanecem intocados.
-   - Hardening candidato: propriedade revalidada antes de cada mutação, buscas
-     conciliatórias paginadas, claim durável para restore, ledger de IDs de
-     webhook, unicidade dos IDs remotos e sinal de readiness para operações
-     presas. A migration é aditiva e não faz backfill nem adota legado.
-   - Pré-requisitos ainda abertos: merge, migration e deploy do hardening com
-     os gates fechados; verificação pós-deploy; inventário imediatamente antes
-     do canário; autorização nominal no momento de abrir simultaneamente
-     `ALLOW_REAL_SENDS` e `ASAAS_BILLING_ENABLED`.
+   - Migration aditiva aplicada em Supabase PROD como versão
+     `20260824202348`, nome `asaas_formal_isolation_20260824`; não houve
+     backfill nem adoção de legado.
+   - Pré-requisitos ainda abertos: novo inventário imediatamente antes do
+     canário e autorização nominal no momento de abrir simultaneamente
+     `ALLOW_REAL_SENDS` e `ASAAS_BILLING_ENABLED` para um único teste
+     financeiro controlado.
    - Pilotos: o plano gratuito `piloto_full` é atribuído somente pelo painel
      master. A igreja Filadélfia de Corrente está nessa cortesia; nenhuma
      cobrança Asaas deve ser criada enquanto permanecer nesse plano.
@@ -103,22 +104,23 @@ integrações externas e não abre gates de produção.
   `target_users*.json` não estão no worktree e permanecem excluídos localmente;
 - nenhuma migration foi aplicada para a ativação dos fluxos diretos.
 
-## Preflight operacional Asaas (2026-08-24)
+## Ativação técnica do isolamento Asaas (2026-08-24)
 
 ### Inventário local, Supabase PROD
 
 - três igrejas no total: duas ativas e uma suspensa;
-- uma linha em `subscriptions`, sem `asaas_customer_id` e sem
-  `asaas_subscription_id`;
+- uma linha em `subscriptions`, sem IDs Asaas e sem referências externas;
 - zero linhas em `billing_payment_operations`,
   `billing_subscription_operations` e `billing_plan_change_operations`;
+- zero linhas em `asaas_webhook_receipts`;
 - zero operações abertas ou presas há mais de uma hora e zero notificações de
   upgrade pendentes;
 - zero divergências entre plano de igreja e assinatura e zero divergências na
   contagem faturável;
-- não existe índice único no schema aplicado para
-  `subscriptions.asaas_subscription_id`. Esse endurecimento exige migration
-  futura e autorização separada.
+- os índices únicos parciais de IDs Asaas e referências `pastorai-`, os
+  índices de operações abertas e a proteção RLS do ledger de webhook estão
+  aplicados;
+- zero recursos legados adotados pela migration ou pelo deploy.
 
 ### Inventário remoto, Asaas produção
 
@@ -139,6 +141,30 @@ IDs, nomes, documentos, e-mails, telefones ou chave de API:
 Conclusão: os recursos existentes devem ser tratados como externos ou legados
 até identificação humana. Nenhum deles pode ser adotado, alterado, cancelado ou
 usado em canário por inferência.
+
+O inventário agregado foi repetido após o deploy e permaneceu em 15 clientes,
+duas assinaturas `ACTIVE`, 232 cobranças e zero `externalReference` com prefixo
+`pastorai-`. Nenhum `POST`, `PUT` ou `DELETE` foi enviado ao Asaas.
+
+### Deploy e verificação pós-deploy
+
+- backend, queue worker, cron worker e broadcast worker executam a mesma imagem
+  do SHA `e8b06d0afa167790b068e262be10669b21d28e08`;
+- os quatro processos estão saudáveis, sem reinícios e sem marcadores de erro
+  nos primeiros vinte minutos;
+- `/health` e `/ready` locais e públicos responderam com sucesso;
+  `billing_operations=ok`, banco, Redis, Evolution e workers estão saudáveis;
+- CORS respondeu corretamente para `app.`, `admin.` e
+  `painel.igreja12.com.br`; as portas públicas 8000 e 8080 permanecem
+  fechadas;
+- `ALLOW_REAL_SENDS=false`, `ASAAS_BILLING_ENABLED=false`,
+  `BREVO_SEND_MODE=off` e `BROADCAST_ASYNC_ENABLED=false` foram confirmados
+  após o restart nos quatro processos;
+- o monitor `pastorai-monitor.timer` permanece ativo; o timer de backup segue
+  intencionalmente desabilitado porque o cron legado executa o backup diário;
+- arquivos de transferência da VPS foram excluídos após a ativação do release;
+- a chave SSH temporária `pastorai-deploy-20260824` foi removida da Hostinger e
+  a chave privada local foi excluída após as verificações.
 
 ### Backup, restauração e monitoramento
 
@@ -162,16 +188,14 @@ usado em canário por inferência.
 
 - a conta Asaas contém duas assinaturas ativas não pertencentes ao inventário
   local conhecido;
-- o hardening formal ainda precisa ser mergeado, migrado e implantado antes de
-  qualquer teste financeiro;
-- o novo sinal `billing_operations=stale` depende da migration e do release
-  correspondentes para entrar no monitoramento de produção;
+- o hardening formal está mergeado, migrado e implantado, mas ainda não foi
+  exercitado por um canário financeiro real;
 - a cópia semanal da Hostinger e o backup diário local estão saudáveis, mas o
   teste mensal de restauração deve ser repetido até 2026-09-07.
 
-**Próximo gate único:** merge, migration e deploy do hardening formal com todas
-as flags financeiras fechadas. O canário financeiro continua proibido até uma
-confirmação humana específica no momento da ação.
+**Próximo gate único:** autorização humana específica para um canário
+financeiro real, isolado e de valor controlado. As flags permanecem fechadas
+até essa confirmação no momento da ação.
 
 ## Paralelismo seguro
 
