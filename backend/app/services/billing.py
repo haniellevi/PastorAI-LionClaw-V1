@@ -1083,6 +1083,12 @@ def ensure_plan_change_operation(
                     f"Já existe uma troca em andamento para o plano {op.to_plano}"
                 ) from None
 
+    # O estado de entrada distingue uma primeira tentativa comprovadamente
+    # pré-rede de um retry que já carrega ambiguidade de PUT anterior. O claim
+    # abaixo muda ambos para `processing`, portanto essa origem precisa ser
+    # preservada antes da transição.
+    entered_from_prepared = op.status == "prepared"
+
     if op.status in ("processing", "reconciling"):
         # Resultado do PUT anterior é DESCONHECIDO: reconcilia pelo GET antes
         # de qualquer nova escrita remota.
@@ -1130,10 +1136,16 @@ def ensure_plan_change_operation(
             descricao=op.to_descricao or subscription_description(op.to_plano),
         )
     except AsaasWritesDisabledError:
-        # Bloqueio local comprovadamente pré-PUT: preserva o plano e devolve o
-        # claim para `prepared`, sem inventar uma ambiguidade remota.
+        # O PUT desta tentativa foi bloqueado localmente. Só a primeira
+        # tentativa pode voltar a `prepared`; um retry que entrou com
+        # ambiguidade anterior deve preservá-la em `reconciling`, pois o GET
+        # divergente não prova que o PUT anterior deixou de chegar ao Asaas.
         claim_transition(
-            db, op, "processing", "prepared", attempt_started_at=None
+            db,
+            op,
+            "processing",
+            "prepared" if entered_from_prepared else "reconciling",
+            attempt_started_at=None,
         )
         raise
     except AsaasRejectedError as exc:

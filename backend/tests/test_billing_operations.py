@@ -683,6 +683,65 @@ def test_plan_change_gate_block_returns_operation_to_prepared_without_http(
     assert http_calls == []
 
 
+def test_plan_change_gate_block_preserves_prior_reconciling_state(
+    monkeypatch,
+) -> None:
+    http_calls: list[str] = []
+    gets = 0
+
+    def forbidden_http(*args, **kwargs):  # pragma: no cover - defesa
+        http_calls.append("HTTP")
+        raise AssertionError("gate fechado não pode construir cliente HTTP")
+
+    def divergent_remote(subscription_id: str):
+        nonlocal gets
+        gets += 1
+        assert subscription_id == "sub_asaas_1"
+        return {
+            "id": subscription_id,
+            "value": 199.0,
+            "description": "PastorAI — plano ate_100",
+        }
+
+    monkeypatch.setattr("app.services.asaas.httpx.Client", forbidden_http)
+    sub = _plan_sub()
+    igreja = SimpleNamespace(id="igreja-1", plano="ate_100")
+    op = BillingPlanChangeOperation(
+        subscription_id="local-sub-1",
+        asaas_subscription_id="sub_asaas_1",
+        from_plano="ate_100",
+        to_plano="101_200",
+        to_preco=299.0,
+        to_limite=200,
+        to_descricao="PastorAI — plano 101_200",
+        status="reconciling",
+    )
+    db = FakeSession(plan_changes=[op], igreja=igreja)
+    asaas = AsaasClient(
+        Settings(
+            app_env="production",
+            allow_real_sends=False,
+            asaas_billing_enabled=False,
+        )
+    )
+    monkeypatch.setattr(asaas, "get_subscription", divergent_remote)
+
+    with pytest.raises(AsaasWritesDisabledError):
+        _change(db, asaas, sub)
+
+    assert gets == 1
+    assert http_calls == []
+    assert op.status == "reconciling"
+    assert op.attempt_started_at is None
+    assert op.to_plano == "101_200"
+    assert float(op.to_preco) == 299.0
+    assert op.to_limite == 200
+    assert op.to_descricao == "PastorAI — plano 101_200"
+    assert sub.plano == "ate_100"
+    assert sub.limite == 100
+    assert igreja.plano == "ate_100"
+
+
 def test_plan_change_put_timeout_keeps_local_plan_and_reconciles_later() -> None:
     sub = _plan_sub()
     db = FakeSession(igreja=SimpleNamespace(id="igreja-1", plano="ate_100"))

@@ -379,6 +379,100 @@ def test_worker_gate_block_keeps_prepared_without_get_or_put(monkeypatch) -> Non
     assert tenant.closed is True
 
 
+def test_worker_gate_block_preserves_ambiguous_operation_across_ticks(
+    monkeypatch,
+) -> None:
+    op = _op(
+        status="reconciling",
+        to_descricao="PastorAI — plano 101_200",
+    )
+    sub = _sub()
+    frozen_target = (
+        op.to_plano,
+        float(op.to_preco),
+        op.to_limite,
+        op.to_descricao,
+    )
+    http_calls: list[str] = []
+    gets = 0
+
+    def forbidden_http(*args, **kwargs):  # pragma: no cover - defesa
+        http_calls.append("HTTP")
+        raise AssertionError("worker não pode executar PUT com gate fechado")
+
+    def divergent_remote(subscription_id: str):
+        nonlocal gets
+        gets += 1
+        assert subscription_id == "sub_asaas_1"
+        return {
+            "id": subscription_id,
+            "value": 199.0,
+            "description": "PastorAI — plano ate_100",
+        }
+
+    monkeypatch.setattr("app.services.asaas.httpx.Client", forbidden_http)
+    asaas = AsaasClient(
+        Settings(
+            app_env="production",
+            allow_real_sends=False,
+            asaas_billing_enabled=False,
+        )
+    )
+    monkeypatch.setattr(asaas, "get_subscription", divergent_remote)
+
+    first_tick = _WorkerSession(
+        subscription=sub,
+        igreja=SimpleNamespace(id=_IGREJA_A, plano="ate_100"),
+        plan_changes=[op],
+    )
+    assert (
+        run_pending_plan_changes(
+            _Discovery([(op, _IGREJA_A)]),
+            session_factory=_factory_queue([first_tick]),
+            asaas=asaas,
+            evolution=object(),
+        )
+        == 0
+    )
+    assert op.status == "reconciling"
+    assert op.attempt_started_at is None
+    assert first_tick.closed is True
+
+    # Mesmo que a contagem agora caiba no plano, o tick seguinte não pode
+    # cancelar nem retargetear uma operação que talvez já tenha chegado ao
+    # provedor. Apenas operações `prepared` passam por essa revalidação.
+    second_tick = _WorkerSession(
+        subscription=sub,
+        igreja=SimpleNamespace(id=_IGREJA_A, plano="ate_100"),
+        plan_changes=[op],
+    )
+    second_tick.pessoas_count = 50
+    assert (
+        run_pending_plan_changes(
+            _Discovery([(op, _IGREJA_A)]),
+            session_factory=_factory_queue([second_tick]),
+            asaas=asaas,
+            evolution=object(),
+        )
+        == 0
+    )
+
+    assert gets == 2
+    assert http_calls == []
+    assert op.status == "reconciling"
+    assert op.attempt_started_at is None
+    assert (
+        op.to_plano,
+        float(op.to_preco),
+        op.to_limite,
+        op.to_descricao,
+    ) == frozen_target
+    assert sub.plano == "ate_100"
+    assert sub.limite == 100
+    assert second_tick.igreja.plano == "ate_100"
+    assert second_tick.closed is True
+
+
 def test_worker_cancels_stale_prepared_autoupgrade_before_asaas(
     monkeypatch,
 ) -> None:
