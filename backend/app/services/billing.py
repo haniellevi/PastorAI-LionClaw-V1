@@ -34,6 +34,7 @@ from app.services.asaas import (
     AsaasClient,
     AsaasError,
     AsaasRejectedError,
+    AsaasWritesDisabledError,
     map_payment_status,
     payment_invoice_url,
     payment_reversal_kind,
@@ -594,6 +595,13 @@ def ensure_payment_operation(
             description=description,
             external_reference=op.operation_key,
         )
+    except AsaasWritesDisabledError:
+        # O gate negou ANTES de qualquer HTTP: não há resultado remoto para
+        # reconciliar. Libera a intenção para uma tentativa futura autorizada.
+        claim_transition(
+            db, op, "creating", "prepared", attempt_started_at=None
+        )
+        raise
     except AsaasRejectedError as exc:
         # Rejeição DEFINITIVA (mínimo local / HTTP 4xx): nada foi criado — a
         # operação fecha como `failed` (erro registrado) e LIBERA o índice
@@ -1121,6 +1129,13 @@ def ensure_plan_change_operation(
             # MESMA descrição que a reconciliação confere depois.
             descricao=op.to_descricao or subscription_description(op.to_plano),
         )
+    except AsaasWritesDisabledError:
+        # Bloqueio local comprovadamente pré-PUT: preserva o plano e devolve o
+        # claim para `prepared`, sem inventar uma ambiguidade remota.
+        claim_transition(
+            db, op, "processing", "prepared", attempt_started_at=None
+        )
+        raise
     except AsaasRejectedError as exc:
         # Rejeição DEFINITIVA do PUT (4xx): o remoto ficou como estava — a
         # operação fecha como `failed` (plano local INTACTO) e o claim único
@@ -1353,7 +1368,8 @@ def reconcile_subscription_operation(
     Um crash entre localizar e adotar deixa a operação aberta e o retry
     reconcilia de novo — nunca nasce uma segunda intenção (e portanto nunca um
     segundo POST). 0 correspondências mantém `reconciling` e NUNCA repete o
-    POST automaticamente; mais de uma é ambiguidade real → `failed`.
+    POST automaticamente; mais de uma também permanece `reconciling`, com
+    revisão manual obrigatória.
     """
     matches = [
         s

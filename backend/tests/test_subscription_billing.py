@@ -12,6 +12,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
+from app.config import Settings
 from app.db.models import (
     BillingPaymentOperation,
     BillingPlanChangeOperation,
@@ -20,6 +21,7 @@ from app.db.models import (
 )
 from app.db.session import get_db
 from app.services.asaas import (
+    AsaasClient,
     AsaasError,
     AsaasRejectedError,
     CheckoutResult,
@@ -352,6 +354,56 @@ def test_sandbox_checkout_keeps_one_retryable_prepared_intent(app) -> None:
     assert operations[0].asaas_subscription_id is None
     assert sub.asaas_subscription_id is None
     assert asaas.create_calls == 2
+
+
+def test_production_gate_keeps_subscription_intent_prepared_without_remote_calls(
+    app, monkeypatch
+) -> None:
+    remote_calls: list[str] = []
+    asaas = AsaasClient(
+        Settings(
+            app_env="production",
+            allow_real_sends=False,
+            asaas_billing_enabled=False,
+        )
+    )
+
+    def forbidden_remote(*args, **kwargs):  # pragma: no cover - defesa
+        remote_calls.append("remote")
+        raise AssertionError("gate fechado não pode alcançar helper remoto")
+
+    monkeypatch.setattr(asaas, "_ensure_customer", forbidden_remote)
+    monkeypatch.setattr(asaas, "_create_subscription", forbidden_remote)
+    sub = _subscription(
+        status=None,
+        asaas_customer_id=None,
+        asaas_subscription_id=None,
+        asaas_setup_charge_id=None,
+        setup_fee_contracted=0.0,
+        setup_pago=False,
+    )
+    client, db = _client(
+        app,
+        planos=[_plano()],
+        asaas=asaas,
+        subscription=sub,
+        setup_fee_default=0.0,
+    )
+
+    response = client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    )
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "Operações de cobrança estão desabilitadas"
+    op = next(o for o in db.added if isinstance(o, BillingSubscriptionOperation))
+    assert op.status == "prepared"
+    assert op.attempt_started_at is None
+    assert op.customer_id is None
+    assert op.asaas_subscription_id is None
+    assert sub.asaas_customer_id is None
+    assert sub.asaas_subscription_id is None
+    assert remote_calls == []
 
 
 def test_checkout_uses_price_of_requested_plano_not_another_active_one(app) -> None:

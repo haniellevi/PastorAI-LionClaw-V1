@@ -56,6 +56,7 @@ from app.services.asaas import (
     AsaasClient,
     AsaasError,
     AsaasRejectedError,
+    AsaasWritesDisabledError,
     subscription_description,
 )
 from app.services.billing import (
@@ -668,6 +669,13 @@ def run_pending_plan_changes(
                     igreja_id,
                 )
                 tenant_session.rollback()
+            except AsaasWritesDisabledError:
+                # Bloqueio comprovadamente pré-rede: o helper devolveu o claim
+                # para `prepared`; não registrar como reconciliação remota.
+                logger.info(
+                    "Autoupgrade blocked by the Asaas write gate (igreja %s)",
+                    igreja_id,
+                )
             except AsaasError:
                 # Falha/timeout remoto: a operação ficou `reconciling` (plano
                 # local intacto) e o próximo tick reconcilia — sem PUT repetido.

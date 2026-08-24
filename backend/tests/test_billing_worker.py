@@ -20,10 +20,11 @@ from __future__ import annotations
 import uuid
 from types import SimpleNamespace
 
+from app.config import Settings
 from app.db.models import BillingPlanChangeOperation, Subscription
 from app.db.tenant_session import TENANT_IGREJA_KEY, TENANT_META_KEY
 from app.services import billing_worker
-from app.services.asaas import AsaasError, AsaasRejectedError
+from app.services.asaas import AsaasClient, AsaasError, AsaasRejectedError
 from app.services.billing_worker import (
     queue_autoupgrade_if_over_limit,
     run_pending_plan_changes,
@@ -336,6 +337,45 @@ def test_worker_put_failure_keeps_local_plan_and_operation_recoverable(
     assert sub.limite == 100
     assert op.status == "reconciling"
     assert notified == []
+    assert tenant.closed is True
+
+
+def test_worker_gate_block_keeps_prepared_without_get_or_put(monkeypatch) -> None:
+    op = _op()
+    sub = _sub()
+    igreja = SimpleNamespace(id=_IGREJA_A, plano="ate_100")
+    tenant = _WorkerSession(subscription=sub, igreja=igreja, plan_changes=[op])
+    notified = _spy_notify(monkeypatch)
+    http_calls: list[str] = []
+
+    def forbidden_http(*args, **kwargs):  # pragma: no cover - defesa
+        http_calls.append("HTTP")
+        raise AssertionError("worker não pode executar GET ou PUT com gate fechado")
+
+    monkeypatch.setattr("app.services.asaas.httpx.Client", forbidden_http)
+    asaas = AsaasClient(
+        Settings(
+            app_env="production",
+            allow_real_sends=False,
+            asaas_billing_enabled=False,
+        )
+    )
+
+    completed = run_pending_plan_changes(
+        _Discovery([(op, _IGREJA_A)]),
+        session_factory=_factory_queue([tenant]),
+        asaas=asaas,
+        evolution=object(),
+    )
+
+    assert completed == 0
+    assert op.status == "prepared"
+    assert op.attempt_started_at is None
+    assert sub.plano == "ate_100"
+    assert sub.limite == 100
+    assert igreja.plano == "ate_100"
+    assert notified == []
+    assert http_calls == []
     assert tenant.closed is True
 
 
