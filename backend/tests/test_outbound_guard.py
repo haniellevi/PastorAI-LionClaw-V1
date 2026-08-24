@@ -209,15 +209,24 @@ def test_create_checkout_blocked(monkeypatch) -> None:
     "operation",
     [
         lambda client: client.update_subscription(
-            "sub_1", valor=99.9, descricao="PastorAI — plano ate_100"
+            "sub_1",
+            valor=99.9,
+            descricao="PastorAI — plano ate_100",
+            expected_external_reference="pastorai-subcreate-owned",
         ),
         lambda client: client.create_one_time_charge(
             customer_id="cus_1",
             valor=59.9,
             description="PastorAI — taxa de setup",
-            external_reference="op_1",
+            external_reference="pastorai-setup-op-1",
+            expected_customer_external_reference="pastorai-customer-igreja-1",
         ),
-        lambda client: client.restore_payment("pay_1"),
+        lambda client: client.restore_payment(
+            "pay_1",
+            expected_subscription_id="sub_1",
+            expected_customer_id="cus_1",
+            expected_subscription_external_reference="pastorai-subcreate-owned",
+        ),
     ],
     ids=["plan-change", "one-time-charge", "restore-payment"],
 )
@@ -239,15 +248,24 @@ def test_asaas_nonproduction_mutations_keep_none_sandbox(
             valor=49.9,
         ),
         lambda client: client.update_subscription(
-            "sub_1", valor=99.9, descricao="PastorAI — plano ate_100"
+            "sub_1",
+            valor=99.9,
+            descricao="PastorAI — plano ate_100",
+            expected_external_reference="pastorai-subcreate-owned",
         ),
         lambda client: client.create_one_time_charge(
             customer_id="cus_1",
             valor=1000.0,
             description="PastorAI — taxa de setup",
-            external_reference="op_1",
+            external_reference="pastorai-setup-op-1",
+            expected_customer_external_reference="pastorai-customer-igreja-1",
         ),
-        lambda client: client.restore_payment("pay_1"),
+        lambda client: client.restore_payment(
+            "pay_1",
+            expected_subscription_id="sub_1",
+            expected_customer_id="cus_1",
+            expected_subscription_external_reference="pastorai-subcreate-owned",
+        ),
     ],
     ids=["checkout", "plan-change", "one-time-charge", "restore-payment"],
 )
@@ -286,6 +304,7 @@ def test_asaas_writes_disabled_error_is_distinct_from_remote_rejection() -> None
             nome="Igreja Teste",
             email="financeiro@example.com",
             cpf_cnpj="documento-sintetico",
+            external_reference="pastorai-customer-igreja-1",
         ),
         lambda asaas, http: asaas._create_subscription(
             http,
@@ -294,7 +313,7 @@ def test_asaas_writes_disabled_error_is_distinct_from_remote_rejection() -> None
             valor=199.0,
             ciclo="MONTHLY",
             descricao="PastorAI — plano ate_100",
-            external_reference="op_test",
+            external_reference="pastorai-subcreate-op-test",
         ),
         lambda asaas, http: asaas._create_one_time_charge(
             http,
@@ -302,7 +321,7 @@ def test_asaas_writes_disabled_error_is_distinct_from_remote_rejection() -> None
             customer_id="cus_test",
             valor=59.9,
             description="PastorAI — taxa de setup",
-            external_reference="op_test",
+            external_reference="pastorai-payment-op-test",
         ),
     ],
     ids=["customer", "subscription", "payment"],
@@ -418,16 +437,25 @@ def test_asaas_mutation_allowed_only_with_both_gates(monkeypatch) -> None:
         monkeypatch,
         httpx.Response(
             200,
-            json={"id": "sub_1", "value": 299.0, "description": "Plano 200"},
+            json={
+                "id": "sub_1",
+                "value": 299.0,
+                "description": "Plano 200",
+                "externalReference": "pastorai-subcreate-owned",
+            },
         ),
     )
     result = AsaasClient(
         _settings(allow_real_sends=True, asaas_billing_enabled=True)
-    ).update_subscription("sub_1", valor=299.0, descricao="Plano 200")
+    ).update_subscription(
+        "sub_1",
+        valor=299.0,
+        descricao="Plano 200",
+        expected_external_reference="pastorai-subcreate-owned",
+    )
 
     assert result is not None and result["id"] == "sub_1"
-    assert len(seen) == 1
-    assert seen[0].method == "PUT"
+    assert [request.method for request in seen] == ["GET", "PUT"]
 
 
 def test_asaas_read_is_independent_from_billing_write_gates(monkeypatch) -> None:

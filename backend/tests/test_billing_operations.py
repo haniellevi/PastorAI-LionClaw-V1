@@ -26,7 +26,10 @@ from tests.conftest import FakeSession
 
 
 def _sub():
-    return SimpleNamespace(id="local-sub-1")
+    return SimpleNamespace(
+        id="local-sub-1",
+        asaas_customer_external_reference="pastorai-customer-igreja-1",
+    )
 
 
 class _OpsAsaas:
@@ -56,7 +59,10 @@ class _OpsAsaas:
 
     def find_payments_by_external_reference(self, external_reference: str):
         self.finds += 1
-        return [dict(p) for p in self._found]
+        return [
+            {"externalReference": external_reference, **dict(p)}
+            for p in self._found
+        ]
 
     def get_payment(self, payment_id: str):
         self.gets += 1
@@ -150,6 +156,7 @@ def test_reconcile_confirmed_setup_applies_paid_state_without_webhook() -> None:
     sub = SimpleNamespace(
         id="local-sub-1",
         igreja_id="igreja-1",
+        asaas_customer_external_reference="pastorai-customer-igreja-1",
         setup_pago=False,
         asaas_setup_charge_id=None,
         asaas_setup_reversed_payment_id=None,
@@ -193,6 +200,7 @@ def test_reconcile_deleted_flag_takes_precedence_over_pending_status() -> None:
     sub = SimpleNamespace(
         id="local-sub-1",
         igreja_id="igreja-1",
+        asaas_customer_external_reference="pastorai-customer-igreja-1",
         setup_pago=False,
         asaas_setup_charge_id=None,
         asaas_setup_reversed_payment_id=None,
@@ -236,6 +244,7 @@ def test_reconcile_confirmed_recovery_settles_debt_without_webhook() -> None:
     sub = SimpleNamespace(
         id="local-sub-1",
         igreja_id="igreja-1",
+        asaas_customer_external_reference="pastorai-customer-igreja-1",
         status="inadimplente",
         asaas_invoice_payment_id="pay_source",
         asaas_invoice_reversal="refunded",
@@ -286,6 +295,7 @@ def test_created_setup_retry_repairs_a_missed_confirmation_webhook() -> None:
     sub = SimpleNamespace(
         id="local-sub-1",
         igreja_id="igreja-1",
+        asaas_customer_external_reference="pastorai-customer-igreja-1",
         setup_pago=False,
         asaas_setup_charge_id="pay_setup_created",
         asaas_setup_reversed_payment_id=None,
@@ -326,6 +336,7 @@ def test_created_recovery_retry_reopens_gate_after_missed_webhook() -> None:
     sub = SimpleNamespace(
         id="local-sub-1",
         igreja_id="igreja-1",
+        asaas_customer_external_reference="pastorai-customer-igreja-1",
         status="inadimplente",
         asaas_invoice_payment_id="pay_source",
         asaas_invoice_reversal="refunded",
@@ -560,6 +571,7 @@ def _plan_sub():
         limite=100,
         proxima_cobranca="2026-08-01",
         asaas_subscription_id="sub_asaas_1",
+        asaas_subscription_external_reference="pastorai-subcreate-op1",
     )
 
 
@@ -577,17 +589,34 @@ class _PlanAsaas:
         self._put_error = put_error
         self._put_rejected = put_rejected
 
-    def update_subscription(self, subscription_id: str, *, valor: float, descricao: str):
+    def update_subscription(
+        self,
+        subscription_id: str,
+        *,
+        valor: float,
+        descricao: str,
+        expected_external_reference: str,
+    ):
         self.puts += 1
         if self._put_rejected:
             raise AsaasRejectedError("O Asaas rejeitou a atualização da assinatura")
         if self._put_error:
             raise AsaasError("timeout ambíguo depois do PUT")
-        return {"id": subscription_id, "value": valor, "description": descricao}
+        return {
+            "id": subscription_id,
+            "value": valor,
+            "description": descricao,
+            "externalReference": expected_external_reference,
+        }
 
     def get_subscription(self, subscription_id: str):
         self.gets += 1
-        return self._remote
+        if self._remote is None:
+            return None
+        return {
+            "externalReference": "pastorai-subcreate-op1",
+            **self._remote,
+        }
 
     def create_checkout(self, **kwargs):  # pragma: no cover - defesa
         raise AssertionError("troca de plano nunca cria assinatura")
@@ -1127,6 +1156,7 @@ def test_subscription_matches_operation_requires_frozen_target() -> None:
     op = _sub_op()
     good = {
         "id": "sub_9",
+        "externalReference": op.operation_key,
         "customer": "cus_1",
         "value": 199.0,
         "cycle": "MONTHLY",
@@ -1158,6 +1188,7 @@ def test_reconcile_leaves_operation_open_until_adoption() -> None:
     db = _ConfFakeSession(subscription_ops=[op])
     remote = {
         "id": "sub_9",
+        "externalReference": op.operation_key,
         "customer": "cus_1",
         "value": 199.0,
         "cycle": "MONTHLY",
@@ -1223,7 +1254,14 @@ def test_plan_change_definitive_put_rejection_fails_and_frees_claim() -> None:
     db = FakeSession(igreja=igreja)
 
     class _RejectingPlanAsaas:
-        def update_subscription(self, subscription_id, *, valor, descricao):
+        def update_subscription(
+            self,
+            subscription_id,
+            *,
+            valor,
+            descricao,
+            expected_external_reference,
+        ):
             raise AsaasRejectedError("O Asaas rejeitou a atualização da assinatura")
 
         def get_subscription(self, subscription_id):  # pragma: no cover
@@ -1312,10 +1350,20 @@ def test_put_sends_the_frozen_target_description() -> None:
             super().__init__()
             self.descricoes: list[str] = []
 
-        def update_subscription(self, subscription_id, *, valor, descricao):
+        def update_subscription(
+            self,
+            subscription_id,
+            *,
+            valor,
+            descricao,
+            expected_external_reference,
+        ):
             self.descricoes.append(descricao)
             return super().update_subscription(
-                subscription_id, valor=valor, descricao=descricao
+                subscription_id,
+                valor=valor,
+                descricao=descricao,
+                expected_external_reference=expected_external_reference,
             )
 
     asaas = _CapturingAsaas()
@@ -1332,7 +1380,12 @@ def test_put_sends_the_frozen_target_description() -> None:
 # silencioso da mesma linha.
 # ---------------------------------------------------------------------------
 def _intent_sub():
-    return SimpleNamespace(id="local-sub-1", asaas_customer_id="cus_1")
+    return SimpleNamespace(
+        id="local-sub-1",
+        igreja_id="igreja-1",
+        asaas_customer_id="cus_1",
+        asaas_customer_external_reference="pastorai-customer-igreja-1",
+    )
 
 
 def _prepared_intent(plano="ate_100", **over):

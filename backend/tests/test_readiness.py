@@ -76,7 +76,10 @@ def test_all_required_dependencies_ready_and_idle_optional_worker_is_healthy(
     assert report.status == "ready"
     assert report.http_status == 200
     assert report.required == {"database": "ok", "redis": "ok"}
-    assert report.optional == {"evolution": "ok"}
+    assert report.optional == {
+        "evolution": "ok",
+        "billing_operations": "ok",
+    }
     assert report.workers == {
         "queue-worker": "ok",
         "cron-worker": "ok",
@@ -177,13 +180,16 @@ def test_dependency_timeouts_run_concurrently(monkeypatch) -> None:
     assert elapsed < 0.12
     assert report.status == "not_ready"
     assert set(report.required.values()) == {"timeout"}
-    assert report.optional == {"evolution": "timeout"}
+    assert report.optional == {
+        "evolution": "timeout",
+        "billing_operations": "unknown",
+    }
 
 
 def test_database_probe_sets_driver_deadlines(monkeypatch) -> None:
     import app.services.readiness as readiness
 
-    seen: dict[str, object] = {}
+    seen: dict[str, object] = {"sql": []}
 
     class _Url:
         query = {"sslmode": "require"}
@@ -205,11 +211,10 @@ def test_database_probe_sets_driver_deadlines(monkeypatch) -> None:
             return None
 
         def execute(self, sql):
-            seen["sql"] = sql
+            seen["sql"].append(sql)
 
-        @staticmethod
-        def fetchone():
-            return (1,)
+        def fetchone(self):
+            return (1,) if len(seen["sql"]) == 1 else (False,)
 
     class _Connection:
         closed = False
@@ -243,7 +248,9 @@ def test_database_probe_sets_driver_deadlines(monkeypatch) -> None:
         "username": "user",
         "database": "dbname",
     }
-    assert seen["sql"] == "SELECT 1"
+    assert seen["sql"][0] == "SELECT 1"
+    assert "billing_payment_operations" in seen["sql"][1]
+    assert "billing_subscription_operations" in seen["sql"][1]
     assert connection.closed is True
 
 
@@ -491,7 +498,23 @@ def test_disabled_evolution_is_not_a_failure(monkeypatch) -> None:
     report = asyncio.run(collect_readiness(_settings(evolution_url="")))
 
     assert report.status == "ready"
-    assert report.optional == {"evolution": "disabled"}
+    assert report.optional == {
+        "evolution": "disabled",
+        "billing_operations": "ok",
+    }
+
+
+def test_stale_billing_operation_degrades_readiness(monkeypatch) -> None:
+    _install_probes(
+        monkeypatch,
+        database=lambda: {"billing_operations": "stale"},
+    )
+
+    report = asyncio.run(collect_readiness(_settings()))
+
+    assert report.status == "degraded"
+    assert report.http_status == 200
+    assert report.optional["billing_operations"] == "stale"
 
 
 def test_health_remains_live_when_readiness_is_not_ready(monkeypatch, app) -> None:

@@ -1242,6 +1242,14 @@ class Subscription(Base):
     proxima_cobranca: Mapped[dt.date | None] = mapped_column(Date, nullable=True)
     asaas_customer_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     asaas_subscription_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Referências de propriedade na conta Asaas compartilhada. Somente recursos
+    # com namespace `pastorai-` podem ser mutados pela integração.
+    asaas_customer_external_reference: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )
+    asaas_subscription_external_reference: Mapped[str | None] = mapped_column(
+        Text, nullable=True
+    )
     # Pagamento avulso da taxa de setup. O webhook usa este id para não
     # confundir a confirmação mensal com a confirmação do setup.
     asaas_setup_charge_id: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -1424,6 +1432,24 @@ class BillingSubscriptionOperation(Base):
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
     updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+
+class AsaasWebhookReceipt(Base):
+    """Durable idempotency receipt for an inbound Asaas webhook event."""
+
+    __tablename__ = "asaas_webhook_receipts"
+    __table_args__ = (
+        Index("asaas_webhook_receipts_received_at_idx", "received_at"),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    event_id: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    event_type: Mapped[str] = mapped_column(Text, nullable=False)
+    resource_type: Mapped[str | None] = mapped_column(Text, nullable=True)
+    resource_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    received_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
     )
 

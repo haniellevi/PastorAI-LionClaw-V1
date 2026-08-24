@@ -180,7 +180,11 @@ def _subscription(**over):
         limite=100,
         proxima_cobranca=None,
         asaas_customer_id="cus_1",
+        asaas_customer_external_reference=(
+            "pastorai-customer-00000000-0000-0000-0000-000000000001"
+        ),
         asaas_subscription_id="sub_asaas_1",
+        asaas_subscription_external_reference="pastorai-subcreate-owned",
         asaas_setup_charge_id="pay_setup_1",
         asaas_invoice_payment_id=None,
         asaas_invoice_url=None,
@@ -1617,7 +1621,14 @@ class _RestoreAsaas:
         self.calls.append(("get_payment", payment_id))
         return self._states.pop(0) if self._states else None
 
-    def restore_payment(self, payment_id: str):
+    def get_subscription(self, subscription_id: str):
+        self.calls.append(("get_subscription", subscription_id))
+        return {
+            "id": subscription_id,
+            "externalReference": "pastorai-subcreate-owned",
+        }
+
+    def restore_payment(self, payment_id: str, **_kwargs):
         self.calls.append(("restore_payment", payment_id))
         return {"id": payment_id}
 
@@ -1756,6 +1767,50 @@ def test_recover_invoice_deleted_already_restored_skips_restore(app) -> None:
     assert sub.asaas_invoice_url == "https://asaas.test/m2-alive"
 
 
+def test_recover_invoice_deleted_losing_claim_never_repeats_restore(app) -> None:
+    asaas = _RestoreAsaas(
+        states=[
+            {"id": "pay_m2", "deleted": True},
+            {"id": "pay_m2", "deleted": True},
+        ]
+    )
+    sub = _subscription(
+        status="inadimplente",
+        setup_pago=True,
+        asaas_setup_charge_id=None,
+        asaas_invoice_payment_id="pay_m2",
+        asaas_invoice_url=None,
+        asaas_invoice_reversal="deleted",
+    )
+    claimed_by_another_request = BillingPaymentOperation(
+        subscription_id=sub.id,
+        purpose="monthly_recovery",
+        operation_key="pastorai-monthly_recovery-deleted-m2",
+        source_payment_id="pay_m2",
+        status="creating",
+        valor=199.0,
+        attempt_started_at=dt.datetime.now(dt.timezone.utc),
+    )
+    client, db = _client(
+        app,
+        planos=[],
+        asaas=asaas,
+        subscription=sub,
+        operations=[claimed_by_another_request],
+    )
+
+    resp = client.post("/subscription/recover-invoice", headers=_AUTH)
+
+    assert resp.status_code == 409
+    assert resp.json()["detail"] == "Restauração em processamento ou reconciliação"
+    assert asaas.calls == [
+        ("get_payment", "pay_m2"),
+        ("get_payment", "pay_m2"),
+    ]
+    assert claimed_by_another_request.status == "creating"
+    assert db.added == []
+
+
 def test_recover_deleted_preserves_refund_seen_after_restore(app) -> None:
     asaas = _RestoreAsaas(
         states=[
@@ -1877,7 +1932,9 @@ def test_recover_deleted_does_not_overwrite_a_newer_billing_cycle(app) -> None:
     assert view.json()["recoveryRequired"] is True
     assert db.igreja.status == "inadimplente"
     assert db.refresh_calls[:2] == [(staged, True), (sub, True)]
-    assert db.commits == 1
+    # Um commit persiste o claim antes do POST /restore; o segundo aplica o
+    # resultado sem sobrescrever o ciclo mais novo.
+    assert db.commits == 2
 
 
 def test_recover_deleted_confirmed_reopens_the_church_gate(app) -> None:
@@ -2694,11 +2751,22 @@ class _ChangePlanAsaas:
         self.puts: list[tuple[str, float, str]] = []
         self._error = error
 
-    def update_subscription(self, subscription_id: str, *, valor: float, descricao: str):
+    def update_subscription(
+        self,
+        subscription_id: str,
+        *,
+        valor: float,
+        descricao: str,
+        expected_external_reference: str,
+    ):
         self.puts.append((subscription_id, valor, descricao))
         if self._error:
             raise AsaasError("Asaas indisponível")
-        return {"id": subscription_id, "value": valor}
+        return {
+            "id": subscription_id,
+            "value": valor,
+            "externalReference": expected_external_reference,
+        }
 
     def get_subscription(self, subscription_id: str):
         return None
@@ -2714,7 +2782,14 @@ class _RejectedChangePlanAsaas(_ChangePlanAsaas):
         super().__init__()
         self.db = None
 
-    def update_subscription(self, subscription_id: str, *, valor: float, descricao: str):
+    def update_subscription(
+        self,
+        subscription_id: str,
+        *,
+        valor: float,
+        descricao: str,
+        expected_external_reference: str,
+    ):
         self.puts.append((subscription_id, valor, descricao))
         assert self.db is not None
         self.db.pessoas_count = 250
@@ -2729,7 +2804,14 @@ class _SupersededChangePlanAsaas(_ChangePlanAsaas):
         self.db = None
         self.sub = None
 
-    def update_subscription(self, subscription_id: str, *, valor: float, descricao: str):
+    def update_subscription(
+        self,
+        subscription_id: str,
+        *,
+        valor: float,
+        descricao: str,
+        expected_external_reference: str,
+    ):
         self.puts.append((subscription_id, valor, descricao))
         assert self.db is not None and self.sub is not None
         old = next(
@@ -2741,7 +2823,12 @@ class _SupersededChangePlanAsaas(_ChangePlanAsaas):
         self.sub.plano = "acima_201"
         self.sub.limite = None
         self.db.igreja.plano = "acima_201"
-        return {"id": subscription_id, "value": valor, "description": descricao}
+        return {
+            "id": subscription_id,
+            "value": valor,
+            "description": descricao,
+            "externalReference": expected_external_reference,
+        }
 
 
 def _active_sub(**over):
@@ -3564,6 +3651,7 @@ def test_inactive_paid_plan_can_resume_its_matching_ambiguous_intent(app) -> Non
             "value": 199.0,
             "cycle": "MONTHLY",
             "description": "PastorAI — plano ate_100",
+            "externalReference": op.operation_key,
         }
     ]
     client, _db = _client(
@@ -3614,6 +3702,7 @@ def test_checkout_lost_response_reconciles_without_second_post(app) -> None:
         "value": 199.0,
         "cycle": "MONTHLY",
         "description": "PastorAI — plano ate_100",
+        "externalReference": op.operation_key,
     }]
     resp2 = client.post(
         "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
@@ -3643,6 +3732,7 @@ def test_reconciled_adoption_discards_lookup_when_webhook_wins_during_get(app) -
         "value": 199.0,
         "cycle": "MONTHLY",
         "description": "PastorAI — plano ate_100",
+        "externalReference": op.operation_key,
     }
 
     def lookup_after_webhook(ref: str):
@@ -3710,6 +3800,7 @@ def test_reconciliation_revalidates_every_local_snapshot_after_remote_get(
         "value": 199.0,
         "cycle": "MONTHLY",
         "description": "PastorAI — plano ate_100",
+        "externalReference": op.operation_key,
     }]
     client, db = _client(
         app,
@@ -3779,6 +3870,7 @@ def test_reconciliation_releases_transaction_before_get_then_relocks_canonically
         "value": 199.0,
         "cycle": "MONTHLY",
         "description": "PastorAI — plano ate_100",
+        "externalReference": op.operation_key,
     }]
     client, db = _client(
         app,
@@ -3966,7 +4058,9 @@ def test_subscription_asaas_field_inventory_is_explicit() -> None:
 
     assert asaas_fields == {
         "asaas_customer_id",
+        "asaas_customer_external_reference",
         "asaas_subscription_id",
+        "asaas_subscription_external_reference",
         "asaas_setup_charge_id",
         "asaas_setup_reversed_payment_id",
         "asaas_invoice_url",
@@ -4499,6 +4593,38 @@ def test_checkout_reconcile_zero_matches_stays_reconciling_without_post(app) -> 
     assert created_sub.asaas_subscription_id is None
 
 
+@pytest.mark.parametrize("external_reference", [None, "legacy-resource"])
+def test_checkout_reconcile_rejects_missing_or_foreign_reference(
+    app, external_reference: str | None
+) -> None:
+    asaas = _LostResponseAsaas()
+    client, db = _client(app, planos=[_plano()], asaas=asaas)
+
+    assert client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    ).status_code == 502
+    _adopt_created_sub(db)
+    op = next(o for o in db.added if isinstance(o, BillingSubscriptionOperation))
+    asaas.found = [{
+        "id": "sub_external_or_legacy",
+        "customer": "cus_1",
+        "value": 199.0,
+        "cycle": "MONTHLY",
+        "description": "PastorAI — plano ate_100",
+        "externalReference": external_reference,
+    }]
+
+    response = client.post(
+        "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
+    )
+
+    assert response.status_code == 502
+    assert op.status == "reconciling"
+    assert op.asaas_subscription_id is None
+    assert asaas.create_calls == 1
+    assert asaas.find_calls == 1
+
+
 def test_checkout_reconcile_multiple_matches_stays_blocking(app) -> None:
     asaas = _LostResponseAsaas()
     client, db = _client(app, planos=[_plano()], asaas=asaas)
@@ -4507,12 +4633,14 @@ def test_checkout_reconcile_multiple_matches_stays_blocking(app) -> None:
         "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH
     ).status_code == 502
     _adopt_created_sub(db)
+    op = next(o for o in db.added if isinstance(o, BillingSubscriptionOperation))
     match = {
         "id": "sub_asaas_a",
         "customer": "cus_1",
         "value": 199.0,
         "cycle": "MONTHLY",
         "description": "PastorAI — plano ate_100",
+        "externalReference": op.operation_key,
     }
     asaas.found = [match, {**match, "id": "sub_asaas_b"}]
 
@@ -4523,7 +4651,6 @@ def test_checkout_reconcile_multiple_matches_stays_blocking(app) -> None:
             headers=_AUTH,
         ).status_code == 502
 
-    op = next(o for o in db.added if isinstance(o, BillingSubscriptionOperation))
     assert op.status == "reconciling"
     assert "revisão manual" in (op.error or "")
     assert asaas.find_calls == 2
@@ -4555,6 +4682,7 @@ def test_adoption_uses_the_setup_fee_frozen_before_the_lost_response(app) -> Non
         "value": 199.0,
         "cycle": "MONTHLY",
         "description": "PastorAI — plano ate_100",
+        "externalReference": op.operation_key,
     }]
 
     response = client.post(
@@ -4585,12 +4713,14 @@ def test_adoption_of_zero_fee_checkout_marks_setup_as_paid(app) -> None:
     assert float(created_sub.setup_fee_contracted) == 0.0
 
     _adopt_created_sub(db)
+    op = next(o for o in db.added if isinstance(o, BillingSubscriptionOperation))
     asaas.found = [{
         "id": "sub_asaas_zero_setup",
         "customer": "cus_1",
         "value": 199.0,
         "cycle": "MONTHLY",
         "description": "PastorAI — plano ate_100",
+        "externalReference": op.operation_key,
     }]
 
     response = client.post(
@@ -5026,11 +5156,23 @@ class _FlakyChangePlanAsaas:
         self.puts: list[tuple[str, float, str]] = []
         self.gets = 0
 
-    def update_subscription(self, subscription_id: str, *, valor: float, descricao: str):
+    def update_subscription(
+        self,
+        subscription_id: str,
+        *,
+        valor: float,
+        descricao: str,
+        expected_external_reference: str,
+    ):
         self.puts.append((subscription_id, valor, descricao))
         if len(self.puts) == 1:
             raise AsaasError("timeout ambíguo depois do PUT")
-        return {"id": subscription_id, "value": valor, "description": descricao}
+        return {
+            "id": subscription_id,
+            "value": valor,
+            "description": descricao,
+            "externalReference": expected_external_reference,
+        }
 
     def get_subscription(self, subscription_id: str):
         self.gets += 1
@@ -5160,6 +5302,7 @@ def test_reconciles_open_intent_even_after_the_master_deactivates_the_plan(
         "value": 199.0,
         "cycle": "MONTHLY",
         "description": "PastorAI — plano ate_100",
+        "externalReference": op.operation_key,
     }]
     resp = client.post(
         "/subscription", json={"plano": "ate_100", "cpfCnpj": _CPF}, headers=_AUTH

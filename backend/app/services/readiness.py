@@ -80,8 +80,8 @@ class ReadinessReport:
         }
 
 
-def _check_database() -> None:
-    """Probe Postgres with driver-level connect and statement deadlines."""
+def _check_database() -> dict[str, str]:
+    """Probe Postgres and expose a sanitized stale-billing signal."""
     url = get_engine().url
     kwargs: dict[str, Any] = url.translate_connect_args(
         username="user",
@@ -98,8 +98,33 @@ def _check_database() -> None:
         with connection.cursor() as cursor:
             cursor.execute("SELECT 1")
             value = cursor.fetchone()
+            cursor.execute(
+                """
+                SELECT EXISTS (
+                  SELECT 1
+                    FROM billing_payment_operations
+                   WHERE status IN ('creating', 'reconciling')
+                     AND COALESCE(attempt_started_at, updated_at, created_at)
+                         < now() - interval '1 hour'
+                  UNION ALL
+                  SELECT 1
+                    FROM billing_subscription_operations
+                   WHERE status IN ('creating', 'reconciling')
+                     AND COALESCE(attempt_started_at, updated_at, created_at)
+                         < now() - interval '1 hour'
+                )
+                """
+            )
+            stale_billing = cursor.fetchone()
     if value != (1,):
         raise RuntimeError("database probe failed")
+    return {
+        "billing_operations": (
+            "stale"
+            if stale_billing and stale_billing[0] is True
+            else "ok"
+        )
+    }
 
 
 def _check_redis_and_workers(settings: Settings) -> dict[str, str | None]:
@@ -257,7 +282,18 @@ async def collect_readiness(
     workers = _public_worker_states(
         redis_result[1] if redis_result[0] == "ok" else None
     )
-    optional = {"evolution": evolution_result[0]}
+    database_signals = (
+        database_result[1] if isinstance(database_result[1], dict) else {}
+    )
+    optional = {
+        "evolution": evolution_result[0],
+        "billing_operations": str(
+            database_signals.get(
+                "billing_operations",
+                "ok" if database_result[0] == "ok" else "unknown",
+            )
+        ),
+    }
 
     if any(state != "ok" for state in required.values()):
         status = "not_ready"

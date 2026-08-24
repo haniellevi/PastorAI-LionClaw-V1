@@ -35,6 +35,8 @@ from app.services.asaas import (
     AsaasError,
     AsaasRejectedError,
     AsaasWritesDisabledError,
+    customer_external_reference,
+    is_pastorai_external_reference,
     map_payment_status,
     payment_invoice_url,
     payment_reversal_kind,
@@ -492,6 +494,7 @@ def payment_matches_operation(
     )
     return bool(
         payment.get("id")
+        and str(payment.get("externalReference") or "") == str(op.operation_key)
         and value_ok
         and customer_ok
         and payment.get("description") == description
@@ -518,6 +521,12 @@ def ensure_payment_operation(
     POST marca `reconciling`: retries seguintes só reconciliam — nunca um novo
     POST automático.
     """
+    if not is_pastorai_external_reference(
+        getattr(sub, "asaas_customer_external_reference", None)
+    ):
+        raise AsaasRejectedError(
+            "Customer local sem referência de propriedade do PastorAI"
+        )
     op = find_open_operation(db, sub.id, purpose, source_payment_id)
 
     if op is None:
@@ -594,6 +603,9 @@ def ensure_payment_operation(
             valor=valor,
             description=description,
             external_reference=op.operation_key,
+            expected_customer_external_reference=(
+                sub.asaas_customer_external_reference
+            ),
         )
     except AsaasWritesDisabledError:
         # O gate negou ANTES de qualquer HTTP: não há resultado remoto para
@@ -878,6 +890,11 @@ def _plan_change_matches_remote(
     """
     if not isinstance(remote, dict):
         return False
+    expected_reference = getattr(op, "asaas_subscription_external_reference", None)
+    if expected_reference and str(remote.get("externalReference") or "") != str(
+        expected_reference
+    ):
+        return False
     try:
         value_ok = float(remote.get("value")) == float(op.to_preco)
     except (TypeError, ValueError):
@@ -971,7 +988,16 @@ def ensure_plan_change_operation(
         raise PlanChangeConflict(
             "O plano de cortesia é gerenciado pelo administrador da plataforma"
         )
+    subscription_reference = getattr(
+        sub, "asaas_subscription_external_reference", None
+    )
+    if not is_pastorai_external_reference(subscription_reference):
+        raise PlanChangeConflict(
+            "Assinatura local sem referência de propriedade do PastorAI"
+        )
     op = find_open_plan_change(db, sub.id)
+    if op is not None:
+        op.asaas_subscription_external_reference = subscription_reference
 
     if op is not None and op.to_plano != to_plano:
         # Duas solicitações concorrentes para planos DIFERENTES nunca se
@@ -1083,6 +1109,8 @@ def ensure_plan_change_operation(
                     f"Já existe uma troca em andamento para o plano {op.to_plano}"
                 ) from None
 
+    op.asaas_subscription_external_reference = subscription_reference
+
     # O estado de entrada distingue uma primeira tentativa comprovadamente
     # pré-rede de um retry que já carrega ambiguidade de PUT anterior. O claim
     # abaixo muda ambos para `processing`, portanto essa origem precisa ser
@@ -1134,6 +1162,9 @@ def ensure_plan_change_operation(
             valor=float(op.to_preco),
             # MESMA descrição que a reconciliação confere depois.
             descricao=op.to_descricao or subscription_description(op.to_plano),
+            expected_external_reference=(
+                sub.asaas_subscription_external_reference
+            ),
         )
     except AsaasWritesDisabledError:
         # O PUT desta tentativa foi bloqueado localmente. Só a primeira
@@ -1197,9 +1228,8 @@ def find_subscription_operation_by_key(
 ) -> BillingSubscriptionOperation | None:
     """Resolve a intenção de criação pela operation_key (webhook novo formato).
 
-    A externalReference das assinaturas criadas após CORRECTIVE-6 é a
-    operation_key da intenção durável — o webhook a resolve por aqui; o
-    formato legado (igreja_id) continua no fallback do próprio webhook.
+    A externalReference das assinaturas PastorAI é a operation_key da intenção
+    durável. Recursos legados sem esse namespace não são adotados.
     """
     statement = select(BillingSubscriptionOperation).where(
         BillingSubscriptionOperation.operation_key == str(operation_key)
@@ -1216,8 +1246,8 @@ def subscription_matches_operation(
 ) -> bool:
     """A assinatura achada na reconciliação bate com o alvo CONGELADO?
 
-    Adota somente quando customer, valor, ciclo e descrição correspondem — a
-    externalReference localiza candidatas, mas não é prova de posse.
+    Adota somente quando externalReference, customer, valor, ciclo e descrição
+    correspondem ao snapshot congelado da intenção durável.
     """
     if not isinstance(remote, dict) or not remote.get("id"):
         return False
@@ -1236,6 +1266,7 @@ def subscription_matches_operation(
         and customer_ok
         and cycle_ok
         and remote.get("description") == op.descricao
+        and str(remote.get("externalReference") or "") == str(op.operation_key)
     )
 
 
@@ -1260,6 +1291,16 @@ def prepare_subscription_operation(
     `creating`/`reconciling` são ambíguos: o POST pode ter chegado ao Asaas, e
     trocar de alvo poderia abandonar uma recorrência viva — conflito explícito.
     """
+    stable_customer_reference = customer_external_reference(sub.igreja_id)
+    existing_customer_reference = getattr(
+        sub, "asaas_customer_external_reference", None
+    )
+    if existing_customer_reference not in (None, stable_customer_reference):
+        raise SubscriptionCreateConflict(
+            "Customer local possui referência Asaas divergente"
+        )
+    sub.asaas_customer_external_reference = stable_customer_reference
+
     op = find_open_subscription_operation(db, sub.id)
     if op is None:
         # `created` fica fora do índice parcial de operações abertas, mas ainda

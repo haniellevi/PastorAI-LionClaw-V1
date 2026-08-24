@@ -27,6 +27,7 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
@@ -34,6 +35,7 @@ from app.db.models import (
     BillingPaymentOperation,
     BillingPlanChangeOperation,
     BillingSubscriptionOperation,
+    AsaasWebhookReceipt,
     Igreja,
     Plano,
     Subscription,
@@ -52,6 +54,7 @@ from app.services.asaas import (
     map_payment_status,
     payment_invoice_url,
     payment_reversal_kind,
+    is_pastorai_external_reference,
     subscription_description,
     verify_webhook_token,
 )
@@ -1055,10 +1058,7 @@ def _remote_matches_reconciliation_snapshot(
         and str(remote.get("customer") or "") == snapshot.customer_id
         and str(remote.get("cycle") or "").upper() == snapshot.cycle
         and str(remote.get("description") or "") == snapshot.description
-        and (
-            not remote.get("externalReference")
-            or str(remote["externalReference"]) == snapshot.operation_key
-        )
+        and str(remote.get("externalReference") or "") == snapshot.operation_key
     )
 
 
@@ -1315,75 +1315,6 @@ def _lock_webhook_subscription(
     return locked
 
 
-def _find_legacy_setup_candidate(
-    db: Session,
-    payment: dict,
-    payment_id: str | None,
-    new_status: str | None,
-    reversal: str | None,
-) -> Subscription | None:
-    """Setup pago por checkout ANTERIOR à migration (sem charge id rastreado).
-
-    O cliente antigo criava a cobrança de setup sem persistir o id, então a
-    confirmação chegaria aqui como "one-time payment desconhecido" e o tenant
-    ficaria devendo setup para sempre. Reconciliação ESTRITA — só marca pago
-    quando TODAS as condições fecham: é confirmação, a descrição é exatamente a
-    da cobrança de setup, o payment histórico não tem externalReference e o
-    customer pertence a UMA ÚNICA assinatura local no total. Só então valida
-    setup em aberto e ausência de charge id. Customer compartilhado por
-    CPF/CNPJ é ambíguo mesmo que apenas uma igreja esteja devendo setup.
-    Qualquer ambiguidade é reconhecida sem mutação. Nunca altera mensalidade,
-    status da assinatura ou acesso da igreja.
-    """
-    if (
-        payment_id is None
-        or (new_status != "ativa" and reversal is None)
-        or payment.get("description") != SETUP_CHARGE_DESCRIPTION
-        or not payment.get("customer")
-        or payment.get("externalReference")
-    ):
-        return None
-    assinaturas_do_customer = db.execute(
-        select(Subscription)
-        .where(
-            Subscription.asaas_customer_id == str(payment["customer"]),
-        )
-    ).scalars().all()
-    if len(assinaturas_do_customer) != 1:
-        return None
-    return assinaturas_do_customer[0]
-
-
-def _reconcile_legacy_setup_charge(
-    db: Session,
-    legada: Subscription,
-    payment_id: str,
-    new_status: str | None,
-    reversal: str | None,
-) -> WebhookResponse | None:
-    """Aplica setup legado após Igreja -> Planos -> Subscription e revalidação."""
-    if legada.setup_pago or legada.asaas_setup_charge_id is not None:
-        return None
-    if reversal:
-        # Reversão pode chegar ANTES da primeira confirmação/adopção. Persiste
-        # o payment id como tombstone para a confirmação atrasada não marcar a
-        # cobrança morta como paga.
-        legada.setup_pago = False
-        legada.asaas_setup_reversed_payment_id = payment_id
-        legada.asaas_setup_charge_id = None
-        legada.asaas_setup_invoice_url = None
-        db.commit()
-        return WebhookResponse(received=True, status=new_status)
-    if str(getattr(legada, "asaas_setup_reversed_payment_id", "")) == payment_id:
-        # A cobrança já foi adotada e depois revertida. Confirmação atrasada não
-        # ressuscita obrigação morta nem remove a nova pendência de setup.
-        return WebhookResponse(received=True, status=None)
-    legada.asaas_setup_charge_id = payment_id
-    legada.setup_pago = True
-    db.commit()
-    return WebhookResponse(received=True, status=new_status)
-
-
 def _apply_setup_charge_event(
     db: Session, setup_sub: Subscription, new_status: str | None, reversal: str | None
 ) -> None:
@@ -1396,7 +1327,6 @@ def _apply_setup_charge_event(
     """
     if new_status == "ativa" and not setup_sub.setup_pago:
         setup_sub.setup_pago = True
-        db.commit()
     elif reversal:
         setup_sub.setup_pago = False
         setup_sub.asaas_setup_reversed_payment_id = (
@@ -1406,7 +1336,6 @@ def _apply_setup_charge_event(
         )
         setup_sub.asaas_setup_charge_id = None
         setup_sub.asaas_setup_invoice_url = None
-        db.commit()
 
 
 def _apply_operation_event(
@@ -1476,7 +1405,6 @@ def _apply_operation_event(
                 sub.setup_pago = False
                 sub.asaas_setup_charge_id = None
                 sub.asaas_setup_invoice_url = None
-        db.commit()
         return WebhookResponse(received=True, status=new_status)
 
     # monthly_recovery: quitação remove somente a dívida da SUA fonte. O ciclo
@@ -1552,7 +1480,6 @@ def _apply_operation_event(
                 # Só a fonte corrente ocupa o snapshot corrente; a dívida de
                 # ciclo antigo vive na operação preparada acima.
                 sub.asaas_invoice_reversal = "refunded"
-    db.commit()
     return WebhookResponse(received=True, status=new_status)
 
 
@@ -2056,6 +1983,7 @@ def _adopt_open_subscription_intent(
         locked_sub.status = "pendente"
         locked_sub.asaas_invoice_reversal = None
     locked_sub.asaas_subscription_id = remote_id
+    locked_sub.asaas_subscription_external_reference = locked_op.operation_key
     if locked_op.customer_id:
         locked_sub.asaas_customer_id = locked_op.customer_id
     elif remote.get("customer"):
@@ -2463,6 +2391,7 @@ def create_checkout(
             sub.status = incoming_status
         sub.asaas_customer_id = customer_id
         sub.asaas_subscription_id = subscription_id
+        sub.asaas_subscription_external_reference = op.operation_key
         op.status = "created"
         op.asaas_subscription_id = subscription_id
         op.attempt_started_at = None
@@ -2520,6 +2449,9 @@ def create_checkout(
             plano=payload.plano,
             valor=checkout_value,
             cpf_cnpj=payload.cpfCnpj,
+            customer_external_reference=(
+                sub.asaas_customer_external_reference
+            ),
             external_reference=op.operation_key,
             on_customer_resolved=_persist_resolved_customer,
             on_subscription_created=_track_created_subscription,
@@ -2820,9 +2752,91 @@ def recover_invoice(
         try:
             current = asaas.get_payment(source_payment_id)
             if current is not None and current.get("deleted"):
-                # Ainda excluída: restaura o MESMO payment id (sem nova cobrança).
-                asaas.restore_payment(source_payment_id)
-                current = asaas.get_payment(source_payment_id)
+                if open_recovery is None:
+                    open_recovery = _stage_monthly_recovery(
+                        db, sub, current, source_payment_id
+                    )
+                    if open_recovery is None:
+                        raise AsaasError(
+                            "Cobrança excluída sem valor válido para recuperação"
+                        )
+                    try:
+                        db.commit()
+                    except Exception:
+                        db.rollback()
+                        open_recovery = find_open_operation(
+                            db,
+                            sub.id,
+                            "monthly_recovery",
+                            source_payment_id,
+                        )
+                        if open_recovery is None:
+                            raise
+
+                restore_claimed = bool(
+                    open_recovery.status == "prepared"
+                    and claim_transition(
+                        db,
+                        open_recovery,
+                        "prepared",
+                        "creating",
+                        attempt_started_at=dt.datetime.now(dt.timezone.utc),
+                    )
+                )
+                if not restore_claimed:
+                    # Outro request já possuiu o único claim. Releia o remoto;
+                    # se ainda estiver excluído, não repita o POST não idempotente.
+                    current = asaas.get_payment(source_payment_id)
+                    if current is not None and current.get("deleted"):
+                        raise HTTPException(
+                            status_code=status.HTTP_409_CONFLICT,
+                            detail="Restauração em processamento ou reconciliação",
+                        )
+                else:
+                    try:
+                        asaas.restore_payment(
+                            source_payment_id,
+                            expected_subscription_id=str(
+                                sub.asaas_subscription_id
+                            ),
+                            expected_customer_id=str(sub.asaas_customer_id),
+                            expected_subscription_external_reference=str(
+                                sub.asaas_subscription_external_reference
+                            ),
+                        )
+                    except AsaasWritesDisabledError:
+                        claim_transition(
+                            db,
+                            open_recovery,
+                            "creating",
+                            "prepared",
+                            attempt_started_at=None,
+                        )
+                        raise
+                    except AsaasRejectedError as exc:
+                        current = asaas.get_payment(source_payment_id)
+                        if current is not None and current.get("deleted"):
+                            finish_operation(
+                                db,
+                                open_recovery,
+                                ("creating",),
+                                status="failed",
+                                error="Restauração rejeitada pelo Asaas",
+                                attempt_started_at=None,
+                            )
+                            raise exc
+                    except AsaasError:
+                        claim_transition(
+                            db,
+                            open_recovery,
+                            "creating",
+                            "reconciling",
+                            attempt_started_at=None,
+                        )
+                        raise
+                    current = asaas.get_payment(source_payment_id)
+        except HTTPException:
+            raise
         except AsaasError as exc:
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
@@ -2909,6 +2923,16 @@ def recover_invoice(
             sub.status = "inadimplente"
             sub.asaas_invoice_url = None
             sub.asaas_invoice_reversal = source_reversal
+            if (
+                open_recovery is not None
+                and open_recovery.status == "creating"
+            ):
+                # REFUNDED muda o trilho para uma nova cobrança avulsa; DELETED
+                # após 200 é ambíguo e permanece bloqueado para reconciliação.
+                open_recovery.status = (
+                    "prepared" if source_reversal == "refunded" else "reconciling"
+                )
+                open_recovery.attempt_started_at = None
             db.execute(
                 update(Igreja)
                 .where(
@@ -3324,9 +3348,33 @@ def change_plan(
 class AsaasWebhookEvent(BaseModel):
     """Subset of the Asaas webhook payload we consume."""
 
+    id: str | None = None
     event: str | None = None
     payment: dict | None = None
     subscription: dict | None = None
+
+
+def _claim_asaas_webhook_event(db: Session, payload: AsaasWebhookEvent) -> bool:
+    """Claim one official Asaas event ID inside the business transaction."""
+    event_id = str(payload.id or "").strip()
+    if not event_id:
+        return False
+    payment = payload.payment or {}
+    subscription = payload.subscription or {}
+    resource_type = "payment" if payment else "subscription" if subscription else None
+    resource = payment or subscription
+    statement = (
+        pg_insert(AsaasWebhookReceipt)
+        .values(
+            event_id=event_id,
+            event_type=str(payload.event or "UNKNOWN"),
+            resource_type=resource_type,
+            resource_id=str(resource.get("id")) if resource.get("id") else None,
+        )
+        .on_conflict_do_nothing(index_elements=[AsaasWebhookReceipt.event_id])
+        .returning(AsaasWebhookReceipt.id)
+    )
+    return db.execute(statement).scalar_one_or_none() is not None
 
 
 @router.post("/webhook", response_model=WebhookResponse)
@@ -3338,9 +3386,9 @@ def asaas_webhook(
     """Apply an Asaas payment/subscription event to the subscription status.
 
     The webhook is gated by the shared `asaas-access-token` header (constant-time
-    comparison). The igreja is resolved from the payment/subscription
-    externalReference (set to the igreja id at checkout). Unknown statuses are
-    acknowledged without changing state.
+    comparison). Resources are resolved only through durable PastorAI bindings
+    and the reserved externalReference namespace. Unknown resources and statuses
+    are acknowledged without changing state.
     """
     settings = get_settings()
     if not verify_webhook_token(settings.asaas_webhook_token, asaas_access_token):
@@ -3348,6 +3396,29 @@ def asaas_webhook(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Assinatura de webhook inválida",
         )
+
+    if not payload.id:
+        logger.warning("Asaas webhook without event id; acknowledged without mutation")
+        return WebhookResponse(received=True, status=None)
+    if not _claim_asaas_webhook_event(db, payload):
+        db.rollback()
+        return WebhookResponse(received=True, status=None)
+    try:
+        response = _apply_asaas_webhook(payload, db)
+        # Alguns caminhos não alteram o domínio. O commit torna o receipt
+        # durável também nesses casos, evitando reprocessamento infinito.
+        db.commit()
+        return response
+    except Exception:
+        db.rollback()
+        raise
+
+
+def _apply_asaas_webhook(
+    payload: AsaasWebhookEvent,
+    db: Session,
+) -> WebhookResponse:
+    """Apply one newly claimed event; caller owns commit and rollback."""
 
     payment = payload.payment or {}
     subscription = payload.subscription or {}
@@ -3445,46 +3516,10 @@ def asaas_webhook(
             )
             return WebhookResponse(received=True, status=None)
 
-    # A payment without an Asaas subscription can only be a setup charge.
-    # Never use its externalReference as authority for a monthly status
-    # transition; that would let another one-time charge alter access.
+    # Cobranças avulsas só são aceitas quando pertencem a uma operação durável
+    # ou ao setup explicitamente rastreado. Recursos legados sem namespace são
+    # externos à integração e permanecem intocados na conta compartilhada.
     if payment and not payment.get("subscription"):
-        legacy_candidate = _find_legacy_setup_candidate(
-            db, payment, payment_id, new_status, reversal
-        )
-        if legacy_candidate is not None:
-            scope = _lock_webhook_owner_and_plans(db, legacy_candidate)
-            if scope is not None:
-                locked_igreja, locked_plan_codes = scope
-                legacy_sub = _lock_webhook_subscription(
-                    db,
-                    legacy_candidate,
-                    locked_igreja=locked_igreja,
-                    locked_plan_codes=locked_plan_codes,
-                )
-                # Revalida a unicidade e o customer depois de qualquer espera.
-                current_candidates = db.execute(
-                    select(Subscription).where(
-                        Subscription.asaas_customer_id
-                        == str(payment["customer"])
-                    )
-                ).scalars().all()
-                if (
-                    legacy_sub is not None
-                    and len(current_candidates) == 1
-                    and str(current_candidates[0].id) == str(legacy_sub.id)
-                    and str(legacy_sub.asaas_customer_id)
-                    == str(payment["customer"])
-                ):
-                    legacy = _reconcile_legacy_setup_charge(
-                        db,
-                        legacy_sub,
-                        str(payment_id),
-                        new_status,
-                        reversal,
-                    )
-                    if legacy is not None:
-                        return legacy
         logger.info("Asaas webhook for unknown one-time payment; acknowledged")
         return WebhookResponse(received=True, status=None)
 
@@ -3498,7 +3533,16 @@ def asaas_webhook(
             .where(Subscription.asaas_subscription_id == str(asaas_sub_id))
         ).scalar_one_or_none()
         if sub_candidate is not None:
-            resolution = "tracked"
+            if is_pastorai_external_reference(
+                getattr(
+                    sub_candidate,
+                    "asaas_subscription_external_reference",
+                    None,
+                )
+            ):
+                resolution = "tracked"
+            else:
+                sub_candidate = None
     if sub_candidate is None:
         # O webhook pode vencer a callback do POST /subscriptions: nesse
         # intervalo o id remoto ainda não está na Subscription local, mas a
@@ -3521,19 +3565,6 @@ def asaas_webhook(
                     db, create_op_candidate.subscription_id
                 )
                 resolution = "creation"
-            elif not payment:
-                # Compat: assinaturas antigas carregam o igreja_id.
-                try:
-                    igreja_uuid = uuid.UUID(str(external_ref))
-                    sub_candidate = db.execute(
-                        select(Subscription).where(
-                            Subscription.igreja_id == igreja_uuid
-                        )
-                    ).scalar_one_or_none()
-                    if sub_candidate is not None:
-                        resolution = "legacy"
-                except ValueError:
-                    sub_candidate = None
     if sub_candidate is None:
         logger.info("Asaas webhook for unknown subscription; acknowledged")
         return WebhookResponse(received=True, status=None)
@@ -3581,14 +3612,6 @@ def asaas_webhook(
                 "acknowledged"
             )
             return WebhookResponse(received=True, status=None)
-    elif resolution == "legacy":
-        tracked_remote = getattr(sub, "asaas_subscription_id", None)
-        if tracked_remote and str(tracked_remote) != str(asaas_sub_id):
-            logger.warning(
-                "Asaas legacy webhook conflicts with tracked subscription; "
-                "acknowledged"
-            )
-            return WebhookResponse(received=True, status=None)
     elif resolution == "creation":
         tracked_remote = getattr(create_op, "asaas_subscription_id", None)
         remote_matches = bool(
@@ -3607,6 +3630,7 @@ def asaas_webhook(
         sub.plano = create_op.plano
         sub.limite = create_op.limite
         sub.asaas_subscription_id = str(asaas_sub_id)
+        sub.asaas_subscription_external_reference = create_op.operation_key
         if getattr(create_op, "customer_id", None):
             sub.asaas_customer_id = create_op.customer_id
         frozen_setup = getattr(create_op, "setup_fee", None)
@@ -3667,7 +3691,6 @@ def asaas_webhook(
                     .where(Igreja.id == sub.igreja_id, Igreja.status == "ativa")
                     .values(status="inadimplente")
                 )
-                db.commit()
                 return WebhookResponse(received=True, status=new_status)
         logger.info("Asaas webhook for a previous billing cycle; acknowledged")
         return WebhookResponse(received=True, status=None)
@@ -3719,6 +3742,4 @@ def asaas_webhook(
                 .where(Igreja.id == sub.igreja_id, Igreja.status == "ativa")
                 .values(status="inadimplente")
             )
-        db.commit()
-
     return WebhookResponse(received=True, status=new_status)
