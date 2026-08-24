@@ -64,6 +64,7 @@ def _sub(**over):
         limite=100,
         pessoas=101,  # espelho legado: membros correntes; testes multi-tier setam
         asaas_subscription_id="sub_asaas_1",
+        asaas_subscription_external_reference="pastorai-subcreate-owned",
         proxima_cobranca="2026-08-01",
     )
     base.update(over)
@@ -89,7 +90,14 @@ class _WorkerAsaas:
         self._put_error = put_error
         self._put_rejected = put_rejected
 
-    def update_subscription(self, subscription_id: str, *, valor: float, descricao: str):
+    def update_subscription(
+        self,
+        subscription_id: str,
+        *,
+        valor: float,
+        descricao: str,
+        expected_external_reference: str,
+    ):
         self.puts += 1
         self.put_targets.append(subscription_id)
         self.put_values.append(valor)
@@ -98,11 +106,21 @@ class _WorkerAsaas:
             raise AsaasRejectedError("Plano rejeitado definitivamente pelo Asaas")
         if self._put_error:
             raise AsaasError("timeout ambíguo depois do PUT")
-        return {"id": subscription_id, "value": valor, "description": descricao}
+        return {
+            "id": subscription_id,
+            "value": valor,
+            "description": descricao,
+            "externalReference": expected_external_reference,
+        }
 
     def get_subscription(self, subscription_id: str):
         self.gets += 1
-        return self._remote
+        if self._remote is None:
+            return None
+        return {
+            "externalReference": "pastorai-subcreate-owned",
+            **self._remote,
+        }
 
     def create_checkout(self, **kwargs):  # pragma: no cover - defesa
         raise AssertionError(
@@ -408,6 +426,7 @@ def test_worker_gate_block_preserves_ambiguous_operation_across_ticks(
             "id": subscription_id,
             "value": 199.0,
             "description": "PastorAI — plano ate_100",
+            "externalReference": "pastorai-subcreate-owned",
         }
 
     monkeypatch.setattr("app.services.asaas.httpx.Client", forbidden_http)

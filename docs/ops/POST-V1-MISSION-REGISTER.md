@@ -18,7 +18,9 @@ integrações externas e não abre gates de produção.
 - flags externas no backend, queue worker, cron worker e broadcast worker:
   `ALLOW_REAL_SENDS=false`, `ASAAS_BILLING_ENABLED=false`,
   `BREVO_SEND_MODE=off` e `BROADCAST_ASYNC_ENABLED=false`;
-- fonte de verdade: `origin/main` no SHA acima.
+- fonte de verdade do código: `origin/main` em
+  `ee3c24d8095df6f84439492a6eacccc212d1507c`; produção ainda serve o SHA
+  informado para cada camada acima.
 
 ## Missões
 
@@ -50,7 +52,7 @@ integrações externas e não abre gates de produção.
      release.
 
 4. **Asaas real.**
-   - Estado: **BLOCKED / NOT_READY**.
+   - Estado: **BLOCKED / CODE READY, OPERAÇÃO NOT_READY**.
    - Código: a PR #284 endureceu os gates antes da rede e diferenciou bloqueio
      local de falha remota ambígua. O backend completo passou com 2.582 testes
      e 239 skips antes do merge; o SHA está implantado nos quatro processos de
@@ -58,13 +60,21 @@ integrações externas e não abre gates de produção.
    - Preflight operacional de 2026-08-24: concluído somente leitura, sem
      cobrança, migration, canário ou alteração de flags. Ver a seção dedicada
      abaixo.
-   - Bloqueio principal: a conta Asaas de produção não está vazia nem
-     reconciliada com o PastorAI. Ela contém recursos ativos sem qualquer
-     vínculo por ID, e-mail ou telefone com o banco PROD do PastorAI.
-   - Pré-requisitos ainda abertos: classificação de propriedade dos recursos
-     remotos, decisão de isolamento da conta, observabilidade para operações
-     presas, plano de canário financeiro isolado e autorização nominal para
-     abrir simultaneamente `ALLOW_REAL_SENDS` e `ASAAS_BILLING_ENABLED`.
+   - Decisão operacional: a conta Asaas atual será a conta oficial
+     compartilhada. Somente recursos com `externalReference` no namespace
+     reservado `pastorai-` pertencem à integração; os recursos existentes sem
+     esse marcador são externos ou legados e permanecem intocados.
+   - Hardening candidato: propriedade revalidada antes de cada mutação, buscas
+     conciliatórias paginadas, claim durável para restore, ledger de IDs de
+     webhook, unicidade dos IDs remotos e sinal de readiness para operações
+     presas. A migration é aditiva e não faz backfill nem adota legado.
+   - Pré-requisitos ainda abertos: merge, migration e deploy do hardening com
+     os gates fechados; verificação pós-deploy; inventário imediatamente antes
+     do canário; autorização nominal no momento de abrir simultaneamente
+     `ALLOW_REAL_SENDS` e `ASAAS_BILLING_ENABLED`.
+   - Pilotos: o plano gratuito `piloto_full` é atribuído somente pelo painel
+     master. A igreja Filadélfia de Corrente está nessa cortesia; nenhuma
+     cobrança Asaas deve ser criada enquanto permanecer nesse plano.
 
 5. **Broadcast assíncrono e envios Evolution.**
    - Estado: **FECHADO**.
@@ -152,18 +162,16 @@ usado em canário por inferência.
 
 - a conta Asaas contém duas assinaturas ativas não pertencentes ao inventário
   local conhecido;
-- operações de pagamento e criação de assinatura presas em `reconciling` não
-  possuem alerta específico por idade, embora atualmente não haja nenhuma;
-- buscas por `externalReference`, concorrência de `restore_payment`, ledger de
-  eventos de webhook e unicidade global de `asaas_subscription_id` continuam
-  como endurecimentos separados;
+- o hardening formal ainda precisa ser mergeado, migrado e implantado antes de
+  qualquer teste financeiro;
+- o novo sinal `billing_operations=stale` depende da migration e do release
+  correspondentes para entrar no monitoramento de produção;
 - a cópia semanal da Hostinger e o backup diário local estão saudáveis, mas o
   teste mensal de restauração deve ser repetido até 2026-09-07.
 
-**Próximo gate único:** autorização nominal para identificar o proprietário das
-duas assinaturas ativas e decidir se o PastorAI usará uma conta Asaas dedicada
-ou um mecanismo formal de isolamento. Até essa decisão, todas as flags
-financeiras permanecem fechadas e nenhum canário é permitido.
+**Próximo gate único:** merge, migration e deploy do hardening formal com todas
+as flags financeiras fechadas. O canário financeiro continua proibido até uma
+confirmação humana específica no momento da ação.
 
 ## Paralelismo seguro
 

@@ -10,6 +10,7 @@ from app.config import Settings
 from app.services.asaas import (
     AsaasClient,
     AsaasError,
+    AsaasOwnershipError,
     _sao_paulo_today,
     map_payment_status,
     payment_invoice_url,
@@ -47,7 +48,7 @@ def test_asaas_headers_identify_the_client() -> None:
     }
 
 
-def test_customer_lookup_and_creation_require_the_document() -> None:
+def test_customer_lookup_and_creation_use_reserved_external_reference() -> None:
     calls: list[dict] = []
 
     class _Response:
@@ -67,7 +68,12 @@ def test_customer_lookup_and_creation_require_the_document() -> None:
 
         def post(self, path: str, *, headers: dict, json: dict) -> _Response:
             calls.append({"method": "post", "path": path, "headers": headers, "json": json})
-            return _Response({"id": "cus_test"})
+            return _Response(
+                {
+                    "id": "cus_test",
+                    "externalReference": "pastorai-customer-igreja-1",
+                }
+            )
 
     customer_id = AsaasClient(_sends_allowed_settings())._ensure_customer(
         _Client(),
@@ -75,6 +81,7 @@ def test_customer_lookup_and_creation_require_the_document() -> None:
         nome="Igreja Teste",
         email="financeiro@example.com",
         cpf_cnpj="24971563792",
+        external_reference="pastorai-customer-igreja-1",
     )
 
     assert customer_id == "cus_test"
@@ -83,7 +90,11 @@ def test_customer_lookup_and_creation_require_the_document() -> None:
             "method": "get",
             "path": "/customers",
             "headers": {"access_token": "test"},
-            "params": {"cpfCnpj": "24971563792"},
+            "params": {
+                "externalReference": "pastorai-customer-igreja-1",
+                "limit": 100,
+                "offset": 0,
+            },
         },
         {
             "method": "post",
@@ -93,6 +104,7 @@ def test_customer_lookup_and_creation_require_the_document() -> None:
                 "name": "Igreja Teste",
                 "email": "financeiro@example.com",
                 "cpfCnpj": "24971563792",
+                "externalReference": "pastorai-customer-igreja-1",
             },
         },
     ]
@@ -114,6 +126,7 @@ def test_one_time_charge_rejects_value_below_asaas_minimum_before_network() -> N
             valor=3.0,
             description="PastorAI — taxa de setup",
             external_reference="pastorai-setup-x",
+            expected_customer_external_reference="pastorai-customer-igreja-1",
         )
 
 
@@ -127,9 +140,22 @@ def test_billing_writes_stay_offline_without_dedicated_permission() -> None:
         )
     )
 
-    assert client.restore_payment("pay_x") is None
     assert (
-        client.update_subscription("sub_x", valor=299.0, descricao="PastorAI — plano x")
+        client.restore_payment(
+            "pay_x",
+            expected_subscription_id="sub_x",
+            expected_customer_id="cus_x",
+            expected_subscription_external_reference="pastorai-subcreate-x",
+        )
+        is None
+    )
+    assert (
+        client.update_subscription(
+            "sub_x",
+            valor=299.0,
+            descricao="PastorAI — plano x",
+            expected_external_reference="pastorai-subcreate-x",
+        )
         is None
     )
     assert (
@@ -138,6 +164,7 @@ def test_billing_writes_stay_offline_without_dedicated_permission() -> None:
             valor=59.9,
             description="PastorAI — taxa de setup",
             external_reference="pastorai-setup-x",
+            expected_customer_external_reference="pastorai-customer-igreja-1",
         )
         is None
     )
@@ -183,6 +210,8 @@ def test_checkout_survives_invoice_lookup_failure_after_subscription_created(
         plano="ate_100",
         valor=199.0,
         cpf_cnpj="24971563792",
+        customer_external_reference="pastorai-customer-igreja-1",
+        external_reference="pastorai-subcreate-op1",
         on_subscription_created=lambda c, s: tracked.append((c, s)),
     )
 
@@ -291,7 +320,7 @@ def test_subscription_payload_sets_first_due_date(monkeypatch) -> None:
         valor=19.9,
         ciclo="MONTHLY",
         descricao="Plano de teste",
-        external_reference="sandbox-ref",
+        external_reference="pastorai-subcreate-test",
     )
 
     assert result == {"id": "sub_test"}
@@ -306,7 +335,7 @@ def test_subscription_payload_sets_first_due_date(monkeypatch) -> None:
                 "cycle": "MONTHLY",
                 "nextDueDate": billing_date.isoformat(),
                 "description": "Plano de teste",
-                "externalReference": "sandbox-ref",
+                "externalReference": "pastorai-subcreate-test",
             },
         }
     ]
@@ -371,7 +400,11 @@ def test_update_subscription_puts_in_place_and_freezes_pending_payments(
             pass
 
         def json(self) -> dict:
-            return {"id": "sub_1", "value": 299.0}
+            return {
+                "id": "sub_1",
+                "value": 299.0,
+                "externalReference": "pastorai-subcreate-op1",
+            }
 
     class _FakeHttpClient:
         def __init__(self, *args, **kwargs) -> None:
@@ -383,6 +416,10 @@ def test_update_subscription_puts_in_place_and_freezes_pending_payments(
         def __exit__(self, *args) -> bool:
             return False
 
+        def get(self, path: str, *, headers: dict) -> _Resp:
+            calls.append({"path": path, "method": "get"})
+            return _Resp()
+
         def put(self, path: str, *, headers: dict, json: dict) -> _Resp:
             calls.append({"path": path, "json": json})
             return _Resp()
@@ -392,11 +429,22 @@ def test_update_subscription_puts_in_place_and_freezes_pending_payments(
     monkeypatch.setattr(asaas_mod.httpx, "Client", _FakeHttpClient)
 
     result = AsaasClient(_sends_allowed_settings()).update_subscription(
-        "sub_1", valor=299.0, descricao="PastorAI — plano 101_200"
+        "sub_1",
+        valor=299.0,
+        descricao="PastorAI — plano 101_200",
+        expected_external_reference="pastorai-subcreate-op1",
     )
 
-    assert result == {"id": "sub_1", "value": 299.0}
+    assert result == {
+        "id": "sub_1",
+        "value": 299.0,
+        "externalReference": "pastorai-subcreate-op1",
+    }
     assert calls == [
+        {
+            "path": "/subscriptions/sub_1",
+            "method": "get",
+        },
         {
             "path": "/subscriptions/sub_1",
             "json": {
@@ -406,6 +454,205 @@ def test_update_subscription_puts_in_place_and_freezes_pending_payments(
             },
         }
     ]
+
+
+@pytest.mark.parametrize(
+    ("finder", "path"),
+    [
+        ("find_subscriptions_by_external_reference", "/subscriptions"),
+        ("find_payments_by_external_reference", "/payments"),
+    ],
+)
+def test_external_reference_search_reads_every_page(
+    monkeypatch, finder: str, path: str
+) -> None:
+    offsets: list[int] = []
+
+    class _Response:
+        def __init__(self, body: dict) -> None:
+            self._body = body
+
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self) -> dict:
+            return self._body
+
+    class _Http:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args) -> bool:
+            return False
+
+        def get(self, requested_path: str, *, headers: dict, params: dict):
+            assert requested_path == path
+            offsets.append(params["offset"])
+            if params["offset"] == 0:
+                return _Response(
+                    {"data": [{"id": "first"}], "hasMore": True}
+                )
+            return _Response(
+                {"data": [{"id": "second"}], "hasMore": False}
+            )
+
+    monkeypatch.setattr("app.services.asaas.httpx.Client", _Http)
+    client = AsaasClient(_sends_allowed_settings())
+
+    result = getattr(client, finder)("pastorai-owned-reference")
+
+    assert result == [{"id": "first"}, {"id": "second"}]
+    assert offsets == [0, 1]
+
+
+def test_subscription_ownership_mismatch_blocks_put(monkeypatch) -> None:
+    methods: list[str] = []
+
+    class _Response:
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self) -> dict:
+            return {
+                "id": "sub_legacy",
+                "externalReference": "external-legacy-resource",
+            }
+
+    class _Http:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args) -> bool:
+            return False
+
+        def get(self, path: str, *, headers: dict):
+            methods.append("GET")
+            return _Response()
+
+        def put(self, *args, **kwargs):  # pragma: no cover - defesa
+            methods.append("PUT")
+            raise AssertionError("recurso legado não pode ser alterado")
+
+    monkeypatch.setattr("app.services.asaas.httpx.Client", _Http)
+
+    with pytest.raises(AsaasOwnershipError, match="não pertence"):
+        AsaasClient(_sends_allowed_settings()).update_subscription(
+            "sub_legacy",
+            valor=299.0,
+            descricao="PastorAI — plano 101_200",
+            expected_external_reference="pastorai-subcreate-owned",
+        )
+
+    assert methods == ["GET"]
+
+
+def test_customer_ownership_mismatch_blocks_one_time_charge(monkeypatch) -> None:
+    methods: list[str] = []
+
+    class _Response:
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self) -> dict:
+            return {
+                "id": "cus_legacy",
+                "externalReference": "external-legacy-resource",
+            }
+
+    class _Http:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args) -> bool:
+            return False
+
+        def get(self, path: str, *, headers: dict):
+            methods.append("GET")
+            return _Response()
+
+        def post(self, *args, **kwargs):  # pragma: no cover - defesa
+            methods.append("POST")
+            raise AssertionError("customer legado não pode receber cobrança")
+
+    monkeypatch.setattr("app.services.asaas.httpx.Client", _Http)
+
+    with pytest.raises(AsaasOwnershipError, match="não pertence"):
+        AsaasClient(_sends_allowed_settings()).create_one_time_charge(
+            customer_id="cus_legacy",
+            valor=59.9,
+            description="PastorAI — taxa de setup",
+            external_reference="pastorai-setup-owned",
+            expected_customer_external_reference="pastorai-customer-igreja-1",
+        )
+
+    assert methods == ["GET"]
+
+
+def test_restore_ownership_mismatch_blocks_post(monkeypatch) -> None:
+    methods: list[str] = []
+
+    class _Response:
+        def __init__(self, body: dict) -> None:
+            self._body = body
+
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self) -> dict:
+            return self._body
+
+    class _Http:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args) -> bool:
+            return False
+
+        def get(self, path: str, *, headers: dict):
+            methods.append("GET")
+            if path.startswith("/payments/"):
+                return _Response(
+                    {
+                        "id": "pay_legacy",
+                        "subscription": "sub_legacy",
+                        "customer": "cus_legacy",
+                        "deleted": True,
+                    }
+                )
+            return _Response(
+                {
+                    "id": "sub_legacy",
+                    "externalReference": "external-legacy-resource",
+                }
+            )
+
+        def post(self, *args, **kwargs):  # pragma: no cover - defesa
+            methods.append("POST")
+            raise AssertionError("cobrança legada não pode ser restaurada")
+
+    monkeypatch.setattr("app.services.asaas.httpx.Client", _Http)
+
+    with pytest.raises(AsaasOwnershipError, match="não pertence"):
+        AsaasClient(_sends_allowed_settings()).restore_payment(
+            "pay_legacy",
+            expected_subscription_id="sub_legacy",
+            expected_customer_id="cus_legacy",
+            expected_subscription_external_reference="pastorai-subcreate-owned",
+        )
+
+    assert methods == ["GET", "GET"]
 
 
 def test_gcal_timed_event_block() -> None:

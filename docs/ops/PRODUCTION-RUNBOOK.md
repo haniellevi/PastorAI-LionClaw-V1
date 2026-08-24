@@ -1,6 +1,6 @@
 # PastorAI V1 — runbook canônico de produção
 
-Atualizado em 2026-08-22. Este é o procedimento operacional vigente para o
+Atualizado em 2026-08-24. Este é o procedimento operacional vigente para o
 Igreja 12. Não contém segredos; valores reais ficam somente nos provedores e no
 `.env` do release ativo, acessível por `/opt/pastorai-current/deploy/.env`.
 
@@ -16,12 +16,12 @@ Backup, teste de restauração e firewall: consulte
 | Backend público | `https://api.igreja12.com.br` |
 | Releases na VPS | `/opt/pastorai-releases/<sha>` |
 | Release ativo | `/opt/pastorai-current` (symlink para um release imutável) |
-| Frontend Vercel | projeto `pastorai-frontend`, escopo `raniel-levis-projects` |
+| Frontend Vercel | projeto `pastorai-frontend-prod`, escopo `raniel-levis-projects` |
 | Frontends públicos | `app.`, `admin.` e `painel.igreja12.com.br` |
 
-O Clerk permanece deliberadamente na instância DEV durante esta promoção. Não
-misture `pk_live/sk_live` com o issuer DEV: publishable key, secret key, issuer
-e JWKS precisam pertencer à mesma instância.
+O Clerk está na instância PROD. Publishable key, secret key, issuer e JWKS
+precisam pertencer à mesma instância; nunca misture prefixos `pk_test_` ou
+`sk_test_` com o issuer de produção.
 
 ### Baseline imutável da V1
 
@@ -144,6 +144,32 @@ reaplique essas migrations; qualquer correção futura é forward-only.
 
 A migration de broadcasts não ativa broadcasts legados e não faz backfill.
 
+A migration `20260824_180000_asaas_formal_isolation.sql` acompanha o release
+de isolamento formal do Asaas. Antes de aplicá-la, confirmar que não existem
+IDs Asaas duplicados em `subscriptions`. Depois, verificar:
+
+- índices únicos parciais dos IDs remotos e das referências `pastorai-`;
+- índices parciais das operações financeiras abertas por idade;
+- tabela fechada `asaas_webhook_receipts`, com RLS, policy de negação e sem
+  privilégios para `public`, `anon` ou `authenticated`;
+- nenhuma atualização ou adoção automática de recursos Asaas legados.
+
+### Isolamento da conta Asaas compartilhada
+
+O PastorAI só pode alterar recursos cuja `externalReference` use o namespace
+reservado `pastorai-`. O customer recebe uma referência estável por igreja; a
+assinatura e cada cobrança recebem a chave da operação durável. Recursos sem
+esse marcador são externos ou legados e devem ser apenas inventariados.
+
+Toda mutação revalida a propriedade no Asaas antes do `POST` ou `PUT`. As
+buscas de conciliação percorrem todas as páginas. O webhook exige o ID oficial
+do evento e o grava em `asaas_webhook_receipts` na mesma transação da mudança
+de domínio. Entrega duplicada retorna sucesso sem reaplicar o evento.
+
+`restore_payment` não é tratado como idempotente. A aplicação persiste e
+reclama uma operação durável antes do restore; requests concorrentes nunca
+repetem o `POST` enquanto o resultado estiver ambíguo.
+
 Após o hardening, o advisor de segurança mantém um único `WARN` intencional:
 `authenticated` pode executar `current_igreja_id()`, pois as policies RLS
 `tenant_isolation` dependem dessa função. `anon` não pode executá-la; as funções
@@ -264,7 +290,7 @@ vercel --prod
 No projeto Vercel, confirmar sem revelar valores:
 
 - `NEXT_PUBLIC_API_URL=https://api.igreja12.com.br`;
-- publishable key Clerk da mesma instância DEV usada pelo backend;
+- autenticação apontando para a mesma instância Clerk PROD usada pelo backend;
 - aliases `app.`, `admin.` e `painel.igreja12.com.br`.
 
 ## 8. Smokes sem efeitos externos
@@ -282,7 +308,7 @@ docker compose ps
 Validar também:
 
 - CORS para `app.`, `admin.` e `painel.`;
-- login com usuário que exista na instância Clerk DEV;
+- login com usuário de teste que exista na instância Clerk PROD;
 - recuperação de senha retorna resposta neutra e não envia e-mail (supressão
   esperada enquanto o gate estiver fechado);
 - isolamento das portas 8000/8080;
@@ -304,7 +330,9 @@ sendo uma promoção posterior.
 ## 9. Monitoramento e backup
 
 `/health` é liveness barata. `/ready` verifica DB e Redis como dependências
-obrigatórias; Evolution e workers aparecem como sinais opcionais. Uma falha
+obrigatórias; Evolution, workers e `billing_operations` aparecem como sinais
+opcionais. Operações de pagamento ou criação de assinatura em `creating` ou
+`reconciling` há mais de uma hora tornam `billing_operations=stale`. Uma falha
 opcional gera `degraded` e alerta, mas não derruba a API nem cria restart loop.
 
 Após o release ser aprovado e o symlink estável apontar para ele:
@@ -351,6 +379,11 @@ deduplicada no GitHub. Procedimento, estados e limites de disaster recovery:
 - Frontend: promover o deployment Vercel anterior.
 - Banco: migrations aditivas não são revertidas automaticamente. Corrigir por
   nova migration revisada; não executar rollback destrutivo improvisado.
+- Asaas: fechar imediatamente `ASAAS_BILLING_ENABLED=false` em todos os
+  processos e depois `ALLOW_REAL_SENDS=false` se a janela exigir contenção
+  global. Não apagar, cancelar, restaurar ou recriar recursos remotos durante
+  o rollback; primeiro inventariar os IDs `pastorai-` e reconciliar as
+  operações locais.
 
 ## 11. Evidência mínima de conclusão
 

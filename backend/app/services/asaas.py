@@ -14,6 +14,7 @@ from __future__ import annotations
 import datetime as dt
 import hmac
 import logging
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from zoneinfo import ZoneInfo
@@ -25,8 +26,9 @@ from app.services.outbound_guard import asaas_billing_writes_allowed, log_suppre
 
 logger = logging.getLogger("pastorai.asaas")
 MIN_UNDEFINED_PAYMENT_VALUE = 5.0
-# Descrição EXATA da cobrança avulsa de setup — também é o critério de
-# reconciliação de setups legados no webhook (registros pré-migration).
+ASAAS_OWNERSHIP_PREFIX = "pastorai-"
+_DOCUMENT_DIGITS_RE = re.compile(r"\D+")
+# Descrição exata da cobrança avulsa de setup, congelada na operação durável.
 SETUP_CHARGE_DESCRIPTION = "PastorAI — taxa de setup"
 # Cobrança avulsa que recupera uma mensalidade ESTORNADA (nunca uma assinatura).
 MONTHLY_RECOVERY_DESCRIPTION = "PastorAI — recuperação de mensalidade"
@@ -135,6 +137,24 @@ class AsaasRejectedError(AsaasError):
     """
 
 
+class AsaasOwnershipError(AsaasRejectedError):
+    """A remote resource is not provably owned by this PastorAI integration.
+
+    The failure happens before the mutating HTTP request. It is definitive for
+    the current target and must never be treated as an ambiguous remote write.
+    """
+
+
+def customer_external_reference(igreja_id: object) -> str:
+    """Stable ownership key for a church customer in a shared Asaas account."""
+    return f"{ASAAS_OWNERSHIP_PREFIX}customer-{igreja_id}"
+
+
+def is_pastorai_external_reference(value: object) -> bool:
+    """Whether ``value`` belongs to the reserved PastorAI namespace."""
+    return isinstance(value, str) and value.startswith(ASAAS_OWNERSHIP_PREFIX)
+
+
 @dataclass(frozen=True)
 class CheckoutResult:
     """Outcome of creating a subscription checkout.
@@ -188,6 +208,60 @@ class AsaasClient:
             "User-Agent": "PastorAI/1.0 (Python; billing)",
         }
 
+    @staticmethod
+    def _require_owned_reference(value: object, *, resource: str) -> str:
+        if not is_pastorai_external_reference(value):
+            raise AsaasOwnershipError(
+                f"{resource} sem referência de propriedade do PastorAI"
+            )
+        return str(value)
+
+    @classmethod
+    def _require_owned_resource(
+        cls,
+        payload: object,
+        *,
+        expected_external_reference: str,
+        resource: str,
+    ) -> dict:
+        expected = cls._require_owned_reference(
+            expected_external_reference, resource=resource
+        )
+        if not isinstance(payload, dict) or not payload.get("id"):
+            raise AsaasOwnershipError(f"{resource} remoto não encontrado")
+        if str(payload.get("externalReference") or "") != expected:
+            raise AsaasOwnershipError(
+                f"{resource} remoto não pertence ao PastorAI"
+            )
+        return payload
+
+    @staticmethod
+    def _list_all(
+        client: httpx.Client,
+        path: str,
+        headers: dict[str, str],
+        *,
+        params: dict[str, object],
+    ) -> list[dict]:
+        """Read every page of an Asaas list endpoint with a bounded page size."""
+        offset = 0
+        items: list[dict] = []
+        while True:
+            response = client.get(
+                path,
+                headers=headers,
+                params={**params, "limit": 100, "offset": offset},
+            )
+            response.raise_for_status()
+            body = response.json()
+            page = body.get("data") if isinstance(body, dict) else None
+            if not isinstance(page, list):
+                return items
+            items.extend(item for item in page if isinstance(item, dict))
+            if not body.get("hasMore") or not page:
+                return items
+            offset += len(page)
+
     def create_checkout(
         self,
         *,
@@ -197,6 +271,7 @@ class AsaasClient:
         valor: float,
         ciclo: str = "MONTHLY",
         cpf_cnpj: str | None = None,
+        customer_external_reference: str | None = None,
         external_reference: str | None = None,
         on_customer_resolved: Callable[[str], None] | None = None,
         on_subscription_created: Callable[[str, str], None] | None = None,
@@ -225,13 +300,24 @@ class AsaasClient:
             )
         if not cpf_cnpj:
             raise AsaasError("CPF ou CNPJ é obrigatório para o checkout")
+        customer_reference = self._require_owned_reference(
+            customer_external_reference, resource="Customer"
+        )
+        subscription_reference = self._require_owned_reference(
+            external_reference, resource="Assinatura"
+        )
         base_url, api_key = self._require_config()
         headers = self._headers(api_key)
 
         try:
             with httpx.Client(base_url=base_url, timeout=20.0) as client:
                 customer_id = self._ensure_customer(
-                    client, headers, nome=nome, email=email, cpf_cnpj=cpf_cnpj
+                    client,
+                    headers,
+                    nome=nome,
+                    email=email,
+                    cpf_cnpj=cpf_cnpj,
+                    external_reference=customer_reference,
                 )
                 if on_customer_resolved is not None:
                     on_customer_resolved(customer_id)
@@ -242,7 +328,7 @@ class AsaasClient:
                     valor=valor,
                     ciclo=ciclo,
                     descricao=subscription_description(plano),
-                    external_reference=external_reference,
+                    external_reference=subscription_reference,
                 )
                 subscription_id = str(sub["id"])
                 if on_subscription_created is not None:
@@ -337,7 +423,12 @@ class AsaasClient:
         return body if isinstance(body, dict) else None
 
     def update_subscription(
-        self, subscription_id: str, *, valor: float, descricao: str
+        self,
+        subscription_id: str,
+        *,
+        valor: float,
+        descricao: str,
+        expected_external_reference: str,
     ) -> dict | None:
         """Update the EXISTING recurring subscription in place (plan change).
 
@@ -351,6 +442,9 @@ class AsaasClient:
             return None
         base_url, api_key = self._require_config()
         headers = self._headers(api_key)
+        expected_reference = self._require_owned_reference(
+            expected_external_reference, resource="Assinatura"
+        )
         payload: dict[str, object] = {
             "value": valor,
             "description": descricao,
@@ -358,6 +452,15 @@ class AsaasClient:
         }
         try:
             with httpx.Client(base_url=base_url, timeout=20.0) as client:
+                owned = client.get(
+                    f"/subscriptions/{subscription_id}", headers=headers
+                )
+                owned.raise_for_status()
+                self._require_owned_resource(
+                    owned.json(),
+                    expected_external_reference=expected_reference,
+                    resource="Assinatura",
+                )
                 resp = client.put(
                     f"/subscriptions/{subscription_id}", headers=headers, json=payload
                 )
@@ -389,6 +492,7 @@ class AsaasClient:
         valor: float,
         description: str,
         external_reference: str,
+        expected_customer_external_reference: str,
     ) -> dict | None:
         """One-time charge (setup / recuperação mensal) on an EXISTING customer.
 
@@ -405,15 +509,28 @@ class AsaasClient:
             raise AsaasRejectedError("A cobrança precisa ser de pelo menos R$ 5,00")
         base_url, api_key = self._require_config()
         headers = self._headers(api_key)
+        charge_reference = self._require_owned_reference(
+            external_reference, resource="Cobrança"
+        )
+        customer_reference = self._require_owned_reference(
+            expected_customer_external_reference, resource="Customer"
+        )
         try:
             with httpx.Client(base_url=base_url, timeout=20.0) as client:
+                customer = client.get(f"/customers/{customer_id}", headers=headers)
+                customer.raise_for_status()
+                self._require_owned_resource(
+                    customer.json(),
+                    expected_external_reference=customer_reference,
+                    resource="Customer",
+                )
                 return self._create_one_time_charge(
                     client,
                     headers,
                     customer_id=customer_id,
                     valor=valor,
                     description=description,
-                    external_reference=external_reference,
+                    external_reference=charge_reference,
                 )
         except httpx.HTTPStatusError as exc:
             code = exc.response.status_code
@@ -446,23 +563,19 @@ class AsaasClient:
         headers = self._headers(api_key)
         try:
             with httpx.Client(base_url=base_url, timeout=20.0) as client:
-                resp = client.get(
+                subscriptions = self._list_all(
+                    client,
                     "/subscriptions",
-                    headers=headers,
+                    headers,
                     params={"externalReference": external_reference},
                 )
-                resp.raise_for_status()
-                body = resp.json()
         except httpx.HTTPError as exc:
             logger.warning("Asaas subscription search failed: %s", type(exc).__name__)
             raise AsaasError("Falha ao consultar assinaturas no Asaas") from exc
         except (ValueError, KeyError) as exc:
             logger.warning("Unexpected Asaas response shape")
             raise AsaasError("Resposta inesperada do Asaas") from exc
-        subscriptions = body.get("data") if isinstance(body, dict) else None
-        if not isinstance(subscriptions, list):
-            return []
-        return [s for s in subscriptions if isinstance(s, dict)]
+        return subscriptions
 
     def find_payments_by_external_reference(self, external_reference: str) -> list[dict]:
         """All payments carrying this externalReference (reconciliation).
@@ -475,23 +588,19 @@ class AsaasClient:
         headers = self._headers(api_key)
         try:
             with httpx.Client(base_url=base_url, timeout=20.0) as client:
-                resp = client.get(
+                payments = self._list_all(
+                    client,
                     "/payments",
-                    headers=headers,
+                    headers,
                     params={"externalReference": external_reference},
                 )
-                resp.raise_for_status()
-                body = resp.json()
         except httpx.HTTPError as exc:
             logger.warning("Asaas payment search failed: %s", type(exc).__name__)
             raise AsaasError("Falha ao consultar cobranças no Asaas") from exc
         except (ValueError, KeyError) as exc:
             logger.warning("Unexpected Asaas response shape")
             raise AsaasError("Resposta inesperada do Asaas") from exc
-        payments = body.get("data") if isinstance(body, dict) else None
-        if not isinstance(payments, list):
-            return []
-        return [p for p in payments if isinstance(p, dict)]
+        return payments
 
     def get_payment(self, payment_id: str) -> dict | None:
         """Full payload of an existing payment (read-only)."""
@@ -514,7 +623,14 @@ class AsaasClient:
         """Public payment page of an existing one-time charge (read-only)."""
         return payment_invoice_url(self.get_payment(payment_id))
 
-    def restore_payment(self, payment_id: str) -> dict | None:
+    def restore_payment(
+        self,
+        payment_id: str,
+        *,
+        expected_subscription_id: str,
+        expected_customer_id: str,
+        expected_subscription_external_reference: str,
+    ) -> dict | None:
         """Restore a DELETED payment via the official endpoint.
 
         Only meaningful for excluded (not refunded) charges. The caller checks
@@ -527,11 +643,51 @@ class AsaasClient:
             return None
         base_url, api_key = self._require_config()
         headers = self._headers(api_key)
+        expected_reference = self._require_owned_reference(
+            expected_subscription_external_reference, resource="Assinatura"
+        )
         try:
             with httpx.Client(base_url=base_url, timeout=20.0) as client:
+                payment_response = client.get(
+                    f"/payments/{payment_id}", headers=headers
+                )
+                payment_response.raise_for_status()
+                payment = payment_response.json()
+                if not isinstance(payment, dict) or str(payment.get("id")) != str(
+                    payment_id
+                ):
+                    raise AsaasOwnershipError("Cobrança remota não encontrada")
+                if (
+                    str(payment.get("subscription") or "")
+                    != str(expected_subscription_id)
+                    or str(payment.get("customer") or "")
+                    != str(expected_customer_id)
+                ):
+                    raise AsaasOwnershipError(
+                        "Cobrança remota não pertence à assinatura do PastorAI"
+                    )
+                subscription_response = client.get(
+                    f"/subscriptions/{expected_subscription_id}", headers=headers
+                )
+                subscription_response.raise_for_status()
+                self._require_owned_resource(
+                    subscription_response.json(),
+                    expected_external_reference=expected_reference,
+                    resource="Assinatura",
+                )
+                if not payment.get("deleted"):
+                    return payment
                 resp = client.post(f"/payments/{payment_id}/restore", headers=headers)
                 resp.raise_for_status()
                 body = resp.json()
+        except httpx.HTTPStatusError as exc:
+            code = exc.response.status_code
+            logger.warning("Asaas payment restore failed: HTTP %s", code)
+            if 400 <= code < 500:
+                raise AsaasRejectedError(
+                    "O Asaas rejeitou a restauração da cobrança"
+                ) from exc
+            raise AsaasError("Falha ao restaurar a cobrança no Asaas") from exc
         except httpx.HTTPError as exc:
             logger.warning("Asaas payment restore failed: %s", type(exc).__name__)
             raise AsaasError("Falha ao restaurar a cobrança no Asaas") from exc
@@ -549,20 +705,57 @@ class AsaasClient:
         nome: str,
         email: str,
         cpf_cnpj: str,
+        external_reference: str,
     ) -> str:
-        """Find an existing customer by document or create a new one."""
+        """Find only the PastorAI-owned customer or create it in that namespace."""
         self._require_mutation_allowed("_ensure_customer")
-        resp = client.get("/customers", headers=headers, params={"cpfCnpj": cpf_cnpj})
-        resp.raise_for_status()
-        data = resp.json()
-        existing = (data.get("data") or []) if isinstance(data, dict) else []
+        expected_reference = self._require_owned_reference(
+            external_reference, resource="Customer"
+        )
+        existing = [
+            customer
+            for customer in self._list_all(
+                client,
+                "/customers",
+                headers,
+                params={"externalReference": expected_reference},
+            )
+            if str(customer.get("externalReference") or "") == expected_reference
+        ]
+        if len(existing) > 1:
+            raise AsaasOwnershipError(
+                "Mais de um customer usa a referência reservada do PastorAI"
+            )
         if existing:
-            return str(existing[0]["id"])
+            customer = self._require_owned_resource(
+                existing[0],
+                expected_external_reference=expected_reference,
+                resource="Customer",
+            )
+            expected_document = _DOCUMENT_DIGITS_RE.sub("", cpf_cnpj)
+            remote_document = _DOCUMENT_DIGITS_RE.sub(
+                "", str(customer.get("cpfCnpj") or "")
+            )
+            if not expected_document or remote_document != expected_document:
+                raise AsaasOwnershipError(
+                    "Customer reservado possui documento divergente"
+                )
+            return str(customer["id"])
 
-        payload: dict[str, object] = {"name": nome, "email": email, "cpfCnpj": cpf_cnpj}
+        payload: dict[str, object] = {
+            "name": nome,
+            "email": email,
+            "cpfCnpj": cpf_cnpj,
+            "externalReference": expected_reference,
+        }
         resp = client.post("/customers", headers=headers, json=payload)
         resp.raise_for_status()
-        return str(resp.json()["id"])
+        created = self._require_owned_resource(
+            resp.json(),
+            expected_external_reference=expected_reference,
+            resource="Customer",
+        )
+        return str(created["id"])
 
     def _create_subscription(
         self,
@@ -576,6 +769,9 @@ class AsaasClient:
         external_reference: str | None,
     ) -> dict:
         self._require_mutation_allowed("_create_subscription")
+        reference = self._require_owned_reference(
+            external_reference, resource="Assinatura"
+        )
         payload: dict[str, object] = {
             "customer": customer_id,
             "billingType": "UNDEFINED",
@@ -586,8 +782,7 @@ class AsaasClient:
             "nextDueDate": _sao_paulo_today().isoformat(),
             "description": descricao,
         }
-        if external_reference:
-            payload["externalReference"] = external_reference
+        payload["externalReference"] = reference
         resp = client.post("/subscriptions", headers=headers, json=payload)
         resp.raise_for_status()
         return resp.json()
@@ -648,13 +843,16 @@ class AsaasClient:
     ) -> dict:
         """One-time charge (setup / monthly recovery) as a single payment."""
         self._require_mutation_allowed("_create_one_time_charge")
+        reference = self._require_owned_reference(
+            external_reference, resource="Cobrança"
+        )
         payload: dict[str, object] = {
             "customer": customer_id,
             "billingType": "UNDEFINED",
             "value": valor,
             "dueDate": _sao_paulo_today().isoformat(),
             "description": description,
-            "externalReference": external_reference,
+            "externalReference": reference,
         }
         resp = client.post("/payments", headers=headers, json=payload)
         resp.raise_for_status()

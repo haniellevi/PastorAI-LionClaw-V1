@@ -40,7 +40,11 @@ def _sub(**over):
         status="ativa",
         setup_pago=True,
         asaas_customer_id="cus_1",
+        asaas_customer_external_reference=(
+            "pastorai-customer-00000000-0000-0000-0000-000000000001"
+        ),
         asaas_subscription_id="sub_asaas_1",
+        asaas_subscription_external_reference="pastorai-subcreate-owned",
         asaas_setup_charge_id=None,
         asaas_setup_reversed_payment_id=None,
         asaas_invoice_payment_id=None,
@@ -111,6 +115,8 @@ class _WebhookDb:
         self.subscription_create_ops = subscription_create_ops or []
         self.plans = plans or [_plan()]
         self.commits = 0
+        self.rollbacks = 0
+        self.webhook_receipts: set[str] = set()
         self.flushes = 0
         self.subscription_locks = 0
         self.lock_trace: list[str] = []
@@ -271,6 +277,9 @@ class _WebhookDb:
     def commit(self) -> None:
         self.commits += 1
 
+    def rollback(self) -> None:
+        self.rollbacks += 1
+
     def flush(self) -> None:
         self.flushes += 1
 
@@ -304,6 +313,19 @@ def _client(app, db: _WebhookDb, monkeypatch) -> TestClient:
     monkeypatch.setattr(
         subscription_router, "lock_plan_rows_for_billing", lock_plans
     )
+
+    def claim_event(_session, payload):
+        event_id = str(payload.id)
+        if event_id in db.webhook_receipts:
+            return False
+        db.webhook_receipts.add(event_id)
+        return True
+
+    monkeypatch.setattr(
+        subscription_router,
+        "_claim_asaas_webhook_event",
+        claim_event,
+    )
     app.dependency_overrides[get_db] = lambda: db
     return TestClient(app)
 
@@ -333,10 +355,23 @@ def _payment(
     return p
 
 
-def _post(client: TestClient, event: str, payment: dict):
+def _post(
+    client: TestClient,
+    event: str,
+    payment: dict,
+    *,
+    event_id: str | None = None,
+):
+    if event_id is None:
+        event_id = str(
+            uuid.uuid5(
+                uuid.NAMESPACE_URL,
+                repr((event, sorted(payment.items()))),
+            )
+        )
     return client.post(
         "/subscription/webhook",
-        json={"event": event, "payment": payment},
+        json={"id": event_id, "event": event, "payment": payment},
         headers=_HDR,
     )
 
@@ -393,7 +428,7 @@ def test_tracked_subscription_is_revalidated_after_canonical_locks(
     assert sub.status == "pendente"
     assert sub.asaas_invoice_payment_id is None
     assert db.igreja.status == "ativa"
-    assert db.commits == 0
+    assert db.commits == 1
     assert db.lock_trace[:3] == ["church", "plans", "subscription"]
 
 
@@ -467,7 +502,7 @@ def test_evento_desconhecido_ack_sem_mutacao(app, monkeypatch) -> None:
     assert resp.json() == {"received": True, "status": None}
     assert db.sub.status == "ativa"
     assert db.igreja.status == "ativa"
-    assert db.commits == 0
+    assert db.commits == 1
 
 
 def test_external_ref_invalida_cai_no_fallback_por_subscription_id(
@@ -499,7 +534,7 @@ def test_external_ref_invalida_sem_fallback_nao_muta(app, monkeypatch) -> None:
     assert resp.json() == {"received": True, "status": None}
     assert db.sub.status == "ativa"
     assert db.igreja.status == "ativa"
-    assert db.commits == 0
+    assert db.commits == 1
 
 
 def test_assinatura_desconhecida_ack_sem_mutacao(app, monkeypatch) -> None:
@@ -509,7 +544,7 @@ def test_assinatura_desconhecida_ack_sem_mutacao(app, monkeypatch) -> None:
     assert resp.status_code == 200
     assert resp.json() == {"received": True, "status": None}
     assert db.igreja.status == "ativa"
-    assert db.commits == 0
+    assert db.commits == 1
 
 
 def test_repeticao_do_evento_e_idempotente(app, monkeypatch) -> None:
@@ -517,13 +552,15 @@ def test_repeticao_do_evento_e_idempotente(app, monkeypatch) -> None:
         sub=_sub(status="pendente", setup_pago=False), igreja=_igreja("ativa")
     )
     client = _client(app, db, monkeypatch)
-    for _ in range(2):
-        resp = _post(client, "PAYMENT_CONFIRMED", _payment(status="CONFIRMED"))
-        assert resp.json()["status"] == "ativa"
+    first = _post(client, "PAYMENT_CONFIRMED", _payment(status="CONFIRMED"))
+    duplicate = _post(client, "PAYMENT_CONFIRMED", _payment(status="CONFIRMED"))
+    assert first.json()["status"] == "ativa"
+    assert duplicate.json()["status"] is None
     assert db.sub.status == "ativa"
     assert db.sub.setup_pago is False
     assert db.igreja.status == "ativa"
-    assert db.commits == 2
+    assert db.commits == 1
+    assert db.rollbacks == 1
 
 
 def test_setup_confirmed_only_marks_the_tracked_setup_charge_paid(app, monkeypatch) -> None:
@@ -564,7 +601,7 @@ def test_pending_setup_payment_does_not_unlock_the_setup(app, monkeypatch) -> No
     assert db.sub.setup_pago is False
     assert db.sub.status == "ativa"
     assert db.igreja.status == "ativa"
-    assert db.commits == 0
+    assert db.commits == 1
 
 
 def test_untracked_one_time_payment_cannot_change_access(app, monkeypatch) -> None:
@@ -582,7 +619,7 @@ def test_untracked_one_time_payment_cannot_change_access(app, monkeypatch) -> No
     assert db.sub.setup_pago is False
     assert db.sub.status == "ativa"
     assert db.igreja.status == "ativa"
-    assert db.commits == 0
+    assert db.commits == 1
 
 
 # ---------------------------------------------------------------------------
@@ -697,16 +734,22 @@ def test_repeated_payment_created_is_idempotent_and_fills_missing_url(
         invoice_url="https://asaas.test/m2",
     )
 
-    for _ in range(2):
-        resp = _post(client, "PAYMENT_CREATED", evento)
-        assert resp.json()["status"] == "pendente"
-        assert db.sub.asaas_invoice_payment_id == "pay_m2"
-        assert db.sub.asaas_invoice_url == "https://asaas.test/m2"
-        assert str(db.sub.proxima_cobranca) == "2026-08-01"
+    first = _post(client, "PAYMENT_CREATED", evento)
+    duplicate = _post(client, "PAYMENT_CREATED", evento)
+    assert first.json()["status"] == "pendente"
+    assert duplicate.json()["status"] is None
+    assert db.sub.asaas_invoice_payment_id == "pay_m2"
+    assert db.sub.asaas_invoice_url == "https://asaas.test/m2"
+    assert str(db.sub.proxima_cobranca) == "2026-08-01"
 
     # Variante: retry do MESMO payment preenche a URL que faltava, sem trocar id.
     db.sub.asaas_invoice_url = None
-    resp = _post(client, "PAYMENT_CREATED", evento)
+    resp = _post(
+        client,
+        "PAYMENT_CREATED",
+        evento,
+        event_id="evt-fill-missing-url",
+    )
     assert db.sub.asaas_invoice_payment_id == "pay_m2"
     assert db.sub.asaas_invoice_url == "https://asaas.test/m2"
 
@@ -746,7 +789,7 @@ def test_old_overdue_after_new_cycle_confirmed_changes_nothing(app, monkeypatch)
     assert db.sub.asaas_invoice_payment_id == "pay_m2"
     assert db.sub.asaas_invoice_url == "https://asaas.test/m2"
     assert str(db.sub.proxima_cobranca) == "2026-08-01"
-    assert db.commits == 0
+    assert db.commits == 1
 
 
 @pytest.mark.parametrize(
@@ -830,7 +873,7 @@ def test_old_cycle_reversal_already_settled_is_ignored(app, monkeypatch) -> None
     assert db.operations == [settled_a]
     assert db.sub.asaas_invoice_payment_id == "pay_b"
     assert db.igreja.status == "ativa"
-    assert db.commits == 0
+    assert db.commits == 1
 
 
 def test_different_payment_without_duedate_cannot_regress_tracked_cycle(
@@ -859,7 +902,7 @@ def test_different_payment_without_duedate_cannot_regress_tracked_cycle(
     assert db.sub.status == "pendente"
     assert db.igreja.status == "ativa"
     assert db.sub.asaas_invoice_payment_id == "pay_m2"
-    assert db.commits == 0
+    assert db.commits == 1
 
 
 def test_same_payment_id_still_transitions_status(app, monkeypatch) -> None:
@@ -889,9 +932,8 @@ def test_same_payment_id_still_transitions_status(app, monkeypatch) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Setup legado (P2 review 3): checkout anterior à migration não tem charge id
-# rastreado — a confirmação reconcilia por customer + descrição exata, e SÓ
-# quando existe uma única candidata.
+# Recursos legados sem namespace pertencem ao uso externo da conta
+# compartilhada e nunca são adotados automaticamente pelo PastorAI.
 # ---------------------------------------------------------------------------
 def _legacy_payment(**over) -> dict:
     p = {
@@ -915,24 +957,24 @@ def _legacy_sub(**over):
     return _sub(**values)
 
 
-def test_legacy_setup_confirmation_marks_paid(app, monkeypatch) -> None:
+def test_legacy_setup_confirmation_is_ignored(app, monkeypatch) -> None:
     legada = _legacy_sub()
     db = _WebhookDb(sub=None, igreja=_igreja("ativa"), legacy_candidates=[legada])
     client = _client(app, db, monkeypatch)
 
     resp = _post(client, "PAYMENT_CONFIRMED", _legacy_payment())
 
-    assert resp.json() == {"received": True, "status": "ativa"}
-    assert legada.setup_pago is True
-    assert legada.asaas_setup_charge_id == "pay_leg_1"  # persiste o id
+    assert resp.json() == {"received": True, "status": None}
+    assert legada.setup_pago is False
+    assert legada.asaas_setup_charge_id is None
     assert legada.status == "pendente"  # mensalidade intocada
     assert db.igreja.status == "ativa"  # acesso intocado
     assert db.commits == 1
-    assert db.subscription_locks == 1
+    assert db.subscription_locks == 0
 
 
 def test_legacy_setup_pending_event_does_not_mark_paid(app, monkeypatch) -> None:
-    # Só CONFIRMAÇÃO reconcilia — fatura de setup recém-criada não.
+    # Recursos legados fora do namespace PastorAI permanecem intocados.
     legada = _legacy_sub()
     db = _WebhookDb(sub=None, igreja=_igreja("ativa"), legacy_candidates=[legada])
     client = _client(app, db, monkeypatch)
@@ -942,7 +984,7 @@ def test_legacy_setup_pending_event_does_not_mark_paid(app, monkeypatch) -> None
     assert resp.json() == {"received": True, "status": None}
     assert legada.setup_pago is False
     assert legada.asaas_setup_charge_id is None
-    assert db.commits == 0
+    assert db.commits == 1
 
 
 def test_delayed_legacy_confirmation_cannot_readopt_reversed_setup(
@@ -958,10 +1000,10 @@ def test_delayed_legacy_confirmation_cannot_readopt_reversed_setup(
     assert legada.setup_pago is False
     assert legada.asaas_setup_charge_id is None
     assert legada.asaas_setup_reversed_payment_id == "pay_leg_1"
-    assert db.commits == 0
+    assert db.commits == 1
 
 
-def test_legacy_reversal_before_confirmation_persists_tombstone(
+def test_legacy_reversal_before_confirmation_is_ignored_without_tombstone(
     app, monkeypatch
 ) -> None:
     legada = _legacy_sub()
@@ -972,18 +1014,18 @@ def test_legacy_reversal_before_confirmation_persists_tombstone(
 
     reversed_resp = _post(client, "PAYMENT_DELETED", deleted)
 
-    assert reversed_resp.json()["status"] == "inadimplente"
+    assert reversed_resp.json()["status"] is None
     assert legada.setup_pago is False
     assert legada.asaas_setup_charge_id is None
-    assert legada.asaas_setup_reversed_payment_id == "pay_leg_1"
+    assert legada.asaas_setup_reversed_payment_id is None
     assert db.commits == 1
-    assert db.subscription_locks == 1
+    assert db.subscription_locks == 0
 
     confirmed_resp = _post(client, "PAYMENT_CONFIRMED", _legacy_payment())
     assert confirmed_resp.json() == {"received": True, "status": None}
     assert legada.setup_pago is False
     assert legada.asaas_setup_charge_id is None
-    assert db.commits == 1
+    assert db.commits == 2
 
 
 def test_legacy_setup_rejects_wrong_description_missing_customer_or_ambiguity(
@@ -1011,7 +1053,7 @@ def test_legacy_setup_rejects_wrong_description_missing_customer_or_ambiguity(
         assert resp.json() == {"received": True, "status": None}
         assert all(c.setup_pago is False for c in candidatas)
         assert all(c.asaas_setup_charge_id is None for c in candidatas)
-        assert db.commits == 0
+        assert db.commits == 1
 
 
 def test_legacy_setup_declines_customer_shared_by_multiple_churches(
@@ -1044,7 +1086,7 @@ def test_legacy_setup_declines_customer_shared_by_multiple_churches(
     assert igreja_a.asaas_setup_charge_id == "pay_setup_a_current"
     assert igreja_b.setup_pago is False
     assert igreja_b.asaas_setup_charge_id is None
-    assert db.commits == 0
+    assert db.commits == 1
 
 
 # ---------------------------------------------------------------------------
@@ -1085,14 +1127,15 @@ def test_recovery_charge_confirmation_regularizes_access_not_setup(
     payment = _payment(status="CONFIRMED", subscription=None, payment_id="pay_rec_1")
     payment["externalReference"] = op.operation_key
 
-    for _ in range(2):  # evento repetido permanece idempotente
-        resp = _post(client, "PAYMENT_CONFIRMED", payment)
-        assert resp.json() == {"received": True, "status": "ativa"}
-        assert op.status == "paid"
-        assert db.sub.status == "ativa"
-        assert db.sub.asaas_invoice_reversal is None  # dívida quitada
-        assert db.igreja.status == "ativa"  # guarda atômica reativa a igreja
-        assert db.sub.setup_pago is False  # recovery NUNCA é confundida com setup
+    first = _post(client, "PAYMENT_CONFIRMED", payment)
+    duplicate = _post(client, "PAYMENT_CONFIRMED", payment)
+    assert first.json() == {"received": True, "status": "ativa"}
+    assert duplicate.json() == {"received": True, "status": None}
+    assert op.status == "paid"
+    assert db.sub.status == "ativa"
+    assert db.sub.asaas_invoice_reversal is None
+    assert db.igreja.status == "ativa"
+    assert db.sub.setup_pago is False
 
     assert db.lock_trace[:4] == [
         "church",
@@ -1135,7 +1178,7 @@ def test_operation_key_cannot_rebind_a_different_payment(
     assert db.sub.status == "inadimplente"
     assert db.sub.asaas_invoice_reversal == "refunded"
     assert db.igreja.status == "inadimplente"
-    assert db.commits == 0
+    assert db.commits == 1
 
 
 def test_recovery_charge_reversal_keeps_debt_without_link(app, monkeypatch) -> None:
@@ -1363,7 +1406,7 @@ def test_unbound_payment_operation_rejects_conflicting_snapshot(
     assert db.sub.setup_pago is False
     assert db.sub.status == "pendente"
     assert db.igreja.status == "aguardando_aprovacao"
-    assert db.commits == 0
+    assert db.commits == 1
 
 
 # ---------------------------------------------------------------------------
@@ -1497,7 +1540,7 @@ def test_monthly_refund_blocks_delayed_confirmation_of_same_payment(
     assert db.sub.asaas_invoice_url is None
     assert db.sub.asaas_invoice_reversal == "refunded"
     assert db.igreja.status == "inadimplente"
-    assert db.commits == commits_after_refund
+    assert db.commits == commits_after_refund + 1
 
 
 def test_new_cycle_tracks_its_state_without_settling_prior_recovery_debt(
@@ -1838,6 +1881,30 @@ def test_token_ausente_rejeitado(app, monkeypatch) -> None:
     assert db.commits == 0
 
 
+def test_authenticated_webhook_without_event_id_is_not_applied(
+    app, monkeypatch
+) -> None:
+    db = _WebhookDb(
+        sub=_sub(status="pendente"),
+        igreja=_igreja("inadimplente"),
+    )
+    client = _client(app, db, monkeypatch)
+
+    resp = client.post(
+        "/subscription/webhook",
+        json={
+            "event": "PAYMENT_CONFIRMED",
+            "payment": _payment(status="CONFIRMED"),
+        },
+        headers=_HDR,
+    )
+
+    assert resp.json() == {"received": True, "status": None}
+    assert db.sub.status == "pendente"
+    assert db.igreja.status == "inadimplente"
+    assert db.commits == 0
+
+
 # ---------------------------------------------------------------------------
 # CORRECTIVE-6: a externalReference NOVA (operation_key da intenção durável)
 # resolve a Subscription pela operação; o formato legado (igreja_id) segue no
@@ -1869,6 +1936,7 @@ def test_subscription_event_resolves_new_external_reference_via_operation(
     resp = client.post(
         "/subscription/webhook",
         json={
+            "id": "evt-subscription-created-k1",
             "event": "SUBSCRIPTION_UPDATED",
             "subscription": {
                 # id remoto DIFERENTE do rastreado: só a externalReference nova
@@ -1928,6 +1996,7 @@ def test_subscription_event_rejects_contract_that_differs_from_frozen_intent(
     resp = client.post(
         "/subscription/webhook",
         json={
+            "id": "evt-subscription-mismatch",
             "event": "SUBSCRIPTION_UPDATED",
             "subscription": {
                 "id": "sub_conflicting",
@@ -1949,7 +2018,7 @@ def test_subscription_event_rejects_contract_that_differs_from_frozen_intent(
     assert create_op.asaas_subscription_id is None
     assert create_op.status == "reconciling"
     assert db.igreja.status == "aguardando_aprovacao"
-    assert db.commits == 0
+    assert db.commits == 1
 
 
 def test_early_payment_cannot_close_an_unbound_creation_intent(
@@ -2003,7 +2072,7 @@ def test_early_payment_cannot_close_an_unbound_creation_intent(
     assert create_op.status == "creating"
     assert create_op.asaas_subscription_id is None
     assert db.igreja.status == "inadimplente"
-    assert db.commits == 0
+    assert db.commits == 1
 
 
 # ---------------------------------------------------------------------------
@@ -2229,7 +2298,7 @@ def test_duplicate_source_refund_after_paid_recovery_is_ignored(
     assert db.sub.status == "ativa"
     assert db.sub.asaas_invoice_reversal is None
     assert db.igreja.status == "ativa"
-    assert db.commits == 0
+    assert db.commits == 1
 
 
 def test_source_refund_counts_again_after_recovery_itself_reversed(
