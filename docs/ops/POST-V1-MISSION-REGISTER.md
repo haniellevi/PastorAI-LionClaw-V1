@@ -1,87 +1,172 @@
-# PastorAI / Igreja 12 — registro central de missões pós-V1
+# PastorAI / Igreja 12: registro central de missões pós-V1
 
-Atualizado em 2026-08-23 (America/Sao_Paulo) após validação de produção da PR #279 e checagens de integridade prévias. A V1 permanece
-`V1_ENCERRADA`; este documento não altera a tag `v1.0.0` nem autoriza ativação
-de integrações externas.
+Atualizado em 2026-08-24 (America/Sao_Paulo) após o deploy da PR #284 e o
+preflight operacional somente leitura do Asaas. A V1 permanece
+`V1_ENCERRADA`; este documento não altera a tag `v1.0.0`, não autoriza
+integrações externas e não abre gates de produção.
 
 ## Baseline obrigatório
 
-- código V1 em produção: `903394fe0e36a3aad450bf11eee732f7e4e0d77c`;
-- frontend (Vercel): `pastorai-frontend-prod` com SHA `903394fe0e36a3aad450bf11eee732f7e4e0d77c`;
-- Supabase PROD: `pffafnchtxbimpwyaczq`;
-- Clerk: estado a confirmar (verificação de instância PROD pendente).
-- flags externas: Asaas real, broadcast e Brevo live fechados;
-- fonte de verdade: `origin/main` atualizado.
+- código do backend em produção: `1e89e5867f535b47aaec813f5742298ca97e13c0`;
+- frontend Vercel `pastorai-frontend-prod`: deployment
+  `dpl_B1moarLm6raSzQU3DqMf33RvKiCo`, `READY`, target `production`, SHA
+  `1e89e5867f535b47aaec813f5742298ca97e13c0`;
+- Supabase PROD: `pffafnchtxbimpwyaczq`, estado `ACTIVE_HEALTHY`;
+- Clerk: instância PROD confirmada por prefixos `sk_live_` e `pk_live_`, issuer
+  `https://clerk.igreja12.com.br` e JWKS
+  `https://clerk.igreja12.com.br/.well-known/jwks.json`;
+- flags externas no backend, queue worker, cron worker e broadcast worker:
+  `ALLOW_REAL_SENDS=false`, `ASAAS_BILLING_ENABLED=false`,
+  `BREVO_SEND_MODE=off` e `BROADCAST_ASYNC_ENABLED=false`;
+- fonte de verdade: `origin/main` no SHA acima.
 
 ## Missões
 
-1. **PR #257 — fluxo da Central de Células.**
-   - Motivo: a PR permanecia aberta e não pertenceu ao fechamento da V1.
+1. **PR #257: fluxo da Central de Células.**
    - Estado: **MERGED** em `bae285b...` (squash merge a partir do HEAD
-     `b969c9a1de170d9c48e0729a9f867e2c95bb9232`); 5/5 checks do GitHub Actions
-     verdes e validações locais (793 testes, typecheck, lint, build e 5 E2E)
-     executados com sucesso.
-   - Evidência: aba "Hoje" exibe fila de exceções prioritárias sem duplicar
-     contagem de multiplicações; totais da igreja permanecem acessíveis via
-     `details` colapsível.
+     `b969c9a1de170d9c48e0729a9f867e2c95bb9232`).
+   - Evidência: 5/5 checks do GitHub Actions verdes; validações locais com 793
+     testes, typecheck, lint, build e cinco E2E; a aba "Hoje" exibe a fila de
+     exceções prioritárias sem duplicar multiplicações.
 
-2. **Células — transferência/remoção de membros.**
-   - Motivo: capacidade explicitamente excluída da V1.
-   - Estado: **MISSÃO 2 CONCLUÍDA e DEPLOYADA em produção** no SHA
-     `903394fe0e36a3aad450bf11eee732f7e4e0d77c`.
-   - Evidência: rota `/cells/{cell_id}/membros/transferir` e
-     `/cells/{cell_id}/membros/remover` ativas no OpenAPI de produção; produção
-     do frontend em Vercel no commit acima.
+2. **Células: transferência e remoção de membros.**
+   - Estado: **CONCLUÍDA E DEPLOYADA EM PROD**.
+   - Evidência: as rotas `/cells/{cell_id}/membros/transferir` e
+     `/cells/{cell_id}/membros/remover` estão ativas; o fluxo foi exercitado em
+     produção com dados sintéticos, preservando a pessoa, sem vínculos
+     duplicados e com eventos append-only em `celula_membro_evento`.
+   - Validação automatizada: 33 testes de backend e 12 testes de frontend
+     focados, além do typecheck. O smoke visual completo por perfil permanece
+     como evidência operacional residual, sem reabrir a implementação direta.
 
 3. **Clerk Production.**
-   - Motivo: retirar o piloto da instância DEV antes de abertura pública.
-   - Estado: **BLOCKED** no escopo de verificação atual.
-   - Bloqueios: não foi possível extrair prova técnica não-confidencial de
-     `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` em produção pelo pipeline disponível,
-     nem validar `CLERK_SECRET_KEY` / `CLERK_JWT_ISSUER` no VPS a partir desta
-     sessão.
-   - Ação seguinte obrigatória: obter evidência de prefixo `pk_live_` e issuer/JWKS
-     de produção, seguido de smoke completo por perfil (master, admin/pastor,
-     líder, membro).
+   - Estado: **CONCLUÍDA E DEPLOYADA EM PROD**.
+   - Evidência: prefixos e issuer/JWKS de produção confirmados sem expor chaves;
+     o frontend usa a autenticação própria do PastorAI e não carrega
+     `@clerk/nextjs` nem chave `pk_` em seus chunks.
+   - Resíduo: a PR #280 corrigiu ativação e recuperação em links rastreados e
+     foi incorporada ao baseline atual. Smokes autenticados por perfil e
+     cross-tenant devem continuar compondo o checklist de regressão de cada
+     release.
 
 4. **Asaas real.**
-   - Motivo: habilitar cobrança apenas depois da validação comercial e
-     financeira.
-   - Pré-requisito: inventário das assinaturas, backup fresco, reconciliação,
-     canário financeiro isolado e autorização nominal para abrir
-     `ALLOW_REAL_SENDS` e `ASAAS_BILLING_ENABLED`.
+   - Estado: **BLOCKED / NOT_READY**.
+   - Código: a PR #284 endureceu os gates antes da rede e diferenciou bloqueio
+     local de falha remota ambígua. O backend completo passou com 2.582 testes
+     e 239 skips antes do merge; o SHA está implantado nos quatro processos de
+     aplicação.
+   - Preflight operacional de 2026-08-24: concluído somente leitura, sem
+     cobrança, migration, canário ou alteração de flags. Ver a seção dedicada
+     abaixo.
+   - Bloqueio principal: a conta Asaas de produção não está vazia nem
+     reconciliada com o PastorAI. Ela contém recursos ativos sem qualquer
+     vínculo por ID, e-mail ou telefone com o banco PROD do PastorAI.
+   - Pré-requisitos ainda abertos: classificação de propriedade dos recursos
+     remotos, decisão de isolamento da conta, observabilidade para operações
+     presas, plano de canário financeiro isolado e autorização nominal para
+     abrir simultaneamente `ALLOW_REAL_SENDS` e `ASAAS_BILLING_ENABLED`.
 
 5. **Broadcast assíncrono e envios Evolution.**
-   - Motivo: o worker está implantado, mas deliberadamente ocioso na V1.
+   - Estado: **FECHADO**.
    - Pré-requisito: Evolution saudável, heartbeat do worker, destinatário único
      autorizado, observabilidade e rollback antes de abrir os dois gates.
 
 6. **Brevo live.**
-   - Motivo: a V1 comprovou apenas um canário e retornou a `off`.
+   - Estado: **FECHADO** (`BREVO_SEND_MODE=off`).
    - Pré-requisito: domínio/remetente, monitoramento, novo canário autorizado e
      promoção separada para `live`, recriando todos os consumidores da flag.
 
 7. **Dívida de performance do Supabase.**
-   - Motivo: o advisor reporta 75 recomendações `INFO` — 51 FKs sem índice de
-     cobertura e 24 índices ainda sem uso.
-   - Pré-requisito: medir consultas e crescimento real antes de criar ou remover
-     índices. O `WARN` de `current_igreja_id()` continua aceito enquanto for
-     necessário às policies RLS.
+   - Estado: **BACKLOG MEDIDO, SEM MUDANÇA DE SCHEMA NESTA MISSÃO**.
+   - Pré-requisito: medir consultas e crescimento real antes de criar ou
+     remover índices. O `WARN` de `current_igreja_id()` permanece aceito
+     enquanto necessário às policies RLS.
 
-## Ativação pós-deploy PR #279 (2026-08-23)
+## Fechamento da ativação pós-deploy de Células
 
-Revalidação de produção realizada nesta sessão:
+- frontend e backend servem o baseline atual
+  `1e89e5867f535b47aaec813f5742298ca97e13c0`;
+- `NEXT_PUBLIC_API_URL` aponta para `https://api.igreja12.com.br`; o deployment
+  de produção não contém `localhost:8000`;
+- Clerk PROD está comprovado no backend; nenhuma chave foi impressa;
+- os artefatos sensíveis `clerk_*_prod.*`, `migrate_clerk_production.py` e
+  `target_users*.json` não estão no worktree e permanecem excluídos localmente;
+- nenhuma migration foi aplicada para a ativação dos fluxos diretos.
 
-- **FRONTEND_SHA**: `903394fe0e36a3aad450bf11eee732f7e4e0d77c` (redeploy Vercel production: `https://pastorai-frontend-prod-mc2wlzp16-raniel-levis-projects.vercel.app`, alias `https://pastorai-frontend-prod.vercel.app`).
-- **BACKEND_SHA**: `903394fe0e36a3aad450bf11eee732f7e4e0d77c` (OpenAPI em `https://api.igreja12.com.br` com `/cells/{cell_id}/membros/transferir` e `/cells/{cell_id}/membros/remover`).
-- **Artefatos sensíveis**: nenhum encontrado no worktree; padrões de exclusão (`clerk_*_prod.*`, `migrate_clerk_production.py`, `target_users*.json`) já estão em `.git/info/exclude`.
-- **Vercel env (production)**: adicionada `NEXT_PUBLIC_API_URL=https://api.igreja12.com.br` (não-sensível, target `production`) e reimplantado. Confirmação: os chunks do novo deploy contêm `api.igreja12.com.br` e não contêm `localhost:8000`.
-- **Clerk no frontend**: não aplicável — o frontend não utiliza Clerk (`@clerk/nextjs` não consta em `package.json`, nenhum `pk_` nos chunks). A verificação de `CLERK_SECRET_KEY`/`CLERK_JWT_ISSUER` no VPS não foi possível por falta de acesso SSH à instância `76.13.234.127`.
-- **Status**: **BLOCKED** — o próximo gate é obter acesso SSH ao VPS `76.13.234.127` (ou a saída redigida do comando `grep -E 'CLERK_SECRET_KEY|CLERK_JWT_ISSUER|CLERK_JWKS_URL' /opt/pastorai-current/.env`) para confirmar que a instância Clerk é PROD, seguido de smoke por perfil.
+## Preflight operacional Asaas (2026-08-24)
+
+### Inventário local, Supabase PROD
+
+- três igrejas no total: duas ativas e uma suspensa;
+- uma linha em `subscriptions`, sem `asaas_customer_id` e sem
+  `asaas_subscription_id`;
+- zero linhas em `billing_payment_operations`,
+  `billing_subscription_operations` e `billing_plan_change_operations`;
+- zero operações abertas ou presas há mais de uma hora e zero notificações de
+  upgrade pendentes;
+- zero divergências entre plano de igreja e assinatura e zero divergências na
+  contagem faturável;
+- não existe índice único no schema aplicado para
+  `subscriptions.asaas_subscription_id`. Esse endurecimento exige migration
+  futura e autorização separada.
+
+### Inventário remoto, Asaas produção
+
+Consulta paginada exclusivamente por `GET` em `api.asaas.com`, sem imprimir
+IDs, nomes, documentos, e-mails, telefones ou chave de API:
+
+- 15 clientes, um deles com `externalReference`;
+- duas assinaturas `ACTIVE`, ambas sem `externalReference`;
+- 232 cobranças: 223 `RECEIVED` e nove `PENDING`;
+- oito cobranças com `externalReference`, nenhuma com prefixo `pastorai-`;
+- 35 cobranças ligadas às duas assinaturas listadas;
+- zero correspondências entre recursos remotos e IDs Asaas locais;
+- zero correspondências dos clientes das assinaturas ativas com e-mails ou
+  telefones existentes no PastorAI PROD;
+- as assinaturas ativas foram criadas entre 2024-04-29 e 2026-04-08 e possuem
+  próximas cobranças entre 2026-10-06 e 2026-10-09.
+
+Conclusão: os recursos existentes devem ser tratados como externos ou legados
+até identificação humana. Nenhum deles pode ser adotado, alterado, cancelado ou
+usado em canário por inferência.
+
+### Backup, restauração e monitoramento
+
+- backup lógico diário concluído em `2026-08-24T06:15:54Z`, com 23.877.499
+  bytes; arquivo presente, tamanho coincidente e SHA-256 recalculado com
+  resultado idêntico ao manifesto;
+- pacote com 26 entradas, incluindo dump Supabase/PostgreSQL 17, dump
+  Evolution/PostgreSQL 16, volume Redis e checksums internos;
+- cron legado ativo diariamente às 06:15 UTC; o timer de backup permanece
+  intencionalmente desabilitado para impedir agendamento duplicado;
+- monitor de produção habilitado e ativo, com última execução bem-sucedida em
+  `2026-08-24T14:33:50Z`;
+- Hostinger mantém dois backups semanais: 8,35 GB de 2026-08-19 e 8,64 GB de
+  2026-08-12;
+- último teste de restauração isolada em 2026-08-07: Supabase com 53 tabelas,
+  11 funções e nove gatilhos; Evolution com 105 tabelas e 5.372 linhas
+  estimadas; pacote externo com 28 entradas verificado. A cadência mensal ainda
+  está dentro do prazo.
+
+### Riscos residuais e próximo gate
+
+- a conta Asaas contém duas assinaturas ativas não pertencentes ao inventário
+  local conhecido;
+- operações de pagamento e criação de assinatura presas em `reconciling` não
+  possuem alerta específico por idade, embora atualmente não haja nenhuma;
+- buscas por `externalReference`, concorrência de `restore_payment`, ledger de
+  eventos de webhook e unicidade global de `asaas_subscription_id` continuam
+  como endurecimentos separados;
+- a cópia semanal da Hostinger e o backup diário local estão saudáveis, mas o
+  teste mensal de restauração deve ser repetido até 2026-09-07.
+
+**Próximo gate único:** autorização nominal para identificar o proprietário das
+duas assinaturas ativas e decidir se o PastorAI usará uma conta Asaas dedicada
+ou um mecanismo formal de isolamento. Até essa decisão, todas as flags
+financeiras permanecem fechadas e nenhum canário é permitido.
 
 ## Paralelismo seguro
 
-Auditorias read-only de PR #257, recuperação de Células e desenho de Clerk
-Production podem ocorrer em sessões separadas. Migrations, mudanças de
-identidade, flags, canários, deploys e merges continuam estritamente seriais e
+Auditorias somente leitura podem ocorrer em sessões separadas. Migrations,
+mudanças de identidade, flags, canários, deploys e merges permanecem seriais e
 exigem preflight vivo no momento da ação.
