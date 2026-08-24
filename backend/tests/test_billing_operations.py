@@ -13,8 +13,14 @@ from types import SimpleNamespace
 import pytest
 from sqlalchemy.exc import IntegrityError
 
+from app.config import Settings
 from app.db.models import BillingPaymentOperation
-from app.services.asaas import AsaasError, MONTHLY_RECOVERY_DESCRIPTION
+from app.services.asaas import (
+    MONTHLY_RECOVERY_DESCRIPTION,
+    AsaasClient,
+    AsaasError,
+    AsaasWritesDisabledError,
+)
 from app.services.billing import ensure_payment_operation
 from tests.conftest import FakeSession
 
@@ -104,6 +110,40 @@ def test_lost_response_reconciles_same_charge_without_second_post() -> None:
     assert resolved.invoice_url == "https://asaas.test/setup9"
     assert reconciler.posts == 0  # zero segundo POST
     assert reconciler.finds == 1
+
+
+def test_payment_gate_block_returns_operation_to_prepared_without_http(
+    monkeypatch,
+) -> None:
+    http_calls: list[str] = []
+
+    def forbidden_http(*args, **kwargs):  # pragma: no cover - defesa
+        http_calls.append("HTTP")
+        raise AssertionError("gate fechado não pode construir cliente HTTP")
+
+    monkeypatch.setattr("app.services.asaas.httpx.Client", forbidden_http)
+    asaas = AsaasClient(
+        Settings(
+            app_env="production",
+            allow_real_sends=False,
+            asaas_billing_enabled=False,
+        )
+    )
+    db = FakeSession()
+
+    for _ in range(2):
+        with pytest.raises(AsaasWritesDisabledError):
+            _ensure(db, asaas)
+
+    operations = [
+        o for o in db.added if isinstance(o, BillingPaymentOperation)
+    ]
+    assert len(operations) == 1
+    op = operations[0]
+    assert op.status == "prepared"
+    assert op.attempt_started_at is None
+    assert op.asaas_payment_id is None
+    assert http_calls == []
 
 
 def test_reconcile_confirmed_setup_applies_paid_state_without_webhook() -> None:
@@ -603,6 +643,103 @@ def test_plan_change_updates_same_subscription_in_place() -> None:
     assert igreja.plano == "101_200"
     assert sub.proxima_cobranca == "2026-08-01"  # ciclo preservado
     assert sub.asaas_subscription_id == "sub_asaas_1"  # MESMO id remoto
+
+
+def test_plan_change_gate_block_returns_operation_to_prepared_without_http(
+    monkeypatch,
+) -> None:
+    http_calls: list[str] = []
+
+    def forbidden_http(*args, **kwargs):  # pragma: no cover - defesa
+        http_calls.append("HTTP")
+        raise AssertionError("gate fechado não pode construir cliente HTTP")
+
+    monkeypatch.setattr("app.services.asaas.httpx.Client", forbidden_http)
+    sub = _plan_sub()
+    igreja = SimpleNamespace(id="igreja-1", plano="ate_100")
+    db = FakeSession(igreja=igreja)
+    asaas = AsaasClient(
+        Settings(
+            app_env="production",
+            allow_real_sends=False,
+            asaas_billing_enabled=False,
+        )
+    )
+
+    for _ in range(2):
+        with pytest.raises(AsaasWritesDisabledError):
+            _change(db, asaas, sub)
+
+    operations = [
+        o for o in db.added if isinstance(o, BillingPlanChangeOperation)
+    ]
+    assert len(operations) == 1
+    op = operations[0]
+    assert op.status == "prepared"
+    assert op.attempt_started_at is None
+    assert sub.plano == "ate_100"
+    assert sub.limite == 100
+    assert igreja.plano == "ate_100"
+    assert http_calls == []
+
+
+def test_plan_change_gate_block_preserves_prior_reconciling_state(
+    monkeypatch,
+) -> None:
+    http_calls: list[str] = []
+    gets = 0
+
+    def forbidden_http(*args, **kwargs):  # pragma: no cover - defesa
+        http_calls.append("HTTP")
+        raise AssertionError("gate fechado não pode construir cliente HTTP")
+
+    def divergent_remote(subscription_id: str):
+        nonlocal gets
+        gets += 1
+        assert subscription_id == "sub_asaas_1"
+        return {
+            "id": subscription_id,
+            "value": 199.0,
+            "description": "PastorAI — plano ate_100",
+        }
+
+    monkeypatch.setattr("app.services.asaas.httpx.Client", forbidden_http)
+    sub = _plan_sub()
+    igreja = SimpleNamespace(id="igreja-1", plano="ate_100")
+    op = BillingPlanChangeOperation(
+        subscription_id="local-sub-1",
+        asaas_subscription_id="sub_asaas_1",
+        from_plano="ate_100",
+        to_plano="101_200",
+        to_preco=299.0,
+        to_limite=200,
+        to_descricao="PastorAI — plano 101_200",
+        status="reconciling",
+    )
+    db = FakeSession(plan_changes=[op], igreja=igreja)
+    asaas = AsaasClient(
+        Settings(
+            app_env="production",
+            allow_real_sends=False,
+            asaas_billing_enabled=False,
+        )
+    )
+    monkeypatch.setattr(asaas, "get_subscription", divergent_remote)
+
+    with pytest.raises(AsaasWritesDisabledError):
+        _change(db, asaas, sub)
+
+    assert gets == 1
+    assert http_calls == []
+    assert op.status == "reconciling"
+    assert op.attempt_started_at is None
+    assert op.to_plano == "101_200"
+    assert float(op.to_preco) == 299.0
+    assert op.to_limite == 200
+    assert op.to_descricao == "PastorAI — plano 101_200"
+    assert sub.plano == "ate_100"
+    assert sub.limite == 100
+    assert igreja.plano == "ate_100"
 
 
 def test_plan_change_put_timeout_keeps_local_plan_and_reconciles_later() -> None:

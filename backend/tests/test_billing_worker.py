@@ -20,10 +20,11 @@ from __future__ import annotations
 import uuid
 from types import SimpleNamespace
 
+from app.config import Settings
 from app.db.models import BillingPlanChangeOperation, Subscription
 from app.db.tenant_session import TENANT_IGREJA_KEY, TENANT_META_KEY
 from app.services import billing_worker
-from app.services.asaas import AsaasError, AsaasRejectedError
+from app.services.asaas import AsaasClient, AsaasError, AsaasRejectedError
 from app.services.billing_worker import (
     queue_autoupgrade_if_over_limit,
     run_pending_plan_changes,
@@ -337,6 +338,139 @@ def test_worker_put_failure_keeps_local_plan_and_operation_recoverable(
     assert op.status == "reconciling"
     assert notified == []
     assert tenant.closed is True
+
+
+def test_worker_gate_block_keeps_prepared_without_get_or_put(monkeypatch) -> None:
+    op = _op()
+    sub = _sub()
+    igreja = SimpleNamespace(id=_IGREJA_A, plano="ate_100")
+    tenant = _WorkerSession(subscription=sub, igreja=igreja, plan_changes=[op])
+    notified = _spy_notify(monkeypatch)
+    http_calls: list[str] = []
+
+    def forbidden_http(*args, **kwargs):  # pragma: no cover - defesa
+        http_calls.append("HTTP")
+        raise AssertionError("worker não pode executar GET ou PUT com gate fechado")
+
+    monkeypatch.setattr("app.services.asaas.httpx.Client", forbidden_http)
+    asaas = AsaasClient(
+        Settings(
+            app_env="production",
+            allow_real_sends=False,
+            asaas_billing_enabled=False,
+        )
+    )
+
+    completed = run_pending_plan_changes(
+        _Discovery([(op, _IGREJA_A)]),
+        session_factory=_factory_queue([tenant]),
+        asaas=asaas,
+        evolution=object(),
+    )
+
+    assert completed == 0
+    assert op.status == "prepared"
+    assert op.attempt_started_at is None
+    assert sub.plano == "ate_100"
+    assert sub.limite == 100
+    assert igreja.plano == "ate_100"
+    assert notified == []
+    assert http_calls == []
+    assert tenant.closed is True
+
+
+def test_worker_gate_block_preserves_ambiguous_operation_across_ticks(
+    monkeypatch,
+) -> None:
+    op = _op(
+        status="reconciling",
+        to_descricao="PastorAI — plano 101_200",
+    )
+    sub = _sub()
+    frozen_target = (
+        op.to_plano,
+        float(op.to_preco),
+        op.to_limite,
+        op.to_descricao,
+    )
+    http_calls: list[str] = []
+    gets = 0
+
+    def forbidden_http(*args, **kwargs):  # pragma: no cover - defesa
+        http_calls.append("HTTP")
+        raise AssertionError("worker não pode executar PUT com gate fechado")
+
+    def divergent_remote(subscription_id: str):
+        nonlocal gets
+        gets += 1
+        assert subscription_id == "sub_asaas_1"
+        return {
+            "id": subscription_id,
+            "value": 199.0,
+            "description": "PastorAI — plano ate_100",
+        }
+
+    monkeypatch.setattr("app.services.asaas.httpx.Client", forbidden_http)
+    asaas = AsaasClient(
+        Settings(
+            app_env="production",
+            allow_real_sends=False,
+            asaas_billing_enabled=False,
+        )
+    )
+    monkeypatch.setattr(asaas, "get_subscription", divergent_remote)
+
+    first_tick = _WorkerSession(
+        subscription=sub,
+        igreja=SimpleNamespace(id=_IGREJA_A, plano="ate_100"),
+        plan_changes=[op],
+    )
+    assert (
+        run_pending_plan_changes(
+            _Discovery([(op, _IGREJA_A)]),
+            session_factory=_factory_queue([first_tick]),
+            asaas=asaas,
+            evolution=object(),
+        )
+        == 0
+    )
+    assert op.status == "reconciling"
+    assert op.attempt_started_at is None
+    assert first_tick.closed is True
+
+    # Mesmo que a contagem agora caiba no plano, o tick seguinte não pode
+    # cancelar nem retargetear uma operação que talvez já tenha chegado ao
+    # provedor. Apenas operações `prepared` passam por essa revalidação.
+    second_tick = _WorkerSession(
+        subscription=sub,
+        igreja=SimpleNamespace(id=_IGREJA_A, plano="ate_100"),
+        plan_changes=[op],
+    )
+    second_tick.pessoas_count = 50
+    assert (
+        run_pending_plan_changes(
+            _Discovery([(op, _IGREJA_A)]),
+            session_factory=_factory_queue([second_tick]),
+            asaas=asaas,
+            evolution=object(),
+        )
+        == 0
+    )
+
+    assert gets == 2
+    assert http_calls == []
+    assert op.status == "reconciling"
+    assert op.attempt_started_at is None
+    assert (
+        op.to_plano,
+        float(op.to_preco),
+        op.to_limite,
+        op.to_descricao,
+    ) == frozen_target
+    assert sub.plano == "ate_100"
+    assert sub.limite == 100
+    assert second_tick.igreja.plano == "ate_100"
+    assert second_tick.closed is True
 
 
 def test_worker_cancels_stale_prepared_autoupgrade_before_asaas(

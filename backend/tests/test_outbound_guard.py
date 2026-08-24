@@ -14,7 +14,12 @@ import httpx
 import pytest
 
 from app.config import Settings
-from app.services.asaas import AsaasClient, AsaasError
+from app.services.asaas import (
+    AsaasClient,
+    AsaasError,
+    AsaasRejectedError,
+    AsaasWritesDisabledError,
+)
 from app.services.brevo import BrevoClient, BrevoError
 from app.services.evolution import EvolutionClient, EvolutionError
 from app.services.google_calendar import GoogleCalendarClient, GoogleCalendarError
@@ -203,6 +208,30 @@ def test_create_checkout_blocked(monkeypatch) -> None:
 @pytest.mark.parametrize(
     "operation",
     [
+        lambda client: client.update_subscription(
+            "sub_1", valor=99.9, descricao="PastorAI — plano ate_100"
+        ),
+        lambda client: client.create_one_time_charge(
+            customer_id="cus_1",
+            valor=59.9,
+            description="PastorAI — taxa de setup",
+            external_reference="op_1",
+        ),
+        lambda client: client.restore_payment("pay_1"),
+    ],
+    ids=["plan-change", "one-time-charge", "restore-payment"],
+)
+def test_asaas_nonproduction_mutations_keep_none_sandbox(
+    monkeypatch, operation
+) -> None:
+    _block_network(monkeypatch)
+
+    assert operation(AsaasClient(_settings())) is None
+
+
+@pytest.mark.parametrize(
+    "operation",
+    [
         lambda client: client.create_checkout(
             nome="Igreja Teste",
             email="t@x.com",
@@ -239,8 +268,71 @@ def test_asaas_mutations_fail_closed_in_production(
         )
     )
 
-    with pytest.raises(AsaasError, match="desabilitadas"):
+    with pytest.raises(AsaasWritesDisabledError, match="desabilitadas"):
         operation(client)
+
+
+def test_asaas_writes_disabled_error_is_distinct_from_remote_rejection() -> None:
+    assert issubclass(AsaasWritesDisabledError, AsaasError)
+    assert not issubclass(AsaasWritesDisabledError, AsaasRejectedError)
+
+
+@pytest.mark.parametrize(
+    "operation",
+    [
+        lambda asaas, http: asaas._ensure_customer(
+            http,
+            {"access_token": "test"},
+            nome="Igreja Teste",
+            email="financeiro@example.com",
+            cpf_cnpj="documento-sintetico",
+        ),
+        lambda asaas, http: asaas._create_subscription(
+            http,
+            {"access_token": "test"},
+            customer_id="cus_test",
+            valor=199.0,
+            ciclo="MONTHLY",
+            descricao="PastorAI — plano ate_100",
+            external_reference="op_test",
+        ),
+        lambda asaas, http: asaas._create_one_time_charge(
+            http,
+            {"access_token": "test"},
+            customer_id="cus_test",
+            valor=59.9,
+            description="PastorAI — taxa de setup",
+            external_reference="op_test",
+        ),
+    ],
+    ids=["customer", "subscription", "payment"],
+)
+def test_asaas_private_mutation_sinks_fail_closed_before_any_http(operation) -> None:
+    class _NoHttp:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def get(self, *args, **kwargs):  # pragma: no cover - defesa
+            self.calls.append("GET")
+            raise AssertionError("o gate privado deveria bloquear antes do GET")
+
+        def post(self, *args, **kwargs):  # pragma: no cover - defesa
+            self.calls.append("POST")
+            raise AssertionError("o gate privado deveria bloquear antes do POST")
+
+    http = _NoHttp()
+    asaas = AsaasClient(
+        _settings(
+            app_env="staging",
+            allow_real_sends=False,
+            asaas_billing_enabled=False,
+        )
+    )
+
+    with pytest.raises(AsaasWritesDisabledError, match="desabilitadas"):
+        operation(asaas, http)
+
+    assert http.calls == []
 
 
 def test_send_invite_blocked(monkeypatch) -> None:

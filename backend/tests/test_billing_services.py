@@ -69,7 +69,7 @@ def test_customer_lookup_and_creation_require_the_document() -> None:
             calls.append({"method": "post", "path": path, "headers": headers, "json": json})
             return _Response({"id": "cus_test"})
 
-    customer_id = AsaasClient()._ensure_customer(
+    customer_id = AsaasClient(_sends_allowed_settings())._ensure_customer(
         _Client(),
         {"access_token": "test"},
         nome="Igreja Teste",
@@ -119,7 +119,13 @@ def test_one_time_charge_rejects_value_below_asaas_minimum_before_network() -> N
 
 def test_billing_writes_stay_offline_without_dedicated_permission() -> None:
     """O gate dedicado bloqueia apenas mutações; leituras são independentes."""
-    client = AsaasClient()
+    client = AsaasClient(
+        Settings(
+            app_env="staging",
+            allow_real_sends=False,
+            asaas_billing_enabled=False,
+        )
+    )
 
     assert client.restore_payment("pay_x") is None
     assert (
@@ -277,7 +283,7 @@ def test_subscription_payload_sets_first_due_date(monkeypatch) -> None:
             calls.append({"path": path, "headers": headers, "json": json})
             return _Response()
 
-    client = AsaasClient()
+    client = AsaasClient(_sends_allowed_settings())
     result = client._create_subscription(
         _Client(),
         {"access_token": "test"},
@@ -327,7 +333,7 @@ def test_setup_charge_payload_sets_due_date(monkeypatch) -> None:
             calls.append({"path": path, "headers": headers, "json": json})
             return _Response()
 
-    result = AsaasClient()._create_one_time_charge(
+    result = AsaasClient(_sends_allowed_settings())._create_one_time_charge(
         _Client(),
         {"access_token": "test"},
         customer_id="cus_test",

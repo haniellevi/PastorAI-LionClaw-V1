@@ -47,6 +47,7 @@ from app.services.asaas import (
     AsaasClient,
     AsaasError,
     AsaasRejectedError,
+    AsaasWritesDisabledError,
     get_asaas_client,
     map_payment_status,
     payment_invoice_url,
@@ -2523,6 +2524,16 @@ def create_checkout(
             on_customer_resolved=_persist_resolved_customer,
             on_subscription_created=_track_created_subscription,
         )
+    except AsaasWritesDisabledError as exc:
+        # O gate falhou antes de customer ou assinatura remotos existirem.
+        # Esta tentativa é comprovadamente reutilizável e nunca reconciliável.
+        claim_transition(
+            db, op, "creating", "prepared", attempt_started_at=None
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Operações de cobrança estão desabilitadas",
+        ) from exc
     except AsaasRejectedError as exc:
         # Rejeição DEFINITIVA (HTTP 4xx): o Asaas respondeu e NÃO criou nada —
         # a intenção volta a `prepared` e o usuário pode corrigir os dados

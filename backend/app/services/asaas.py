@@ -101,7 +101,16 @@ def payment_invoice_url(payment: dict | None) -> str | None:
 
 
 class AsaasError(Exception):
-    """Raised when an Asaas API call fails or the client is misconfigured."""
+    """Base error for Asaas client and billing-operation failures."""
+
+
+class AsaasWritesDisabledError(AsaasError):
+    """A financial mutation was denied before any HTTP request was attempted.
+
+    This is a known local outcome, unlike timeouts and HTTP 5xx responses whose
+    remote result may be ambiguous. Durable operations may therefore return to
+    ``prepared`` when this exception is raised.
+    """
 
 
 def subscription_description(plano: str) -> str:
@@ -119,9 +128,10 @@ class AsaasRejectedError(AsaasError):
     """Rejeição DEFINITIVA do Asaas (HTTP 4xx): nada foi criado.
 
     Diferente do timeout/5xx (resultado ambíguo → reconciliação), uma resposta
-    4xx prova que o recurso não existe no Asaas — o chamador pode devolver a
-    intenção a `prepared` e permitir um retry normal após correção dos dados.
-    Usada apenas no caminho de criação de assinatura (CORRECTIVE-7).
+    4xx prova que a mutação foi rejeitada e não foi aplicada. O chamador pode
+    seguir seu caminho definitivo ou permitir retry após correção dos dados.
+    Usada nos caminhos mutantes que distinguem rejeição definitiva de falha
+    remota ambígua.
     """
 
 
@@ -150,12 +160,19 @@ class AsaasClient:
         self._settings = settings or get_settings()
 
     def _suppress_or_reject_mutation(self, action: str) -> None:
-        """Keep sandbox no-ops out of production financial state changes."""
-        log_suppressed("Asaas", action)
+        """Preserve sandbox no-ops while production fails closed pre-network."""
         if self._settings.is_production:
-            raise AsaasError(
-                "Operações de cobrança estão desabilitadas pelo gate de produção"
-            )
+            self._require_mutation_allowed(action)
+        log_suppressed("Asaas", action)
+
+    def _require_mutation_allowed(self, action: str) -> None:
+        """Fail before an HTTP sink unless both financial gates are open."""
+        if asaas_billing_writes_allowed(self._settings):
+            return
+        log_suppressed("Asaas", action)
+        raise AsaasWritesDisabledError(
+            "Operações de cobrança estão desabilitadas pelo gate financeiro"
+        )
 
     def _require_config(self) -> tuple[str, str]:
         base_url = self._settings.asaas_api_url
@@ -534,6 +551,7 @@ class AsaasClient:
         cpf_cnpj: str,
     ) -> str:
         """Find an existing customer by document or create a new one."""
+        self._require_mutation_allowed("_ensure_customer")
         resp = client.get("/customers", headers=headers, params={"cpfCnpj": cpf_cnpj})
         resp.raise_for_status()
         data = resp.json()
@@ -557,6 +575,7 @@ class AsaasClient:
         descricao: str,
         external_reference: str | None,
     ) -> dict:
+        self._require_mutation_allowed("_create_subscription")
         payload: dict[str, object] = {
             "customer": customer_id,
             "billingType": "UNDEFINED",
@@ -628,6 +647,7 @@ class AsaasClient:
         external_reference: str,
     ) -> dict:
         """One-time charge (setup / monthly recovery) as a single payment."""
+        self._require_mutation_allowed("_create_one_time_charge")
         payload: dict[str, object] = {
             "customer": customer_id,
             "billingType": "UNDEFINED",

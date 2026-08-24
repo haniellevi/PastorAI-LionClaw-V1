@@ -34,6 +34,7 @@ from app.services.asaas import (
     AsaasClient,
     AsaasError,
     AsaasRejectedError,
+    AsaasWritesDisabledError,
     map_payment_status,
     payment_invoice_url,
     payment_reversal_kind,
@@ -594,6 +595,13 @@ def ensure_payment_operation(
             description=description,
             external_reference=op.operation_key,
         )
+    except AsaasWritesDisabledError:
+        # O gate negou ANTES de qualquer HTTP: não há resultado remoto para
+        # reconciliar. Libera a intenção para uma tentativa futura autorizada.
+        claim_transition(
+            db, op, "creating", "prepared", attempt_started_at=None
+        )
+        raise
     except AsaasRejectedError as exc:
         # Rejeição DEFINITIVA (mínimo local / HTTP 4xx): nada foi criado — a
         # operação fecha como `failed` (erro registrado) e LIBERA o índice
@@ -1075,6 +1083,12 @@ def ensure_plan_change_operation(
                     f"Já existe uma troca em andamento para o plano {op.to_plano}"
                 ) from None
 
+    # O estado de entrada distingue uma primeira tentativa comprovadamente
+    # pré-rede de um retry que já carrega ambiguidade de PUT anterior. O claim
+    # abaixo muda ambos para `processing`, portanto essa origem precisa ser
+    # preservada antes da transição.
+    entered_from_prepared = op.status == "prepared"
+
     if op.status in ("processing", "reconciling"):
         # Resultado do PUT anterior é DESCONHECIDO: reconcilia pelo GET antes
         # de qualquer nova escrita remota.
@@ -1121,6 +1135,19 @@ def ensure_plan_change_operation(
             # MESMA descrição que a reconciliação confere depois.
             descricao=op.to_descricao or subscription_description(op.to_plano),
         )
+    except AsaasWritesDisabledError:
+        # O PUT desta tentativa foi bloqueado localmente. Só a primeira
+        # tentativa pode voltar a `prepared`; um retry que entrou com
+        # ambiguidade anterior deve preservá-la em `reconciling`, pois o GET
+        # divergente não prova que o PUT anterior deixou de chegar ao Asaas.
+        claim_transition(
+            db,
+            op,
+            "processing",
+            "prepared" if entered_from_prepared else "reconciling",
+            attempt_started_at=None,
+        )
+        raise
     except AsaasRejectedError as exc:
         # Rejeição DEFINITIVA do PUT (4xx): o remoto ficou como estava — a
         # operação fecha como `failed` (plano local INTACTO) e o claim único
@@ -1353,7 +1380,8 @@ def reconcile_subscription_operation(
     Um crash entre localizar e adotar deixa a operação aberta e o retry
     reconcilia de novo — nunca nasce uma segunda intenção (e portanto nunca um
     segundo POST). 0 correspondências mantém `reconciling` e NUNCA repete o
-    POST automaticamente; mais de uma é ambiguidade real → `failed`.
+    POST automaticamente; mais de uma também permanece `reconciling`, com
+    revisão manual obrigatória.
     """
     matches = [
         s

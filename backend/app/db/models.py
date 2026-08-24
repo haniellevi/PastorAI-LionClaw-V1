@@ -1305,8 +1305,8 @@ class BillingPaymentOperation(Base):
     invoice_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Registro da rejeição DEFINITIVA que fechou a operação como `failed`.
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # Lease do POST /payments: permite recuperar um claim abandonado somente
-    # depois de reconciliar por externalReference e esperar a tentativa morrer.
+    # Início da tentativa de POST. Bloqueio local pré-rede limpa o timestamp e
+    # volta a `prepared`; resultado remoto ambíguo permanece em `reconciling`.
     attempt_started_at: Mapped[dt.datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -1414,8 +1414,9 @@ class BillingSubscriptionOperation(Base):
         Text, nullable=False, server_default=text("'prepared'")
     )
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # Lease do POST /subscriptions; zero matches só volta a prepared depois
-    # deste prazo, quando não existe mais request HTTP possivelmente em voo.
+    # Início da tentativa de POST. Zero matches permanece em `reconciling`, pois
+    # ausência na busca não prova que o recurso remoto não existe; somente um
+    # bloqueio local comprovadamente pré-rede devolve a intenção a `prepared`.
     attempt_started_at: Mapped[dt.datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
