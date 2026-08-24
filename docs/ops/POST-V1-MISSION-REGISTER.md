@@ -18,9 +18,9 @@ integrações externas e não abre gates de produção.
 - flags externas no backend, queue worker, cron worker e broadcast worker:
   `ALLOW_REAL_SENDS=false`, `ASAAS_BILLING_ENABLED=false`,
   `BREVO_SEND_MODE=off` e `BROADCAST_ASYNC_ENABLED=false`;
-- fonte de verdade do código: `origin/main` em
-  `e8b06d0afa167790b068e262be10669b21d28e08`; produção serve o SHA informado
-  para cada camada acima.
+- fonte de verdade do código: `origin/main`; produção serve o SHA imutável
+  informado para cada camada acima. Commits exclusivamente documentais em
+  `main` não alteram os artefatos implantados.
 
 ## Missões
 
