@@ -574,6 +574,9 @@ def test_plan_conversion_and_open_change_are_serialized(engine_fx: Engine) -> No
             assert float(stale.preco_mensal) == 299
             worker_started.set()
             sub = db.get(Subscription, _SUB)
+            sub.asaas_subscription_external_reference = (
+                "pastorai-subcreate-plan-conversion-race"
+            )
             try:
                 ensure_plan_change_operation(
                     db,
@@ -678,6 +681,12 @@ def test_webhook_and_autoupgrade_trigger_share_canonical_locks(
                     limite=100,
                     asaas_customer_id=f"cus_pg17_{index}",
                     asaas_subscription_id=f"sub_pg17_{index}",
+                    asaas_customer_external_reference=(
+                        f"pastorai-customer-{igreja_id}"
+                    ),
+                    asaas_subscription_external_reference=(
+                        f"pastorai-subcreate-pg17-{index}"
+                    ),
                     setup_pago=True,
                     setup_fee_contracted=0,
                 )
@@ -746,12 +755,15 @@ def test_webhook_and_autoupgrade_trigger_share_canonical_locks(
                     barrier.wait(timeout=5)
                     result = asaas_webhook(
                         AsaasWebhookEvent(
+                            id=f"evt-pg17-overdue-{current_index}",
                             event="PAYMENT_OVERDUE",
                             payment={
                                 "id": current_payment,
                                 "status": "OVERDUE",
                                 "subscription": current_remote,
-                                "externalReference": str(church_id(current_index)),
+                                "externalReference": (
+                                    f"pastorai-subcreate-pg17-{current_index}"
+                                ),
                                 "dueDate": "2026-08-10",
                                 "invoiceUrl": (
                                     f"https://example.invalid/{current_payment}"
@@ -846,12 +858,15 @@ def test_webhook_and_autoupgrade_trigger_share_canonical_locks(
                 webhook_started.set()
                 result = asaas_webhook(
                     AsaasWebhookEvent(
+                        id="evt-pg17-rollback-confirmed",
                         event="PAYMENT_CONFIRMED",
                         payment={
                             "id": "pay_pg17_rollback",
                             "status": "CONFIRMED",
                             "subscription": f"sub_pg17_{rollback_index}",
-                            "externalReference": str(church_id(rollback_index)),
+                            "externalReference": (
+                                f"pastorai-subcreate-pg17-{rollback_index}"
+                            ),
                             "dueDate": "2026-08-10",
                             "value": 199.0,
                         },
@@ -1062,6 +1077,7 @@ def test_reconciliation_webhook_and_trigger_converge_without_deadlock(
                     concurrent_start.wait(timeout=5)
                     response = asaas_webhook(
                         AsaasWebhookEvent(
+                            id=f"evt-reconcile-pg17-{index}",
                             event="SUBSCRIPTION_UPDATED",
                             subscription={
                                 "id": remote_id,
@@ -1125,6 +1141,7 @@ def test_reconciliation_webhook_and_trigger_converge_without_deadlock(
         with factory() as db:
             repeated = asaas_webhook(
                 AsaasWebhookEvent(
+                    id=f"evt-reconcile-repeat-pg17-{index}",
                     event="SUBSCRIPTION_UPDATED",
                     subscription={
                         "id": remote_id,
