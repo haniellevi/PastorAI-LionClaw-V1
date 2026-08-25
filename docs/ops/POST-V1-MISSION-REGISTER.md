@@ -1,14 +1,14 @@
 # PastorAI / Igreja 12: registro central de missões pós-V1
 
-Atualizado em 2026-08-25 (America/Sao_Paulo) após a integração das PRs #296 e
-#297, a revalidação da BYO da Filadélfia com o agente desativado e a comprovação
-somente leitura do backend na VPS. A V1 permanece `V1_ENCERRADA`; este documento
-não altera a tag `v1.0.0`, não autoriza canário e não abre gates de produção.
+Atualizado em 2026-08-25 (America/Sao_Paulo) após a integração das PRs #296,
+#297 e #299, a revalidação da BYO da Filadélfia e o deploy controlado do backend
+com o agente desativado. A V1 permanece `V1_ENCERRADA`; este documento não
+altera a tag `v1.0.0`, não autoriza canário e não abre gates de produção.
 
 ## Baseline obrigatório
 
 - último SHA comprovado do backend em produção:
-  `e8b06d0afa167790b068e262be10669b21d28e08`;
+  `d65cdd6c6b0fb1b772ef7fcd9311dfd5f889531c`;
 - frontend Vercel `pastorai-frontend-prod`: deployment
   `dpl_Dycx4epdibk5xtW3svVerJT2cH7K`, `READY`, target `production`, SHA
   `cba0fdf9c6eb815e15fa5a1502499c5b0d332732`;
@@ -314,11 +314,12 @@ workflows posteriores ao merge passaram.
   direta inicial;
 - a PR #296 acrescentou à tela `Revalidar credencial`, usando somente
   `PUT /agent/model` com o modelo já salvo e sem reenviar a chave;
-- o console web autenticado da VPS comprovou, somente leitura, que
+- o preflight anterior ao deploy comprovou que
   `/opt/pastorai-current` aponta para o release
   `e8b06d0afa167790b068e262be10669b21d28e08`;
-- backend, queue worker, cron worker e broadcast worker estavam saudáveis e
-  usavam a mesma imagem `pastorai-backend:latest`, ID `c9133e194e39`;
+- backend, queue worker, cron worker e broadcast worker anteriores estavam
+  saudáveis e usavam a mesma imagem `pastorai-backend:latest`, ID
+  `c9133e194e39`;
 - `/health` respondeu `ok` e `/ready` respondeu `ready`, com banco, Redis,
   Evolution, operações de billing e os três workers em estado `ok`;
 - a leitura efetiva dentro do contêiner backend confirmou
@@ -338,6 +339,9 @@ workflows posteriores ao merge passaram.
 - a PR #297 documentou a revalidação e foi integrada no commit
   `03696efc8ff1466b8ddcfdc1b993455f98493bc3`. Os cinco workflows pós-merge e o
   status de deployment da Vercel passaram;
+- a PR #299 documentou a prova da VPS e foi integrada no commit
+  `d65cdd6c6b0fb1b772ef7fcd9311dfd5f889531c`. Os cinco workflows pós-merge e o
+  status de deployment da Vercel passaram;
 - a BYO foi revalidada em produção como `openai` e `gpt-5.6-luna`, mantendo o
   campo de chave vazio. A operação terminou sem erro e, após recarregar a tela,
   o painel confirmou `Credencial ativa`, modelo Luna e status do agente
@@ -347,16 +351,38 @@ workflows posteriores ao merge passaram.
 - a comparação de ancestralidade confirmou que o release ativo
   `e8b06d0afa167790b068e262be10669b21d28e08` antecede tanto a base integrada da
   PR #294, `7a0f55ea1414d58020f426fe8d66d3dc97563e37`, quanto a PR #296. Assim, o
-  frontend seguro está publicado, mas o backend necessário ao canário ainda não
-  está implantado na VPS;
-- nenhuma migration, ativação do agente, mudança de flag, conexão Evolution,
-  mensagem externa, canário ou deploy manual foi realizada nesta preparação.
+  backend antigo não atendia ao gate do canário;
+- o artefato limpo do SHA
+  `d65cdd6c6b0fb1b772ef7fcd9311dfd5f889531c`, checksum SHA-256
+  `4d5263705c523869f342b923b88828cd76a7d3d3cc90b9a11a41583bdd4b6b32`, foi
+  extraído em um novo diretório imutável. Não havia migration nem alteração do
+  Compose entre o release anterior e o candidato;
+- a imagem anterior foi preservada como rollback no ID `c9133e194e39`. A nova
+  imagem `pastorai-backend:latest`, ID `9cf099a1413e`, foi aplicada somente ao
+  backend, queue worker, cron worker e broadcast worker, sem recriar Redis,
+  Evolution ou volumes;
+- `/opt/pastorai-current` aponta para
+  `/opt/pastorai-releases/d65cdd6c6b0fb1b772ef7fcd9311dfd5f889531c`;
+- os quatro processos usam a imagem `9cf099a1413e` e ficaram saudáveis.
+  `/health` respondeu `ok` e `/ready` respondeu `ready` local e publicamente,
+  com banco, Redis, Evolution, billing e os três workers em estado `ok`;
+- cada um dos quatro contêineres confirmou `ALLOW_REAL_SENDS=false`,
+  `ASAAS_BILLING_ENABLED=false`, `BREVO_SEND_MODE=off` e
+  `BROADCAST_ASYNC_ENABLED=false`;
+- o catálogo dentro do contêiner confirmou `PRICING_UPDATED_AT=2026-08-25`, e
+  as portas 8000 e 8080 continuaram inacessíveis externamente;
+- o console master confirmou novamente a Filadélfia com `AgentConfig.ativo=false`
+  após o deploy. A chave SSH temporária foi revogada, o teste posterior negou
+  acesso, e os pacotes e chaves temporários foram removidos;
+- nenhuma migration, ativação do agente, mudança de flag, mensagem externa ou
+  canário foi realizada.
 
-**Próximo gate único:** autorizar nominalmente o deploy controlado do backend a
-partir de um SHA imutável de `main` que contenha as PRs #294 e #296. O deploy
-deve manter os quatro gates fechados e `AgentConfig.ativo=false`, seguido de
-prova do release, saúde, prontidão, imagem dos workers, flags efetivas e catálogo
-de modelos. O canário Evolution continua proibido até essa verificação passar.
+**Próximo gate único:** autorizar o preflight operacional somente leitura do
+canário da Filadélfia. A etapa deve provar a instância Evolution online, filas e
+dead-letter vazias para um número sintético autorizado, conversa sem histórico
+operacional, único `AgentConfig` da igreja inativo, nenhuma outra igreja ativa,
+observadores, janela e rollback definidos. O agente e `ALLOW_REAL_SENDS` devem
+permanecer `false` durante todo o preflight.
 
 ## Paralelismo seguro
 
