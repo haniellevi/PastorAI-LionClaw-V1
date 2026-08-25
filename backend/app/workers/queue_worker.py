@@ -351,6 +351,10 @@ class ClaimOwnershipLost(RuntimeError):
     """Raised when a recovered queue item no longer belongs to this worker."""
 
 
+class AmbiguousPessoaIdentity(RuntimeError):
+    """Raised when one WhatsApp number matches multiple active Pessoas."""
+
+
 class AgentReplyRetryable(RuntimeError):
     """A reply failed before Evolution could accept it and can be retried safely."""
 
@@ -523,6 +527,47 @@ ClaimGuard = Callable[[], None]
 # ---------------------------------------------------------------------------
 # DB ingestion (idempotent, official-number-only)
 # ---------------------------------------------------------------------------
+def _resolve_unique_active_pessoa_by_phone(
+    db: Session,
+    *,
+    igreja_id: Any,
+    canonical: str,
+) -> Pessoa | None:
+    """Resolve exactly one active Pessoa for a canonical WhatsApp number.
+
+    The suffix predicate keeps the database lookup narrow, while the complete
+    canonical comparison prevents collisions between different DDDs. Archived
+    rows are excluded both in SQL and in Python so they can never shadow an
+    active identity. More than one active canonical match is data corruption:
+    fail closed instead of choosing an arbitrary role-bearing identity.
+    """
+
+    stored_digits = func.regexp_replace(Pessoa.telefone, r"\D", "", "g")
+    candidates = db.execute(
+        select(Pessoa).where(
+            Pessoa.igreja_id == igreja_id,
+            Pessoa.arquivada_em.is_(None),
+            func.right(stored_digits, 8) == phone_suffix(canonical),
+        )
+    ).scalars().all()
+    active_matches = [
+        pessoa
+        for pessoa in candidates
+        if pessoa.arquivada_em is None
+        and normalize_phone(pessoa.telefone) == canonical
+    ]
+    if len(active_matches) > 1:
+        logger.error(
+            "Ambiguous active WhatsApp identity for igreja %s: %d matches",
+            igreja_id,
+            len(active_matches),
+        )
+        raise AmbiguousPessoaIdentity(
+            "WhatsApp identity matches multiple active Pessoas"
+        )
+    return active_matches[0] if active_matches else None
+
+
 @dataclass
 class IngestionOutcome:
     """Result of an ingestion plus the context the orchestrator needs."""
@@ -653,16 +698,10 @@ def ingest_message_event_ex(
     # stable 8-digit suffix in SQL, then confirm the full canonical match in
     # Python. This is why a person who messages the church number is recognized
     # instead of being recreated as a new visitor.
-    stored_digits = func.regexp_replace(Pessoa.telefone, r"\D", "", "g")
-    candidates = db.execute(
-        select(Pessoa).where(
-            Pessoa.igreja_id == igreja_id,
-            func.right(stored_digits, 8) == phone_suffix(parsed.telefone),
-        )
-    ).scalars().all()
-    pessoa = next(
-        (p for p in candidates if normalize_phone(p.telefone) == parsed.telefone),
-        None,
+    pessoa = _resolve_unique_active_pessoa_by_phone(
+        db,
+        igreja_id=igreja_id,
+        canonical=parsed.telefone,
     )
 
     if pessoa is None:

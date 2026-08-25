@@ -42,34 +42,19 @@ from app.domain.consolidation import (
     is_valid_etapa,
     pending_mandatory,
 )
-from app.domain.pipeline import VALID_ETAPAS, validate_transition
+from app.domain.pipeline import (
+    PIPELINE_PROMOTE_ROLES,
+    PIPELINE_TENANT_WIDE_ROLES,
+    PIPELINE_WRITE_ROLES,
+    VALID_ETAPAS,
+    validate_transition,
+)
 from app.routers._common import Page, PaginationParams
 from app.routers.contacts import ContactOut, _active_leader_ids
 
 logger = logging.getLogger("pastorai.pipeline")
 
 router = APIRouter(tags=["pipeline"])
-
-# Papéis com visão/atuação tenant-wide. Admin passa implicitamente por
-# CurrentUser.has_any_role; papéis acumulados amplos sempre vencem o escopo
-# restrito de líder de célula.
-PIPELINE_TENANT_WIDE_ROLES = [
-    "lider_consol",
-    "lider_g12",
-    "pastor",
-]
-
-# Papéis que podem registrar fonovisita; 'membro' fica de fora.
-PIPELINE_WRITE_ROLES = [
-    *PIPELINE_TENANT_WIDE_ROLES,
-    "lider_celula",
-    "operador",
-]
-
-# Promover muda a etapa pastoral da Pessoa e exige atuação tenant-wide. Papéis
-# restritos continuam podendo registrar fonovisita dentro do seu escopo.
-PIPELINE_PROMOTE_ROLES = PIPELINE_TENANT_WIDE_ROLES
-
 
 def _pipeline_scope_filters(
     db: Session,

@@ -86,6 +86,7 @@ def get_compiled_graph() -> Any:
         texto: str
         estado: str
         pessoa: dict
+        is_ministerial: bool
         term_accepted_version: str | None
         term_current_version: str
         route: str

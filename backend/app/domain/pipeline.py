@@ -28,6 +28,21 @@ CONTATO_TIPO = "contato"
 # Estados de entrada (etapa "ganhar"): só saem de "ganhar" com os critérios F2.
 ENTRY_TIPOS: frozenset[str] = frozenset({CONTATO_TIPO, VISITANTE_TIPO})
 
+# Papéis compartilhados pelo endpoint HTTP e pelas ferramentas do agente. Admin
+# continua implícito no CurrentUser do painel e é acrescentado explicitamente
+# pelo gate do agente, que trabalha apenas com o conjunto bruto de UserRole.
+PIPELINE_TENANT_WIDE_ROLES: tuple[str, ...] = (
+    "lider_consol",
+    "lider_g12",
+    "pastor",
+)
+PIPELINE_WRITE_ROLES: tuple[str, ...] = (
+    *PIPELINE_TENANT_WIDE_ROLES,
+    "lider_celula",
+    "operador",
+)
+PIPELINE_PROMOTE_ROLES: tuple[str, ...] = PIPELINE_TENANT_WIDE_ROLES
+
 
 @dataclass(frozen=True)
 class TransitionResult:

@@ -36,8 +36,23 @@ def test_optout_request_detection() -> None:
     assert consent.is_optout_request("quero SAIR da lista")
     assert consent.is_optout_request("parar de receber mensagens")
     assert consent.is_optout_request("não quero mais receber")
+    assert consent.is_optout_request("não quero receber mais mensagens")
+    assert consent.is_optout_request("não desejo mais receber mensagens")
+    assert consent.is_optout_request("remova meu número da lista de transmissão")
     assert consent.is_optout_request("descadastrar por favor")
+    assert consent.is_optout_request("opt-out")
+    assert consent.is_optout_request("não me envie mais nada")
     assert not consent.is_optout_request("quero saber mais sobre a célula")
+
+
+def test_generic_verbs_without_communication_context_are_not_optout() -> None:
+    assert not consent.is_optout_request("preciso cancelar a reunião")
+    assert not consent.is_optout_request("pode remover esse membro?")
+    assert not consent.is_optout_request("quero sair da célula")
+    assert not consent.is_optout_request("vamos parar no endereço combinado")
+    assert not consent.is_optout_request("não quero receber visitas")
+    assert not consent.is_optout_request("não me envie o endereço")
+    assert not consent.is_optout_request("não desejo receber uma ligação")
 
 
 # ---- report parsing (US-24 / delta-041) -----------------------------------

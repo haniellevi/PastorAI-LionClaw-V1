@@ -329,7 +329,12 @@ def test_all_canonical_phone_writers_lock_before_lookup() -> None:
     for writer in writers:
         source = inspect.getsource(writer)
         lock_at = source.index("lock_canonical_phone(")
-        lookup_at = source.index("stored_digits")
+        lookup_marker = (
+            "_resolve_unique_active_pessoa_by_phone("
+            if writer is queue_worker.ingest_message_event_ex
+            else "stored_digits"
+        )
+        lookup_at = source.index(lookup_marker)
         insert_at = source.index("insert_pessoa_or_get_winner(")
         assert lock_at < lookup_at < insert_at
         between_lock_and_insert = source[lock_at:insert_at]

@@ -34,18 +34,27 @@ _ACCEPT_TOKENS: frozenset[str] = frozenset(
     }
 )
 
-# Opt-out request phrases (US-32). Matched case-insensitively as whole words.
+# Opt-out request phrases (US-32). Generic verbs such as "sair", "parar",
+# "cancelar" and "remover" are intentionally accepted only when they refer to
+# messages, communications or a recipient list. This avoids interpreting normal
+# pastoral/administrative requests ("remover membro", "cancelar reunião") as a
+# withdrawal of communication consent.
+_COMMUNICATION_CONTEXT = (
+    r"(?:mensage(?:m|ns)|comunicad(?:o|os)|comunicaç(?:ão|ões)|avis(?:o|os)|"
+    r"notificaç(?:ão|ões)|lista(?:\s+de\s+(?:transmissão|contatos))?)"
+)
 _OPTOUT_PATTERNS: tuple[str, ...] = (
-    r"\bsair\b",
-    r"\bparar\b",
-    r"\bpare\b",
-    r"\bcancelar\b",
-    r"\bdescadastrar\b",
-    r"\bremover\b",
+    rf"\bsair\s+d[ao]\s+{_COMMUNICATION_CONTEXT}\b",
+    rf"\b(?:parar|pare)\s+de\s+(?:me\s+)?(?:enviar|mandar|receber)\s+{_COMMUNICATION_CONTEXT}\b",
+    rf"\bcancelar\s+(?:o\s+)?(?:envio|recebimento)\s+d(?:e|as?)\s+{_COMMUNICATION_CONTEXT}\b",
+    rf"\bremov(?:er|a)\s+(?:me|meu\s+(?:n[uú]mero|contato))\s+d[ao]\s+{_COMMUNICATION_CONTEXT}\b",
+    r"\bdescadastrar(?:-me)?\b",
     r"\bopt[\s-]?out\b",
-    r"\bn[ãa]o quero (mais )?receber\b",
-    r"\bn[ãa]o desejo receber\b",
-    r"\bn[ãa]o me envie\b",
+    r"\bn[ãa]o quero mais receber\s*[.!?]?\s*$",
+    rf"\bn[ãa]o quero (?:mais\s+)?receber(?:\s+mais)?\s+{_COMMUNICATION_CONTEXT}\b",
+    rf"\bn[ãa]o desejo (?:mais\s+)?receber(?:\s+mais)?\s+{_COMMUNICATION_CONTEXT}\b",
+    rf"\bn[ãa]o me envie\s+(?:mais\s+)?(?:{_COMMUNICATION_CONTEXT}|nada)\b",
+    r"\bn[ãa]o me envie mais\s*[.!?]?\s*$",
 )
 _OPTOUT_REGEX = re.compile("|".join(_OPTOUT_PATTERNS), re.IGNORECASE)
 

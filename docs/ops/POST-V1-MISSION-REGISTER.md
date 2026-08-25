@@ -267,6 +267,35 @@ do canário WhatsApp, seguido de autorização humana no momento de abrir
 temporariamente `ALLOW_REAL_SENDS` e `BROADCAST_ASYNC_ENABLED`. As flags seguem
 fechadas até essa confirmação.
 
+## Fundação do agente Evolution (2026-08-25)
+
+- decisão arquitetural: Evolution é o único transporte do agente nesta fase;
+  Hermes e BotConversa permanecem fora do caminho;
+- identidade: tenant deriva da instância, telefone é normalizado e somente
+  Pessoas ativas participam da resolução; duplicidade ativa falha fechada,
+  segue retry/dead-letter e não executa agente ou ferramenta;
+- autorização: papéis vêm de um único AppUser ativo vinculado à Pessoa e ao
+  Clerk; cada ferramenta reproduz os papéis do endpoint humano, ferramentas
+  desconhecidas falham fechadas e `marcar_presenca` permanece desabilitada;
+- efeitos: as ferramentas atuais só podem alterar a própria Pessoa reconhecida;
+  relatório agregado não registra decisão contra o remetente;
+- comportamento: configuração ausente ou inativa impede resposta automática;
+  apenas onboarding pode receber refino de linguagem, sem texto bruto do
+  usuário no prompt do LLM;
+- consentimento: opt-out explícito é persistido antes de credencial,
+  configuração e handoff, com padrões contextuais para evitar confundir ações
+  administrativas comuns;
+- validação local: 2.627 testes backend fora de RLS e 239 testes RLS em
+  PostgreSQL descartável passaram, sem falhas; revisão independente resultou
+  em `GO`;
+- nenhuma migration, deploy, conexão Evolution, envio externo ou mudança de
+  flag foi realizada. `ALLOW_REAL_SENDS` e a configuração do agente continuam
+  fechadas.
+
+**Próximo gate único:** revisar e integrar o commit da fundação; configurar o
+comportamento e a credencial da igreja piloto continuará em missão separada,
+com `AgentConfig.ativo=false` até novo canário autorizado.
+
 ## Paralelismo seguro
 
 Auditorias somente leitura podem ocorrer em sessões separadas. Migrations,

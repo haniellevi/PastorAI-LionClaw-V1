@@ -13,6 +13,7 @@ from app.db.models import Conversation, Message, Pessoa, WhatsappConnection
 from app.domain.conversations import parse_message_event
 from app.domain.phone import normalize_phone
 from app.workers.queue_worker import (
+    AmbiguousPessoaIdentity,
     DEAD_LETTER_QUEUE,
     MAX_ATTEMPTS,
     REDIS_CONNECT_TIMEOUT_SECONDS,
@@ -198,7 +199,11 @@ class _Scalar:
         return self
 
     def all(self):
-        return [] if self._value is None else [self._value]
+        if self._value is None:
+            return []
+        if isinstance(self._value, (list, tuple)):
+            return list(self._value)
+        return [self._value]
 
 
 class FakeIngestSession:
@@ -335,6 +340,126 @@ def test_ingest_reuses_existing_contact() -> None:
     assert not any(isinstance(o, Pessoa) for o in session.added)
     assert not any(isinstance(o, Conversation) for o in session.added)
     assert existing_conv.nao_lidas == 1
+
+
+def test_ingest_active_person_wins_over_archived_equivalent() -> None:
+    connection = WhatsappConnection(igreja_id=_IGREJA, instance="igreja-1")
+    archived = Pessoa(
+        igreja_id=_IGREJA,
+        nome="Cadastro arquivado",
+        telefone="+55 (89) 99431-5927",
+        arquivada_em=object(),
+    )
+    active = Pessoa(
+        igreja_id=_IGREJA,
+        nome="Cadastro ativo",
+        telefone="89994315927",
+        tipo="membro",
+    )
+    conversation = Conversation(
+        igreja_id=_IGREJA,
+        pessoa_id=active.id,
+        telefone=active.telefone,
+        estado="ia",
+        nao_lidas=0,
+    )
+    session = FakeIngestSession(
+        connection=connection,
+        pessoa=[archived, active],
+        conversation=conversation,
+    )
+    payload = _parsed_payload("ACTIVE-WINS")
+    payload["data"]["key"]["remoteJid"] = "558994315927@s.whatsapp.net"
+
+    outcome = ingest_message_event_ex(session, parse_message_event(payload))
+
+    assert outcome.result is IngestionResult.REGISTERED
+    assert conversation.nao_lidas == 1
+    assert not any(isinstance(obj, Pessoa) for obj in session.added)
+
+
+def test_ingest_archived_equivalent_does_not_block_new_active_person() -> None:
+    connection = WhatsappConnection(igreja_id=_IGREJA, instance="igreja-1")
+    archived = Pessoa(
+        igreja_id=_IGREJA,
+        nome="Cadastro arquivado",
+        telefone="+55 (89) 99431-5927",
+        arquivada_em=object(),
+    )
+    session = FakeIngestSession(
+        connection=connection,
+        pessoa=[archived],
+        conversation=None,
+    )
+    payload = _parsed_payload("ARCHIVED-ONLY")
+    payload["data"]["key"]["remoteJid"] = "558994315927@s.whatsapp.net"
+
+    outcome = ingest_message_event_ex(session, parse_message_event(payload))
+
+    assert outcome.result is IngestionResult.REGISTERED
+    created = [obj for obj in session.added if isinstance(obj, Pessoa)]
+    assert len(created) == 1
+    assert created[0] is not archived
+    assert created[0].tipo == "contato"
+
+
+def test_ingest_reuses_active_person_across_country_code_and_ninth_digit() -> None:
+    connection = WhatsappConnection(igreja_id=_IGREJA, instance="igreja-1")
+    active = Pessoa(
+        igreja_id=_IGREJA,
+        nome="Cadastro ativo",
+        telefone="+55 (89) 99431-5927",
+        tipo="membro",
+    )
+    conversation = Conversation(
+        igreja_id=_IGREJA,
+        pessoa_id=active.id,
+        telefone=active.telefone,
+        estado="ia",
+        nao_lidas=0,
+    )
+    session = FakeIngestSession(
+        connection=connection,
+        pessoa=[active],
+        conversation=conversation,
+    )
+    payload = _parsed_payload("PHONE-VARIANTS")
+    payload["data"]["key"]["remoteJid"] = "558994315927@s.whatsapp.net"
+
+    outcome = ingest_message_event_ex(session, parse_message_event(payload))
+
+    assert outcome.result is IngestionResult.REGISTERED
+    assert not any(isinstance(obj, Pessoa) for obj in session.added)
+    assert conversation.nao_lidas == 1
+
+
+def test_ingest_fails_closed_for_multiple_active_equivalent_people() -> None:
+    connection = WhatsappConnection(igreja_id=_IGREJA, instance="igreja-1")
+    first = Pessoa(
+        igreja_id=_IGREJA,
+        nome="Primeiro cadastro",
+        telefone="+55 (89) 99431-5927",
+        tipo="membro",
+    )
+    second = Pessoa(
+        igreja_id=_IGREJA,
+        nome="Segundo cadastro",
+        telefone="558994315927",
+        tipo="pastor",
+    )
+    session = FakeIngestSession(
+        connection=connection,
+        pessoa=[first, second],
+        conversation=None,
+    )
+    payload = _parsed_payload("AMBIGUOUS-DIRECT")
+    payload["data"]["key"]["remoteJid"] = "558994315927@s.whatsapp.net"
+
+    with pytest.raises(AmbiguousPessoaIdentity):
+        ingest_message_event_ex(session, parse_message_event(payload))
+
+    assert session.committed is False
+    assert session.added == []
 
 
 def test_ingest_reuses_person_after_conversation_deleted() -> None:
@@ -1336,6 +1461,72 @@ def test_worker_reprocesses_on_transient_failure() -> None:
     assert redis.lists[queue.processing_queue("worker-retry")] == []
     assert redis.failed_transition_calls == 1
     assert redis.direct_lrem_calls == 0
+
+
+@pytest.mark.parametrize(
+    ("attempts", "destination"),
+    [
+        (0, WEBHOOK_QUEUE),
+        (MAX_ATTEMPTS - 1, DEAD_LETTER_QUEUE),
+    ],
+)
+def test_ambiguous_identity_never_runs_agent_and_remains_recoverable(
+    attempts: int,
+    destination: str,
+) -> None:
+    redis = FakeRedis()
+    queue = WebhookQueue(redis_client=redis)
+    worker_id = f"worker-ambiguous-{attempts}"
+    queue.register_worker(worker_id)
+    connection = WhatsappConnection(igreja_id=_IGREJA, instance="igreja-1")
+    first = Pessoa(
+        igreja_id=_IGREJA,
+        nome="Primeiro cadastro",
+        telefone="+55 (89) 99431-5927",
+        tipo="membro",
+    )
+    second = Pessoa(
+        igreja_id=_IGREJA,
+        nome="Segundo cadastro",
+        telefone="558994315927",
+        tipo="pastor",
+    )
+    sessions: list[FakeIngestSession] = []
+    agent_calls: list[IngestionOutcome] = []
+
+    def session_factory() -> FakeIngestSession:
+        session = FakeIngestSession(
+            connection=connection,
+            pessoa=[first, second],
+            conversation=None,
+        )
+        sessions.append(session)
+        return session
+
+    payload = _parsed_payload(f"AMBIGUOUS-{attempts}")
+    payload["data"]["key"]["remoteJid"] = "558994315927@s.whatsapp.net"
+    envelope = _Envelope(payload=payload, attempts=attempts)
+    redis.lpush(WEBHOOK_QUEUE, envelope.to_json())
+    raw = queue.claim(worker_id, timeout=0)
+    assert raw is not None
+    worker = QueueWorker(
+        queue=queue,
+        session_factory=session_factory,
+        agent_runner=lambda _factory, outcome, _guard: agent_calls.append(outcome),
+        worker_id=worker_id,
+    )
+
+    worker._handle_raw(raw)  # noqa: SLF001
+
+    assert agent_calls == []
+    assert len(sessions) == 1
+    assert sessions[0].added == []
+    assert sessions[0].committed is False
+    assert redis.lists[queue.processing_queue(worker_id)] == []
+    assert len(redis.lists[destination]) == 1
+    replacement = _Envelope.from_json(redis.lists[destination][0])
+    assert replacement.attempts == attempts + 1
+    assert replacement.claim_id == envelope.claim_id
 
 
 def test_failed_transition_does_not_enqueue_when_claim_is_missing() -> None:
