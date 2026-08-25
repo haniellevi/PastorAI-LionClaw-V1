@@ -1,9 +1,9 @@
 # PastorAI / Igreja 12: registro central de missões pós-V1
 
-Atualizado em 2026-08-25 (America/Sao_Paulo) após a integração da PR #296, o
-deploy automático do frontend e a revalidação da BYO da Filadélfia com o agente
-desativado. A V1 permanece `V1_ENCERRADA`; este documento não altera a tag
-`v1.0.0`, não autoriza canário e não abre gates de produção.
+Atualizado em 2026-08-25 (America/Sao_Paulo) após a integração das PRs #296 e
+#297, a revalidação da BYO da Filadélfia com o agente desativado e a comprovação
+somente leitura do backend na VPS. A V1 permanece `V1_ENCERRADA`; este documento
+não altera a tag `v1.0.0`, não autoriza canário e não abre gates de produção.
 
 ## Baseline obrigatório
 
@@ -314,10 +314,16 @@ workflows posteriores ao merge passaram.
   direta inicial;
 - a PR #296 acrescentou à tela `Revalidar credencial`, usando somente
   `PUT /agent/model` com o modelo já salvo e sem reenviar a chave;
+- o console web autenticado da VPS comprovou, somente leitura, que
+  `/opt/pastorai-current` aponta para o release
+  `e8b06d0afa167790b068e262be10669b21d28e08`;
+- backend, queue worker, cron worker e broadcast worker estavam saudáveis e
+  usavam a mesma imagem `pastorai-backend:latest`, ID `c9133e194e39`;
 - `/health` respondeu `ok` e `/ready` respondeu `ready`, com banco, Redis,
-  Evolution e workers obrigatórios saudáveis. O SHA atual do release e os
-  valores das quatro flags dentro dos contêineres não foram revalidados nesta
-  missão, pois a sessão SSH de leitura não autenticou;
+  Evolution, operações de billing e os três workers em estado `ok`;
+- a leitura efetiva dentro do contêiner backend confirmou
+  `ALLOW_REAL_SENDS=false`, `ASAAS_BILLING_ENABLED=false`,
+  `BREVO_SEND_MODE=off` e `BROADCAST_ASYNC_ENABLED=false`;
 - a BYO do PastorAI continua no único provedor suportado pelo produto nesta
   versão, sem ampliar o escopo do primeiro canário;
 - o runbook `docs/ops/EVOLUTION-AGENT-CANARY-RUNBOOK.md` define comportamento,
@@ -329,22 +335,28 @@ workflows posteriores ao merge passaram.
   `cba0fdf9c6eb815e15fa5a1502499c5b0d332732`. Os cinco workflows pós-merge
   passaram, o deploy Vercel terminou com sucesso e o artefato servido em
   produção contém o botão seguro de revalidação;
+- a PR #297 documentou a revalidação e foi integrada no commit
+  `03696efc8ff1466b8ddcfdc1b993455f98493bc3`. Os cinco workflows pós-merge e o
+  status de deployment da Vercel passaram;
 - a BYO foi revalidada em produção como `openai` e `gpt-5.6-luna`, mantendo o
   campo de chave vazio. A operação terminou sem erro e, após recarregar a tela,
   o painel confirmou `Credencial ativa`, modelo Luna e status do agente
   `Desativado`;
 - o catálogo retornado pelo backend ainda exibiu a referência de preços de
-  2026-08-08. Portanto, o deploy automático da PR #296 publicou o frontend, mas
-  não demonstra que a atualização do catálogo em `backend/app/services/llm.py`
-  chegou à VPS;
+  2026-08-08. A leitura direta no contêiner confirmou a mesma referência;
+- a comparação de ancestralidade confirmou que o release ativo
+  `e8b06d0afa167790b068e262be10669b21d28e08` antecede tanto a base integrada da
+  PR #294, `7a0f55ea1414d58020f426fe8d66d3dc97563e37`, quanto a PR #296. Assim, o
+  frontend seguro está publicado, mas o backend necessário ao canário ainda não
+  está implantado na VPS;
 - nenhuma migration, ativação do agente, mudança de flag, conexão Evolution,
   mensagem externa, canário ou deploy manual foi realizada nesta preparação.
 
-**Próximo gate único:** restabelecer acesso SSH somente leitura à VPS e registrar
-o SHA exato do backend implantado e os valores efetivos de `ALLOW_REAL_SENDS`,
-`BROADCAST_ASYNC_ENABLED`, `ASAAS_BILLING_ENABLED` e `BREVO_SEND_MODE` dentro dos
-contêineres. Nenhum gate deve ser alterado e o agente deve permanecer
-desativado.
+**Próximo gate único:** autorizar nominalmente o deploy controlado do backend a
+partir de um SHA imutável de `main` que contenha as PRs #294 e #296. O deploy
+deve manter os quatro gates fechados e `AgentConfig.ativo=false`, seguido de
+prova do release, saúde, prontidão, imagem dos workers, flags efetivas e catálogo
+de modelos. O canário Evolution continua proibido até essa verificação passar.
 
 ## Paralelismo seguro
 
