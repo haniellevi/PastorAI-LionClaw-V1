@@ -1,17 +1,17 @@
 # PastorAI / Igreja 12: registro central de missões pós-V1
 
-Atualizado em 2026-08-24 (America/Sao_Paulo) após o deploy da PR #287, a
-verificação pós-deploy do isolamento formal do Asaas, o canário financeiro
-fim a fim no Asaas Sandbox e o preflight sem envios da Missão 5. A V1 permanece
-`V1_ENCERRADA`; este documento não altera a tag `v1.0.0`, não autoriza
-integrações externas e não abre gates de produção.
+Atualizado em 2026-08-25 (America/Sao_Paulo) após a integração da PR #296, o
+deploy automático do frontend e a revalidação da BYO da Filadélfia com o agente
+desativado. A V1 permanece `V1_ENCERRADA`; este documento não altera a tag
+`v1.0.0`, não autoriza canário e não abre gates de produção.
 
 ## Baseline obrigatório
 
-- código do backend em produção: `e8b06d0afa167790b068e262be10669b21d28e08`;
+- último SHA comprovado do backend em produção:
+  `e8b06d0afa167790b068e262be10669b21d28e08`;
 - frontend Vercel `pastorai-frontend-prod`: deployment
-  `dpl_B1moarLm6raSzQU3DqMf33RvKiCo`, `READY`, target `production`, SHA
-  `1e89e5867f535b47aaec813f5742298ca97e13c0`;
+  `dpl_Dycx4epdibk5xtW3svVerJT2cH7K`, `READY`, target `production`, SHA
+  `cba0fdf9c6eb815e15fa5a1502499c5b0d332732`;
 - Supabase PROD: `pffafnchtxbimpwyaczq`, estado `ACTIVE_HEALTHY`;
 - Clerk: instância PROD confirmada por prefixos `sk_live_` e `pk_live_`, issuer
   `https://clerk.igreja12.com.br` e JWKS
@@ -312,13 +312,12 @@ workflows posteriores ao merge passaram.
 - a auditoria do console registrou `agente_editar`, alvo Filadélfia e
   `ativo:false` em 2026-08-25, corrigindo a ausência de trilha da contenção
   direta inicial;
-- a tela em produção não permite revalidar a BYO quando o modelo selecionado já
-  é o modelo salvo. Esta branch acrescenta `Revalidar credencial`, usando apenas
-  `PUT /agent/model` com `gpt-5.6-luna`, sem reenviar a chave;
+- a PR #296 acrescentou à tela `Revalidar credencial`, usando somente
+  `PUT /agent/model` com o modelo já salvo e sem reenviar a chave;
 - `/health` respondeu `ok` e `/ready` respondeu `ready`, com banco, Redis,
-  Evolution e workers obrigatórios saudáveis. O SHA do release implantado e os
-  valores das quatro flags dentro dos contêineres ainda não foram comprovados,
-  pois a sessão SSH de leitura não autenticou;
+  Evolution e workers obrigatórios saudáveis. O SHA atual do release e os
+  valores das quatro flags dentro dos contêineres não foram revalidados nesta
+  missão, pois a sessão SSH de leitura não autenticou;
 - a BYO do PastorAI continua no único provedor suportado pelo produto nesta
   versão, sem ampliar o escopo do primeiro canário;
 - o runbook `docs/ops/EVOLUTION-AGENT-CANARY-RUNBOOK.md` define comportamento,
@@ -326,13 +325,26 @@ workflows posteriores ao merge passaram.
 - validação local da branch: 2.627 testes backend passaram e 239 foram pulados
   por dependerem da infraestrutura RLS separada; 819 testes frontend, lint,
   typecheck e build de produção passaram no Node 24.19.0;
+- a PR #296 foi integrada no commit
+  `cba0fdf9c6eb815e15fa5a1502499c5b0d332732`. Os cinco workflows pós-merge
+  passaram, o deploy Vercel terminou com sucesso e o artefato servido em
+  produção contém o botão seguro de revalidação;
+- a BYO foi revalidada em produção como `openai` e `gpt-5.6-luna`, mantendo o
+  campo de chave vazio. A operação terminou sem erro e, após recarregar a tela,
+  o painel confirmou `Credencial ativa`, modelo Luna e status do agente
+  `Desativado`;
+- o catálogo retornado pelo backend ainda exibiu a referência de preços de
+  2026-08-08. Portanto, o deploy automático da PR #296 publicou o frontend, mas
+  não demonstra que a atualização do catálogo em `backend/app/services/llm.py`
+  chegou à VPS;
 - nenhuma migration, ativação do agente, mudança de flag, conexão Evolution,
   mensagem externa, canário ou deploy manual foi realizada nesta preparação.
 
-**Próximo gate único:** revisar e integrar a branch de preparação para publicar
-o botão seguro de revalidação. Depois do deploy automático do frontend, a BYO
-será revalidada em `gpt-5.6-luna`, ainda com `AgentConfig.ativo=false`; isso não
-autoriza o canário nem a abertura de `ALLOW_REAL_SENDS`.
+**Próximo gate único:** restabelecer acesso SSH somente leitura à VPS e registrar
+o SHA exato do backend implantado e os valores efetivos de `ALLOW_REAL_SENDS`,
+`BROADCAST_ASYNC_ENABLED`, `ASAAS_BILLING_ENABLED` e `BREVO_SEND_MODE` dentro dos
+contêineres. Nenhum gate deve ser alterado e o agente deve permanecer
+desativado.
 
 ## Paralelismo seguro
 
