@@ -1,7 +1,8 @@
 # PastorAI / Igreja 12: registro central de missões pós-V1
 
-Atualizado em 2026-08-24 (America/Sao_Paulo) após o deploy da PR #287 e a
-verificação pós-deploy do isolamento formal do Asaas. A V1 permanece
+Atualizado em 2026-08-24 (America/Sao_Paulo) após o deploy da PR #287, a
+verificação pós-deploy do isolamento formal do Asaas e o canário financeiro
+fim a fim no Asaas Sandbox. A V1 permanece
 `V1_ENCERRADA`; este documento não altera a tag `v1.0.0`, não autoriza
 integrações externas e não abre gates de produção.
 
@@ -62,6 +63,10 @@ integrações externas e não abre gates de produção.
    - Preflight operacional de 2026-08-24: concluído somente leitura, sem
      cobrança, migration, canário ou alteração de flags. Ver a seção dedicada
      abaixo.
+   - Canário Sandbox de 2026-08-24: **PASS** no código implantado, com
+     assinatura recorrente, setup, confirmação, webhook autenticado, replay
+     idempotente e limpeza. Não houve efeito financeiro real nem alteração em
+     produção.
    - Decisão operacional: a conta Asaas atual será a conta oficial
      compartilhada. Somente recursos com `externalReference` no namespace
      reservado `pastorai-` pertencem à integração; os recursos existentes sem
@@ -69,10 +74,10 @@ integrações externas e não abre gates de produção.
    - Migration aditiva aplicada em Supabase PROD como versão
      `20260824202348`, nome `asaas_formal_isolation_20260824`; não houve
      backfill nem adoção de legado.
-   - Pré-requisitos ainda abertos: novo inventário imediatamente antes do
-     canário e autorização nominal no momento de abrir simultaneamente
-     `ALLOW_REAL_SENDS` e `ASAAS_BILLING_ENABLED` para um único teste
-     financeiro controlado.
+   - Pré-requisitos ainda abertos para produção: novo inventário imediatamente
+     antes do canário real e autorização nominal no momento de abrir
+     simultaneamente `ALLOW_REAL_SENDS` e `ASAAS_BILLING_ENABLED` para um único
+     teste financeiro controlado.
    - Pilotos: o plano gratuito `piloto_full` é atribuído somente pelo painel
      master. A igreja Filadélfia de Corrente está nessa cortesia; nenhuma
      cobrança Asaas deve ser criada enquanto permanecer nesse plano.
@@ -95,8 +100,8 @@ integrações externas e não abre gates de produção.
 
 ## Fechamento da ativação pós-deploy de Células
 
-- frontend e backend servem o baseline atual
-  `1e89e5867f535b47aaec813f5742298ca97e13c0`;
+- frontend serve `1e89e5867f535b47aaec813f5742298ca97e13c0` e backend
+  serve `e8b06d0afa167790b068e262be10669b21d28e08`;
 - `NEXT_PUBLIC_API_URL` aponta para `https://api.igreja12.com.br`; o deployment
   de produção não contém `localhost:8000`;
 - Clerk PROD está comprovado no backend; nenhuma chave foi impressa;
@@ -184,12 +189,41 @@ duas assinaturas `ACTIVE`, 232 cobranças e zero `externalReference` com prefixo
   estimadas; pacote externo com 28 entradas verificado. A cadência mensal ainda
   está dentro do prazo.
 
+### Canário financeiro Asaas Sandbox (2026-08-24)
+
+- executado com a imagem construída do SHA exato de produção
+  `e8b06d0afa167790b068e262be10669b21d28e08`, em PostgreSQL e Redis
+  descartáveis, sem conexão com Supabase PROD;
+- somente o ambiente local do canário usou `ALLOW_REAL_SENDS=true` e
+  `ASAAS_BILLING_ENABLED=true`, apontando para
+  `https://api-sandbox.asaas.com/v3`; as flags de produção permaneceram
+  fechadas;
+- utilizados igreja, usuário, e-mail e documento de teste sintéticos; foram
+  criadas uma mensalidade de R$ 5,00 e uma taxa de setup de R$ 5,00;
+- o inventário remoto confirmou exatamente um customer, uma assinatura, uma
+  cobrança de setup e uma cobrança mensal correspondentes ao canário;
+- quatro eventos autenticados foram recebidos pelo endpoint temporário; a
+  assinatura local ficou `ativa`, o setup ficou pago e as operações duráveis
+  permaneceram em exatamente uma criação de assinatura e uma criação de
+  pagamento;
+- o replay de um evento preservou integralmente o snapshot e a quantidade de
+  recibos, comprovando a idempotência do ledger `asaas_webhook_receipts`;
+- o webhook temporário, a assinatura e o customer sintéticos foram removidos;
+  as referências listáveis ficaram zeradas. O Asaas preservou dois registros
+  de pagamentos confirmados do Sandbox como histórico do provedor;
+- o webhook antigo `PastorAI DEV`, já desativado, interrompido e apontando para
+  um domínio ngrok expirado, também foi removido. O túnel HTTPS, os quatro
+  contêineres, a rede e a imagem local descartável foram encerrados e removidos;
+- a chave `Sandbox Temporaria` foi revogada no painel após a confirmação por
+  Token SMS; o arquivo local de credencial e todo o diretório temporário do
+  canário foram excluídos definitivamente.
+
 ### Riscos residuais e próximo gate
 
 - a conta Asaas contém duas assinaturas ativas não pertencentes ao inventário
   local conhecido;
-- o hardening formal está mergeado, migrado e implantado, mas ainda não foi
-  exercitado por um canário financeiro real;
+- o hardening formal está mergeado, migrado, implantado e validado no Sandbox,
+  mas ainda não foi exercitado por um canário financeiro na conta oficial;
 - a cópia semanal da Hostinger e o backup diário local estão saudáveis, mas o
   teste mensal de restauração deve ser repetido até 2026-09-07.
 
