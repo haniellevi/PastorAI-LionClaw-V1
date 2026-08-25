@@ -386,6 +386,13 @@ deduplicada no GitHub. Procedimento, estados e limites de disaster recovery:
   global. Não apagar, cancelar, restaurar ou recriar recursos remotos durante
   o rollback; primeiro inventariar os IDs `pastorai-` e reconciliar as
   operações locais.
+- Broadcast: fechar primeiro `BROADCAST_ASYNC_ENABLED=false` no backend,
+  queue worker, cron worker e broadcast worker, recriar os quatro processos e
+  confirmar que a interface voltou a exibir os envios como desativados. Usar
+  `ALLOW_REAL_SENDS=false` somente se a contenção precisar abranger todos os
+  provedores. Não apagar broadcasts, execuções ou entregas, não limpar leases e
+  nunca reenviar automaticamente resultados `desconhecido`; registrar os
+  totais por status antes e depois da contenção.
 
 ## 11. Evidência mínima de conclusão
 
