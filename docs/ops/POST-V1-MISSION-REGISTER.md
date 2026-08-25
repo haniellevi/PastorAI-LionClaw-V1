@@ -1,8 +1,8 @@
 # PastorAI / Igreja 12: registro central de missões pós-V1
 
 Atualizado em 2026-08-24 (America/Sao_Paulo) após o deploy da PR #287, a
-verificação pós-deploy do isolamento formal do Asaas e o canário financeiro
-fim a fim no Asaas Sandbox. A V1 permanece
+verificação pós-deploy do isolamento formal do Asaas, o canário financeiro
+fim a fim no Asaas Sandbox e o preflight sem envios da Missão 5. A V1 permanece
 `V1_ENCERRADA`; este documento não altera a tag `v1.0.0`, não autoriza
 integrações externas e não abre gates de produção.
 
@@ -83,9 +83,13 @@ integrações externas e não abre gates de produção.
      cobrança Asaas deve ser criada enquanto permanecer nesse plano.
 
 5. **Broadcast assíncrono e envios Evolution.**
-   - Estado: **FECHADO**.
-   - Pré-requisito: Evolution saudável, heartbeat do worker, destinatário único
-     autorizado, observabilidade e rollback antes de abrir os dois gates.
+   - Estado: **PREFLIGHT PASS / CANÁRIO PENDENTE / GATES FECHADOS**.
+   - Evidência: migration, RLS e deduplicação aplicadas; Evolution e worker
+     saudáveis; ledger sem execução aberta, lease vencida ou retry pendente;
+     131 testes focados aprovados; interface autenticada confirma que os envios
+     permanecem desativados.
+   - Pré-requisito restante: destinatário único autorizado e mensagem exata do
+     canário, com autorização humana no momento de abrir os dois gates.
 
 6. **Brevo live.**
    - Estado: **FECHADO** (`BREVO_SEND_MODE=off`).
@@ -227,9 +231,41 @@ duas assinaturas `ACTIVE`, 232 cobranças e zero `externalReference` com prefixo
 - a cópia semanal da Hostinger e o backup diário local estão saudáveis, mas o
   teste mensal de restauração deve ser repetido até 2026-09-07.
 
-**Próximo gate único:** autorização humana específica para um canário
-financeiro real, isolado e de valor controlado. As flags permanecem fechadas
-até essa confirmação no momento da ação.
+O canário financeiro real foi adiado pelo operador. `ALLOW_REAL_SENDS` e
+`ASAAS_BILLING_ENABLED` permanecem fechados até uma autorização futura e
+específica.
+
+## Preflight da Missão 5: broadcast assíncrono e Evolution (2026-08-24)
+
+- código auditado no `origin/main` `28cedaf0b9ab06a0b7c0e271a9fcc1eaa4208f29`;
+  o backend em produção serve o mesmo código de broadcast no SHA
+  `e8b06d0afa167790b068e262be10669b21d28e08`, pois os commits posteriores são
+  exclusivamente documentais;
+- 131 testes focados de domínio, API assíncrona, delivery, worker, Evolution,
+  heartbeat e readiness aprovados, sem falhas;
+- migration `broadcast_delivery_20260805` aplicada em Supabase PROD como versão
+  `20260805172749`;
+- RLS ativa nas três tabelas de broadcast, uma policy por tabela, constraints de
+  status e telefone e índices únicos de idempotência e pessoa aplicados;
+- produção contém cinco broadcasts históricos, todos com `status=enviado`;
+  quatro execuções históricas, todas finalizadas; duas entregas `aceito` e duas
+  `falhou_permanente`, criadas em 2026-08-07 e 2026-08-08;
+- zero execução aberta, zero lease vencida e zero retry pendente. O histórico
+  anterior permanece imutável e não será reutilizado no canário;
+- uma conexão oficial Evolution está `online`; `/health` respondeu `ok` e
+  `/ready` respondeu `ready`, com banco, Redis, Evolution, queue worker, cron
+  worker e broadcast worker saudáveis;
+- a interface autenticada de Comunicação recebeu da API o motivo
+  `envios_externos_desabilitados` e exibiu o bloqueio de produção, comprovando
+  `ALLOW_REAL_SENDS=false` sem expor configuração sensível;
+- o rollback específico fecha primeiro `BROADCAST_ASYNC_ENABLED`, recria os
+  quatro processos consumidores e preserva o ledger. Resultados
+  `desconhecido` nunca são reenviados automaticamente.
+
+**Próximo gate único:** fornecer um único número autorizado e a mensagem exata
+do canário WhatsApp, seguido de autorização humana no momento de abrir
+temporariamente `ALLOW_REAL_SENDS` e `BROADCAST_ASYNC_ENABLED`. As flags seguem
+fechadas até essa confirmação.
 
 ## Paralelismo seguro
 
