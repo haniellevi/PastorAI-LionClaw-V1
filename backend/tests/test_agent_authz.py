@@ -15,8 +15,13 @@ import pytest
 from app.domain.agent_authz import (
     CENTRAL_TOOL_ROLES,
     CENTRAL_TOOLS,
+    CONSOLIDATION_TOOL_ROLES,
     MINISTERIAL_TOOLS,
+    PIPELINE_PROMOTE_TOOL_ROLES,
+    TOOL_CAPABILITIES,
     PrivilegeContext,
+    ToolCapability,
+    allowed_tools,
     has_central_tool_role,
     has_ministerial_role,
     tool_allowed,
@@ -41,19 +46,18 @@ def test_papel_de_lider_torna_ministerial() -> None:
         pessoa_id="p", tipo="membro", roles=frozenset({"lider_celula"})
     )
     assert ctx.is_ministerial is True
-    assert tool_allowed(ctx, "registrar_decisao") is True
+    assert tool_allowed(ctx, "registrar_decisao") is False
     assert tool_allowed(ctx, "vincular_celula") is False
 
 
-def test_liderar_celula_torna_ministerial() -> None:
+def test_liderar_celula_sem_acesso_nao_autoriza_tool() -> None:
     ctx = PrivilegeContext(pessoa_id="p", tipo="membro", leads_cells=True)
-    assert ctx.is_ministerial is True
+    assert ctx.is_ministerial is False
 
 
-def test_tipo_lider_ou_pastor_e_ministerial() -> None:
-    assert PrivilegeContext(pessoa_id="p", tipo="lider").is_ministerial is True
-    assert PrivilegeContext(pessoa_id="p", tipo="pastor").is_ministerial is True
-    # Tipo pastoral sem acesso utilizável não equivale à capacidade da Central.
+def test_tipo_lider_ou_pastor_sem_acesso_nao_autoriza_tool() -> None:
+    assert PrivilegeContext(pessoa_id="p", tipo="lider").is_ministerial is False
+    assert PrivilegeContext(pessoa_id="p", tipo="pastor").is_ministerial is False
     assert tool_allowed(
         PrivilegeContext(pessoa_id="p", tipo="pastor"), "vincular_celula"
     ) is False
@@ -85,15 +89,23 @@ def test_vincular_celula_nega_papeis_fora_da_central(role: str) -> None:
 
 
 @pytest.mark.parametrize(
-    "tool_name", ["registrar_decisao", "marcar_presenca", "avancar_trilha"]
+    ("role", "tool_name", "expected"),
+    [
+        ("lider_consol", "registrar_decisao", True),
+        ("lider_consol", "avancar_trilha", True),
+        ("lider_g12", "registrar_decisao", False),
+        ("lider_g12", "avancar_trilha", True),
+        ("lider_celula", "registrar_decisao", False),
+        ("lider_celula", "avancar_trilha", False),
+        ("lider_mult", "registrar_decisao", False),
+        ("lider_mult", "avancar_trilha", False),
+    ],
 )
-def test_restricao_da_central_nao_remove_demais_tools_do_lider(
-    tool_name: str,
+def test_tools_reproduzem_papeis_dos_endpoints_humanos(
+    role: str, tool_name: str, expected: bool
 ) -> None:
-    ctx = PrivilegeContext(
-        pessoa_id="p", tipo="membro", roles=frozenset({"lider_celula"})
-    )
-    assert tool_allowed(ctx, tool_name) is True
+    ctx = PrivilegeContext(pessoa_id="p", tipo="membro", roles=frozenset({role}))
+    assert tool_allowed(ctx, tool_name) is expected
 
 
 def test_csim_nunca_e_ministerial() -> None:
@@ -110,24 +122,132 @@ def test_csim_nunca_e_ministerial() -> None:
     assert tool_allowed(ctx, "vincular_celula") is False
 
 
-def test_as_quatro_tools_sao_ministeriais() -> None:
+def test_tools_registradas_falham_fechado_e_presenca_permanece_desabilitada() -> None:
     contato = PrivilegeContext(pessoa_id="p", tipo="contato")
     for t in ("registrar_decisao", "marcar_presenca", "vincular_celula", "avancar_trilha"):
         assert tool_allowed(contato, t) is False
     assert MINISTERIAL_TOOLS == {
         "registrar_decisao",
-        "marcar_presenca",
         "vincular_celula",
         "avancar_trilha",
     }
     assert CENTRAL_TOOLS == {"vincular_celula"}
     assert CENTRAL_TOOL_ROLES == {"admin", "pastor"}
+    assert CONSOLIDATION_TOOL_ROLES == {"admin", "lider_consol", "pastor"}
+    assert PIPELINE_PROMOTE_TOOL_ROLES == {
+        "admin",
+        "lider_consol",
+        "lider_g12",
+        "pastor",
+    }
+    admin = PrivilegeContext(
+        pessoa_id="admin", tipo="pastor", roles=frozenset({"admin"})
+    )
+    assert tool_allowed(admin, "marcar_presenca") is False
+    assert tool_denial_reason(admin, "marcar_presenca") == (
+        "tool desabilitada até equivalência com o fluxo humano"
+    )
 
 
-def test_tool_desconhecida_liberada_por_padrao() -> None:
-    # Tools futuras de leitura pública não são bloqueadas pelo gate ministerial.
+def test_tool_desconhecida_falha_fechada() -> None:
     contato = PrivilegeContext(pessoa_id="p", tipo="contato")
-    assert tool_allowed(contato, "buscar_horario_culto") is True
+    assert tool_allowed(contato, "buscar_horario_culto") is False
+    assert "buscar_horario_culto" not in allowed_tools(contato)
+    assert tool_denial_reason(contato, "buscar_horario_culto") == (
+        "tool não registrada no controle de capacidades"
+    )
+
+
+def test_registro_classifica_exatamente_as_tools_executaveis() -> None:
+    from app.agent.tools import TOOLS
+
+    assert set(TOOL_CAPABILITIES) == set(TOOLS)
+    assert set(TOOL_CAPABILITIES.values()) == {
+        ToolCapability.CONSOLIDATION,
+        ToolCapability.PIPELINE_PROMOTE,
+        ToolCapability.CENTRAL,
+        ToolCapability.DISABLED,
+    }
+
+
+_TOOLS_ADMIN_PASTOR = frozenset(
+    {"registrar_decisao", "avancar_trilha", "vincular_celula"}
+)
+
+
+@pytest.mark.parametrize(
+    "ctx,expected",
+    [
+        (PrivilegeContext(pessoa_id="contato", tipo="contato"), frozenset()),
+        (PrivilegeContext(pessoa_id="membro", tipo="membro"), frozenset()),
+        (
+            PrivilegeContext(pessoa_id="lider-tipo", tipo="lider"),
+            frozenset(),
+        ),
+        (
+            PrivilegeContext(
+                pessoa_id="lider-celula", tipo="membro", leads_cells=True
+            ),
+            frozenset(),
+        ),
+        (
+            PrivilegeContext(pessoa_id="pastor-tipo", tipo="pastor"),
+            frozenset(),
+        ),
+        (
+            PrivilegeContext(
+                pessoa_id="admin", tipo="membro", roles=frozenset({"admin"})
+            ),
+            _TOOLS_ADMIN_PASTOR,
+        ),
+        (
+            PrivilegeContext(
+                pessoa_id="pastor-acesso",
+                tipo="pastor",
+                roles=frozenset({"pastor"}),
+            ),
+            _TOOLS_ADMIN_PASTOR,
+        ),
+        (
+            PrivilegeContext(
+                pessoa_id="lider-consol",
+                tipo="lider",
+                roles=frozenset({"lider_consol"}),
+            ),
+            frozenset({"registrar_decisao", "avancar_trilha"}),
+        ),
+        (
+            PrivilegeContext(
+                pessoa_id="lider-g12",
+                tipo="lider",
+                roles=frozenset({"lider_g12"}),
+            ),
+            frozenset({"avancar_trilha"}),
+        ),
+        (
+            PrivilegeContext(
+                pessoa_id="lider-celula",
+                tipo="lider",
+                roles=frozenset({"lider_celula"}),
+            ),
+            frozenset(),
+        ),
+        (
+            PrivilegeContext(
+                pessoa_id="csim",
+                tipo="pastor",
+                sem_interesse=True,
+                roles=frozenset({"admin", "pastor"}),
+                leads_cells=True,
+            ),
+            frozenset(),
+        ),
+    ],
+)
+def test_allowed_tools_expoe_matriz_deterministica_por_perfil(
+    ctx: PrivilegeContext, expected: frozenset[str]
+) -> None:
+    assert allowed_tools(ctx) == expected
 
 
 def test_has_ministerial_role_helper() -> None:
@@ -141,6 +261,65 @@ class _BoomSession:
 
     def execute(self, *a, **k):  # pragma: no cover - não deve ser chamado
         raise AssertionError("tool negada não pode tocar o banco")
+
+
+def test_execute_tools_nega_tool_sem_capacidade_registrada(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import app.agent.runtime as runtime
+
+    def future_tool(*args, **kwargs):  # pragma: no cover - não deve ser chamada
+        raise AssertionError("tool sem capacidade não pode executar")
+
+    monkeypatch.setitem(runtime.TOOLS, "buscar_horario_culto", future_tool)
+    ctx = PrivilegeContext(
+        pessoa_id="p1", tipo="pastor", roles=frozenset({"admin"})
+    )
+
+    executed, audit = runtime._execute_tools(
+        _BoomSession(),
+        uuid.uuid4(),
+        ctx,
+        [{"ferramenta": "buscar_horario_culto", "args": {}}],
+    )
+
+    assert executed == []
+    assert audit == [
+        {
+            "evento": "tool_negada",
+            "payload": {
+                "ferramenta": "buscar_horario_culto",
+                "motivo": "tool não registrada no controle de capacidades",
+                "tipo": "pastor",
+            },
+        }
+    ]
+
+
+def test_execute_tools_audita_tool_ausente_do_executor() -> None:
+    import app.agent.runtime as runtime
+
+    ctx = PrivilegeContext(
+        pessoa_id="p1", tipo="pastor", roles=frozenset({"admin"})
+    )
+    executed, audit = runtime._execute_tools(
+        _BoomSession(),
+        uuid.uuid4(),
+        ctx,
+        [{"ferramenta": "tool_inexistente", "args": {}}],
+    )
+
+    assert executed == []
+    assert audit == [
+        {
+            "evento": "tool_negada",
+            "payload": {
+                "ferramenta": "tool_inexistente",
+                "motivo": "tool não registrada no controle de capacidades",
+                "tipo": "pastor",
+            },
+        }
+    ]
 
 
 def test_execute_tools_nega_contato_sem_rodar_a_tool() -> None:
@@ -230,7 +409,7 @@ def test_execute_tools_injeta_papeis_acumulados_confiaveis(
         [
             {
                 "ferramenta": "vincular_celula",
-                "args": {"pessoa_id": "p2", "celula_id": "c1"},
+                "args": {"pessoa_id": "p1", "celula_id": "c1"},
             }
         ],
     )
@@ -240,7 +419,7 @@ def test_execute_tools_injeta_papeis_acumulados_confiaveis(
     assert captured == {
         "session": session,
         "igreja_id": igreja_id,
-        "pessoa_id": "p2",
+        "pessoa_id": "p1",
         "celula_id": "c1",
         "actor_roles": roles,
     }
@@ -404,14 +583,14 @@ def test_resolve_privilege_papel_de_lider_via_login() -> None:
     _assert_privilege_queries_are_tenant_scoped(session, pessoa.id)
 
 
-def test_resolve_privilege_lidera_celula_sem_login() -> None:
+def test_resolve_privilege_lidera_celula_sem_login_nao_autoriza() -> None:
     from app.agent.runtime import _resolve_privilege
 
     ctx = _resolve_privilege(
         _PrivSession(app_user_id=None, leads=True), _IGREJA, _pessoa(tipo="membro")
     )
     assert ctx.leads_cells is True
-    assert ctx.is_ministerial is True
+    assert ctx.is_ministerial is False
 
 
 def test_resolve_privilege_ignora_lideranca_de_celula_inativa() -> None:
@@ -439,6 +618,7 @@ def test_resolve_privilege_falha_fechado_com_acessos_utilizaveis_duplicados() ->
     assert ctx.roles == frozenset()
     assert session.roles_queries == 0
     assert tool_allowed(ctx, "vincular_celula") is False
+    assert allowed_tools(ctx) == frozenset()
 
 
 @pytest.mark.parametrize("role,tipo", [("admin", "membro"), ("pastor", "pastor")])

@@ -30,22 +30,22 @@ Ele não deve:
 | Capacidade | Estado | Observação |
 |---|---|---|
 | Primeiro contato cria Pessoa e conversa | `IMPLEMENTADO` | cria `contato`, `ganhar/novo_contato`, origem WhatsApp |
-| Deduplicação por telefone | `PARCIAL` | normalização existe, mas o índice físico ainda usa telefone bruto |
+| Deduplicação por telefone | `PARCIAL` | worker resolve somente Pessoa ativa pelo telefone canônico e falha fechado em duplicidade; índice físico ainda usa telefone bruto |
 | Idempotência de mensagem | `IMPLEMENTADO` | barreiras por `provider_message_id` |
 | Saudação e consentimento | `PARCIAL` | existe base acolhedora e consentimento versionado, não o fluxo completo |
 | Atualização cadastral em 12 passos | `AUSENTE` | não existe máquina de estados retomável |
 | Revisão semestral | `AUSENTE` | não existem campos ou handler dedicado |
 | CSIM / Fora da igreja | `PARCIAL` | pausa do agente funciona, classificação é heurística e pode gerar falso positivo |
-| Orquestrador por igreja | `IMPLEMENTADO` | template master é copiado para configuração do tenant |
+| Orquestrador por igreja | `IMPLEMENTADO` | configuração ausente ou inativa impede resposta automática |
 | LangGraph | `IMPLEMENTADO` | supervisor e subagentes, sem checkpoint durável |
 | Memória conversacional | `AUSENTE` | não há checkpoint persistente |
 | RAG documental | `AUSENTE` | sem embeddings ou recuperação de conhecimento |
-| Ferramentas de domínio | `PARCIAL` | decisão, presença, vínculo de célula e avanço da trilha |
+| Ferramentas de domínio | `PARCIAL` | capacidades alinhadas aos papéis dos endpoints, alvo restrito à própria Pessoa e presença desabilitada até equivalência com reuniões |
 | Criar célula por WhatsApp | `AUSENTE` | não há ferramenta correspondente |
 | Evolution | `IMPLEMENTADO no código` | conexão, webhook, envio e status |
 | Meta Cloud API direta | `AUSENTE` | não prometer integração oficial Meta |
 | Broadcast e agendamento | `PARCIAL` | há ledger, worker e gates, mas produção e entrega final não foram comprovadas |
-| Opt-out | `IMPLEMENTADO` | frases de saída e filtro de envio |
+| Opt-out | `IMPLEMENTADO` | pedido contextual é persistido antes dos gates do agente, sem confundir remoção de membro ou cancelamento de reunião |
 | Comunicação editorial automática | `AUSENTE` | não há coletores específicos para culto, blog, YouTube ou redes sociais |
 
 ## 3. Arquitetura alvo

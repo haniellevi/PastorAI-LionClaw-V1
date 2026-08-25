@@ -1,9 +1,10 @@
 """Autorização das tools do agente pelo PRIVILÉGIO do interlocutor (#10b Fase 2).
 
-O privilégio do interlocutor é resolvido a partir da Pessoa: papéis de um acesso
-utilizável (app_users → user_roles), células ativas que ela lidera ou um tipo
-ministerial. As 4 tools atuais são ações ministeriais de escrita e
-``vincular_celula`` exige, adicionalmente, a capacidade da Central (admin/pastor).
+O privilégio do interlocutor é resolvido a partir da Pessoa e dos papéis de um
+único acesso utilizável (app_users -> user_roles). Tipo ministerial e liderança
+de célula são contexto, não autenticação. As 4 tools atuais são ações
+ministeriais de escrita; vincular_celula exige a capacidade da Central
+(admin/pastor).
 A decisão é determinística e resolvida no servidor; o LLM nunca decide autoridade.
 Falha fechada (nega por padrão quando não há o sinal exigido).
 
@@ -14,6 +15,12 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+from enum import Enum
+from types import MappingProxyType
+from typing import Final, Mapping
+
+from app.domain.consolidation import CONSOLIDATION_ROLES
+from app.domain.pipeline import PIPELINE_PROMOTE_ROLES
 
 # Papéis (user_roles do painel) que contam como ministeriais para as tools.
 # operador/membro NÃO são ministeriais (não lideram célula nem registram decisão).
@@ -21,20 +28,52 @@ MINISTERIAL_ROLES: frozenset[str] = frozenset(
     {"admin", "pastor", "lider_g12", "lider_consol", "lider_celula", "lider_mult"}
 )
 
-# Valores de Pessoa.tipo que já são ministeriais por si.
-MINISTERIAL_TIPOS: frozenset[str] = frozenset({"lider", "pastor"})
-
-# Tools que exigem privilégio ministerial (todas as atuais). Uma tool fora deste
-# conjunto (ex.: futura tool pública de leitura) é liberada por padrão.
-MINISTERIAL_TOOLS: frozenset[str] = frozenset(
-    {"registrar_decisao", "marcar_presenca", "vincular_celula", "avancar_trilha"}
-)
-
 # ``vincular_celula`` espelha uma operação da Central de Células. A capacidade
 # equivale a require_central: pastor ou admin implícito. Tipo da Pessoa,
 # liderança de célula e outros papéis ministeriais não ampliam essa permissão.
 CENTRAL_TOOL_ROLES: frozenset[str] = frozenset({"admin", "pastor"})
-CENTRAL_TOOLS: frozenset[str] = frozenset({"vincular_celula"})
+CONSOLIDATION_TOOL_ROLES: frozenset[str] = frozenset(
+    {"admin", *CONSOLIDATION_ROLES}
+)
+PIPELINE_PROMOTE_TOOL_ROLES: frozenset[str] = frozenset(
+    {"admin", *PIPELINE_PROMOTE_ROLES}
+)
+
+
+class ToolCapability(str, Enum):
+    """Capacidades reconhecidas pelo gate determinístico das tools."""
+
+    CONSOLIDATION = "consolidation"
+    PIPELINE_PROMOTE = "pipeline_promote"
+    CENTRAL = "central"
+    DISABLED = "disabled"
+
+
+# Registro explícito e imutável das capacidades. Adicionar uma função ao
+# executor sem classificá-la aqui mantém a nova tool negada por padrão.
+TOOL_CAPABILITIES: Final[Mapping[str, ToolCapability]] = MappingProxyType(
+    {
+        "registrar_decisao": ToolCapability.CONSOLIDATION,
+        # O contador agregado não equivale ao fluxo humano de reuniões. Mantê-lo
+        # registrado e desabilitado evita execução acidental até haver paridade.
+        "marcar_presenca": ToolCapability.DISABLED,
+        "avancar_trilha": ToolCapability.PIPELINE_PROMOTE,
+        "vincular_celula": ToolCapability.CENTRAL,
+    }
+)
+
+# Constantes derivadas preservam a API usada pelos testes e tornam impossível
+# haver divergência entre os conjuntos e o registro autoritativo.
+MINISTERIAL_TOOLS: frozenset[str] = frozenset(
+    name
+    for name, capability in TOOL_CAPABILITIES.items()
+    if capability is not ToolCapability.DISABLED
+)
+CENTRAL_TOOLS: frozenset[str] = frozenset(
+    name
+    for name, capability in TOOL_CAPABILITIES.items()
+    if capability is ToolCapability.CENTRAL
+)
 
 
 @dataclass(frozen=True)
@@ -49,30 +88,45 @@ class PrivilegeContext:
 
     @property
     def is_ministerial(self) -> bool:
-        """True se o interlocutor pode disparar ações ministeriais do agente."""
+        """True somente com papel ministerial em acesso autenticado utilizável."""
         if self.sem_interesse:
-            return False  # CSIM está fora do funil — nunca ministerial
-        if self.roles & MINISTERIAL_ROLES:
-            return True
-        if self.leads_cells:
-            return True
-        return self.tipo in MINISTERIAL_TIPOS
+            return False
+        return bool(self.roles & MINISTERIAL_ROLES)
 
 
 def tool_allowed(ctx: PrivilegeContext, tool_name: str) -> bool:
     """True se o interlocutor pode executar esta tool. Determinístico, fail-closed."""
-    if tool_name in CENTRAL_TOOLS:
-        return not ctx.sem_interesse and has_central_tool_role(ctx.roles)
-    if tool_name in MINISTERIAL_TOOLS:
-        return ctx.is_ministerial
-    return True
+    if ctx.sem_interesse:
+        return False
+    capability = TOOL_CAPABILITIES.get(tool_name)
+    if capability is ToolCapability.CENTRAL:
+        return bool(ctx.roles & CENTRAL_TOOL_ROLES)
+    if capability is ToolCapability.CONSOLIDATION:
+        return bool(ctx.roles & CONSOLIDATION_TOOL_ROLES)
+    if capability is ToolCapability.PIPELINE_PROMOTE:
+        return bool(ctx.roles & PIPELINE_PROMOTE_TOOL_ROLES)
+    return False
+
+
+def allowed_tools(ctx: PrivilegeContext) -> frozenset[str]:
+    """Retorna somente as tools registradas permitidas para o contexto."""
+    return frozenset(
+        tool_name
+        for tool_name in TOOL_CAPABILITIES
+        if tool_allowed(ctx, tool_name)
+    )
 
 
 def tool_denial_reason(ctx: PrivilegeContext, tool_name: str) -> str:
     """Motivo estável para auditoria do executor, sem depender do LLM."""
-    if tool_name in CENTRAL_TOOLS:
+    capability = TOOL_CAPABILITIES.get(tool_name)
+    if capability is None:
+        return "tool não registrada no controle de capacidades"
+    if capability is ToolCapability.DISABLED:
+        return "tool desabilitada até equivalência com o fluxo humano"
+    if capability is ToolCapability.CENTRAL:
         return "interlocutor sem capacidade da Central de Células"
-    return "interlocutor sem privilégio ministerial"
+    return "interlocutor sem papel equivalente ao endpoint humano"
 
 
 def has_central_tool_role(roles: Iterable[str]) -> bool:

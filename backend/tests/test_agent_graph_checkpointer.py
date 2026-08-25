@@ -53,7 +53,7 @@ def test_compiled_graph_does_not_instantiate_or_retain_memory_saver(
 def test_stateless_graph_executes_independent_conversations_without_thread_config() -> None:
     graph = get_compiled_graph()
 
-    first = graph.invoke(_state("conversation-a", "quero cancelar"))
+    first = graph.invoke(_state("conversation-a", "quero sair da lista"))
     second = graph.invoke(_state("conversation-b", "oi"))
 
     assert first["conversation_id"] == "conversation-a"

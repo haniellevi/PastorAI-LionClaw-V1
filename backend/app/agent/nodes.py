@@ -243,25 +243,15 @@ def handoff_node(state: AgentState) -> AgentState:
 
 
 def report_capture_node(state: AgentState) -> AgentState:
-    """report_capture (US-24/delta-041): parse the report; a decision opens consolidation.
+    """report_capture (US-24/delta-041): parse an aggregate cell report.
 
-    When a decisão por Jesus is reported, emit a `registrar_decisao` tool call
-    (visitante vínculo) so the runtime opens the consolidation via the trigger.
+    Aggregate decision counts do not identify the people who made each
+    decision. Persisting one against the report sender would corrupt pastoral
+    data, so this node records only the summary event and asks for human
+    confirmation of individual decisions.
     """
     texto = state.get("texto") or ""
     report = parse_cell_report(texto)
-    tool_calls: list[dict[str, Any]] = []
-    if report.has_decisions and state.get("pessoa_id"):
-        tool_calls.append(
-            {
-                "ferramenta": "registrar_decisao",
-                "args": {
-                    "pessoa_id": state.get("pessoa_id"),
-                    "vinculo": "visitante",
-                    "origem": "relatorio_celula",
-                },
-            }
-        )
 
     resumo = {
         "presentes": report.presentes,
@@ -271,12 +261,13 @@ def report_capture_node(state: AgentState) -> AgentState:
     }
     return {
         "route": ROUTE_REPORT,
-        "tool_calls": tool_calls,
+        "tool_calls": [],
         "response": (
-            "Relatório recebido! Registrei: "
+            "Relatório recebido! Resumo informado: "
             f"{report.presentes or 0} presentes, "
             f"{report.visitantes or 0} visitantes, "
-            f"{report.decisoes or 0} decisões. Deus abençoe!"
+            f"{report.decisoes or 0} decisões. "
+            "As decisões individuais precisam de confirmação humana antes do registro."
         ),
         "events": [
             {"evento": "report_captured", "payload": {"relatorio": resumo}}

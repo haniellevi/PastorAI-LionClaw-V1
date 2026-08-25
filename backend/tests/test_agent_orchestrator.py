@@ -94,7 +94,7 @@ def test_handoff_suppresses_automatic_reply() -> None:
 
 
 def test_optout_turn_flags_persistence_and_replies_once() -> None:
-    final = run_turn_direct(_state(texto="quero cancelar"))
+    final = run_turn_direct(_state(texto="quero sair da lista"))
     assert final["route"] == ROUTE_OPTOUT
     assert final["apply_optout"] is True
     assert isinstance(final["response"], str)
@@ -108,13 +108,16 @@ def test_consent_acceptance_flags_version_to_persist() -> None:
     assert final["apply_consent_version"] == "v2"
 
 
-def test_report_decision_emits_tool_call() -> None:
+def test_aggregate_report_decision_emits_no_individual_tool_call() -> None:
     final = run_turn_direct(
         _state(texto="Relatório: 5 presentes, 1 decisão", is_ministerial=True)
     )
     assert final["route"] == ROUTE_REPORT
     names = [c["ferramenta"] for c in final.get("tool_calls", [])]
-    assert "registrar_decisao" in names
+    assert "registrar_decisao" not in names
+    assert "Relatório recebido" in final["response"]
+    assert "confirmação humana" in final["response"]
+    assert "Registrei" not in final["response"]
 
 
 def test_report_decision_from_non_ministerial_emits_no_tool() -> None:
