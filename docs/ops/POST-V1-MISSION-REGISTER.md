@@ -292,9 +292,47 @@ fechadas até essa confirmação.
   flag foi realizada. `ALLOW_REAL_SENDS` e a configuração do agente continuam
   fechadas.
 
-**Próximo gate único:** revisar e integrar o commit da fundação; configurar o
-comportamento e a credencial da igreja piloto continuará em missão separada,
-com `AgentConfig.ativo=false` até novo canário autorizado.
+O commit da fundação foi integrado pela PR #294. O `origin/main` resultante é
+`7a0f55ea1414d58020f426fe8d66d3dc97563e37`; os cinco workflows da PR e os cinco
+workflows posteriores ao merge passaram.
+
+## Preparação do canário do agente da Filadélfia (2026-08-25)
+
+- o preflight identificou uma única configuração de agente em Supabase PROD,
+  pertencente à Igreja Batista Filadélfia Internacional de Corrente;
+- a configuração estava com `ativo=true`, em desacordo com o gate desta missão.
+  A contenção mínima alterou somente `AgentConfig.ativo` para `false`; uma
+  consulta separada confirmou que nenhuma igreja permanece com agente ativo;
+- a BYO existente permaneceu ativa, com provedor `openai` e modelo
+  `gpt-5.6-luna`. Nenhum segredo ou ciphertext foi selecionado, exibido ou
+  alterado;
+- o comportamento estritamente estilístico do runbook foi salvo pelo console
+  master com `AgentConfig.ativo=false`. Uma nova leitura da API e o painel da
+  própria igreja confirmaram nome, tom, comportamento e status `Desativado`;
+- a auditoria do console registrou `agente_editar`, alvo Filadélfia e
+  `ativo:false` em 2026-08-25, corrigindo a ausência de trilha da contenção
+  direta inicial;
+- a tela em produção não permite revalidar a BYO quando o modelo selecionado já
+  é o modelo salvo. Esta branch acrescenta `Revalidar credencial`, usando apenas
+  `PUT /agent/model` com `gpt-5.6-luna`, sem reenviar a chave;
+- `/health` respondeu `ok` e `/ready` respondeu `ready`, com banco, Redis,
+  Evolution e workers obrigatórios saudáveis. O SHA do release implantado e os
+  valores das quatro flags dentro dos contêineres ainda não foram comprovados,
+  pois a sessão SSH de leitura não autenticou;
+- a BYO do PastorAI continua no único provedor suportado pelo produto nesta
+  versão, sem ampliar o escopo do primeiro canário;
+- o runbook `docs/ops/EVOLUTION-AGENT-CANARY-RUNBOOK.md` define comportamento,
+  preflight, roteiro sintético, critérios de aborto, evidências e rollback;
+- validação local da branch: 2.627 testes backend passaram e 239 foram pulados
+  por dependerem da infraestrutura RLS separada; 819 testes frontend, lint,
+  typecheck e build de produção passaram no Node 24.19.0;
+- nenhuma migration, ativação do agente, mudança de flag, conexão Evolution,
+  mensagem externa, canário ou deploy manual foi realizada nesta preparação.
+
+**Próximo gate único:** revisar e integrar a branch de preparação para publicar
+o botão seguro de revalidação. Depois do deploy automático do frontend, a BYO
+será revalidada em `gpt-5.6-luna`, ainda com `AgentConfig.ativo=false`; isso não
+autoriza o canário nem a abertura de `ALLOW_REAL_SENDS`.
 
 ## Paralelismo seguro
 

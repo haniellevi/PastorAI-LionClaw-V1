@@ -4,8 +4,9 @@
  *
  *   GET  /agent/models      -> allowlist, preços e modelo padrão
  *   POST /agent/credential  {provedor, apiKey, modelo} -> status  (US-27 / RNF-03)
- *   PUT  /agent/model       {modelo} -> troca o modelo sem reexibir a chave
- *   PUT  /agent/config      -> {nome, tom, comportamento, publicoAlvo, acessos, ativo}  (US-28)
+ *   PUT  /agent/model       {modelo} -> troca ou revalida sem reexibir a chave
+ *   GET  /agent/config      -> comportamento read-only definido pelo master
+ *   POST /agent/config/requests -> solicita mudança de comportamento ao master
  *   POST /agent/crons       -> {id, nome, frequencia, gatilhoEstado, acao, ativo}
  *   GET  /agent/crons       -> [ {id, nome, frequencia, gatilhoEstado, acao, ativo} ]
  *   PUT  /agent/crons/{id}  -> editar/desativar um agendamento (RF-33)
@@ -13,7 +14,7 @@
  * Regras refletidas na UI (garantidas no backend):
  *  - a chave nunca é exibida após salvar (RNF-03); chave inválida NÃO ativa a
  *    credencial (status=invalid);
- *  - ativar o agente (ativo=true) exige credencial validada+ativa (409);
+ *  - configuração e ativação do agente pertencem ao console master;
  *  - o gatilho de estado do cron é validado antes de salvar (422 quando inválido).
  */
 

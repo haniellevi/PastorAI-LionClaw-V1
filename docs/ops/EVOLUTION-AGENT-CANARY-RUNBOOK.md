@@ -1,0 +1,244 @@
+# Canário do agente Evolution
+
+Este runbook prepara e executa o primeiro canário do agente de WhatsApp de uma
+igreja piloto. Ele não autoriza o canário. A autorização nominal deve ocorrer
+somente depois que todos os gates de preparação estiverem comprovados.
+
+O primeiro alvo é a Igreja Batista Filadélfia Internacional de Corrente. O
+procedimento foi escrito para poder ser reutilizado por outra igreja sem copiar
+segredos, identificadores pessoais ou dados de produção para o repositório.
+
+## Princípio de contenção
+
+O canário precisa de duas autorizações independentes:
+
+1. `AgentConfig.ativo=true` libera o runtime apenas para a igreja escolhida.
+2. `ALLOW_REAL_SENDS=true` libera efeitos externos globais, incluindo LLM e
+   Evolution.
+
+Enquanto a preparação estiver em andamento, `AgentConfig.ativo` e
+`ALLOW_REAL_SENDS` permanecem `false`. A credencial BYO pode estar validada e
+ativa sem ligar o agente.
+
+`ASAAS_BILLING_ENABLED`, `BREVO_SEND_MODE` e `BROADCAST_ASYNC_ENABLED` não fazem
+parte deste canário e não podem ser alterados. `marcar_presenca` permanece
+desabilitada no registro de capacidades do agente.
+
+## Estado mínimo antes da preparação
+
+- `origin/main` contém a fundação de identidade e autorização da PR #294.
+- O backend implantado contém o mesmo commit ou um descendente revisado.
+- `/health` responde `ok` e `/ready` responde `ready`.
+- A instância Evolution da igreja está online.
+- A fila de entrada, a fila de processamento e a dead-letter não possuem item
+  pendente do número escolhido.
+- Existe exatamente um `AgentConfig` para a igreja piloto e ele está inativo.
+- Nenhuma outra igreja possui `AgentConfig.ativo=true`.
+- A BYO está configurada para `openai`, em modelo permitido, e revalida sem que
+  a chave seja retornada.
+- O número do teste é dedicado ou explicitamente autorizado e não corresponde
+  a uma pessoa real usada em operação pastoral.
+
+Qualquer divergência interrompe a preparação. Não corrigir estado desconhecido
+abrindo o gate global.
+
+## Fase 1: preparação sem envio
+
+### 1. Fixar a fonte e o runtime
+
+Registrar o SHA de `origin/main` e o caminho do release ativo. O release precisa
+conter a PR #294 antes do canário.
+
+```bash
+git rev-parse origin/main
+readlink -f /opt/pastorai-current
+```
+
+Se o nome do release não provar o SHA, registrar o SHA dentro do artefato de
+deploy ou comparar o código implantado. Não inferir versão por data.
+
+### 2. Confirmar saúde e gates fechados
+
+Executar na VPS sem imprimir o restante do ambiente:
+
+```bash
+cd /opt/pastorai-current/deploy
+docker compose ps backend queue-worker cron-worker broadcast-worker
+curl -fsS http://127.0.0.1:8000/health
+curl -fsS http://127.0.0.1:8000/ready
+docker compose exec -T backend sh -lc '
+  for name in ALLOW_REAL_SENDS ASAAS_BILLING_ENABLED BREVO_SEND_MODE BROADCAST_ASYNC_ENABLED; do
+    value=$(printenv "$name" 2>/dev/null || true)
+    test -n "$value" || value="<unset>"
+    printf "%s=%s\n" "$name" "$value"
+  done
+'
+```
+
+O estado obrigatório é:
+
+```text
+ALLOW_REAL_SENDS=false
+ASAAS_BILLING_ENABLED=false
+BREVO_SEND_MODE=off
+BROADCAST_ASYNC_ENABLED=false
+```
+
+### 3. Salvar comportamento com o agente desligado
+
+Usar o console master, abrir a igreja piloto e salvar pelo endpoint
+`PUT /admin/igrejas/{igreja_id}/agente`. O campo `ativo` deve ser enviado como
+`false`, inclusive quando a configuração já existir.
+
+Comportamento inicial recomendado:
+
+```text
+Adote um tom acolhedor, pastoral, breve e respeitoso. Use frases simples, sem
+jargão, e no máximo três frases. Reformule somente a resposta-base, sem
+acrescentar dados, promessas, convites, ações, horários, endereços, registros ou
+permissões. Preserve as negativas, os limites e o encaminhamento humano com o
+mesmo sentido da resposta-base.
+```
+
+Nome recomendado: `Assistente Filadélfia`.
+
+Tom recomendado: `acolhedor, pastoral, breve e respeitoso`.
+
+Esse texto controla estilo. Identidade, tenant, papel, ferramentas e efeitos
+continuam determinados pelo servidor.
+
+### 4. Revalidar a BYO sem reexibir a chave
+
+O admin da igreja abre `Agente IA > Credencial LLM`. Se a chave precisar ser
+substituída, o operador da igreja digita a nova chave diretamente no campo de
+senha. O master e o time de suporte não recebem a chave.
+
+O PastorAI aceita somente o provedor `openai` nesta versão e cifra a chave por
+igreja. Nunca reutilizar uma chave de ferramenta de desenvolvimento, copiar
+chave para este arquivo ou colar segredo em issue, PR, log ou conversa.
+
+Para uma credencial ativa já armazenada, deixar a chave em branco e usar
+`Revalidar credencial`. A tela chama o endpoint existente com o modelo atual e
+mantém o segredo cifrado somente no servidor:
+
+```http
+PUT /agent/model
+Authorization: Bearer <token do admin da própria igreja>
+Content-Type: application/json
+
+{"modelo":"gpt-5.6-luna"}
+```
+
+Somente HTTP 200 com `validado=true` aprova essa etapa. Respostas 401, 403, 409,
+422 ou 502 bloqueiam o canário. Não substituir a BYO por uma chave do PastorAI.
+
+### 5. Provar o estado inativo
+
+Validar por duas superfícies:
+
+- console master: `configured=true`, `ativo=false`,
+  `credencialStatus=active`;
+- painel da igreja: `configured=true`, `ativo=false`, credencial `active` e
+  modelo `gpt-5.6-luna`.
+
+Uma consulta administrativa ao banco pode confirmar o estado, mas não substitui
+o registro de auditoria produzido pela API. A consulta nunca seleciona
+`api_key_encrypted`.
+
+## Fase 2: pacote de autorização
+
+Preparar estes valores sem abrir qualquer gate:
+
+- SHA exato do backend implantado;
+- igreja e instância Evolution escolhidas;
+- um único número dedicado ou autorizado;
+- conversa de teste sem histórico operacional;
+- três mensagens exatas do roteiro;
+- expectativa de rota e de persistência para cada mensagem;
+- responsável por observar API, worker, Evolution e banco;
+- responsável por fechar o gate;
+- horário de início e limite máximo da janela;
+- comando de rollback já revisado.
+
+Roteiro inicial recomendado para um contato sintético:
+
+1. Enviar `Olá` e esperar somente o termo de consentimento.
+2. Enviar `Aceito` e esperar a confirmação determinística do consentimento.
+3. Enviar `Quero conhecer a igreja` e esperar uma única resposta de onboarding,
+   refinada pela BYO sem alterar o sentido da resposta-base.
+
+O número deve começar sem papel privilegiado. O primeiro canário não executa
+ferramentas de escrita e não testa `marcar_presenca`.
+
+Antes da autorização, comprovar por testes locais os perfis contato, membro,
+líder, admin e pastor, além de duplicidade, ferramenta desconhecida,
+cross-tenant, handoff, opt-out, restart do webhook e dead-letter.
+
+## Fase 3: execução futura, somente após autorização nominal
+
+Esta fase não pode ser iniciada por aprovação genérica da PR ou deste runbook.
+A autorização precisa nomear a igreja, o número, a janela e a abertura temporária
+de `ALLOW_REAL_SENDS`.
+
+Ordem operacional:
+
+1. Confirmar novamente SHA, saúde, filas vazias e os quatro gates fechados.
+2. Confirmar que somente a igreja piloto será ativada.
+3. Salvar `AgentConfig.ativo=true` pelo console master.
+4. Abrir somente `ALLOW_REAL_SENDS=true` na janela aprovada e reiniciar apenas
+   os processos que leem essa variável no boot.
+5. Executar as três mensagens na ordem e interromper ao primeiro resultado
+   divergente ou ambíguo.
+6. Fechar `ALLOW_REAL_SENDS=false` e reiniciar os mesmos processos.
+7. Salvar `AgentConfig.ativo=false`.
+8. Verificar que não existe segunda resposta, retry pendente ou efeito em outro
+   tenant.
+9. Registrar evidências sem telefone completo, token, chave, conteúdo privado ou
+   ciphertext.
+
+Não ligar `BROADCAST_ASYNC_ENABLED`. Não alterar Asaas, Brevo, Calendar ou crons.
+
+## Evidências obrigatórias
+
+- um inbound e no máximo um outbound por mensagem do roteiro;
+- tenant derivado da instância correta;
+- Pessoa ativa resolvida pelo telefone canônico;
+- nenhuma duplicidade de Pessoa ou conversa;
+- consentimento persistido antes de coletar dados adicionais;
+- nenhum papel inferido do texto;
+- nenhum tool call no primeiro canário;
+- eventos de auditoria do agente sem PII desnecessária;
+- nenhuma linha alterada em outro tenant;
+- `AgentConfig.ativo=false` e `ALLOW_REAL_SENDS=false` ao terminar.
+
+## Critérios de abortar
+
+Abortar e fechar o gate global imediatamente quando ocorrer qualquer um destes
+casos:
+
+- release sem a PR #294 ou SHA inconclusivo;
+- BYO não revalidada;
+- identidade duplicada ou tenant inconclusivo;
+- fila prévia, dead-letter prévia ou worker sem heartbeat;
+- resposta diferente da rota esperada;
+- mais de um outbound;
+- timeout após possível envio;
+- efeito de ferramenta inesperado;
+- mensagem ou mutação em outro tenant;
+- perda de saúde do backend, Redis, worker ou Evolution.
+
+Resultado ambíguo nunca recebe reenvio automático.
+
+## Rollback
+
+O rollback começa pela contenção de rede:
+
+1. restaurar `ALLOW_REAL_SENDS=false`;
+2. reiniciar os processos consumidores da variável;
+3. confirmar o gate fechado dentro dos containers;
+4. restaurar `AgentConfig.ativo=false`;
+5. preservar mensagens, logs e outbox para investigação;
+6. não reenviar resultado `desconhecido`;
+7. registrar o incidente e encerrar a janela.
+
+O rollback não apaga Pessoa, conversa, consentimento, mensagem ou auditoria.

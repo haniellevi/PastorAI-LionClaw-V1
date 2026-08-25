@@ -11,6 +11,7 @@ from app.services import llm
 
 def test_catalog_has_safe_economic_default_and_monotonic_fallbacks() -> None:
     assert llm.DEFAULT_MODEL == "gpt-5.6-luna"
+    assert llm.PRICING_UPDATED_AT == "2026-08-25"
     assert {item.modelo for item in llm.MODEL_CATALOG} == llm.SUPPORTED_MODELS
     assert llm.MODEL_FALLBACKS == {
         "gpt-5.6-sol": ("gpt-5.6-terra", "gpt-5.6-luna"),
@@ -25,6 +26,11 @@ def test_catalog_has_safe_economic_default_and_monotonic_fallbacks() -> None:
         )
         for item in llm.MODEL_CATALOG
     }
+    assert prices == {
+        "gpt-5.6-luna": (0.20, 1.20),
+        "gpt-5.6-terra": (2.00, 12.00),
+        "gpt-5.6-sol": (4.00, 20.00),
+    }
     for selected, fallbacks in llm.MODEL_FALLBACKS.items():
         for fallback in fallbacks:
             assert prices[fallback][0] < prices[selected][0]
@@ -36,7 +42,7 @@ def test_catalog_has_safe_economic_default_and_monotonic_fallbacks() -> None:
     [
         ("gpt-5.6-luna", 1.4),
         ("gpt-5.6-terra", 14.0),
-        ("gpt-5.6-sol", 35.0),
+        ("gpt-5.6-sol", 24.0),
     ],
 )
 def test_estimate_cost_uses_current_per_million_prices(
