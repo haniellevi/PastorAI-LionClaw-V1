@@ -8,9 +8,10 @@
  *  - api-llm-credential (POST /agent/credential): salva a credencial BYO. A chave
  *    NUNCA é reexibida após salvar (RNF-03); chave inválida NÃO ativa a credencial
  *    (status=invalid) e portanto não libera a ativação do agente.
- *  - api-agent-config (PUT /agent/config): salva o comportamento. Ativar o agente
- *    (ativo=true) sem credencial validada+ativa é bloqueado (409 →
- *    AgentCredentialRequiredError) com erro inline.
+ *  - api-agent-config (GET /agent/config): exibe o comportamento definido pelo
+ *    master e permite solicitar mudanças, sem edição direta pelo tenant.
+ *  - api-llm-model (PUT /agent/model): troca ou revalida o modelo usando a chave
+ *    já cifrada, sem devolver ou reenviar o segredo ao navegador.
  *  - api-crons (POST /agent/crons): cria agendamentos. O gatilho de estado é
  *    validado antes de salvar (422 quando inválido) com erro inline.
  */
@@ -191,20 +192,25 @@ export function AgenteScreen() {
   // ── Salvar credencial (a chave nunca volta após salvar) ──────────────────
   const submitCredential = useCallback(async () => {
     const newKey = apiKey.trim();
-    const modelOnly =
+    const useSavedKey =
       newKey.length === 0 &&
       credentialState === "active" &&
-      modelo.length > 0 &&
-      modelo !== savedModelo;
-    if (!token || savingCred || !modelo || (newKey.length === 0 && !modelOnly)) return;
+      modelo.length > 0;
+    if (!token || savingCred || !modelo || (newKey.length === 0 && !useSavedKey)) return;
     setSavingCred(true);
     setCredError(null);
     try {
-      if (modelOnly) {
+      if (useSavedKey) {
+        const changed = modelo !== savedModelo;
         const result = await updateLlmModel(token, modelo);
         setModelo(result.modelo);
         setSavedModelo(result.modelo);
-        flashToast({ kind: "ok", text: "Modelo validado e atualizado." });
+        flashToast({
+          kind: "ok",
+          text: changed
+            ? "Modelo validado e atualizado."
+            : "Credencial e modelo revalidados.",
+        });
         return;
       }
 
@@ -362,7 +368,8 @@ export function AgenteScreen() {
 
   const modelChanged =
     credentialState === "active" && modelo.length > 0 && modelo !== savedModelo;
-  const credReady = modelo.length > 0 && (apiKey.trim().length > 0 || modelChanged);
+  const canUseSavedKey = credentialState === "active" && modelo.length > 0;
+  const credReady = modelo.length > 0 && (apiKey.trim().length > 0 || canUseSavedKey);
   const selectedModel = modelOptions.find((item) => item.modelo === modelo);
   const cronReady = cronNome.trim().length > 0;
 
@@ -630,7 +637,9 @@ export function AgenteScreen() {
                 ? "Validando…"
                 : apiKey.trim().length > 0
                   ? "Salvar credencial e modelo"
-                  : "Salvar modelo"}
+                  : modelChanged
+                    ? "Validar e salvar modelo"
+                    : "Revalidar credencial"}
             </button>
           </div>
         </form>

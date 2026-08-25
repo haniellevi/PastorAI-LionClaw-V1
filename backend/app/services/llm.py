@@ -20,7 +20,7 @@ logger = logging.getLogger("pastorai.llm")
 
 SUPPORTED_PROVIDERS: frozenset[str] = frozenset({"openai"})
 DEFAULT_MODEL = "gpt-5.6-luna"
-PRICING_UPDATED_AT = "2026-08-08"
+PRICING_UPDATED_AT = "2026-08-25"
 
 
 @dataclass(frozen=True)
@@ -55,8 +55,8 @@ MODEL_CATALOG: tuple[LLMModelSpec, ...] = (
         modelo="gpt-5.6-sol",
         nome="Sol — avançado",
         perfil="Maior qualidade para os casos mais difíceis; use quando o ganho justificar o custo.",
-        input_usd_per_million=5.00,
-        output_usd_per_million=30.00,
+        input_usd_per_million=4.00,
+        output_usd_per_million=20.00,
     ),
 )
 
