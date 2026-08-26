@@ -903,6 +903,30 @@ def test_legacy_envelope_derives_stable_claim_id_from_raw() -> None:
 
     assert first.claim_id.startswith("legacy-")
     assert recovered.claim_id == first.claim_id
+    assert first.failure is None
+
+
+def test_envelope_sanitizes_untrusted_failure_metadata_on_read() -> None:
+    timestamp = "2026-08-25T12:00:00Z"
+    raw = json.dumps(
+        {
+            "payload": _parsed_payload("UNTRUSTED-FAILURE"),
+            "attempts": 1,
+            "failure": {
+                "stage": "ingestion",
+                "error_class": "RuntimeError: telefone 5511999999999",
+                "first_failed_at": timestamp,
+                "last_failed_at": timestamp,
+            },
+        }
+    )
+
+    envelope = _Envelope.from_json(raw)
+
+    assert envelope.failure is not None
+    assert envelope.failure.stage == "ingestion"
+    assert envelope.failure.error_class == "Exception"
+    assert "5511999999999" not in envelope.to_json()
 
 
 def test_mark_processed_accepts_only_the_same_claim_owner() -> None:
@@ -1458,6 +1482,12 @@ def test_worker_reprocesses_on_transient_failure() -> None:
     retried = _Envelope.from_json(requeued[0])
     assert retried.attempts == 1
     assert retried.claim_id == original.claim_id
+    assert retried.failure is not None
+    assert retried.failure.stage == "ingestion"
+    assert retried.failure.error_class == "RuntimeError"
+    assert retried.failure.first_failed_at.endswith("Z")
+    assert retried.failure.last_failed_at.endswith("Z")
+    assert "db down" not in requeued[0]
     assert redis.lists[queue.processing_queue("worker-retry")] == []
     assert redis.failed_transition_calls == 1
     assert redis.direct_lrem_calls == 0
@@ -1644,7 +1674,7 @@ def test_failed_transition_does_not_treat_a_partial_lua_result_as_success(
     assert len(redis.lists[WEBHOOK_QUEUE]) == 1
 
 
-def test_worker_dead_letters_after_max_attempts() -> None:
+def test_worker_dead_letters_after_max_attempts(caplog) -> None:
     redis = FakeRedis()
     queue = WebhookQueue(redis_client=redis)
     env = _Envelope(payload=_parsed_payload("DEAD"), attempts=MAX_ATTEMPTS - 1)
@@ -1652,7 +1682,7 @@ def test_worker_dead_letters_after_max_attempts() -> None:
     redis.lpush(WEBHOOK_QUEUE, raw)
 
     def boom():
-        raise RuntimeError("db down")
+        raise RuntimeError("segredo operacional que não pode ir para a fila")
 
     worker = QueueWorker(
         queue=queue,
@@ -1669,8 +1699,51 @@ def test_worker_dead_letters_after_max_attempts() -> None:
     dead = _Envelope.from_json(redis.lists[DEAD_LETTER_QUEUE][0])
     assert dead.attempts == MAX_ATTEMPTS
     assert dead.claim_id == env.claim_id
+    assert dead.failure is not None
+    assert dead.failure.stage == "ingestion"
+    assert dead.failure.error_class == "RuntimeError"
+    assert dead.failure.first_failed_at == dead.failure.last_failed_at
+    assert "segredo operacional" not in redis.lists[DEAD_LETTER_QUEUE][0]
+    assert "segredo operacional" not in caplog.text
     assert redis.failed_transition_calls == 1
     assert redis.direct_lrem_calls == 0
+
+
+def test_agent_failure_dead_letter_records_only_safe_runtime_metadata() -> None:
+    redis = FakeRedis()
+    queue = WebhookQueue(redis_client=redis)
+    worker_id = "worker-agent-dead"
+    queue.register_worker(worker_id)
+    connection = WhatsappConnection(igreja_id=_IGREJA, instance="igreja-1")
+
+    def session_factory() -> FakeIngestSession:
+        return FakeIngestSession(connection=connection)
+
+    def agent_boom(*_args):
+        raise RuntimeError("prompt ou dado pessoal jamais deve aparecer")
+
+    envelope = _Envelope(
+        payload=_parsed_payload("AGENT-DEAD"),
+        attempts=MAX_ATTEMPTS - 1,
+    )
+    redis.lpush(WEBHOOK_QUEUE, envelope.to_json())
+    raw = queue.claim(worker_id, timeout=0)
+    assert raw is not None
+    worker = QueueWorker(
+        queue=queue,
+        session_factory=session_factory,
+        agent_runner=agent_boom,
+        worker_id=worker_id,
+    )
+
+    worker._handle_raw(raw)  # noqa: SLF001
+
+    serialized = redis.lists[DEAD_LETTER_QUEUE][0]
+    dead = _Envelope.from_json(serialized)
+    assert dead.failure is not None
+    assert dead.failure.stage == "agent_runtime"
+    assert dead.failure.error_class == "RuntimeError"
+    assert "prompt ou dado pessoal" not in serialized
 
 
 def test_build_redis_has_bounded_pool_and_timeouts(monkeypatch) -> None:

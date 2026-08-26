@@ -34,6 +34,7 @@ The worker is a standalone process: `python -m app.workers.queue_worker`.
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import logging
 import signal
@@ -364,6 +365,120 @@ class AgentRunDisposition(str, Enum):
 
     COMPLETED = "completed"
     IN_FLIGHT = "in_flight"
+
+
+_FAILURE_STAGES = frozenset(
+    {
+        "agent_runtime",
+        "idempotency_claim",
+        "idempotency_finalize",
+        "ingestion",
+        "parse",
+        "webhook_processing",
+    }
+)
+_FAILURE_STAGE_ATTRIBUTE = "_pastorai_failure_stage"
+
+
+def _safe_failure_identifier(value: object, *, fallback: str) -> str:
+    """Keep diagnostic identifiers bounded and free of payload/error text."""
+    if (
+        not isinstance(value, str)
+        or not value
+        or len(value) > 64
+        or not value.isascii()
+    ):
+        return fallback
+    if not all(char.isalnum() or char in "._-" for char in value):
+        return fallback
+    return value
+
+
+def _safe_failure_timestamp(value: object) -> str | None:
+    """Accept only the bounded UTC timestamp format emitted by this worker."""
+    if not isinstance(value, str) or len(value) > 40 or not value.endswith("Z"):
+        return None
+    try:
+        parsed = dt.datetime.fromisoformat(value.removesuffix("Z") + "+00:00")
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return None
+    return value
+
+
+def _utc_failure_timestamp() -> str:
+    return dt.datetime.now(dt.UTC).isoformat().replace("+00:00", "Z")
+
+
+def _tag_failure_stage(exc: Exception, stage: str) -> None:
+    """Attach one whitelisted stage without changing the raised exception."""
+    safe_stage = stage if stage in _FAILURE_STAGES else "webhook_processing"
+    try:
+        setattr(exc, _FAILURE_STAGE_ATTRIBUTE, safe_stage)
+    except Exception:  # noqa: BLE001 - metadata must never mask the real failure
+        return
+
+
+def _failure_stage(exc: Exception) -> str:
+    stage = getattr(exc, _FAILURE_STAGE_ATTRIBUTE, None)
+    return stage if stage in _FAILURE_STAGES else "webhook_processing"
+
+
+@dataclass(frozen=True)
+class _FailureMetadata:
+    """PII-free diagnostics carried with retries and terminal dead letters."""
+
+    stage: str
+    error_class: str
+    first_failed_at: str
+    last_failed_at: str
+
+    @classmethod
+    def capture(
+        cls,
+        exc: Exception,
+        *,
+        previous: "_FailureMetadata | None" = None,
+    ) -> "_FailureMetadata":
+        now = _utc_failure_timestamp()
+        return cls(
+            stage=_failure_stage(exc),
+            error_class=_safe_failure_identifier(
+                type(exc).__name__, fallback="Exception"
+            ),
+            first_failed_at=previous.first_failed_at if previous else now,
+            last_failed_at=now,
+        )
+
+    def to_json_value(self) -> dict[str, str]:
+        return {
+            "stage": self.stage,
+            "error_class": self.error_class,
+            "first_failed_at": self.first_failed_at,
+            "last_failed_at": self.last_failed_at,
+        }
+
+    @classmethod
+    def from_json_value(cls, value: object) -> "_FailureMetadata | None":
+        if not isinstance(value, dict):
+            return None
+        stage = value.get("stage")
+        error_class = value.get("error_class")
+        first_failed_at = _safe_failure_timestamp(value.get("first_failed_at"))
+        last_failed_at = _safe_failure_timestamp(value.get("last_failed_at"))
+        if (
+            stage not in _FAILURE_STAGES
+            or first_failed_at is None
+            or last_failed_at is None
+        ):
+            return None
+        return cls(
+            stage=stage,
+            error_class=_safe_failure_identifier(error_class, fallback="Exception"),
+            first_failed_at=first_failed_at,
+            last_failed_at=last_failed_at,
+        )
 
 
 # A resposta do agente usa a própria tabela ``messages`` como ledger durável.
@@ -864,19 +979,21 @@ class _Envelope:
     payload: dict[str, Any]
     attempts: int = 0
     claim_id: str = ""
+    failure: _FailureMetadata | None = None
 
     def __post_init__(self) -> None:
         if not self.claim_id:
             self.claim_id = uuid.uuid4().hex
 
     def to_json(self) -> str:
-        return json.dumps(
-            {
-                "payload": self.payload,
-                "attempts": self.attempts,
-                "claim_id": self.claim_id,
-            }
-        )
+        data: dict[str, Any] = {
+            "payload": self.payload,
+            "attempts": self.attempts,
+            "claim_id": self.claim_id,
+        }
+        if self.failure is not None:
+            data["failure"] = self.failure.to_json_value()
+        return json.dumps(data)
 
     @classmethod
     def from_json(cls, raw: str) -> "_Envelope":
@@ -894,6 +1011,7 @@ class _Envelope:
             payload=data.get("payload", {}),
             attempts=int(data.get("attempts", 0)),
             claim_id=claim_id,
+            failure=_FailureMetadata.from_json_value(data.get("failure")),
         )
 
 
@@ -1160,6 +1278,8 @@ class WebhookQueue:
         worker_id: str,
         raw: str,
         envelope: _Envelope,
+        *,
+        failure: _FailureMetadata | None = None,
     ) -> None:
         """Move a failed claim only while its worker still owns a live lease."""
         next_attempts = envelope.attempts + 1
@@ -1167,6 +1287,7 @@ class WebhookQueue:
             payload=envelope.payload,
             attempts=next_attempts,
             claim_id=envelope.claim_id,
+            failure=failure or envelope.failure,
         )
         if next_attempts >= MAX_ATTEMPTS:
             target = DEAD_LETTER_QUEUE
@@ -1194,9 +1315,13 @@ class WebhookQueue:
             # stopping this worker avoids a stale retry/dead-letter mutation.
             raise ClaimOwnershipLost("Webhook failed claim was no longer owned")
         if target == DEAD_LETTER_QUEUE:
+            diagnostic = replacement.failure
             logger.error(
-                "Webhook exhausted retries (%d), moving to dead-letter",
+                "Webhook exhausted retries (%d), moving to dead-letter "
+                "(stage=%s error=%s)",
                 next_attempts,
+                diagnostic.stage if diagnostic else "unknown",
+                diagnostic.error_class if diagnostic else "unknown",
             )
 
 
@@ -1383,10 +1508,21 @@ class QueueWorker:
             logger.warning("Webhook claim ownership lost during processing")
             self._running = False
             return
-        except Exception:  # noqa: BLE001 - any error triggers a bounded retry
-            logger.exception("Webhook processing failed; scheduling reprocess")
+        except Exception as exc:  # noqa: BLE001 - any error triggers a bounded retry
+            failure = _FailureMetadata.capture(exc, previous=envelope.failure)
+            logger.error(
+                "Webhook processing failed; scheduling reprocess "
+                "(stage=%s error=%s)",
+                failure.stage,
+                failure.error_class,
+            )
             try:
-                self._queue.transition_failed_claim(self._worker_id, raw, envelope)
+                self._queue.transition_failed_claim(
+                    self._worker_id,
+                    raw,
+                    envelope,
+                    failure=failure,
+                )
             except ClaimOwnershipLost:
                 # The raw item remains in (or was recovered from) the private
                 # list. A stale worker must not retry/dead-letter it after its
@@ -1408,7 +1544,11 @@ class QueueWorker:
         ingestion fails, so the bounded reprocess (RNF-17) is not dropped as a
         duplicate.
         """
-        parsed = parse_message_event(envelope.payload)
+        try:
+            parsed = parse_message_event(envelope.payload)
+        except Exception as exc:  # noqa: BLE001 - preserve type, add safe stage
+            _tag_failure_stage(exc, "parse")
+            raise
         if parsed is None:
             return IngestionResult.IGNORED
 
@@ -1418,10 +1558,14 @@ class QueueWorker:
             else None
         )
 
-        processing_claim = self._queue.claim_processing(
-            parsed.provider_message_id,
-            envelope.claim_id,
-        )
+        try:
+            processing_claim = self._queue.claim_processing(
+                parsed.provider_message_id,
+                envelope.claim_id,
+            )
+        except Exception as exc:  # noqa: BLE001 - preserve type, add safe stage
+            _tag_failure_stage(exc, "idempotency_claim")
+            raise
         if processing_claim is ProcessingClaim.REJECTED:
             logger.info("Skipping duplicate message %s", parsed.provider_message_id)
             return IngestionResult.DUPLICATE
@@ -1442,6 +1586,7 @@ class QueueWorker:
             # Do not delete its shared processing marker from the stale owner.
             raise
         except Exception as exc:
+            _tag_failure_stage(exc, "ingestion")
             # Release the claim so the requeued envelope can be reprocessed.
             if claimed_raw is None:
                 self._queue.release_processed(
@@ -1484,11 +1629,15 @@ class QueueWorker:
             outcome.claim_id = envelope.claim_id
             if ownership_guard is not None:
                 ownership_guard()
-            agent_disposition = self._agent_runner(
-                self._session_factory,
-                outcome,
-                ownership_guard,
-            )
+            try:
+                agent_disposition = self._agent_runner(
+                    self._session_factory,
+                    outcome,
+                    ownership_guard,
+                )
+            except Exception as exc:  # noqa: BLE001 - preserve type, add safe stage
+                _tag_failure_stage(exc, "agent_runtime")
+                raise
             if agent_disposition is AgentRunDisposition.IN_FLIGHT:
                 # A previous process still holds the durable execution lease.
                 # Do not ACK this recovered raw claim: its current owner stops
@@ -1500,15 +1649,23 @@ class QueueWorker:
         # Finalization is the last effect. Until it succeeds the same claim stays
         # recoverable. A stale owner cannot finalize after another worker moved
         # the raw item out of its private processing list.
-        if claimed_raw is None:
-            self._queue.mark_processed(parsed.provider_message_id, envelope.claim_id)
-        elif not self._queue.mark_processed_if_owned(
-            parsed.provider_message_id,
-            envelope.claim_id,
-            self._worker_id,
-            claimed_raw,
-        ):
-            raise ClaimOwnershipLost("Webhook claim was recovered before finalization")
+        try:
+            if claimed_raw is None:
+                self._queue.mark_processed(parsed.provider_message_id, envelope.claim_id)
+            elif not self._queue.mark_processed_if_owned(
+                parsed.provider_message_id,
+                envelope.claim_id,
+                self._worker_id,
+                claimed_raw,
+            ):
+                raise ClaimOwnershipLost(
+                    "Webhook claim was recovered before finalization"
+                )
+        except ClaimOwnershipLost:
+            raise
+        except Exception as exc:  # noqa: BLE001 - preserve type, add safe stage
+            _tag_failure_stage(exc, "idempotency_finalize")
+            raise
 
         return outcome.result
 

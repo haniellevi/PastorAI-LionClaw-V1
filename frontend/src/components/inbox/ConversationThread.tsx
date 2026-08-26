@@ -25,6 +25,7 @@ import type { ChatMessage, Conversation } from "@/lib/conversations-api";
 import { Icon } from "@/lib/icons";
 
 import {
+  type AgentAvailability,
   contactAvatar,
   conversationPill,
   displayName,
@@ -44,6 +45,7 @@ interface ThreadCopy {
 function threadCopy(
   estado: "ia" | "humano" | "aguardando",
   paused: boolean,
+  agentAvailability: AgentAvailability,
 ): ThreadCopy {
   if (estado === "humano") {
     return {
@@ -58,6 +60,20 @@ function threadCopy(
       bannerClass: "human",
       bannerText:
         "A IA está pausada para este contato (sem interesse). Nenhuma resposta automática será enviada.",
+    };
+  }
+  if (estado === "ia" && agentAvailability === "paused_by_church") {
+    return {
+      bannerClass: "human",
+      bannerText:
+        "O agente está pausado pela igreja. Nenhuma resposta automática será enviada.",
+    };
+  }
+  if (estado === "ia" && agentAvailability === "unknown") {
+    return {
+      bannerClass: "human",
+      bannerText:
+        "Não foi possível confirmar o estado global do agente. Nenhuma atividade automática é presumida.",
     };
   }
   if (estado === "aguardando") {
@@ -183,6 +199,7 @@ export function ConversationThread({
   selfId,
   holderName,
   degraded,
+  agentAvailability,
   busy,
   conflict,
   messages,
@@ -204,6 +221,7 @@ export function ConversationThread({
   selfId: string;
   holderName: string | null;
   degraded: boolean;
+  agentAvailability: AgentAvailability;
   busy: boolean;
   conflict: string | null;
   messages: ChatMessage[];
@@ -237,9 +255,11 @@ export function ConversationThread({
 
   const estado = effectiveEstado(conversation);
   const paused = iaPausadaSemInteresse(conversation);
-  const pill = conversationPill(conversation);
-  const copy = threadCopy(estado, paused);
+  const pill = conversationPill(conversation, agentAvailability);
+  const copy = threadCopy(estado, paused, agentAvailability);
   const marker = tipoMarker(conversation);
+  const automaticAgentUnavailable =
+    conversation.semInteresse || agentAvailability !== "active";
 
   const holder = conversation.assumidoPor;
   const isMine = estado === "humano" && holder === selfId;
@@ -410,51 +430,56 @@ export function ConversationThread({
         <div className="ctrl">
           <StatusPill tone={pill.tone}>{pill.label}</StatusPill>
           {isMine ? (
-            // Devolver é ação SECUNDÁRIA (Gate 8) — mesma regra/callback. Para um
-            // contato "sem interesse" a IA segue pausada no backend mesmo após o
-            // release, então o rótulo NÃO promete devolver para uma IA que não
-            // volta a responder: vira "Encerrar atendimento".
+            // Nunca promete devolver para uma IA indisponível por contato,
+            // igreja ou falha na leitura do estado global.
             <DsButton
               variant="secondary"
               onClick={() => onReturn(conversation)}
               disabled={busy}
               aria-label={
-                conversation.semInteresse ? "Encerrar atendimento" : "Devolver para a IA"
+                automaticAgentUnavailable ? "Encerrar atendimento" : "Devolver para a IA"
               }
               title={
                 conversation.semInteresse
                   ? "Encerrar o atendimento (a IA segue pausada para este contato)"
-                  : "Devolver para a IA"
+                  : agentAvailability === "paused_by_church"
+                    ? "Encerrar o atendimento (o agente está pausado pela igreja)"
+                    : agentAvailability === "unknown"
+                      ? "Encerrar o atendimento (o estado do agente não foi confirmado)"
+                      : "Devolver para a IA"
               }
             >
-              <Icon name={conversation.semInteresse ? "user" : "sparkles"} />
+              <Icon name={automaticAgentUnavailable ? "user" : "sparkles"} />
               <span>
-                {conversation.semInteresse ? "Encerrar atendimento" : "Devolver para a IA"}
+                {automaticAgentUnavailable ? "Encerrar atendimento" : "Devolver para a IA"}
               </span>
             </DsButton>
           ) : (
-            // Assumir é a ação operacional PRINCIPAL — azul mineral. Para um
-            // contato "sem interesse" a IA segue suprimida no backend mesmo sob
-            // outro líder (botão desabilitado), então o rótulo NUNCA promete
-            // "pausar IA": não há IA ativa para pausar; o humano só assume para
-            // responder. Chaveia por `semInteresse` (superset de `paused`).
+            // Assumir só promete "pausar IA" quando o estado global foi lido e
+            // confirma que o agente está ativo.
             <DsButton
               onClick={() => onAssume(conversation)}
               disabled={busy || heldByOther}
               aria-label={
-                conversation.semInteresse ? "Assumir atendimento" : "Assumir (pausar IA)"
+                automaticAgentUnavailable ? "Assumir atendimento" : "Assumir (pausar IA)"
               }
               title={
                 heldByOther
                   ? "Conversa já assumida por outro líder"
                   : conversation.semInteresse
                     ? "Assumir o atendimento"
-                    : "Assumir o atendimento e pausar a IA"
+                    : agentAvailability === "paused_by_church"
+                      ? "Assumir o atendimento (o agente já está pausado pela igreja)"
+                      : agentAvailability === "unknown"
+                        ? "Assumir o atendimento (estado global do agente indisponível)"
+                        : "Assumir o atendimento e pausar a IA"
               }
             >
               <Icon name="user" />
               <span>
-                {conversation.semInteresse ? "Assumir atendimento" : "Assumir (pausar IA)"}
+                {automaticAgentUnavailable
+                  ? "Assumir atendimento"
+                  : "Assumir (pausar IA)"}
               </span>
             </DsButton>
           )}

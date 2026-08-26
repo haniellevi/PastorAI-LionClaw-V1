@@ -121,6 +121,27 @@ export async function fetchConversations(
   return (await res.json()) as Page<Conversation>;
 }
 
+export interface InboxAgentStatus {
+  configured: boolean;
+  ativo: boolean;
+  pausedByChurch: boolean;
+}
+
+/** Estado global mínimo do agente, sem expor prompt, ferramentas ou credencial. */
+export async function fetchInboxAgentStatus(
+  token: string,
+  signal?: AbortSignal,
+): Promise<InboxAgentStatus> {
+  const res = await authedFetch(token, "/conversations/agent-status", { signal });
+  if (res.status === 403) {
+    throw new ApiError(403, "Acesso restrito ao inbox.");
+  }
+  if (!res.ok) {
+    throw new ApiError(res.status, "Não foi possível verificar o estado do agente.");
+  }
+  return (await res.json()) as InboxAgentStatus;
+}
+
 /** Histórico completo da conversa, mais antigas primeiro (US-13). */
 export async function fetchMessages(
   token: string,

@@ -2,6 +2,7 @@
 
 Endpoints:
   - GET  /conversations                list the tenant's conversations
+  - GET  /conversations/agent-status   safe global agent status for the inbox
   - POST /conversations/{id}/handoff   switch control between IA and human
   - GET  /conversations/{id}/messages  conversation history (oldest first)
   - POST /conversations/{id}/messages  send a human reply to the contact (WhatsApp)
@@ -30,6 +31,7 @@ from sqlalchemy import desc, func, or_, select
 from sqlalchemy.orm import Session, aliased
 
 from app.db.models import (
+    AgentConfig,
     AppUser,
     Conversation,
     Message,
@@ -213,6 +215,14 @@ class PhotoResponse(BaseModel):
     url: str | None = None
 
 
+class InboxAgentStatusOut(BaseModel):
+    """Minimal runtime flag for honest Inbox labels, without agent instructions."""
+
+    configured: bool
+    ativo: bool
+    pausedByChurch: bool  # noqa: N815
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
@@ -284,6 +294,29 @@ def list_conversations(
         page=pagination.page,
         pageSize=pagination.page_size,
         total=int(total),
+    )
+
+
+@router.get("/agent-status", response_model=InboxAgentStatusOut)
+def get_inbox_agent_status(
+    db: Session = Depends(get_db),
+    current_user: CurrentUser = Depends(require_screen("inbox")),
+) -> InboxAgentStatusOut:
+    """Expose only whether an explicit church config pauses the agent.
+
+    The Inbox is available to non-admin care roles, so this endpoint must not
+    reuse the full admin-only agent config response, which also carries prompts
+    and tool access. Missing config remains ``configured=false`` instead of
+    inventing an activation state that differs from the current runtime.
+    """
+    igreja_id = uuid.UUID(current_user.igreja_id)
+    config = db.execute(
+        select(AgentConfig).where(AgentConfig.igreja_id == igreja_id)
+    ).scalar_one_or_none()
+    return InboxAgentStatusOut(
+        configured=config is not None,
+        ativo=bool(config and config.ativo),
+        pausedByChurch=bool(config is not None and not config.ativo),
     )
 
 

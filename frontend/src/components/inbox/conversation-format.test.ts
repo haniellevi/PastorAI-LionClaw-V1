@@ -72,4 +72,33 @@ describe("conversation-format — IA pausada por sem interesse (CONV-AI-1)", () 
     expect(conversationPill(c)).toEqual(estadoPill("aguardando"));
     expect(conversationPill(c).label).toBe("Aguardando humano");
   });
+
+  it("configuração global inativa substitui 'IA ativa' por 'IA pausada pela igreja'", () => {
+    const c = conv({ semInteresse: false, estado: "ia" });
+    expect(conversationPill(c, "paused_by_church")).toEqual({
+      tone: "muted",
+      label: "IA pausada pela igreja",
+    });
+    expect(conversationPill(c, "paused_by_church").label).not.toBe("IA ativa");
+  });
+
+  it("falha na leitura global não presume que a IA está ativa", () => {
+    const c = conv({ semInteresse: false, estado: "ia" });
+    expect(conversationPill(c, "unknown")).toEqual({
+      tone: "warn",
+      label: "Estado da IA indisponível",
+    });
+  });
+
+  it("controle humano e fila de espera continuam prioritários ao estado global", () => {
+    expect(
+      conversationPill(
+        conv({ estado: "humano", assumidoPor: "u1" }),
+        "paused_by_church",
+      ).label,
+    ).toBe("Em atendimento");
+    expect(
+      conversationPill(conv({ estado: "aguardando" }), "paused_by_church").label,
+    ).toBe("Aguardando humano");
+  });
 });
