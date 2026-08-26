@@ -82,7 +82,7 @@ jobs:
           print("guard OK: alvo descartavel")
           PY
 
-      - name: Rodar suite rls_integration (T1-T6 + executor M06 + TOCTOU SEC-4B confirm + approve + transitions + create + W3 arquivamento + W3.2A preflight/archive + MSG-IDEMP-1 + estado de resposta do agente + CONSOL-1 consolidação aberta única + FECH-2 reactivate/unarchive + OAuth callback/finish races)
+      - name: Rodar suite rls_integration (T1-T6 + executor M06 + artefatos de recovery + TOCTOU SEC-4B confirm + approve + transitions + create + W3 arquivamento + W3.2A preflight/archive + MSG-IDEMP-1 + estado de resposta do agente + CONSOL-1 consolidação aberta única + FECH-2 reactivate/unarchive + OAuth callback/finish races)
         run: |
           "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pytest -m rls_integration -o addopts= -rA \
             --junitxml=rls-results.xml \
@@ -99,6 +99,7 @@ jobs:
             tests/test_contacts_reactivate_unarchive_concurrency.py \
             tests/test_calendar_oauth_concurrency.py \
             tests/test_v1_m06_hardening_migrations.py \
+            tests/test_recovery_artifacts_hardening_migration.py \
             tests/test_apply_migrations.py \
             tests/test_billing_complimentary_autoupgrade_migration.py \
             tests/test_billing_complimentary_concurrency.py
