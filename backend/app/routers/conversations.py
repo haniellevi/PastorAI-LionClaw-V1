@@ -41,6 +41,7 @@ from app.db.models import (
 )
 from app.db.session import get_db
 from app.deps import CurrentUser, require_role, require_screen
+from app.domain.agent_reply import AGENT_REPLY_CONFIRMED
 from app.domain.conversations import (
     can_access_inbox,
     has_full_inbox,
@@ -494,14 +495,18 @@ def list_messages(
     conv = _get_conversation(db, conversation_id)
     _authorize_conversation_view(conv, current_user)
 
+    visible_message = or_(
+        Message.agent_reply_state.is_(None),
+        Message.agent_reply_state == AGENT_REPLY_CONFIRMED,
+    )
     total = db.execute(
         select(func.count())
         .select_from(Message)
-        .where(Message.conversation_id == conv.id)
+        .where(Message.conversation_id == conv.id, visible_message)
     ).scalar_one()
     rows = db.execute(
         select(Message)
-        .where(Message.conversation_id == conv.id)
+        .where(Message.conversation_id == conv.id, visible_message)
         .order_by(Message.criado_em.asc())
         .offset(pagination.offset)
         .limit(pagination.limit)
