@@ -29,6 +29,7 @@ import {
   deleteConversation,
   fetchConversationPhoto,
   fetchConversations,
+  fetchInboxAgentStatus,
   fetchInboxTransferTargets,
   fetchMessages,
   handoffConversation,
@@ -55,7 +56,7 @@ import { ConversationList, type ConvFilter } from "./ConversationList";
 import { ConversationThread } from "./ConversationThread";
 import { DeleteConversationDialog } from "./DeleteConversationDialog";
 import { TransferConversationModal } from "./TransferConversationModal";
-import { effectiveEstado } from "./conversation-format";
+import { type AgentAvailability, effectiveEstado } from "./conversation-format";
 
 const POLL_MS = 15_000;
 // O GET normal deve concluir bem antes disso. Encerrar em 12 s libera o
@@ -161,12 +162,17 @@ export function InboxScreen() {
   // "unknown" quando o papel não pode ler a conexão (não-admin) — tratado como
   // operante, sem banner de degradação.
   const [connStatus, setConnStatus] = useState<ConnectionStatus | "unknown">("unknown");
+  // Fail closed in the UI: "IA ativa" is shown only after the tenant-scoped
+  // runtime flag has been read successfully.
+  const [agentAvailability, setAgentAvailability] =
+    useState<AgentAvailability>("unknown");
 
   // Polling is best-effort. A slow network must not stack another identical
   // request every 15 seconds; besides wasting work, overlapping responses
   // allocate duplicate arrays and can keep the browser busy indefinitely.
   const conversationsRequestRef = useRef<AbortController | null>(null);
   const connectionRequestRef = useRef<AbortController | null>(null);
+  const agentStatusRequestRef = useRef<AbortController | null>(null);
 
   // Master-detail mobile (PR2): em ≤860px o inbox é tela única (lista OU thread).
   // selectedId null = lista; tocar uma conversa abre a thread; "voltar" volta à
@@ -265,6 +271,39 @@ export function InboxScreen() {
       }
     }
   }, [token, canReadConnection, handleSessionError]);
+
+  const loadAgentStatus = useCallback(async () => {
+    if (!token) return;
+    if (agentStatusRequestRef.current) return;
+    const controller = new AbortController();
+    agentStatusRequestRef.current = controller;
+    try {
+      const info = await runTimedRequest(controller, (signal) =>
+        fetchInboxAgentStatus(token, signal),
+      );
+      setAgentAvailability(
+        info.configured && info.ativo && !info.pausedByChurch
+          ? "active"
+          : info.configured && info.pausedByChurch
+            ? "paused_by_church"
+            : "unknown",
+      );
+    } catch (err) {
+      if (controller.signal.aborted && !(err instanceof RequestTimeoutError)) return;
+      setAgentAvailability("unknown");
+      if (handleSessionError(err)) return;
+    } finally {
+      if (agentStatusRequestRef.current === controller) {
+        agentStatusRequestRef.current = null;
+      }
+    }
+  }, [token, handleSessionError]);
+
+  const refreshInbox = useCallback(() => {
+    void load("retry");
+    void loadConnection();
+    void loadAgentStatus();
+  }, [load, loadConnection, loadAgentStatus]);
 
   // ---- histórico de mensagens da conversa selecionada ---------------------
   // INBOX-RACE-1: qual conversa está aberta AGORA. Requisições de /messages são
@@ -402,15 +441,19 @@ export function InboxScreen() {
     }
     void load("initial");
     void loadConnection();
+    void loadAgentStatus();
     return () => {
       const conversationsController = conversationsRequestRef.current;
       const connectionController = connectionRequestRef.current;
+      const agentStatusController = agentStatusRequestRef.current;
       conversationsRequestRef.current = null;
       connectionRequestRef.current = null;
+      agentStatusRequestRef.current = null;
       conversationsController?.abort();
       connectionController?.abort();
+      agentStatusController?.abort();
     };
-  }, [allowed, load, loadConnection]);
+  }, [allowed, load, loadConnection, loadAgentStatus]);
 
   useEffect(() => {
     if (!allowed) return;
@@ -418,10 +461,11 @@ export function InboxScreen() {
       setNow(Date.now());
       void load("poll");
       void loadConnection();
+      void loadAgentStatus();
       if (selectedId) void loadMessages(selectedId, "poll");
     }, POLL_MS);
     return () => window.clearInterval(id);
-  }, [allowed, load, loadConnection, selectedId, loadMessages]);
+  }, [allowed, load, loadConnection, loadAgentStatus, selectedId, loadMessages]);
 
   // Gate 8: o painel de dados é um DRAWER sob demanda em TODAS as larguras —
   // sem três colunas permanentes competindo por atenção. Abre só pelo botão
@@ -733,7 +777,7 @@ export function InboxScreen() {
         <div className="actions">
           <DsButton
             variant="secondary"
-            onClick={() => void load("retry")}
+            onClick={refreshInbox}
             disabled={loading}
           >
             Atualizar
@@ -747,7 +791,7 @@ export function InboxScreen() {
           action={
             <DsButton
               variant="secondary"
-              onClick={() => void load("retry")}
+              onClick={refreshInbox}
               disabled={loading}
             >
               Tentar novamente
@@ -798,6 +842,7 @@ export function InboxScreen() {
             selfId={user?.appUserId ?? ""}
             holderName={selected.assumidoPorNome}
             degraded={degraded}
+            agentAvailability={agentAvailability}
             busy={busyId === selected.id}
             conflict={conflicts[selected.id] ?? null}
             messages={messages}

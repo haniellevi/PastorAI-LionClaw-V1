@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Conversation } from "@/lib/conversations-api";
 
 import { ConversationThread } from "./ConversationThread";
+import type { AgentAvailability } from "./conversation-format";
 
 declare global {
   // eslint-disable-next-line no-var
@@ -41,7 +42,10 @@ const conv = (over: Partial<Conversation>): Conversation => ({
 let container: HTMLDivElement;
 let root: Root;
 
-function render(conversation: Conversation) {
+function render(
+  conversation: Conversation,
+  agentAvailability: AgentAvailability = "active",
+) {
   act(() => {
     root.render(
       h(ConversationThread, {
@@ -49,6 +53,7 @@ function render(conversation: Conversation) {
         selfId: "me",
         holderName: null,
         degraded: false,
+        agentAvailability,
         busy: false,
         conflict: null,
         messages: [],
@@ -129,5 +134,33 @@ describe("ConversationThread — sem interesse ⇒ IA pausada (CONV-AI-1)", () =
     const assume = container.querySelector('[aria-label="Assumir atendimento"]');
     expect(assume).not.toBeNull();
     expect((assume as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("agente global inativo mostra 'IA pausada pela igreja' e não promete pausar novamente", () => {
+    render(conv({ semInteresse: false, estado: "ia" }), "paused_by_church");
+    const text = container.textContent ?? "";
+    expect(text).toContain("IA pausada pela igreja");
+    expect(text).not.toContain("IA ativa");
+    expect(text).toContain("O agente está pausado pela igreja");
+    expect(text).toContain("Assumir atendimento");
+    expect(text).not.toContain("Assumir (pausar IA)");
+  });
+
+  it("atendimento humano não oferece devolução para agente global inativo", () => {
+    render(
+      conv({ semInteresse: false, estado: "humano", assumidoPor: "me" }),
+      "paused_by_church",
+    );
+    const text = container.textContent ?? "";
+    expect(text).toContain("Encerrar atendimento");
+    expect(text).not.toContain("Devolver para a IA");
+  });
+
+  it("estado global desconhecido não exibe 'IA ativa'", () => {
+    render(conv({ semInteresse: false, estado: "ia" }), "unknown");
+    const text = container.textContent ?? "";
+    expect(text).toContain("Estado da IA indisponível");
+    expect(text).not.toContain("IA ativa");
+    expect(text).toContain("Assumir atendimento");
   });
 });

@@ -77,6 +77,65 @@ def test_member_forbidden_on_handoff(app) -> None:
     assert resp.status_code == 403
 
 
+_AGENT_STATUS = "/conversations/agent-status"
+
+
+def test_inbox_agent_status_requires_auth(app) -> None:
+    client = _client(app, roles=["admin"])
+    assert client.get(_AGENT_STATUS).status_code == 401
+
+
+def test_member_forbidden_on_inbox_agent_status(app) -> None:
+    client = _client(app, roles=["membro"])
+    assert client.get(_AGENT_STATUS, headers=_AUTH).status_code == 403
+
+
+def test_inbox_agent_status_reports_unconfigured_without_sensitive_fields(app) -> None:
+    client = _client(app, roles=["admin"])
+    resp = client.get(_AGENT_STATUS, headers=_AUTH)
+
+    assert resp.status_code == 200
+    assert resp.json() == {
+        "configured": False,
+        "ativo": False,
+        "pausedByChurch": False,
+    }
+
+
+@pytest.mark.parametrize(
+    ("ativo", "paused"),
+    [(False, True), (True, False)],
+)
+def test_inbox_agent_status_maps_tenant_config_without_exposing_instructions(
+    ativo: bool,
+    paused: bool,
+) -> None:
+    from app.routers.conversations import get_inbox_agent_status
+
+    class _Result:
+        def scalar_one_or_none(self):
+            return SimpleNamespace(
+                ativo=ativo,
+                comportamento="conteúdo que não pode sair neste endpoint",
+                acessos=["ferramenta_interna"],
+            )
+
+    class _DB:
+        def execute(self, _query):
+            return _Result()
+
+    result = get_inbox_agent_status(
+        db=_DB(),
+        current_user=SimpleNamespace(igreja_id=str(uuid.uuid4())),
+    )
+
+    assert result.model_dump() == {
+        "configured": True,
+        "ativo": ativo,
+        "pausedByChurch": paused,
+    }
+
+
 # ---- whatsapp connection RBAC (admin only) --------------------------------
 def test_cell_leader_forbidden_on_whatsapp_connection(app) -> None:
     client = _client(app, roles=["lider_celula"])

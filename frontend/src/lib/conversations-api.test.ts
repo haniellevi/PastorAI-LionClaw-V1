@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   fetchConversations,
+  fetchInboxAgentStatus,
   fetchInboxTransferTargets,
   fetchMessages,
   MAX_MEDIA_BYTES,
@@ -33,6 +34,23 @@ describe("GETs do inbox", () => {
     if (!conversationsCall || !messagesCall) throw new Error("GETs esperados não foram chamados");
     expect(conversationsCall[1]).toMatchObject({ signal: conversationsController.signal });
     expect(messagesCall[1]).toMatchObject({ signal: messagesController.signal });
+  });
+
+  it("lê somente o estado global mínimo do agente e propaga o AbortSignal", async () => {
+    const payload = { configured: true, ativo: false, pausedByChurch: true };
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => payload,
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    const controller = new AbortController();
+
+    await expect(fetchInboxAgentStatus("token", controller.signal)).resolves.toEqual(
+      payload,
+    );
+    expect(String(fetchSpy.mock.calls[0]?.[0])).toContain("/conversations/agent-status");
+    expect(fetchSpy.mock.calls[0]?.[1]).toMatchObject({ signal: controller.signal });
   });
 
   it("percorre todas as páginas de destinos de transferência", async () => {

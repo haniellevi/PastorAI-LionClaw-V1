@@ -5,6 +5,8 @@
 import type { PillTone } from "@/components/dashboard/StatusPill";
 import type { Conversation, ConversationEstado } from "@/lib/conversations-api";
 
+export type AgentAvailability = "active" | "paused_by_church" | "unknown";
+
 /** Estado efetivo da conversa: a fila de espera (espera_desde) tem prioridade. */
 export function effectiveEstado(c: Conversation): ConversationEstado {
   if (c.estado === "humano") return "humano";
@@ -39,9 +41,19 @@ export function iaPausadaSemInteresse(c: Conversation): boolean {
  * automático está suspenso no backend, então mostra "IA pausada". Um humano que
  * assumiu continua tendo prioridade ("Em atendimento").
  */
-export function conversationPill(c: Conversation): { tone: PillTone; label: string } {
+export function conversationPill(
+  c: Conversation,
+  agentAvailability: AgentAvailability = "active",
+): { tone: PillTone; label: string } {
+  const estado = effectiveEstado(c);
   if (iaPausadaSemInteresse(c)) return { tone: "muted", label: "IA pausada" };
-  return estadoPill(effectiveEstado(c));
+  if (estado === "ia" && agentAvailability === "paused_by_church") {
+    return { tone: "muted", label: "IA pausada pela igreja" };
+  }
+  if (estado === "ia" && agentAvailability === "unknown") {
+    return { tone: "warn", label: "Estado da IA indisponível" };
+  }
+  return estadoPill(estado);
 }
 
 /**

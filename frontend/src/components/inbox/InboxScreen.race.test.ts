@@ -34,6 +34,7 @@ vi.mock("@/lib/auth-context", () => ({ useAuth: () => auth }));
 
 const apiMock = vi.hoisted(() => ({
   fetchConversations: vi.fn(),
+  fetchInboxAgentStatus: vi.fn(),
   fetchMessages: vi.fn(),
   fetchConversationPhoto: vi.fn(),
   fetchInboxTransferTargets: vi.fn(),
@@ -45,6 +46,7 @@ vi.mock("@/lib/conversations-api", async (importOriginal) => {
   return {
     ...actual,
     fetchConversations: apiMock.fetchConversations,
+    fetchInboxAgentStatus: apiMock.fetchInboxAgentStatus,
     fetchMessages: apiMock.fetchMessages,
     fetchConversationPhoto: apiMock.fetchConversationPhoto,
     fetchInboxTransferTargets: apiMock.fetchInboxTransferTargets,
@@ -180,6 +182,12 @@ beforeEach(() => {
     pageSize: 100,
     total: 2,
   });
+  apiMock.fetchInboxAgentStatus.mockReset();
+  apiMock.fetchInboxAgentStatus.mockResolvedValue({
+    configured: true,
+    ativo: true,
+    pausedByChurch: false,
+  });
   apiMock.fetchConversationPhoto.mockReset();
   apiMock.fetchConversationPhoto.mockResolvedValue(null);
   apiMock.fetchInboxTransferTargets.mockReset();
@@ -281,6 +289,34 @@ describe("InboxScreen — destinos de transferência por capacidade", () => {
       expect(container.textContent).toContain("Responsável disponível");
     },
   );
+});
+
+describe("InboxScreen — estado global do agente", () => {
+  it("propaga AgentConfig inativo e nunca mostra 'IA ativa'", async () => {
+    apiMock.fetchInboxAgentStatus.mockResolvedValue({
+      configured: true,
+      ativo: false,
+      pausedByChurch: true,
+    });
+
+    await renderInbox();
+
+    expect(apiMock.fetchInboxAgentStatus).toHaveBeenCalledWith(
+      "tok-1",
+      expect.any(AbortSignal),
+    );
+    expect(container.textContent).toContain("IA pausada pela igreja");
+    expect(container.textContent).not.toContain("IA ativa");
+  });
+
+  it("falha na leitura não presume atividade", async () => {
+    apiMock.fetchInboxAgentStatus.mockRejectedValue(new Error("indisponível"));
+
+    await renderInbox();
+
+    expect(container.textContent).toContain("Estado da IA indisponível");
+    expect(container.textContent).not.toContain("IA ativa");
+  });
 });
 
 describe("InboxScreen — timeout da lista de conversas", () => {
