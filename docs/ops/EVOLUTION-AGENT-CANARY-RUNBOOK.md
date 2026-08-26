@@ -30,14 +30,19 @@ desabilitada no registro de capacidades do agente.
 - O backend implantado contém o mesmo commit ou um descendente revisado.
 - `/health` responde `ok` e `/ready` responde `ready`.
 - A instância Evolution da igreja está online.
-- A fila de entrada, a fila de processamento e a dead-letter não possuem item
-  pendente do número escolhido.
+- A fila de entrada e a fila de processamento estão vazias.
+- A dead-letter canônica está vazia. Um item legado sem metadados seguros não
+  pode ser atribuído ao número do canário por suposição: ele bloqueia a
+  ativação até ser preservado por uma quarentena atômica, em gate separado,
+  sem leitura do payload e sem reprocessamento.
 - Existe exatamente um `AgentConfig` para a igreja piloto e ele está inativo.
 - Nenhuma outra igreja possui `AgentConfig.ativo=true`.
 - A BYO está configurada para `openai`, em modelo permitido, e revalida sem que
   a chave seja retornada.
-- O número do teste é dedicado ou explicitamente autorizado e não corresponde
-  a uma pessoa real usada em operação pastoral.
+- O número do primeiro canário ativo é sintético, dedicado, sem papel
+  privilegiado e sem histórico de Pessoa, conversa ou mensagens na igreja
+  piloto. Autorização do titular não transforma um número pastoral já usado em
+  contato sintético.
 
 Qualquer divergência interrompe a preparação. Não corrigir estado desconhecido
 abrindo o gate global.
@@ -145,14 +150,38 @@ Uma consulta administrativa ao banco pode confirmar o estado, mas não substitui
 o registro de auditoria produzido pela API. A consulta nunca seleciona
 `api_key_encrypted`.
 
+### 6. Provar a contenção com o agente inativo
+
+Este smoke é anterior ao canário ativo. Ele exige autorização para um único
+inbound controlado, mas mantém `AgentConfig.ativo=false` e
+`ALLOW_REAL_SENDS=false`. Use um número de controle separado; não consuma
+nesta etapa o número novo reservado ao canário ativo.
+
+O resultado esperado possui quatro provas:
+
+1. o painel exibe `IA pausada pela igreja`;
+2. o inbound é persistido com autoria `contato`;
+3. o ledger encerra o ciclo em `ia_sem_resposta`;
+4. não existe mensagem posterior com `agent_reply_state='ia'`, autoria de IA
+   legada sem estado, ou estado não terminal.
+
+`ia_sem_resposta` é um marcador interno de supressão. Ele pode ocupar uma
+linha outbound com autoria `ia` e identificador durável, mas o router o oculta
+da thread e o transporte Evolution não o trata como envio confirmado. Por isso,
+contar linhas apenas por `direcao='out'` produz falso positivo; a evidência
+precisa considerar `agent_reply_state`.
+
+Passar neste smoke comprova contenção. Não qualifica para o canário ativo um
+número que já possua papel privilegiado ou histórico operacional.
+
 ## Fase 2: pacote de autorização
 
 Preparar estes valores sem abrir qualquer gate:
 
 - SHA exato do backend implantado;
 - igreja e instância Evolution escolhidas;
-- um único número dedicado ou autorizado;
-- conversa de teste sem histórico operacional;
+- um único número sintético dedicado e sem papel privilegiado;
+- zero Pessoa, conversa e mensagem prévias para o número na igreja piloto;
 - três mensagens exatas do roteiro;
 - expectativa de rota e de persistência para cada mensagem;
 - responsável por observar API, worker, Evolution e banco;
@@ -182,7 +211,8 @@ de `ALLOW_REAL_SENDS`.
 
 Ordem operacional:
 
-1. Confirmar novamente SHA, saúde, filas vazias e os quatro gates fechados.
+1. Confirmar novamente SHA, saúde, filas canônicas vazias e os quatro gates
+   fechados.
 2. Confirmar que somente a igreja piloto será ativada.
 3. Salvar `AgentConfig.ativo=true` pelo console master.
 4. Abrir somente `ALLOW_REAL_SENDS=true` na janela aprovada e reiniciar apenas
@@ -219,7 +249,8 @@ casos:
 - release sem a PR #294 ou SHA inconclusivo;
 - BYO não revalidada;
 - identidade duplicada ou tenant inconclusivo;
-- fila prévia, dead-letter prévia ou worker sem heartbeat;
+- fila de entrada ou processamento prévia, dead-letter canônica não vazia ou
+  worker sem heartbeat;
 - resposta diferente da rota esperada;
 - mais de um outbound;
 - timeout após possível envio;
@@ -228,6 +259,47 @@ casos:
 - perda de saúde do backend, Redis, worker ou Evolution.
 
 Resultado ambíguo nunca recebe reenvio automático.
+
+## Quarentena de dead-letter legada
+
+Uma dead-letter que não possua os metadados seguros `stage`, `error_class`,
+`first_failed_at` e `last_failed_at` não pode ser aberta para descobrir a
+quem pertence. Também não pode ser apagada ou reprocessada para liberar o
+canário.
+
+Em gate humano separado, a contenção recomendada é:
+
+1. confirmar tipo `list`, comprimento esperado e ausência da chave de destino;
+2. mover atomicamente a chave canônica com `RENAMENX` para uma chave de
+   quarentena datada e exclusiva;
+3. confirmar comprimento preservado e dead-letter canônica vazia;
+4. não definir TTL, não executar `LRANGE`, `LINDEX`, `RPOP` ou replay;
+5. registrar a chave de quarentena em uma política de retenção e descarte
+   posterior.
+
+Se a chave canônica mudar entre o preflight e o `RENAMENX`, abortar. O
+rollback só pode devolver a quarentena ao nome canônico quando este estiver
+ausente, também com `RENAMENX`.
+
+## Estado observado em 2026-08-26
+
+- o smoke de contenção da Filadélfia passou com o agente inativo: o painel
+  exibiu a pausa, houve um `ia_sem_resposta`, zero envio de IA confirmado,
+  zero envio legado posterior e zero estado não terminal;
+- o número apresentado para esse smoke pertence a uma Pessoa ativa com papel
+  privilegiado e conversa operacional anterior. Ele está rejeitado como alvo
+  do primeiro canário ativo;
+- a fila de entrada e a fila de processamento estavam vazias;
+- a dead-letter canônica continha um item legado após cinco tentativas, sem os
+  novos metadados seguros. O payload não foi lido e o item não foi
+  reprocessado;
+- `AgentConfig.ativo=false` permaneceu para a Filadélfia e nenhuma igreja
+  estava com agente ativo;
+- o canário ativo permanece bloqueado até a quarentena autorizada da
+  dead-letter legada e a escolha posterior de um número sintético novo.
+
+Este registro não autoriza quarentena, ativação, alteração de flag, chamada LLM
+ou envio Evolution.
 
 ## Rollback
 

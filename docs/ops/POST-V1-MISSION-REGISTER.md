@@ -1,14 +1,14 @@
 # PastorAI / Igreja 12: registro central de missões pós-V1
 
-Atualizado em 2026-08-25 (America/Sao_Paulo) após a integração das PRs #296,
-#297 e #299, a revalidação da BYO da Filadélfia e o deploy controlado do backend
-com o agente desativado. A V1 permanece `V1_ENCERRADA`; este documento não
-altera a tag `v1.0.0`, não autoriza canário e não abre gates de produção.
+Atualizado em 2026-08-26 (America/Sao_Paulo) após o preflight operacional e o
+smoke de contenção da Filadélfia com o agente desativado. A V1 permanece
+`V1_ENCERRADA`; este documento não altera a tag `v1.0.0`, não autoriza
+canário ativo e não abre gates de produção.
 
 ## Baseline obrigatório
 
 - último SHA comprovado do backend em produção:
-  `d65cdd6c6b0fb1b772ef7fcd9311dfd5f889531c`;
+  `c525d6a3897a12c6c287f9fc79a88b32b34cd452`;
 - frontend Vercel `pastorai-frontend-prod`: deployment
   `dpl_Dycx4epdibk5xtW3svVerJT2cH7K`, `READY`, target `production`, SHA
   `cba0fdf9c6eb815e15fa5a1502499c5b0d332732`;
@@ -19,9 +19,10 @@ altera a tag `v1.0.0`, não autoriza canário e não abre gates de produção.
 - flags externas no backend, queue worker, cron worker e broadcast worker:
   `ALLOW_REAL_SENDS=false`, `ASAAS_BILLING_ENABLED=false`,
   `BREVO_SEND_MODE=off` e `BROADCAST_ASYNC_ENABLED=false`;
-- fonte de verdade do código: `origin/main`; produção serve o SHA imutável
-  informado para cada camada acima. Commits exclusivamente documentais em
-  `main` não alteram os artefatos implantados.
+- fonte de verdade do código: `origin/main` em
+  `52b7fadf0a1466aaede764dc275369e735a113ec`; produção serve o SHA imutável
+  informado para cada camada acima. O diff posterior ao release ativo não
+  contém mudança em `backend/app`.
 
 ## Missões
 
@@ -375,14 +376,46 @@ workflows posteriores ao merge passaram.
   após o deploy. A chave SSH temporária foi revogada, o teste posterior negou
   acesso, e os pacotes e chaves temporários foram removidos;
 - nenhuma migration, ativação do agente, mudança de flag, mensagem externa ou
-  canário foi realizada.
+  canário foi realizada nessa rodada de deploy.
 
-**Próximo gate único:** autorizar o preflight operacional somente leitura do
-canário da Filadélfia. A etapa deve provar a instância Evolution online, filas e
-dead-letter vazias para um número sintético autorizado, conversa sem histórico
-operacional, único `AgentConfig` da igreja inativo, nenhuma outra igreja ativa,
-observadores, janela e rollback definidos. O agente e `ALLOW_REAL_SENDS` devem
-permanecer `false` durante todo o preflight.
+### Preflight operacional e smoke inativo de 2026-08-26
+
+- a VPS servia o release
+  `c525d6a3897a12c6c287f9fc79a88b32b34cd452`; backend, queue worker, cron
+  worker e broadcast worker estavam saudáveis, assim como banco, Redis e
+  Evolution;
+- os quatro processos confirmaram `ALLOW_REAL_SENDS=false`,
+  `ASAAS_BILLING_ENABLED=false`, `BREVO_SEND_MODE=off` e
+  `BROADCAST_ASYNC_ENABLED=false`;
+- a instância Evolution da Filadélfia respondeu `online`, com número pareado,
+  sem imprimir instância ou telefone oficial;
+- havia exatamente um `AgentConfig` da Filadélfia, inativo, nenhuma igreja
+  com agente ativo e uma BYO ativa e validada. Nenhum segredo ou ciphertext
+  foi lido;
+- fila de entrada e processamento estavam vazias. A dead-letter continha um
+  item legado após cinco tentativas, sem `stage`, `error_class`,
+  `first_failed_at` ou `last_failed_at`. O payload não foi lido e o item
+  não foi reprocessado;
+- uma chave SSH temporária identificada foi criada para o preflight, removida
+  da Hostinger ao final e testada como incapaz de autenticar. A chave privada
+  local foi destruída;
+- o smoke inativo recebeu um único inbound controlado. A interface mostrou
+  `IA pausada pela igreja`; o ledger criou um `ia_sem_resposta`, com zero
+  envio de IA confirmado, zero envio legado posterior e zero estado não
+  terminal;
+- o número apresentado não é elegível para o primeiro canário ativo: ele está
+  ligado a uma Pessoa ativa com papel privilegiado e a uma conversa operacional
+  anterior. Nenhum telefone completo foi registrado neste documento;
+- o runbook agora diferencia `ia_sem_resposta` de envio Evolution confirmado,
+  exige número sintético novo e define quarentena atômica, sem leitura, para
+  dead-letter legada.
+
+Estado: **CONTENÇÃO PASS / CANÁRIO ATIVO BLOCKED**.
+
+**Próximo gate único:** autorizar a quarentena atômica do único item legado da
+dead-letter em uma chave Redis datada e exclusiva, preservando-o integralmente,
+sem ler payload, definir TTL, apagar ou reprocessar. O agente e os quatro gates
+permanecem fechados.
 
 ## Paralelismo seguro
 
