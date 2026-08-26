@@ -17,8 +17,8 @@ def test_monitor_keeps_incident_maintenance_before_failing_health_job() -> None:
     content = WORKFLOW.read_text(encoding="utf-8")
 
     assert "runs-on: ubuntu-24.04" in content
-    assert "actions/checkout@11d5960a326750d5838078e36cf38b85af677262" in content
-    assert "actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b" in content
+    assert "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1" in content
+    assert "actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3" in content
     assert "- name: Maintain one deduplicated incident issue" in content
     assert "- name: Fail workflow when production is unhealthy" in content
     assert "python3 deploy/monitoring/external_probe.py" in content
