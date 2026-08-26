@@ -408,14 +408,27 @@ workflows posteriores ao merge passaram.
   anterior. Nenhum telefone completo foi registrado neste documento;
 - o runbook agora diferencia `ia_sem_resposta` de envio Evolution confirmado,
   exige número sintético novo e define quarentena atômica, sem leitura, para
-  dead-letter legada.
+  dead-letter legada;
+- durante uma indisponibilidade crítica do GitHub Actions, Backend, Frontend e
+  E2E passaram no `main`. Uma PR temporária em draft, sem diff final e com a
+  mesma árvore de `2262fba647fd788979a5c09fde6881086c9ee41f`, confirmou os
+  cinco workflows verdes. A PR foi fechada sem merge e a branch temporária
+  foi removida;
+- a dead-letter legada foi movida com `RENAMENX` para
+  `pastorai:webhooks:dead:quarantine:20260826T165417Z:994de6119f3664c4`.
+  O preflight e a validação posterior confirmaram origem vazia, destino do
+  tipo `list`, comprimento `1` e ausência de TTL. O payload não foi lido,
+  apagado ou reprocessado;
+- a chave SSH temporária usada exclusivamente nessa contenção foi removida da
+  Hostinger, teve a autenticação negada após a revogação e seus arquivos
+  locais foram destruídos.
 
-Estado: **CONTENÇÃO PASS / CANÁRIO ATIVO BLOCKED**.
+Estado: **CONTENÇÃO PASS / QUARENTENA PASS / CANÁRIO ATIVO BLOCKED**.
 
-**Próximo gate único:** autorizar a quarentena atômica do único item legado da
-dead-letter em uma chave Redis datada e exclusiva, preservando-o integralmente,
-sem ler payload, definir TTL, apagar ou reprocessar. O agente e os quatro gates
-permanecem fechados.
+**Próximo gate único:** autorizar o preflight final somente leitura do candidato
+sintético para o canário da Filadélfia, revalidando unicidade, ausência de
+histórico e estado dos gates, sem ativar o agente ou enviar mensagem. O agente
+e os quatro gates permanecem fechados.
 
 ## Paralelismo seguro
 
