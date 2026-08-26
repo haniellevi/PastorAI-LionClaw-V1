@@ -31,6 +31,8 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+from app.domain.agent_reply import AGENT_REPLY_STATES
+
 
 class Base(DeclarativeBase):
     """Declarative base for all ORM models."""
@@ -940,6 +942,13 @@ class Message(Base):
                 "direcao = 'out' AND provider_message_id IS NOT NULL"
             ),
         ),
+        CheckConstraint(
+            "agent_reply_state IS NULL OR ("
+            "direcao = 'out' AND autor = 'ia' AND agent_reply_state IN ("
+            + ", ".join(f"'{state}'" for state in AGENT_REPLY_STATES)
+            + "))",
+            name="messages_agent_reply_state_check",
+        ),
     )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
@@ -955,6 +964,10 @@ class Message(Base):
     )
     direcao: Mapped[str] = mapped_column(String, nullable=False)
     autor: Mapped[str] = mapped_column(String, nullable=False)
+    # Estado interno do ledger de resposta automática. Autoria permanece no
+    # contrato público ``contato | ia | humano``; intenções não confirmadas são
+    # ocultadas da thread pelo router até cruzarem o transporte com sucesso.
+    agent_reply_state: Mapped[str | None] = mapped_column(Text, nullable=True)
     texto: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Id estável do provider (Evolution `data.key.id` / ParsedMessage.
     # provider_message_id). Só populado para mensagens vindas do webhook

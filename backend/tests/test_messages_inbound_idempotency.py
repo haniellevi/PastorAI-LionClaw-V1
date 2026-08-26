@@ -49,8 +49,11 @@ from sqlalchemy.orm import sessionmaker
 
 import app.db.session  # noqa: F401 - registra o listener after_begin (paridade prod)
 from app.db.models import Base, Conversation, Igreja, Message, WhatsappConnection
+from app.deps import CurrentUser
 from app.domain.conversations import ParsedMessage
 from app.domain.phone import normalize_phone
+from app.routers._common import PaginationParams
+from app.routers.conversations import list_messages
 from app.workers.queue_worker import (
     IngestionResult,
     QueueWorker,
@@ -202,7 +205,7 @@ def _agent_reply_states(factory: sessionmaker, igreja_id: uuid.UUID) -> list[str
         return list(
             session.execute(
                 text(
-                    "select autor from messages where igreja_id = :i "
+                    "select agent_reply_state from messages where igreja_id = :i "
                     "and provider_message_id like 'agent-reply:%' order by criado_em"
                 ),
                 {"i": str(igreja_id)},
@@ -210,6 +213,12 @@ def _agent_reply_states(factory: sessionmaker, igreja_id: uuid.UUID) -> list[str
         )
     finally:
         session.close()
+
+
+class _NoMediaStorage:
+    def sign(self, paths: list[str]) -> dict[str, str]:
+        assert paths == []
+        return {}
 
 
 def _parsed(
@@ -954,6 +963,20 @@ def test_agent_reply_reservation_survives_crash_before_agent_and_uses_stable_key
     assert reserved.state == worker_module._AGENT_REPLY_RESERVED
     assert reserved.response == ""
 
+    session = factory()
+    try:
+        reservation_row = session.execute(
+            text(
+                "select autor, agent_reply_state from messages "
+                "where igreja_id = :i and provider_message_id = :key"
+            ),
+            {"i": str(_IGREJA_A), "key": key},
+        ).one()
+    finally:
+        session.close()
+    assert reservation_row.autor == "ia"
+    assert reservation_row.agent_reply_state == "ia_reservada"
+
     agent_calls = _stub_agent(monkeypatch, response="Resposta não participa da chave")
     evolution = _ClassifiedEvolution("aceito")
     run_agent_for_message(factory, outcome, evolution_client=evolution)
@@ -964,7 +987,7 @@ def test_agent_reply_reservation_survives_crash_before_agent_and_uses_stable_key
     try:
         message = session.execute(
             text(
-                "select provider_message_id, autor from messages "
+                "select provider_message_id, autor, agent_reply_state from messages "
                 "where igreja_id = :i and provider_message_id = :key"
             ),
             {"i": str(_IGREJA_A), "key": key},
@@ -973,6 +996,69 @@ def test_agent_reply_reservation_survives_crash_before_agent_and_uses_stable_key
         session.close()
     assert message.provider_message_id == key
     assert message.autor == "ia"
+    assert message.agent_reply_state == "ia"
+
+
+def test_inbox_hides_unconfirmed_agent_intents_and_preserves_public_author(
+    msg_engine_fx: Engine,
+) -> None:
+    factory = _factory(msg_engine_fx)
+    _seed_igreja_with_connection(factory, igreja_id=_IGREJA_A, instance="igreja-1")
+    conversation_id = _seed_agent_conversation(factory, igreja_id=_IGREJA_A)
+    session = factory()
+    try:
+        session.add_all(
+            [
+                Message(
+                    igreja_id=_IGREJA_A,
+                    conversation_id=conversation_id,
+                    direcao="in",
+                    autor="contato",
+                    texto="Entrada visível",
+                ),
+                Message(
+                    igreja_id=_IGREJA_A,
+                    conversation_id=conversation_id,
+                    direcao="out",
+                    autor="ia",
+                    agent_reply_state="ia_pendente",
+                    texto="Intenção interna",
+                ),
+                Message(
+                    igreja_id=_IGREJA_A,
+                    conversation_id=conversation_id,
+                    direcao="out",
+                    autor="ia",
+                    agent_reply_state="ia",
+                    texto="Resposta confirmada",
+                ),
+            ]
+        )
+        session.commit()
+
+        page = list_messages(
+            str(conversation_id),
+            PaginationParams(page=1, page_size=20),
+            db=session,
+            current_user=CurrentUser(
+                app_user_id=str(uuid.uuid4()),
+                clerk_user_id="clerk-admin-test",
+                igreja_id=str(_IGREJA_A),
+                email="admin@example.test",
+                nome="Admin Teste",
+                roles=frozenset({"admin"}),
+            ),
+            storage=_NoMediaStorage(),
+        )
+    finally:
+        session.close()
+
+    assert page.total == 2
+    assert [item.texto for item in page.items] == [
+        "Entrada visível",
+        "Resposta confirmada",
+    ]
+    assert [item.autor for item in page.items] == ["contato", "ia"]
 
 
 def test_agent_reply_owner_loss_after_reservation_runs_no_agent_or_tool(
@@ -1034,7 +1120,8 @@ def test_agent_reply_recovers_legacy_response_hash_intent_without_rerunning_agen
                 igreja_id=_IGREJA_A,
                 conversation_id=conversation_id,
                 direcao="out",
-                autor="ia_pendente",
+                autor="ia",
+                agent_reply_state="ia_pendente",
                 texto="Resposta já persistida antes da atualização",
                 provider_message_id=f"{stable_key}:legacy-response-hash",
             )

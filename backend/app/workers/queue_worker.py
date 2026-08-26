@@ -62,6 +62,18 @@ from app.db.tenant_session import (
     mark_tenant_scoped,
     promote_to_tenant,
 )
+from app.domain.agent_reply import (
+    AGENT_REPLY_AMBIGUOUS as _AGENT_REPLY_AMBIGUOUS,
+    AGENT_REPLY_CONFIRMED as _AGENT_REPLY_CONFIRMED,
+    AGENT_REPLY_EXECUTING as _AGENT_REPLY_EXECUTING,
+    AGENT_REPLY_EXECUTION_AMBIGUOUS as _AGENT_REPLY_EXECUTION_AMBIGUOUS,
+    AGENT_REPLY_FAILED as _AGENT_REPLY_FAILED,
+    AGENT_REPLY_IN_FLIGHT as _AGENT_REPLY_IN_FLIGHT,
+    AGENT_REPLY_NO_RESPONSE as _AGENT_REPLY_NO_RESPONSE,
+    AGENT_REPLY_PENDING as _AGENT_REPLY_PENDING,
+    AGENT_REPLY_RESERVED as _AGENT_REPLY_RESERVED,
+    AGENT_REPLY_SUPPRESSED as _AGENT_REPLY_SUPPRESSED,
+)
 from app.domain.conversations import (
     ParsedMessage,
     media_snippet,
@@ -481,24 +493,15 @@ class _FailureMetadata:
         )
 
 
-# A resposta do agente usa a própria tabela ``messages`` como ledger durável.
+# A resposta do agente usa a própria tabela ``messages`` como ledger durável,
+# com autoria pública fixa em ``ia`` e ciclo interno em ``agent_reply_state``.
 # A migration MSG-IDEMP-1 já criou o índice parcial único outbound sobre
-# ``(igreja_id, provider_message_id)``.  The opaque provider id below is
-# derived only from the inbound event + queue claim, never from the response.
+# ``(igreja_id, provider_message_id)``. The opaque provider id below is derived
+# only from the inbound event + queue claim, never from the response.
 # ``ia_reservada`` is committed *before* the agent executes mutable tools;
 # ``ia_executando`` is deliberately quarantined after a crash because the
 # process may have crossed a non-transactional tool boundary already.
 _AGENT_REPLY_PROVIDER_PREFIX = "agent-reply:"
-_AGENT_REPLY_RESERVED = "ia_reservada"
-_AGENT_REPLY_EXECUTING = "ia_executando"
-_AGENT_REPLY_PENDING = "ia_pendente"
-_AGENT_REPLY_IN_FLIGHT = "ia_em_transporte"
-_AGENT_REPLY_CONFIRMED = "ia"
-_AGENT_REPLY_AMBIGUOUS = "ia_ambigua"
-_AGENT_REPLY_EXECUTION_AMBIGUOUS = "ia_execucao_ambigua"
-_AGENT_REPLY_FAILED = "ia_falhou"
-_AGENT_REPLY_SUPPRESSED = "ia_suprimida"
-_AGENT_REPLY_NO_RESPONSE = "ia_sem_resposta"
 
 
 @dataclass(frozen=True)
@@ -1732,9 +1735,15 @@ def _agent_reply_after_fence(
 
 
 def _intent_from_message(message: Message) -> _AgentReplyIntent:
+    # Confirmed rows written before the dedicated state column have NULL here;
+    # their ``autor='ia'`` remains sufficient recovery evidence. Other states
+    # could never be persisted by the three-value production enum.
+    state = message.agent_reply_state
+    if state is None and message.autor == "ia":
+        state = _AGENT_REPLY_CONFIRMED
     return _AgentReplyIntent(
         id=message.id,
-        state=message.autor,
+        state=state or "",
         response=message.texto or "",
         provider_message_id=message.provider_message_id or "",
     )
@@ -1790,7 +1799,8 @@ def _reserve_agent_reply_intent(
             igreja_id=conversation.igreja_id,
             conversation_id=conversation.id,
             direcao="out",
-            autor=_AGENT_REPLY_RESERVED,
+            autor="ia",
+            agent_reply_state=_AGENT_REPLY_RESERVED,
             texto=None,
             tipo="texto",
             provider_message_id=provider_message_id,
@@ -1837,16 +1847,19 @@ def _prepare_agent_reply_intent(
             provider_message_id,
         )
         if existing is not None:
-            if existing.autor in {_AGENT_REPLY_RESERVED, _AGENT_REPLY_EXECUTING}:
+            if existing.agent_reply_state in {
+                _AGENT_REPLY_RESERVED,
+                _AGENT_REPLY_EXECUTING,
+            }:
                 transitioned = session.execute(
                     update(Message)
                     .where(
                         Message.id == existing.id,
-                        Message.autor.in_(
+                        Message.agent_reply_state.in_(
                             {_AGENT_REPLY_RESERVED, _AGENT_REPLY_EXECUTING}
                         ),
                     )
-                    .values(autor=_AGENT_REPLY_PENDING, texto=response)
+                    .values(agent_reply_state=_AGENT_REPLY_PENDING, texto=response)
                     .returning(Message.id)
                 ).scalar_one_or_none()
                 if transitioned is not None:
@@ -1870,7 +1883,8 @@ def _prepare_agent_reply_intent(
             igreja_id=conversation.igreja_id,
             conversation_id=conversation.id,
             direcao="out",
-            autor=_AGENT_REPLY_PENDING,
+            autor="ia",
+            agent_reply_state=_AGENT_REPLY_PENDING,
             texto=response,
             tipo="texto",
             provider_message_id=provider_message_id,
@@ -1912,8 +1926,8 @@ def _transition_agent_reply_intent(
     The compare-and-set lives in PostgreSQL, rather than in an ORM object read
     before the write.  Two recovered workers can otherwise both observe
     ``ia_pendente`` and each commit an ``ia_em_transporte`` transition, opening
-    a second provider call.  ``UPDATE ... WHERE autor = expected RETURNING``
-    is the cross-process transport fence.
+    a second provider call. ``UPDATE ... WHERE agent_reply_state = expected
+    RETURNING`` is the cross-process transport fence.
     """
 
     session: Session = session_factory()
@@ -1923,8 +1937,12 @@ def _transition_agent_reply_intent(
             ownership_guard()
         transitioned = session.execute(
             update(Message)
-            .where(Message.id == intent.id, Message.autor == expected)
-            .values(autor=target)
+            .where(
+                Message.id == intent.id,
+                Message.autor == "ia",
+                Message.agent_reply_state == expected,
+            )
+            .values(agent_reply_state=target)
             .returning(Message.conversation_id, Message.texto)
         ).one_or_none()
         if transitioned is None:
