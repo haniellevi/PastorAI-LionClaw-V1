@@ -281,6 +281,20 @@ Se a chave canônica mudar entre o preflight e o `RENAMENX`, abortar. O
 rollback só pode devolver a quarentena ao nome canônico quando este estiver
 ausente, também com `RENAMENX`.
 
+### Registro de retenção de 2026-08-26
+
+- chave preservada:
+  `pastorai:webhooks:dead:quarantine:20260826T165417Z:994de6119f3664c4`;
+- a movimentação atômica preservou um item, deixou a chave canônica ausente e
+  manteve a quarentena como `list`, comprimento `1` e sem TTL;
+- o payload permanece proibido de leitura, exportação, replay ou
+  reprocessamento;
+- revisar a necessidade de retenção até 2026-09-25. Extensão, descarte ou
+  rollback exigem gate humano separado e evidência de que a chave canônica
+  continua ausente;
+- não aplicar expiração automática. A revisão deve decidir explicitamente
+  entre retenção justificada e descarte integral, sem abrir o payload.
+
 ## Estado observado em 2026-08-26
 
 - o smoke de contenção da Filadélfia passou com o agente inativo: o painel
@@ -290,16 +304,17 @@ ausente, também com `RENAMENX`.
   privilegiado e conversa operacional anterior. Ele está rejeitado como alvo
   do primeiro canário ativo;
 - a fila de entrada e a fila de processamento estavam vazias;
-- a dead-letter canônica continha um item legado após cinco tentativas, sem os
-  novos metadados seguros. O payload não foi lido e o item não foi
+- o item legado da dead-letter foi movido atomicamente para a chave de
+  quarentena registrada acima. A chave canônica ficou vazia, o comprimento
+  foi preservado, não foi definido TTL e o payload não foi lido, apagado ou
   reprocessado;
 - `AgentConfig.ativo=false` permaneceu para a Filadélfia e nenhuma igreja
   estava com agente ativo;
-- o canário ativo permanece bloqueado até a quarentena autorizada da
-  dead-letter legada e a escolha posterior de um número sintético novo.
+- o canário ativo permanece bloqueado até um preflight final do candidato
+  sintético e autorização nominal separada para a janela de envio.
 
-Este registro não autoriza quarentena, ativação, alteração de flag, chamada LLM
-ou envio Evolution.
+Este registro não autoriza ativação, alteração de flag, chamada LLM, envio
+Evolution, leitura ou descarte da quarentena.
 
 ## Rollback
 
