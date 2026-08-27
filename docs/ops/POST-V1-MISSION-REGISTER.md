@@ -1,14 +1,17 @@
 # PastorAI / Igreja 12: registro central de missões pós-V1
 
-Atualizado em 2026-08-26 (America/Sao_Paulo) após o preflight operacional e o
-smoke de contenção da Filadélfia com o agente desativado. A V1 permanece
-`V1_ENCERRADA`; este documento não altera a tag `v1.0.0`, não autoriza
-canário ativo e não abre gates de produção.
+Atualizado em 2026-08-27 (America/Sao_Paulo) após a reconciliação do primeiro
+canário ativo controlado da Filadélfia. A V1 permanece `V1_ENCERRADA`, mas a
+visão integral WhatsApp-first ainda não está concluída. Este documento não
+altera a tag `v1.0.0`, não autoriza novo canário, rollout amplo ou abertura de
+gates de produção.
 
 ## Baseline obrigatório
 
-- último SHA comprovado do backend em produção:
-  `c525d6a3897a12c6c287f9fc79a88b32b34cd452`;
+- último SHA do backend em produção preservado em evidência versionada anterior:
+  `c525d6a3897a12c6c287f9fc79a88b32b34cd452`. O relato operacional do canário
+  ativo não contém um artefato versionado que permita reconstituir o SHA exato
+  servido durante a janela; ele deve ser revalidado antes de qualquer rollout;
 - frontend Vercel `pastorai-frontend-prod`: deployment
   `dpl_Dycx4epdibk5xtW3svVerJT2cH7K`, `READY`, target `production`, SHA
   `cba0fdf9c6eb815e15fa5a1502499c5b0d332732`;
@@ -16,13 +19,15 @@ canário ativo e não abre gates de produção.
 - Clerk: instância PROD confirmada por prefixos `sk_live_` e `pk_live_`, issuer
   `https://clerk.igreja12.com.br` e JWKS
   `https://clerk.igreja12.com.br/.well-known/jwks.json`;
-- flags externas no backend, queue worker, cron worker e broadcast worker:
-  `ALLOW_REAL_SENDS=false`, `ASAAS_BILLING_ENABLED=false`,
-  `BREVO_SEND_MODE=off` e `BROADCAST_ASYNC_ENABLED=false`;
+- ao final do canário, o operador confirmou `AgentConfig.ativo=false` e as
+  flags externas restauradas para `ALLOW_REAL_SENDS=false`,
+  `ASAAS_BILLING_ENABLED=false`, `BREVO_SEND_MODE=off` e
+  `BROADCAST_ASYNC_ENABLED=false`. Este é um relato operacional, não uma
+  leitura atual de produção feita por esta atualização documental;
 - fonte de verdade do código: `origin/main` em
-  `52b7fadf0a1466aaede764dc275369e735a113ec`; produção serve o SHA imutável
-  informado para cada camada acima. O diff posterior ao release ativo não
-  contém mudança em `backend/app`.
+  `ad4a27259127506493b69b348a6729e145f5c78b`. Merge em `main` não comprova
+  deploy, por isso o estado versionado e o estado operacional são registrados
+  separadamente.
 
 ## Missões
 
@@ -223,7 +228,7 @@ duas assinaturas `ACTIVE`, 232 cobranças e zero `externalReference` com prefixo
   Token SMS; o arquivo local de credencial e todo o diretório temporário do
   canário foram excluídos definitivamente.
 
-### Riscos residuais e próximo gate
+### Riscos residuais e gate financeiro adiado
 
 - a conta Asaas contém duas assinaturas ativas não pertencentes ao inventário
   local conhecido;
@@ -263,10 +268,11 @@ específica.
   quatro processos consumidores e preserva o ledger. Resultados
   `desconhecido` nunca são reenviados automaticamente.
 
-**Próximo gate único:** fornecer um único número autorizado e a mensagem exata
-do canário WhatsApp, seguido de autorização humana no momento de abrir
-temporariamente `ALLOW_REAL_SENDS` e `BROADCAST_ASYNC_ENABLED`. As flags seguem
-fechadas até essa confirmação.
+**Gate histórico de broadcast, não atual:** fornecer um único número autorizado
+e a mensagem exata do canário WhatsApp, seguido de autorização humana no
+momento de abrir temporariamente `ALLOW_REAL_SENDS` e
+`BROADCAST_ASYNC_ENABLED`. Esse gate permanece adiado, as flags seguem fechadas
+e ele não pode ser executado a partir deste registro.
 
 ## Fundação do agente Evolution (2026-08-25)
 
@@ -423,12 +429,47 @@ workflows posteriores ao merge passaram.
   Hostinger, teve a autenticação negada após a revogação e seus arquivos
   locais foram destruídos.
 
-Estado: **CONTENÇÃO PASS / QUARENTENA PASS / CANÁRIO ATIVO BLOCKED**.
+Estado em 2026-08-26: **CONTENÇÃO PASS / QUARENTENA PASS / CANÁRIO ATIVO
+BLOCKED**. Esse estado histórico foi superado pela execução controlada registrada
+abaixo.
 
-**Próximo gate único:** autorizar o preflight final somente leitura do candidato
-sintético para o canário da Filadélfia, revalidando unicidade, ausência de
-histórico e estado dos gates, sem ativar o agente ou enviar mensagem. O agente
-e os quatro gates permanecem fechados.
+### Primeiro canário ativo controlado da Filadélfia (2026-08-27)
+
+Classificação da evidência: os resultados desta subseção foram confirmados pelo
+operador durante a execução e reconciliados nesta atualização. Não existe no
+repositório um pacote imutável de logs, consultas ou SHA de runtime que permita
+reproduzir a prova de forma independente. Por isso, o resultado operacional não
+é usado para inferir deploy nem ampliar autorização.
+
+- foi usado um único número sintético previamente validado. O número não é
+  registrado em claro;
+- o roteiro recebeu, nesta ordem, `Olá`, `Aceito` e
+  `Quero conhecer a igreja`;
+- foram observadas exatamente três entradas e três saídas, com autoria de IA
+  corretamente classificada;
+- as filas canônicas de entrada e processamento e a dead-letter canônica
+  terminaram vazias. O item legado preservado na quarentena continua sujeito à
+  revisão de retenção de 2026-09-25 e não é reclassificado como resolvido;
+- ao final, `AgentConfig.ativo=false` foi restaurado para a Filadélfia e os
+  quatro gates globais foram confirmados fechados pelo operador;
+- nenhum telefone, token, chave, ciphertext ou conteúdo pessoal foi incluído
+  neste registro.
+
+Resultado técnico: **PASS CONTROLADO** para roteamento, cardinalidade das
+mensagens, autoria e fechamento dos gates.
+
+Resultado de produto: **QUALIDADE INSUFICIENTE**. O operador identificou tom
+robótico e repetição de perguntas. O canário comprovou a contenção técnica da
+fundação, mas não aprovou a experiência conversacional nem autoriza rollout para
+outras igrejas.
+
+Estado atual: **PRIMEIRO CANÁRIO TÉCNICO PASS / QUALIDADE FAIL / ROLLOUT AMPLO
+BLOCKED / GATES FECHADOS**.
+
+**Próximo gate único:** revisar e integrar a PR documental D0. Depois do merge,
+D1 deve ser uma auditoria read-only de segurança, capacidades e escopos no novo
+SHA, em autorização própria. Implementação, migration, deploy, ativação e novo
+canário permanecem fora deste gate.
 
 ## Paralelismo seguro
 

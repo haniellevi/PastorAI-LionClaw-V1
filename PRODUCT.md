@@ -8,6 +8,8 @@ product
 
 O Igreja 12 é o sistema operacional pastoral da igreja. Ele reúne a fila de trabalho do dia, conversas no WhatsApp oficial, pessoas, agenda, células, consolidação, discipulado, multiplicação e configuração administrativa sem obrigar a liderança a reconstruir o contexto em várias ferramentas.
 
+O WhatsApp é a interface operacional principal para membros e lideranças. A rotina deve poder ser resolvida em conversa, com linguagem natural, confirmação explícita antes de gravar e comprovante depois do commit. O painel web permanece essencial para configuração inicial, governança, supervisão, exceções e ações sensíveis.
+
 O produto não é um painel de BI. Sua principal função é mostrar o que precisa de atenção, por quem, até quando e qual é a próxima ação segura.
 
 ## Usuários
@@ -22,6 +24,7 @@ Os usuários variam bastante em domínio digital. O sistema deve ser compreensí
 
 ## Modelo mental do produto
 
+- O WhatsApp oficial é a porta principal para atendimento, consulta, tarefas e atualizações operacionais autorizadas.
 - `app.` é a operação cotidiana da igreja.
 - `admin.` é a configuração da igreja.
 - `painel.` é o console master do SaaS.
@@ -29,6 +32,23 @@ Os usuários variam bastante em domínio digital. O sistema deve ser compreensí
 - `Minha Célula` atende membro e líder; `Central de Célula` atende pastor e administração central.
 - Célula é comunidade e reunião. Árvore Ministerial é liderança e cobertura. As duas estruturas se relacionam, mas não são a mesma coisa.
 - A Jornada G12 organiza Ganhar, Consolidar, Discipular e Enviar, sem obrigar o usuário a compreender toda a arquitetura antes de agir.
+
+## Agente pastoral e conhecimento
+
+- Existe uma única definição global e versionada do LangGraph. Ela é executada com contexto de tenant criado pelo servidor, sem permitir que uma igreja leia memória, documentos, credenciais ou dados de outra.
+- O orquestrador coordena especialistas comuns por domínio, começando por Atendimento, Central de Células, Agenda, Consolidação, Universidade da Vida e Capacitação Destino. Os especialistas devolvem resultados ao orquestrador e não enviam mensagens diretamente.
+- Dados estruturados do sistema e documentos publicados por um administrador formam o conhecimento oficial da igreja. Documentos precisam de versão, audiência, validade e responsável por aprovação.
+- O histórico da conversa é memória privada. Ele pode ajudar a manter contexto, mas nunca se torna conhecimento institucional ou público automaticamente.
+- Quando não existir informação oficial confirmada, o agente informa a limitação e encaminha a lacuna ao responsável configurado para o domínio, em vez de inventar ou repetir perguntas já respondidas.
+- A credencial de inteligência é OpenAI BYO por igreja. OpenRouter não integra o PastorAI.
+
+## Privacidade, consentimento e ações
+
+- Consentimentos são separados por finalidade: atendimento solicitado, cuidado pastoral, tarefas operacionais e comunicados.
+- O histórico privado permanece retido até a própria pessoa solicitar a exclusão pelo WhatsApp e um administrador aprovar no painel.
+- A exclusão aprovada deve alcançar mensagens, mídia, transcrições, resumos, checkpoints e vetores derivados. Permanece somente auditoria mínima sem conteúdo pessoal.
+- Ações operacionais comuns podem ser concluídas no WhatsApp após resumo estruturado e confirmação explícita. Permissões, vínculos de terceiros, dados pastorais restritos, exclusões, finanças, publicação de conhecimento e configuração da igreja exigem painel autenticado.
+- A primeira vertical completa deste modelo é o relatório de célula: lembrete, coleta por texto ou áudio, resumo, correção, confirmação, gravação no domínio canônico e comprovante.
 
 ## Personalidade
 
@@ -64,6 +84,8 @@ O sistema preserva a identidade já reconhecível, mas reduz gradientes decorati
 8. Acessibilidade e mobile fazem parte da qualidade visual.
 9. Nenhuma refatoração visual altera RBAC, RLS, regras G12, APIs ou estados de domínio.
 10. Toda decisão visual precisa de evidência por screenshot e breakpoint.
+11. WhatsApp primeiro não significa segurança menor: identidade, tenant, capacidade, consentimento e estado do domínio são revalidados no servidor antes de qualquer ação.
+12. Conversa privada e conhecimento oficial são camadas diferentes e possuem ciclos de vida independentes.
 
 ## Anti-referências
 
@@ -75,6 +97,8 @@ O sistema preserva a identidade já reconhecível, mas reduz gradientes decorati
 - Animação decorativa, lenta ou que atrasa tarefas.
 
 ## Limites desta refatoração
+
+Esta seção limita o ciclo de refatoração visual que originou este documento. Ela não redefine o roadmap funcional aprovado para a conclusão do produto.
 
 - Não criar funcionalidades, endpoints, rotas, papéis, telas ou regras de negócio.
 - Não desbloquear Universidade da Vida ou Capacitação Destino.

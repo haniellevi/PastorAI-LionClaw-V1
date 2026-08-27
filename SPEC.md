@@ -12,11 +12,11 @@
 
 ### Problema, publico-alvo, pitch
 - **Problema:** lideres e pastores perdem pessoas por falta de acompanhamento estruturado — visitantes sem celula, decisoes por Jesus sem consolidacao, relatorios de celula que nao chegam e atendimentos sem resposta. A rotina e operacional, dispersa em planilhas e conversas pessoais.
-- **Pitch:** o **PastorAI** e um SaaS multi-tenant para igrejas no modelo de celulas G12 que transforma o WhatsApp oficial da igreja em um canal de atendimento, cadastro e acompanhamento conduzido por um agente de IA, somado a um painel web que organiza o trabalho pastoral como uma **fila de pendencias** ("o que exige acao hoje").
+- **Pitch:** o **PastorAI** e um SaaS multi-tenant para igrejas no modelo de celulas G12 que usa o WhatsApp oficial como interface operacional principal para atendimento, consultas, tarefas e atualizacoes autorizadas. O painel web organiza a **fila de pendencias** ("o que exige acao hoje") e concentra configuracao, governanca, supervisao, excecoes e acoes sensiveis.
 - **Publico-alvo (personas):**
   1. **Pastor / Admin da Igreja** — responsavel maximo; ve pendencias, toma decisoes sensiveis, configura o sistema.
   2. **Lider de Celula** — rotina semanal; envia relatorio por WhatsApp, acompanha membros/visitantes, recebe alertas. Nao acessa inbox nem configuracao.
-  3. **Usuario final via WhatsApp** (visitante/membro/lider) — interage 100% pelo WhatsApp; nao acessa o painel.
+  3. **Usuario final via WhatsApp** (visitante/membro/lider) — resolve a rotina pelo WhatsApp; o painel e opcional para uso comum e obrigatorio apenas quando uma acao sensivel exigir autenticacao web.
   4. **Equipe de Consolidacao** — acompanha decisoes por Jesus; acesso restrito ao Dashboard de Consolidacao.
   5. **Admin do Sistema (Super-Admin)** — gere igrejas/tenants do SaaS; superficie separada (fora do MVP operacional — stub).
 
@@ -29,15 +29,16 @@
 | WhatsApp | **Evolution API** (processo sempre-ligado) |
 | Autenticacao | **Clerk** (sem senhas proprias) |
 | Banco de dados | **Supabase (Postgres + RLS)** |
-| E-mail | **Resend** (convites/ativacao) |
+| E-mail | **Brevo** (convites/ativacao, com gate proprio) |
 | Calendario | **Google Calendar** (sincronizacao de eventos) |
 | Pagamento | **Asaas** (PIX, boleto, cartao; setup fee + mensalidade) |
-| LLM | **OpenAI (BYO-LLM)** — credencial da propria igreja, extensivel |
+| LLM | **OpenAI (BYO-LLM)** — credencial da propria igreja; OpenRouter nao integra o PastorAI |
 | Infra | **Coolify/Dokploy** em VPS unica >= 4GB RAM, TLS automatico (Let's Encrypt) |
 
 ### Plataforma
 - **Web** responsiva mobile-first + **PWA** (sem app nativo iOS/Android no MVP — RNF-19).
-- Usuario final atendido 100% via **WhatsApp**.
+- **WhatsApp** e a interface operacional principal para membros e liderancas.
+- **Web** concentra configuracao inicial, governanca, excecoes, supervisao e conclusao autenticada de acoes sensiveis.
 
 ### User stories cobertas (id / titulo)
 | ID | Titulo |
@@ -135,7 +136,7 @@
 | `multiplicacoes` | Multiplicacao de celula (enviar — delta-027); transacional e idempotente (Celulas PR3-PR9). |
 | `crons` | Job agendado / gatilho por estado executado pelo cron_worker. |
 | `subscriptions` | Assinatura de billing (1:1 com igreja); usada no gate de login. |
-| `reports` | Relatorio semanal de celula (RF-37); uma linha por (celula, semana). |
+| `reports` | Tabela legada de relatorio semanal, sem writer na aplicacao vigente; nao e fonte operacional. O fluxo canonico usa `celula_reuniao` e `relatorio_snapshot`. |
 | `broadcasts` | Comunicado segmentado (RF-38); respeita opt-out no envio. |
 | `events` | Evento da igreja (RF-39 / Agenda); opcionalmente espelhado no Google Calendar. |
 | `event_notify_targets` | Contato individual a notificar de um evento (EVT-8), vindo de `conversations`. |
@@ -143,7 +144,7 @@
 | `agenda_alert_recipients` | Destinatario opt-in de avisos internos da Agenda por WhatsApp (EVT-7 PR2). |
 | `whatsapp_connections` | Conexao WhatsApp oficial por igreja (1:1; UNIQUE em `igreja_id`). |
 | `pessoa_arquivamento_evento` | Trilha APPEND-ONLY de arquivamento/reativacao de Pessoa (W3.2A). |
-| `consent_records` | Registro de consentimento LGPD concedido na primeira mensagem inbound (US-31/RF-36). |
+| `consent_records` | Registro legado do consentimento geral concedido na primeira mensagem inbound. O alvo do delta-052 exige eventos separados por finalidade e ainda nao esta implementado. |
 | `agent_configs` | Config de comportamento do agente por igreja (1:1, US-28). |
 | `agent_config_requests` | Requisicao admin -> master para mudar o agente (#10b Fase 1 / delta-043). |
 | `llm_credentials` | Credencial LLM BYO + modelo permitido por igreja (1:1; chave cifrada, nunca exibida — RNF-03). |
@@ -170,14 +171,14 @@
   - `consolidacoes`: leitura restrita a `lider_consol`/admin/pastor (US-38); confirmacao de etapa apenas pelo `responsavel_id` (consolidador) — gate por identidade (delta-018).
   - Telas de Configuracao (`whatsapp`,`agente`,`assinatura`,`gerentes`,`permissoes`): apenas papel `admin` (delta-005).
   - `celulas`: abrir/editar apenas lider da celula ou superior na hierarquia (delta-007).
-- **Agente (F5/delta-034):** usa service role com o MESMO escopo de `igreja_id` e as mesmas validacoes de negocio de um humano; nunca ignora regras.
+- **Agente (F5/delta-034):** fixa o tenant no servidor e executa sob papel sem `BYPASSRLS`, com as mesmas validacoes de negocio de um humano. Service role nao substitui escopo, RLS ou autorizacao.
 
 ### 2.3 Triggers
-- **`trg_promote_pipeline`** (AFTER UPDATE em `pessoas`/`reports`/`consolidacoes`) — state machine F2/delta-013/031: avanca `etapa`/`subetapa` automaticamente quando `presencas_celula >= 3` OU `aceitou_jesus = true` (visitante -> membro); ao concluir consolidacao individual, marca criterio de UV.
-- **`trg_link_cell_promote`** (AFTER UPDATE em `pessoas.celula_id`) — US-20: ao vincular contato a celula, `acompanhamento = consolidado/membro`, sai da lista "em acompanhamento".
-- **`trg_report_received_clears_queue`** (AFTER INSERT em `reports` com `status=recebido`) — US-26/RF-29: baixa automaticamente o `work_queue_items` tipo `relatorio` da celula/semana.
+- **`trg_promote_pipeline`** (BEFORE INSERT/UPDATE em `pessoas`) — state machine F2/delta-013/031: avanca `etapa`/`subetapa` automaticamente quando `presencas_celula >= 3` OU `aceitou_jesus = true` (visitante -> membro). Conclusao de consolidacao usa seu proprio fluxo.
+- **`trg_link_cell_promote`** (BEFORE UPDATE em `pessoas.celula_id`) — US-20: ao vincular contato a celula, `acompanhamento = consolidado/membro`, sai da lista "em acompanhamento".
+- **`trg_report_received_clears_queue`** (legado; AFTER INSERT em `reports` com `status=recebido`) — permanece instalado, mas a aplicacao vigente nao escreve em `reports`; portanto nao integra o fluxo operacional. D6 deve atualizar a fila a partir do submit canonico de `celula_reuniao`, sem reativar esta tabela.
 - **`trg_decision_opens_consolidation`** (AFTER INSERT em `decisions`) — US-37/delta-041: cria `consolidacoes` (etapa inicial); se `vinculo=visitante`, cria `work_queue_items` tipo `conectar_celula` com `prazo = now()+24h`.
-- **`trg_consent_on_inbound`** (AFTER INSERT em `messages` direcao=in de novo contato) — US-31/RF-36: concede `consentimento=true` na pessoa (a igreja nunca inicia comunicacao espontanea).
+- **`trg_consent_on_inbound`** (baseline legada; AFTER INSERT em `messages` direcao=in) — concede o booleano geral `pessoas.consentimento=true`. Esse comportamento nao satisfaz o delta-052 e deve ser substituido por eventos independentes de finalidade; o estado legado nao libera cuidado pastoral, tarefas operacionais ou comunicados.
 - **`trg_subscription_autoupgrade`** (AFTER INSERT/UPDATE em `pessoas`) — US-36/RF-42: ao ultrapassar `subscriptions.limite`, promove `plano` e marca notificacao ao admin.
 - **`trg_set_updated_at`** — manutencao de `updated_at`.
 - **`trg_sla_engine`** (cron/worker — A1/delta-039/RNF-23): detecta SLA estourando (relatorio 2h, conexao 24h, fonovisita 24h) e dispara cobranca por WhatsApp; escalona lider sem resposta -> coordenacao.
@@ -198,7 +199,8 @@ igrejas (1) ──< (N) role_permissions
 igrejas (1) ──< (N) celulas ──< (N) pessoas (celula_id)
 pessoas (1, lider_id) ──< (N) pessoas        # organograma G12 (F7)
 celulas (1) ──< (N) cell_alerts >── (1) pessoas
-celulas (1) ──< (N) reports
+celulas (1) ──< (N) celula_reuniao
+igrejas (1) ──< (N) reports                    # legado, sem writer operacional
 igrejas (1) ──< (N) conversations ──< (N) messages
 conversations >── (1) pessoas
 igrejas (1) ──< (N) work_queue_items >── (0..1) pessoas / app_users
@@ -258,7 +260,7 @@ backend/
       assistant.py          # api-assistant
     services/
       evolution.py          # Evolution API client (QR, send)
-      resend_mail.py        # convites/ativacao
+      brevo.py              # convites/ativacao, gate BREVO_SEND_MODE
       gcal.py               # Google Calendar sync
       asaas.py              # checkout/cobranca
       llm.py                # provedor LLM (BYO) + cifragem de chave
@@ -332,23 +334,25 @@ backend/
 - **Webhook signature:** validacao de assinatura nos webhooks Evolution API e Asaas.
 - **Idempotencia:** webhooks de mensagem nao geram contatos duplicados (RNF-16) — dedupe por telefone+igreja.
 
-### 3.4 Agent Graph (LangGraph) — Orquestrador multiagente
-> Arquitetura de agentes: **um Agente Orquestrador central por igreja (tenant)** e que coordena
-> sub-agentes especializados. **Principio fundamental:** o Orquestrador e o **unico** que fala no
+### 3.4 Agent Graph (LangGraph) — Orquestrador e especialistas
+> Arquitetura alvo: uma **definicao global e versionada do LangGraph**, executada com contexto de
+> tenant criado pelo servidor, coordena especialistas comuns a todas as igrejas. Dados, memoria,
+> documentos, credenciais e acoes permanecem isolados por `igreja_id`. **Principio fundamental:**
+> o Orquestrador e o **unico** que fala no
 > **WhatsApp oficial da igreja** — recebe TODA mensagem do numero oficial, decide o roteamento,
 > delega aos sub-agentes e consolida a **resposta unica** que sai pelo numero oficial. Os
 > sub-agentes **nunca** falam diretamente com o usuario final: eles processam e devolvem o
 > resultado ao Orquestrador (US-07: apenas conversas com o numero oficial sao tratadas).
 
 - **Agente Orquestrador (US-08 / delta-034):** ponto unico de entrada e saida no WhatsApp oficial.
-  Roteia toda mensagem recebida no numero oficial, mantem o contexto/estado da conversa,
+  Roteia toda mensagem recebida no numero oficial, recebe o contexto autorizado da conversa,
   escolhe qual(is) sub-agente(s) acionar, agrega os resultados e emite a resposta unica via
   LLM BYO (US-08/US-27/RF-11). E o `entry node`/supervisor do grafo LangGraph.
 
 - **Sub-agentes coordenados (skills/nodes especializados — NAO falam direto no WhatsApp; respondem ao Orquestrador):**
   - `intake` — cria/atualiza `pessoas` (nome+telefone, origem, primeiro_contato) — US-09/RF-12.
   - `onboarding` — fluxo configuravel (nome, endereco, interesse, oracao, ja foi a igreja/celula); notifica consolidacao; classifica contato/visitante — US-10/RF-13.
-  - `report_capture` — extrai relatorio de celula por texto/audio (presentes, visitantes, decisoes, oferta); decisao por Jesus abre consolidacao — US-24/delta-041.
+  - `report_capture` — na baseline atual extrai o resumo agregado e registra evento de auditoria, sem gravar o relatorio canonico; a escrita apos confirmacao e a primeira vertical pendente — US-24/delta-041/delta-052.
   - `handoff` — pausa/retoma IA conforme estado da conversa; quando humano assume, o Orquestrador suspende a resposta automatica mas a saida continua pelo numero oficial — US-12/US-13.
   - `consent` — apresenta termo antes de coletar dados alem de nome+telefone (delta-040).
 - **Roteamento:** o Orquestrador decide o sub-agente com base na intencao/estado da conversa e da `pessoa` (etapa/subetapa F2); transicoes e respostas trafegam de volta pelo supervisor antes de qualquer envio.
@@ -357,14 +361,34 @@ backend/
 - **Logs (F8/RNF-24):** registrar interacoes, tools usadas, consumo de IA (modelo/tokens/custo) em `ai_usage_logs`/`agent_conversation_logs`, com mascara de dados sensiveis.
 - **SLA engine (A1/delta-039):** detecta prazos (relatorio 2h, conexao 24h, fonovisita 24h, Numero de Sonho UV) e dispara cobranca/escalonamento por WhatsApp.
 
+#### 3.4.1 Baseline implementada e arquitetura aprovada
+
+O codigo atual compila um grafo **stateless**, sem checkpointer duravel. A variavel `AGENT_GRAPH_CHECKPOINT_URL` apenas gera aviso quando configurada; nao ativa persistencia. Os nodes atuais cobrem `handoff`, `optout`, `consent`, `report_capture` e `onboarding`. O `report_capture` registra um evento de auditoria, mas ainda nao grava o relatorio canonico de `celula_reuniao`. Esses pontos permanecem pendentes e nao podem ser tratados como entrega concluida.
+
+A evolucao aprovada mantem uma unica politica global e adiciona especialistas por dominio, inicialmente Atendimento, Central de Celulas, Agenda, Consolidacao, Universidade da Vida e Capacitacao Destino. Especialistas nunca enviam mensagens diretamente e nunca recebem IDs de tenant escolhidos pelo modelo ou pelo cliente.
+
+Memoria e conhecimento sao contratos diferentes:
+
+- conversa, midia, transcricao, resumo e checkpoint compoem memoria privada;
+- dados estruturados do sistema e documentos aprovados pelo admin compoem conhecimento oficial;
+- conversa privada nunca e promovida automaticamente a conhecimento institucional;
+- documento oficial exige versao, audiencia, validade e responsavel por aprovacao;
+- informacao ausente gera resposta de incerteza e pendencia para o responsavel do dominio, sem alucinacao.
+
+O historico privado e retido ate solicitacao da pessoa pelo WhatsApp e aprovacao do admin no painel. A exclusao aprovada deve apagar mensagens, midias, transcricoes, resumos, checkpoints e vetores derivados, preservando apenas auditoria minima sem conteudo pessoal.
+
+Consentimento deve ser separado em quatro finalidades: `atendimento_solicitado`, `cuidado_pastoral`, `tarefas_operacionais` e `comunicados`. O opt-out global continua prevalecendo sobre qualquer finalidade.
+
+A primeira vertical completa e o relatorio de celula pelo WhatsApp: lembrete, coleta por texto ou audio, resumo editavel, confirmacao explicita, escrita pelo mesmo servico de dominio usado pelo painel e comprovante somente depois do commit. Permissoes, vinculos de terceiros, dados pastorais restritos, exclusoes, financas, publicacao de conhecimento e configuracao da igreja exigem conclusao no painel autenticado.
+
 ### 3.5 Integracoes Externas
 | Integracao | Uso | Stories |
 |-----------|-----|---------|
 | **Clerk** | Autenticacao/sessao; papeis vem do cadastro autenticado | US-01, US-04 |
 | **Supabase (Postgres+RLS)** | Persistencia e isolamento multi-tenant | US-02, RNF-02/21 |
 | **Evolution API** | Conexao (QR), envio/recebimento WhatsApp; processo sempre-ligado | US-05..US-08, US-33 |
-| **OpenAI (BYO-LLM)** | Respostas do agente; chave e modelo por igreja; allowlist, validação de acesso e fallback somente para opções mais baratas | US-08, US-27, RNF-20 |
-| **Resend** | E-mail de convite/ativacao de usuarios | US-03 |
+| **OpenAI (BYO-LLM)** | Respostas do agente; chave e modelo por igreja; allowlist, validacao de acesso e fallback somente para opcoes mais baratas. OpenRouter fica fora do produto | US-08, US-27, RNF-20 |
+| **Brevo** | E-mail de convite/ativacao de usuarios, fechado por `BREVO_SEND_MODE` | US-03 |
 | **Google Calendar** | Sincronizacao de eventos | US-30 |
 | **Asaas** | Checkout (PIX/boleto/cartao), setup fee, status de assinatura, webhooks | US-34, US-35, US-36 |
 | **Coolify/Dokploy** | Containers persistentes, restart automatico, TLS | RNF-04/15/18 |
@@ -715,12 +739,13 @@ backend/
 4. **RBAC por papeis acumulados (US-04/F3):** carrega `user_roles` (uniao); monta menu/dashboard pela uniao dos acessos; `role_permissions` (matriz papel x tela) e a fonte de verdade, refletindo em tempo real.
 5. **Autorizacao no backend (F4/delta-033):** cada endpoint revalida `igreja_id` + papel; Config exige `admin`; inbox exige privilegio; consolidacao gate por consolidador.
 6. **Redirecionamentos:** sucesso -> `#dashboard` da igreja; credencial invalida -> erro generico (nao revela existencia de e-mail); sessao expirada/invalida -> `#login`.
-7. **Convites (US-03):** admin convida (nome+email+papeis); Resend envia link de ativacao; status `convidado` -> `ativo`. Revogacao de acesso suportada.
-8. **Agente (F5):** opera com service role no escopo do tenant, usando as mesmas validacoes de um humano.
+7. **Convites (US-03):** admin convida (nome+email+papeis); Brevo envia link de ativacao quando seu gate permite; status `convidado` -> `ativo`. Revogacao de acesso suportada.
+8. **Agente (F5):** fixa o tenant a partir do contexto validado no servidor, opera sob papel `NOBYPASSRLS` e reaplica as mesmas autorizacoes e servicos de dominio do caminho humano.
 
 ### 5.2 Checklist de Seguranca
 - [ ] Autenticacao exclusivamente via Clerk; sem senhas proprias (RNF-01).
 - [ ] RLS habilitado em todas as tabelas com `igreja_id`; nenhuma consulta cruza tenant (RNF-02/RNF-21).
+- [ ] Runtime do agente sem service role ou `BYPASSRLS`; ausencia de tenant falha fechada.
 - [ ] Revalidacao de `igreja_id` + papel em cada endpoint (F4/RNF-05).
 - [ ] Credenciais LLM e chaves de integracao **cifradas**; nunca exibidas em texto claro apos salvar (RNF-03/US-27).
 - [ ] Todo trafego sobre HTTPS/TLS com certificado automatico (RNF-04).
@@ -728,8 +753,9 @@ backend/
 - [ ] Inbox/conversas restritos a privilegiados; lideres de celula sem acesso (US-11).
 - [ ] Itens da fila so aparecem para quem pode resolve-los (delta-006).
 - [ ] Captura restrita ao numero oficial; conversas pessoais do pastor nunca registradas (US-07/RF-09).
-- [ ] Consentimento concedido so quando a pessoa inicia conversa; opt-out respeitado em comunicados (US-31/32/33/RNF-06).
+- [ ] Consentimento por finalidade para atendimento solicitado, cuidado pastoral, tarefas operacionais e comunicados; opt-out global prevalece (US-31/32/33/RNF-06).
 - [ ] Registro de termo LGPD (versao + data/hora), re-aceite em nova versao e mascara de CPF/dados sensiveis nos logs (delta-040).
+- [ ] Memoria privada excluida de ponta a ponta apos solicitacao via WhatsApp e aprovacao admin, incluindo midia, transcricao, resumo, checkpoint e vetores derivados.
 - [ ] Webhooks (Evolution API, Asaas) com validacao de assinatura.
 - [ ] Idempotencia de mensagens — sem contatos duplicados apos reconexao (RNF-16).
 - [ ] Worker de filas com reprocessamento em falha temporaria (RNF-17).
@@ -767,9 +793,12 @@ OPENAI_API_KEY=
 AGENT_DEFAULT_MODEL=gpt-5.6-luna
 ASSISTANT_DEFAULT_MODEL=gpt-5.6-luna
 
-# Resend (e-mail de convite - US-03)
-RESEND_API_KEY=re_xxx
-RESEND_FROM_EMAIL=no-reply@pastorai.com.br
+# Brevo (e-mail de convite - US-03; fechado por padrao)
+BREVO_API_KEY=
+BREVO_FROM_EMAIL=no-reply@igreja12.com.br
+BREVO_FROM_NAME=Igreja 12
+BREVO_SEND_MODE=off
+BREVO_CANARY_RECIPIENTS=
 
 # Google Calendar (US-30)
 GOOGLE_CLIENT_ID=xxx.apps.googleusercontent.com
@@ -785,7 +814,8 @@ ASAAS_WEBHOOK_SECRET=xxx
 REDIS_URL=redis://localhost:6379/0
 
 # LangGraph / Agente (RNF-08/15)
-AGENT_GRAPH_CHECKPOINT_URL=postgresql://user:pass@host:5432/pastorai
+# Reservado ao checkpointer duravel futuro. A baseline atual apenas avisa se preenchido.
+AGENT_GRAPH_CHECKPOINT_URL=
 ```
 
 ---
@@ -845,7 +875,7 @@ AGENT_GRAPH_CHECKPOINT_URL=postgresql://user:pass@host:5432/pastorai
 | Edge case | Comportamento | Estado | Refs |
 |-----------|---------------|--------|------|
 | E-mail ja convidado/existente | Validacao no `invite`: "ja existe usuario com este e-mail" | `invite` | US-03 |
-| Resend falha ao enviar convite | Usuario fica `convidado` com aviso "convite nao enviado" + reenviar | `list` (item alerta) | US-03 |
+| Brevo falha ao enviar convite | Usuario fica `convidado` com aviso "convite nao enviado" + reenviar | `list` (item alerta) | US-03 |
 | Remover/rebaixar o ultimo admin | Bloqueio: "a igreja precisa de ao menos um admin" | `edit-roles` | US-04, delta-005 |
 | Usuario editando os proprios papeis | Restrito (nao pode auto-elevar/auto-rebaixar admin) | `edit-roles` | US-04 |
 | Revogar acesso de usuario ativo | Confirma; sessoes futuras bloqueadas (revalidacao backend) | `list` | 5.1, F4 |
@@ -908,7 +938,7 @@ AGENT_GRAPH_CHECKPOINT_URL=postgresql://user:pass@host:5432/pastorai
 
 ### 6.13 Sugestoes futuras (fora do Design Lock — apenas registro, NAO implementar)
 > Itens que melhorariam o produto mas exigiriam **tela, menu ou fluxo novo** — portanto fora do escopo do lock atual. Registrados para um ciclo futuro, sem alterar a SPEC operacional.
-- Tela/painel dedicado de **saude de integracoes** (status Evolution/Asaas/Google/Resend) — hoje degradacao e sinalizada por banners nas telas existentes.
+- Tela/painel dedicado de **saude de integracoes** (status Evolution/Asaas/Google/Brevo) — hoje degradacao e sinalizada por banners nas telas existentes.
 - **Central de notificacoes** in-app (ex.: upgrade de plano, convite nao enviado, SLA estourado) — hoje refletido por estados nas telas de origem.
 - **Fluxo de merge manual** de contatos duplicados — hoje dedupe e automatico por telefone+igreja.
 - **Historico/auditoria visivel no painel** de envios de comunicados e handoffs — hoje so em logs backend (F8).

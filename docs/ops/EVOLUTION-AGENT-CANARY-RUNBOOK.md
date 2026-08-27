@@ -1,8 +1,9 @@
 # Canário do agente Evolution
 
-Este runbook prepara e executa o primeiro canário do agente de WhatsApp de uma
-igreja piloto. Ele não autoriza o canário. A autorização nominal deve ocorrer
-somente depois que todos os gates de preparação estiverem comprovados.
+Este runbook prepara, executa e registra canários controlados do agente de
+WhatsApp de uma igreja piloto. Ele não autoriza um canário. Cada execução exige
+autorização nominal depois que todos os gates de preparação estiverem
+comprovados.
 
 O primeiro alvo é a Igreja Batista Filadélfia Internacional de Corrente. O
 procedimento foi escrito para poder ser reutilizado por outra igreja sem copiar
@@ -203,7 +204,7 @@ Antes da autorização, comprovar por testes locais os perfis contato, membro,
 líder, admin e pastor, além de duplicidade, ferramenta desconhecida,
 cross-tenant, handoff, opt-out, restart do webhook e dead-letter.
 
-## Fase 3: execução futura, somente após autorização nominal
+## Fase 3: execução controlada, somente após autorização nominal
 
 Esta fase não pode ser iniciada por aprovação genérica da PR ou deste runbook.
 A autorização precisa nomear a igreja, o número, a janela e a abertura temporária
@@ -239,7 +240,30 @@ Não ligar `BROADCAST_ASYNC_ENABLED`. Não alterar Asaas, Brevo, Calendar ou cro
 - nenhum tool call no primeiro canário;
 - eventos de auditoria do agente sem PII desnecessária;
 - nenhuma linha alterada em outro tenant;
-- `AgentConfig.ativo=false` e `ALLOW_REAL_SENDS=false` ao terminar.
+- `AgentConfig.ativo=false`, `ALLOW_REAL_SENDS=false`,
+  `ASAAS_BILLING_ENABLED=false`, `BREVO_SEND_MODE=off` e
+  `BROADCAST_ASYNC_ENABLED=false` ao terminar.
+
+### Gate de qualidade conversacional
+
+O resultado técnico e o resultado de produto são avaliados separadamente. Um
+canário pode provar cardinalidade, autoria, isolamento e rollback e ainda assim
+falhar como experiência.
+
+Antes de autorizar rollout para outra igreja, uma revisão humana precisa
+confirmar que:
+
+- o agente não repete uma pergunta cuja resposta já apareceu na conversa;
+- a resposta é natural, breve e coerente com o contexto, sem soar como uma
+  sequência de templates desconectados;
+- a negativa por falta de informação oficial é explícita e não inventa fatos;
+- o próximo passo é específico, sem pedir novamente tudo o que já foi
+  informado;
+- conteúdo privado da conversa não é apresentado como conhecimento público ou
+  institucional.
+
+Falha nesse gate bloqueia rollout amplo, mesmo quando todos os controles
+técnicos passam.
 
 ## Critérios de abortar
 
@@ -312,6 +336,35 @@ ausente, também com `RENAMENX`.
   estava com agente ativo;
 - o canário ativo permanece bloqueado até um preflight final do candidato
   sintético e autorização nominal separada para a janela de envio.
+
+## Resultado do primeiro canário ativo em 2026-08-27
+
+Esta seção registra relato operacional confirmado pelo operador. O repositório
+não contém o pacote imutável de logs, consultas e SHA de runtime da janela, logo
+os itens abaixo não constituem prova independente de deploy. O telefone usado
+foi sintético e não é registrado em claro.
+
+- o roteiro recebeu, na ordem, `Olá`, `Aceito` e
+  `Quero conhecer a igreja`;
+- houve exatamente três entradas e três saídas;
+- a autoria das três respostas foi classificada corretamente como IA;
+- as filas canônicas e a dead-letter canônica terminaram vazias;
+- o registro legado permanece isolado na quarentena, sem leitura, replay ou
+  descarte, com revisão de retenção prevista para 2026-09-25;
+- `AgentConfig.ativo` e os quatro gates globais foram restaurados ao estado
+  fechado no encerramento da janela.
+
+Resultado técnico: **PASS CONTROLADO**.
+
+Resultado de qualidade: **FAIL**. O operador observou tom robótico e repetição
+de perguntas. Esse resultado não invalida a prova de contenção, mas bloqueia
+qualquer rollout amplo e torna inadequado repetir o mesmo roteiro sem corrigir
+a arquitetura conversacional.
+
+O próximo gate é revisar e integrar a PR documental D0. Depois do merge, D1
+revalida segurança, capacidades e escopos no novo SHA em modo read-only e sob
+autorização própria. Implementação, migration, deploy, ativação e novo canário
+permanecem fora deste gate.
 
 Este registro não autoriza ativação, alteração de flag, chamada LLM, envio
 Evolution, leitura ou descarte da quarentena.

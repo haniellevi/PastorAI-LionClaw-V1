@@ -1,7 +1,27 @@
 # SPEC_PROGRESS - PastorAi-1.0
 
-## Status: 5/5 sprints concluidas (pipeline architecture-review C1/RLS — run 20260707_112731-2c3953)
-Ultima atualizacao: 2026-07-07T19:14:45.251Z
+## Registro historico: 5/5 sprints concluidas (pipeline architecture-review C1/RLS — run 20260707_112731-2c3953)
+Ultima atualizacao do registro historico: 2026-07-07T19:14:45.251Z
+
+## Estado reconciliado em 2026-08-27
+
+Os marcadores `[CONCLUIDA]` abaixo preservam a evidencia das sprints que os produziram. Eles nao significam que a visao integral WhatsApp-first esteja pronta nem substituem a validacao do codigo atual.
+
+Baseline confirmada no codigo:
+
+- o LangGraph atual e compilado sem checkpointer duravel; configurar `AGENT_GRAPH_CHECKPOINT_URL` apenas produz um aviso e a execucao continua stateless;
+- o runtime resolve tenant, Pessoa, papel autenticado e permissoes no servidor antes das tools existentes;
+- `report_capture` extrai um resumo e registra evento de auditoria, mas nao persiste o relatorio canonico de `celula_reuniao`;
+- OpenAI BYO e o provedor do PastorAI; OpenRouter nao faz parte do produto.
+
+Roadmap funcional aprovado e ainda pendente:
+
+1. contexto duravel e isolado por tenant, com historico privado, resumo e exclusao integral apos solicitacao da pessoa pelo WhatsApp e aprovacao admin;
+2. conhecimento oficial formado por dados estruturados e documentos aprovados, sem promocao automatica de conversas;
+3. consentimentos separados para atendimento solicitado, cuidado pastoral, tarefas operacionais e comunicados;
+4. uma definicao global e versionada do LangGraph com especialistas comuns por dominio;
+5. primeira vertical completa: relatorio de celula pelo WhatsApp, com lembrete, texto ou audio, resumo, confirmacao, gravacao canonica e comprovante;
+6. painel web reservado a configuracao, governanca, supervisao, excecoes e conclusao de acoes sensiveis.
 
 ---
 
@@ -38,8 +58,8 @@ Ultima atualizacao: 2026-07-07T19:14:45.251Z
 - Webhook de mensagens e worker: Webhook Evolution com validacao de assinatura, dedupe por telefone+igreja, worker de filas (queue_worker) com reprocesso e registro de messages somente do numero oficial.
 
 ## Sprint 007 - Agente Orquestrador (LangGraph), LLM BYO e Tools [CONCLUIDA]
-- Orquestrador e sub-agentes: Grafo LangGraph (app/agent/graph.py, nodes.py) com Orquestrador supervisor como unico ponto de entrada/saida no WhatsApp oficial (delta-034). Sub-agentes intake/onboarding/report_capture/handoff/consent retornam resultado ao supervisor, que emite resposta unica. Roteamento por intencao/estado (route_intent) com prioridade handoff > optout > consent > report > onboarding. Fallback direto quando o grafo falha; checkpoint via AGENT_GRAPH_CHECKPOINT_URL.
-- intake/onboarding/report/consent/optout: intake faz backfill de origem/primeiro_contato; onboarding classifica contato/visitante e coleta dados configuraveis; report_capture extrai presentes/visitantes/decisoes/oferta e emite tool registrar_decisao em decisao por Jesus (abre consolidacao via trigger); consent apresenta termo (delta-040) e grava consent_records com termo_versao+aceite_em, exigindo re-aceite em nova versao; optout grava pessoas.optout=true + consent_record (US-32/RNF-06).
+- Orquestrador e sub-agentes: Grafo LangGraph (app/agent/graph.py, nodes.py) com Orquestrador supervisor como unico ponto de entrada/saida no WhatsApp oficial (delta-034). Sub-agentes intake/onboarding/report_capture/handoff/consent retornam resultado ao supervisor, que emite resposta unica. Roteamento por intencao/estado (route_intent) com prioridade handoff > optout > consent > report > onboarding. Fallback direto quando o grafo falha. **Correcao de estado atual:** nao existe checkpoint duravel implementado; `AGENT_GRAPH_CHECKPOINT_URL` somente aciona um warning e o grafo permanece stateless.
+- intake/onboarding/report/consent/optout: o registro historico da sprint previa que `report_capture` emitisse `registrar_decisao`. **Correcao de estado atual:** a implementacao vigente extrai o resumo agregado e registra somente `report_captured`; nao grava o relatorio canonico nem atribui decisoes agregadas ao remetente. Intake, consentimento e opt-out permanecem nas rotas atuais.
 - Credencial LLM BYO por tenant: endpoints GET /agent/models, GET/POST /agent/credential e PUT /agent/model; chave e acesso ao modelo sao validados no provedor, a chave e cifrada (Fernet) e nunca exibida (RNF-03). Cada igreja seleciona um modelo da allowlist; o default economico e `gpt-5.6-luna`, e o fallback so desce Sol -> Terra -> Luna. Chave invalida nao ativa a credencial; runtime recusa operar sem credencial validada+ativa (US-27).
 - Tools e logs de IA: app/agent/tools.py (registrar_decisao, marcar_presenca, vincular_celula, avancar_trilha) reaplicam as mesmas validacoes de um humano no escopo do tenant (F5). Cada interacao registra modelo/tokens/custo em ai_usage_logs e evento em agent_conversation_logs com payload mascarado (CPF/email/digitos longos) via app/agent/masking.py (RNF-24). Worker integra o orquestrador (run_agent_for_message) e envia a resposta unica pelo numero oficial.
 
@@ -52,7 +72,7 @@ Ultima atualizacao: 2026-07-07T19:14:45.251Z
 
 ## Sprint 009 - Backend Relatorios, Comunicados, Eventos e Equipe/Config [CONCLUIDA]
 - Relatorios, comunicados e eventos: Endpoints api-reports (GET /reports), api-broadcasts (POST /broadcasts) respeitando opt-out, e api-events (GET/POST /events) com sync Google Calendar.
-- Equipe, permissoes e gerentes: Endpoints api-team-invite (POST /team/invite via Resend), api-team-roles (PUT /team/{usuarioId}/roles), api-role-perms (GET/PUT /roles/permissions) e api-system-managers (GET/POST/DELETE /system-managers).
+- Equipe, permissoes e gerentes: Endpoints api-team-invite (POST /team/invite; o provider vigente e Brevo, apesar da referencia historica a Resend), api-team-roles (PUT /team/{usuarioId}/roles), api-role-perms (GET/PUT /roles/permissions) e api-system-managers (GET/POST/DELETE /system-managers).
 - Assinatura (Asaas) e config do agente: Endpoints api-subscription (GET/POST /subscription com webhook Asaas), api-agent-config (PUT /agent/config) e api-crons (POST /agent/crons).
 
 ## Sprint 010 - Frontend Dashboard / Fila de Trabalho Pastoral [CONCLUIDA]
