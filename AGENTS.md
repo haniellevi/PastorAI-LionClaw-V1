@@ -28,8 +28,9 @@ Quando houver divergência, use esta precedência:
    identificados;
 2. Git, CI, código, migrations e testes do SHA exato;
 3. PRD canônico e decisões técnicas aprovadas;
-4. `docs/audits/2026-08-27-project-source-of-truth.md`, seguido do registro
-   pós-V1 e dos runbooks em `docs/ops/`;
+4. `docs/audits/2026-08-27-d1-security-scope-audit.md`, seguido de
+   `docs/audits/2026-08-27-project-source-of-truth.md`, do registro pós-V1 e
+   dos runbooks em `docs/ops/`;
 5. `docs/ai/AI-BOOTSTRAP.md`, `docs/ai/PRD-COVERAGE.md`,
    `docs/WIKI-IGREJA12.md`, `PRODUCT.md`, `SPEC.md`, `SPEC_PROGRESS.md` e Plan
    Designer;

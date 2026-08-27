@@ -1,4 +1,4 @@
-"""Sinal read-only de escopo de tenant (PR1 — estritamente aditivo).
+"""Sinal read-only e barreira fail-closed de escopo de tenant.
 
 Objetivo: dado uma sessao, dizer se ela esta rodando *tenant-scoped* — isto e,
 sob o papel `authenticated` (NOBYPASSRLS) e com `current_igreja_id()` resolvido
@@ -7,12 +7,12 @@ tenant-scoped mas roda no papel de conexao (`postgres`, BYPASSRLS) e um risco de
 vazamento entre tenants — e este helper permite detecta-lo num caminho de
 amostra.
 
-IMPORTANTE — contrato deste PR:
+Contrato:
   * O helper e PURAMENTE read-only: emite UM unico SELECT e NAO altera o papel,
     o GUC nem qualquer estado da sessao (nenhum SET / set_config de escrita).
-  * Ele NAO e plugado em nenhum caminho de producao aqui (deps.py/routers/
-    workers seguem intactos). E apenas disponibilizado e coberto por teste; a
-    fiacao real em um caminho de amostra fica para um PR futuro.
+  * `log_if_not_scoped` permanece um sinal de observabilidade.
+  * `require_tenant_scope` e uma barreira usada pelo worker e runtime do agente:
+    exige papel, tenant derivado e GUC transacional iguais ao tenant esperado.
 """
 
 from __future__ import annotations
@@ -22,6 +22,8 @@ from dataclasses import dataclass
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+
+from app.db.tenant_session import TenantScopeError
 
 logger = logging.getLogger(__name__)
 
@@ -38,12 +40,19 @@ class TenantScopeSignal:
     Attributes:
         role: valor de `current_setting('role')` (ex.: 'authenticated' ou 'none').
         igreja_id: `current_igreja_id()` resolvido (str) ou None.
-        is_scoped: True somente se role == TENANT_ROLE e igreja_id nao-nulo.
+        tenant_guc: valor transacional de `app.tenant_igreja_id` ou None.
+        is_scoped: sinal base, True quando role == TENANT_ROLE e igreja_id
+            nao-nulo. A barreira estrita também compara tenant_guc.
     """
 
     role: str | None
     igreja_id: str | None
+    tenant_guc: str | None
     is_scoped: bool
+
+
+class TenantScopeVerificationError(TenantScopeError):
+    """A sessão não possui exatamente o escopo de tenant exigido."""
 
 
 def probe_tenant_scope(session: Session) -> TenantScopeSignal:
@@ -56,18 +65,26 @@ def probe_tenant_scope(session: Session) -> TenantScopeSignal:
         session: sessao SQLAlchemy a inspecionar.
 
     Returns:
-        TenantScopeSignal com role, igreja_id e o booleano is_scoped.
+        TenantScopeSignal com role, igreja_id, tenant_guc e is_scoped.
     """
     row = session.execute(
         text(
             "select current_setting('role', true) as role, "
-            "current_igreja_id() as igreja_id"
+            "current_igreja_id() as igreja_id, "
+            "nullif(current_setting('app.tenant_igreja_id', true), '') "
+            "as tenant_guc"
         )
     ).one()
     role = row.role
     igreja_id = None if row.igreja_id is None else str(row.igreja_id)
+    tenant_guc = None if row.tenant_guc is None else str(row.tenant_guc)
     is_scoped = role == TENANT_ROLE and igreja_id is not None
-    return TenantScopeSignal(role=role, igreja_id=igreja_id, is_scoped=is_scoped)
+    return TenantScopeSignal(
+        role=role,
+        igreja_id=igreja_id,
+        tenant_guc=tenant_guc,
+        is_scoped=is_scoped,
+    )
 
 
 def log_if_not_scoped(
@@ -95,5 +112,42 @@ def log_if_not_scoped(
             source,
             signal.role,
             signal.igreja_id,
+        )
+    return signal
+
+
+def require_tenant_scope(
+    session: Session,
+    *,
+    expected_igreja_id: object,
+    source: str | None = None,
+) -> TenantScopeSignal:
+    """Exige papel tenant e o ``igreja_id`` esperado, sem corrigir o contexto.
+
+    Diferente de :func:`log_if_not_scoped`, este helper é uma barreira de
+    execução. Ele observa o papel e o GUC já aplicados pelo chamador e levanta
+    uma exceção quando o contexto está ausente, está em BYPASSRLS ou aponta
+    para outra igreja. A exceção acontece antes de qualquer leitura de domínio.
+    """
+
+    expected = str(expected_igreja_id).strip()
+    if not expected:
+        raise ValueError("expected_igreja_id é obrigatório")
+
+    signal = probe_tenant_scope(session)
+    matches_expected = signal.igreja_id == expected
+    guc_matches_expected = signal.tenant_guc == expected
+    if not signal.is_scoped or not matches_expected or not guc_matches_expected:
+        logger.error(
+            "Escopo de tenant obrigatório ausente ou inconsistente: "
+            "source=%s role=%s scoped=%s tenant_matches=%s guc_matches=%s",
+            source,
+            signal.role,
+            signal.is_scoped,
+            matches_expected,
+            guc_matches_expected,
+        )
+        raise TenantScopeVerificationError(
+            "sessão sem o escopo de tenant obrigatório"
         )
     return signal

@@ -3,7 +3,7 @@ project: igreja12
 document_kind: prd-coverage
 status: canonical-audit
 last_verified: 2026-08-27
-audited_repository_sha: ad4a27259127506493b69b348a6729e145f5c78b
+audited_repository_sha: 253d23000a2afefa60210081904eb6b7f081acdd
 historical_prd: docs/Docs20260611_163530/PRD20260611_163530.md
 ---
 
@@ -31,7 +31,7 @@ significa ativa em produção.
 
 | Domínio | Estado | Evidência no repositório | Lacuna para a visão aprovada |
 |---|---|---|---|
-| Autenticação, RBAC e tenant | `IMPLEMENTADO` | auth, deps, roles, RLS e testes cross-tenant | Revalidar capacidades sensíveis no SHA de cada grande fase |
+| Autenticação, RBAC e tenant | `IMPLEMENTADO / HARDENING EM PR` | auth, deps, roles e RLS; D1A exige tenant transacional no agente e adiciona integridade composta | Integrar D1A, executar preflight vivo antes da migration e revalidar capacidades em cada fase |
 | Pessoas e responsabilidades | `PARCIAL FORTE` | cadastro, papéis, vínculos, fila e escopos existentes | Fechar responsabilidades temporais, owner operacional e composição por setor |
 | Conexão WhatsApp | `IMPLEMENTADO / GATE OPERACIONAL` | Evolution, conexão por igreja, webhook e filas | Monitorar recibos, reconnect e capacidade antes de cada canário |
 | Conversas e handoff | `IMPLEMENTADO` | histórico, inbox, atribuição, transferência e estado IA/humano | Adicionar memória derivada, exclusão propagada e avaliação de naturalidade |
@@ -143,8 +143,10 @@ fechados no PRD próprio antes do schema.
 
 ## Ordem de execução para a visão completa
 
-1. `D0`: reconciliar fonte de verdade e arquitetura em documentação.
-2. `D1`: revalidar segurança, capacidades e escopos no SHA atual.
+1. `D0`: reconciliar fonte de verdade e arquitetura em documentação. Concluída
+   na PR #310.
+2. `D1`: revalidar segurança, capacidades e escopos no SHA atual. Auditoria
+   concluída; hardening D1A aguarda revisão e integração.
 3. `D2`: contexto confiável, grafo pai, consentimentos e propostas.
 4. `D3`: memória durável, privacidade e exclusão integral.
 5. `D4`: conhecimento oficial e onboarding guiado.
@@ -171,14 +173,15 @@ expansão de escopo.
 
 ## Próximo gate
 
-Revisar e mergear a PR documental D0. Depois do merge, iniciar D1 como auditoria
-de segurança e escopo no novo SHA, sem migration, deploy ou ativação.
+Revisar e integrar a PR D1A. Migration em ambiente compartilhado, D2, deploy,
+ativação e canário permanecem fora deste gate.
 
 ## Fontes principais
 
 - `docs/Docs20260611_163530/PRD20260611_163530.md`
 - `docs/decisions/2026-08-25-evolution-agent-foundation.md`
 - `docs/decisions/2026-08-27-whatsapp-first-tenant-agent-architecture.md`
+- `docs/audits/2026-08-27-d1-security-scope-audit.md`
 - `docs/ops/POST-V1-MISSION-REGISTER.md`
 - `docs/ops/EVOLUTION-AGENT-CANARY-RUNBOOK.md`
 - `Plan-Designer-Igreja12/01-ESTADO-ATUAL-E-GAPS.md`

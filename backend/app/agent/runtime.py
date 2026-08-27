@@ -47,6 +47,10 @@ from app.db.models import (
     Pessoa,
     UserRole,
 )
+from app.db.rls_observability import (
+    TenantScopeVerificationError,
+    require_tenant_scope,
+)
 from app.domain import consent as consent_rules
 from app.domain.agent_authz import PrivilegeContext, tool_allowed, tool_denial_reason
 from app.services.crypto import SecretDecryptionError, decrypt_secret
@@ -418,27 +422,69 @@ def _refine_with_llm(
 
 
 def process_inbound_message(
-    session: Session, *, conversation_id: str | uuid.UUID, texto: str | None
+    session: Session,
+    *,
+    igreja_id: str | uuid.UUID,
+    conversation_id: str | uuid.UUID,
+    texto: str | None,
 ) -> AgentTurnResult:
     """Run one orchestrator turn for an inbound message and apply side effects.
 
     The caller commits the session and sends `response` via the official number.
     """
     settings = get_settings()
-    conv_uuid = conversation_id if isinstance(conversation_id, uuid.UUID) else uuid.UUID(str(conversation_id))
+    try:
+        tenant_uuid = (
+            igreja_id
+            if isinstance(igreja_id, uuid.UUID)
+            else uuid.UUID(str(igreja_id).strip())
+        )
+    except (AttributeError, TypeError, ValueError):
+        raise TenantScopeVerificationError(
+            "igreja_id inválido no runtime do agente"
+        ) from None
+
+    conv_uuid = (
+        conversation_id
+        if isinstance(conversation_id, uuid.UUID)
+        else uuid.UUID(str(conversation_id))
+    )
+
+    require_tenant_scope(
+        session,
+        expected_igreja_id=tenant_uuid,
+        source="agent_runtime",
+    )
 
     conversation = session.execute(
-        select(Conversation).where(Conversation.id == conv_uuid)
+        select(Conversation).where(
+            Conversation.id == conv_uuid,
+            Conversation.igreja_id == tenant_uuid,
+        )
     ).scalar_one_or_none()
     if conversation is None or conversation.pessoa_id is None:
         return AgentTurnResult(handled=False, reason="conversation_not_found")
 
-    igreja_id = conversation.igreja_id
+    if conversation.igreja_id != tenant_uuid:
+        raise TenantScopeVerificationError(
+            "conversa não pertence ao tenant fixado no runtime"
+        )
+
     pessoa = session.execute(
-        select(Pessoa).where(Pessoa.id == conversation.pessoa_id)
+        select(Pessoa).where(
+            Pessoa.id == conversation.pessoa_id,
+            Pessoa.igreja_id == tenant_uuid,
+        )
     ).scalar_one_or_none()
     if pessoa is None:
         return AgentTurnResult(handled=False, reason="pessoa_not_found")
+
+    if pessoa.igreja_id != tenant_uuid:
+        raise TenantScopeVerificationError(
+            "Pessoa não pertence ao tenant fixado no runtime"
+        )
+
+    igreja_id = tenant_uuid
 
     # O direito de sair das comunicações independe de LLM, AgentConfig, handoff
     # ou credencial. Persistimos antes de qualquer gate do agente e não enviamos

@@ -1,8 +1,8 @@
 # Wiki do projeto Igreja 12
 
 Snapshot documental de 2026-08-27, baseado no `origin/main`
-`ad4a27259127506493b69b348a6729e145f5c78b` e na reconciliação operacional
-registrada nesta missão.
+`253d23000a2afefa60210081904eb6b7f081acdd`, na auditoria D1 e na
+reconciliação operacional registrada nesta fase.
 
 ## Leitura de 30 segundos
 
@@ -177,12 +177,14 @@ O desenho detalhado está em
 ### D0, fonte de verdade
 
 Reconciliar PRD, PRODUCT, SPEC, progresso, Wiki, memória de agentes, decisão de
-arquitetura e registro do canário. Esta fase é somente documental.
+arquitetura e registro do canário. Fase concluída na PR #310.
 
 ### D1, segurança
 
 Revalidar capacidades, papéis, responsabilidades e endpoints sensíveis no SHA
-atual. Gaps P0 confirmados precedem a expansão da inteligência.
+atual. A auditoria confirmou quatro gaps de tenant, integridade e cobertura do
+CI. A correção D1A está nesta PR; a migration foi executada somente em
+PostgreSQL descartável e não foi aplicada em ambiente compartilhado.
 
 ### D2 a D5, fundação
 
@@ -225,7 +227,8 @@ Em divergência, use esta ordem:
 1. ambiente vivo consultado e identificado no momento da ação;
 2. Git, CI, código, migrations e testes do SHA exato;
 3. PRD canônico e decisões aprovadas;
-4. `docs/audits/2026-08-27-project-source-of-truth.md`, registro pós-V1 e
+4. `docs/audits/2026-08-27-d1-security-scope-audit.md`,
+   `docs/audits/2026-08-27-project-source-of-truth.md`, registro pós-V1 e
    runbooks;
 5. Bootstrap, cobertura do PRD, esta Wiki, PRODUCT, SPEC e Plan Designer;
 6. planos, sprints e auditorias substituídas ou históricas.
@@ -235,5 +238,5 @@ canário.
 
 ## Próximo gate
 
-Revisar e mergear a PR documental D0. Depois, realizar a auditoria D1 de
-segurança e escopo no SHA resultante, ainda sem migration, deploy ou ativação.
+Revisar e integrar a PR D1A. Aplicação da migration, D2, deploy, ativação e
+canário exigem novos gates depois do merge.

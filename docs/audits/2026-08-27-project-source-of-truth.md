@@ -191,11 +191,13 @@ Estes pontos não recebem conclusão apenas por inspeção desta baseline:
 
 ## 7. Sequência autorizável
 
-O próximo gate é revisar e integrar a PR documental D0 que contém esta fonte de
-verdade, o PRD reconciliado e a decisão arquitetural WhatsApp-first. Depois do
-merge, D1 revalida segurança, capacidades e escopos no novo SHA em modo
-read-only e sob autorização própria. A implementação da fundação só pode ser
-planejada após o resultado de D1.
+Esta auditoria permanece o snapshot D0 da baseline `ad4a272`. A PR #310
+integrou a reconciliação documental em `253d230`, e a auditoria D1 posterior
+está registrada em
+`docs/audits/2026-08-27-d1-security-scope-audit.md`.
+
+O próximo gate é revisar e integrar a PR D1A. Aplicação da migration em ambiente
+compartilhado e início de D2 dependem de novos gates depois do merge.
 
 Novo canário, ativação de agente, migration em produção, deploy ou abertura de
 gate exigem missões e autorizações próprias. Nenhuma dessas ações faz parte da

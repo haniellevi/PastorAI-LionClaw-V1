@@ -13,6 +13,8 @@ from __future__ import annotations
 import uuid
 from types import SimpleNamespace
 
+import pytest
+
 from app.db.models import AgentConfig, Conversation, LlmCredential, Pessoa
 from app.domain.agent_authz import PrivilegeContext
 
@@ -23,6 +25,15 @@ class _Res:
 
     def scalar_one_or_none(self):
         return self._scalar
+
+
+@pytest.fixture(autouse=True)
+def _scope_guard_for_fake_sessions(monkeypatch) -> None:
+    """Os testes de higiene usam sessões fake sem papel/GUC PostgreSQL."""
+
+    from app.agent import runtime
+
+    monkeypatch.setattr(runtime, "require_tenant_scope", lambda *a, **k: None)
 
 
 # ---- (a) opt-out suprime a auto-resposta -----------------------------------
@@ -59,10 +70,20 @@ def test_optout_suprime_auto_resposta() -> None:
 
     cid, pid, gid = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
     conv = SimpleNamespace(id=cid, pessoa_id=pid, igreja_id=gid, estado="ia")
-    pessoa = SimpleNamespace(id=pid, optout=True, tipo="contato")
+    pessoa = SimpleNamespace(
+        id=pid,
+        igreja_id=gid,
+        optout=True,
+        tipo="contato",
+    )
     session = _OptoutSession(conv, pessoa)
 
-    result = process_inbound_message(session, conversation_id=cid, texto="oi de novo")
+    result = process_inbound_message(
+        session,
+        igreja_id=gid,
+        conversation_id=cid,
+        texto="oi de novo",
+    )
 
     assert result.suppressed is True
     assert result.response is None
@@ -81,12 +102,19 @@ def test_csim_suprime_auto_resposta() -> None:
     cid, pid, gid = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
     conv = SimpleNamespace(id=cid, pessoa_id=pid, igreja_id=gid, estado="ia")
     pessoa = SimpleNamespace(
-        id=pid, optout=False, sem_interesse=True, tipo="contato"
+        id=pid,
+        igreja_id=gid,
+        optout=False,
+        sem_interesse=True,
+        tipo="contato",
     )
     session = _OptoutSession(conv, pessoa)
 
     result = process_inbound_message(
-        session, conversation_id=cid, texto="promoção imperdível pra sua empresa"
+        session,
+        igreja_id=gid,
+        conversation_id=cid,
+        texto="promoção imperdível pra sua empresa",
     )
 
     assert result.suppressed is True
@@ -146,10 +174,21 @@ def test_sem_interesse_legado_suprime_antes_de_avaliar_credencial() -> None:
     # Legado inconsistente: a conversa "parece" com IA ativa (estado="ia"), mas o
     # contato está marcado sem_interesse. O backend tem de vencer essa inconsistência.
     conv = SimpleNamespace(id=cid, pessoa_id=pid, igreja_id=gid, estado="ia")
-    pessoa = SimpleNamespace(id=pid, optout=False, sem_interesse=True, tipo="contato")
+    pessoa = SimpleNamespace(
+        id=pid,
+        igreja_id=gid,
+        optout=False,
+        sem_interesse=True,
+        tipo="contato",
+    )
     session = _FailOnCredentialSession(conv, pessoa)
 
-    result = process_inbound_message(session, conversation_id=cid, texto="oi, tudo bem?")
+    result = process_inbound_message(
+        session,
+        igreja_id=gid,
+        conversation_id=cid,
+        texto="oi, tudo bem?",
+    )
 
     assert result.suppressed is True
     assert result.response is None
@@ -166,12 +205,17 @@ def test_optout_novo_persiste_antes_de_credencial_config_ou_handoff() -> None:
     cid, pid, gid = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
     conv = SimpleNamespace(id=cid, pessoa_id=pid, igreja_id=gid, estado="humano")
     pessoa = SimpleNamespace(
-        id=pid, optout=False, sem_interesse=False, tipo="membro"
+        id=pid,
+        igreja_id=gid,
+        optout=False,
+        sem_interesse=False,
+        tipo="membro",
     )
     session = _FailOnCredentialSession(conv, pessoa)
 
     result = process_inbound_message(
         session,
+        igreja_id=gid,
         conversation_id=cid,
         texto="não quero mais receber mensagens",
     )
@@ -239,14 +283,20 @@ def test_worker_nao_envia_auto_resposta_para_sem_interesse(monkeypatch) -> None:
 
     cid, pid, gid = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
     conv = SimpleNamespace(id=cid, pessoa_id=pid, igreja_id=gid, estado="ia")
-    pessoa = SimpleNamespace(id=pid, optout=False, sem_interesse=True, tipo="contato")
+    pessoa = SimpleNamespace(
+        id=pid,
+        igreja_id=gid,
+        optout=False,
+        sem_interesse=True,
+        tipo="contato",
+    )
     cred = SimpleNamespace(validado=True, ativo=True, provedor="openai", api_key_encrypted="x")
     config = SimpleNamespace(ativo=True, comportamento=None)
     session = _WorkerAgentSession(conv, pessoa, cred, config)
 
     # Neutraliza o seam de RLS (a sessão fake não é um Session real de verdade).
     monkeypatch.setattr(qw, "mark_tenant_scoped", lambda *a, **k: None)
-    monkeypatch.setattr(qw, "log_if_not_scoped", lambda *a, **k: None)
+    monkeypatch.setattr(qw, "require_tenant_scope", lambda *a, **k: None)
 
     sent: list = []
 
@@ -284,7 +334,13 @@ def test_worker_nao_persiste_resposta_suprimida_pelo_guard(monkeypatch) -> None:
 
     cid, pid, gid = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
     conv = SimpleNamespace(id=cid, pessoa_id=pid, igreja_id=gid, estado="ia")
-    pessoa = SimpleNamespace(id=pid, optout=False, sem_interesse=False, tipo="contato")
+    pessoa = SimpleNamespace(
+        id=pid,
+        igreja_id=gid,
+        optout=False,
+        sem_interesse=False,
+        tipo="contato",
+    )
     cred = SimpleNamespace(validado=True, ativo=True, provedor="openai", api_key_encrypted="x")
     config = SimpleNamespace(ativo=True, comportamento=None)
     session = _WorkerAgentSession(conv, pessoa, cred, config)
@@ -296,7 +352,7 @@ def test_worker_nao_persiste_resposta_suprimida_pelo_guard(monkeypatch) -> None:
         return session
 
     monkeypatch.setattr(qw, "mark_tenant_scoped", lambda *a, **k: None)
-    monkeypatch.setattr(qw, "log_if_not_scoped", lambda *a, **k: None)
+    monkeypatch.setattr(qw, "require_tenant_scope", lambda *a, **k: None)
     monkeypatch.setattr(
         runtime,
         "process_inbound_message",
@@ -377,13 +433,22 @@ def test_agent_config_inativo_pausa_mesmo_com_credencial_valida() -> None:
     cid, pid, gid = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
     conv = SimpleNamespace(id=cid, pessoa_id=pid, igreja_id=gid, estado="ia")
     pessoa = SimpleNamespace(
-        id=pid, optout=False, sem_interesse=False, tipo="contato"
+        id=pid,
+        igreja_id=gid,
+        optout=False,
+        sem_interesse=False,
+        tipo="contato",
     )
     cred = SimpleNamespace(validado=True, ativo=True)  # credencial válida
     config = SimpleNamespace(ativo=False, comportamento="Seja gentil")  # master desligou
     session = _ConfigInactiveSession(conv, pessoa, cred, config)
 
-    result = process_inbound_message(session, conversation_id=cid, texto="oi")
+    result = process_inbound_message(
+        session,
+        igreja_id=gid,
+        conversation_id=cid,
+        texto="oi",
+    )
 
     assert result.handled is False
     assert result.reason == "config_inativo"
@@ -401,12 +466,21 @@ def test_agent_config_ausente_falha_fechado_com_credencial_valida() -> None:
     cid, pid, gid = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
     conv = SimpleNamespace(id=cid, pessoa_id=pid, igreja_id=gid, estado="ia")
     pessoa = SimpleNamespace(
-        id=pid, optout=False, sem_interesse=False, tipo="contato"
+        id=pid,
+        igreja_id=gid,
+        optout=False,
+        sem_interesse=False,
+        tipo="contato",
     )
     cred = SimpleNamespace(validado=True, ativo=True)
     session = _ConfigInactiveSession(conv, pessoa, cred, None)
 
-    result = process_inbound_message(session, conversation_id=cid, texto="oi")
+    result = process_inbound_message(
+        session,
+        igreja_id=gid,
+        conversation_id=cid,
+        texto="oi",
+    )
 
     assert result.handled is False
     assert result.reason == "config_ausente"

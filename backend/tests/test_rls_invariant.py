@@ -45,7 +45,11 @@ from sqlalchemy.orm import (
 # este import a suite de integracao rodaria isolada e o seam nao estaria plugado.
 import app.db.session  # noqa: F401
 from app.db.rls import set_tenant_context, set_tenant_context_for_igreja
-from app.db.rls_observability import probe_tenant_scope
+from app.db.rls_observability import (
+    TenantScopeVerificationError,
+    probe_tenant_scope,
+    require_tenant_scope,
+)
 from app.db.tenant_session import (
     TenantPromotionError,
     mark_cross_tenant,
@@ -268,6 +272,81 @@ def test_t6_probe_reports_scoped_for_authenticated(
     assert signal.is_scoped is True
     assert signal.role == "authenticated"
     assert signal.igreja_id == IGREJA_A
+
+
+def test_t6_require_scope_rejeita_papel_owner_bypassrls(
+    rls_seeded: dict[str, str], make_session
+) -> None:
+    session = make_session()
+
+    with pytest.raises(TenantScopeVerificationError):
+        require_tenant_scope(
+            session,
+            expected_igreja_id=IGREJA_A,
+            source="test-owner",
+        )
+
+
+def test_t6_require_scope_rejeita_authenticated_sem_tenant(
+    rls_seeded: dict[str, str], make_session
+) -> None:
+    session = make_session()
+    session.execute(text("set local role authenticated"))
+
+    with pytest.raises(TenantScopeVerificationError):
+        require_tenant_scope(
+            session,
+            expected_igreja_id=IGREJA_A,
+            source="test-no-tenant",
+        )
+
+
+def test_t6_require_scope_rejeita_tenant_diferente(
+    rls_seeded: dict[str, str], make_session
+) -> None:
+    session = make_session()
+    set_tenant_context_for_igreja(session, IGREJA_A)
+
+    with pytest.raises(TenantScopeVerificationError):
+        require_tenant_scope(
+            session,
+            expected_igreja_id=IGREJA_B,
+            source="test-mismatch",
+        )
+
+
+def test_t6_require_scope_rejeita_tenant_derivado_so_de_claim_http(
+    rls_seeded: dict[str, str], make_session
+) -> None:
+    session = make_session()
+    set_tenant_context(session, CLERK_A)
+    assert probe_tenant_scope(session).igreja_id == IGREJA_A
+    assert probe_tenant_scope(session).tenant_guc is None
+
+    with pytest.raises(TenantScopeVerificationError):
+        require_tenant_scope(
+            session,
+            expected_igreja_id=IGREJA_A,
+            source="test-claim-without-worker-guc",
+        )
+
+
+def test_t6_require_scope_aceita_somente_tenant_exato(
+    rls_seeded: dict[str, str], make_session
+) -> None:
+    session = make_session()
+    set_tenant_context_for_igreja(session, IGREJA_A)
+
+    signal = require_tenant_scope(
+        session,
+        expected_igreja_id=IGREJA_A,
+        source="test-exact",
+    )
+
+    assert signal.role == "authenticated"
+    assert signal.igreja_id == IGREJA_A
+    assert signal.tenant_guc == IGREJA_A
+    assert signal.is_scoped is True
 
 
 # ---------------------------------------------------------------------------

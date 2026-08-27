@@ -20,6 +20,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     Numeric,
@@ -82,6 +83,33 @@ class Pessoa(Base):
 
     __tablename__ = "pessoas"
     __table_args__ = (
+        UniqueConstraint(
+            "igreja_id",
+            "id",
+            name="pessoas_igreja_id_id_key",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "lider_id"),
+            ("pessoas.igreja_id", "pessoas.id"),
+            name="pessoas_tenant_lider_fkey",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "arquivada_por"),
+            ("app_users.igreja_id", "app_users.id"),
+            name="pessoas_tenant_arquivada_por_fkey",
+        ),
+        Index(
+            "pessoas_igreja_id_lider_id_idx",
+            "igreja_id",
+            "lider_id",
+            postgresql_where=text("lider_id IS NOT NULL"),
+        ),
+        Index(
+            "pessoas_igreja_id_arquivada_por_idx",
+            "igreja_id",
+            "arquivada_por",
+            postgresql_where=text("arquivada_por IS NOT NULL"),
+        ),
         # UNIQ-PESSOA-1: no máximo UMA pessoa ATIVA por (igreja_id, telefone).
         # Fecha o TOCTOU do "procura-antes-de-criar" nos três pontos que criam
         # Pessoa por telefone (queue_worker inbound, POST /contacts, ativação de
@@ -173,6 +201,24 @@ class AppUser(Base):
     """Panel user authenticated via Clerk."""
 
     __tablename__ = "app_users"
+    __table_args__ = (
+        UniqueConstraint(
+            "igreja_id",
+            "id",
+            name="app_users_igreja_id_id_key",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "pessoa_id"),
+            ("pessoas.igreja_id", "pessoas.id"),
+            name="app_users_tenant_pessoa_fkey",
+        ),
+        Index(
+            "app_users_igreja_id_pessoa_id_idx",
+            "igreja_id",
+            "pessoa_id",
+            postgresql_where=text("pessoa_id IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     igreja_id: Mapped[uuid.UUID] = mapped_column(
@@ -207,7 +253,10 @@ class AppUser(Base):
     )
 
     roles: Mapped[list["UserRole"]] = relationship(
-        back_populates="user", cascade="all, delete-orphan", lazy="selectin"
+        back_populates="user",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+        foreign_keys="UserRole.user_id",
     )
     # foreign_keys explícito: igrejas.dono_id (#4) cria um 2º caminho de FK entre
     # app_users e igrejas; sem isto o relationship fica ambíguo.
@@ -243,7 +292,19 @@ class UserRole(Base):
     """Accumulated roles per user (F3). A user may hold many roles."""
 
     __tablename__ = "user_roles"
-    __table_args__ = (UniqueConstraint("user_id", "papel", name="user_roles_user_id_papel_key"),)
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "papel",
+            name="user_roles_user_id_papel_key",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "user_id"),
+            ("app_users.igreja_id", "app_users.id"),
+            name="user_roles_tenant_user_fkey",
+        ),
+        Index("user_roles_igreja_id_user_id_idx", "igreja_id", "user_id"),
+    )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     igreja_id: Mapped[uuid.UUID] = mapped_column(
@@ -258,7 +319,10 @@ class UserRole(Base):
     )
     papel: Mapped[str] = mapped_column(String, nullable=False)
 
-    user: Mapped["AppUser"] = relationship(back_populates="roles")
+    user: Mapped["AppUser"] = relationship(
+        back_populates="roles",
+        foreign_keys=[user_id],
+    )
 
 
 class RolePermission(Base):
@@ -877,6 +941,35 @@ class Conversation(Base):
     """WhatsApp conversation thread bound to a person (F6)."""
 
     __tablename__ = "conversations"
+    __table_args__ = (
+        UniqueConstraint(
+            "igreja_id",
+            "id",
+            name="conversations_igreja_id_id_key",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "pessoa_id"),
+            ("pessoas.igreja_id", "pessoas.id"),
+            name="conversations_tenant_pessoa_fkey",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "assumido_por"),
+            ("app_users.igreja_id", "app_users.id"),
+            name="conversations_tenant_assumido_por_fkey",
+        ),
+        Index(
+            "conversations_igreja_id_pessoa_id_idx",
+            "igreja_id",
+            "pessoa_id",
+            postgresql_where=text("pessoa_id IS NOT NULL"),
+        ),
+        Index(
+            "conversations_igreja_id_assumido_por_idx",
+            "igreja_id",
+            "assumido_por",
+            postgresql_where=text("assumido_por IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     igreja_id: Mapped[uuid.UUID] = mapped_column(
@@ -924,6 +1017,27 @@ class Message(Base):
     # provider_message_id nunca persiste duas vezes na mesma direção/igreja,
     # mesmo que o Redis diga "novo" de novo.
     __table_args__ = (
+        ForeignKeyConstraint(
+            ("igreja_id", "conversation_id"),
+            ("conversations.igreja_id", "conversations.id"),
+            name="messages_tenant_conversation_fkey",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "enviado_por"),
+            ("app_users.igreja_id", "app_users.id"),
+            name="messages_tenant_enviado_por_fkey",
+        ),
+        Index(
+            "messages_igreja_id_conversation_id_idx",
+            "igreja_id",
+            "conversation_id",
+        ),
+        Index(
+            "messages_igreja_id_enviado_por_idx",
+            "igreja_id",
+            "enviado_por",
+            postgresql_where=text("enviado_por IS NOT NULL"),
+        ),
         Index(
             "messages_inbound_provider_id_uidx",
             "igreja_id",
@@ -1992,6 +2106,14 @@ class WhatsappConnection(Base):
     """
 
     __tablename__ = "whatsapp_connections"
+    __table_args__ = (
+        Index(
+            "whatsapp_connections_instance_uidx",
+            "instance",
+            unique=True,
+            postgresql_where=text("instance IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     igreja_id: Mapped[uuid.UUID] = mapped_column(
@@ -2051,6 +2173,29 @@ class ConsentRecord(Base):
     """LGPD consent record granted on first inbound message (US-31/RF-36)."""
 
     __tablename__ = "consent_records"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ("igreja_id", "pessoa_id"),
+            ("pessoas.igreja_id", "pessoas.id"),
+            name="consent_records_tenant_pessoa_fkey",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "ator_id"),
+            ("app_users.igreja_id", "app_users.id"),
+            name="consent_records_tenant_ator_fkey",
+        ),
+        Index(
+            "consent_records_igreja_id_pessoa_id_idx",
+            "igreja_id",
+            "pessoa_id",
+        ),
+        Index(
+            "consent_records_igreja_id_ator_id_idx",
+            "igreja_id",
+            "ator_id",
+            postgresql_where=text("ator_id IS NOT NULL"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
     igreja_id: Mapped[uuid.UUID] = mapped_column(
