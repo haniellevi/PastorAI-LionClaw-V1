@@ -466,10 +466,21 @@ outras igrejas.
 Estado atual: **PRIMEIRO CANÁRIO TÉCNICO PASS / QUALIDADE FAIL / ROLLOUT AMPLO
 BLOCKED / GATES FECHADOS**.
 
-**Próximo gate único:** revisar e integrar a PR documental D0. Depois do merge,
-D1 deve ser uma auditoria read-only de segurança, capacidades e escopos no novo
-SHA, em autorização própria. Implementação, migration, deploy, ativação e novo
-canário permanecem fora deste gate.
+### D1 e hardening D1A (2026-08-27)
+
+A PR #310 integrou a documentação D0 em
+`253d23000a2afefa60210081904eb6b7f081acdd`. A auditoria D1 local desse SHA
+confirmou quatro gaps antes da expansão do agente: tenant opcional em um caminho
+do runtime, instância Evolution sem unicidade global, relações críticas sem FK
+composta por igreja e CI RLS baseado em allowlist.
+
+A branch D1A corrige os quatro pontos, inclui testes adversariais e uma
+migration aditiva e transacional. A migration foi exercitada somente em
+PostgreSQL 17 descartável. Não houve acesso ao Supabase nem aplicação em
+ambiente compartilhado, deploy, mudança de flag, ativação ou envio.
+
+**Próximo gate único:** revisar e integrar a PR D1A. Aplicação da migration, D2,
+deploy, ativação e novo canário permanecem fora deste gate.
 
 ## Paralelismo seguro
 

@@ -47,9 +47,21 @@ def test_orm_columns_present_and_nullable() -> None:
 
 
 def test_orm_fk_arquivada_por_set_null() -> None:
-    fks = {fk.column.table.name: fk for fk in Pessoa.__table__.columns["arquivada_por"].foreign_keys}
-    assert "app_users" in fks
-    assert fks["app_users"].ondelete == "SET NULL"
+    app_user_fks = [
+        fk
+        for fk in Pessoa.__table__.columns["arquivada_por"].foreign_keys
+        if fk.column.table.name == "app_users"
+    ]
+    assert app_user_fks
+    # A FK UUID-only histórica preserva a ação de deleção. A FK composta D1A
+    # adiciona a barreira (igreja_id, id) com NO ACTION; a ordem do set de FKs
+    # do SQLAlchemy não pode escolher qual contrato o teste observa.
+    assert any(fk.ondelete == "SET NULL" for fk in app_user_fks)
+    assert any(
+        fk.constraint.name == "pessoas_tenant_arquivada_por_fkey"
+        and fk.ondelete is None
+        for fk in app_user_fks
+    )
 
 
 # ---- migration SQL: paridade com o ORM -------------------------------------

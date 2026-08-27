@@ -5,9 +5,9 @@
 # rls_integration`. Sem este job, os testes opt-in ficariam sempre em skip e o
 # PR1 viraria cobertura falsa (risco "CI sem Postgres -> T1-T6 sempre skip").
 #
-# O job FALHA se, com RLS_TEST_DATABASE_URL definida, os testes rls_integration
-# nao executarem de fato (0 coletados ou todos skip). Ambiente local/offline sem
-# a env var mantem skip limpo — isso e responsabilidade do proprio pytest.
+# O job FALHA se, com RLS_TEST_DATABASE_URL definida, houver zero testes,
+# qualquer skip, falha ou erro na suite marcada. Ambiente local/offline sem a
+# env var mantem skip limpo — isso e responsabilidade do proprio pytest.
 #
 # NAO modifica nenhum runtime de producao: usa apenas config de CI + o guard e as
 # fixtures de teste ja existentes.
@@ -82,37 +82,14 @@ jobs:
           print("guard OK: alvo descartavel")
           PY
 
-      - name: Rodar suite rls_integration (T1-T6 + executor M06 + artefatos de recovery + TOCTOU SEC-4B confirm + approve + transitions + create + W3 arquivamento + W3.2A preflight/archive + MSG-IDEMP-1 + estado de resposta do agente + CONSOL-1 consolidação aberta única + FECH-2 reactivate/unarchive + OAuth callback/finish races)
+      - name: Rodar toda a suite marcada rls_integration
         run: |
-          "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pytest -m rls_integration -o addopts= -rA \
+          "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pytest --strict-markers \
+            -m rls_integration -o addopts= -p no:cacheprovider -rA \
             --junitxml=rls-results.xml \
-            tests/test_rls_invariant.py \
-            tests/test_events_confirm_toctou.py \
-            tests/test_cell_requests_approve_concurrency.py \
-            tests/test_cell_requests_transitions_concurrency.py \
-            tests/test_cell_requests_create_concurrency.py \
-            tests/test_pessoa_arquivamento_migration.py \
-            tests/test_pessoa_offboarding_service.py \
-            tests/test_messages_inbound_idempotency.py \
-            tests/test_agent_reply_state_migration.py \
-            tests/test_consolidacao_open_unique_concurrency.py \
-            tests/test_contacts_reactivate_unarchive_concurrency.py \
-            tests/test_calendar_oauth_concurrency.py \
-            tests/test_v1_m06_hardening_migrations.py \
-            tests/test_recovery_artifacts_hardening_migration.py \
-            tests/test_apply_migrations.py \
-            tests/test_billing_complimentary_autoupgrade_migration.py \
-            tests/test_billing_complimentary_concurrency.py
+            tests
 
-      - name: Rodar test_pessoa_offboarding_router.py (offline, FakeSession — sem marker/Postgres)
-        # Sem `-m rls_integration`: os testes deste arquivo não usam Postgres
-        # (403/404/422 via FakeSession, mesma técnica de test_team_revoke.py),
-        # então não são marcados — e ficariam sem NENHUMA execução em CI se
-        # só corressem no passo acima (que filtra por marker).
-        run: |
-          "$RUNNER_TEMP/backend-runtime-venv/bin/python" -m pytest -o addopts= -rA tests/test_pessoa_offboarding_router.py
-
-      - name: Falhar se T1-T6 nao executaram de fato (0 coletados / todos skip)
+      - name: Verificar execucao integral da suite RLS
         run: |
           "$RUNNER_TEMP/backend-runtime-venv/bin/python" - <<'PY'
           import sys, xml.etree.ElementTree as ET
@@ -137,5 +114,12 @@ jobs:
                   "FALHA: todos os testes rls_integration em skip — "
                   "RLS_TEST_DATABASE_URL nao ativou a suite."
               )
+          if skipped != 0:
+              sys.exit(
+                  "FALHA: houve skip parcial na suite rls_integration; "
+                  "todo teste marcado deve executar no Postgres descartavel."
+              )
+          if failed != 0 or errors != 0:
+              sys.exit("FALHA: suite rls_integration registrou falha ou erro.")
           print("OK: suite rls_integration executou de fato.")
           PY

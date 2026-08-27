@@ -3,7 +3,7 @@ project: igreja12
 document_kind: ai-bootstrap
 status: canonical
 last_verified: 2026-08-27
-audited_repository_sha: ad4a27259127506493b69b348a6729e145f5c78b
+audited_repository_sha: 253d23000a2afefa60210081904eb6b7f081acdd
 ---
 
 # Bootstrap canônico para agentes de IA
@@ -36,7 +36,7 @@ externas com contratos e gates próprios.
 | Tema | Estado no SHA auditado | Leitura correta |
 |---|---|---|
 | V1 | `IMPLEMENTADO` | Encerrada como piloto controlado; não equivale ao produto amplo concluído |
-| Código | `VERIFICADO` | `origin/main` em `ad4a27259127506493b69b348a6729e145f5c78b` |
+| Código | `VERIFICADO` | `origin/main` em `253d23000a2afefa60210081904eb6b7f081acdd`; D1A permanece candidata nesta PR |
 | Produto WhatsApp-first | `PARCIAL` | A visão está aprovada; memória, conhecimento e ações profundas ainda faltam |
 | Agente Evolution | `PARCIAL / GATE OPERACIONAL` | Fundação, identidade e contenção existem; qualidade conversacional é insuficiente |
 | Canário ativo do agente | `PASS TÉCNICO / QUALIDADE INSUFICIENTE` | Evidência operacional reconciliada nesta missão, não prova previamente versionada em `ad4a272` |
@@ -47,6 +47,7 @@ externas com contratos e gates próprios.
 | Consolidação | `PARCIAL` | Precisa de máquina de estados e read model duráveis antes da formação |
 | UV e CD | `AUSENTE COMO MÓDULOS` | Exigem PRDs próprios, dados, APIs, permissões e UX |
 | Broadcast, Brevo e Asaas real | `GATES OPERACIONAIS` | Missões independentes; nenhuma é liberada pela evolução do agente |
+| Auditoria D1 | `CONCLUÍDA / HARDENING EM PR` | Quatro gaps de tenant, integridade e CI foram confirmados; a D1A os corrige sem aplicação em ambiente compartilhado |
 
 O canário ativo citado acima recebeu apenas as mensagens sintéticas `Olá`,
 `Aceito` e `Quero conhecer a igreja`. O operador relatou três entradas, três
@@ -125,7 +126,7 @@ canônico de `celula_reuniao` e comprovante no WhatsApp.
 
 | Tarefa | Leia primeiro |
 |---|---|
-| Estado geral e pendências | [`auditoria fonte de verdade`](../audits/2026-08-27-project-source-of-truth.md), depois [`docs/WIKI-IGREJA12.md`](../WIKI-IGREJA12.md) |
+| Estado geral e pendências | [`auditoria D1`](../audits/2026-08-27-d1-security-scope-audit.md), [`auditoria fonte de verdade`](../audits/2026-08-27-project-source-of-truth.md), depois [`docs/WIKI-IGREJA12.md`](../WIKI-IGREJA12.md) |
 | Escopo e definição de pronto | [`docs/ai/PRD-COVERAGE.md`](PRD-COVERAGE.md) |
 | Agente WhatsApp-first | [`decisão de arquitetura`](../decisions/2026-08-27-whatsapp-first-tenant-agent-architecture.md) |
 | Produção ou canário | `docs/ops/POST-V1-MISSION-REGISTER.md` e runbook específico |

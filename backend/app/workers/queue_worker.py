@@ -55,7 +55,7 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db.models import Conversation, Message, Pessoa, WhatsappConnection
-from app.db.rls_observability import log_if_not_scoped
+from app.db.rls_observability import require_tenant_scope
 from app.db.session import get_session_factory
 from app.db.tenant_session import (
     mark_cross_tenant,
@@ -370,6 +370,10 @@ class AmbiguousPessoaIdentity(RuntimeError):
 
 class AgentReplyRetryable(RuntimeError):
     """A reply failed before Evolution could accept it and can be retried safely."""
+
+
+class AgentTenantContextError(RuntimeError):
+    """O turno do agente não possui um tenant UUID confiável."""
 
 
 class AgentRunDisposition(str, Enum):
@@ -1676,17 +1680,30 @@ class QueueWorker:
 # ---------------------------------------------------------------------------
 # Agent orchestration runner (delta-034)
 # ---------------------------------------------------------------------------
+def _require_agent_igreja_id(outcome: IngestionOutcome) -> uuid.UUID:
+    """Valida o tenant antes de sessão, banco, agente, ferramenta ou envio."""
+
+    raw = outcome.igreja_id
+    if raw is None or not str(raw).strip():
+        raise AgentTenantContextError(
+            "igreja_id é obrigatório no runtime do agente"
+        )
+    try:
+        return raw if isinstance(raw, uuid.UUID) else uuid.UUID(str(raw).strip())
+    except (TypeError, ValueError, AttributeError):
+        raise AgentTenantContextError(
+            "igreja_id inválido no runtime do agente"
+        ) from None
+
+
 def _agent_reply_idempotency_key(outcome: IngestionOutcome) -> str | None:
     """Return one stable durable key for an inbound event and its queue claim."""
 
-    if (
-        outcome.igreja_id is None
-        or not outcome.provider_message_id
-        or not outcome.claim_id
-    ):
+    if not outcome.provider_message_id or not outcome.claim_id:
         return None
+    igreja_id = _require_agent_igreja_id(outcome)
     material = (
-        f"{outcome.igreja_id}:{outcome.provider_message_id}:{outcome.claim_id}"
+        f"{igreja_id}:{outcome.provider_message_id}:{outcome.claim_id}"
     ).encode("utf-8")
     return f"{_AGENT_REPLY_PROVIDER_PREFIX}{sha256(material).hexdigest()}"
 
@@ -1749,9 +1766,17 @@ def _intent_from_message(message: Message) -> _AgentReplyIntent:
     )
 
 
-def _scope_agent_session(session: Session, outcome: IngestionOutcome) -> None:
-    if outcome.igreja_id is not None:
-        mark_tenant_scoped(session, outcome.igreja_id, source="worker_agent")
+def _scope_agent_session(session: Session, outcome: IngestionOutcome) -> uuid.UUID:
+    """Fixa e comprova o tenant antes de qualquer acesso ao ledger do agente."""
+
+    igreja_id = _require_agent_igreja_id(outcome)
+    mark_tenant_scoped(session, igreja_id, source="worker_agent")
+    require_tenant_scope(
+        session,
+        expected_igreja_id=igreja_id,
+        source="worker_agent",
+    )
+    return igreja_id
 
 
 def _load_agent_reply_intent(
@@ -2052,6 +2077,8 @@ def _deliver_agent_reply_intent(
     manual recovery.
     """
 
+    _require_agent_igreja_id(outcome)
+
     if intent.state == _AGENT_REPLY_CONFIRMED:
         return
     if intent.state in {
@@ -2183,6 +2210,8 @@ def _run_agent_legacy(
     webhook-derived production replies because it has no durable intent key.
     """
 
+    _require_agent_igreja_id(outcome)
+
     if ownership_guard is not None:
         ownership_guard()
     if evolution_client is None:
@@ -2236,6 +2265,8 @@ def run_agent_for_message(
     if outcome.conversation_id is None:
         return AgentRunDisposition.COMPLETED
 
+    igreja_id = _require_agent_igreja_id(outcome)
+
     provider_message_id = _agent_reply_idempotency_key(outcome)
     if provider_message_id is None:
         # Compatibility path for out-of-tree callers that predate durable queue
@@ -2244,11 +2275,10 @@ def run_agent_for_message(
             ownership_guard()
         session: Session = session_factory()
         try:
-            if outcome.igreja_id is not None:
-                _scope_agent_session(session, outcome)
-                log_if_not_scoped(session, source="worker_agent")
+            _scope_agent_session(session, outcome)
             result = process_inbound_message(
                 session,
+                igreja_id=igreja_id,
                 conversation_id=outcome.conversation_id,
                 texto=outcome.texto,
             )
@@ -2324,9 +2354,9 @@ def run_agent_for_message(
                     # — é aqui que tools, retrieval da KB e memória leem/escrevem
                     # dados do tenant.
                     _scope_agent_session(session, outcome)
-                    log_if_not_scoped(session, source="worker_agent")
                     result = process_inbound_message(
                         session,
+                        igreja_id=igreja_id,
                         conversation_id=outcome.conversation_id,
                         texto=outcome.texto,
                     )

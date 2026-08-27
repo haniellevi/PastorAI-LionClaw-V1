@@ -30,6 +30,39 @@ from app.db.models import (
 from app.services.clerk import ClerkAuthError, ClerkIdentity
 
 
+_RLS_GUARD_FIXTURES = frozenset(
+    {"rls_database_url", "rls_engine", "rls_seeded"}
+)
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    """Mantém marker e guard do banco descartável inseparáveis por teste.
+
+    A lista ``item.fixturenames`` já inclui dependências transitivas. Assim um
+    fixture local como ``engine_fx(rls_database_url)`` também fica coberto sem
+    depender de manifesto manual de arquivos.
+    """
+
+    violations: list[str] = []
+    for item in items:
+        marked = item.get_closest_marker("rls_integration") is not None
+        guarded = bool(_RLS_GUARD_FIXTURES.intersection(item.fixturenames))
+        if guarded and not marked:
+            violations.append(
+                f"{item.nodeid}: usa fixture RLS sem marker rls_integration"
+            )
+        elif marked and not guarded:
+            violations.append(
+                f"{item.nodeid}: marker rls_integration sem guard descartável"
+            )
+
+    if violations:
+        details = "\n".join(f"  - {value}" for value in violations)
+        raise pytest.UsageError(
+            "Contrato de coleta RLS violado:\n" + details
+        )
+
+
 def _plano_query_filters(statement) -> tuple[str | None, bool]:
     """Extrai os filtros (codigo, ativo) do WHERE compilado de uma query em `Plano`.
 
@@ -227,7 +260,9 @@ class FakeSession:
                 )
                 return _FakeResult(
                     one_row=SimpleNamespace(
-                        role="authenticated", igreja_id=igreja_id
+                        role="authenticated",
+                        igreja_id=igreja_id,
+                        tenant_guc=igreja_id,
                     )
                 )
             return _FakeResult()

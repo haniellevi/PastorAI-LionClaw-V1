@@ -1198,6 +1198,7 @@ def test_lease_recovery_between_ingest_and_agent_has_one_external_effect(
 
 def test_agent_checks_ownership_immediately_before_whatsapp(monkeypatch) -> None:
     from app.agent import runtime as runtime_module
+    from app.workers import queue_worker as worker_module
 
     monkeypatch.setattr(
         runtime_module,
@@ -1208,6 +1209,8 @@ def test_agent_checks_ownership_immediately_before_whatsapp(monkeypatch) -> None
             response="resposta",
         ),
     )
+    monkeypatch.setattr(worker_module, "mark_tenant_scoped", lambda *a, **k: None)
+    monkeypatch.setattr(worker_module, "require_tenant_scope", lambda *a, **k: None)
 
     class FakeEvolution:
         def __init__(self) -> None:
@@ -1234,6 +1237,7 @@ def test_agent_checks_ownership_immediately_before_whatsapp(monkeypatch) -> None
         telefone="5511988887777",
         texto="ola",
         inbound=True,
+        igreja_id=_IGREJA,
     )
 
     with pytest.raises(ClaimOwnershipLost, match="before WhatsApp"):
