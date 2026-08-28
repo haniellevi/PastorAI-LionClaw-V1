@@ -29,6 +29,11 @@ MIGRATIONS_DIR = REPO_ROOT / "backend" / "migrations"
 PACKETS_DIR = REPO_ROOT / "docs" / "governance" / "migrations" / "packets"
 
 CONTRACT_VERSION = "1.0"
+EXPECTED_CAPTURE_REPOSITORY_SHA = "656d1d9eebe90ad4b2cbb35c21939a6796c46bfe"
+UNREVIEWED_PACKAGE_IDS = {
+    "DEV": "migration-history-reconciliation-dev-evidence-v1",
+    "PROD": "migration-history-reconciliation-prod-evidence-v1",
+}
 CATALOG_PATH = "backend/migrations"
 CATALOG_ALGORITHM = "basename-ascii-ascending+sha256-raw-bytes-v1"
 PUBLIC_SOURCE = "public.schema_migrations"
@@ -39,7 +44,7 @@ PUBLIC_QUERY_CONTRACT = (
 )
 NATIVE_QUERY_CONTRACT = (
     "NATIVE_LEDGER_V1|ISOLATION=REPEATABLE_READ_READ_ONLY|"
-    "ORDER=version_ASC|PROJECTION=position,version,name"
+    "ORDER=version_ASC|PROJECTION=position,version,name_NULL_REDACTED"
 )
 
 MAX_PACKET_BYTES = 524_288
@@ -60,7 +65,6 @@ UTC_TIMESTAMP_RE = re.compile(
     r"T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\.[0-9]{1,6})?Z$"
 )
 NATIVE_VERSION_RE = re.compile(r"^[0-9]{14}$")
-NATIVE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_]{0,126}$")
 
 SAFETY_CONTRACT = {
     "offline_only": True,
@@ -787,10 +791,10 @@ def _validate_native_rows(rows: Any) -> list[dict[str, Any]]:
             datetime.strptime(version, "%Y%m%d%H%M%S")
         except ValueError as exc:
             raise SchemaError from exc
-        name_value = row["name"]
-        name = None if name_value is None else _string(name_value, pattern=NATIVE_NAME_RE)
+        if row["name"] is not None:
+            raise SchemaError
         versions.append(version)
-        result.append({"position": expected_position, "version": version, "name": name})
+        result.append({"position": expected_position, "version": version, "name": None})
     if len(set(versions)) != len(versions):
         raise SchemaError
     if versions != sorted(versions):
@@ -1075,6 +1079,18 @@ def _validate_packet_schema(packet: dict[str, Any]) -> dict[str, Any]:
     )
     reconciliation = _validate_reconciliation(value["reconciliation"])
     attestation = _validate_attestation(value["attestation"])
+    if artifact_state == "EVIDENCE_CAPTURED_UNREVIEWED":
+        if (
+            repository_sha != EXPECTED_CAPTURE_REPOSITORY_SHA
+            or package_id != UNREVIEWED_PACKAGE_IDS.get(environment)
+            or public_inventory["capture_state"] == "NOT_CAPTURED"
+            or native_inventory["capture_state"] == "NOT_CAPTURED"
+            or reconciliation["state"] != "NOT_REVIEWED"
+            or reconciliation["catalog_entries"]
+            or reconciliation["native_rows"]
+            or attestation["state"] != "NOT_ATTESTED"
+        ):
+            raise SchemaError
     return {
         "contract_version": CONTRACT_VERSION,
         "package_id": package_id,
@@ -1148,6 +1164,8 @@ def _verify_semantics(packet: dict[str, Any]) -> None:
         or snapshot_record in authorization_records
     ):
         raise InventoryBlockedError
+    if packet["artifact_state"] == "EVIDENCE_CAPTURED_UNREVIEWED":
+        raise HumanEvidenceBlockedError
     attestation = packet["attestation"]
     if attestation["state"] != "ATTESTED_REVIEW_ONLY":
         raise AttestationBlockedError

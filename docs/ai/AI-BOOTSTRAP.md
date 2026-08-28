@@ -36,7 +36,7 @@ externas com contratos e gates próprios.
 | Tema | Estado e proveniência | Leitura correta |
 |---|---|---|
 | V1 | `IMPLEMENTADO` | Encerrada como piloto controlado; não equivale ao produto amplo concluído |
-| Código | `VERIFICADO / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / DECISÕES HUMANAS PENDENTES / NÃO APLICADO / D2B2B3A INTEGRADA E INATIVA` | a PR #323 integrou `bootstrap-ledger`; a PR #325 integrou o pacote deny-state e o verificador offline no merge `ab7d09f07db96d5c63a2cc32dddf3f910e23bac2`, sem materializar inventário ou decisão e sem autorização operacional; a prova de banco continua exclusivamente descartável, sem aplicação em DEV ou PROD; os deploys automáticos do frontend não provam backend, banco ou runtime; D2B2B3A continua ausente nos bancos consultados e com flag `false` |
+| Código | `VERIFICADO / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR CANDIDATOS DA PR, COMPROVADOS OFFLINE E NÃO INTEGRADOS / INVENTÁRIOS DEV/PROD AINDA NÃO CAPTURADOS / DECISÕES HUMANAS PENDENTES / NÃO APLICADO / D2B2B3A INTEGRADA E INATIVA` | a PR #323 integrou `bootstrap-ledger`; a PR #325 integrou o pacote deny-state e o verificador offline; esta PR candidata adiciona somente o capturador/materializador comprovado offline, sem capturar inventário ou decisão e sem autorização operacional; a prova de banco continua exclusivamente descartável, sem aplicação em DEV ou PROD; os deploys automáticos do frontend não provam backend, banco ou runtime; D2B2B3A continua ausente nos bancos consultados e com flag `false` |
 | Produto WhatsApp-first | `PARCIAL` | A visão está aprovada; memória, conhecimento e ações profundas ainda faltam |
 | Agente Evolution | `PARCIAL / GATE OPERACIONAL` | Fundação, identidade e contenção existem; qualidade conversacional é insuficiente |
 | Canário ativo do agente | `PASS TÉCNICO / QUALIDADE INSUFICIENTE` | Evidência operacional reconciliada nesta missão, não prova previamente versionada em `ad4a272` |
@@ -333,9 +333,24 @@ A prova local preservada é `98/98` testes do verificador, `26/26` testes
 documentais e `42/42` testes offline do runner: agregado de
 `166 passed/45 skipped`. O template deny-state terminou bloqueado com exit `8`.
 
-O próximo gate único é preparar uma missão separada, explicitamente autorizada
-e somente leitura para capturar inventários sanitizados de DEV e PROD e
-materializar um pacote por ambiente. O gate não autoriza DML, comando do runner,
+O capturador e o materializador desta PR candidata foram comprovados offline
+sobre a base de catálogo
+`656d1d9eebe90ad4b2cbb35c21939a6796c46bfe`, com 75 migrations e digest
+`84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`.
+O estado é `CAPTURADOR/MATERIALIZADOR CANDIDATO DA PR / COMPROVADO OFFLINE /
+NÃO INTEGRADO / INVENTÁRIOS DEV/PROD AINDA NÃO CAPTURADOS / DECISÕES HUMANAS
+PENDENTES / NÃO APLICADO`. A matriz focal concluiu `166/166`, incluindo dois
+casos reais de PostgreSQL 17 em container descartável dedicado; o SQL allowlisted tem
+SHA-256 `8b589e5dda722691fead34cbd63cab75a7a22f32e0cf4bdfe64d6cef603866ee`,
+e a revisão independente resultou em `GO`. CI verde e a suíte completa
+permanecem parte do mesmo gate pré-merge. Não houve Supabase local na porta
+`54322`, DEV, PROD, rede, deploy, runner, DML, flag ou runtime. Nenhum inventário
+foi capturado, e todo sucesso continua com `OPERATIONAL_AUTHORIZATION=BLOCKED`.
+
+O próximo gate único é revisar e integrar esta PR com CI verde. Somente depois
+será permitido executar, em gate separado e já autorizado, a captura somente
+leitura dos inventários sanitizados de DEV e PROD e materializar um pacote por
+ambiente. Este gate não autoriza captura, DML, comando do runner,
 `bootstrap-ledger`, `harden-ledger`, `status`, `apply`, deploy, flag ou runtime.
 Universidade da Vida e Capacitação Destino permanecem fora desta missão.
 

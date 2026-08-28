@@ -93,11 +93,38 @@ A prova local preservada é `98/98` testes do verificador, `26/26` testes
 documentais e `42/42` testes offline do runner: agregado de
 `166 passed/45 skipped`. O template deny-state terminou bloqueado com exit `8`.
 
-O próximo gate é preparar uma missão separada, explicitamente autorizada e
-somente leitura para capturar inventários sanitizados de DEV e PROD e
-materializar um pacote por ambiente, sem DML, runner, `bootstrap-ledger`,
-`harden-ledger`, `status`, `apply`, deploy, flag ou runtime. UV e CD permanecem
-fora.
+O capturador e o materializador desta PR candidata foram comprovados offline
+sobre a base de catálogo
+`656d1d9eebe90ad4b2cbb35c21939a6796c46bfe`, com 75 migrations e digest
+`84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`.
+O estado é `CAPTURADOR/MATERIALIZADOR CANDIDATO DA PR / COMPROVADO OFFLINE /
+NÃO INTEGRADO / INVENTÁRIOS DEV/PROD AINDA NÃO CAPTURADOS / DECISÕES HUMANAS
+PENDENTES / NÃO APLICADO`. A matriz focal concluiu `166/166`, incluindo dois
+casos reais de PostgreSQL 17 em container descartável dedicado, e recebeu
+revisão independente `GO`. CI verde e a suíte completa permanecem parte do
+mesmo gate pré-merge. Não houve uso do Supabase local na porta `54322`, DEV,
+PROD, rede, deploy, runner, DML, flag ou runtime.
+
+O SQL allowlisted de captura tem SHA-256
+`8b589e5dda722691fead34cbd63cab75a7a22f32e0cf4bdfe64d6cef603866ee`,
+é somente um canal nominal e permite extrair apenas o `sanitized_capture` final.
+O materializador offline recebe a captura e a chave HMAC por descritores de
+arquivo independentes. O digest esperado do target binding entra somente pelo
+argumento sanitizado `--expected-target-binding-sha256`; a fonte permanece
+independente. `native.name` fica em `null`, e as saídas são criadas com modo
+`0600` e `O_EXCL`. Os basenames exatos são
+`migration-history-reconciliation-dev-evidence-v1.json` e
+`migration-history-reconciliation-prod-evidence-v1.json`. Todo pacote permanece
+bloqueado: o materializador começa por `OPERATIONAL_AUTHORIZATION=BLOCKED` e
+produz `EVIDENCE_CAPTURED_UNREVIEWED`. O verificador só termina em
+`HUMAN_EVIDENCE_BLOCKED` depois de validar a integridade e confirmar o ledger
+nativo `PRESENT_COMPLETE` não vazio. Casos anteriores podem terminar em
+`INVENTORY_BLOCKED` ou no motivo fail-closed correspondente.
+
+O próximo gate é revisar e integrar esta PR com CI verde. Somente depois será
+permitido executar, em gate separado e já autorizado, a captura somente leitura
+de DEV e PROD, sem DML ou runner. `bootstrap-ledger`, `harden-ledger`, `status`,
+`apply`, deploy, flag e runtime permanecem bloqueados. UV e CD permanecem fora.
 
 ## Transações especiais
 

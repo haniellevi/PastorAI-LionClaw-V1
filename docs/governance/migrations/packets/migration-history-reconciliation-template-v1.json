@@ -497,7 +497,7 @@
       "capture_record_sha256": null,
       "snapshot_record_sha256": null,
       "completeness_attested": false,
-      "query_contract": "NATIVE_LEDGER_V1|ISOLATION=REPEATABLE_READ_READ_ONLY|ORDER=version_ASC|PROJECTION=position,version,name",
+      "query_contract": "NATIVE_LEDGER_V1|ISOLATION=REPEATABLE_READ_READ_ONLY|ORDER=version_ASC|PROJECTION=position,version,name_NULL_REDACTED",
       "rows": [],
       "rows_digest_sha256": null
     }

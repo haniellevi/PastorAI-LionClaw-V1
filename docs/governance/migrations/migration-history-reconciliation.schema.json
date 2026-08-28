@@ -73,8 +73,130 @@
               "target_binding_sha256": {
                 "type": "string",
                 "pattern": "^[0-9a-f]{64}$"
+              },
+              "repository_sha": {
+                "const": "656d1d9eebe90ad4b2cbb35c21939a6796c46bfe"
               }
             }
+          },
+          "inventories": {
+            "properties": {
+              "public_ledger": {
+                "properties": {
+                  "capture_state": {
+                    "enum": [
+                      "ABSENT_CONFIRMED",
+                      "PRESENT_COMPLETE"
+                    ]
+                  }
+                }
+              },
+              "native_ledger": {
+                "properties": {
+                  "capture_state": {
+                    "enum": [
+                      "ABSENT_CONFIRMED",
+                      "PRESENT_COMPLETE"
+                    ]
+                  }
+                }
+              }
+            }
+          },
+          "reconciliation": {
+            "properties": {
+              "state": {
+                "const": "NOT_REVIEWED"
+              },
+              "catalog_entries": {
+                "maxItems": 0
+              },
+              "native_rows": {
+                "maxItems": 0
+              }
+            }
+          },
+          "attestation": {
+            "properties": {
+              "state": {
+                "const": "NOT_ATTESTED"
+              },
+              "inventory_attestation_record_sha256": {
+                "type": "null"
+              },
+              "migration_owner_decision_record_sha256": {
+                "type": "null"
+              },
+              "independent_review_record_sha256": {
+                "type": "null"
+              },
+              "attested_at_utc": {
+                "type": "null"
+              },
+              "payload_sha256": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "artifact_state": {
+            "const": "EVIDENCE_CAPTURED_UNREVIEWED"
+          },
+          "subject": {
+            "properties": {
+              "environment": {
+                "const": "DEV"
+              }
+            },
+            "required": [
+              "environment"
+            ]
+          }
+        },
+        "required": [
+          "artifact_state",
+          "subject"
+        ]
+      },
+      "then": {
+        "properties": {
+          "package_id": {
+            "const": "migration-history-reconciliation-dev-evidence-v1"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "artifact_state": {
+            "const": "EVIDENCE_CAPTURED_UNREVIEWED"
+          },
+          "subject": {
+            "properties": {
+              "environment": {
+                "const": "PROD"
+              }
+            },
+            "required": [
+              "environment"
+            ]
+          }
+        },
+        "required": [
+          "artifact_state",
+          "subject"
+        ]
+      },
+      "then": {
+        "properties": {
+          "package_id": {
+            "const": "migration-history-reconciliation-prod-evidence-v1"
           }
         }
       }
@@ -382,15 +504,7 @@
           "pattern": "^[0-9]{14}$"
         },
         "name": {
-          "anyOf": [
-            {
-              "type": "string",
-              "pattern": "^[a-z0-9][a-z0-9_]{0,126}$"
-            },
-            {
-              "type": "null"
-            }
-          ]
+          "const": null
         }
       }
     },
@@ -695,7 +809,7 @@
           "type": "boolean"
         },
         "query_contract": {
-          "const": "NATIVE_LEDGER_V1|ISOLATION=REPEATABLE_READ_READ_ONLY|ORDER=version_ASC|PROJECTION=position,version,name"
+          "const": "NATIVE_LEDGER_V1|ISOLATION=REPEATABLE_READ_READ_ONLY|ORDER=version_ASC|PROJECTION=position,version,name_NULL_REDACTED"
         },
         "rows": {
           "type": "array",

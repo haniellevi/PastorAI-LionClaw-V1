@@ -35,11 +35,11 @@ significa ativa em produção.
 | Pessoas e responsabilidades | `PARCIAL FORTE` | cadastro, papéis, vínculos, fila e escopos existentes | Fechar responsabilidades temporais, owner operacional e composição por setor |
 | Conexão WhatsApp | `IMPLEMENTADO / GATE OPERACIONAL` | Evolution, conexão por igreja, webhook e filas | Monitorar recibos, reconnect e capacidade antes de cada canário |
 | Conversas e handoff | `IMPLEMENTADO` | histórico, inbox, atribuição, transferência e estado IA/humano | Adicionar memória derivada, exclusão propagada e avaliação de naturalidade |
-| Fundação do agente | `IMPLEMENTADO / PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / DECISÕES HUMANAS PENDENTES / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | LangGraph stateless e contexto confiável D2B1 integrados; D2B2a adiciona persistência e serviço interno sem caller; D2B2b1 é deny-first; D2B2b3A integra rascunhos; a PR #323 integrou `bootstrap-ledger`; a PR #325 integrou o contrato deny-state e o verificador offline | Capturar inventários sanitizados em missão separada, autorizada e somente leitura; aprovações, catálogo, writer, memória, conhecimento, D2 e operação permanecem posteriores |
+| Fundação do agente | `IMPLEMENTADO / PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR CANDIDATOS DA PR, COMPROVADOS OFFLINE E NÃO INTEGRADOS / INVENTÁRIOS DEV/PROD AINDA NÃO CAPTURADOS / DECISÕES HUMANAS PENDENTES / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | LangGraph stateless e contexto confiável D2B1 integrados; D2B2a adiciona persistência e serviço interno sem caller; D2B2b1 é deny-first; D2B2b3A integra rascunhos; a PR #323 integrou `bootstrap-ledger`; a PR #325 integrou o contrato deny-state e o verificador offline; esta PR candidata adiciona somente o capturador/materializador comprovado offline | Revisar e integrar esta PR com CI verde; só depois, em gate separado, capturar inventários sanitizados em missão autorizada e somente leitura; aprovações, catálogo, writer, memória, conhecimento, D2 e operação permanecem posteriores |
 | Isolamento da memória | `AUSENTE / FUNDAÇÃO D2A INTEGRADA` | Nenhum checkpointer durável instalado; D2A cria somente role, schema, helper e factory privados ainda inativos | Tabelas com `igreja_id`, FORCE RLS, namespace server-side, exclusão e testes adversariais pertencem à D3 |
 | Conhecimento oficial | `AUSENTE` | Não há ingestão aprovada, embeddings ou recuperação institucional | Perfil da igreja, documentos versionados, audiência, RLS e busca híbrida |
 | Dados vivos como ferramentas | `PARCIAL` | Quatro ferramentas limitadas e queries determinísticas | Catálogo por especialista, capacidades e serviços compartilhados com o painel |
-| Consentimento | `PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / DECISÕES HUMANAS PENDENTES / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | Legado e opt-out continuam ativos; D2B2a adiciona ledger append-only sem caller ou aplicação em Supabase; D2B2b1 nega concessões; D2B2b3A prepara rascunhos; o bootstrap vazio foi integrado; a PR #325 integrou somente o contrato e o verificador offline, sem decisão humana | Capturar inventários sanitizados em missão separada, autorizada e somente leitura, mantendo D2, catálogo, prova, writer e operação bloqueados |
+| Consentimento | `PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR CANDIDATOS DA PR, COMPROVADOS OFFLINE E NÃO INTEGRADOS / INVENTÁRIOS DEV/PROD AINDA NÃO CAPTURADOS / DECISÕES HUMANAS PENDENTES / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | Legado e opt-out continuam ativos; D2B2a adiciona ledger append-only sem caller ou aplicação em Supabase; D2B2b1 nega concessões; D2B2b3A prepara rascunhos; o bootstrap vazio foi integrado; a PR #325 integrou somente o contrato e o verificador offline; esta PR candidata não captura inventário nem decide o histórico | Revisar e integrar esta PR com CI verde; só depois, em gate separado, capturar inventários sanitizados em missão autorizada e somente leitura, mantendo D2, catálogo, prova, writer e operação bloqueados |
 | Propostas e confirmação | `AUSENTE COMO PLATAFORMA` | Confirmações existem apenas em fluxos específicos | Registro durável, expiração, idempotência, revalidação e comprovante |
 | Notificações proativas | `PARCIAL E FRAGMENTADO` | SLA, cron, Agenda, event notify e broadcast têm caminhos próprios | Outbox única, finalidade, quiet hours, retry, recibo e escalonamento |
 | Painel de Hoje | `IMPLEMENTADO / PARCIAL` | dashboard e work queue por responsabilidade | Compor todas as responsabilidades e as lacunas de conhecimento |
@@ -55,7 +55,7 @@ significa ativa em produção.
 | Broadcast | `IMPLEMENTADO / GATE OPERACIONAL` | ledger, worker, retry e dead-letter | Política por finalidade e canário nominal separado |
 | Asaas | `IMPLEMENTADO / GATE OPERACIONAL` | operações duráveis, isolamento e hardening | Inventário e canário financeiro real, sem envolver a igreja em cortesia |
 | Brevo | `IMPLEMENTADO / GATE OPERACIONAL` | serviço e modo de envio fechado | Domínio, remetente, monitoramento e canário próprio |
-| Onboarding da igreja | `PARCIAL / GOVERNANÇA DRAFT-ONLY INTEGRADA E INATIVA` | telas e configurações administrativas existentes; D2B2b3A integra o preparo de rascunhos de consentimento no Console Master | Capturar inventários sanitizados em missão separada, autorizada e somente leitura; em gate posterior, criar o fluxo nominal de responsáveis e aprovações sem converter preenchimento em autoridade |
+| Onboarding da igreja | `PARCIAL / GOVERNANÇA DRAFT-ONLY INTEGRADA E INATIVA` | telas e configurações administrativas existentes; D2B2b3A integra o preparo de rascunhos de consentimento no Console Master | Revisar e integrar esta PR; só depois capturar inventários sanitizados em gate separado, autorizado e somente leitura; em gate posterior, criar o fluxo nominal de responsáveis e aprovações sem converter preenchimento em autoridade |
 | Exclusão e direitos da pessoa | `PARCIAL` | Exclusão de conversa remove conversa, mensagens e mídia | Propagar para transcrição, resumo, checkpoint, vetores e auditoria sem conteúdo |
 | Observabilidade de IA | `PARCIAL` | logs, custo, filas e metadados seguros de falha | Métricas por rota e tenant, SLO, retenção e alerta de workflows presos |
 | Acessibilidade e performance | `NÃO VERIFICADO INTEGRALMENTE` | Automação e estilos cobrem parte dos riscos | Leitor de tela, teclado, zoom, mobile e métricas de campo |
@@ -369,11 +369,26 @@ A prova local preservada é `98/98` testes do verificador, `26/26` testes
 documentais e `42/42` testes offline do runner: agregado de
 `166 passed/45 skipped`. O template deny-state terminou bloqueado com exit `8`.
 
-Preparar uma missão separada, explicitamente autorizada e somente leitura para
-capturar inventários sanitizados de DEV e PROD e materializar um pacote por
-ambiente. O gate não autoriza DML, comando do runner, `bootstrap-ledger`,
-`harden-ledger`, `status`, `apply`, deploy, flag ou runtime. Universidade da
-Vida e Capacitação Destino permanecem fora desta missão.
+O capturador e o materializador desta PR candidata foram comprovados offline
+sobre a base de catálogo
+`656d1d9eebe90ad4b2cbb35c21939a6796c46bfe`, com 75 migrations e digest
+`84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`.
+O estado é `CAPTURADOR/MATERIALIZADOR CANDIDATO DA PR / COMPROVADO OFFLINE /
+NÃO INTEGRADO / INVENTÁRIOS DEV/PROD AINDA NÃO CAPTURADOS / DECISÕES HUMANAS
+PENDENTES / NÃO APLICADO`. A matriz focal concluiu `166/166`, incluindo dois
+casos reais de PostgreSQL 17 em container descartável dedicado; o SQL allowlisted tem
+SHA-256 `8b589e5dda722691fead34cbd63cab75a7a22f32e0cf4bdfe64d6cef603866ee`,
+e a revisão independente resultou em `GO`. CI verde e a suíte completa
+permanecem parte do mesmo gate pré-merge. Não houve Supabase local na porta
+`54322`, DEV, PROD, rede, deploy, runner, DML, flag ou runtime. Nenhum inventário
+foi capturado, e todo sucesso continua com `OPERATIONAL_AUTHORIZATION=BLOCKED`.
+
+Revisar e integrar esta PR com CI verde. Somente depois será permitido executar,
+em gate separado e já autorizado, a captura somente leitura dos inventários
+sanitizados de DEV e PROD e materializar um pacote por ambiente. Este gate não
+autoriza captura, DML, comando do runner, `bootstrap-ledger`, `harden-ledger`,
+`status`, `apply`, deploy, flag ou runtime. Universidade da Vida e Capacitação
+Destino permanecem fora desta missão.
 
 ## Fontes principais
 

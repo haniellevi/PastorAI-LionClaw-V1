@@ -149,6 +149,52 @@ documentais e `42/42` testes offline do runner: agregado de
 Nenhum desses
 resultados prova ambiente ou decisão humana.
 
+## Capturador e materializador candidatos
+
+O capturador e o materializador desta PR candidata foram comprovados offline
+sobre a base de catálogo
+`656d1d9eebe90ad4b2cbb35c21939a6796c46bfe`, com 75 migrations e digest
+`84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`.
+O estado desta fatia é `CAPTURADOR/MATERIALIZADOR CANDIDATO DA PR / COMPROVADO
+OFFLINE / NÃO INTEGRADO / INVENTÁRIOS DEV/PROD AINDA NÃO CAPTURADOS / DECISÕES
+HUMANAS PENDENTES / NÃO APLICADO`.
+
+A superfície técnica candidata está limitada a
+`backend/scripts/capture_migration_history_evidence.py`,
+`backend/tests/test_capture_migration_history_evidence.py`, ao SQL allowlisted
+abaixo e às alterações candidatas no verificador, no teste do verificador, no
+schema e no template já listados. Nenhum desses artefatos integra o runner ou o
+runtime.
+
+O SQL allowlisted
+`docs/governance/migrations/migration-history-inventory-capture-v1.sql`, com
+SHA-256
+`8b589e5dda722691fead34cbd63cab75a7a22f32e0cf4bdfe64d6cef603866ee`,
+é apenas o canal nominal de consulta. Quando houver um gate operacional
+posterior, ele deve ser executado pelo canal autorizado e somente o valor final
+de `sanitized_capture` pode ser extraído, sem copiar saída auxiliar do comando.
+O materializador permanece offline: recebe a captura e a chave HMAC por
+descritores de arquivo independentes. O digest esperado do target binding entra
+somente pelo argumento sanitizado `--expected-target-binding-sha256`; a fonte
+permanece independente. `native.name` fica em `null`, e as saídas são criadas
+com modo `0600` e `O_EXCL`. Os pacotes têm basenames exatos
+`migration-history-reconciliation-dev-evidence-v1.json` e
+`migration-history-reconciliation-prod-evidence-v1.json`.
+
+Todo pacote permanece bloqueado. Uma materialização estruturalmente válida
+continua emitindo primeiro `OPERATIONAL_AUTHORIZATION=BLOCKED` e marca o pacote
+como `EVIDENCE_CAPTURED_UNREVIEWED`. O verificador só termina em
+`HUMAN_EVIDENCE_BLOCKED` depois de validar a integridade e confirmar o ledger
+nativo `PRESENT_COMPLETE` não vazio. Casos anteriores podem terminar em
+`INVENTORY_BLOCKED` ou no motivo fail-closed correspondente. Captura não
+equivale a decisão humana nem autoriza qualquer operação.
+
+A matriz focal concluiu `166/166`, incluindo dois casos reais de PostgreSQL 17
+em container descartável dedicado, e recebeu revisão independente `GO`. CI
+verde e a suíte completa permanecem parte do mesmo gate pré-merge. Ela não usou
+o Supabase local na porta `54322`, DEV, PROD, rede, deploy, runner, DML, flag ou
+runtime. Nenhum inventário de DEV ou PROD foi capturado.
+
 ## Estado operacional preservado
 
 O `bootstrap-ledger` integrado pela PR #323 continua não aplicado. O preflight
@@ -162,8 +208,9 @@ bloqueados.
 
 ## Próximo gate único
 
-Preparar uma missão separada, explicitamente autorizada e somente leitura para
-capturar inventários sanitizados de DEV e PROD e materializar um pacote por
-ambiente. O gate não autoriza DML, comando do runner, `bootstrap-ledger`,
+Revisar e integrar esta PR com CI verde. Somente depois da integração será
+permitido executar, em gate separado e já autorizado, a captura somente leitura
+dos inventários sanitizados de DEV e PROD e materializar um pacote por ambiente.
+Este gate não autoriza captura, DML, comando do runner, `bootstrap-ledger`,
 `harden-ledger`, `status`, `apply`, deploy, flag ou runtime. Universidade da
 Vida e Capacitação Destino permanecem fora desta missão.

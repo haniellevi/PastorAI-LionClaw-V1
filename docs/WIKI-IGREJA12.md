@@ -48,7 +48,7 @@ qualquer expansão do canário.
 | Agente e Evolution | `PARCIAL / GATE OPERACIONAL` | Corrigir memória, conhecimento e qualidade antes de novo canário |
 | Canário ativo | `PASS TÉCNICO / QUALIDADE INSUFICIENTE` | Avaliação conversacional humana após a nova fundação |
 | LangGraph | `IMPLEMENTADO STATELESS / D2B1 INTEGRADA` | Persistência, memória e subgrafos permanecem posteriores |
-| Consentimento | `PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / DECISÕES HUMANAS PENDENTES / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | Capturar inventários sanitizados em missão separada, autorizada e somente leitura; aprovações, catálogo, writers, Supabase e D2C permanecem bloqueados |
+| Consentimento | `PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR CANDIDATOS DA PR, COMPROVADOS OFFLINE E NÃO INTEGRADOS / INVENTÁRIOS DEV/PROD AINDA NÃO CAPTURADOS / DECISÕES HUMANAS PENDENTES / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | Revisar e integrar esta PR com CI verde; só depois capturar inventários sanitizados em gate separado, autorizado e somente leitura; aprovações, catálogo, writers, Supabase e D2C permanecem bloqueados |
 | Conhecimento por igreja | `AUSENTE` | Ingestão aprovada, ACL, busca e ferramentas de dados vivos |
 | Relatório por WhatsApp | `PARCIAL` | Confirmar e gravar no relatório canônico |
 | Central de Células | `PARCIAL FORTE` | Operação e notificações principais pelo WhatsApp |
@@ -452,8 +452,23 @@ A prova local preservada é `98/98` testes do verificador, `26/26` testes
 documentais e `42/42` testes offline do runner: agregado de
 `166 passed/45 skipped`. O template deny-state terminou bloqueado com exit `8`.
 
-Preparar uma missão separada, explicitamente autorizada e somente leitura para
-capturar inventários sanitizados de DEV e PROD e materializar um pacote por
-ambiente. O gate não autoriza DML, comando do runner, `bootstrap-ledger`,
-`harden-ledger`, `status`, `apply`, deploy, flag ou runtime. Universidade da
-Vida e Capacitação Destino permanecem fora desta missão.
+O capturador e o materializador desta PR candidata foram comprovados offline
+sobre a base de catálogo
+`656d1d9eebe90ad4b2cbb35c21939a6796c46bfe`, com 75 migrations e digest
+`84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`.
+O estado é `CAPTURADOR/MATERIALIZADOR CANDIDATO DA PR / COMPROVADO OFFLINE /
+NÃO INTEGRADO / INVENTÁRIOS DEV/PROD AINDA NÃO CAPTURADOS / DECISÕES HUMANAS
+PENDENTES / NÃO APLICADO`. A matriz focal concluiu `166/166`, incluindo dois
+casos reais de PostgreSQL 17 em container descartável dedicado; o SQL allowlisted tem
+SHA-256 `8b589e5dda722691fead34cbd63cab75a7a22f32e0cf4bdfe64d6cef603866ee`,
+e a revisão independente resultou em `GO`. CI verde e a suíte completa
+permanecem parte do mesmo gate pré-merge. Não houve Supabase local na porta
+`54322`, DEV, PROD, rede, deploy, runner, DML, flag ou runtime. Nenhum inventário
+foi capturado, e todo sucesso continua com `OPERATIONAL_AUTHORIZATION=BLOCKED`.
+
+Revisar e integrar esta PR com CI verde. Somente depois será permitido executar,
+em gate separado e já autorizado, a captura somente leitura dos inventários
+sanitizados de DEV e PROD e materializar um pacote por ambiente. Este gate não
+autoriza captura, DML, comando do runner, `bootstrap-ledger`, `harden-ledger`,
+`status`, `apply`, deploy, flag ou runtime. Universidade da Vida e Capacitação
+Destino permanecem fora desta missão.
