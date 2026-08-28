@@ -25,7 +25,7 @@ gates de produção.
   `BROADCAST_ASYNC_ENABLED=false`. Este é um relato operacional, não uma
   leitura atual de produção feita por esta atualização documental;
 - fonte de verdade do código: `origin/main` em
-  `01265fc7dfe239e487b5cddb6d9f6714128e3c84`. Merge em `main` não comprova
+  `1fbe1f499e81d22102d6f0507e31a59816a93055`. Merge em `main` não comprova
   deploy, por isso o estado versionado e o estado operacional são registrados
   separadamente.
 
@@ -481,26 +481,43 @@ no Supabase DEV `cxmjojnocigekgcxhubi`, seguida de post-check de constraints,
 
 ### D2A, fronteira privada inativa do agente (2026-08-27)
 
-A primeira fatia D2 é deliberadamente inativa. A candidata cria uma role
-`agent_runtime` sem login, um schema privado e um helper de tenant por GUC,
-além de uma factory exclusiva sem fallback para a conexão privilegiada. Worker,
-LangGraph e checkpointer continuam desconectados dessa factory.
+A PR #313 integrou a primeira fatia D2 no `origin/main`
+`1fbe1f499e81d22102d6f0507e31a59816a93055`. A D2A continua
+deliberadamente inativa: cria uma role `agent_runtime` sem login, um schema
+privado e um helper de tenant por GUC, além de uma factory exclusiva sem
+fallback para a conexão privilegiada. Worker, LangGraph e checkpointer
+continuam desconectados dessa factory.
 
-A candidata passou em PostgreSQL 17 descartável com 278 testes RLS e na suíte
-offline com 2.688 testes. O módulo D2A passou em 11/11 casos, dez RLS e um
-contrato estático. Essas evidências validam o SHA candidato local; não provam
-aplicação em Supabase, provisionamento ou execução do runtime em ambiente
-compartilhado.
+O candidato incorporado passou em PostgreSQL 17 descartável com 278 testes RLS
+e na suíte offline com 2.688 testes. O módulo D2A passou em 11/11 casos, dez RLS
+e um contrato estático. Essas evidências validam a implementação incorporada;
+não provam aplicação em Supabase, provisionamento ou execução do runtime em
+ambiente compartilhado.
+
+Na integração de 2026-08-27 em `America/Sao_Paulo`, os cinco workflows da PR
+#313 (`33136716048`, `33136716106`, `33136715981`, `33136716033` e
+`33136716067`) e os cinco workflows pós-merge (`33136878052`, `33136878082`,
+`33136878068`, `33136878076` e `33136878079`) concluíram verdes no merge commit
+`1fbe1f499e81d22102d6f0507e31a59816a93055`. O preview automático da PR não
+constituiu deploy manual, deploy do backend ou promoção a produção, nem prova
+de execução do backend em ambiente compartilhado.
 
 Esta fatia não cria memória, tabelas de checkpoint, consentimentos por
-finalidade, propostas, ferramentas ou especialistas. Também não provisiona
-senha, não aplica migration em Supabase, não faz deploy e não ativa o agente.
-Universidade da Vida e Capacitação Destino ficam fora da missão atual.
+finalidade, propostas, ferramentas ou especialistas. A integração também não
+provisionou credencial, não aplicou migration em ambiente compartilhado, não
+conectou o runtime, não fez deploy manual ou do backend, não promoveu a produção
+e não ativou o agente. Universidade da Vida e Capacitação Destino ficam fora da
+missão atual.
 
-**Próximo gate único:** revisar e integrar a PR D2A somente após PostgreSQL 17
-descartável, suítes offline e duas revisões independentes verdes. Aplicação em
-ambiente compartilhado, provisioning, conexão, deploy, ativação e canário
-permanecem fora deste gate.
+A sequência posterior fica congelada em `D2B1`, contexto confiável v1 criado no
+servidor e imutável para o grafo; `D2B2`, consentimentos independentes por
+finalidade; `D2C`, propostas duráveis com confirmação, expiração, idempotência
+e revalidação; e `D3`, memória privada durável com exclusão integral.
+
+**Próximo gate único:** revisar e integrar a PR documental D2-RECONCILE que
+registra o merge da D2A e congela o contrato das próximas fatias. Implementação,
+migration em ambiente compartilhado, provisioning, conexão, deploy, ativação e
+canário permanecem fora deste gate.
 
 ## Paralelismo seguro
 

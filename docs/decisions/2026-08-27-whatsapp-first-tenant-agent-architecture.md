@@ -20,8 +20,10 @@ uma superfície de configuração, governança, auditoria, exceção e seguranç
 ### Um produto, um grafo global, dados isolados
 
 Haverá uma definição global e versionada de LangGraph. Ela será composta por um
-grafo pai e subgrafos especialistas de Atendimento, Central de Células, Agenda,
-Consolidação, Universidade da Vida e Capacitação Destino.
+grafo pai e subgrafos especialistas incrementais. Atendimento, Central de
+Células, Agenda e Consolidação integram a missão atual. Universidade da Vida e
+Capacitação Destino permanecem na visão futura e exigem PRDs e missões próprias
+antes de qualquer implementação.
 
 Não haverá uma cópia divergente do código do agente por igreja. O mesmo grafo
 executa para todos os tenants, enquanto dados, memória, conhecimento,

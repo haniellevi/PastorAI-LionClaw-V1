@@ -3,8 +3,8 @@ project: igreja12
 document_kind: prd-coverage
 status: canonical-audit
 last_verified: 2026-08-27
-audited_repository_sha: 01265fc7dfe239e487b5cddb6d9f6714128e3c84
-historical_prd: docs/Docs20260611_163530/PRD20260611_163530.md
+audited_repository_sha: 1fbe1f499e81d22102d6f0507e31a59816a93055
+canonical_prd: docs/Docs20260611_163530/PRD20260611_163530.md
 ---
 
 # Cobertura atual do PRD e da visão WhatsApp-first
@@ -31,12 +31,12 @@ significa ativa em produção.
 
 | Domínio | Estado | Evidência no repositório | Lacuna para a visão aprovada |
 |---|---|---|---|
-| Autenticação, RBAC e tenant | `IMPLEMENTADO / HARDENING D2A EM PR` | D1A integrada e aplicada em DEV; D2A candidata separa a futura conexão do agente e passou em PostgreSQL 17 descartável | Integrar a PR e só então fazer preflight próprio antes de ambiente compartilhado |
+| Autenticação, RBAC e tenant | `IMPLEMENTADO / D2A INTEGRADA E INATIVA` | D1A integrada e aplicada em DEV; a PR #313 integrou a fronteira privada D2A no SHA auditado | A integração não aplicou migration compartilhada, não provisionou credencial, não conectou o runtime, não fez deploy manual ou do backend, não promoveu a produção e não ativou o agente; houve somente preview automático da PR |
 | Pessoas e responsabilidades | `PARCIAL FORTE` | cadastro, papéis, vínculos, fila e escopos existentes | Fechar responsabilidades temporais, owner operacional e composição por setor |
 | Conexão WhatsApp | `IMPLEMENTADO / GATE OPERACIONAL` | Evolution, conexão por igreja, webhook e filas | Monitorar recibos, reconnect e capacidade antes de cada canário |
 | Conversas e handoff | `IMPLEMENTADO` | histórico, inbox, atribuição, transferência e estado IA/humano | Adicionar memória derivada, exclusão propagada e avaliação de naturalidade |
 | Fundação do agente | `IMPLEMENTADO / PARCIAL` | LangGraph, identidade, consentimento, opt-out, autorização e BYO | Hoje é stateless, usa poucos subfluxos e não conhece a igreja em profundidade |
-| Isolamento da memória | `AUSENTE / FUNDAÇÃO D2A EM PR` | Nenhum checkpointer durável instalado; D2A candidata cria somente role, schema e contexto privados inativos | Tabelas com `igreja_id`, FORCE RLS, namespace server-side, exclusão e testes adversariais pertencem à D3 |
+| Isolamento da memória | `AUSENTE / FUNDAÇÃO D2A INTEGRADA` | Nenhum checkpointer durável instalado; D2A cria somente role, schema, helper e factory privados ainda inativos | Tabelas com `igreja_id`, FORCE RLS, namespace server-side, exclusão e testes adversariais pertencem à D3 |
 | Conhecimento oficial | `AUSENTE` | Não há ingestão aprovada, embeddings ou recuperação institucional | Perfil da igreja, documentos versionados, audiência, RLS e busca híbrida |
 | Dados vivos como ferramentas | `PARCIAL` | Quatro ferramentas limitadas e queries determinísticas | Catálogo por especialista, capacidades e serviços compartilhados com o painel |
 | Consentimento | `PARCIAL` | Termo versionado, aceite e opt-out global | Separar atendimento, cuidado pastoral, tarefas e comunicados |
@@ -147,8 +147,11 @@ fechados no PRD próprio antes do schema.
    na PR #310.
 2. `D1`: revalidar segurança, capacidades e escopos no SHA atual. Auditoria e
    hardening concluídos; PR #311 integrada e migration D1A aplicada em DEV.
-3. `D2`: contexto confiável, grafo pai, consentimentos e propostas. A primeira
-   fatia D2A cria a fronteira privada inativa, sem conectar worker ou LangGraph.
+3. `D2`: a D2A já está integrada como fronteira privada inativa, sem conectar
+   worker ou LangGraph. A continuação está congelada em `D2B1` (contexto
+   confiável v1 criado no servidor e imutável para o grafo), `D2B2`
+   (consentimentos independentes por finalidade) e `D2C` (propostas duráveis,
+   confirmação, expiração, idempotência e revalidação).
 4. `D3`: memória durável, privacidade e exclusão integral.
 5. `D4`: conhecimento oficial e onboarding guiado.
 6. `D5`: outbox e plataforma de notificações.
@@ -174,11 +177,12 @@ O projeto só pode ser chamado de integralmente concluído após o último marco
 conclusão da V1 permanece válida e não deve ser reaberta para esconder a
 expansão de escopo.
 
-## Próximo gate
+## Próximo gate único
 
-Revisar e integrar a PR D2A somente depois dos testes PostgreSQL e das revisões
-independentes. Aplicar D2A em ambiente compartilhado, provisionar a role,
-conectar o runtime, fazer deploy, ativar ou executar canário permanecem fora.
+Revisar e integrar a PR documental D2-RECONCILE que registra o merge da D2A e
+congela o contrato das próximas fatias. Implementação, aplicação em ambiente
+compartilhado, provisioning, conexão do runtime, deploy, ativação e canário
+permanecem fora deste gate.
 
 ## Fontes principais
 

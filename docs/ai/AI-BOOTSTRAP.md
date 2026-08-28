@@ -3,7 +3,7 @@ project: igreja12
 document_kind: ai-bootstrap
 status: canonical
 last_verified: 2026-08-27
-audited_repository_sha: 01265fc7dfe239e487b5cddb6d9f6714128e3c84
+audited_repository_sha: 1fbe1f499e81d22102d6f0507e31a59816a93055
 ---
 
 # Bootstrap canônico para agentes de IA
@@ -36,7 +36,7 @@ externas com contratos e gates próprios.
 | Tema | Estado no SHA auditado | Leitura correta |
 |---|---|---|
 | V1 | `IMPLEMENTADO` | Encerrada como piloto controlado; não equivale ao produto amplo concluído |
-| Código | `VERIFICADO` | `origin/main` em `01265fc7dfe239e487b5cddb6d9f6714128e3c84`; D1A integrada e D2A candidata inativa |
+| Código | `VERIFICADO` | `origin/main` em `1fbe1f499e81d22102d6f0507e31a59816a93055`; D1A e D2A integradas, com D2A ainda inativa |
 | Produto WhatsApp-first | `PARCIAL` | A visão está aprovada; memória, conhecimento e ações profundas ainda faltam |
 | Agente Evolution | `PARCIAL / GATE OPERACIONAL` | Fundação, identidade e contenção existem; qualidade conversacional é insuficiente |
 | Canário ativo do agente | `PASS TÉCNICO / QUALIDADE INSUFICIENTE` | Evidência operacional reconciliada nesta missão, não prova previamente versionada em `ad4a272` |
@@ -121,6 +121,24 @@ canônico de `celula_reuniao` e comprovante no WhatsApp.
 - OpenRouter não integra o PastorAI. A credencial da igreja é OpenAI BYO.
 - `AgentConfig.ativo` e os quatro gates externos permanecem fechados fora de
   canário nominalmente autorizado.
+
+## Sequência corrente da fundação
+
+A PR #313 integrou a D2A no SHA auditado. Ela continua inativa. A integração
+não aplicou migration em ambiente compartilhado, não provisionou credencial,
+não conectou o worker ou o LangGraph, não fez deploy manual ou do backend, não
+promoveu a produção e não ativou o agente. O único deploy associado foi o
+preview automático da PR, que não prova execução do backend nem ambiente
+compartilhado. As próximas fatias ficam congeladas nesta ordem:
+
+1. `D2B1`: contexto confiável v1 criado no servidor e imutável para o grafo;
+2. `D2B2`: consentimentos independentes por finalidade;
+3. `D2C`: propostas duráveis, confirmação, expiração e idempotência;
+4. `D3`: memória privada durável, recuperação seletiva e exclusão integral.
+
+Universidade da Vida e Capacitação Destino permanecem na visão futura, mas
+estão excluídas da missão atual e não podem ser inferidas dos placeholders.
+Esta sequência não autoriza implementação nem qualquer ação operacional.
 
 ## Roteiro de leitura
 

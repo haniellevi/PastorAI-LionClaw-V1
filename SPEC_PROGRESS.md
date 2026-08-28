@@ -11,9 +11,10 @@ Baseline confirmada no codigo:
 
 - o LangGraph atual e compilado sem checkpointer duravel; configurar `AGENT_GRAPH_CHECKPOINT_URL` apenas produz um aviso e a execucao continua stateless;
 - o runtime resolve tenant, Pessoa, papel autenticado e permissoes no servidor antes das tools existentes;
-- a candidata D2A adiciona somente uma fronteira PostgreSQL privada e inativa,
-  com `agent_runtime` sem login, helper de tenant e factory exclusiva ainda
-  desconectada do worker e do LangGraph;
+- a PR #313 integrou a D2A no `origin/main`
+  `1fbe1f499e81d22102d6f0507e31a59816a93055`; ela adiciona somente uma
+  fronteira PostgreSQL privada e inativa, com `agent_runtime` sem login, helper
+  de tenant e factory exclusiva ainda desconectada do worker e do LangGraph;
 - `report_capture` extrai um resumo e registra evento de auditoria, mas nao persiste o relatorio canonico de `celula_reuniao`;
 - OpenAI BYO e o provedor do PastorAI; OpenRouter nao faz parte do produto.
 
@@ -25,6 +26,17 @@ Roadmap funcional aprovado e ainda pendente:
 4. uma definicao global e versionada do LangGraph com especialistas comuns por dominio;
 5. primeira vertical completa: relatorio de celula pelo WhatsApp, com lembrete, texto ou audio, resumo, confirmacao, gravacao canonica e comprovante;
 6. painel web reservado a configuracao, governanca, supervisao, excecoes e conclusao de acoes sensiveis.
+
+Sequencia congelada depois da D2A: `D2B1` implementa o contexto confiavel v1
+criado no servidor e imutavel para o grafo; `D2B2` separa consentimentos por
+finalidade; `D2C` cria propostas duraveis, confirmacao, expiracao e
+idempotencia; `D3` implementa memoria privada duravel e exclusao integral.
+Universidade da Vida e Capacitacao Destino permanecem na visao futura, fora da
+missao atual. A D2A continua inativa: a integracao nao aplicou migration em
+ambiente compartilhado, nao provisionou credencial, nao conectou o runtime, nao
+fez deploy manual ou do backend, nao promoveu a producao e nao ativou o agente.
+O unico deploy associado foi o preview automatico da PR, que nao prova execucao
+do backend nem ambiente compartilhado.
 
 ---
 

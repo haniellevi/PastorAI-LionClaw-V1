@@ -365,7 +365,7 @@ backend/
 
 O codigo atual compila um grafo **stateless**, sem checkpointer duravel. A variavel `AGENT_GRAPH_CHECKPOINT_URL` apenas gera aviso quando configurada; nao ativa persistencia. Os nodes atuais cobrem `handoff`, `optout`, `consent`, `report_capture` e `onboarding`. O `report_capture` registra um evento de auditoria, mas ainda nao grava o relatorio canonico de `celula_reuniao`. Esses pontos permanecem pendentes e nao podem ser tratados como entrega concluida.
 
-A evolucao aprovada mantem uma unica politica global e adiciona especialistas por dominio, inicialmente Atendimento, Central de Celulas, Agenda, Consolidacao, Universidade da Vida e Capacitacao Destino. Especialistas nunca enviam mensagens diretamente e nunca recebem IDs de tenant escolhidos pelo modelo ou pelo cliente.
+A evolucao aprovada mantem uma unica politica global e adiciona especialistas por dominio de forma incremental. Atendimento, Central de Celulas, Agenda e Consolidacao integram a missao atual; Universidade da Vida e Capacitacao Destino permanecem na visao futura e dependem de PRDs e missoes proprias. Especialistas nunca enviam mensagens diretamente e nunca recebem IDs de tenant escolhidos pelo modelo ou pelo cliente.
 
 Memoria e conhecimento sao contratos diferentes:
 

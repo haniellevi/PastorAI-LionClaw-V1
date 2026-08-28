@@ -1,7 +1,7 @@
 # Wiki do projeto Igreja 12
 
 Snapshot documental de 2026-08-27, baseado no `origin/main`
-`01265fc7dfe239e487b5cddb6d9f6714128e3c84`, na auditoria D1 e na
+`1fbe1f499e81d22102d6f0507e31a59816a93055`, na auditoria D1 e na
 reconciliação operacional registrada nesta fase.
 
 ## Leitura de 30 segundos
@@ -158,8 +158,8 @@ WhatsApp
        -> Central de Células
        -> Agenda
        -> Consolidação
-       -> Universidade da Vida
-       -> Capacitação Destino
+       -> Universidade da Vida (visão futura, fora da missão atual)
+       -> Capacitação Destino (visão futura, fora da missão atual)
   -> política de resposta e proposta de ação
   -> outbox
   -> Evolution
@@ -190,10 +190,20 @@ DEV depois de preflight próprio. Produção não foi alterada.
 
 Construir contexto confiável, consentimentos por finalidade, propostas de
 ação, memória durável, exclusão integral, conhecimento oficial, onboarding e
-outbox unificada. A D2A inicia somente a fronteira privada inativa: role sem
-login, schema privado, helper de tenant e factory exclusiva ainda desconectada
-do worker e do LangGraph. A candidata passou em 278 testes RLS no PostgreSQL 17
-descartável e em 2.688 testes offline; isso não prova ambiente compartilhado.
+outbox unificada. A PR #313 integrou a D2A como fronteira privada inativa: role
+sem login, schema privado, helper de tenant e factory exclusiva ainda
+desconectada do worker e do LangGraph. O candidato incorporado passou em 278
+testes RLS no PostgreSQL 17 descartável e em 2.688 testes offline; isso não
+prova execução em ambiente compartilhado. A integração não aplicou migration
+compartilhada, não provisionou credencial, não conectou o runtime, não fez
+deploy manual ou do backend, não promoveu a produção e não ativou o agente. O
+único deploy associado foi o preview automático da PR, que não prova execução
+do backend nem ambiente compartilhado.
+
+A continuação está congelada em `D2B1`, contexto confiável v1 criado no servidor
+e imutável para o grafo; `D2B2`, consentimentos independentes por finalidade;
+`D2C`, propostas duráveis com confirmação, expiração e idempotência; e `D3`,
+memória privada durável com exclusão integral.
 
 ### D6, primeira vertical
 
@@ -240,8 +250,8 @@ Em divergência, use esta ordem:
 Nenhum item desta Wiki autoriza migration, deploy, flag, mensagem, cobrança ou
 canário.
 
-## Próximo gate
+## Próximo gate único
 
-Revisar e integrar a PR D2A depois dos testes PostgreSQL e das revisões
-independentes. Ambiente compartilhado, provisioning, conexão do runtime,
-deploy, ativação e canário exigem gates próprios depois do merge.
+Revisar e integrar a PR documental D2-RECONCILE que registra o merge da D2A e
+congela o contrato das próximas fatias. Implementação, ambiente compartilhado,
+provisioning, conexão do runtime, deploy, ativação e canário permanecem fora.
