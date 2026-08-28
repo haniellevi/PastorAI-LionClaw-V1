@@ -1,6 +1,6 @@
 # PastorAI V1 — runbook canônico de produção
 
-Atualizado em 2026-08-24. Este é o procedimento operacional vigente para o
+Atualizado em 2026-08-27. Este é o procedimento operacional vigente para o
 Igreja 12. Não contém segredos; valores reais ficam somente nos provedores e no
 `.env` do release ativo, acessível por `/opt/pastorai-current/deploy/.env`.
 
@@ -103,6 +103,12 @@ novo usa OAuth por igreja. Nunca imprimir, versionar ou incluir o `.env` no
 tarball de deploy. O pacote de backup é uma exceção operacional controlada:
 fica restrito a root e só sai da VPS criptografado, conforme o runbook de
 backup.
+
+`AGENT_RUNTIME_DATABASE_URL` permanece vazio enquanto a D2A estiver inativa.
+Merge ou deploy do código não provisiona credencial, não habilita login da
+role e não conecta o worker ao runtime privado. Um gate posterior precisa
+provar a migration no ambiente alvo, provisionar a credencial por canal
+secreto, validar a role dedicada e manter a URL diferente de `DATABASE_URL`.
 
 O Brevo inicia com `BREVO_SEND_MODE=off`. Para um teste controlado, usar
 `canary` e preencher `BREVO_CANARY_RECIPIENTS` com a lista CSV de destinatários

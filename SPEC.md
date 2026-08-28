@@ -780,6 +780,10 @@ SUPABASE_ANON_KEY=eyJxxx
 SUPABASE_SERVICE_ROLE_KEY=eyJxxx
 DATABASE_URL=postgresql://user:pass@host:5432/pastorai
 
+# Runtime privado do agente (D2A). Vazio ate o provisioning operacional.
+# Nunca reutilizar DATABASE_URL nem credenciais postgres/service_role.
+AGENT_RUNTIME_DATABASE_URL=
+
 # Criptografia de segredos (RNF-03 - credenciais LLM/integracoes)
 SECRETS_ENCRYPTION_KEY=base64_32_bytes_key
 
