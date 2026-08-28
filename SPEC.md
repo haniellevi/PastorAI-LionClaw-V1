@@ -533,26 +533,36 @@ A prova local preservada e `98/98` testes do verificador, `26/26` testes
 documentais e `42/42` testes offline do runner: agregado de
 `166 passed/45 skipped`. O template deny-state terminou bloqueado com exit `8`.
 
-O capturador e o materializador desta PR candidata foram comprovados offline
-sobre a base de catalogo
-`656d1d9eebe90ad4b2cbb35c21939a6796c46bfe`, com 75 migrations e digest
-`84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`.
-O estado e `CAPTURADOR/MATERIALIZADOR CANDIDATO DA PR / COMPROVADO OFFLINE /
-NAO INTEGRADO / INVENTARIOS DEV/PROD AINDA NAO CAPTURADOS / DECISOES HUMANAS
-PENDENTES / NAO APLICADO`. A matriz focal concluiu `166/166`, incluindo dois
-casos reais de PostgreSQL 17 em container descartavel dedicado; o SQL allowlisted tem
-SHA-256 `8b589e5dda722691fead34cbd63cab75a7a22f32e0cf4bdfe64d6cef603866ee`,
-e a revisao independente resultou em `GO`. CI verde e a suite completa
-permanecem parte do mesmo gate pre-merge. Nao houve Supabase local na porta
-`54322`, DEV, PROD, rede, deploy, runner, DML, flag ou runtime. Nenhum inventario
-foi capturado, e todo sucesso continua com `OPERATIONAL_AUTHORIZATION=BLOCKED`.
+O capturador e o materializador foram integrados pela PR #327, HEAD
+`c4f7a25b81a8091a0d74783c816a168bb7adf44d`, no merge
+`f9201a06495fad138e313e4149ad9275ff896900`. A PR #328 integrou o hotfix, HEAD
+`2cbdfaf39ae11d984f0aa27dfcf0910c25984840`, no merge
+`04e5c1720bf89313718c4159a2ac9d0eeeed3c25`. O catalogo de base
+`656d1d9eebe90ad4b2cbb35c21939a6796c46bfe` contem 75 migrations e digest
+`84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`; o SQL
+allowlisted tem SHA-256
+`8b589e5dda722691fead34cbd63cab75a7a22f32e0cf4bdfe64d6cef603866ee`.
 
-**Proximo gate unico:** revisar e integrar esta PR com CI verde. Somente depois
-sera permitido executar, em gate separado e ja autorizado, a captura somente
-leitura dos inventarios sanitizados de DEV e PROD e materializar um pacote por
-ambiente. Este gate nao autoriza captura, DML, comando do runner,
+O estado e `INVENTARIOS DEV E PROD CAPTURADOS / NAO REVISADOS / BLOQUEADOS /
+DECISOES HUMANAS PENDENTES / NAO APLICADO`. Em PostgreSQL 17, DEV registrou
+33 linhas no ledger publico e 6 no nativo em
+`2026-08-28T22:43:11.454382Z`; PROD registrou o ledger publico
+`ABSENT_CONFIRMED`, com 0 linhas, e 32 linhas no nativo em
+`2026-08-28T22:47:43.965243Z`. `native.name` permaneceu sempre `null`. Os dois
+pacotes estao em `EVIDENCE_CAPTURED_UNREVIEWED`; cada verificacao terminou com
+exit `8`, `HUMAN_EVIDENCE_BLOCKED`, e a checagem conjunta terminou
+`CROSS_PACKAGE_OK`. A matriz focal offline pos-captura passou com `163 passed,
+2 skipped` em `1.40s`; isso nao e suite integral nem reexecucao PostgreSQL.
+
+A captura ocorreu somente em leitura e nao executou DML, runner,
 `bootstrap-ledger`, `harden-ledger`, `status`, `apply`, deploy, flag ou runtime.
-Universidade da Vida e Capacitacao Destino permanecem fora desta missao.
+Os seis artefatos permanecem bloqueados e nao provam decisao humana, migration
+aplicada, prefixo reconciliado ou autorizacao operacional.
+
+**Proximo gate unico:** revisao humana offline independente dos pacotes e das
+evidencias, sem nova consulta a DEV ou PROD e sem liberar o runner. O gate nao
+autoriza DML, `bootstrap-ledger`, `harden-ledger`, `status`, `apply`, deploy,
+flag ou runtime. Universidade da Vida e Capacitacao Destino permanecem fora.
 
 A evolucao aprovada mantem uma unica politica global e adiciona especialistas por dominio de forma incremental. Atendimento, Central de Celulas, Agenda e Consolidacao integram a missao atual; Universidade da Vida e Capacitacao Destino permanecem na visao futura e dependem de PRDs e missoes proprias. Especialistas nunca enviam mensagens diretamente e nunca recebem IDs de tenant escolhidos pelo modelo ou pelo cliente.
 

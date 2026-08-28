@@ -72,10 +72,11 @@ O merge `3a5789c784017ab15a43e28c4270d25af8618359` integrou o código em
 `main`. A Vercel produziu Preview e Production automáticos do frontend; essa
 metadata não prova deploy do backend, banco ou runtime.
 
-Nenhuma execução ocorreu em DEV ou PROD. Não use `bootstrap-ledger`,
-`harden-ledger`, `status`, `apply`, SQL Editor, `apply_migration`, `db push` ou
-MCP para preencher, reaplicar ou reconciliar histórico em ambiente
-compartilhado.
+Até a missão anterior, nenhuma execução havia ocorrido em DEV ou PROD. A
+captura somente leitura documentada abaixo não altera esse estado de aplicação.
+Não use `bootstrap-ledger`, `harden-ledger`, `status`, `apply`, SQL Editor,
+`apply_migration`, `db push` ou MCP para preencher, reaplicar ou reconciliar
+histórico em ambiente compartilhado.
 
 O pacote deny-state versionado e o verificador stdlib separado do runner, comprovados
 offline sobre a base `cfeba13c0a9d08288f8c956ee2f35ddc1c0c35b7`, foram
@@ -93,17 +94,11 @@ A prova local preservada é `98/98` testes do verificador, `26/26` testes
 documentais e `42/42` testes offline do runner: agregado de
 `166 passed/45 skipped`. O template deny-state terminou bloqueado com exit `8`.
 
-O capturador e o materializador desta PR candidata foram comprovados offline
-sobre a base de catálogo
-`656d1d9eebe90ad4b2cbb35c21939a6796c46bfe`, com 75 migrations e digest
+O capturador e o materializador foram integrados pela PR #327, no merge
+`f9201a06495fad138e313e4149ad9275ff896900`, e o hotfix da PR #328 foi integrado
+no merge `04e5c1720bf89313718c4159a2ac9d0eeeed3c25`. O catálogo usado tem base
+`656d1d9eebe90ad4b2cbb35c21939a6796c46bfe`, 75 migrations e digest
 `84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`.
-O estado é `CAPTURADOR/MATERIALIZADOR CANDIDATO DA PR / COMPROVADO OFFLINE /
-NÃO INTEGRADO / INVENTÁRIOS DEV/PROD AINDA NÃO CAPTURADOS / DECISÕES HUMANAS
-PENDENTES / NÃO APLICADO`. A matriz focal concluiu `166/166`, incluindo dois
-casos reais de PostgreSQL 17 em container descartável dedicado, e recebeu
-revisão independente `GO`. CI verde e a suíte completa permanecem parte do
-mesmo gate pré-merge. Não houve uso do Supabase local na porta `54322`, DEV,
-PROD, rede, deploy, runner, DML, flag ou runtime.
 
 O SQL allowlisted de captura tem SHA-256
 `8b589e5dda722691fead34cbd63cab75a7a22f32e0cf4bdfe64d6cef603866ee`,
@@ -111,8 +106,10 @@ O SQL allowlisted de captura tem SHA-256
 O materializador offline recebe a captura e a chave HMAC por descritores de
 arquivo independentes. O digest esperado do target binding entra somente pelo
 argumento sanitizado `--expected-target-binding-sha256`; a fonte permanece
-independente. `native.name` fica em `null`, e as saídas são criadas com modo
-`0600` e `O_EXCL`. Os basenames exatos são
+independente. `native.name` fica em `null`. Na materialização local, as saídas
+são originalmente criadas com modo `0600` e `O_EXCL`; depois do versionamento,
+a proteção depende da sanitização e da ACL do repositório, não do modo do
+checkout. Os basenames exatos são
 `migration-history-reconciliation-dev-evidence-v1.json` e
 `migration-history-reconciliation-prod-evidence-v1.json`. Todo pacote permanece
 bloqueado: o materializador começa por `OPERATIONAL_AUTHORIZATION=BLOCKED` e
@@ -121,10 +118,24 @@ produz `EVIDENCE_CAPTURED_UNREVIEWED`. O verificador só termina em
 nativo `PRESENT_COMPLETE` não vazio. Casos anteriores podem terminar em
 `INVENTORY_BLOCKED` ou no motivo fail-closed correspondente.
 
-O próximo gate é revisar e integrar esta PR com CI verde. Somente depois será
-permitido executar, em gate separado e já autorizado, a captura somente leitura
-de DEV e PROD, sem DML ou runner. `bootstrap-ledger`, `harden-ledger`, `status`,
-`apply`, deploy, flag e runtime permanecem bloqueados. UV e CD permanecem fora.
+O estado atual é `INVENTÁRIOS DEV E PROD CAPTURADOS / NÃO REVISADOS /
+BLOQUEADOS / DECISÕES HUMANAS PENDENTES / NÃO APLICADO`. Em PostgreSQL 17,
+DEV registrou 33 linhas no ledger público e 6 no nativo em
+`2026-08-28T22:43:11.454382Z`; PROD registrou o ledger público
+`ABSENT_CONFIRMED`, com 0 linhas, e 32 linhas no nativo em
+`2026-08-28T22:47:43.965243Z`. `native.name` permaneceu `null`. Os seis artefatos
+foram originalmente materializados localmente com modo `0600` e `O_EXCL`;
+versionados, sua proteção depende da sanitização e da ACL do repositório,
+não do modo do checkout. Ambos os pacotes estão
+`EVIDENCE_CAPTURED_UNREVIEWED`, terminaram no verificador com exit `8` e
+`HUMAN_EVIDENCE_BLOCKED`, e a checagem conjunta terminou `CROSS_PACKAGE_OK`.
+A matriz focal offline pós-captura passou com `163 passed, 2 skipped` em
+`1.40s`; isso não é suíte integral nem reexecução PostgreSQL.
+
+A captura foi somente leitura, sem DML, runner, `bootstrap-ledger`,
+`harden-ledger`, `status`, `apply`, deploy, flag ou runtime. O próximo gate é
+uma revisão humana offline independente dos pacotes e evidências, sem nova
+consulta a DEV ou PROD e sem liberar o runner. UV e CD permanecem fora.
 
 ## Transações especiais
 

@@ -1,7 +1,7 @@
 # Wiki do projeto Igreja 12
 
 Snapshot documental no merge auditado
-`ab7d09f07db96d5c63a2cc32dddf3f910e23bac2`. O `bootstrap-ledger` permanece
+`04e5c1720bf89313718c4159a2ac9d0eeeed3c25`. O `bootstrap-ledger` permanece
 integrado pelo merge `3a5789c784017ab15a43e28c4270d25af8618359`. O preflight PROD histórico
 permanece fixado na baseline auditada
 `15deaf88fd4cab5b4bebdd1435a81c8b33c2b159`; a implementação D2B2b3A veio do
@@ -48,7 +48,7 @@ qualquer expansão do canário.
 | Agente e Evolution | `PARCIAL / GATE OPERACIONAL` | Corrigir memória, conhecimento e qualidade antes de novo canário |
 | Canário ativo | `PASS TÉCNICO / QUALIDADE INSUFICIENTE` | Avaliação conversacional humana após a nova fundação |
 | LangGraph | `IMPLEMENTADO STATELESS / D2B1 INTEGRADA` | Persistência, memória e subgrafos permanecem posteriores |
-| Consentimento | `PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR CANDIDATOS DA PR, COMPROVADOS OFFLINE E NÃO INTEGRADOS / INVENTÁRIOS DEV/PROD AINDA NÃO CAPTURADOS / DECISÕES HUMANAS PENDENTES / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | Revisar e integrar esta PR com CI verde; só depois capturar inventários sanitizados em gate separado, autorizado e somente leitura; aprovações, catálogo, writers, Supabase e D2C permanecem bloqueados |
+| Consentimento | `PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR INTEGRADOS / INVENTÁRIOS DEV E PROD CAPTURADOS, NÃO REVISADOS E BLOQUEADOS / DECISÕES HUMANAS PENDENTES / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | Revisão humana offline independente dos pacotes e evidências, sem nova consulta aos ambientes e sem liberar runner; aprovações, catálogo, writers, Supabase e D2C permanecem bloqueados |
 | Conhecimento por igreja | `AUSENTE` | Ingestão aprovada, ACL, busca e ferramentas de dados vivos |
 | Relatório por WhatsApp | `PARCIAL` | Confirmar e gravar no relatório canônico |
 | Central de Células | `PARCIAL FORTE` | Operação e notificações principais pelo WhatsApp |
@@ -452,23 +452,33 @@ A prova local preservada é `98/98` testes do verificador, `26/26` testes
 documentais e `42/42` testes offline do runner: agregado de
 `166 passed/45 skipped`. O template deny-state terminou bloqueado com exit `8`.
 
-O capturador e o materializador desta PR candidata foram comprovados offline
-sobre a base de catálogo
-`656d1d9eebe90ad4b2cbb35c21939a6796c46bfe`, com 75 migrations e digest
-`84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`.
-O estado é `CAPTURADOR/MATERIALIZADOR CANDIDATO DA PR / COMPROVADO OFFLINE /
-NÃO INTEGRADO / INVENTÁRIOS DEV/PROD AINDA NÃO CAPTURADOS / DECISÕES HUMANAS
-PENDENTES / NÃO APLICADO`. A matriz focal concluiu `166/166`, incluindo dois
-casos reais de PostgreSQL 17 em container descartável dedicado; o SQL allowlisted tem
-SHA-256 `8b589e5dda722691fead34cbd63cab75a7a22f32e0cf4bdfe64d6cef603866ee`,
-e a revisão independente resultou em `GO`. CI verde e a suíte completa
-permanecem parte do mesmo gate pré-merge. Não houve Supabase local na porta
-`54322`, DEV, PROD, rede, deploy, runner, DML, flag ou runtime. Nenhum inventário
-foi capturado, e todo sucesso continua com `OPERATIONAL_AUTHORIZATION=BLOCKED`.
+O capturador e o materializador foram integrados pela PR #327, HEAD
+`c4f7a25b81a8091a0d74783c816a168bb7adf44d`, no merge
+`f9201a06495fad138e313e4149ad9275ff896900`. A PR #328 integrou o hotfix, HEAD
+`2cbdfaf39ae11d984f0aa27dfcf0910c25984840`, no merge
+`04e5c1720bf89313718c4159a2ac9d0eeeed3c25`. O catálogo de base
+`656d1d9eebe90ad4b2cbb35c21939a6796c46bfe` contém 75 migrations e digest
+`84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`; o SQL
+allowlisted tem SHA-256
+`8b589e5dda722691fead34cbd63cab75a7a22f32e0cf4bdfe64d6cef603866ee`.
 
-Revisar e integrar esta PR com CI verde. Somente depois será permitido executar,
-em gate separado e já autorizado, a captura somente leitura dos inventários
-sanitizados de DEV e PROD e materializar um pacote por ambiente. Este gate não
-autoriza captura, DML, comando do runner, `bootstrap-ledger`, `harden-ledger`,
-`status`, `apply`, deploy, flag ou runtime. Universidade da Vida e Capacitação
-Destino permanecem fora desta missão.
+O estado é `INVENTÁRIOS DEV E PROD CAPTURADOS / NÃO REVISADOS / BLOQUEADOS /
+DECISÕES HUMANAS PENDENTES / NÃO APLICADO`. Em PostgreSQL 17, DEV registrou
+33 linhas no ledger público e 6 no nativo em
+`2026-08-28T22:43:11.454382Z`; PROD registrou o ledger público
+`ABSENT_CONFIRMED`, com 0 linhas, e 32 linhas no nativo em
+`2026-08-28T22:47:43.965243Z`. `native.name` permaneceu sempre `null`. Os dois
+pacotes estão em `EVIDENCE_CAPTURED_UNREVIEWED`; cada verificação terminou com
+exit `8`, `HUMAN_EVIDENCE_BLOCKED`, e a checagem conjunta terminou
+`CROSS_PACKAGE_OK`. A matriz focal offline pós-captura passou com `163 passed,
+2 skipped` em `1.40s`; isso não é suíte integral nem reexecução PostgreSQL.
+
+A captura ocorreu somente em leitura e não executou DML, runner,
+`bootstrap-ledger`, `harden-ledger`, `status`, `apply`, deploy, flag ou runtime.
+Os seis artefatos permanecem bloqueados e não provam decisão humana, migration
+aplicada, prefixo reconciliado ou autorização operacional.
+
+Revisão humana offline independente dos pacotes e das evidências, sem nova
+consulta a DEV ou PROD e sem liberar o runner. O gate não autoriza DML,
+`bootstrap-ledger`, `harden-ledger`, `status`, `apply`, deploy, flag ou runtime.
+Universidade da Vida e Capacitação Destino permanecem fora.

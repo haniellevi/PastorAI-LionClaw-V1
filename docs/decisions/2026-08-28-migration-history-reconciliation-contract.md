@@ -1,7 +1,7 @@
 # Contrato offline de reconciliação do histórico de migrations
 
-**Estado:** `INTEGRADO / COMPROVADO OFFLINE / DECISÕES HUMANAS PENDENTES / NÃO
-APLICADO`
+**Estado:** `INTEGRADO / INVENTÁRIOS DEV E PROD CAPTURADOS / NÃO REVISADOS /
+BLOQUEADOS / DECISÕES HUMANAS PENDENTES / NÃO APLICADO`
 
 **Base auditada:** `cfeba13c0a9d08288f8c956ee2f35ddc1c0c35b7`
 
@@ -149,68 +149,87 @@ documentais e `42/42` testes offline do runner: agregado de
 Nenhum desses
 resultados prova ambiente ou decisão humana.
 
-## Capturador e materializador candidatos
+## Capturador, materializador e evidência viva bloqueada
 
-O capturador e o materializador desta PR candidata foram comprovados offline
-sobre a base de catálogo
-`656d1d9eebe90ad4b2cbb35c21939a6796c46bfe`, com 75 migrations e digest
+O capturador e o materializador foram integrados pela PR #327, HEAD
+`c4f7a25b81a8091a0d74783c816a168bb7adf44d`, no merge
+`f9201a06495fad138e313e4149ad9275ff896900`. A PR #328 integrou o hotfix, HEAD
+`2cbdfaf39ae11d984f0aa27dfcf0910c25984840`, no merge
+`04e5c1720bf89313718c4159a2ac9d0eeeed3c25`. O catálogo usado na captura é a
+base `656d1d9eebe90ad4b2cbb35c21939a6796c46bfe`, com 75 migrations e digest
 `84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`.
-O estado desta fatia é `CAPTURADOR/MATERIALIZADOR CANDIDATO DA PR / COMPROVADO
-OFFLINE / NÃO INTEGRADO / INVENTÁRIOS DEV/PROD AINDA NÃO CAPTURADOS / DECISÕES
-HUMANAS PENDENTES / NÃO APLICADO`.
 
-A superfície técnica candidata está limitada a
+A superfície técnica integrada está limitada a
 `backend/scripts/capture_migration_history_evidence.py`,
 `backend/tests/test_capture_migration_history_evidence.py`, ao SQL allowlisted
-abaixo e às alterações candidatas no verificador, no teste do verificador, no
-schema e no template já listados. Nenhum desses artefatos integra o runner ou o
-runtime.
+abaixo e às alterações no verificador, no teste do verificador, no schema e no
+template já listados. Nenhum desses artefatos integra o runner ou o runtime.
 
 O SQL allowlisted
 `docs/governance/migrations/migration-history-inventory-capture-v1.sql`, com
 SHA-256
 `8b589e5dda722691fead34cbd63cab75a7a22f32e0cf4bdfe64d6cef603866ee`,
-é apenas o canal nominal de consulta. Quando houver um gate operacional
-posterior, ele deve ser executado pelo canal autorizado e somente o valor final
-de `sanitized_capture` pode ser extraído, sem copiar saída auxiliar do comando.
-O materializador permanece offline: recebe a captura e a chave HMAC por
-descritores de arquivo independentes. O digest esperado do target binding entra
-somente pelo argumento sanitizado `--expected-target-binding-sha256`; a fonte
-permanece independente. `native.name` fica em `null`, e as saídas são criadas
-com modo `0600` e `O_EXCL`. Os pacotes têm basenames exatos
-`migration-history-reconciliation-dev-evidence-v1.json` e
-`migration-history-reconciliation-prod-evidence-v1.json`.
+é apenas o canal nominal de consulta. Somente o valor final de
+`sanitized_capture` foi extraído, sem copiar saída auxiliar do comando. O
+materializador offline recebe a captura e a chave HMAC por descritores de
+arquivo independentes. O digest esperado do target binding entra somente pelo
+argumento sanitizado `--expected-target-binding-sha256`; a fonte permanece
+independente. `native.name` fica em `null`. Na materialização local, as saídas
+são originalmente criadas com modo `0600` e `O_EXCL`; depois do versionamento,
+a proteção depende da sanitização e da ACL do repositório, não do modo do
+checkout.
 
-Todo pacote permanece bloqueado. Uma materialização estruturalmente válida
-continua emitindo primeiro `OPERATIONAL_AUTHORIZATION=BLOCKED` e marca o pacote
-como `EVIDENCE_CAPTURED_UNREVIEWED`. O verificador só termina em
+Todo pacote permanece bloqueado. O verificador só termina em
 `HUMAN_EVIDENCE_BLOCKED` depois de validar a integridade e confirmar o ledger
 nativo `PRESENT_COMPLETE` não vazio. Casos anteriores podem terminar em
-`INVENTORY_BLOCKED` ou no motivo fail-closed correspondente. Captura não
-equivale a decisão humana nem autoriza qualquer operação.
+`INVENTORY_BLOCKED` ou no motivo fail-closed correspondente.
 
-A matriz focal concluiu `166/166`, incluindo dois casos reais de PostgreSQL 17
-em container descartável dedicado, e recebeu revisão independente `GO`. CI
-verde e a suíte completa permanecem parte do mesmo gate pré-merge. Ela não usou
-o Supabase local na porta `54322`, DEV, PROD, rede, deploy, runner, DML, flag ou
-runtime. Nenhum inventário de DEV ou PROD foi capturado.
+Foram materializados localmente seis artefatos sanitizados. Na origem, o
+materializador usou modo `0600` e `O_EXCL`; depois do versionamento, a proteção
+depende da sanitização e da ACL do repositório, não do modo do checkout:
+
+- `migration-history-reconciliation-dev-evidence-v1.json`;
+- `migration-history-reconciliation-dev-evidence-v1-public-capture-receipt-v1.json`;
+- `migration-history-reconciliation-dev-evidence-v1-native-capture-receipt-v1.json`;
+- `migration-history-reconciliation-prod-evidence-v1.json`;
+- `migration-history-reconciliation-prod-evidence-v1-public-capture-receipt-v1.json`;
+- `migration-history-reconciliation-prod-evidence-v1-native-capture-receipt-v1.json`.
+
+Todo pacote permanece bloqueado. O estado atual é `INVENTÁRIOS DEV E PROD
+CAPTURADOS / NÃO REVISADOS / BLOQUEADOS / DECISÕES HUMANAS PENDENTES / NÃO
+APLICADO`. Em PostgreSQL 17, DEV registrou o ledger público
+`PRESENT_COMPLETE`, com 33 linhas, e o nativo `PRESENT_COMPLETE`, com 6 linhas,
+no snapshot `2026-08-28T22:43:11.454382Z`. PROD registrou o ledger público
+`ABSENT_CONFIRMED`, com 0 linhas, e o nativo `PRESENT_COMPLETE`, com 32 linhas,
+no snapshot `2026-08-28T22:47:43.965243Z`. Todo `native.name` permanece `null`.
+
+Os dois pacotes estão em `EVIDENCE_CAPTURED_UNREVIEWED`. A verificação offline
+de cada pacote terminou com exit `8` e
+`RECONCILIATION_CONTRACT_BLOCKED:HUMAN_EVIDENCE_BLOCKED`; a checagem conjunta
+terminou `CROSS_PACKAGE_OK`. A matriz focal offline pós-captura passou com
+`163 passed, 2 skipped` em `1.40s`. Essa matriz não é suíte integral nem
+reexecução PostgreSQL e não converte evidência em decisão.
+
+A captura ocorreu somente em leitura e não executou DML, runner,
+`bootstrap-ledger`, `harden-ledger`, `status`, `apply`, deploy, flag ou runtime.
+Nenhuma linha capturada, ausência de ledger, contagem ou igualdade aparente
+prova aplicação, autoriza backfill ou reconcilia os históricos.
 
 ## Estado operacional preservado
 
 O `bootstrap-ledger` integrado pela PR #323 continua não aplicado. O preflight
 PROD na base histórica `15deaf88fd4cab5b4bebdd1435a81c8b33c2b159`
 confirmou `public.schema_migrations` ausente e
-`M06_MIGRATION_DATABASE_URL` não provisionada. A missão de implementação e
-integração não acessou DEV ou PROD, não capturou inventários e não executou
-deploy manual ou do backend, migration, bootstrap, hardening, restart,
+`M06_MIGRATION_DATABASE_URL` não provisionada. A missão histórica de
+implementação e integração da PR #325 não acessou DEV ou PROD, não capturou
+inventários e não executou deploy manual ou do backend, migration, bootstrap,
+hardening, restart,
 credencial, flag, runtime, agente ou canário. `status` e `apply` permanecem
 bloqueados.
 
 ## Próximo gate único
 
-Revisar e integrar esta PR com CI verde. Somente depois da integração será
-permitido executar, em gate separado e já autorizado, a captura somente leitura
-dos inventários sanitizados de DEV e PROD e materializar um pacote por ambiente.
-Este gate não autoriza captura, DML, comando do runner, `bootstrap-ledger`,
-`harden-ledger`, `status`, `apply`, deploy, flag ou runtime. Universidade da
-Vida e Capacitação Destino permanecem fora desta missão.
+Revisão humana offline independente dos seis artefatos e das evidências, sem
+nova consulta a DEV ou PROD e sem liberar o runner. Este gate não autoriza DML,
+`bootstrap-ledger`, `harden-ledger`, `status`, `apply`, deploy, flag ou runtime.
+Universidade da Vida e Capacitação Destino permanecem fora desta missão.

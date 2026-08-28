@@ -1,0 +1,56 @@
+{
+  "receipt_version": "1.0",
+  "receipt_role": "NATIVE_LEDGER_CAPTURE",
+  "safety_contract": {
+    "offline_only": true,
+    "database_connection": "BLOCKED",
+    "database_mutation": "BLOCKED",
+    "migration_application": "BLOCKED",
+    "ledger_write": "BLOCKED",
+    "runner_unlock": "BLOCKED",
+    "environment_operation": "BLOCKED",
+    "applied_history_inference": "BLOCKED"
+  },
+  "subject": {
+    "environment": "PROD",
+    "target_binding_sha256": "fea6e06d7fcbddfc4be93fc12027587441ebc4ddbabcacdd2385aa107e941767",
+    "repository_sha": "656d1d9eebe90ad4b2cbb35c21939a6796c46bfe"
+  },
+  "capture_sql_sha256": "8b589e5dda722691fead34cbd63cab75a7a22f32e0cf4bdfe64d6cef603866ee",
+  "authorization_record_sha256": "4854a5fd7efe425650a6f1171cd70875ef606ffedf09cf4e9c898328c1833251",
+  "snapshot_record": {
+    "snapshot_record_sha256": "78db397cdc3c35876e679d1f449f4437039cae07a6d2bf030af8cf4717a9ac66",
+    "preimage": {
+      "capture_sql_sha256": "8b589e5dda722691fead34cbd63cab75a7a22f32e0cf4bdfe64d6cef603866ee",
+      "package_id": "migration-history-reconciliation-prod-evidence-v1",
+      "repository_sha": "656d1d9eebe90ad4b2cbb35c21939a6796c46bfe",
+      "environment": "PROD",
+      "target_binding_sha256": "fea6e06d7fcbddfc4be93fc12027587441ebc4ddbabcacdd2385aa107e941767",
+      "captured_at_utc": "2026-08-28T22:47:43.965243Z",
+      "postgres_major": 17,
+      "isolation_level": "repeatable read",
+      "read_only": true,
+      "snapshot_token_sha256": "36d569187a93c283c3886310ef3b397c71e1180f79b7b123bf7dfce7851ad35c",
+      "public_rows_digest_sha256": "519b85862869c433da9929e7d6a567ff0c7ca1f5c6a648a8b54137f898aa4cef",
+      "native_rows_digest_sha256": "f120576632ff8410eed37dab4971787e9832b9deee94b5bbfe034e92e0cb1fb7"
+    }
+  },
+  "capture_record": {
+    "capture_record_sha256": "355f68ce5d4e45752f87530d6dd7bb102f04a3643cc678b9f7bfc32f2862abed",
+    "preimage": {
+      "capture_sql_sha256": "8b589e5dda722691fead34cbd63cab75a7a22f32e0cf4bdfe64d6cef603866ee",
+      "package_id": "migration-history-reconciliation-prod-evidence-v1",
+      "repository_sha": "656d1d9eebe90ad4b2cbb35c21939a6796c46bfe",
+      "authorization_record_sha256": "4854a5fd7efe425650a6f1171cd70875ef606ffedf09cf4e9c898328c1833251",
+      "environment": "PROD",
+      "target_binding_sha256": "fea6e06d7fcbddfc4be93fc12027587441ebc4ddbabcacdd2385aa107e941767",
+      "captured_at_utc": "2026-08-28T22:47:43.965243Z",
+      "snapshot_record_sha256": "78db397cdc3c35876e679d1f449f4437039cae07a6d2bf030af8cf4717a9ac66",
+      "source": "supabase_migrations.schema_migrations",
+      "capture_state": "PRESENT_COMPLETE",
+      "completeness_attested": true,
+      "query_contract": "NATIVE_LEDGER_V1|ISOLATION=REPEATABLE_READ_READ_ONLY|ORDER=version_ASC|PROJECTION=position,version,name_NULL_REDACTED",
+      "rows_digest_sha256": "f120576632ff8410eed37dab4971787e9832b9deee94b5bbfe034e92e0cb1fb7"
+    }
+  }
+}
