@@ -292,27 +292,38 @@ compartilhada, restart ou alteração de credencial, flag, runtime, agente ou
 canário. O preflight PROD e o deployment automático frontend da PR #321
 continuam como evidência histórica separada.
 
-Sobre a base auditada `cfeba13c0a9d08288f8c956ee2f35ddc1c0c35b7`, esta
-candidata adiciona somente offline um pacote deny-state versionado e um
-verificador stdlib separado do runner, conforme
+O pacote deny-state versionado e o verificador stdlib separado do runner,
+desenvolvidos e comprovados offline sobre a base auditada
+`cfeba13c0a9d08288f8c956ee2f35ddc1c0c35b7`, foram integrados pela PR #325,
+HEAD `d9595c3958fec98a875d15de2b6647d6b1de435e`, no merge
+`ab7d09f07db96d5c63a2cc32dddf3f910e23bac2` em
+`2026-08-28T20:18:08Z`, conforme
 [`2026-08-28-migration-history-reconciliation-contract.md`](2026-08-28-migration-history-reconciliation-contract.md).
-O estado é `PACOTE E VERIFICADOR CANDIDATOS / SOMENTE OFFLINE / DECISÕES
-HUMANAS PENDENTES / NÃO APLICADO`. Nenhuma decisão humana está aprovada. O
+O estado é `INTEGRADO / COMPROVADO OFFLINE / DECISÕES HUMANAS PENDENTES / NÃO
+APLICADO`. Nenhuma decisão humana está aprovada. A integração não acessou DEV
+ou PROD, não materializou inventário de ambiente e não reconciliou nenhum ledger. O
 verificador não acessa banco, rede, ambiente ou variáveis de ambiente, não
 executa SQL, DML ou escrita e não infere migration aplicada. Os ledgers nativo
 e público permanecem independentes e todo sucesso estrutural conserva
 `OPERATIONAL_AUTHORIZATION=BLOCKED`.
 
-A candidata passou `98/98` testes do verificador e `26/26` testes documentais.
-O runner preservado passou `42/42` testes offline; `45` integrações foram
-puladas por ausência deliberada de banco descartável.
+Os cinco workflows da PR e os cinco pós-merge concluíram com `SUCCESS`. A
+Vercel registrou o Preview automático frontend `6147914118`, com `SUCCESS`, em
+`2026-08-28T20:16:00Z` no HEAD, e o Production automático frontend
+`6147952424`, com `SUCCESS`, em `2026-08-28T20:18:55Z` no merge. Essas metadatas
+provam somente o frontend, sem provar backend, banco ou runtime; não houve
+deploy manual ou do backend, migration, bootstrap, hardening, restart, flag ou
+runtime nesta missão.
 
-Revisar as evidências focais e os pareceres independentes desta candidata e,
-se todos permanecerem verdes, integrar a PR. Esse gate é exclusivamente
-offline e não autoriza ambiente, comando do runner,
-`bootstrap-ledger`, `harden-ledger`, `status` ou `apply`. Painel do tenant,
-aprovações, catálogo, writer, migration D2B2b3A, flag, D2C, credencial, wiring,
-deploy, restart, runtime, ativação e canário continuam bloqueados.
+A prova local preservada é `98/98` testes do verificador, `26/26` testes
+documentais e `42/42` testes offline do runner: agregado de
+`166 passed/45 skipped`. O template deny-state terminou bloqueado com exit `8`.
+
+Preparar uma missão separada, explicitamente autorizada e somente leitura para
+capturar inventários sanitizados de DEV e PROD e materializar um pacote por
+ambiente. O gate não autoriza DML, comando do runner, `bootstrap-ledger`,
+`harden-ledger`, `status`, `apply`, deploy, flag ou runtime. Universidade da
+Vida e Capacitação Destino permanecem fora desta missão.
 
 A PR #320 já integrou a D2B2b3A no merge
 `947d891c2ea278b7a3231fecd9ca1c90cfe29a1f`; o deployment automático
