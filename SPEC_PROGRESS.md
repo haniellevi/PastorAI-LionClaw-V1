@@ -10,7 +10,7 @@ Os marcadores `[CONCLUIDA]` abaixo preservam a evidencia das sprints que os prod
 Baseline confirmada no codigo:
 
 - o `origin/main` auditado esta em
-  `1029e1b0adb9479a2a23d60e27e9215a6ae6a10e`;
+  `84c5b71b415340868c1b0664e892b8b0350d91f4`;
 - o LangGraph atual e compilado sem checkpointer duravel; configurar `AGENT_GRAPH_CHECKPOINT_URL` apenas produz um aviso e a execucao continua stateless;
 - o runtime resolve tenant, Pessoa, papel autenticado e permissoes no servidor antes das tools existentes;
 - a PR #313 integrou a D2A no `origin/main`
@@ -29,24 +29,23 @@ Roadmap funcional aprovado e ainda pendente:
 5. primeira vertical completa: relatorio de celula pelo WhatsApp, com lembrete, texto ou audio, resumo, confirmacao, gravacao canonica e comprovante;
 6. painel web reservado a configuracao, governanca, supervisao, excecoes e conclusao de acoes sensiveis.
 
-Sobre essa baseline, a D2B1 e candidata offline. Ela cria
+A PR #315 integrou a D2B1 no `origin/main`
+`84c5b71b415340868c1b0664e892b8b0350d91f4`. Ela cria
 `TrustedAgentContext` imutavel e tipado fora do `AgentState`, injeta a fronteira
 por `StateGraph.context_schema`, revalida contexto e estado antes do caminho
 compilado, do caminho direto e de cada node, e preserva a mesma instancia de
 `PrivilegeContext` ate as tools. A entrada e o snapshot de Pessoa recusam
 chaves de autoridade, IDs, telefone e campos nao necessarios ao turno.
 
-A candidata passou em 224 testes focais. Duas passagens adversariais fecharam
-os achados P1 e concluiram `GO`. A suite offline completa local ficou
-`INCONCLUSIVA`: a baseline limpa no mesmo SHA tambem excedeu 90 segundos no
-modulo TestClient inalterado `test_agent_config_requests.py`. O workflow
-`Backend Tests` da PR deve executar a suite integral e concluir verde antes de
-qualquer integracao. O LangGraph permanece stateless.
+O merge passou em 2.770 testes offline, com 278 desselecionados, e 278 testes
+RLS, com zero skips. Os cinco workflows da PR e os cinco pos-merge ficaram
+verdes. O monitor registrou 62 testes aprovados e tres skips; a validacao Node
+registrou quatro testes aprovados. O LangGraph permanece stateless.
 
-Sequencia corrente: integrar D2B1 depois da suite completa verde; `D2B2`
-permanece bloqueada e separara consentimentos por finalidade somente depois do
-merge; `D2C` cria propostas duraveis, confirmacao, expiracao e idempotencia;
-`D3` implementa memoria privada duravel e exclusao integral.
+Sequencia corrente: integrar esta reconciliacao documental; depois `D2B2`
+separa consentimentos por finalidade como proxima fatia; `D2C` cria propostas
+duraveis, confirmacao, expiracao e idempotencia; `D3` implementa memoria privada
+duravel e exclusao integral.
 Universidade da Vida e Capacitacao Destino permanecem na visao futura, fora da
 missao atual. A D2A continua inativa: a integracao nao aplicou migration em
 ambiente compartilhado, nao provisionou credencial, nao conectou o runtime, nao
@@ -54,13 +53,14 @@ fez deploy manual ou do backend, nao promoveu a producao e nao ativou o agente.
 O unico deploy associado a D2A foi o preview automatico da PR, que nao prova
 execucao do backend nem ambiente compartilhado.
 
-A D2B1 nao adiciona migration, nao acessa Supabase, nao provisiona credencial,
-nao conecta a fronteira privada D2A, worker, fila ou checkpointer, nao faz
-deploy, nao ativa o agente e nao executa canario.
+A D2B1 nao adicionou migration, nao acessou Supabase, nao provisionou
+credencial, nao conectou a fronteira privada D2A, worker, fila ou checkpointer,
+nao fez deploy manual ou do backend, nao promoveu a producao, nao ativou o
+agente e nao executou canario. O preview automatico da PR nao prova execucao do
+backend.
 
-**Proximo gate unico:** revisar e integrar a PR D2B1 somente se o workflow
-`Backend Tests` executar a suite offline completa e concluir verde. D2B2
-permanece bloqueada ate o merge e uma nova reconciliacao.
+**Proximo gate unico:** revisar e integrar a PR documental de reconciliacao
+pos-merge da D2B1. D2B2 so se torna a proxima fatia depois desse fechamento.
 
 ---
 

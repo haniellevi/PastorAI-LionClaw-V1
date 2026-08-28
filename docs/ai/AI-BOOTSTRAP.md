@@ -3,7 +3,7 @@ project: igreja12
 document_kind: ai-bootstrap
 status: canonical
 last_verified: 2026-08-28
-audited_repository_sha: 1029e1b0adb9479a2a23d60e27e9215a6ae6a10e
+audited_repository_sha: 84c5b71b415340868c1b0664e892b8b0350d91f4
 ---
 
 # Bootstrap canônico para agentes de IA
@@ -36,7 +36,7 @@ externas com contratos e gates próprios.
 | Tema | Estado no SHA auditado | Leitura correta |
 |---|---|---|
 | V1 | `IMPLEMENTADO` | Encerrada como piloto controlado; não equivale ao produto amplo concluído |
-| Código | `VERIFICADO / D2B1 CANDIDATA OFFLINE` | `origin/main` em `1029e1b0adb9479a2a23d60e27e9215a6ae6a10e`; D1A e D2A integradas, com D2A inativa; D2B1 existe apenas no diff candidato |
+| Código | `VERIFICADO / D2B1 INTEGRADA` | `origin/main` em `84c5b71b415340868c1b0664e892b8b0350d91f4`; D1A, D2A e D2B1 integradas, com D2A inativa e D2B1 ainda sem prova operacional |
 | Produto WhatsApp-first | `PARCIAL` | A visão está aprovada; memória, conhecimento e ações profundas ainda faltam |
 | Agente Evolution | `PARCIAL / GATE OPERACIONAL` | Fundação, identidade e contenção existem; qualidade conversacional é insuficiente |
 | Canário ativo do agente | `PASS TÉCNICO / QUALIDADE INSUFICIENTE` | Evidência operacional reconciliada nesta missão, não prova previamente versionada em `ad4a272` |
@@ -131,32 +131,36 @@ backend, não promoveu a produção e não ativou o agente. O único deploy asso
 à D2A foi o preview automático da PR, que não prova execução do backend nem
 ambiente compartilhado.
 
-Sobre o `origin/main` auditado, a candidata D2B1 adiciona somente um contrato
-Python stateless: `TrustedAgentContext` imutável, separado do `AgentState` por
-`StateGraph.context_schema`, validado antes do grafo, do caminho direto e em
-cada node. O estado mutável rejeita chaves de autoridade e mantém apenas os
-dados mínimos necessários ao turno. O contexto preserva a mesma instância de
-`PrivilegeContext` que o executor de tools utiliza. A candidata passou em 224
-testes focais e recebeu duas passagens adversariais com os achados P1 fechados e
-parecer `GO`. A suíte offline completa local ficou `INCONCLUSIVA`: a baseline
-limpa no mesmo SHA também excedeu 90 segundos no módulo TestClient inalterado
-`test_agent_config_requests.py`. O workflow `Backend Tests` da PR precisa
-executar a suíte integral e concluir verde antes da integração.
+A PR #315 integrou a D2B1 no `origin/main`
+`84c5b71b415340868c1b0664e892b8b0350d91f4`. O contrato continua
+deliberadamente stateless: `TrustedAgentContext` imutável, separado do
+`AgentState` por `StateGraph.context_schema`, validado antes do grafo, do
+caminho direto e em cada node. O estado mutável rejeita chaves de autoridade e
+mantém apenas os dados mínimos necessários ao turno. O contexto preserva a
+mesma instância de `PrivilegeContext` que o executor de tools utiliza.
+
+No merge, a suíte offline concluiu com 2.770 testes aprovados e 278
+deselecionados; a suíte RLS concluiu com 278 aprovados e zero skips. Os cinco
+workflows da PR e os cinco pós-merge ficaram verdes. Essas evidências provam o
+comportamento exercitado no código integrado, sem provar migration, ambiente
+compartilhado, deploy ou ativação.
 
 As fatias permanecem nesta ordem:
 
-1. `D2B1`: candidata offline, aguardando suíte completa e integração;
-2. `D2B2`: consentimentos independentes por finalidade, bloqueada até o merge
-   da D2B1;
+1. `D2B1`: integrada no código e ainda sem aplicação operacional;
+2. `D2B2`: consentimentos independentes por finalidade, próxima fatia somente
+   depois da integração desta reconciliação documental;
 3. `D2C`: propostas duráveis, confirmação, expiração e idempotência;
 4. `D3`: memória privada durável, recuperação seletiva e exclusão integral.
 
 Universidade da Vida e Capacitação Destino permanecem na visão futura, mas
 estão excluídas da missão atual e não podem ser inferidas dos placeholders.
-A D2B1 não adiciona migration, não acessa Supabase, não provisiona credencial,
-não conecta a fronteira privada D2A, worker, fila ou checkpointer, não faz
-deploy, não ativa o agente e não executa canário. Esta sequência não autoriza
-qualquer ação operacional.
+A D2B1 não adicionou migration, não acessou Supabase, não provisionou
+credencial, não conectou a fronteira privada D2A, worker, fila ou checkpointer,
+não fez deploy manual ou do backend, não promoveu a produção, não ativou o
+agente e não executou canário. O preview automático da PR não prova execução do
+backend. O único gate atual é revisar e integrar a PR documental desta
+reconciliação; D2B2 permanece sem autorização até esse fechamento.
 
 ## Roteiro de leitura
 
