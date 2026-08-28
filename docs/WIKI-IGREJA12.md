@@ -1,9 +1,10 @@
 # Wiki do projeto Igreja 12
 
-Snapshot documental de 2026-08-28, com baseline auditada
-`15deaf88fd4cab5b4bebdd1435a81c8b33c2b159`, na auditoria D1 e na
-reconciliação operacional registrada nesta fase. A implementação D2B2b3A veio
-do merge #320 `947d891c2ea278b7a3231fecd9ca1c90cfe29a1f`.
+Snapshot documental de 2026-08-28, reconciliado no merge
+`3a5789c784017ab15a43e28c4270d25af8618359`. O preflight PROD histórico
+permanece fixado na baseline auditada
+`15deaf88fd4cab5b4bebdd1435a81c8b33c2b159`; a implementação D2B2b3A veio do
+merge #320 `947d891c2ea278b7a3231fecd9ca1c90cfe29a1f`.
 
 ## Leitura de 30 segundos
 
@@ -46,7 +47,7 @@ qualquer expansão do canário.
 | Agente e Evolution | `PARCIAL / GATE OPERACIONAL` | Corrigir memória, conhecimento e qualidade antes de novo canário |
 | Canário ativo | `PASS TÉCNICO / QUALIDADE INSUFICIENTE` | Avaliação conversacional humana após a nova fundação |
 | LangGraph | `IMPLEMENTADO STATELESS / D2B1 INTEGRADA` | Persistência, memória e subgrafos permanecem posteriores |
-| Consentimento | `PARCIAL / LEDGER-BOOTSTRAP IMPLEMENTADO E COMPROVADO OFFLINE / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | Concluir a PR offline de reconciliação histórica humana, sem DML ou inferência; aprovações, catálogo, writers, Supabase e D2C permanecem bloqueados |
+| Consentimento | `PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | Concluir a PR offline de reconciliação histórica humana, sem DML ou inferência; aprovações, catálogo, writers, Supabase e D2C permanecem bloqueados |
 | Conhecimento por igreja | `AUSENTE` | Ingestão aprovada, ACL, busca e ferramentas de dados vivos |
 | Relatório por WhatsApp | `PARCIAL` | Confirmar e gravar no relatório canônico |
 | Central de Células | `PARCIAL FORTE` | Operação e notificações principais pelo WhatsApp |
@@ -382,9 +383,9 @@ canário.
 
 ## Próximo gate único
 
-Sobre a base versionada
-`b43ad92028374fa6763ef10f5eb7a379afd3e7a2`, a missão offline
-este delta implementa e comprova offline `bootstrap-ledger`, separado de
+A implementação foi desenvolvida e comprovada offline sobre a base versionada
+`b43ad92028374fa6763ef10f5eb7a379afd3e7a2`. O código integrado pela PR #323
+adiciona `bootstrap-ledger`, separado de
 `harden-ledger`, com confirmação literal `BOOTSTRAP_LEDGER` e destino somente
 em `M06_MIGRATION_DATABASE_URL`. Em PostgreSQL 17 ele cria, numa transação
 `SERIALIZABLE`, apenas o ledger vazio `public.schema_migrations`, com colunas,
@@ -399,16 +400,25 @@ descartável em duas execuções independentes e 87/87 em Supabase PG17
 resultou em `GO`. A suíte RLS completa, em execução serial limpa no PostgreSQL
 17 descartável, passou em 326/326, com 3803 deselecionados e 2 warnings
 preexistentes, em 162.77s. A suíte offline integral foi interrompida após 5
-min sem saída ou progresso; o resultado é `INCONCLUSIVO`, não verde nem falha,
-e o workflow Backend Tests da PR permanece gate. O comando não descobre catálogo, não consulta ou altera
+min sem saída ou progresso; o resultado é `INCONCLUSIVO`, não verde nem falha
+e não foi reclassificado. Os workflows Backend Tests da PR #323 e do pós-merge
+concluíram com `SUCCESS`. O comando não descobre catálogo, não consulta ou altera
 `supabase_migrations`, não reconcilia, não faz backfill e não aplica ou registra
 migration. O ledger vazio mantém `status` e `apply` bloqueados até existir um
 prefixo íntegro do catálogo, humanamente reconciliado, com no máximo uma migration pendente.
 
-Esta missão não acessou DEV ou PROD, não aplicou bootstrap ou migration em
-ambiente compartilhado, não provisionou credencial, não fez deploy ou restart
-e não alterou flag, runtime, agente ou canário. O preflight PROD e o deployment
-automático frontend da PR #321 permanecem evidências históricas separadas.
+O `bootstrap-ledger` está integrado em `main`, mas continua não aplicado. A PR
+#323, HEAD `74d3f2d87a7ffad501432b2d9fc4163bd3b4ada4`, foi integrada pelo
+merge `3a5789c784017ab15a43e28c4270d25af8618359` em
+`2026-08-28T15:24:58Z`; seus cinco workflows e os cinco pós-merge concluíram
+com `SUCCESS`. A Vercel registrou o Preview automático frontend `6143773477`,
+com `SUCCESS`, em `2026-08-28T15:22:43Z`, e o Production automático frontend
+`6143819601`, com `SUCCESS`, em `2026-08-28T15:25:43Z`. Essas metadatas provam
+somente o frontend, sem provar backend, banco ou runtime. Não houve deploy
+manual ou do backend, acesso aos bancos DEV ou PROD, bootstrap ou migration
+compartilhada, restart ou alteração de credencial, flag, runtime, agente ou
+canário. O preflight PROD e o deployment automático frontend da PR #321
+permanecem evidências históricas separadas.
 
 Implementar e testar somente offline, sem acessar DEV ou PROD, uma PR
 versionada de reconciliação histórica humana. Ela deve definir pacote
