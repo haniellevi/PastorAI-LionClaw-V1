@@ -36,7 +36,7 @@ Os usuários variam bastante em domínio digital. O sistema deve ser compreensí
 ## Agente pastoral e conhecimento
 
 - Existe uma única definição global e versionada do LangGraph. Ela é executada com contexto de tenant criado pelo servidor, sem permitir que uma igreja leia memória, documentos, credenciais ou dados de outra.
-- O orquestrador coordena especialistas comuns por domínio, começando por Atendimento, Central de Células, Agenda, Consolidação, Universidade da Vida e Capacitação Destino. Os especialistas devolvem resultados ao orquestrador e não enviam mensagens diretamente.
+- O orquestrador coordena especialistas comuns por domínio de forma incremental. Atendimento, Central de Células, Agenda e Consolidação integram a missão atual; Universidade da Vida e Capacitação Destino permanecem na visão futura e dependem de PRDs e missões próprias. Os especialistas devolvem resultados ao orquestrador e não enviam mensagens diretamente.
 - Dados estruturados do sistema e documentos publicados por um administrador formam o conhecimento oficial da igreja. Documentos precisam de versão, audiência, validade e responsável por aprovação.
 - O histórico da conversa é memória privada. Ele pode ajudar a manter contexto, mas nunca se torna conhecimento institucional ou público automaticamente.
 - Quando não existir informação oficial confirmada, o agente informa a limitação e encaminha a lacuna ao responsável configurado para o domínio, em vez de inventar ou repetir perguntas já respondidas.
