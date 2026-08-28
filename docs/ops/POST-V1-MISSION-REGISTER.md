@@ -28,11 +28,12 @@ produção.
   `ASAAS_BILLING_ENABLED=false`, `BREVO_SEND_MODE=off` e
   `BROADCAST_ASYNC_ENABLED=false`. Este é um relato operacional, não uma
   leitura atual de produção feita por esta atualização documental;
-- baseline de código auditada nesta atualização: merge #320
-  `947d891c2ea278b7a3231fecd9ca1c90cfe29a1f`. Esse SHA não é tratado como
-  ponteiro móvel de `origin/main`. Merge em `main` não comprova backend ou
-  banco, por isso o estado versionado e o estado operacional são registrados
-  separadamente.
+- baseline auditada nesta atualização:
+  `15deaf88fd4cab5b4bebdd1435a81c8b33c2b159`. Esse SHA não é tratado como
+  ponteiro móvel de `origin/main`. A implementação D2B2b3A veio do merge #320
+  `947d891c2ea278b7a3231fecd9ca1c90cfe29a1f`; merge em `main` não comprova
+  backend ou banco, por isso o estado versionado e o estado operacional são
+  registrados separadamente.
 
 ## Missões
 
@@ -684,13 +685,42 @@ descartável. Supabase compartilhado, painel do tenant, aprovações, catálogo,
 evidence store, writer, WhatsApp, agente, deploy manual ou do backend e D2C não
 estão autorizados.
 
-A implementação integrada e inativa não prova o wiring do banco. Antes de
-qualquer aplicação em banco compartilhado, ativação da flag ou wiring do
-backend, um preflight separado deve identificar sanitizadamente
-`M06_MIGRATION_DATABASE_URL`, futuro executor e owner da migration, e
-`DATABASE_URL`, runtime do backend Master. Os dois caminhos precisam comprovar
-role, ownership, ACL efetiva e comportamento sob `FORCE RLS`, sem expor
-credencial.
+A leitura anterior somente leitura no Supabase DEV `cxmjojnocigekgcxhubi`,
+projeto `Igreja12-dev`, confirmou estado `ACTIVE_HEALTHY` em PostgreSQL
+`17.6.1.127`. Na sessão, `current_user` e `session_user` eram `postgres`; a role
+era `NOSUPERUSER`, `BYPASSRLS`, `CREATEROLE`, `CREATEDB`, `LOGIN` e `INHERIT`.
+O schema `public` pertencia a `pg_database_owner`, e o executor tinha `CREATE` e
+`USAGE`; `igrejas` e `app_users` existiam, pertenciam a `postgres` e concediam
+`SELECT` e `REFERENCES` ao executor. As roles `anon`, `authenticated` e
+`service_role` não alcançavam esse executor, e `agent_runtime` estava ausente
+nesse projeto. A tabela alvo, o validator e o registro da migration
+`20260828094914` da D2B2b3A estavam ausentes. Naquele preflight, o conector
+listou somente projetos da conta DEV; PROD não estava acessível e não foi
+consultado naquele momento.
+
+Essa evidência DEV anterior comprova somente a identidade do executor MCP e a
+ausência da D2B2b3A naquele projeto. Ela não prova
+`M06_MIGRATION_DATABASE_URL`, `DATABASE_URL` nem a VPS e não aplicou migration.
+
+A implementação integrada e inativa não prova o wiring do banco. No baseline
+`15deaf88fd4cab5b4bebdd1435a81c8b33c2b159`, o preflight PROD somente leitura
+confirmou `DATABASE_URL` presente e `M06_MIGRATION_DATABASE_URL` ausente.
+O preflight ocorreu em 2026-08-28; o horário exato da consulta não foi capturado
+e não foi reconstruído por inferência.
+`current_user` e `session_user` convergiram para a mesma identidade sanitizada;
+a role runtime possui `NOSUPERUSER`, `BYPASSRLS`, `LOGIN` e `INHERIT`, é owner
+de `public.igrejas` e `public.app_users` e possui `SELECT` e `REFERENCES`
+efetivos nessas tabelas-pai. A tabela alvo D2B2b3A, o validator e a própria
+`public.schema_migrations` estavam ausentes. Isso comprova identidade, ownership
+e ACL do caminho runtime atual, mas não o comportamento da tabela futura sob
+`FORCE RLS`; o caminho de migration permanece bloqueado pela ausência de
+`M06_MIGRATION_DATABASE_URL` e do ledger público.
+
+A PR #321 integrou a reconciliação documental anterior no merge
+`15deaf88fd4cab5b4bebdd1435a81c8b33c2b159`; esse merge gerou o deployment
+automático Vercel frontend Production `6141449639`, com `SUCCESS`, em
+2026-08-28T12:53:35Z. Essa metadata prova somente o frontend, sem provar backend,
+banco ou Supabase.
 
 O contrato está em
 [`2026-08-28-d2b2b3-master-governance-drafts.md`](../decisions/2026-08-28-d2b2b3-master-governance-drafts.md).
@@ -706,39 +736,38 @@ Tooling Static Checks `33167430895`.
 
 O merge gerou o deployment automático Vercel frontend Production `6140373952`,
 com `SUCCESS`. Essa metadata prova somente o frontend nesse ambiente; não prova
-backend, banco ou Supabase. Não houve deploy manual ou do backend, wiring,
-ativação ou canário. Esta missão não aplicou a migration D2B2b3A; DEV confirmou
-a ausência e PROD não foi consultado. A flag versionada
+backend, banco ou Supabase. No recorte da PR #320 não houve deploy manual ou do
+backend, wiring, ativação ou canário. Esta missão não aplicou a migration D2B2b3A; DEV e PROD
+confirmaram a ausência. A flag versionada
 `PURPOSE_CONSENT_GOVERNANCE_DRAFTS_ENABLED` permanece `false`.
 
-O preflight somente leitura no Supabase DEV `cxmjojnocigekgcxhubi`, projeto
-`Igreja12-dev`, confirmou estado `ACTIVE_HEALTHY` em PostgreSQL `17.6.1.127`.
-Na sessão, `current_user` e `session_user` eram `postgres`; a role era
-`NOSUPERUSER`, `BYPASSRLS`, `CREATEROLE`, `CREATEDB`, `LOGIN` e `INHERIT`. O
-schema `public` pertence a `pg_database_owner`, e o executor tinha `CREATE` e
-`USAGE`; `igrejas` e `app_users` existem, pertencem a `postgres` e concedem
-`SELECT` e `REFERENCES` ao executor. As roles
-`anon`, `authenticated` e `service_role` não alcançam esse executor, e
-`agent_runtime` não existe nesse projeto. A tabela, o validator e o registro da
-migration `20260828094914` da D2B2b3A estavam ausentes. O conector listou somente
-projetos da conta DEV; Supabase PROD não estava acessível e não foi consultado.
+O preflight PROD somente leitura não abriu arquivo de configuração nem exibiu
+valor de conexão. A chave SSH temporária de auditoria foi cadastrada, usada
+exclusivamente nessa leitura, revogada e testada após a revogação, quando o
+acesso foi negado. Os arquivos temporários locais foram removidos. O preflight
+VPS em si não executou deploy manual ou do backend, migration, restart, alteração
+da flag ou outra mutação de estado.
 
-Essa leitura comprova somente que o executor MCP DEV satisfaz o preflight de
-identidade da migration e que a D2B2b3A estava ausente nesse projeto. Ela não
-comprova `M06_MIGRATION_DATABASE_URL`, `DATABASE_URL` nem a VPS. Esta missão não
-aplicou a migration; PROD não foi consultado.
-
-**Próximo gate único:** identificar sanitizadamente, em preflight somente
-leitura, os dois caminhos de banco: `M06_MIGRATION_DATABASE_URL`, futuro executor
-e owner da migration, e `DATABASE_URL`, runtime do backend Master. Para cada
-caminho, comprovar identidade da role, ownership esperado, ACL efetiva e
-comportamento sob `FORCE RLS`, sem abrir `.env` nem imprimir DSN, URL, usuário ou
-segredo. Se executada pela VPS, a consulta toca metadados do Supabase PROD e
-exige autorização nominal separada. A alternativa segura em DEV exige as
-credenciais planejadas de migration e runtime e não comprova a VPS. O preflight
-não autoriza aplicação da migration, mudança de flag, wiring, deploy manual ou
-do backend, painel do tenant, aprovações, catálogo, evidence store, writer,
-WhatsApp, agente, D2C, ativação ou canário.
+**Próximo gate único:** implementar e testar somente em PostgreSQL 17
+descartável, sem acessar DEV ou PROD, um subcomando versionado
+`bootstrap-ledger`, explícito e fail-closed, separado de `harden-ledger`. Ele
+criará, em transação única, exclusivamente o contrato final vazio de
+`public.schema_migrations`, como ledger vazio, com colunas, chave primária (PK) e defaults exatos,
+RLS habilitada, policy deny e ACL mínima por grants e revokes explícitos. O comando
+validará ownership e roles esperados antes e depois, e abortará se houver objeto
+homônimo, schema divergente ou qualquer outro conflito. A reaplicação deverá
+encerrar sem mutação; testes adversariais em PostgreSQL 17 cobrirão conflitos
+homônimos, falha parcial e rollback integral. O comando operará sem reconciliação
+ou backfill: jamais copiará
+`supabase_migrations`, inferirá migrations aplicadas ou autorizará `apply`.
+`apply` e `status` permanecerão tecnicamente bloqueados até uma reconciliação
+humana versionada formar o prefixo íntegro do catálogo, com no máximo uma
+migration pendente; o bootstrap não pode reduzir a barreira atual.
+Qualquer preenchimento ou reconciliação histórica humana será uma missão
+separada, baseada em evidência, e precisará terminar antes de considerar D2 em
+DEV ou PROD. Este gate entrega somente a PR offline do bootstrap e não autoriza
+painel do tenant, aprovações, catálogo, writer, migration D2B2b3A, flag, D2C,
+credencial, wiring, deploy, restart, runtime, ativação ou canário.
 
 ## Paralelismo seguro
 

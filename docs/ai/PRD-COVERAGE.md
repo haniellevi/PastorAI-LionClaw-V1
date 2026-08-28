@@ -3,7 +3,7 @@ project: igreja12
 document_kind: prd-coverage
 status: canonical-audit
 last_verified: 2026-08-28
-audited_repository_sha: 947d891c2ea278b7a3231fecd9ca1c90cfe29a1f
+audited_repository_sha: 15deaf88fd4cab5b4bebdd1435a81c8b33c2b159
 canonical_prd: docs/Docs20260611_163530/PRD20260611_163530.md
 ---
 
@@ -35,11 +35,11 @@ significa ativa em produção.
 | Pessoas e responsabilidades | `PARCIAL FORTE` | cadastro, papéis, vínculos, fila e escopos existentes | Fechar responsabilidades temporais, owner operacional e composição por setor |
 | Conexão WhatsApp | `IMPLEMENTADO / GATE OPERACIONAL` | Evolution, conexão por igreja, webhook e filas | Monitorar recibos, reconnect e capacidade antes de cada canário |
 | Conversas e handoff | `IMPLEMENTADO` | histórico, inbox, atribuição, transferência e estado IA/humano | Adicionar memória derivada, exclusão propagada e avaliação de naturalidade |
-| Fundação do agente | `IMPLEMENTADO / PARCIAL / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | LangGraph stateless e contexto confiável D2B1 integrados; D2B2a adiciona persistência e serviço interno de consentimento sem caller; D2B2b1 é uma fronteira pura deny-first; D2B2b3A integra rascunhos no Console Master | Comprovar sanitizadamente os caminhos `M06_MIGRATION_DATABASE_URL` e `DATABASE_URL`; aprovações humanas, catálogo, writer, memória, conhecimento e subfluxos permanecem posteriores |
+| Fundação do agente | `IMPLEMENTADO / PARCIAL / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | LangGraph stateless e contexto confiável D2B1 integrados; D2B2a adiciona persistência e serviço interno de consentimento sem caller; D2B2b1 é uma fronteira pura deny-first; D2B2b3A integra rascunhos no Console Master | Implementar o `bootstrap-ledger` vazio e fail-closed somente em PostgreSQL 17 descartável; aprovações humanas, catálogo, writer, memória, conhecimento e subfluxos permanecem posteriores |
 | Isolamento da memória | `AUSENTE / FUNDAÇÃO D2A INTEGRADA` | Nenhum checkpointer durável instalado; D2A cria somente role, schema, helper e factory privados ainda inativos | Tabelas com `igreja_id`, FORCE RLS, namespace server-side, exclusão e testes adversariais pertencem à D3 |
 | Conhecimento oficial | `AUSENTE` | Não há ingestão aprovada, embeddings ou recuperação institucional | Perfil da igreja, documentos versionados, audiência, RLS e busca híbrida |
 | Dados vivos como ferramentas | `PARCIAL` | Quatro ferramentas limitadas e queries determinísticas | Catálogo por especialista, capacidades e serviços compartilhados com o painel |
-| Consentimento | `PARCIAL / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | Legado e opt-out continuam ativos; D2B2a adiciona ledger append-only sem backfill, caller ou aplicação em Supabase; D2B2b1 nega concessões; D2B2b3A integra apenas o preparo de rascunhos por igreja pelo Master | Validar executor futuro, owner, runtime, ACL e `FORCE RLS` dos dois caminhos de banco e, em fatias posteriores, obter atestados e aprovações nominais antes de catálogo, prova ou writer |
+| Consentimento | `PARCIAL / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | Legado e opt-out continuam ativos; D2B2a adiciona ledger append-only sem backfill, caller ou aplicação em Supabase; D2B2b1 nega concessões; D2B2b3A integra apenas o preparo de rascunhos por igreja pelo Master | Criar offline a infraestrutura de ledger vazio, sem reconciliação; qualquer histórico e D2 em ambiente compartilhado exigem missões humanas posteriores antes de catálogo, prova ou writer |
 | Propostas e confirmação | `AUSENTE COMO PLATAFORMA` | Confirmações existem apenas em fluxos específicos | Registro durável, expiração, idempotência, revalidação e comprovante |
 | Notificações proativas | `PARCIAL E FRAGMENTADO` | SLA, cron, Agenda, event notify e broadcast têm caminhos próprios | Outbox única, finalidade, quiet hours, retry, recibo e escalonamento |
 | Painel de Hoje | `IMPLEMENTADO / PARCIAL` | dashboard e work queue por responsabilidade | Compor todas as responsabilidades e as lacunas de conhecimento |
@@ -55,7 +55,7 @@ significa ativa em produção.
 | Broadcast | `IMPLEMENTADO / GATE OPERACIONAL` | ledger, worker, retry e dead-letter | Política por finalidade e canário nominal separado |
 | Asaas | `IMPLEMENTADO / GATE OPERACIONAL` | operações duráveis, isolamento e hardening | Inventário e canário financeiro real, sem envolver a igreja em cortesia |
 | Brevo | `IMPLEMENTADO / GATE OPERACIONAL` | serviço e modo de envio fechado | Domínio, remetente, monitoramento e canário próprio |
-| Onboarding da igreja | `PARCIAL / GOVERNANÇA DRAFT-ONLY INTEGRADA E INATIVA` | telas e configurações administrativas existentes; D2B2b3A integra o preparo de rascunhos de consentimento no Console Master | Validar os dois caminhos de banco sem expor credenciais, depois criar o fluxo nominal de responsáveis e aprovações sem converter preenchimento em autoridade |
+| Onboarding da igreja | `PARCIAL / GOVERNANÇA DRAFT-ONLY INTEGRADA E INATIVA` | telas e configurações administrativas existentes; D2B2b3A integra o preparo de rascunhos de consentimento no Console Master | Concluir o gate offline do `bootstrap-ledger`, depois criar o fluxo nominal de responsáveis e aprovações sem converter preenchimento em autoridade |
 | Exclusão e direitos da pessoa | `PARCIAL` | Exclusão de conversa remove conversa, mensagens e mídia | Propagar para transcrição, resumo, checkpoint, vetores e auditoria sem conteúdo |
 | Observabilidade de IA | `PARCIAL` | logs, custo, filas e metadados seguros de falha | Métricas por rota e tenant, SLO, retenção e alerta de workflows presos |
 | Acessibilidade e performance | `NÃO VERIFICADO INTEGRALMENTE` | Automação e estilos cobrem parte dos riscos | Leitor de tela, teclado, zoom, mobile e métricas de campo |
@@ -190,19 +190,31 @@ runtime do agente, deploy manual ou do backend e D2C continuam bloqueados. O
 contrato está em
 [`2026-08-28-d2b2b3-master-governance-drafts.md`](../decisions/2026-08-28-d2b2b3-master-governance-drafts.md).
 
-Um preflight somente leitura no Supabase DEV `cxmjojnocigekgcxhubi` confirmou
-o executor MCP `postgres` com `BYPASSRLS` e a ausência da tabela, do validator e
-do registro da migration D2B2b3A. O executor MCP DEV satisfaz somente o
-preflight de identidade da migration; não prova `M06_MIGRATION_DATABASE_URL`,
-`DATABASE_URL` nem a VPS. Esta missão não aplicou a migration, DEV confirmou a
-ausência e PROD não foi consultado.
+No baseline `15deaf88fd4cab5b4bebdd1435a81c8b33c2b159`, o preflight PROD
+somente leitura confirmou `DATABASE_URL` presente e
+`M06_MIGRATION_DATABASE_URL` ausente. `current_user` e `session_user`
+convergiram para a mesma identidade sanitizada; a role runtime possui
+`NOSUPERUSER`, `BYPASSRLS`, `LOGIN` e `INHERIT`, é owner de `public.igrejas` e
+`public.app_users` e possui `SELECT` e `REFERENCES` efetivos nessas tabelas-pai.
+A tabela alvo D2B2b3A, o validator e a própria `public.schema_migrations`
+estavam ausentes. A flag `PURPOSE_CONSENT_GOVERNANCE_DRAFTS_ENABLED` permaneceu
+`false`. Esta missão não aplicou a migration D2B2b3A; DEV e PROD confirmaram a
+ausência. A PR #321 integrou a reconciliação documental anterior no merge
+`15deaf88fd4cab5b4bebdd1435a81c8b33c2b159`; esse merge gerou o deployment
+automático Vercel frontend Production `6141449639`, com `SUCCESS`, em
+2026-08-28T12:53:35Z. Essa metadata prova somente o frontend, sem provar backend,
+banco ou Supabase. O preflight VPS em si não executou deploy manual ou do
+backend, migration, restart ou alteração da flag. A leitura comprova identidade,
+ownership e ACL do caminho runtime atual, mas não o comportamento da tabela
+futura sob `FORCE RLS`; o caminho de migration permanece bloqueado pela ausência
+de `M06_MIGRATION_DATABASE_URL` e do ledger público.
 
 A PR #320, HEAD `66ce06d9a356a52e63366b3a6528b0b83170d12e`, foi integrada no
 merge `947d891c2ea278b7a3231fecd9ca1c90cfe29a1f`. Os cinco workflows da
 PR e os cinco pós-merge ficaram verdes. O merge gerou o deployment automático
 Vercel frontend Production `6140373952`, com `SUCCESS`; essa metadata não
-prova backend, banco ou Supabase. Esta missão não aplicou a migration; DEV
-confirmou a ausência e PROD não foi consultado. A flag permanece `false`, e não houve deploy manual ou do
+prova backend, banco ou Supabase. Esta missão não aplicou a migration D2B2b3A;
+DEV e PROD confirmaram a ausência. A flag permanece `false`, e não houve deploy manual ou do
 backend, wiring, ativação ou canário.
 
 ## Canário ativo reconciliado
@@ -294,17 +306,27 @@ expansão de escopo.
 
 ## Próximo gate único
 
-Identificar sanitizadamente, em preflight somente leitura, os dois caminhos de
-banco: `M06_MIGRATION_DATABASE_URL`, futuro executor e owner da migration, e
-`DATABASE_URL`, runtime do backend Master. Para cada caminho, comprovar identidade
-da role, ownership esperado, ACL efetiva e comportamento sob `FORCE RLS`, sem
-abrir `.env` nem imprimir DSN, URL, usuário ou segredo. Se executada pela VPS, a
-consulta toca metadados do Supabase PROD e exige autorização nominal separada.
-A alternativa segura em DEV exige as credenciais planejadas de migration e
-runtime e não comprova a VPS. O preflight não autoriza aplicação da migration,
-mudança de flag, wiring, deploy manual ou do backend, painel do tenant,
-aprovações, catálogo, evidence store, writer, WhatsApp, agente, D2C, ativação ou
-canário.
+Implementar e testar somente em PostgreSQL 17 descartável, sem acessar DEV ou
+PROD, um subcomando versionado `bootstrap-ledger`, explícito e fail-closed,
+separado de `harden-ledger`. Ele criará exclusivamente
+o contrato final vazio de `public.schema_migrations`, como ledger vazio, em transação única, com
+colunas, chave primária (PK) e defaults exatos, RLS habilitada, policy deny e ACL
+mínima por grants e revokes explícitos. O comando validará ownership e roles
+esperados antes e depois, e abortará se houver objeto homônimo, schema divergente
+ou qualquer outro conflito. A reaplicação deverá encerrar sem mutação; testes adversariais
+em PostgreSQL 17 cobrirão conflitos homônimos, falha parcial e
+rollback integral. O comando operará sem reconciliação ou backfill: jamais
+copiará `supabase_migrations`, inferirá
+migrations aplicadas ou autorizará `apply`.
+`apply` e `status` permanecerão tecnicamente bloqueados até uma reconciliação
+humana versionada formar o prefixo íntegro do catálogo, com no máximo uma
+migration pendente; o bootstrap não pode reduzir a barreira atual.
+Qualquer preenchimento ou
+reconciliação histórica humana será uma missão separada, baseada em
+evidência, e precisará terminar antes de considerar D2 em DEV ou PROD. Este gate
+entrega somente a PR offline do bootstrap e não autoriza painel do tenant,
+aprovações, catálogo, writer, migration D2B2b3A, flag, D2C, credencial, wiring,
+deploy, restart, runtime, ativação ou canário.
 
 ## Fontes principais
 
