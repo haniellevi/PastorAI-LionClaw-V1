@@ -1053,7 +1053,7 @@ def test_d2b2b2_template_has_no_runtime_or_migration_consumer() -> None:
                 assert token not in content, f"runtime consumer in {path}"
 
 
-def test_canonical_docs_record_integrated_offline_reconciliation_and_one_gate() -> None:
+def test_canonical_docs_record_capture_candidate_and_one_premerge_gate() -> None:
     canonical_indexes = {
         REPO_ROOT / "docs" / "ai" / "AI-BOOTSTRAP.md",
         REPO_ROOT / "docs" / "ai" / "PRD-COVERAGE.md",
@@ -1162,7 +1162,6 @@ def test_canonical_docs_record_integrated_offline_reconciliation_and_one_gate() 
         assert "decisoes humanas pendentes" in normalized
         assert "nao aplicado" in normalized
         assert "pacote e verificador candidatos" not in normalized
-        assert "integrar a pr" not in normalized
         assert "nao acessa banco, rede" in normalized
         assert "variaveis de ambiente" in normalized
         assert "nao executa sql, dml ou escrita" in normalized
@@ -1174,11 +1173,35 @@ def test_canonical_docs_record_integrated_offline_reconciliation_and_one_gate() 
         assert "42/42" in normalized
         assert "166 passed/45 skipped" in normalized
         assert "exit `8`" in normalized
-        assert "preparar uma missao separada" in normalized
-        assert "explicitamente autorizada" in normalized
+        assert "656d1d9eebe90ad4b2cbb35c21939a6796c46bfe" in content
+        assert "75 migrations" in normalized
+        assert "84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f" in content
+        assert "capturador/materializador candidato da pr" in normalized
+        assert "comprovado offline" in normalized
+        assert "nao integrado" in normalized
+        assert "inventarios dev/prod ainda nao capturados" in normalized
+        assert "decisoes humanas pendentes" in normalized
+        assert "nao aplicado" in normalized
+        assert "166/166" in normalized
+        assert "matriz focal concluiu `166/166`" in normalized
+        assert "dois casos reais de postgresql 17" in normalized
+        assert "container descartavel dedicado" in normalized
+        assert "8b589e5dda722691fead34cbd63cab75a7a22f32e0cf4bdfe64d6cef603866ee" in content
+        assert "revisao independente" in normalized
+        assert "`go`" in normalized
+        assert "ci verde" in normalized
+        assert "suite completa" in normalized
+        assert "parte do mesmo gate pre-merge" in normalized
+        assert "supabase local na porta `54322`" in normalized
+        assert "nenhum inventario" in normalized
+        assert "foi capturado" in normalized
+        assert "revisar e integrar esta pr com ci verde" in normalized
+        assert "somente depois" in normalized
+        assert "gate separado e ja autorizado" in normalized
         assert "somente leitura" in normalized
         assert "inventarios sanitizados de dev e prod" in normalized
         assert "materializar um pacote por ambiente" in normalized
+        assert "preparar uma missao separada" not in normalized
         assert "concluir os testes focais" not in normalized
         assert "`status` e `apply`" in normalized
         assert "bloquead" in normalized
@@ -1199,21 +1222,12 @@ def test_canonical_docs_record_integrated_offline_reconciliation_and_one_gate() 
         ):
             assert blocker in normalized
 
-    stale_terms = {
-        "candidate": r"candidat",
-        "offline": r"offline",
-        "verifier": r"verificador",
-        "package": r"pacote",
+    stale_candidate_statuses = {
+        "pacote e verificador candidatos",
+        "pacote e o verificador candidatos",
+        "pacote e o verificador de reconciliacao sao candidatos somente offline",
+        "pacote e o verificador de reconciliacao estao candidatos somente offline",
     }
-    stale_candidate_status = re.compile(
-        stale_terms["package"]
-        + r".{0,120}"
-        + stale_terms["verifier"]
-        + r".{0,120}"
-        + stale_terms["candidate"]
-        + r".{0,80}"
-        + stale_terms["offline"]
-    )
 
     for path in postmerge_records:
         content = path.read_text(encoding="utf-8")
@@ -1226,8 +1240,8 @@ def test_canonical_docs_record_integrated_offline_reconciliation_and_one_gate() 
         assert "42/42" in normalized
         assert "166 passed/45 skipped" in normalized
         assert "exit `8`" in normalized
-        assert "pacote e verificador candidatos" not in normalized
-        assert stale_candidate_status.search(normalized) is None
+        for stale_status in stale_candidate_statuses:
+            assert stale_status not in normalized
 
     for path in gate_contracts:
         normalized = _normalized_prose(path.read_text(encoding="utf-8"))
@@ -1249,6 +1263,59 @@ def test_canonical_docs_record_integrated_offline_reconciliation_and_one_gate() 
     assert "exit `8`" in reconciliation_normalized
     assert "pacote e verificador candidatos" not in reconciliation_normalized
     assert reconciliation_normalized.count("proximo gate unico") == 1
+
+    capture_primary_records = {
+        RECONCILIATION_CONTRACT_PATH,
+        REPO_ROOT / "backend" / "migrations" / "README.md",
+    }
+    for path in capture_primary_records:
+        content = path.read_text(encoding="utf-8")
+        normalized = _normalized_prose(content)
+        assert "656d1d9eebe90ad4b2cbb35c21939a6796c46bfe" in content
+        assert "84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f" in content
+        assert "8b589e5dda722691fead34cbd63cab75a7a22f32e0cf4bdfe64d6cef603866ee" in content
+        assert "sql allowlisted" in normalized
+        assert "canal nominal" in normalized
+        assert "sanitized_capture" in normalized
+        assert "descritores de arquivo independentes" in normalized
+        assert "chave hmac" in normalized
+        assert "target binding" in normalized
+        assert "--expected-target-binding-sha256" in normalized
+        assert "argumento sanitizado" in normalized
+        assert "fonte permanece independente" in normalized
+        assert "native.name" in normalized
+        assert "`null`" in normalized
+        assert "`0600`" in normalized
+        assert "`o_excl`" in normalized
+        assert "migration-history-reconciliation-dev-evidence-v1.json" in content
+        assert "migration-history-reconciliation-prod-evidence-v1.json" in content
+        assert "operational_authorization=blocked" in normalized
+        assert "evidence_captured_unreviewed" in normalized
+        assert "human_evidence_blocked" in normalized
+        assert "todo pacote permanece bloqueado" in normalized
+        assert "depois de validar a integridade" in normalized
+        assert "ledger nativo `present_complete` nao vazio" in normalized
+        assert "inventory_blocked" in normalized
+        assert "casos anteriores podem terminar" in normalized
+        assert "inventarios dev/prod ainda nao capturados" in normalized
+
+        for stale_claim in (
+            "produz `evidence_captured_unreviewed` e termina no verificador com",
+            "ao ser apresentado ao verificador, esse pacote termina em",
+        ):
+            assert stale_claim not in normalized, f"stale verifier claim in {path}"
+
+    false_capture_claims = {
+        "captura concluida em dev",
+        "captura concluida em prod",
+        "inventarios dev/prod capturados",
+        "pacotes dev/prod materializados",
+        "historico reconciliado",
+    }
+    for path in gate_contracts | capture_primary_records:
+        normalized = _normalized_prose(path.read_text(encoding="utf-8"))
+        for false_claim in false_capture_claims:
+            assert false_claim not in normalized, f"false capture claim in {path}"
 
     mission_register = (
         REPO_ROOT / "docs" / "ops" / "POST-V1-MISSION-REGISTER.md"

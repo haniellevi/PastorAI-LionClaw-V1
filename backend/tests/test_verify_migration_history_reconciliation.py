@@ -119,7 +119,7 @@ def _complete_packet() -> dict[str, Any]:
             "name": catalog["entries"][0]["name"],
         }
     ]
-    native_rows = [{"position": 0, "version": "20260828150000", "name": "first"}]
+    native_rows = [{"position": 0, "version": "20260828150000", "name": None}]
     packet: dict[str, Any] = {
         "contract_version": verifier.CONTRACT_VERSION,
         "package_id": "packet",
@@ -194,6 +194,27 @@ def _complete_packet() -> dict[str, Any]:
     return packet
 
 
+def _unreviewed_packet() -> dict[str, Any]:
+    packet = _complete_packet()
+    packet["package_id"] = verifier.UNREVIEWED_PACKAGE_IDS["DEV"]
+    packet["artifact_state"] = "EVIDENCE_CAPTURED_UNREVIEWED"
+    packet["subject"]["repository_sha"] = verifier.EXPECTED_CAPTURE_REPOSITORY_SHA
+    packet["reconciliation"] = {
+        "state": "NOT_REVIEWED",
+        "catalog_entries": [],
+        "native_rows": [],
+    }
+    packet["attestation"] = {
+        "state": "NOT_ATTESTED",
+        "inventory_attestation_record_sha256": None,
+        "migration_owner_decision_record_sha256": None,
+        "independent_review_record_sha256": None,
+        "attested_at_utc": None,
+        "payload_sha256": None,
+    }
+    return packet
+
+
 def _refresh_catalog_digest(packet: dict[str, Any]) -> None:
     packet["catalog"]["digest_sha256"] = verifier._framed_sha256(
         "pastorai/migration-history/catalog/v1",
@@ -252,8 +273,13 @@ def _main_for_packet(
     packet: dict[str, Any],
     capsys: pytest.CaptureFixture[str],
 ) -> tuple[int, str]:
-    _write_packet(packets, packet)
-    result = verifier.main(["verifier", "--packet", "packet.json"])
+    basename = (
+        f"{packet['package_id']}.json"
+        if packet["artifact_state"] == "EVIDENCE_CAPTURED_UNREVIEWED"
+        else "packet.json"
+    )
+    _write_packet(packets, packet, basename)
+    result = verifier.main(["verifier", "--packet", basename])
     captured = capsys.readouterr()
     return result, captured.out + captured.err
 
@@ -271,6 +297,101 @@ def test_complete_packet_is_only_valid_for_human_review(
     result, output = _main_for_packet(packets, packet, capsys)
     assert result == 0
     assert output == "OPERATIONAL_AUTHORIZATION=BLOCKED\nVALID_FOR_HUMAN_REVIEW_ONLY\n"
+
+
+def test_captured_unreviewed_packet_is_integrity_checked_then_human_blocked(
+    isolated_roots: tuple[Path, Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    _migrations, packets = isolated_roots
+    result, output = _main_for_packet(packets, _unreviewed_packet(), capsys)
+    assert result == verifier.HumanEvidenceBlockedError.exit_code
+    assert output == (
+        "OPERATIONAL_AUTHORIZATION=BLOCKED\n"
+        "RECONCILIATION_CONTRACT_BLOCKED:HUMAN_EVIDENCE_BLOCKED\n"
+    )
+
+
+@pytest.mark.parametrize("mutation,expected", [
+    ("snapshot_mismatch", verifier.InventoryBlockedError.exit_code),
+    ("rows_digest", verifier.SchemaError.exit_code),
+    ("native_empty", verifier.InventoryBlockedError.exit_code),
+])
+def test_captured_unreviewed_does_not_hide_inventory_integrity_failures(
+    isolated_roots: tuple[Path, Path],
+    mutation: str,
+    expected: int,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _migrations, packets = isolated_roots
+    packet = _unreviewed_packet()
+    if mutation == "snapshot_mismatch":
+        packet["inventories"]["native_ledger"]["snapshot_record_sha256"] = SHA_G
+    elif mutation == "rows_digest":
+        packet["inventories"]["public_ledger"]["rows_digest_sha256"] = SHA_G
+    else:
+        packet["inventories"]["native_ledger"]["rows"] = []
+        _refresh_inventory_digest(packet, "native_ledger")
+    result, _output = _main_for_packet(packets, packet, capsys)
+    assert result == expected
+
+
+@pytest.mark.parametrize("inventory_name", ["public_ledger", "native_ledger"])
+def test_captured_unreviewed_requires_both_inventories_captured(
+    isolated_roots: tuple[Path, Path],
+    inventory_name: str,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _migrations, packets = isolated_roots
+    packet = _unreviewed_packet()
+    packet["inventories"][inventory_name].update(
+        capture_state="NOT_CAPTURED",
+        target_binding_sha256=None,
+        captured_at_utc=None,
+        authorization_record_sha256=None,
+        capture_record_sha256=None,
+        snapshot_record_sha256=None,
+        completeness_attested=False,
+        rows=[],
+        rows_digest_sha256=None,
+    )
+    result, _output = _main_for_packet(packets, packet, capsys)
+    assert result == verifier.SchemaError.exit_code
+
+
+@pytest.mark.parametrize("mutation", ["review_state", "decision", "attestation"])
+def test_captured_unreviewed_cannot_smuggle_review_or_attestation(
+    isolated_roots: tuple[Path, Path],
+    mutation: str,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _migrations, packets = isolated_roots
+    packet = _unreviewed_packet()
+    if mutation == "review_state":
+        packet["reconciliation"]["state"] = "HUMAN_REVIEW_INCOMPLETE"
+    elif mutation == "decision":
+        packet["reconciliation"] = copy.deepcopy(
+            _complete_packet()["reconciliation"]
+        )
+    else:
+        packet["attestation"] = copy.deepcopy(_complete_packet()["attestation"])
+    result, _output = _main_for_packet(packets, packet, capsys)
+    assert result == verifier.SchemaError.exit_code
+
+
+@pytest.mark.parametrize("mutation", ["repository_sha", "dev_prod_swap"])
+def test_captured_unreviewed_is_bound_to_baseline_and_environment_basename(
+    isolated_roots: tuple[Path, Path],
+    mutation: str,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _migrations, packets = isolated_roots
+    packet = _unreviewed_packet()
+    if mutation == "repository_sha":
+        packet["subject"]["repository_sha"] = "b" * 40
+    else:
+        packet["package_id"] = verifier.UNREVIEWED_PACKAGE_IDS["PROD"]
+    result, _output = _main_for_packet(packets, packet, capsys)
+    assert result == verifier.SchemaError.exit_code
 
 
 def test_template_is_deny_state_with_exact_current_catalog() -> None:
@@ -1104,9 +1225,16 @@ def test_native_version_must_be_a_valid_utc_timestamp(
 
 @pytest.mark.parametrize(
     "name",
-    ["native.name", "operator@example", "127.0.0.1", "free text", "MixedCase"],
+    [
+        "joao_private",
+        "native.name",
+        "operator@example",
+        "127.0.0.1",
+        "free text",
+        "MixedCase",
+    ],
 )
-def test_native_name_accepts_only_sanitized_lowercase_token(
+def test_native_name_must_always_be_null(
     isolated_roots: tuple[Path, Path],
     name: str,
     capsys: pytest.CaptureFixture[str],
@@ -1129,7 +1257,9 @@ def test_query_contracts_fix_isolation_projection_and_order(
     assert "PROJECTION=position,name" in verifier.PUBLIC_QUERY_CONTRACT
     assert "ISOLATION=REPEATABLE_READ_READ_ONLY" in verifier.NATIVE_QUERY_CONTRACT
     assert "ORDER=version_ASC" in verifier.NATIVE_QUERY_CONTRACT
-    assert "PROJECTION=position,version,name" in verifier.NATIVE_QUERY_CONTRACT
+    assert verifier.NATIVE_QUERY_CONTRACT.endswith(
+        "PROJECTION=position,version,name_NULL_REDACTED"
+    )
 
     _migrations, packets = isolated_roots
     packet = _complete_packet()
@@ -1167,6 +1297,7 @@ def test_verifier_source_has_no_effectful_dependencies_or_write_flags() -> None:
         }
     )
     assert "apply_migrations" not in source
+    assert "capture_migration_history_evidence" not in source
     assert not attributes.intersection(
         {
             "environ",
@@ -1262,6 +1393,32 @@ def test_schema_is_closed_and_encodes_blocking_literals() -> None:
         "type": "string",
         "pattern": "^[0-9a-f]{64}$",
     }
+    assert captured_subject["repository_sha"] == {
+        "const": verifier.EXPECTED_CAPTURE_REPOSITORY_SHA
+    }
+    captured_properties = captured_unreviewed_rule["then"]["properties"]
+    for inventory_name in ("public_ledger", "native_ledger"):
+        assert captured_properties["inventories"]["properties"][inventory_name][
+            "properties"
+        ]["capture_state"]["enum"] == ["ABSENT_CONFIRMED", "PRESENT_COMPLETE"]
+    assert captured_properties["reconciliation"]["properties"] == {
+        "state": {"const": "NOT_REVIEWED"},
+        "catalog_entries": {"maxItems": 0},
+        "native_rows": {"maxItems": 0},
+    }
+    captured_attestation = captured_properties["attestation"]["properties"]
+    assert captured_attestation["state"] == {"const": "NOT_ATTESTED"}
+    for key in verifier.ATTESTATION_KEYS - {"state"}:
+        assert captured_attestation[key] == {"type": "null"}
+    environment_package_rules = {
+        rule["if"]["properties"]["subject"]["properties"]["environment"][
+            "const"
+        ]: rule["then"]["properties"]["package_id"]["const"]
+        for rule in schema["allOf"]
+        if "subject" in rule["if"].get("properties", {})
+        and "package_id" in rule["then"].get("properties", {})
+    }
+    assert environment_package_rules == verifier.UNREVIEWED_PACKAGE_IDS
 
     def assert_closed_objects(value: Any) -> None:
         if type(value) is dict:
@@ -1290,6 +1447,7 @@ def test_schema_and_runtime_contract_keys_and_limits_are_in_parity() -> None:
         definitions["nativeInventory"]["properties"]["query_contract"]["const"]
         == verifier.NATIVE_QUERY_CONTRACT
     )
+    assert definitions["nativeRow"]["properties"]["name"] == {"const": None}
     assert (
         definitions["catalogEntry"]["properties"]["size_bytes"]["maximum"]
         == verifier.MAX_MIGRATION_BYTES

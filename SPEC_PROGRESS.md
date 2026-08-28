@@ -216,9 +216,24 @@ A prova local preservada e `98/98` testes do verificador, `26/26` testes
 documentais e `42/42` testes offline do runner: agregado de
 `166 passed/45 skipped`. O template deny-state terminou bloqueado com exit `8`.
 
-**Proximo gate unico:** preparar uma missao separada, explicitamente autorizada
-e somente leitura para capturar inventarios sanitizados de DEV e PROD e
-materializar um pacote por ambiente. O gate nao autoriza DML, comando do runner,
+O capturador e o materializador desta PR candidata foram comprovados offline
+sobre a base de catalogo
+`656d1d9eebe90ad4b2cbb35c21939a6796c46bfe`, com 75 migrations e digest
+`84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`.
+O estado e `CAPTURADOR/MATERIALIZADOR CANDIDATO DA PR / COMPROVADO OFFLINE /
+NAO INTEGRADO / INVENTARIOS DEV/PROD AINDA NAO CAPTURADOS / DECISOES HUMANAS
+PENDENTES / NAO APLICADO`. A matriz focal concluiu `166/166`, incluindo dois
+casos reais de PostgreSQL 17 em container descartavel dedicado; o SQL allowlisted tem
+SHA-256 `8b589e5dda722691fead34cbd63cab75a7a22f32e0cf4bdfe64d6cef603866ee`,
+e a revisao independente resultou em `GO`. CI verde e a suite completa
+permanecem parte do mesmo gate pre-merge. Nao houve Supabase local na porta
+`54322`, DEV, PROD, rede, deploy, runner, DML, flag ou runtime. Nenhum inventario
+foi capturado, e todo sucesso continua com `OPERATIONAL_AUTHORIZATION=BLOCKED`.
+
+**Proximo gate unico:** revisar e integrar esta PR com CI verde. Somente depois
+sera permitido executar, em gate separado e ja autorizado, a captura somente
+leitura dos inventarios sanitizados de DEV e PROD e materializar um pacote por
+ambiente. Este gate nao autoriza captura, DML, comando do runner,
 `bootstrap-ledger`, `harden-ledger`, `status`, `apply`, deploy, flag ou runtime.
 Universidade da Vida e Capacitacao Destino permanecem fora desta missao.
 
