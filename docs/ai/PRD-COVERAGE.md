@@ -3,7 +3,7 @@ project: igreja12
 document_kind: prd-coverage
 status: canonical-audit
 last_verified: 2026-08-28
-audited_repository_sha: 15deaf88fd4cab5b4bebdd1435a81c8b33c2b159
+audited_repository_sha: 3a5789c784017ab15a43e28c4270d25af8618359
 canonical_prd: docs/Docs20260611_163530/PRD20260611_163530.md
 ---
 
@@ -35,11 +35,11 @@ significa ativa em produção.
 | Pessoas e responsabilidades | `PARCIAL FORTE` | cadastro, papéis, vínculos, fila e escopos existentes | Fechar responsabilidades temporais, owner operacional e composição por setor |
 | Conexão WhatsApp | `IMPLEMENTADO / GATE OPERACIONAL` | Evolution, conexão por igreja, webhook e filas | Monitorar recibos, reconnect e capacidade antes de cada canário |
 | Conversas e handoff | `IMPLEMENTADO` | histórico, inbox, atribuição, transferência e estado IA/humano | Adicionar memória derivada, exclusão propagada e avaliação de naturalidade |
-| Fundação do agente | `IMPLEMENTADO / PARCIAL / LEDGER-BOOTSTRAP IMPLEMENTADO E COMPROVADO OFFLINE / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | LangGraph stateless e contexto confiável D2B1 integrados; D2B2a adiciona persistência e serviço interno sem caller; D2B2b1 é deny-first; D2B2b3A integra rascunhos; este delta implementa `bootstrap-ledger` e o comprova somente em PostgreSQL 17 descartável | Concluir a PR offline de reconciliação histórica humana; aprovações, catálogo, writer, memória, conhecimento, D2 e ambientes compartilhados permanecem posteriores |
+| Fundação do agente | `IMPLEMENTADO / PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | LangGraph stateless e contexto confiável D2B1 integrados; D2B2a adiciona persistência e serviço interno sem caller; D2B2b1 é deny-first; D2B2b3A integra rascunhos; a PR #323 integrou `bootstrap-ledger`, ainda sem aplicação em banco compartilhado | Concluir a PR offline de reconciliação histórica humana; aprovações, catálogo, writer, memória, conhecimento, D2 e ambientes compartilhados permanecem posteriores |
 | Isolamento da memória | `AUSENTE / FUNDAÇÃO D2A INTEGRADA` | Nenhum checkpointer durável instalado; D2A cria somente role, schema, helper e factory privados ainda inativos | Tabelas com `igreja_id`, FORCE RLS, namespace server-side, exclusão e testes adversariais pertencem à D3 |
 | Conhecimento oficial | `AUSENTE` | Não há ingestão aprovada, embeddings ou recuperação institucional | Perfil da igreja, documentos versionados, audiência, RLS e busca híbrida |
 | Dados vivos como ferramentas | `PARCIAL` | Quatro ferramentas limitadas e queries determinísticas | Catálogo por especialista, capacidades e serviços compartilhados com o painel |
-| Consentimento | `PARCIAL / LEDGER-BOOTSTRAP IMPLEMENTADO E COMPROVADO OFFLINE / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | Legado e opt-out continuam ativos; D2B2a adiciona ledger append-only sem caller ou aplicação em Supabase; D2B2b1 nega concessões; D2B2b3A prepara rascunhos; o bootstrap vazio foi testado offline sem backfill ou reconciliação | Produzir a reconciliação histórica humana versionada e ainda manter D2, catálogo, prova, writer, DEV e PROD bloqueados |
+| Consentimento | `PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | Legado e opt-out continuam ativos; D2B2a adiciona ledger append-only sem caller ou aplicação em Supabase; D2B2b1 nega concessões; D2B2b3A prepara rascunhos; o bootstrap vazio foi integrado e testado offline sem backfill ou reconciliação | Produzir a reconciliação histórica humana versionada e ainda manter D2, catálogo, prova, writer, DEV e PROD bloqueados |
 | Propostas e confirmação | `AUSENTE COMO PLATAFORMA` | Confirmações existem apenas em fluxos específicos | Registro durável, expiração, idempotência, revalidação e comprovante |
 | Notificações proativas | `PARCIAL E FRAGMENTADO` | SLA, cron, Agenda, event notify e broadcast têm caminhos próprios | Outbox única, finalidade, quiet hours, retry, recibo e escalonamento |
 | Painel de Hoje | `IMPLEMENTADO / PARCIAL` | dashboard e work queue por responsabilidade | Compor todas as responsabilidades e as lacunas de conhecimento |
@@ -306,8 +306,9 @@ expansão de escopo.
 
 ## Próximo gate único
 
-Sobre a base `b43ad92028374fa6763ef10f5eb7a379afd3e7a2`, este delta
-implementa e comprova offline `bootstrap-ledger`, exige `--confirm BOOTSTRAP_LEDGER` e lê
+Desenvolvida e comprovada offline sobre a base
+`b43ad92028374fa6763ef10f5eb7a379afd3e7a2`, a implementação foi integrada
+pela PR #323. `bootstrap-ledger` exige `--confirm BOOTSTRAP_LEDGER` e lê
 o destino apenas de `M06_MIGRATION_DATABASE_URL`. Em PostgreSQL 17 ele cria,
 atomicamente, somente o ledger vazio `public.schema_migrations` no contrato
 owner-only final: colunas, chave primária e defaults exatos, RLS, policy deny e
@@ -321,14 +322,23 @@ descartável em duas execuções independentes e a revisão de segurança `GO`. 
 suíte RLS completa, em execução serial limpa no PostgreSQL 17 descartável,
 passou em 326/326, com 3803 deselecionados e 2 warnings preexistentes, em
 162.77s. A suíte offline integral foi interrompida após 5 min sem saída ou
-progresso; o resultado é `INCONCLUSIVO`, não verde nem falha, e o workflow
-Backend Tests da PR permanece gate. O bootstrap não descobre o catálogo,
+progresso; o resultado é `INCONCLUSIVO`, não verde nem falha e não foi
+reclassificado. Os workflows Backend Tests da PR #323 e do pós-merge concluíram
+com `SUCCESS`. O bootstrap não descobre o catálogo,
 não consulta ou altera `supabase_migrations`, não reconcilia, não faz backfill
 e não aplica ou registra migration. `status` e `apply` continuam bloqueados
 até existir prefixo íntegro do catálogo, humanamente reconciliado, com no máximo
-uma migration pendente. A missão não acessou DEV ou PROD, não aplicou migration
-ou bootstrap compartilhado, não fez deploy ou restart e não alterou credencial,
-flag, runtime, agente ou canário.
+uma migration pendente. A PR #323, HEAD
+`74d3f2d87a7ffad501432b2d9fc4163bd3b4ada4`, foi integrada pelo merge
+`3a5789c784017ab15a43e28c4270d25af8618359` em
+`2026-08-28T15:24:58Z`; seus cinco workflows e os cinco pós-merge concluíram
+com `SUCCESS`. A Vercel registrou o Preview automático frontend `6143773477`,
+com `SUCCESS`, em `2026-08-28T15:22:43Z`, e o Production automático frontend
+`6143819601`, com `SUCCESS`, em `2026-08-28T15:25:43Z`. Essas metadatas provam
+somente o frontend, sem provar backend, banco ou runtime. O bootstrap está
+integrado, mas não aplicado. Não houve deploy manual ou do backend, acesso aos
+bancos DEV ou PROD, bootstrap ou migration compartilhada, restart ou alteração
+de credencial, flag, runtime, agente ou canário.
 
 Implementar e testar somente offline, sem acessar DEV ou PROD, uma PR
 versionada de reconciliação histórica humana. Ela deve definir pacote

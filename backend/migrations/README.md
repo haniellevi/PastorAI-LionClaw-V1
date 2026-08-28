@@ -56,7 +56,8 @@ bloqueados.
 
 ## Estado operacional atual
 
-`bootstrap-ledger` foi implementado e comprovado somente offline, ainda não aplicado, sobre a base
+`bootstrap-ledger` foi integrado pela PR #323 e comprovado somente offline,
+ainda não aplicado, sobre a base
 `b43ad92028374fa6763ef10f5eb7a379afd3e7a2`: 42/42 testes unitários, 87/87 em
 PostgreSQL 17-alpine descartável em duas execuções independentes e 87/87 em
 Supabase PG17 17.6.1.159 descartável em duas execuções independentes, com
@@ -64,7 +65,12 @@ revisão de segurança `GO`. A suíte RLS completa, em execução serial limpa n
 PostgreSQL 17 descartável, passou em 326/326, com 3803 deselecionados e 2
 warnings preexistentes, em 162.77s. A suíte offline integral foi interrompida
 após 5 min sem saída ou progresso; o resultado é `INCONCLUSIVO`, não verde nem
-falha, e o workflow Backend Tests da PR permanece gate.
+falha e não foi reclassificado. Os workflows Backend Tests da PR #323 e do
+pós-merge concluíram com `SUCCESS`.
+
+O merge `3a5789c784017ab15a43e28c4270d25af8618359` integrou o código em
+`main`. A Vercel produziu Preview e Production automáticos do frontend; essa
+metadata não prova deploy do backend, banco ou runtime.
 
 Nenhuma execução ocorreu em DEV ou PROD. Não use `bootstrap-ledger`,
 `harden-ledger`, `status`, `apply`, SQL Editor, `apply_migration`, `db push` ou

@@ -468,9 +468,9 @@ backend, banco ou Supabase. Esta missao nao aplicou a migration D2B2b3A; DEV e
 PROD confirmaram a ausencia. A flag permanece `false`, e nao houve deploy manual ou do
 backend, wiring, ativacao ou canario.
 
-Sobre a base versionada
-`b43ad92028374fa6763ef10f5eb7a379afd3e7a2`, a missao offline
-este delta implementa e comprova offline o subcomando explicito e fail-closed
+A implementacao foi desenvolvida e comprovada offline sobre a base versionada
+`b43ad92028374fa6763ef10f5eb7a379afd3e7a2`. O codigo integrado pela PR #323
+adiciona o subcomando explicito e fail-closed
 `bootstrap-ledger`, separado de `harden-ledger`. Ele exige
 `--confirm BOOTSTRAP_LEDGER` antes da conexao e aceita o destino somente por
 `M06_MIGRATION_DATABASE_URL`. Em PostgreSQL 17, cria em uma transacao
@@ -486,18 +486,26 @@ descartavel em duas execucoes independentes e 87/87 em Supabase PG17
 resultou em `GO`. A suite RLS completa, em execucao serial limpa no PostgreSQL
 17 descartavel, passou em 326/326, com 3803 deselecionados e 2 warnings
 preexistentes, em 162.77s. A suite offline integral foi interrompida apos 5
-min sem saida ou progresso; o resultado e `INCONCLUSIVO`, nao verde nem falha,
-e o workflow Backend Tests da PR permanece gate. O comando nao descobre o catalogo local, nao consulta, copia
+min sem saida ou progresso; o resultado e `INCONCLUSIVO`, nao verde nem falha
+e nao foi reclassificado. Os workflows Backend Tests da PR #323 e do
+pos-merge concluiram com `SUCCESS`. O comando nao descobre o catalogo local, nao consulta, copia
 ou altera `supabase_migrations`, nao faz backfill ou reconciliacao e nao aplica
 nem registra migration. O ledger vazio mantem `status` e `apply` bloqueados ate
 uma reconciliacao historica humana formar o prefixo integro do catalogo, com no
 maximo uma migration pendente.
 
-Esta evidencia comprova somente a implementacao offline, ainda nao aplicada. A missao nao acessou DEV
-ou PROD, nao aplicou o bootstrap ou qualquer migration em ambiente
-compartilhado, nao provisionou credencial, nao fez deploy ou restart e nao
-alterou flag, runtime, agente ou canario. O preflight PROD e o deployment
-automatico frontend da PR #321 permanecem como evidencia historica separada.
+O `bootstrap-ledger` esta integrado em `main`, mas continua nao aplicado. A PR
+#323, HEAD `74d3f2d87a7ffad501432b2d9fc4163bd3b4ada4`, foi integrada pelo
+merge `3a5789c784017ab15a43e28c4270d25af8618359` em
+`2026-08-28T15:24:58Z`; seus cinco workflows e os cinco pos-merge concluiram
+com `SUCCESS`. A Vercel registrou o Preview automatico frontend `6143773477`,
+com `SUCCESS`, em `2026-08-28T15:22:43Z`, e o Production automatico frontend
+`6143819601`, com `SUCCESS`, em `2026-08-28T15:25:43Z`. Essas metadatas provam
+somente o frontend, sem provar backend, banco ou runtime. Nao houve deploy
+manual ou do backend, acesso aos bancos DEV ou PROD, bootstrap ou migration
+compartilhada, restart ou alteracao de credencial, flag, runtime, agente ou
+canario. O preflight PROD e o deployment automatico frontend da PR #321
+permanecem como evidencia historica separada.
 
 **Proximo gate unico:** implementar e testar somente offline, sem acessar DEV
 ou PROD, uma PR versionada de reconciliacao historica humana. Ela devera definir

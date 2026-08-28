@@ -211,8 +211,9 @@ da flag.
 
 ## Proximo gate unico
 
-Sobre a base `b43ad92028374fa6763ef10f5eb7a379afd3e7a2`, este delta
-implementa e comprova offline `bootstrap-ledger`, separado de `harden-ledger`, com
+Desenvolvida e comprovada offline sobre a base
+`b43ad92028374fa6763ef10f5eb7a379afd3e7a2`, a implementacao foi integrada
+pela PR #323. `bootstrap-ledger` e separado de `harden-ledger`, com
 confirmacao literal `BOOTSTRAP_LEDGER` e destino somente por
 `M06_MIGRATION_DATABASE_URL`. Em PostgreSQL 17 ele cria atomicamente apenas o
 ledger vazio `public.schema_migrations`, no contrato exato owner-only com RLS,
@@ -226,17 +227,26 @@ descartavel em duas execucoes independentes e revisao de seguranca `GO`. A
 suite RLS completa, em execucao serial limpa no PostgreSQL 17 descartavel,
 passou em 326/326, com 3803 deselecionados e 2 warnings preexistentes, em
 162.77s. A suite offline integral foi interrompida apos 5 min sem saida ou
-progresso; o resultado e `INCONCLUSIVO`, nao verde nem falha, e o workflow
-Backend Tests da PR permanece gate. O bootstrap nao descobre o catalogo,
+progresso; o resultado e `INCONCLUSIVO`, nao verde nem falha e nao foi
+reclassificado. Os workflows Backend Tests da PR #323 e do pos-merge concluiram
+com `SUCCESS`. O bootstrap nao descobre o catalogo,
 nao le ou altera `supabase_migrations`, nao reconcilia, nao faz backfill e nao
 aplica ou registra migration. O ledger vazio preserva o bloqueio tecnico de
 `status` e `apply` ate uma reconciliacao historica humana formar o prefixo
 integro do catalogo, com no maximo uma migration pendente.
 
-Esta missao nao acessou DEV ou PROD, nao aplicou bootstrap ou migration em
-ambiente compartilhado, nao provisionou credencial, nao fez deploy ou restart
-e nao alterou flag, runtime, agente ou canario. O preflight PROD e o deployment
-automatico frontend da PR #321 continuam como evidencia historica separada.
+O `bootstrap-ledger` esta integrado em `main`, mas continua nao aplicado. A PR
+#323, HEAD `74d3f2d87a7ffad501432b2d9fc4163bd3b4ada4`, foi integrada pelo
+merge `3a5789c784017ab15a43e28c4270d25af8618359` em
+`2026-08-28T15:24:58Z`; seus cinco workflows e os cinco pos-merge concluiram
+com `SUCCESS`. A Vercel registrou o Preview automatico frontend `6143773477`,
+com `SUCCESS`, em `2026-08-28T15:22:43Z`, e o Production automatico frontend
+`6143819601`, com `SUCCESS`, em `2026-08-28T15:25:43Z`. Essas metadatas provam
+somente o frontend, sem provar backend, banco ou runtime. Nao houve deploy
+manual ou do backend, acesso aos bancos DEV ou PROD, bootstrap ou migration
+compartilhada, restart ou alteracao de credencial, flag, runtime, agente ou
+canario. O preflight PROD e o deployment automatico frontend da PR #321
+continuam como evidencia historica separada.
 
 Implementar e testar somente offline, sem acessar DEV ou PROD, uma PR
 versionada de reconciliacao historica humana. Ela deve definir pacote

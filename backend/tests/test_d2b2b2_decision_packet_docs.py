@@ -1047,7 +1047,7 @@ def test_d2b2b2_template_has_no_runtime_or_migration_consumer() -> None:
                 assert token not in content, f"runtime consumer in {path}"
 
 
-def test_d2b2b2_canonical_docs_record_offline_bootstrap_and_one_reconciliation_gate() -> None:
+def test_d2b2b2_canonical_docs_record_integrated_unapplied_bootstrap_and_one_reconciliation_gate() -> None:
     canonical_indexes = {
         REPO_ROOT / "docs" / "ai" / "AI-BOOTSTRAP.md",
         REPO_ROOT / "docs" / "ai" / "PRD-COVERAGE.md",
@@ -1084,6 +1084,13 @@ def test_d2b2b2_canonical_docs_record_offline_bootstrap_and_one_reconciliation_g
         normalized = _normalized_prose(content)
         assert "15deaf88fd4cab5b4bebdd1435a81c8b33c2b159" in content
         assert "b43ad92028374fa6763ef10f5eb7a379afd3e7a2" in content
+        assert "74d3f2d87a7ffad501432b2d9fc4163bd3b4ada4" in content
+        assert "3a5789c784017ab15a43e28c4270d25af8618359" in content
+        assert "2026-08-28T15:24:58Z" in content
+        assert "6143773477" in content
+        assert "2026-08-28T15:22:43Z" in content
+        assert "6143819601" in content
+        assert "2026-08-28T15:25:43Z" in content
         assert "preflight prod somente leitura" in normalized
         assert "`m06_migration_database_url`" in normalized
         assert "`database_url`" in normalized
@@ -1109,9 +1116,17 @@ def test_d2b2b2_canonical_docs_record_offline_bootstrap_and_one_reconciliation_g
         assert "interrompida apos 5 min sem saida ou progresso" in normalized
         assert "`inconclusivo`" in normalized
         assert "nao verde nem falha" in normalized
-        assert "backend tests da pr permanece gate" in normalized
+        assert "workflows backend tests da pr #323 e do pos-merge" in normalized
+        assert "backend tests da pr permanece gate" not in normalized
+        assert "integrado" in normalized
+        assert "continua nao aplicado" in normalized or "mas nao aplicado" in normalized
+        assert "preview automatico frontend" in normalized
+        assert "production automatico frontend" in normalized
+        assert "somente o frontend" in normalized
+        assert "sem provar backend, banco ou runtime" in normalized
+        assert "nao houve deploy manual ou do backend" in normalized
+        assert "acesso aos bancos dev ou prod" in normalized
         assert "somente offline" in normalized
-        assert "nao acessou dev ou prod" in normalized
         assert "nao aplica" in normalized
         assert "registra migration" in normalized
         assert "nao" in normalized and "supabase_migrations" in normalized
@@ -1141,6 +1156,23 @@ def test_d2b2b2_canonical_docs_record_offline_bootstrap_and_one_reconciliation_g
     for path in gate_contracts:
         normalized = _normalized_prose(path.read_text(encoding="utf-8"))
         assert normalized.count("proximo gate unico") == 1
+
+    mission_register = (
+        REPO_ROOT / "docs" / "ops" / "POST-V1-MISSION-REGISTER.md"
+    ).read_text(encoding="utf-8")
+    for workflow_id in (
+        "33184817567",
+        "33184817526",
+        "33184817442",
+        "33184817428",
+        "33184817512",
+        "33185027149",
+        "33185027115",
+        "33185027132",
+        "33185027091",
+        "33185027090",
+    ):
+        assert workflow_id in mission_register
 
     assert ADR_PATH.is_file()
     assert "TEMPLATE_ONLY / NOT_APPROVED" in ADR_PATH.read_text(
@@ -1206,11 +1238,12 @@ def test_migration_operator_docs_reject_obsolete_generic_apply_contract() -> Non
         assert "interrompida apos 5 min sem saida ou progresso" in normalized
         assert "`inconclusivo`" in normalized
         assert "nao verde nem falha" in normalized
-        assert "backend tests da pr permanece gate" in normalized
+        assert "workflows backend tests da pr #323 e do pos-merge" in normalized
+        assert "backend tests da pr permanece gate" not in normalized
 
     assert "unico hardening" in ledger_normalized
-    assert "implementado e comprovado somente offline" in ledger_normalized
-    assert "nao houve acesso a dev ou prod" in ledger_normalized
+    assert "integrado e comprovado somente offline" in ledger_normalized
+    assert "acesso aos bancos dev ou prod" in ledger_normalized
     assert "supabase_migrations.schema_migrations" in ledger_normalized
 
     assert "dois historicos diferentes" in production_normalized
@@ -1218,10 +1251,48 @@ def test_migration_operator_docs_reject_obsolete_generic_apply_contract() -> Non
     assert "ledger de controle" in production_normalized
     assert "public.schema_migrations" in production_normalized
     assert "esta ausente" in production_normalized
-    assert "implementado e comprovado apenas offline" in production_normalized
+    assert "integrado em `main` pela pr #323" in production_normalized
+
+    for normalized in (
+        readme_normalized,
+        staging_normalized,
+        ledger_normalized,
+        production_normalized,
+    ):
+        assert "3a5789c784017ab15a43e28c4270d25af8618359" in normalized
+        assert "preview e production automaticos do frontend" in normalized
+        assert "nao prova" in normalized
+        assert "backend" in normalized
+        assert "banco" in normalized
 
     assert "preserva a decisao e as provas" in historical_normalized
     assert "historicas da m06" in historical_normalized
     assert "comprovado somente offline" in historical_normalized
     assert "nada nesta" in historical_normalized
     assert "nota autoriza dev, prod" in historical_normalized
+
+
+def test_postmerge_ledger_docs_reject_premerge_delta_language() -> None:
+    postmerge_docs = {
+        REPO_ROOT / "docs" / "ai" / "PRD-COVERAGE.md",
+        REPO_ROOT / "docs" / "ops" / "POST-V1-MISSION-REGISTER.md",
+        REPO_ROOT
+        / "docs"
+        / "decisions"
+        / "2026-08-28-d2b2b2-consent-decision-packet-contract.md",
+        REPO_ROOT
+        / "docs"
+        / "decisions"
+        / "2026-08-28-d2b2b3-master-governance-drafts.md",
+        REPO_ROOT
+        / "docs"
+        / "security"
+        / "2026-08-20-v1-ledger-hardening-gate.md",
+    }
+
+    for path in postmerge_docs:
+        normalized = _normalized_prose(path.read_text(encoding="utf-8"))
+        assert "este delta implementa" not in normalized
+        assert "delta atual tambem contem" not in normalized
+        assert "desenvolvida e comprovada offline sobre a base" in normalized
+        assert "foi integrada pela pr #323" in normalized

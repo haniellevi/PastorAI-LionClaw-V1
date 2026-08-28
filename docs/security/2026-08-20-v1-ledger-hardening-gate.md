@@ -1,9 +1,10 @@
 # V1 — gate de hardening do ledger de migrations
 
 > Atualização de 2026-08-28: este documento preserva a operação histórica de
-> `harden-ledger` para um ledger já existente. O delta atual também contém
-> `bootstrap-ledger` para criar somente um ledger vazio, mas essa implementação
-> foi comprovada apenas offline e não está autorizada em DEV ou PROD.
+> `harden-ledger` para um ledger já existente. A implementação de
+> `bootstrap-ledger`, desenvolvida e comprovada offline sobre a base
+> `b43ad92028374fa6763ef10f5eb7a379afd3e7a2`, foi integrada pela PR #323. Ela
+> cria somente um ledger vazio e não está autorizada em DEV ou PROD.
 
 ## Objetivo e limite
 
@@ -26,7 +27,7 @@ Ele não cria a tabela, não insere, remove ou reordena nomes no ledger, não to
 `supabase_migrations.schema_migrations` e não executa SQL de migration. É um
 hardening de plano de controle, não um atalho para aplicar pendências.
 
-## Bootstrap de ledger ausente, implementado e comprovado somente offline
+## Bootstrap de ledger ausente, integrado e comprovado somente offline
 
 `bootstrap-ledger` é uma operação distinta. Ela exige PostgreSQL 17,
 `current_user=session_user`, confirmação literal antes da conexão e o destino
@@ -63,10 +64,13 @@ A revisão de segurança resultou em `GO`. A suíte RLS completa, em execução
 serial limpa no PostgreSQL 17 descartável, passou em 326/326, com 3803
 deselecionados e 2 warnings preexistentes, em 162.77s. A suíte offline
 integral foi interrompida após 5 min sem saída ou progresso; o resultado é
-`INCONCLUSIVO`, não verde nem falha, e o workflow Backend Tests da PR permanece
-gate. Esses resultados são exclusivamente
-offline: não houve acesso a DEV ou PROD, bootstrap, migration, credencial,
-deploy, restart ou alteração de flag em ambiente compartilhado.
+`INCONCLUSIVO`, não verde nem falha e não foi reclassificado. Os workflows
+Backend Tests da PR #323 e do pós-merge concluíram com `SUCCESS`. O merge
+`3a5789c784017ab15a43e28c4270d25af8618359` gerou Preview e Production
+automáticos do frontend na Vercel; essa metadata não prova backend, banco ou
+runtime. Não houve deploy manual ou do backend, acesso aos bancos DEV ou PROD,
+bootstrap, migration, credencial, restart ou alteração de flag em ambiente
+compartilhado.
 
 ## Contrato fail-closed
 

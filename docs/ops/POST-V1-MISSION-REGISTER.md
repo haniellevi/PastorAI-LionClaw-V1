@@ -1,7 +1,8 @@
 # PastorAI / Igreja 12: registro central de missões pós-V1
 
-Atualizado em 2026-08-28 (America/Sao_Paulo) com D2B2a, D2B2b1 e D2B2b3A
-integradas e inativas, e o template D2B2b2 ainda não aprovado. A D2B2b3A existe
+Atualizado em 2026-08-28 (America/Sao_Paulo) com D2B2a, D2B2b1, D2B2b3A e o
+`bootstrap-ledger` integrados e inativos, e o template D2B2b2 ainda não
+aprovado. A D2B2b3A existe
 somente como superfície draft-only do Console Master. A V1 permanece `V1_ENCERRADA`, mas a visão
 integral WhatsApp-first ainda não está concluída. Este documento não altera a tag
 `v1.0.0`, não autoriza novo canário, rollout amplo ou abertura de gates de
@@ -28,12 +29,16 @@ produção.
   `ASAAS_BILLING_ENABLED=false`, `BREVO_SEND_MODE=off` e
   `BROADCAST_ASYNC_ENABLED=false`. Este é um relato operacional, não uma
   leitura atual de produção feita por esta atualização documental;
-- baseline auditada nesta atualização:
+- baseline do preflight PROD anterior, preservada como evidência histórica:
   `15deaf88fd4cab5b4bebdd1435a81c8b33c2b159`. Esse SHA não é tratado como
   ponteiro móvel de `origin/main`. A implementação D2B2b3A veio do merge #320
   `947d891c2ea278b7a3231fecd9ca1c90cfe29a1f`; merge em `main` não comprova
   backend ou banco, por isso o estado versionado e o estado operacional são
-  registrados separadamente.
+  registrados separadamente;
+- base versionada desta reconciliação pós-merge:
+  `3a5789c784017ab15a43e28c4270d25af8618359`, merge da PR #323. Ela prova o
+  código integrado e as evidências de CI associadas, sem provar bootstrap,
+  migration, backend implantado, banco ou runtime compartilhado.
 
 ## Missões
 
@@ -748,11 +753,11 @@ acesso foi negado. Os arquivos temporários locais foram removidos. O preflight
 VPS em si não executou deploy manual ou do backend, migration, restart, alteração
 da flag ou outra mutação de estado.
 
-### LEDGER-BOOTSTRAP, implementado e comprovado offline, não aplicado (2026-08-28)
+### LEDGER-BOOTSTRAP, integrado e comprovado offline, não aplicado (2026-08-28)
 
-Sobre a base versionada
-`b43ad92028374fa6763ef10f5eb7a379afd3e7a2`, este delta implementa e comprova offline o
-subcomando explícito e fail-closed `bootstrap-ledger`, separado de
+Desenvolvida e comprovada offline sobre a base versionada
+`b43ad92028374fa6763ef10f5eb7a379afd3e7a2`, a implementação foi integrada
+pela PR #323. O subcomando explícito e fail-closed `bootstrap-ledger` é separado de
 `harden-ledger`. Ele exige `--confirm BOOTSTRAP_LEDGER` antes da conexão e lê o
 destino somente de `M06_MIGRATION_DATABASE_URL`. Em PostgreSQL 17, cria em uma
 transação `SERIALIZABLE` exclusivamente o ledger vazio
@@ -768,19 +773,33 @@ descartável em duas execuções independentes e 87/87 em Supabase PG17
 resultou em `GO`. A suíte RLS completa, em execução serial limpa no PostgreSQL
 17 descartável, passou em 326/326, com 3803 deselecionados e 2 warnings
 preexistentes, em 162.77s. A suíte offline integral foi interrompida após 5
-min sem saída ou progresso; o resultado é `INCONCLUSIVO`, não verde nem falha,
-e o workflow Backend Tests da PR permanece gate. O bootstrap não descobre o catálogo local, não consulta,
+min sem saída ou progresso; o resultado é `INCONCLUSIVO`, não verde nem falha
+e não foi reclassificado. Os workflows Backend Tests da PR #323 e do pós-merge
+concluíram com `SUCCESS`. O bootstrap não descobre o catálogo local, não consulta,
 copia ou altera `supabase_migrations`, não reconcilia, não faz backfill e não
 aplica ou registra migration. O ledger vazio mantém `status` e `apply`
 bloqueados até uma reconciliação histórica humana formar o prefixo íntegro do
 catálogo, com no máximo uma migration pendente.
 
-Esta missão foi estritamente offline. Não acessou DEV ou PROD, não
-aplicou o bootstrap ou qualquer migration em ambiente compartilhado, não
-provisionou `M06_MIGRATION_DATABASE_URL`, não fez deploy ou restart e não
-alterou flag, runtime, agente ou canário. O preflight PROD da seção anterior e
-o deployment automático frontend da PR #321 permanecem evidências históricas
-separadas e não foram revalidados nesta missão.
+A PR #323, HEAD `74d3f2d87a7ffad501432b2d9fc4163bd3b4ada4`, foi integrada em
+`main` pelo merge `3a5789c784017ab15a43e28c4270d25af8618359` em
+`2026-08-28T15:24:58Z`. Os cinco workflows da PR concluíram com `SUCCESS`:
+Backend Tests `33184817567`, Frontend CI `33184817526`, RLS Integration
+`33184817442`, E2E Critical `33184817428` e Tooling Static Checks
+`33184817512`. Os cinco pós-merge também concluíram com `SUCCESS`: Frontend CI
+`33185027149`, RLS Integration `33185027115`, Tooling Static Checks
+`33185027132`, Backend Tests `33185027091` e E2E Critical `33185027090`.
+
+A Vercel registrou o Preview automático frontend `6143773477`, com `SUCCESS`,
+em `2026-08-28T15:22:43Z`, e o Production automático frontend `6143819601`,
+com `SUCCESS`, em `2026-08-28T15:25:43Z`. Essas metadatas provam somente o
+frontend, sem provar backend, banco ou runtime. O bootstrap está integrado, mas
+continua não aplicado. Não houve deploy manual ou do backend, acesso aos bancos
+DEV ou PROD, bootstrap ou migration compartilhada, provisionamento de
+`M06_MIGRATION_DATABASE_URL`, restart ou alteração de flag, runtime, agente ou
+canário. O preflight PROD da seção anterior e o deployment automático frontend
+da PR #321 permanecem evidências históricas separadas e não foram revalidados
+nesta missão.
 
 **Próximo gate único:** implementar e testar somente offline, sem acessar DEV
 ou PROD, uma PR versionada de reconciliação histórica humana. Ela deverá

@@ -128,7 +128,11 @@ Eles não são equivalentes. Nome, ordem ou presença em um deles não autorizam
 copiar, preencher, reaplicar ou registrar entradas no outro. O preflight PROD
 de 2026-08-28 confirmou que `public.schema_migrations` está ausente e que
 `M06_MIGRATION_DATABASE_URL` não está provisionada. `bootstrap-ledger` foi
-implementado e comprovado apenas offline, ainda não aplicado, e não altera esse estado.
+integrado em `main` pela PR #323 e comprovado apenas offline, ainda não aplicado,
+e não altera esse estado. O merge
+`3a5789c784017ab15a43e28c4270d25af8618359` gerou Preview e Production
+automáticos do frontend na Vercel; essa metadata não prova backend, banco,
+runtime ou aplicação do bootstrap.
 
 `bootstrap-ledger` cria somente um ledger público vazio no contrato owner-only;
 ele não reconstrói histórico e não libera `status` ou `apply`. Até uma PR

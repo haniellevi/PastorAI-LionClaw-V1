@@ -6,10 +6,10 @@ sem nenhum risco para produção, dados reais de fiéis ou serviços externos.
 
 > **Estado atual do bootstrap de schema:** o procedimento original de aplicação
 > genérica foi substituído pelo executor fail-closed. Não use este guia para
-> aplicar o catálogo completo. O candidato `bootstrap-ledger` existe somente
-> offline e nenhum comando de banco está autorizado em DEV, staging ou PROD
+> aplicar o catálogo completo. O código de `bootstrap-ledger` está integrado,
+> mas foi comprovado somente offline e nenhum comando de banco está autorizado em DEV, staging ou PROD
 > antes da reconciliação histórica humana versionada. O
-> `bootstrap-ledger` está implementado e comprovado somente offline, ainda não aplicado.
+> `bootstrap-ledger` está integrado e comprovado somente offline, ainda não aplicado.
 
 > Plano completo (diagnóstico, fluxo e gates) em `plano-b1-staging-isolado.html`
 > (abra no browser). Este README é a versão operacional.
@@ -117,9 +117,13 @@ Supabase PG17 17.6.1.159 descartável em duas execuções independentes e revis�
 de segurança `GO`. A suíte RLS completa, em execução serial limpa no PostgreSQL
 17 descartável, passou em 326/326, com 3803 deselecionados e 2 warnings
 preexistentes, em 162.77s. A suíte offline integral foi interrompida após 5
-min sem saída ou progresso; o resultado é `INCONCLUSIVO`, não verde nem falha,
-e o workflow Backend Tests da PR permanece gate. Não houve acesso a DEV ou PROD, deploy, migration ou mudança
-de flag.
+min sem saída ou progresso; o resultado é `INCONCLUSIVO`, não verde nem falha
+e não foi reclassificado. Os workflows Backend Tests da PR #323 e do pós-merge
+concluíram com `SUCCESS`. O merge
+`3a5789c784017ab15a43e28c4270d25af8618359` gerou Preview e Production
+automáticos do frontend na Vercel. Essa metadata não prova backend, banco ou
+runtime. Não houve deploy manual ou do backend, acesso aos bancos DEV ou PROD,
+bootstrap, migration, restart ou mudança de flag.
 
 O próximo gate é uma PR offline e versionada de reconciliação histórica humana,
 sem DML e sem inferência. Até ela terminar, não execute `bootstrap-ledger`,
