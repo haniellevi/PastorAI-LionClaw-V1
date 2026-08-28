@@ -89,6 +89,12 @@ class Settings(BaseSettings):
     # dependem deste flag. Espelha a disciplina do PLANO-IMPLEMENTACAO-CELULAS.
     celulas_requests_enabled: bool = Field(default=False)
 
+    # ---- Governança de consentimento: rascunhos do Console Master (D2B2b3A) --
+    # Libera somente a preparação de rascunhos por igreja no plano da
+    # plataforma. Default OFF em todos os ambientes. Esta flag não autoriza
+    # aprovação humana, catálogo, writer, agente ou qualquer efeito externo.
+    purpose_consent_governance_drafts_enabled: bool = Field(default=False)
+
     # ---- Clerk (Auth - US-01 / RNF-01) --------------------------------------
     clerk_publishable_key: str = Field(default="")
     clerk_secret_key: str = Field(default="")

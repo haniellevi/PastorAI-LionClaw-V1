@@ -3,20 +3,29 @@
 /**
  * Página dedicada de uma igreja no console master (tela cheia, não mais modal).
  * Abas: Dashboard (visão + ações), Agente (config do agente da igreja), Admins
- * (owner). A chave de LLM aparece só como STATUS (quem cadastra é a própria
- * igreja, no painel dela). Substitui o antigo IgrejaDetailModal.
+ * (owner) e Governança quando o backend habilita o fluxo draft-only. A chave de
+ * LLM aparece só como STATUS (quem cadastra é a própria igreja, no painel dela).
+ * Substitui o antigo IgrejaDetailModal.
  */
-import { useCallback, useEffect, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from "react";
 
 import { Button } from "@/components/ui/Button";
 import {
   addIgrejaAdmin,
+  AdminAuthError,
   AdminSessionExpiredError,
   aprovarIgreja,
   deleteIgreja,
   fetchIgrejaAdmins,
   fetchIgrejaAgente,
   fetchIgrejaAgenteRequests,
+  fetchIgrejaConsentGovernance,
   fetchIgrejaDetail,
   fetchOrquestrador,
   removeIgrejaAdmin,
@@ -28,6 +37,7 @@ import {
   updateIgreja,
   type AdminAgente,
   type AdminAgenteRequest,
+  type AdminConsentGovernanceState,
   type AdminIgreja,
   type AdminIgrejaAdmin,
   type AdminIgrejaDetail,
@@ -35,6 +45,7 @@ import {
 } from "@/lib/admin-api";
 
 import type { PlanoOption } from "./CreateIgrejaModal";
+import { ConsentGovernanceDraftTab } from "./ConsentGovernanceDraftTab";
 import { EditIgrejaModal } from "./EditIgrejaModal";
 
 const STATUS_LABEL: Record<string, string> = {
@@ -63,7 +74,14 @@ const CRED_LABEL: Record<string, string> = {
 const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const num = (v: number) => v.toLocaleString("pt-BR");
 
-type Tab = "dashboard" | "agente" | "admins";
+type Tab = "dashboard" | "agente" | "admins" | "governanca";
+
+type GovernanceLoadState =
+  | { kind: "loading" }
+  | { kind: "disabled" }
+  | { kind: "enabled"; state: AdminConsentGovernanceState }
+  | { kind: "forbidden" }
+  | { kind: "error" };
 
 export interface ChurchPageProps {
   igreja: AdminIgreja;
@@ -91,6 +109,9 @@ export function ChurchPage({
   const [detail, setDetail] = useState<AdminIgrejaDetail | null>(null);
   const [admins, setAdmins] = useState<AdminIgrejaAdmin[] | null>(null);
   const [agente, setAgente] = useState<AdminAgente | null>(null);
+  const [governanceLoad, setGovernanceLoad] =
+    useState<GovernanceLoadState>({ kind: "loading" });
+  const governanceRequestSequence = useRef(0);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
@@ -123,9 +144,44 @@ export function ChurchPage({
     }
   }, [token, igreja.id, handleErr]);
 
+  const loadGovernance = useCallback(async () => {
+    const requestSequence = ++governanceRequestSequence.current;
+    setGovernanceLoad({ kind: "loading" });
+    try {
+      const state = await fetchIgrejaConsentGovernance(token, igreja.id);
+      if (requestSequence !== governanceRequestSequence.current) return;
+      setGovernanceLoad(state.enabled ? { kind: "enabled", state } : { kind: "disabled" });
+    } catch (err) {
+      if (requestSequence !== governanceRequestSequence.current) return;
+      if (err instanceof AdminSessionExpiredError) {
+        onExpired();
+        return;
+      }
+      setGovernanceLoad(
+        err instanceof AdminAuthError && err.kind === "forbidden"
+          ? { kind: "forbidden" }
+          : { kind: "error" },
+      );
+    }
+  }, [token, igreja.id, onExpired]);
+
   useEffect(() => {
     void loadAll();
   }, [loadAll]);
+
+  useEffect(() => {
+    void loadGovernance();
+    return () => {
+      governanceRequestSequence.current += 1;
+    };
+  }, [loadGovernance]);
+
+  const governance =
+    governanceLoad.kind === "enabled" ? governanceLoad.state : null;
+
+  useEffect(() => {
+    if (tab === "governanca" && !governance?.enabled) setTab("dashboard");
+  }, [governance, tab]);
 
   const reloadAdmins = useCallback(() => {
     fetchIgrejaAdmins(token, igreja.id)
@@ -136,6 +192,29 @@ export function ChurchPage({
   }, [token, igreja.id]);
 
   const pending = igreja.status === "aguardando_aprovacao";
+  const visibleTabs: Tab[] = [
+    "dashboard",
+    "agente",
+    "admins",
+    ...(governance?.enabled ? (["governanca"] as const) : []),
+  ];
+
+  const handleTabKey = (event: ReactKeyboardEvent<HTMLButtonElement>, current: Tab) => {
+    const currentIndex = visibleTabs.indexOf(current);
+    let targetIndex: number | null = null;
+    if (event.key === "ArrowRight") targetIndex = (currentIndex + 1) % visibleTabs.length;
+    if (event.key === "ArrowLeft") {
+      targetIndex = (currentIndex - 1 + visibleTabs.length) % visibleTabs.length;
+    }
+    if (event.key === "Home") targetIndex = 0;
+    if (event.key === "End") targetIndex = visibleTabs.length - 1;
+    if (targetIndex === null) return;
+    event.preventDefault();
+    const target = visibleTabs[targetIndex];
+    if (!target) return;
+    setTab(target);
+    document.getElementById(`church-tab-${target}`)?.focus();
+  };
 
   const submitEdit = async (input: UpdateIgrejaInput) => {
     setBusy(true);
@@ -205,49 +284,125 @@ export function ChurchPage({
         </div>
       ) : null}
 
-      <div className="tabs" style={{ marginBottom: "var(--s4)" }}>
-        {(["dashboard", "agente", "admins"] as Tab[]).map((t) => (
+      {governanceLoad.kind === "forbidden" || governanceLoad.kind === "error" ? (
+        <div
+          className="error-banner"
+          role="alert"
+          style={{ marginBottom: "var(--s3)", flexWrap: "wrap" }}
+        >
+          <span>
+            {governanceLoad.kind === "forbidden"
+              ? "Acesso à governança desta igreja foi negado."
+              : "A governança está temporariamente indisponível."}
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => void loadGovernance()}
+          >
+            Tentar novamente
+          </Button>
+        </div>
+      ) : null}
+
+      <div
+        className="tabs"
+        role="tablist"
+        aria-label="Seções da igreja"
+        style={{ marginBottom: "var(--s4)" }}
+      >
+        {visibleTabs.map((t) => (
           <button
             key={t}
+            id={`church-tab-${t}`}
             type="button"
+            role="tab"
+            aria-selected={tab === t}
+            aria-controls={`church-panel-${t}`}
+            tabIndex={tab === t ? 0 : -1}
             className={`tab${tab === t ? " active" : ""}`}
             onClick={() => setTab(t)}
+            onKeyDown={(event) => handleTabKey(event, t)}
           >
-            {t === "dashboard" ? "Dashboard" : t === "agente" ? "Agente" : "Admins"}
+            {t === "dashboard"
+              ? "Dashboard"
+              : t === "agente"
+                ? "Agente"
+                : t === "admins"
+                  ? "Admins"
+                  : "Governança"}
           </button>
         ))}
       </div>
 
       {tab === "dashboard" ? (
-        <DashboardTab
-          igreja={igreja}
-          detail={detail}
-          agente={agente}
-          pending={pending}
-          busy={busy}
-          onEdit={() => setEditOpen(true)}
-          onApprove={submitAprovar}
-        />
+        <div
+          id="church-panel-dashboard"
+          role="tabpanel"
+          aria-labelledby="church-tab-dashboard"
+        >
+          <DashboardTab
+            igreja={igreja}
+            detail={detail}
+            agente={agente}
+            pending={pending}
+            busy={busy}
+            onEdit={() => setEditOpen(true)}
+            onApprove={submitAprovar}
+          />
+        </div>
       ) : null}
 
       {tab === "agente" ? (
-        <AgenteTab
-          token={token}
-          igrejaId={igreja.id}
-          agente={agente}
-          onExpired={onExpired}
-          onSaved={(a) => setAgente(a)}
-        />
+        <div
+          id="church-panel-agente"
+          role="tabpanel"
+          aria-labelledby="church-tab-agente"
+        >
+          <AgenteTab
+            token={token}
+            igrejaId={igreja.id}
+            agente={agente}
+            onExpired={onExpired}
+            onSaved={(a) => setAgente(a)}
+          />
+        </div>
       ) : null}
 
       {tab === "admins" ? (
-        <AdminsTab
-          token={token}
-          igrejaId={igreja.id}
-          admins={admins}
-          onReload={reloadAdmins}
-          onExpired={onExpired}
-        />
+        <div
+          id="church-panel-admins"
+          role="tabpanel"
+          aria-labelledby="church-tab-admins"
+        >
+          <AdminsTab
+            token={token}
+            igrejaId={igreja.id}
+            admins={admins}
+            onReload={reloadAdmins}
+            onExpired={onExpired}
+          />
+        </div>
+      ) : null}
+
+      {tab === "governanca" && governance?.enabled ? (
+        <div
+          id="church-panel-governanca"
+          role="tabpanel"
+          aria-labelledby="church-tab-governanca"
+        >
+          <ConsentGovernanceDraftTab
+            token={token}
+            igrejaId={igreja.id}
+            initialState={governance}
+            onExpired={onExpired}
+            onStateChange={(state) =>
+              setGovernanceLoad(
+                state.enabled ? { kind: "enabled", state } : { kind: "disabled" },
+              )
+            }
+          />
+        </div>
       ) : null}
 
       {editOpen ? (

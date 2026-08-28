@@ -74,6 +74,67 @@ export interface AdminIgrejaDetail {
   assinatura: AdminSubscription | null;
 }
 
+// ---------------------------------------------------------------------------
+// Governança de consentimento por finalidade (D2B2b3A, somente rascunho)
+// ---------------------------------------------------------------------------
+
+export const CONSENT_GOVERNANCE_PURPOSES = [
+  "atendimento_solicitado",
+  "cuidado_pastoral",
+  "tarefas_operacionais",
+  "comunicados",
+] as const;
+
+export type ConsentGovernancePurpose =
+  (typeof CONSENT_GOVERNANCE_PURPOSES)[number];
+
+/**
+ * Fatos e propostas operacionais que o Master pode preparar.
+ *
+ * Este payload deliberadamente não contém hipótese legal, manifestação de
+ * consentimento, aprovação, digest ou qualquer gate de runtime.
+ */
+export interface ConsentGovernanceDecisionPayload {
+  realProcessingAgents: string | null;
+  operationsAndMinimumData: string | null;
+  dataSensitivityAssessment: string | null;
+  operationalNeed: string | null;
+  systemsAndRecipients: string | null;
+  retentionAndDisposalInventory: string | null;
+  operatorInstructions: string | null;
+  openQuestions: string | null;
+}
+
+export interface AdminConsentGovernancePurposeDraft {
+  purpose: ConsentGovernancePurpose;
+  purposeLabel: string;
+  revision: number;
+  purposeStatus: "DRAFT_NOT_APPROVED";
+  decisionPayload: ConsentGovernanceDecisionPayload;
+  controllerApproved: false;
+  humanPacketComplete: false;
+  catalogReady: false;
+  writerEligible: false;
+}
+
+export interface AdminConsentGovernanceState {
+  enabled: boolean;
+  initialized: boolean;
+  schemaVersion: string;
+  revision: number;
+  purposes: AdminConsentGovernancePurposeDraft[];
+}
+
+function disabledConsentGovernanceState(): AdminConsentGovernanceState {
+  return {
+    enabled: false,
+    initialized: false,
+    schemaVersion: "d2b2b3a/governance-draft/v1",
+    revision: 0,
+    purposes: [],
+  };
+}
+
 export type AdminAuthErrorKind = "forbidden" | "network";
 
 /** Token recusado pelo gate de plataforma (não é admin) ou falha de rede. */
@@ -391,6 +452,90 @@ export async function fetchIgrejaDetail(
     throw new AdminRequestError(res.status, "Não foi possível carregar a igreja.");
   }
   return asJson<AdminIgrejaDetail>(res);
+}
+
+/**
+ * Lê o envelope de governança da igreja. `enabled=false` mantém a função
+ * invisível no console; `initialized=false` exige confirmação humana antes de
+ * criar os quatro rascunhos.
+ */
+export async function fetchIgrejaConsentGovernance(
+  token: string,
+  id: string,
+): Promise<AdminConsentGovernanceState> {
+  let res: Response;
+  try {
+    res = await adminAuthFetch(`${API_BASE}/admin/igrejas/${id}/consent-governance`, {
+      headers: authHeaders(token),
+    });
+  } catch {
+    throw new AdminAuthError("network", "Falha de conexão com o servidor.");
+  }
+  if (res.status === 401) throw new AdminSessionExpiredError();
+  if (res.status === 403) throw new AdminAuthError("forbidden", "Acesso negado.");
+  // Compatibilidade durante deploy desacoplado: o frontend pode chegar à
+  // Vercel antes do backend que introduz esta rota. Somente a descoberta GET
+  // interpreta 404 como capability ausente; mutations continuam fail-closed.
+  if (res.status === 404) return disabledConsentGovernanceState();
+  if (!res.ok) {
+    throw new AdminRequestError(
+      res.status,
+      "Não foi possível carregar os rascunhos de governança.",
+    );
+  }
+  return asJson<AdminConsentGovernanceState>(res);
+}
+
+/** Cria, uma única vez, os quatro rascunhos vazios e sem autoridade de runtime. */
+export async function initializeIgrejaConsentGovernance(
+  token: string,
+  id: string,
+): Promise<AdminConsentGovernanceState> {
+  let res: Response;
+  try {
+    res = await adminAuthFetch(
+      `${API_BASE}/admin/igrejas/${id}/consent-governance/initialize`,
+      { method: "POST", headers: authHeaders(token) },
+    );
+  } catch {
+    throw new AdminAuthError("network", "Falha de conexão com o servidor.");
+  }
+  if (!res.ok) {
+    await throwMutationError(res, "Não foi possível iniciar os rascunhos de governança.");
+  }
+  return asJson<AdminConsentGovernanceState>(res);
+}
+
+/**
+ * Salva somente os fatos/propostas operacionais de uma finalidade. A revisão
+ * esperada torna edição concorrente um conflito explícito (HTTP 409).
+ */
+export async function updateIgrejaConsentGovernancePurpose(
+  token: string,
+  id: string,
+  purpose: ConsentGovernancePurpose,
+  input: {
+    expectedRevision: number;
+    decisionPayload: ConsentGovernanceDecisionPayload;
+  },
+): Promise<AdminConsentGovernanceState> {
+  let res: Response;
+  try {
+    res = await adminAuthFetch(
+      `${API_BASE}/admin/igrejas/${id}/consent-governance/purposes/${purpose}`,
+      {
+        method: "PUT",
+        headers: jsonHeaders(token),
+        body: JSON.stringify(input),
+      },
+    );
+  } catch {
+    throw new AdminAuthError("network", "Falha de conexão com o servidor.");
+  }
+  if (!res.ok) {
+    await throwMutationError(res, "Não foi possível salvar o rascunho de governança.");
+  }
+  return asJson<AdminConsentGovernanceState>(res);
 }
 
 /** Aprova uma igreja pendente (M2): aguardando_aprovacao -> ativa + cascata. */

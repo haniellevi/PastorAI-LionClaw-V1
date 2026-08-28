@@ -1,7 +1,8 @@
 # PastorAI / Igreja 12: registro central de missões pós-V1
 
 Atualizado em 2026-08-28 (America/Sao_Paulo) com D2B2a e D2B2b1 integradas e
-inativas e com o template D2B2b2 ainda não aprovado. A V1 permanece `V1_ENCERRADA`, mas a visão
+inativas, o template D2B2b2 ainda não aprovado e a D2B2b3A autorizada somente
+como superfície draft-only do Console Master. A V1 permanece `V1_ENCERRADA`, mas a visão
 integral WhatsApp-first ainda não está concluída. Este documento não altera a tag
 `v1.0.0`, não autoriza novo canário, rollout amplo ou abertura de gates de
 produção.
@@ -666,13 +667,43 @@ O formulário vazio está no
 e permanece `TEMPLATE_ONLY / NOT_APPROVED`. Teste, revisão e merge desse
 template não constituem aprovação nem autorização de runtime.
 
-**Próximo gate único:** materializar uma instância governada do template por
-igreja, com quatro pacotes independentes, e obter o atestado do dono factual, a
-revisão de privacidade ou do encarregado, a revisão jurídica quando designada e
-a decisão final do representante autorizado do controlador, todos vinculados
-ao digest exato de cada pacote. Catálogo, evidence store,
-writer, Supabase DEV ou PROD e D2C permanecem bloqueados até esse gate ser
-concluído.
+### D2B2b3A, rascunhos governados pelo Console Master (2026-08-28)
+
+A decisão D2B2b3A autoriza a implementação de migration versionada,
+persistência, API e aba de governança no Console Master somente para preparar
+rascunhos por igreja. O Master autenticado organiza fatos e campos permitidos;
+tenant e ator são derivados no servidor e nenhum e-mail é usado como regra de
+autorização ou configuração versionada.
+
+O Master não pode escolher hipótese jurídica, declarar que uma operação
+depende de consentimento, decidir política para menores, atestar, aprovar,
+representar outro papel ou preencher registros nominais. Todo rascunho
+operacional permanece `DRAFT_NOT_APPROVED`, com os indicadores de aprovação,
+catálogo e writer fechados. A migration deste gate deve ser comprovada somente em PostgreSQL 17
+descartável. Supabase compartilhado, painel do tenant, aprovações, catálogo,
+evidence store, writer, WhatsApp, agente, deploy manual ou do backend e D2C não
+estão autorizados.
+
+A candidata inativa não prova o wiring do banco. Antes de qualquer aplicação em
+banco compartilhado, ativação da flag ou wiring do backend compartilhado, um
+preflight separado deve comprovar, sem expor a credencial, que o `DATABASE_URL`
+do plano Master usa o owner esperado com acesso efetivo sob `FORCE RLS` ou um
+papel explicitamente autorizado com `BYPASSRLS`. Esse requisito não autoriza
+nenhuma dessas ações.
+
+O contrato está em
+[`2026-08-28-d2b2b3-master-governance-drafts.md`](../decisions/2026-08-28-d2b2b3-master-governance-drafts.md).
+
+**Próximo gate único:** revisar e integrar a PR D2B2b3A draft-only,
+comprovando migration em PostgreSQL 17 descartável, isolamento entre tenants,
+concorrência por revisão e ausência de caminhos de aprovação ou runtime.
+Supabase DEV ou PROD, painel do tenant, aprovações, catálogo, evidence store,
+writer, WhatsApp, agente, D2C, deploy manual ou do backend, ativação e canário
+permanecem bloqueados. A abertura da PR pode gerar Preview automático, e o merge
+pode gerar deployment frontend Production automático pela integração Vercel do
+repositório. O merge exige revisão humana consciente desse efeito, que não
+autoriza migration compartilhada, mudança de flag ou runtime e não constitui
+evidência de deployment desta candidata.
 
 ## Paralelismo seguro
 

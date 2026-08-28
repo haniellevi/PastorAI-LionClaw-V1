@@ -93,14 +93,27 @@ e o merge gerou deployment frontend Vercel automatico classificado como
 Production; nao houve deploy manual ou do backend, migration, Supabase,
 ativacao ou canario. O PostgreSQL temporario foi removido.
 
-Sequencia corrente: D2B2b1 integrada e inativa; materializar e obter aprovacao
-do pacote humano e juridico por finalidade; somente depois projetar catalogo imutavel, binding por tenant,
-prova correlacionada, retencao e callers server-side seguros. `D2C` continua
-bloqueada. Depois dela, `D3` implementa memoria privada duravel e exclusao
-integral.
+Sequencia corrente: D2B2b1 integrada e inativa; D2B2b3A limita a proxima fatia
+a migration, persistencia, API e painel do Console Master para rascunhos por
+igreja; depois vem o fluxo nominal de atestado e aprovacao do pacote humano e
+juridico por finalidade. Somente uma fatia posterior pode projetar catalogo
+imutavel, binding por tenant, prova correlacionada, retencao e callers
+server-side seguros. `D2C` continua bloqueada. Depois dela, `D3` implementa
+memoria privada duravel e exclusao integral.
 O template D2B2b2 permanece `TEMPLATE_ONLY / NOT_APPROVED` e esta descrito em
 `docs/decisions/2026-08-28-d2b2b2-consent-decision-packet-contract.md`; o merge
 do template nao satisfaz o gate humano.
+A decisao D2B2b3A esta em
+`docs/decisions/2026-08-28-d2b2b3-master-governance-drafts.md`. Ela nao permite
+ao Master escolher hipotese juridica, atestar, aprovar, representar papel da
+igreja ou preencher registros nominais. E-mail nao e autoridade e todo rascunho
+operacional permanece `DRAFT_NOT_APPROVED`.
+A candidata inativa nao prova o wiring do banco. Antes de qualquer aplicacao em
+banco compartilhado, ativacao da flag ou wiring do backend compartilhado, um
+preflight separado deve comprovar, sem expor a credencial, que o `DATABASE_URL`
+do plano Master usa o owner esperado com acesso efetivo sob `FORCE RLS` ou um
+papel explicitamente autorizado com `BYPASSRLS`. Esse requisito nao autoriza
+nenhuma dessas acoes.
 Universidade da Vida e Capacitacao Destino permanecem na visao futura, fora da
 missao atual. A D2A continua inativa: a integracao nao aplicou migration em
 ambiente compartilhado, nao provisionou credencial, nao conectou o runtime, nao
@@ -114,13 +127,16 @@ nao fez deploy manual ou do backend, nao promoveu a producao, nao ativou o
 agente e nao executou canario. O preview automatico da PR nao prova execucao do
 backend.
 
-**Proximo gate unico:** materializar uma instancia governada do template por
-igreja, com quatro pacotes independentes, e obter o atestado do dono factual, a
-revisao de privacidade ou do encarregado, a revisao juridica quando designada e
-a decisao final do representante autorizado do controlador, todos vinculados
-ao digest exato de cada pacote. Catalogo, writer,
-Supabase DEV ou PROD, D2C, wiring, deploy, ativacao e canario permanecem
-bloqueados.
+**Proximo gate unico:** revisar e integrar a PR D2B2b3A draft-only, comprovando
+migration em PostgreSQL 17 descartavel, isolamento entre tenants, concorrencia
+por revisao e ausencia de caminhos de aprovacao ou runtime. Supabase DEV ou
+PROD, painel do tenant, aprovacoes, catalogo, evidence store, writer, WhatsApp,
+agente, D2C, deploy manual ou do backend, ativacao e canario permanecem
+bloqueados. A abertura da PR pode gerar Preview automatico, e o merge pode gerar
+deployment frontend Production automatico pela integracao Vercel do
+repositorio. O merge exige revisao humana consciente desse efeito, que nao
+autoriza migration compartilhada, mudanca de flag ou runtime e nao constitui
+evidencia de deployment desta candidata.
 
 ---
 

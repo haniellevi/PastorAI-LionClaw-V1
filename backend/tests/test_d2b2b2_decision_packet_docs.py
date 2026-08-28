@@ -31,6 +31,7 @@ ADR_PATH = (
 EXPECTED_TOP_LEVEL_KEYS = {
     "metadata",
     "delivery_control",
+    "master_draft_contract",
     "digest_contract",
     "lifecycle_contract",
     "approval_record_contract",
@@ -44,6 +45,7 @@ EXPECTED_TOP_LEVEL_KEYS = {
 EXPECTED_PURPOSE_KEYS = {purpose.value for purpose in PurposeConsentPurpose}
 EXPECTED_REQUIRED_ORDER = [
     "d2b2b1_integrated_inactive",
+    "master_console_tenant_bound_drafts",
     "materialized_packet_human_legal_approved",
     "catalog_evidence_writer",
     "d2c",
@@ -52,14 +54,18 @@ EXPECTED_BLOCKED_NOW = {
     "catalog",
     "evidence_store",
     "writer",
-    "api",
-    "panel",
+    "tenant_api",
+    "tenant_panel",
+    "approval_api",
+    "approval_panel",
+    "human_attestation",
+    "nominal_approval_records",
     "whatsapp",
     "webhook",
     "worker",
     "langgraph",
     "tools",
-    "migration",
+    "shared_database_migration_application",
     "supabase_dev",
     "supabase_prod",
     "memory",
@@ -67,8 +73,14 @@ EXPECTED_BLOCKED_NOW = {
     "outbox",
     "d2c",
     "deploy",
+    "agent_runtime",
     "agent_activation",
     "canary",
+}
+EXPECTED_ALLOWED_NOW = {
+    "admin_master_tenant_bound_draft_migration_artifact",
+    "admin_master_tenant_bound_draft_api",
+    "admin_master_tenant_bound_draft_panel",
 }
 EXPECTED_EXCLUDED_SCOPE = {
     "universidade_da_vida",
@@ -500,6 +512,7 @@ def _assert_structurally_valid_template(document: dict[str, Any]) -> None:
         "materialization_cardinality",
         "purpose_packet_count",
         "runtime_authority",
+        "master_draft_surface_authorized",
         "successor_gate_satisfied",
     }
     assert metadata["schema_version"] == "d2b2b2/v1"
@@ -518,6 +531,7 @@ def _assert_structurally_valid_template(document: dict[str, Any]) -> None:
     assert metadata["purpose_packet_count"] == 4
     assert type(metadata["runtime_authority"]) is bool
     assert metadata["runtime_authority"] is False
+    assert metadata["master_draft_surface_authorized"] is True
     assert type(metadata["successor_gate_satisfied"]) is bool
     assert metadata["successor_gate_satisfied"] is False
 
@@ -525,6 +539,7 @@ def _assert_structurally_valid_template(document: dict[str, Any]) -> None:
     assert type(delivery) is dict
     assert set(delivery) == {
         "required_order",
+        "allowed_now",
         "blocked_now",
         "excluded_scope",
     }
@@ -533,10 +548,47 @@ def _assert_structurally_valid_template(document: dict[str, Any]) -> None:
         set(EXPECTED_REQUIRED_ORDER),
         ordered=EXPECTED_REQUIRED_ORDER,
     )
+    _assert_unique_string_list(delivery["allowed_now"], EXPECTED_ALLOWED_NOW)
     _assert_unique_string_list(delivery["blocked_now"], EXPECTED_BLOCKED_NOW)
     _assert_unique_string_list(
         delivery["excluded_scope"], EXPECTED_EXCLUDED_SCOPE
     )
+
+    master_draft = document["master_draft_contract"]
+    assert type(master_draft) is dict
+    assert master_draft["permitted_actor"] == (
+        "authenticated_platform_admin_from_server_side_allowlist"
+    )
+    assert master_draft["rollout_flag"] == (
+        "PURPOSE_CONSENT_GOVERNANCE_DRAFTS_ENABLED"
+    )
+    assert master_draft["rollout_default_enabled"] is False
+    assert master_draft["email_is_authority_or_versioned_configuration"] is False
+    assert master_draft["purpose_status_must_remain"] == "DRAFT_NOT_APPROVED"
+    assert master_draft["status_transition_authority"] is False
+    assert master_draft["approval_record_authority"] is False
+    assert master_draft["runtime_authority"] is False
+    assert master_draft["shared_database_application_authority"] is False
+    assert set(master_draft["allowed_master_fields"]) == {
+        "real_processing_agents",
+        "operations_and_minimum_data",
+        "data_sensitivity_assessment",
+        "operational_need",
+        "systems_and_recipients",
+        "retention_and_disposal_inventory",
+        "operator_instructions",
+        "open_questions",
+    }
+    assert master_draft["field_character_limit"] == 4000
+    assert master_draft["payload_character_limit"] == 16000
+    assert {
+        "content_digest",
+        "nominal_approval_record_refs",
+        "controller_approved",
+        "human_packet_complete",
+        "catalog_ready",
+        "writer_eligible",
+    } <= set(master_draft["forbidden_master_fields"])
     digest_contract = document["digest_contract"]
     assert type(digest_contract) is dict
     assert digest_contract == {
@@ -995,7 +1047,7 @@ def test_d2b2b2_template_has_no_runtime_or_migration_consumer() -> None:
                 assert token not in content, f"runtime consumer in {path}"
 
 
-def test_d2b2b2_canonical_docs_keep_one_human_gate() -> None:
+def test_d2b2b2_canonical_docs_keep_one_draft_only_gate() -> None:
     required_references = {
         REPO_ROOT / "docs" / "ai" / "AI-BOOTSTRAP.md",
         REPO_ROOT / "docs" / "ai" / "PRD-COVERAGE.md",
@@ -1008,16 +1060,23 @@ def test_d2b2b2_canonical_docs_keep_one_human_gate() -> None:
         normalized = _normalized_prose(content)
         assert "74951828f48994622a112d8e59eb978e5fb4f406" in content
         assert "d2b2b2-consent-decision-packet-contract.md" in content
-        assert "pacote humano e juridico" in normalized
+        assert "d2b2b3-master-governance-drafts.md" in content
+        assert "jurid" in normalized
+        assert "aprov" in normalized
         assert (
-            "materializar uma instancia governada do template por igreja, "
-            "com quatro pacotes independentes, e obter o atestado do dono "
-            "factual, a revisao de privacidade ou do encarregado, a revisao "
-            "juridica quando designada e a decisao final do representante "
-            "autorizado do controlador, todos vinculados ao digest exato de "
-            "cada pacote"
+            "revisar e integrar a pr d2b2b3a draft-only, comprovando "
+            "migration em postgresql 17 descartavel, isolamento entre "
+            "tenants, concorrencia por revisao e ausencia de caminhos de "
+            "aprovacao ou runtime"
         ) in normalized
-        for blocker in ("catalogo", "writer", "supabase", "d2c"):
+        for blocker in (
+            "painel do tenant",
+            "aprovacoes",
+            "catalogo",
+            "writer",
+            "supabase",
+            "d2c",
+        ):
             assert blocker in normalized
 
     gate_heading_paths = required_references - {
@@ -1032,7 +1091,7 @@ def test_d2b2b2_canonical_docs_keep_one_human_gate() -> None:
             encoding="utf-8"
         )
     )
-    assert bootstrap.count("o unico gate posterior") == 1
+    assert bootstrap.count("proximo gate unico") == 1
 
     assert ADR_PATH.is_file()
     assert "TEMPLATE_ONLY / NOT_APPROVED" in ADR_PATH.read_text(

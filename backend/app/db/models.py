@@ -35,6 +35,14 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from app.domain.agent_reply import AGENT_REPLY_STATES
+from app.domain.purpose_consent import PURPOSE_CONSENT_PURPOSES
+from app.domain.purpose_consent_governance import (
+    MAX_PURPOSE_CONSENT_GOVERNANCE_FIELD_LENGTH,
+    MAX_PURPOSE_CONSENT_GOVERNANCE_PAYLOAD_LENGTH,
+    PURPOSE_CONSENT_GOVERNANCE_SCHEMA_VERSION,
+    PURPOSE_CONSENT_GOVERNANCE_STORAGE_FIELDS,
+    PurposeConsentGovernanceStatus,
+)
 
 
 class Base(DeclarativeBase):
@@ -2171,6 +2179,221 @@ class PessoaArquivamentoEvento(Base):
     )
 
 
+def _governance_closed_json_object_check(
+    expression: str,
+    keys: tuple[str, ...],
+) -> str:
+    required = " AND ".join(f"({expression}) ? '{key}'" for key in keys)
+    remainder = f"({expression})" + "".join(f" - '{key}'" for key in keys)
+    return (
+        f"jsonb_typeof({expression}) = 'object' AND "
+        f"{required} AND ({remainder}) = '{{}}'::jsonb"
+    )
+
+
+def _governance_draft_json_check(purpose: str) -> str:
+    expression = f"drafts -> '{purpose}'"
+    shape = _governance_closed_json_object_check(
+        expression,
+        PURPOSE_CONSENT_GOVERNANCE_STORAGE_FIELDS,
+    )
+    values_are_text_or_null = (
+        f"NOT jsonb_path_exists({expression}, "
+        "'$.* ? (@.type() != \"string\" && @.type() != \"null\")')"
+    )
+    normalized_values: list[str] = []
+    lengths: list[str] = []
+    trim_characters = " || ".join(
+        f"pg_catalog.chr({codepoint})"
+        for codepoint in (
+            9,
+            10,
+            11,
+            12,
+            13,
+            28,
+            29,
+            30,
+            31,
+            32,
+            133,
+            160,
+            5760,
+            8192,
+            8193,
+            8194,
+            8195,
+            8196,
+            8197,
+            8198,
+            8199,
+            8200,
+            8201,
+            8202,
+            8232,
+            8233,
+            8239,
+            8287,
+            12288,
+        )
+    )
+    for field in PURPOSE_CONSENT_GOVERNANCE_STORAGE_FIELDS:
+        text_value = f"{expression} ->> '{field}'"
+        normalized_values.append(
+            "coalesce(("
+            f"{text_value} <> '' AND "
+            f"char_length({text_value}) <= "
+            f"{MAX_PURPOSE_CONSENT_GOVERNANCE_FIELD_LENGTH} AND "
+            f"{text_value} = btrim({text_value}, {trim_characters}) AND "
+            "NOT (regexp_replace("
+            f"{text_value}, E'[\\n\\t]', '', 'g') ~ '[[:cntrl:]]')"
+            "), true)"
+        )
+        lengths.append(f"coalesce(char_length({text_value}), 0)")
+    return (
+        f"({shape}) AND {values_are_text_or_null} AND "
+        + " AND ".join(normalized_values)
+        + " AND ("
+        + " + ".join(lengths)
+        + f") <= {MAX_PURPOSE_CONSENT_GOVERNANCE_PAYLOAD_LENGTH}"
+    )
+
+
+_PURPOSE_CONSENT_GOVERNANCE_DRAFTS_CHECK = (
+    _governance_closed_json_object_check(
+        "drafts",
+        tuple(purpose.value for purpose in PURPOSE_CONSENT_PURPOSES),
+    )
+    + " AND "
+    + " AND ".join(
+        _governance_draft_json_check(purpose.value)
+        for purpose in PURPOSE_CONSENT_PURPOSES
+    )
+)
+_PURPOSE_CONSENT_GOVERNANCE_DRAFT_REVISIONS_CHECK = (
+    _governance_closed_json_object_check(
+        "draft_revisions",
+        tuple(purpose.value for purpose in PURPOSE_CONSENT_PURPOSES),
+    )
+    + " AND "
+    + " AND ".join(
+        "jsonb_typeof(draft_revisions -> '"
+        + purpose.value
+        + "') = 'number' AND "
+        + "(draft_revisions ->> '"
+        + purpose.value
+        + "') ~ '^[1-9][0-9]{0,17}$'"
+        for purpose in PURPOSE_CONSENT_PURPOSES
+    )
+)
+
+
+class PurposeConsentGovernanceEnvelope(Base):
+    """Single draft-only governance envelope per church (D2B2b3A).
+
+    The JSONB constraint fixes four purpose keys and eight optional fact fields
+    per purpose.  There is no approval, digest, catalog or writer column.  The
+    platform service is the only intended caller and uses a global optimistic
+    revision while holding the tenant root and envelope rows for update.
+    """
+
+    __tablename__ = "purpose_consent_governance_envelope"
+    __table_args__ = (
+        UniqueConstraint(
+            "igreja_id",
+            name="purpose_consent_governance_envelope_igreja_key",
+        ),
+        CheckConstraint(
+            f"schema_version = '{PURPOSE_CONSENT_GOVERNANCE_SCHEMA_VERSION}'",
+            name="purpose_consent_governance_envelope_schema_version_check",
+        ),
+        CheckConstraint(
+            "status = 'DRAFT_NOT_APPROVED'",
+            name="purpose_consent_governance_envelope_status_check",
+        ),
+        CheckConstraint(
+            "revision >= 1",
+            name="purpose_consent_governance_envelope_revision_check",
+        ),
+        CheckConstraint(
+            _PURPOSE_CONSENT_GOVERNANCE_DRAFTS_CHECK,
+            name="purpose_consent_governance_envelope_drafts_check",
+        ),
+        CheckConstraint(
+            _PURPOSE_CONSENT_GOVERNANCE_DRAFT_REVISIONS_CHECK,
+            name="purpose_consent_governance_envelope_draft_revisions_check",
+        ),
+        Index(
+            "purpose_consent_governance_envelope_created_by_idx",
+            "created_by_app_user_id",
+            postgresql_where=text("created_by_app_user_id IS NOT NULL"),
+        ),
+        Index(
+            "purpose_consent_governance_envelope_updated_by_idx",
+            "updated_by_app_user_id",
+            postgresql_where=text("updated_by_app_user_id IS NOT NULL"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    igreja_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "igrejas.id",
+            name="purpose_consent_governance_envelope_igreja_fkey",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+    )
+    schema_version: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        server_default=text(f"'{PURPOSE_CONSENT_GOVERNANCE_SCHEMA_VERSION}'"),
+    )
+    status: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        server_default=text(
+            f"'{PurposeConsentGovernanceStatus.DRAFT_NOT_APPROVED.value}'"
+        ),
+    )
+    drafts: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    draft_revisions: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    revision: Mapped[int] = mapped_column(
+        BigInteger,
+        nullable=False,
+        server_default=text("1"),
+    )
+    created_by_app_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "app_users.id",
+            name="purpose_consent_governance_envelope_created_by_fkey",
+            ondelete="SET NULL",
+        ),
+        nullable=True,
+    )
+    updated_by_app_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "app_users.id",
+            name="purpose_consent_governance_envelope_updated_by_fkey",
+            ondelete="SET NULL",
+        ),
+        nullable=True,
+    )
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("clock_timestamp()"),
+    )
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("clock_timestamp()"),
+    )
+
+
 class ConsentimentoFinalidadeEvento(Base):
     """Ledger append-only de consentimento independente por finalidade (D2B2a).
 
@@ -2625,4 +2848,5 @@ __all__ = [
     "PlatformAdmin",
     "PlatformAuditLog",
     "PlatformOrchestrator",
+    "PurposeConsentGovernanceEnvelope",
 ]

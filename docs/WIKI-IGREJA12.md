@@ -45,7 +45,7 @@ qualquer expansão do canário.
 | Agente e Evolution | `PARCIAL / GATE OPERACIONAL` | Corrigir memória, conhecimento e qualidade antes de novo canário |
 | Canário ativo | `PASS TÉCNICO / QUALIDADE INSUFICIENTE` | Avaliação conversacional humana após a nova fundação |
 | LangGraph | `IMPLEMENTADO STATELESS / D2B1 INTEGRADA` | Persistência, memória e subgrafos permanecem posteriores |
-| Consentimento | `PARCIAL / D2B2A E D2B2B1 INTEGRADAS E INATIVAS` | Materializar e aprovar o pacote humano e jurídico por finalidade; catálogo, writers, Supabase e D2C permanecem bloqueados |
+| Consentimento | `PARCIAL / D2B2B3A DRAFT-ONLY AUTORIZADA` | Revisar a superfície de rascunhos no Console Master; aprovações, catálogo, writers, Supabase e D2C permanecem bloqueados |
 | Conhecimento por igreja | `AUSENTE` | Ingestão aprovada, ACL, busca e ferramentas de dados vivos |
 | Relatório por WhatsApp | `PARCIAL` | Confirmar e gravar no relatório canônico |
 | Central de Células | `PARCIAL FORTE` | Operação e notificações principais pelo WhatsApp |
@@ -122,6 +122,14 @@ prova, retenção, política de menores ou semântica de eliminação e opt-out.
 finalidade depende de pacote aprovado pelo responsável humano e por validação
 jurídica ou do encarregado antes de catálogo ou writer.
 
+A D2B2b3A autoriza somente o preparo de rascunhos por igreja no Console
+Master. O Master autenticado organiza fatos e campos permitidos, enquanto
+tenant e ator são derivados no servidor. Seu e-mail não vira regra de acesso ou
+configuração da igreja. A superfície não permite escolher hipótese jurídica,
+decidir aplicação a menores, atestar, aprovar, assumir outro papel ou preencher
+registros nominais. O status permanece `DRAFT_NOT_APPROVED` e nada chega ao
+runtime.
+
 ## O que está ausente
 
 - checkpointer durável conectado ao LangGraph;
@@ -189,6 +197,10 @@ O contrato inativo do ledger está em
 [`2026-08-28-d2b2-purpose-consent-ledger.md`](decisions/2026-08-28-d2b2-purpose-consent-ledger.md).
 A fronteira deny-first D2B2b1 e as decisões humanas pendentes estão em
 [`2026-08-28-d2b2b1-consent-security-boundary.md`](decisions/2026-08-28-d2b2b1-consent-security-boundary.md).
+O contrato do template e a abertura draft-only do Console Master estão em
+[`2026-08-28-d2b2b2-consent-decision-packet-contract.md`](decisions/2026-08-28-d2b2b2-consent-decision-packet-contract.md)
+e
+[`2026-08-28-d2b2b3-master-governance-drafts.md`](decisions/2026-08-28-d2b2b3-master-governance-drafts.md).
 
 ## Roteiro de conclusão
 
@@ -280,6 +292,21 @@ O template vazio D2B2b2 organiza o próximo gate e permanece
 aprovação. O contrato está em
 [`2026-08-28-d2b2b2-consent-decision-packet-contract.md`](decisions/2026-08-28-d2b2b2-consent-decision-packet-contract.md).
 
+A D2B2b3A define a próxima fatia: migration versionada, persistência, API e aba
+de governança no Console Master, todas limitadas a rascunhos vinculados a uma
+igreja. A implementação deve usar revisão otimista, auditoria sem payload e
+aviso permanente de que o conteúdo não está aprovado. A migration só pode ser
+comprovada em PostgreSQL 17 descartável neste gate. Supabase compartilhado,
+painel do tenant, fluxo nominal de aprovação, catálogo, evidence store, writer,
+WhatsApp e runtime continuam fechados.
+
+A candidata inativa não prova o wiring do banco. Antes de qualquer aplicação em
+banco compartilhado, ativação da flag ou wiring do backend compartilhado, um
+preflight separado deve comprovar, sem expor a credencial, que o `DATABASE_URL`
+do plano Master usa o owner esperado com acesso efetivo sob `FORCE RLS` ou um
+papel explicitamente autorizado com `BYPASSRLS`. Esse requisito não autoriza
+nenhuma dessas ações.
+
 ### D6, primeira vertical
 
 Entregar relatório de célula pelo WhatsApp com lembrete, texto ou áudio,
@@ -306,9 +333,12 @@ Brevo ou broadcast.
 - avaliação manual com teclado, leitor de tela e zoom;
 - métricas de performance em condições reais;
 - owner operacional, substitutos e escalonamento por setor;
-- pacote humano e jurídico por finalidade: controlador e operadores reais,
-  texto e versão, hipótese jurídica, prova, menores, retenção, eliminação,
-  transferência internacional, opt-out, direitos, incidentes e aprovadores;
+- integrar a superfície D2B2b3A de rascunhos no Console Master sem transformar
+  preenchimento administrativo em atestado ou aprovação;
+- completar depois o pacote humano e jurídico por finalidade: controlador e
+  operadores reais, texto e versão, hipótese jurídica, prova, menores,
+  retenção, eliminação, transferência internacional, opt-out, direitos,
+  incidentes e aprovadores;
 - depois do pacote, catálogo imutável, prova correlacionada, política
   versionada, RBAC e callers seguros;
 - PRDs próprios para Formação e máquina de estados da Jornada.
@@ -331,9 +361,13 @@ canário.
 
 ## Próximo gate único
 
-Materializar uma instância governada do template por igreja, com quatro
-pacotes independentes, e obter o atestado do dono factual, a revisão de
-privacidade ou do encarregado, a revisão jurídica quando designada e a decisão
-final do representante autorizado do controlador, todos vinculados ao digest
-exato de cada pacote. Catálogo, evidence store, writer,
-Supabase DEV ou PROD e D2C permanecem bloqueados até esse gate ser concluído.
+Revisar e integrar a PR D2B2b3A draft-only, comprovando migration em
+PostgreSQL 17 descartável, isolamento entre tenants, concorrência por revisão e
+ausência de caminhos de aprovação ou runtime. Supabase DEV ou PROD, painel do
+tenant, aprovações, catálogo, evidence store, writer, WhatsApp, agente, deploy
+manual ou do backend e D2C permanecem bloqueados. A abertura da PR pode gerar
+Preview automático, e o merge pode gerar deployment frontend Production
+automático pela integração Vercel do repositório. O merge exige revisão humana
+consciente desse efeito, que não autoriza migration compartilhada, mudança de
+flag, runtime, ativação ou canário e não constitui evidência de deployment desta
+candidata.

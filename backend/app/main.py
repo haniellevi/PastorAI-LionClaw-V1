@@ -43,6 +43,7 @@ from app.routers import (
     multiplicacoes,
     pipeline,
     platform_admin,
+    platform_consent_governance,
     reports,
     roles,
     setup,
@@ -246,6 +247,9 @@ def create_app() -> FastAPI:
     # Plano de plataforma (Super-Admin, cross-tenant). Gated por
     # get_platform_admin — fora do RLS por tenant. Ver routers/platform_admin.py.
     app.include_router(platform_admin.router)
+    # D2B2b3A: preparação DRAFT_ONLY pelo Console Master. A superfície
+    # nasce desligada e não autoriza aprovação, catálogo, writer ou runtime.
+    app.include_router(platform_consent_governance.router)
 
     @app.get("/health", tags=["health"])
     def health() -> dict[str, str]:
