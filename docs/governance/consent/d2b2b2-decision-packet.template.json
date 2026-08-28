@@ -1,0 +1,652 @@
+{
+  "metadata": {
+    "schema_version": "d2b2b2/v1",
+    "artifact_kind": "purpose_consent_decision_packet_envelope_template",
+    "artifact_state": "template_only",
+    "legal_content_status": "not_supplied",
+    "template_baseline_sha": "74951828f48994622a112d8e59eb978e5fb4f406",
+    "materialization_cardinality": "one_envelope_per_tenant_with_four_independent_purpose_packets",
+    "purpose_packet_count": 4,
+    "runtime_authority": false,
+    "successor_gate_satisfied": false
+  },
+  "delivery_control": {
+    "required_order": [
+      "d2b2b1_integrated_inactive",
+      "materialized_packet_human_legal_approved",
+      "catalog_evidence_writer",
+      "d2c"
+    ],
+    "blocked_now": [
+      "catalog",
+      "evidence_store",
+      "writer",
+      "api",
+      "panel",
+      "whatsapp",
+      "webhook",
+      "worker",
+      "langgraph",
+      "tools",
+      "migration",
+      "supabase_dev",
+      "supabase_prod",
+      "memory",
+      "knowledge",
+      "outbox",
+      "d2c",
+      "deploy",
+      "agent_activation",
+      "canary"
+    ],
+    "excluded_scope": [
+      "universidade_da_vida",
+      "capacitacao_destino"
+    ]
+  },
+  "digest_contract": {
+    "algorithm": "sha256",
+    "encoding": "utf-8",
+    "canonicalization": "rfc8785_jcs",
+    "scope": "single_purpose_packet_decision_payload_only",
+    "decision_payload_schema_version": "d2b2b2/decision-payload/v1",
+    "governance_envelope_is_excluded": true,
+    "decision_payload_immutable_after_first_approval_record": true
+  },
+  "lifecycle_contract": {
+    "initial_status": "DRAFT_NOT_APPROVED",
+    "allowed_statuses": [
+      "DRAFT_NOT_APPROVED",
+      "FACTS_ATTESTED",
+      "PRIVACY_REVIEWED",
+      "CHANGES_REQUIRED",
+      "CONTROLLER_APPROVED",
+      "CATALOG_BOUND",
+      "REJECTED",
+      "SUSPENDED",
+      "EXPIRED",
+      "SUPERSEDED"
+    ],
+    "allowed_transitions": {
+      "DRAFT_NOT_APPROVED": [
+        "FACTS_ATTESTED",
+        "REJECTED"
+      ],
+      "FACTS_ATTESTED": [
+        "PRIVACY_REVIEWED",
+        "CHANGES_REQUIRED",
+        "REJECTED"
+      ],
+      "PRIVACY_REVIEWED": [
+        "CONTROLLER_APPROVED",
+        "CHANGES_REQUIRED",
+        "REJECTED"
+      ],
+      "CHANGES_REQUIRED": [
+        "REJECTED",
+        "SUPERSEDED"
+      ],
+      "CONTROLLER_APPROVED": [
+        "CATALOG_BOUND",
+        "SUSPENDED",
+        "EXPIRED",
+        "SUPERSEDED"
+      ],
+      "CATALOG_BOUND": [
+        "SUSPENDED",
+        "EXPIRED",
+        "SUPERSEDED"
+      ],
+      "REJECTED": [],
+      "SUSPENDED": [
+        "SUPERSEDED"
+      ],
+      "EXPIRED": [
+        "SUPERSEDED"
+      ],
+      "SUPERSEDED": []
+    }
+  },
+  "approval_record_contract": {
+    "required_fields": [
+      "record_ref",
+      "recorded_by_identity_ref",
+      "attested_content_digest",
+      "decision",
+      "recorded_at"
+    ],
+    "allowed_decisions": [
+      "APPROVED",
+      "CHANGES_REQUIRED",
+      "REJECTED",
+      "NOT_DESIGNATED"
+    ],
+    "human_packet_stage_roles": [
+      "operation_owner",
+      "privacy_or_dpo_reviewer",
+      "legal_reviewer_when_designated",
+      "authorized_controller_representative"
+    ],
+    "writer_eligibility_stage_roles": [
+      "operation_owner",
+      "security_or_architecture_reviewer",
+      "privacy_or_dpo_reviewer",
+      "legal_reviewer_when_designated",
+      "authorized_controller_representative",
+      "independent_technical_verifier"
+    ],
+    "not_designated_allowed_only_for": [
+      "legal_reviewer_when_designated"
+    ],
+    "record_refs_are_external_sanitized_and_identity_authenticated": true,
+    "legal_reviewer_absence_requires_controller_signed_not_designated_record": true,
+    "all_records_must_attest_content_digest": true
+  },
+  "minor_protection_contract": {
+    "applicability_statuses": [
+      "APPLICABLE",
+      "NOT_APPLICABLE",
+      "UNCERTAIN"
+    ],
+    "uncertain_blocks_catalog_and_writer": true,
+    "not_applicable_requires_justification_evidence_and_reviewer": true,
+    "when_applicable_required_fields": [
+      "best_interest_assessment_ref",
+      "age_or_guardian_measures",
+      "risk_and_impact_assessment_ref",
+      "reviewer_record_ref"
+    ]
+  },
+  "eligibility_rules": {
+    "human_packet_complete_requires": [
+      "all_required_sections_complete",
+      "no_pending_unknown_uncertain_or_unjustified_not_applicable",
+      "content_digest_matches_digest_contract",
+      "purpose_status_controller_approved",
+      "human_packet_stage_approval_records_digest_bound",
+      "minor_applicability_decided",
+      "validity_window_active",
+      "retention_and_disposal_complete"
+    ],
+    "catalog_ready_requires": [
+      "human_packet_complete",
+      "catalog_entry_bound_to_approved_content_digest",
+      "evidence_store_contract_implemented",
+      "separate_technical_authorization"
+    ],
+    "writer_eligible_requires": [
+      "catalog_ready",
+      "consent_based_operation_true",
+      "purpose_status_catalog_bound",
+      "writer_eligibility_stage_approval_records_digest_bound",
+      "presentation_and_manifestation_evidence_implemented",
+      "server_side_resource_binding_implemented",
+      "durable_idempotency_receipt_implemented",
+      "separate_technical_authorization"
+    ],
+    "non_consent_rule": "consent_based_operation_not_true_forces_writer_eligible_false_and_forbids_concedido",
+    "writer_eligible_is_derived": true
+  },
+  "required_sections": [
+    "real_processing_agents",
+    "operations_and_minimum_data",
+    "data_sensitivity_assessment",
+    "legal_hypothesis",
+    "notice_texts_by_channel_and_language",
+    "refusal_rights_and_withdrawal",
+    "presentation_and_manifestation_evidence_contract",
+    "children_adolescents_unknown_age_and_guardian_policy",
+    "validity_expiration_material_change_and_reacceptance",
+    "retention_and_disposal_matrix",
+    "optout_withdrawal_deletion_legal_hold_and_reactivation",
+    "international_transfer_inventory_and_mechanism",
+    "rights_incidents_and_periodic_review_owners",
+    "rbac_and_server_side_binding",
+    "durable_idempotency_receipt_policy",
+    "ai_memory_and_tenant_isolation",
+    "nominal_approvals"
+  ],
+  "required_retention_surfaces": [
+    "ledger",
+    "evidence",
+    "messages",
+    "media",
+    "transcripts",
+    "summaries",
+    "checkpoints",
+    "vectors",
+    "logs",
+    "dead_letter",
+    "backups"
+  ],
+  "required_approval_roles": [
+    "operation_owner",
+    "security_or_architecture_reviewer",
+    "privacy_or_dpo_reviewer",
+    "legal_reviewer_when_designated",
+    "authorized_controller_representative",
+    "independent_technical_verifier"
+  ],
+  "purposes": {
+    "atendimento_solicitado": {
+      "artifact_state": "template_only",
+      "purpose_status": "DRAFT_NOT_APPROVED",
+      "decision_payload": {
+        "payload_schema_version": "d2b2b2/decision-payload/v1",
+        "purpose": "atendimento_solicitado",
+        "package_id": null,
+        "package_version": null,
+        "supersedes_content_digest": null,
+        "tenant_binding": null,
+        "controller_identity_and_institutional_contact": null,
+        "real_processing_agents": null,
+        "operations_and_minimum_data": null,
+        "data_sensitivity_assessment": null,
+        "legal_hypothesis_common_data": null,
+        "legal_hypothesis_sensitive_data": null,
+        "consent_based_operation": null,
+        "notice_texts_by_channel_and_language": null,
+        "refusal_rights_and_withdrawal": null,
+        "presentation_and_manifestation_evidence_contract": null,
+        "children_adolescents_unknown_age_and_guardian_policy": {
+          "applicability_status": null,
+          "justification": null,
+          "evidence_ref": null,
+          "reviewer_record_ref": null,
+          "best_interest_assessment_ref": null,
+          "age_or_guardian_measures": null,
+          "risk_and_impact_assessment_ref": null
+        },
+        "validity_expiration_material_change_and_reacceptance": null,
+        "retention_and_disposal_matrix": {
+          "ledger": null,
+          "evidence": null,
+          "messages": null,
+          "media": null,
+          "transcripts": null,
+          "summaries": null,
+          "checkpoints": null,
+          "vectors": null,
+          "logs": null,
+          "dead_letter": null,
+          "backups": null
+        },
+        "optout_withdrawal_deletion_legal_hold_and_reactivation": null,
+        "international_transfer_inventory_and_mechanism": null,
+        "rights_incidents_and_periodic_review_owners": null,
+        "rbac_by_action_and_scope": null,
+        "server_side_resource_binding_evidence": null,
+        "durable_idempotency_receipt_policy": null,
+        "ai_memory_and_tenant_isolation": null
+      },
+      "content_digest": null,
+      "nominal_approval_record_refs": {
+        "operation_owner": {
+          "record_ref": null,
+          "recorded_by_identity_ref": null,
+          "attested_content_digest": null,
+          "decision": null,
+          "recorded_at": null
+        },
+        "security_or_architecture_reviewer": {
+          "record_ref": null,
+          "recorded_by_identity_ref": null,
+          "attested_content_digest": null,
+          "decision": null,
+          "recorded_at": null
+        },
+        "privacy_or_dpo_reviewer": {
+          "record_ref": null,
+          "recorded_by_identity_ref": null,
+          "attested_content_digest": null,
+          "decision": null,
+          "recorded_at": null
+        },
+        "legal_reviewer_when_designated": {
+          "record_ref": null,
+          "recorded_by_identity_ref": null,
+          "attested_content_digest": null,
+          "decision": null,
+          "recorded_at": null
+        },
+        "authorized_controller_representative": {
+          "record_ref": null,
+          "recorded_by_identity_ref": null,
+          "attested_content_digest": null,
+          "decision": null,
+          "recorded_at": null
+        },
+        "independent_technical_verifier": {
+          "record_ref": null,
+          "recorded_by_identity_ref": null,
+          "attested_content_digest": null,
+          "decision": null,
+          "recorded_at": null
+        }
+      },
+      "facts_attested_at": null,
+      "approved_at": null,
+      "effective_at": null,
+      "review_due_at": null,
+      "controller_approved": false,
+      "human_packet_complete": false,
+      "catalog_ready": false,
+      "writer_eligible": false
+    },
+    "cuidado_pastoral": {
+      "artifact_state": "template_only",
+      "purpose_status": "DRAFT_NOT_APPROVED",
+      "decision_payload": {
+        "payload_schema_version": "d2b2b2/decision-payload/v1",
+        "purpose": "cuidado_pastoral",
+        "package_id": null,
+        "package_version": null,
+        "supersedes_content_digest": null,
+        "tenant_binding": null,
+        "controller_identity_and_institutional_contact": null,
+        "real_processing_agents": null,
+        "operations_and_minimum_data": null,
+        "data_sensitivity_assessment": null,
+        "legal_hypothesis_common_data": null,
+        "legal_hypothesis_sensitive_data": null,
+        "consent_based_operation": null,
+        "notice_texts_by_channel_and_language": null,
+        "refusal_rights_and_withdrawal": null,
+        "presentation_and_manifestation_evidence_contract": null,
+        "children_adolescents_unknown_age_and_guardian_policy": {
+          "applicability_status": null,
+          "justification": null,
+          "evidence_ref": null,
+          "reviewer_record_ref": null,
+          "best_interest_assessment_ref": null,
+          "age_or_guardian_measures": null,
+          "risk_and_impact_assessment_ref": null
+        },
+        "validity_expiration_material_change_and_reacceptance": null,
+        "retention_and_disposal_matrix": {
+          "ledger": null,
+          "evidence": null,
+          "messages": null,
+          "media": null,
+          "transcripts": null,
+          "summaries": null,
+          "checkpoints": null,
+          "vectors": null,
+          "logs": null,
+          "dead_letter": null,
+          "backups": null
+        },
+        "optout_withdrawal_deletion_legal_hold_and_reactivation": null,
+        "international_transfer_inventory_and_mechanism": null,
+        "rights_incidents_and_periodic_review_owners": null,
+        "rbac_by_action_and_scope": null,
+        "server_side_resource_binding_evidence": null,
+        "durable_idempotency_receipt_policy": null,
+        "ai_memory_and_tenant_isolation": null
+      },
+      "content_digest": null,
+      "nominal_approval_record_refs": {
+        "operation_owner": {
+          "record_ref": null,
+          "recorded_by_identity_ref": null,
+          "attested_content_digest": null,
+          "decision": null,
+          "recorded_at": null
+        },
+        "security_or_architecture_reviewer": {
+          "record_ref": null,
+          "recorded_by_identity_ref": null,
+          "attested_content_digest": null,
+          "decision": null,
+          "recorded_at": null
+        },
+        "privacy_or_dpo_reviewer": {
+          "record_ref": null,
+          "recorded_by_identity_ref": null,
+          "attested_content_digest": null,
+          "decision": null,
+          "recorded_at": null
+        },
+        "legal_reviewer_when_designated": {
+          "record_ref": null,
+          "recorded_by_identity_ref": null,
+          "attested_content_digest": null,
+          "decision": null,
+          "recorded_at": null
+        },
+        "authorized_controller_representative": {
+          "record_ref": null,
+          "recorded_by_identity_ref": null,
+          "attested_content_digest": null,
+          "decision": null,
+          "recorded_at": null
+        },
+        "independent_technical_verifier": {
+          "record_ref": null,
+          "recorded_by_identity_ref": null,
+          "attested_content_digest": null,
+          "decision": null,
+          "recorded_at": null
+        }
+      },
+      "facts_attested_at": null,
+      "approved_at": null,
+      "effective_at": null,
+      "review_due_at": null,
+      "controller_approved": false,
+      "human_packet_complete": false,
+      "catalog_ready": false,
+      "writer_eligible": false
+    },
+    "tarefas_operacionais": {
+      "artifact_state": "template_only",
+      "purpose_status": "DRAFT_NOT_APPROVED",
+      "decision_payload": {
+        "payload_schema_version": "d2b2b2/decision-payload/v1",
+        "purpose": "tarefas_operacionais",
+        "package_id": null,
+        "package_version": null,
+        "supersedes_content_digest": null,
+        "tenant_binding": null,
+        "controller_identity_and_institutional_contact": null,
+        "real_processing_agents": null,
+        "operations_and_minimum_data": null,
+        "data_sensitivity_assessment": null,
+        "legal_hypothesis_common_data": null,
+        "legal_hypothesis_sensitive_data": null,
+        "consent_based_operation": null,
+        "notice_texts_by_channel_and_language": null,
+        "refusal_rights_and_withdrawal": null,
+        "presentation_and_manifestation_evidence_contract": null,
+        "children_adolescents_unknown_age_and_guardian_policy": {
+          "applicability_status": null,
+          "justification": null,
+          "evidence_ref": null,
+          "reviewer_record_ref": null,
+          "best_interest_assessment_ref": null,
+          "age_or_guardian_measures": null,
+          "risk_and_impact_assessment_ref": null
+        },
+        "validity_expiration_material_change_and_reacceptance": null,
+        "retention_and_disposal_matrix": {
+          "ledger": null,
+          "evidence": null,
+          "messages": null,
+          "media": null,
+          "transcripts": null,
+          "summaries": null,
+          "checkpoints": null,
+          "vectors": null,
+          "logs": null,
+          "dead_letter": null,
+          "backups": null
+        },
+        "optout_withdrawal_deletion_legal_hold_and_reactivation": null,
+        "international_transfer_inventory_and_mechanism": null,
+        "rights_incidents_and_periodic_review_owners": null,
+        "rbac_by_action_and_scope": null,
+        "server_side_resource_binding_evidence": null,
+        "durable_idempotency_receipt_policy": null,
+        "ai_memory_and_tenant_isolation": null
+      },
+      "content_digest": null,
+      "nominal_approval_record_refs": {
+        "operation_owner": {
+          "record_ref": null,
+          "recorded_by_identity_ref": null,
+          "attested_content_digest": null,
+          "decision": null,
+          "recorded_at": null
+        },
+        "security_or_architecture_reviewer": {
+          "record_ref": null,
+          "recorded_by_identity_ref": null,
+          "attested_content_digest": null,
+          "decision": null,
+          "recorded_at": null
+        },
+        "privacy_or_dpo_reviewer": {
+          "record_ref": null,
+          "recorded_by_identity_ref": null,
+          "attested_content_digest": null,
+          "decision": null,
+          "recorded_at": null
+        },
+        "legal_reviewer_when_designated": {
+          "record_ref": null,
+          "recorded_by_identity_ref": null,
+          "attested_content_digest": null,
+          "decision": null,
+          "recorded_at": null
+        },
+        "authorized_controller_representative": {
+          "record_ref": null,
+          "recorded_by_identity_ref": null,
+          "attested_content_digest": null,
+          "decision": null,
+          "recorded_at": null
+        },
+        "independent_technical_verifier": {
+          "record_ref": null,
+          "recorded_by_identity_ref": null,
+          "attested_content_digest": null,
+          "decision": null,
+          "recorded_at": null
+        }
+      },
+      "facts_attested_at": null,
+      "approved_at": null,
+      "effective_at": null,
+      "review_due_at": null,
+      "controller_approved": false,
+      "human_packet_complete": false,
+      "catalog_ready": false,
+      "writer_eligible": false
+    },
+    "comunicados": {
+      "artifact_state": "template_only",
+      "purpose_status": "DRAFT_NOT_APPROVED",
+      "decision_payload": {
+        "payload_schema_version": "d2b2b2/decision-payload/v1",
+        "purpose": "comunicados",
+        "package_id": null,
+        "package_version": null,
+        "supersedes_content_digest": null,
+        "tenant_binding": null,
+        "controller_identity_and_institutional_contact": null,
+        "real_processing_agents": null,
+        "operations_and_minimum_data": null,
+        "data_sensitivity_assessment": null,
+        "legal_hypothesis_common_data": null,
+        "legal_hypothesis_sensitive_data": null,
+        "consent_based_operation": null,
+        "notice_texts_by_channel_and_language": null,
+        "refusal_rights_and_withdrawal": null,
+        "presentation_and_manifestation_evidence_contract": null,
+        "children_adolescents_unknown_age_and_guardian_policy": {
+          "applicability_status": null,
+          "justification": null,
+          "evidence_ref": null,
+          "reviewer_record_ref": null,
+          "best_interest_assessment_ref": null,
+          "age_or_guardian_measures": null,
+          "risk_and_impact_assessment_ref": null
+        },
+        "validity_expiration_material_change_and_reacceptance": null,
+        "retention_and_disposal_matrix": {
+          "ledger": null,
+          "evidence": null,
+          "messages": null,
+          "media": null,
+          "transcripts": null,
+          "summaries": null,
+          "checkpoints": null,
+          "vectors": null,
+          "logs": null,
+          "dead_letter": null,
+          "backups": null
+        },
+        "optout_withdrawal_deletion_legal_hold_and_reactivation": null,
+        "international_transfer_inventory_and_mechanism": null,
+        "rights_incidents_and_periodic_review_owners": null,
+        "rbac_by_action_and_scope": null,
+        "server_side_resource_binding_evidence": null,
+        "durable_idempotency_receipt_policy": null,
+        "ai_memory_and_tenant_isolation": null
+      },
+      "content_digest": null,
+      "nominal_approval_record_refs": {
+        "operation_owner": {
+          "record_ref": null,
+          "recorded_by_identity_ref": null,
+          "attested_content_digest": null,
+          "decision": null,
+          "recorded_at": null
+        },
+        "security_or_architecture_reviewer": {
+          "record_ref": null,
+          "recorded_by_identity_ref": null,
+          "attested_content_digest": null,
+          "decision": null,
+          "recorded_at": null
+        },
+        "privacy_or_dpo_reviewer": {
+          "record_ref": null,
+          "recorded_by_identity_ref": null,
+          "attested_content_digest": null,
+          "decision": null,
+          "recorded_at": null
+        },
+        "legal_reviewer_when_designated": {
+          "record_ref": null,
+          "recorded_by_identity_ref": null,
+          "attested_content_digest": null,
+          "decision": null,
+          "recorded_at": null
+        },
+        "authorized_controller_representative": {
+          "record_ref": null,
+          "recorded_by_identity_ref": null,
+          "attested_content_digest": null,
+          "decision": null,
+          "recorded_at": null
+        },
+        "independent_technical_verifier": {
+          "record_ref": null,
+          "recorded_by_identity_ref": null,
+          "attested_content_digest": null,
+          "decision": null,
+          "recorded_at": null
+        }
+      },
+      "facts_attested_at": null,
+      "approved_at": null,
+      "effective_at": null,
+      "review_due_at": null,
+      "controller_approved": false,
+      "human_packet_complete": false,
+      "catalog_ready": false,
+      "writer_eligible": false
+    }
+  }
+}

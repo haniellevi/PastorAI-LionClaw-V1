@@ -9,8 +9,9 @@ Os marcadores `[CONCLUIDA]` abaixo preservam a evidencia das sprints que os prod
 
 Baseline confirmada no codigo:
 
-- o `origin/main` auditado esta em
-  `bce5a9a434077e488cea8baae3e9dd7c7c4ba0f1`;
+- a baseline de codigo auditada e o merge #318
+  `74951828f48994622a112d8e59eb978e5fb4f406`; ela nao e um ponteiro movel de
+  branch;
 - o LangGraph atual e compilado sem checkpointer duravel; configurar `AGENT_GRAPH_CHECKPOINT_URL` apenas produz um aviso e a execucao continua stateless;
 - o runtime resolve tenant, Pessoa, papel autenticado e permissoes no servidor antes das tools existentes;
 - a PR #313 integrou a D2A no `origin/main`
@@ -58,7 +59,8 @@ advisory lock transacional.
 A tabela integrada forca RLS com barreira restritiva GUC-only e ACL minima.
 Nao ha backfill do legado; opt-out global prevalece. Nao existe API, wiring ou
 caller em WhatsApp, painel, worker, LangGraph, tool ou broadcast. A migration
-nao foi aplicada em Supabase e nao fez deploy, ativacao ou canario. Textos e
+nao foi aplicada em Supabase e nao fez deploy manual ou do backend, ativacao ou
+canario. O merge gerou deployment frontend automatico pela integracao Vercel. Textos e
 base juridica por finalidade, retencao e RBAC bloqueiam writers e ambiente
 compartilhado.
 
@@ -71,7 +73,9 @@ Frontend `33145078637`, RLS `33145078608` e Tooling `33145078672`. Depois do
 merge: Backend `33145205844`, E2E `33145205869`, Frontend `33145205852`, RLS
 `33145205864` e Tooling `33145205854`. Todos concluiram com `SUCCESS`.
 
-A D2B2b1 corrente fecha apenas a fronteira tecnica pura: chave idempotente
+A PR #318, HEAD `ede4797003e044f582da9f9a3ab86554f708a73a`, integrou a
+D2B2b1 no merge `74951828f48994622a112d8e59eb978e5fb4f406`. A fatia fecha
+apenas a fronteira tecnica pura: chave idempotente
 opaca criada em componente confiavel do servidor, RBAC deny-first e negacao
 incondicional de qualquer `concedido` enquanto faltar politica humana aprovada.
 Ela nao reidrata chave por valor; retry entre processos aguarda um recibo
@@ -81,16 +85,22 @@ LangGraph, writer ou efeito externo. `painel_autenticado`, papel amplo ou
 autoria do operador nao provam manifestacao do titular; LLM e cliente nunca
 escolhem finalidade, base juridica, versao, prova ou capacidade.
 
-Validacao local D2B2b1: 1.114 de 1.114 testes no recorte focal e fronteiras
+Validacao D2B2b1: 1.114 de 1.114 testes no recorte focal e fronteiras
 adjacentes; 288 de 288 testes RLS contra PostgreSQL 17 descartavel, sem falhas
-ou skips. A suite offline integral permanece gate do workflow Backend Tests
-antes do merge.
+ou skips; Backend Tests integral e os outros quatro workflows da PR ficaram
+verdes. Os cinco workflows pos-merge tambem ficaram verdes. A PR gerou Preview
+e o merge gerou deployment frontend Vercel automatico classificado como
+Production; nao houve deploy manual ou do backend, migration, Supabase,
+ativacao ou canario. O PostgreSQL temporario foi removido.
 
-Sequencia corrente: integrar a D2B2b1 inativa; obter o pacote humano e juridico
-por finalidade; somente depois projetar catalogo imutavel, binding por tenant,
+Sequencia corrente: D2B2b1 integrada e inativa; materializar e obter aprovacao
+do pacote humano e juridico por finalidade; somente depois projetar catalogo imutavel, binding por tenant,
 prova correlacionada, retencao e callers server-side seguros. `D2C` continua
 bloqueada. Depois dela, `D3` implementa memoria privada duravel e exclusao
 integral.
+O template D2B2b2 permanece `TEMPLATE_ONLY / NOT_APPROVED` e esta descrito em
+`docs/decisions/2026-08-28-d2b2b2-consent-decision-packet-contract.md`; o merge
+do template nao satisfaz o gate humano.
 Universidade da Vida e Capacitacao Destino permanecem na visao futura, fora da
 missao atual. A D2A continua inativa: a integracao nao aplicou migration em
 ambiente compartilhado, nao provisionou credencial, nao conectou o runtime, nao
@@ -104,9 +114,13 @@ nao fez deploy manual ou do backend, nao promoveu a producao, nao ativou o
 agente e nao executou canario. O preview automatico da PR nao prova execucao do
 backend.
 
-**Proximo gate unico:** obter e registrar o pacote humano e juridico aprovado
-por finalidade. Catalogo, writer, Supabase DEV ou PROD, D2C, wiring, deploy,
-ativacao e canario permanecem bloqueados.
+**Proximo gate unico:** materializar uma instancia governada do template por
+igreja, com quatro pacotes independentes, e obter o atestado do dono factual, a
+revisao de privacidade ou do encarregado, a revisao juridica quando designada e
+a decisao final do representante autorizado do controlador, todos vinculados
+ao digest exato de cada pacote. Catalogo, writer,
+Supabase DEV ou PROD, D2C, wiring, deploy, ativacao e canario permanecem
+bloqueados.
 
 ---
 

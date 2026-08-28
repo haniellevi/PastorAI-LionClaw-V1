@@ -1,7 +1,7 @@
 # PastorAI / Igreja 12: registro central de missões pós-V1
 
-Atualizado em 2026-08-28 (America/Sao_Paulo) com a D2B2a integrada e inativa e
-a fronteira D2B2b1 candidata. A V1 permanece `V1_ENCERRADA`, mas a visão
+Atualizado em 2026-08-28 (America/Sao_Paulo) com D2B2a e D2B2b1 integradas e
+inativas e com o template D2B2b2 ainda não aprovado. A V1 permanece `V1_ENCERRADA`, mas a visão
 integral WhatsApp-first ainda não está concluída. Este documento não altera a tag
 `v1.0.0`, não autoriza novo canário, rollout amplo ou abertura de gates de
 produção.
@@ -12,7 +12,8 @@ produção.
   `c525d6a3897a12c6c287f9fc79a88b32b34cd452`. O relato operacional do canário
   ativo não contém um artefato versionado que permita reconstituir o SHA exato
   servido durante a janela; ele deve ser revalidado antes de qualquer rollout;
-- frontend Vercel `pastorai-frontend-prod`: deployment
+- frontend Vercel `pastorai-frontend-prod`, último estado preservado em
+  evidência versionada anterior e não revalidado nesta atualização: deployment
   `dpl_Dycx4epdibk5xtW3svVerJT2cH7K`, `READY`, target `production`, SHA
   `cba0fdf9c6eb815e15fa5a1502499c5b0d332732`;
 - Supabase PROD: `pffafnchtxbimpwyaczq`, último estado preservado em evidência
@@ -26,9 +27,10 @@ produção.
   `ASAAS_BILLING_ENABLED=false`, `BREVO_SEND_MODE=off` e
   `BROADCAST_ASYNC_ENABLED=false`. Este é um relato operacional, não uma
   leitura atual de produção feita por esta atualização documental;
-- fonte de verdade do código: `origin/main` em
-  `bce5a9a434077e488cea8baae3e9dd7c7c4ba0f1`. Merge em `main` não comprova
-  deploy, por isso o estado versionado e o estado operacional são registrados
+- baseline de código auditada nesta atualização: merge #318
+  `74951828f48994622a112d8e59eb978e5fb4f406`. Esse SHA não é tratado como
+  ponteiro móvel de `origin/main`. Merge em `main` não comprova backend ou
+  banco, por isso o estado versionado e o estado operacional são registrados
   separadamente.
 
 ## Missões
@@ -580,8 +582,10 @@ continua prevalecendo. Termo desatualizado exige novo aceite.
 
 A fundação não expõe API, router ou tela e não conecta webhook, WhatsApp,
 painel, worker, LangGraph, tool, broadcast ou outro caller. Ela não foi aplicada
-em Supabase DEV ou PROD, não fez deploy, não ativou o agente e não executou
-canário. Universidade da Vida e Capacitação Destino permanecem fora.
+em Supabase DEV ou PROD, não fez deploy manual ou do backend, não ativou o
+agente e não executou canário. O merge gerou deployment frontend automático
+pela integração Vercel. Universidade da Vida e Capacitação Destino permanecem
+fora.
 
 Textos e versões, hipótese jurídica, prova, tratamento de menores, retenção,
 eliminação, transferência internacional, opt-out e responsáveis por direitos e
@@ -603,11 +607,14 @@ pós-merge também concluíram com `SUCCESS`: Backend Tests `33145205844`, E2E
 Critical `33145205869`, Frontend CI `33145205852`, RLS Integration
 `33145205864` e Tooling Static Checks `33145205854`.
 
-O Vercel executou somente preview automático, sem backend ou ambiente
-compartilhado. A integração não aplicou a migration em Supabase DEV ou PROD,
-não fez deploy manual, não ativou o agente e não executou canário.
+Essa PR gerou Preview automático, deployment `6136192331`, e o merge gerou
+deployment frontend Vercel automático classificado como Production,
+`6136214234`. A integração não aplicou a migration em Supabase DEV ou PROD,
+não fez deploy manual ou do backend, não ativou o agente e não executou
+canário. A metadata prova o deployment do frontend no ambiente Production da
+Vercel; não prova backend, banco ou Supabase.
 
-### D2B2b1, fronteira de segurança candidata (2026-08-28)
+### D2B2b1, fronteira de segurança integrada e inativa (2026-08-28)
 
 A D2B2b1 é deliberadamente código puro, sem migration ou caller. A chave de
 idempotência nasce opaca em componente confiável do servidor, sem telefone,
@@ -628,9 +635,23 @@ bloqueada.
 
 O recorte focal D2B2b1 e suas fronteiras adjacentes passou em 1.114 de 1.114
 testes. A suíte RLS completa passou em 288 de 288 contra PostgreSQL 17
-descartável, sem falhas ou skips. A suíte offline integral permanece gate
-obrigatório do workflow Backend Tests antes do merge. Nenhum ambiente Supabase
-foi acessado ou alterado por essas provas.
+descartável, sem falhas ou skips. O workflow Backend Tests aprovou a suíte
+integral. Nenhum ambiente Supabase foi acessado ou alterado por essas provas, e
+o PostgreSQL temporário foi removido.
+
+A PR #318, HEAD `ede4797003e044f582da9f9a3ab86554f708a73a`, foi integrada no
+merge `74951828f48994622a112d8e59eb978e5fb4f406`. Os cinco workflows da PR
+concluíram com `SUCCESS`: Backend Tests `33147247668`, E2E Critical
+`33147247632`, Frontend CI `33147247672`, RLS Integration `33147247645` e
+Tooling Static Checks `33147247624`. Os cinco pós-merge também concluíram com
+`SUCCESS`: Backend Tests `33147433974`, E2E Critical `33147434002`, Frontend
+CI `33147433944`, RLS Integration `33147433941` e Tooling Static Checks
+`33147433956`.
+
+A PR gerou Preview automático, deployment `6136583334`, e o merge gerou
+deployment frontend Vercel automático classificado como Production,
+`6136622236`, ambos com `SUCCESS`. Não houve deploy manual ou do backend,
+migration, Supabase, ativação ou canário.
 
 O pacote humano e jurídico obrigatório deve definir, por finalidade,
 controlador e operadores reais, dados e operações mínimas, texto e versão,
@@ -640,9 +661,18 @@ contrato técnico e as fontes primárias consultadas estão na
 [`decisão D2B2b1`](../decisions/2026-08-28-d2b2b1-consent-security-boundary.md);
 o documento não constitui parecer jurídico.
 
-**Próximo gate único:** obter e registrar o pacote humano e jurídico aprovado
-para cada finalidade. Catálogo, evidence store, writer, Supabase DEV ou PROD e
-D2C permanecem bloqueados até esse gate ser concluído.
+O formulário vazio está no
+[`contrato D2B2b2`](../decisions/2026-08-28-d2b2b2-consent-decision-packet-contract.md)
+e permanece `TEMPLATE_ONLY / NOT_APPROVED`. Teste, revisão e merge desse
+template não constituem aprovação nem autorização de runtime.
+
+**Próximo gate único:** materializar uma instância governada do template por
+igreja, com quatro pacotes independentes, e obter o atestado do dono factual, a
+revisão de privacidade ou do encarregado, a revisão jurídica quando designada e
+a decisão final do representante autorizado do controlador, todos vinculados
+ao digest exato de cada pacote. Catálogo, evidence store,
+writer, Supabase DEV ou PROD e D2C permanecem bloqueados até esse gate ser
+concluído.
 
 ## Paralelismo seguro
 

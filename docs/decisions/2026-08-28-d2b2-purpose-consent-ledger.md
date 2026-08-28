@@ -27,7 +27,7 @@ DEV, PROD ou outro banco compartilhado.
 
 ### Ledger append-only
 
-A fonte canônica candidata é
+A fonte canônica integrada e inativa é
 `public.consentimento_finalidade_evento`, um ledger append-only por igreja,
 Pessoa e finalidade. Cada evento registra:
 
@@ -87,7 +87,7 @@ RLS. Eles não pertencem ao caminho normal da aplicação.
 
 ### Domínio e serviço interno
 
-A candidata inclui migration imperativa, modelo ORM
+A fatia integrada inclui migration imperativa, modelo ORM
 `ConsentimentoFinalidadeEvento`, tipos e projeções de domínio e os serviços
 internos `append_purpose_consent_event` e
 `load_purpose_consent_snapshot`. O writer valida tenant, Pessoa, finalidade,
@@ -123,14 +123,16 @@ conectar WhatsApp, painel ou outro caller:
 6. observabilidade sem PII nem conteúdo pastoral.
 
 Enquanto esses pontos estiverem abertos, nenhum writer de canal e nenhum
-ambiente compartilhado podem ser habilitados. A D2B2b1 adiciona apenas uma
-fronteira pura de segurança, deny-first e sem migration; ela não preenche essas
+ambiente compartilhado podem ser habilitados. A D2B2b1 integrada adiciona
+apenas uma fronteira pura de segurança, deny-first e sem migration; ela não preenche essas
 decisões. O contrato detalhado está em
 [`2026-08-28-d2b2b1-consent-security-boundary.md`](2026-08-28-d2b2b1-consent-security-boundary.md).
 
-Essa sequência começa pela D2B2b1, que fecha apenas a fronteira pura de
-segurança. O gate seguinte é obter o pacote humano e jurídico aprovado por
-finalidade. Somente uma missão posterior pode propor catálogo imutável,
+Essa sequência tem a D2B2b1 integrada e inativa como fronteira pura de
+segurança. O gate seguinte é materializar e aprovar o pacote humano e jurídico
+por finalidade a partir do
+[`template D2B2b2`](2026-08-28-d2b2b2-consent-decision-packet-contract.md).
+Somente uma missão posterior pode propor catálogo imutável,
 evidência correlacionada, retenção, RBAC e callers server-side seguros. D2C
 permanece bloqueada. Um caller futuro deverá gerar `chave_idempotencia` opaca no
 servidor e rejeitar telefone, conteúdo de mensagem ou identificador pastoral
@@ -157,16 +159,17 @@ PROD e não autoriza fazê-la.
 Antes do merge, o módulo de contrato, incluindo a aplicação do SQL
 inalterado duas vezes em `public`, passou em 11 de 11 no PostgreSQL 17 e na
 imagem Supabase PG17. A suíte RLS completa passou em 288 de 288 e os testes
-offline D2B2a, em 32 de 32. A suíte offline integral continua como gate
-obrigatório do workflow Backend Tests antes do merge; nenhuma dessas provas
-implica aplicação em ambiente compartilhado.
+offline D2B2a, em 32 de 32. A suíte offline integral passou no workflow Backend
+Tests; nenhuma dessas provas implica aplicação em ambiente compartilhado.
 
 A PR #317 concluiu Backend Tests `33145078616`, E2E Critical `33145078590`,
 Frontend CI `33145078637`, RLS Integration `33145078608` e Tooling Static
 Checks `33145078672` com `SUCCESS`. Depois do merge, os runs `33145205844`,
 `33145205869`, `33145205852`, `33145205864` e `33145205854`, respectivamente,
-também concluíram com `SUCCESS`. O Vercel executou somente preview automático;
-não houve deploy do backend ou aplicação em banco compartilhado.
+também concluíram com `SUCCESS`. A PR gerou Preview automático, deployment
+`6136192331`, e o merge gerou deployment frontend Vercel automático
+classificado como Production, `6136214234`; não houve deploy manual ou do
+backend nem aplicação em banco compartilhado.
 
 ## Rollback e compensação
 
@@ -190,6 +193,9 @@ inventário de linhas e gate nominal próprios.
 
 ## Próximo gate único
 
-Obter e registrar o pacote humano e jurídico aprovado por finalidade, conforme
-a decisão D2B2b1. Catálogo, writer, Supabase DEV ou PROD e D2C permanecem
-bloqueados até esse gate ser concluído.
+Materializar uma instância governada do template por igreja, com quatro
+pacotes independentes, e obter o atestado do dono factual, a revisão de
+privacidade ou do encarregado, a revisão jurídica quando designada e a decisão
+final do representante autorizado do controlador, todos vinculados ao digest
+exato de cada pacote. Catálogo, evidence store, writer, Supabase DEV ou PROD e
+D2C permanecem bloqueados até esse gate ser concluído.

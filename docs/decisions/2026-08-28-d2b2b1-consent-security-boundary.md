@@ -2,9 +2,11 @@
 
 Data: 2026-08-28
 
-Status: candidata inativa, sem migration, caller ou efeito operacional
+Status: integrada e inativa, sem migration, caller ou efeito operacional
 
-Baseline: `bce5a9a434077e488cea8baae3e9dd7c7c4ba0f1`
+Base da implementação: `bce5a9a434077e488cea8baae3e9dd7c7c4ba0f1`
+
+Merge integrado: `74951828f48994622a112d8e59eb978e5fb4f406`
 
 ## Contexto
 
@@ -161,16 +163,32 @@ concluíram com `SUCCESS`:
 - RLS Integration: `33145205864`;
 - Tooling Static Checks: `33145205854`.
 
-O Vercel executou somente preview automático. Essa evidência não prova backend,
-ambiente compartilhado, aplicação de migration, Supabase, deploy ou ativação.
+A PR gerou Preview e o merge gerou deployment frontend Vercel automático
+classificado como Production. Essa evidência prova o deployment do frontend no
+ambiente Production da Vercel; não prova backend, banco, aplicação de migration
+ou Supabase, e não houve deploy manual, ativação ou canário.
 
-## Evidência local da candidata D2B2b1
+## Evidência da D2B2b1 integrada
 
 O recorte focal D2B2b1 e suas fronteiras adjacentes passou em 1.114 de 1.114
 testes. A suíte RLS completa passou em 288 de 288 contra PostgreSQL 17
-descartável, sem falhas ou skips. A suíte offline integral permanece gate
-obrigatório do workflow Backend Tests antes do merge. O PostgreSQL temporário
-não é Supabase DEV ou PROD e será removido ao final da validação.
+descartável, sem falhas ou skips. A suíte offline integral passou no workflow
+Backend Tests. O PostgreSQL temporário não era Supabase DEV ou PROD e foi
+removido ao final da validação.
+
+A PR #318, HEAD `ede4797003e044f582da9f9a3ab86554f708a73a`, foi integrada no
+merge `74951828f48994622a112d8e59eb978e5fb4f406`. Os cinco workflows da PR
+concluíram com `SUCCESS`: Backend Tests `33147247668`, E2E Critical
+`33147247632`, Frontend CI `33147247672`, RLS Integration `33147247645` e
+Tooling Static Checks `33147247624`. Os cinco pós-merge também concluíram com
+`SUCCESS`: Backend Tests `33147433974`, E2E Critical `33147434002`, Frontend
+CI `33147433944`, RLS Integration `33147433941` e Tooling Static Checks
+`33147433956`.
+
+A PR gerou Preview automático, deployment `6136583334`, e o merge gerou
+deployment frontend Vercel automático classificado como Production,
+`6136622236`, ambos com `SUCCESS`. Essa metadata não prova deploy do backend,
+migration, acesso ao banco, Supabase, ativação ou canário.
 
 ## Fora do escopo
 
@@ -182,5 +200,10 @@ não é Supabase DEV ou PROD e será removido ao final da validação.
 
 ## Próximo gate único
 
-Obter e registrar o pacote humano e jurídico aprovado por finalidade. Catálogo,
+Materializar uma instância governada do
+[`template D2B2b2`](2026-08-28-d2b2b2-consent-decision-packet-contract.md) por
+igreja, com quatro pacotes independentes, e obter o atestado do dono factual, a
+revisão de privacidade ou do encarregado, a revisão jurídica quando designada e
+a decisão final do representante autorizado do controlador, todos vinculados
+ao digest exato de cada pacote. Catálogo,
 writer, Supabase e D2C permanecem bloqueados até esse gate ser concluído.
