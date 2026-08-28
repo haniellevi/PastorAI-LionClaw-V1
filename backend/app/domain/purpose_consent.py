@@ -8,9 +8,12 @@ table are deliberately absent: neither can grant a purpose-specific consent.
 from __future__ import annotations
 
 import datetime as dt
+import hmac
+import re
+import secrets
 import unicodedata
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Final
 
@@ -56,7 +59,16 @@ PURPOSE_CONSENT_PURPOSES: Final[tuple[PurposeConsentPurpose, ...]] = tuple(
     PurposeConsentPurpose
 )
 MAX_PURPOSE_CONSENT_TERM_VERSION_LENGTH: Final = 128
-MAX_PURPOSE_CONSENT_IDEMPOTENCY_KEY_LENGTH: Final = 128
+PURPOSE_CONSENT_IDEMPOTENCY_KEY_PREFIX: Final = "pc:v1:"
+PURPOSE_CONSENT_IDEMPOTENCY_KEY_ENTROPY_BYTES: Final = 32
+MAX_PURPOSE_CONSENT_IDEMPOTENCY_KEY_LENGTH: Final = len(
+    PURPOSE_CONSENT_IDEMPOTENCY_KEY_PREFIX
+) + (PURPOSE_CONSENT_IDEMPOTENCY_KEY_ENTROPY_BYTES * 2)
+_PURPOSE_CONSENT_IDEMPOTENCY_KEY_PATTERN: Final = re.compile(
+    rf"{re.escape(PURPOSE_CONSENT_IDEMPOTENCY_KEY_PREFIX)}"
+    rf"[0-9a-f]{{{PURPOSE_CONSENT_IDEMPOTENCY_KEY_ENTROPY_BYTES * 2}}}"
+)
+_PURPOSE_CONSENT_IDEMPOTENCY_KEY_MINT_SECRET: Final = secrets.token_bytes(32)
 
 
 def _require_exact_enum(value: object, enum_type: type[Enum], field: str) -> None:
@@ -90,6 +102,71 @@ class TrustedTermVersion:
             field="versao_termo",
             max_length=MAX_PURPOSE_CONSENT_TERM_VERSION_LENGTH,
         )
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class OpaquePurposeConsentIdempotencyKey:
+    """Server-generated opaque token used only to make an append idempotent.
+
+    There is deliberately no value-taking or rehydration constructor in this
+    slice. Live callers can only request fresh entropy. A process-local proof
+    binds the value to that minting operation, so a forged or later-mutated
+    value fails before database I/O. Cross-process retry remains blocked until
+    a future authenticated durable receipt can prove provenance.
+    """
+
+    value: str
+    _mint_proof: bytes = field(repr=False, compare=False)
+
+    @classmethod
+    def generate(cls) -> OpaquePurposeConsentIdempotencyKey:
+        """Generate a versioned token from the operating system CSPRNG."""
+
+        entropy = secrets.token_hex(
+            PURPOSE_CONSENT_IDEMPOTENCY_KEY_ENTROPY_BYTES
+        )
+        if type(entropy) is not str:
+            raise PurposeConsentValidationError(
+                "aleatoriedade não produziu chave_idempotencia opaca válida"
+            )
+        candidate = PURPOSE_CONSENT_IDEMPOTENCY_KEY_PREFIX + entropy
+        if _PURPOSE_CONSENT_IDEMPOTENCY_KEY_PATTERN.fullmatch(candidate) is None:
+            raise PurposeConsentValidationError(
+                "aleatoriedade não produziu chave_idempotencia opaca válida"
+            )
+        instance = object.__new__(cls)
+        object.__setattr__(instance, "value", candidate)
+        object.__setattr__(
+            instance,
+            "_mint_proof",
+            hmac.digest(
+                _PURPOSE_CONSENT_IDEMPOTENCY_KEY_MINT_SECRET,
+                candidate.encode("ascii"),
+                "sha256",
+            ),
+        )
+        return instance
+
+    def _was_server_minted_in_this_process(self) -> bool:
+        """Validate format and provenance without accepting a raw value."""
+
+        try:
+            value = self.value
+            proof = self._mint_proof
+        except AttributeError:
+            return False
+        if (
+            type(value) is not str
+            or type(proof) is not bytes
+            or _PURPOSE_CONSENT_IDEMPOTENCY_KEY_PATTERN.fullmatch(value) is None
+        ):
+            return False
+        expected = hmac.digest(
+            _PURPOSE_CONSENT_IDEMPOTENCY_KEY_MINT_SECRET,
+            value.encode("ascii"),
+            "sha256",
+        )
+        return hmac.compare_digest(proof, expected)
 
 
 @dataclass(frozen=True, slots=True)

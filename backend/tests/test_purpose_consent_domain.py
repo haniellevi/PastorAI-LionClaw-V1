@@ -2,13 +2,18 @@ from __future__ import annotations
 
 import datetime as dt
 import inspect
+import re
 from dataclasses import FrozenInstanceError
 
 import pytest
 
 from app.domain.purpose_consent import (
+    MAX_PURPOSE_CONSENT_IDEMPOTENCY_KEY_LENGTH,
     MAX_PURPOSE_CONSENT_TERM_VERSION_LENGTH,
+    OpaquePurposeConsentIdempotencyKey,
     PURPOSE_CONSENT_PURPOSES,
+    PURPOSE_CONSENT_IDEMPOTENCY_KEY_ENTROPY_BYTES,
+    PURPOSE_CONSENT_IDEMPOTENCY_KEY_PREFIX,
     PurposeConsentEvent,
     PurposeConsentEventState,
     PurposeConsentProjectionState,
@@ -67,6 +72,77 @@ def test_canonical_values_are_closed_to_the_four_approved_purposes() -> None:
         "reaceite_necessario",
         "bloqueado_optout_global",
     )
+
+
+def test_opaque_idempotency_key_factory_uses_32_bytes_and_no_pii_input(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    requested_bytes: list[int] = []
+
+    def _fake_token_hex(number_of_bytes: int) -> str:
+        requested_bytes.append(number_of_bytes)
+        return "ab" * number_of_bytes
+
+    monkeypatch.setattr(
+        "app.domain.purpose_consent.secrets.token_hex",
+        _fake_token_hex,
+    )
+
+    key = OpaquePurposeConsentIdempotencyKey.generate()
+
+    assert tuple(
+        inspect.signature(OpaquePurposeConsentIdempotencyKey.generate).parameters
+    ) == ()
+    assert requested_bytes == [PURPOSE_CONSENT_IDEMPOTENCY_KEY_ENTROPY_BYTES]
+    assert key.value == f"{PURPOSE_CONSENT_IDEMPOTENCY_KEY_PREFIX}{'ab' * 32}"
+    assert len(key.value) == MAX_PURPOSE_CONSENT_IDEMPOTENCY_KEY_LENGTH
+    assert re.fullmatch(r"pc:v1:[0-9a-f]{64}", key.value) is not None
+    assert not hasattr(key, "__dict__")
+    with pytest.raises(FrozenInstanceError):
+        key.value = "pc:v1:" + ("c" * 64)  # type: ignore[misc]
+    with pytest.raises(TypeError):
+        OpaquePurposeConsentIdempotencyKey(  # type: ignore[call-arg]
+            "pc:v1:" + ("c" * 64)
+        )
+    assert not hasattr(OpaquePurposeConsentIdempotencyKey, "from_persisted")
+
+
+def test_opaque_idempotency_keys_are_unique() -> None:
+    generated = {
+        OpaquePurposeConsentIdempotencyKey.generate().value for _ in range(128)
+    }
+
+    assert len(generated) == 128
+    assert all(re.fullmatch(r"pc:v1:[0-9a-f]{64}", item) for item in generated)
+
+
+def test_opaque_idempotency_key_has_no_raw_rehydration_path() -> None:
+    raw_value = "pc:v1:" + ("a" * 64)
+
+    with pytest.raises(TypeError):
+        OpaquePurposeConsentIdempotencyKey(raw_value)  # type: ignore[call-arg]
+    assert not hasattr(OpaquePurposeConsentIdempotencyKey, "from_persisted")
+
+
+def test_opaque_idempotency_key_randomness_fails_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.domain.purpose_consent.secrets.token_hex",
+        lambda _number_of_bytes: "not-hex",
+    )
+    with pytest.raises(PurposeConsentValidationError, match="aleatoriedade"):
+        OpaquePurposeConsentIdempotencyKey.generate()
+
+    def _unavailable_randomness(_number_of_bytes: int) -> str:
+        raise OSError("CSPRNG indisponível")
+
+    monkeypatch.setattr(
+        "app.domain.purpose_consent.secrets.token_hex",
+        _unavailable_randomness,
+    )
+    with pytest.raises(OSError, match="CSPRNG indisponível"):
+        OpaquePurposeConsentIdempotencyKey.generate()
 
 
 @pytest.mark.parametrize(

@@ -3,7 +3,7 @@ project: igreja12
 document_kind: ai-bootstrap
 status: canonical
 last_verified: 2026-08-28
-audited_repository_sha: 3d5c1099734f5f7da28fc84c6d6bf42f7b57a876
+audited_repository_sha: bce5a9a434077e488cea8baae3e9dd7c7c4ba0f1
 ---
 
 # Bootstrap canônico para agentes de IA
@@ -36,7 +36,7 @@ externas com contratos e gates próprios.
 | Tema | Estado no SHA auditado | Leitura correta |
 |---|---|---|
 | V1 | `IMPLEMENTADO` | Encerrada como piloto controlado; não equivale ao produto amplo concluído |
-| Código | `VERIFICADO / D2B2A CANDIDATA INATIVA` | `origin/main` em `3d5c1099734f5f7da28fc84c6d6bf42f7b57a876`; D1A, D2A e D2B1 integradas; D2B2a existe apenas na candidata local, sem caller ou prova operacional |
+| Código | `VERIFICADO / D2B2A INTEGRADA E INATIVA / D2B2B1 CANDIDATA` | `origin/main` em `bce5a9a434077e488cea8baae3e9dd7c7c4ba0f1`; D1A, D2A, D2B1 e D2B2a integradas; D2B2a segue sem caller ou aplicação em Supabase; D2B2b1 é código puro e deny-first |
 | Produto WhatsApp-first | `PARCIAL` | A visão está aprovada; memória, conhecimento e ações profundas ainda faltam |
 | Agente Evolution | `PARCIAL / GATE OPERACIONAL` | Fundação, identidade e contenção existem; qualidade conversacional é insuficiente |
 | Canário ativo do agente | `PASS TÉCNICO / QUALIDADE INSUFICIENTE` | Evidência operacional reconciliada nesta missão, não prova previamente versionada em `ad4a272` |
@@ -102,11 +102,19 @@ O contrato aprovado mantém consentimentos independentes para:
 - tarefas operacionais;
 - comunicados.
 
-A candidata D2B2a materializa somente o ledger append-only dessas finalidades,
+A D2B2a integrada materializa somente o ledger append-only dessas finalidades,
 com estados `concedido|retirado` e fontes
 `whatsapp_inbound|painel_autenticado`. Ela ainda não conecta WhatsApp, painel,
-worker, LangGraph ou qualquer outro writer. Textos, base jurídica, retenção e
-RBAC por finalidade permanecem bloqueios antes de habilitar callers.
+worker, LangGraph ou qualquer outro writer, e a migration não foi aplicada em
+Supabase. A candidata D2B2b1 acrescenta uma fronteira pura, sem migration ou
+caller: chave idempotente opaca gerada no servidor, RBAC deny-first e toda
+tentativa de `concedido` recusada.
+
+Texto e versão, hipótese jurídica, prova, política para menores, retenção,
+eliminação, transferência internacional, opt-out e responsáveis por direitos e
+incidentes não podem ser inventados pelo código. O pacote por finalidade exige
+aprovação humana e validação jurídica ou do encarregado antes de catálogo,
+evidence store ou writer.
 
 Ações comuns podem ser concluídas pelo WhatsApp após resumo estruturado e
 confirmação explícita. Ações sensíveis terminam no painel autenticado. Toda
@@ -151,8 +159,9 @@ workflows da PR e os cinco pós-merge ficaram verdes. Essas evidências provam o
 comportamento exercitado no código integrado, sem provar migration, ambiente
 compartilhado, deploy ou ativação.
 
-Sobre o `origin/main`
-`3d5c1099734f5f7da28fc84c6d6bf42f7b57a876`, a candidata D2B2a adiciona
+No `origin/main`
+`bce5a9a434077e488cea8baae3e9dd7c7c4ba0f1`, a PR #317, HEAD
+`8ba5c988e9169703c923b1f1a3e47d1c427531e1`, integrou a D2B2a com
 migration, ORM, domínio e serviço interno sem caller para
 `public.consentimento_finalidade_evento`. O ledger é append-only, usa
 `versao_termo`, idempotência por tenant e sequência por stream atribuída em
@@ -160,25 +169,33 @@ trigger sob advisory lock transacional. A RLS é habilitada e forçada, com
 barreira restritiva dependente somente de `app.tenant_igreja_id` e ACL mínima.
 
 Não existe backfill: consentimento legado não concede as quatro finalidades e o
-opt-out global continua prevalecendo. A candidata não foi aplicada em
+opt-out global continua prevalecendo. A fundação não foi aplicada em
 PostgreSQL compartilhado ou Supabase, não expõe API e não conecta runtime,
 painel, webhook, worker, tool ou LangGraph. Ela também não faz deploy, ativação
 ou canário.
 
+Os cinco workflows da PR #317 e os cinco pós-merge concluíram com `SUCCESS`.
+O Vercel executou somente preview automático, sem backend ou ambiente
+compartilhado. Essa evidência prova integração e CI, não aplicação da migration
+nem estado operacional.
+
 As fatias permanecem nesta ordem:
 
 1. `D2B1`: integrada no código e ainda sem aplicação operacional;
-2. `D2B2a`: candidata inativa do ledger por finalidade. O módulo de contrato,
-   incluindo a aplicação do SQL inalterado duas vezes em `public`, passou em 11
-   de 11 no PostgreSQL 17 e na imagem Supabase PG17; a suíte RLS completa passou
-   em 288 de 288 e os testes offline D2B2a, em 32 de 32. Revisões independentes
-   e o workflow Backend Tests continuam gates de integração;
-3. `D2B2b`: termos e versões aprovados, base jurídica e prova, retenção e
-   eliminação, RBAC de leitura e escrita e callers server-side seguros. A chave
-   de idempotência será opaca e gerada pelo servidor, sem telefone, mensagem ou
-   identificador pastoral;
-4. `D2C`: propostas duráveis, confirmação, expiração e idempotência;
-5. `D3`: memória privada durável, recuperação seletiva e exclusão integral.
+2. `D2B2a`: integrada no código e inativa, sem caller ou aplicação em
+   Supabase. A PR #317 e os cinco workflows pós-merge ficaram verdes;
+3. `D2B2b1`: candidata de código puro, sem migration ou caller, com chave opaca
+   server-side, RBAC deny-first e toda concessão negada. Não há reidratação por
+   valor; retry entre processos depende de futuro recibo durável autenticado.
+   Os indicadores de escopo ainda exigem builder server-side vinculado ao
+   recurso antes de qualquer caller. O recorte focal passou em 1.114 de 1.114 e
+   a suíte RLS completa, em 288 de 288 contra PostgreSQL 17
+   descartável; Backend Tests integral permanece gate do merge;
+4. pacote humano e jurídico aprovado por finalidade;
+5. somente depois, em fatia própria, catálogo imutável, prova correlacionada,
+   retenção, eliminação, RBAC e writers server-side seguros;
+6. `D2C`: propostas duráveis, confirmação, expiração e idempotência;
+7. `D3`: memória privada durável, recuperação seletiva e exclusão integral.
 
 Universidade da Vida e Capacitação Destino permanecem na visão futura, mas
 estão excluídas da missão atual e não podem ser inferidas dos placeholders.
@@ -186,10 +203,9 @@ A D2B1 não adicionou migration, não acessou Supabase, não provisionou
 credencial, não conectou a fronteira privada D2A, worker, fila ou checkpointer,
 não fez deploy manual ou do backend, não promoveu a produção, não ativou o
 agente e não executou canário. O preview automático da PR não prova execução do
-backend. O único gate atual é revisar e integrar a PR candidata D2B2a somente
-depois de PostgreSQL descartável, suítes aplicáveis e revisões independentes
-concluírem com `GO`. Nenhuma aplicação em Supabase DEV ou PROD integra esse
-gate.
+backend. O único gate posterior a esta PR é obter e registrar o pacote humano e
+jurídico aprovado para cada finalidade. Catálogo, evidence store, writer,
+Supabase DEV ou PROD e D2C permanecem bloqueados até esse gate.
 
 ## Roteiro de leitura
 
@@ -198,7 +214,7 @@ gate.
 | Estado geral e pendências | [`auditoria D1`](../audits/2026-08-27-d1-security-scope-audit.md), [`auditoria fonte de verdade`](../audits/2026-08-27-project-source-of-truth.md), depois [`docs/WIKI-IGREJA12.md`](../WIKI-IGREJA12.md) |
 | Escopo e definição de pronto | [`docs/ai/PRD-COVERAGE.md`](PRD-COVERAGE.md) |
 | Agente WhatsApp-first | [`decisão de arquitetura`](../decisions/2026-08-27-whatsapp-first-tenant-agent-architecture.md) |
-| Consentimento por finalidade | [`decisão D2B2a`](../decisions/2026-08-28-d2b2-purpose-consent-ledger.md) |
+| Consentimento por finalidade | [`decisão D2B2a`](../decisions/2026-08-28-d2b2-purpose-consent-ledger.md) e [`fronteira D2B2b1`](../decisions/2026-08-28-d2b2b1-consent-security-boundary.md) |
 | Produção ou canário | `docs/ops/POST-V1-MISSION-REGISTER.md` e runbook específico |
 | Produto e UX | `PRODUCT.md`, PRD canônico e `Plan-Designer-Igreja12/` |
 | Banco e RLS | models, migration aplicável, policies e testes RLS |

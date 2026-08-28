@@ -145,7 +145,7 @@
 | `whatsapp_connections` | Conexao WhatsApp oficial por igreja (1:1; UNIQUE em `igreja_id`). |
 | `pessoa_arquivamento_evento` | Trilha APPEND-ONLY de arquivamento/reativacao de Pessoa (W3.2A). |
 | `consent_records` | Registro legado do consentimento geral concedido na primeira mensagem inbound. Nao concede por inferencia nenhuma finalidade D2B2a. |
-| `consentimento_finalidade_evento` | Candidata D2B2a append-only para concessao/retirada por finalidade, ainda sem caller, backfill ou aplicacao em ambiente compartilhado. |
+| `consentimento_finalidade_evento` | D2B2a integrada e inativa, append-only para concessao/retirada por finalidade, ainda sem caller, backfill ou aplicacao em ambiente compartilhado. |
 | `agent_configs` | Config de comportamento do agente por igreja (1:1, US-28). |
 | `agent_config_requests` | Requisicao admin -> master para mudar o agente (#10b Fase 1 / delta-043). |
 | `llm_credentials` | Credencial LLM BYO + modelo permitido por igreja (1:1; chave cifrada, nunca exibida — RNF-03). |
@@ -173,7 +173,7 @@
   - Telas de Configuracao (`whatsapp`,`agente`,`assinatura`,`gerentes`,`permissoes`): apenas papel `admin` (delta-005).
   - `celulas`: abrir/editar apenas lider da celula ou superior na hierarquia (delta-007).
 - **Agente (F5/delta-034):** fixa o tenant no servidor e executa sob papel sem `BYPASSRLS`, com as mesmas validacoes de negocio de um humano. Service role nao substitui escopo, RLS ou autorizacao.
-- **D2B2a candidata:** `consentimento_finalidade_evento` habilita e forca RLS. Uma policy restritiva exige `app.tenant_igreja_id` fixado pelo backend; JWT ou `current_igreja_id()` sem esse GUC nao liberam linhas. `authenticated` recebe somente SELECT e INSERT nas colunas de entrada; `PUBLIC`, `anon`, `service_role` e `agent_runtime` nao recebem privilegios de tabela. UPDATE, DELETE e TRUNCATE permanecem revogados.
+- **D2B2a integrada e inativa:** `consentimento_finalidade_evento` habilita e forca RLS. Uma policy restritiva exige `app.tenant_igreja_id` fixado pelo backend; JWT ou `current_igreja_id()` sem esse GUC nao liberam linhas. `authenticated` recebe somente SELECT e INSERT nas colunas de entrada; `PUBLIC`, `anon`, `service_role` e `agent_runtime` nao recebem privilegios de tabela. UPDATE, DELETE e TRUNCATE permanecem revogados. A migration ainda nao foi aplicada em Supabase.
 
 ### 2.3 Triggers
 - **`trg_promote_pipeline`** (BEFORE INSERT/UPDATE em `pessoas`) — state machine F2/delta-013/031: avanca `etapa`/`subetapa` automaticamente quando `presencas_celula >= 3` OU `aceitou_jesus = true` (visitante -> membro). Conclusao de consolidacao usa seu proprio fluxo.
@@ -181,7 +181,7 @@
 - **`trg_report_received_clears_queue`** (legado; AFTER INSERT em `reports` com `status=recebido`) — permanece instalado, mas a aplicacao vigente nao escreve em `reports`; portanto nao integra o fluxo operacional. D6 deve atualizar a fila a partir do submit canonico de `celula_reuniao`, sem reativar esta tabela.
 - **`trg_decision_opens_consolidation`** (AFTER INSERT em `decisions`) — US-37/delta-041: cria `consolidacoes` (etapa inicial); se `vinculo=visitante`, cria `work_queue_items` tipo `conectar_celula` com `prazo = now()+24h`.
 - **`trg_consent_on_inbound`** (baseline legada; AFTER INSERT em `messages` direcao=in) — concede o booleano geral `pessoas.consentimento=true`. Esse comportamento nao satisfaz o delta-052 e deve ser substituido por eventos independentes de finalidade; o estado legado nao libera cuidado pastoral, tarefas operacionais ou comunicados.
-- **Trigger de sequencia D2B2a** (candidata inativa; BEFORE INSERT em `consentimento_finalidade_evento`) — serializa cada stream `(igreja_id, pessoa_id, finalidade)` com advisory lock transacional e atribui a proxima `sequencia`; unicidade por stream e `chave_idempotencia` por tenant fecham corrida e replay.
+- **Trigger de sequencia D2B2a** (integrado e inativo; BEFORE INSERT em `consentimento_finalidade_evento`) — serializa cada stream `(igreja_id, pessoa_id, finalidade)` com advisory lock transacional e atribui a proxima `sequencia`; unicidade por stream e `chave_idempotencia` por tenant fecham corrida e replay.
 - **`trg_subscription_autoupgrade`** (AFTER INSERT/UPDATE em `pessoas`) — US-36/RF-42: ao ultrapassar `subscriptions.limite`, promove `plano` e marca notificacao ao admin.
 - **`trg_set_updated_at`** — manutencao de `updated_at`.
 - **`trg_sla_engine`** (cron/worker — A1/delta-039/RNF-23): detecta SLA estourando (relatorio 2h, conexao 24h, fonovisita 24h) e dispara cobranca por WhatsApp; escalona lider sem resposta -> coordenacao.
@@ -219,7 +219,7 @@ igrejas (1) ──< (N) decisions >── (1) pessoas
 pessoas (1) ──< (N) consolidacoes ──< (N) consolidacao_etapas
 celulas (1) ──< (N) multiplicacoes >── (0..1) pessoas (novo_lider_id)
 pessoas (1) ──< (N) consent_records
-pessoas (1) ──< (N) consentimento_finalidade_evento >── (0..1) app_users  # candidata D2B2a
+pessoas (1) ──< (N) consentimento_finalidade_evento >── (0..1) app_users  # D2B2a integrada e inativa
 igrejas (1) ──< (N) ai_usage_logs / agent_conversation_logs
 ```
 
@@ -387,8 +387,9 @@ adicionou migration, nao acessou Supabase, nao provisionou credencial nem
 conectou a fronteira privada D2A, worker ou fila. O merge nao prova deploy,
 ativacao ou canario.
 
-Sobre o `origin/main`
-`3d5c1099734f5f7da28fc84c6d6bf42f7b57a876`, a candidata D2B2a adiciona a
+A PR #317 integrou a D2B2a no `origin/main`: HEAD
+`8ba5c988e9169703c923b1f1a3e47d1c427531e1`, merge
+`bce5a9a434077e488cea8baae3e9dd7c7c4ba0f1`. A fatia adiciona a
 migration de `public.consentimento_finalidade_evento`, o ORM
 `ConsentimentoFinalidadeEvento`, tipos de dominio e um servico interno sem
 caller. As quatro finalidades aceitam eventos `concedido|retirado` com
@@ -402,10 +403,21 @@ projecao interna resulta em
 O ledger e append-only, usa idempotencia por tenant e sequencia por stream
 atribuida no banco. Nao existe backfill: `consent_records` e
 `pessoas.consentimento` continuam legados e o opt-out global prevalece. A
-candidata nao expoe API, nao conecta WhatsApp, painel, worker, LangGraph, tool
-ou broadcast, nao foi aplicada em Supabase e nao faz deploy, ativacao ou
+fatia nao expoe API, nao conecta WhatsApp, painel, worker, LangGraph, tool
+ou broadcast, nao foi aplicada em Supabase e nao fez deploy, ativacao ou
 canario. Textos e base juridica por finalidade, retencao e RBAC ainda bloqueiam
 qualquer writer e ambiente compartilhado.
+
+A D2B2b1 adiciona somente uma fronteira pura, sem migration e sem caller. A
+chave idempotente deve ser opaca e criada por componente confiavel do servidor;
+telefone, mensagem, documento, conteudo pastoral ou identificador escolhido por
+modelo ou cliente sao recusados. RBAC e deny-first, e toda tentativa de
+`concedido` permanece negada enquanto faltar politica humana aprovada. Fonte
+`painel_autenticado`, papel amplo ou autoria do operador nao provam manifestacao
+do titular. Nao existe reidratacao por valor nesta fatia; retry entre processos
+depende de futuro recibo duravel autenticado que prove a origem da chave. A
+decisao tecnica esta em
+`docs/decisions/2026-08-28-d2b2b1-consent-security-boundary.md`.
 
 A evolucao aprovada mantem uma unica politica global e adiciona especialistas por dominio de forma incremental. Atendimento, Central de Celulas, Agenda e Consolidacao integram a missao atual; Universidade da Vida e Capacitacao Destino permanecem na visao futura e dependem de PRDs e missoes proprias. Especialistas nunca enviam mensagens diretamente e nunca recebem IDs de tenant escolhidos pelo modelo ou pelo cliente.
 
@@ -419,7 +431,7 @@ Memoria e conhecimento sao contratos diferentes:
 
 O historico privado e retido ate solicitacao da pessoa pelo WhatsApp e aprovacao do admin no painel. A exclusao aprovada deve apagar mensagens, midias, transcricoes, resumos, checkpoints e vetores derivados, preservando apenas auditoria minima sem conteudo pessoal.
 
-Consentimento deve ser separado em quatro finalidades: `atendimento_solicitado`, `cuidado_pastoral`, `tarefas_operacionais` e `comunicados`. A candidata D2B2a materializa somente o ledger interno; um termo desatualizado exige novo aceite, o legado nao concede novas finalidades e o opt-out global continua prevalecendo. A D2B2b e obrigatoria antes da D2C e fecha textos e versoes, base juridica e prova, retencao e eliminacao, RBAC de leitura e escrita, chave idempotente opaca gerada no servidor e callers server-side seguros. Writers permanecem desabilitados ate essa fatia ser aprovada e implementada.
+Consentimento deve ser separado em quatro finalidades: `atendimento_solicitado`, `cuidado_pastoral`, `tarefas_operacionais` e `comunicados`. A D2B2a integrada materializa somente o ledger interno; um termo desatualizado exige novo aceite, o legado nao concede novas finalidades e o opt-out global continua prevalecendo. A D2B2b1 fecha apenas a fronteira tecnica pura, com chave opaca, RBAC deny-first e toda concessao negada. Antes de catalogo, prova ou writer, um pacote humano e juridico deve aprovar por finalidade controlador, base, dados, texto, evidencia, menores, retencao, eliminacao, opt-out e transferencias. D2C permanece bloqueada.
 
 A primeira vertical completa e o relatorio de celula pelo WhatsApp: lembrete, coleta por texto ou audio, resumo editavel, confirmacao explicita, escrita pelo mesmo servico de dominio usado pelo painel e comprovante somente depois do commit. Permissoes, vinculos de terceiros, dados pastorais restritos, exclusoes, financas, publicacao de conhecimento e configuracao da igreja exigem conclusao no painel autenticado.
 
@@ -795,8 +807,9 @@ A primeira vertical completa e o relatorio de celula pelo WhatsApp: lembrete, co
 - [ ] Inbox/conversas restritos a privilegiados; lideres de celula sem acesso (US-11).
 - [ ] Itens da fila so aparecem para quem pode resolve-los (delta-006).
 - [ ] Captura restrita ao numero oficial; conversas pessoais do pastor nunca registradas (US-07/RF-09).
-- [ ] Consentimento por finalidade para atendimento solicitado, cuidado pastoral, tarefas operacionais e comunicados; a candidata D2B2a cobre apenas persistencia interna, sem caller, e o opt-out global prevalece (US-31/32/33/RNF-06).
-- [ ] Registro de termo LGPD (versao + data/hora), re-aceite em nova versao e mascara de CPF/dados sensiveis nos logs (delta-040).
+- [ ] Consentimento por finalidade para atendimento solicitado, cuidado pastoral, tarefas operacionais e comunicados; a D2B2a integrada cobre apenas persistencia interna, sem caller, e o opt-out global prevalece (US-31/32/33/RNF-06).
+- [ ] Pacote humano e juridico aprovado por finalidade antes de catalogo ou writer; D2B2b1 nega todo grant enquanto ele estiver ausente.
+- [ ] Registro de termo imutavel e prova correlacionada, nao apenas versao + data/hora; re-aceite conforme mudanca aprovada e mascara de CPF/dados sensiveis nos logs (delta-040/052).
 - [ ] Memoria privada excluida de ponta a ponta apos solicitacao via WhatsApp e aprovacao admin, incluindo midia, transcricao, resumo, checkpoint e vetores derivados.
 - [ ] Webhooks (Evolution API, Asaas) com validacao de assinatura.
 - [ ] Idempotencia de mensagens — sem contatos duplicados apos reconexao (RNF-16).

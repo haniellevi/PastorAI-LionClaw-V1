@@ -1,14 +1,15 @@
-"""Inactive internal service for the purpose-consent ledger (D2B2a).
+"""Inactive internal service for the purpose-consent ledger (D2B2a/D2B2b1).
 
 The service has no router, worker, graph, tool, broadcast or webhook caller in
 this slice.  It never commits or rolls back the external transaction; an
 internal SAVEPOINT exists only to classify an idempotency UNIQUE collision.
 Transaction ownership remains with a future, explicitly authorized caller.
+The D2B2b1 boundary rejects every grant before I/O. A later writer may only
+enable grants through a separately reviewed authorization and evidence gate.
 """
 
 from __future__ import annotations
 
-import re
 import uuid
 from collections.abc import Mapping
 
@@ -23,7 +24,7 @@ from app.db.models import (
 )
 from app.db.rls_observability import require_tenant_scope
 from app.domain.purpose_consent import (
-    MAX_PURPOSE_CONSENT_IDEMPOTENCY_KEY_LENGTH,
+    OpaquePurposeConsentIdempotencyKey,
     PURPOSE_CONSENT_PURPOSES,
     PurposeConsentEvent,
     PurposeConsentEventState,
@@ -78,18 +79,16 @@ def _require_uuid(value: object, *, field: str) -> uuid.UUID:
     return value
 
 
-def _require_idempotency_key(value: object) -> str:
-    if type(value) is not str or not value or value != value.strip():
+def _require_idempotency_key(
+    value: object,
+) -> OpaquePurposeConsentIdempotencyKey:
+    if type(value) is not OpaquePurposeConsentIdempotencyKey:
         raise PurposeConsentValidationError(
-            "chave_idempotencia deve ser texto normalizado"
+            "chave_idempotencia deve ser opaca e gerada no servidor"
         )
-    if len(value) > MAX_PURPOSE_CONSENT_IDEMPOTENCY_KEY_LENGTH:
+    if not value._was_server_minted_in_this_process():
         raise PurposeConsentValidationError(
-            "chave_idempotencia excede o limite permitido"
-        )
-    if re.fullmatch(r"[a-z0-9][a-z0-9:._-]{0,127}", value) is None:
-        raise PurposeConsentValidationError(
-            "chave_idempotencia deve usar somente caracteres canônicos"
+            "chave_idempotencia opaca não tem proveniência válida neste processo"
         )
     return value
 
@@ -104,7 +103,12 @@ def _validate_append_contract(
     fonte: object,
     chave_idempotencia: object,
     registrado_por_app_user_id: object,
-) -> tuple[uuid.UUID, uuid.UUID, str, uuid.UUID | None]:
+) -> tuple[
+    uuid.UUID,
+    uuid.UUID,
+    OpaquePurposeConsentIdempotencyKey,
+    uuid.UUID | None,
+]:
     tenant_id = _require_uuid(igreja_id, field="igreja_id")
     person_id = _require_uuid(pessoa_id, field="pessoa_id")
     if type(finalidade) is not PurposeConsentPurpose:
@@ -131,6 +135,10 @@ def _validate_append_contract(
                 "whatsapp_inbound exige registrado_por_app_user_id nulo"
             )
         actor_id = None
+    if estado is PurposeConsentEventState.CONCEDIDO:
+        raise PurposeConsentValidationError(
+            "estado concedido permanece bloqueado até existir writer autorizado"
+        )
     return tenant_id, person_id, idempotency_key, actor_id
 
 
@@ -143,7 +151,7 @@ def _event_matches_intent(
     estado: PurposeConsentEventState,
     versao_termo: TrustedTermVersion,
     fonte: PurposeConsentSource,
-    chave_idempotencia: str,
+    chave_idempotencia: OpaquePurposeConsentIdempotencyKey,
     registrado_por_app_user_id: uuid.UUID | None,
 ) -> bool:
     return (
@@ -153,7 +161,7 @@ def _event_matches_intent(
         and event.estado == estado.value
         and event.versao_termo == versao_termo.value
         and event.fonte == fonte.value
-        and event.chave_idempotencia == chave_idempotencia
+        and event.chave_idempotencia == chave_idempotencia.value
         and event.registrado_por_app_user_id == registrado_por_app_user_id
     )
 
@@ -162,7 +170,7 @@ def _lock_tenant_idempotency_key(
     db: Session,
     *,
     igreja_id: uuid.UUID,
-    chave_idempotencia: str,
+    chave_idempotencia: OpaquePurposeConsentIdempotencyKey,
 ) -> None:
     """Serialize one tenant key before locking any domain row.
 
@@ -173,7 +181,10 @@ def _lock_tenant_idempotency_key(
     Pessoas.
     """
 
-    lock_key = f"purpose-consent-idempotency:{igreja_id}:{chave_idempotencia}"
+    lock_key = (
+        f"purpose-consent-idempotency:{igreja_id}:"
+        f"{chave_idempotencia.value}"
+    )
     db.execute(
         text(
             "select pg_catalog.pg_advisory_xact_lock("
@@ -192,16 +203,17 @@ def append_purpose_consent_event(
     estado: PurposeConsentEventState,
     versao_termo: TrustedTermVersion,
     fonte: PurposeConsentSource,
-    chave_idempotencia: str,
+    chave_idempotencia: OpaquePurposeConsentIdempotencyKey,
     registrado_por_app_user_id: uuid.UUID | None = None,
 ) -> ConsentimentoFinalidadeEvento:
-    """Append one event or replay the identical tenant-scoped intent.
+    """Append one permitted withdrawal or replay its tenant-scoped intent.
 
     The tenant role and GUC are proved first.  A transaction-scoped advisory
     lock serializes the tenant idempotency key before the Pessoa row becomes
     the stream serialization point.  The database trigger assigns sequence
     under its own lock, and unique constraints remain the final race barrier.
     This function flushes to surface those guarantees and never commits.
+    Purpose-specific grants remain blocked by the pre-I/O contract validator.
     """
 
     tenant_id, person_id, idempotency_key, actor_id = _validate_append_contract(
@@ -250,7 +262,8 @@ def append_purpose_consent_event(
     existing = db.execute(
         select(ConsentimentoFinalidadeEvento).where(
             ConsentimentoFinalidadeEvento.igreja_id == tenant_id,
-            ConsentimentoFinalidadeEvento.chave_idempotencia == idempotency_key,
+            ConsentimentoFinalidadeEvento.chave_idempotencia
+            == idempotency_key.value,
         )
     ).scalar_one_or_none()
     if existing is not None:
@@ -278,7 +291,7 @@ def append_purpose_consent_event(
         versao_termo=versao_termo.value,
         fonte=fonte.value,
         registrado_por_app_user_id=actor_id,
-        chave_idempotencia=idempotency_key,
+        chave_idempotencia=idempotency_key.value,
     )
     # ``begin_nested`` flushes any state already pending in the caller before
     # opening the SAVEPOINT.  The new event remains transient until afterward,
@@ -295,7 +308,7 @@ def append_purpose_consent_event(
             select(ConsentimentoFinalidadeEvento).where(
                 ConsentimentoFinalidadeEvento.igreja_id == tenant_id,
                 ConsentimentoFinalidadeEvento.chave_idempotencia
-                == idempotency_key,
+                == idempotency_key.value,
             )
         ).scalar_one_or_none()
         if race_winner is None:
