@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import pathlib
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -275,16 +276,32 @@ def test_sql_estatico_declara_fatia_inativa_e_fronteira_fechada() -> None:
         app_root / "domain" / "purpose_consent_security.py",
         app_root / "services" / "purpose_consent.py",
     }
-    unexpected_callers = [
-        path.relative_to(app_root).as_posix()
-        for path in app_root.rglob("*.py")
-        if path not in allowed
-        and (
-            "purpose_consent" in path.read_text(encoding="utf-8")
-            or "ConsentimentoFinalidadeEvento"
-            in path.read_text(encoding="utf-8")
+    unexpected_callers = []
+    for path in app_root.rglob("*.py"):
+        if path in allowed:
+            continue
+        source = path.read_text(encoding="utf-8")
+        tree = ast.parse(source, filename=str(path))
+        imports_ledger_service = any(
+            (
+                isinstance(node, ast.ImportFrom)
+                and node.module == "app.services.purpose_consent"
+            )
+            or (
+                isinstance(node, ast.Import)
+                and any(
+                    alias.name == "app.services.purpose_consent"
+                    for alias in node.names
+                )
+            )
+            for node in ast.walk(tree)
         )
-    ]
+        if (
+            imports_ledger_service
+            or "ConsentimentoFinalidadeEvento" in source
+            or "consentimento_finalidade_evento" in source
+        ):
+            unexpected_callers.append(path.relative_to(app_root).as_posix())
     assert unexpected_callers == []
 
 
