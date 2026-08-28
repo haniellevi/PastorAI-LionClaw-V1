@@ -1,7 +1,7 @@
 # Wiki do projeto Igreja 12
 
-Snapshot documental desta candidata sobre a base auditada
-`cfeba13c0a9d08288f8c956ee2f35ddc1c0c35b7`. O `bootstrap-ledger` permanece
+Snapshot documental no merge auditado
+`ab7d09f07db96d5c63a2cc32dddf3f910e23bac2`. O `bootstrap-ledger` permanece
 integrado pelo merge `3a5789c784017ab15a43e28c4270d25af8618359`. O preflight PROD histórico
 permanece fixado na baseline auditada
 `15deaf88fd4cab5b4bebdd1435a81c8b33c2b159`; a implementação D2B2b3A veio do
@@ -48,7 +48,7 @@ qualquer expansão do canário.
 | Agente e Evolution | `PARCIAL / GATE OPERACIONAL` | Corrigir memória, conhecimento e qualidade antes de novo canário |
 | Canário ativo | `PASS TÉCNICO / QUALIDADE INSUFICIENTE` | Avaliação conversacional humana após a nova fundação |
 | LangGraph | `IMPLEMENTADO STATELESS / D2B1 INTEGRADA` | Persistência, memória e subgrafos permanecem posteriores |
-| Consentimento | `PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / PACOTE E VERIFICADOR CANDIDATOS SOMENTE OFFLINE / DECISÕES HUMANAS PENDENTES / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | Concluir testes e revisões da candidata e revisar sua integração; aprovações, catálogo, writers, Supabase e D2C permanecem bloqueados |
+| Consentimento | `PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / DECISÕES HUMANAS PENDENTES / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | Capturar inventários sanitizados em missão separada, autorizada e somente leitura; aprovações, catálogo, writers, Supabase e D2C permanecem bloqueados |
 | Conhecimento por igreja | `AUSENTE` | Ingestão aprovada, ACL, busca e ferramentas de dados vivos |
 | Relatório por WhatsApp | `PARCIAL` | Confirmar e gravar no relatório canônico |
 | Central de Células | `PARCIAL FORTE` | Operação e notificações principais pelo WhatsApp |
@@ -357,8 +357,9 @@ Brevo ou broadcast.
   `M06_MIGRATION_DATABASE_URL` e `public.schema_migrations` continuam ausentes
   em PROD, e o `FORCE RLS` da tabela futura não foi comprovado. O
   `bootstrap-ledger` foi integrado e comprovado somente offline, sem aplicação;
-  o pacote e o verificador de reconciliação são candidatos somente offline,
-  com decisões humanas pendentes e sem autorização operacional;
+  o pacote e o verificador de reconciliação estão integrados e comprovados
+  offline, com decisões humanas pendentes, sem aplicação e sem autorização
+  operacional;
 - completar depois o pacote humano e jurídico por finalidade: controlador e
   operadores reais, texto e versão, hipótese jurídica, prova, menores,
   retenção, eliminação, transferência internacional, opt-out, direitos,
@@ -422,23 +423,37 @@ compartilhada, restart ou alteração de credencial, flag, runtime, agente ou
 canário. O preflight PROD e o deployment automático frontend da PR #321
 permanecem evidências históricas separadas.
 
-Sobre a base auditada `cfeba13c0a9d08288f8c956ee2f35ddc1c0c35b7`, esta
-candidata adiciona somente offline um pacote deny-state versionado e um
-verificador stdlib separado do runner, conforme
+O pacote deny-state versionado e o verificador stdlib separado do runner,
+desenvolvidos e comprovados offline sobre a base auditada
+`cfeba13c0a9d08288f8c956ee2f35ddc1c0c35b7`, foram integrados pela PR #325,
+HEAD `d9595c3958fec98a875d15de2b6647d6b1de435e`, no merge
+`ab7d09f07db96d5c63a2cc32dddf3f910e23bac2` em
+`2026-08-28T20:18:08Z`, conforme
 [`2026-08-28-migration-history-reconciliation-contract.md`](decisions/2026-08-28-migration-history-reconciliation-contract.md).
-O estado é `PACOTE E VERIFICADOR CANDIDATOS / SOMENTE OFFLINE / DECISÕES
-HUMANAS PENDENTES / NÃO APLICADO`. O verificador não acessa banco, rede,
+O estado é `INTEGRADO / COMPROVADO OFFLINE / DECISÕES HUMANAS PENDENTES / NÃO
+APLICADO`. A integração não acessou DEV ou PROD, não materializou inventário de ambiente ou
+decisão humana e não reconciliou nenhum ledger. O verificador não acessa banco, rede,
 ambiente ou variáveis de ambiente, não executa SQL, DML ou escrita e não
 infere migration aplicada. Os ledgers nativo e público permanecem independentes
 e todo sucesso estrutural conserva `OPERATIONAL_AUTHORIZATION=BLOCKED`.
 
-A candidata passou `98/98` testes do verificador e `26/26` testes documentais.
-O runner preservado passou `42/42` testes offline; `45` integrações foram
-puladas por ausência deliberada de banco descartável.
+Os workflows da PR concluíram com `SUCCESS`: Backend `33207468055`, E2E
+`33207468044`, Frontend `33207468014`, RLS `33207468132` e Tooling
+`33207468082`. Os pós-merge também concluíram com `SUCCESS`: Backend
+`33207645381`, E2E `33207645348`, Frontend `33207645362`, RLS `33207645399` e
+Tooling `33207645340`. A Vercel registrou o Preview automático frontend
+`6147914118`, com `SUCCESS`, em `2026-08-28T20:16:00Z` no HEAD, e o Production
+automático frontend `6147952424`, com `SUCCESS`, em `2026-08-28T20:18:55Z` no
+merge. Essas metadatas provam somente o frontend, sem provar backend, banco ou
+runtime; não houve deploy manual ou do backend, migration, bootstrap,
+hardening, restart, flag ou runtime nesta missão.
 
-Revisar as evidências focais e os pareceres independentes desta candidata e,
-se todos permanecerem verdes, integrar a PR. Esse gate é exclusivamente
-offline e não autoriza ambiente, comando do runner,
-`bootstrap-ledger`, `harden-ledger`, `status` ou `apply`. Painel do tenant,
-aprovações, catálogo, writer, migration D2B2b3A, flag, D2C, credencial, wiring,
-deploy, restart, runtime, ativação e canário continuam bloqueados.
+A prova local preservada é `98/98` testes do verificador, `26/26` testes
+documentais e `42/42` testes offline do runner: agregado de
+`166 passed/45 skipped`. O template deny-state terminou bloqueado com exit `8`.
+
+Preparar uma missão separada, explicitamente autorizada e somente leitura para
+capturar inventários sanitizados de DEV e PROD e materializar um pacote por
+ambiente. O gate não autoriza DML, comando do runner, `bootstrap-ledger`,
+`harden-ledger`, `status`, `apply`, deploy, flag ou runtime. Universidade da
+Vida e Capacitação Destino permanecem fora desta missão.

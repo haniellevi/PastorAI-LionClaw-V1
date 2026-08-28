@@ -125,25 +125,27 @@ automáticos do frontend na Vercel. Essa metadata não prova backend, banco ou
 runtime. Não houve deploy manual ou do backend, acesso aos bancos DEV ou PROD,
 bootstrap, migration, restart ou mudança de flag.
 
-Sobre a base auditada `cfeba13c0a9d08288f8c956ee2f35ddc1c0c35b7`, existe
-agora uma candidata somente offline de pacote deny-state versionado e
-verificador stdlib separado do runner. O estado é `PACOTE E VERIFICADOR
-CANDIDATOS / SOMENTE OFFLINE / DECISÕES HUMANAS PENDENTES / NÃO APLICADO` e o
-contrato está em
+O pacote deny-state versionado e o verificador stdlib separado do runner, comprovados
+offline sobre a base `cfeba13c0a9d08288f8c956ee2f35ddc1c0c35b7`, foram
+integrados pela PR #325, HEAD `d9595c3958fec98a875d15de2b6647d6b1de435e`, no
+merge `ab7d09f07db96d5c63a2cc32dddf3f910e23bac2` em
+`2026-08-28T20:18:08Z`. O estado é `INTEGRADO / COMPROVADO OFFLINE / DECISÕES
+HUMANAS PENDENTES / NÃO APLICADO`, e o contrato está em
 [`2026-08-28-migration-history-reconciliation-contract.md`](../docs/decisions/2026-08-28-migration-history-reconciliation-contract.md).
 O verificador não usa banco, rede, ambiente, variáveis de ambiente, SQL, DML ou
 escrita, não infere migration aplicada e todo sucesso estrutural conserva
 `OPERATIONAL_AUTHORIZATION=BLOCKED`.
 
-A candidata passou `98/98` testes do verificador e `26/26` testes documentais.
-O runner preservado passou `42/42` testes offline; `45` integrações foram
-puladas por ausência deliberada de banco descartável.
+A prova local preservada é `98/98` testes do verificador, `26/26` testes
+documentais e `42/42` testes offline do runner: agregado de
+`166 passed/45 skipped`. O template deny-state terminou bloqueado com exit `8`.
 
-O próximo gate é revisar as evidências focais e os pareceres independentes e,
-se todos permanecerem verdes, integrar a PR. Até um gate nominal posterior,
-não execute `bootstrap-ledger`,
-`harden-ledger`, `status`, `apply`, SQL Editor, `apply_migration`, `db push` ou
-MCP para preencher ou reaplicar histórico em staging ou ambiente compartilhado.
+O próximo gate é preparar uma missão separada, explicitamente autorizada e
+somente leitura para capturar inventários sanitizados de DEV e PROD e
+materializar um pacote por ambiente. Não execute DML, comando do runner,
+`bootstrap-ledger`, `harden-ledger`, `status`, `apply`, SQL Editor,
+`apply_migration`, `db push`, MCP, deploy, flag ou runtime. UV e CD permanecem
+fora.
 
 ---
 

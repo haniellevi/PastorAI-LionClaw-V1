@@ -801,32 +801,43 @@ canário. O preflight PROD da seção anterior e o deployment automático fronte
 da PR #321 permanecem evidências históricas separadas e não foram revalidados
 nesta missão.
 
-### MIGRATION-HISTORY-RECONCILIATION, candidata somente offline
+### MIGRATION-HISTORY-RECONCILIATION, integrada e comprovada offline
 
-Sobre a base auditada `cfeba13c0a9d08288f8c956ee2f35ddc1c0c35b7`, esta
-candidata adiciona um pacote deny-state versionado e um verificador stdlib
-separado do runner, conforme
+O pacote deny-state versionado e o verificador stdlib separado do runner,
+desenvolvidos e comprovados offline sobre a base auditada
+`cfeba13c0a9d08288f8c956ee2f35ddc1c0c35b7`, foram integrados pela PR #325,
+HEAD `d9595c3958fec98a875d15de2b6647d6b1de435e`, no merge
+`ab7d09f07db96d5c63a2cc32dddf3f910e23bac2` em
+`2026-08-28T20:18:08Z`, conforme
 [`2026-08-28-migration-history-reconciliation-contract.md`](../decisions/2026-08-28-migration-history-reconciliation-contract.md).
-O estado é `PACOTE E VERIFICADOR CANDIDATOS / SOMENTE OFFLINE / DECISÕES
-HUMANAS PENDENTES / NÃO APLICADO`. Nenhuma decisão humana está aprovada. O
+O estado é `INTEGRADO / COMPROVADO OFFLINE / DECISÕES HUMANAS PENDENTES / NÃO
+APLICADO`. Nenhuma decisão humana está aprovada. A integração não acessou DEV
+ou PROD, não materializou inventário de ambiente e não reconciliou nenhum ledger. O
 verificador não acessa banco, rede, ambiente ou variáveis de ambiente, não
 executa SQL, DML ou escrita e não infere migration aplicada. Os ledgers nativo
 e público permanecem independentes e todo sucesso estrutural conserva
-`OPERATIONAL_AUTHORIZATION=BLOCKED`. Esta candidata não acessa DEV ou PROD e
-não executa deploy, migration, bootstrap, hardening, restart, credencial, flag,
-runtime, agente ou canário.
+`OPERATIONAL_AUTHORIZATION=BLOCKED`.
 
-A candidata passou `98/98` testes do verificador e `26/26` testes documentais.
-O runner preservado passou `42/42` testes offline; `45` integrações foram
-puladas por ausência deliberada de banco descartável.
+Os workflows da PR concluíram com `SUCCESS`: Backend `33207468055`, E2E
+`33207468044`, Frontend `33207468014`, RLS `33207468132` e Tooling
+`33207468082`. Os pós-merge também concluíram com `SUCCESS`: Backend
+`33207645381`, E2E `33207645348`, Frontend `33207645362`, RLS `33207645399` e
+Tooling `33207645340`. A Vercel registrou o Preview automático frontend
+`6147914118`, com `SUCCESS`, em `2026-08-28T20:16:00Z` no HEAD, e o Production
+automático frontend `6147952424`, com `SUCCESS`, em `2026-08-28T20:18:55Z` no
+merge. Essas metadatas provam somente o frontend, sem provar backend, banco ou
+runtime. Não houve deploy manual ou do backend, migration, bootstrap,
+hardening, restart, credencial, flag, runtime, agente ou canário.
 
-**Próximo gate único:** revisar as evidências focais e os pareceres
-independentes desta candidata e, se todos permanecerem verdes, integrar a PR.
-Esse gate é exclusivamente offline e não autoriza ambiente,
-comando do runner, `bootstrap-ledger`, `harden-ledger`, `status` ou `apply`.
-Painel do tenant, aprovações, catálogo, writer, migration D2B2b3A, flag, D2C,
-credencial, wiring, deploy, restart, runtime, ativação e canário continuam
-bloqueados.
+A prova local preservada é `98/98` testes do verificador, `26/26` testes
+documentais e `42/42` testes offline do runner: agregado de
+`166 passed/45 skipped`. O template deny-state terminou bloqueado com exit `8`.
+
+**Próximo gate único:** preparar uma missão separada, explicitamente autorizada
+e somente leitura para capturar inventários sanitizados de DEV e PROD e
+materializar um pacote por ambiente. O gate não autoriza DML, comando do runner,
+`bootstrap-ledger`, `harden-ledger`, `status`, `apply`, deploy, flag ou runtime.
+Universidade da Vida e Capacitação Destino permanecem fora desta missão.
 
 ## Paralelismo seguro
 

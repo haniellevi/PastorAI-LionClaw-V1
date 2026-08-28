@@ -137,24 +137,27 @@ runtime ou aplicação do bootstrap.
 `bootstrap-ledger` cria somente um ledger público vazio no contrato owner-only;
 ele não reconstrói histórico e não libera `status` ou `apply`.
 
-Sobre a base auditada `cfeba13c0a9d08288f8c956ee2f35ddc1c0c35b7`, esta
-candidata adiciona somente offline um pacote deny-state versionado e um
-verificador stdlib separado do runner, conforme
+O pacote deny-state e o verificador stdlib separado do runner, comprovados
+offline sobre a base `cfeba13c0a9d08288f8c956ee2f35ddc1c0c35b7`, foram
+integrados pela PR #325, HEAD `d9595c3958fec98a875d15de2b6647d6b1de435e`, no
+merge `ab7d09f07db96d5c63a2cc32dddf3f910e23bac2` em
+`2026-08-28T20:18:08Z`, conforme
 [`2026-08-28-migration-history-reconciliation-contract.md`](../decisions/2026-08-28-migration-history-reconciliation-contract.md).
-O estado é `PACOTE E VERIFICADOR CANDIDATOS / SOMENTE OFFLINE / DECISÕES
-HUMANAS PENDENTES / NÃO APLICADO`. O verificador não acessa banco, rede,
+O estado é `INTEGRADO / COMPROVADO OFFLINE / DECISÕES HUMANAS PENDENTES / NÃO
+APLICADO`. O verificador não acessa banco, rede,
 ambiente ou variáveis de ambiente, não executa SQL, DML ou escrita e todo
 sucesso estrutural conserva `OPERATIONAL_AUTHORIZATION=BLOCKED`.
 
-A candidata passou `98/98` testes do verificador e `26/26` testes documentais.
-O runner preservado passou `42/42` testes offline; `45` integrações foram
-puladas por ausência deliberada de banco descartável.
+A prova local preservada é `98/98` testes do verificador, `26/26` testes
+documentais e `42/42` testes offline do runner: agregado de
+`166 passed/45 skipped`. O template deny-state terminou bloqueado com exit `8`.
 
-O próximo gate é revisar as evidências focais e os pareceres independentes e,
-se todos permanecerem verdes, integrar a PR. Até novos gates nominais, ficam
-proibidos em PROD `bootstrap-ledger`,
-`harden-ledger`, `status`, `apply`, SQL Editor, `apply_migration`, `db push` ou
-MCP para reconciliar ou reaplicar histórico.
+O próximo gate é preparar uma missão separada, explicitamente autorizada e
+somente leitura para capturar inventários sanitizados de DEV e PROD e
+materializar um pacote por ambiente. Permanecem proibidos DML, runner,
+`bootstrap-ledger`, `harden-ledger`, `status`, `apply`, SQL Editor,
+`apply_migration`, `db push`, MCP, deploy, flag e runtime. UV e CD permanecem
+fora.
 
 Antes de aplicar:
 

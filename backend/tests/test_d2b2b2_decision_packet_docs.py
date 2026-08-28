@@ -1053,7 +1053,7 @@ def test_d2b2b2_template_has_no_runtime_or_migration_consumer() -> None:
                 assert token not in content, f"runtime consumer in {path}"
 
 
-def test_canonical_docs_record_offline_reconciliation_candidate_and_one_gate() -> None:
+def test_canonical_docs_record_integrated_offline_reconciliation_and_one_gate() -> None:
     canonical_indexes = {
         REPO_ROOT / "docs" / "ai" / "AI-BOOTSTRAP.md",
         REPO_ROOT / "docs" / "ai" / "PRD-COVERAGE.md",
@@ -1075,6 +1075,16 @@ def test_canonical_docs_record_offline_reconciliation_candidate_and_one_gate() -
         / "docs"
         / "decisions"
         / "2026-08-28-d2b2b3-master-governance-drafts.md",
+    }
+    postmerge_records = gate_contracts | {
+        REPO_ROOT / "backend" / "migrations" / "README.md",
+        REPO_ROOT / "deploy" / "STAGING.md",
+        REPO_ROOT / "docs" / "ops" / "PRODUCTION-RUNBOOK.md",
+        REPO_ROOT
+        / "docs"
+        / "security"
+        / "2026-08-20-v1-ledger-hardening-gate.md",
+        RECONCILIATION_CONTRACT_PATH,
     }
 
     for path in canonical_indexes:
@@ -1098,6 +1108,14 @@ def test_canonical_docs_record_offline_reconciliation_candidate_and_one_gate() -
         assert "2026-08-28T15:22:43Z" in content
         assert "6143819601" in content
         assert "2026-08-28T15:25:43Z" in content
+        assert "#325" in content
+        assert "d9595c3958fec98a875d15de2b6647d6b1de435e" in content
+        assert "ab7d09f07db96d5c63a2cc32dddf3f910e23bac2" in content
+        assert "2026-08-28t20:18:08z" in normalized
+        assert "6147914118" in content
+        assert "2026-08-28t20:16:00z" in normalized
+        assert "6147952424" in content
+        assert "2026-08-28t20:18:55z" in normalized
         assert "preflight prod somente leitura" in normalized
         assert "`m06_migration_database_url`" in normalized
         assert "`database_url`" in normalized
@@ -1133,17 +1151,18 @@ def test_canonical_docs_record_offline_reconciliation_candidate_and_one_gate() -
         assert "sem provar backend, banco ou runtime" in normalized
         assert "nao houve deploy manual ou do backend" in normalized
         assert "acesso aos bancos dev ou prod" in normalized
-        assert "somente offline" in normalized
+        assert "comprovado offline" in normalized
         assert "nao aplica" in normalized
         assert "registra migration" in normalized
         assert "nao" in normalized and "supabase_migrations" in normalized
         assert "2026-08-28-migration-history-reconciliation-contract.md" in content
         assert "pacote deny-state versionado" in normalized
         assert "verificador stdlib separado do runner" in normalized
-        assert "pacote e verificador candidatos" in normalized
-        assert "somente offline" in normalized
+        assert "integrado / comprovado offline" in normalized
         assert "decisoes humanas pendentes" in normalized
         assert "nao aplicado" in normalized
+        assert "pacote e verificador candidatos" not in normalized
+        assert "integrar a pr" not in normalized
         assert "nao acessa banco, rede" in normalized
         assert "variaveis de ambiente" in normalized
         assert "nao executa sql, dml ou escrita" in normalized
@@ -1153,24 +1172,62 @@ def test_canonical_docs_record_offline_reconciliation_candidate_and_one_gate() -
         assert "98/98" in normalized
         assert "26/26" in normalized
         assert "42/42" in normalized
-        assert "45" in normalized
-        assert "revisar as evidencias focais e os pareceres independentes" in normalized
-        assert "integrar a pr" in normalized
+        assert "166 passed/45 skipped" in normalized
+        assert "exit `8`" in normalized
+        assert "preparar uma missao separada" in normalized
+        assert "explicitamente autorizada" in normalized
+        assert "somente leitura" in normalized
+        assert "inventarios sanitizados de dev e prod" in normalized
+        assert "materializar um pacote por ambiente" in normalized
         assert "concluir os testes focais" not in normalized
         assert "`status` e `apply`" in normalized
         assert "bloquead" in normalized
         assert "prefixo integro do catalogo" in normalized
         assert "no maximo uma migration pendente" in normalized
         for blocker in (
-            "painel do tenant",
-            "aprovacoes",
-            "catalogo",
-            "writer",
-            "migration d2b2b3a",
+            "dml",
+            "comando do runner",
+            "`bootstrap-ledger`",
+            "`harden-ledger`",
+            "`status`",
+            "`apply`",
+            "deploy",
             "flag",
-            "d2c",
+            "runtime",
+            "universidade da vida",
+            "capacitacao destino",
         ):
             assert blocker in normalized
+
+    stale_terms = {
+        "candidate": r"candidat",
+        "offline": r"offline",
+        "verifier": r"verificador",
+        "package": r"pacote",
+    }
+    stale_candidate_status = re.compile(
+        stale_terms["package"]
+        + r".{0,120}"
+        + stale_terms["verifier"]
+        + r".{0,120}"
+        + stale_terms["candidate"]
+        + r".{0,80}"
+        + stale_terms["offline"]
+    )
+
+    for path in postmerge_records:
+        content = path.read_text(encoding="utf-8")
+        normalized = _normalized_prose(content)
+        assert "integrado / comprovado offline" in normalized
+        assert "decisoes humanas pendentes" in normalized
+        assert "nao aplicado" in normalized
+        assert "98/98" in normalized
+        assert "26/26" in normalized
+        assert "42/42" in normalized
+        assert "166 passed/45 skipped" in normalized
+        assert "exit `8`" in normalized
+        assert "pacote e verificador candidatos" not in normalized
+        assert stale_candidate_status.search(normalized) is None
 
     for path in gate_contracts:
         normalized = _normalized_prose(path.read_text(encoding="utf-8"))
@@ -1181,13 +1238,16 @@ def test_canonical_docs_record_offline_reconciliation_candidate_and_one_gate() -
     )
     reconciliation_normalized = _normalized_prose(reconciliation_contract)
     assert "cfeba13c0a9d08288f8c956ee2f35ddc1c0c35b7" in reconciliation_contract
-    assert "pacote e verificador candidatos" in reconciliation_normalized
+    assert "integrado / comprovado offline" in reconciliation_normalized
     assert "decisoes humanas pendentes" in reconciliation_normalized
     assert "nao aplicado" in reconciliation_normalized
     assert "pacote deny-state versionado" in reconciliation_normalized
     assert "biblioteca padrao" in reconciliation_normalized
     assert "separado de `backend/scripts/apply_migrations.py`" in reconciliation_normalized
     assert "operational_authorization=blocked" in reconciliation_normalized
+    assert "166 passed/45 skipped" in reconciliation_normalized
+    assert "exit `8`" in reconciliation_normalized
+    assert "pacote e verificador candidatos" not in reconciliation_normalized
     assert reconciliation_normalized.count("proximo gate unico") == 1
 
     mission_register = (
@@ -1204,8 +1264,21 @@ def test_canonical_docs_record_offline_reconciliation_candidate_and_one_gate() -
         "33185027132",
         "33185027091",
         "33185027090",
+        "33207468055",
+        "33207468044",
+        "33207468014",
+        "33207468132",
+        "33207468082",
+        "33207645381",
+        "33207645348",
+        "33207645362",
+        "33207645399",
+        "33207645340",
     ):
         assert workflow_id in mission_register
+
+    for deployment_id in ("6147914118", "6147952424"):
+        assert deployment_id in mission_register
 
     assert ADR_PATH.is_file()
     assert "TEMPLATE_ONLY / NOT_APPROVED" in ADR_PATH.read_text(

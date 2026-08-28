@@ -248,23 +248,34 @@ compartilhada, restart ou alteracao de credencial, flag, runtime, agente ou
 canario. O preflight PROD e o deployment automatico frontend da PR #321
 continuam como evidencia historica separada.
 
-Sobre a base auditada `cfeba13c0a9d08288f8c956ee2f35ddc1c0c35b7`, esta
-candidata adiciona somente offline um pacote deny-state versionado e um
-verificador stdlib separado do runner, conforme
-`2026-08-28-migration-history-reconciliation-contract.md`. O estado e `PACOTE
-E VERIFICADOR CANDIDATOS / SOMENTE OFFLINE / DECISOES HUMANAS PENDENTES / NAO
-APLICADO`. Nenhuma decisao humana esta aprovada. O verificador nao acessa banco,
+O pacote deny-state versionado e o verificador stdlib separado do runner,
+desenvolvidos e comprovados offline sobre a base auditada
+`cfeba13c0a9d08288f8c956ee2f35ddc1c0c35b7`, foram integrados pela PR #325,
+HEAD `d9595c3958fec98a875d15de2b6647d6b1de435e`, no merge
+`ab7d09f07db96d5c63a2cc32dddf3f910e23bac2` em
+`2026-08-28T20:18:08Z`, conforme
+`2026-08-28-migration-history-reconciliation-contract.md`. O estado e
+`INTEGRADO / COMPROVADO OFFLINE / DECISOES HUMANAS PENDENTES / NAO APLICADO`.
+Nenhuma decisao humana esta aprovada. A integracao nao acessou DEV ou PROD, nao
+materializou inventario de ambiente e nao reconciliou nenhum ledger. O verificador nao acessa banco,
 rede, ambiente ou variaveis de ambiente, nao executa SQL, DML ou escrita e nao
 infere migration aplicada. Os ledgers nativo e publico permanecem independentes
 e todo sucesso estrutural conserva `OPERATIONAL_AUTHORIZATION=BLOCKED`.
 
-A candidata passou `98/98` testes do verificador e `26/26` testes documentais.
-O runner preservado passou `42/42` testes offline; `45` integracoes foram
-puladas por ausencia deliberada de banco descartavel.
+Os cinco workflows da PR e os cinco pos-merge concluiram com `SUCCESS`. A
+Vercel registrou o Preview automatico frontend `6147914118`, com `SUCCESS`, em
+`2026-08-28T20:16:00Z` no HEAD, e o Production automatico frontend
+`6147952424`, com `SUCCESS`, em `2026-08-28T20:18:55Z` no merge. Essas metadatas
+provam somente o frontend, sem provar backend, banco ou runtime; nao houve
+deploy manual ou do backend, migration, bootstrap, hardening, restart, flag ou
+runtime nesta missao.
 
-Revisar as evidencias focais e os pareceres independentes desta candidata e,
-se todos permanecerem verdes, integrar a PR. Esse gate e exclusivamente
-offline e nao autoriza ambiente, comando do runner,
-`bootstrap-ledger`, `harden-ledger`, `status` ou `apply`. Painel do tenant,
-aprovacoes, catalogo, writer, migration D2B2b3A, flag, D2C, credencial, wiring,
-deploy, restart, runtime, ativacao e canario continuam bloqueados.
+A prova local preservada e `98/98` testes do verificador, `26/26` testes
+documentais e `42/42` testes offline do runner: agregado de
+`166 passed/45 skipped`. O template deny-state terminou bloqueado com exit `8`.
+
+Preparar uma missao separada, explicitamente autorizada e somente leitura para
+capturar inventarios sanitizados de DEV e PROD e materializar um pacote por
+ambiente. O gate nao autoriza DML, comando do runner, `bootstrap-ledger`,
+`harden-ledger`, `status`, `apply`, deploy, flag ou runtime. Universidade da
+Vida e Capacitacao Destino permanecem fora desta missao.
