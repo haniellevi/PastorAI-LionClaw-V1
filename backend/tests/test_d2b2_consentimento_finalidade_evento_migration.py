@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.db.tenant_session import mark_tenant_scoped
 from app.domain.purpose_consent import (
+    OpaquePurposeConsentIdempotencyKey,
     PurposeConsentEventState,
     PurposeConsentPurpose,
     PurposeConsentSource,
@@ -271,6 +272,7 @@ def test_sql_estatico_declara_fatia_inativa_e_fronteira_fechada() -> None:
     allowed = {
         app_root / "db" / "models.py",
         app_root / "domain" / "purpose_consent.py",
+        app_root / "domain" / "purpose_consent_security.py",
         app_root / "services" / "purpose_consent.py",
     }
     unexpected_callers = [
@@ -762,26 +764,27 @@ def test_orm_e_servico_respeitam_acl_fetched_value_replay_e_transacao_externa(
             actor_role="worker",
             source="d2b2a_pg17_contract",
         )
+        replay_key = OpaquePurposeConsentIdempotencyKey.generate()
 
         event = append_purpose_consent_event(
             session,
             igreja_id=tenant_id,
             pessoa_id=person_id,
             finalidade=PurposeConsentPurpose.ATENDIMENTO_SOLICITADO,
-            estado=PurposeConsentEventState.CONCEDIDO,
+            estado=PurposeConsentEventState.RETIRADO,
             versao_termo=TrustedTermVersion("v1"),
             fonte=PurposeConsentSource.WHATSAPP_INBOUND,
-            chave_idempotencia="service:replay:1",
+            chave_idempotencia=replay_key,
         )
         replay = append_purpose_consent_event(
             session,
             igreja_id=tenant_id,
             pessoa_id=person_id,
             finalidade=PurposeConsentPurpose.ATENDIMENTO_SOLICITADO,
-            estado=PurposeConsentEventState.CONCEDIDO,
+            estado=PurposeConsentEventState.RETIRADO,
             versao_termo=TrustedTermVersion("v1"),
             fonte=PurposeConsentSource.WHATSAPP_INBOUND,
-            chave_idempotencia="service:replay:1",
+            chave_idempotencia=replay_key,
         )
 
         assert event.id is not None
@@ -795,14 +798,14 @@ def test_orm_e_servico_respeitam_acl_fetched_value_replay_e_transacao_externa(
         with d2b2_engine.connect() as observer:
             assert observer.exec_driver_sql(
                 f"select count(*) from {_TABLE} where chave_idempotencia=%s",
-                ("service:replay:1",),
+                (replay_key.value,),
             ).scalar_one() == 0
 
         session.commit()
         with d2b2_engine.connect() as observer:
             assert observer.exec_driver_sql(
                 f"select count(*) from {_TABLE} where chave_idempotencia=%s",
-                ("service:replay:1",),
+                (replay_key.value,),
             ).scalar_one() == 1
     finally:
         session.close()
@@ -830,6 +833,8 @@ def test_servico_serializa_replay_concorrente_e_recupera_savepoint_real(
     tenant_id = uuid.UUID(IGREJA_A)
     person_id = uuid.UUID(PESSOA_A)
     replay_barrier = Barrier(2)
+    concurrent_replay_key = OpaquePurposeConsentIdempotencyKey.generate()
+    savepoint_collision_key = OpaquePurposeConsentIdempotencyKey.generate()
 
     def append_same_intent() -> str:
         session = Session(scoped_engine, expire_on_commit=False)
@@ -847,10 +852,10 @@ def test_servico_serializa_replay_concorrente_e_recupera_savepoint_real(
                 igreja_id=tenant_id,
                 pessoa_id=person_id,
                 finalidade=PurposeConsentPurpose.CUIDADO_PASTORAL,
-                estado=PurposeConsentEventState.CONCEDIDO,
+                estado=PurposeConsentEventState.RETIRADO,
                 versao_termo=TrustedTermVersion("v1"),
                 fonte=PurposeConsentSource.WHATSAPP_INBOUND,
-                chave_idempotencia="service:concurrent-replay",
+                chave_idempotencia=concurrent_replay_key,
             )
             event_id = str(event.id)
             session.commit()
@@ -865,7 +870,7 @@ def test_servico_serializa_replay_concorrente_e_recupera_savepoint_real(
         with d2b2_engine.connect() as observer:
             assert observer.exec_driver_sql(
                 f"select count(*) from {_TABLE} where chave_idempotencia=%s",
-                ("service:concurrent-replay",),
+                (concurrent_replay_key.value,),
             ).scalar_one() == 1
 
         flush_ready = Event()
@@ -903,10 +908,10 @@ def test_servico_serializa_replay_concorrente_e_recupera_savepoint_real(
                         igreja_id=tenant_id,
                         pessoa_id=uuid.UUID(PESSOA_A2),
                         finalidade=PurposeConsentPurpose.TAREFAS_OPERACIONAIS,
-                        estado=PurposeConsentEventState.CONCEDIDO,
+                        estado=PurposeConsentEventState.RETIRADO,
                         versao_termo=TrustedTermVersion("v1"),
                         fonte=PurposeConsentSource.WHATSAPP_INBOUND,
-                        chave_idempotencia="service:savepoint-collision",
+                        chave_idempotencia=savepoint_collision_key,
                     )
                 assert isinstance(caught.value.__cause__, IntegrityError)
                 session.rollback()
@@ -926,7 +931,7 @@ def test_servico_serializa_replay_concorrente_e_recupera_savepoint_real(
                         igreja_id=IGREJA_A,
                         pessoa_id=PESSOA_A,
                         finalidade="tarefas_operacionais",
-                        chave="service:savepoint-collision",
+                        chave=savepoint_collision_key.value,
                     )
             finally:
                 resume_flush.set()
@@ -938,7 +943,7 @@ def test_servico_serializa_replay_concorrente_e_recupera_savepoint_real(
         with d2b2_engine.connect() as observer:
             rows = observer.exec_driver_sql(
                 f"select pessoa_id::text from {_TABLE} where chave_idempotencia=%s",
-                ("service:savepoint-collision",),
+                (savepoint_collision_key.value,),
             ).scalars().all()
             assert rows == [PESSOA_A]
     finally:

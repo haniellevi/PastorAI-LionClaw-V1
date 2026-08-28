@@ -1,7 +1,7 @@
 # PastorAI / Igreja 12: registro central de missões pós-V1
 
-Atualizado em 2026-08-28 (America/Sao_Paulo) com a candidata inativa D2B2a
-sobre a baseline reconciliada. A V1 permanece `V1_ENCERRADA`, mas a visão
+Atualizado em 2026-08-28 (America/Sao_Paulo) com a D2B2a integrada e inativa e
+a fronteira D2B2b1 candidata. A V1 permanece `V1_ENCERRADA`, mas a visão
 integral WhatsApp-first ainda não está concluída. Este documento não altera a tag
 `v1.0.0`, não autoriza novo canário, rollout amplo ou abertura de gates de
 produção.
@@ -15,8 +15,10 @@ produção.
 - frontend Vercel `pastorai-frontend-prod`: deployment
   `dpl_Dycx4epdibk5xtW3svVerJT2cH7K`, `READY`, target `production`, SHA
   `cba0fdf9c6eb815e15fa5a1502499c5b0d332732`;
-- Supabase PROD: `pffafnchtxbimpwyaczq`, estado `ACTIVE_HEALTHY`;
-- Clerk: instância PROD confirmada por prefixos `sk_live_` e `pk_live_`, issuer
+- Supabase PROD: `pffafnchtxbimpwyaczq`, último estado preservado em evidência
+  versionada anterior `ACTIVE_HEALTHY`, não revalidado nesta atualização;
+- Clerk: instância PROD preservada em evidência versionada anterior por
+  prefixos `sk_live_` e `pk_live_`, não revalidada nesta atualização, issuer
   `https://clerk.igreja12.com.br` e JWKS
   `https://clerk.igreja12.com.br/.well-known/jwks.json`;
 - ao final do canário, o operador confirmou `AgentConfig.ativo=false` e as
@@ -25,7 +27,7 @@ produção.
   `BROADCAST_ASYNC_ENABLED=false`. Este é um relato operacional, não uma
   leitura atual de produção feita por esta atualização documental;
 - fonte de verdade do código: `origin/main` em
-  `3d5c1099734f5f7da28fc84c6d6bf42f7b57a876`. Merge em `main` não comprova
+  `bce5a9a434077e488cea8baae3e9dd7c7c4ba0f1`. Merge em `main` não comprova
   deploy, por isso o estado versionado e o estado operacional são registrados
   separadamente.
 
@@ -549,10 +551,11 @@ A PR #316 integrou a reconciliação documental pós-merge da D2B1 no
 `origin/main` `3d5c1099734f5f7da28fc84c6d6bf42f7b57a876`. Essa integração
 não mudou banco, runtime ou ambiente operacional.
 
-### D2B2a, candidata inativa do ledger de consentimento por finalidade (2026-08-28)
+### D2B2a, ledger integrado e inativo de consentimento por finalidade (2026-08-28)
 
-Sobre a baseline
-`3d5c1099734f5f7da28fc84c6d6bf42f7b57a876`, a candidata D2B2a adiciona
+A PR #317 integrou a D2B2a no `origin/main`. O HEAD da implementação foi
+`8ba5c988e9169703c923b1f1a3e47d1c427531e1` e o merge foi
+`bce5a9a434077e488cea8baae3e9dd7c7c4ba0f1`. A fatia adiciona
 migration, ORM, tipos de domínio e serviço interno sem caller para
 `public.consentimento_finalidade_evento`.
 
@@ -575,32 +578,71 @@ Não existe backfill: `consent_records` e `pessoas.consentimento` permanecem
 legados e não concedem por inferência as novas finalidades. O opt-out global
 continua prevalecendo. Termo desatualizado exige novo aceite.
 
-A candidata não expõe API, router ou tela e não conecta webhook, WhatsApp,
+A fundação não expõe API, router ou tela e não conecta webhook, WhatsApp,
 painel, worker, LangGraph, tool, broadcast ou outro caller. Ela não foi aplicada
 em Supabase DEV ou PROD, não fez deploy, não ativou o agente e não executou
 canário. Universidade da Vida e Capacitação Destino permanecem fora.
 
-Textos e base jurídica por finalidade, retenção e RBAC dos futuros writers
-continuam abertos. Esses contratos bloqueiam qualquer caller e qualquer
-ambiente compartilhado, mesmo que a validação técnica da candidata fique verde.
+Textos e versões, hipótese jurídica, prova, tratamento de menores, retenção,
+eliminação, transferência internacional, opt-out e responsáveis por direitos e
+incidentes continuam abertos. São decisões do responsável humano e da função
+jurídica ou encarregado, não inferências do código. Esses contratos bloqueiam
+qualquer caller e ambiente compartilhado.
 
-O módulo de contrato, incluindo a aplicação do SQL inalterado duas vezes em
-`public`, passou em 11 de 11 no PostgreSQL 17 e na imagem Supabase PG17. A suíte
+Antes do merge, o módulo de contrato, incluindo a aplicação do SQL inalterado
+duas vezes em `public`, passou em 11 de 11 no PostgreSQL 17 e na imagem Supabase
+PG17. A suíte
 RLS completa passou em 288 de 288, sem falhas ou skips, e os testes offline
-D2B2a passaram em 32 de 32. A suíte offline integral continua como gate
-obrigatório do workflow Backend Tests antes do merge. Essas provas não acessaram
-nem alteraram Supabase DEV ou PROD.
+D2B2a passaram em 32 de 32. Essas provas não acessaram nem alteraram Supabase
+DEV ou PROD.
 
-Depois da integração da D2B2a, a próxima fatia de produto é obrigatoriamente a
-D2B2b, antes da D2C. Ela deve fechar termos e versões aprovados, base jurídica e
-prova, retenção e eliminação, RBAC de leitura e escrita e callers server-side
-seguros. A chave idempotente dos callers será opaca e gerada no servidor, sem
-telefone, conteúdo de mensagem ou identificador pastoral.
+Os cinco workflows da PR #317 concluíram com `SUCCESS`: Backend Tests
+`33145078616`, E2E Critical `33145078590`, Frontend CI `33145078637`, RLS
+Integration `33145078608` e Tooling Static Checks `33145078672`. Os cinco
+pós-merge também concluíram com `SUCCESS`: Backend Tests `33145205844`, E2E
+Critical `33145205869`, Frontend CI `33145205852`, RLS Integration
+`33145205864` e Tooling Static Checks `33145205854`.
 
-**Próximo gate único:** revisar e integrar a PR candidata D2B2a somente depois
-de PostgreSQL descartável, suítes aplicáveis e revisões independentes
-concluírem com `GO`. Aplicação em Supabase DEV ou PROD, wiring, deploy,
-ativação e canário permanecem fora deste gate.
+O Vercel executou somente preview automático, sem backend ou ambiente
+compartilhado. A integração não aplicou a migration em Supabase DEV ou PROD,
+não fez deploy manual, não ativou o agente e não executou canário.
+
+### D2B2b1, fronteira de segurança candidata (2026-08-28)
+
+A D2B2b1 é deliberadamente código puro, sem migration ou caller. A chave de
+idempotência nasce opaca em componente confiável do servidor, sem telefone,
+conteúdo de mensagem, identificador pastoral ou material escolhido pelo
+cliente ou modelo. A autorização é deny-first: ausência da capacidade exata
+nega. Enquanto o pacote humano e jurídico não existir, toda tentativa de
+registrar `concedido` é recusada, mesmo com tenant, papel, fonte e chave
+sintaticamente válidos. A fatia não reidrata chave por valor; retry entre
+processos depende de futuro recibo durável autenticado que prove a origem da
+chave. Os indicadores puros de escopo ainda não são autorização operacional:
+antes de qualquer caller, um builder server-side deve vinculá-los na mesma
+transação ao tenant, ator, Pessoa alvo e recurso canônico.
+
+A fronteira não conecta API, painel, WhatsApp, worker, LangGraph, tool,
+broadcast, banco ou Supabase. Limpar o opt-out não restaura consentimento e a
+fonte `painel_autenticado` não prova manifestação do titular. D2C permanece
+bloqueada.
+
+O recorte focal D2B2b1 e suas fronteiras adjacentes passou em 1.114 de 1.114
+testes. A suíte RLS completa passou em 288 de 288 contra PostgreSQL 17
+descartável, sem falhas ou skips. A suíte offline integral permanece gate
+obrigatório do workflow Backend Tests antes do merge. Nenhum ambiente Supabase
+foi acessado ou alterado por essas provas.
+
+O pacote humano e jurídico obrigatório deve definir, por finalidade,
+controlador e operadores reais, dados e operações mínimas, texto e versão,
+hipótese jurídica, prova correlacionada, menores, retenção e eliminação,
+transferência internacional, opt-out, direitos, incidentes e aprovadores. O
+contrato técnico e as fontes primárias consultadas estão na
+[`decisão D2B2b1`](../decisions/2026-08-28-d2b2b1-consent-security-boundary.md);
+o documento não constitui parecer jurídico.
+
+**Próximo gate único:** obter e registrar o pacote humano e jurídico aprovado
+para cada finalidade. Catálogo, evidence store, writer, Supabase DEV ou PROD e
+D2C permanecem bloqueados até esse gate ser concluído.
 
 ## Paralelismo seguro
 

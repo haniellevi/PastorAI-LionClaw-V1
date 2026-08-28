@@ -10,7 +10,7 @@ Os marcadores `[CONCLUIDA]` abaixo preservam a evidencia das sprints que os prod
 Baseline confirmada no codigo:
 
 - o `origin/main` auditado esta em
-  `3d5c1099734f5f7da28fc84c6d6bf42f7b57a876`;
+  `bce5a9a434077e488cea8baae3e9dd7c7c4ba0f1`;
 - o LangGraph atual e compilado sem checkpointer duravel; configurar `AGENT_GRAPH_CHECKPOINT_URL` apenas produz um aviso e a execucao continua stateless;
 - o runtime resolve tenant, Pessoa, papel autenticado e permissoes no servidor antes das tools existentes;
 - a PR #313 integrou a D2A no `origin/main`
@@ -42,8 +42,10 @@ RLS, com zero skips. Os cinco workflows da PR e os cinco pos-merge ficaram
 verdes. O monitor registrou 62 testes aprovados e tres skips; a validacao Node
 registrou quatro testes aprovados. O LangGraph permanece stateless.
 
-Sobre essa baseline, a D2B2a e uma candidata inativa. Ela adiciona migration,
-ORM, dominio e servico interno sem caller para o ledger append-only
+A PR #317 integrou a D2B2a no `origin/main`: HEAD
+`8ba5c988e9169703c923b1f1a3e47d1c427531e1`, merge
+`bce5a9a434077e488cea8baae3e9dd7c7c4ba0f1`. Ela adiciona migration, ORM,
+dominio e servico interno sem caller para o ledger append-only
 `public.consentimento_finalidade_evento`. As finalidades sao
 `atendimento_solicitado|cuidado_pastoral|tarefas_operacionais|comunicados`; os
 estados, `concedido|retirado`; e as fontes v1,
@@ -53,24 +55,41 @@ pode anonimizar o operador via `ON DELETE SET NULL`, preservando o evento. A
 idempotencia e por tenant, e a sequencia por stream e atribuida em trigger sob
 advisory lock transacional.
 
-A tabela candidata forca RLS com barreira restritiva GUC-only e ACL minima.
+A tabela integrada forca RLS com barreira restritiva GUC-only e ACL minima.
 Nao ha backfill do legado; opt-out global prevalece. Nao existe API, wiring ou
-caller em WhatsApp, painel, worker, LangGraph, tool ou broadcast. A candidata
+caller em WhatsApp, painel, worker, LangGraph, tool ou broadcast. A migration
 nao foi aplicada em Supabase e nao fez deploy, ativacao ou canario. Textos e
 base juridica por finalidade, retencao e RBAC bloqueiam writers e ambiente
 compartilhado.
 
-Validacao local da candidata: o modulo de contrato, incluindo a aplicacao do
+Validacao local anterior ao merge: o modulo de contrato, incluindo a aplicacao do
 SQL inalterado duas vezes em `public`, passou em 11 de 11 no PostgreSQL 17 e na
 imagem Supabase PG17, sempre em bancos descartaveis; 288 de 288 testes RLS e 32
-de 32 testes offline D2B2a. A suite offline integral permanece responsabilidade
-obrigatoria do workflow Backend Tests antes do merge.
+de 32 testes offline D2B2a. Os cinco workflows da PR #317 e os cinco
+pos-merge ficaram verdes. Na PR: Backend `33145078616`, E2E `33145078590`,
+Frontend `33145078637`, RLS `33145078608` e Tooling `33145078672`. Depois do
+merge: Backend `33145205844`, E2E `33145205869`, Frontend `33145205852`, RLS
+`33145205864` e Tooling `33145205854`. Todos concluiram com `SUCCESS`.
 
-Sequencia corrente: validar e integrar a candidata `D2B2a`; `D2B2b` fecha
-termos e versoes aprovados, base juridica e prova, retencao e eliminacao, RBAC
-de leitura e escrita, chave idempotente opaca gerada no servidor e callers
-server-side seguros; somente depois `D2C` cria propostas duraveis, confirmacao,
-expiracao e idempotencia; `D3` implementa memoria privada duravel e exclusao
+A D2B2b1 corrente fecha apenas a fronteira tecnica pura: chave idempotente
+opaca criada em componente confiavel do servidor, RBAC deny-first e negacao
+incondicional de qualquer `concedido` enquanto faltar politica humana aprovada.
+Ela nao reidrata chave por valor; retry entre processos aguarda um recibo
+duravel autenticado que prove a origem da chave.
+Ela nao adiciona migration, catalogo, evidence store, caller, banco, API,
+LangGraph, writer ou efeito externo. `painel_autenticado`, papel amplo ou
+autoria do operador nao provam manifestacao do titular; LLM e cliente nunca
+escolhem finalidade, base juridica, versao, prova ou capacidade.
+
+Validacao local D2B2b1: 1.114 de 1.114 testes no recorte focal e fronteiras
+adjacentes; 288 de 288 testes RLS contra PostgreSQL 17 descartavel, sem falhas
+ou skips. A suite offline integral permanece gate do workflow Backend Tests
+antes do merge.
+
+Sequencia corrente: integrar a D2B2b1 inativa; obter o pacote humano e juridico
+por finalidade; somente depois projetar catalogo imutavel, binding por tenant,
+prova correlacionada, retencao e callers server-side seguros. `D2C` continua
+bloqueada. Depois dela, `D3` implementa memoria privada duravel e exclusao
 integral.
 Universidade da Vida e Capacitacao Destino permanecem na visao futura, fora da
 missao atual. A D2A continua inativa: a integracao nao aplicou migration em
@@ -85,10 +104,9 @@ nao fez deploy manual ou do backend, nao promoveu a producao, nao ativou o
 agente e nao executou canario. O preview automatico da PR nao prova execucao do
 backend.
 
-**Proximo gate unico:** revisar e integrar a PR candidata D2B2a somente depois
-de PostgreSQL descartavel, suites aplicaveis e revisoes independentes
-concluirem com `GO`. Aplicacao em Supabase DEV ou PROD, wiring, deploy,
-ativacao e canario permanecem fora.
+**Proximo gate unico:** obter e registrar o pacote humano e juridico aprovado
+por finalidade. Catalogo, writer, Supabase DEV ou PROD, D2C, wiring, deploy,
+ativacao e canario permanecem bloqueados.
 
 ---
 

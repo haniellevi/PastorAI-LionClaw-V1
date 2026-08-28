@@ -2,9 +2,13 @@
 
 Data: 2026-08-28
 
-Status: candidata inativa, aguardando validação e integração
+Status: integrada no código e inativa, sem aplicação em ambiente compartilhado
 
-Baseline: `3d5c1099734f5f7da28fc84c6d6bf42f7b57a876`
+Baseline de implementação: `3d5c1099734f5f7da28fc84c6d6bf42f7b57a876`
+
+HEAD da implementação: `8ba5c988e9169703c923b1f1a3e47d1c427531e1`
+
+Merge no `origin/main`: `bce5a9a434077e488cea8baae3e9dd7c7c4ba0f1`
 
 ## Contexto
 
@@ -13,9 +17,11 @@ estado legado, formado por `consent_records`, `pessoas.consentimento` e pelo
 opt-out global, não representa concessão separada por finalidade e não pode ser
 promovido por inferência.
 
-A D2B2a cria somente a base persistente e interna do novo contrato. Ela não
+A D2B2a cria somente a base persistente e interna do novo contrato. A
+PR #317 integrou essa fundação no código, mas ela não
 autoriza coleta, comunicação, ação pastoral ou envio, não muda o LangGraph e
-não conecta nenhum caller.
+não conecta nenhum caller. A integração não aplicou a migration em Supabase
+DEV, PROD ou outro banco compartilhado.
 
 ## Decisão
 
@@ -106,7 +112,7 @@ serviço nesta fatia. A existência de `whatsapp_inbound` e
 
 ## Bloqueios antes de qualquer writer
 
-Os seguintes contratos precisam de aprovação jurídica e operacional antes de
+Os seguintes contratos precisam de aprovação humana, jurídica e operacional antes de
 conectar WhatsApp, painel ou outro caller:
 
 1. texto apresentado à pessoa para cada finalidade e versão;
@@ -117,18 +123,24 @@ conectar WhatsApp, painel ou outro caller:
 6. observabilidade sem PII nem conteúdo pastoral.
 
 Enquanto esses pontos estiverem abertos, nenhum writer de canal e nenhum
-ambiente compartilhado podem ser habilitados.
+ambiente compartilhado podem ser habilitados. A D2B2b1 adiciona apenas uma
+fronteira pura de segurança, deny-first e sem migration; ela não preenche essas
+decisões. O contrato detalhado está em
+[`2026-08-28-d2b2b1-consent-security-boundary.md`](2026-08-28-d2b2b1-consent-security-boundary.md).
 
-Esses contratos formam a fatia obrigatória `D2B2b`, que sucede a fundação
-inativa `D2B2a` e precede qualquer trabalho `D2C`. A `D2B2b` deve fechar termos
-e versões recuperáveis, base jurídica e prova, retenção e eliminação, RBAC de
-leitura e escrita e callers server-side seguros. O caller gerará
-`chave_idempotencia` opaca no servidor e rejeitará telefone, conteúdo de
-mensagem ou identificador pastoral como parte dessa chave.
+Essa sequência começa pela D2B2b1, que fecha apenas a fronteira pura de
+segurança. O gate seguinte é obter o pacote humano e jurídico aprovado por
+finalidade. Somente uma missão posterior pode propor catálogo imutável,
+evidência correlacionada, retenção, RBAC e callers server-side seguros. D2C
+permanece bloqueada. Um caller futuro deverá gerar `chave_idempotencia` opaca no
+servidor e rejeitar telefone, conteúdo de mensagem ou identificador pastoral
+como parte dessa chave. A D2B2b1 não permite reidratação por valor: retry entre
+processos permanece bloqueado até um recibo durável autenticado provar a origem
+e reutilizar a chave sem aceitar material do cliente.
 
-## Verificação obrigatória
+## Verificação concluída antes da integração
 
-Antes de integrar a candidata:
+A integração exigiu:
 
 - aplicar a migration em PostgreSQL 17 descartável, inclusive uma segunda
   aplicação conforme o contrato de idempotência do projeto;
@@ -142,12 +154,19 @@ Antes de integrar a candidata:
 Teste verde em ambiente descartável não prova aplicação no Supabase DEV ou
 PROD e não autoriza fazê-la.
 
-Na candidata local, o módulo de contrato, incluindo a aplicação do SQL
+Antes do merge, o módulo de contrato, incluindo a aplicação do SQL
 inalterado duas vezes em `public`, passou em 11 de 11 no PostgreSQL 17 e na
 imagem Supabase PG17. A suíte RLS completa passou em 288 de 288 e os testes
 offline D2B2a, em 32 de 32. A suíte offline integral continua como gate
 obrigatório do workflow Backend Tests antes do merge; nenhuma dessas provas
 implica aplicação em ambiente compartilhado.
+
+A PR #317 concluiu Backend Tests `33145078616`, E2E Critical `33145078590`,
+Frontend CI `33145078637`, RLS Integration `33145078608` e Tooling Static
+Checks `33145078672` com `SUCCESS`. Depois do merge, os runs `33145205844`,
+`33145205869`, `33145205852`, `33145205864` e `33145205854`, respectivamente,
+também concluíram com `SUCCESS`. O Vercel executou somente preview automático;
+não houve deploy do backend ou aplicação em banco compartilhado.
 
 ## Rollback e compensação
 
@@ -171,6 +190,6 @@ inventário de linhas e gate nominal próprios.
 
 ## Próximo gate único
 
-Revisar e integrar a PR candidata D2B2a somente depois de PostgreSQL
-descartável, suítes aplicáveis e revisões independentes concluírem com `GO`.
-Aplicação em Supabase DEV ou PROD exige outro gate nominal posterior.
+Obter e registrar o pacote humano e jurídico aprovado por finalidade, conforme
+a decisão D2B2b1. Catálogo, writer, Supabase DEV ou PROD e D2C permanecem
+bloqueados até esse gate ser concluído.

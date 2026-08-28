@@ -20,6 +20,7 @@ from sqlalchemy.sql.elements import TextClause
 from app.db.models import ConsentimentoFinalidadeEvento, Pessoa
 from app.db.rls_observability import TenantScopeVerificationError
 from app.domain.purpose_consent import (
+    OpaquePurposeConsentIdempotencyKey,
     PURPOSE_CONSENT_PURPOSES,
     PurposeConsentEventState,
     PurposeConsentProjectionState,
@@ -44,6 +45,7 @@ PERSON_ID = uuid.UUID("30000000-0000-0000-0000-000000000003")
 OTHER_PERSON_ID = uuid.UUID("40000000-0000-0000-0000-000000000004")
 ACTOR_ID = uuid.UUID("50000000-0000-0000-0000-000000000005")
 TERM_VERSION = TrustedTermVersion("2026-08-v1")
+IDEMPOTENCY_KEY = OpaquePurposeConsentIdempotencyKey.generate()
 
 
 class _Result:
@@ -181,10 +183,10 @@ def _persisted_event(
     tenant_id: uuid.UUID = TENANT_ID,
     pessoa_id: uuid.UUID = PERSON_ID,
     finalidade: PurposeConsentPurpose = PurposeConsentPurpose.ATENDIMENTO_SOLICITADO,
-    estado: PurposeConsentEventState = PurposeConsentEventState.CONCEDIDO,
+    estado: PurposeConsentEventState = PurposeConsentEventState.RETIRADO,
     versao_termo: str = TERM_VERSION.value,
     fonte: PurposeConsentSource = PurposeConsentSource.WHATSAPP_INBOUND,
-    chave_idempotencia: str = "wa:message:123",
+    chave_idempotencia: str = IDEMPOTENCY_KEY.value,
     actor_id: uuid.UUID | None = None,
     sequencia: int = 1,
 ) -> ConsentimentoFinalidadeEvento:
@@ -307,13 +309,14 @@ def test_append_locks_person_uses_server_sequence_and_never_commits() -> None:
         igreja_id=TENANT_ID,
         pessoa_id=PERSON_ID,
         finalidade=PurposeConsentPurpose.ATENDIMENTO_SOLICITADO,
-        estado=PurposeConsentEventState.CONCEDIDO,
+        estado=PurposeConsentEventState.RETIRADO,
         versao_termo=TERM_VERSION,
         fonte=PurposeConsentSource.WHATSAPP_INBOUND,
-        chave_idempotencia="wa:message:123",
+        chave_idempotencia=IDEMPOTENCY_KEY,
     )
 
     assert event.sequencia == 41
+    assert event.chave_idempotencia == IDEMPOTENCY_KEY.value
     assert db.sequence_before_flush is None
     assert db.flush_calls == 1
     assert db.begin_nested_calls == 1
@@ -324,7 +327,7 @@ def test_append_locks_person_uses_server_sequence_and_never_commits() -> None:
     assert all("igreja_id" in _compiled(query) for query in db.statements[2:])
     assert db.statement_parameters[1] == {
         "tenant_idempotency_key": (
-            f"purpose-consent-idempotency:{TENANT_ID}:wa:message:123"
+            f"purpose-consent-idempotency:{TENANT_ID}:{IDEMPOTENCY_KEY.value}"
         )
     }
 
@@ -338,10 +341,10 @@ def test_identical_tenant_scoped_replay_returns_existing_without_write() -> None
         igreja_id=TENANT_ID,
         pessoa_id=PERSON_ID,
         finalidade=PurposeConsentPurpose.ATENDIMENTO_SOLICITADO,
-        estado=PurposeConsentEventState.CONCEDIDO,
+        estado=PurposeConsentEventState.RETIRADO,
         versao_termo=TERM_VERSION,
         fonte=PurposeConsentSource.WHATSAPP_INBOUND,
-        chave_idempotencia="wa:message:123",
+        chave_idempotencia=IDEMPOTENCY_KEY,
     )
 
     assert replay is existing
@@ -364,10 +367,10 @@ def test_unique_race_is_replayed_or_mapped_without_raw_integrity_error() -> None
         igreja_id=TENANT_ID,
         pessoa_id=PERSON_ID,
         finalidade=PurposeConsentPurpose.ATENDIMENTO_SOLICITADO,
-        estado=PurposeConsentEventState.CONCEDIDO,
+        estado=PurposeConsentEventState.RETIRADO,
         versao_termo=TERM_VERSION,
         fonte=PurposeConsentSource.WHATSAPP_INBOUND,
-        chave_idempotencia="wa:message:123",
+        chave_idempotencia=IDEMPOTENCY_KEY,
     )
 
     assert replay is identical_winner
@@ -384,10 +387,10 @@ def test_unique_race_is_replayed_or_mapped_without_raw_integrity_error() -> None
             igreja_id=TENANT_ID,
             pessoa_id=PERSON_ID,
             finalidade=PurposeConsentPurpose.ATENDIMENTO_SOLICITADO,
-            estado=PurposeConsentEventState.CONCEDIDO,
+            estado=PurposeConsentEventState.RETIRADO,
             versao_termo=TERM_VERSION,
             fonte=PurposeConsentSource.WHATSAPP_INBOUND,
-            chave_idempotencia="wa:message:123",
+            chave_idempotencia=IDEMPOTENCY_KEY,
         )
 
     invisible_winner_db = _FakeSession(
@@ -400,23 +403,23 @@ def test_unique_race_is_replayed_or_mapped_without_raw_integrity_error() -> None
             igreja_id=TENANT_ID,
             pessoa_id=PERSON_ID,
             finalidade=PurposeConsentPurpose.ATENDIMENTO_SOLICITADO,
-            estado=PurposeConsentEventState.CONCEDIDO,
+            estado=PurposeConsentEventState.RETIRADO,
             versao_termo=TERM_VERSION,
             fonte=PurposeConsentSource.WHATSAPP_INBOUND,
-            chave_idempotencia="wa:message:123",
+            chave_idempotencia=IDEMPOTENCY_KEY,
         )
 
 
 @pytest.mark.parametrize(
-    ("pessoa_id", "estado"),
+    ("pessoa_id", "finalidade"),
     [
-        (PERSON_ID, PurposeConsentEventState.RETIRADO),
-        (OTHER_PERSON_ID, PurposeConsentEventState.CONCEDIDO),
+        (OTHER_PERSON_ID, PurposeConsentPurpose.ATENDIMENTO_SOLICITADO),
+        (PERSON_ID, PurposeConsentPurpose.CUIDADO_PASTORAL),
     ],
 )
 def test_reused_key_with_divergent_intent_fails_closed(
     pessoa_id: uuid.UUID,
-    estado: PurposeConsentEventState,
+    finalidade: PurposeConsentPurpose,
 ) -> None:
     existing = _persisted_event()
     db = _FakeSession([pessoa_id, existing])
@@ -426,11 +429,11 @@ def test_reused_key_with_divergent_intent_fails_closed(
             db,  # type: ignore[arg-type]
             igreja_id=TENANT_ID,
             pessoa_id=pessoa_id,
-            finalidade=PurposeConsentPurpose.ATENDIMENTO_SOLICITADO,
-            estado=estado,
+            finalidade=finalidade,
+            estado=PurposeConsentEventState.RETIRADO,
             versao_termo=TERM_VERSION,
             fonte=PurposeConsentSource.WHATSAPP_INBOUND,
-            chave_idempotencia="wa:message:123",
+            chave_idempotencia=IDEMPOTENCY_KEY,
         )
 
     assert db.added == []
@@ -452,10 +455,10 @@ def test_append_and_snapshot_require_exact_role_and_guc_before_domain_query() ->
             igreja_id=TENANT_ID,
             pessoa_id=PERSON_ID,
             finalidade=PurposeConsentPurpose.ATENDIMENTO_SOLICITADO,
-            estado=PurposeConsentEventState.CONCEDIDO,
+            estado=PurposeConsentEventState.RETIRADO,
             versao_termo=TERM_VERSION,
             fonte=PurposeConsentSource.WHATSAPP_INBOUND,
-            chave_idempotencia="wa:message:123",
+            chave_idempotencia=IDEMPOTENCY_KEY,
         )
     assert len(unscoped_append_db.statements) == 1
     assert unscoped_append_db.added == []
@@ -471,10 +474,10 @@ def test_append_and_snapshot_require_exact_role_and_guc_before_domain_query() ->
             igreja_id=TENANT_ID,
             pessoa_id=PERSON_ID,
             finalidade=PurposeConsentPurpose.ATENDIMENTO_SOLICITADO,
-            estado=PurposeConsentEventState.CONCEDIDO,
+            estado=PurposeConsentEventState.RETIRADO,
             versao_termo=TERM_VERSION,
             fonte=PurposeConsentSource.WHATSAPP_INBOUND,
-            chave_idempotencia="wa:message:123",
+            chave_idempotencia=IDEMPOTENCY_KEY,
         )
     assert len(missing_guc_append_db.statements) == 1
 
@@ -500,10 +503,10 @@ def test_panel_requires_actor_and_validates_actor_in_same_tenant() -> None:
             igreja_id=TENANT_ID,
             pessoa_id=PERSON_ID,
             finalidade=PurposeConsentPurpose.CUIDADO_PASTORAL,
-            estado=PurposeConsentEventState.CONCEDIDO,
+            estado=PurposeConsentEventState.RETIRADO,
             versao_termo=TERM_VERSION,
             fonte=PurposeConsentSource.PAINEL_AUTENTICADO,
-            chave_idempotencia="panel:action:1",
+            chave_idempotencia=IDEMPOTENCY_KEY,
         )
 
     missing_actor_db = _FakeSession([PERSON_ID, None])
@@ -513,10 +516,10 @@ def test_panel_requires_actor_and_validates_actor_in_same_tenant() -> None:
             igreja_id=TENANT_ID,
             pessoa_id=PERSON_ID,
             finalidade=PurposeConsentPurpose.CUIDADO_PASTORAL,
-            estado=PurposeConsentEventState.CONCEDIDO,
+            estado=PurposeConsentEventState.RETIRADO,
             versao_termo=TERM_VERSION,
             fonte=PurposeConsentSource.PAINEL_AUTENTICADO,
-            chave_idempotencia="panel:action:1",
+            chave_idempotencia=IDEMPOTENCY_KEY,
             registrado_por_app_user_id=ACTOR_ID,
         )
 
@@ -534,10 +537,10 @@ def test_panel_append_persists_the_validated_same_tenant_actor() -> None:
         igreja_id=TENANT_ID,
         pessoa_id=PERSON_ID,
         finalidade=PurposeConsentPurpose.CUIDADO_PASTORAL,
-        estado=PurposeConsentEventState.CONCEDIDO,
+        estado=PurposeConsentEventState.RETIRADO,
         versao_termo=TERM_VERSION,
         fonte=PurposeConsentSource.PAINEL_AUTENTICADO,
-        chave_idempotencia="panel:action:1",
+        chave_idempotencia=IDEMPOTENCY_KEY,
         registrado_por_app_user_id=ACTOR_ID,
     )
 
@@ -546,38 +549,109 @@ def test_panel_append_persists_the_validated_same_tenant_actor() -> None:
     assert all("igreja_id" in _compiled(query) for query in db.statements[2:])
 
 
-def test_whatsapp_requires_null_actor_and_canonical_idempotency_key() -> None:
+def test_whatsapp_requires_null_actor() -> None:
     with pytest.raises(PurposeConsentValidationError, match="nulo"):
         append_purpose_consent_event(
             _FakeSession([]),  # type: ignore[arg-type]
             igreja_id=TENANT_ID,
             pessoa_id=PERSON_ID,
             finalidade=PurposeConsentPurpose.ATENDIMENTO_SOLICITADO,
-            estado=PurposeConsentEventState.CONCEDIDO,
+            estado=PurposeConsentEventState.RETIRADO,
             versao_termo=TERM_VERSION,
             fonte=PurposeConsentSource.WHATSAPP_INBOUND,
-            chave_idempotencia="wa:message:123",
+            chave_idempotencia=IDEMPOTENCY_KEY,
             registrado_por_app_user_id=ACTOR_ID,
         )
 
-    for invalid_key in (
+
+@pytest.mark.parametrize(
+    "raw_key",
+    (
+        "pc:v1:" + ("a" * 64),
+        "wa:message:123",
         ":starts-with-punctuation",
         "Uppercase",
         "contains space",
         "á",
         "x" * 129,
-    ):
-        with pytest.raises(PurposeConsentValidationError):
-            append_purpose_consent_event(
-                _FakeSession([]),  # type: ignore[arg-type]
-                igreja_id=TENANT_ID,
-                pessoa_id=PERSON_ID,
-                finalidade=PurposeConsentPurpose.ATENDIMENTO_SOLICITADO,
-                estado=PurposeConsentEventState.CONCEDIDO,
-                versao_termo=TERM_VERSION,
-                fonte=PurposeConsentSource.WHATSAPP_INBOUND,
-                chave_idempotencia=invalid_key,
-            )
+        object(),
+    ),
+)
+def test_append_rejects_raw_idempotency_key_before_any_io(raw_key: object) -> None:
+    db = _FakeSession([])
+
+    with pytest.raises(PurposeConsentValidationError, match="opaca"):
+        append_purpose_consent_event(
+            db,  # type: ignore[arg-type]
+            igreja_id=TENANT_ID,
+            pessoa_id=PERSON_ID,
+            finalidade=PurposeConsentPurpose.ATENDIMENTO_SOLICITADO,
+            estado=PurposeConsentEventState.RETIRADO,
+            versao_termo=TERM_VERSION,
+            fonte=PurposeConsentSource.WHATSAPP_INBOUND,
+            chave_idempotencia=raw_key,  # type: ignore[arg-type]
+        )
+
+    assert db.statements == []
+    assert db.added == []
+    assert db.flush_calls == 0
+
+
+@pytest.mark.parametrize(
+    "forgery",
+    ("mutated-value", "missing-proof", "mutated-proof"),
+)
+def test_append_revalidates_forged_value_object_before_any_io(forgery: str) -> None:
+    if forgery == "mutated-value":
+        forged_key = OpaquePurposeConsentIdempotencyKey.generate()
+        object.__setattr__(
+            forged_key,
+            "value",
+            "pc:v1:" + ("0" * 64),
+        )
+    elif forgery == "missing-proof":
+        forged_key = object.__new__(OpaquePurposeConsentIdempotencyKey)
+        object.__setattr__(forged_key, "value", "pc:v1:" + ("a" * 64))
+    else:
+        forged_key = OpaquePurposeConsentIdempotencyKey.generate()
+        object.__setattr__(forged_key, "_mint_proof", b"\x00" * 32)
+    db = _FakeSession([])
+
+    with pytest.raises(PurposeConsentValidationError, match="proveniência"):
+        append_purpose_consent_event(
+            db,  # type: ignore[arg-type]
+            igreja_id=TENANT_ID,
+            pessoa_id=PERSON_ID,
+            finalidade=PurposeConsentPurpose.ATENDIMENTO_SOLICITADO,
+            estado=PurposeConsentEventState.RETIRADO,
+            versao_termo=TERM_VERSION,
+            fonte=PurposeConsentSource.WHATSAPP_INBOUND,
+            chave_idempotencia=forged_key,
+        )
+
+    assert db.statements == []
+    assert db.added == []
+    assert db.flush_calls == 0
+
+
+def test_append_rejects_grant_before_any_io() -> None:
+    db = _FakeSession([])
+
+    with pytest.raises(PurposeConsentValidationError, match="concedido"):
+        append_purpose_consent_event(
+            db,  # type: ignore[arg-type]
+            igreja_id=TENANT_ID,
+            pessoa_id=PERSON_ID,
+            finalidade=PurposeConsentPurpose.ATENDIMENTO_SOLICITADO,
+            estado=PurposeConsentEventState.CONCEDIDO,
+            versao_termo=TERM_VERSION,
+            fonte=PurposeConsentSource.WHATSAPP_INBOUND,
+            chave_idempotencia=IDEMPOTENCY_KEY,
+        )
+
+    assert db.statements == []
+    assert db.added == []
+    assert db.flush_calls == 0
 
 
 def test_raw_term_version_and_invalid_tenant_fail_before_any_query() -> None:
@@ -588,10 +662,10 @@ def test_raw_term_version_and_invalid_tenant_fail_before_any_query() -> None:
             igreja_id=TENANT_ID,
             pessoa_id=PERSON_ID,
             finalidade=PurposeConsentPurpose.ATENDIMENTO_SOLICITADO,
-            estado=PurposeConsentEventState.CONCEDIDO,
+            estado=PurposeConsentEventState.RETIRADO,
             versao_termo="2026-08-v1",  # type: ignore[arg-type]
             fonte=PurposeConsentSource.WHATSAPP_INBOUND,
-            chave_idempotencia="wa:message:123",
+            chave_idempotencia=IDEMPOTENCY_KEY,
         )
     assert raw_term_db.statements == []
 
@@ -602,10 +676,10 @@ def test_raw_term_version_and_invalid_tenant_fail_before_any_query() -> None:
             igreja_id=str(TENANT_ID),  # type: ignore[arg-type]
             pessoa_id=PERSON_ID,
             finalidade=PurposeConsentPurpose.ATENDIMENTO_SOLICITADO,
-            estado=PurposeConsentEventState.CONCEDIDO,
+            estado=PurposeConsentEventState.RETIRADO,
             versao_termo=TERM_VERSION,
             fonte=PurposeConsentSource.WHATSAPP_INBOUND,
-            chave_idempotencia="wa:message:123",
+            chave_idempotencia=IDEMPOTENCY_KEY,
         )
     assert invalid_tenant_db.statements == []
 
@@ -622,10 +696,10 @@ def test_person_must_exist_in_explicit_tenant() -> None:
             igreja_id=OTHER_TENANT_ID,
             pessoa_id=PERSON_ID,
             finalidade=PurposeConsentPurpose.ATENDIMENTO_SOLICITADO,
-            estado=PurposeConsentEventState.CONCEDIDO,
+            estado=PurposeConsentEventState.RETIRADO,
             versao_termo=TERM_VERSION,
             fonte=PurposeConsentSource.WHATSAPP_INBOUND,
-            chave_idempotencia="wa:message:123",
+            chave_idempotencia=IDEMPOTENCY_KEY,
         )
     sql = _compiled(db.statements[2])
     assert str(OTHER_TENANT_ID) in sql
@@ -657,7 +731,10 @@ def test_snapshot_ignores_legacy_grant_and_filters_every_query_by_tenant() -> No
 
 
 def test_snapshot_projects_new_events_and_global_optout_independently() -> None:
-    event = _persisted_event(finalidade=PurposeConsentPurpose.COMUNICADOS)
+    event = _persisted_event(
+        finalidade=PurposeConsentPurpose.COMUNICADOS,
+        estado=PurposeConsentEventState.CONCEDIDO,
+    )
     db = _FakeSession([True, [event]])
 
     snapshot = load_purpose_consent_snapshot(
@@ -678,7 +755,7 @@ def test_snapshot_projects_new_events_and_global_optout_independently() -> None:
 
 
 def test_snapshot_fails_closed_for_invalid_persisted_event_or_term_map() -> None:
-    invalid_event = _persisted_event()
+    invalid_event = _persisted_event(estado=PurposeConsentEventState.CONCEDIDO)
     invalid_event.finalidade = "finalidade_inventada"
     db = _FakeSession([False, [invalid_event]])
     with pytest.raises(PurposeConsentDataIntegrityError):
