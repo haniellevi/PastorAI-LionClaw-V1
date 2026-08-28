@@ -33,7 +33,7 @@ externas com contratos e gates próprios.
 
 ## Estado executivo
 
-| Tema | Estado no SHA auditado | Leitura correta |
+| Tema | Estado e proveniência | Leitura correta |
 |---|---|---|
 | V1 | `IMPLEMENTADO` | Encerrada como piloto controlado; não equivale ao produto amplo concluído |
 | Código | `VERIFICADO / D2B2A E D2B2B1 INTEGRADAS E INATIVAS` | baseline de código auditada no merge #318 `74951828f48994622a112d8e59eb978e5fb4f406`; D1A, D2A, D2B1, D2B2a e D2B2b1 integradas; D2B2a segue sem caller ou aplicação em Supabase; D2B2b1 é código puro e deny-first |
@@ -42,6 +42,7 @@ externas com contratos e gates próprios.
 | Canário ativo do agente | `PASS TÉCNICO / QUALIDADE INSUFICIENTE` | Evidência operacional reconciliada nesta missão, não prova previamente versionada em `ad4a272` |
 | LangGraph | `IMPLEMENTADO STATELESS` | Grafo único e fallback determinístico, sem checkpoint durável |
 | Conhecimento institucional | `AUSENTE` | Não existe RAG com documentos aprovados nem consulta institucional ampla |
+| Governança de consentimento | `D2B2B3A AUTORIZADA / PR CANDIDATA DRAFT-ONLY` | A decisão autoriza a superfície de rascunhos por igreja, mas a candidata ainda não está integrada no SHA auditado; o Master não pode decidir hipótese jurídica, atestar, aprovar ou registrar papéis nominais |
 | Relatório de célula por WhatsApp | `PARCIAL` | O parser registra evento, mas não envia o relatório canônico |
 | Central e Agenda | `PARCIAL FORTE` | Núcleo web existe; operação integral por WhatsApp e notificações unificadas faltam |
 | Consolidação | `PARCIAL` | Precisa de máquina de estados e read model duráveis antes da formação |
@@ -115,6 +116,22 @@ eliminação, transferência internacional, opt-out e responsáveis por direitos
 incidentes não podem ser inventados pelo código. O pacote por finalidade exige
 aprovação humana e validação jurídica ou do encarregado antes de catálogo,
 evidence store ou writer.
+
+A D2B2b3A autoriza uma superfície administrativa estritamente draft-only no
+Console Master. O Master autenticado pode organizar fatos e campos de rascunho
+para cada finalidade e igreja, com tenant e ator derivados no servidor. E-mail
+não é autoridade nem configuração do tenant. Hipótese jurídica, declaração de
+operação baseada em consentimento, decisão sobre menores, atestado, parecer,
+aprovação, digest atestado e registros nominais ficam fora da edição. Todo
+rascunho operacional continua `DRAFT_NOT_APPROVED`; existem somente callers
+administrativos de rascunho, sem caller de aprovação, ledger ou runtime.
+
+A candidata inativa não prova o wiring do banco. Antes de qualquer aplicação em
+banco compartilhado, ativação da flag ou wiring do backend compartilhado, um
+preflight separado deve comprovar, sem expor a credencial, que o `DATABASE_URL`
+do plano Master usa o owner esperado com acesso efetivo sob `FORCE RLS` ou um
+papel explicitamente autorizado com `BYPASSRLS`. Esse requisito não autoriza
+nenhuma dessas ações.
 
 Ações comuns podem ser concluídas pelo WhatsApp após resumo estruturado e
 confirmação explícita. Ações sensíveis terminam no painel autenticado. Toda
@@ -201,15 +218,20 @@ As fatias permanecem nesta ordem:
    Os indicadores de escopo ainda exigem builder server-side vinculado ao
    recurso antes de qualquer caller. A PR #318 e os cinco workflows pós-merge
    ficaram verdes;
-4. pacote humano e jurídico aprovado por finalidade;
-5. somente depois, em fatia própria, catálogo imutável, prova correlacionada,
+4. `D2B2b3A`: persistência, API e painel do Console Master limitados a
+   rascunhos por igreja, sem aprovação e sem aplicação em Supabase
+   compartilhado;
+5. pacote humano e jurídico aprovado por finalidade, em fluxo nominal futuro;
+6. somente depois, em fatia própria, catálogo imutável, prova correlacionada,
    retenção, eliminação, RBAC e writers server-side seguros;
-6. `D2C`: propostas duráveis, confirmação, expiração e idempotência;
-7. `D3`: memória privada durável, recuperação seletiva e exclusão integral.
+7. `D2C`: propostas duráveis, confirmação, expiração e idempotência;
+8. `D3`: memória privada durável, recuperação seletiva e exclusão integral.
 
 O formulário vazio e sem autoridade de runtime está em
 [`D2B2b2`](../decisions/2026-08-28-d2b2b2-consent-decision-packet-contract.md).
-Ele organiza o próximo gate, mas não o satisfaz.
+Ele organiza o conteúdo. A fronteira draft-only do Console Master está em
+[`D2B2b3A`](../decisions/2026-08-28-d2b2b3-master-governance-drafts.md) e não
+satisfaz o gate humano.
 
 Universidade da Vida e Capacitação Destino permanecem na visão futura, mas
 estão excluídas da missão atual e não podem ser inferidas dos placeholders.
@@ -217,13 +239,16 @@ A D2B1 não adicionou migration, não acessou Supabase, não provisionou
 credencial, não conectou a fronteira privada D2A, worker, fila ou checkpointer,
 não fez deploy manual ou do backend, não promoveu a produção, não ativou o
 agente e não executou canário. O preview automático da PR não prova execução do
-backend. O único gate posterior a esta PR é materializar uma instância
-governada do template por igreja, com quatro pacotes independentes, e obter o
-atestado do dono factual, a revisão de privacidade ou do encarregado, a revisão
-jurídica quando designada e a decisão final do representante autorizado do
-controlador, todos vinculados ao digest exato de cada pacote. Catálogo,
-evidence store, writer,
-Supabase DEV ou PROD e D2C permanecem bloqueados até esse gate.
+backend. O próximo gate único é revisar e integrar a PR D2B2b3A draft-only,
+comprovando migration em PostgreSQL 17 descartável, isolamento entre tenants,
+concorrência por revisão e ausência de caminhos de aprovação ou runtime.
+Supabase DEV ou PROD, painel do tenant, aprovações, catálogo, evidence store,
+writer, WhatsApp, agente, deploy manual ou do backend e D2C permanecem
+bloqueados. A abertura da PR pode gerar Preview automático, e o merge pode gerar
+deployment frontend Production automático pela integração Vercel do
+repositório. O merge exige revisão humana consciente desse efeito, que não
+autoriza migration compartilhada, mudança de flag, runtime, ativação ou canário
+e não constitui evidência de deployment desta candidata.
 
 ## Roteiro de leitura
 
@@ -232,7 +257,7 @@ Supabase DEV ou PROD e D2C permanecem bloqueados até esse gate.
 | Estado geral e pendências | [`auditoria D1`](../audits/2026-08-27-d1-security-scope-audit.md), [`auditoria fonte de verdade`](../audits/2026-08-27-project-source-of-truth.md), depois [`docs/WIKI-IGREJA12.md`](../WIKI-IGREJA12.md) |
 | Escopo e definição de pronto | [`docs/ai/PRD-COVERAGE.md`](PRD-COVERAGE.md) |
 | Agente WhatsApp-first | [`decisão de arquitetura`](../decisions/2026-08-27-whatsapp-first-tenant-agent-architecture.md) |
-| Consentimento por finalidade | [`decisão D2B2a`](../decisions/2026-08-28-d2b2-purpose-consent-ledger.md), [`fronteira D2B2b1`](../decisions/2026-08-28-d2b2b1-consent-security-boundary.md) e [`template D2B2b2`](../decisions/2026-08-28-d2b2b2-consent-decision-packet-contract.md) |
+| Consentimento por finalidade | [`decisão D2B2a`](../decisions/2026-08-28-d2b2-purpose-consent-ledger.md), [`fronteira D2B2b1`](../decisions/2026-08-28-d2b2b1-consent-security-boundary.md), [`template D2B2b2`](../decisions/2026-08-28-d2b2b2-consent-decision-packet-contract.md) e [`rascunhos D2B2b3A`](../decisions/2026-08-28-d2b2b3-master-governance-drafts.md) |
 | Produção ou canário | `docs/ops/POST-V1-MISSION-REGISTER.md` e runbook específico |
 | Produto e UX | `PRODUCT.md`, PRD canônico e `Plan-Designer-Igreja12/` |
 | Banco e RLS | models, migration aplicável, policies e testes RLS |

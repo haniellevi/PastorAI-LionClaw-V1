@@ -146,6 +146,7 @@
 | `pessoa_arquivamento_evento` | Trilha APPEND-ONLY de arquivamento/reativacao de Pessoa (W3.2A). |
 | `consent_records` | Registro legado do consentimento geral concedido na primeira mensagem inbound. Nao concede por inferencia nenhuma finalidade D2B2a. |
 | `consentimento_finalidade_evento` | D2B2a integrada e inativa, append-only para concessao/retirada por finalidade, ainda sem caller, backfill ou aplicacao em ambiente compartilhado. |
+| `purpose_consent_governance_envelope` | D2B2b3A draft-only: no maximo um envelope por igreja, com exatamente quatro rascunhos operacionais, revisao por finalidade e nenhum campo de aprovacao, digest, catalogo ou writer. |
 | `agent_configs` | Config de comportamento do agente por igreja (1:1, US-28). |
 | `agent_config_requests` | Requisicao admin -> master para mudar o agente (#10b Fase 1 / delta-043). |
 | `llm_credentials` | Credencial LLM BYO + modelo permitido por igreja (1:1; chave cifrada, nunca exibida — RNF-03). |
@@ -174,6 +175,14 @@
   - `celulas`: abrir/editar apenas lider da celula ou superior na hierarquia (delta-007).
 - **Agente (F5/delta-034):** fixa o tenant no servidor e executa sob papel sem `BYPASSRLS`, com as mesmas validacoes de negocio de um humano. Service role nao substitui escopo, RLS ou autorizacao.
 - **D2B2a integrada e inativa:** `consentimento_finalidade_evento` habilita e forca RLS. Uma policy restritiva exige `app.tenant_igreja_id` fixado pelo backend; JWT ou `current_igreja_id()` sem esse GUC nao liberam linhas. `authenticated` recebe somente SELECT e INSERT nas colunas de entrada; `PUBLIC`, `anon`, `service_role` e `agent_runtime` nao recebem privilegios de tabela. UPDATE, DELETE e TRUNCATE permanecem revogados. A migration ainda nao foi aplicada em Supabase.
+- **D2B2b3A draft-only:** `purpose_consent_governance_envelope` habilita e forca RLS, nao expoe policy de Data API e revoga privilegios de `PUBLIC`, `anon`, `authenticated`, `service_role` e `agent_runtime`. Somente o caminho auditado do Console Master, com igreja explicita e identidade server-side, pode preparar o rascunho. A migration permanece fora de Supabase compartilhado neste gate.
+
+A candidata inativa nao prova o wiring do banco. Antes de qualquer aplicacao em
+banco compartilhado, ativacao da flag ou wiring do backend compartilhado, um
+preflight separado deve comprovar, sem expor a credencial, que o `DATABASE_URL`
+do plano Master usa o owner esperado com acesso efetivo sob `FORCE RLS` ou um
+papel explicitamente autorizado com `BYPASSRLS`. Esse requisito nao autoriza
+nenhuma dessas acoes.
 
 ### 2.3 Triggers
 - **`trg_promote_pipeline`** (BEFORE INSERT/UPDATE em `pessoas`) — state machine F2/delta-013/031: avanca `etapa`/`subetapa` automaticamente quando `presencas_celula >= 3` OU `aceitou_jesus = true` (visitante -> membro). Conclusao de consolidacao usa seu proprio fluxo.
@@ -220,6 +229,7 @@ pessoas (1) ──< (N) consolidacoes ──< (N) consolidacao_etapas
 celulas (1) ──< (N) multiplicacoes >── (0..1) pessoas (novo_lider_id)
 pessoas (1) ──< (N) consent_records
 pessoas (1) ──< (N) consentimento_finalidade_evento >── (0..1) app_users  # D2B2a integrada e inativa
+igrejas (1) ──1 purpose_consent_governance_envelope       # D2B2b3A draft-only
 igrejas (1) ──< (N) ai_usage_logs / agent_conversation_logs
 ```
 
@@ -426,6 +436,28 @@ O template D2B2b2 permanece `TEMPLATE_ONLY / NOT_APPROVED` e esta em
 organiza o proximo gate humano, sem autorizar catalogo, writer, Supabase ou
 efeito operacional.
 
+A D2B2b3A autoriza somente a superficie draft-only do Console Master. O Master
+autenticado prepara fatos e campos permitidos para cada finalidade e igreja;
+tenant e ator sao derivados no servidor, sem e-mail hardcoded ou aceito como
+autoridade. Hipotese juridica, declaracao de operacao baseada em consentimento,
+decisao sobre menores, atestados, aprovacoes, digest e registros nominais nao
+sao editaveis. Os rascunhos permanecem `DRAFT_NOT_APPROVED`. A fatia pode
+adicionar migration versionada, persistencia, API e painel do Console Master,
+mas nao pode aplicar schema em Supabase compartilhado nem conectar painel do
+tenant, catalogo, evidence store, writer, WhatsApp, agente ou D2C.
+`PURPOSE_CONSENT_GOVERNANCE_DRAFTS_ENABLED` permanece `false` por default e
+libera somente essa superficie administrativa.
+
+**Proximo gate unico:** revisar e integrar a PR D2B2b3A draft-only, com
+migration comprovada em PostgreSQL 17 descartavel, isolamento entre tenants,
+concorrencia por revisao e ausencia de caminhos de aprovacao ou runtime.
+
+A abertura da PR pode gerar Preview automatico, e o merge pode gerar deployment
+frontend Production automatico pela integracao Vercel do repositorio. O merge
+exige revisao humana consciente desse efeito. Isso nao autoriza migration
+compartilhada, deploy manual ou do backend, mudanca de flag, runtime, ativacao ou
+canario e nao constitui evidencia de deployment desta candidata.
+
 A evolucao aprovada mantem uma unica politica global e adiciona especialistas por dominio de forma incremental. Atendimento, Central de Celulas, Agenda e Consolidacao integram a missao atual; Universidade da Vida e Capacitacao Destino permanecem na visao futura e dependem de PRDs e missoes proprias. Especialistas nunca enviam mensagens diretamente e nunca recebem IDs de tenant escolhidos pelo modelo ou pelo cliente.
 
 Memoria e conhecimento sao contratos diferentes:
@@ -438,7 +470,7 @@ Memoria e conhecimento sao contratos diferentes:
 
 O historico privado e retido ate solicitacao da pessoa pelo WhatsApp e aprovacao do admin no painel. A exclusao aprovada deve apagar mensagens, midias, transcricoes, resumos, checkpoints e vetores derivados, preservando apenas auditoria minima sem conteudo pessoal.
 
-Consentimento deve ser separado em quatro finalidades: `atendimento_solicitado`, `cuidado_pastoral`, `tarefas_operacionais` e `comunicados`. A D2B2a integrada materializa somente o ledger interno; um termo desatualizado exige novo aceite, o legado nao concede novas finalidades e o opt-out global continua prevalecendo. A D2B2b1 fecha apenas a fronteira tecnica pura, com chave opaca, RBAC deny-first e toda concessao negada. Antes de catalogo, prova ou writer, um pacote humano e juridico deve aprovar por finalidade controlador, base, dados, texto, evidencia, menores, retencao, eliminacao, opt-out e transferencias. D2C permanece bloqueada.
+Consentimento deve ser separado em quatro finalidades: `atendimento_solicitado`, `cuidado_pastoral`, `tarefas_operacionais` e `comunicados`. A D2B2a integrada materializa somente o ledger interno; um termo desatualizado exige novo aceite, o legado nao concede novas finalidades e o opt-out global continua prevalecendo. A D2B2b1 fecha apenas a fronteira tecnica pura, com chave opaca, RBAC deny-first e toda concessao negada. A D2B2b3A acrescenta somente o preparo auditado de rascunhos pelo Console Master, sem decisao juridica, atestado ou aprovacao. Antes de catalogo, prova ou writer, um fluxo posterior deve aprovar nominalmente por finalidade controlador, base, dados, texto, evidencia, menores, retencao, eliminacao, opt-out e transferencias. D2C permanece bloqueada.
 
 A primeira vertical completa e o relatorio de celula pelo WhatsApp: lembrete, coleta por texto ou audio, resumo editavel, confirmacao explicita, escrita pelo mesmo servico de dominio usado pelo painel e comprovante somente depois do commit. Permissoes, vinculos de terceiros, dados pastorais restritos, exclusoes, financas, publicacao de conhecimento e configuracao da igreja exigem conclusao no painel autenticado.
 
@@ -815,6 +847,7 @@ A primeira vertical completa e o relatorio de celula pelo WhatsApp: lembrete, co
 - [ ] Itens da fila so aparecem para quem pode resolve-los (delta-006).
 - [ ] Captura restrita ao numero oficial; conversas pessoais do pastor nunca registradas (US-07/RF-09).
 - [ ] Consentimento por finalidade para atendimento solicitado, cuidado pastoral, tarefas operacionais e comunicados; a D2B2a integrada cobre apenas persistencia interna, sem caller, e o opt-out global prevalece (US-31/32/33/RNF-06).
+- [ ] Rascunhos D2B2b3A isolados por tenant, com revisao otimista, ator server-side, auditoria sem payload e status fixo `DRAFT_NOT_APPROVED`.
 - [ ] Pacote humano e juridico aprovado por finalidade antes de catalogo ou writer; D2B2b1 nega todo grant enquanto ele estiver ausente.
 - [ ] Registro de termo imutavel e prova correlacionada, nao apenas versao + data/hora; re-aceite conforme mudanca aprovada e mascara de CPF/dados sensiveis nos logs (delta-040/052).
 - [ ] Memoria privada excluida de ponta a ponta apos solicitacao via WhatsApp e aprovacao admin, incluindo midia, transcricao, resumo, checkpoint e vetores derivados.

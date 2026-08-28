@@ -35,11 +35,11 @@ significa ativa em produção.
 | Pessoas e responsabilidades | `PARCIAL FORTE` | cadastro, papéis, vínculos, fila e escopos existentes | Fechar responsabilidades temporais, owner operacional e composição por setor |
 | Conexão WhatsApp | `IMPLEMENTADO / GATE OPERACIONAL` | Evolution, conexão por igreja, webhook e filas | Monitorar recibos, reconnect e capacidade antes de cada canário |
 | Conversas e handoff | `IMPLEMENTADO` | histórico, inbox, atribuição, transferência e estado IA/humano | Adicionar memória derivada, exclusão propagada e avaliação de naturalidade |
-| Fundação do agente | `IMPLEMENTADO / PARCIAL / D2B2A E D2B2B1 INTEGRADAS E INATIVAS` | LangGraph stateless e contexto confiável D2B1 integrados; D2B2a adiciona persistência e serviço interno de consentimento sem caller; D2B2b1 é uma fronteira pura deny-first | Materializar e aprovar o pacote humano e jurídico por finalidade antes de catálogo ou writer; memória, conhecimento e subfluxos permanecem posteriores |
+| Fundação do agente | `IMPLEMENTADO / PARCIAL / D2B2B3A DRAFT-ONLY AUTORIZADA` | LangGraph stateless e contexto confiável D2B1 integrados; D2B2a adiciona persistência e serviço interno de consentimento sem caller; D2B2b1 é uma fronteira pura deny-first; D2B2b3A delimita rascunhos no Console Master | Revisar e integrar a fatia draft-only; aprovações humanas, catálogo, writer, memória, conhecimento e subfluxos permanecem posteriores |
 | Isolamento da memória | `AUSENTE / FUNDAÇÃO D2A INTEGRADA` | Nenhum checkpointer durável instalado; D2A cria somente role, schema, helper e factory privados ainda inativos | Tabelas com `igreja_id`, FORCE RLS, namespace server-side, exclusão e testes adversariais pertencem à D3 |
 | Conhecimento oficial | `AUSENTE` | Não há ingestão aprovada, embeddings ou recuperação institucional | Perfil da igreja, documentos versionados, audiência, RLS e busca híbrida |
 | Dados vivos como ferramentas | `PARCIAL` | Quatro ferramentas limitadas e queries determinísticas | Catálogo por especialista, capacidades e serviços compartilhados com o painel |
-| Consentimento | `PARCIAL / D2B2A E D2B2B1 INTEGRADAS E INATIVAS` | Legado e opt-out continuam ativos; D2B2a adiciona ledger append-only sem backfill, API, wiring ou aplicação em Supabase; D2B2b1 nega concessões | Materializar e aprovar o pacote humano e jurídico por finalidade antes de catálogo, prova ou writer |
+| Consentimento | `PARCIAL / D2B2B3A DRAFT-ONLY AUTORIZADA` | Legado e opt-out continuam ativos; D2B2a adiciona ledger append-only sem backfill, caller ou aplicação em Supabase; D2B2b1 nega concessões; D2B2b3A permite apenas o preparo de rascunhos por igreja pelo Master | Integrar a superfície draft-only e, em fatias posteriores, obter atestados e aprovações nominais antes de catálogo, prova ou writer |
 | Propostas e confirmação | `AUSENTE COMO PLATAFORMA` | Confirmações existem apenas em fluxos específicos | Registro durável, expiração, idempotência, revalidação e comprovante |
 | Notificações proativas | `PARCIAL E FRAGMENTADO` | SLA, cron, Agenda, event notify e broadcast têm caminhos próprios | Outbox única, finalidade, quiet hours, retry, recibo e escalonamento |
 | Painel de Hoje | `IMPLEMENTADO / PARCIAL` | dashboard e work queue por responsabilidade | Compor todas as responsabilidades e as lacunas de conhecimento |
@@ -55,7 +55,7 @@ significa ativa em produção.
 | Broadcast | `IMPLEMENTADO / GATE OPERACIONAL` | ledger, worker, retry e dead-letter | Política por finalidade e canário nominal separado |
 | Asaas | `IMPLEMENTADO / GATE OPERACIONAL` | operações duráveis, isolamento e hardening | Inventário e canário financeiro real, sem envolver a igreja em cortesia |
 | Brevo | `IMPLEMENTADO / GATE OPERACIONAL` | serviço e modo de envio fechado | Domínio, remetente, monitoramento e canário próprio |
-| Onboarding da igreja | `PARCIAL` | telas e configurações administrativas existentes | Assistente fim a fim com responsáveis, políticas, conhecimento e readiness |
+| Onboarding da igreja | `PARCIAL / GOVERNANÇA DRAFT-ONLY DEFINIDA` | telas e configurações administrativas existentes; D2B2b3A define o preparo de rascunhos de consentimento no Console Master | Integrar a superfície, depois criar o fluxo nominal de responsáveis e aprovações sem converter preenchimento em autoridade |
 | Exclusão e direitos da pessoa | `PARCIAL` | Exclusão de conversa remove conversa, mensagens e mídia | Propagar para transcrição, resumo, checkpoint, vetores e auditoria sem conteúdo |
 | Observabilidade de IA | `PARCIAL` | logs, custo, filas e metadados seguros de falha | Métricas por rota e tenant, SLO, retenção e alerta de workflows presos |
 | Acessibilidade e performance | `NÃO VERIFICADO INTEGRALMENTE` | Automação e estilos cobrem parte dos riscos | Leitor de tela, teclado, zoom, mobile e métricas de campo |
@@ -170,6 +170,38 @@ O template D2B2b2 organiza as decisões pendentes e continua marcado
 está em
 [`2026-08-28-d2b2b2-consent-decision-packet-contract.md`](../decisions/2026-08-28-d2b2b2-consent-decision-packet-contract.md).
 
+### D2B2b3A, superfície Master draft-only autorizada
+
+A decisão D2B2b3A permite que o Admin Master autenticado prepare, no Console,
+um rascunho por finalidade e igreja. Tenant e ator são derivados no servidor;
+o e-mail do operador não é autoridade nem configuração versionada. A fatia
+pode conter migration, persistência, API e painel apenas para rascunhos, com
+revisão otimista e auditoria sem payload.
+
+O Master não escolhe hipótese jurídica, não declara que a operação depende de
+consentimento, não decide política de menores, não atesta, não aprova, não
+representa funções da igreja e não preenche registros nominais. Os quatro
+rascunhos operacionais permanecem `DRAFT_NOT_APPROVED`, com
+`controller_approved=false`, `human_packet_complete=false`,
+`catalog_ready=false` e `writer_eligible=false`. Supabase compartilhado,
+painel do tenant, aprovações, catálogo, evidence store, writer, WhatsApp,
+runtime do agente, deploy manual ou do backend e D2C continuam bloqueados. O
+contrato está em
+[`2026-08-28-d2b2b3-master-governance-drafts.md`](../decisions/2026-08-28-d2b2b3-master-governance-drafts.md).
+
+A candidata inativa não prova o wiring do banco. Antes de qualquer aplicação em
+banco compartilhado, ativação da flag ou wiring do backend compartilhado, um
+preflight separado deve comprovar, sem expor a credencial, que o `DATABASE_URL`
+do plano Master usa o owner esperado com acesso efetivo sob `FORCE RLS` ou um
+papel explicitamente autorizado com `BYPASSRLS`. Esse requisito não autoriza
+nenhuma dessas ações.
+
+A abertura da PR pode gerar Preview automático, e o merge pode gerar deployment
+frontend Production automático pela integração Vercel do repositório. O merge
+exige revisão humana consciente desse efeito. Isso não autoriza migration
+compartilhada, mudança de flag, runtime, ativação ou canário e não constitui
+evidência de deployment desta candidata.
+
 ## Canário ativo reconciliado
 
 O canário ativo da Filadélfia é evidência operacional reconciliada nesta missão,
@@ -224,12 +256,13 @@ fechados no PRD próprio antes do schema.
    worker ou LangGraph. A D2B1 está integrada no código, com contexto confiável
    v1 separado do estado mutável e LangGraph ainda stateless. D2B2a está
    integrada e inativa, sem caller ou aplicação em Supabase. D2B2b1 está
-   integrada e inativa e adiciona a
-   fronteira pura com chave opaca, RBAC deny-first e concessões negadas. O gate
-   seguinte é o pacote humano e jurídico por finalidade; somente uma fatia
-   posterior pode criar catálogo, prova correlacionada e writers seguros. D2C
-   permanece bloqueada e só depois cria propostas duráveis, confirmação,
-   expiração, idempotência e revalidação.
+   integrada e inativa e adiciona a fronteira pura com chave opaca, RBAC
+   deny-first e concessões negadas. A D2B2b3A autoriza somente persistência,
+   API e painel do Console Master para rascunhos por igreja. O fluxo nominal de
+   atestado e aprovação vem depois; somente outra fatia pode criar catálogo,
+   prova correlacionada e writers seguros. D2C permanece bloqueada e só depois
+   cria propostas duráveis, confirmação, expiração, idempotência e
+   revalidação.
 4. `D3`: memória durável, privacidade e exclusão integral.
 5. `D4`: conhecimento oficial e onboarding guiado.
 6. `D5`: outbox e plataforma de notificações.
@@ -257,12 +290,11 @@ expansão de escopo.
 
 ## Próximo gate único
 
-Materializar uma instância governada do template por igreja, com quatro
-pacotes independentes, e obter o atestado do dono factual, a revisão de
-privacidade ou do encarregado, a revisão jurídica quando designada e a decisão
-final do representante autorizado do controlador, todos vinculados ao digest
-exato de cada pacote. Catálogo, evidence store, writer,
-Supabase DEV ou PROD e D2C permanecem bloqueados até esse gate ser concluído.
+Revisar e integrar a PR D2B2b3A draft-only, comprovando migration em
+PostgreSQL 17 descartável, isolamento entre tenants, concorrência por revisão e
+ausência de caminhos de aprovação ou runtime. Supabase DEV ou PROD, painel do
+tenant, aprovações, catálogo, evidence store, writer, WhatsApp, agente, deploy
+manual ou do backend e D2C permanecem bloqueados.
 
 ## Fontes principais
 
@@ -272,6 +304,7 @@ Supabase DEV ou PROD e D2C permanecem bloqueados até esse gate ser concluído.
 - `docs/decisions/2026-08-28-d2b2-purpose-consent-ledger.md`
 - `docs/decisions/2026-08-28-d2b2b1-consent-security-boundary.md`
 - `docs/decisions/2026-08-28-d2b2b2-consent-decision-packet-contract.md`
+- `docs/decisions/2026-08-28-d2b2b3-master-governance-drafts.md`
 - `docs/audits/2026-08-27-d1-security-scope-audit.md`
 - `docs/ops/POST-V1-MISSION-REGISTER.md`
 - `docs/ops/EVOLUTION-AGENT-CANARY-RUNBOOK.md`

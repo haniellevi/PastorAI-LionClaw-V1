@@ -2,7 +2,7 @@
 
 Data: 2026-08-28
 
-Status: `TEMPLATE_ONLY / NOT_APPROVED`
+Status: `TEMPLATE_ONLY / NOT_APPROVED / DRAFT_SURFACE_AUTHORIZED`
 
 Baseline: `74951828f48994622a112d8e59eb978e5fb4f406`
 
@@ -18,6 +18,12 @@ Merge, revisão de PR, teste verde, preenchimento parcial, texto em Git ou valor
 `approved` escrito manualmente não constituem aprovação jurídica, autorização
 do controlador nem autoridade de runtime. Esta decisão não é parecer jurídico.
 
+A decisão sucessora
+[`D2B2b3A`](2026-08-28-d2b2b3-master-governance-drafts.md) autoriza o Admin
+Master a preparar rascunhos vinculados a uma igreja no Console. Ela não muda o
+estado deste template e não permite ao Master escolher hipótese jurídica,
+atestar, aprovar, representar outro papel ou preencher registros nominais.
+
 ## Estado anterior confirmado
 
 A PR #318, HEAD `ede4797003e044f582da9f9a3ab86554f708a73a`, foi integrada no
@@ -28,8 +34,9 @@ servidor, aplica autorização deny-first e recusa `concedido` antes de I/O.
 Os indicadores abstratos de escopo ainda não substituem um builder
 transacional vinculado a tenant, ator, Pessoa e recurso canônico. Retry entre
 processos continua bloqueado até existir recibo durável autenticado. Nada
-nesta decisão conecta catálogo, evidence store, writer, API, painel,
-WhatsApp, LangGraph, banco ou Supabase.
+nesta decisão conecta catálogo, evidence store, writer, WhatsApp, LangGraph ou
+Supabase. Somente a sucessora D2B2b3A pode criar persistência, API e painel
+estritamente limitados ao preparo de rascunhos pelo Console Master.
 
 ## Fontes primárias consideradas
 
@@ -152,6 +159,22 @@ controle de acesso, histórico e identidade autenticada. O Git armazena somente
 uma referência sanitizada, o digest da versão aprovada e os metadados mínimos
 necessários para rastreabilidade.
 
+Na D2B2b3A, o Console Master pode persistir somente o schema fechado de
+rascunho operacional permitido pelo contrato sucessor. Esse material é
+separado do `decision_payload` e não é promovido automaticamente. O tenant e o
+ator são derivados no servidor,
+o e-mail do operador não é autoridade nem configuração versionada e toda
+finalidade permanece `DRAFT_NOT_APPROVED`. Hipóteses jurídicas, declaração de
+operação baseada em consentimento, decisão sobre menores, atestados, pareceres,
+aprovações, digest atestado e registros nominais não são editáveis pelo Master.
+
+A candidata inativa não prova o wiring do banco. Antes de qualquer aplicação em
+banco compartilhado, ativação da flag ou wiring do backend compartilhado, um
+preflight separado deve comprovar, sem expor a credencial, que o `DATABASE_URL`
+do plano Master usa o owner esperado com acesso efetivo sob `FORCE RLS` ou um
+papel explicitamente autorizado com `BYPASSRLS`. Esse requisito não autoriza
+nenhuma dessas ações.
+
 Nenhum texto jurídico plausível, contato pessoal, assinatura ou parecer deve
 ser usado como exemplo no template. Nenhum processo de runtime lê o template
 ou o pacote preenchido como autoridade.
@@ -193,11 +216,17 @@ Continuam bloqueados:
 
 - catálogo imutável e evidence store;
 - qualquer writer de `concedido`;
-- API, painel, WhatsApp, webhook, worker, LangGraph e tools;
-- migration ou aplicação em Supabase DEV ou PROD;
+- API e painel do tenant, API ou painel de aprovação, WhatsApp, webhook, worker,
+  LangGraph e tools;
+- qualquer migration fora do artefato local draft-only da D2B2b3A e qualquer
+  aplicação em Supabase DEV ou PROD;
 - deploy, ativação do agente e canário;
 - D2C, memória, conhecimento e outbox;
 - Universidade da Vida e Capacitação Destino.
+
+A única abertura é a persistência, API e aba de painel do Console Master para
+criar e atualizar rascunhos por igreja, sem transição de estado, aprovação,
+registro nominal ou caller operacional.
 
 ## Critério de conclusão do gate humano
 
@@ -214,8 +243,13 @@ insumo governado, nunca autoridade direta do runtime.
 
 ## Próximo gate único
 
-Materializar uma instância governada do template por igreja, com quatro pacotes
-independentes, e obter o atestado do dono factual, a revisão de privacidade ou
-do encarregado, a revisão jurídica quando designada e a decisão final do
-representante autorizado do controlador, todos vinculados ao digest exato de
-cada pacote, sem iniciar catálogo ou writer.
+Revisar e integrar a PR D2B2b3A draft-only, comprovando migration em
+PostgreSQL 17 descartável, isolamento entre tenants, concorrência por revisão e
+ausência de caminhos de aprovação ou runtime. A aplicação em Supabase DEV ou
+PROD permanece fora desse gate.
+
+A abertura da PR pode gerar Preview automático, e o merge pode gerar deployment
+frontend Production automático pela integração Vercel do repositório. O merge
+exige revisão humana consciente desse efeito. Isso não autoriza deploy manual ou
+do backend, migration compartilhada, mudança de flag, runtime, ativação ou
+canário e não constitui evidência de deployment desta candidata.
