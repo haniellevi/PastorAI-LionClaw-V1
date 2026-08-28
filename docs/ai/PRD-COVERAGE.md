@@ -3,7 +3,7 @@ project: igreja12
 document_kind: prd-coverage
 status: canonical-audit
 last_verified: 2026-08-28
-audited_repository_sha: 1029e1b0adb9479a2a23d60e27e9215a6ae6a10e
+audited_repository_sha: 84c5b71b415340868c1b0664e892b8b0350d91f4
 canonical_prd: docs/Docs20260611_163530/PRD20260611_163530.md
 ---
 
@@ -35,7 +35,7 @@ significa ativa em produção.
 | Pessoas e responsabilidades | `PARCIAL FORTE` | cadastro, papéis, vínculos, fila e escopos existentes | Fechar responsabilidades temporais, owner operacional e composição por setor |
 | Conexão WhatsApp | `IMPLEMENTADO / GATE OPERACIONAL` | Evolution, conexão por igreja, webhook e filas | Monitorar recibos, reconnect e capacidade antes de cada canário |
 | Conversas e handoff | `IMPLEMENTADO` | histórico, inbox, atribuição, transferência e estado IA/humano | Adicionar memória derivada, exclusão propagada e avaliação de naturalidade |
-| Fundação do agente | `IMPLEMENTADO / PARCIAL / D2B1 CANDIDATA OFFLINE` | LangGraph stateless, identidade, consentimento legado, opt-out, autorização e BYO; a candidata D2B1 separa contexto confiável do estado mutável | Integrar D2B1; depois avançar consentimento por finalidade, memória, conhecimento e subfluxos de produto |
+| Fundação do agente | `IMPLEMENTADO / PARCIAL / D2B1 INTEGRADA` | LangGraph stateless, identidade, consentimento legado, opt-out, autorização e BYO; a PR #315 integrou o contexto confiável separado do estado mutável | Reconciliar o merge; depois tratar consentimento por finalidade em D2B2, sem antecipar memória, conhecimento ou subfluxos de produto |
 | Isolamento da memória | `AUSENTE / FUNDAÇÃO D2A INTEGRADA` | Nenhum checkpointer durável instalado; D2A cria somente role, schema, helper e factory privados ainda inativos | Tabelas com `igreja_id`, FORCE RLS, namespace server-side, exclusão e testes adversariais pertencem à D3 |
 | Conhecimento oficial | `AUSENTE` | Não há ingestão aprovada, embeddings ou recuperação institucional | Perfil da igreja, documentos versionados, audiência, RLS e busca híbrida |
 | Dados vivos como ferramentas | `PARCIAL` | Quatro ferramentas limitadas e queries determinísticas | Catálogo por especialista, capacidades e serviços compartilhados com o painel |
@@ -97,9 +97,9 @@ significa ativa em produção.
   sem treinamento ou fine-tuning por igreja;
 - política completa de eliminação dos derivados de conversa.
 
-### Candidata D2B1 offline
+### D2B1 integrada no código
 
-Sobre o `origin/main` auditado, a candidata D2B1 cria um
+A PR #315 integrou no `origin/main` auditado um
 `TrustedAgentContext` imutável e tipado, injetado pelo servidor por
 `StateGraph.context_schema`. Tenant, conversa, Pessoa, estado da conversa,
 privilégio e termo legado deixam de ser aceitos como campos de entrada ou de
@@ -107,13 +107,11 @@ autoridade no topo do `AgentState` mutável. A
 entrada, o caminho compilado, o caminho direto e cada node revalidam a
 fronteira; a mesma instância de `PrivilegeContext` chega ao executor de tools.
 
-O recorte passou em 224 testes focais e recebeu duas passagens adversariais com
-os achados P1 fechados e parecer `GO`. A suíte offline completa local ficou
-`INCONCLUSIVA`: a baseline limpa no mesmo SHA também excedeu 90 segundos no
-módulo TestClient inalterado `test_agent_config_requests.py`. O workflow
-`Backend Tests` da PR precisa executar a suíte integral e concluir verde. Essa
-evidência não promove D2B1 a integrada, aplicada ou operacional e não altera as
-classificações de consentimento, memória, conhecimento ou propostas.
+O merge passou em 2.770 testes offline, com 278 desselecionados, e 278 testes
+RLS, com zero skips. Cinco workflows da PR e cinco pós-merge concluíram verdes.
+Essa evidência promove D2B1 somente a integrada no código; não prova aplicação,
+provisioning, wiring privado, deploy ou ativação e não altera as classificações
+de consentimento, memória, conhecimento ou propostas.
 
 ## Canário ativo reconciliado
 
@@ -166,9 +164,10 @@ fechados no PRD próprio antes do schema.
 2. `D1`: revalidar segurança, capacidades e escopos no SHA atual. Auditoria e
    hardening concluídos; PR #311 integrada e migration D1A aplicada em DEV.
 3. `D2`: a D2A já está integrada como fronteira privada inativa, sem conectar
-   worker ou LangGraph. A D2B1 é candidata offline, com contexto confiável v1
-   separado do estado mutável. D2B2, consentimentos independentes por
-   finalidade, permanece bloqueada até a integração da D2B1; D2C continua
+   worker ou LangGraph. A D2B1 está integrada no código, com contexto confiável
+   v1 separado do estado mutável e LangGraph ainda stateless. D2B2,
+   consentimentos independentes por finalidade, torna-se a próxima fatia
+   somente após integrar esta reconciliação documental; D2C continua
    reservada a propostas duráveis, confirmação, expiração, idempotência e
    revalidação.
 4. `D3`: memória durável, privacidade e exclusão integral.
@@ -198,11 +197,10 @@ expansão de escopo.
 
 ## Próximo gate único
 
-Revisar e integrar a PR D2B1 somente se o workflow `Backend Tests` executar a
-suíte offline completa e concluir verde. D2B2 permanece bloqueada e só poderá
-ser promovida a próximo gate depois do merge e de nova reconciliação.
-Migration, Supabase, provisioning, conexão da fronteira privada D2A, deploy,
-ativação e canário permanecem fora deste gate.
+Revisar e integrar a PR documental de reconciliação pós-merge da D2B1. D2B2 só
+se torna a próxima fatia depois desse fechamento. Migration, Supabase,
+provisioning, conexão da fronteira privada D2A, deploy, ativação e canário
+permanecem fora deste gate.
 
 ## Fontes principais
 

@@ -1,7 +1,7 @@
 # Wiki do projeto Igreja 12
 
 Snapshot documental de 2026-08-28, baseado no `origin/main`
-`1029e1b0adb9479a2a23d60e27e9215a6ae6a10e`, na auditoria D1 e na
+`84c5b71b415340868c1b0664e892b8b0350d91f4`, na auditoria D1 e na
 reconciliação operacional registrada nesta fase.
 
 ## Leitura de 30 segundos
@@ -44,7 +44,7 @@ qualquer expansão do canário.
 | V1 | `IMPLEMENTADO` | Preservar o encerramento e tratar a visão ampla como nova fase |
 | Agente e Evolution | `PARCIAL / GATE OPERACIONAL` | Corrigir memória, conhecimento e qualidade antes de novo canário |
 | Canário ativo | `PASS TÉCNICO / QUALIDADE INSUFICIENTE` | Avaliação conversacional humana após a nova fundação |
-| LangGraph | `IMPLEMENTADO STATELESS / D2B1 CANDIDATA OFFLINE` | Integrar o contexto confiável; persistência e subgrafos permanecem posteriores |
+| LangGraph | `IMPLEMENTADO STATELESS / D2B1 INTEGRADA` | Reconciliar o merge; persistência, consentimento por finalidade e subgrafos permanecem posteriores |
 | Conhecimento por igreja | `AUSENTE` | Ingestão aprovada, ACL, busca e ferramentas de dados vivos |
 | Relatório por WhatsApp | `PARCIAL` | Confirmar e gravar no relatório canônico |
 | Central de Células | `PARCIAL FORTE` | Operação e notificações principais pelo WhatsApp |
@@ -200,26 +200,25 @@ deploy manual ou do backend, não promoveu a produção e não ativou o agente. 
 único deploy associado foi o preview automático da PR, que não prova execução
 do backend nem ambiente compartilhado.
 
-A candidata D2B1, ainda fora de `origin/main`, cria um contexto confiável v1
+A PR #315 integrou a D2B1 no `origin/main`
+`84c5b71b415340868c1b0664e892b8b0350d91f4`. O contexto confiável v1 é
 imutável e separado do estado mutável do grafo. A fronteira é montada pelo
 servidor, revalidada antes do caminho compilado, do caminho direto e em cada
 node, e preserva a mesma instância de `PrivilegeContext` até o executor de
 tools. A entrada e o snapshot de Pessoa recusam chaves de autoridade, IDs,
 telefone e campos não necessários ao turno.
 
-A candidata passou em 224 testes focais. Duas passagens adversariais fecharam
-os achados P1 e concluíram `GO`. A suíte offline completa local ficou
-`INCONCLUSIVA`: a baseline limpa no mesmo SHA também excedeu 90 segundos no
-módulo TestClient inalterado `test_agent_config_requests.py`. O workflow
-`Backend Tests` da PR precisa executar a suíte integral e concluir verde antes
-da integração. O LangGraph continua stateless, sem checkpointer persistente.
+O merge passou em 2.770 testes offline, com 278 desselecionados, e 278 testes
+RLS, com zero skips. Cinco workflows da PR e cinco pós-merge ficaram verdes. O
+LangGraph continua stateless, sem checkpointer persistente.
 
-A continuação permanece ordenada em D2B1; `D2B2`, consentimentos independentes
-por finalidade, fica bloqueada até o merge da D2B1; `D2C` reserva propostas
-duráveis; e `D3`, memória privada durável com exclusão integral. A candidata
-não adiciona migration, não acessa Supabase, não provisiona credencial, não
-conecta a fronteira privada D2A, worker, fila ou checkpointer, não faz deploy,
-não ativa o agente e não executa canário.
+A continuação passa a D2B2, consentimentos independentes por finalidade,
+somente depois de integrar esta reconciliação documental. D2C continua
+reservada a propostas duráveis e D3 à memória privada durável. A D2B1 não
+adicionou migration, não acessou Supabase, não provisionou credencial, não
+conectou a fronteira privada D2A, worker, fila ou checkpointer, não fez deploy
+manual ou do backend, não promoveu a produção, não ativou o agente e não
+executou canário. O preview automático da PR não prova execução do backend.
 
 ### D6, primeira vertical
 
@@ -268,8 +267,7 @@ canário.
 
 ## Próximo gate único
 
-Revisar e integrar a PR D2B1 somente se o workflow `Backend Tests` executar a
-suíte offline completa e concluir verde. D2B2 permanece bloqueada e só poderá
-ser promovida a próximo gate depois do merge e de nova reconciliação.
-Migration, Supabase, provisioning, conexão da fronteira privada D2A, deploy,
-ativação e canário permanecem fora.
+Revisar e integrar a PR documental de reconciliação pós-merge da D2B1. D2B2 só
+se torna a próxima fatia depois desse fechamento. Migration, Supabase,
+provisioning, conexão da fronteira privada D2A, deploy, ativação e canário
+permanecem fora.
