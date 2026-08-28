@@ -4,6 +4,13 @@ Guia para levantar um ambiente de **staging/dev isolado** antes das fases F2/F3.
 O objetivo é poder testar mudanças (e, depois, ativar o guard de envios do B2)
 sem nenhum risco para produção, dados reais de fiéis ou serviços externos.
 
+> **Estado atual do bootstrap de schema:** o procedimento original de aplicação
+> genérica foi substituído pelo executor fail-closed. Não use este guia para
+> aplicar o catálogo completo. O candidato `bootstrap-ledger` existe somente
+> offline e nenhum comando de banco está autorizado em DEV, staging ou PROD
+> antes da reconciliação histórica humana versionada. O
+> `bootstrap-ledger` está implementado e comprovado somente offline, ainda não aplicado.
+
 > Plano completo (diagnóstico, fluxo e gates) em `plano-b1-staging-isolado.html`
 > (abra no browser). Este README é a versão operacional.
 
@@ -33,8 +40,9 @@ usam os artefatos deste repositório.
 1. **[manual · Supabase]** Criar um **projeto Supabase de staging** (free tier
    serve). Anotar `ref`, `SUPABASE_URL`, anon key, service-role key e a
    `DATABASE_URL` do **pooler** (senha percent-encoded).
-2. **[runner]** Aplicar as migrations em ordem (ver "Runner de migrations").
-   Cria o schema, a RLS e a tabela de controle `schema_migrations`.
+2. **[bloqueado]** Não aplicar migrations nem criar o ledger público enquanto a
+   reconciliação histórica humana não formar um prefixo íntegro e aprovado. O
+   bootstrap vazio não reconstrói o schema e não libera `status` ou `apply`.
 3. **[manual · Supabase]** Criar o **bucket de Storage `whatsapp-media`**,
    **privado** (não há migration que faça isso; o chat com mídia depende dele).
 4. **[manual · Clerk]** Criar/confirmar uma **instância Clerk dev/test**. Pegar
@@ -84,37 +92,39 @@ cobrança ou e-mail real sai de staging.
 
 ## Runner de migrations
 
-`backend/scripts/apply_migrations.py` aplica as migrations **em ordem de nome**
-contra um `DATABASE_URL` alvo informado pelo operador. Ele **não roda sozinho**,
-**não embute** nenhuma connection string e **só aplica** com o subcomando
-`apply` + confirmação interativa (digitar o host de destino).
+`backend/scripts/apply_migrations.py` não aplica uma lista de pendências e não
+aceita URL em argv. O destino vem exclusivamente de
+`M06_MIGRATION_DATABASE_URL`, injetada pelo canal secreto do processo. Não cole
+DSN, senha, token ou host em terminal compartilhado, conversa ou documentação.
 
 ```bash
 # a partir de backend/ (com o venv ativo)
 
-# 1) Conferir a ordem das migrations (não conecta ao banco):
+# Única operação disponível sem conexão:
 python scripts/apply_migrations.py list
-
-# 2) Ver aplicadas x pendentes (read-only):
-python scripts/apply_migrations.py status --database-url "postgresql://...STAGING..."
-
-# 3) Aplicar as pendentes (vai pedir para você digitar o host de staging):
-python scripts/apply_migrations.py apply --database-url "postgresql://...STAGING..."
 ```
 
-O destino também pode vir da env `STAGING_DATABASE_URL` (a flag tem prioridade).
-A senha nunca é impressa. O runner mantém uma tabela `schema_migrations` no banco
-alvo para registrar o que já subiu — assim `status`/`apply` sabem o que falta.
+`bootstrap-ledger` implementa a criação somente do ledger vazio
+`public.schema_migrations` no contrato owner-only, após confirmação literal
+`BOOTSTRAP_LEDGER`. Ele não descobre o catálogo, não consulta
+`supabase_migrations`, não reconcilia histórico e não aplica ou registra
+migration. Com múltiplos arquivos locais e ledger vazio, `status` e `apply`
+falham fechados.
 
-Se algo falhar, o `apply` para no primeiro erro e mantém em `schema_migrations`
-o registro das que concluíram. Antes de retomar, leia as instruções da migration
-que falhou: as idempotentes podem ser reaplicadas após corrigir a causa, mas
-`CREATE INDEX CONCURRENTLY` pode deixar um índice `INVALID` e exige inspeção e
-recuperação manual antes de rodar `apply` novamente.
+A implementação foi testada somente offline: 42/42 testes unitários, 87/87 em
+PostgreSQL 17-alpine descartável em duas execuções independentes, 87/87 em
+Supabase PG17 17.6.1.159 descartável em duas execuções independentes e revisão
+de segurança `GO`. A suíte RLS completa, em execução serial limpa no PostgreSQL
+17 descartável, passou em 326/326, com 3803 deselecionados e 2 warnings
+preexistentes, em 162.77s. A suíte offline integral foi interrompida após 5
+min sem saída ou progresso; o resultado é `INCONCLUSIVO`, não verde nem falha,
+e o workflow Backend Tests da PR permanece gate. Não houve acesso a DEV ou PROD, deploy, migration ou mudança
+de flag.
 
-> As migrations continuam podendo ser aplicadas à mão no SQL editor do Supabase
-> (ver `backend/migrations/README.md`); o runner é uma conveniência para
-> reconstruir staging do zero, na ordem certa, com registro.
+O próximo gate é uma PR offline e versionada de reconciliação histórica humana,
+sem DML e sem inferência. Até ela terminar, não execute `bootstrap-ledger`,
+`harden-ledger`, `status`, `apply`, SQL Editor, `apply_migration`, `db push` ou
+MCP para preencher ou reaplicar histórico em staging ou ambiente compartilhado.
 
 ---
 
@@ -172,7 +182,7 @@ Evolution e o `validate_credential` do LLM (custo ~zero).
 | Postgres genérico não reproduz roles/grants → RLS "passa" mas vaza | Alta | Usar **projeto Supabase** dedicado; gate "RLS efetiva". |
 | Copiar dados reais de fiéis para staging (LGPD) | Alta | Só o seed fictício (`0005_seed.sql`); gate "volume = seed". |
 | Subir `queue_worker`/`cron_worker` com credencial real → envia WhatsApp/cobra | Média | Não subir workers nesta fase; externos vazios. Endurecimento formal é o **B2**. |
-| Migration fora de ordem / pulada → schema divergente | Média | Aplicar via runner (ordem garantida) + tabela `schema_migrations`. |
+| Migration fora de ordem / pulada → schema divergente | Alta | Manter `status` e `apply` bloqueados até a reconciliação histórica humana versionada comprovar o prefixo íntegro. |
 | `.env` real commitado por engano | Baixa | Versionar só `*.staging.example` (sem valores). O `.gitignore` cobre `.env`, `.env.local`, `.env.*.local` e `.env.staging` — use exatamente esses destinos; nunca um arquivo com valores reais fora desses nomes. |
 
 ---

@@ -748,26 +748,50 @@ acesso foi negado. Os arquivos temporários locais foram removidos. O preflight
 VPS em si não executou deploy manual ou do backend, migration, restart, alteração
 da flag ou outra mutação de estado.
 
-**Próximo gate único:** implementar e testar somente em PostgreSQL 17
-descartável, sem acessar DEV ou PROD, um subcomando versionado
-`bootstrap-ledger`, explícito e fail-closed, separado de `harden-ledger`. Ele
-criará, em transação única, exclusivamente o contrato final vazio de
-`public.schema_migrations`, como ledger vazio, com colunas, chave primária (PK) e defaults exatos,
-RLS habilitada, policy deny e ACL mínima por grants e revokes explícitos. O comando
-validará ownership e roles esperados antes e depois, e abortará se houver objeto
-homônimo, schema divergente ou qualquer outro conflito. A reaplicação deverá
-encerrar sem mutação; testes adversariais em PostgreSQL 17 cobrirão conflitos
-homônimos, falha parcial e rollback integral. O comando operará sem reconciliação
-ou backfill: jamais copiará
-`supabase_migrations`, inferirá migrations aplicadas ou autorizará `apply`.
-`apply` e `status` permanecerão tecnicamente bloqueados até uma reconciliação
-humana versionada formar o prefixo íntegro do catálogo, com no máximo uma
-migration pendente; o bootstrap não pode reduzir a barreira atual.
-Qualquer preenchimento ou reconciliação histórica humana será uma missão
-separada, baseada em evidência, e precisará terminar antes de considerar D2 em
-DEV ou PROD. Este gate entrega somente a PR offline do bootstrap e não autoriza
-painel do tenant, aprovações, catálogo, writer, migration D2B2b3A, flag, D2C,
-credencial, wiring, deploy, restart, runtime, ativação ou canário.
+### LEDGER-BOOTSTRAP, implementado e comprovado offline, não aplicado (2026-08-28)
+
+Sobre a base versionada
+`b43ad92028374fa6763ef10f5eb7a379afd3e7a2`, este delta implementa e comprova offline o
+subcomando explícito e fail-closed `bootstrap-ledger`, separado de
+`harden-ledger`. Ele exige `--confirm BOOTSTRAP_LEDGER` antes da conexão e lê o
+destino somente de `M06_MIGRATION_DATABASE_URL`. Em PostgreSQL 17, cria em uma
+transação `SERIALIZABLE` exclusivamente o ledger vazio
+`public.schema_migrations`, com colunas, chave primária e defaults exatos,
+owner estável, RLS, policy deny e ACL owner-only. Objeto ou tipo homônimo,
+default privilege ou grant de schema perigoso, membership, ownership ou forma
+física divergente aborta com rollback. Reaplicar o contrato exato e vazio não
+produz mutação.
+
+A validação concluiu 42/42 testes unitários, 87/87 em PostgreSQL 17-alpine
+descartável em duas execuções independentes e 87/87 em Supabase PG17
+17.6.1.159 descartável em duas execuções independentes. A revisão de segurança
+resultou em `GO`. A suíte RLS completa, em execução serial limpa no PostgreSQL
+17 descartável, passou em 326/326, com 3803 deselecionados e 2 warnings
+preexistentes, em 162.77s. A suíte offline integral foi interrompida após 5
+min sem saída ou progresso; o resultado é `INCONCLUSIVO`, não verde nem falha,
+e o workflow Backend Tests da PR permanece gate. O bootstrap não descobre o catálogo local, não consulta,
+copia ou altera `supabase_migrations`, não reconcilia, não faz backfill e não
+aplica ou registra migration. O ledger vazio mantém `status` e `apply`
+bloqueados até uma reconciliação histórica humana formar o prefixo íntegro do
+catálogo, com no máximo uma migration pendente.
+
+Esta missão foi estritamente offline. Não acessou DEV ou PROD, não
+aplicou o bootstrap ou qualquer migration em ambiente compartilhado, não
+provisionou `M06_MIGRATION_DATABASE_URL`, não fez deploy ou restart e não
+alterou flag, runtime, agente ou canário. O preflight PROD da seção anterior e
+o deployment automático frontend da PR #321 permanecem evidências históricas
+separadas e não foram revalidados nesta missão.
+
+**Próximo gate único:** implementar e testar somente offline, sem acessar DEV
+ou PROD, uma PR versionada de reconciliação histórica humana. Ela deverá
+definir um pacote sanitizado e um verificador somente leitura, sem DML e sem
+inferir migrations aplicadas, para comparar futuramente o catálogo versionado
+com inventários autorizados dos ledgers público e nativo. Toda divergência ou
+entrada sem evidência humana permanece bloqueante; a PR não cria, altera ou
+preenche ledger e não autoriza `bootstrap-ledger`, `harden-ledger`, `status` ou
+`apply` em ambiente compartilhado. Painel do tenant, aprovações, catálogo,
+writer, migration D2B2b3A, flag, D2C, credencial, wiring, deploy, restart,
+runtime, ativação e canário continuam bloqueados.
 
 ## Paralelismo seguro
 

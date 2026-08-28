@@ -2,9 +2,9 @@
 """Executor fail-closed para uma migration SQL explicitamente aprovada.
 
 O histórico local e o ledger ``public.schema_migrations`` podem divergir. Por
-isso este módulo nunca reconcilia, cria o ledger, ou aplica automaticamente uma
-lista de pendências. Escrita requer, sempre, o basename versionado, o SHA-256
-esperado e ``--confirm APPLY``:
+isso este módulo nunca reconcilia o histórico ou aplica automaticamente uma
+lista de pendências. Escrita de migration requer, sempre, o basename
+versionado, o SHA-256 esperado e ``--confirm APPLY``:
 
     python scripts/apply_migrations.py apply \
       --migration 20260810_031050_explicit_deny_policies_for_closed_tables.sql \
@@ -22,6 +22,12 @@ genérico de ``apply``.
 explícita: ela endurece somente o ledger já existente, sem criar, reconciliar
 ou registrar migrations. Ela é necessária quando um ledger histórico válido em
 estrutura ainda não tem RLS/ACLs compatíveis com o executor de arquivo único.
+
+``bootstrap-ledger`` é a única criação permitida. Ela cria atomicamente um
+ledger vazio no contrato final owner-only, sem consultar ou copiar qualquer
+histórico externo. O ledger vazio não autoriza aplicação: ``status`` e
+``apply`` continuam bloqueados até o histórico ser um prefixo íntegro do
+catálogo com, no máximo, uma migration pendente.
 """
 
 from __future__ import annotations
@@ -47,6 +53,7 @@ EXPECTED_LEDGER_COLUMNS = (
     ("applied_at", "timestamp with time zone", True, "now()"),
 )
 REQUIRED_LEDGER_ROLES = ("anon", "authenticated", "service_role")
+OPTIONAL_LEDGER_ROLES = ("agent_runtime",)
 TABLE_PRIVILEGES = (
     "SELECT",
     "INSERT",
@@ -58,7 +65,11 @@ TABLE_PRIVILEGES = (
 )
 COLUMN_PRIVILEGES = ("SELECT", "INSERT", "UPDATE", "REFERENCES")
 LEDGER_HARDEN_CONFIRMATION = "HARDEN_LEDGER"
+LEDGER_BOOTSTRAP_CONFIRMATION = "BOOTSTRAP_LEDGER"
 LEDGER_DENY_POLICY_NAME = "migration_ledger_service_role_bypass_only"
+LEDGER_BOOTSTRAP_LOCK_KEYS = (20260828, 32117)
+LEDGER_LOCK_TIMEOUT = "5s"
+LEDGER_STATEMENT_TIMEOUT = "30s"
 SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 MIGRATION_BASENAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*\.sql$")
 DOLLAR_QUOTE_START_RE = re.compile(r"\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$")
@@ -160,6 +171,7 @@ class LedgerState:
 
     relation_oid: int
     applied_names: tuple[str, ...]
+    applied_at_values: tuple[object, ...] = ()
 
 
 def normalize_url(url: str) -> str:
@@ -294,6 +306,13 @@ def _parse_confirmation(value: str) -> str:
 def _parse_hardening_confirmation(value: str) -> str:
     """Aceita a confirmação própria do único hardening permitido."""
     if value != LEDGER_HARDEN_CONFIRMATION:
+        raise argparse.ArgumentTypeError("confirmação inválida")
+    return value
+
+
+def _parse_bootstrap_confirmation(value: str) -> str:
+    """Aceita somente a confirmação própria da criação do ledger vazio."""
+    if value != LEDGER_BOOTSTRAP_CONFIRMATION:
         raise argparse.ArgumentTypeError("confirmação inválida")
     return value
 
@@ -635,15 +654,18 @@ def _validate_ledger_schema(cur, relation_oid: int) -> tuple[str, ...]:
     return tuple(column[0] for column in columns)
 
 
-def _read_ledger_applied_names(cur) -> tuple[str, ...]:
-    cur.execute(f"select name from {BOOKKEEPING_TABLE} order by applied_at, name")
-    return tuple(row[0] for row in cur.fetchall())
+def _read_ledger_applied_rows(cur) -> tuple[tuple[str, object], ...]:
+    cur.execute(
+        f"select name, applied_at from {BOOKKEEPING_TABLE} "
+        "order by applied_at, name"
+    )
+    return tuple((str(name), applied_at) for name, applied_at in cur.fetchall())
 
 
 def _validate_ledger_catalog_entries(
     cur, catalog_names: tuple[str, ...]
 ) -> tuple[str, ...]:
-    applied_names = _read_ledger_applied_names(cur)
+    applied_names = tuple(name for name, _applied_at in _read_ledger_applied_rows(cur))
     unknown = sorted(set(applied_names) - set(catalog_names))
     if unknown:
         raise MigrationRunnerError(
@@ -797,6 +819,436 @@ def _server_version_number(cur) -> int:
     return int(cur.fetchone()[0])
 
 
+def _bootstrap_executor_and_schema(cur) -> tuple[int, int]:
+    """Valida o executor e os defaults que afetariam uma tabela nova."""
+    server_version = _server_version_number(cur)
+    if not 170000 <= server_version < 180000:
+        raise MigrationRunnerError(
+            "bootstrap do ledger exige PostgreSQL 17 validado pelo projeto"
+        )
+
+    _validate_required_ledger_roles(cur)
+    cur.execute(
+        """
+        select executor.oid, namespace.oid,
+               pg_catalog.has_schema_privilege(
+                   executor.oid, namespace.oid, 'USAGE'
+               ),
+               pg_catalog.has_schema_privilege(
+                   executor.oid, namespace.oid, 'CREATE'
+               ),
+               executor.rolname,
+               current_user = session_user
+        from pg_catalog.pg_roles executor
+        cross join pg_catalog.pg_namespace namespace
+        where executor.rolname = current_user
+          and namespace.nspname = %s
+        """,
+        (LEDGER_SCHEMA,),
+    )
+    row = cur.fetchone()
+    if row is None:
+        raise MigrationRunnerError(
+            "executor ou schema public ausente; bootstrap do ledger bloqueado"
+        )
+    (
+        executor_oid,
+        namespace_oid,
+        has_usage,
+        has_create,
+        executor_name,
+        stable_identity,
+    ) = row
+    if not stable_identity:
+        raise MigrationRunnerError(
+            "current_user e session_user divergem; bootstrap do ledger bloqueado"
+        )
+    if executor_name in REQUIRED_LEDGER_ROLES:
+        raise MigrationRunnerError(
+            "executor não pode ser papel público ou service_role no bootstrap"
+        )
+    if not has_usage or not has_create:
+        raise MigrationRunnerError(
+            "executor não possui privilégios mínimos no schema public"
+        )
+
+    cur.execute(
+        """
+        select 1
+        from pg_catalog.pg_namespace namespace
+        cross join lateral pg_catalog.aclexplode(
+            coalesce(
+                namespace.nspacl,
+                pg_catalog.acldefault('n', namespace.nspowner)
+            )
+        ) expanded
+        where namespace.oid = %s
+          and expanded.grantee = 0
+          and expanded.privilege_type = 'CREATE'
+        limit 1
+        """,
+        (namespace_oid,),
+    )
+    if cur.fetchone() is not None:
+        raise MigrationRunnerError(
+            "PUBLIC possui CREATE no schema public; bootstrap do ledger bloqueado"
+        )
+
+    for role_name in _protected_ledger_roles(cur):
+        cur.execute(
+            "select pg_catalog.has_schema_privilege(%s, %s, 'CREATE')",
+            (role_name, namespace_oid),
+        )
+        if cur.fetchone()[0]:
+            raise MigrationRunnerError(
+                "papel da aplicação possui CREATE no schema public; "
+                "bootstrap do ledger bloqueado"
+            )
+
+    cur.execute(
+        """
+        select 1
+        from pg_catalog.pg_default_acl defaults
+        cross join lateral pg_catalog.aclexplode(defaults.defaclacl) expanded
+        where defaults.defaclrole = %s
+          and defaults.defaclobjtype = 'r'
+          and defaults.defaclnamespace in (0, %s)
+          and expanded.grantee <> %s
+        limit 1
+        """,
+        (executor_oid, namespace_oid, executor_oid),
+    )
+    if cur.fetchone() is not None:
+        raise MigrationRunnerError(
+            "default privileges de tabelas concedem acesso fora do owner; "
+            "bootstrap do ledger bloqueado"
+        )
+    return int(executor_oid), int(namespace_oid)
+
+
+def _protected_ledger_roles(cur) -> tuple[str, ...]:
+    """Inclui agent_runtime somente quando o papel opcional existe."""
+    cur.execute(
+        "select rolname from pg_catalog.pg_roles where rolname = any(%s)",
+        (list(OPTIONAL_LEDGER_ROLES),),
+    )
+    optional = tuple(sorted(str(row[0]) for row in cur.fetchall()))
+    return (*REQUIRED_LEDGER_ROLES, *optional)
+
+
+def _named_ledger_relation(cur) -> int | None:
+    """Resolve qualquer objeto relacional homônimo sem aceitar relkind por engano."""
+    cur.execute(
+        """
+        select c.oid
+        from pg_catalog.pg_class c
+        join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+        where n.nspname = %s
+          and c.relname = %s
+        """,
+        (LEDGER_SCHEMA, LEDGER_NAME),
+    )
+    rows = cur.fetchall()
+    if len(rows) > 1:
+        raise MigrationRunnerError(
+            "há objetos homônimos inesperados; bootstrap do ledger bloqueado"
+        )
+    return int(rows[0][0]) if rows else None
+
+
+def _validate_no_standalone_ledger_type(cur, relation_oid: int | None) -> None:
+    """Recusa enum/domínio/composite solto que impediria CREATE TABLE seguro."""
+    cur.execute(
+        """
+        select t.typtype, t.typrelid
+        from pg_catalog.pg_type t
+        join pg_catalog.pg_namespace n on n.oid = t.typnamespace
+        where n.nspname = %s
+          and t.typname = %s
+        """,
+        (LEDGER_SCHEMA, LEDGER_NAME),
+    )
+    rows = tuple((str(kind), int(type_relation)) for kind, type_relation in cur.fetchall())
+    expected = () if relation_oid is None else (("c", relation_oid),)
+    if rows != expected:
+        raise MigrationRunnerError(
+            "há tipo homônimo ou metadata relacional divergente; "
+            "bootstrap do ledger bloqueado"
+        )
+
+
+def _validate_ledger_physical_shape(
+    cur, relation_oid: int, executor_oid: int, *, require_empty: bool = True
+) -> tuple[str, ...]:
+    """Exige a forma física mínima e exata do ledger criado pelo bootstrap."""
+    cur.execute(
+        """
+        select c.relkind, c.relpersistence, c.relrowsecurity,
+               c.relforcerowsecurity, c.relowner, c.reloptions,
+               c.relreplident, access_method.amname
+        from pg_catalog.pg_class c
+        left join pg_catalog.pg_am access_method on access_method.oid = c.relam
+        where c.oid = %s
+        """,
+        (relation_oid,),
+    )
+    row = cur.fetchone()
+    if row is None:
+        raise MigrationRunnerError("ledger desapareceu durante o bootstrap")
+    (
+        relation_kind,
+        persistence,
+        rls_enabled,
+        force_rls,
+        owner_oid,
+        relation_options,
+        replica_identity,
+        access_method,
+    ) = row
+    if (
+        relation_kind != "r"
+        or persistence != "p"
+        or not rls_enabled
+        or force_rls
+        or int(owner_oid) != executor_oid
+        or relation_options is not None
+        or replica_identity != "d"
+        or access_method != "heap"
+    ):
+        raise MigrationRunnerError(
+            "objeto homônimo ou contrato físico do ledger é incompatível"
+        )
+
+    columns = _validate_ledger_schema(cur, relation_oid)
+    cur.execute(
+        """
+        select con.contype, con.convalidated, con.condeferrable, con.condeferred,
+               array(
+                   select attribute.attname
+                   from unnest(con.conkey) with ordinality key(attnum, position)
+                   join pg_catalog.pg_attribute attribute
+                     on attribute.attrelid = con.conrelid
+                    and attribute.attnum = key.attnum
+                   order by key.position
+               )
+        from pg_catalog.pg_constraint con
+        where con.conrelid = %s
+        order by con.oid
+        """,
+        (relation_oid,),
+    )
+    constraints = tuple(
+        (
+            str(kind),
+            bool(validated),
+            bool(deferrable),
+            bool(deferred),
+            tuple(keys),
+        )
+        for kind, validated, deferrable, deferred, keys in cur.fetchall()
+    )
+    if constraints != (("p", True, False, False, ("name",)),):
+        raise MigrationRunnerError("constraints do ledger divergem do contrato exato")
+
+    cur.execute(
+        """
+        select index.indisprimary, index.indisunique, index.indisvalid,
+               index.indisready, index.indislive, index.indisexclusion,
+               index.indimmediate, index.indpred is null,
+               index.indexprs is null, index.indnkeyatts, index.indnatts,
+               access_method.amname,
+               array(
+                   select attribute.attname
+                   from unnest(index.indkey) with ordinality key(attnum, position)
+                   join pg_catalog.pg_attribute attribute
+                     on attribute.attrelid = index.indrelid
+                    and attribute.attnum = key.attnum
+                   order by key.position
+               ),
+               array(
+                   select operator_class.opcname
+                   from unnest(index.indclass::oid[]) with ordinality
+                        classes(opclass_oid, position)
+                   join pg_catalog.pg_opclass operator_class
+                     on operator_class.oid = classes.opclass_oid
+                   order by classes.position
+               ),
+               array(
+                   select collation_entry.collname
+                   from unnest(index.indcollation::oid[]) with ordinality
+                        collations(collation_oid, position)
+                   join pg_catalog.pg_collation collation_entry
+                     on collation_entry.oid = collations.collation_oid
+                   order by collations.position
+               ),
+               index.indoption::smallint[]
+        from pg_catalog.pg_index index
+        join pg_catalog.pg_class index_relation
+          on index_relation.oid = index.indexrelid
+        join pg_catalog.pg_am access_method
+          on access_method.oid = index_relation.relam
+        where index.indrelid = %s
+        order by index.indexrelid
+        """,
+        (relation_oid,),
+    )
+    indexes = tuple(cur.fetchall())
+    if len(indexes) != 1:
+        raise MigrationRunnerError("índices do ledger divergem do contrato exato")
+    index = indexes[0]
+    if (
+        tuple(bool(value) for value in index[:9])
+        != (True, True, True, True, True, False, True, True, True)
+        or int(index[9]) != 1
+        or int(index[10]) != 1
+        or str(index[11]) != "btree"
+        or tuple(index[12]) != ("name",)
+        or tuple(index[13]) != ("text_ops",)
+        or tuple(index[14]) != ("default",)
+        or tuple(index[15]) != (0,)
+    ):
+        raise MigrationRunnerError("índice primário do ledger diverge do contrato exato")
+
+    cur.execute(
+        """
+        select
+          (select count(*) from pg_catalog.pg_trigger
+           where tgrelid = %s and not tgisinternal),
+          (select count(*) from pg_catalog.pg_rewrite
+           where ev_class = %s),
+          (select count(*) from pg_catalog.pg_inherits
+           where inhrelid = %s or inhparent = %s)
+        """,
+        (relation_oid, relation_oid, relation_oid, relation_oid),
+    )
+    if tuple(int(value) for value in cur.fetchone()) != (0, 0, 0):
+        raise MigrationRunnerError(
+            "ledger contém trigger, rule, herança ou partição inesperada"
+        )
+
+    if require_empty:
+        cur.execute(f"select count(*) from {BOOKKEEPING_TABLE}")
+        if int(cur.fetchone()[0]) != 0:
+            raise MigrationRunnerError(
+                "bootstrap aceita somente o ledger vazio; reconciliação é outro gate"
+            )
+    return columns
+
+
+def _validate_ledger_no_user_trigger_or_rule(cur, relation_oid: int) -> None:
+    cur.execute(
+        """
+        select
+          (select count(*) from pg_catalog.pg_trigger
+           where tgrelid = %s and not tgisinternal),
+          (select count(*) from pg_catalog.pg_rewrite
+           where ev_class = %s)
+        """,
+        (relation_oid, relation_oid),
+    )
+    if tuple(int(value) for value in cur.fetchone()) != (0, 0):
+        raise MigrationRunnerError("ledger contém trigger ou rule inesperada")
+
+
+def _validate_bootstrap_owner_only_acl(
+    cur, relation_oid: int, executor_oid: int, columns: tuple[str, ...]
+) -> None:
+    """Prova ACL direta owner-only e nenhum acesso efetivo público/server-side."""
+    server_version = _server_version_number(cur)
+    cur.execute(
+        """
+        select expanded.grantor, expanded.grantee,
+               expanded.privilege_type, expanded.is_grantable
+        from pg_catalog.pg_class relation
+        cross join lateral pg_catalog.aclexplode(
+            coalesce(
+                relation.relacl,
+                pg_catalog.acldefault('r', relation.relowner)
+            )
+        ) expanded
+        where relation.oid = %s
+        order by expanded.grantee, expanded.privilege_type
+        """,
+        (relation_oid,),
+    )
+    actual_acl = {
+        (int(grantor), int(grantee), str(privilege).upper(), bool(grantable))
+        for grantor, grantee, privilege, grantable in cur.fetchall()
+    }
+    expected_acl = {
+        (executor_oid, executor_oid, privilege, False)
+        for privilege in _table_privileges(server_version)
+    }
+    if actual_acl != expected_acl:
+        raise MigrationRunnerError("ACL do ledger não é estritamente owner-only")
+
+    cur.execute(
+        """
+        select 1
+        from pg_catalog.pg_attribute attribute
+        cross join lateral pg_catalog.aclexplode(attribute.attacl) expanded
+        where attribute.attrelid = %s
+          and attribute.attnum > 0
+          and not attribute.attisdropped
+        limit 1
+        """,
+        (relation_oid,),
+    )
+    if cur.fetchone() is not None:
+        raise MigrationRunnerError("ACL de coluna do ledger não é owner-only")
+
+    table_privileges = _table_privileges(server_version)
+    for role_name in _protected_ledger_roles(cur):
+        effective = _snapshot_ledger_role_privileges(
+            cur,
+            role_name,
+            relation_oid,
+            columns,
+            table_privileges,
+        )
+        if any(effective.values()):
+            raise MigrationRunnerError(
+                "papel público ou service_role mantém privilégio efetivo no ledger"
+            )
+
+        cur.execute(
+            """
+            with recursive reachable(role_oid) as (
+                select oid
+                from pg_catalog.pg_roles
+                where rolname = %s
+
+                union
+
+                select membership.roleid
+                from reachable
+                join pg_catalog.pg_auth_members membership
+                  on membership.member = reachable.role_oid
+                where membership.inherit_option
+                   or membership.set_option
+                   or membership.admin_option
+            )
+            select 1 from reachable where role_oid = %s limit 1
+            """,
+            (role_name, executor_oid),
+        )
+        if cur.fetchone() is not None:
+            raise MigrationRunnerError(
+                "papel público ou service_role alcança o owner por membership"
+            )
+
+
+def _validate_bootstrap_final_contract(
+    cur, relation_oid: int, executor_oid: int
+) -> None:
+    columns = _validate_ledger_physical_shape(cur, relation_oid, executor_oid)
+    if _ledger_deny_policy_state(cur, relation_oid) != (1, 1):
+        raise MigrationRunnerError("policy deny do ledger diverge do contrato exato")
+    _validate_ledger_no_user_trigger_or_rule(cur, relation_oid)
+    _validate_bootstrap_owner_only_acl(cur, relation_oid, executor_oid, columns)
+    _validate_ledger_security(cur, relation_oid, columns, rls_enabled=True)
+
+
 def _validate_reachable_ledger_roles(
     cur,
     principal: str,
@@ -875,7 +1327,10 @@ def _validate_ledger_security(cur, relation_oid: int, columns: tuple[str, ...], 
     if relation_owner is None:
         raise MigrationRunnerError("ledger ausente durante a validação de segurança")
     table_privileges = _table_privileges(server_version)
-    for role in ("anon", "authenticated"):
+    optional_roles = tuple(
+        role for role in _protected_ledger_roles(cur) if role in OPTIONAL_LEDGER_ROLES
+    )
+    for role in ("anon", "authenticated", *optional_roles):
         _validate_reachable_ledger_roles(
             cur,
             role,
@@ -886,41 +1341,120 @@ def _validate_ledger_security(cur, relation_oid: int, columns: tuple[str, ...], 
         )
 
 
-def inspect_ledger(
-    cur, catalog_names: tuple[str, ...], *, require_generic_consistency: bool
-) -> LedgerState:
+def _validate_ledger_executor_owner(cur, relation_oid: int) -> int:
+    cur.execute(
+        """
+        select current_user = session_user,
+               relation.relowner = executor.oid,
+               not relation.relforcerowsecurity,
+               executor.oid
+        from pg_catalog.pg_class relation
+        join pg_catalog.pg_roles executor on executor.rolname = current_user
+        where relation.oid = %s
+        """,
+        (relation_oid,),
+    )
+    row = cur.fetchone()
+    if row is None or not all(bool(value) for value in row[:3]):
+        raise MigrationRunnerError(
+            "executor, owner ou modo FORCE RLS diverge do contrato do ledger"
+        )
+    return int(row[3])
+
+
+def _validate_general_ledger_acl(cur, relation_oid: int) -> None:
+    """No legado, somente owner e service_role podem constar na ACL direta."""
+    cur.execute(
+        """
+        select relation.relowner, service.oid
+        from pg_catalog.pg_class relation
+        join pg_catalog.pg_roles service on service.rolname = 'service_role'
+        where relation.oid = %s
+        """,
+        (relation_oid,),
+    )
+    row = cur.fetchone()
+    if row is None:
+        raise MigrationRunnerError("ledger ausente durante validação de ACL")
+    allowed_grantees = {int(row[0]), int(row[1])}
+    cur.execute(
+        """
+        select expanded.grantee
+        from pg_catalog.pg_class relation
+        cross join lateral pg_catalog.aclexplode(
+            coalesce(
+                relation.relacl,
+                pg_catalog.acldefault('r', relation.relowner)
+            )
+        ) expanded
+        where relation.oid = %s
+
+        union all
+
+        select expanded.grantee
+        from pg_catalog.pg_attribute attribute
+        cross join lateral pg_catalog.aclexplode(attribute.attacl) expanded
+        where attribute.attrelid = %s
+          and attribute.attnum > 0
+          and not attribute.attisdropped
+        """,
+        (relation_oid, relation_oid),
+    )
+    if any(int(grantee) not in allowed_grantees for (grantee,) in cur.fetchall()):
+        raise MigrationRunnerError("ACL do ledger concede acesso a papel inesperado")
+
+
+def inspect_ledger(cur, catalog_names: tuple[str, ...]) -> LedgerState:
     """Valida estrutura e segurança do ledger sem criar ou alterar nada."""
     relation_oid, rls_enabled = _ledger_relation(cur)
-    columns = _validate_ledger_schema(cur, relation_oid)
+    executor_oid = _validate_ledger_executor_owner(cur, relation_oid)
+    columns = _validate_ledger_physical_shape(
+        cur, relation_oid, executor_oid, require_empty=False
+    )
+    _validate_general_ledger_acl(cur, relation_oid)
     _validate_ledger_security(cur, relation_oid, columns, rls_enabled)
+    if _ledger_deny_policy_state(cur, relation_oid) != (1, 1):
+        raise MigrationRunnerError(
+            "policy deny do ledger diverge do contrato seguro"
+        )
+    _validate_ledger_no_user_trigger_or_rule(cur, relation_oid)
 
-    applied_names = _validate_ledger_catalog_entries(cur, catalog_names)
+    applied_rows = _read_ledger_applied_rows(cur)
+    applied_names = tuple(name for name, _applied_at in applied_rows)
+    unknown = sorted(set(applied_names) - set(catalog_names))
+    if unknown:
+        raise MigrationRunnerError(
+            "ledger contém migration desconhecida; abra o gate separado de reconciliação"
+        )
+    if not applied_names:
+        raise MigrationRunnerError(
+            "ledger vazio não comprova histórico; reconciliação humana está bloqueada"
+        )
 
-    if require_generic_consistency:
-        expected_prefix = catalog_names[: len(applied_names)]
-        if applied_names != expected_prefix:
-            raise MigrationRunnerError(
-                "ordem do ledger diverge do catálogo; aplicação genérica está bloqueada"
-            )
-        pending_count = len(catalog_names) - len(applied_names)
-        if pending_count > 1:
-            raise MigrationRunnerError(
-                "há múltiplas migrations pendentes; aplicação genérica está bloqueada"
-            )
+    expected_prefix = catalog_names[: len(applied_names)]
+    if applied_names != expected_prefix:
+        raise MigrationRunnerError(
+            "ordem do ledger diverge do catálogo; aplicação genérica está bloqueada"
+        )
+    pending_count = len(catalog_names) - len(applied_names)
+    if pending_count > 1:
+        raise MigrationRunnerError(
+            "há múltiplas migrations pendentes; aplicação genérica está bloqueada"
+        )
 
-    return LedgerState(relation_oid=relation_oid, applied_names=applied_names)
+    return LedgerState(
+        relation_oid=relation_oid,
+        applied_names=applied_names,
+        applied_at_values=tuple(applied_at for _name, applied_at in applied_rows),
+    )
 
 
 def _inspect_ledger_fail_closed(
-    cur, catalog_names: tuple[str, ...], *, require_generic_consistency: bool
+    cur, catalog_names: tuple[str, ...]
 ) -> LedgerState:
     """Converte erro inesperado de catálogo em recusa segura, sem detalhes."""
     try:
-        return inspect_ledger(
-            cur,
-            catalog_names,
-            require_generic_consistency=require_generic_consistency,
-        )
+        return inspect_ledger(cur, catalog_names)
     except MigrationRunnerError:
         raise
     except Exception as exc:  # noqa: BLE001 - catálogo inesperado é bloqueio
@@ -975,9 +1509,19 @@ def cmd_status(args: argparse.Namespace) -> int:
     conn = _connect(url)
     try:
         with conn.cursor() as cur:
-            state = _inspect_ledger_fail_closed(
-                cur, catalog_names, require_generic_consistency=True
+            cur.execute(
+                "set transaction isolation level repeatable read read only"
             )
+            cur.execute("set local search_path = pg_catalog")
+            cur.execute(
+                "select pg_catalog.set_config('lock_timeout', %s, true)",
+                (LEDGER_LOCK_TIMEOUT,),
+            )
+            cur.execute(
+                "select pg_catalog.set_config('statement_timeout', %s, true)",
+                (LEDGER_STATEMENT_TIMEOUT,),
+            )
+            state = _inspect_ledger_fail_closed(cur, catalog_names)
         _rollback_quietly(conn)
     except MigrationRunnerError as error:
         _rollback_quietly(conn)
@@ -1028,6 +1572,15 @@ def cmd_harden_ledger(args: argparse.Namespace) -> int:
             # Deve ser a primeira instrução da transação para cobrir leitura,
             # lock, RLS, policy, ACL e a verificação pós-condição no mesmo commit.
             cur.execute("set transaction isolation level serializable")
+            cur.execute("set local search_path = pg_catalog")
+            cur.execute(
+                "select pg_catalog.set_config('lock_timeout', %s, true)",
+                (LEDGER_LOCK_TIMEOUT,),
+            )
+            cur.execute(
+                "select pg_catalog.set_config('statement_timeout', %s, true)",
+                (LEDGER_STATEMENT_TIMEOUT,),
+            )
             _ledger_relation(cur)
             cur.execute(f"lock table {BOOKKEEPING_TABLE} in access exclusive mode")
 
@@ -1099,6 +1652,124 @@ def cmd_harden_ledger(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_bootstrap_ledger(args: argparse.Namespace) -> int:
+    """Cria somente o ledger vazio owner-only, sem reconciliar histórico."""
+    if getattr(args, "confirm", None) != LEDGER_BOOTSTRAP_CONFIRMATION:
+        print(
+            "ERRO: bootstrap do ledger requer "
+            f"--confirm {LEDGER_BOOTSTRAP_CONFIRMATION}.",
+            file=sys.stderr,
+        )
+        return 4
+
+    url = resolve_database_url(args)
+    if not url:
+        print(
+            f"ERRO: injete {DATABASE_URL_ENV} no ambiente do processo.",
+            file=sys.stderr,
+        )
+        return 2
+
+    conn = _connect(url)
+    already_bootstrapped = False
+    try:
+        with conn.cursor() as cur:
+            cur.execute("set transaction isolation level serializable")
+            cur.execute("set local search_path = pg_catalog")
+            cur.execute(
+                "select pg_catalog.set_config('lock_timeout', %s, true)",
+                (LEDGER_LOCK_TIMEOUT,),
+            )
+            cur.execute(
+                "select pg_catalog.set_config('statement_timeout', %s, true)",
+                (LEDGER_STATEMENT_TIMEOUT,),
+            )
+            cur.execute(
+                "select pg_catalog.pg_advisory_xact_lock(%s, %s)",
+                LEDGER_BOOTSTRAP_LOCK_KEYS,
+            )
+            executor_oid, _namespace_oid = _bootstrap_executor_and_schema(cur)
+            relation_oid = _named_ledger_relation(cur)
+            _validate_no_standalone_ledger_type(cur, relation_oid)
+
+            if relation_oid is not None:
+                _validate_bootstrap_final_contract(cur, relation_oid, executor_oid)
+                already_bootstrapped = True
+            else:
+                cur.execute(
+                    f"""
+                    create table {BOOKKEEPING_TABLE} (
+                        name text not null,
+                        applied_at timestamp with time zone not null
+                            default pg_catalog.now(),
+                        primary key (name)
+                    )
+                    """
+                )
+                relation_oid = _named_ledger_relation(cur)
+                if relation_oid is None:
+                    raise MigrationRunnerError(
+                        "ledger não apareceu após a criação; transação revertida"
+                    )
+                _validate_no_standalone_ledger_type(cur, relation_oid)
+                cur.execute(
+                    f"alter table {BOOKKEEPING_TABLE} enable row level security"
+                )
+                _ensure_ledger_deny_policy(cur, relation_oid)
+                cur.execute(
+                    f"revoke all privileges on table {BOOKKEEPING_TABLE} "
+                    "from public, anon, authenticated, service_role"
+                )
+                protected_roles = _protected_ledger_roles(cur)
+                if "agent_runtime" in protected_roles:
+                    cur.execute(
+                        f"revoke all privileges on table {BOOKKEEPING_TABLE} "
+                        "from agent_runtime"
+                    )
+                for column in ("name", "applied_at"):
+                    cur.execute(
+                        f"revoke select ({column}), insert ({column}), "
+                        f"update ({column}), references ({column}) "
+                        f"on table {BOOKKEEPING_TABLE} "
+                        "from public, anon, authenticated, service_role"
+                    )
+                    if "agent_runtime" in protected_roles:
+                        cur.execute(
+                            f"revoke select ({column}), insert ({column}), "
+                            f"update ({column}), references ({column}) "
+                            f"on table {BOOKKEEPING_TABLE} from agent_runtime"
+                        )
+                _validate_bootstrap_final_contract(cur, relation_oid, executor_oid)
+
+        if already_bootstrapped:
+            _rollback_quietly(conn)
+        else:
+            conn.commit()
+    except MigrationRunnerError as error:
+        _rollback_quietly(conn)
+        return _print_abort(error)
+    except Exception:  # noqa: BLE001 - não expor SQL, DSN ou credenciais
+        _rollback_quietly(conn)
+        print(
+            "ERRO: bootstrap do ledger falhou e a transação foi revertida.",
+            file=sys.stderr,
+        )
+        return MigrationExecutionError.exit_code
+    finally:
+        conn.close()
+
+    if already_bootstrapped:
+        print(
+            "Ledger vazio já atende ao contrato owner-only; nenhuma mutação foi feita."
+        )
+    else:
+        print(
+            "OK: ledger vazio criado atomicamente com RLS, policy deny e ACL "
+            "owner-only. Nenhuma migration foi aplicada ou registrada."
+        )
+    return 0
+
+
 def _has_single_file_selection(args: argparse.Namespace) -> bool:
     return all(
         isinstance(getattr(args, attribute, None), str)
@@ -1146,6 +1817,15 @@ def cmd_apply(args: argparse.Namespace) -> int:
             # declara SERIALIZABLE; o wrapper foi removido em memória para que
             # o mesmo isolamento cubra também a validação e o insert no ledger.
             cur.execute("set transaction isolation level serializable")
+            cur.execute("set local search_path = pg_catalog")
+            cur.execute(
+                "select pg_catalog.set_config('lock_timeout', %s, true)",
+                (LEDGER_LOCK_TIMEOUT,),
+            )
+            cur.execute(
+                "select pg_catalog.set_config('statement_timeout', %s, true)",
+                (LEDGER_STATEMENT_TIMEOUT,),
+            )
             # Confirma existência antes de LOCK TABLE; nenhum caminho cria o
             # ledger. Reinspecionamos depois do lock para fechar TOCTOU.
             try:
@@ -1153,9 +1833,7 @@ def cmd_apply(args: argparse.Namespace) -> int:
                 cur.execute(
                     f"lock table {BOOKKEEPING_TABLE} in share row exclusive mode"
                 )
-                state = _inspect_ledger_fail_closed(
-                    cur, catalog_names, require_generic_consistency=False
-                )
+                state = _inspect_ledger_fail_closed(cur, catalog_names)
             except MigrationRunnerError:
                 raise
             except Exception as exc:  # noqa: BLE001 - bloqueio seguro do ledger
@@ -1171,10 +1849,38 @@ def cmd_apply(args: argparse.Namespace) -> int:
                 return 0
 
             cur.execute(sql)
+            cur.execute("set local search_path = pg_catalog")
             cur.execute(
-                f"insert into {BOOKKEEPING_TABLE}(name) values (%s)",
+                "select pg_catalog.set_config('lock_timeout', %s, true)",
+                (LEDGER_LOCK_TIMEOUT,),
+            )
+            cur.execute(
+                "select pg_catalog.set_config('statement_timeout', %s, true)",
+                (LEDGER_STATEMENT_TIMEOUT,),
+            )
+            state_before_insert = _inspect_ledger_fail_closed(cur, catalog_names)
+            if state_before_insert != state:
+                raise MigrationRunnerError(
+                    "migration alterou o ledger antes do registro autorizado"
+                )
+            cur.execute(
+                f"insert into {BOOKKEEPING_TABLE}(name) values (%s) returning name",
                 (selected.name,),
             )
+            returned = tuple(str(row[0]) for row in cur.fetchall())
+            if returned != (selected.name,):
+                raise MigrationRunnerError(
+                    "insert no ledger não retornou exatamente a migration selecionada"
+                )
+            final_state = _inspect_ledger_fail_closed(cur, catalog_names)
+            expected_names = (*state.applied_names, selected.name)
+            if (
+                final_state.relation_oid != state.relation_oid
+                or final_state.applied_names != expected_names
+            ):
+                raise MigrationRunnerError(
+                    "pós-condição do ledger diverge do prefixo autorizado"
+                )
         conn.commit()
     except MigrationRunnerError as error:
         _rollback_quietly(conn)
@@ -1201,8 +1907,8 @@ def build_parser() -> argparse.ArgumentParser:
         prog="apply_migrations.py",
         allow_abbrev=False,
         description=(
-            "Executor fail-closed de uma migration aprovada. Não cria ledger e "
-            "não aplica pendências automaticamente."
+            "Executor fail-closed de uma migration aprovada. O bootstrap cria "
+            "somente ledger vazio e não aplica pendências automaticamente."
         )
     )
     sub = parser.add_subparsers(
@@ -1228,6 +1934,20 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         type=_parse_hardening_confirmation,
         help=f"confirmação explícita; use exatamente {LEDGER_HARDEN_CONFIRMATION}",
+    )
+    p_bootstrap = sub.add_parser(
+        "bootstrap-ledger",
+        help="cria somente ledger vazio owner-only após confirmação explícita",
+        allow_abbrev=False,
+    )
+    p_bootstrap.add_argument(
+        "--confirm",
+        default=None,
+        type=_parse_bootstrap_confirmation,
+        help=(
+            "confirmação explícita; use exatamente "
+            f"{LEDGER_BOOTSTRAP_CONFIRMATION}"
+        ),
     )
     p_apply = sub.add_parser(
         "apply",
@@ -1265,6 +1985,7 @@ def main(argv: list[str]) -> int:
         "list": cmd_list,
         "status": cmd_status,
         "harden-ledger": cmd_harden_ledger,
+        "bootstrap-ledger": cmd_bootstrap_ledger,
         "apply": cmd_apply,
     }
     return handlers[args.command](args)

@@ -1,46 +1,81 @@
 # Migrations
 
-SQL aplicado **manualmente** no Supabase (não há runner automático). A ordem de
-aplicação é a **ordem alfabética dos nomes de arquivo** — por isso o nome importa.
+Este projeto usa migrations SQL imperativas e versionadas. Nenhuma migration é
+aplicada automaticamente por merge, deploy ou inicialização do backend.
 
 ## Convenção de nomes
 
-- **Histórico (`0001`–`0017`):** numeração sequencial, **congelada**. Não renomear,
-  não reutilizar números. Já aplicadas em produção.
-- **Novas migrations:** usar **timestamp UTC** — `AAAAMMDD_HHMMSS_slug.sql`
-  (ex.: `20260622_143000_add_coluna_x.sql`).
+- Histórico `0001` a `0017`: numeração congelada, sem renomear ou reutilizar.
+- Novas migrations: timestamp UTC no formato
+  `AAAAMMDD_HHMMSS_slug.sql`.
 
-### Por que timestamp em vez de `0018`, `0019`…
-
-Branches paralelas escolhiam o "próximo número" ao mesmo tempo e **colidiam**
-(dois `0008`, dois `0012`…), exigindo renumeração manual no merge. O timestamp é
-único por construção: cada branch gera um nome diferente, sem coordenação.
-
-Lexicograficamente, `20260622_…` ordena **depois** de `0001`–`0017`, então a ordem
-de aplicação fica: todo o histórico numerado e, em seguida, as novas em ordem
-cronológica. Sem buraco, sem colisão.
-
-## Como criar uma nova migration
+Para criar o arquivo:
 
 ```bash
-# a partir de backend/
+cd backend
 python scripts/new_migration.py "add coluna x em pessoas"
-# cria backend/migrations/<timestamp>_add_coluna_x_em_pessoas.sql
 ```
 
-Ou crie o arquivo à mão seguindo o formato `AAAAMMDD_HHMMSS_slug.sql`.
+O nome ordena o catálogo local, mas não prova que o arquivo foi aplicado em
+qualquer ambiente. O histórico nativo do Supabase
+`supabase_migrations.schema_migrations` e o ledger de controle do runner
+`public.schema_migrations` são objetos diferentes e nunca são reconciliados por
+inferência.
 
-## Como aplicar
+## Executor fail-closed
 
-Aplicar **em ordem de nome de arquivo**, no SQL editor do Supabase (ou via MCP),
-as que ainda não foram aplicadas. Como não há controle automático, registre o que
-já subiu (ex.: na memória do projeto / nas notas de deploy).
+`scripts/apply_migrations.py` possui operações distintas:
 
-## Regra do `ALTER TYPE ... ADD VALUE`
+- `list`: lista o catálogo local sem conexão;
+- `status`: consulta somente um ledger público já seguro e exige prefixo íntegro
+  com, no máximo, uma migration pendente;
+- `harden-ledger`: endurece um ledger público histórico já existente, sem criar
+  ou preencher entradas;
+- `bootstrap-ledger`: cria somente o ledger público vazio no contrato
+  owner-only final, sem ler ou copiar histórico;
+- `apply`: aplica um único arquivo previamente aprovado, com basename, SHA-256
+  e confirmação literal, somente quando o ledger já forma o prefixo seguro.
 
-No PostgreSQL, `ALTER TYPE <enum> ADD VALUE` **não pode** ser referenciado na mesma
-transação em que é adicionado (e em PG<12 nem roda dentro de `BEGIN/COMMIT`). Por
-isso essas migrations **não abrem transação** (cada statement auto-commita) e o
-*seed*/backfill que **usa** o novo valor vai num arquivo separado, posterior.
-Veja `0008_add_operador_role.sql` e `0017_app_user_status_revogado.sql` como
-referência.
+O destino é aceito exclusivamente pela variável de processo
+`M06_MIGRATION_DATABASE_URL`. A CLI não aceita DSN em argumento e nunca deve
+receber URL, senha, token ou host em conversa, documentação ou log.
+
+O bootstrap exige PostgreSQL 17 e confirmação explícita:
+
+```bash
+cd backend
+: "${M06_MIGRATION_DATABASE_URL:?injete a URL aprovada pelo canal secreto}"
+python scripts/apply_migrations.py bootstrap-ledger \
+  --confirm BOOTSTRAP_LEDGER
+```
+
+Esse comando não descobre o catálogo local, não consulta ou altera
+`supabase_migrations`, não registra migrations e não autoriza `status` ou
+`apply`. Em um ledger vazio com múltiplos arquivos locais, ambos continuam
+bloqueados.
+
+## Estado operacional atual
+
+`bootstrap-ledger` foi implementado e comprovado somente offline, ainda não aplicado, sobre a base
+`b43ad92028374fa6763ef10f5eb7a379afd3e7a2`: 42/42 testes unitários, 87/87 em
+PostgreSQL 17-alpine descartável em duas execuções independentes e 87/87 em
+Supabase PG17 17.6.1.159 descartável em duas execuções independentes, com
+revisão de segurança `GO`. A suíte RLS completa, em execução serial limpa no
+PostgreSQL 17 descartável, passou em 326/326, com 3803 deselecionados e 2
+warnings preexistentes, em 162.77s. A suíte offline integral foi interrompida
+após 5 min sem saída ou progresso; o resultado é `INCONCLUSIVO`, não verde nem
+falha, e o workflow Backend Tests da PR permanece gate.
+
+Nenhuma execução ocorreu em DEV ou PROD. Não use `bootstrap-ledger`,
+`harden-ledger`, `status`, `apply`, SQL Editor, `apply_migration`, `db push` ou
+MCP para preencher, reaplicar ou reconciliar histórico em ambiente
+compartilhado. O próximo gate é uma PR offline e versionada de reconciliação
+histórica humana, sem DML e sem inferência.
+
+## Transações especiais
+
+Algumas migrations históricas com `ALTER TYPE ... ADD VALUE` possuem contrato
+transacional próprio. O executor valida os bytes e recusa controles de
+transação que possam quebrar a atomicidade. Não remova wrappers ou divida um
+arquivo para fazê-lo passar; qualquer incompatibilidade exige revisão da
+migration e um gate separado.

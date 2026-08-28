@@ -1047,7 +1047,7 @@ def test_d2b2b2_template_has_no_runtime_or_migration_consumer() -> None:
                 assert token not in content, f"runtime consumer in {path}"
 
 
-def test_d2b2b2_canonical_docs_keep_one_offline_ledger_bootstrap_gate() -> None:
+def test_d2b2b2_canonical_docs_record_offline_bootstrap_and_one_reconciliation_gate() -> None:
     canonical_indexes = {
         REPO_ROOT / "docs" / "ai" / "AI-BOOTSTRAP.md",
         REPO_ROOT / "docs" / "ai" / "PRD-COVERAGE.md",
@@ -1083,36 +1083,50 @@ def test_d2b2b2_canonical_docs_keep_one_offline_ledger_bootstrap_gate() -> None:
         content = path.read_text(encoding="utf-8")
         normalized = _normalized_prose(content)
         assert "15deaf88fd4cab5b4bebdd1435a81c8b33c2b159" in content
+        assert "b43ad92028374fa6763ef10f5eb7a379afd3e7a2" in content
         assert "preflight prod somente leitura" in normalized
         assert "`m06_migration_database_url`" in normalized
         assert "`database_url`" in normalized
         assert "public.schema_migrations" in normalized
         assert "`bootstrap-ledger`" in normalized
-        assert "postgresql 17 descartavel" in normalized
+        assert "`harden-ledger`" in normalized
+        assert "bootstrap_ledger" in normalized
         assert "ledger vazio" in normalized
-        assert "sem reconciliacao" in normalized
+        assert "owner-only" in normalized
+        assert "42/42" in normalized
+        assert "87/87" in normalized
+        assert "postgresql 17-alpine" in normalized
+        assert "supabase pg17" in normalized
+        assert "17.6.1.159" in normalized
+        assert normalized.count("duas execucoes independentes") >= 2
+        assert "seguranca" in normalized
+        assert "`go`" in normalized
+        assert "326/326" in normalized
+        assert "3803 deselecionados" in normalized
+        assert "2 warnings preexistentes" in normalized
+        assert "162.77s" in normalized
+        assert "suite offline integral" in normalized
+        assert "interrompida apos 5 min sem saida ou progresso" in normalized
+        assert "`inconclusivo`" in normalized
+        assert "nao verde nem falha" in normalized
+        assert "backend tests da pr permanece gate" in normalized
+        assert "somente offline" in normalized
+        assert "nao acessou dev ou prod" in normalized
+        assert "nao aplica" in normalized
+        assert "registra migration" in normalized
+        assert "nao" in normalized and "supabase_migrations" in normalized
         assert "reconciliacao historica" in normalized
-        assert "missao separada" in normalized
+        assert "pr versionada" in normalized
+        assert "pacote sanitizado" in normalized
+        assert "verificador somente leitura" in normalized
+        assert "sem dml" in normalized
+        assert "sem inferir migrations aplicadas" in normalized
         assert "sem acessar dev ou prod" in normalized
-        assert "`apply` e `status`" in normalized
-        assert "tecnicamente bloqueados" in normalized
+        assert "`status` e `apply`" in normalized
+        assert "bloquead" in normalized
         assert "prefixo integro do catalogo" in normalized
         assert "no maximo uma migration pendente" in normalized
-        for bootstrap_control in (
-            "colunas",
-            "chave primaria",
-            "default",
-            "rls",
-            "policy deny",
-            "acl",
-            "ownership",
-            "reaplicacao",
-            "sem mutacao",
-            "homonim",
-            "rollback",
-            "testes adversariais",
-        ):
-            assert bootstrap_control in normalized
+        assert "nao cria, altera ou preenche ledger" in normalized
         for blocker in (
             "painel do tenant",
             "aprovacoes",
@@ -1136,3 +1150,78 @@ def test_d2b2b2_canonical_docs_keep_one_offline_ledger_bootstrap_gate() -> None:
         "approved" in path.name.lower()
         for path in TEMPLATE_PATH.parent.iterdir()
     )
+
+
+def test_migration_operator_docs_reject_obsolete_generic_apply_contract() -> None:
+    migration_readme = (
+        REPO_ROOT / "backend" / "migrations" / "README.md"
+    ).read_text(encoding="utf-8")
+    staging_runbook = (REPO_ROOT / "deploy" / "STAGING.md").read_text(
+        encoding="utf-8"
+    )
+    ledger_runbook = (
+        REPO_ROOT
+        / "docs"
+        / "security"
+        / "2026-08-20-v1-ledger-hardening-gate.md"
+    ).read_text(encoding="utf-8")
+    production_runbook = (
+        REPO_ROOT / "docs" / "ops" / "PRODUCTION-RUNBOOK.md"
+    ).read_text(encoding="utf-8")
+    historical_m06 = (
+        REPO_ROOT
+        / "docs"
+        / "security"
+        / "2026-08-10-v1-m06-hardening.md"
+    ).read_text(encoding="utf-8")
+
+    readme_normalized = _normalized_prose(migration_readme)
+    staging_normalized = _normalized_prose(staging_runbook)
+    ledger_normalized = _normalized_prose(ledger_runbook)
+    production_normalized = _normalized_prose(production_runbook)
+    historical_normalized = _normalized_prose(historical_m06)
+
+    for content in (migration_readme, staging_runbook):
+        assert "--database-url" not in content
+        assert "STAGING_DATABASE_URL" not in content
+
+    for normalized in (readme_normalized, staging_normalized):
+        assert "m06_migration_database_url" in normalized
+        assert "bootstrap-ledger" in normalized
+        assert "bootstrap_ledger" in normalized
+        assert "ledger vazio" in normalized
+        assert "status" in normalized
+        assert "apply" in normalized
+        assert "bloquead" in normalized
+        assert "reconciliacao historica humana" in normalized
+        assert "sem dml" in normalized
+        assert "sem inferencia" in normalized
+
+    for normalized in (readme_normalized, staging_normalized, ledger_normalized):
+        assert "326/326" in normalized
+        assert "3803 deselecionados" in normalized
+        assert "2 warnings preexistentes" in normalized
+        assert "162.77s" in normalized
+        assert "suite offline integral" in normalized
+        assert "interrompida apos 5 min sem saida ou progresso" in normalized
+        assert "`inconclusivo`" in normalized
+        assert "nao verde nem falha" in normalized
+        assert "backend tests da pr permanece gate" in normalized
+
+    assert "unico hardening" in ledger_normalized
+    assert "implementado e comprovado somente offline" in ledger_normalized
+    assert "nao houve acesso a dev ou prod" in ledger_normalized
+    assert "supabase_migrations.schema_migrations" in ledger_normalized
+
+    assert "dois historicos diferentes" in production_normalized
+    assert "ledger nativo do supabase" in production_normalized
+    assert "ledger de controle" in production_normalized
+    assert "public.schema_migrations" in production_normalized
+    assert "esta ausente" in production_normalized
+    assert "implementado e comprovado apenas offline" in production_normalized
+
+    assert "preserva a decisao e as provas" in historical_normalized
+    assert "historicas da m06" in historical_normalized
+    assert "comprovado somente offline" in historical_normalized
+    assert "nada nesta" in historical_normalized
+    assert "nota autoriza dev, prod" in historical_normalized

@@ -35,11 +35,11 @@ significa ativa em produção.
 | Pessoas e responsabilidades | `PARCIAL FORTE` | cadastro, papéis, vínculos, fila e escopos existentes | Fechar responsabilidades temporais, owner operacional e composição por setor |
 | Conexão WhatsApp | `IMPLEMENTADO / GATE OPERACIONAL` | Evolution, conexão por igreja, webhook e filas | Monitorar recibos, reconnect e capacidade antes de cada canário |
 | Conversas e handoff | `IMPLEMENTADO` | histórico, inbox, atribuição, transferência e estado IA/humano | Adicionar memória derivada, exclusão propagada e avaliação de naturalidade |
-| Fundação do agente | `IMPLEMENTADO / PARCIAL / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | LangGraph stateless e contexto confiável D2B1 integrados; D2B2a adiciona persistência e serviço interno de consentimento sem caller; D2B2b1 é uma fronteira pura deny-first; D2B2b3A integra rascunhos no Console Master | Implementar o `bootstrap-ledger` vazio e fail-closed somente em PostgreSQL 17 descartável; aprovações humanas, catálogo, writer, memória, conhecimento e subfluxos permanecem posteriores |
+| Fundação do agente | `IMPLEMENTADO / PARCIAL / LEDGER-BOOTSTRAP IMPLEMENTADO E COMPROVADO OFFLINE / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | LangGraph stateless e contexto confiável D2B1 integrados; D2B2a adiciona persistência e serviço interno sem caller; D2B2b1 é deny-first; D2B2b3A integra rascunhos; este delta implementa `bootstrap-ledger` e o comprova somente em PostgreSQL 17 descartável | Concluir a PR offline de reconciliação histórica humana; aprovações, catálogo, writer, memória, conhecimento, D2 e ambientes compartilhados permanecem posteriores |
 | Isolamento da memória | `AUSENTE / FUNDAÇÃO D2A INTEGRADA` | Nenhum checkpointer durável instalado; D2A cria somente role, schema, helper e factory privados ainda inativos | Tabelas com `igreja_id`, FORCE RLS, namespace server-side, exclusão e testes adversariais pertencem à D3 |
 | Conhecimento oficial | `AUSENTE` | Não há ingestão aprovada, embeddings ou recuperação institucional | Perfil da igreja, documentos versionados, audiência, RLS e busca híbrida |
 | Dados vivos como ferramentas | `PARCIAL` | Quatro ferramentas limitadas e queries determinísticas | Catálogo por especialista, capacidades e serviços compartilhados com o painel |
-| Consentimento | `PARCIAL / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | Legado e opt-out continuam ativos; D2B2a adiciona ledger append-only sem backfill, caller ou aplicação em Supabase; D2B2b1 nega concessões; D2B2b3A integra apenas o preparo de rascunhos por igreja pelo Master | Criar offline a infraestrutura de ledger vazio, sem reconciliação; qualquer histórico e D2 em ambiente compartilhado exigem missões humanas posteriores antes de catálogo, prova ou writer |
+| Consentimento | `PARCIAL / LEDGER-BOOTSTRAP IMPLEMENTADO E COMPROVADO OFFLINE / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | Legado e opt-out continuam ativos; D2B2a adiciona ledger append-only sem caller ou aplicação em Supabase; D2B2b1 nega concessões; D2B2b3A prepara rascunhos; o bootstrap vazio foi testado offline sem backfill ou reconciliação | Produzir a reconciliação histórica humana versionada e ainda manter D2, catálogo, prova, writer, DEV e PROD bloqueados |
 | Propostas e confirmação | `AUSENTE COMO PLATAFORMA` | Confirmações existem apenas em fluxos específicos | Registro durável, expiração, idempotência, revalidação e comprovante |
 | Notificações proativas | `PARCIAL E FRAGMENTADO` | SLA, cron, Agenda, event notify e broadcast têm caminhos próprios | Outbox única, finalidade, quiet hours, retry, recibo e escalonamento |
 | Painel de Hoje | `IMPLEMENTADO / PARCIAL` | dashboard e work queue por responsabilidade | Compor todas as responsabilidades e as lacunas de conhecimento |
@@ -55,7 +55,7 @@ significa ativa em produção.
 | Broadcast | `IMPLEMENTADO / GATE OPERACIONAL` | ledger, worker, retry e dead-letter | Política por finalidade e canário nominal separado |
 | Asaas | `IMPLEMENTADO / GATE OPERACIONAL` | operações duráveis, isolamento e hardening | Inventário e canário financeiro real, sem envolver a igreja em cortesia |
 | Brevo | `IMPLEMENTADO / GATE OPERACIONAL` | serviço e modo de envio fechado | Domínio, remetente, monitoramento e canário próprio |
-| Onboarding da igreja | `PARCIAL / GOVERNANÇA DRAFT-ONLY INTEGRADA E INATIVA` | telas e configurações administrativas existentes; D2B2b3A integra o preparo de rascunhos de consentimento no Console Master | Concluir o gate offline do `bootstrap-ledger`, depois criar o fluxo nominal de responsáveis e aprovações sem converter preenchimento em autoridade |
+| Onboarding da igreja | `PARCIAL / GOVERNANÇA DRAFT-ONLY INTEGRADA E INATIVA` | telas e configurações administrativas existentes; D2B2b3A integra o preparo de rascunhos de consentimento no Console Master | Concluir a reconciliação histórica humana offline e, depois, criar o fluxo nominal de responsáveis e aprovações sem converter preenchimento em autoridade |
 | Exclusão e direitos da pessoa | `PARCIAL` | Exclusão de conversa remove conversa, mensagens e mídia | Propagar para transcrição, resumo, checkpoint, vetores e auditoria sem conteúdo |
 | Observabilidade de IA | `PARCIAL` | logs, custo, filas e metadados seguros de falha | Métricas por rota e tenant, SLO, retenção e alerta de workflows presos |
 | Acessibilidade e performance | `NÃO VERIFICADO INTEGRALMENTE` | Automação e estilos cobrem parte dos riscos | Leitor de tela, teclado, zoom, mobile e métricas de campo |
@@ -306,27 +306,40 @@ expansão de escopo.
 
 ## Próximo gate único
 
-Implementar e testar somente em PostgreSQL 17 descartável, sem acessar DEV ou
-PROD, um subcomando versionado `bootstrap-ledger`, explícito e fail-closed,
-separado de `harden-ledger`. Ele criará exclusivamente
-o contrato final vazio de `public.schema_migrations`, como ledger vazio, em transação única, com
-colunas, chave primária (PK) e defaults exatos, RLS habilitada, policy deny e ACL
-mínima por grants e revokes explícitos. O comando validará ownership e roles
-esperados antes e depois, e abortará se houver objeto homônimo, schema divergente
-ou qualquer outro conflito. A reaplicação deverá encerrar sem mutação; testes adversariais
-em PostgreSQL 17 cobrirão conflitos homônimos, falha parcial e
-rollback integral. O comando operará sem reconciliação ou backfill: jamais
-copiará `supabase_migrations`, inferirá
-migrations aplicadas ou autorizará `apply`.
-`apply` e `status` permanecerão tecnicamente bloqueados até uma reconciliação
-humana versionada formar o prefixo íntegro do catálogo, com no máximo uma
-migration pendente; o bootstrap não pode reduzir a barreira atual.
-Qualquer preenchimento ou
-reconciliação histórica humana será uma missão separada, baseada em
-evidência, e precisará terminar antes de considerar D2 em DEV ou PROD. Este gate
-entrega somente a PR offline do bootstrap e não autoriza painel do tenant,
-aprovações, catálogo, writer, migration D2B2b3A, flag, D2C, credencial, wiring,
-deploy, restart, runtime, ativação ou canário.
+Sobre a base `b43ad92028374fa6763ef10f5eb7a379afd3e7a2`, este delta
+implementa e comprova offline `bootstrap-ledger`, exige `--confirm BOOTSTRAP_LEDGER` e lê
+o destino apenas de `M06_MIGRATION_DATABASE_URL`. Em PostgreSQL 17 ele cria,
+atomicamente, somente o ledger vazio `public.schema_migrations` no contrato
+owner-only final: colunas, chave primária e defaults exatos, RLS, policy deny e
+ACL mínima. Homônimos, grants ou default privileges perigosos, memberships,
+owner ou forma física divergentes abortam e revertem; a reaplicação exata é um
+no-op.
+
+Foram aprovados 42/42 testes unitários, 87/87 em PostgreSQL 17-alpine
+descartável em duas execuções independentes, 87/87 em Supabase PG17 17.6.1.159
+descartável em duas execuções independentes e a revisão de segurança `GO`. A
+suíte RLS completa, em execução serial limpa no PostgreSQL 17 descartável,
+passou em 326/326, com 3803 deselecionados e 2 warnings preexistentes, em
+162.77s. A suíte offline integral foi interrompida após 5 min sem saída ou
+progresso; o resultado é `INCONCLUSIVO`, não verde nem falha, e o workflow
+Backend Tests da PR permanece gate. O bootstrap não descobre o catálogo,
+não consulta ou altera `supabase_migrations`, não reconcilia, não faz backfill
+e não aplica ou registra migration. `status` e `apply` continuam bloqueados
+até existir prefixo íntegro do catálogo, humanamente reconciliado, com no máximo
+uma migration pendente. A missão não acessou DEV ou PROD, não aplicou migration
+ou bootstrap compartilhado, não fez deploy ou restart e não alterou credencial,
+flag, runtime, agente ou canário.
+
+Implementar e testar somente offline, sem acessar DEV ou PROD, uma PR
+versionada de reconciliação histórica humana. Ela deve definir pacote
+sanitizado e verificador somente leitura, sem DML e sem inferir migrations
+aplicadas, para comparar futuramente o catálogo local com inventários
+autorizados dos ledgers público e nativo. Divergência ou ausência de evidência
+permanece bloqueante; a PR não cria, altera ou preenche ledger e não autoriza
+`bootstrap-ledger`, `harden-ledger`, `status` ou `apply` em ambiente
+compartilhado. Painel do tenant, aprovações, catálogo, writer, migration
+D2B2b3A, flag, D2C, credencial, wiring, deploy, restart, runtime, ativação e
+canário continuam bloqueados.
 
 ## Fontes principais
 

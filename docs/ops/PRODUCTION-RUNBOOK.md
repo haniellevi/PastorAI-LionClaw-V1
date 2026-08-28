@@ -1,6 +1,6 @@
 # PastorAI V1 — runbook canônico de produção
 
-Atualizado em 2026-08-27. Este é o procedimento operacional vigente para o
+Atualizado em 2026-08-28. Este é o procedimento operacional vigente para o
 Igreja 12. Não contém segredos; valores reais ficam somente nos provedores e no
 `.env` do release ativo, acessível por `/opt/pastorai-current/deploy/.env`.
 
@@ -118,10 +118,30 @@ essas variáveis.
 
 ## 4. Migrations do Supabase
 
+Existem dois históricos diferentes:
+
+- `supabase_migrations.schema_migrations`, ledger nativo do Supabase;
+- `public.schema_migrations`, ledger de controle do executor local de arquivo
+  único.
+
+Eles não são equivalentes. Nome, ordem ou presença em um deles não autorizam
+copiar, preencher, reaplicar ou registrar entradas no outro. O preflight PROD
+de 2026-08-28 confirmou que `public.schema_migrations` está ausente e que
+`M06_MIGRATION_DATABASE_URL` não está provisionada. `bootstrap-ledger` foi
+implementado e comprovado apenas offline, ainda não aplicado, e não altera esse estado.
+
+`bootstrap-ledger` cria somente um ledger público vazio no contrato owner-only;
+ele não reconstrói histórico e não libera `status` ou `apply`. Até uma PR
+versionada de reconciliação histórica humana, sem DML e sem inferência, ser
+aprovada e seguida por novos gates nominais, ficam proibidos em PROD
+`bootstrap-ledger`, `harden-ledger`, `status`, `apply`, SQL Editor,
+`apply_migration`, `db push` ou MCP para reconciliar ou reaplicar histórico.
+
 Antes de aplicar:
 
 1. provar o ref `pffafnchtxbimpwyaczq`;
-2. listar o ledger remoto;
+2. listar separadamente, em preflight somente leitura autorizado, o ledger
+   nativo e o ledger público, sem inferir equivalência;
 3. ler o SQL versionado do SHA que será implantado;
 4. aplicar em ordem, uma migration por vez;
 5. verificar colunas, constraints, RLS e advisors.

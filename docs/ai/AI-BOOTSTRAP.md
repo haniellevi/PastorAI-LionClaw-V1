@@ -36,7 +36,7 @@ externas com contratos e gates próprios.
 | Tema | Estado e proveniência | Leitura correta |
 |---|---|---|
 | V1 | `IMPLEMENTADO` | Encerrada como piloto controlado; não equivale ao produto amplo concluído |
-| Código | `VERIFICADO / D2B2B3A INTEGRADA E INATIVA` | baseline auditada `15deaf88fd4cab5b4bebdd1435a81c8b33c2b159`; a implementação D2B2b3A veio do merge #320 `947d891c2ea278b7a3231fecd9ca1c90cfe29a1f`; esta missão não aplicou a migration D2B2b3A, e DEV e PROD confirmaram a ausência; a flag segue `false` e o backend não foi implantado |
+| Código | `VERIFICADO / LEDGER-BOOTSTRAP IMPLEMENTADO E COMPROVADO OFFLINE / NÃO APLICADO / D2B2B3A INTEGRADA E INATIVA` | base versionada `b43ad92028374fa6763ef10f5eb7a379afd3e7a2`; este delta implementa `bootstrap-ledger` e o comprova apenas em PostgreSQL 17 descartável, sem aplicação em DEV/PROD ou deploy; D2B2b3A continua ausente nos bancos consultados e com flag `false` |
 | Produto WhatsApp-first | `PARCIAL` | A visão está aprovada; memória, conhecimento e ações profundas ainda faltam |
 | Agente Evolution | `PARCIAL / GATE OPERACIONAL` | Fundação, identidade e contenção existem; qualidade conversacional é insuficiente |
 | Canário ativo do agente | `PASS TÉCNICO / QUALIDADE INSUFICIENTE` | Evidência operacional reconciliada nesta missão, não prova previamente versionada em `ad4a272` |
@@ -265,26 +265,47 @@ não fez deploy manual ou do backend, não promoveu a produção, não ativou o
 agente e não executou canário. O preview automático da PR não prova execução do
 backend.
 
-O próximo gate único é implementar e testar somente em PostgreSQL 17
-descartável, sem acessar DEV ou PROD, um subcomando versionado
-`bootstrap-ledger`, explícito e fail-closed, separado de `harden-ledger`. Ele
-criará, em transação única, exclusivamente o contrato final vazio de
-`public.schema_migrations`, como ledger vazio, com colunas, chave primária (PK) e defaults exatos,
-RLS habilitada, policy deny e ACL mínima por grants e revokes explícitos. O comando
-validará ownership e roles esperados antes e depois, e abortará se houver objeto
-homônimo, schema divergente ou qualquer outro conflito. A reaplicação deverá
-encerrar sem mutação; testes adversariais em PostgreSQL 17 cobrirão conflitos
-homônimos, falha parcial e rollback integral. O comando operará sem reconciliação
-ou backfill: jamais copiará
-`supabase_migrations`, inferirá migrations aplicadas ou autorizará `apply`.
-`apply` e `status` permanecerão tecnicamente bloqueados até uma reconciliação
-humana versionada formar o prefixo íntegro do catálogo, com no máximo uma
-migration pendente; o bootstrap não pode reduzir a barreira atual.
-Qualquer preenchimento ou reconciliação histórica humana será uma missão
-separada, baseada em evidência, e precisará terminar antes de considerar D2 em
-DEV ou PROD. Este gate entrega somente a PR offline do bootstrap e não autoriza
-painel do tenant, aprovações, catálogo, writer, migration D2B2b3A, flag, D2C,
-credencial, wiring, deploy, restart, runtime, ativação ou canário.
+Sobre a base versionada
+`b43ad92028374fa6763ef10f5eb7a379afd3e7a2`, a missão offline
+este delta implementa e comprova offline o subcomando explícito e fail-closed
+`bootstrap-ledger`, separado de `harden-ledger`. Ele exige
+`--confirm BOOTSTRAP_LEDGER` antes da conexão e aceita o destino somente por
+`M06_MIGRATION_DATABASE_URL`. Em PostgreSQL 17, cria em transação
+`SERIALIZABLE` apenas o ledger vazio `public.schema_migrations`, com colunas,
+chave primária e defaults exatos, owner estável, RLS, policy deny e ACL
+owner-only. Conflitos de objeto, tipo, schema, ownership, grants, default
+privileges, membership ou forma física falham com rollback; reaplicar o
+contrato exato e vazio não produz mutação.
+
+A verificação concluiu 42/42 testes unitários, 87/87 em PostgreSQL 17-alpine
+descartável em duas execuções independentes e 87/87 em Supabase PG17
+17.6.1.159 descartável em duas execuções independentes. A revisão de segurança
+resultou em `GO`. A suíte RLS completa, em execução serial limpa no PostgreSQL
+17 descartável, passou em 326/326, com 3803 deselecionados e 2 warnings
+preexistentes, em 162.77s. A suíte offline integral foi interrompida após 5
+min sem saída ou progresso; o resultado é `INCONCLUSIVO`, não verde nem falha,
+e o workflow Backend Tests da PR permanece gate. O comando não descobre o catálogo, não consulta, copia ou
+altera `supabase_migrations`, não faz backfill ou reconciliação e não aplica ou
+registra migration. O ledger vazio mantém `status` e `apply` bloqueados até uma
+reconciliação histórica humana formar o prefixo íntegro do catálogo, com no
+máximo uma migration pendente.
+
+Esta evidência comprova somente a implementação offline, ainda não aplicada. A missão não acessou DEV
+ou PROD, não aplicou bootstrap ou migration em ambiente compartilhado, não
+provisionou credencial, não fez deploy ou restart e não alterou flag, runtime,
+agente ou canário. O preflight PROD e o deployment automático frontend da PR
+#321 permanecem evidências históricas separadas.
+
+O próximo gate único é implementar e testar somente offline, sem acessar DEV
+ou PROD, uma PR versionada de reconciliação histórica humana. Ela deverá
+definir um pacote sanitizado e um verificador somente leitura, sem DML e sem
+inferir migrations aplicadas, para comparar futuramente o catálogo versionado
+com inventários autorizados dos ledgers público e nativo. Toda divergência ou
+entrada sem evidência humana continua bloqueante; a PR não cria, altera ou
+preenche ledger e não autoriza `bootstrap-ledger`, `harden-ledger`, `status` ou
+`apply` em ambiente compartilhado. Painel do tenant, aprovações, catálogo,
+writer, migration D2B2b3A, flag, D2C, credencial, wiring, deploy, restart,
+runtime, ativação e canário continuam bloqueados.
 
 ## Roteiro de leitura
 
