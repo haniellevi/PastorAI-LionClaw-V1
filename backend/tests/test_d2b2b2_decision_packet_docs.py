@@ -1047,56 +1047,86 @@ def test_d2b2b2_template_has_no_runtime_or_migration_consumer() -> None:
                 assert token not in content, f"runtime consumer in {path}"
 
 
-def test_d2b2b2_canonical_docs_keep_one_database_role_preflight_gate() -> None:
-    required_references = {
+def test_d2b2b2_canonical_docs_keep_one_offline_ledger_bootstrap_gate() -> None:
+    canonical_indexes = {
         REPO_ROOT / "docs" / "ai" / "AI-BOOTSTRAP.md",
         REPO_ROOT / "docs" / "ai" / "PRD-COVERAGE.md",
         REPO_ROOT / "docs" / "WIKI-IGREJA12.md",
         REPO_ROOT / "docs" / "ops" / "POST-V1-MISSION-REGISTER.md",
         REPO_ROOT / "SPEC_PROGRESS.md",
     }
-    for path in required_references:
+    gate_contracts = canonical_indexes | {
+        REPO_ROOT / "SPEC.md",
+        REPO_ROOT
+        / "docs"
+        / "Docs20260611_163530"
+        / "PRD20260611_163530.md",
+        REPO_ROOT
+        / "docs"
+        / "decisions"
+        / "2026-08-28-d2b2b2-consent-decision-packet-contract.md",
+        REPO_ROOT
+        / "docs"
+        / "decisions"
+        / "2026-08-28-d2b2b3-master-governance-drafts.md",
+    }
+
+    for path in canonical_indexes:
         content = path.read_text(encoding="utf-8")
         normalized = _normalized_prose(content)
-        assert "74951828f48994622a112d8e59eb978e5fb4f406" in content
         assert "d2b2b2-consent-decision-packet-contract.md" in content
         assert "d2b2b3-master-governance-drafts.md" in content
         assert "jurid" in normalized
         assert "aprov" in normalized
-        assert (
-            "identificar sanitizadamente, em preflight somente leitura, "
-            "os dois caminhos de banco"
-        ) in normalized
+
+    for path in gate_contracts:
+        content = path.read_text(encoding="utf-8")
+        normalized = _normalized_prose(content)
+        assert "15deaf88fd4cab5b4bebdd1435a81c8b33c2b159" in content
+        assert "preflight prod somente leitura" in normalized
         assert "`m06_migration_database_url`" in normalized
         assert "`database_url`" in normalized
-        assert "identidade da role" in normalized
-        assert "ownership esperado" in normalized
-        assert "acl efetiva" in normalized
-        assert "`force rls`" in normalized
-        assert "exige autorizacao nominal separada" in normalized
+        assert "public.schema_migrations" in normalized
+        assert "`bootstrap-ledger`" in normalized
+        assert "postgresql 17 descartavel" in normalized
+        assert "ledger vazio" in normalized
+        assert "sem reconciliacao" in normalized
+        assert "reconciliacao historica" in normalized
+        assert "missao separada" in normalized
+        assert "sem acessar dev ou prod" in normalized
+        assert "`apply` e `status`" in normalized
+        assert "tecnicamente bloqueados" in normalized
+        assert "prefixo integro do catalogo" in normalized
+        assert "no maximo uma migration pendente" in normalized
+        for bootstrap_control in (
+            "colunas",
+            "chave primaria",
+            "default",
+            "rls",
+            "policy deny",
+            "acl",
+            "ownership",
+            "reaplicacao",
+            "sem mutacao",
+            "homonim",
+            "rollback",
+            "testes adversariais",
+        ):
+            assert bootstrap_control in normalized
         for blocker in (
             "painel do tenant",
             "aprovacoes",
             "catalogo",
             "writer",
-            "supabase",
+            "migration d2b2b3a",
+            "flag",
             "d2c",
         ):
             assert blocker in normalized
 
-    gate_heading_paths = required_references - {
-        REPO_ROOT / "docs" / "ai" / "AI-BOOTSTRAP.md"
-    }
-    for path in gate_heading_paths:
+    for path in gate_contracts:
         normalized = _normalized_prose(path.read_text(encoding="utf-8"))
         assert normalized.count("proximo gate unico") == 1
-
-    bootstrap = _normalized_prose(
-        (REPO_ROOT / "docs" / "ai" / "AI-BOOTSTRAP.md").read_text(
-            encoding="utf-8"
-        )
-    )
-    assert bootstrap.count("proximo gate unico") == 1
 
     assert ADR_PATH.is_file()
     assert "TEMPLATE_ONLY / NOT_APPROVED" in ADR_PATH.read_text(

@@ -168,13 +168,24 @@ finalidade permanece `DRAFT_NOT_APPROVED`. Hipóteses jurídicas, declaração d
 operação baseada em consentimento, decisão sobre menores, atestados, pareceres,
 aprovações, digest atestado e registros nominais não são editáveis pelo Master.
 
-A implementação integrada e inativa não prova o wiring do banco. Antes de
-qualquer aplicação em banco compartilhado, ativação da flag ou wiring do
-backend, um preflight separado deve identificar sanitizadamente
-`M06_MIGRATION_DATABASE_URL`, futuro executor e owner da migration, e
-`DATABASE_URL`, runtime do backend Master. Os dois caminhos precisam comprovar
-role, ownership, ACL efetiva e comportamento sob `FORCE RLS`, sem expor
-credencial.
+A implementação integrada e inativa não prova o wiring do banco. No baseline
+`15deaf88fd4cab5b4bebdd1435a81c8b33c2b159`, o preflight PROD somente leitura
+confirmou `DATABASE_URL` presente e `M06_MIGRATION_DATABASE_URL` ausente.
+`current_user` e `session_user` convergiram para a mesma identidade sanitizada;
+a role runtime possui `NOSUPERUSER`, `BYPASSRLS`, `LOGIN` e `INHERIT`, é owner
+de `public.igrejas` e `public.app_users` e possui `SELECT` e `REFERENCES`
+efetivos nessas tabelas-pai. A tabela alvo D2B2b3A, o validator e a própria
+`public.schema_migrations` estavam ausentes. Isso comprova identidade, ownership
+e ACL do caminho runtime atual, mas não o comportamento da tabela futura sob
+`FORCE RLS`; o caminho de migration permanece bloqueado pela ausência de
+`M06_MIGRATION_DATABASE_URL` e do ledger público.
+
+A PR #321 integrou a reconciliação documental anterior no merge
+`15deaf88fd4cab5b4bebdd1435a81c8b33c2b159`; esse merge gerou o deployment
+automático Vercel frontend Production `6141449639`, com `SUCCESS`, em
+2026-08-28T12:53:35Z. Essa metadata prova somente o frontend, sem provar backend,
+banco ou Supabase. O preflight VPS em si não executou deploy manual ou do
+backend, migration, restart ou alteração da flag.
 
 Nenhum texto jurídico plausível, contato pessoal, assinatura ou parecer deve
 ser usado como exemplo no template. Nenhum processo de runtime lê o template
@@ -244,18 +255,33 @@ insumo governado, nunca autoridade direta do runtime.
 
 ## Próximo gate único
 
-Identificar sanitizadamente, em preflight somente leitura, os dois caminhos de
-banco: `M06_MIGRATION_DATABASE_URL`, futuro executor e owner da migration, e
-`DATABASE_URL`, runtime do backend Master. Para cada caminho, comprovar identidade
-da role, ownership esperado, ACL efetiva e comportamento sob `FORCE RLS`, sem
-abrir `.env` nem imprimir DSN, URL, usuário ou segredo. Se executada pela VPS, a
-consulta toca metadados do Supabase PROD e exige autorização nominal separada.
-A alternativa segura em DEV exige as credenciais planejadas de migration e
-runtime e não comprova a VPS.
+Implementar e testar somente em PostgreSQL 17 descartável, sem acessar DEV ou
+PROD, um subcomando versionado `bootstrap-ledger`, explícito e fail-closed,
+separado de `harden-ledger`. Ele criará exclusivamente
+o contrato final vazio de `public.schema_migrations`, como ledger vazio, em transação única, com
+colunas, chave primária (PK) e defaults exatos, RLS habilitada, policy deny e ACL
+mínima por grants e revokes explícitos. O comando validará ownership e roles
+esperados antes e depois, e abortará se houver objeto homônimo, schema divergente
+ou qualquer outro conflito. A reaplicação deverá encerrar sem mutação; testes adversariais
+em PostgreSQL 17 cobrirão conflitos homônimos, falha parcial e
+rollback integral. O comando operará sem reconciliação ou backfill: jamais
+copiará `supabase_migrations`, inferirá
+migrations aplicadas ou autorizará `apply`.
+`apply` e `status` permanecerão tecnicamente bloqueados até uma reconciliação
+humana versionada formar o prefixo íntegro do catálogo, com no máximo uma
+migration pendente; o bootstrap não pode reduzir a barreira atual.
+Qualquer preenchimento ou
+reconciliação histórica humana será uma missão separada, baseada em
+evidência, e precisará terminar antes de considerar D2 em DEV ou PROD. Este gate
+entrega somente a PR offline do bootstrap e não autoriza painel do tenant,
+aprovações, catálogo, writer, migration D2B2b3A, flag, D2C, credencial, wiring,
+deploy, restart, runtime, ativação ou canário.
 
 A PR #320 já integrou a D2B2b3A no merge
 `947d891c2ea278b7a3231fecd9ca1c90cfe29a1f`; o deployment automático
 Vercel frontend Production `6140373952` ficou `SUCCESS`, sem provar backend,
-banco ou Supabase. Esta missão não aplicou a migration, DEV confirmou a ausência
-e PROD não foi consultado. A flag permanece `false`. O preflight não autoriza
-migration, mudança de flag, wiring, deploy, runtime, ativação ou canário.
+banco ou Supabase. Esta missão não aplicou a migration D2B2b3A; DEV e PROD
+confirmaram a ausência. A flag
+`PURPOSE_CONSENT_GOVERNANCE_DRAFTS_ENABLED` permanece `false`. O preflight VPS
+em si não executou deploy manual ou do backend, migration, restart, alteração da
+flag ou outra mutação de estado.

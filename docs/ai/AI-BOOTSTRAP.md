@@ -3,7 +3,7 @@ project: igreja12
 document_kind: ai-bootstrap
 status: canonical
 last_verified: 2026-08-28
-audited_repository_sha: 947d891c2ea278b7a3231fecd9ca1c90cfe29a1f
+audited_repository_sha: 15deaf88fd4cab5b4bebdd1435a81c8b33c2b159
 ---
 
 # Bootstrap canônico para agentes de IA
@@ -36,13 +36,13 @@ externas com contratos e gates próprios.
 | Tema | Estado e proveniência | Leitura correta |
 |---|---|---|
 | V1 | `IMPLEMENTADO` | Encerrada como piloto controlado; não equivale ao produto amplo concluído |
-| Código | `VERIFICADO / D2B2B3A INTEGRADA E INATIVA` | baseline de código auditada no merge #320 `947d891c2ea278b7a3231fecd9ca1c90cfe29a1f`; D1A, D2A, D2B1, D2B2a, D2B2b1 e D2B2b3A integradas; esta missão não aplicou a migration D2B2b3A, DEV confirmou ausência e PROD não foi consultado; a flag segue `false` e o backend não foi implantado |
+| Código | `VERIFICADO / D2B2B3A INTEGRADA E INATIVA` | baseline auditada `15deaf88fd4cab5b4bebdd1435a81c8b33c2b159`; a implementação D2B2b3A veio do merge #320 `947d891c2ea278b7a3231fecd9ca1c90cfe29a1f`; esta missão não aplicou a migration D2B2b3A, e DEV e PROD confirmaram a ausência; a flag segue `false` e o backend não foi implantado |
 | Produto WhatsApp-first | `PARCIAL` | A visão está aprovada; memória, conhecimento e ações profundas ainda faltam |
 | Agente Evolution | `PARCIAL / GATE OPERACIONAL` | Fundação, identidade e contenção existem; qualidade conversacional é insuficiente |
 | Canário ativo do agente | `PASS TÉCNICO / QUALIDADE INSUFICIENTE` | Evidência operacional reconciliada nesta missão, não prova previamente versionada em `ad4a272` |
 | LangGraph | `IMPLEMENTADO STATELESS` | Grafo único e fallback determinístico, sem checkpoint durável |
 | Conhecimento institucional | `AUSENTE` | Não existe RAG com documentos aprovados nem consulta institucional ampla |
-| Governança de consentimento | `D2B2B3A INTEGRADA / DRAFT-ONLY INATIVA` | A superfície de rascunhos por igreja está integrada no código; o Master não pode decidir hipótese jurídica, atestar, aprovar ou registrar papéis nominais; esta missão não aplicou schema em banco compartilhado nem ativou backend ou runtime compartilhado, mas consultou metadados do DEV em modo somente leitura e o merge gerou deployment automático do frontend Vercel Production |
+| Governança de consentimento | `D2B2B3A INTEGRADA / DRAFT-ONLY INATIVA` | A superfície de rascunhos por igreja está integrada no código; o Master não pode decidir hipótese jurídica, atestar, aprovar ou registrar papéis nominais; esta missão não aplicou schema em banco compartilhado nem ativou backend ou runtime compartilhado, mas consultou metadados de DEV e PROD em modo somente leitura, sem mutação, e o merge gerou deployment automático do frontend Vercel Production |
 | Relatório de célula por WhatsApp | `PARCIAL` | O parser registra evento, mas não envia o relatório canônico |
 | Central e Agenda | `PARCIAL FORTE` | Núcleo web existe; operação integral por WhatsApp e notificações unificadas faltam |
 | Consolidação | `PARCIAL` | Precisa de máquina de estados e read model duráveis antes da formação |
@@ -126,12 +126,24 @@ aprovação, digest atestado e registros nominais ficam fora da edição. Todo
 rascunho operacional continua `DRAFT_NOT_APPROVED`; existem somente callers
 administrativos de rascunho, sem caller de aprovação, ledger ou runtime.
 
-Um preflight somente leitura no Supabase DEV `cxmjojnocigekgcxhubi` confirmou
-o executor MCP `postgres` com `BYPASSRLS` e a ausência da tabela, do validator e
-do registro da migration D2B2b3A. O executor MCP DEV satisfaz somente o
-preflight de identidade da migration; não prova `M06_MIGRATION_DATABASE_URL`,
-`DATABASE_URL` nem a VPS. Esta missão não aplicou a migration, DEV confirmou a
-ausência e PROD não foi consultado.
+No baseline `15deaf88fd4cab5b4bebdd1435a81c8b33c2b159`, o preflight PROD
+somente leitura confirmou `DATABASE_URL` presente e
+`M06_MIGRATION_DATABASE_URL` ausente. `current_user` e `session_user`
+convergiram para a mesma identidade sanitizada; a role runtime possui
+`NOSUPERUSER`, `BYPASSRLS`, `LOGIN` e `INHERIT`, é owner de `public.igrejas` e
+`public.app_users` e possui `SELECT` e `REFERENCES` efetivos nessas tabelas-pai.
+A tabela alvo D2B2b3A, o validator e a própria `public.schema_migrations`
+estavam ausentes. A flag `PURPOSE_CONSENT_GOVERNANCE_DRAFTS_ENABLED` permaneceu
+`false`. Esta missão não aplicou a migration D2B2b3A; DEV e PROD confirmaram a
+ausência. A PR #321 integrou a reconciliação documental anterior no merge
+`15deaf88fd4cab5b4bebdd1435a81c8b33c2b159`; esse merge gerou o deployment
+automático Vercel frontend Production `6141449639`, com `SUCCESS`, em
+2026-08-28T12:53:35Z. Essa metadata prova somente o frontend, sem provar backend,
+banco ou Supabase. O preflight VPS em si não executou deploy manual ou do
+backend, migration, restart ou alteração da flag. A leitura comprova identidade,
+ownership e ACL do caminho runtime atual, mas não o comportamento da tabela
+futura sob `FORCE RLS`; o caminho de migration permanece bloqueado pela ausência
+de `M06_MIGRATION_DATABASE_URL` e do ledger público.
 
 Ações comuns podem ser concluídas pelo WhatsApp após resumo estruturado e
 confirmação explícita. Ações sensíveis terminam no painel autenticado. Toda
@@ -215,7 +227,7 @@ auditoria sem payload e estado fixo `DRAFT_NOT_APPROVED`. Os cinco workflows da
 PR e os cinco pós-merge concluíram com `SUCCESS`. O merge gerou o deployment
 automático Vercel frontend Production `6140373952`, também com `SUCCESS`; essa
 metadata prova somente o frontend nesse ambiente. Esta missão não aplicou a
-migration; DEV confirmou a ausência e PROD não foi consultado. A flag
+migration D2B2b3A; DEV e PROD confirmaram a ausência. A flag
 `PURPOSE_CONSENT_GOVERNANCE_DRAFTS_ENABLED` permanece `false`, e não houve
 deploy manual ou do backend, wiring, ativação ou canário.
 
@@ -251,17 +263,28 @@ A D2B1 não adicionou migration, não acessou Supabase, não provisionou
 credencial, não conectou a fronteira privada D2A, worker, fila ou checkpointer,
 não fez deploy manual ou do backend, não promoveu a produção, não ativou o
 agente e não executou canário. O preview automático da PR não prova execução do
-backend. O próximo gate único é identificar sanitizadamente, em preflight
-somente leitura, os dois caminhos de banco: `M06_MIGRATION_DATABASE_URL`, futuro
-executor e owner da migration, e `DATABASE_URL`, runtime do backend Master. Para
-cada caminho, deve comprovar identidade da role, ownership esperado, ACL efetiva
-e comportamento sob `FORCE RLS`, sem abrir `.env` nem imprimir DSN, URL,
-usuário ou segredo. Se executada pela VPS, a consulta toca metadados do Supabase
-PROD e exige autorização nominal separada. A alternativa segura em DEV exige as
-credenciais planejadas de migration e runtime e não comprova a VPS. O preflight
-não autoriza aplicação da migration, mudança de flag, wiring, deploy manual ou
-do backend, painel do tenant, aprovações, catálogo, evidence store, writer,
-WhatsApp, agente, D2C, ativação ou canário.
+backend.
+
+O próximo gate único é implementar e testar somente em PostgreSQL 17
+descartável, sem acessar DEV ou PROD, um subcomando versionado
+`bootstrap-ledger`, explícito e fail-closed, separado de `harden-ledger`. Ele
+criará, em transação única, exclusivamente o contrato final vazio de
+`public.schema_migrations`, como ledger vazio, com colunas, chave primária (PK) e defaults exatos,
+RLS habilitada, policy deny e ACL mínima por grants e revokes explícitos. O comando
+validará ownership e roles esperados antes e depois, e abortará se houver objeto
+homônimo, schema divergente ou qualquer outro conflito. A reaplicação deverá
+encerrar sem mutação; testes adversariais em PostgreSQL 17 cobrirão conflitos
+homônimos, falha parcial e rollback integral. O comando operará sem reconciliação
+ou backfill: jamais copiará
+`supabase_migrations`, inferirá migrations aplicadas ou autorizará `apply`.
+`apply` e `status` permanecerão tecnicamente bloqueados até uma reconciliação
+humana versionada formar o prefixo íntegro do catálogo, com no máximo uma
+migration pendente; o bootstrap não pode reduzir a barreira atual.
+Qualquer preenchimento ou reconciliação histórica humana será uma missão
+separada, baseada em evidência, e precisará terminar antes de considerar D2 em
+DEV ou PROD. Este gate entrega somente a PR offline do bootstrap e não autoriza
+painel do tenant, aprovações, catálogo, writer, migration D2B2b3A, flag, D2C,
+credencial, wiring, deploy, restart, runtime, ativação ou canário.
 
 ## Roteiro de leitura
 

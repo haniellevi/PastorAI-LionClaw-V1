@@ -1,8 +1,9 @@
 # Wiki do projeto Igreja 12
 
-Snapshot documental de 2026-08-28, com baseline de código no merge #320
-`947d891c2ea278b7a3231fecd9ca1c90cfe29a1f`, na auditoria D1 e na
-reconciliação operacional registrada nesta fase.
+Snapshot documental de 2026-08-28, com baseline auditada
+`15deaf88fd4cab5b4bebdd1435a81c8b33c2b159`, na auditoria D1 e na
+reconciliação operacional registrada nesta fase. A implementação D2B2b3A veio
+do merge #320 `947d891c2ea278b7a3231fecd9ca1c90cfe29a1f`.
 
 ## Leitura de 30 segundos
 
@@ -45,7 +46,7 @@ qualquer expansão do canário.
 | Agente e Evolution | `PARCIAL / GATE OPERACIONAL` | Corrigir memória, conhecimento e qualidade antes de novo canário |
 | Canário ativo | `PASS TÉCNICO / QUALIDADE INSUFICIENTE` | Avaliação conversacional humana após a nova fundação |
 | LangGraph | `IMPLEMENTADO STATELESS / D2B1 INTEGRADA` | Persistência, memória e subgrafos permanecem posteriores |
-| Consentimento | `PARCIAL / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | Comprovar sanitizadamente `M06_MIGRATION_DATABASE_URL` e `DATABASE_URL`; aprovações, catálogo, writers, Supabase e D2C permanecem bloqueados |
+| Consentimento | `PARCIAL / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | Implementar o `bootstrap-ledger` vazio e fail-closed somente em PostgreSQL 17 descartável; aprovações, catálogo, writers, Supabase e D2C permanecem bloqueados |
 | Conhecimento por igreja | `AUSENTE` | Ingestão aprovada, ACL, busca e ferramentas de dados vivos |
 | Relatório por WhatsApp | `PARCIAL` | Confirmar e gravar no relatório canônico |
 | Central de Células | `PARCIAL FORTE` | Operação e notificações principais pelo WhatsApp |
@@ -300,17 +301,29 @@ otimista, auditoria sem payload e aviso permanente de conteúdo não aprovado. O
 cinco workflows da PR e os cinco pós-merge ficaram verdes. O merge gerou o
 deployment automático Vercel frontend Production `6140373952`, com `SUCCESS`;
 essa metadata prova apenas o frontend nesse ambiente. Esta missão não aplicou a
-migration; DEV confirmou a ausência e PROD não foi consultado. A flag permanece `false`, e não
-houve deploy manual ou do backend, wiring, ativação ou canário. Painel do
+migration D2B2b3A; DEV e PROD confirmaram a ausência. A flag permanece `false`,
+e não houve deploy manual ou do backend, wiring, ativação ou canário. Painel do
 tenant, fluxo nominal de aprovação, catálogo, evidence store, writer, WhatsApp
 e runtime continuam fechados.
 
-Um preflight somente leitura no Supabase DEV `cxmjojnocigekgcxhubi` confirmou
-o executor MCP `postgres` com `BYPASSRLS` e a ausência da tabela, do validator e
-do registro da migration D2B2b3A. O executor MCP DEV satisfaz somente o
-preflight de identidade da migration; não prova `M06_MIGRATION_DATABASE_URL`,
-`DATABASE_URL` nem a VPS. Esta missão não aplicou a migration, DEV confirmou a
-ausência e PROD não foi consultado.
+No baseline `15deaf88fd4cab5b4bebdd1435a81c8b33c2b159`, o preflight PROD
+somente leitura confirmou `DATABASE_URL` presente e
+`M06_MIGRATION_DATABASE_URL` ausente. `current_user` e `session_user`
+convergiram para a mesma identidade sanitizada; a role runtime possui
+`NOSUPERUSER`, `BYPASSRLS`, `LOGIN` e `INHERIT`, é owner de `public.igrejas` e
+`public.app_users` e possui `SELECT` e `REFERENCES` efetivos nessas tabelas-pai.
+A tabela alvo D2B2b3A, o validator e a própria `public.schema_migrations`
+estavam ausentes. A flag `PURPOSE_CONSENT_GOVERNANCE_DRAFTS_ENABLED` permaneceu
+`false`. Esta missão não aplicou a migration D2B2b3A; DEV e PROD confirmaram a
+ausência. A PR #321 integrou a reconciliação documental anterior no merge
+`15deaf88fd4cab5b4bebdd1435a81c8b33c2b159`; esse merge gerou o deployment
+automático Vercel frontend Production `6141449639`, com `SUCCESS`, em
+2026-08-28T12:53:35Z. Essa metadata prova somente o frontend, sem provar backend,
+banco ou Supabase. O preflight VPS em si não executou deploy manual ou do
+backend, migration, restart ou alteração da flag. A leitura comprova identidade,
+ownership e ACL do caminho runtime atual, mas não o comportamento da tabela
+futura sob `FORCE RLS`; o caminho de migration permanece bloqueado pela ausência
+de `M06_MIGRATION_DATABASE_URL` e do ledger público.
 
 ### D6, primeira vertical
 
@@ -338,8 +351,10 @@ Brevo ou broadcast.
 - avaliação manual com teclado, leitor de tela e zoom;
 - métricas de performance em condições reais;
 - owner operacional, substitutos e escalonamento por setor;
-- comprovar em preflight somente leitura os dois caminhos de banco, migration e
-  runtime Master, com identidade, owner, ACL e `FORCE RLS`, sem expor credencial;
+- o preflight runtime comprovou identidade, owner e ACL; o caminho
+  `M06_MIGRATION_DATABASE_URL` e `public.schema_migrations` continuam ausentes,
+  e o `FORCE RLS` da tabela futura não foi comprovado. O gate atual é a PR
+  offline do `bootstrap-ledger` em PostgreSQL 17 descartável;
 - completar depois o pacote humano e jurídico por finalidade: controlador e
   operadores reais, texto e versão, hipótese jurídica, prova, menores,
   retenção, eliminação, transferência internacional, opt-out, direitos,
@@ -366,14 +381,24 @@ canário.
 
 ## Próximo gate único
 
-Identificar sanitizadamente, em preflight somente leitura, os dois caminhos de
-banco: `M06_MIGRATION_DATABASE_URL`, futuro executor e owner da migration, e
-`DATABASE_URL`, runtime do backend Master. Para cada caminho, comprovar identidade
-da role, ownership esperado, ACL efetiva e comportamento sob `FORCE RLS`, sem
-abrir `.env` nem imprimir DSN, URL, usuário ou segredo. Se executada pela VPS, a
-consulta toca metadados do Supabase PROD e exige autorização nominal separada.
-A alternativa segura em DEV exige as credenciais planejadas de migration e
-runtime e não comprova a VPS. O preflight não autoriza aplicação da migration,
-mudança de flag, wiring, deploy manual ou do backend, painel do tenant,
-aprovações, catálogo, evidence store, writer, WhatsApp, agente, D2C, ativação ou
-canário.
+Implementar e testar somente em PostgreSQL 17 descartável, sem acessar DEV ou
+PROD, um subcomando versionado `bootstrap-ledger`, explícito e fail-closed,
+separado de `harden-ledger`. Ele criará exclusivamente
+o contrato final vazio de `public.schema_migrations`, como ledger vazio, em transação única, com
+colunas, chave primária (PK) e defaults exatos, RLS habilitada, policy deny e ACL
+mínima por grants e revokes explícitos. O comando validará ownership e roles
+esperados antes e depois, e abortará se houver objeto homônimo, schema divergente
+ou qualquer outro conflito. A reaplicação deverá encerrar sem mutação; testes adversariais
+em PostgreSQL 17 cobrirão conflitos homônimos, falha parcial e
+rollback integral. O comando operará sem reconciliação ou backfill: jamais
+copiará `supabase_migrations`, inferirá
+migrations aplicadas ou autorizará `apply`.
+`apply` e `status` permanecerão tecnicamente bloqueados até uma reconciliação
+humana versionada formar o prefixo íntegro do catálogo, com no máximo uma
+migration pendente; o bootstrap não pode reduzir a barreira atual.
+Qualquer preenchimento ou
+reconciliação histórica humana será uma missão separada, baseada em
+evidência, e precisará terminar antes de considerar D2 em DEV ou PROD. Este gate
+entrega somente a PR offline do bootstrap e não autoriza painel do tenant,
+aprovações, catálogo, writer, migration D2B2b3A, flag, D2C, credencial, wiring,
+deploy, restart, runtime, ativação ou canário.
