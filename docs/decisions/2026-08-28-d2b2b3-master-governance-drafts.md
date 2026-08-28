@@ -2,10 +2,14 @@
 
 Data: 2026-08-28
 
-Status: `APPROVED_FOR_IMPLEMENTATION / DRAFT_ONLY`
+Status: `IMPLEMENTED_DRAFT_ONLY / INACTIVE`
 
 Baseline documental de entrada:
 `f249408f5bf7a14c0badb91d705e13cf4d1f7ea1`
+
+Implementacao integrada:
+PR #320, HEAD `66ce06d9a356a52e63366b3a6528b0b83170d12e`, merge
+`947d891c2ea278b7a3231fecd9ca1c90cfe29a1f`
 
 ## Decisao
 
@@ -118,12 +122,13 @@ revogar privilegios de `PUBLIC`, `anon`, `authenticated`, `service_role` e
 ocorre exclusivamente pelo caminho privilegiado e auditado do Console Master,
 com tenant explicito. RLS e privilegios sao barreiras independentes.
 
-A candidata inativa nao prova esse wiring. Antes de qualquer aplicacao em banco
-compartilhado, ativacao da flag ou wiring do backend compartilhado, um preflight
-separado deve comprovar, sem expor a credencial, que o `DATABASE_URL` do plano
-Master usa o owner esperado com acesso efetivo sob `FORCE RLS` ou um papel
-explicitamente autorizado com `BYPASSRLS`. Esse requisito nao autoriza nenhuma
-dessas acoes.
+A implementacao integrada e inativa nao prova esse wiring. Antes de qualquer
+aplicacao em banco compartilhado, ativacao da flag ou wiring do backend, um
+preflight separado deve identificar sanitizadamente
+`M06_MIGRATION_DATABASE_URL`, futuro executor e owner da migration, e
+`DATABASE_URL`, runtime do backend Master. Os dois caminhos precisam comprovar
+role, ownership, ACL efetiva e comportamento sob `FORCE RLS`, sem expor
+credencial.
 
 ## Contrato da interface
 
@@ -149,7 +154,8 @@ vincular assinatura, mudar status, publicar, ativar ou enviar.
 - nenhum payload e lido pelo WhatsApp, webhook, worker, LangGraph, tool ou
   agente;
 - nenhum acesso e concedido ao painel do tenant nesta fatia;
-- nenhuma migration e aplicada em ambiente compartilhado;
+- esta missao nao aplica a migration; DEV confirma ausencia e PROD nao e
+  consultado;
 - nenhum deploy manual ou do backend, ativacao ou canario e executado;
 - D2C, memoria, conhecimento e outbox continuam bloqueados;
 - Universidade da Vida e Capacitacao Destino permanecem fora da missao atual.
@@ -178,16 +184,33 @@ final do controlador. Continuam posteriores tambem catalogo imutavel, evidence
 store, digest e recibos governados, writers, WhatsApp, runtime do agente e
 qualquer ambiente compartilhado.
 
-A abertura desta PR pode gerar Preview automatico, e o merge pode gerar
-deployment frontend Production automatico pela integracao Vercel do
-repositorio. O merge exige revisao humana consciente desse efeito. Isso nao
-autoriza deploy manual ou do backend, migration em ambiente compartilhado,
-mudanca de flag, runtime, ativacao ou canario e nao constitui evidencia de que
-algum deployment desta candidata ja ocorreu.
+## Evidencia de integracao
+
+Os cinco workflows da PR #320 e os cinco workflows pos-merge concluiram com
+`SUCCESS`. O merge gerou o deployment automatico Vercel frontend Production
+`6140373952`, tambem com `SUCCESS`. Essa metadata prova somente o frontend nesse
+ambiente; nao prova backend, banco ou Supabase. Esta missao nao aplicou a
+migration D2B2b3A; DEV confirmou a ausencia e PROD nao foi consultado. A flag
+`PURPOSE_CONSENT_GOVERNANCE_DRAFTS_ENABLED` permanece `false`, e nao houve
+deploy manual ou do backend, wiring, ativacao ou canario.
+
+Um preflight somente leitura no Supabase DEV `cxmjojnocigekgcxhubi` confirmou
+que o executor MCP da sessao era `postgres` com `BYPASSRLS` e que tabela,
+validator e registro da migration D2B2b3A estavam ausentes. O executor MCP DEV
+satisfaz somente o preflight de identidade da migration; nao prova
+`M06_MIGRATION_DATABASE_URL`, `DATABASE_URL` nem a VPS. Esta missao nao aplicou
+a migration, DEV confirmou a ausencia e PROD nao foi consultado.
 
 ## Proximo gate unico
 
-Revisar e integrar a PR D2B2b3A draft-only, comprovando migration em
-PostgreSQL 17 descartavel, isolamento entre tenants, concorrencia por revisao e
-ausencia de caminhos de aprovacao ou runtime. Nao aplicar a migration em
-Supabase DEV ou PROD como parte desse gate.
+Identificar sanitizadamente, em preflight somente leitura, os dois caminhos de
+banco: `M06_MIGRATION_DATABASE_URL`, futuro executor e owner da migration, e
+`DATABASE_URL`, runtime do backend Master. Para cada caminho, comprovar identidade
+da role, ownership esperado, ACL efetiva e comportamento sob `FORCE RLS`, sem
+abrir `.env` nem imprimir DSN, URL, usuario ou segredo. Se executada pela VPS, a
+consulta toca metadados do Supabase PROD e exige autorizacao nominal separada.
+A alternativa segura em DEV exige as credenciais planejadas de migration e
+runtime e nao comprova a VPS. O preflight nao autoriza aplicacao da migration,
+mudanca de flag, wiring, deploy manual ou do backend, painel do tenant,
+aprovacoes, catalogo, evidence store, writer, WhatsApp, agente, D2C, ativacao ou
+canario.

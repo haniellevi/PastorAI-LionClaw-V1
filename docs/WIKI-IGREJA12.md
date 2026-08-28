@@ -1,7 +1,7 @@
 # Wiki do projeto Igreja 12
 
-Snapshot documental de 2026-08-28, com baseline de código no merge #318
-`74951828f48994622a112d8e59eb978e5fb4f406`, na auditoria D1 e na
+Snapshot documental de 2026-08-28, com baseline de código no merge #320
+`947d891c2ea278b7a3231fecd9ca1c90cfe29a1f`, na auditoria D1 e na
 reconciliação operacional registrada nesta fase.
 
 ## Leitura de 30 segundos
@@ -45,7 +45,7 @@ qualquer expansão do canário.
 | Agente e Evolution | `PARCIAL / GATE OPERACIONAL` | Corrigir memória, conhecimento e qualidade antes de novo canário |
 | Canário ativo | `PASS TÉCNICO / QUALIDADE INSUFICIENTE` | Avaliação conversacional humana após a nova fundação |
 | LangGraph | `IMPLEMENTADO STATELESS / D2B1 INTEGRADA` | Persistência, memória e subgrafos permanecem posteriores |
-| Consentimento | `PARCIAL / D2B2B3A DRAFT-ONLY AUTORIZADA` | Revisar a superfície de rascunhos no Console Master; aprovações, catálogo, writers, Supabase e D2C permanecem bloqueados |
+| Consentimento | `PARCIAL / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | Comprovar sanitizadamente `M06_MIGRATION_DATABASE_URL` e `DATABASE_URL`; aprovações, catálogo, writers, Supabase e D2C permanecem bloqueados |
 | Conhecimento por igreja | `AUSENTE` | Ingestão aprovada, ACL, busca e ferramentas de dados vivos |
 | Relatório por WhatsApp | `PARCIAL` | Confirmar e gravar no relatório canônico |
 | Central de Células | `PARCIAL FORTE` | Operação e notificações principais pelo WhatsApp |
@@ -122,7 +122,7 @@ prova, retenção, política de menores ou semântica de eliminação e opt-out.
 finalidade depende de pacote aprovado pelo responsável humano e por validação
 jurídica ou do encarregado antes de catálogo ou writer.
 
-A D2B2b3A autoriza somente o preparo de rascunhos por igreja no Console
+A D2B2b3A integra somente o preparo de rascunhos por igreja no Console
 Master. O Master autenticado organiza fatos e campos permitidos, enquanto
 tenant e ator são derivados no servidor. Seu e-mail não vira regra de acesso ou
 configuração da igreja. A superfície não permite escolher hipótese jurídica,
@@ -292,20 +292,25 @@ O template vazio D2B2b2 organiza o próximo gate e permanece
 aprovação. O contrato está em
 [`2026-08-28-d2b2b2-consent-decision-packet-contract.md`](decisions/2026-08-28-d2b2b2-consent-decision-packet-contract.md).
 
-A D2B2b3A define a próxima fatia: migration versionada, persistência, API e aba
-de governança no Console Master, todas limitadas a rascunhos vinculados a uma
-igreja. A implementação deve usar revisão otimista, auditoria sem payload e
-aviso permanente de que o conteúdo não está aprovado. A migration só pode ser
-comprovada em PostgreSQL 17 descartável neste gate. Supabase compartilhado,
-painel do tenant, fluxo nominal de aprovação, catálogo, evidence store, writer,
-WhatsApp e runtime continuam fechados.
+A PR #320, HEAD `66ce06d9a356a52e63366b3a6528b0b83170d12e`, integrou a
+D2B2b3A no merge `947d891c2ea278b7a3231fecd9ca1c90cfe29a1f`: migration
+versionada, persistência, API e aba de governança no Console Master, todas
+limitadas a rascunhos vinculados a uma igreja. A implementação usa revisão
+otimista, auditoria sem payload e aviso permanente de conteúdo não aprovado. Os
+cinco workflows da PR e os cinco pós-merge ficaram verdes. O merge gerou o
+deployment automático Vercel frontend Production `6140373952`, com `SUCCESS`;
+essa metadata prova apenas o frontend nesse ambiente. Esta missão não aplicou a
+migration; DEV confirmou a ausência e PROD não foi consultado. A flag permanece `false`, e não
+houve deploy manual ou do backend, wiring, ativação ou canário. Painel do
+tenant, fluxo nominal de aprovação, catálogo, evidence store, writer, WhatsApp
+e runtime continuam fechados.
 
-A candidata inativa não prova o wiring do banco. Antes de qualquer aplicação em
-banco compartilhado, ativação da flag ou wiring do backend compartilhado, um
-preflight separado deve comprovar, sem expor a credencial, que o `DATABASE_URL`
-do plano Master usa o owner esperado com acesso efetivo sob `FORCE RLS` ou um
-papel explicitamente autorizado com `BYPASSRLS`. Esse requisito não autoriza
-nenhuma dessas ações.
+Um preflight somente leitura no Supabase DEV `cxmjojnocigekgcxhubi` confirmou
+o executor MCP `postgres` com `BYPASSRLS` e a ausência da tabela, do validator e
+do registro da migration D2B2b3A. O executor MCP DEV satisfaz somente o
+preflight de identidade da migration; não prova `M06_MIGRATION_DATABASE_URL`,
+`DATABASE_URL` nem a VPS. Esta missão não aplicou a migration, DEV confirmou a
+ausência e PROD não foi consultado.
 
 ### D6, primeira vertical
 
@@ -333,8 +338,8 @@ Brevo ou broadcast.
 - avaliação manual com teclado, leitor de tela e zoom;
 - métricas de performance em condições reais;
 - owner operacional, substitutos e escalonamento por setor;
-- integrar a superfície D2B2b3A de rascunhos no Console Master sem transformar
-  preenchimento administrativo em atestado ou aprovação;
+- comprovar em preflight somente leitura os dois caminhos de banco, migration e
+  runtime Master, com identidade, owner, ACL e `FORCE RLS`, sem expor credencial;
 - completar depois o pacote humano e jurídico por finalidade: controlador e
   operadores reais, texto e versão, hipótese jurídica, prova, menores,
   retenção, eliminação, transferência internacional, opt-out, direitos,
@@ -361,13 +366,14 @@ canário.
 
 ## Próximo gate único
 
-Revisar e integrar a PR D2B2b3A draft-only, comprovando migration em
-PostgreSQL 17 descartável, isolamento entre tenants, concorrência por revisão e
-ausência de caminhos de aprovação ou runtime. Supabase DEV ou PROD, painel do
-tenant, aprovações, catálogo, evidence store, writer, WhatsApp, agente, deploy
-manual ou do backend e D2C permanecem bloqueados. A abertura da PR pode gerar
-Preview automático, e o merge pode gerar deployment frontend Production
-automático pela integração Vercel do repositório. O merge exige revisão humana
-consciente desse efeito, que não autoriza migration compartilhada, mudança de
-flag, runtime, ativação ou canário e não constitui evidência de deployment desta
-candidata.
+Identificar sanitizadamente, em preflight somente leitura, os dois caminhos de
+banco: `M06_MIGRATION_DATABASE_URL`, futuro executor e owner da migration, e
+`DATABASE_URL`, runtime do backend Master. Para cada caminho, comprovar identidade
+da role, ownership esperado, ACL efetiva e comportamento sob `FORCE RLS`, sem
+abrir `.env` nem imprimir DSN, URL, usuário ou segredo. Se executada pela VPS, a
+consulta toca metadados do Supabase PROD e exige autorização nominal separada.
+A alternativa segura em DEV exige as credenciais planejadas de migration e
+runtime e não comprova a VPS. O preflight não autoriza aplicação da migration,
+mudança de flag, wiring, deploy manual ou do backend, painel do tenant,
+aprovações, catálogo, evidence store, writer, WhatsApp, agente, D2C, ativação ou
+canário.

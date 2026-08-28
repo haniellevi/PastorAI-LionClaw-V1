@@ -168,12 +168,13 @@ finalidade permanece `DRAFT_NOT_APPROVED`. Hipóteses jurídicas, declaração d
 operação baseada em consentimento, decisão sobre menores, atestados, pareceres,
 aprovações, digest atestado e registros nominais não são editáveis pelo Master.
 
-A candidata inativa não prova o wiring do banco. Antes de qualquer aplicação em
-banco compartilhado, ativação da flag ou wiring do backend compartilhado, um
-preflight separado deve comprovar, sem expor a credencial, que o `DATABASE_URL`
-do plano Master usa o owner esperado com acesso efetivo sob `FORCE RLS` ou um
-papel explicitamente autorizado com `BYPASSRLS`. Esse requisito não autoriza
-nenhuma dessas ações.
+A implementação integrada e inativa não prova o wiring do banco. Antes de
+qualquer aplicação em banco compartilhado, ativação da flag ou wiring do
+backend, um preflight separado deve identificar sanitizadamente
+`M06_MIGRATION_DATABASE_URL`, futuro executor e owner da migration, e
+`DATABASE_URL`, runtime do backend Master. Os dois caminhos precisam comprovar
+role, ownership, ACL efetiva e comportamento sob `FORCE RLS`, sem expor
+credencial.
 
 Nenhum texto jurídico plausível, contato pessoal, assinatura ou parecer deve
 ser usado como exemplo no template. Nenhum processo de runtime lê o template
@@ -218,13 +219,13 @@ Continuam bloqueados:
 - qualquer writer de `concedido`;
 - API e painel do tenant, API ou painel de aprovação, WhatsApp, webhook, worker,
   LangGraph e tools;
-- qualquer migration fora do artefato local draft-only da D2B2b3A e qualquer
-  aplicação em Supabase DEV ou PROD;
+- qualquer migration posterior ao artefato draft-only da D2B2b3A e qualquer
+  aplicação desse artefato em Supabase DEV ou PROD;
 - deploy, ativação do agente e canário;
 - D2C, memória, conhecimento e outbox;
 - Universidade da Vida e Capacitação Destino.
 
-A única abertura é a persistência, API e aba de painel do Console Master para
+A única abertura integrada no código é a persistência, API e aba de painel do Console Master para
 criar e atualizar rascunhos por igreja, sem transição de estado, aprovação,
 registro nominal ou caller operacional.
 
@@ -243,13 +244,18 @@ insumo governado, nunca autoridade direta do runtime.
 
 ## Próximo gate único
 
-Revisar e integrar a PR D2B2b3A draft-only, comprovando migration em
-PostgreSQL 17 descartável, isolamento entre tenants, concorrência por revisão e
-ausência de caminhos de aprovação ou runtime. A aplicação em Supabase DEV ou
-PROD permanece fora desse gate.
+Identificar sanitizadamente, em preflight somente leitura, os dois caminhos de
+banco: `M06_MIGRATION_DATABASE_URL`, futuro executor e owner da migration, e
+`DATABASE_URL`, runtime do backend Master. Para cada caminho, comprovar identidade
+da role, ownership esperado, ACL efetiva e comportamento sob `FORCE RLS`, sem
+abrir `.env` nem imprimir DSN, URL, usuário ou segredo. Se executada pela VPS, a
+consulta toca metadados do Supabase PROD e exige autorização nominal separada.
+A alternativa segura em DEV exige as credenciais planejadas de migration e
+runtime e não comprova a VPS.
 
-A abertura da PR pode gerar Preview automático, e o merge pode gerar deployment
-frontend Production automático pela integração Vercel do repositório. O merge
-exige revisão humana consciente desse efeito. Isso não autoriza deploy manual ou
-do backend, migration compartilhada, mudança de flag, runtime, ativação ou
-canário e não constitui evidência de deployment desta candidata.
+A PR #320 já integrou a D2B2b3A no merge
+`947d891c2ea278b7a3231fecd9ca1c90cfe29a1f`; o deployment automático
+Vercel frontend Production `6140373952` ficou `SUCCESS`, sem provar backend,
+banco ou Supabase. Esta missão não aplicou a migration, DEV confirmou a ausência
+e PROD não foi consultado. A flag permanece `false`. O preflight não autoriza
+migration, mudança de flag, wiring, deploy, runtime, ativação ou canário.
