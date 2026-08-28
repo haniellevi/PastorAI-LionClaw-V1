@@ -445,7 +445,7 @@ decisao tecnica esta em
 `docs/decisions/2026-08-28-d2b2b1-consent-security-boundary.md`.
 O template D2B2b2 permanece `TEMPLATE_ONLY / NOT_APPROVED` e esta em
 `docs/decisions/2026-08-28-d2b2b2-consent-decision-packet-contract.md`. Ele
-organiza o proximo gate humano, sem autorizar catalogo, writer, Supabase ou
+organiza um gate humano posterior, sem autorizar catalogo, writer, Supabase ou
 efeito operacional.
 
 A D2B2b3A integra somente a superficie draft-only do Console Master. O Master
@@ -507,16 +507,27 @@ compartilhada, restart ou alteracao de credencial, flag, runtime, agente ou
 canario. O preflight PROD e o deployment automatico frontend da PR #321
 permanecem como evidencia historica separada.
 
-**Proximo gate unico:** implementar e testar somente offline, sem acessar DEV
-ou PROD, uma PR versionada de reconciliacao historica humana. Ela devera definir
-um pacote sanitizado e um verificador somente leitura, sem DML e sem inferir
-migrations aplicadas, para comparar futuramente o catalogo local com os
-inventarios autorizados dos ledgers publico e nativo. Toda entrada sem evidencia
-humana permanece bloqueante; a PR nao cria, altera ou preenche ledger e nao
-autoriza `bootstrap-ledger`, `harden-ledger`, `status` ou `apply` em ambiente
-compartilhado. Painel do tenant, aprovacoes, catalogo, writer, migration
-D2B2b3A, flag, D2C, credencial, wiring, deploy, restart, runtime, ativacao e
-canario continuam bloqueados.
+Sobre a base auditada `cfeba13c0a9d08288f8c956ee2f35ddc1c0c35b7`, esta
+candidata adiciona somente offline um pacote deny-state versionado e um
+verificador stdlib separado do runner, conforme
+`docs/decisions/2026-08-28-migration-history-reconciliation-contract.md`.
+O estado e `PACOTE E VERIFICADOR CANDIDATOS / SOMENTE OFFLINE / DECISOES
+HUMANAS PENDENTES / NAO APLICADO`. O verificador nao acessa banco, rede,
+ambiente ou variaveis de ambiente, nao executa SQL, DML ou escrita e nao
+infere migration aplicada. Os ledgers nativo e publico permanecem independentes
+e todo sucesso estrutural conserva `OPERATIONAL_AUTHORIZATION=BLOCKED`.
+
+Evidencia offline da candidata: `98/98` testes do verificador e `26/26` testes
+documentais passaram. O runner preservado passou `42/42` testes offline; `45`
+integracoes foram puladas por ausencia deliberada de banco descartavel.
+
+**Proximo gate unico:** revisar as evidencias focais e os pareceres
+independentes desta candidata e, se todos permanecerem verdes, integrar a PR.
+Esse gate e exclusivamente offline e nao autoriza ambiente,
+comando do runner, `bootstrap-ledger`, `harden-ledger`, `status` ou `apply`.
+Painel do tenant, aprovacoes, catalogo, writer, migration D2B2b3A, flag, D2C,
+credencial, wiring, deploy, restart, runtime, ativacao e canario continuam
+bloqueados.
 
 A evolucao aprovada mantem uma unica politica global e adiciona especialistas por dominio de forma incremental. Atendimento, Central de Celulas, Agenda e Consolidacao integram a missao atual; Universidade da Vida e Capacitacao Destino permanecem na visao futura e dependem de PRDs e missoes proprias. Especialistas nunca enviam mensagens diretamente e nunca recebem IDs de tenant escolhidos pelo modelo ou pelo cliente.
 

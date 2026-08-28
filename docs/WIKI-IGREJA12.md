@@ -1,7 +1,8 @@
 # Wiki do projeto Igreja 12
 
-Snapshot documental de 2026-08-28, reconciliado no merge
-`3a5789c784017ab15a43e28c4270d25af8618359`. O preflight PROD histórico
+Snapshot documental desta candidata sobre a base auditada
+`cfeba13c0a9d08288f8c956ee2f35ddc1c0c35b7`. O `bootstrap-ledger` permanece
+integrado pelo merge `3a5789c784017ab15a43e28c4270d25af8618359`. O preflight PROD histórico
 permanece fixado na baseline auditada
 `15deaf88fd4cab5b4bebdd1435a81c8b33c2b159`; a implementação D2B2b3A veio do
 merge #320 `947d891c2ea278b7a3231fecd9ca1c90cfe29a1f`.
@@ -47,7 +48,7 @@ qualquer expansão do canário.
 | Agente e Evolution | `PARCIAL / GATE OPERACIONAL` | Corrigir memória, conhecimento e qualidade antes de novo canário |
 | Canário ativo | `PASS TÉCNICO / QUALIDADE INSUFICIENTE` | Avaliação conversacional humana após a nova fundação |
 | LangGraph | `IMPLEMENTADO STATELESS / D2B1 INTEGRADA` | Persistência, memória e subgrafos permanecem posteriores |
-| Consentimento | `PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | Concluir a PR offline de reconciliação histórica humana, sem DML ou inferência; aprovações, catálogo, writers, Supabase e D2C permanecem bloqueados |
+| Consentimento | `PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / PACOTE E VERIFICADOR CANDIDATOS SOMENTE OFFLINE / DECISÕES HUMANAS PENDENTES / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | Concluir testes e revisões da candidata e revisar sua integração; aprovações, catálogo, writers, Supabase e D2C permanecem bloqueados |
 | Conhecimento por igreja | `AUSENTE` | Ingestão aprovada, ACL, busca e ferramentas de dados vivos |
 | Relatório por WhatsApp | `PARCIAL` | Confirmar e gravar no relatório canônico |
 | Central de Células | `PARCIAL FORTE` | Operação e notificações principais pelo WhatsApp |
@@ -289,7 +290,7 @@ deployment frontend Vercel automático classificado como Production; não houve
 deploy manual ou do backend, migration, Supabase, ativação ou canário. O
 PostgreSQL descartável foi removido.
 
-O template vazio D2B2b2 organiza o próximo gate e permanece
+O template vazio D2B2b2 organiza um gate humano posterior e permanece
 `TEMPLATE_ONLY / NOT_APPROVED`. Sua existência, teste ou merge não constituem
 aprovação. O contrato está em
 [`2026-08-28-d2b2b2-consent-decision-packet-contract.md`](decisions/2026-08-28-d2b2b2-consent-decision-packet-contract.md).
@@ -355,8 +356,9 @@ Brevo ou broadcast.
 - o preflight runtime comprovou identidade, owner e ACL; o caminho
   `M06_MIGRATION_DATABASE_URL` e `public.schema_migrations` continuam ausentes
   em PROD, e o `FORCE RLS` da tabela futura não foi comprovado. O
-  `bootstrap-ledger` foi implementado e comprovado somente offline, sem aplicação; o gate atual é a PR
-  versionada de reconciliação histórica humana, também somente offline;
+  `bootstrap-ledger` foi integrado e comprovado somente offline, sem aplicação;
+  o pacote e o verificador de reconciliação são candidatos somente offline,
+  com decisões humanas pendentes e sem autorização operacional;
 - completar depois o pacote humano e jurídico por finalidade: controlador e
   operadores reais, texto e versão, hipótese jurídica, prova, menores,
   retenção, eliminação, transferência internacional, opt-out, direitos,
@@ -420,13 +422,23 @@ compartilhada, restart ou alteração de credencial, flag, runtime, agente ou
 canário. O preflight PROD e o deployment automático frontend da PR #321
 permanecem evidências históricas separadas.
 
-Implementar e testar somente offline, sem acessar DEV ou PROD, uma PR
-versionada de reconciliação histórica humana. Ela deve definir pacote
-sanitizado e verificador somente leitura, sem DML e sem inferir migrations
-aplicadas, para comparar futuramente o catálogo versionado com inventários
-autorizados dos ledgers público e nativo. Divergência ou ausência de evidência
-permanece bloqueante; a PR não cria, altera ou preenche ledger e não autoriza
-`bootstrap-ledger`, `harden-ledger`, `status` ou `apply` em ambiente
-compartilhado. Painel do tenant, aprovações, catálogo, writer, migration
-D2B2b3A, flag, D2C, credencial, wiring, deploy, restart, runtime, ativação e
-canário continuam bloqueados.
+Sobre a base auditada `cfeba13c0a9d08288f8c956ee2f35ddc1c0c35b7`, esta
+candidata adiciona somente offline um pacote deny-state versionado e um
+verificador stdlib separado do runner, conforme
+[`2026-08-28-migration-history-reconciliation-contract.md`](decisions/2026-08-28-migration-history-reconciliation-contract.md).
+O estado é `PACOTE E VERIFICADOR CANDIDATOS / SOMENTE OFFLINE / DECISÕES
+HUMANAS PENDENTES / NÃO APLICADO`. O verificador não acessa banco, rede,
+ambiente ou variáveis de ambiente, não executa SQL, DML ou escrita e não
+infere migration aplicada. Os ledgers nativo e público permanecem independentes
+e todo sucesso estrutural conserva `OPERATIONAL_AUTHORIZATION=BLOCKED`.
+
+A candidata passou `98/98` testes do verificador e `26/26` testes documentais.
+O runner preservado passou `42/42` testes offline; `45` integrações foram
+puladas por ausência deliberada de banco descartável.
+
+Revisar as evidências focais e os pareceres independentes desta candidata e,
+se todos permanecerem verdes, integrar a PR. Esse gate é exclusivamente
+offline e não autoriza ambiente, comando do runner,
+`bootstrap-ledger`, `harden-ledger`, `status` ou `apply`. Painel do tenant,
+aprovações, catálogo, writer, migration D2B2b3A, flag, D2C, credencial, wiring,
+deploy, restart, runtime, ativação e canário continuam bloqueados.

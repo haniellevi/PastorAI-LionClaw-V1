@@ -75,8 +75,26 @@ metadata não prova deploy do backend, banco ou runtime.
 Nenhuma execução ocorreu em DEV ou PROD. Não use `bootstrap-ledger`,
 `harden-ledger`, `status`, `apply`, SQL Editor, `apply_migration`, `db push` ou
 MCP para preencher, reaplicar ou reconciliar histórico em ambiente
-compartilhado. O próximo gate é uma PR offline e versionada de reconciliação
-histórica humana, sem DML e sem inferência.
+compartilhado.
+
+Sobre a base auditada `cfeba13c0a9d08288f8c956ee2f35ddc1c0c35b7`, esta
+candidata adiciona somente offline um pacote deny-state versionado e um
+verificador stdlib separado do runner. O estado é `PACOTE E VERIFICADOR
+CANDIDATOS / SOMENTE OFFLINE / DECISÕES HUMANAS PENDENTES / NÃO APLICADO`.
+O contrato está em
+[`2026-08-28-migration-history-reconciliation-contract.md`](../../docs/decisions/2026-08-28-migration-history-reconciliation-contract.md).
+O verificador não acessa banco, rede, ambiente ou variáveis de ambiente, não
+executa SQL, DML ou escrita e não infere migration aplicada. Um sucesso
+estrutural conserva `OPERATIONAL_AUTHORIZATION=BLOCKED` e não libera qualquer
+comando desta CLI.
+
+A candidata passou `98/98` testes do verificador e `26/26` testes documentais.
+O runner preservado passou `42/42` testes offline; `45` integrações foram
+puladas por ausência deliberada de banco descartável.
+
+O próximo gate é revisar as evidências focais e os pareceres independentes e,
+se todos permanecerem verdes, integrar a PR. Ele é exclusivamente offline e
+não autoriza ambiente ou comando do runner.
 
 ## Transações especiais
 

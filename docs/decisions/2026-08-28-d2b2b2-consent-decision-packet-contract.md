@@ -292,16 +292,27 @@ compartilhada, restart ou alteração de credencial, flag, runtime, agente ou
 canário. O preflight PROD e o deployment automático frontend da PR #321
 continuam como evidência histórica separada.
 
-Implementar e testar somente offline, sem acessar DEV ou PROD, uma PR
-versionada de reconciliação histórica humana. Ela deve definir pacote
-sanitizado e verificador somente leitura, sem DML e sem inferir migrations
-aplicadas, para comparar futuramente o catálogo local com inventários
-autorizados dos ledgers público e nativo. Toda divergência ou evidência ausente
-permanece bloqueante; a PR não cria, altera ou preenche ledger e não autoriza
-`bootstrap-ledger`, `harden-ledger`, `status` ou `apply` em ambiente
-compartilhado. Painel do tenant, aprovações, catálogo, writer, migration
-D2B2b3A, flag, D2C, credencial, wiring, deploy, restart, runtime, ativação e
-canário continuam bloqueados.
+Sobre a base auditada `cfeba13c0a9d08288f8c956ee2f35ddc1c0c35b7`, esta
+candidata adiciona somente offline um pacote deny-state versionado e um
+verificador stdlib separado do runner, conforme
+[`2026-08-28-migration-history-reconciliation-contract.md`](2026-08-28-migration-history-reconciliation-contract.md).
+O estado é `PACOTE E VERIFICADOR CANDIDATOS / SOMENTE OFFLINE / DECISÕES
+HUMANAS PENDENTES / NÃO APLICADO`. Nenhuma decisão humana está aprovada. O
+verificador não acessa banco, rede, ambiente ou variáveis de ambiente, não
+executa SQL, DML ou escrita e não infere migration aplicada. Os ledgers nativo
+e público permanecem independentes e todo sucesso estrutural conserva
+`OPERATIONAL_AUTHORIZATION=BLOCKED`.
+
+A candidata passou `98/98` testes do verificador e `26/26` testes documentais.
+O runner preservado passou `42/42` testes offline; `45` integrações foram
+puladas por ausência deliberada de banco descartável.
+
+Revisar as evidências focais e os pareceres independentes desta candidata e,
+se todos permanecerem verdes, integrar a PR. Esse gate é exclusivamente
+offline e não autoriza ambiente, comando do runner,
+`bootstrap-ledger`, `harden-ledger`, `status` ou `apply`. Painel do tenant,
+aprovações, catálogo, writer, migration D2B2b3A, flag, D2C, credencial, wiring,
+deploy, restart, runtime, ativação e canário continuam bloqueados.
 
 A PR #320 já integrou a D2B2b3A no merge
 `947d891c2ea278b7a3231fecd9ca1c90cfe29a1f`; o deployment automático

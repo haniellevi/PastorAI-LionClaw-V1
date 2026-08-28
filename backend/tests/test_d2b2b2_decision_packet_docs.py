@@ -27,6 +27,12 @@ ADR_PATH = (
     / "decisions"
     / "2026-08-28-d2b2b2-consent-decision-packet-contract.md"
 )
+RECONCILIATION_CONTRACT_PATH = (
+    REPO_ROOT
+    / "docs"
+    / "decisions"
+    / "2026-08-28-migration-history-reconciliation-contract.md"
+)
 
 EXPECTED_TOP_LEVEL_KEYS = {
     "metadata",
@@ -1047,7 +1053,7 @@ def test_d2b2b2_template_has_no_runtime_or_migration_consumer() -> None:
                 assert token not in content, f"runtime consumer in {path}"
 
 
-def test_d2b2b2_canonical_docs_record_integrated_unapplied_bootstrap_and_one_reconciliation_gate() -> None:
+def test_canonical_docs_record_offline_reconciliation_candidate_and_one_gate() -> None:
     canonical_indexes = {
         REPO_ROOT / "docs" / "ai" / "AI-BOOTSTRAP.md",
         REPO_ROOT / "docs" / "ai" / "PRD-COVERAGE.md",
@@ -1084,6 +1090,7 @@ def test_d2b2b2_canonical_docs_record_integrated_unapplied_bootstrap_and_one_rec
         normalized = _normalized_prose(content)
         assert "15deaf88fd4cab5b4bebdd1435a81c8b33c2b159" in content
         assert "b43ad92028374fa6763ef10f5eb7a379afd3e7a2" in content
+        assert "cfeba13c0a9d08288f8c956ee2f35ddc1c0c35b7" in content
         assert "74d3f2d87a7ffad501432b2d9fc4163bd3b4ada4" in content
         assert "3a5789c784017ab15a43e28c4270d25af8618359" in content
         assert "2026-08-28T15:24:58Z" in content
@@ -1130,18 +1137,30 @@ def test_d2b2b2_canonical_docs_record_integrated_unapplied_bootstrap_and_one_rec
         assert "nao aplica" in normalized
         assert "registra migration" in normalized
         assert "nao" in normalized and "supabase_migrations" in normalized
-        assert "reconciliacao historica" in normalized
-        assert "pr versionada" in normalized
-        assert "pacote sanitizado" in normalized
-        assert "verificador somente leitura" in normalized
-        assert "sem dml" in normalized
-        assert "sem inferir migrations aplicadas" in normalized
-        assert "sem acessar dev ou prod" in normalized
+        assert "2026-08-28-migration-history-reconciliation-contract.md" in content
+        assert "pacote deny-state versionado" in normalized
+        assert "verificador stdlib separado do runner" in normalized
+        assert "pacote e verificador candidatos" in normalized
+        assert "somente offline" in normalized
+        assert "decisoes humanas pendentes" in normalized
+        assert "nao aplicado" in normalized
+        assert "nao acessa banco, rede" in normalized
+        assert "variaveis de ambiente" in normalized
+        assert "nao executa sql, dml ou escrita" in normalized
+        assert "nao infere migration aplicada" in normalized
+        assert "ledgers nativo e publico permanecem independentes" in normalized
+        assert "operational_authorization=blocked" in normalized
+        assert "98/98" in normalized
+        assert "26/26" in normalized
+        assert "42/42" in normalized
+        assert "45" in normalized
+        assert "revisar as evidencias focais e os pareceres independentes" in normalized
+        assert "integrar a pr" in normalized
+        assert "concluir os testes focais" not in normalized
         assert "`status` e `apply`" in normalized
         assert "bloquead" in normalized
         assert "prefixo integro do catalogo" in normalized
         assert "no maximo uma migration pendente" in normalized
-        assert "nao cria, altera ou preenche ledger" in normalized
         for blocker in (
             "painel do tenant",
             "aprovacoes",
@@ -1156,6 +1175,20 @@ def test_d2b2b2_canonical_docs_record_integrated_unapplied_bootstrap_and_one_rec
     for path in gate_contracts:
         normalized = _normalized_prose(path.read_text(encoding="utf-8"))
         assert normalized.count("proximo gate unico") == 1
+
+    reconciliation_contract = RECONCILIATION_CONTRACT_PATH.read_text(
+        encoding="utf-8"
+    )
+    reconciliation_normalized = _normalized_prose(reconciliation_contract)
+    assert "cfeba13c0a9d08288f8c956ee2f35ddc1c0c35b7" in reconciliation_contract
+    assert "pacote e verificador candidatos" in reconciliation_normalized
+    assert "decisoes humanas pendentes" in reconciliation_normalized
+    assert "nao aplicado" in reconciliation_normalized
+    assert "pacote deny-state versionado" in reconciliation_normalized
+    assert "biblioteca padrao" in reconciliation_normalized
+    assert "separado de `backend/scripts/apply_migrations.py`" in reconciliation_normalized
+    assert "operational_authorization=blocked" in reconciliation_normalized
+    assert reconciliation_normalized.count("proximo gate unico") == 1
 
     mission_register = (
         REPO_ROOT / "docs" / "ops" / "POST-V1-MISSION-REGISTER.md"
@@ -1225,9 +1258,12 @@ def test_migration_operator_docs_reject_obsolete_generic_apply_contract() -> Non
         assert "status" in normalized
         assert "apply" in normalized
         assert "bloquead" in normalized
-        assert "reconciliacao historica humana" in normalized
-        assert "sem dml" in normalized
-        assert "sem inferencia" in normalized
+        assert "pacote deny-state versionado" in normalized
+        assert "verificador stdlib separado do runner" in normalized
+        assert "decisoes humanas pendentes" in normalized
+        assert "dml" in normalized
+        assert "nao infere migration aplicada" in normalized
+        assert "operational_authorization=blocked" in normalized
 
     for normalized in (readme_normalized, staging_normalized, ledger_normalized):
         assert "326/326" in normalized
@@ -1267,9 +1303,10 @@ def test_migration_operator_docs_reject_obsolete_generic_apply_contract() -> Non
 
     assert "preserva a decisao e as provas" in historical_normalized
     assert "historicas da m06" in historical_normalized
-    assert "comprovado somente offline" in historical_normalized
+    assert "comprovad" in historical_normalized
     assert "nada nesta" in historical_normalized
     assert "nota autoriza dev, prod" in historical_normalized
+    assert "delta atual tambem implementa" not in historical_normalized
 
 
 def test_postmerge_ledger_docs_reject_premerge_delta_language() -> None:
@@ -1296,3 +1333,52 @@ def test_postmerge_ledger_docs_reject_premerge_delta_language() -> None:
         assert "delta atual tambem contem" not in normalized
         assert "desenvolvida e comprovada offline sobre a base" in normalized
         assert "foi integrada pela pr #323" in normalized
+
+
+def test_reconciliation_candidate_docs_reject_consumed_gate_and_false_authority() -> None:
+    candidate_docs = {
+        REPO_ROOT / "SPEC.md",
+        REPO_ROOT / "SPEC_PROGRESS.md",
+        REPO_ROOT
+        / "docs"
+        / "Docs20260611_163530"
+        / "PRD20260611_163530.md",
+        REPO_ROOT / "docs" / "WIKI-IGREJA12.md",
+        REPO_ROOT / "docs" / "ai" / "AI-BOOTSTRAP.md",
+        REPO_ROOT / "docs" / "ai" / "PRD-COVERAGE.md",
+        REPO_ROOT
+        / "docs"
+        / "decisions"
+        / "2026-08-28-d2b2b2-consent-decision-packet-contract.md",
+        REPO_ROOT
+        / "docs"
+        / "decisions"
+        / "2026-08-28-d2b2b3-master-governance-drafts.md",
+        REPO_ROOT / "docs" / "ops" / "POST-V1-MISSION-REGISTER.md",
+        REPO_ROOT / "backend" / "migrations" / "README.md",
+        REPO_ROOT / "deploy" / "STAGING.md",
+        REPO_ROOT
+        / "docs"
+        / "security"
+        / "2026-08-20-v1-ledger-hardening-gate.md",
+        REPO_ROOT / "docs" / "ops" / "PRODUCTION-RUNBOOK.md",
+        RECONCILIATION_CONTRACT_PATH,
+    }
+    stale_claims = {
+        "implementar e testar somente offline",
+        "concluir a pr offline de reconciliacao historica humana",
+        "produzir a reconciliacao historica humana versionada",
+        "concluir a reconciliacao historica humana offline",
+        "historico reconciliado",
+        "reconciliacao concluida",
+        "ledgers equivalentes",
+        "ledgers sincronizados",
+        "status e apply liberados",
+        "delta atual tambem implementa",
+    }
+
+    for path in candidate_docs:
+        normalized = _normalized_prose(path.read_text(encoding="utf-8"))
+        for stale_claim in stale_claims:
+            assert stale_claim not in normalized, f"stale claim in {path}"
+        assert "operational_authorization=blocked" in normalized
