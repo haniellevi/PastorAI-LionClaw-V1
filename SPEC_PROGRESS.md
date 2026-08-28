@@ -9,8 +9,8 @@ Os marcadores `[CONCLUIDA]` abaixo preservam a evidencia das sprints que os prod
 
 Baseline confirmada no codigo:
 
-- a baseline de codigo auditada e o merge #318
-  `74951828f48994622a112d8e59eb978e5fb4f406`; ela nao e um ponteiro movel de
+- a baseline de codigo auditada e o merge #320
+  `947d891c2ea278b7a3231fecd9ca1c90cfe29a1f`; ela nao e um ponteiro movel de
   branch;
 - o LangGraph atual e compilado sem checkpointer duravel; configurar `AGENT_GRAPH_CHECKPOINT_URL` apenas produz um aviso e a execucao continua stateless;
 - o runtime resolve tenant, Pessoa, papel autenticado e permissoes no servidor antes das tools existentes;
@@ -93,9 +93,9 @@ e o merge gerou deployment frontend Vercel automatico classificado como
 Production; nao houve deploy manual ou do backend, migration, Supabase,
 ativacao ou canario. O PostgreSQL temporario foi removido.
 
-Sequencia corrente: D2B2b1 integrada e inativa; D2B2b3A limita a proxima fatia
-a migration, persistencia, API e painel do Console Master para rascunhos por
-igreja; depois vem o fluxo nominal de atestado e aprovacao do pacote humano e
+Sequencia corrente: D2B2b3A integrada e inativa, com migration, persistencia,
+API e painel do Console Master limitados a rascunhos por igreja; depois vem o
+fluxo nominal de atestado e aprovacao do pacote humano e
 juridico por finalidade. Somente uma fatia posterior pode projetar catalogo
 imutavel, binding por tenant, prova correlacionada, retencao e callers
 server-side seguros. `D2C` continua bloqueada. Depois dela, `D3` implementa
@@ -108,12 +108,25 @@ A decisao D2B2b3A esta em
 ao Master escolher hipotese juridica, atestar, aprovar, representar papel da
 igreja ou preencher registros nominais. E-mail nao e autoridade e todo rascunho
 operacional permanece `DRAFT_NOT_APPROVED`.
-A candidata inativa nao prova o wiring do banco. Antes de qualquer aplicacao em
-banco compartilhado, ativacao da flag ou wiring do backend compartilhado, um
-preflight separado deve comprovar, sem expor a credencial, que o `DATABASE_URL`
-do plano Master usa o owner esperado com acesso efetivo sob `FORCE RLS` ou um
-papel explicitamente autorizado com `BYPASSRLS`. Esse requisito nao autoriza
-nenhuma dessas acoes.
+A PR #320, HEAD `66ce06d9a356a52e63366b3a6528b0b83170d12e`, foi integrada no
+merge `947d891c2ea278b7a3231fecd9ca1c90cfe29a1f`. Os cinco workflows da
+PR concluiram com `SUCCESS`: Backend Tests `33165481522`, E2E Critical
+`33165481590`, Frontend CI `33165481546`, RLS Integration `33165481561` e
+Tooling Static Checks `33165481549`. Os cinco pos-merge tambem concluiram com
+`SUCCESS`: Backend Tests `33167430903`, E2E Critical `33167430935`, Frontend CI
+`33167430953`, RLS Integration `33167430898` e Tooling Static Checks
+`33167430895`.
+O merge gerou o deployment automatico Vercel frontend Production `6140373952`,
+com `SUCCESS`. Essa metadata prova somente o frontend nesse ambiente; nao prova
+backend, banco ou Supabase. Esta missao nao aplicou a migration; DEV confirmou
+a ausencia e PROD nao foi consultado. A flag `PURPOSE_CONSENT_GOVERNANCE_DRAFTS_ENABLED` permanece
+`false`, e nao houve deploy manual ou do backend, wiring, ativacao ou canario.
+O preflight somente leitura no Supabase DEV `cxmjojnocigekgcxhubi` confirmou o
+executor MCP `postgres` com `BYPASSRLS` e a ausencia da tabela, do validator e
+do registro da migration D2B2b3A. O executor MCP DEV satisfaz somente o
+preflight de identidade da migration; nao prova `M06_MIGRATION_DATABASE_URL`,
+`DATABASE_URL` nem a VPS. Esta missao nao aplicou a migration, DEV confirmou a
+ausencia e PROD nao foi consultado.
 Universidade da Vida e Capacitacao Destino permanecem na visao futura, fora da
 missao atual. A D2A continua inativa: a integracao nao aplicou migration em
 ambiente compartilhado, nao provisionou credencial, nao conectou o runtime, nao
@@ -127,16 +140,17 @@ nao fez deploy manual ou do backend, nao promoveu a producao, nao ativou o
 agente e nao executou canario. O preview automatico da PR nao prova execucao do
 backend.
 
-**Proximo gate unico:** revisar e integrar a PR D2B2b3A draft-only, comprovando
-migration em PostgreSQL 17 descartavel, isolamento entre tenants, concorrencia
-por revisao e ausencia de caminhos de aprovacao ou runtime. Supabase DEV ou
-PROD, painel do tenant, aprovacoes, catalogo, evidence store, writer, WhatsApp,
-agente, D2C, deploy manual ou do backend, ativacao e canario permanecem
-bloqueados. A abertura da PR pode gerar Preview automatico, e o merge pode gerar
-deployment frontend Production automatico pela integracao Vercel do
-repositorio. O merge exige revisao humana consciente desse efeito, que nao
-autoriza migration compartilhada, mudanca de flag ou runtime e nao constitui
-evidencia de deployment desta candidata.
+**Proximo gate unico:** identificar sanitizadamente, em preflight somente
+leitura, os dois caminhos de banco: `M06_MIGRATION_DATABASE_URL`, futuro executor
+e owner da migration, e `DATABASE_URL`, runtime do backend Master. Para cada
+caminho, comprovar identidade da role, ownership esperado, ACL efetiva e
+comportamento sob `FORCE RLS`, sem abrir `.env` nem imprimir DSN, URL, usuario ou
+segredo. Se executada pela VPS, a consulta toca metadados do Supabase PROD e
+exige autorizacao nominal separada. A alternativa segura em DEV exige as
+credenciais planejadas de migration e runtime e nao comprova a VPS. O preflight
+nao autoriza aplicacao da migration, mudanca de flag, wiring, deploy manual ou
+do backend, painel do tenant, aprovacoes, catalogo, evidence store, writer,
+WhatsApp, agente, D2C, ativacao ou canario.
 
 ---
 

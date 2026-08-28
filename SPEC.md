@@ -175,14 +175,14 @@
   - `celulas`: abrir/editar apenas lider da celula ou superior na hierarquia (delta-007).
 - **Agente (F5/delta-034):** fixa o tenant no servidor e executa sob papel sem `BYPASSRLS`, com as mesmas validacoes de negocio de um humano. Service role nao substitui escopo, RLS ou autorizacao.
 - **D2B2a integrada e inativa:** `consentimento_finalidade_evento` habilita e forca RLS. Uma policy restritiva exige `app.tenant_igreja_id` fixado pelo backend; JWT ou `current_igreja_id()` sem esse GUC nao liberam linhas. `authenticated` recebe somente SELECT e INSERT nas colunas de entrada; `PUBLIC`, `anon`, `service_role` e `agent_runtime` nao recebem privilegios de tabela. UPDATE, DELETE e TRUNCATE permanecem revogados. A migration ainda nao foi aplicada em Supabase.
-- **D2B2b3A draft-only:** `purpose_consent_governance_envelope` habilita e forca RLS, nao expoe policy de Data API e revoga privilegios de `PUBLIC`, `anon`, `authenticated`, `service_role` e `agent_runtime`. Somente o caminho auditado do Console Master, com igreja explicita e identidade server-side, pode preparar o rascunho. A migration permanece fora de Supabase compartilhado neste gate.
+- **D2B2b3A draft-only:** `purpose_consent_governance_envelope` habilita e forca RLS, nao expoe policy de Data API e revoga privilegios de `PUBLIC`, `anon`, `authenticated`, `service_role` e `agent_runtime`. Somente o caminho auditado do Console Master, com igreja explicita e identidade server-side, pode preparar o rascunho. Esta missao nao aplicou a migration; DEV confirmou a ausencia e PROD nao foi consultado.
 
-A candidata inativa nao prova o wiring do banco. Antes de qualquer aplicacao em
-banco compartilhado, ativacao da flag ou wiring do backend compartilhado, um
-preflight separado deve comprovar, sem expor a credencial, que o `DATABASE_URL`
-do plano Master usa o owner esperado com acesso efetivo sob `FORCE RLS` ou um
-papel explicitamente autorizado com `BYPASSRLS`. Esse requisito nao autoriza
-nenhuma dessas acoes.
+Um preflight somente leitura no Supabase DEV `cxmjojnocigekgcxhubi` confirmou o
+executor MCP `postgres` com `BYPASSRLS` e a ausencia da tabela, do validator e
+do registro da migration D2B2b3A. O executor MCP DEV satisfaz somente o
+preflight de identidade da migration; nao prova `M06_MIGRATION_DATABASE_URL`,
+`DATABASE_URL` nem a VPS. Esta missao nao aplicou a migration, DEV confirmou a
+ausencia e PROD nao foi consultado.
 
 ### 2.3 Triggers
 - **`trg_promote_pipeline`** (BEFORE INSERT/UPDATE em `pessoas`) — state machine F2/delta-013/031: avanca `etapa`/`subetapa` automaticamente quando `presencas_celula >= 3` OU `aceitou_jesus = true` (visitante -> membro). Conclusao de consolidacao usa seu proprio fluxo.
@@ -436,27 +436,37 @@ O template D2B2b2 permanece `TEMPLATE_ONLY / NOT_APPROVED` e esta em
 organiza o proximo gate humano, sem autorizar catalogo, writer, Supabase ou
 efeito operacional.
 
-A D2B2b3A autoriza somente a superficie draft-only do Console Master. O Master
+A D2B2b3A integra somente a superficie draft-only do Console Master. O Master
 autenticado prepara fatos e campos permitidos para cada finalidade e igreja;
 tenant e ator sao derivados no servidor, sem e-mail hardcoded ou aceito como
 autoridade. Hipotese juridica, declaracao de operacao baseada em consentimento,
 decisao sobre menores, atestados, aprovacoes, digest e registros nominais nao
-sao editaveis. Os rascunhos permanecem `DRAFT_NOT_APPROVED`. A fatia pode
-adicionar migration versionada, persistencia, API e painel do Console Master,
-mas nao pode aplicar schema em Supabase compartilhado nem conectar painel do
+sao editaveis. Os rascunhos permanecem `DRAFT_NOT_APPROVED`. A fatia adiciona
+migration versionada, persistencia, API e painel do Console Master,
+mas nao aplica schema em Supabase compartilhado nem conecta painel do
 tenant, catalogo, evidence store, writer, WhatsApp, agente ou D2C.
 `PURPOSE_CONSENT_GOVERNANCE_DRAFTS_ENABLED` permanece `false` por default e
 libera somente essa superficie administrativa.
 
-**Proximo gate unico:** revisar e integrar a PR D2B2b3A draft-only, com
-migration comprovada em PostgreSQL 17 descartavel, isolamento entre tenants,
-concorrencia por revisao e ausencia de caminhos de aprovacao ou runtime.
+A PR #320, HEAD `66ce06d9a356a52e63366b3a6528b0b83170d12e`, foi integrada no
+merge `947d891c2ea278b7a3231fecd9ca1c90cfe29a1f`. Os cinco workflows da
+PR e os cinco pos-merge ficaram verdes. O merge gerou o deployment automatico
+Vercel frontend Production `6140373952`, com `SUCCESS`; essa metadata nao prova
+backend, banco ou Supabase. Esta missao nao aplicou a migration; DEV confirmou
+a ausencia e PROD nao foi consultado. A flag permanece `false`, e nao houve deploy manual ou do
+backend, wiring, ativacao ou canario.
 
-A abertura da PR pode gerar Preview automatico, e o merge pode gerar deployment
-frontend Production automatico pela integracao Vercel do repositorio. O merge
-exige revisao humana consciente desse efeito. Isso nao autoriza migration
-compartilhada, deploy manual ou do backend, mudanca de flag, runtime, ativacao ou
-canario e nao constitui evidencia de deployment desta candidata.
+**Proximo gate unico:** identificar sanitizadamente, em preflight somente
+leitura, os dois caminhos de banco: `M06_MIGRATION_DATABASE_URL`, futuro executor
+e owner da migration, e `DATABASE_URL`, runtime do backend Master. Para cada
+caminho, comprovar identidade da role, ownership esperado, ACL efetiva e
+comportamento sob `FORCE RLS`, sem abrir `.env` nem imprimir DSN, URL, usuario ou
+segredo. Se executada pela VPS, a consulta toca metadados do Supabase PROD e
+exige autorizacao nominal separada. A alternativa segura em DEV exige as
+credenciais planejadas de migration e runtime e nao comprova a VPS. O preflight
+nao autoriza aplicacao da migration, mudanca de flag, wiring, deploy manual ou
+do backend, painel do tenant, aprovacoes, catalogo, evidence store, writer,
+WhatsApp, agente, D2C, ativacao ou canario.
 
 A evolucao aprovada mantem uma unica politica global e adiciona especialistas por dominio de forma incremental. Atendimento, Central de Celulas, Agenda e Consolidacao integram a missao atual; Universidade da Vida e Capacitacao Destino permanecem na visao futura e dependem de PRDs e missoes proprias. Especialistas nunca enviam mensagens diretamente e nunca recebem IDs de tenant escolhidos pelo modelo ou pelo cliente.
 
@@ -847,7 +857,7 @@ A primeira vertical completa e o relatorio de celula pelo WhatsApp: lembrete, co
 - [ ] Itens da fila so aparecem para quem pode resolve-los (delta-006).
 - [ ] Captura restrita ao numero oficial; conversas pessoais do pastor nunca registradas (US-07/RF-09).
 - [ ] Consentimento por finalidade para atendimento solicitado, cuidado pastoral, tarefas operacionais e comunicados; a D2B2a integrada cobre apenas persistencia interna, sem caller, e o opt-out global prevalece (US-31/32/33/RNF-06).
-- [ ] Rascunhos D2B2b3A isolados por tenant, com revisao otimista, ator server-side, auditoria sem payload e status fixo `DRAFT_NOT_APPROVED`.
+- [x] Rascunhos D2B2b3A isolados por tenant, com revisao otimista, ator server-side, auditoria sem payload e status fixo `DRAFT_NOT_APPROVED`; implementacao integrada na PR #320 e ainda inativa. Esta missao nao aplicou a migration; DEV confirmou a ausencia e PROD nao foi consultado.
 - [ ] Pacote humano e juridico aprovado por finalidade antes de catalogo ou writer; D2B2b1 nega todo grant enquanto ele estiver ausente.
 - [ ] Registro de termo imutavel e prova correlacionada, nao apenas versao + data/hora; re-aceite conforme mudanca aprovada e mascara de CPF/dados sensiveis nos logs (delta-040/052).
 - [ ] Memoria privada excluida de ponta a ponta apos solicitacao via WhatsApp e aprovacao admin, incluindo midia, transcricao, resumo, checkpoint e vetores derivados.
