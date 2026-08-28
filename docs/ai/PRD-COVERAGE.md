@@ -3,7 +3,7 @@ project: igreja12
 document_kind: prd-coverage
 status: canonical-audit
 last_verified: 2026-08-28
-audited_repository_sha: bce5a9a434077e488cea8baae3e9dd7c7c4ba0f1
+audited_repository_sha: 74951828f48994622a112d8e59eb978e5fb4f406
 canonical_prd: docs/Docs20260611_163530/PRD20260611_163530.md
 ---
 
@@ -35,11 +35,11 @@ significa ativa em produção.
 | Pessoas e responsabilidades | `PARCIAL FORTE` | cadastro, papéis, vínculos, fila e escopos existentes | Fechar responsabilidades temporais, owner operacional e composição por setor |
 | Conexão WhatsApp | `IMPLEMENTADO / GATE OPERACIONAL` | Evolution, conexão por igreja, webhook e filas | Monitorar recibos, reconnect e capacidade antes de cada canário |
 | Conversas e handoff | `IMPLEMENTADO` | histórico, inbox, atribuição, transferência e estado IA/humano | Adicionar memória derivada, exclusão propagada e avaliação de naturalidade |
-| Fundação do agente | `IMPLEMENTADO / PARCIAL / D2B2A INTEGRADA E INATIVA / D2B2B1 CANDIDATA` | LangGraph stateless e contexto confiável D2B1 integrados; D2B2a adiciona persistência e serviço interno de consentimento sem caller; D2B2b1 é uma fronteira pura deny-first | Aprovar o pacote humano e jurídico por finalidade antes de catálogo ou writer; memória, conhecimento e subfluxos permanecem posteriores |
+| Fundação do agente | `IMPLEMENTADO / PARCIAL / D2B2A E D2B2B1 INTEGRADAS E INATIVAS` | LangGraph stateless e contexto confiável D2B1 integrados; D2B2a adiciona persistência e serviço interno de consentimento sem caller; D2B2b1 é uma fronteira pura deny-first | Materializar e aprovar o pacote humano e jurídico por finalidade antes de catálogo ou writer; memória, conhecimento e subfluxos permanecem posteriores |
 | Isolamento da memória | `AUSENTE / FUNDAÇÃO D2A INTEGRADA` | Nenhum checkpointer durável instalado; D2A cria somente role, schema, helper e factory privados ainda inativos | Tabelas com `igreja_id`, FORCE RLS, namespace server-side, exclusão e testes adversariais pertencem à D3 |
 | Conhecimento oficial | `AUSENTE` | Não há ingestão aprovada, embeddings ou recuperação institucional | Perfil da igreja, documentos versionados, audiência, RLS e busca híbrida |
 | Dados vivos como ferramentas | `PARCIAL` | Quatro ferramentas limitadas e queries determinísticas | Catálogo por especialista, capacidades e serviços compartilhados com o painel |
-| Consentimento | `PARCIAL / D2B2A INTEGRADA E INATIVA / D2B2B1 CANDIDATA` | Legado e opt-out continuam ativos; D2B2a adiciona ledger append-only sem backfill, API, wiring ou aplicação em Supabase; D2B2b1 nega concessões | Aprovar o pacote humano e jurídico por finalidade antes de catálogo, prova ou writer |
+| Consentimento | `PARCIAL / D2B2A E D2B2B1 INTEGRADAS E INATIVAS` | Legado e opt-out continuam ativos; D2B2a adiciona ledger append-only sem backfill, API, wiring ou aplicação em Supabase; D2B2b1 nega concessões | Materializar e aprovar o pacote humano e jurídico por finalidade antes de catálogo, prova ou writer |
 | Propostas e confirmação | `AUSENTE COMO PLATAFORMA` | Confirmações existem apenas em fluxos específicos | Registro durável, expiração, idempotência, revalidação e comprovante |
 | Notificações proativas | `PARCIAL E FRAGMENTADO` | SLA, cron, Agenda, event notify e broadcast têm caminhos próprios | Outbox única, finalidade, quiet hours, retry, recibo e escalonamento |
 | Painel de Hoje | `IMPLEMENTADO / PARCIAL` | dashboard e work queue por responsabilidade | Compor todas as responsabilidades e as lacunas de conhecimento |
@@ -116,9 +116,9 @@ de consentimento, memória, conhecimento ou propostas.
 
 ### D2B2a integrada e inativa
 
-No `origin/main`
-`bce5a9a434077e488cea8baae3e9dd7c7c4ba0f1`, a PR #317, HEAD
-`8ba5c988e9169703c923b1f1a3e47d1c427531e1`, integrou a D2B2a com a
+No histórico do `origin/main`, a PR #317, HEAD
+`8ba5c988e9169703c923b1f1a3e47d1c427531e1`, integrou a D2B2a com o
+merge `bce5a9a434077e488cea8baae3e9dd7c7c4ba0f1` e a
 migration de `public.consentimento_finalidade_evento`, ORM, tipos de domínio e
 serviço interno sem caller. O contrato separa
 `atendimento_solicitado|cuidado_pastoral|tarefas_operacionais|comunicados`,
@@ -131,17 +131,21 @@ evento. A idempotência é por tenant, e a sequência concorrente fica no banco.
 A tabela integrada usa RLS habilitada e forçada, barreira restritiva GUC-only e
 ACL mínima. Não há backfill do legado, e o opt-out global continua
 prevalecendo. Nenhum caller, API ou wiring integra esta fatia; não houve
-aplicação em Supabase, deploy, ativação ou canário. Textos, base jurídica,
+aplicação em Supabase, deploy manual ou do backend, ativação ou canário. Textos, base jurídica,
 retenção e RBAC por finalidade ainda bloqueiam writers e qualquer ambiente
 compartilhado.
 
 Os cinco workflows da PR #317 e os cinco pós-merge concluíram com `SUCCESS`.
-O Vercel executou apenas preview automático, sem backend ou ambiente
-compartilhado. A migration não foi aplicada em Supabase DEV ou PROD.
+A PR gerou Preview e o merge gerou deployment frontend Vercel automático
+classificado como Production. Essa metadata prova o deployment do frontend no
+ambiente Production da Vercel; não prova backend, banco ou aplicação da
+migration em Supabase DEV ou PROD.
 
-### D2B2b1, fronteira candidata
+### D2B2b1 integrada e inativa
 
-A D2B2b1 é código puro, sem migration ou caller. Ela restringe a
+A PR #318, HEAD `ede4797003e044f582da9f9a3ab86554f708a73a`, integrou a
+D2B2b1 no merge `74951828f48994622a112d8e59eb978e5fb4f406`. Ela é código
+puro, sem migration ou caller, e restringe a
 idempotência a chave opaca gerada pelo servidor, aplica RBAC deny-first e nega
 toda tentativa de `concedido`, inclusive quando papel, fonte ou entrada forem
 sintaticamente válidos. Não existe reidratação por valor; retry entre processos
@@ -153,6 +157,18 @@ menores, retenção, eliminação, transferência internacional ou relação ent
 retirada, opt-out e pedidos de direitos. Um responsável humano e a função
 jurídica ou encarregado precisam aprovar o pacote por finalidade antes de
 catálogo, evidence store ou writer.
+
+O recorte focal passou em 1.114 de 1.114 e a suíte RLS em 288 de 288 contra
+PostgreSQL 17 descartável. Os cinco workflows da PR e os cinco pós-merge,
+incluindo Backend Tests integral, ficaram verdes. A PR gerou Preview e o merge
+gerou deployment frontend Vercel automático classificado como Production; não
+houve deploy manual ou do backend, migration, Supabase, ativação ou canário. O
+PostgreSQL temporário foi removido.
+
+O template D2B2b2 organiza as decisões pendentes e continua marcado
+`TEMPLATE_ONLY / NOT_APPROVED`; sua existência não satisfaz o gate. O contrato
+está em
+[`2026-08-28-d2b2b2-consent-decision-packet-contract.md`](../decisions/2026-08-28-d2b2b2-consent-decision-packet-contract.md).
 
 ## Canário ativo reconciliado
 
@@ -207,7 +223,8 @@ fechados no PRD próprio antes do schema.
 3. `D2`: a D2A já está integrada como fronteira privada inativa, sem conectar
    worker ou LangGraph. A D2B1 está integrada no código, com contexto confiável
    v1 separado do estado mutável e LangGraph ainda stateless. D2B2a está
-   integrada e inativa, sem caller ou aplicação em Supabase. D2B2b1 adiciona a
+   integrada e inativa, sem caller ou aplicação em Supabase. D2B2b1 está
+   integrada e inativa e adiciona a
    fronteira pura com chave opaca, RBAC deny-first e concessões negadas. O gate
    seguinte é o pacote humano e jurídico por finalidade; somente uma fatia
    posterior pode criar catálogo, prova correlacionada e writers seguros. D2C
@@ -240,9 +257,12 @@ expansão de escopo.
 
 ## Próximo gate único
 
-Obter e registrar o pacote humano e jurídico aprovado para cada finalidade.
-Catálogo, evidence store, writer, Supabase DEV ou PROD e D2C permanecem
-bloqueados até esse gate ser concluído.
+Materializar uma instância governada do template por igreja, com quatro
+pacotes independentes, e obter o atestado do dono factual, a revisão de
+privacidade ou do encarregado, a revisão jurídica quando designada e a decisão
+final do representante autorizado do controlador, todos vinculados ao digest
+exato de cada pacote. Catálogo, evidence store, writer,
+Supabase DEV ou PROD e D2C permanecem bloqueados até esse gate ser concluído.
 
 ## Fontes principais
 
@@ -251,6 +271,7 @@ bloqueados até esse gate ser concluído.
 - `docs/decisions/2026-08-27-whatsapp-first-tenant-agent-architecture.md`
 - `docs/decisions/2026-08-28-d2b2-purpose-consent-ledger.md`
 - `docs/decisions/2026-08-28-d2b2b1-consent-security-boundary.md`
+- `docs/decisions/2026-08-28-d2b2b2-consent-decision-packet-contract.md`
 - `docs/audits/2026-08-27-d1-security-scope-audit.md`
 - `docs/ops/POST-V1-MISSION-REGISTER.md`
 - `docs/ops/EVOLUTION-AGENT-CANARY-RUNBOOK.md`

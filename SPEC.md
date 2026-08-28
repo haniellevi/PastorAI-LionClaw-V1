@@ -404,11 +404,14 @@ O ledger e append-only, usa idempotencia por tenant e sequencia por stream
 atribuida no banco. Nao existe backfill: `consent_records` e
 `pessoas.consentimento` continuam legados e o opt-out global prevalece. A
 fatia nao expoe API, nao conecta WhatsApp, painel, worker, LangGraph, tool
-ou broadcast, nao foi aplicada em Supabase e nao fez deploy, ativacao ou
-canario. Textos e base juridica por finalidade, retencao e RBAC ainda bloqueiam
+ou broadcast, nao foi aplicada em Supabase e nao fez deploy manual ou do
+backend, ativacao ou canario. O merge gerou somente o deployment frontend
+automatico da integracao Vercel. Textos e base juridica por finalidade, retencao e RBAC ainda bloqueiam
 qualquer writer e ambiente compartilhado.
 
-A D2B2b1 adiciona somente uma fronteira pura, sem migration e sem caller. A
+A PR #318, HEAD `ede4797003e044f582da9f9a3ab86554f708a73a`, integrou a
+D2B2b1 no merge `74951828f48994622a112d8e59eb978e5fb4f406`. Ela adiciona
+somente uma fronteira pura, sem migration e sem caller. A
 chave idempotente deve ser opaca e criada por componente confiavel do servidor;
 telefone, mensagem, documento, conteudo pastoral ou identificador escolhido por
 modelo ou cliente sao recusados. RBAC e deny-first, e toda tentativa de
@@ -418,6 +421,10 @@ do titular. Nao existe reidratacao por valor nesta fatia; retry entre processos
 depende de futuro recibo duravel autenticado que prove a origem da chave. A
 decisao tecnica esta em
 `docs/decisions/2026-08-28-d2b2b1-consent-security-boundary.md`.
+O template D2B2b2 permanece `TEMPLATE_ONLY / NOT_APPROVED` e esta em
+`docs/decisions/2026-08-28-d2b2b2-consent-decision-packet-contract.md`. Ele
+organiza o proximo gate humano, sem autorizar catalogo, writer, Supabase ou
+efeito operacional.
 
 A evolucao aprovada mantem uma unica politica global e adiciona especialistas por dominio de forma incremental. Atendimento, Central de Celulas, Agenda e Consolidacao integram a missao atual; Universidade da Vida e Capacitacao Destino permanecem na visao futura e dependem de PRDs e missoes proprias. Especialistas nunca enviam mensagens diretamente e nunca recebem IDs de tenant escolhidos pelo modelo ou pelo cliente.
 

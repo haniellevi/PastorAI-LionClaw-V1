@@ -1,7 +1,7 @@
 # Wiki do projeto Igreja 12
 
-Snapshot documental de 2026-08-28, baseado no `origin/main`
-`bce5a9a434077e488cea8baae3e9dd7c7c4ba0f1`, na auditoria D1 e na
+Snapshot documental de 2026-08-28, com baseline de código no merge #318
+`74951828f48994622a112d8e59eb978e5fb4f406`, na auditoria D1 e na
 reconciliação operacional registrada nesta fase.
 
 ## Leitura de 30 segundos
@@ -45,7 +45,7 @@ qualquer expansão do canário.
 | Agente e Evolution | `PARCIAL / GATE OPERACIONAL` | Corrigir memória, conhecimento e qualidade antes de novo canário |
 | Canário ativo | `PASS TÉCNICO / QUALIDADE INSUFICIENTE` | Avaliação conversacional humana após a nova fundação |
 | LangGraph | `IMPLEMENTADO STATELESS / D2B1 INTEGRADA` | Persistência, memória e subgrafos permanecem posteriores |
-| Consentimento | `PARCIAL / D2B2A INTEGRADA E INATIVA / D2B2B1 CANDIDATA` | Aprovar o pacote humano e jurídico por finalidade; catálogo, writers, Supabase e D2C permanecem bloqueados |
+| Consentimento | `PARCIAL / D2B2A E D2B2B1 INTEGRADAS E INATIVAS` | Materializar e aprovar o pacote humano e jurídico por finalidade; catálogo, writers, Supabase e D2C permanecem bloqueados |
 | Conhecimento por igreja | `AUSENTE` | Ingestão aprovada, ACL, busca e ferramentas de dados vivos |
 | Relatório por WhatsApp | `PARCIAL` | Confirmar e gravar no relatório canônico |
 | Central de Células | `PARCIAL FORTE` | Operação e notificações principais pelo WhatsApp |
@@ -115,7 +115,7 @@ ou escreve esse contrato, a migration não foi aplicada em Supabase, o
 consentimento legado não é convertido por backfill e o opt-out global continua
 prevalecendo.
 
-A candidata D2B2b1 é código puro, sem migration ou caller. Ela exige chave
+A D2B2b1 integrada é código puro, sem migration ou caller. Ela exige chave
 idempotente opaca gerada no servidor, aplica RBAC deny-first e recusa toda
 tentativa de `concedido`. Essa contenção não escolhe texto, hipótese jurídica,
 prova, retenção, política de menores ou semântica de eliminação e opt-out. Cada
@@ -231,7 +231,7 @@ RLS, com zero skips. Cinco workflows da PR e cinco pós-merge ficaram verdes. O
 LangGraph continua stateless, sem checkpointer persistente.
 
 A continuação está na D2B2a integrada e inativa, ledger independente por
-finalidade ainda sem caller. A candidata D2B2b1 acrescenta somente a fronteira
+finalidade ainda sem caller. A D2B2b1 integrada acrescenta somente a fronteira
 pura que gera chave opaca no servidor, aplica RBAC deny-first e nega toda
 concessão. Não há reidratação por valor; retry entre processos exige futuro
 recibo durável autenticado que prove a origem da chave. Antes de catálogo,
@@ -244,9 +244,9 @@ conectou a fronteira privada D2A, worker, fila ou checkpointer, não fez deploy
 manual ou do backend, não promoveu a produção, não ativou o agente e não
 executou canário. O preview automático da PR não prova execução do backend.
 
-No `origin/main`
-`bce5a9a434077e488cea8baae3e9dd7c7c4ba0f1`, a PR #317 integrou a D2B2a a
-partir do HEAD `8ba5c988e9169703c923b1f1a3e47d1c427531e1`. Ela cria
+No histórico do `origin/main`, a PR #317 integrou a D2B2a no merge
+`bce5a9a434077e488cea8baae3e9dd7c7c4ba0f1`, a partir do HEAD
+`8ba5c988e9169703c923b1f1a3e47d1c427531e1`. Ela cria
 `public.consentimento_finalidade_evento`, ORM, domínio e serviço interno sem
 caller. As quatro finalidades possuem estados `concedido|retirado`, fontes
 `whatsapp_inbound|painel_autenticado`, `versao_termo`, idempotência por tenant
@@ -255,15 +255,30 @@ barreira restritiva GUC-only e ACL mínima.
 
 Essa fundação não faz backfill, não expõe API, não conecta painel, WhatsApp,
 worker, tool ou LangGraph e não foi aplicada em Supabase. Os cinco workflows da
-PR #317 e os cinco pós-merge ficaram verdes. O Vercel executou apenas preview
-automático, sem backend ou ambiente compartilhado; não houve deploy manual,
-ativação ou canário.
+PR #317 e os cinco pós-merge ficaram verdes. A PR gerou Preview e o merge gerou
+deployment frontend Vercel automático classificado como Production; não houve
+deploy manual ou do backend, ativação ou canário. Essa metadata prova o
+deployment do frontend no ambiente Production da Vercel; não prova backend,
+banco ou Supabase.
 
 Textos e versões, hipótese jurídica, prova, tratamento de menores, retenção,
 eliminação, transferência internacional, relação com opt-out e responsáveis
 por direitos e incidentes continuam decisões humanas e jurídicas abertas. A
 fronteira D2B2b1 não preenche essas decisões e nega concessões enquanto o
 pacote não existir.
+
+A PR #318, HEAD `ede4797003e044f582da9f9a3ab86554f708a73a`, integrou a
+D2B2b1 no merge `74951828f48994622a112d8e59eb978e5fb4f406`. O recorte focal
+passou em 1.114 de 1.114, a suíte RLS em 288 de 288 e os cinco workflows da PR
+e os cinco pós-merge ficaram verdes. A PR gerou Preview e o merge gerou
+deployment frontend Vercel automático classificado como Production; não houve
+deploy manual ou do backend, migration, Supabase, ativação ou canário. O
+PostgreSQL descartável foi removido.
+
+O template vazio D2B2b2 organiza o próximo gate e permanece
+`TEMPLATE_ONLY / NOT_APPROVED`. Sua existência, teste ou merge não constituem
+aprovação. O contrato está em
+[`2026-08-28-d2b2b2-consent-decision-packet-contract.md`](decisions/2026-08-28-d2b2b2-consent-decision-packet-contract.md).
 
 ### D6, primeira vertical
 
@@ -316,6 +331,9 @@ canário.
 
 ## Próximo gate único
 
-Obter e registrar o pacote humano e jurídico aprovado para cada finalidade.
-Catálogo, evidence store, writer, Supabase DEV ou PROD e D2C permanecem
-bloqueados até esse gate ser concluído.
+Materializar uma instância governada do template por igreja, com quatro
+pacotes independentes, e obter o atestado do dono factual, a revisão de
+privacidade ou do encarregado, a revisão jurídica quando designada e a decisão
+final do representante autorizado do controlador, todos vinculados ao digest
+exato de cada pacote. Catálogo, evidence store, writer,
+Supabase DEV ou PROD e D2C permanecem bloqueados até esse gate ser concluído.
