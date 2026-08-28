@@ -1,5 +1,10 @@
 # V1 — gate de hardening do ledger de migrations
 
+> Atualização de 2026-08-28: este documento preserva a operação histórica de
+> `harden-ledger` para um ledger já existente. O delta atual também contém
+> `bootstrap-ledger` para criar somente um ledger vazio, mas essa implementação
+> foi comprovada apenas offline e não está autorizada em DEV ou PROD.
+
 ## Objetivo e limite
 
 `public.schema_migrations` é o ledger histórico usado pelo executor de arquivo
@@ -8,7 +13,7 @@ sem RLS, policy restritiva e ACLs compatíveis. Nesse estado, o executor recusa
 qualquer migration de propósito para não transformar um histórico divergente em
 uma escrita insegura.
 
-O subcomando abaixo é o único bootstrap previsto para esse caso:
+O subcomando abaixo é o único hardening previsto para esse caso:
 
 ```bash
 cd backend
@@ -20,6 +25,48 @@ python scripts/apply_migrations.py harden-ledger --confirm HARDEN_LEDGER
 Ele não cria a tabela, não insere, remove ou reordena nomes no ledger, não toca
 `supabase_migrations.schema_migrations` e não executa SQL de migration. É um
 hardening de plano de controle, não um atalho para aplicar pendências.
+
+## Bootstrap de ledger ausente, implementado e comprovado somente offline
+
+`bootstrap-ledger` é uma operação distinta. Ela exige PostgreSQL 17,
+`current_user=session_user`, confirmação literal antes da conexão e o destino
+somente em `M06_MIGRATION_DATABASE_URL`:
+
+```bash
+cd backend
+: "${M06_MIGRATION_DATABASE_URL:?injete a URL aprovada no ambiente do processo}"
+python scripts/apply_migrations.py bootstrap-ledger \
+  --confirm BOOTSTRAP_LEDGER
+```
+
+O comando cria numa única transação `SERIALIZABLE` apenas
+`public.schema_migrations` vazio, no contrato final owner-only: colunas, chave
+primária e defaults exatos, RLS habilitada, uma policy deny e revokes explícitos
+de tabela e coluna para `PUBLIC`, `anon`, `authenticated`, `service_role` e,
+quando existir, `agent_runtime`. Ele recusa PostgreSQL fora da versão 17,
+executor público, `CREATE` alcançável no schema, default privileges perigosas,
+membership que alcance o owner, objeto ou tipo homônimo, drift de estrutura,
+índice, ACL, policy, trigger, rule, herança ou partição. Qualquer falha reverte
+toda a criação. Reaplicar o contrato exato e vazio encerra sem mutação.
+
+O bootstrap não descobre migrations locais, não lê, copia ou altera
+`supabase_migrations.schema_migrations`, não faz backfill ou reconciliação e não
+aplica nem registra migration. O ledger vazio não libera o runner: `status` e
+`apply` falham fechados até uma reconciliação histórica humana produzir um
+prefixo íntegro do catálogo com, no máximo, uma migration pendente.
+
+A implementação offline, ainda não aplicada, sobre a base
+`b43ad92028374fa6763ef10f5eb7a379afd3e7a2`, passou em 42/42 testes unitários,
+87/87 em PostgreSQL 17-alpine descartável em duas execuções independentes e
+87/87 em Supabase PG17 17.6.1.159 descartável em duas execuções independentes.
+A revisão de segurança resultou em `GO`. A suíte RLS completa, em execução
+serial limpa no PostgreSQL 17 descartável, passou em 326/326, com 3803
+deselecionados e 2 warnings preexistentes, em 162.77s. A suíte offline
+integral foi interrompida após 5 min sem saída ou progresso; o resultado é
+`INCONCLUSIVO`, não verde nem falha, e o workflow Backend Tests da PR permanece
+gate. Esses resultados são exclusivamente
+offline: não houve acesso a DEV ou PROD, bootstrap, migration, credencial,
+deploy, restart ou alteração de flag em ambiente compartilhado.
 
 ## Contrato fail-closed
 
@@ -65,7 +112,10 @@ genérico para preencher lacunas históricas. Um nome presente apenas no histór
 nativo do Supabase é evidência para reconciliação humana, não autorização para
 reaplicar ou registrar uma migration.
 
-## Próximos gates após sucesso em DEV
+## Registro histórico dos gates V1
+
+Os itens abaixo preservam a sequência que valia para o hardening V1. Eles não
+autorizam execução atual e não substituem o estado vivo ou o gate vigente.
 
 O hardening não libera aplicação genérica. Após preflight e smokes, cada
 migration continua sendo um gate separado do executor de arquivo único. As duas
@@ -80,6 +130,13 @@ pendências V1 atuais são, nesta ordem:
 
 Cada aplicação requer o nome, SHA e `--confirm APPLY`, e deve repetir ledger,
 advisors, RLS/billing sandbox e smokes antes de avançar para o próximo ambiente.
+
+## Gate vigente
+
+O próximo trabalho é uma PR offline e versionada de reconciliação histórica
+humana. Ela deve produzir pacote sanitizado e verificador somente leitura, sem
+DML e sem inferir migrations aplicadas. Até essa missão terminar, não executar
+`bootstrap-ledger`, `harden-ledger`, `status` ou `apply` em DEV ou PROD.
 
 ## Evidência local
 

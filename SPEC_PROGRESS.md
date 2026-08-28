@@ -152,26 +152,46 @@ nao fez deploy manual ou do backend, nao promoveu a producao, nao ativou o
 agente e nao executou canario. O preview automatico da PR nao prova execucao do
 backend.
 
-**Proximo gate unico:** implementar e testar somente em PostgreSQL 17
-descartavel, sem acessar DEV ou PROD, um subcomando versionado
-`bootstrap-ledger`, explicito e fail-closed, separado de `harden-ledger`. Ele
-criara, em transacao unica, exclusivamente o contrato final vazio de
-`public.schema_migrations`, como ledger vazio, com colunas, chave primaria (PK) e defaults exatos,
-RLS habilitada, policy deny e ACL minima por grants e revokes explicitos. O comando
-validara ownership e roles esperados antes e depois, e abortara se houver objeto
-homonimo, schema divergente ou qualquer outro conflito. A reaplicacao devera
-encerrar sem mutacao; testes adversariais em PostgreSQL 17 cobrirao conflitos
-homonimos, falha parcial e rollback integral. O comando operara sem reconciliacao
-ou backfill: jamais copiara
-`supabase_migrations`, inferira migrations aplicadas ou autorizara `apply`.
-`apply` e `status` permanecerao tecnicamente bloqueados ate uma reconciliacao
-humana versionada formar o prefixo integro do catalogo, com no maximo uma
-migration pendente; o bootstrap nao pode reduzir a barreira atual.
-Qualquer preenchimento ou reconciliacao historica humana sera uma missao
-separada, baseada em evidencia, e precisara terminar antes de considerar D2 em
-DEV ou PROD. Este gate entrega somente a PR offline do bootstrap e nao autoriza
-painel do tenant, aprovacoes, catalogo, writer, migration D2B2b3A, flag, D2C,
-credencial, wiring, deploy, restart, runtime, ativacao ou canario.
+Sobre a base versionada
+`b43ad92028374fa6763ef10f5eb7a379afd3e7a2`, a missao offline
+este delta implementa e comprova offline o subcomando explicito e fail-closed
+`bootstrap-ledger`, separado de `harden-ledger`. Ele exige
+`--confirm BOOTSTRAP_LEDGER` antes da conexao e aceita o destino somente por
+`M06_MIGRATION_DATABASE_URL`. Em PostgreSQL 17, cria em uma transacao
+`SERIALIZABLE` apenas o ledger vazio `public.schema_migrations`, com colunas,
+chave primaria e defaults exatos, owner estavel, RLS, policy deny e ACL
+owner-only. Conflito de objeto, schema, ownership, grants, default privileges,
+membership ou forma fisica aborta com rollback; a reaplicacao exata e vazia e
+um no-op.
+
+Validacao da implementacao offline: 42/42 testes unitarios; 87/87 em PostgreSQL 17-alpine
+descartavel em duas execucoes independentes; 87/87 em Supabase PG17 17.6.1.159
+descartavel em duas execucoes independentes; revisao de seguranca `GO`. A suite
+RLS completa, em execucao serial limpa no PostgreSQL 17 descartavel, passou em
+326/326, com 3803 deselecionados e 2 warnings preexistentes, em 162.77s. A
+suite offline integral foi interrompida apos 5 min sem saida ou progresso; o
+resultado e `INCONCLUSIVO`, nao verde nem falha, e o workflow Backend Tests da
+PR permanece gate. O comando
+nao consulta nem altera `supabase_migrations`, nao descobre o catalogo, nao faz
+backfill ou reconciliacao e nao aplica ou registra migration. `status` e
+`apply` continuam bloqueados enquanto o ledger vazio nao tiver sido reconciliado
+por humanos em um prefixo integro do catalogo, com no maximo uma migration pendente.
+
+Esta missao foi somente offline: nao acessou DEV ou PROD, nao aplicou bootstrap
+ou migration compartilhada, nao provisionou credencial, nao fez deploy ou
+restart e nao alterou flag, runtime, agente ou canario. O preflight PROD e o
+deployment automatico frontend da PR #321 permanecem historia separada.
+
+**Proximo gate unico:** implementar e testar somente offline, sem acessar DEV
+ou PROD, uma PR versionada de reconciliacao historica humana. Ela deve produzir
+um pacote sanitizado e um verificador somente leitura, sem DML e sem inferir
+migrations aplicadas, para comparar futuramente o catalogo versionado com
+inventarios autorizados dos ledgers publico e nativo. Divergencias ou evidencia
+ausente permanecem bloqueantes; a PR nao cria, altera ou preenche ledger e nao
+autoriza `bootstrap-ledger`, `harden-ledger`, `status` ou `apply` em ambiente
+compartilhado. Painel do tenant, aprovacoes, catalogo, writer, migration
+D2B2b3A, flag, D2C, credencial, wiring, deploy, restart, runtime, ativacao e
+canario continuam bloqueados.
 
 ---
 

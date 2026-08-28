@@ -18,6 +18,7 @@ from typing import Any
 
 import psycopg2
 import pytest
+from psycopg2 import sql as pgsql
 from sqlalchemy import create_engine
 from sqlalchemy.engine import make_url
 
@@ -117,6 +118,9 @@ class Cursor:
 
     def __exit__(self, *_args):
         return False
+
+    def execute(self, *_args, **_kwargs):
+        pass
 
 class Connection:
     def cursor(self):
@@ -236,6 +240,19 @@ def test_harden_ledger_requires_its_own_confirmation_before_connection(
     assert "HARDEN_LEDGER" in capsys.readouterr().err
 
 
+def test_bootstrap_ledger_requires_its_own_confirmation_before_connection(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(
+        apply_migrations,
+        "_connect",
+        lambda _url: pytest.fail("ledger bootstrap must not connect without confirmation"),
+    )
+
+    assert apply_migrations.cmd_bootstrap_ledger(_args(confirm="APPLY")) == 4
+    assert "BOOTSTRAP_LEDGER" in capsys.readouterr().err
+
+
 @pytest.mark.parametrize(
     "argv",
     (
@@ -303,6 +320,10 @@ def test_cli_never_accepts_or_echoes_database_url_in_argv(
             SENSITIVE_TOKEN_COMPONENTS,
         ),
         (
+            ("bootstrap-ledger", "--confirm", SENSITIVE_TOKEN),
+            SENSITIVE_TOKEN_COMPONENTS,
+        ),
+        (
             ("apply", "--migration", "--confirm", SENSITIVE_DSN),
             SENSITIVE_DSN_COMPONENTS,
         ),
@@ -331,6 +352,7 @@ def test_cli_never_accepts_or_echoes_database_url_in_argv(
         "sha256-value-is-dsn",
         "confirmation-followed-by-token",
         "hardening-confirmation-followed-by-token",
+        "bootstrap-confirmation-followed-by-token",
         "option-without-value-followed-by-dsn",
         "multiple-unknown-values",
         "abbreviation-is-disabled",
@@ -691,6 +713,11 @@ def _reset_secure_ledger(url: str, entries: tuple[str, ...] = ()) -> None:
             """
         )
         cur.execute("alter table public.schema_migrations enable row level security")
+        cur.execute(
+            "create policy migration_ledger_service_role_bypass_only "
+            "on public.schema_migrations as restrictive for all to public "
+            "using (false) with check (false)"
+        )
         cur.execute("revoke all privileges on schema public from public, anon, authenticated")
         cur.execute("grant usage on schema public to service_role")
         cur.execute(
@@ -718,6 +745,10 @@ def _reset_insecure_ledger(url: str, entries: tuple[str, ...] = ()) -> None:
     _reset_secure_ledger(url, entries)
     with _test_connection(url) as conn, conn.cursor() as cur:
         cur.execute("alter table public.schema_migrations disable row level security")
+        cur.execute(
+            "drop policy migration_ledger_service_role_bypass_only "
+            "on public.schema_migrations"
+        )
 
 
 def _ledger_rls_and_policy_state(url: str) -> tuple[bool, tuple[tuple[str, bool], ...]]:
@@ -747,6 +778,549 @@ def _ledger_names(url: str) -> tuple[str, ...]:
         return tuple(row[0] for row in cur.fetchall())
 
 
+def _prepare_bootstrap_absent(url: str) -> None:
+    with _test_connection(url) as conn, conn.cursor() as cur:
+        _ensure_test_roles(cur)
+        cur.execute(
+            """
+            select c.relkind
+            from pg_catalog.pg_class c
+            join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+            where n.nspname = 'public' and c.relname = 'schema_migrations'
+            """
+        )
+        row = cur.fetchone()
+        if row is not None:
+            statement = {
+                "r": "drop table public.schema_migrations cascade",
+                "p": "drop table public.schema_migrations cascade",
+                "v": "drop view public.schema_migrations cascade",
+                "m": "drop materialized view public.schema_migrations cascade",
+                "S": "drop sequence public.schema_migrations cascade",
+            }.get(str(row[0]))
+            if statement is None:
+                pytest.fail(f"unsupported test homonym relkind: {row[0]}")
+            cur.execute(statement)
+        cur.execute("drop type if exists public.schema_migrations cascade")
+        cur.execute(
+            "revoke create on schema public "
+            "from public, anon, authenticated, service_role"
+        )
+        cur.execute(
+            "alter default privileges in schema public "
+            "revoke all privileges on tables "
+            "from public, anon, authenticated, service_role"
+        )
+        cur.execute(
+            "alter default privileges revoke all privileges on tables "
+            "from public, anon, authenticated, service_role"
+        )
+        cur.execute("select 1 from pg_catalog.pg_roles where rolname = 'agent_runtime'")
+        if cur.fetchone() is not None:
+            cur.execute("revoke create on schema public from agent_runtime")
+            cur.execute(
+                "alter default privileges in schema public "
+                "revoke all privileges on tables from agent_runtime"
+            )
+            cur.execute(
+                "alter default privileges revoke all privileges on tables "
+                "from agent_runtime"
+            )
+
+
+def _bootstrap_snapshot(url: str) -> tuple[object, ...]:
+    with _test_connection(url) as conn, conn.cursor() as cur:
+        cur.execute(
+            """
+            select relation.oid, relation.relfilenode, relation.xmin::text,
+                   relation.relacl::text, relation.relrowsecurity,
+                   relation.relforcerowsecurity,
+                   owner.rolname, current_user, session_user,
+                   (select count(*) from public.schema_migrations),
+                   (select count(*) from pg_catalog.pg_trigger
+                    where tgrelid = relation.oid and not tgisinternal),
+                   (select count(*) from pg_catalog.pg_rewrite
+                    where ev_class = relation.oid)
+            from pg_catalog.pg_class relation
+            join pg_catalog.pg_roles owner on owner.oid = relation.relowner
+            where relation.oid = 'public.schema_migrations'::regclass
+            """
+        )
+        relation = tuple(cur.fetchone())
+        cur.execute(
+            """
+            select policy.oid, policy.polname, policy.polpermissive,
+                   policy.polcmd, policy.polroles,
+                   pg_catalog.pg_get_expr(policy.polqual, policy.polrelid),
+                   pg_catalog.pg_get_expr(policy.polwithcheck, policy.polrelid)
+            from pg_catalog.pg_policy policy
+            where policy.polrelid = 'public.schema_migrations'::regclass
+            order by policy.oid
+            """
+        )
+        policies = tuple(tuple(row) for row in cur.fetchall())
+        return (*relation, policies)
+
+
+@pytest.mark.rls_integration
+def test_bootstrap_ledger_creates_exact_owner_only_contract_and_rerun_is_noop(
+    executor_database_url: str,
+    migration_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_migration(migration_root, "0001_known.sql", "select 1;")
+    _prepare_bootstrap_absent(executor_database_url)
+    monkeypatch.setattr(
+        apply_migrations,
+        "discover_migrations",
+        lambda: pytest.fail("bootstrap must not inspect migration history"),
+    )
+    args = _args(
+        database_url=executor_database_url,
+        confirm=apply_migrations.LEDGER_BOOTSTRAP_CONFIRMATION,
+    )
+
+    assert apply_migrations.cmd_bootstrap_ledger(args) == 0
+    first = _bootstrap_snapshot(executor_database_url)
+    assert first[4:9] == (True, False, first[6], first[6], first[6])
+    assert first[9:12] == (0, 0, 0)
+    assert len(first[12]) == 1
+    policy = first[12][0]
+    assert policy[1:] == (
+        apply_migrations.LEDGER_DENY_POLICY_NAME,
+        False,
+        "*",
+        [0],
+        "false",
+        "false",
+    )
+    with _test_connection(executor_database_url) as conn, conn.cursor() as cur:
+        for role in ("anon", "authenticated", "service_role"):
+            for privilege in (*apply_migrations.TABLE_PRIVILEGES, "MAINTAIN"):
+                cur.execute(
+                    "select pg_catalog.has_table_privilege(%s, %s, %s)",
+                    (role, "public.schema_migrations", privilege),
+                )
+                assert cur.fetchone()[0] is False
+
+    assert apply_migrations.cmd_bootstrap_ledger(args) == 0
+    assert _bootstrap_snapshot(executor_database_url) == first
+
+
+@pytest.mark.rls_integration
+def test_bootstrap_rejects_relational_homonym_without_replacing_it(
+    executor_database_url: str, migration_root: Path
+) -> None:
+    _write_migration(migration_root, "0001_known.sql", "select 1;")
+    _prepare_bootstrap_absent(executor_database_url)
+    with _test_connection(executor_database_url) as conn, conn.cursor() as cur:
+        cur.execute("create view public.schema_migrations as select 1 as name")
+
+    assert (
+        apply_migrations.cmd_bootstrap_ledger(
+            _args(
+                database_url=executor_database_url,
+                confirm=apply_migrations.LEDGER_BOOTSTRAP_CONFIRMATION,
+            )
+        )
+        == 7
+    )
+    with _test_connection(executor_database_url) as conn, conn.cursor() as cur:
+        cur.execute(
+            "select relkind from pg_catalog.pg_class "
+            "where oid = 'public.schema_migrations'::regclass"
+        )
+        assert cur.fetchone() == ("v",)
+
+
+@pytest.mark.rls_integration
+def test_bootstrap_rejects_dangerous_default_privilege_without_creating_table(
+    executor_database_url: str, migration_root: Path
+) -> None:
+    _write_migration(migration_root, "0001_known.sql", "select 1;")
+    _prepare_bootstrap_absent(executor_database_url)
+    try:
+        with _test_connection(executor_database_url) as conn, conn.cursor() as cur:
+            cur.execute(
+                "alter default privileges in schema public "
+                "grant select on tables to anon"
+            )
+        assert (
+            apply_migrations.cmd_bootstrap_ledger(
+                _args(
+                    database_url=executor_database_url,
+                    confirm=apply_migrations.LEDGER_BOOTSTRAP_CONFIRMATION,
+                )
+            )
+            == 7
+        )
+        assert not _table_exists(executor_database_url, "schema_migrations")
+    finally:
+        with _test_connection(executor_database_url) as conn, conn.cursor() as cur:
+            cur.execute(
+                "alter default privileges in schema public "
+                "revoke select on tables from anon"
+            )
+
+
+@pytest.mark.rls_integration
+def test_bootstrap_rejects_schema_create_grant_without_creating_table(
+    executor_database_url: str, migration_root: Path
+) -> None:
+    _write_migration(migration_root, "0001_known.sql", "select 1;")
+    _prepare_bootstrap_absent(executor_database_url)
+    try:
+        with _test_connection(executor_database_url) as conn, conn.cursor() as cur:
+            cur.execute("grant create on schema public to anon")
+        assert (
+            apply_migrations.cmd_bootstrap_ledger(
+                _args(
+                    database_url=executor_database_url,
+                    confirm=apply_migrations.LEDGER_BOOTSTRAP_CONFIRMATION,
+                )
+            )
+            == 7
+        )
+        assert not _table_exists(executor_database_url, "schema_migrations")
+    finally:
+        with _test_connection(executor_database_url) as conn, conn.cursor() as cur:
+            cur.execute("revoke create on schema public from anon")
+
+
+@pytest.mark.rls_integration
+def test_bootstrap_membership_failure_rolls_back_created_ledger(
+    executor_database_url: str, migration_root: Path
+) -> None:
+    _write_migration(migration_root, "0001_known.sql", "select 1;")
+    _prepare_bootstrap_absent(executor_database_url)
+    with _test_connection(executor_database_url) as conn, conn.cursor() as cur:
+        cur.execute("select current_user")
+        owner = str(cur.fetchone()[0])
+        cur.execute(
+            pgsql.SQL("grant {} to anon with inherit false, set true, admin false").format(
+                pgsql.Identifier(owner)
+            )
+        )
+    try:
+        assert (
+            apply_migrations.cmd_bootstrap_ledger(
+                _args(
+                    database_url=executor_database_url,
+                    confirm=apply_migrations.LEDGER_BOOTSTRAP_CONFIRMATION,
+                )
+            )
+            == 7
+        )
+        assert not _table_exists(executor_database_url, "schema_migrations")
+    finally:
+        with _test_connection(executor_database_url) as conn, conn.cursor() as cur:
+            cur.execute(
+                pgsql.SQL("revoke {} from anon").format(pgsql.Identifier(owner))
+            )
+
+
+@pytest.mark.rls_integration
+def test_bootstrap_empty_ledger_keeps_status_and_apply_blocked(
+    executor_database_url: str, migration_root: Path
+) -> None:
+    target = _write_migration(
+        migration_root,
+        "0001_target.sql",
+        "create table public.bootstrap_must_not_apply (id integer);",
+    )
+    _write_migration(migration_root, "0002_later.sql", "select 1;")
+    _prepare_bootstrap_absent(executor_database_url)
+    assert (
+        apply_migrations.cmd_bootstrap_ledger(
+            _args(
+                database_url=executor_database_url,
+                confirm=apply_migrations.LEDGER_BOOTSTRAP_CONFIRMATION,
+            )
+        )
+        == 0
+    )
+
+    assert apply_migrations.cmd_status(_args(database_url=executor_database_url)) == 7
+    assert (
+        apply_migrations.cmd_apply(
+            _args(
+                database_url=executor_database_url,
+                migration=target.name,
+                sha256=_sha256(target),
+                confirm="APPLY",
+            )
+        )
+        == 7
+    )
+    assert not _table_exists(executor_database_url, "bootstrap_must_not_apply")
+
+
+@pytest.mark.rls_integration
+def test_bootstrap_rerun_rejects_index_drift_without_mutating_it(
+    executor_database_url: str, migration_root: Path
+) -> None:
+    _write_migration(migration_root, "0001_known.sql", "select 1;")
+    _prepare_bootstrap_absent(executor_database_url)
+    args = _args(
+        database_url=executor_database_url,
+        confirm=apply_migrations.LEDGER_BOOTSTRAP_CONFIRMATION,
+    )
+    assert apply_migrations.cmd_bootstrap_ledger(args) == 0
+    with _test_connection(executor_database_url) as conn, conn.cursor() as cur:
+        cur.execute(
+            "create index schema_migrations_applied_at_extra "
+            "on public.schema_migrations(applied_at)"
+        )
+        cur.execute(
+            "select oid from pg_catalog.pg_class "
+            "where relname = 'schema_migrations_applied_at_extra'"
+        )
+        drift_oid = int(cur.fetchone()[0])
+
+    assert apply_migrations.cmd_bootstrap_ledger(args) == 7
+    with _test_connection(executor_database_url) as conn, conn.cursor() as cur:
+        cur.execute(
+            "select oid from pg_catalog.pg_class "
+            "where relname = 'schema_migrations_applied_at_extra'"
+        )
+        assert cur.fetchone() == (drift_oid,)
+
+
+@pytest.mark.rls_integration
+def test_bootstrap_never_reads_or_mutates_supabase_migration_history(
+    executor_database_url: str, migration_root: Path
+) -> None:
+    _write_migration(migration_root, "0001_known.sql", "select 1;")
+    _prepare_bootstrap_absent(executor_database_url)
+    with _test_connection(executor_database_url) as conn, conn.cursor() as cur:
+        cur.execute("create schema if not exists supabase_migrations")
+        cur.execute(
+            "create table if not exists supabase_migrations.schema_migrations "
+            "(version text primary key)"
+        )
+        cur.execute("truncate supabase_migrations.schema_migrations")
+        cur.execute(
+            "insert into supabase_migrations.schema_migrations(version) "
+            "values ('synthetic-sentinel')"
+        )
+        cur.execute(
+            "select relation.oid, relation.relfilenode, relation.xmin::text, "
+            "relation.relacl::text, count(history.*) "
+            "from pg_catalog.pg_class relation "
+            "cross join supabase_migrations.schema_migrations history "
+            "where relation.oid = "
+            "'supabase_migrations.schema_migrations'::regclass "
+            "group by relation.oid, relation.relfilenode, relation.xmin, relation.relacl"
+        )
+        before = tuple(cur.fetchone())
+
+    assert (
+        apply_migrations.cmd_bootstrap_ledger(
+            _args(
+                database_url=executor_database_url,
+                confirm=apply_migrations.LEDGER_BOOTSTRAP_CONFIRMATION,
+            )
+        )
+        == 0
+    )
+    with _test_connection(executor_database_url) as conn, conn.cursor() as cur:
+        cur.execute(
+            "select relation.oid, relation.relfilenode, relation.xmin::text, "
+            "relation.relacl::text, count(history.*) "
+            "from pg_catalog.pg_class relation "
+            "cross join supabase_migrations.schema_migrations history "
+            "where relation.oid = "
+            "'supabase_migrations.schema_migrations'::regclass "
+            "group by relation.oid, relation.relfilenode, relation.xmin, relation.relacl"
+        )
+        assert tuple(cur.fetchone()) == before
+        cur.execute("select version from supabase_migrations.schema_migrations")
+        assert cur.fetchall() == [("synthetic-sentinel",)]
+
+
+@pytest.mark.rls_integration
+def test_bootstrap_rolls_back_create_when_final_validation_fails(
+    executor_database_url: str,
+    migration_root: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _write_migration(migration_root, "0001_known.sql", "select 1;")
+    _prepare_bootstrap_absent(executor_database_url)
+    original = apply_migrations._validate_bootstrap_final_contract
+
+    def fail_after_real_validation(cur, relation_oid: int, executor_oid: int) -> None:
+        original(cur, relation_oid, executor_oid)
+        raise apply_migrations.MigrationRunnerError("synthetic post-create failure")
+
+    monkeypatch.setattr(
+        apply_migrations,
+        "_validate_bootstrap_final_contract",
+        fail_after_real_validation,
+    )
+
+    assert (
+        apply_migrations.cmd_bootstrap_ledger(
+            _args(
+                database_url=executor_database_url,
+                confirm=apply_migrations.LEDGER_BOOTSTRAP_CONFIRMATION,
+            )
+        )
+        == 7
+    )
+    assert not _table_exists(executor_database_url, "schema_migrations")
+
+
+@pytest.mark.rls_integration
+def test_bootstrap_rejects_standalone_type_homonym_without_dropping_it(
+    executor_database_url: str, migration_root: Path
+) -> None:
+    _write_migration(migration_root, "0001_known.sql", "select 1;")
+    _prepare_bootstrap_absent(executor_database_url)
+    with _test_connection(executor_database_url) as conn, conn.cursor() as cur:
+        cur.execute("create domain public.schema_migrations as text")
+
+    assert (
+        apply_migrations.cmd_bootstrap_ledger(
+            _args(
+                database_url=executor_database_url,
+                confirm=apply_migrations.LEDGER_BOOTSTRAP_CONFIRMATION,
+            )
+        )
+        == 7
+    )
+    with _test_connection(executor_database_url) as conn, conn.cursor() as cur:
+        cur.execute(
+            "select typtype from pg_catalog.pg_type "
+            "where typnamespace = 'public'::regnamespace "
+            "and typname = 'schema_migrations'"
+        )
+        assert cur.fetchone() == ("d",)
+
+
+@pytest.mark.rls_integration
+def test_bootstrap_rejects_optional_agent_runtime_schema_create(
+    executor_database_url: str, migration_root: Path
+) -> None:
+    _write_migration(migration_root, "0001_known.sql", "select 1;")
+    _prepare_bootstrap_absent(executor_database_url)
+    with _test_connection(executor_database_url) as conn, conn.cursor() as cur:
+        cur.execute(
+            "do $role$ begin "
+            "if to_regrole('agent_runtime') is null then "
+            "create role agent_runtime nologin noinherit nobypassrls nocreaterole; "
+            "end if; end $role$"
+        )
+        cur.execute("grant create on schema public to agent_runtime")
+    try:
+        assert (
+            apply_migrations.cmd_bootstrap_ledger(
+                _args(
+                    database_url=executor_database_url,
+                    confirm=apply_migrations.LEDGER_BOOTSTRAP_CONFIRMATION,
+                )
+            )
+            == 7
+        )
+        assert not _table_exists(executor_database_url, "schema_migrations")
+    finally:
+        with _test_connection(executor_database_url) as conn, conn.cursor() as cur:
+            cur.execute("revoke create on schema public from agent_runtime")
+
+
+@pytest.mark.rls_integration
+def test_apply_rejects_nonempty_prefix_with_multiple_pending_before_sql(
+    executor_database_url: str, migration_root: Path
+) -> None:
+    prefix = _write_migration(migration_root, "0001_prefix.sql", "select 1;")
+    target = _write_migration(
+        migration_root,
+        "0002_target.sql",
+        "create table public.apply_multiple_pending_block (id integer);",
+    )
+    _write_migration(migration_root, "0003_later.sql", "select 1;")
+    _reset_secure_ledger(executor_database_url, (prefix.name,))
+
+    assert (
+        apply_migrations.cmd_apply(
+            _args(
+                database_url=executor_database_url,
+                migration=target.name,
+                sha256=_sha256(target),
+                confirm="APPLY",
+            )
+        )
+        == 7
+    )
+    assert not _table_exists(executor_database_url, "apply_multiple_pending_block")
+    assert _ledger_names(executor_database_url) == (prefix.name,)
+
+
+@pytest.mark.rls_integration
+@pytest.mark.parametrize(
+    "ledger_drift_sql",
+    (
+        "drop policy migration_ledger_service_role_bypass_only "
+        "on public.schema_migrations",
+        "alter table public.schema_migrations owner to service_role",
+        """
+        create function public.synthetic_ledger_trigger()
+        returns trigger language plpgsql as $body$
+        begin return new; end
+        $body$;
+        create trigger synthetic_ledger_trigger
+        before insert on public.schema_migrations
+        for each row execute function public.synthetic_ledger_trigger()
+        """,
+        "create rule synthetic_ledger_rule as on insert "
+        "to public.schema_migrations do instead nothing",
+        "grant select (name) on public.schema_migrations to anon",
+        "alter table public.schema_migrations set unlogged",
+        "alter table public.schema_migrations "
+        "add constraint synthetic_name_nonempty check (name <> '')",
+        "update public.schema_migrations "
+        "set applied_at = applied_at + interval '1 second'",
+    ),
+    ids=(
+        "policy",
+        "owner",
+        "trigger",
+        "rule",
+        "column-acl",
+        "unlogged",
+        "constraint",
+        "applied-at",
+    ),
+)
+def test_apply_postcheck_rolls_back_domain_sql_and_ledger_drift(
+    executor_database_url: str,
+    migration_root: Path,
+    ledger_drift_sql: str,
+) -> None:
+    prefix = _write_migration(migration_root, "0001_prefix.sql", "select 1;")
+    target = _write_migration(
+        migration_root,
+        "0002_drift.sql",
+        "create table public.apply_postcheck_domain (id integer);\n"
+        + ledger_drift_sql
+        + ";\n",
+    )
+    _reset_secure_ledger(executor_database_url, (prefix.name,))
+
+    assert (
+        apply_migrations.cmd_apply(
+            _args(
+                database_url=executor_database_url,
+                migration=target.name,
+                sha256=_sha256(target),
+                confirm="APPLY",
+            )
+        )
+        == 7
+    )
+    assert not _table_exists(executor_database_url, "apply_postcheck_domain")
+    assert _ledger_names(executor_database_url) == (prefix.name,)
+
+
 @pytest.mark.rls_integration
 def test_status_rejects_absent_ledger_without_creating_it(
     executor_database_url: str, migration_root: Path
@@ -766,7 +1340,7 @@ def test_status_never_echoes_destination_or_query_secret(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     _write_migration(migration_root, "0001_first.sql", "select 1;")
-    _reset_secure_ledger(executor_database_url)
+    _reset_secure_ledger(executor_database_url, ("0001_first.sql",))
     guarded_url = f"{executor_database_url}?application_name=never-print-query-secret"
 
     assert apply_migrations.cmd_status(_args(database_url=guarded_url)) == 0
@@ -807,7 +1381,7 @@ def test_status_rejects_incompatible_or_duplicate_ledger_without_writes(
     (
         (("unknown.sql",), "desconhecida"),
         (("0001_first.sql", "0003_third.sql"), "ordem"),
-        ((), "múltiplas"),
+        ((), "vazio"),
     ),
 )
 def test_generic_status_rejects_drift_without_writes(
@@ -960,12 +1534,13 @@ def test_single_apply_rejects_reachable_membership_with_ledger_capability(
 def test_single_apply_allows_safe_set_membership_without_ledger_access(
     executor_database_url: str, migration_root: Path
 ) -> None:
+    prefix = _write_migration(migration_root, "0001_prefix.sql", "select 1;")
     target = _write_migration(
         migration_root,
-        "0001_membership_safe.sql",
+        "0002_membership_safe.sql",
         "create table public.executor_membership_safe (id integer);",
     )
-    _reset_secure_ledger(executor_database_url)
+    _reset_secure_ledger(executor_database_url, (prefix.name,))
     with _test_connection(executor_database_url) as conn, conn.cursor() as cur:
         cur.execute("create role m06_ledger_safe nologin nobypassrls nocreaterole")
         cur.execute(
@@ -986,7 +1561,7 @@ def test_single_apply_allows_safe_set_membership_without_ledger_access(
         == 0
     )
     assert _table_exists(executor_database_url, "executor_membership_safe")
-    assert _ledger_names(executor_database_url) == (target.name,)
+    assert _ledger_names(executor_database_url) == (prefix.name, target.name)
 
 
 @pytest.mark.rls_integration
@@ -1028,7 +1603,9 @@ def test_harden_ledger_secures_drifted_history_and_preserves_single_file_apply(
         "0003_selected.sql",
         "create table public.executor_after_ledger_hardening (id integer primary key);",
     )
-    _reset_insecure_ledger(executor_database_url, (drifted.name,))
+    _reset_insecure_ledger(
+        executor_database_url, ("0001_first.sql", drifted.name)
+    )
     with _test_connection(executor_database_url) as conn, conn.cursor() as cur:
         cur.execute(
             "grant select, insert, update, delete, truncate, references, trigger "
@@ -1083,7 +1660,11 @@ def test_harden_ledger_secures_drifted_history_and_preserves_single_file_apply(
         == 0
     )
     assert _table_exists(executor_database_url, "executor_after_ledger_hardening")
-    assert _ledger_names(executor_database_url) == (drifted.name, target.name)
+    assert _ledger_names(executor_database_url) == (
+        "0001_first.sql",
+        drifted.name,
+        target.name,
+    )
     assert apply_migrations.cmd_harden_ledger(harden_args) == 0
 
 
@@ -1211,21 +1792,21 @@ def test_harden_ledger_rejects_reachable_privileged_membership(
 def test_single_apply_runs_only_selected_file_and_reapply_is_safe(
     executor_database_url: str, migration_root: Path
 ) -> None:
+    neighbor = _write_migration(
+        migration_root,
+        "0001_neighbor.sql",
+        "create table public.executor_neighbor (id integer primary key);",
+    )
     target = _write_migration(
         migration_root,
-        "0001_target.sql",
+        "0002_target.sql",
         """begin;
 set transaction isolation level serializable;
 create table public.executor_target (id integer primary key);
 commit;
 """,
     )
-    _write_migration(
-        migration_root,
-        "0002_neighbor.sql",
-        "create table public.executor_neighbor (id integer primary key);",
-    )
-    _reset_secure_ledger(executor_database_url)
+    _reset_secure_ledger(executor_database_url, (neighbor.name,))
     args = _args(
         database_url=executor_database_url,
         migration=target.name,
@@ -1236,21 +1817,25 @@ commit;
     assert apply_migrations.cmd_apply(args) == 0
     assert _table_exists(executor_database_url, "executor_target")
     assert not _table_exists(executor_database_url, "executor_neighbor")
-    assert _ledger_names(executor_database_url) == (target.name,)
+    assert _ledger_names(executor_database_url) == (neighbor.name, target.name)
 
     with _test_connection(executor_database_url) as conn, conn.cursor() as cur:
         cur.execute("drop table public.executor_target")
     assert apply_migrations.cmd_apply(args) == 0
     assert not _table_exists(executor_database_url, "executor_target")
-    assert _ledger_names(executor_database_url) == (target.name,)
+    assert _ledger_names(executor_database_url) == (neighbor.name, target.name)
 
 
 @pytest.mark.rls_integration
 def test_current_m06_migration_runs_as_one_verified_file(
     executor_database_url: str,
+    migration_root: Path,
 ) -> None:
     """O arquivo aprovado mantém DDL e ledger no mesmo commit do executor."""
-    _reset_secure_ledger(executor_database_url)
+    prefix = _write_migration(migration_root, "0001_prefix.sql", "select 1;")
+    target = migration_root / CURRENT_M06_MIGRATION.name
+    target.write_bytes(CURRENT_M06_MIGRATION.read_bytes())
+    _reset_secure_ledger(executor_database_url, (prefix.name,))
     with _test_connection(executor_database_url) as conn, conn.cursor() as cur:
         for table in CLOSED_TABLES:
             cur.execute(f"drop table if exists public.{table} cascade")
@@ -1266,14 +1851,14 @@ def test_current_m06_migration_runs_as_one_verified_file(
         apply_migrations.cmd_apply(
             _args(
                 database_url=executor_database_url,
-                migration=CURRENT_M06_MIGRATION.name,
-                sha256=_sha256(CURRENT_M06_MIGRATION),
+                migration=target.name,
+                sha256=_sha256(target),
                 confirm="APPLY",
             )
         )
         == 0
     )
-    assert _ledger_names(executor_database_url) == (CURRENT_M06_MIGRATION.name,)
+    assert _ledger_names(executor_database_url) == (prefix.name, target.name)
     with _test_connection(executor_database_url) as conn, conn.cursor() as cur:
         for table in CLOSED_TABLES:
             cur.execute(
@@ -1294,16 +1879,17 @@ def test_current_m06_migration_runs_as_one_verified_file(
 def test_single_apply_rolls_back_sql_and_ledger_together(
     executor_database_url: str, migration_root: Path
 ) -> None:
+    prefix = _write_migration(migration_root, "0001_prefix.sql", "select 1;")
     target = _write_migration(
         migration_root,
-        "0001_failing.sql",
+        "0002_failing.sql",
         """begin;
 create table public.executor_partial (id integer primary key);
 select 1 / 0;
 commit;
 """,
     )
-    _reset_secure_ledger(executor_database_url)
+    _reset_secure_ledger(executor_database_url, (prefix.name,))
 
     assert (
         apply_migrations.cmd_apply(
@@ -1317,19 +1903,20 @@ commit;
         == 5
     )
     assert not _table_exists(executor_database_url, "executor_partial")
-    assert _ledger_names(executor_database_url) == ()
+    assert _ledger_names(executor_database_url) == (prefix.name,)
 
 
 @pytest.mark.rls_integration
-def test_ledger_insert_failure_rolls_back_migration_sql(
+def test_preexisting_ledger_trigger_blocks_before_migration_sql(
     executor_database_url: str, migration_root: Path
 ) -> None:
+    prefix = _write_migration(migration_root, "0001_prefix.sql", "select 1;")
     target = _write_migration(
         migration_root,
-        "0001_ledger_atomic.sql",
+        "0002_ledger_atomic.sql",
         "create table public.executor_ledger_atomic (id integer primary key);",
     )
-    _reset_secure_ledger(executor_database_url)
+    _reset_secure_ledger(executor_database_url, (prefix.name,))
     with _test_connection(executor_database_url) as conn, conn.cursor() as cur:
         cur.execute(
             """
@@ -1358,22 +1945,23 @@ def test_ledger_insert_failure_rolls_back_migration_sql(
                 confirm="APPLY",
             )
         )
-        == 5
+        == 7
     )
     assert not _table_exists(executor_database_url, "executor_ledger_atomic")
-    assert _ledger_names(executor_database_url) == ()
+    assert _ledger_names(executor_database_url) == (prefix.name,)
 
 
 @pytest.mark.rls_integration
 def test_service_role_bypass_and_ledger_access_are_preserved(
     executor_database_url: str, migration_root: Path
 ) -> None:
+    prefix = _write_migration(migration_root, "0001_prefix.sql", "select 1;")
     target = _write_migration(
         migration_root,
-        "0001_service_role.sql",
+        "0002_service_role.sql",
         "create table public.executor_service_role (id integer primary key);",
     )
-    _reset_secure_ledger(executor_database_url)
+    _reset_secure_ledger(executor_database_url, (prefix.name,))
 
     assert (
         apply_migrations.cmd_apply(
@@ -1391,4 +1979,4 @@ def test_service_role_bypass_and_ledger_access_are_preserved(
         assert cur.fetchone()[0] is True
         cur.execute("set local role service_role")
         cur.execute("select name from public.schema_migrations")
-        assert cur.fetchall() == [(target.name,)]
+        assert cur.fetchall() == [(prefix.name,), (target.name,)]

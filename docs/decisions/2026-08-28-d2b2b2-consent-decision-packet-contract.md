@@ -255,27 +255,43 @@ insumo governado, nunca autoridade direta do runtime.
 
 ## Próximo gate único
 
-Implementar e testar somente em PostgreSQL 17 descartável, sem acessar DEV ou
-PROD, um subcomando versionado `bootstrap-ledger`, explícito e fail-closed,
-separado de `harden-ledger`. Ele criará exclusivamente
-o contrato final vazio de `public.schema_migrations`, como ledger vazio, em transação única, com
-colunas, chave primária (PK) e defaults exatos, RLS habilitada, policy deny e ACL
-mínima por grants e revokes explícitos. O comando validará ownership e roles
-esperados antes e depois, e abortará se houver objeto homônimo, schema divergente
-ou qualquer outro conflito. A reaplicação deverá encerrar sem mutação; testes adversariais
-em PostgreSQL 17 cobrirão conflitos homônimos, falha parcial e
-rollback integral. O comando operará sem reconciliação ou backfill: jamais
-copiará `supabase_migrations`, inferirá
-migrations aplicadas ou autorizará `apply`.
-`apply` e `status` permanecerão tecnicamente bloqueados até uma reconciliação
-humana versionada formar o prefixo íntegro do catálogo, com no máximo uma
-migration pendente; o bootstrap não pode reduzir a barreira atual.
-Qualquer preenchimento ou
-reconciliação histórica humana será uma missão separada, baseada em
-evidência, e precisará terminar antes de considerar D2 em DEV ou PROD. Este gate
-entrega somente a PR offline do bootstrap e não autoriza painel do tenant,
-aprovações, catálogo, writer, migration D2B2b3A, flag, D2C, credencial, wiring,
-deploy, restart, runtime, ativação ou canário.
+Sobre a base `b43ad92028374fa6763ef10f5eb7a379afd3e7a2`, este delta
+implementa e comprova offline `bootstrap-ledger`, separado de `harden-ledger`, com
+confirmação literal `BOOTSTRAP_LEDGER` e destino somente por
+`M06_MIGRATION_DATABASE_URL`. Em PostgreSQL 17 ele cria atomicamente apenas o
+ledger vazio `public.schema_migrations`, no contrato exato owner-only com RLS,
+policy deny e ACL mínima. Homônimos, grants, default privileges, membership,
+ownership ou forma física divergentes abortam e revertem; a reaplicação exata é
+um no-op.
+
+A prova terminou com 42/42 testes unitários, 87/87 em PostgreSQL 17-alpine
+descartável em duas execuções independentes, 87/87 em Supabase PG17 17.6.1.159
+descartável em duas execuções independentes e revisão de segurança `GO`. A
+suíte RLS completa, em execução serial limpa no PostgreSQL 17 descartável,
+passou em 326/326, com 3803 deselecionados e 2 warnings preexistentes, em
+162.77s. A suíte offline integral foi interrompida após 5 min sem saída ou
+progresso; o resultado é `INCONCLUSIVO`, não verde nem falha, e o workflow
+Backend Tests da PR permanece gate. O bootstrap não descobre o catálogo,
+não lê ou altera `supabase_migrations`, não reconcilia, não faz backfill e não
+aplica ou registra migration. O ledger vazio preserva o bloqueio técnico de
+`status` e `apply` até uma reconciliação histórica humana formar o prefixo
+íntegro do catálogo, com no máximo uma migration pendente.
+
+Esta missão não acessou DEV ou PROD, não aplicou bootstrap ou migration em
+ambiente compartilhado, não provisionou credencial, não fez deploy ou restart
+e não alterou flag, runtime, agente ou canário. O preflight PROD e o deployment
+automático frontend da PR #321 continuam como evidência histórica separada.
+
+Implementar e testar somente offline, sem acessar DEV ou PROD, uma PR
+versionada de reconciliação histórica humana. Ela deve definir pacote
+sanitizado e verificador somente leitura, sem DML e sem inferir migrations
+aplicadas, para comparar futuramente o catálogo local com inventários
+autorizados dos ledgers público e nativo. Toda divergência ou evidência ausente
+permanece bloqueante; a PR não cria, altera ou preenche ledger e não autoriza
+`bootstrap-ledger`, `harden-ledger`, `status` ou `apply` em ambiente
+compartilhado. Painel do tenant, aprovações, catálogo, writer, migration
+D2B2b3A, flag, D2C, credencial, wiring, deploy, restart, runtime, ativação e
+canário continuam bloqueados.
 
 A PR #320 já integrou a D2B2b3A no merge
 `947d891c2ea278b7a3231fecd9ca1c90cfe29a1f`; o deployment automático
