@@ -1157,7 +1157,7 @@ def test_snapshot_and_native_correlation_contract(
     assert result == expected
 
 
-def test_public_rows_must_preserve_captured_query_order(
+def test_known_out_of_order_public_subset_is_ledger_divergence(
     isolated_roots: tuple[Path, Path], capsys: pytest.CaptureFixture[str]
 ) -> None:
     _migrations, packets = isolated_roots

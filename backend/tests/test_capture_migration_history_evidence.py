@@ -782,17 +782,30 @@ def test_native_name_is_redacted_even_when_it_matches_a_catalog_stem(
     assert package["inventories"]["native_ledger"]["rows"][0]["name"] is None
 
 
-def test_public_ledger_exact_catalog_prefix_is_materialized(
-    isolated_roots: tuple[Path, Path], tmp_path: Path
+def test_public_ledger_known_out_of_order_subset_is_materialized(
+    isolated_roots: tuple[Path, Path],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    _migrations, packets = isolated_roots
+    migrations, packets = isolated_roots
+    third = migrations / "0003_third.sql"
+    third.write_bytes(b"select 3;\n")
+    third.chmod(0o644)
+    monkeypatch.setattr(
+        capture,
+        "EXPECTED_CATALOG_DIGEST_SHA256",
+        capture._catalog_digest(capture._scan_catalog()),
+    )
     raw = _sanitized_capture()
     raw.update(
         public_relation_count=1,
         public_relkind="r",
         public_columns_ok=True,
         public_row_security_active=False,
-        public_rows=[{"position": 0, "name": "0001_first.sql"}],
+        public_rows=[
+            {"position": 0, "name": "0002_second.sql"},
+            {"position": 1, "name": "0001_first.sql"},
+        ],
     )
     assert _run(tmp_path, raw) == 0
     package = json.loads(
@@ -803,12 +816,10 @@ def test_public_ledger_exact_catalog_prefix_is_materialized(
     assert package["inventories"]["public_ledger"]["rows"] == raw["public_rows"]
 
 
-@pytest.mark.parametrize("unsafe_name", ["0002_second.sql", "member_private.sql"])
-def test_public_ledger_non_prefix_is_blocked_without_echo_or_output(
+def test_public_ledger_unknown_name_is_blocked_without_echo_or_output(
     isolated_roots: tuple[Path, Path],
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
-    unsafe_name: str,
 ) -> None:
     _migrations, packets = isolated_roots
     raw = _sanitized_capture()
@@ -817,11 +828,11 @@ def test_public_ledger_non_prefix_is_blocked_without_echo_or_output(
         public_relkind="r",
         public_columns_ok=True,
         public_row_security_active=False,
-        public_rows=[{"position": 0, "name": unsafe_name}],
+        public_rows=[{"position": 0, "name": "member_private.sql"}],
     )
     assert _run(tmp_path, raw) == capture.InventoryError.exit_code
     captured = capsys.readouterr()
-    assert unsafe_name not in captured.out + captured.err
+    assert "member_private.sql" not in captured.out + captured.err
     assert list(packets.iterdir()) == []
 
 

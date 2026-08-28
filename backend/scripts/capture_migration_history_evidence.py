@@ -830,12 +830,11 @@ def _catalog_digest(catalog_entries: list[dict[str, Any]]) -> str:
     )
 
 
-def _require_public_catalog_prefix(
+def _require_public_catalog_membership(
     public_rows: list[dict[str, Any]], catalog_entries: list[dict[str, Any]]
 ) -> None:
-    public_names = [row["name"] for row in public_rows]
-    catalog_names = [entry["name"] for entry in catalog_entries]
-    if public_names != catalog_names[: len(public_names)]:
+    catalog_names = {entry["name"] for entry in catalog_entries}
+    if any(row["name"] not in catalog_names for row in public_rows):
         raise InventoryError
 
 
@@ -1249,7 +1248,7 @@ def main(argv: list[str]) -> int:
         ):
             raise CatalogError
         capture = _validate_capture(_parse_input(_read_sanitized_input(input_fd)))
-        _require_public_catalog_prefix(capture["public_rows"], catalog_before)
+        _require_public_catalog_membership(capture["public_rows"], catalog_before)
         key = _read_target_key(target_key_fd)
         try:
             target_binding = _target_binding(key, environment, capture)
