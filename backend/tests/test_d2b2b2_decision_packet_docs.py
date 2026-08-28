@@ -1047,7 +1047,7 @@ def test_d2b2b2_template_has_no_runtime_or_migration_consumer() -> None:
                 assert token not in content, f"runtime consumer in {path}"
 
 
-def test_d2b2b2_canonical_docs_keep_one_draft_only_gate() -> None:
+def test_d2b2b2_canonical_docs_keep_one_database_role_preflight_gate() -> None:
     required_references = {
         REPO_ROOT / "docs" / "ai" / "AI-BOOTSTRAP.md",
         REPO_ROOT / "docs" / "ai" / "PRD-COVERAGE.md",
@@ -1064,11 +1064,16 @@ def test_d2b2b2_canonical_docs_keep_one_draft_only_gate() -> None:
         assert "jurid" in normalized
         assert "aprov" in normalized
         assert (
-            "revisar e integrar a pr d2b2b3a draft-only, comprovando "
-            "migration em postgresql 17 descartavel, isolamento entre "
-            "tenants, concorrencia por revisao e ausencia de caminhos de "
-            "aprovacao ou runtime"
+            "identificar sanitizadamente, em preflight somente leitura, "
+            "os dois caminhos de banco"
         ) in normalized
+        assert "`m06_migration_database_url`" in normalized
+        assert "`database_url`" in normalized
+        assert "identidade da role" in normalized
+        assert "ownership esperado" in normalized
+        assert "acl efetiva" in normalized
+        assert "`force rls`" in normalized
+        assert "exige autorizacao nominal separada" in normalized
         for blocker in (
             "painel do tenant",
             "aprovacoes",
