@@ -801,16 +801,32 @@ canário. O preflight PROD da seção anterior e o deployment automático fronte
 da PR #321 permanecem evidências históricas separadas e não foram revalidados
 nesta missão.
 
-**Próximo gate único:** implementar e testar somente offline, sem acessar DEV
-ou PROD, uma PR versionada de reconciliação histórica humana. Ela deverá
-definir um pacote sanitizado e um verificador somente leitura, sem DML e sem
-inferir migrations aplicadas, para comparar futuramente o catálogo versionado
-com inventários autorizados dos ledgers público e nativo. Toda divergência ou
-entrada sem evidência humana permanece bloqueante; a PR não cria, altera ou
-preenche ledger e não autoriza `bootstrap-ledger`, `harden-ledger`, `status` ou
-`apply` em ambiente compartilhado. Painel do tenant, aprovações, catálogo,
-writer, migration D2B2b3A, flag, D2C, credencial, wiring, deploy, restart,
-runtime, ativação e canário continuam bloqueados.
+### MIGRATION-HISTORY-RECONCILIATION, candidata somente offline
+
+Sobre a base auditada `cfeba13c0a9d08288f8c956ee2f35ddc1c0c35b7`, esta
+candidata adiciona um pacote deny-state versionado e um verificador stdlib
+separado do runner, conforme
+[`2026-08-28-migration-history-reconciliation-contract.md`](../decisions/2026-08-28-migration-history-reconciliation-contract.md).
+O estado é `PACOTE E VERIFICADOR CANDIDATOS / SOMENTE OFFLINE / DECISÕES
+HUMANAS PENDENTES / NÃO APLICADO`. Nenhuma decisão humana está aprovada. O
+verificador não acessa banco, rede, ambiente ou variáveis de ambiente, não
+executa SQL, DML ou escrita e não infere migration aplicada. Os ledgers nativo
+e público permanecem independentes e todo sucesso estrutural conserva
+`OPERATIONAL_AUTHORIZATION=BLOCKED`. Esta candidata não acessa DEV ou PROD e
+não executa deploy, migration, bootstrap, hardening, restart, credencial, flag,
+runtime, agente ou canário.
+
+A candidata passou `98/98` testes do verificador e `26/26` testes documentais.
+O runner preservado passou `42/42` testes offline; `45` integrações foram
+puladas por ausência deliberada de banco descartável.
+
+**Próximo gate único:** revisar as evidências focais e os pareceres
+independentes desta candidata e, se todos permanecerem verdes, integrar a PR.
+Esse gate é exclusivamente offline e não autoriza ambiente,
+comando do runner, `bootstrap-ledger`, `harden-ledger`, `status` ou `apply`.
+Painel do tenant, aprovações, catálogo, writer, migration D2B2b3A, flag, D2C,
+credencial, wiring, deploy, restart, runtime, ativação e canário continuam
+bloqueados.
 
 ## Paralelismo seguro
 

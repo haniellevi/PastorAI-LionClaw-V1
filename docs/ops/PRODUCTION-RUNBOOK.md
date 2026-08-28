@@ -135,11 +135,26 @@ automáticos do frontend na Vercel; essa metadata não prova backend, banco,
 runtime ou aplicação do bootstrap.
 
 `bootstrap-ledger` cria somente um ledger público vazio no contrato owner-only;
-ele não reconstrói histórico e não libera `status` ou `apply`. Até uma PR
-versionada de reconciliação histórica humana, sem DML e sem inferência, ser
-aprovada e seguida por novos gates nominais, ficam proibidos em PROD
-`bootstrap-ledger`, `harden-ledger`, `status`, `apply`, SQL Editor,
-`apply_migration`, `db push` ou MCP para reconciliar ou reaplicar histórico.
+ele não reconstrói histórico e não libera `status` ou `apply`.
+
+Sobre a base auditada `cfeba13c0a9d08288f8c956ee2f35ddc1c0c35b7`, esta
+candidata adiciona somente offline um pacote deny-state versionado e um
+verificador stdlib separado do runner, conforme
+[`2026-08-28-migration-history-reconciliation-contract.md`](../decisions/2026-08-28-migration-history-reconciliation-contract.md).
+O estado é `PACOTE E VERIFICADOR CANDIDATOS / SOMENTE OFFLINE / DECISÕES
+HUMANAS PENDENTES / NÃO APLICADO`. O verificador não acessa banco, rede,
+ambiente ou variáveis de ambiente, não executa SQL, DML ou escrita e todo
+sucesso estrutural conserva `OPERATIONAL_AUTHORIZATION=BLOCKED`.
+
+A candidata passou `98/98` testes do verificador e `26/26` testes documentais.
+O runner preservado passou `42/42` testes offline; `45` integrações foram
+puladas por ausência deliberada de banco descartável.
+
+O próximo gate é revisar as evidências focais e os pareceres independentes e,
+se todos permanecerem verdes, integrar a PR. Até novos gates nominais, ficam
+proibidos em PROD `bootstrap-ledger`,
+`harden-ledger`, `status`, `apply`, SQL Editor, `apply_migration`, `db push` ou
+MCP para reconciliar ou reaplicar histórico.
 
 Antes de aplicar:
 

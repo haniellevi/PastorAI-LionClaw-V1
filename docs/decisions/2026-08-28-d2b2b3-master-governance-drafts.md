@@ -248,13 +248,23 @@ compartilhada, restart ou alteracao de credencial, flag, runtime, agente ou
 canario. O preflight PROD e o deployment automatico frontend da PR #321
 continuam como evidencia historica separada.
 
-Implementar e testar somente offline, sem acessar DEV ou PROD, uma PR
-versionada de reconciliacao historica humana. Ela deve definir pacote
-sanitizado e verificador somente leitura, sem DML e sem inferir migrations
-aplicadas, para comparar futuramente o catalogo local com inventarios
-autorizados dos ledgers publico e nativo. Toda divergencia ou evidencia ausente
-permanece bloqueante; a PR nao cria, altera ou preenche ledger e nao autoriza
-`bootstrap-ledger`, `harden-ledger`, `status` ou `apply` em ambiente
-compartilhado. Painel do tenant, aprovacoes, catalogo, writer, migration
-D2B2b3A, flag, D2C, credencial, wiring, deploy, restart, runtime, ativacao e
-canario continuam bloqueados.
+Sobre a base auditada `cfeba13c0a9d08288f8c956ee2f35ddc1c0c35b7`, esta
+candidata adiciona somente offline um pacote deny-state versionado e um
+verificador stdlib separado do runner, conforme
+`2026-08-28-migration-history-reconciliation-contract.md`. O estado e `PACOTE
+E VERIFICADOR CANDIDATOS / SOMENTE OFFLINE / DECISOES HUMANAS PENDENTES / NAO
+APLICADO`. Nenhuma decisao humana esta aprovada. O verificador nao acessa banco,
+rede, ambiente ou variaveis de ambiente, nao executa SQL, DML ou escrita e nao
+infere migration aplicada. Os ledgers nativo e publico permanecem independentes
+e todo sucesso estrutural conserva `OPERATIONAL_AUTHORIZATION=BLOCKED`.
+
+A candidata passou `98/98` testes do verificador e `26/26` testes documentais.
+O runner preservado passou `42/42` testes offline; `45` integracoes foram
+puladas por ausencia deliberada de banco descartavel.
+
+Revisar as evidencias focais e os pareceres independentes desta candidata e,
+se todos permanecerem verdes, integrar a PR. Esse gate e exclusivamente
+offline e nao autoriza ambiente, comando do runner,
+`bootstrap-ledger`, `harden-ledger`, `status` ou `apply`. Painel do tenant,
+aprovacoes, catalogo, writer, migration D2B2b3A, flag, D2C, credencial, wiring,
+deploy, restart, runtime, ativacao e canario continuam bloqueados.

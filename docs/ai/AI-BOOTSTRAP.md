@@ -3,7 +3,7 @@ project: igreja12
 document_kind: ai-bootstrap
 status: canonical
 last_verified: 2026-08-28
-audited_repository_sha: 3a5789c784017ab15a43e28c4270d25af8618359
+audited_repository_sha: cfeba13c0a9d08288f8c956ee2f35ddc1c0c35b7
 ---
 
 # Bootstrap canônico para agentes de IA
@@ -36,7 +36,7 @@ externas com contratos e gates próprios.
 | Tema | Estado e proveniência | Leitura correta |
 |---|---|---|
 | V1 | `IMPLEMENTADO` | Encerrada como piloto controlado; não equivale ao produto amplo concluído |
-| Código | `VERIFICADO / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / NÃO APLICADO / D2B2B3A INTEGRADA E INATIVA` | a PR #323 integrou `bootstrap-ledger` no merge `3a5789c784017ab15a43e28c4270d25af8618359`; a prova de banco continua exclusivamente descartável, sem aplicação em DEV ou PROD; houve somente deploys automáticos do frontend, que não provam backend, banco ou runtime; D2B2b3A continua ausente nos bancos consultados e com flag `false` |
+| Código | `VERIFICADO / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / PACOTE E VERIFICADOR CANDIDATOS SOMENTE OFFLINE / DECISÕES HUMANAS PENDENTES / NÃO APLICADO / D2B2B3A INTEGRADA E INATIVA` | a PR #323 integrou `bootstrap-ledger` no merge `3a5789c784017ab15a43e28c4270d25af8618359`; esta candidata adiciona somente o contrato deny-state e o verificador offline, sem autorização operacional; a prova de banco continua exclusivamente descartável, sem aplicação em DEV ou PROD; houve somente deploys automáticos do frontend, que não provam backend, banco ou runtime; D2B2b3A continua ausente nos bancos consultados e com flag `false` |
 | Produto WhatsApp-first | `PARCIAL` | A visão está aprovada; memória, conhecimento e ações profundas ainda faltam |
 | Agente Evolution | `PARCIAL / GATE OPERACIONAL` | Fundação, identidade e contenção existem; qualidade conversacional é insuficiente |
 | Canário ativo do agente | `PASS TÉCNICO / QUALIDADE INSUFICIENTE` | Evidência operacional reconciliada nesta missão, não prova previamente versionada em `ad4a272` |
@@ -304,16 +304,27 @@ compartilhada, restart ou alteração de credencial, flag, runtime, agente ou
 canário. O preflight PROD e o deployment automático frontend da PR #321
 permanecem evidências históricas separadas.
 
-O próximo gate único é implementar e testar somente offline, sem acessar DEV
-ou PROD, uma PR versionada de reconciliação histórica humana. Ela deverá
-definir um pacote sanitizado e um verificador somente leitura, sem DML e sem
-inferir migrations aplicadas, para comparar futuramente o catálogo versionado
-com inventários autorizados dos ledgers público e nativo. Toda divergência ou
-entrada sem evidência humana continua bloqueante; a PR não cria, altera ou
-preenche ledger e não autoriza `bootstrap-ledger`, `harden-ledger`, `status` ou
-`apply` em ambiente compartilhado. Painel do tenant, aprovações, catálogo,
-writer, migration D2B2b3A, flag, D2C, credencial, wiring, deploy, restart,
-runtime, ativação e canário continuam bloqueados.
+Sobre a base auditada `cfeba13c0a9d08288f8c956ee2f35ddc1c0c35b7`, esta
+candidata adiciona somente offline um pacote deny-state versionado e um
+verificador stdlib separado do runner, conforme
+[`2026-08-28-migration-history-reconciliation-contract.md`](../decisions/2026-08-28-migration-history-reconciliation-contract.md).
+O estado é `PACOTE E VERIFICADOR CANDIDATOS / SOMENTE OFFLINE / DECISÕES
+HUMANAS PENDENTES / NÃO APLICADO`. O verificador não acessa banco, rede,
+ambiente ou variáveis de ambiente, não executa SQL, DML ou escrita e não
+infere migration aplicada. Os ledgers nativo e público permanecem independentes
+e todo sucesso estrutural conserva `OPERATIONAL_AUTHORIZATION=BLOCKED`.
+
+A candidata passou `98/98` testes do verificador e `26/26` testes documentais.
+O runner preservado passou `42/42` testes offline; `45` integrações foram
+puladas por ausência deliberada de banco descartável.
+
+O próximo gate único é revisar as evidências focais e os pareceres
+independentes desta candidata e, se todos permanecerem verdes, integrar a PR.
+Esse gate é exclusivamente offline e não autoriza ambiente,
+comando do runner, `bootstrap-ledger`, `harden-ledger`, `status` ou `apply`.
+Painel do tenant, aprovações, catálogo, writer, migration D2B2b3A, flag, D2C,
+credencial, wiring, deploy, restart, runtime, ativação e canário continuam
+bloqueados.
 
 ## Roteiro de leitura
 

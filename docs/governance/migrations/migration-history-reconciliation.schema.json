@@ -1,0 +1,1342 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:igreja12:migration-history-reconciliation:1.0",
+  "title": "Igreja 12 migration history reconciliation packet",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract_version",
+    "package_id",
+    "artifact_state",
+    "safety_contract",
+    "subject",
+    "catalog",
+    "inventories",
+    "reconciliation",
+    "attestation"
+  ],
+  "properties": {
+    "contract_version": {
+      "const": "1.0"
+    },
+    "package_id": {
+      "$ref": "#/$defs/packageId"
+    },
+    "artifact_state": {
+      "enum": [
+        "TEMPLATE_NOT_EVIDENCE",
+        "EVIDENCE_CAPTURED_UNREVIEWED",
+        "HUMAN_REVIEW_COMPLETE"
+      ]
+    },
+    "safety_contract": {
+      "$ref": "#/$defs/safetyContract"
+    },
+    "subject": {
+      "$ref": "#/$defs/subject"
+    },
+    "catalog": {
+      "$ref": "#/$defs/catalog"
+    },
+    "inventories": {
+      "$ref": "#/$defs/inventories"
+    },
+    "reconciliation": {
+      "$ref": "#/$defs/reconciliation"
+    },
+    "attestation": {
+      "$ref": "#/$defs/attestation"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "artifact_state": {
+            "const": "EVIDENCE_CAPTURED_UNREVIEWED"
+          }
+        },
+        "required": [
+          "artifact_state"
+        ]
+      },
+      "then": {
+        "properties": {
+          "subject": {
+            "properties": {
+              "environment": {
+                "enum": [
+                  "DEV",
+                  "PROD"
+                ]
+              },
+              "target_binding_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "artifact_state": {
+            "const": "TEMPLATE_NOT_EVIDENCE"
+          }
+        },
+        "required": [
+          "artifact_state"
+        ]
+      },
+      "then": {
+        "properties": {
+          "subject": {
+            "properties": {
+              "environment": {
+                "const": "UNBOUND"
+              },
+              "target_binding_sha256": {
+                "type": "null"
+              }
+            }
+          },
+          "reconciliation": {
+            "properties": {
+              "state": {
+                "const": "NOT_REVIEWED"
+              }
+            }
+          },
+          "attestation": {
+            "properties": {
+              "state": {
+                "const": "NOT_ATTESTED"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "artifact_state": {
+            "const": "HUMAN_REVIEW_COMPLETE"
+          }
+        },
+        "required": [
+          "artifact_state"
+        ]
+      },
+      "then": {
+        "properties": {
+          "subject": {
+            "properties": {
+              "environment": {
+                "enum": [
+                  "DEV",
+                  "PROD"
+                ]
+              },
+              "target_binding_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          },
+          "reconciliation": {
+            "properties": {
+              "state": {
+                "const": "HUMAN_REVIEW_COMPLETE"
+              }
+            }
+          },
+          "attestation": {
+            "properties": {
+              "state": {
+                "const": "ATTESTED_REVIEW_ONLY"
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "packageId": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]{0,126}$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "nullableSha256": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "utcTimestamp": {
+      "type": "string",
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\\.[0-9]{1,6})?Z$"
+    },
+    "nullableUtcTimestamp": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\\.[0-9]{1,6})?Z$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "position": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 2047
+    },
+    "migrationName": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*\\.sql$",
+      "maxLength": 4096
+    },
+    "safetyContract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "offline_only",
+        "database_connection",
+        "database_mutation",
+        "migration_application",
+        "ledger_write",
+        "runner_unlock",
+        "environment_operation",
+        "applied_history_inference"
+      ],
+      "properties": {
+        "offline_only": {
+          "const": true
+        },
+        "database_connection": {
+          "const": "BLOCKED"
+        },
+        "database_mutation": {
+          "const": "BLOCKED"
+        },
+        "migration_application": {
+          "const": "BLOCKED"
+        },
+        "ledger_write": {
+          "const": "BLOCKED"
+        },
+        "runner_unlock": {
+          "const": "BLOCKED"
+        },
+        "environment_operation": {
+          "const": "BLOCKED"
+        },
+        "applied_history_inference": {
+          "const": "BLOCKED"
+        }
+      }
+    },
+    "subject": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "environment",
+        "target_binding_sha256",
+        "repository_sha",
+        "catalog_path"
+      ],
+      "properties": {
+        "environment": {
+          "enum": [
+            "UNBOUND",
+            "DEV",
+            "PROD"
+          ]
+        },
+        "target_binding_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "repository_sha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$"
+        },
+        "catalog_path": {
+          "const": "backend/migrations"
+        }
+      }
+    },
+    "catalogEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "position",
+        "name",
+        "sha256",
+        "size_bytes"
+      ],
+      "properties": {
+        "position": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2047
+        },
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*\\.sql$",
+          "maxLength": 4096
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "size_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4194304
+        }
+      }
+    },
+    "catalog": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "algorithm",
+        "entries",
+        "digest_sha256"
+      ],
+      "properties": {
+        "algorithm": {
+          "const": "basename-ascii-ascending+sha256-raw-bytes-v1"
+        },
+        "entries": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2048,
+          "items": {
+            "$ref": "#/$defs/catalogEntry"
+          }
+        },
+        "digest_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      }
+    },
+    "publicRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "position",
+        "name"
+      ],
+      "properties": {
+        "position": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2047
+        },
+        "name": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*\\.sql$",
+          "maxLength": 4096
+        }
+      }
+    },
+    "nativeRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "position",
+        "version",
+        "name"
+      ],
+      "properties": {
+        "position": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2047
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^[0-9]{14}$"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9_]{0,126}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "publicInventory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "capture_state",
+        "target_binding_sha256",
+        "captured_at_utc",
+        "authorization_record_sha256",
+        "capture_record_sha256",
+        "snapshot_record_sha256",
+        "completeness_attested",
+        "query_contract",
+        "rows",
+        "rows_digest_sha256"
+      ],
+      "properties": {
+        "source": {
+          "const": "public.schema_migrations"
+        },
+        "capture_state": {
+          "enum": [
+            "NOT_CAPTURED",
+            "ABSENT_CONFIRMED",
+            "PRESENT_COMPLETE"
+          ]
+        },
+        "target_binding_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "captured_at_utc": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\\.[0-9]{1,6})?Z$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "authorization_record_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "capture_record_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "snapshot_record_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "completeness_attested": {
+          "type": "boolean"
+        },
+        "query_contract": {
+          "const": "PUBLIC_LEDGER_V1|ISOLATION=REPEATABLE_READ_READ_ONLY|ORDER=applied_at_ASC,name_ASC|PROJECTION=position,name"
+        },
+        "rows": {
+          "type": "array",
+          "maxItems": 2048,
+          "items": {
+            "$ref": "#/$defs/publicRow"
+          }
+        },
+        "rows_digest_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "capture_state": {
+                "const": "NOT_CAPTURED"
+              }
+            },
+            "required": [
+              "capture_state"
+            ]
+          },
+          "then": {
+            "properties": {
+              "target_binding_sha256": {
+                "type": "null"
+              },
+              "captured_at_utc": {
+                "type": "null"
+              },
+              "authorization_record_sha256": {
+                "type": "null"
+              },
+              "capture_record_sha256": {
+                "type": "null"
+              },
+              "snapshot_record_sha256": {
+                "type": "null"
+              },
+              "completeness_attested": {
+                "const": false
+              },
+              "rows": {
+                "maxItems": 0
+              },
+              "rows_digest_sha256": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "capture_state": {
+                "enum": [
+                  "ABSENT_CONFIRMED",
+                  "PRESENT_COMPLETE"
+                ]
+              }
+            },
+            "required": [
+              "capture_state"
+            ]
+          },
+          "then": {
+            "properties": {
+              "target_binding_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "captured_at_utc": {
+                "type": "string",
+                "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\\.[0-9]{1,6})?Z$"
+              },
+              "authorization_record_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "capture_record_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "snapshot_record_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "completeness_attested": {
+                "const": true
+              },
+              "rows_digest_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "capture_state": {
+                "const": "ABSENT_CONFIRMED"
+              }
+            },
+            "required": [
+              "capture_state"
+            ]
+          },
+          "then": {
+            "properties": {
+              "rows": {
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      ]
+    },
+    "nativeInventory": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source",
+        "capture_state",
+        "target_binding_sha256",
+        "captured_at_utc",
+        "authorization_record_sha256",
+        "capture_record_sha256",
+        "snapshot_record_sha256",
+        "completeness_attested",
+        "query_contract",
+        "rows",
+        "rows_digest_sha256"
+      ],
+      "properties": {
+        "source": {
+          "const": "supabase_migrations.schema_migrations"
+        },
+        "capture_state": {
+          "enum": [
+            "NOT_CAPTURED",
+            "ABSENT_CONFIRMED",
+            "PRESENT_COMPLETE"
+          ]
+        },
+        "target_binding_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "captured_at_utc": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\\.[0-9]{1,6})?Z$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "authorization_record_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "capture_record_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "snapshot_record_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "completeness_attested": {
+          "type": "boolean"
+        },
+        "query_contract": {
+          "const": "NATIVE_LEDGER_V1|ISOLATION=REPEATABLE_READ_READ_ONLY|ORDER=version_ASC|PROJECTION=position,version,name"
+        },
+        "rows": {
+          "type": "array",
+          "maxItems": 2048,
+          "items": {
+            "$ref": "#/$defs/nativeRow"
+          }
+        },
+        "rows_digest_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "capture_state": {
+                "const": "NOT_CAPTURED"
+              }
+            },
+            "required": [
+              "capture_state"
+            ]
+          },
+          "then": {
+            "properties": {
+              "target_binding_sha256": {
+                "type": "null"
+              },
+              "captured_at_utc": {
+                "type": "null"
+              },
+              "authorization_record_sha256": {
+                "type": "null"
+              },
+              "capture_record_sha256": {
+                "type": "null"
+              },
+              "snapshot_record_sha256": {
+                "type": "null"
+              },
+              "completeness_attested": {
+                "const": false
+              },
+              "rows": {
+                "maxItems": 0
+              },
+              "rows_digest_sha256": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "capture_state": {
+                "enum": [
+                  "ABSENT_CONFIRMED",
+                  "PRESENT_COMPLETE"
+                ]
+              }
+            },
+            "required": [
+              "capture_state"
+            ]
+          },
+          "then": {
+            "properties": {
+              "target_binding_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "captured_at_utc": {
+                "type": "string",
+                "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\\.[0-9]{1,6})?Z$"
+              },
+              "authorization_record_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "capture_record_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "snapshot_record_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "completeness_attested": {
+                "const": true
+              },
+              "rows_digest_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "capture_state": {
+                "const": "ABSENT_CONFIRMED"
+              }
+            },
+            "required": [
+              "capture_state"
+            ]
+          },
+          "then": {
+            "properties": {
+              "rows": {
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      ]
+    },
+    "inventories": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "public_ledger",
+        "native_ledger"
+      ],
+      "properties": {
+        "public_ledger": {
+          "$ref": "#/$defs/publicInventory"
+        },
+        "native_ledger": {
+          "$ref": "#/$defs/nativeInventory"
+        }
+      }
+    },
+    "catalogDecision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "position",
+        "catalog_name",
+        "human_determination",
+        "public_row_position",
+        "native_row_positions",
+        "basis_record_sha256",
+        "evidence_record_sha256",
+        "decision_record_sha256"
+      ],
+      "properties": {
+        "position": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2047
+        },
+        "catalog_name": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*\\.sql$",
+          "maxLength": 4096
+        },
+        "human_determination": {
+          "enum": [
+            "APPLIED_CONFIRMED",
+            "NOT_APPLIED_CONFIRMED",
+            "UNRESOLVED"
+          ]
+        },
+        "public_row_position": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2047
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "native_row_positions": {
+          "type": "array",
+          "maxItems": 2048,
+          "uniqueItems": true,
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 2047
+          }
+        },
+        "basis_record_sha256": {
+          "type": "array",
+          "maxItems": 2048,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "evidence_record_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "decision_record_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "human_determination": {
+                "enum": [
+                  "APPLIED_CONFIRMED",
+                  "NOT_APPLIED_CONFIRMED"
+                ]
+              }
+            },
+            "required": [
+              "human_determination"
+            ]
+          },
+          "then": {
+            "properties": {
+              "basis_record_sha256": {
+                "minItems": 3
+              },
+              "evidence_record_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "decision_record_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "human_determination": {
+                "const": "UNRESOLVED"
+              }
+            },
+            "required": [
+              "human_determination"
+            ]
+          },
+          "then": {
+            "properties": {
+              "basis_record_sha256": {
+                "maxItems": 0
+              },
+              "evidence_record_sha256": {
+                "type": "null"
+              },
+              "decision_record_sha256": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "nativeDecision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "native_row_position",
+        "disposition",
+        "catalog_names",
+        "basis_record_sha256",
+        "evidence_record_sha256",
+        "decision_record_sha256"
+      ],
+      "properties": {
+        "native_row_position": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2047
+        },
+        "disposition": {
+          "enum": [
+            "MAPS_TO_CATALOG",
+            "NON_CATALOG_HISTORY_CONFIRMED",
+            "UNRESOLVED"
+          ]
+        },
+        "catalog_names": {
+          "type": "array",
+          "maxItems": 2048,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]*\\.sql$",
+            "maxLength": 4096
+          }
+        },
+        "basis_record_sha256": {
+          "type": "array",
+          "maxItems": 2048,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          }
+        },
+        "evidence_record_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "decision_record_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "disposition": {
+                "const": "MAPS_TO_CATALOG"
+              }
+            },
+            "required": [
+              "disposition"
+            ]
+          },
+          "then": {
+            "properties": {
+              "catalog_names": {
+                "minItems": 1,
+                "maxItems": 1
+              },
+              "basis_record_sha256": {
+                "minItems": 3
+              },
+              "evidence_record_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "decision_record_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "disposition": {
+                "const": "NON_CATALOG_HISTORY_CONFIRMED"
+              }
+            },
+            "required": [
+              "disposition"
+            ]
+          },
+          "then": {
+            "properties": {
+              "catalog_names": {
+                "maxItems": 0
+              },
+              "basis_record_sha256": {
+                "minItems": 3
+              },
+              "evidence_record_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "decision_record_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "disposition": {
+                "const": "UNRESOLVED"
+              }
+            },
+            "required": [
+              "disposition"
+            ]
+          },
+          "then": {
+            "properties": {
+              "basis_record_sha256": {
+                "maxItems": 0
+              },
+              "evidence_record_sha256": {
+                "type": "null"
+              },
+              "decision_record_sha256": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "reconciliation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "catalog_entries",
+        "native_rows"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "NOT_REVIEWED",
+            "HUMAN_REVIEW_INCOMPLETE",
+            "HUMAN_REVIEW_COMPLETE"
+          ]
+        },
+        "catalog_entries": {
+          "type": "array",
+          "maxItems": 2048,
+          "items": {
+            "$ref": "#/$defs/catalogDecision"
+          }
+        },
+        "native_rows": {
+          "type": "array",
+          "maxItems": 2048,
+          "items": {
+            "$ref": "#/$defs/nativeDecision"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "NOT_REVIEWED"
+              }
+            },
+            "required": [
+              "state"
+            ]
+          },
+          "then": {
+            "properties": {
+              "catalog_entries": {
+                "maxItems": 0
+              },
+              "native_rows": {
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      ]
+    },
+    "attestation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "inventory_attestation_record_sha256",
+        "migration_owner_decision_record_sha256",
+        "independent_review_record_sha256",
+        "attested_at_utc",
+        "payload_sha256"
+      ],
+      "properties": {
+        "state": {
+          "enum": [
+            "NOT_ATTESTED",
+            "ATTESTED_REVIEW_ONLY"
+          ]
+        },
+        "inventory_attestation_record_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "migration_owner_decision_record_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "independent_review_record_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "attested_at_utc": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\\.[0-9]{1,6})?Z$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "payload_sha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "NOT_ATTESTED"
+              }
+            },
+            "required": [
+              "state"
+            ]
+          },
+          "then": {
+            "properties": {
+              "inventory_attestation_record_sha256": {
+                "type": "null"
+              },
+              "migration_owner_decision_record_sha256": {
+                "type": "null"
+              },
+              "independent_review_record_sha256": {
+                "type": "null"
+              },
+              "attested_at_utc": {
+                "type": "null"
+              },
+              "payload_sha256": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "state": {
+                "const": "ATTESTED_REVIEW_ONLY"
+              }
+            },
+            "required": [
+              "state"
+            ]
+          },
+          "then": {
+            "properties": {
+              "inventory_attestation_record_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "migration_owner_decision_record_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "independent_review_record_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              },
+              "attested_at_utc": {
+                "type": "string",
+                "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])T([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\\.[0-9]{1,6})?Z$"
+              },
+              "payload_sha256": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

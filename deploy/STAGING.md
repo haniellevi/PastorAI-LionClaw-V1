@@ -125,8 +125,23 @@ automáticos do frontend na Vercel. Essa metadata não prova backend, banco ou
 runtime. Não houve deploy manual ou do backend, acesso aos bancos DEV ou PROD,
 bootstrap, migration, restart ou mudança de flag.
 
-O próximo gate é uma PR offline e versionada de reconciliação histórica humana,
-sem DML e sem inferência. Até ela terminar, não execute `bootstrap-ledger`,
+Sobre a base auditada `cfeba13c0a9d08288f8c956ee2f35ddc1c0c35b7`, existe
+agora uma candidata somente offline de pacote deny-state versionado e
+verificador stdlib separado do runner. O estado é `PACOTE E VERIFICADOR
+CANDIDATOS / SOMENTE OFFLINE / DECISÕES HUMANAS PENDENTES / NÃO APLICADO` e o
+contrato está em
+[`2026-08-28-migration-history-reconciliation-contract.md`](../docs/decisions/2026-08-28-migration-history-reconciliation-contract.md).
+O verificador não usa banco, rede, ambiente, variáveis de ambiente, SQL, DML ou
+escrita, não infere migration aplicada e todo sucesso estrutural conserva
+`OPERATIONAL_AUTHORIZATION=BLOCKED`.
+
+A candidata passou `98/98` testes do verificador e `26/26` testes documentais.
+O runner preservado passou `42/42` testes offline; `45` integrações foram
+puladas por ausência deliberada de banco descartável.
+
+O próximo gate é revisar as evidências focais e os pareceres independentes e,
+se todos permanecerem verdes, integrar a PR. Até um gate nominal posterior,
+não execute `bootstrap-ledger`,
 `harden-ledger`, `status`, `apply`, SQL Editor, `apply_migration`, `db push` ou
 MCP para preencher ou reaplicar histórico em staging ou ambiente compartilhado.
 

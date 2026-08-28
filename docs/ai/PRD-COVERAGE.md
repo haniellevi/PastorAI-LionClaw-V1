@@ -3,7 +3,7 @@ project: igreja12
 document_kind: prd-coverage
 status: canonical-audit
 last_verified: 2026-08-28
-audited_repository_sha: 3a5789c784017ab15a43e28c4270d25af8618359
+audited_repository_sha: cfeba13c0a9d08288f8c956ee2f35ddc1c0c35b7
 canonical_prd: docs/Docs20260611_163530/PRD20260611_163530.md
 ---
 
@@ -35,11 +35,11 @@ significa ativa em produção.
 | Pessoas e responsabilidades | `PARCIAL FORTE` | cadastro, papéis, vínculos, fila e escopos existentes | Fechar responsabilidades temporais, owner operacional e composição por setor |
 | Conexão WhatsApp | `IMPLEMENTADO / GATE OPERACIONAL` | Evolution, conexão por igreja, webhook e filas | Monitorar recibos, reconnect e capacidade antes de cada canário |
 | Conversas e handoff | `IMPLEMENTADO` | histórico, inbox, atribuição, transferência e estado IA/humano | Adicionar memória derivada, exclusão propagada e avaliação de naturalidade |
-| Fundação do agente | `IMPLEMENTADO / PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | LangGraph stateless e contexto confiável D2B1 integrados; D2B2a adiciona persistência e serviço interno sem caller; D2B2b1 é deny-first; D2B2b3A integra rascunhos; a PR #323 integrou `bootstrap-ledger`, ainda sem aplicação em banco compartilhado | Concluir a PR offline de reconciliação histórica humana; aprovações, catálogo, writer, memória, conhecimento, D2 e ambientes compartilhados permanecem posteriores |
+| Fundação do agente | `IMPLEMENTADO / PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / PACOTE E VERIFICADOR CANDIDATOS SOMENTE OFFLINE / DECISÕES HUMANAS PENDENTES / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | LangGraph stateless e contexto confiável D2B1 integrados; D2B2a adiciona persistência e serviço interno sem caller; D2B2b1 é deny-first; D2B2b3A integra rascunhos; a PR #323 integrou `bootstrap-ledger`; esta candidata adiciona apenas contrato deny-state e verificador offline | Concluir testes e revisões da candidata e revisar sua integração; aprovações, catálogo, writer, memória, conhecimento, D2 e ambientes compartilhados permanecem posteriores |
 | Isolamento da memória | `AUSENTE / FUNDAÇÃO D2A INTEGRADA` | Nenhum checkpointer durável instalado; D2A cria somente role, schema, helper e factory privados ainda inativos | Tabelas com `igreja_id`, FORCE RLS, namespace server-side, exclusão e testes adversariais pertencem à D3 |
 | Conhecimento oficial | `AUSENTE` | Não há ingestão aprovada, embeddings ou recuperação institucional | Perfil da igreja, documentos versionados, audiência, RLS e busca híbrida |
 | Dados vivos como ferramentas | `PARCIAL` | Quatro ferramentas limitadas e queries determinísticas | Catálogo por especialista, capacidades e serviços compartilhados com o painel |
-| Consentimento | `PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | Legado e opt-out continuam ativos; D2B2a adiciona ledger append-only sem caller ou aplicação em Supabase; D2B2b1 nega concessões; D2B2b3A prepara rascunhos; o bootstrap vazio foi integrado e testado offline sem backfill ou reconciliação | Produzir a reconciliação histórica humana versionada e ainda manter D2, catálogo, prova, writer, DEV e PROD bloqueados |
+| Consentimento | `PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / PACOTE E VERIFICADOR CANDIDATOS SOMENTE OFFLINE / DECISÕES HUMANAS PENDENTES / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | Legado e opt-out continuam ativos; D2B2a adiciona ledger append-only sem caller ou aplicação em Supabase; D2B2b1 nega concessões; D2B2b3A prepara rascunhos; o bootstrap vazio foi integrado; esta candidata não materializa decisão humana | Concluir testes e revisões da candidata e revisar sua integração, mantendo D2, catálogo, prova, writer, DEV e PROD bloqueados |
 | Propostas e confirmação | `AUSENTE COMO PLATAFORMA` | Confirmações existem apenas em fluxos específicos | Registro durável, expiração, idempotência, revalidação e comprovante |
 | Notificações proativas | `PARCIAL E FRAGMENTADO` | SLA, cron, Agenda, event notify e broadcast têm caminhos próprios | Outbox única, finalidade, quiet hours, retry, recibo e escalonamento |
 | Painel de Hoje | `IMPLEMENTADO / PARCIAL` | dashboard e work queue por responsabilidade | Compor todas as responsabilidades e as lacunas de conhecimento |
@@ -55,7 +55,7 @@ significa ativa em produção.
 | Broadcast | `IMPLEMENTADO / GATE OPERACIONAL` | ledger, worker, retry e dead-letter | Política por finalidade e canário nominal separado |
 | Asaas | `IMPLEMENTADO / GATE OPERACIONAL` | operações duráveis, isolamento e hardening | Inventário e canário financeiro real, sem envolver a igreja em cortesia |
 | Brevo | `IMPLEMENTADO / GATE OPERACIONAL` | serviço e modo de envio fechado | Domínio, remetente, monitoramento e canário próprio |
-| Onboarding da igreja | `PARCIAL / GOVERNANÇA DRAFT-ONLY INTEGRADA E INATIVA` | telas e configurações administrativas existentes; D2B2b3A integra o preparo de rascunhos de consentimento no Console Master | Concluir a reconciliação histórica humana offline e, depois, criar o fluxo nominal de responsáveis e aprovações sem converter preenchimento em autoridade |
+| Onboarding da igreja | `PARCIAL / GOVERNANÇA DRAFT-ONLY INTEGRADA E INATIVA` | telas e configurações administrativas existentes; D2B2b3A integra o preparo de rascunhos de consentimento no Console Master | Concluir testes e revisões da candidata de reconciliação e, em gate posterior, criar o fluxo nominal de responsáveis e aprovações sem converter preenchimento em autoridade |
 | Exclusão e direitos da pessoa | `PARCIAL` | Exclusão de conversa remove conversa, mensagens e mídia | Propagar para transcrição, resumo, checkpoint, vetores e auditoria sem conteúdo |
 | Observabilidade de IA | `PARCIAL` | logs, custo, filas e metadados seguros de falha | Métricas por rota e tenant, SLO, retenção e alerta de workflows presos |
 | Acessibilidade e performance | `NÃO VERIFICADO INTEGRALMENTE` | Automação e estilos cobrem parte dos riscos | Leitor de tela, teclado, zoom, mobile e métricas de campo |
@@ -340,16 +340,26 @@ integrado, mas não aplicado. Não houve deploy manual ou do backend, acesso aos
 bancos DEV ou PROD, bootstrap ou migration compartilhada, restart ou alteração
 de credencial, flag, runtime, agente ou canário.
 
-Implementar e testar somente offline, sem acessar DEV ou PROD, uma PR
-versionada de reconciliação histórica humana. Ela deve definir pacote
-sanitizado e verificador somente leitura, sem DML e sem inferir migrations
-aplicadas, para comparar futuramente o catálogo local com inventários
-autorizados dos ledgers público e nativo. Divergência ou ausência de evidência
-permanece bloqueante; a PR não cria, altera ou preenche ledger e não autoriza
-`bootstrap-ledger`, `harden-ledger`, `status` ou `apply` em ambiente
-compartilhado. Painel do tenant, aprovações, catálogo, writer, migration
-D2B2b3A, flag, D2C, credencial, wiring, deploy, restart, runtime, ativação e
-canário continuam bloqueados.
+Sobre a base auditada `cfeba13c0a9d08288f8c956ee2f35ddc1c0c35b7`, esta
+candidata adiciona somente offline um pacote deny-state versionado e um
+verificador stdlib separado do runner, conforme
+[`2026-08-28-migration-history-reconciliation-contract.md`](../decisions/2026-08-28-migration-history-reconciliation-contract.md).
+O estado é `PACOTE E VERIFICADOR CANDIDATOS / SOMENTE OFFLINE / DECISÕES
+HUMANAS PENDENTES / NÃO APLICADO`. O verificador não acessa banco, rede,
+ambiente ou variáveis de ambiente, não executa SQL, DML ou escrita e não
+infere migration aplicada. Os ledgers nativo e público permanecem independentes
+e todo sucesso estrutural conserva `OPERATIONAL_AUTHORIZATION=BLOCKED`.
+
+A candidata passou `98/98` testes do verificador e `26/26` testes documentais.
+O runner preservado passou `42/42` testes offline; `45` integrações foram
+puladas por ausência deliberada de banco descartável.
+
+Revisar as evidências focais e os pareceres independentes desta candidata e,
+se todos permanecerem verdes, integrar a PR. Esse gate é exclusivamente
+offline e não autoriza ambiente, comando do runner,
+`bootstrap-ledger`, `harden-ledger`, `status` ou `apply`. Painel do tenant,
+aprovações, catálogo, writer, migration D2B2b3A, flag, D2C, credencial, wiring,
+deploy, restart, runtime, ativação e canário continuam bloqueados.
 
 ## Fontes principais
 
