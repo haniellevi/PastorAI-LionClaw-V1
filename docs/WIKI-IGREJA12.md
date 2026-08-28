@@ -1,7 +1,7 @@
 # Wiki do projeto Igreja 12
 
 Snapshot documental de 2026-08-28, baseado no `origin/main`
-`84c5b71b415340868c1b0664e892b8b0350d91f4`, na auditoria D1 e na
+`3d5c1099734f5f7da28fc84c6d6bf42f7b57a876`, na auditoria D1 e na
 reconciliação operacional registrada nesta fase.
 
 ## Leitura de 30 segundos
@@ -44,7 +44,8 @@ qualquer expansão do canário.
 | V1 | `IMPLEMENTADO` | Preservar o encerramento e tratar a visão ampla como nova fase |
 | Agente e Evolution | `PARCIAL / GATE OPERACIONAL` | Corrigir memória, conhecimento e qualidade antes de novo canário |
 | Canário ativo | `PASS TÉCNICO / QUALIDADE INSUFICIENTE` | Avaliação conversacional humana após a nova fundação |
-| LangGraph | `IMPLEMENTADO STATELESS / D2B1 INTEGRADA` | Reconciliar o merge; persistência, consentimento por finalidade e subgrafos permanecem posteriores |
+| LangGraph | `IMPLEMENTADO STATELESS / D2B1 INTEGRADA` | Persistência, memória e subgrafos permanecem posteriores |
+| Consentimento | `PARCIAL / D2B2A CANDIDATA INATIVA` | Validar o ledger; textos, retenção, RBAC e todos os writers permanecem bloqueados |
 | Conhecimento por igreja | `AUSENTE` | Ingestão aprovada, ACL, busca e ferramentas de dados vivos |
 | Relatório por WhatsApp | `PARCIAL` | Confirmar e gravar no relatório canônico |
 | Central de Células | `PARCIAL FORTE` | Operação e notificações principais pelo WhatsApp |
@@ -107,6 +108,11 @@ A exclusão atual da conversa cobre conversa, mensagens e mídia. A nova memóri
 precisará incluir transcrição, resumo, checkpoint e vetores na mesma exclusão
 aprovada. Consentimento também precisa ser separado por atendimento, cuidado
 pastoral, tarefas operacionais e comunicados.
+
+A candidata D2B2a adiciona somente o ledger append-only dessas quatro
+finalidades, ORM, domínio e serviço interno sem caller. O runtime ainda não lê
+ou escreve esse contrato. O consentimento legado não é convertido por backfill,
+e o opt-out global continua prevalecendo.
 
 ## O que está ausente
 
@@ -171,6 +177,8 @@ Conversas -> memória privada, nunca publicação automática
 
 O desenho detalhado está em
 [`2026-08-27-whatsapp-first-tenant-agent-architecture.md`](decisions/2026-08-27-whatsapp-first-tenant-agent-architecture.md).
+O contrato inativo do ledger está em
+[`2026-08-28-d2b2-purpose-consent-ledger.md`](decisions/2026-08-28-d2b2-purpose-consent-ledger.md).
 
 ## Roteiro de conclusão
 
@@ -212,13 +220,28 @@ O merge passou em 2.770 testes offline, com 278 desselecionados, e 278 testes
 RLS, com zero skips. Cinco workflows da PR e cinco pós-merge ficaram verdes. O
 LangGraph continua stateless, sem checkpointer persistente.
 
-A continuação passa a D2B2, consentimentos independentes por finalidade,
-somente depois de integrar esta reconciliação documental. D2C continua
-reservada a propostas duráveis e D3 à memória privada durável. A D2B1 não
+A continuação está na candidata D2B2a, ledger independente por finalidade ainda
+sem caller. Antes da D2C, a D2B2b precisa fechar termos e versões, base jurídica
+e prova, retenção e eliminação, RBAC de leitura e escrita, chave idempotente
+opaca gerada no servidor e callers server-side seguros. D2C continua reservada
+a propostas duráveis e D3 à memória privada durável. A D2B1 não
 adicionou migration, não acessou Supabase, não provisionou credencial, não
 conectou a fronteira privada D2A, worker, fila ou checkpointer, não fez deploy
 manual ou do backend, não promoveu a produção, não ativou o agente e não
 executou canário. O preview automático da PR não prova execução do backend.
+
+Sobre o `origin/main`
+`3d5c1099734f5f7da28fc84c6d6bf42f7b57a876`, a candidata D2B2a cria
+`public.consentimento_finalidade_evento`, ORM, domínio e serviço interno sem
+caller. As quatro finalidades possuem estados `concedido|retirado`, fontes
+`whatsapp_inbound|painel_autenticado`, `versao_termo`, idempotência por tenant
+e sequência por stream protegida no banco. A tabela usa RLS forçada,
+barreira restritiva GUC-only e ACL mínima.
+
+Essa candidata não faz backfill, não expõe API, não conecta painel, WhatsApp,
+worker, tool ou LangGraph e não foi aplicada em Supabase. Textos e base
+jurídica por finalidade, retenção e RBAC ainda bloqueiam todos os writers e
+ambientes compartilhados. Não houve deploy, ativação ou canário.
 
 ### D6, primeira vertical
 
@@ -247,6 +270,8 @@ Brevo ou broadcast.
 - métricas de performance em condições reais;
 - owner operacional, substitutos e escalonamento por setor;
 - critérios jurídicos e operacionais dos quatro consentimentos;
+- D2B2b: textos e versões, base jurídica e prova, retenção e eliminação, RBAC de
+  leitura e escrita, chave idempotente opaca e callers seguros;
 - PRDs próprios para Formação e máquina de estados da Jornada.
 
 ## Fontes de verdade
@@ -267,7 +292,7 @@ canário.
 
 ## Próximo gate único
 
-Revisar e integrar a PR documental de reconciliação pós-merge da D2B1. D2B2 só
-se torna a próxima fatia depois desse fechamento. Migration, Supabase,
-provisioning, conexão da fronteira privada D2A, deploy, ativação e canário
-permanecem fora.
+Revisar e integrar a PR candidata D2B2a somente depois de PostgreSQL
+descartável, suítes aplicáveis e revisões independentes concluírem com `GO`.
+Aplicação em Supabase DEV ou PROD, wiring, deploy, ativação e canário permanecem
+fora.

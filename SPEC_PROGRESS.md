@@ -10,7 +10,7 @@ Os marcadores `[CONCLUIDA]` abaixo preservam a evidencia das sprints que os prod
 Baseline confirmada no codigo:
 
 - o `origin/main` auditado esta em
-  `84c5b71b415340868c1b0664e892b8b0350d91f4`;
+  `3d5c1099734f5f7da28fc84c6d6bf42f7b57a876`;
 - o LangGraph atual e compilado sem checkpointer duravel; configurar `AGENT_GRAPH_CHECKPOINT_URL` apenas produz um aviso e a execucao continua stateless;
 - o runtime resolve tenant, Pessoa, papel autenticado e permissoes no servidor antes das tools existentes;
 - a PR #313 integrou a D2A no `origin/main`
@@ -42,10 +42,36 @@ RLS, com zero skips. Os cinco workflows da PR e os cinco pos-merge ficaram
 verdes. O monitor registrou 62 testes aprovados e tres skips; a validacao Node
 registrou quatro testes aprovados. O LangGraph permanece stateless.
 
-Sequencia corrente: integrar esta reconciliacao documental; depois `D2B2`
-separa consentimentos por finalidade como proxima fatia; `D2C` cria propostas
-duraveis, confirmacao, expiracao e idempotencia; `D3` implementa memoria privada
-duravel e exclusao integral.
+Sobre essa baseline, a D2B2a e uma candidata inativa. Ela adiciona migration,
+ORM, dominio e servico interno sem caller para o ledger append-only
+`public.consentimento_finalidade_evento`. As finalidades sao
+`atendimento_solicitado|cuidado_pastoral|tarefas_operacionais|comunicados`; os
+estados, `concedido|retirado`; e as fontes v1,
+`whatsapp_inbound|painel_autenticado`. No INSERT inicial, usa `versao_termo` e
+exige operador apenas no painel. A exclusao referencial posterior do AppUser
+pode anonimizar o operador via `ON DELETE SET NULL`, preservando o evento. A
+idempotencia e por tenant, e a sequencia por stream e atribuida em trigger sob
+advisory lock transacional.
+
+A tabela candidata forca RLS com barreira restritiva GUC-only e ACL minima.
+Nao ha backfill do legado; opt-out global prevalece. Nao existe API, wiring ou
+caller em WhatsApp, painel, worker, LangGraph, tool ou broadcast. A candidata
+nao foi aplicada em Supabase e nao fez deploy, ativacao ou canario. Textos e
+base juridica por finalidade, retencao e RBAC bloqueiam writers e ambiente
+compartilhado.
+
+Validacao local da candidata: o modulo de contrato, incluindo a aplicacao do
+SQL inalterado duas vezes em `public`, passou em 11 de 11 no PostgreSQL 17 e na
+imagem Supabase PG17, sempre em bancos descartaveis; 288 de 288 testes RLS e 32
+de 32 testes offline D2B2a. A suite offline integral permanece responsabilidade
+obrigatoria do workflow Backend Tests antes do merge.
+
+Sequencia corrente: validar e integrar a candidata `D2B2a`; `D2B2b` fecha
+termos e versoes aprovados, base juridica e prova, retencao e eliminacao, RBAC
+de leitura e escrita, chave idempotente opaca gerada no servidor e callers
+server-side seguros; somente depois `D2C` cria propostas duraveis, confirmacao,
+expiracao e idempotencia; `D3` implementa memoria privada duravel e exclusao
+integral.
 Universidade da Vida e Capacitacao Destino permanecem na visao futura, fora da
 missao atual. A D2A continua inativa: a integracao nao aplicou migration em
 ambiente compartilhado, nao provisionou credencial, nao conectou o runtime, nao
@@ -59,8 +85,10 @@ nao fez deploy manual ou do backend, nao promoveu a producao, nao ativou o
 agente e nao executou canario. O preview automatico da PR nao prova execucao do
 backend.
 
-**Proximo gate unico:** revisar e integrar a PR documental de reconciliacao
-pos-merge da D2B1. D2B2 so se torna a proxima fatia depois desse fechamento.
+**Proximo gate unico:** revisar e integrar a PR candidata D2B2a somente depois
+de PostgreSQL descartavel, suites aplicaveis e revisoes independentes
+concluirem com `GO`. Aplicacao em Supabase DEV ou PROD, wiring, deploy,
+ativacao e canario permanecem fora.
 
 ---
 

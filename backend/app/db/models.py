@@ -15,10 +15,12 @@ import datetime as dt
 import uuid
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     CheckConstraint,
     Date,
     DateTime,
+    FetchedValue,
     ForeignKey,
     ForeignKeyConstraint,
     Index,
@@ -2166,6 +2168,113 @@ class PessoaArquivamentoEvento(Base):
     motivo: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=text("now()")
+    )
+
+
+class ConsentimentoFinalidadeEvento(Base):
+    """Ledger append-only de consentimento independente por finalidade (D2B2a).
+
+    A tabela nova não substitui nem deriva concessão de ``ConsentRecord`` ou de
+    ``Pessoa.consentimento``.  As constraints compostas preservam tenant tanto
+    para a Pessoa quanto para o operador autenticado que registra via painel.
+    """
+
+    __tablename__ = "consentimento_finalidade_evento"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ("igreja_id", "pessoa_id"),
+            ("pessoas.igreja_id", "pessoas.id"),
+            name="consentimento_finalidade_evento_tenant_pessoa_fkey",
+            ondelete="CASCADE",
+        ),
+        ForeignKeyConstraint(
+            ("igreja_id", "registrado_por_app_user_id"),
+            ("app_users.igreja_id", "app_users.id"),
+            name="consentimento_finalidade_evento_tenant_registrado_por_fkey",
+        ),
+        CheckConstraint(
+            "finalidade IN ('atendimento_solicitado', 'cuidado_pastoral', "
+            "'tarefas_operacionais', 'comunicados')",
+            name="consentimento_finalidade_evento_finalidade_check",
+        ),
+        CheckConstraint(
+            "estado IN ('concedido', 'retirado')",
+            name="consentimento_finalidade_evento_estado_check",
+        ),
+        CheckConstraint(
+            "fonte IN ('whatsapp_inbound', 'painel_autenticado')",
+            name="consentimento_finalidade_evento_fonte_check",
+        ),
+        CheckConstraint(
+            "versao_termo = btrim(versao_termo) "
+            "AND char_length(versao_termo) BETWEEN 1 AND 128 "
+            "AND versao_termo !~ '[[:cntrl:]]'",
+            name="consentimento_finalidade_evento_versao_termo_check",
+        ),
+        CheckConstraint(
+            "chave_idempotencia = btrim(chave_idempotencia) "
+            "AND char_length(chave_idempotencia) BETWEEN 1 AND 128 "
+            "AND chave_idempotencia ~ '^[a-z0-9][a-z0-9:._-]{0,127}$'",
+            name="consentimento_finalidade_evento_chave_idempotencia_check",
+        ),
+        UniqueConstraint(
+            "igreja_id",
+            "id",
+            name="consentimento_finalidade_evento_tenant_id_key",
+        ),
+        UniqueConstraint(
+            "igreja_id",
+            "chave_idempotencia",
+            name="consentimento_finalidade_evento_idempotencia_key",
+        ),
+        UniqueConstraint(
+            "igreja_id",
+            "pessoa_id",
+            "finalidade",
+            "sequencia",
+            name="consentimento_finalidade_evento_stream_seq_key",
+        ),
+        Index(
+            "consentimento_finalidade_evento_registrado_por_idx",
+            "registrado_por_app_user_id",
+            "igreja_id",
+            postgresql_where=text("registrado_por_app_user_id IS NOT NULL"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    igreja_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "igrejas.id",
+            name="consentimento_finalidade_evento_igreja_fkey",
+            ondelete="CASCADE",
+        ),
+        nullable=False,
+    )
+    pessoa_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    finalidade: Mapped[str] = mapped_column(Text, nullable=False)
+    estado: Mapped[str] = mapped_column(Text, nullable=False)
+    versao_termo: Mapped[str] = mapped_column(Text, nullable=False)
+    fonte: Mapped[str] = mapped_column(Text, nullable=False)
+    registrado_por_app_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "app_users.id",
+            name="consentimento_finalidade_evento_registrado_por_fkey",
+            ondelete="SET NULL",
+        ),
+        nullable=True,
+    )
+    chave_idempotencia: Mapped[str] = mapped_column(Text, nullable=False)
+    # Preenchida pelo trigger do ledger sob lock transacional do stream.
+    sequencia: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, server_default=FetchedValue()
+    )
+    registrado_em: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("clock_timestamp()"),
     )
 
 
