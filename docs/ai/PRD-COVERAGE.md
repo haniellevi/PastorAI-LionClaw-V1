@@ -3,7 +3,7 @@ project: igreja12
 document_kind: prd-coverage
 status: canonical-audit
 last_verified: 2026-08-27
-audited_repository_sha: 253d23000a2afefa60210081904eb6b7f081acdd
+audited_repository_sha: 01265fc7dfe239e487b5cddb6d9f6714128e3c84
 historical_prd: docs/Docs20260611_163530/PRD20260611_163530.md
 ---
 
@@ -31,12 +31,12 @@ significa ativa em produção.
 
 | Domínio | Estado | Evidência no repositório | Lacuna para a visão aprovada |
 |---|---|---|---|
-| Autenticação, RBAC e tenant | `IMPLEMENTADO / HARDENING EM PR` | auth, deps, roles e RLS; D1A exige tenant transacional no agente e adiciona integridade composta | Integrar D1A, executar preflight vivo antes da migration e revalidar capacidades em cada fase |
+| Autenticação, RBAC e tenant | `IMPLEMENTADO / HARDENING D2A EM PR` | D1A integrada e aplicada em DEV; D2A candidata separa a futura conexão do agente e passou em PostgreSQL 17 descartável | Integrar a PR e só então fazer preflight próprio antes de ambiente compartilhado |
 | Pessoas e responsabilidades | `PARCIAL FORTE` | cadastro, papéis, vínculos, fila e escopos existentes | Fechar responsabilidades temporais, owner operacional e composição por setor |
 | Conexão WhatsApp | `IMPLEMENTADO / GATE OPERACIONAL` | Evolution, conexão por igreja, webhook e filas | Monitorar recibos, reconnect e capacidade antes de cada canário |
 | Conversas e handoff | `IMPLEMENTADO` | histórico, inbox, atribuição, transferência e estado IA/humano | Adicionar memória derivada, exclusão propagada e avaliação de naturalidade |
 | Fundação do agente | `IMPLEMENTADO / PARCIAL` | LangGraph, identidade, consentimento, opt-out, autorização e BYO | Hoje é stateless, usa poucos subfluxos e não conhece a igreja em profundidade |
-| Isolamento da memória | `AUSENTE` | Nenhum checkpointer durável instalado no grafo | Schema privado, namespace server-side, exclusão e testes adversariais |
+| Isolamento da memória | `AUSENTE / FUNDAÇÃO D2A EM PR` | Nenhum checkpointer durável instalado; D2A candidata cria somente role, schema e contexto privados inativos | Tabelas com `igreja_id`, FORCE RLS, namespace server-side, exclusão e testes adversariais pertencem à D3 |
 | Conhecimento oficial | `AUSENTE` | Não há ingestão aprovada, embeddings ou recuperação institucional | Perfil da igreja, documentos versionados, audiência, RLS e busca híbrida |
 | Dados vivos como ferramentas | `PARCIAL` | Quatro ferramentas limitadas e queries determinísticas | Catálogo por especialista, capacidades e serviços compartilhados com o painel |
 | Consentimento | `PARCIAL` | Termo versionado, aceite e opt-out global | Separar atendimento, cuidado pastoral, tarefas e comunicados |
@@ -145,15 +145,18 @@ fechados no PRD próprio antes do schema.
 
 1. `D0`: reconciliar fonte de verdade e arquitetura em documentação. Concluída
    na PR #310.
-2. `D1`: revalidar segurança, capacidades e escopos no SHA atual. Auditoria
-   concluída; hardening D1A aguarda revisão e integração.
-3. `D2`: contexto confiável, grafo pai, consentimentos e propostas.
+2. `D1`: revalidar segurança, capacidades e escopos no SHA atual. Auditoria e
+   hardening concluídos; PR #311 integrada e migration D1A aplicada em DEV.
+3. `D2`: contexto confiável, grafo pai, consentimentos e propostas. A primeira
+   fatia D2A cria a fronteira privada inativa, sem conectar worker ou LangGraph.
 4. `D3`: memória durável, privacidade e exclusão integral.
 5. `D4`: conhecimento oficial e onboarding guiado.
 6. `D5`: outbox e plataforma de notificações.
 7. `D6`: relatório de célula completo pelo WhatsApp.
 8. `D7`: Central, Agenda e Consolidação no WhatsApp.
-9. `D8`: Universidade da Vida, Encontro, batismo, CD e Enviar.
+9. `D8`: Enviar e demais partes com contrato aprovado. Universidade da Vida e
+   Capacitação Destino estão excluídas da missão atual e não serão inferidas a
+   partir de placeholders; itens que dependam desses módulos permanecem fora.
 10. `D9`: canários externos e operação comercial ampla, cada um em missão
     independente.
 
@@ -164,7 +167,7 @@ fechados no PRD próprio antes do schema.
 | V1 funcional | Já encerrada como piloto controlado |
 | Fundação inteligente | Memória, conhecimento, consentimento, ação confirmada e outbox isolados por tenant |
 | Primeira vertical | Relatório de célula completo e idempotente pelo WhatsApp |
-| Produto pastoral amplo | Central, Agenda, Consolidação, UV, CD e Enviar operáveis com WhatsApp principal |
+| Produto pastoral amplo nesta missão | Central, Agenda, Consolidação e Enviar operáveis com WhatsApp principal; UV e CD permanecem em marco futuro separado |
 | Operação comercial | Integrações selecionadas com consentimento, observabilidade, suporte, canários e gates aprovados |
 
 O projeto só pode ser chamado de integralmente concluído após o último marco. A
@@ -173,8 +176,9 @@ expansão de escopo.
 
 ## Próximo gate
 
-Revisar e integrar a PR D1A. Migration em ambiente compartilhado, D2, deploy,
-ativação e canário permanecem fora deste gate.
+Revisar e integrar a PR D2A somente depois dos testes PostgreSQL e das revisões
+independentes. Aplicar D2A em ambiente compartilhado, provisionar a role,
+conectar o runtime, fazer deploy, ativar ou executar canário permanecem fora.
 
 ## Fontes principais
 

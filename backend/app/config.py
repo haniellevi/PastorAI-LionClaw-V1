@@ -101,6 +101,11 @@ class Settings(BaseSettings):
     supabase_anon_key: str = Field(default="")
     supabase_service_role_key: str = Field(default="")
     database_url: str = Field(default="")
+    # Dedicated, least-privilege database login used only by the agent runtime.
+    # It is intentionally optional until the D2A operational gate provisions the
+    # credential.  Runtime code must fail closed when it is absent and must never
+    # fall back to DATABASE_URL.
+    agent_runtime_database_url: str = Field(default="")
 
     # ---- Secrets encryption (RNF-03) ----------------------------------------
     secrets_encryption_key: str = Field(default="")
@@ -351,7 +356,7 @@ class Settings(BaseSettings):
             return self.session_jwt_secret
         return self.session_jwt_secret or self.clerk_secret_key
 
-    @field_validator("database_url")
+    @field_validator("database_url", "agent_runtime_database_url")
     @classmethod
     def _validate_database_url(cls, value: str) -> str:
         # SQLAlchemy expects the psycopg2 driver scheme explicitly.

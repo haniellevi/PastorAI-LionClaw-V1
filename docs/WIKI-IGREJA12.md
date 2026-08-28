@@ -1,7 +1,7 @@
 # Wiki do projeto Igreja 12
 
 Snapshot documental de 2026-08-27, baseado no `origin/main`
-`253d23000a2afefa60210081904eb6b7f081acdd`, na auditoria D1 e na
+`01265fc7dfe239e487b5cddb6d9f6714128e3c84`, na auditoria D1 e na
 reconciliação operacional registrada nesta fase.
 
 ## Leitura de 30 segundos
@@ -183,14 +183,17 @@ arquitetura e registro do canário. Fase concluída na PR #310.
 
 Revalidar capacidades, papéis, responsabilidades e endpoints sensíveis no SHA
 atual. A auditoria confirmou quatro gaps de tenant, integridade e cobertura do
-CI. A correção D1A está nesta PR; a migration foi executada somente em
-PostgreSQL descartável e não foi aplicada em ambiente compartilhado.
+CI. A correção D1A foi integrada pela PR #311 e a migration foi aplicada em
+DEV depois de preflight próprio. Produção não foi alterada.
 
 ### D2 a D5, fundação
 
 Construir contexto confiável, consentimentos por finalidade, propostas de
 ação, memória durável, exclusão integral, conhecimento oficial, onboarding e
-outbox unificada.
+outbox unificada. A D2A inicia somente a fronteira privada inativa: role sem
+login, schema privado, helper de tenant e factory exclusiva ainda desconectada
+do worker e do LangGraph. A candidata passou em 278 testes RLS no PostgreSQL 17
+descartável e em 2.688 testes offline; isso não prova ambiente compartilhado.
 
 ### D6, primeira vertical
 
@@ -200,8 +203,9 @@ comprovante após commit.
 
 ### D7 e D8, produto pastoral amplo
 
-Levar Central, Agenda e Consolidação ao WhatsApp. Depois, aprovar PRDs e
-implementar UV, Encontro, batismo, CD e Enviar.
+Levar Central, Agenda, Consolidação e os fluxos de Enviar com contrato aprovado
+ao WhatsApp. Universidade da Vida e Capacitação Destino estão excluídas da
+missão atual; dependências que exijam esses módulos não serão improvisadas.
 
 ### D9, operação comercial
 
@@ -238,5 +242,6 @@ canário.
 
 ## Próximo gate
 
-Revisar e integrar a PR D1A. Aplicação da migration, D2, deploy, ativação e
-canário exigem novos gates depois do merge.
+Revisar e integrar a PR D2A depois dos testes PostgreSQL e das revisões
+independentes. Ambiente compartilhado, provisioning, conexão do runtime,
+deploy, ativação e canário exigem gates próprios depois do merge.

@@ -11,6 +11,9 @@ Baseline confirmada no codigo:
 
 - o LangGraph atual e compilado sem checkpointer duravel; configurar `AGENT_GRAPH_CHECKPOINT_URL` apenas produz um aviso e a execucao continua stateless;
 - o runtime resolve tenant, Pessoa, papel autenticado e permissoes no servidor antes das tools existentes;
+- a candidata D2A adiciona somente uma fronteira PostgreSQL privada e inativa,
+  com `agent_runtime` sem login, helper de tenant e factory exclusiva ainda
+  desconectada do worker e do LangGraph;
 - `report_capture` extrai um resumo e registra evento de auditoria, mas nao persiste o relatorio canonico de `celula_reuniao`;
 - OpenAI BYO e o provedor do PastorAI; OpenRouter nao faz parte do produto.
 

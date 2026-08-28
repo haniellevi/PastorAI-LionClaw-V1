@@ -25,7 +25,7 @@ gates de produção.
   `BROADCAST_ASYNC_ENABLED=false`. Este é um relato operacional, não uma
   leitura atual de produção feita por esta atualização documental;
 - fonte de verdade do código: `origin/main` em
-  `ad4a27259127506493b69b348a6729e145f5c78b`. Merge em `main` não comprova
+  `01265fc7dfe239e487b5cddb6d9f6714128e3c84`. Merge em `main` não comprova
   deploy, por isso o estado versionado e o estado operacional são registrados
   separadamente.
 
@@ -474,13 +474,33 @@ confirmou quatro gaps antes da expansão do agente: tenant opcional em um caminh
 do runtime, instância Evolution sem unicidade global, relações críticas sem FK
 composta por igreja e CI RLS baseado em allowlist.
 
-A branch D1A corrige os quatro pontos, inclui testes adversariais e uma
-migration aditiva e transacional. A migration foi exercitada somente em
-PostgreSQL 17 descartável. Não houve acesso ao Supabase nem aplicação em
-ambiente compartilhado, deploy, mudança de flag, ativação ou envio.
+A PR #311 integrou a D1A no `origin/main`
+`01265fc7dfe239e487b5cddb6d9f6714128e3c84`. A migration foi aplicada somente
+no Supabase DEV `cxmjojnocigekgcxhubi`, seguida de post-check de constraints,
+índices e advisors. Produção, VPS, flags, agente e envios não foram alterados.
 
-**Próximo gate único:** revisar e integrar a PR D1A. Aplicação da migration, D2,
-deploy, ativação e novo canário permanecem fora deste gate.
+### D2A, fronteira privada inativa do agente (2026-08-27)
+
+A primeira fatia D2 é deliberadamente inativa. A candidata cria uma role
+`agent_runtime` sem login, um schema privado e um helper de tenant por GUC,
+além de uma factory exclusiva sem fallback para a conexão privilegiada. Worker,
+LangGraph e checkpointer continuam desconectados dessa factory.
+
+A candidata passou em PostgreSQL 17 descartável com 278 testes RLS e na suíte
+offline com 2.688 testes. O módulo D2A passou em 11/11 casos, dez RLS e um
+contrato estático. Essas evidências validam o SHA candidato local; não provam
+aplicação em Supabase, provisionamento ou execução do runtime em ambiente
+compartilhado.
+
+Esta fatia não cria memória, tabelas de checkpoint, consentimentos por
+finalidade, propostas, ferramentas ou especialistas. Também não provisiona
+senha, não aplica migration em Supabase, não faz deploy e não ativa o agente.
+Universidade da Vida e Capacitação Destino ficam fora da missão atual.
+
+**Próximo gate único:** revisar e integrar a PR D2A somente após PostgreSQL 17
+descartável, suítes offline e duas revisões independentes verdes. Aplicação em
+ambiente compartilhado, provisioning, conexão, deploy, ativação e canário
+permanecem fora deste gate.
 
 ## Paralelismo seguro
 
