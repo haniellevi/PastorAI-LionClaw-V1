@@ -3,7 +3,7 @@ project: igreja12
 document_kind: prd-coverage
 status: canonical-audit
 last_verified: 2026-08-28
-audited_repository_sha: 84c5b71b415340868c1b0664e892b8b0350d91f4
+audited_repository_sha: 3d5c1099734f5f7da28fc84c6d6bf42f7b57a876
 canonical_prd: docs/Docs20260611_163530/PRD20260611_163530.md
 ---
 
@@ -35,11 +35,11 @@ significa ativa em produção.
 | Pessoas e responsabilidades | `PARCIAL FORTE` | cadastro, papéis, vínculos, fila e escopos existentes | Fechar responsabilidades temporais, owner operacional e composição por setor |
 | Conexão WhatsApp | `IMPLEMENTADO / GATE OPERACIONAL` | Evolution, conexão por igreja, webhook e filas | Monitorar recibos, reconnect e capacidade antes de cada canário |
 | Conversas e handoff | `IMPLEMENTADO` | histórico, inbox, atribuição, transferência e estado IA/humano | Adicionar memória derivada, exclusão propagada e avaliação de naturalidade |
-| Fundação do agente | `IMPLEMENTADO / PARCIAL / D2B1 INTEGRADA` | LangGraph stateless, identidade, consentimento legado, opt-out, autorização e BYO; a PR #315 integrou o contexto confiável separado do estado mutável | Reconciliar o merge; depois tratar consentimento por finalidade em D2B2, sem antecipar memória, conhecimento ou subfluxos de produto |
+| Fundação do agente | `IMPLEMENTADO / PARCIAL / D2B2A CANDIDATA INATIVA` | LangGraph stateless e contexto confiável D2B1 integrados; a candidata D2B2a adiciona somente persistência e serviço interno de consentimento, sem caller | Validar e integrar a candidata; writers, memória, conhecimento e subfluxos permanecem posteriores |
 | Isolamento da memória | `AUSENTE / FUNDAÇÃO D2A INTEGRADA` | Nenhum checkpointer durável instalado; D2A cria somente role, schema, helper e factory privados ainda inativos | Tabelas com `igreja_id`, FORCE RLS, namespace server-side, exclusão e testes adversariais pertencem à D3 |
 | Conhecimento oficial | `AUSENTE` | Não há ingestão aprovada, embeddings ou recuperação institucional | Perfil da igreja, documentos versionados, audiência, RLS e busca híbrida |
 | Dados vivos como ferramentas | `PARCIAL` | Quatro ferramentas limitadas e queries determinísticas | Catálogo por especialista, capacidades e serviços compartilhados com o painel |
-| Consentimento | `PARCIAL` | Termo versionado, aceite e opt-out global | Separar atendimento, cuidado pastoral, tarefas e comunicados |
+| Consentimento | `PARCIAL / D2B2A CANDIDATA INATIVA` | Legado e opt-out continuam ativos; a candidata adiciona ledger append-only para quatro finalidades, sem backfill, API ou wiring | Fechar textos, base jurídica, retenção e RBAC antes de conectar qualquer writer ou ambiente compartilhado |
 | Propostas e confirmação | `AUSENTE COMO PLATAFORMA` | Confirmações existem apenas em fluxos específicos | Registro durável, expiração, idempotência, revalidação e comprovante |
 | Notificações proativas | `PARCIAL E FRAGMENTADO` | SLA, cron, Agenda, event notify e broadcast têm caminhos próprios | Outbox única, finalidade, quiet hours, retry, recibo e escalonamento |
 | Painel de Hoje | `IMPLEMENTADO / PARCIAL` | dashboard e work queue por responsabilidade | Compor todas as responsabilidades e as lacunas de conhecimento |
@@ -83,7 +83,8 @@ significa ativa em produção.
 - o relatório é analisado e registrado como evento, mas não grava
   `celula_reuniao`;
 - mensagens de áudio são armazenadas e exibidas, sem transcrição encontrada;
-- consentimento é geral, não separado por finalidade;
+- o runtime continua usando consentimento geral; o ledger por finalidade existe
+  apenas na candidata D2B2a e não possui caller;
 - serviços de notificação existem, mas não compartilham uma outbox geral.
 
 ### Ausente
@@ -112,6 +113,25 @@ RLS, com zero skips. Cinco workflows da PR e cinco pós-merge concluíram verdes
 Essa evidência promove D2B1 somente a integrada no código; não prova aplicação,
 provisioning, wiring privado, deploy ou ativação e não altera as classificações
 de consentimento, memória, conhecimento ou propostas.
+
+### D2B2a candidata inativa
+
+Sobre o `origin/main`
+`3d5c1099734f5f7da28fc84c6d6bf42f7b57a876`, a candidata D2B2a adiciona a
+migration de `public.consentimento_finalidade_evento`, ORM, tipos de domínio e
+serviço interno sem caller. O contrato separa
+`atendimento_solicitado|cuidado_pastoral|tarefas_operacionais|comunicados`,
+com estados `concedido|retirado`, fontes
+`whatsapp_inbound|painel_autenticado`, `versao_termo` e, no INSERT inicial,
+operador obrigatório somente para o painel. A exclusão referencial posterior
+do AppUser pode anonimizar o operador via `ON DELETE SET NULL`, preservando o
+evento. A idempotência é por tenant, e a sequência concorrente fica no banco.
+
+A tabela candidata usa RLS habilitada e forçada, barreira restritiva GUC-only e
+ACL mínima. Não há backfill do legado, e o opt-out global continua
+prevalecendo. Nenhum caller, API, wiring, Supabase, deploy, ativação ou canário
+integra esta fatia. Textos, base jurídica, retenção e RBAC por finalidade ainda
+bloqueiam writers e qualquer ambiente compartilhado.
 
 ## Canário ativo reconciliado
 
@@ -165,11 +185,12 @@ fechados no PRD próprio antes do schema.
    hardening concluídos; PR #311 integrada e migration D1A aplicada em DEV.
 3. `D2`: a D2A já está integrada como fronteira privada inativa, sem conectar
    worker ou LangGraph. A D2B1 está integrada no código, com contexto confiável
-   v1 separado do estado mutável e LangGraph ainda stateless. D2B2,
-   consentimentos independentes por finalidade, torna-se a próxima fatia
-   somente após integrar esta reconciliação documental; D2C continua
-   reservada a propostas duráveis, confirmação, expiração, idempotência e
-   revalidação.
+   v1 separado do estado mutável e LangGraph ainda stateless. D2B2a é a
+   candidata inativa do ledger por finalidade, ainda sem caller. D2B2b fecha
+   termos e versões, base jurídica e prova, retenção e eliminação, RBAC de
+   leitura e escrita, chave idempotente opaca gerada no servidor e callers
+   seguros. Somente depois D2C cria propostas duráveis, confirmação, expiração,
+   idempotência e revalidação.
 4. `D3`: memória durável, privacidade e exclusão integral.
 5. `D4`: conhecimento oficial e onboarding guiado.
 6. `D5`: outbox e plataforma de notificações.
@@ -197,16 +218,17 @@ expansão de escopo.
 
 ## Próximo gate único
 
-Revisar e integrar a PR documental de reconciliação pós-merge da D2B1. D2B2 só
-se torna a próxima fatia depois desse fechamento. Migration, Supabase,
-provisioning, conexão da fronteira privada D2A, deploy, ativação e canário
-permanecem fora deste gate.
+Revisar e integrar a PR candidata D2B2a somente depois de PostgreSQL
+descartável, suítes aplicáveis e revisões independentes concluírem com `GO`.
+Aplicação em Supabase DEV ou PROD, wiring, deploy, ativação e canário permanecem
+fora deste gate.
 
 ## Fontes principais
 
 - `docs/Docs20260611_163530/PRD20260611_163530.md`
 - `docs/decisions/2026-08-25-evolution-agent-foundation.md`
 - `docs/decisions/2026-08-27-whatsapp-first-tenant-agent-architecture.md`
+- `docs/decisions/2026-08-28-d2b2-purpose-consent-ledger.md`
 - `docs/audits/2026-08-27-d1-security-scope-audit.md`
 - `docs/ops/POST-V1-MISSION-REGISTER.md`
 - `docs/ops/EVOLUTION-AGENT-CANARY-RUNBOOK.md`

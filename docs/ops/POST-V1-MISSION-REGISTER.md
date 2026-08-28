@@ -1,8 +1,8 @@
 # PastorAI / Igreja 12: registro central de missões pós-V1
 
-Atualizado em 2026-08-28 (America/Sao_Paulo) após o merge da PR #315 e a
-reconciliação da D2B1. A V1 permanece `V1_ENCERRADA`, mas a visão integral
-WhatsApp-first ainda não está concluída. Este documento não altera a tag
+Atualizado em 2026-08-28 (America/Sao_Paulo) com a candidata inativa D2B2a
+sobre a baseline reconciliada. A V1 permanece `V1_ENCERRADA`, mas a visão
+integral WhatsApp-first ainda não está concluída. Este documento não altera a tag
 `v1.0.0`, não autoriza novo canário, rollout amplo ou abertura de gates de
 produção.
 
@@ -25,7 +25,7 @@ produção.
   `BROADCAST_ASYNC_ENABLED=false`. Este é um relato operacional, não uma
   leitura atual de produção feita por esta atualização documental;
 - fonte de verdade do código: `origin/main` em
-  `84c5b71b415340868c1b0664e892b8b0350d91f4`. Merge em `main` não comprova
+  `3d5c1099734f5f7da28fc84c6d6bf42f7b57a876`. Merge em `main` não comprova
   deploy, por isso o estado versionado e o estado operacional são registrados
   separadamente.
 
@@ -545,12 +545,62 @@ não fez deploy manual ou do backend, não promoveu a produção, não ativou o
 agente e não executou canário. O preview automático da PR não prova execução do
 backend. O LangGraph continua stateless e a D2A permanece inativa.
 
-D2B2, consentimentos por finalidade, só se torna a próxima fatia depois da
-integração desta reconciliação documental.
+A PR #316 integrou a reconciliação documental pós-merge da D2B1 no
+`origin/main` `3d5c1099734f5f7da28fc84c6d6bf42f7b57a876`. Essa integração
+não mudou banco, runtime ou ambiente operacional.
 
-**Próximo gate único:** revisar e integrar a PR documental de reconciliação
-pós-merge da D2B1. Migration, Supabase, provisioning, conexão da fronteira
-privada D2A, deploy, ativação e canário permanecem fora deste gate.
+### D2B2a, candidata inativa do ledger de consentimento por finalidade (2026-08-28)
+
+Sobre a baseline
+`3d5c1099734f5f7da28fc84c6d6bf42f7b57a876`, a candidata D2B2a adiciona
+migration, ORM, tipos de domínio e serviço interno sem caller para
+`public.consentimento_finalidade_evento`.
+
+O contrato separa `atendimento_solicitado`, `cuidado_pastoral`,
+`tarefas_operacionais` e `comunicados`. Cada evento possui estado
+`concedido|retirado`, `versao_termo`, fonte
+`whatsapp_inbound|painel_autenticado`, `chave_idempotencia`, `sequencia` e
+instante do servidor. No INSERT inicial, `registrado_por_app_user_id` é
+obrigatório somente para o painel autenticado e deve ser nulo no WhatsApp. A
+exclusão referencial posterior do AppUser pode anonimizar o operador via
+`ON DELETE SET NULL`, preservando o evento.
+
+O ledger é append-only. A idempotência é isolada por tenant; a sequência é
+atribuída por stream em trigger sob advisory lock transacional. A tabela
+habilita e força RLS, usa barreira restritiva dependente somente do GUC
+`app.tenant_igreja_id` e aplica ACL mínima. O registro não contém texto de
+mensagem, telefone ou payload pastoral.
+
+Não existe backfill: `consent_records` e `pessoas.consentimento` permanecem
+legados e não concedem por inferência as novas finalidades. O opt-out global
+continua prevalecendo. Termo desatualizado exige novo aceite.
+
+A candidata não expõe API, router ou tela e não conecta webhook, WhatsApp,
+painel, worker, LangGraph, tool, broadcast ou outro caller. Ela não foi aplicada
+em Supabase DEV ou PROD, não fez deploy, não ativou o agente e não executou
+canário. Universidade da Vida e Capacitação Destino permanecem fora.
+
+Textos e base jurídica por finalidade, retenção e RBAC dos futuros writers
+continuam abertos. Esses contratos bloqueiam qualquer caller e qualquer
+ambiente compartilhado, mesmo que a validação técnica da candidata fique verde.
+
+O módulo de contrato, incluindo a aplicação do SQL inalterado duas vezes em
+`public`, passou em 11 de 11 no PostgreSQL 17 e na imagem Supabase PG17. A suíte
+RLS completa passou em 288 de 288, sem falhas ou skips, e os testes offline
+D2B2a passaram em 32 de 32. A suíte offline integral continua como gate
+obrigatório do workflow Backend Tests antes do merge. Essas provas não acessaram
+nem alteraram Supabase DEV ou PROD.
+
+Depois da integração da D2B2a, a próxima fatia de produto é obrigatoriamente a
+D2B2b, antes da D2C. Ela deve fechar termos e versões aprovados, base jurídica e
+prova, retenção e eliminação, RBAC de leitura e escrita e callers server-side
+seguros. A chave idempotente dos callers será opaca e gerada no servidor, sem
+telefone, conteúdo de mensagem ou identificador pastoral.
+
+**Próximo gate único:** revisar e integrar a PR candidata D2B2a somente depois
+de PostgreSQL descartável, suítes aplicáveis e revisões independentes
+concluírem com `GO`. Aplicação em Supabase DEV ou PROD, wiring, deploy,
+ativação e canário permanecem fora deste gate.
 
 ## Paralelismo seguro
 
