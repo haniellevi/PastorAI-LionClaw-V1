@@ -15,8 +15,16 @@ behaviour deterministic and unit-testable without a database or an LLM.
 
 from __future__ import annotations
 
-from typing import Any, TypedDict
+import operator
+from typing import Annotated, Any, TypedDict
 
+from langgraph.runtime import Runtime
+
+from app.agent.context import (
+    TrustedAgentContext,
+    context_from_runtime,
+    validate_agent_node_state,
+)
 from app.domain import consent as consent_rules
 from app.domain.classification import classify_contact
 from app.domain.report import looks_like_report, parse_cell_report
@@ -45,38 +53,23 @@ ONBOARDING_FIELDS: tuple[str, ...] = (
 class PessoaSnapshot(TypedDict, total=False):
     """Minimal person view the agent reasons over (no ORM dependency)."""
 
-    id: str
     nome: str
-    telefone: str
-    tipo: str
-    etapa: str
     subetapa: str
     origem: str
     has_endereco: bool
     primeiro_contato_set: bool
-    sem_interesse: bool
 
 
 class AgentState(TypedDict, total=False):
-    """LangGraph state passed between the supervisor and sub-agents."""
+    """Mutable LangGraph state, deliberately free of authority/context."""
 
-    igreja_id: str
-    igreja_nome: str
-    conversation_id: str
-    pessoa_id: str
     texto: str
-    estado: str
     pessoa: PessoaSnapshot
-    # Privilégio do interlocutor resolvido no servidor (#10b Fase 2): habilita
-    # ações ministeriais (relatório/decisão). Um contato comum é False.
-    is_ministerial: bool
-    term_accepted_version: str | None
-    term_current_version: str
     # Outputs produced along the graph:
     route: str
     response: str | None
-    events: list[dict[str, Any]]
-    tool_calls: list[dict[str, Any]]
+    events: Annotated[list[dict[str, Any]], operator.add]
+    tool_calls: Annotated[list[dict[str, Any]], operator.add]
     apply_optout: bool
     apply_consent_version: str | None
     intake_update: dict[str, Any]
@@ -85,7 +78,16 @@ class AgentState(TypedDict, total=False):
 # ---------------------------------------------------------------------------
 # Orchestrator (supervisor / entry node)
 # ---------------------------------------------------------------------------
-def route_intent(state: AgentState) -> str:
+def _trusted(
+    state: AgentState, runtime: Runtime[TrustedAgentContext]
+) -> TrustedAgentContext:
+    validate_agent_node_state(state)
+    return context_from_runtime(runtime)
+
+
+def route_intent(
+    state: AgentState, runtime: Runtime[TrustedAgentContext]
+) -> str:
     """Decide which sub-agent handles this turn (pure routing).
 
     Priority:
@@ -96,7 +98,8 @@ def route_intent(state: AgentState) -> str:
       4. report    — a MINISTERIAL interlocutor sent a cell report (US-24).
       5. onboarding— default configurable data-collection / classification.
     """
-    if state.get("estado") == ESTADO_HUMANO:
+    context = _trusted(state, runtime)
+    if context.conversation_state == ESTADO_HUMANO:
         return ROUTE_HANDOFF
 
     texto = state.get("texto") or ""
@@ -104,8 +107,8 @@ def route_intent(state: AgentState) -> str:
         return ROUTE_OPTOUT
 
     needs_term = consent_rules.needs_reaccept(
-        state.get("term_accepted_version"),
-        state.get("term_current_version", "v1"),
+        context.legacy_term.accepted_version,
+        context.legacy_term.current_version,
     )
 
     # An explicit acceptance is handled by the consent sub-agent.
@@ -117,7 +120,7 @@ def route_intent(state: AgentState) -> str:
     # "looks like" a report falls through to onboarding (no false confirmation,
     # no self-registered decision). Defense-in-depth: the tool executor also
     # gates the call.
-    if state.get("is_ministerial") and looks_like_report(texto):
+    if context.privilege.is_ministerial and looks_like_report(texto):
         return ROUTE_REPORT
 
     # Collecting onboarding data beyond the baseline requires the term first.
@@ -127,24 +130,28 @@ def route_intent(state: AgentState) -> str:
     return ROUTE_ONBOARDING
 
 
-def orchestrator_node(state: AgentState) -> AgentState:
+def orchestrator_node(
+    state: AgentState, runtime: Runtime[TrustedAgentContext]
+) -> AgentState:
     """Supervisor entry node: run intake then pick the route."""
-    updates = intake_node(state)
-    merged: AgentState = {**state, **updates}
-    merged["route"] = route_intent(merged)
-    return merged
+    _trusted(state, runtime)
+    updates = intake_node(state, runtime)
+    return {**updates, "route": route_intent(state, runtime)}
 
 
 # ---------------------------------------------------------------------------
 # Sub-agents (never reply directly; return partial updates to the supervisor)
 # ---------------------------------------------------------------------------
-def intake_node(state: AgentState) -> AgentState:
+def intake_node(
+    state: AgentState, runtime: Runtime[TrustedAgentContext]
+) -> AgentState:
     """intake (US-09/RF-12): ensure pessoa basics (origem, primeiro_contato).
 
     The person row already exists (created at ingestion). Here we record an
     `intake_update` describing fields the runtime should backfill — origem
     defaults to 'whatsapp' and primeiro_contato is set on first contact.
     """
+    _trusted(state, runtime)
     pessoa = state.get("pessoa", {})
     update: dict[str, Any] = {}
     if not pessoa.get("origem"):
@@ -154,13 +161,15 @@ def intake_node(state: AgentState) -> AgentState:
     events = [
         {
             "evento": "intake",
-            "payload": {"pessoaId": state.get("pessoa_id"), "update": update},
+            "payload": {"update": update},
         }
     ]
     return {"intake_update": update, "events": events}
 
 
-def consent_node(state: AgentState) -> AgentState:
+def consent_node(
+    state: AgentState, runtime: Runtime[TrustedAgentContext]
+) -> AgentState:
     """consent (delta-040): present the term, or record its acceptance.
 
     - On an affirmative reply to a pending term: flag the runtime to write a
@@ -169,12 +178,13 @@ def consent_node(state: AgentState) -> AgentState:
     - Otherwise: present the current term and collect nothing further until it
       is accepted.
     """
+    context = _trusted(state, runtime)
     texto = state.get("texto") or ""
-    current = state.get("term_current_version", "v1")
-    igreja_nome = state.get("igreja_nome")
+    current = context.legacy_term.current_version
+    igreja_nome = context.igreja_nome
 
     if consent_rules.needs_reaccept(
-        state.get("term_accepted_version"), current
+        context.legacy_term.accepted_version, current
     ) and consent_rules.is_acceptance(texto):
         return {
             "route": ROUTE_CONSENT,
@@ -187,7 +197,6 @@ def consent_node(state: AgentState) -> AgentState:
                 {
                     "evento": "consent_accepted",
                     "payload": {
-                        "pessoaId": state.get("pessoa_id"),
                         "termoVersao": current,
                     },
                 }
@@ -201,7 +210,6 @@ def consent_node(state: AgentState) -> AgentState:
             {
                 "evento": "consent_presented",
                 "payload": {
-                    "pessoaId": state.get("pessoa_id"),
                     "termoVersao": current,
                 },
             }
@@ -209,8 +217,11 @@ def consent_node(state: AgentState) -> AgentState:
     }
 
 
-def optout_node(state: AgentState) -> AgentState:
+def optout_node(
+    state: AgentState, runtime: Runtime[TrustedAgentContext]
+) -> AgentState:
     """optout (US-32/RNF-06): flag the runtime to set pessoas.optout=true."""
+    _trusted(state, runtime)
     return {
         "route": ROUTE_OPTOUT,
         "apply_optout": True,
@@ -218,31 +229,29 @@ def optout_node(state: AgentState) -> AgentState:
             "Tudo certo. Você não receberá mais comunicados. "
             "Se mudar de ideia, é só nos enviar uma mensagem."
         ),
-        "events": [
-            {"evento": "optout", "payload": {"pessoaId": state.get("pessoa_id")}}
-        ],
+        "events": [{"evento": "optout", "payload": {}}],
     }
 
 
-def handoff_node(state: AgentState) -> AgentState:
+def handoff_node(
+    state: AgentState, runtime: Runtime[TrustedAgentContext]
+) -> AgentState:
     """handoff (US-12/13): a human owns the chat — suspend the auto reply.
 
     The orchestrator emits NO automatic message (response=None); output still
     flows exclusively through the official number when the human replies.
     """
+    _trusted(state, runtime)
     return {
         "route": ROUTE_HANDOFF,
         "response": None,
-        "events": [
-            {
-                "evento": "handoff_suspended",
-                "payload": {"conversationId": state.get("conversation_id")},
-            }
-        ],
+        "events": [{"evento": "handoff_suspended", "payload": {}}],
     }
 
 
-def report_capture_node(state: AgentState) -> AgentState:
+def report_capture_node(
+    state: AgentState, runtime: Runtime[TrustedAgentContext]
+) -> AgentState:
     """report_capture (US-24/delta-041): parse an aggregate cell report.
 
     Aggregate decision counts do not identify the people who made each
@@ -250,6 +259,7 @@ def report_capture_node(state: AgentState) -> AgentState:
     data, so this node records only the summary event and asks for human
     confirmation of individual decisions.
     """
+    _trusted(state, runtime)
     texto = state.get("texto") or ""
     report = parse_cell_report(texto)
 
@@ -296,7 +306,9 @@ def first_name_for_greeting(nome: str | None) -> str | None:
     return first
 
 
-def onboarding_node(state: AgentState) -> AgentState:
+def onboarding_node(
+    state: AgentState, runtime: Runtime[TrustedAgentContext]
+) -> AgentState:
     """onboarding (US-10/RF-13/#1): flag CSIM, then drive the turn.
 
     Reached only after consent is in place. Detects CSIM (a contact with no
@@ -306,6 +318,7 @@ def onboarding_node(state: AgentState) -> AgentState:
     real event (leader cadastro, consolidation handoff, church check-in), never
     from a self-declared "I went to church" in chat.
     """
+    _trusted(state, runtime)
     pessoa = state.get("pessoa", {})
     texto = state.get("texto") or ""
     cls = classify_contact(texto)
@@ -343,7 +356,6 @@ def onboarding_node(state: AgentState) -> AgentState:
             {
                 "evento": "onboarding",
                 "payload": {
-                    "pessoaId": state.get("pessoa_id"),
                     "classificacao": classificacao,
                 },
             }

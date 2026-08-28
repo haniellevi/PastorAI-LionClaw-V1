@@ -1,10 +1,10 @@
 # PastorAI / Igreja 12: registro central de missões pós-V1
 
-Atualizado em 2026-08-27 (America/Sao_Paulo) após a reconciliação do primeiro
-canário ativo controlado da Filadélfia. A V1 permanece `V1_ENCERRADA`, mas a
-visão integral WhatsApp-first ainda não está concluída. Este documento não
-altera a tag `v1.0.0`, não autoriza novo canário, rollout amplo ou abertura de
-gates de produção.
+Atualizado em 2026-08-28 (America/Sao_Paulo) com a evidência offline da
+candidata D2B1. A V1 permanece `V1_ENCERRADA`, mas a visão integral
+WhatsApp-first ainda não está concluída. Este documento não altera a tag
+`v1.0.0`, não autoriza novo canário, rollout amplo ou abertura de gates de
+produção.
 
 ## Baseline obrigatório
 
@@ -25,7 +25,7 @@ gates de produção.
   `BROADCAST_ASYNC_ENABLED=false`. Este é um relato operacional, não uma
   leitura atual de produção feita por esta atualização documental;
 - fonte de verdade do código: `origin/main` em
-  `1fbe1f499e81d22102d6f0507e31a59816a93055`. Merge em `main` não comprova
+  `1029e1b0adb9479a2a23d60e27e9215a6ae6a10e`. Merge em `main` não comprova
   deploy, por isso o estado versionado e o estado operacional são registrados
   separadamente.
 
@@ -509,15 +509,40 @@ conectou o runtime, não fez deploy manual ou do backend, não promoveu a produ�
 e não ativou o agente. Universidade da Vida e Capacitação Destino ficam fora da
 missão atual.
 
-A sequência posterior fica congelada em `D2B1`, contexto confiável v1 criado no
-servidor e imutável para o grafo; `D2B2`, consentimentos independentes por
-finalidade; `D2C`, propostas duráveis com confirmação, expiração, idempotência
-e revalidação; e `D3`, memória privada durável com exclusão integral.
+A PR #314 integrou a reconciliação documental D2-RECONCILE no `origin/main`
+`1029e1b0adb9479a2a23d60e27e9215a6ae6a10e`. Essa integração apenas atualizou
+fontes documentais e não mudou o estado operacional da D2A.
 
-**Próximo gate único:** revisar e integrar a PR documental D2-RECONCILE que
-registra o merge da D2A e congela o contrato das próximas fatias. Implementação,
-migration em ambiente compartilhado, provisioning, conexão, deploy, ativação e
-canário permanecem fora deste gate.
+### D2B1, contexto confiável v1 candidato offline (2026-08-28)
+
+Sobre a baseline `1029e1b0adb9479a2a23d60e27e9215a6ae6a10e`, a candidata
+D2B1 separa o contexto confiável do `AgentState` mutável. O servidor monta um
+`TrustedAgentContext` imutável e tipado; o LangGraph o recebe por
+`StateGraph.context_schema`; entrada, caminho compilado, caminho direto e cada
+node revalidam a fronteira. A entrada e o snapshot de Pessoa recusam chaves de
+autoridade, IDs, telefone e campos não necessários ao turno. A mesma
+instância de `PrivilegeContext` chega ao executor de tools.
+
+A candidata passou em 224 testes focais. Duas passagens adversariais fecharam
+os achados P1 e concluíram `GO`. A suíte offline completa local ficou
+`INCONCLUSIVA`: tanto a candidata quanto uma baseline limpa no mesmo SHA
+excederam 90 segundos no módulo TestClient inalterado
+`test_agent_config_requests.py`. Esse timeout local não é aprovação nem falha
+do D2B1. O workflow `Backend Tests` da PR deve executar a suíte integral e
+concluir verde antes de qualquer integração.
+
+Esta é somente evidência de código e testes offline. A D2B1 não adiciona
+migration ou schema, não acessa Supabase, não provisiona credencial, não conecta
+a fronteira privada D2A, worker, fila ou checkpointer, não faz deploy manual ou
+do backend, não promove a produção, não ativa o agente e não executa canário. O
+LangGraph continua stateless. D2B2, consentimentos por finalidade, permanece
+bloqueada até a integração da D2B1.
+
+**Próximo gate único:** revisar e integrar a PR D2B1 somente se o workflow
+`Backend Tests` executar a suíte offline completa e concluir verde. D2B2 só
+poderá ser promovida a próximo gate depois do merge e de nova reconciliação.
+Migration, Supabase, provisioning, conexão da fronteira privada D2A, deploy,
+ativação e canário permanecem fora deste gate.
 
 ## Paralelismo seguro
 
