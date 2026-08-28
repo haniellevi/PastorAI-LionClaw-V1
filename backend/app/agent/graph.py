@@ -6,9 +6,9 @@ supervisor chose; every sub-agent then terminates the turn. This encodes the
 core invariant: one entry, one exit, one reply.
 
 `run_turn` executes a single turn and returns the merged state. It prefers the
-compiled, stateless LangGraph and falls back to a direct, dependency-free
-execution of the same node functions so the logic stays testable without a
-running graph backend. Durable checkpointing is intentionally disabled until
+compiled, stateless LangGraph and falls back to direct execution of the same
+node functions so the logic stays testable without a running graph backend.
+Durable checkpointing is intentionally disabled until
 a supported external saver is installed; process memory must not grow with the
 number of conversations.
 """
@@ -16,10 +16,18 @@ number of conversations.
 from __future__ import annotations
 
 import logging
-import operator
 from functools import lru_cache
-from typing import Annotated, Any
+from typing import Any
 
+from langgraph.runtime import Runtime
+
+from app.agent.context import (
+    TrustedAgentContext,
+    TrustedContextError,
+    require_trusted_context,
+    validate_agent_input_state,
+    validate_agent_node_state,
+)
 from app.agent.nodes import (
     ROUTE_HANDOFF,
     ROUTE_ONBOARDING,
@@ -42,6 +50,15 @@ from app.agent.nodes import (
 logger = logging.getLogger("pastorai.agent.graph")
 
 
+def _snapshot_agent_input(state: AgentState) -> AgentState:
+    """Return a detached, canonical copy of the only accepted input fields."""
+    validated = validate_agent_input_state(state)
+    return {
+        "texto": validated["texto"],
+        "pessoa": dict(validated["pessoa"]),
+    }
+
+
 def _merge_state(base: AgentState, updates: dict[str, Any]) -> AgentState:
     """Merge a node's partial update, accumulating list fields (events/tools)."""
     merged: AgentState = dict(base)  # type: ignore[assignment]
@@ -54,20 +71,57 @@ def _merge_state(base: AgentState, updates: dict[str, Any]) -> AgentState:
     return merged
 
 
-def run_turn_direct(state: AgentState) -> AgentState:
-    """Execute one orchestrator turn directly (no graph backend required)."""
-    after_orchestrator = orchestrator_node(state)
+def _run_turn_direct_validated(
+    state: AgentState, context: TrustedAgentContext
+) -> AgentState:
+    """Run direct nodes after the untrusted input boundary was validated."""
+    runtime = Runtime(context=context)
+    working: AgentState = {
+        **_snapshot_agent_input(state),
+        "events": [],
+        "tool_calls": [],
+    }
+    orchestrator_updates = orchestrator_node(working, runtime)
+    after_orchestrator = _merge_state(working, orchestrator_updates)
     route = after_orchestrator.get("route") or ROUTE_ONBOARDING
     subagent = SUBAGENTS.get(route, onboarding_node)
-    updates = subagent(after_orchestrator)
-    return _merge_state(after_orchestrator, updates)
+    updates = subagent(after_orchestrator, runtime)
+    final = _merge_state(after_orchestrator, updates)
+    validate_agent_node_state(final)
+    return final
 
 
-# ---------------------------------------------------------------------------
-# Compiled LangGraph (lazy, cached)
-# ---------------------------------------------------------------------------
-class _GraphState(dict):
-    """Marker type; the real schema is provided to StateGraph below."""
+def run_turn_direct(
+    state: AgentState, *, context: TrustedAgentContext
+) -> AgentState:
+    """Execute one turn directly after validating context and input once."""
+    trusted = require_trusted_context(context)
+    pristine = _snapshot_agent_input(state)
+    return _run_turn_direct_validated(pristine, trusted)
+
+
+class _TrustedCompiledGraph:
+    """Narrow adapter that validates raw inputs before LangGraph reducers."""
+
+    def __init__(self, compiled: Any) -> None:
+        self._compiled = compiled
+
+    @property
+    def checkpointer(self) -> Any:
+        return self._compiled.checkpointer
+
+    def invoke(
+        self,
+        state: AgentState,
+        *,
+        context: TrustedAgentContext | None = None,
+        **kwargs: Any,
+    ) -> AgentState:
+        detached = _snapshot_agent_input(state)
+        trusted = require_trusted_context(context)
+        result = self._compiled.invoke(detached, context=trusted, **kwargs)
+        validate_agent_node_state(result)
+        return result  # type: ignore[no-any-return]
 
 
 @lru_cache
@@ -75,29 +129,7 @@ def get_compiled_graph() -> Any:
     """Build and compile the stateless LangGraph (cached per process)."""
     from langgraph.graph import END, START, StateGraph  # noqa: PLC0415
 
-    # State schema with reducers so list fields accumulate across nodes.
-    from typing import TypedDict  # noqa: PLC0415
-
-    class GraphState(TypedDict, total=False):
-        igreja_id: str
-        igreja_nome: str
-        conversation_id: str
-        pessoa_id: str
-        texto: str
-        estado: str
-        pessoa: dict
-        is_ministerial: bool
-        term_accepted_version: str | None
-        term_current_version: str
-        route: str
-        response: str | None
-        events: Annotated[list, operator.add]
-        tool_calls: Annotated[list, operator.add]
-        apply_optout: bool
-        apply_consent_version: str | None
-        intake_update: dict
-
-    builder = StateGraph(GraphState)
+    builder = StateGraph(AgentState, context_schema=TrustedAgentContext)
     builder.add_node("orchestrator", orchestrator_node)
     builder.add_node(ROUTE_HANDOFF, handoff_node)
     builder.add_node(ROUTE_OPTOUT, optout_node)
@@ -127,7 +159,7 @@ def get_compiled_graph() -> Any:
         builder.add_edge(route, END)
 
     _warn_if_checkpoint_url_is_configured()
-    return builder.compile()
+    return _TrustedCompiledGraph(builder.compile())
 
 
 def _warn_if_checkpoint_url_is_configured() -> None:
@@ -149,20 +181,31 @@ def _warn_if_checkpoint_url_is_configured() -> None:
         )
 
 
-def run_turn(state: AgentState, *, use_graph: bool = True) -> AgentState:
+def run_turn(
+    state: AgentState,
+    *,
+    context: TrustedAgentContext,
+    use_graph: bool = True,
+) -> AgentState:
     """Run a single orchestrator turn, returning the merged final state.
 
-    Prefers the compiled LangGraph; on any failure (or use_graph=False) falls
-    back to the direct execution of the same node functions.
+    Backend execution failures fall back to the direct path. Trust-boundary
+    failures always propagate and never enter the fallback.
     """
+    trusted = require_trusted_context(context)
+    pristine = _snapshot_agent_input(state)
+
     if use_graph:
         try:
             graph = get_compiled_graph()
-            result = graph.invoke(state)
+            result = graph.invoke(_snapshot_agent_input(pristine), context=trusted)
+            validate_agent_node_state(result)
             return result  # type: ignore[return-value]
+        except TrustedContextError:
+            raise
         except Exception:  # noqa: BLE001 - resilience: never drop a turn
             logger.exception("LangGraph turn failed; using direct fallback")
-    return run_turn_direct(state)
+    return _run_turn_direct_validated(pristine, trusted)
 
 
 # Re-export for callers that route by intent without running the graph.

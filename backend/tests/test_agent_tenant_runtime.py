@@ -153,6 +153,36 @@ def test_runtime_rejeita_conversa_de_outro_tenant_mesmo_se_adapter_violar_filtro
     assert "conversations.igreja_id" in str(session.statements[0])
 
 
+def test_runtime_rejeita_conversa_com_id_diferente_do_solicitado(
+    monkeypatch,
+) -> None:
+    tenant_id = uuid.uuid4()
+    requested_id = uuid.uuid4()
+    session = _RuntimeSession(
+        [
+            SimpleNamespace(
+                id=uuid.uuid4(),
+                igreja_id=tenant_id,
+                pessoa_id=uuid.uuid4(),
+            )
+        ]
+    )
+    monkeypatch.setattr(runtime, "require_tenant_scope", lambda *a, **k: None)
+
+    with pytest.raises(
+        TenantScopeVerificationError,
+        match="conversa retornada não corresponde",
+    ):
+        runtime.process_inbound_message(
+            session,
+            igreja_id=tenant_id,
+            conversation_id=requested_id,
+            texto="mensagem sintética",
+        )
+
+    assert len(session.statements) == 1
+
+
 def test_runtime_rejeita_pessoa_de_outro_tenant_mesmo_se_adapter_violar_filtro(
     monkeypatch,
 ) -> None:
@@ -190,3 +220,40 @@ def test_runtime_rejeita_pessoa_de_outro_tenant_mesmo_se_adapter_violar_filtro(
 
     assert len(session.statements) == 2
     assert "pessoas.igreja_id" in str(session.statements[1])
+
+
+def test_runtime_rejeita_pessoa_com_id_diferente_da_conversa(
+    monkeypatch,
+) -> None:
+    tenant_id = uuid.uuid4()
+    conversation_id = uuid.uuid4()
+    expected_pessoa_id = uuid.uuid4()
+    session = _RuntimeSession(
+        [
+            SimpleNamespace(
+                id=conversation_id,
+                igreja_id=tenant_id,
+                pessoa_id=expected_pessoa_id,
+            ),
+            SimpleNamespace(
+                id=uuid.uuid4(),
+                igreja_id=tenant_id,
+                optout=False,
+                sem_interesse=False,
+            ),
+        ]
+    )
+    monkeypatch.setattr(runtime, "require_tenant_scope", lambda *a, **k: None)
+
+    with pytest.raises(
+        TenantScopeVerificationError,
+        match="Pessoa retornada não corresponde",
+    ):
+        runtime.process_inbound_message(
+            session,
+            igreja_id=tenant_id,
+            conversation_id=conversation_id,
+            texto="mensagem sintética",
+        )
+
+    assert len(session.statements) == 2

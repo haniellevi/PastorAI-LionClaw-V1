@@ -26,6 +26,12 @@ from dataclasses import dataclass, field
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from app.agent.context import (
+    LegacyTermContext,
+    TrustedAgentContext,
+    TrustedContextError,
+    require_trusted_context,
+)
 from app.agent.graph import run_turn
 from app.agent.masking import log_agent_event, log_ai_usage
 from app.agent.nodes import (
@@ -161,40 +167,48 @@ def _resolve_privilege(
 
 def _build_state(
     *,
-    igreja_id: uuid.UUID,
-    igreja_nome: str | None,
-    conversation: Conversation,
     pessoa: Pessoa,
     texto: str | None,
-    accepted_version: str | None,
-    current_version: str,
-    is_ministerial: bool,
 ) -> AgentState:
     return {
-        "igreja_id": str(igreja_id),
-        "igreja_nome": igreja_nome,
-        "conversation_id": str(conversation.id),
-        "pessoa_id": str(pessoa.id),
         "texto": texto or "",
-        "estado": conversation.estado or "ia",
         "pessoa": {
-            "id": str(pessoa.id),
             "nome": pessoa.nome,
-            "telefone": pessoa.telefone,
-            "tipo": pessoa.tipo or "contato",
-            "etapa": pessoa.etapa or "ganhar",
             "subetapa": pessoa.subetapa or "novo_contato",
             "origem": pessoa.origem or "",
             "has_endereco": bool(pessoa.endereco),
             "primeiro_contato_set": pessoa.primeiro_contato is not None,
-            "sem_interesse": bool(pessoa.sem_interesse),
         },
-        "is_ministerial": is_ministerial,
-        "term_accepted_version": accepted_version,
-        "term_current_version": current_version,
-        "events": [],
-        "tool_calls": [],
     }
+
+
+def _build_trusted_context(
+    *,
+    igreja_id: uuid.UUID,
+    igreja: Igreja | None,
+    conversation: Conversation,
+    pessoa: Pessoa,
+    privilege: PrivilegeContext,
+    accepted_version: str | None,
+    current_version: str,
+) -> TrustedAgentContext:
+    """Build authority context only from rows resolved by the server."""
+    if igreja is None or igreja.id != igreja_id:
+        raise TrustedContextError("igreja binding is invalid")
+    if conversation.id is None or pessoa.id is None:
+        raise TrustedContextError("agent identity binding is incomplete")
+    return TrustedAgentContext(
+        igreja_id=igreja_id,
+        conversation_id=conversation.id,
+        pessoa_id=pessoa.id,
+        conversation_state=conversation.estado,
+        igreja_nome=igreja.nome,
+        privilege=privilege,
+        legacy_term=LegacyTermContext(
+            accepted_version=accepted_version,
+            current_version=current_version,
+        ),
+    )
 
 
 def _apply_intake(pessoa: Pessoa, update: dict) -> None:
@@ -360,6 +374,21 @@ def _execute_tools(
     return executed, audit
 
 
+def _execute_tools_for_context(
+    session: Session,
+    context: TrustedAgentContext,
+    tool_calls: list[dict],
+) -> tuple[list[str], list[dict]]:
+    """Execute tools only from the repeatedly validated trusted context."""
+    trusted = require_trusted_context(context)
+    return _execute_tools(
+        session,
+        trusted.igreja_id,
+        trusted.privilege,
+        tool_calls,
+    )
+
+
 def _build_refine_prompt(
     comportamento: str | None, draft: str, user_text: str
 ) -> tuple[str, str]:
@@ -465,6 +494,10 @@ def process_inbound_message(
     if conversation is None or conversation.pessoa_id is None:
         return AgentTurnResult(handled=False, reason="conversation_not_found")
 
+    if conversation.id != conv_uuid:
+        raise TenantScopeVerificationError(
+            "conversa retornada não corresponde à conversa solicitada"
+        )
     if conversation.igreja_id != tenant_uuid:
         raise TenantScopeVerificationError(
             "conversa não pertence ao tenant fixado no runtime"
@@ -479,6 +512,10 @@ def process_inbound_message(
     if pessoa is None:
         return AgentTurnResult(handled=False, reason="pessoa_not_found")
 
+    if pessoa.id != conversation.pessoa_id:
+        raise TenantScopeVerificationError(
+            "Pessoa retornada não corresponde à conversa validada"
+        )
     if pessoa.igreja_id != tenant_uuid:
         raise TenantScopeVerificationError(
             "Pessoa não pertence ao tenant fixado no runtime"
@@ -587,18 +624,18 @@ def process_inbound_message(
 
     accepted_version = _latest_consent_version(session, igreja_id, pessoa.id)
     privilege = _resolve_privilege(session, igreja_id, pessoa)
-    state = _build_state(
+    context = _build_trusted_context(
         igreja_id=igreja_id,
-        igreja_nome=igreja.nome if igreja else None,
+        igreja=igreja,
         conversation=conversation,
         pessoa=pessoa,
-        texto=texto,
+        privilege=privilege,
         accepted_version=accepted_version,
         current_version=settings.agent_term_version,
-        is_ministerial=privilege.is_ministerial,
     )
+    state = _build_state(pessoa=pessoa, texto=texto)
 
-    final = run_turn(state)
+    final = run_turn(state, context=context)
     route = final.get("route")
 
     # Apply person backfill from intake (origem / primeiro_contato).
@@ -606,14 +643,21 @@ def process_inbound_message(
 
     # Consent / opt-out persistence.
     if final.get("apply_optout"):
-        _apply_optout(pessoa, igreja_id, session, settings.agent_term_version)
+        _apply_optout(
+            pessoa,
+            igreja_id,
+            session,
+            context.legacy_term.current_version,
+        )
     if final.get("apply_consent_version"):
         _apply_consent(pessoa, igreja_id, session, final["apply_consent_version"])
 
     # Execute tool calls (human-equivalent validations, tenant-scoped, gated by
     # the interlocutor's privilege — #10b Fase 2).
-    executed, tool_audit = _execute_tools(
-        session, igreja_id, privilege, final.get("tool_calls") or []
+    executed, tool_audit = _execute_tools_for_context(
+        session,
+        context,
+        final.get("tool_calls") or [],
     )
 
     # Audit every routing/sub-agent event + tool calls (masked payloads).

@@ -365,6 +365,23 @@ backend/
 
 O codigo atual compila um grafo **stateless**, sem checkpointer duravel. A variavel `AGENT_GRAPH_CHECKPOINT_URL` apenas gera aviso quando configurada; nao ativa persistencia. Os nodes atuais cobrem `handoff`, `optout`, `consent`, `report_capture` e `onboarding`. O `report_capture` registra um evento de auditoria, mas ainda nao grava o relatorio canonico de `celula_reuniao`. Esses pontos permanecem pendentes e nao podem ser tratados como entrega concluida.
 
+A candidata offline D2B1 formaliza o contexto confiavel v1 sem alterar esse
+estado stateless. O servidor monta um `TrustedAgentContext` imutavel e tipado,
+com UUIDs de igreja, conversa e Pessoa, estado da conversa, nome da igreja,
+canal WhatsApp, termo legado e a instancia autoritativa de
+`PrivilegeContext`. O LangGraph recebe essa fronteira por
+`StateGraph.context_schema`; o `AgentState` conserva apenas dados mutaveis
+minimos. A entrada e o snapshot de Pessoa rejeitam chaves de autoridade, IDs,
+telefone e campos nao utilizados pelo turno. A validacao ocorre antes do caminho compilado, do
+fallback direto e em cada node. Falhas de confianca propagam sem entrar no
+fallback, que recebe a mesma instancia do contexto.
+
+Esse contrato nao implementa consentimento por finalidade, memoria,
+checkpointer, proposta, ferramenta ou especialista novo. Tambem nao adiciona
+migration, nao acessa Supabase, nao provisiona credencial, nao conecta a
+fronteira privada D2A, worker ou fila, nao faz deploy, nao ativa o agente e nao
+executa canario.
+
 A evolucao aprovada mantem uma unica politica global e adiciona especialistas por dominio de forma incremental. Atendimento, Central de Celulas, Agenda e Consolidacao integram a missao atual; Universidade da Vida e Capacitacao Destino permanecem na visao futura e dependem de PRDs e missoes proprias. Especialistas nunca enviam mensagens diretamente e nunca recebem IDs de tenant escolhidos pelo modelo ou pelo cliente.
 
 Memoria e conhecimento sao contratos diferentes:
