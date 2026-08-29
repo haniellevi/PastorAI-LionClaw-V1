@@ -119,6 +119,18 @@ feita pelo mesmo executor que preparou o manifesto e está registrada como
 `TECHNICAL_SELF_REVIEW_NOT_INDEPENDENT`; portanto, ela não substitui a revisão
 independente de segurança e arquitetura de banco.
 
+## Evidência offline vinculada ao commit
+
+O artefato
+[`migration-history-schema-expectation-test-evidence-b44c203-v1.json`](../governance/migrations/migration-history-schema-expectation-test-evidence-b44c203-v1.json)
+registra a execução sobre o commit técnico exato
+`b44c2030a73d5543bb326ca0922c082df30d6a42`: `264 passed, 47 skipped`.
+O recorte contém seis módulos relacionados. Os 47 skips exigem PostgreSQL
+descartável e não são tratados como evidência positiva. Bytecode e cache do
+pytest ficaram desabilitados. Nenhum banco ou ambiente compartilhado foi
+aberto, a suíte integral do backend não foi executada e
+`operational_authorization` permanece `false`.
+
 ## Limites desta missão
 
 Esta preparação não acessa DEV ou PROD, não usa rede, não executa SQL ou DML,

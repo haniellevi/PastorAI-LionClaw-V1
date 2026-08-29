@@ -22,6 +22,13 @@ V1_PLAN_PATH = (
     / "migrations"
     / "migration-history-divergence-remediation-proposal-v1.json"
 )
+TEST_EVIDENCE_PATH = (
+    REPO_ROOT
+    / "docs"
+    / "governance"
+    / "migrations"
+    / "migration-history-schema-expectation-test-evidence-b44c203-v1.json"
+)
 ADR_PATH = (
     REPO_ROOT
     / "docs"
@@ -110,6 +117,7 @@ def _package_path(environment: str, suffix: str = "") -> Path:
 def test_remediation_proposal_is_closed_and_operationally_blocked() -> None:
     plan = _load_json(PLAN_PATH)
     historical_plan = _load_json(V1_PLAN_PATH)
+    test_evidence = _load_json(TEST_EVIDENCE_PATH)
 
     assert set(plan) == EXPECTED_TOP_LEVEL_KEYS
     assert plan["contract_version"] == "2.0"
@@ -160,6 +168,46 @@ def test_remediation_proposal_is_closed_and_operationally_blocked() -> None:
         }
     }
     assert current_common == historical_common
+    assert test_evidence == {
+        "artifact_state": "OFFLINE_TEST_EVIDENCE_ONLY",
+        "contract_version": "1.0",
+        "database_accessed": False,
+        "environment_accessed": False,
+        "execution": {
+            "completed_at_utc": "2026-08-29T13:42:59Z",
+            "controls": [
+                "PYTHONDONTWRITEBYTECODE=1",
+                "PYTEST_DISABLE_PLUGIN_AUTOLOAD=1",
+                "PYTEST_CACHEPROVIDER_DISABLED",
+            ],
+            "python_version": "3.12.3",
+            "pytest_version": "9.1.1",
+            "result": {
+                "passed": 264,
+                "skipped": 47,
+                "status": "PASS_WITH_DECLARED_SKIPS",
+            },
+            "selection": [
+                "backend/tests/test_apply_migrations.py",
+                "backend/tests/test_capture_migration_history_evidence.py",
+                "backend/tests/test_verify_migration_history_reconciliation.py",
+                "backend/tests/test_migration_history_divergence_remediation.py",
+                "backend/tests/test_migration_history_schema_expectation_manifest.py",
+                "backend/tests/test_d2b2b2_decision_packet_docs.py",
+            ],
+            "skip_reason": "DISPOSABLE_POSTGRESQL_INTEGRATION_NOT_CONFIGURED",
+        },
+        "limitations": [
+            "SKIPPED_TESTS_ARE_NOT_POSITIVE_EVIDENCE",
+            "NO_DATABASE_OR_SHARED_ENVIRONMENT_WAS_OPENED",
+            "FULL_BACKEND_SUITE_WAS_NOT_EXECUTED",
+            "RESULT_PROVES_ONLY_THE_LISTED_OFFLINE_SELECTION",
+        ],
+        "operational_authorization": False,
+        "tested_repository_sha": (
+            "b44c2030a73d5543bb326ca0922c082df30d6a42"
+        ),
+    }
 
     assert plan["strategy"] == {
         "alternatives": [
@@ -303,6 +351,7 @@ def test_remediation_public_files_are_sanitized_and_external_records_stay_extern
     public_text = (
         V1_PLAN_PATH.read_text(encoding="utf-8")
         + PLAN_PATH.read_text(encoding="utf-8")
+        + TEST_EVIDENCE_PATH.read_text(encoding="utf-8")
         + ADR_PATH.read_text(encoding="utf-8")
     )
     lowered = public_text.casefold()
