@@ -1,0 +1,190 @@
+{
+  "artifact_state": "SOURCE_EXPECTATION_VERIFIED_ENVIRONMENT_UNATTESTED",
+  "attestation_contract": {
+    "comparison_rules": [
+      "UNKNOWN_MISSING_EXTRA_OR_MISMATCH_BLOCKS",
+      "NO_APPLICATION_INFERENCE_FROM_NAME_VERSION_POSITION_OR_TIMESTAMP",
+      "NATIVE_AND_PUBLIC_LEDGERS_REMAIN_INDEPENDENT",
+      "NO_AUTOMATIC_REPAIR_BACKFILL_OR_REAPPLICATION",
+      "EACH_ENVIRONMENT_REQUIRES_DISTINCT_EVIDENCE_AND_HUMAN_DECISION"
+    ],
+    "current_environment_version_attested": false,
+    "data_invariants": [
+      {
+        "id": "TENANT_FOREIGN_KEY_CONSISTENCY",
+        "state": "PENDING_SEPARATE_READ_ONLY_ATTESTATION"
+      },
+      {
+        "id": "TENANT_UNIQUENESS_GUARDS",
+        "state": "PENDING_SEPARATE_READ_ONLY_ATTESTATION"
+      },
+      {
+        "id": "APPEND_ONLY_AUDIT_INTEGRITY",
+        "state": "PENDING_SEPARATE_READ_ONLY_ATTESTATION"
+      },
+      {
+        "id": "IDEMPOTENCY_UNIQUENESS",
+        "state": "PENDING_SEPARATE_READ_ONLY_ATTESTATION"
+      },
+      {
+        "id": "CONSENT_LEDGER_INTEGRITY",
+        "state": "PENDING_SEPARATE_READ_ONLY_ATTESTATION"
+      },
+      {
+        "id": "BILLING_ISOLATION_INTEGRITY",
+        "state": "PENDING_SEPARATE_READ_ONLY_ATTESTATION"
+      },
+      {
+        "id": "RECOVERY_ARTIFACT_RETENTION",
+        "state": "PENDING_SEPARATE_READ_ONLY_ATTESTATION"
+      },
+      {
+        "id": "GOVERNANCE_DRAFT_INTEGRITY",
+        "state": "PENDING_SEPARATE_READ_ONLY_ATTESTATION"
+      }
+    ],
+    "environments": [
+      "DEV",
+      "PROD"
+    ],
+    "offline_derivation_target": {
+      "postgresql_major": 17,
+      "reference_path": ".github/workflows/rls-integration.yml",
+      "reference_sha256": "4fac0b1ed923f3dc2298b45ff63bfe57ec849654ae6ab446facbca4b6fef891b",
+      "selection_basis": "VERSIONED_DISPOSABLE_CI_IMAGE_NOT_ENVIRONMENT_OBSERVATION"
+    },
+    "required_domains": [
+      "EXTENSIONS",
+      "ENUM_TYPES_AND_VALUES",
+      "ROLES_AND_MEMBERSHIPS",
+      "SCHEMAS_AND_OWNERS",
+      "RELATIONS_AND_PERSISTENCE",
+      "COLUMNS_TYPES_DEFAULTS_IDENTITY_GENERATED",
+      "CONSTRAINTS_AND_VALIDATION_STATE",
+      "INDEXES_DEFINITIONS_AND_VALIDITY",
+      "FUNCTIONS_SIGNATURE_LANGUAGE_VOLATILITY_SECURITY_SEARCH_PATH",
+      "TRIGGERS_AND_REWRITE_RULES",
+      "RLS_ENABLE_FORCE_FLAGS",
+      "POLICIES_COMMAND_ROLES_USING_WITH_CHECK",
+      "TABLE_COLUMN_FUNCTION_SCHEMA_PRIVILEGES",
+      "DEFAULT_PRIVILEGES",
+      "DATA_INVARIANTS"
+    ],
+    "state": "PENDING_SEPARATE_READ_ONLY_ENVIRONMENT_ATTESTATION"
+  },
+  "contract_version": "1.0",
+  "decisions": {
+    "controlled_epoch_cutover_approved": false,
+    "independent_ledger_review_sha256": "18ec23b3634ae591e771c9df2e2b6d3c44f69f72e6e2bbd854fbb1fc0fb0b133",
+    "owner_offline_mission_sha256": "0c2e46025b2650eea089777d17cebe5c566fb3d6ed9b68b4f9a1b5e049c59240"
+  },
+  "manifest_id": "migration-history-schema-expectation-manifest-v1",
+  "next_gates": [
+    "INDEPENDENT_SECURITY_AND_DATABASE_ARCHITECTURE_REVIEW",
+    "SEPARATE_OFFLINE_CANONICAL_SCHEMA_DERIVATION",
+    "SEPARATE_READ_ONLY_ENVIRONMENT_ATTESTATION",
+    "HUMAN_CUTOVER_DECISION",
+    "SEPARATE_IMPLEMENTATION_PR",
+    "SEPARATE_ENVIRONMENT_EXECUTION_AUTHORIZATION"
+  ],
+  "operational_authorization": false,
+  "repository": {
+    "declared_base_sha": "7f18f7e8b44cd50e6f6033867fb97bfa9eb9c9e6",
+    "declared_base_sha_role": "DECLARED_CONTEXT_ONLY_CATALOG_DIGEST_IS_AUTHORITATIVE_BYTE_BINDING",
+    "catalog_algorithm": "basename-ascii-ascending+sha256-raw-bytes-v1",
+    "catalog_digest_sha256": "84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f",
+    "catalog_migration_count": 75,
+    "critical_migration_anchors": [
+      {
+        "name": "0003_rls_policies.sql",
+        "sha256": "76c3729b12aa31aeb6fcb6d4dd5177f4c92dbfe6067a5ad3ea68508c2cebb523"
+      },
+      {
+        "name": "0006_harden_function_search_path.sql",
+        "sha256": "92127b7bcbc88904414cc6cd1e194b53bfd97405313774ea2c45a98e387d50f9"
+      },
+      {
+        "name": "20260805_153000_security_definer_execute_hardening.sql",
+        "sha256": "cf75e0a9e262203e4d7036b25ca3d7ef5df976edfa1d09a9e38d1ae28b65ac5b"
+      },
+      {
+        "name": "20260810_031050_explicit_deny_policies_for_closed_tables.sql",
+        "sha256": "1524fa0944dd3f4c259fa81f528570f8a4be5cff010515d4c44ac30a8df063c6"
+      },
+      {
+        "name": "20260824_180000_asaas_formal_isolation.sql",
+        "sha256": "0cacaf819ca2113b284673886700eb8be79b71094a7ac180c2b4c72c84d3e3e3"
+      },
+      {
+        "name": "20260827_175634_d1a_tenant_runtime_integrity.sql",
+        "sha256": "7ac3191bbe7217beff4e9601da78c29aef13abfef229505335ba7017a630d0c3"
+      },
+      {
+        "name": "20260827_230003_d2a_agent_runtime_private_context.sql",
+        "sha256": "3071b0d7c2f8f7103914e161383ddac5d15698dccfd2e9860251c4bd98f7ec83"
+      },
+      {
+        "name": "20260828_045213_d2b2_consentimento_finalidade_evento.sql",
+        "sha256": "30742755922b42e6e1407743df51b28d4619efd2a5e6b474bcba1beb7b8443ea"
+      },
+      {
+        "name": "20260828_094914_d2b2b3_purpose_consent_governance_drafts.sql",
+        "sha256": "506bb53f81caed2f30c8ae250c159e0653fdade12bd9124c1f9fd2dda4bf4666"
+      }
+    ],
+    "migrations_path": "backend/migrations"
+  },
+  "review": {
+    "conclusion": "PASS_FOR_SOURCE_MANIFEST_ONLY",
+    "independent_review_complete": false,
+    "review_type": "TECHNICAL_SELF_REVIEW_NOT_INDEPENDENT",
+    "reviewer_reference": "SYSTEM-TECHNICAL-REVIEW",
+    "substantive_findings": [
+      "FAIL_CLOSED_ARCHITECTURE_IS_COHERENT",
+      "CONTROLLED_EPOCH_REMAINS_UNAPPROVED",
+      "FINAL_SCHEMA_CANNOT_BE_PROVEN_BY_STATIC_SCAN",
+      "INDEPENDENT_REVIEW_REMAINS_REQUIRED"
+    ]
+  },
+  "safety_contract": {
+    "database_access_allowed": false,
+    "database_mutation_allowed": false,
+    "deploy_allowed": false,
+    "environment_capture_allowed": false,
+    "ledger_backfill_allowed": false,
+    "migration_application_allowed": false,
+    "runner_change_allowed": false,
+    "runner_execution_allowed": false,
+    "runtime_change_allowed": false
+  },
+  "source_expectation": {
+    "capability_file_counts": {
+      "ALTER_TABLE": 46,
+      "ALTER_TYPE": 18,
+      "CREATE_FUNCTION": 15,
+      "CREATE_INDEX": 32,
+      "CREATE_POLICY": 24,
+      "CREATE_ROLE": 1,
+      "CREATE_SCHEMA": 1,
+      "CREATE_TABLE": 25,
+      "CREATE_TRIGGER": 6,
+      "CREATE_TYPE": 4,
+      "DATA_MUTATION": 33,
+      "DROP_OBJECT": 21,
+      "ENABLE_RLS": 27,
+      "FORCE_RLS": 2,
+      "GRANT": 11,
+      "REVOKE": 18
+    },
+    "derivation_method": "STATIC_RAW_BYTES_AND_CONSERVATIVE_TOKEN_SCAN",
+    "environment_attestation_complete": false,
+    "final_schema_claim": false,
+    "known_limitations": [
+      "CONDITIONAL_AND_DYNAMIC_SQL_NOT_SEMANTICALLY_EXECUTED",
+      "MIGRATION_ORDER_DOES_NOT_PROVE_ENVIRONMENT_APPLICATION",
+      "STATIC_TOKENS_DO_NOT_PROVE_FINAL_OBJECT_DEFINITIONS",
+      "DATA_INVARIANTS_REQUIRE_SEPARATE_READ_ONLY_ATTESTATION"
+    ],
+    "manifest_scope": "SOURCE_LEVEL_EXPECTATION_ONLY"
+  }
+}

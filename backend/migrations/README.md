@@ -118,8 +118,8 @@ produz `EVIDENCE_CAPTURED_UNREVIEWED`. O verificador só termina em
 nativo `PRESENT_COMPLETE` não vazio. Casos anteriores podem terminar em
 `INVENTORY_BLOCKED` ou no motivo fail-closed correspondente.
 
-O estado atual é `INVENTÁRIOS DEV E PROD CAPTURADOS / NÃO REVISADOS /
-BLOQUEADOS / DECISÕES HUMANAS PENDENTES / NÃO APLICADO`. Em PostgreSQL 17,
+O estado atual é `INVENTÁRIOS DEV E PROD CAPTURADOS / REVISÃO INDEPENDENTE
+BLOQUEADA CONCLUÍDA / DECISÃO OWNER-01 REGISTRADA / NÃO APLICADO`. Em PostgreSQL 17,
 DEV registrou 33 linhas no ledger público e 6 no nativo em
 `2026-08-28T22:43:11.454382Z`; PROD registrou o ledger público
 `ABSENT_CONFIRMED`, com 0 linhas, e 32 linhas no nativo em
@@ -142,10 +142,29 @@ sem provar deploy manual ou do backend, banco ou runtime. A integração version
 a evidência sanitizada já capturada, mas não revisa os inventários, não aplica
 migration e não libera o runner ou qualquer autorização operacional.
 
+A revisão independente bloqueada foi concluída e registrada sob o SHA-256
+`18ec23b3634ae591e771c9df2e2b6d3c44f69f72e6e2bbd854fbb1fc0fb0b133`;
+ela bloqueou DEV por divergência do ledger e PROD por evidência insuficiente.
+A decisão OWNER-01 registrada está vinculada pelo SHA-256
+`0c2e46025b2650eea089777d17cebe5c566fb3d6ed9b68b4f9a1b5e049c59240`,
+manteve a autorização operacional falsa e abriu somente uma proposta técnica
+offline. Os registros externos não são versionados.
+
 A captura foi somente leitura, sem DML, runner, `bootstrap-ledger`,
-`harden-ledger`, `status`, `apply`, deploy, flag ou runtime. O próximo gate é
-uma revisão humana offline independente dos pacotes e evidências, sem nova
-consulta a DEV ou PROD e sem liberar o runner. UV e CD permanecem fora.
+`harden-ledger`, `status`, `apply`, deploy, flag ou runtime. O manifesto
+estático de expectativas da fonte foi criado sobre a base
+`7f18f7e8b44cd50e6f6033867fb97bfa9eb9c9e6`, com 75 migrations e digest
+`84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`.
+Ele é `SOURCE_LEVEL_EXPECTATION_ONLY`, não prova o schema final de DEV ou PROD
+e permanece com `OPERATIONAL_AUTHORIZATION=BLOCKED`. A revisão técnica foi
+feita pelo mesmo executor e não é independente.
+
+O próximo gate é a revisão offline independente de segurança e arquitetura de
+banco da proposta e do manifesto. Ele pode aprovar somente o desenho de uma
+missão posterior e separada para derivar o schema canônico em PostgreSQL 17
+descartável. A atestação read-only de DEV e PROD permanece posterior e
+independente; nada aqui autoriza acesso a ambiente ou liberação do runner. UV e
+CD permanecem fora.
 
 ## Transações especiais
 

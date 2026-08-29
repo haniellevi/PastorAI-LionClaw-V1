@@ -1,7 +1,7 @@
 # Contrato offline de reconciliação do histórico de migrations
 
-**Estado:** `INTEGRADO / INVENTÁRIOS DEV E PROD CAPTURADOS / NÃO REVISADOS /
-BLOQUEADOS / DECISÕES HUMANAS PENDENTES / NÃO APLICADO`
+**Estado:** `INTEGRADO / INVENTÁRIOS CAPTURADOS / REVISÃO INDEPENDENTE
+BLOQUEADA CONCLUÍDA / DECISÃO OWNER-01 REGISTRADA / NÃO APLICADO`
 
 **Base auditada:** `cfeba13c0a9d08288f8c956ee2f35ddc1c0c35b7`
 
@@ -196,8 +196,8 @@ depende da sanitização e da ACL do repositório, não do modo do checkout:
 - `migration-history-reconciliation-prod-evidence-v1-native-capture-receipt-v1.json`.
 
 Todo pacote permanece bloqueado. O estado atual é `INVENTÁRIOS DEV E PROD
-CAPTURADOS / NÃO REVISADOS / BLOQUEADOS / DECISÕES HUMANAS PENDENTES / NÃO
-APLICADO`. Em PostgreSQL 17, DEV registrou o ledger público
+CAPTURADOS / REVISÃO INDEPENDENTE BLOQUEADA CONCLUÍDA / DECISÃO OWNER-01
+REGISTRADA / NÃO APLICADO`. Em PostgreSQL 17, DEV registrou o ledger público
 `PRESENT_COMPLETE`, com 33 linhas, e o nativo `PRESENT_COMPLETE`, com 6 linhas,
 no snapshot `2026-08-28T22:43:11.454382Z`. PROD registrou o ledger público
 `ABSENT_CONFIRMED`, com 0 linhas, e o nativo `PRESENT_COMPLETE`, com 32 linhas,
@@ -231,6 +231,16 @@ versiona a evidência sanitizada já capturada, mas não revisa os inventários,
 não altera `EVIDENCE_CAPTURED_UNREVIEWED` ou `HUMAN_EVIDENCE_BLOCKED`, não
 aplica migration e não libera o runner nem qualquer autorização operacional.
 
+A revisão externa de `REVIEWER-01`, registrada pelo SHA-256
+`18ec23b3634ae591e771c9df2e2b6d3c44f69f72e6e2bbd854fbb1fc0fb0b133`,
+classificou DEV como `BLOCKED_LEDGER_DIVERGENCE` e PROD como
+`BLOCKED_EVIDENCE_INSUFFICIENT`. `OWNER-01` aceitou o bloqueio no registro
+externo de SHA-256
+`0c2e46025b2650eea089777d17cebe5c566fb3d6ed9b68b4f9a1b5e049c59240`,
+manteve `operational_authorization=false` e autorizou somente a preparação
+offline da correção. Nenhum registro bruto, nome, contato ou assinatura foi
+versionado. Os pacotes continuam imutáveis e bloqueados.
+
 ## Estado operacional preservado
 
 O `bootstrap-ledger` integrado pela PR #323 continua não aplicado. O preflight
@@ -245,7 +255,22 @@ bloqueados.
 
 ## Próximo gate único
 
-Revisão humana offline independente dos seis artefatos e das evidências, sem
-nova consulta a DEV ou PROD e sem liberar o runner. Este gate não autoriza DML,
-`bootstrap-ledger`, `harden-ledger`, `status`, `apply`, deploy, flag ou runtime.
-Universidade da Vida e Capacitação Destino permanecem fora desta missão.
+O manifesto estático de expectativas da fonte foi criado sobre a base
+`7f18f7e8b44cd50e6f6033867fb97bfa9eb9c9e6`, com 75 migrations e digest
+`84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`.
+Ele é `SOURCE_LEVEL_EXPECTATION_ONLY`, não prova o schema final de DEV ou PROD
+e permanece com `OPERATIONAL_AUTHORIZATION=BLOCKED`. A revisão técnica foi
+feita pelo mesmo executor e não é independente.
+
+Revisão offline independente, por segurança e arquitetura de banco, da
+[`proposta de remediação da divergência`](2026-08-29-migration-history-divergence-remediation.md)
+e do manifesto. O gate pode aprovar somente o desenho de uma missão posterior e
+separada para derivar o schema canônico em PostgreSQL 17 descartável. A
+atestação read-only de DEV e PROD permanece posterior e independente. Ele não
+autoriza acesso a ambiente, DML, `bootstrap-ledger`, `harden-ledger`,
+`status`, `apply`, migration, backfill, deploy, flag ou runtime. Universidade
+da Vida e Capacitação Destino permanecem fora desta missão.
+
+O procedimento reproduzível e a separação entre proprietário e pessoa revisora
+estão em
+[`migration-history-human-review-guide-v1.md`](../governance/migrations/migration-history-human-review-guide-v1.md).

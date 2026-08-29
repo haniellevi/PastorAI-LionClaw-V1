@@ -33,6 +33,20 @@ RECONCILIATION_CONTRACT_PATH = (
     / "decisions"
     / "2026-08-28-migration-history-reconciliation-contract.md"
 )
+HUMAN_REVIEW_GUIDE_PATH = (
+    REPO_ROOT
+    / "docs"
+    / "governance"
+    / "migrations"
+    / "migration-history-human-review-guide-v1.md"
+)
+SCHEMA_EXPECTATION_MANIFEST_PATH = (
+    REPO_ROOT
+    / "docs"
+    / "governance"
+    / "migrations"
+    / "migration-history-schema-expectation-manifest-v1.json"
+)
 
 EXPECTED_TOP_LEVEL_KEYS = {
     "metadata",
@@ -1175,7 +1189,8 @@ def test_canonical_docs_record_captured_blocked_inventories_and_one_human_gate()
         assert "verificador stdlib separado do runner" in normalized
         assert "integrado" in normalized
         assert "comprovado offline" in normalized
-        assert "decisoes humanas pendentes" in normalized
+        assert "revisao independente bloqueada" in normalized
+        assert "decisao owner-01 registrada" in normalized
         assert "nao aplicado" in normalized
         assert "pacote e verificador candidatos" not in normalized
         assert "nao acessa banco, rede" in normalized
@@ -1209,9 +1224,10 @@ def test_canonical_docs_record_captured_blocked_inventories_and_one_human_gate()
         assert "prova somente o frontend" in normalized
         assert "sem provar deploy manual ou do backend, banco ou runtime" in normalized
         assert "inventarios dev e prod capturados" in normalized
-        assert "nao revisados" in normalized
-        assert "bloqueados" in normalized
-        assert "decisoes humanas pendentes" in normalized
+        assert "revisao independente bloqueada" in normalized
+        assert "decisao owner-01 registrada" in normalized
+        assert "18ec23b3634ae591e771c9df2e2b6d3c44f69f72e6e2bbd854fbb1fc0fb0b133" in content
+        assert "0c2e46025b2650eea089777d17cebe5c566fb3d6ed9b68b4f9a1b5e049c59240" in content
         assert "nao aplicado" in normalized
         assert "8b589e5dda722691fead34cbd63cab75a7a22f32e0cf4bdfe64d6cef603866ee" in content
         assert "em postgresql 17, dev" in normalized
@@ -1239,9 +1255,22 @@ def test_canonical_docs_record_captured_blocked_inventories_and_one_human_gate()
         assert "decisao humana" in normalized
         assert "nao prova" in normalized
         assert "prefixo reconciliado" in normalized
-        assert "revisao humana offline independente" in normalized
-        assert "sem nova consulta a dev ou prod" in normalized
-        assert "sem liberar o runner" in normalized
+        assert "revisao offline" in normalized
+        assert "seguranca e arquitetura de banco" in normalized
+        assert "manifesto estatico" in normalized
+        assert (
+            "nao autoriza acesso a ambiente" in normalized
+            or "nada aqui autoriza acesso a ambiente" in normalized
+        )
+        assert "schema canonico em postgresql 17 descartavel" in normalized
+        assert "atestacao read-only de dev e prod permanece" in normalized
+        assert "7f18f7e8b44cd50e6f6033867fb97bfa9eb9c9e6" in content
+        assert "source_level_expectation_only" in normalized
+        assert "operational_authorization=blocked" in normalized
+        assert "schema_expectation_manifest_verified_source_only" in normalized
+        assert "environment_attestation_complete=false" in normalized
+        assert "revisao tecnica" in normalized
+        assert "nao e independente" in normalized
         assert "preparar uma missao separada" not in normalized
         assert "revisar e integrar esta pr" not in normalized
         assert "inventarios dev/prod ainda nao capturados" not in normalized
@@ -1275,7 +1304,8 @@ def test_canonical_docs_record_captured_blocked_inventories_and_one_human_gate()
         content = path.read_text(encoding="utf-8")
         normalized = _normalized_prose(content)
         assert "integrado" in normalized
-        assert "decisoes humanas pendentes" in normalized
+        assert "revisao independente bloqueada" in normalized
+        assert "decisao owner-01 registrada" in normalized
         assert "nao aplicado" in normalized
         assert "98/98" in normalized
         assert "26/26" in normalized
@@ -1295,7 +1325,10 @@ def test_canonical_docs_record_captured_blocked_inventories_and_one_human_gate()
         assert "prova somente o frontend" in normalized
         assert "sem provar deploy manual ou do backend, banco ou runtime" in normalized
         assert "inventarios dev e prod capturados" in normalized
-        assert "nao revisados" in normalized
+        assert "revisao independente bloqueada" in normalized
+        assert "decisao owner-01 registrada" in normalized
+        assert "18ec23b3634ae591e771c9df2e2b6d3c44f69f72e6e2bbd854fbb1fc0fb0b133" in content
+        assert "0c2e46025b2650eea089777d17cebe5c566fb3d6ed9b68b4f9a1b5e049c59240" in content
         assert "bloquead" in normalized
         assert "33 linhas" in normalized
         assert "6 no nativo" in normalized or "com 6 linhas" in normalized
@@ -1306,9 +1339,13 @@ def test_canonical_docs_record_captured_blocked_inventories_and_one_human_gate()
         assert "cross_package_ok" in normalized
         assert "163 passed" in normalized
         assert "2 skipped" in normalized
-        assert "revisao humana offline independente" in normalized
-        assert "sem nova consulta a dev ou prod" in normalized
-        assert "sem liberar o runner" in normalized
+        assert "revisao offline" in normalized
+        assert "seguranca e arquitetura de banco" in normalized
+        assert "manifesto estatico" in normalized
+        assert (
+            "nao autoriza acesso a ambiente" in normalized
+            or "nada aqui autoriza acesso a ambiente" in normalized
+        )
         for stale_status in stale_candidate_statuses:
             assert stale_status not in normalized
         for stale_capture_claim in (
@@ -1340,7 +1377,8 @@ def test_canonical_docs_record_captured_blocked_inventories_and_one_human_gate()
     reconciliation_normalized = _normalized_prose(reconciliation_contract)
     assert "cfeba13c0a9d08288f8c956ee2f35ddc1c0c35b7" in reconciliation_contract
     assert "integrado" in reconciliation_normalized
-    assert "decisoes humanas pendentes" in reconciliation_normalized
+    assert "revisao independente bloqueada" in reconciliation_normalized
+    assert "decisao owner-01 registrada" in reconciliation_normalized
     assert "nao aplicado" in reconciliation_normalized
     assert "pacote deny-state versionado" in reconciliation_normalized
     assert "biblioteca padrao" in reconciliation_normalized
@@ -1385,11 +1423,15 @@ def test_canonical_docs_record_captured_blocked_inventories_and_one_human_gate()
         assert "inventory_blocked" in normalized
         assert "casos anteriores podem terminar" in normalized
         assert "inventarios dev e prod capturados" in normalized
-        assert "nao revisados" in normalized
+        assert "revisao independente bloqueada" in normalized
+        assert "decisao owner-01 registrada" in normalized
         assert "cross_package_ok" in normalized
         assert "163 passed, 2 skipped" in normalized
-        assert "sem nova consulta a dev ou prod" in normalized
-        assert "sem liberar o runner" in normalized
+        assert (
+            "nao autoriza acesso a ambiente" in normalized
+            or "nada aqui autoriza acesso a ambiente" in normalized
+        )
+        assert "runner" in normalized and "bloquead" in normalized
 
         for stale_claim in (
             "produz `evidence_captured_unreviewed` e termina no verificador com",
@@ -1578,6 +1620,61 @@ def test_captured_inventory_artifacts_are_unreviewed_and_blocked() -> None:
             )
 
 
+def test_migration_history_human_review_guide_is_sanitized_and_fail_closed() -> None:
+    guide = HUMAN_REVIEW_GUIDE_PATH.read_text(encoding="utf-8")
+    normalized = _normalized_prose(guide)
+
+    assert "owner-01" in normalized
+    assert "reviewer-01" in normalized
+    assert "operational_authorization=blocked" in normalized
+    assert "pessoas distintas" in normalized
+    assert "registro externo controlado" in normalized
+    assert "nao ocupa nenhum dos dois papeis" in normalized
+    assert "sem banco, rede, credencial" in normalized
+    assert "blocked_ledger_divergence" in normalized
+    assert "blocked_evidence_insufficient" in normalized
+    assert "sem backfill ou reaplicacao automatica" in normalized
+    assert "revisao independente bloqueada concluida" in normalized
+    assert "decisao owner-01 registrada" in normalized
+    assert "2026-08-29t02:49:00z" in normalized
+    assert "raniel" not in normalized
+    assert "sarah" not in normalized
+    assert "@" not in guide
+
+    expected_hashes = {
+        "136b3938c62c80b0882dd084abc43bfdc58465f957a1040502b0e40aa11481fa",
+        "aa79b4f52a2c152f8a1451596f37d0479f3e336bba304a8e34f579f1f39a767f",
+        "c2c9c29acaf469e1e560e9fb858c260b3fa8742c0b4b5fe692c6b763755db44c",
+        "34123027ab1b64108a9fb8d6c97da327306acd5ca49a11de2208eb699debc135",
+        "067377258893391c10a20da1e80c5b37154b2073d4060a8bda6c9628aa753524",
+        "a4ba967570985682bcff19ea5c0c9dc78f2ed96a07377cbdad3dcddf8f6dceda",
+        "18ec23b3634ae591e771c9df2e2b6d3c44f69f72e6e2bbd854fbb1fc0fb0b133",
+        "0c2e46025b2650eea089777d17cebe5c566fb3d6ed9b68b4f9a1b5e049c59240",
+    }
+    assert expected_hashes <= set(re.findall(r"\b[0-9a-f]{64}\b", guide))
+
+    packets_dir = HUMAN_REVIEW_GUIDE_PATH.parent / "packets"
+    dev_package = json.loads(
+        (
+            packets_dir / "migration-history-reconciliation-dev-evidence-v1.json"
+        ).read_text(encoding="utf-8"),
+        object_pairs_hook=_reject_duplicate_keys,
+    )
+    public_rows = dev_package["inventories"]["public_ledger"]["rows"]
+    catalog_entries = dev_package["catalog"]["entries"]
+    mismatches = [
+        position
+        for position, row in enumerate(public_rows)
+        if row["name"] != catalog_entries[position]["name"]
+    ]
+    assert mismatches == list(range(25, 33))
+    assert "oito posicoes" in normalized
+    assert "posicao 25" in normalized
+
+    contract = RECONCILIATION_CONTRACT_PATH.read_text(encoding="utf-8")
+    assert "migration-history-human-review-guide-v1.md" in contract
+
+
 def test_migration_operator_docs_reject_obsolete_generic_apply_contract() -> None:
     migration_readme = (
         REPO_ROOT / "backend" / "migrations" / "README.md"
@@ -1621,7 +1718,8 @@ def test_migration_operator_docs_reject_obsolete_generic_apply_contract() -> Non
         assert "bloquead" in normalized
         assert "pacote deny-state versionado" in normalized
         assert "verificador stdlib separado do runner" in normalized
-        assert "decisoes humanas pendentes" in normalized
+        assert "revisao independente bloqueada" in normalized
+        assert "decisao owner-01 registrada" in normalized
         assert "dml" in normalized
         assert "nao infere migration aplicada" in normalized
         assert "operational_authorization=blocked" in normalized
@@ -1736,6 +1834,10 @@ def test_reconciliation_candidate_docs_reject_consumed_gate_and_false_authority(
         "ledgers sincronizados",
         "status e apply liberados",
         "delta atual tambem implementa",
+        "pode aprovar somente a preparacao de um manifesto estatico",
+        "pode aprovar apenas a preparacao do manifesto estatico",
+        "pode aprovar somente um manifesto estatico do schema",
+        "desenho de uma missao posterior e separada de atestacao read-only",
     }
 
     for path in candidate_docs:
@@ -1743,3 +1845,30 @@ def test_reconciliation_candidate_docs_reject_consumed_gate_and_false_authority(
         for stale_claim in stale_claims:
             assert stale_claim not in normalized, f"stale claim in {path}"
         assert "operational_authorization=blocked" in normalized
+
+
+def test_schema_expectation_manifest_is_source_only_and_keeps_environment_gate() -> None:
+    manifest = json.loads(SCHEMA_EXPECTATION_MANIFEST_PATH.read_text(encoding="utf-8"))
+
+    assert manifest["artifact_state"] == (
+        "SOURCE_EXPECTATION_VERIFIED_ENVIRONMENT_UNATTESTED"
+    )
+    assert manifest["operational_authorization"] is False
+    assert manifest["source_expectation"]["manifest_scope"] == (
+        "SOURCE_LEVEL_EXPECTATION_ONLY"
+    )
+    assert manifest["source_expectation"]["final_schema_claim"] is False
+    assert manifest["review"]["review_type"] == (
+        "TECHNICAL_SELF_REVIEW_NOT_INDEPENDENT"
+    )
+    assert manifest["review"]["independent_review_complete"] is False
+    assert manifest["next_gates"][0] == (
+        "INDEPENDENT_SECURITY_AND_DATABASE_ARCHITECTURE_REVIEW"
+    )
+    assert manifest["next_gates"][1] == (
+        "SEPARATE_OFFLINE_CANONICAL_SCHEMA_DERIVATION"
+    )
+    assert manifest["next_gates"][2] == (
+        "SEPARATE_READ_ONLY_ENVIRONMENT_ATTESTATION"
+    )
+    assert "STATIC_SCHEMA_EXPECTATION_MANIFEST" not in manifest["next_gates"]
