@@ -284,8 +284,8 @@ O capturador e o materializador foram integrados pela PR #327, HEAD
 allowlisted tem SHA-256
 `8b589e5dda722691fead34cbd63cab75a7a22f32e0cf4bdfe64d6cef603866ee`.
 
-O estado e `INVENTARIOS DEV E PROD CAPTURADOS / NAO REVISADOS / BLOQUEADOS /
-DECISOES HUMANAS PENDENTES / NAO APLICADO`. Em PostgreSQL 17, DEV registrou
+O estado e `INVENTARIOS DEV E PROD CAPTURADOS / REVISAO INDEPENDENTE BLOQUEADA
+CONCLUIDA / DECISAO OWNER-01 REGISTRADA / NAO APLICADO`. Em PostgreSQL 17, DEV registrou
 33 linhas no ledger publico e 6 no nativo em
 `2026-08-28T22:43:11.454382Z`; PROD registrou o ledger publico
 `ABSENT_CONFIRMED`, com 0 linhas, e 32 linhas no nativo em
@@ -310,7 +310,18 @@ sem provar deploy manual ou do backend, banco ou runtime. A integracao versiona
 a evidencia sanitizada ja capturada, mas nao revisa os inventarios, nao aplica
 migration e nao libera o runner ou qualquer autorizacao operacional.
 
-Revisao humana offline independente dos pacotes e das evidencias, sem nova
-consulta a DEV ou PROD e sem liberar o runner. O gate nao autoriza DML,
-`bootstrap-ledger`, `harden-ledger`, `status`, `apply`, deploy, flag ou runtime.
-Universidade da Vida e Capacitacao Destino permanecem fora.
+A revisao de `REVIEWER-01`, vinculada pelo SHA-256
+`18ec23b3634ae591e771c9df2e2b6d3c44f69f72e6e2bbd854fbb1fc0fb0b133`,
+bloqueou DEV por divergencia do ledger e PROD por evidencia insuficiente.
+`OWNER-01` aceitou o bloqueio no registro externo de SHA-256
+`0c2e46025b2650eea089777d17cebe5c566fb3d6ed9b68b4f9a1b5e049c59240`,
+manteve `operational_authorization=false` e autorizou somente a proposta
+tecnica offline. Os registros externos nao foram versionados e os pacotes
+continuam bloqueados.
+
+Revisao offline independente, por seguranca e arquitetura de banco, da proposta
+de remediacao da divergencia. O gate pode aprovar somente a preparacao de um
+manifesto estatico de expectativas do schema; nao autoriza nova consulta a DEV
+ou PROD, DML, `bootstrap-ledger`, `harden-ledger`, `status`, `apply`, migration,
+backfill, deploy, flag ou runtime. Universidade da Vida e Capacitacao Destino
+permanecem fora.

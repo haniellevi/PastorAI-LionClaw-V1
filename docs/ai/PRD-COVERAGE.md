@@ -35,11 +35,11 @@ significa ativa em produção.
 | Pessoas e responsabilidades | `PARCIAL FORTE` | cadastro, papéis, vínculos, fila e escopos existentes | Fechar responsabilidades temporais, owner operacional e composição por setor |
 | Conexão WhatsApp | `IMPLEMENTADO / GATE OPERACIONAL` | Evolution, conexão por igreja, webhook e filas | Monitorar recibos, reconnect e capacidade antes de cada canário |
 | Conversas e handoff | `IMPLEMENTADO` | histórico, inbox, atribuição, transferência e estado IA/humano | Adicionar memória derivada, exclusão propagada e avaliação de naturalidade |
-| Fundação do agente | `IMPLEMENTADO / PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR INTEGRADOS / ARTEFATOS INTEGRADOS E VERSIONADOS / INVENTÁRIOS DEV E PROD CAPTURADOS, NÃO REVISADOS E BLOQUEADOS / DECISÕES HUMANAS PENDENTES / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | LangGraph stateless e contexto confiável D2B1 integrados; as PRs #327 e #328 integraram o capturador/materializador e o hotfix; a PR #329 integrou e versionou os seis artefatos sanitizados, que permanecem `EVIDENCE_CAPTURED_UNREVIEWED` | Revisão humana offline independente dos pacotes e evidências, sem nova consulta aos ambientes e sem liberar runner; aprovações, catálogo, writer, memória, conhecimento, D2 e operação permanecem posteriores |
+| Fundação do agente | `IMPLEMENTADO / PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR INTEGRADOS / ARTEFATOS VERSIONADOS / REVISÃO INDEPENDENTE BLOQUEADA CONCLUÍDA / DECISÃO OWNER-01 REGISTRADA / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | LangGraph stateless e contexto confiável D2B1 integrados; os inventários sanitizados foram revisados externamente e permanecem bloqueados, sem alterar `EVIDENCE_CAPTURED_UNREVIEWED` | Revisão offline de segurança e arquitetura de banco da proposta; manifesto, captura, implementação, runner, memória, conhecimento, D2 e operação permanecem posteriores |
 | Isolamento da memória | `AUSENTE / FUNDAÇÃO D2A INTEGRADA` | Nenhum checkpointer durável instalado; D2A cria somente role, schema, helper e factory privados ainda inativos | Tabelas com `igreja_id`, FORCE RLS, namespace server-side, exclusão e testes adversariais pertencem à D3 |
 | Conhecimento oficial | `AUSENTE` | Não há ingestão aprovada, embeddings ou recuperação institucional | Perfil da igreja, documentos versionados, audiência, RLS e busca híbrida |
 | Dados vivos como ferramentas | `PARCIAL` | Quatro ferramentas limitadas e queries determinísticas | Catálogo por especialista, capacidades e serviços compartilhados com o painel |
-| Consentimento | `PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR INTEGRADOS / ARTEFATOS INTEGRADOS E VERSIONADOS / INVENTÁRIOS DEV E PROD CAPTURADOS, NÃO REVISADOS E BLOQUEADOS / DECISÕES HUMANAS PENDENTES / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | Legado e opt-out continuam ativos; D2B2a adiciona ledger append-only sem caller ou aplicação em Supabase; os inventários sanitizados foram capturados e versionados, mas nenhuma decisão humana foi materializada | Revisão humana offline independente dos pacotes e evidências, sem nova consulta aos ambientes e sem liberar runner; D2, catálogo, prova, writer e operação permanecem bloqueados |
+| Consentimento | `PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR INTEGRADOS / ARTEFATOS VERSIONADOS / REVISÃO INDEPENDENTE BLOQUEADA CONCLUÍDA / DECISÃO OWNER-01 REGISTRADA / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | Legado e opt-out continuam ativos; D2B2a adiciona ledger append-only sem caller ou aplicação em Supabase; a revisão externa bloqueou DEV por divergência e PROD por evidência insuficiente | Revisão offline de segurança e arquitetura de banco da proposta; D2, catálogo, prova, writer e operação permanecem bloqueados |
 | Propostas e confirmação | `AUSENTE COMO PLATAFORMA` | Confirmações existem apenas em fluxos específicos | Registro durável, expiração, idempotência, revalidação e comprovante |
 | Notificações proativas | `PARCIAL E FRAGMENTADO` | SLA, cron, Agenda, event notify e broadcast têm caminhos próprios | Outbox única, finalidade, quiet hours, retry, recibo e escalonamento |
 | Painel de Hoje | `IMPLEMENTADO / PARCIAL` | dashboard e work queue por responsabilidade | Compor todas as responsabilidades e as lacunas de conhecimento |
@@ -55,7 +55,7 @@ significa ativa em produção.
 | Broadcast | `IMPLEMENTADO / GATE OPERACIONAL` | ledger, worker, retry e dead-letter | Política por finalidade e canário nominal separado |
 | Asaas | `IMPLEMENTADO / GATE OPERACIONAL` | operações duráveis, isolamento e hardening | Inventário e canário financeiro real, sem envolver a igreja em cortesia |
 | Brevo | `IMPLEMENTADO / GATE OPERACIONAL` | serviço e modo de envio fechado | Domínio, remetente, monitoramento e canário próprio |
-| Onboarding da igreja | `PARCIAL / GOVERNANÇA DRAFT-ONLY INTEGRADA E INATIVA` | telas e configurações administrativas existentes; D2B2b3A integra o preparo de rascunhos de consentimento no Console Master | Revisão humana offline independente dos pacotes e evidências; em gate posterior, criar o fluxo nominal de responsáveis e aprovações sem converter preenchimento em autoridade |
+| Onboarding da igreja | `PARCIAL / GOVERNANÇA DRAFT-ONLY INTEGRADA E INATIVA` | telas e configurações administrativas existentes; D2B2b3A integra o preparo de rascunhos de consentimento no Console Master | Revisão offline da proposta de remediação; em gate posterior, criar o fluxo nominal de responsáveis e aprovações sem converter preenchimento em autoridade |
 | Exclusão e direitos da pessoa | `PARCIAL` | Exclusão de conversa remove conversa, mensagens e mídia | Propagar para transcrição, resumo, checkpoint, vetores e auditoria sem conteúdo |
 | Observabilidade de IA | `PARCIAL` | logs, custo, filas e metadados seguros de falha | Métricas por rota e tenant, SLO, retenção e alerta de workflows presos |
 | Acessibilidade e performance | `NÃO VERIFICADO INTEGRALMENTE` | Automação e estilos cobrem parte dos riscos | Leitor de tela, teclado, zoom, mobile e métricas de campo |
@@ -379,8 +379,8 @@ O capturador e o materializador foram integrados pela PR #327, HEAD
 allowlisted tem SHA-256
 `8b589e5dda722691fead34cbd63cab75a7a22f32e0cf4bdfe64d6cef603866ee`.
 
-O estado é `INVENTÁRIOS DEV E PROD CAPTURADOS / NÃO REVISADOS / BLOQUEADOS /
-DECISÕES HUMANAS PENDENTES / NÃO APLICADO`. Em PostgreSQL 17, DEV registrou
+O estado é `INVENTÁRIOS DEV E PROD CAPTURADOS / REVISÃO INDEPENDENTE BLOQUEADA
+CONCLUÍDA / DECISÃO OWNER-01 REGISTRADA / NÃO APLICADO`. Em PostgreSQL 17, DEV registrou
 33 linhas no ledger público e 6 no nativo em
 `2026-08-28T22:43:11.454382Z`; PROD registrou o ledger público
 `ABSENT_CONFIRMED`, com 0 linhas, e 32 linhas no nativo em
@@ -405,10 +405,21 @@ sem provar deploy manual ou do backend, banco ou runtime. A integração version
 a evidência sanitizada já capturada, mas não revisa os inventários, não aplica
 migration e não libera o runner ou qualquer autorização operacional.
 
-Revisão humana offline independente dos pacotes e das evidências, sem nova
-consulta a DEV ou PROD e sem liberar o runner. O gate não autoriza DML,
-`bootstrap-ledger`, `harden-ledger`, `status`, `apply`, deploy, flag ou runtime.
-Universidade da Vida e Capacitação Destino permanecem fora.
+A revisão de `REVIEWER-01`, vinculada pelo SHA-256
+`18ec23b3634ae591e771c9df2e2b6d3c44f69f72e6e2bbd854fbb1fc0fb0b133`,
+bloqueou DEV por divergência do ledger e PROD por evidência insuficiente.
+`OWNER-01` aceitou o bloqueio no registro externo de SHA-256
+`0c2e46025b2650eea089777d17cebe5c566fb3d6ed9b68b4f9a1b5e049c59240`,
+manteve `operational_authorization=false` e autorizou somente a proposta
+técnica offline. Os registros externos não foram versionados e os pacotes
+continuam bloqueados.
+
+Revisão offline independente, por segurança e arquitetura de banco, da proposta
+de remediação da divergência. O gate pode aprovar somente a preparação de um
+manifesto estático de expectativas do schema; não autoriza nova consulta a DEV
+ou PROD, DML, `bootstrap-ledger`, `harden-ledger`, `status`, `apply`, migration,
+backfill, deploy, flag ou runtime. Universidade da Vida e Capacitação Destino
+permanecem fora.
 
 ## Fontes principais
 

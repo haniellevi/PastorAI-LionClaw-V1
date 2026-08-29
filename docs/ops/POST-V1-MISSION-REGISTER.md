@@ -843,8 +843,8 @@ O capturador e o materializador foram integrados pela PR #327, HEAD
 allowlisted tem SHA-256
 `8b589e5dda722691fead34cbd63cab75a7a22f32e0cf4bdfe64d6cef603866ee`.
 
-O estado é `INVENTÁRIOS DEV E PROD CAPTURADOS / NÃO REVISADOS / BLOQUEADOS /
-DECISÕES HUMANAS PENDENTES / NÃO APLICADO`. Em PostgreSQL 17, DEV registrou
+O estado é `INVENTÁRIOS DEV E PROD CAPTURADOS / REVISÃO INDEPENDENTE BLOQUEADA
+CONCLUÍDA / DECISÃO OWNER-01 REGISTRADA / NÃO APLICADO`. Em PostgreSQL 17, DEV registrou
 33 linhas no ledger público e 6 no nativo em
 `2026-08-28T22:43:11.454382Z`; PROD registrou o ledger público
 `ABSENT_CONFIRMED`, com 0 linhas, e 32 linhas no nativo em
@@ -880,10 +880,23 @@ versiona a evidência sanitizada já capturada, mas não revisa os inventários,
 não altera `EVIDENCE_CAPTURED_UNREVIEWED` ou `HUMAN_EVIDENCE_BLOCKED`, não
 aplica migration e não libera o runner nem qualquer autorização operacional.
 
-**Próximo gate único:** revisão humana offline independente dos pacotes e das
-evidências, sem nova consulta a DEV ou PROD e sem liberar o runner. O gate não
-autoriza DML, `bootstrap-ledger`, `harden-ledger`, `status`, `apply`, deploy,
-flag ou runtime. Universidade da Vida e Capacitação Destino permanecem fora.
+Em `2026-08-29`, `REVIEWER-01` concluiu a revisão independente e classificou
+DEV como `BLOCKED_LEDGER_DIVERGENCE` e PROD como
+`BLOCKED_EVIDENCE_INSUFFICIENT`. O registro externo sanitizado tem SHA-256
+`18ec23b3634ae591e771c9df2e2b6d3c44f69f72e6e2bbd854fbb1fc0fb0b133` e não
+foi versionado. `OWNER-01` aceitou o bloqueio, manteve
+`operational_authorization=false` e autorizou somente a preparação offline da
+correção. O registro externo dessa decisão tem SHA-256
+`0c2e46025b2650eea089777d17cebe5c566fb3d6ed9b68b4f9a1b5e049c59240` e não
+foi versionado. Nenhum pacote foi alterado e nenhum comando do runner foi
+liberado.
+
+**Próximo gate único:** revisão offline independente, por segurança e
+arquitetura de banco, da proposta de remediação da divergência. O gate pode
+aprovar somente a preparação de um manifesto estático de expectativas do
+schema; não autoriza nova consulta a DEV ou PROD, DML, `bootstrap-ledger`,
+`harden-ledger`, `status`, `apply`, migration, backfill, deploy, flag ou
+runtime. Universidade da Vida e Capacitação Destino permanecem fora.
 
 ## Paralelismo seguro
 

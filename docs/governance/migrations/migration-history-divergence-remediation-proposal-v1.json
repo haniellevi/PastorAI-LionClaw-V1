@@ -1,0 +1,108 @@
+{
+  "artifact_state": "OFFLINE_REMEDIATION_PROPOSAL_BLOCKED",
+  "contract_version": "1.0",
+  "current_permissions": {
+    "database_access_allowed": false,
+    "database_mutation_allowed": false,
+    "deploy_allowed": false,
+    "environment_operation_allowed": false,
+    "ledger_backfill_allowed": false,
+    "migration_application_allowed": false,
+    "runner_change_allowed": false,
+    "runner_execution_allowed": false
+  },
+  "findings": {
+    "DEV": {
+      "classification": "LEDGER_DIVERGENCE_CONFIRMED",
+      "first_catalog_prefix_mismatch_position": 25,
+      "mismatched_public_positions": [
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32
+      ],
+      "native_ledger_rows": 6,
+      "public_ledger_rows": 33
+    },
+    "PROD": {
+      "classification": "EVIDENCE_INSUFFICIENT_CONFIRMED",
+      "native_ledger_names_redacted_to_null": true,
+      "native_ledger_rows": 32,
+      "public_ledger_rows": 0,
+      "public_ledger_state": "ABSENT_CONFIRMED"
+    }
+  },
+  "next_gates": [
+    "STATIC_SCHEMA_EXPECTATION_MANIFEST",
+    "INDEPENDENT_SECURITY_AND_DATABASE_ARCHITECTURE_REVIEW",
+    "SEPARATE_READ_ONLY_ENVIRONMENT_ATTESTATION",
+    "HUMAN_CUTOVER_DECISION",
+    "SEPARATE_IMPLEMENTATION_PR",
+    "SEPARATE_ENVIRONMENT_EXECUTION_AUTHORIZATION"
+  ],
+  "operational_authorization": false,
+  "proposal_id": "migration-history-divergence-remediation-proposal-v1",
+  "repository_base_sha": "f73a631c632a1b37cea07073c91fe6ad2a81e995",
+  "review_records": {
+    "independent_review_sha256": "18ec23b3634ae591e771c9df2e2b6d3c44f69f72e6e2bbd854fbb1fc0fb0b133",
+    "owner_decision_sha256": "0c2e46025b2650eea089777d17cebe5c566fb3d6ed9b68b4f9a1b5e049c59240",
+    "owner_reference": "OWNER-01",
+    "reviewer_reference": "REVIEWER-01"
+  },
+  "runner_contract": {
+    "apply_migrations_sha256": "36e63cde6751cd0cb33e1511091068b0b04f10029ace06703eead82e0e836c65",
+    "commands_remain_blocked": [
+      "bootstrap-ledger",
+      "harden-ledger",
+      "status",
+      "apply"
+    ],
+    "must_remain_unchanged_in_this_mission": true,
+    "proposal_is_not_a_runner_input": true,
+    "reconciliation_verifier_sha256": "9451cbe5054d8c0d7e2754d09dea7f3a9761e8585269ca783eea943dd785dfae"
+  },
+  "source_evidence": {
+    "catalog_digest_sha256": "84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f",
+    "catalog_migration_count": 75,
+    "packages": {
+      "DEV": {
+        "package_sha256": "c2c9c29acaf469e1e560e9fb858c260b3fa8742c0b4b5fe692c6b763755db44c",
+        "receipt_sha256": {
+          "native": "136b3938c62c80b0882dd084abc43bfdc58465f957a1040502b0e40aa11481fa",
+          "public": "aa79b4f52a2c152f8a1451596f37d0479f3e336bba304a8e34f579f1f39a767f"
+        }
+      },
+      "PROD": {
+        "package_sha256": "a4ba967570985682bcff19ea5c0c9dc78f2ed96a07377cbdad3dcddf8f6dceda",
+        "receipt_sha256": {
+          "native": "34123027ab1b64108a9fb8d6c97da327306acd5ca49a11de2208eb699debc135",
+          "public": "067377258893391c10a20da1e80c5b37154b2073d4060a8bda6c9628aa753524"
+        }
+      }
+    }
+  },
+  "strategy": {
+    "alternatives": [
+      {
+        "id": "FORENSIC_RECONSTRUCTION",
+        "status": "BLOCKED_WITHOUT_EXTERNAL_EVIDENCE"
+      },
+      {
+        "id": "CONTROLLED_EPOCH_CUTOVER_AFTER_SCHEMA_ATTESTATION",
+        "status": "RECOMMENDED_FOR_FUTURE_HUMAN_DECISION"
+      },
+      {
+        "id": "ENVIRONMENT_REBUILD_FROM_CATALOG",
+        "status": "FALLBACK_REQUIRING_SEPARATE_BUSINESS_AND_DATA_PLAN"
+      }
+    ],
+    "automatic_backfill": "PROHIBITED",
+    "historical_inference": "PROHIBITED",
+    "recommended": "CONTROLLED_EPOCH_CUTOVER_AFTER_SCHEMA_ATTESTATION",
+    "status": "RECOMMENDATION_ONLY_NOT_APPROVED"
+  }
+}

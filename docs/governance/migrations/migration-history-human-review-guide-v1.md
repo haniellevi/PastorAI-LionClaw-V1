@@ -1,7 +1,7 @@
 # Guia de revisão humana offline do histórico de migrations
 
-**Estado:** `PREPARAÇÃO APENAS / SEM DECISÃO / SEM ATESTADO /
-OPERATIONAL_AUTHORIZATION=BLOCKED`
+**Estado:** `REVISÃO INDEPENDENTE BLOQUEADA CONCLUÍDA / DECISÃO OWNER-01
+REGISTRADA / OPERATIONAL_AUTHORIZATION=BLOCKED`
 
 ## Finalidade e separação de papéis
 
@@ -95,13 +95,30 @@ Uma decisão bloqueada é um resultado válido da revisão. Ela não deve ser
 convertida em `HUMAN_REVIEW_COMPLETE`, `ATTESTED_REVIEW_ONLY` ou em uma
 permissão para executar o runner.
 
+## Resultado registrado
+
+`REVIEWER-01` concluiu a revisão em `2026-08-29T02:49:00Z`. O registro externo
+sanitizado possui SHA-256
+`18ec23b3634ae591e771c9df2e2b6d3c44f69f72e6e2bbd854fbb1fc0fb0b133` e
+classificou DEV como `BLOCKED_LEDGER_DIVERGENCE` e PROD como
+`BLOCKED_EVIDENCE_INSUFFICIENT`. O registro não foi versionado.
+
+`OWNER-01` aceitou essa revisão, manteve `operational_authorization=false` e
+autorizou somente a preparação offline da correção histórica. O registro
+externo dessa decisão possui SHA-256
+`0c2e46025b2650eea089777d17cebe5c566fb3d6ed9b68b4f9a1b5e049c59240` e
+também não foi versionado.
+
+Essas decisões não modificam os pacotes capturados, não completam a
+reconciliação e não autorizam nenhum comando do runner.
+
 ## Decisão posterior de `OWNER-01`
 
-Depois de receber o registro independente, o proprietário cria um registro de
-decisão separado e escolhe o próximo trabalho técnico. Para o estado capturado,
-a recomendação é manter `bootstrap-ledger`, `harden-ledger`, `status` e `apply`
-bloqueados e abrir uma missão específica para tratar a divergência histórica,
-sem backfill ou reaplicação automática.
+O registro separado de `OWNER-01` autorizou somente a proposta técnica em
+[`migration-history-divergence-remediation-proposal-v1.json`](migration-history-divergence-remediation-proposal-v1.json).
+`bootstrap-ledger`, `harden-ledger`, `status` e `apply` continuam bloqueados.
+Qualquer manifesto, captura posterior, implementação ou execução exige gate e
+autorização próprios, sem backfill ou reaplicação automática.
 
 Nenhuma etapa deste guia acessa DEV ou PROD, executa SQL, DML, migration,
 deploy, flag ou runtime.

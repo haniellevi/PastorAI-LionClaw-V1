@@ -48,7 +48,7 @@ qualquer expansão do canário.
 | Agente e Evolution | `PARCIAL / GATE OPERACIONAL` | Corrigir memória, conhecimento e qualidade antes de novo canário |
 | Canário ativo | `PASS TÉCNICO / QUALIDADE INSUFICIENTE` | Avaliação conversacional humana após a nova fundação |
 | LangGraph | `IMPLEMENTADO STATELESS / D2B1 INTEGRADA` | Persistência, memória e subgrafos permanecem posteriores |
-| Consentimento | `PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR INTEGRADOS / ARTEFATOS INTEGRADOS E VERSIONADOS / INVENTÁRIOS DEV E PROD CAPTURADOS, NÃO REVISADOS E BLOQUEADOS / DECISÕES HUMANAS PENDENTES / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | Revisão humana offline independente dos pacotes e evidências, sem nova consulta aos ambientes e sem liberar runner; aprovações, catálogo, writers, Supabase e D2C permanecem bloqueados |
+| Consentimento | `PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR INTEGRADOS / ARTEFATOS VERSIONADOS / REVISÃO INDEPENDENTE BLOQUEADA CONCLUÍDA / DECISÃO OWNER-01 REGISTRADA / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | Revisão offline de segurança e arquitetura de banco da proposta; manifesto, captura posterior, implementação, runner, Supabase e D2C permanecem bloqueados |
 | Conhecimento por igreja | `AUSENTE` | Ingestão aprovada, ACL, busca e ferramentas de dados vivos |
 | Relatório por WhatsApp | `PARCIAL` | Confirmar e gravar no relatório canônico |
 | Central de Células | `PARCIAL FORTE` | Operação e notificações principais pelo WhatsApp |
@@ -462,8 +462,8 @@ O capturador e o materializador foram integrados pela PR #327, HEAD
 allowlisted tem SHA-256
 `8b589e5dda722691fead34cbd63cab75a7a22f32e0cf4bdfe64d6cef603866ee`.
 
-O estado é `INVENTÁRIOS DEV E PROD CAPTURADOS / NÃO REVISADOS / BLOQUEADOS /
-DECISÕES HUMANAS PENDENTES / NÃO APLICADO`. Em PostgreSQL 17, DEV registrou
+O estado é `INVENTÁRIOS DEV E PROD CAPTURADOS / REVISÃO INDEPENDENTE BLOQUEADA
+CONCLUÍDA / DECISÃO OWNER-01 REGISTRADA / NÃO APLICADO`. Em PostgreSQL 17, DEV registrou
 33 linhas no ledger público e 6 no nativo em
 `2026-08-28T22:43:11.454382Z`; PROD registrou o ledger público
 `ABSENT_CONFIRMED`, com 0 linhas, e 32 linhas no nativo em
@@ -488,7 +488,18 @@ sem provar deploy manual ou do backend, banco ou runtime. A integração version
 a evidência sanitizada já capturada, mas não revisa os inventários, não aplica
 migration e não libera o runner ou qualquer autorização operacional.
 
-Revisão humana offline independente dos pacotes e das evidências, sem nova
-consulta a DEV ou PROD e sem liberar o runner. O gate não autoriza DML,
-`bootstrap-ledger`, `harden-ledger`, `status`, `apply`, deploy, flag ou runtime.
-Universidade da Vida e Capacitação Destino permanecem fora.
+A revisão de `REVIEWER-01`, vinculada pelo SHA-256
+`18ec23b3634ae591e771c9df2e2b6d3c44f69f72e6e2bbd854fbb1fc0fb0b133`,
+bloqueou DEV por divergência do ledger e PROD por evidência insuficiente.
+`OWNER-01` aceitou o bloqueio no registro externo de SHA-256
+`0c2e46025b2650eea089777d17cebe5c566fb3d6ed9b68b4f9a1b5e049c59240`,
+manteve `operational_authorization=false` e autorizou somente a proposta
+técnica offline. Os registros externos não foram versionados e os pacotes
+continuam bloqueados.
+
+Revisão offline independente, por segurança e arquitetura de banco, da proposta
+de remediação da divergência. O gate pode aprovar somente a preparação de um
+manifesto estático de expectativas do schema; não autoriza nova consulta a DEV
+ou PROD, DML, `bootstrap-ledger`, `harden-ledger`, `status`, `apply`, migration,
+backfill, deploy, flag ou runtime. Universidade da Vida e Capacitação Destino
+permanecem fora.

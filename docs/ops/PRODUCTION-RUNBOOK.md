@@ -176,8 +176,16 @@ sem provar deploy manual ou do backend, banco ou runtime. A integração version
 a evidência sanitizada já capturada, mas não revisa os inventários, não aplica
 migration e não libera o runner ou qualquer autorização operacional.
 
-O próximo gate é revisão humana offline independente dos pacotes e evidências,
-sem nova consulta a DEV ou PROD e sem liberar o runner. Permanecem proibidos
+A revisão independente bloqueada foi concluída; o registro externo de SHA-256
+`18ec23b3634ae591e771c9df2e2b6d3c44f69f72e6e2bbd854fbb1fc0fb0b133`
+bloqueou DEV por divergência e PROD por evidência insuficiente. A decisão
+OWNER-01 registrada está vinculada ao SHA-256
+`0c2e46025b2650eea089777d17cebe5c566fb3d6ed9b68b4f9a1b5e049c59240`,
+manteve a autorização operacional falsa e abriu somente a proposta offline.
+
+O próximo gate é revisão offline de segurança e arquitetura de banco da
+proposta. Ele pode aprovar somente um manifesto estático do schema e não
+autoriza nova consulta a DEV ou PROD. Permanecem proibidos
 DML, `bootstrap-ledger`, `harden-ledger`, `status`, `apply`, SQL Editor,
 `apply_migration`, `db push`, MCP, deploy, flag e runtime. UV e CD permanecem
 fora.
