@@ -1,6 +1,12 @@
 {
+  "amendment": {
+    "amendment_reason": "STATIC_MANIFEST_GATE_CONSUMED_AND_CANONICAL_DERIVATION_GATE_MADE_EXPLICIT",
+    "prior_human_records_apply_to_superseded_version_only": true,
+    "supersedes_proposal_id": "migration-history-divergence-remediation-proposal-v1",
+    "supersedes_sha256": "84614e0b140e38d07c11ed4ceb10025b3dbc85b121684da1e1ebdca6d0104e7d"
+  },
   "artifact_state": "OFFLINE_REMEDIATION_PROPOSAL_BLOCKED",
-  "contract_version": "1.0",
+  "contract_version": "2.0",
   "current_permissions": {
     "database_access_allowed": false,
     "database_mutation_allowed": false,
@@ -37,21 +43,24 @@
     }
   },
   "next_gates": [
-    "STATIC_SCHEMA_EXPECTATION_MANIFEST",
     "INDEPENDENT_SECURITY_AND_DATABASE_ARCHITECTURE_REVIEW",
+    "SEPARATE_OFFLINE_CANONICAL_SCHEMA_DERIVATION",
     "SEPARATE_READ_ONLY_ENVIRONMENT_ATTESTATION",
     "HUMAN_CUTOVER_DECISION",
     "SEPARATE_IMPLEMENTATION_PR",
     "SEPARATE_ENVIRONMENT_EXECUTION_AUTHORIZATION"
   ],
   "operational_authorization": false,
-  "proposal_id": "migration-history-divergence-remediation-proposal-v1",
+  "proposal_id": "migration-history-divergence-remediation-proposal-v2",
   "repository_base_sha": "f73a631c632a1b37cea07073c91fe6ad2a81e995",
   "review_records": {
-    "independent_review_sha256": "18ec23b3634ae591e771c9df2e2b6d3c44f69f72e6e2bbd854fbb1fc0fb0b133",
-    "owner_decision_sha256": "0c2e46025b2650eea089777d17cebe5c566fb3d6ed9b68b4f9a1b5e049c59240",
-    "owner_reference": "OWNER-01",
-    "reviewer_reference": "REVIEWER-01"
+    "current_independent_review_complete": false,
+    "current_review_state": "PENDING_INDEPENDENT_REVIEW_OF_V2",
+    "prior_independent_review_sha256": "18ec23b3634ae591e771c9df2e2b6d3c44f69f72e6e2bbd854fbb1fc0fb0b133",
+    "prior_owner_decision_sha256": "0c2e46025b2650eea089777d17cebe5c566fb3d6ed9b68b4f9a1b5e049c59240",
+    "prior_owner_reference": "OWNER-01",
+    "prior_records_apply_to_proposal_id": "migration-history-divergence-remediation-proposal-v1",
+    "prior_reviewer_reference": "REVIEWER-01"
   },
   "runner_contract": {
     "apply_migrations_sha256": "36e63cde6751cd0cb33e1511091068b0b04f10029ace06703eead82e0e836c65",

@@ -82,6 +82,20 @@ def test_manifest_is_source_only_and_not_an_environment_claim() -> None:
     )
     assert manifest["source_expectation"]["final_schema_claim"] is False
     assert manifest["source_expectation"]["environment_attestation_complete"] is False
+    assert manifest["repository"]["declared_base_sha_role"] == (
+        "DECLARED_CONTEXT_ONLY_CATALOG_DIGEST_IS_AUTHORITATIVE_BYTE_BINDING"
+    )
+    assert manifest["attestation_contract"]["current_environment_version_attested"] is False
+    assert manifest["attestation_contract"]["offline_derivation_target"] == {
+        "postgresql_major": 17,
+        "reference_path": ".github/workflows/rls-integration.yml",
+        "reference_sha256": (
+            "4fac0b1ed923f3dc2298b45ff63bfe57ec849654ae6ab446facbca4b6fef891b"
+        ),
+        "selection_basis": (
+            "VERSIONED_DISPOSABLE_CI_IMAGE_NOT_ENVIRONMENT_OBSERVATION"
+        ),
+    }
     assert manifest["attestation_contract"]["state"] == (
         "PENDING_SEPARATE_READ_ONLY_ENVIRONMENT_ATTESTATION"
     )
@@ -366,3 +380,25 @@ def test_catalog_byte_drift_blocks_before_source_verification(
     output = capsys.readouterr()
     assert output.out == "OPERATIONAL_AUTHORIZATION=BLOCKED\n"
     assert output.err == "SCHEMA_EXPECTATION_MANIFEST_BLOCKED:CATALOG_DRIFT\n"
+
+
+@pytest.mark.parametrize("suffix", [".SQL", ".Sql", ".sQl"])
+def test_noncanonical_sql_suffix_fails_closed_before_source_verification(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: Any,
+    suffix: str,
+) -> None:
+    module = _load_module()
+    catalog_copy = tmp_path / "migrations"
+    shutil.copytree(REPO_ROOT / "backend" / "migrations", catalog_copy)
+    (catalog_copy / f"20990101_000000_private{suffix}").write_text(
+        "select 1;\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(module, "MIGRATIONS_DIR", catalog_copy)
+
+    assert module.main(["--manifest", module.MANIFEST_BASENAME]) == 5
+    output = capsys.readouterr()
+    assert output.out == "OPERATIONAL_AUTHORIZATION=BLOCKED\n"
+    assert output.err == "SCHEMA_EXPECTATION_MANIFEST_BLOCKED:CATALOG_DRIFT\n"
+    assert "private" not in output.err

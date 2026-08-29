@@ -116,6 +116,11 @@ reconciliação e não autorizam nenhum comando do runner.
 
 O registro separado de `OWNER-01` autorizou somente a proposta técnica em
 [`migration-history-divergence-remediation-proposal-v1.json`](migration-history-divergence-remediation-proposal-v1.json).
+
+O `v1` permanece preservado como o texto histórico efetivamente vinculado aos
+registros anteriores. A emenda técnica corrente está no
+[`migration-history-divergence-remediation-proposal-v2.json`](migration-history-divergence-remediation-proposal-v2.json),
+requer revisão própria e não herda aprovação.
 `bootstrap-ledger`, `harden-ledger`, `status` e `apply` continuam bloqueados.
 Qualquer manifesto, captura posterior, implementação ou execução exige gate e
 autorização próprios, sem backfill ou reaplicação automática.

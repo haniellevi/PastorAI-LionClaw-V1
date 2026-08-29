@@ -8,6 +8,7 @@
       "NO_AUTOMATIC_REPAIR_BACKFILL_OR_REAPPLICATION",
       "EACH_ENVIRONMENT_REQUIRES_DISTINCT_EVIDENCE_AND_HUMAN_DECISION"
     ],
+    "current_environment_version_attested": false,
     "data_invariants": [
       {
         "id": "TENANT_FOREIGN_KEY_CONSISTENCY",
@@ -46,7 +47,12 @@
       "DEV",
       "PROD"
     ],
-    "postgresql_major": 17,
+    "offline_derivation_target": {
+      "postgresql_major": 17,
+      "reference_path": ".github/workflows/rls-integration.yml",
+      "reference_sha256": "4fac0b1ed923f3dc2298b45ff63bfe57ec849654ae6ab446facbca4b6fef891b",
+      "selection_basis": "VERSIONED_DISPOSABLE_CI_IMAGE_NOT_ENVIRONMENT_OBSERVATION"
+    },
     "required_domains": [
       "EXTENSIONS",
       "ENUM_TYPES_AND_VALUES",
@@ -83,7 +89,8 @@
   ],
   "operational_authorization": false,
   "repository": {
-    "base_sha": "7f18f7e8b44cd50e6f6033867fb97bfa9eb9c9e6",
+    "declared_base_sha": "7f18f7e8b44cd50e6f6033867fb97bfa9eb9c9e6",
+    "declared_base_sha_role": "DECLARED_CONTEXT_ONLY_CATALOG_DIGEST_IS_AUTHORITATIVE_BYTE_BINDING",
     "catalog_algorithm": "basename-ascii-ascending+sha256-raw-bytes-v1",
     "catalog_digest_sha256": "84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f",
     "catalog_migration_count": 75,

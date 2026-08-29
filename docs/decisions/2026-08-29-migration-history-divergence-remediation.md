@@ -69,7 +69,7 @@ por esta proposta.
 ## Contrato machine-readable
 
 O arquivo
-[`migration-history-divergence-remediation-proposal-v1.json`](../governance/migrations/migration-history-divergence-remediation-proposal-v1.json)
+[`migration-history-divergence-remediation-proposal-v2.json`](../governance/migrations/migration-history-divergence-remediation-proposal-v2.json)
 vincula os seis artefatos, os dois registros humanos opacos, os achados e os
 gates futuros. Ele mantém todas as permissões operacionais em `false` e não é
 entrada do runner.
@@ -80,6 +80,13 @@ O SHA-256 fixado do runner é
 O verificador offline também permanece inalterado, no SHA-256
 `9451cbe5054d8c0d7e2754d09dea7f3a9761e8585269ca783eea943dd785dfae`.
 Nenhum novo subcomando, migration, marker ou bypass é criado.
+
+O `v1`, SHA-256
+`84614e0b140e38d07c11ed4ceb10025b3dbc85b121684da1e1ebdca6d0104e7d`,
+permanece byte a byte como o texto ao qual se vinculam a revisão independente
+e a decisão do owner já registradas. O `v2` o sucede sem reaproveitar essa
+aprovação: declara a emenda, mantém a revisão independente atual pendente e
+explicita a derivação canônica como gate separado.
 
 ## Manifesto de expectativas da fonte
 
@@ -97,6 +104,12 @@ termina com `SCHEMA_EXPECTATION_MANIFEST_VERIFIED_SOURCE_ONLY`, mantendo
 Esse manifesto descreve somente o que a fonte versionada espera. SQL dinâmico,
 condicional e mutações históricas impedem que uma leitura estática prove o
 schema final de DEV ou PROD. Nenhum ambiente foi consultado nesta missão.
+O objeto `offline_derivation_target` fixa PostgreSQL 17 a partir da imagem
+descartável versionada em `.github/workflows/rls-integration.yml` e do SHA-256
+desse workflow; não é observação de ambiente. O campo
+`current_environment_version_attested` permanece `false`. Da mesma forma,
+`declared_base_sha` é rótulo de contexto; o vínculo autoritativo dos bytes é o
+digest do catálogo.
 
 ## Revisão técnica desta missão
 

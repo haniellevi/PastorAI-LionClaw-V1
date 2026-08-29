@@ -13,6 +13,13 @@ PLAN_PATH = (
     / "docs"
     / "governance"
     / "migrations"
+    / "migration-history-divergence-remediation-proposal-v2.json"
+)
+V1_PLAN_PATH = (
+    REPO_ROOT
+    / "docs"
+    / "governance"
+    / "migrations"
     / "migration-history-divergence-remediation-proposal-v1.json"
 )
 ADR_PATH = (
@@ -31,6 +38,7 @@ VERIFIER_PATH = (
 )
 
 EXPECTED_TOP_LEVEL_KEYS = {
+    "amendment",
     "artifact_state",
     "contract_version",
     "current_permissions",
@@ -101,11 +109,12 @@ def _package_path(environment: str, suffix: str = "") -> Path:
 
 def test_remediation_proposal_is_closed_and_operationally_blocked() -> None:
     plan = _load_json(PLAN_PATH)
+    historical_plan = _load_json(V1_PLAN_PATH)
 
     assert set(plan) == EXPECTED_TOP_LEVEL_KEYS
-    assert plan["contract_version"] == "1.0"
+    assert plan["contract_version"] == "2.0"
     assert plan["proposal_id"] == (
-        "migration-history-divergence-remediation-proposal-v1"
+        "migration-history-divergence-remediation-proposal-v2"
     )
     assert plan["artifact_state"] == "OFFLINE_REMEDIATION_PROPOSAL_BLOCKED"
     assert plan["operational_authorization"] is False
@@ -113,6 +122,44 @@ def test_remediation_proposal_is_closed_and_operationally_blocked() -> None:
     assert plan["repository_base_sha"] == (
         "f73a631c632a1b37cea07073c91fe6ad2a81e995"
     )
+    assert _sha256(V1_PLAN_PATH) == (
+        "84614e0b140e38d07c11ed4ceb10025b3dbc85b121684da1e1ebdca6d0104e7d"
+    )
+    assert historical_plan["contract_version"] == "1.0"
+    assert historical_plan["proposal_id"] == (
+        "migration-history-divergence-remediation-proposal-v1"
+    )
+    assert historical_plan["next_gates"][0] == "STATIC_SCHEMA_EXPECTATION_MANIFEST"
+    assert plan["amendment"] == {
+        "amendment_reason": (
+            "STATIC_MANIFEST_GATE_CONSUMED_AND_CANONICAL_DERIVATION_GATE_MADE_EXPLICIT"
+        ),
+        "prior_human_records_apply_to_superseded_version_only": True,
+        "supersedes_proposal_id": (
+            "migration-history-divergence-remediation-proposal-v1"
+        ),
+        "supersedes_sha256": (
+            "84614e0b140e38d07c11ed4ceb10025b3dbc85b121684da1e1ebdca6d0104e7d"
+        ),
+    }
+    historical_common = {
+        key: value
+        for key, value in historical_plan.items()
+        if key not in {"contract_version", "next_gates", "proposal_id", "review_records"}
+    }
+    current_common = {
+        key: value
+        for key, value in plan.items()
+        if key
+        not in {
+            "amendment",
+            "contract_version",
+            "next_gates",
+            "proposal_id",
+            "review_records",
+        }
+    }
+    assert current_common == historical_common
 
     assert plan["strategy"] == {
         "alternatives": [
@@ -140,17 +187,24 @@ def test_remediation_proposal_binds_exact_human_and_capture_records() -> None:
     plan = _load_json(PLAN_PATH)
 
     assert plan["review_records"] == {
-        "independent_review_sha256": (
+        "current_independent_review_complete": False,
+        "current_review_state": "PENDING_INDEPENDENT_REVIEW_OF_V2",
+        "prior_independent_review_sha256": (
             "18ec23b3634ae591e771c9df2e2b6d3c44f69f72e6e2bbd854fbb1fc0fb0b133"
         ),
-        "owner_decision_sha256": (
+        "prior_owner_decision_sha256": (
             "0c2e46025b2650eea089777d17cebe5c566fb3d6ed9b68b4f9a1b5e049c59240"
         ),
-        "owner_reference": "OWNER-01",
-        "reviewer_reference": "REVIEWER-01",
+        "prior_owner_reference": "OWNER-01",
+        "prior_records_apply_to_proposal_id": (
+            "migration-history-divergence-remediation-proposal-v1"
+        ),
+        "prior_reviewer_reference": "REVIEWER-01",
     }
-    assert plan["review_records"]["owner_reference"] != plan["review_records"][
-        "reviewer_reference"
+    assert plan["review_records"]["prior_owner_reference"] != plan[
+        "review_records"
+    ][
+        "prior_reviewer_reference"
     ]
     assert plan["source_evidence"]["packages"] == EXPECTED_PACKAGE_HASHES
 
@@ -246,8 +300,10 @@ def test_remediation_proposal_requires_separate_fail_closed_gates() -> None:
 
 
 def test_remediation_public_files_are_sanitized_and_external_records_stay_external() -> None:
-    public_text = PLAN_PATH.read_text(encoding="utf-8") + ADR_PATH.read_text(
-        encoding="utf-8"
+    public_text = (
+        V1_PLAN_PATH.read_text(encoding="utf-8")
+        + PLAN_PATH.read_text(encoding="utf-8")
+        + ADR_PATH.read_text(encoding="utf-8")
     )
     lowered = public_text.casefold()
 

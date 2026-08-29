@@ -24,6 +24,11 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 MIGRATIONS_DIR = REPO_ROOT / "backend" / "migrations"
 MANIFEST_DIR = REPO_ROOT / "docs" / "governance" / "migrations"
 MANIFEST_BASENAME = "migration-history-schema-expectation-manifest-v1.json"
+TARGET_REFERENCE_RELATIVE_PATH = ".github/workflows/rls-integration.yml"
+TARGET_REFERENCE_PATH = REPO_ROOT / TARGET_REFERENCE_RELATIVE_PATH
+TARGET_REFERENCE_SHA256 = (
+    "4fac0b1ed923f3dc2298b45ff63bfe57ec849654ae6ab446facbca4b6fef891b"
+)
 CATALOG_ALGORITHM = "basename-ascii-ascending+sha256-raw-bytes-v1"
 CATALOG_DOMAIN = "pastorai/migration-history/catalog/v1"
 OPERATIONAL_BLOCK = "OPERATIONAL_AUTHORIZATION=BLOCKED"
@@ -269,8 +274,14 @@ def _scan_catalog() -> tuple[list[dict[str, Any]], dict[str, int]]:
         directory_info = MIGRATIONS_DIR.lstat()
         if not stat.S_ISDIR(directory_info.st_mode):
             raise CatalogDriftError
+        directory_entries = list(MIGRATIONS_DIR.iterdir())
+        if any(
+            path.suffix.casefold() == ".sql" and path.suffix != ".sql"
+            for path in directory_entries
+        ):
+            raise CatalogDriftError
         names = sorted(
-            path.name for path in MIGRATIONS_DIR.iterdir() if path.suffix == ".sql"
+            path.name for path in directory_entries if path.suffix == ".sql"
         )
     except OSError as exc:
         raise CatalogDriftError from exc
@@ -321,8 +332,14 @@ def _scan_catalog() -> tuple[list[dict[str, Any]], dict[str, int]]:
             }
         )
     try:
+        final_directory_entries = list(MIGRATIONS_DIR.iterdir())
+        if any(
+            path.suffix.casefold() == ".sql" and path.suffix != ".sql"
+            for path in final_directory_entries
+        ):
+            raise CatalogDriftError
         final_names = sorted(
-            path.name for path in MIGRATIONS_DIR.iterdir() if path.suffix == ".sql"
+            path.name for path in final_directory_entries if path.suffix == ".sql"
         )
         final_directory_info = MIGRATIONS_DIR.lstat()
     except OSError as exc:
@@ -360,7 +377,8 @@ def _validate_manifest(
 
     repository = manifest["repository"]
     if type(repository) is not dict or set(repository) != {
-        "base_sha",
+        "declared_base_sha",
+        "declared_base_sha_role",
         "catalog_algorithm",
         "catalog_digest_sha256",
         "catalog_migration_count",
@@ -368,7 +386,13 @@ def _validate_manifest(
         "migrations_path",
     }:
         raise ManifestError
-    if repository["base_sha"] != "7f18f7e8b44cd50e6f6033867fb97bfa9eb9c9e6":
+    if repository["declared_base_sha"] != (
+        "7f18f7e8b44cd50e6f6033867fb97bfa9eb9c9e6"
+    ):
+        raise ManifestError
+    if repository["declared_base_sha_role"] != (
+        "DECLARED_CONTEXT_ONLY_CATALOG_DIGEST_IS_AUTHORITATIVE_BYTE_BINDING"
+    ):
         raise ManifestError
     if repository["migrations_path"] != "backend/migrations":
         raise ManifestError
@@ -442,17 +466,35 @@ def _validate_manifest(
     attestation = manifest["attestation_contract"]
     if type(attestation) is not dict or set(attestation) != {
         "comparison_rules",
+        "current_environment_version_attested",
         "data_invariants",
         "environments",
-        "postgresql_major",
+        "offline_derivation_target",
         "required_domains",
         "state",
     }:
         raise ManifestError
     if attestation["state"] != "PENDING_SEPARATE_READ_ONLY_ENVIRONMENT_ATTESTATION":
         raise ManifestError
-    if attestation["postgresql_major"] != 17:
+    if attestation["current_environment_version_attested"] is not False:
         raise ManifestError
+    if attestation["offline_derivation_target"] != {
+        "postgresql_major": 17,
+        "reference_path": TARGET_REFERENCE_RELATIVE_PATH,
+        "reference_sha256": TARGET_REFERENCE_SHA256,
+        "selection_basis": (
+            "VERSIONED_DISPOSABLE_CI_IMAGE_NOT_ENVIRONMENT_OBSERVATION"
+        ),
+    }:
+        raise ManifestError
+    try:
+        target_reference_digest = hashlib.sha256(
+            TARGET_REFERENCE_PATH.read_bytes()
+        ).hexdigest()
+    except OSError as exc:
+        raise CatalogDriftError from exc
+    if not hmac.compare_digest(target_reference_digest, TARGET_REFERENCE_SHA256):
+        raise CatalogDriftError
     if attestation["environments"] != ["DEV", "PROD"]:
         raise ManifestError
     if attestation["required_domains"] != REQUIRED_DOMAINS:
