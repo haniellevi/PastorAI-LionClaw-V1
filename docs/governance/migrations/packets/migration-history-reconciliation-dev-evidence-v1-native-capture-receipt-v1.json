@@ -1,0 +1,56 @@
+{
+  "receipt_version": "1.0",
+  "receipt_role": "NATIVE_LEDGER_CAPTURE",
+  "safety_contract": {
+    "offline_only": true,
+    "database_connection": "BLOCKED",
+    "database_mutation": "BLOCKED",
+    "migration_application": "BLOCKED",
+    "ledger_write": "BLOCKED",
+    "runner_unlock": "BLOCKED",
+    "environment_operation": "BLOCKED",
+    "applied_history_inference": "BLOCKED"
+  },
+  "subject": {
+    "environment": "DEV",
+    "target_binding_sha256": "9c35493b2cdd5c2f0d20d2e014851ab1098acba78910d8f68d8ff4612cd7d91b",
+    "repository_sha": "656d1d9eebe90ad4b2cbb35c21939a6796c46bfe"
+  },
+  "capture_sql_sha256": "8b589e5dda722691fead34cbd63cab75a7a22f32e0cf4bdfe64d6cef603866ee",
+  "authorization_record_sha256": "0d834ea232f75ef5a61b09ab925467125e0503543f795ddd628776e265643276",
+  "snapshot_record": {
+    "snapshot_record_sha256": "543a438a19c2d8da8705d009b6bb62c847e8d7b5ed3adde08632b82d54fb6923",
+    "preimage": {
+      "capture_sql_sha256": "8b589e5dda722691fead34cbd63cab75a7a22f32e0cf4bdfe64d6cef603866ee",
+      "package_id": "migration-history-reconciliation-dev-evidence-v1",
+      "repository_sha": "656d1d9eebe90ad4b2cbb35c21939a6796c46bfe",
+      "environment": "DEV",
+      "target_binding_sha256": "9c35493b2cdd5c2f0d20d2e014851ab1098acba78910d8f68d8ff4612cd7d91b",
+      "captured_at_utc": "2026-08-28T22:43:11.454382Z",
+      "postgres_major": 17,
+      "isolation_level": "repeatable read",
+      "read_only": true,
+      "snapshot_token_sha256": "263caa35480613a861ea3e18be9598bde9a13dea34c9e087d06d3588abb0c40f",
+      "public_rows_digest_sha256": "cbe30c1105d981c92ee2b8e5fa169940b0de2ab8b36b4b8ab79b627d4b9a5250",
+      "native_rows_digest_sha256": "b5a6bd8041ce12f5141baf96dff9c22ed894b180691708e9e30d9c3572af0447"
+    }
+  },
+  "capture_record": {
+    "capture_record_sha256": "a5d59959633325bdd233379676d86ce93318bbb2978384765848aedd85b1741d",
+    "preimage": {
+      "capture_sql_sha256": "8b589e5dda722691fead34cbd63cab75a7a22f32e0cf4bdfe64d6cef603866ee",
+      "package_id": "migration-history-reconciliation-dev-evidence-v1",
+      "repository_sha": "656d1d9eebe90ad4b2cbb35c21939a6796c46bfe",
+      "authorization_record_sha256": "0d834ea232f75ef5a61b09ab925467125e0503543f795ddd628776e265643276",
+      "environment": "DEV",
+      "target_binding_sha256": "9c35493b2cdd5c2f0d20d2e014851ab1098acba78910d8f68d8ff4612cd7d91b",
+      "captured_at_utc": "2026-08-28T22:43:11.454382Z",
+      "snapshot_record_sha256": "543a438a19c2d8da8705d009b6bb62c847e8d7b5ed3adde08632b82d54fb6923",
+      "source": "supabase_migrations.schema_migrations",
+      "capture_state": "PRESENT_COMPLETE",
+      "completeness_attested": true,
+      "query_contract": "NATIVE_LEDGER_V1|ISOLATION=REPEATABLE_READ_READ_ONLY|ORDER=version_ASC|PROJECTION=position,version,name_NULL_REDACTED",
+      "rows_digest_sha256": "b5a6bd8041ce12f5141baf96dff9c22ed894b180691708e9e30d9c3572af0447"
+    }
+  }
+}

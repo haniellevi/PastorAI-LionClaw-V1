@@ -1,0 +1,682 @@
+{
+  "contract_version": "1.0",
+  "package_id": "migration-history-reconciliation-dev-evidence-v1",
+  "artifact_state": "EVIDENCE_CAPTURED_UNREVIEWED",
+  "safety_contract": {
+    "offline_only": true,
+    "database_connection": "BLOCKED",
+    "database_mutation": "BLOCKED",
+    "migration_application": "BLOCKED",
+    "ledger_write": "BLOCKED",
+    "runner_unlock": "BLOCKED",
+    "environment_operation": "BLOCKED",
+    "applied_history_inference": "BLOCKED"
+  },
+  "subject": {
+    "environment": "DEV",
+    "target_binding_sha256": "9c35493b2cdd5c2f0d20d2e014851ab1098acba78910d8f68d8ff4612cd7d91b",
+    "repository_sha": "656d1d9eebe90ad4b2cbb35c21939a6796c46bfe",
+    "catalog_path": "backend/migrations"
+  },
+  "catalog": {
+    "algorithm": "basename-ascii-ascending+sha256-raw-bytes-v1",
+    "entries": [
+      {
+        "position": 0,
+        "name": "0001_extensions_and_enums.sql",
+        "sha256": "5e9f7219577df7586d99168b76a898f790326058bb6891f7be667c249fe9e095",
+        "size_bytes": 5033
+      },
+      {
+        "position": 1,
+        "name": "0002_schema_tables.sql",
+        "sha256": "05da2aed2fa7de8fd1d08cc73be8a9b1be8769eda0b7012c2d9af3ef7b496aa1",
+        "size_bytes": 20017
+      },
+      {
+        "position": 2,
+        "name": "0003_rls_policies.sql",
+        "sha256": "76c3729b12aa31aeb6fcb6d4dd5177f4c92dbfe6067a5ad3ea68508c2cebb523",
+        "size_bytes": 3195
+      },
+      {
+        "position": 3,
+        "name": "0004_triggers.sql",
+        "sha256": "1c90810b491c780e80a15908409b85ba7376db93e6656fc83c916f8e8bde0ae1",
+        "size_bytes": 8904
+      },
+      {
+        "position": 4,
+        "name": "0005_seed.sql",
+        "sha256": "5ab1c7303acd696d3682d8bbc62b7f9043645bcb79f954295eb005eadc9c954f",
+        "size_bytes": 9801
+      },
+      {
+        "position": 5,
+        "name": "0006_harden_function_search_path.sql",
+        "sha256": "92127b7bcbc88904414cc6cd1e194b53bfd97405313774ea2c45a98e387d50f9",
+        "size_bytes": 1457
+      },
+      {
+        "position": 6,
+        "name": "0007_remove_demo_data.sql",
+        "sha256": "6428607e3c09c576a31fbee95f8941b548dd16afd58a60429aa37165c294d798",
+        "size_bytes": 2735
+      },
+      {
+        "position": 7,
+        "name": "0008_add_operador_role.sql",
+        "sha256": "720668417a8224312b8e6e5a2394010f2337b73f4ad007aacca7adc2a74e1972",
+        "size_bytes": 1089
+      },
+      {
+        "position": 8,
+        "name": "0009_unify_system_managers.sql",
+        "sha256": "eaaa73511fa1295714a10adc4155d92a68d17ef19f10cf90d997ecb32d20f455",
+        "size_bytes": 2644
+      },
+      {
+        "position": 9,
+        "name": "0010_platform_admins.sql",
+        "sha256": "faac32752bed6c8d797c7e22474d66d00b1ec340edf18e579cedf5dcff2f5b4e",
+        "size_bytes": 2721
+      },
+      {
+        "position": 10,
+        "name": "0011_app_users_celula_pendente.sql",
+        "sha256": "51a85bdc1527313a7beba4f18c7a2004c57af791deb63ab51bd14051f94ea103",
+        "size_bytes": 1212
+      },
+      {
+        "position": 11,
+        "name": "0012_planos.sql",
+        "sha256": "c865949b35f1b6a4e47417f24516b2fea9be69c4fe2b1ba21fb4a94b891a089d",
+        "size_bytes": 3387
+      },
+      {
+        "position": 12,
+        "name": "0013_platform_audit_log.sql",
+        "sha256": "531ef36864f79d1eee12254a2d697182fe74ff5c0bcfe6b83b9416616f0a4f40",
+        "size_bytes": 2321
+      },
+      {
+        "position": 13,
+        "name": "0014_platform_orchestrator.sql",
+        "sha256": "b52b65bad13c9369eb20816ee201f0e394bd7d1425a3d6d65c8b377777f36a56",
+        "size_bytes": 2228
+      },
+      {
+        "position": 14,
+        "name": "0015_message_media.sql",
+        "sha256": "19c9db7ac9755cc6695fb6e6a229b5b7b2a086988ed55b54847d9c131ce5e35e",
+        "size_bytes": 2004
+      },
+      {
+        "position": 15,
+        "name": "0016_message_author.sql",
+        "sha256": "8ba0f67404536d98d1c612d98eb5a6572176d8717206c6c0e805db2483aff6e3",
+        "size_bytes": 1409
+      },
+      {
+        "position": 16,
+        "name": "0017_app_user_status_revogado.sql",
+        "sha256": "3b9b0507854c3c8bd495d416910ed9e6969097d0585212a034dd041e7412e3ee",
+        "size_bytes": 949
+      },
+      {
+        "position": 17,
+        "name": "20260623_103319_pessoa_sem_interesse_csim.sql",
+        "sha256": "f9f7af60d17153a68f5e128308ae43fd0e85cc5c0350c4c7c423d02b6be3de4e",
+        "size_bytes": 1193
+      },
+      {
+        "position": 18,
+        "name": "20260623_122044_calendar_sync_oauth_por_igreja.sql",
+        "sha256": "2d8499790852468f2b8efbd7c9fbf3a1bd2121d9d2c31e162ded551c51489d18",
+        "size_bytes": 1498
+      },
+      {
+        "position": 19,
+        "name": "20260623_154500_pessoa_tipo_add_contato.sql",
+        "sha256": "17a6a35ff69ee733d83a49b1fe02f6e754407417957e0110ead906af65867abc",
+        "size_bytes": 831
+      },
+      {
+        "position": 20,
+        "name": "20260623_170000_igreja_dono_assinatura.sql",
+        "sha256": "dd89fa76271e8be836ae75c40a227fbd3b2adbf8201101db1abd9230af55004c",
+        "size_bytes": 1333
+      },
+      {
+        "position": 21,
+        "name": "20260624_003030_current_igreja_id_guc_worker.sql",
+        "sha256": "52b2417bde5d1af2827d12cfb75a6d2fc3b4d3646d0dd44a730002ac7b171090",
+        "size_bytes": 1897
+      },
+      {
+        "position": 22,
+        "name": "20260624_090102_current_igreja_id_guard_empty_claims.sql",
+        "sha256": "d89b8fa8865a130ebb7f1f31bdfaae2906e0dacdc8685946c8956d2164b367ec",
+        "size_bytes": 1819
+      },
+      {
+        "position": 23,
+        "name": "20260624_171110_agent_config_requests_fila_requisicao_admin_master.sql",
+        "sha256": "f8891c4e8233385c3eb34c202a54719ee4fff0a852463c5c460b4b327e93cf90",
+        "size_bytes": 2265
+      },
+      {
+        "position": 24,
+        "name": "20260629_222635_evt1_events_agenda_schema_status_tipo_origem_recorrencia_confirmacao.sql",
+        "sha256": "8f96b29feeee52ae79c96b29ca9e56b66a4dbed92a7add391c12a37e169ba555",
+        "size_bytes": 5738
+      },
+      {
+        "position": 25,
+        "name": "20260701_014654_evt6_google_event_dedup_index.sql",
+        "sha256": "497e51e3401ee23fe3a3ddd8ec92a27bb22dd3173a9402450d0ac16a9fb248e7",
+        "size_bytes": 2204
+      },
+      {
+        "position": 26,
+        "name": "20260701_164352_evt7_events_notificado_em_aviso_confirmacao.sql",
+        "sha256": "673d80cad9af0a6aef43162862c09e6884be38bc8392bf5f413bff4e8687d176",
+        "size_bytes": 1130
+      },
+      {
+        "position": 27,
+        "name": "20260701_193000_evt7_pr2_agenda_alert_recipients.sql",
+        "sha256": "65a9100c7c8130b6197a42e1cc198dd7b482ede8ba18f5bf46e7db3af1d96ead",
+        "size_bytes": 2316
+      },
+      {
+        "position": 28,
+        "name": "20260703_123803_celula_schema_base_pr1.sql",
+        "sha256": "09607912f73c40cce56285de6545a1b8224566de67334d2a6df4f748ccca8ec3",
+        "size_bytes": 4639
+      },
+      {
+        "position": 29,
+        "name": "20260704_100000_celula_pr2_reuniao_presenca_expectativa.sql",
+        "sha256": "af1293c536ba79909db28125a7278aeabbc5959519611320f539b4023ab9609a",
+        "size_bytes": 7339
+      },
+      {
+        "position": 30,
+        "name": "20260705_120000_celula_pr3_reuniao_relatorio_campos.sql",
+        "sha256": "689b8391f75ae212e69f3d6a50394433570031632563deae7a84f4d88306e69f",
+        "size_bytes": 3011
+      },
+      {
+        "position": 31,
+        "name": "20260705_120100_celula_pr3_reuniao_registro.sql",
+        "sha256": "c8c43027f40ee9ac5a4e7b286afcbeac8241ea398a2f8c80e26796a3065ceeff",
+        "size_bytes": 2459
+      },
+      {
+        "position": 32,
+        "name": "20260705_120200_celula_pr3_visitante.sql",
+        "sha256": "ecd7328b95df43a82cd3ae6e9bf1261f9cc1e257ccf67a6614c716b2f3a18afe",
+        "size_bytes": 2315
+      },
+      {
+        "position": 33,
+        "name": "20260705_120300_celula_pr3_solicitacao_evento.sql",
+        "sha256": "8a1ffcd7947ca68689ae8970944a50b2fcd0858eb7f395f3b7fad1e06c442bf1",
+        "size_bytes": 7096
+      },
+      {
+        "position": 34,
+        "name": "20260705_120400_celula_pr3_aviso.sql",
+        "sha256": "aee8a18764a3ec0fe53efb3d802ed05d3519db90e4763c47b1c14e4e2b5ac263",
+        "size_bytes": 2864
+      },
+      {
+        "position": 35,
+        "name": "20260705_120500_celula_pr3_material.sql",
+        "sha256": "d39c83f2023160a98211160212b4724f70525f3777b0011ce192132f00d68922",
+        "size_bytes": 2164
+      },
+      {
+        "position": 36,
+        "name": "20260705_120600_celula_pr3_multiplicacoes_evolucao.sql",
+        "sha256": "3846299ac5c06abc750028c8cb91844de8ff82eac584af49c8ebc53ab777f4a2",
+        "size_bytes": 5705
+      },
+      {
+        "position": 37,
+        "name": "20260706_221311_pessoas_apto_lider_e_converte_legado_tipo_lider.sql",
+        "sha256": "ee557f4bcdf50fb8ec3e6f0a6e82046cf519f2f0523ea40a81e4d27d0fdaf2e0",
+        "size_bytes": 2729
+      },
+      {
+        "position": 38,
+        "name": "20260706_230000_evt8_pr1_notify_config.sql",
+        "sha256": "1c172564734812522466fd6cc20087c0a8af3d8673dde4882ea4a807fa3d9b71",
+        "size_bytes": 3937
+      },
+      {
+        "position": 39,
+        "name": "20260707_011455_igreja_logo_branding.sql",
+        "sha256": "dbebd871c779d6dac52f6c6dfe5cecef8e054c59236fe52d774eb4b746ae069d",
+        "size_bytes": 3362
+      },
+      {
+        "position": 40,
+        "name": "20260708_160128_sec3a_app_users_password_changed_at.sql",
+        "sha256": "6e6efad7a4ca0a4062496e1854a9ada1d85b1acdd1e2bd12c041c9d982cf79e6",
+        "size_bytes": 1237
+      },
+      {
+        "position": 41,
+        "name": "20260708_164756_backfill_celula_membro_canonico.sql",
+        "sha256": "614419cf2e6122b2b6438a3fda9cc27adebd47d3a88b44e5e2fa2909ed19d803",
+        "size_bytes": 3866
+      },
+      {
+        "position": 42,
+        "name": "20260708_172106_sec3b_password_reset_tokens_single_use.sql",
+        "sha256": "9a9ba9f5059c97db68053fbac4ff91adedbbbe8c0111c2909623e910a60951f3",
+        "size_bytes": 2178
+      },
+      {
+        "position": 43,
+        "name": "20260708_221808_igreja_dono_id_grant_update.sql",
+        "sha256": "18afa38fb59fe9aca65a467732da9d38926d3b8921d1d83ab1acad9f235d265d",
+        "size_bytes": 1377
+      },
+      {
+        "position": 44,
+        "name": "20260709_204500_sec4_agent_event_idempotency_marker_uidx.sql",
+        "sha256": "11fdad1ad9aca3e1eb1c627cb551083e94b98bc948b73b0e6cb0c77a6ad3a34f",
+        "size_bytes": 3031
+      },
+      {
+        "position": 45,
+        "name": "20260711_023515_backfill_pessoa_tipo_membro_por_vinculo_ativo.sql",
+        "sha256": "d8b55db78f765d48006b739d2b3524f00e7ad059a342b92ac78ae7c6b336408c",
+        "size_bytes": 3556
+      },
+      {
+        "position": 46,
+        "name": "20260711_152127_reclassifica_pessoa_do_numero_whatsapp_fora_de_membro.sql",
+        "sha256": "e4112a55e5cde97fd9e8b409d418c00ae85857b121c7e277ba8c8e3472603edf",
+        "size_bytes": 5490
+      },
+      {
+        "position": 47,
+        "name": "20260711_224403_celula_solicitacao_e13_open_unique.sql",
+        "sha256": "0afeb7815d8f532cd53fdfc97ff7f41e08e142914faa5350848df4c3845aa295",
+        "size_bytes": 3535
+      },
+      {
+        "position": 48,
+        "name": "20260713_013054_pessoa_arquivamento_schema.sql",
+        "sha256": "de5974001f0cc8cf9ea81a83bac9ff855a4f357940e4ba26a869a3c4f95461fa",
+        "size_bytes": 1347
+      },
+      {
+        "position": 49,
+        "name": "20260713_032015_pessoa_offboarding_preflight_arquivamento_evento.sql",
+        "sha256": "38ec86859577aa1bd7a92e7f37068746d63f8aa3c8bd995e012624725bf2ebef",
+        "size_bytes": 5925
+      },
+      {
+        "position": 50,
+        "name": "20260715_204540_msg_idemp1_messages_inbound_provider_id_uidx.sql",
+        "sha256": "bc0de9a9f9cd72d6c0b48b59b343331fb2d0a6e3e486afc6144b439801918949",
+        "size_bytes": 3129
+      },
+      {
+        "position": 51,
+        "name": "20260715_204541_consolidacao_aberta_unica_por_pessoa.sql",
+        "sha256": "9c35fdb7688f96b4f7ce911bd3b55d9779fb6ae471998778ae148f463bcfbfdf",
+        "size_bytes": 3049
+      },
+      {
+        "position": 52,
+        "name": "20260720_014832_pessoa_telefone_unico_por_tenant_ativa.sql",
+        "sha256": "a960dc473c827f883e19c689b3f17aaadbe5d72c1484e8f912ca74b1a7de3486",
+        "size_bytes": 3542
+      },
+      {
+        "position": 53,
+        "name": "20260720_191143_consent_records_ator_id_reoptin.sql",
+        "sha256": "2e51ac31c71c2ccd512c2777625546535697aa803c5df4c9c192030dbda431aa",
+        "size_bytes": 1463
+      },
+      {
+        "position": 54,
+        "name": "20260730_205332_billing_setup_configuration.sql",
+        "sha256": "b90e080a63078a157be099bb5560851fc4515e5795a8925226c5e66139ad401d",
+        "size_bytes": 18978
+      },
+      {
+        "position": 55,
+        "name": "20260731_120000_calendar_oauth_flows_pkce.sql",
+        "sha256": "33ad252c321cade9ec4f104461c4aa5db7c367c4a5bb99a4e5661cca57f76762",
+        "size_bytes": 4261
+      },
+      {
+        "position": 56,
+        "name": "20260801_031500_calendar_account_identity_binding.sql",
+        "sha256": "56da0ce83e1e2e2f8f7cc2bccbf1c75ffb1383be407952b367e427f14ea7a5fc",
+        "size_bytes": 4815
+      },
+      {
+        "position": 57,
+        "name": "20260805_105133_broadcast_delivery.sql",
+        "sha256": "65be5bd82dd17f73894c5ee21beb585a9db05dcffe26863f2d53a36d7421050d",
+        "size_bytes": 8418
+      },
+      {
+        "position": 58,
+        "name": "20260805_120000_calendar_fk_indexes.sql",
+        "sha256": "7e6aad985fd22c02dbe7fa8e5981e13d5a5ef482bcdfc6efcf0297f97aafa141",
+        "size_bytes": 592
+      },
+      {
+        "position": 59,
+        "name": "20260805_153000_security_definer_execute_hardening.sql",
+        "sha256": "cf75e0a9e262203e4d7036b25ca3d7ef5df976edfa1d09a9e38d1ae28b65ac5b",
+        "size_bytes": 1389
+      },
+      {
+        "position": 60,
+        "name": "20260808_001059_billing_count_active_members.sql",
+        "sha256": "46b99e59173aea51e939b133af0cf2e2ab715923d84f9502e6e6d8651775a3c6",
+        "size_bytes": 10918
+      },
+      {
+        "position": 61,
+        "name": "20260808_011500_messages_outbound_provider_id_uidx.sql",
+        "sha256": "63aa7f208b8b7b21264fb989d2bab5de4aa2d5a5e7c9839b155f8691d77a11b1",
+        "size_bytes": 1966
+      },
+      {
+        "position": 62,
+        "name": "20260808_014425_billing_member_plan_label_variants.sql",
+        "sha256": "1bf06d9d876f1170ffe312573a94cba03071962171f3917163b5383f6a49a8ad",
+        "size_bytes": 731
+      },
+      {
+        "position": 63,
+        "name": "20260808_023500_billing_reconcile_prepared_member_upgrades.sql",
+        "sha256": "a2fac3d504991885233e5c1537933f30d133aaa6684df51f4f891ed477a6888f",
+        "size_bytes": 4511
+      },
+      {
+        "position": 64,
+        "name": "20260808_135841_llm_model_selection_per_tenant.sql",
+        "sha256": "b33c9a42385e26c6b37b5dcc3a50250147d4ff446af510f93a0ba3a55e41cc56",
+        "size_bytes": 1084
+      },
+      {
+        "position": 65,
+        "name": "20260810_031050_explicit_deny_policies_for_closed_tables.sql",
+        "sha256": "1524fa0944dd3f4c259fa81f528570f8a4be5cff010515d4c44ac30a8df063c6",
+        "size_bytes": 20769
+      },
+      {
+        "position": 66,
+        "name": "20260810_042300_exclude_complimentary_plans_from_billing_autoupgrade.sql",
+        "sha256": "31f1f26f62594e19d6bd1cee3b4e8a4665da8207188192764d09272d880367d1",
+        "size_bytes": 14335
+      },
+      {
+        "position": 67,
+        "name": "20260822_225752_celula_membro_evento_audit_table.sql",
+        "sha256": "e4958484f2edacb795a8eea209118819200f9cc2e17e69f768b34fd43ac010ac",
+        "size_bytes": 4606
+      },
+      {
+        "position": 68,
+        "name": "20260824_180000_asaas_formal_isolation.sql",
+        "sha256": "0cacaf819ca2113b284673886700eb8be79b71094a7ac180c2b4c72c84d3e3e3",
+        "size_bytes": 5660
+      },
+      {
+        "position": 69,
+        "name": "20260826_030508_separar_estado_resposta_agente_de_autor_mensagem.sql",
+        "sha256": "6d02a1437f9d71d05dba7c294c05b1db30b9e580c30b9efb4aadc92a7368430c",
+        "size_bytes": 1407
+      },
+      {
+        "position": 70,
+        "name": "20260826_094317_harden_recovery_artifacts_retention.sql",
+        "sha256": "a6fa9abccbfec240ceb460d52f5bcbbda677c18691230d0e0c4f047fdd603fb0",
+        "size_bytes": 18054
+      },
+      {
+        "position": 71,
+        "name": "20260827_175634_d1a_tenant_runtime_integrity.sql",
+        "sha256": "7ac3191bbe7217beff4e9601da78c29aef13abfef229505335ba7017a630d0c3",
+        "size_bytes": 24366
+      },
+      {
+        "position": 72,
+        "name": "20260827_230003_d2a_agent_runtime_private_context.sql",
+        "sha256": "3071b0d7c2f8f7103914e161383ddac5d15698dccfd2e9860251c4bd98f7ec83",
+        "size_bytes": 9739
+      },
+      {
+        "position": 73,
+        "name": "20260828_045213_d2b2_consentimento_finalidade_evento.sql",
+        "sha256": "30742755922b42e6e1407743df51b28d4619efd2a5e6b474bcba1beb7b8443ea",
+        "size_bytes": 40774
+      },
+      {
+        "position": 74,
+        "name": "20260828_094914_d2b2b3_purpose_consent_governance_drafts.sql",
+        "sha256": "506bb53f81caed2f30c8ae250c159e0653fdade12bd9124c1f9fd2dda4bf4666",
+        "size_bytes": 41511
+      }
+    ],
+    "digest_sha256": "84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f"
+  },
+  "inventories": {
+    "public_ledger": {
+      "source": "public.schema_migrations",
+      "capture_state": "PRESENT_COMPLETE",
+      "target_binding_sha256": "9c35493b2cdd5c2f0d20d2e014851ab1098acba78910d8f68d8ff4612cd7d91b",
+      "captured_at_utc": "2026-08-28T22:43:11.454382Z",
+      "authorization_record_sha256": "0d834ea232f75ef5a61b09ab925467125e0503543f795ddd628776e265643276",
+      "capture_record_sha256": "9783986cb9b88920363e0ea1a45b2c78506bd287a6f7d9c564b83e3c1f4be011",
+      "snapshot_record_sha256": "543a438a19c2d8da8705d009b6bb62c847e8d7b5ed3adde08632b82d54fb6923",
+      "completeness_attested": true,
+      "query_contract": "PUBLIC_LEDGER_V1|ISOLATION=REPEATABLE_READ_READ_ONLY|ORDER=applied_at_ASC,name_ASC|PROJECTION=position,name",
+      "rows": [
+        {
+          "position": 0,
+          "name": "0001_extensions_and_enums.sql"
+        },
+        {
+          "position": 1,
+          "name": "0002_schema_tables.sql"
+        },
+        {
+          "position": 2,
+          "name": "0003_rls_policies.sql"
+        },
+        {
+          "position": 3,
+          "name": "0004_triggers.sql"
+        },
+        {
+          "position": 4,
+          "name": "0005_seed.sql"
+        },
+        {
+          "position": 5,
+          "name": "0006_harden_function_search_path.sql"
+        },
+        {
+          "position": 6,
+          "name": "0007_remove_demo_data.sql"
+        },
+        {
+          "position": 7,
+          "name": "0008_add_operador_role.sql"
+        },
+        {
+          "position": 8,
+          "name": "0009_unify_system_managers.sql"
+        },
+        {
+          "position": 9,
+          "name": "0010_platform_admins.sql"
+        },
+        {
+          "position": 10,
+          "name": "0011_app_users_celula_pendente.sql"
+        },
+        {
+          "position": 11,
+          "name": "0012_planos.sql"
+        },
+        {
+          "position": 12,
+          "name": "0013_platform_audit_log.sql"
+        },
+        {
+          "position": 13,
+          "name": "0014_platform_orchestrator.sql"
+        },
+        {
+          "position": 14,
+          "name": "0015_message_media.sql"
+        },
+        {
+          "position": 15,
+          "name": "0016_message_author.sql"
+        },
+        {
+          "position": 16,
+          "name": "0017_app_user_status_revogado.sql"
+        },
+        {
+          "position": 17,
+          "name": "20260623_103319_pessoa_sem_interesse_csim.sql"
+        },
+        {
+          "position": 18,
+          "name": "20260623_122044_calendar_sync_oauth_por_igreja.sql"
+        },
+        {
+          "position": 19,
+          "name": "20260623_154500_pessoa_tipo_add_contato.sql"
+        },
+        {
+          "position": 20,
+          "name": "20260623_170000_igreja_dono_assinatura.sql"
+        },
+        {
+          "position": 21,
+          "name": "20260624_003030_current_igreja_id_guc_worker.sql"
+        },
+        {
+          "position": 22,
+          "name": "20260624_090102_current_igreja_id_guard_empty_claims.sql"
+        },
+        {
+          "position": 23,
+          "name": "20260624_171110_agent_config_requests_fila_requisicao_admin_master.sql"
+        },
+        {
+          "position": 24,
+          "name": "20260629_222635_evt1_events_agenda_schema_status_tipo_origem_recorrencia_confirmacao.sql"
+        },
+        {
+          "position": 25,
+          "name": "20260808_011500_messages_outbound_provider_id_uidx.sql"
+        },
+        {
+          "position": 26,
+          "name": "20260801_031500_calendar_account_identity_binding.sql"
+        },
+        {
+          "position": 27,
+          "name": "20260805_105133_broadcast_delivery.sql"
+        },
+        {
+          "position": 28,
+          "name": "20260805_120000_calendar_fk_indexes.sql"
+        },
+        {
+          "position": 29,
+          "name": "20260805_153000_security_definer_execute_hardening.sql"
+        },
+        {
+          "position": 30,
+          "name": "20260808_135841_llm_model_selection_per_tenant.sql"
+        },
+        {
+          "position": 31,
+          "name": "20260810_031050_explicit_deny_policies_for_closed_tables.sql"
+        },
+        {
+          "position": 32,
+          "name": "20260810_042300_exclude_complimentary_plans_from_billing_autoupgrade.sql"
+        }
+      ],
+      "rows_digest_sha256": "cbe30c1105d981c92ee2b8e5fa169940b0de2ab8b36b4b8ab79b627d4b9a5250"
+    },
+    "native_ledger": {
+      "source": "supabase_migrations.schema_migrations",
+      "capture_state": "PRESENT_COMPLETE",
+      "target_binding_sha256": "9c35493b2cdd5c2f0d20d2e014851ab1098acba78910d8f68d8ff4612cd7d91b",
+      "captured_at_utc": "2026-08-28T22:43:11.454382Z",
+      "authorization_record_sha256": "0d834ea232f75ef5a61b09ab925467125e0503543f795ddd628776e265643276",
+      "capture_record_sha256": "a5d59959633325bdd233379676d86ce93318bbb2978384765848aedd85b1741d",
+      "snapshot_record_sha256": "543a438a19c2d8da8705d009b6bb62c847e8d7b5ed3adde08632b82d54fb6923",
+      "completeness_attested": true,
+      "query_contract": "NATIVE_LEDGER_V1|ISOLATION=REPEATABLE_READ_READ_ONLY|ORDER=version_ASC|PROJECTION=position,version,name_NULL_REDACTED",
+      "rows": [
+        {
+          "position": 0,
+          "version": "20260804152543",
+          "name": null
+        },
+        {
+          "position": 1,
+          "version": "20260808014324",
+          "name": null
+        },
+        {
+          "position": 2,
+          "version": "20260808014917",
+          "name": null
+        },
+        {
+          "position": 3,
+          "version": "20260808110928",
+          "name": null
+        },
+        {
+          "position": 4,
+          "version": "20260823032810",
+          "name": null
+        },
+        {
+          "position": 5,
+          "version": "20260828011923",
+          "name": null
+        }
+      ],
+      "rows_digest_sha256": "b5a6bd8041ce12f5141baf96dff9c22ed894b180691708e9e30d9c3572af0447"
+    }
+  },
+  "reconciliation": {
+    "state": "NOT_REVIEWED",
+    "catalog_entries": [],
+    "native_rows": []
+  },
+  "attestation": {
+    "state": "NOT_ATTESTED",
+    "inventory_attestation_record_sha256": null,
+    "migration_owner_decision_record_sha256": null,
+    "independent_review_record_sha256": null,
+    "attested_at_utc": null,
+    "payload_sha256": null
+  }
+}

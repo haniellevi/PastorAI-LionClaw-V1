@@ -152,10 +152,23 @@ A prova local preservada é `98/98` testes do verificador, `26/26` testes
 documentais e `42/42` testes offline do runner: agregado de
 `166 passed/45 skipped`. O template deny-state terminou bloqueado com exit `8`.
 
-O próximo gate é preparar uma missão separada, explicitamente autorizada e
-somente leitura para capturar inventários sanitizados de DEV e PROD e
-materializar um pacote por ambiente. Permanecem proibidos DML, runner,
-`bootstrap-ledger`, `harden-ledger`, `status`, `apply`, SQL Editor,
+O capturador foi integrado pela PR #327 e o hotfix pela PR #328, no merge
+`04e5c1720bf89313718c4159a2ac9d0eeeed3c25`. As saídas locais foram originalmente
+materializadas com modo `0600` e `O_EXCL`; depois do versionamento, a proteção
+dos seis artefatos depende da sanitização e da ACL do repositório, não do modo
+do checkout. Eles registram inventários DEV e PROD capturados, não revisados e
+bloqueados. Em PostgreSQL 17, DEV contém 33 linhas no ledger público e 6 no
+nativo; PROD registra o ledger público `ABSENT_CONFIRMED`, com 0 linhas, e 32
+linhas no nativo.
+`native.name` permanece `null`. Ambos os pacotes estão
+`EVIDENCE_CAPTURED_UNREVIEWED`, e ambos terminaram no verificador com exit `8`,
+`HUMAN_EVIDENCE_BLOCKED`; a checagem conjunta terminou `CROSS_PACKAGE_OK`. A
+matriz focal offline pós-captura passou com `163 passed, 2 skipped` em `1.40s`,
+sem representar suíte integral ou reexecução PostgreSQL.
+
+O próximo gate é revisão humana offline independente dos pacotes e evidências,
+sem nova consulta a DEV ou PROD e sem liberar o runner. Permanecem proibidos
+DML, `bootstrap-ledger`, `harden-ledger`, `status`, `apply`, SQL Editor,
 `apply_migration`, `db push`, MCP, deploy, flag e runtime. UV e CD permanecem
 fora.
 

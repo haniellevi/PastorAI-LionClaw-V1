@@ -1053,7 +1053,7 @@ def test_d2b2b2_template_has_no_runtime_or_migration_consumer() -> None:
                 assert token not in content, f"runtime consumer in {path}"
 
 
-def test_canonical_docs_record_capture_candidate_and_one_premerge_gate() -> None:
+def test_canonical_docs_record_captured_blocked_inventories_and_one_human_gate() -> None:
     canonical_indexes = {
         REPO_ROOT / "docs" / "ai" / "AI-BOOTSTRAP.md",
         REPO_ROOT / "docs" / "ai" / "PRD-COVERAGE.md",
@@ -1079,6 +1079,21 @@ def test_canonical_docs_record_capture_candidate_and_one_premerge_gate() -> None
     postmerge_records = gate_contracts | {
         REPO_ROOT / "backend" / "migrations" / "README.md",
         REPO_ROOT / "deploy" / "STAGING.md",
+        REPO_ROOT / "docs" / "ops" / "PRODUCTION-RUNBOOK.md",
+        REPO_ROOT
+        / "docs"
+        / "security"
+        / "2026-08-20-v1-ledger-hardening-gate.md",
+        RECONCILIATION_CONTRACT_PATH,
+    }
+    mode_provenance_records = {
+        REPO_ROOT / "backend" / "migrations" / "README.md",
+        REPO_ROOT / "deploy" / "STAGING.md",
+        REPO_ROOT
+        / "docs"
+        / "Docs20260611_163530"
+        / "PRD20260611_163530.md",
+        REPO_ROOT / "docs" / "ops" / "POST-V1-MISSION-REGISTER.md",
         REPO_ROOT / "docs" / "ops" / "PRODUCTION-RUNBOOK.md",
         REPO_ROOT
         / "docs"
@@ -1158,7 +1173,8 @@ def test_canonical_docs_record_capture_candidate_and_one_premerge_gate() -> None
         assert "2026-08-28-migration-history-reconciliation-contract.md" in content
         assert "pacote deny-state versionado" in normalized
         assert "verificador stdlib separado do runner" in normalized
-        assert "integrado / comprovado offline" in normalized
+        assert "integrado" in normalized
+        assert "comprovado offline" in normalized
         assert "decisoes humanas pendentes" in normalized
         assert "nao aplicado" in normalized
         assert "pacote e verificador candidatos" not in normalized
@@ -1176,32 +1192,49 @@ def test_canonical_docs_record_capture_candidate_and_one_premerge_gate() -> None
         assert "656d1d9eebe90ad4b2cbb35c21939a6796c46bfe" in content
         assert "75 migrations" in normalized
         assert "84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f" in content
-        assert "capturador/materializador candidato da pr" in normalized
-        assert "comprovado offline" in normalized
-        assert "nao integrado" in normalized
-        assert "inventarios dev/prod ainda nao capturados" in normalized
+        assert "#327" in content
+        assert "c4f7a25b81a8091a0d74783c816a168bb7adf44d" in content
+        assert "f9201a06495fad138e313e4149ad9275ff896900" in content
+        assert "#328" in content
+        assert "2cbdfaf39ae11d984f0aa27dfcf0910c25984840" in content
+        assert "04e5c1720bf89313718c4159a2ac9d0eeeed3c25" in content
+        assert "inventarios dev e prod capturados" in normalized
+        assert "nao revisados" in normalized
+        assert "bloqueados" in normalized
         assert "decisoes humanas pendentes" in normalized
         assert "nao aplicado" in normalized
-        assert "166/166" in normalized
-        assert "matriz focal concluiu `166/166`" in normalized
-        assert "dois casos reais de postgresql 17" in normalized
-        assert "container descartavel dedicado" in normalized
         assert "8b589e5dda722691fead34cbd63cab75a7a22f32e0cf4bdfe64d6cef603866ee" in content
-        assert "revisao independente" in normalized
-        assert "`go`" in normalized
-        assert "ci verde" in normalized
-        assert "suite completa" in normalized
-        assert "parte do mesmo gate pre-merge" in normalized
-        assert "supabase local na porta `54322`" in normalized
-        assert "nenhum inventario" in normalized
-        assert "foi capturado" in normalized
-        assert "revisar e integrar esta pr com ci verde" in normalized
-        assert "somente depois" in normalized
-        assert "gate separado e ja autorizado" in normalized
+        assert "em postgresql 17, dev" in normalized
+        assert "33 linhas no ledger publico" in normalized
+        assert "6 no nativo" in normalized
+        assert "2026-08-28t22:43:11.454382z" in normalized
+        assert "absent_confirmed" in normalized
+        assert "0 linhas" in normalized
+        assert "32 linhas no nativo" in normalized
+        assert "2026-08-28t22:47:43.965243z" in normalized
+        assert "native.name" in normalized
+        assert "`null`" in normalized
+        assert "evidence_captured_unreviewed" in normalized
+        assert "exit `8`" in normalized
+        assert "human_evidence_blocked" in normalized
+        assert "cross_package_ok" in normalized
+        assert "matriz focal offline pos-captura" in normalized
+        assert "163 passed" in normalized
+        assert "2 skipped" in normalized
+        assert "1.40s" in normalized
+        assert "nao e suite integral" in normalized
+        assert "reexecucao postgresql" in normalized
         assert "somente leitura" in normalized
-        assert "inventarios sanitizados de dev e prod" in normalized
-        assert "materializar um pacote por ambiente" in normalized
+        assert "seis artefatos" in normalized
+        assert "decisao humana" in normalized
+        assert "nao prova" in normalized
+        assert "prefixo reconciliado" in normalized
+        assert "revisao humana offline independente" in normalized
+        assert "sem nova consulta a dev ou prod" in normalized
+        assert "sem liberar o runner" in normalized
         assert "preparar uma missao separada" not in normalized
+        assert "revisar e integrar esta pr" not in normalized
+        assert "inventarios dev/prod ainda nao capturados" not in normalized
         assert "concluir os testes focais" not in normalized
         assert "`status` e `apply`" in normalized
         assert "bloquead" in normalized
@@ -1209,7 +1242,6 @@ def test_canonical_docs_record_capture_candidate_and_one_premerge_gate() -> None
         assert "no maximo uma migration pendente" in normalized
         for blocker in (
             "dml",
-            "comando do runner",
             "`bootstrap-ledger`",
             "`harden-ledger`",
             "`status`",
@@ -1232,7 +1264,7 @@ def test_canonical_docs_record_capture_candidate_and_one_premerge_gate() -> None
     for path in postmerge_records:
         content = path.read_text(encoding="utf-8")
         normalized = _normalized_prose(content)
-        assert "integrado / comprovado offline" in normalized
+        assert "integrado" in normalized
         assert "decisoes humanas pendentes" in normalized
         assert "nao aplicado" in normalized
         assert "98/98" in normalized
@@ -1240,8 +1272,44 @@ def test_canonical_docs_record_capture_candidate_and_one_premerge_gate() -> None
         assert "42/42" in normalized
         assert "166 passed/45 skipped" in normalized
         assert "exit `8`" in normalized
+        assert "#327" in normalized
+        assert "#328" in normalized
+        assert "04e5c1720bf89313718c4159a2ac9d0eeeed3c25" in normalized
+        assert "inventarios dev e prod capturados" in normalized
+        assert "nao revisados" in normalized
+        assert "bloquead" in normalized
+        assert "33 linhas" in normalized
+        assert "6 no nativo" in normalized or "com 6 linhas" in normalized
+        assert "absent_confirmed" in normalized
+        assert "32 linhas" in normalized
+        assert "evidence_captured_unreviewed" in normalized
+        assert "human_evidence_blocked" in normalized
+        assert "cross_package_ok" in normalized
+        assert "163 passed" in normalized
+        assert "2 skipped" in normalized
+        assert "revisao humana offline independente" in normalized
+        assert "sem nova consulta a dev ou prod" in normalized
+        assert "sem liberar o runner" in normalized
         for stale_status in stale_candidate_statuses:
             assert stale_status not in normalized
+        for stale_capture_claim in (
+            "em postgresql 17.6, dev registrou",
+            "em postgresql 17.6, dev contem",
+            "seis artefatos `0600`",
+            "todos com modo `0600`",
+            "foram criados com modo `0600`",
+        ):
+            assert stale_capture_claim not in normalized
+
+    for path in mode_provenance_records:
+        normalized = _normalized_prose(path.read_text(encoding="utf-8"))
+        assert "originalmente" in normalized
+        assert "`0600`" in normalized
+        assert "`o_excl`" in normalized
+        assert "depois do versionamento" in normalized
+        assert "sanitizacao" in normalized
+        assert "acl do repositorio" in normalized
+        assert "nao do modo do checkout" in normalized
 
     for path in gate_contracts:
         normalized = _normalized_prose(path.read_text(encoding="utf-8"))
@@ -1252,7 +1320,7 @@ def test_canonical_docs_record_capture_candidate_and_one_premerge_gate() -> None
     )
     reconciliation_normalized = _normalized_prose(reconciliation_contract)
     assert "cfeba13c0a9d08288f8c956ee2f35ddc1c0c35b7" in reconciliation_contract
-    assert "integrado / comprovado offline" in reconciliation_normalized
+    assert "integrado" in reconciliation_normalized
     assert "decisoes humanas pendentes" in reconciliation_normalized
     assert "nao aplicado" in reconciliation_normalized
     assert "pacote deny-state versionado" in reconciliation_normalized
@@ -1297,7 +1365,12 @@ def test_canonical_docs_record_capture_candidate_and_one_premerge_gate() -> None
         assert "ledger nativo `present_complete` nao vazio" in normalized
         assert "inventory_blocked" in normalized
         assert "casos anteriores podem terminar" in normalized
-        assert "inventarios dev/prod ainda nao capturados" in normalized
+        assert "inventarios dev e prod capturados" in normalized
+        assert "nao revisados" in normalized
+        assert "cross_package_ok" in normalized
+        assert "163 passed, 2 skipped" in normalized
+        assert "sem nova consulta a dev ou prod" in normalized
+        assert "sem liberar o runner" in normalized
 
         for stale_claim in (
             "produz `evidence_captured_unreviewed` e termina no verificador com",
@@ -1305,17 +1378,20 @@ def test_canonical_docs_record_capture_candidate_and_one_premerge_gate() -> None
         ):
             assert stale_claim not in normalized, f"stale verifier claim in {path}"
 
-    false_capture_claims = {
-        "captura concluida em dev",
-        "captura concluida em prod",
-        "inventarios dev/prod capturados",
-        "pacotes dev/prod materializados",
+    stale_or_false_claims = {
+        "inventarios dev/prod ainda nao capturados",
+        "revisar e integrar esta pr",
+        "preparar uma missao separada",
         "historico reconciliado",
+        "reconciliacao concluida",
+        "decisoes humanas concluidas",
+        "runner liberado",
+        "status e apply liberados",
     }
     for path in gate_contracts | capture_primary_records:
         normalized = _normalized_prose(path.read_text(encoding="utf-8"))
-        for false_claim in false_capture_claims:
-            assert false_claim not in normalized, f"false capture claim in {path}"
+        for stale_claim in stale_or_false_claims:
+            assert stale_claim not in normalized, f"stale or false claim in {path}"
 
     mission_register = (
         REPO_ROOT / "docs" / "ops" / "POST-V1-MISSION-REGISTER.md"
@@ -1355,6 +1431,102 @@ def test_canonical_docs_record_capture_candidate_and_one_premerge_gate() -> None
         "approved" in path.name.lower()
         for path in TEMPLATE_PATH.parent.iterdir()
     )
+
+
+def test_captured_inventory_artifacts_are_unreviewed_and_blocked() -> None:
+    packets_dir = (
+        REPO_ROOT / "docs" / "governance" / "migrations" / "packets"
+    )
+    expected = {
+        "DEV": {
+            "public_state": "PRESENT_COMPLETE",
+            "public_rows": 33,
+            "native_rows": 6,
+            "captured_at": "2026-08-28T22:43:11.454382Z",
+        },
+        "PROD": {
+            "public_state": "ABSENT_CONFIRMED",
+            "public_rows": 0,
+            "native_rows": 32,
+            "captured_at": "2026-08-28T22:47:43.965243Z",
+        },
+    }
+    expected_basenames = {
+        f"migration-history-reconciliation-{environment.lower()}-evidence-v1{suffix}.json"
+        for environment in expected
+        for suffix in (
+            "",
+            "-public-capture-receipt-v1",
+            "-native-capture-receipt-v1",
+        )
+    }
+    actual_basenames = {
+        path.name
+        for path in packets_dir.glob(
+            "migration-history-reconciliation-*-evidence-v1*.json"
+        )
+    }
+    assert actual_basenames == expected_basenames
+
+    for environment, inventory in expected.items():
+        prefix = (
+            f"migration-history-reconciliation-{environment.lower()}-evidence-v1"
+        )
+        package_path = packets_dir / f"{prefix}.json"
+        package = json.loads(
+            package_path.read_text(encoding="utf-8"),
+            object_pairs_hook=_reject_duplicate_keys,
+        )
+        assert package["artifact_state"] == "EVIDENCE_CAPTURED_UNREVIEWED"
+        assert package["subject"]["environment"] == environment
+        assert package["subject"]["repository_sha"] == (
+            "656d1d9eebe90ad4b2cbb35c21939a6796c46bfe"
+        )
+        assert len(package["catalog"]["entries"]) == 75
+        assert package["catalog"]["digest_sha256"] == (
+            "84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f"
+        )
+        public = package["inventories"]["public_ledger"]
+        native = package["inventories"]["native_ledger"]
+        assert public["capture_state"] == inventory["public_state"]
+        assert len(public["rows"]) == inventory["public_rows"]
+        assert native["capture_state"] == "PRESENT_COMPLETE"
+        assert len(native["rows"]) == inventory["native_rows"]
+        assert public["captured_at_utc"] == inventory["captured_at"]
+        assert native["captured_at_utc"] == inventory["captured_at"]
+        assert all(row["name"] is None for row in native["rows"])
+        assert package["reconciliation"]["state"] == "NOT_REVIEWED"
+        assert package["attestation"]["state"] == "NOT_ATTESTED"
+
+        for source, role in (
+            ("public", "PUBLIC_LEDGER_CAPTURE"),
+            ("native", "NATIVE_LEDGER_CAPTURE"),
+        ):
+            receipt_path = packets_dir / f"{prefix}-{source}-capture-receipt-v1.json"
+            receipt = json.loads(
+                receipt_path.read_text(encoding="utf-8"),
+                object_pairs_hook=_reject_duplicate_keys,
+            )
+            assert receipt["receipt_role"] == role
+            assert receipt["subject"] == {
+                "environment": environment,
+                "target_binding_sha256": package["subject"][
+                    "target_binding_sha256"
+                ],
+                "repository_sha": package["subject"]["repository_sha"],
+            }
+            assert receipt["capture_sql_sha256"] == (
+                "8b589e5dda722691fead34cbd63cab75a7a22f32e0cf4bdfe64d6cef603866ee"
+            )
+            preimage = receipt["snapshot_record"]["preimage"]
+            assert preimage["captured_at_utc"] == inventory["captured_at"]
+            assert preimage["postgres_major"] == 17
+            assert preimage["read_only"] is True
+            assert receipt["safety_contract"]["runner_unlock"] == "BLOCKED"
+            assert (
+                receipt["safety_contract"]["environment_operation"]
+                == "BLOCKED"
+            )
 
 
 def test_migration_operator_docs_reject_obsolete_generic_apply_contract() -> None:
