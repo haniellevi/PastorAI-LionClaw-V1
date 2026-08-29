@@ -271,11 +271,21 @@ PROD. O verificador terminou em
 `ENVIRONMENT_ATTESTATION_COMPLETE=false`. A revisao tecnica foi feita pelo
 mesmo executor e nao e independente.
 
-**Proximo gate unico:** revisao offline independente, por seguranca e
-arquitetura de banco, da proposta e do manifesto. O gate pode aprovar somente o
-desenho de uma missao posterior e separada para derivar o schema canonico em
-PostgreSQL 17 descartavel. A atestacao read-only de DEV e PROD permanece
-posterior e independente; nada aqui autoriza acesso a ambiente, DML,
+A derivacao canonica foi reproduzida e verificada somente offline, duas vezes,
+em PostgreSQL 17 descartavel, sobre a base
+`07d2c05c687d1a0e8deeacbb7f8b16fbdd0e4e86`. As execucoes A e B produziram os
+mesmos 388390 bytes, o SHA-256
+`7040a54d80c0ee4f37e1986ff0a579db275e45c129f4fdafcd66788e22a3eb3e` e o
+fingerprint `8ac17d4352a77fb3c5885f9c1a55813a5b7dfcd6fb84c4bd4e9117c1c7883370`.
+A evidencia e os limites estao na
+[`decisao de derivacao offline`](docs/decisions/2026-08-29-offline-canonical-schema-derivation.md).
+Isso nao atesta DEV, PROD, Data API ou Realtime; `OPERATIONAL_AUTHORIZATION=BLOCKED`
+permanece obrigatorio.
+
+**Próximo gate único:** antes do merge, a exigencia e revisao e CI dedicado verde desta PR.
+Depois da integracao, o gate unico sera
+`SEPARATE_READ_ONLY_ENVIRONMENT_ATTESTATION`, em missao e autorizacao proprias.
+Ele nao autoriza DML, reconciliacao de ledger, corte de epoca, runner,
 `bootstrap-ledger`, `harden-ledger`, `status`, `apply`, migration, backfill,
 deploy, flag ou runtime. Universidade da Vida e Capacitacao Destino permanecem
 fora.

@@ -1,0 +1,123 @@
+{
+  "artifact_id": "migration-history-canonical-schema-fingerprint-v1",
+  "artifact_state": "OFFLINE_CANONICAL_SCHEMA_DERIVED_ENVIRONMENTS_UNATTESTED",
+  "canonical_schema_fingerprint_sha256": "8ac17d4352a77fb3c5885f9c1a55813a5b7dfcd6fb84c4bd4e9117c1c7883370",
+  "contract_version": "1.0",
+  "data_api": {
+    "exposure_inferred": false,
+    "state": "NOT_EVALUATED_OFFLINE"
+  },
+  "derivation_target": {
+    "container_image": "postgres:17.6-trixie@sha256:00bc86618629af00d2937fdc5a5d63db3ff8450acf52f0636ec813c7f4902929",
+    "disposable_database_required": true,
+    "loopback_required": true,
+    "postgresql_major": 17,
+    "realtime_scaffolded": false
+  },
+  "domain_fingerprints": [
+    {
+      "entry_count": 2,
+      "name": "EXTENSIONS",
+      "sha256": "b38ebfb6641bf25c0063cadf2a50f26548a4e4814190b97d062272ca896bd5b5"
+    },
+    {
+      "entry_count": 106,
+      "name": "ENUM_TYPES_AND_VALUES",
+      "sha256": "749f975f85c34803d824397a4b8372c62251af54d5c6a839abebda61964eefe4"
+    },
+    {
+      "entry_count": 5,
+      "name": "ROLES_AND_MEMBERSHIPS",
+      "sha256": "f797cef5b7e745213469e5c7aacacacd8dc4eef0d34912c258078ead009b507e"
+    },
+    {
+      "entry_count": 2,
+      "name": "SCHEMAS_AND_OWNERS",
+      "sha256": "fabfc491ca91d72786ed4b19e812aba74b7b5a1d61ca2306b13be9192b37e9ed"
+    },
+    {
+      "entry_count": 57,
+      "name": "RELATIONS_AND_PERSISTENCE",
+      "sha256": "a50dd77b614991d605d74e3eeb1e7d95f10dee6b592f6aa20ce0ac7ea438c468"
+    },
+    {
+      "entry_count": 586,
+      "name": "COLUMNS_TYPES_DEFAULTS_IDENTITY_GENERATED",
+      "sha256": "a56b080164df12a1e5b8f562da09560fcc850b000a1a1bf7cb3c7a438cb326fe"
+    },
+    {
+      "entry_count": 274,
+      "name": "CONSTRAINTS_AND_VALIDATION_STATE",
+      "sha256": "c755655ecdb92568c1282c86bb50acc2eb7acb00d210db54cbc50fdfb252a262"
+    },
+    {
+      "entry_count": 204,
+      "name": "INDEXES_DEFINITIONS_AND_VALIDITY",
+      "sha256": "4293040c22a8a69ad44334487672e669c8260957766b16430ef365adb40a550a"
+    },
+    {
+      "entry_count": 15,
+      "name": "FUNCTIONS_SIGNATURE_LANGUAGE_VOLATILITY_SECURITY_SEARCH_PATH",
+      "sha256": "756349f0a52e28ae8064014735356ad148056f8bd05e95c69f862cb9073b12dd"
+    },
+    {
+      "entry_count": 12,
+      "name": "TRIGGERS_AND_REWRITE_RULES",
+      "sha256": "1cb294828c021fad7d6f7f6d281e53e04c9270e70242c54f177c6827293e0aa9"
+    },
+    {
+      "entry_count": 57,
+      "name": "RLS_ENABLE_FORCE_FLAGS",
+      "sha256": "71a38edfcb4fb479e51e00f7373acfb97ac351b8f2d0ec3c16e6615118e3539e"
+    },
+    {
+      "entry_count": 59,
+      "name": "POLICIES_COMMAND_ROLES_USING_WITH_CHECK",
+      "sha256": "066a9eb905b9d5d98320ab8cf24884691e2ce426b87aa6c728f996c560b39793"
+    },
+    {
+      "entry_count": 512,
+      "name": "TABLE_COLUMN_FUNCTION_SCHEMA_PRIVILEGES",
+      "sha256": "bb5bf6a67e1f12ae982c246188b6fd3130ee8907ccbd204023baa95bcffb6eb9"
+    },
+    {
+      "entry_count": 0,
+      "name": "DEFAULT_PRIVILEGES",
+      "sha256": "356fef8a9e880dbbe50c666eec77a5ac5a4a26157804d5b6822309734c0a0b85"
+    },
+    {
+      "entry_count": 8,
+      "name": "DATA_INVARIANTS",
+      "sha256": "ca7e35b6001ec285efe3d415ae8517c002cc49544601be239828591a6b62bcb4"
+    }
+  ],
+  "environment_attestation_complete": false,
+  "extension_version_semantics": "OBSERVATIONAL_NOT_PINNED_OR_OPERATIONAL",
+  "full_artifact_bytes": 388390,
+  "full_artifact_sha256": "7040a54d80c0ee4f37e1986ff0a579db275e45c129f4fdafcd66788e22a3eb3e",
+  "operational_authorization": false,
+  "replay": {
+    "autocommit_per_file": true,
+    "complete": true,
+    "migration_count": 75,
+    "native_ledger_absent": true,
+    "public_ledger_absent": true,
+    "raw_bytes_preserved": true
+  },
+  "scaffold": {
+    "owner_identity": "DERIVATION_OWNER",
+    "path": "docs/governance/migrations/migration-history-canonical-schema-scaffold-v1.sql",
+    "roles": [
+      "anon",
+      "authenticated",
+      "service_role"
+    ],
+    "sha256": "9dcf654790e9787d218ec93f59c04d46d1aaab214f223b8ac5f4b2dd502ef3cc"
+  },
+  "source_catalog": {
+    "algorithm": "basename-ascii-ascending+sha256-raw-bytes-v1",
+    "digest_sha256": "84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f",
+    "migration_count": 75,
+    "path": "backend/migrations"
+  }
+}

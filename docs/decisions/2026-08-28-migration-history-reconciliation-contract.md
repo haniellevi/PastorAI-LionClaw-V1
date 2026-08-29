@@ -262,14 +262,21 @@ Ele é `SOURCE_LEVEL_EXPECTATION_ONLY`, não prova o schema final de DEV ou PROD
 e permanece com `OPERATIONAL_AUTHORIZATION=BLOCKED`. A revisão técnica foi
 feita pelo mesmo executor e não é independente.
 
-Revisão offline independente, por segurança e arquitetura de banco, da
+A derivação canônica prevista pela
 [`proposta de remediação da divergência`](2026-08-29-migration-history-divergence-remediation.md)
-e do manifesto. O gate pode aprovar somente o desenho de uma missão posterior e
-separada para derivar o schema canônico em PostgreSQL 17 descartável. A
-atestação read-only de DEV e PROD permanece posterior e independente. Ele não
-autoriza acesso a ambiente, DML, `bootstrap-ledger`, `harden-ledger`,
-`status`, `apply`, migration, backfill, deploy, flag ou runtime. Universidade
-da Vida e Capacitação Destino permanecem fora desta missão.
+foi reproduzida e verificada somente offline, em PostgreSQL 17 descartável.
+As execuções A e B, a evidência e as limitações estão em
+[`2026-08-29-offline-canonical-schema-derivation.md`](2026-08-29-offline-canonical-schema-derivation.md).
+Isso não atesta DEV, PROD, Data API ou Realtime e não altera os pacotes,
+ledgers ou o runner. `OPERATIONAL_AUTHORIZATION=BLOCKED` permanece obrigatório.
+
+Antes do merge, a exigência é revisão e CI dedicado verde desta PR.
+Depois da integração, o único gate será
+`SEPARATE_READ_ONLY_ENVIRONMENT_ATTESTATION`, em missão e autorização próprias.
+Ele não autoriza DML, reconciliação de ledger, corte de época, runner,
+`bootstrap-ledger`, `harden-ledger`, `status`, `apply`, migration, backfill,
+deploy, flag ou runtime. Universidade da Vida e Capacitação Destino permanecem
+fora desta missão.
 
 O procedimento reproduzível e a separação entre proprietário e pessoa revisora
 estão em

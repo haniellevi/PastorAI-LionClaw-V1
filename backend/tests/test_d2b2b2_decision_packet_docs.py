@@ -47,6 +47,12 @@ SCHEMA_EXPECTATION_MANIFEST_PATH = (
     / "migrations"
     / "migration-history-schema-expectation-manifest-v1.json"
 )
+CANONICAL_SCHEMA_DERIVATION_ADR_PATH = (
+    REPO_ROOT
+    / "docs"
+    / "decisions"
+    / "2026-08-29-offline-canonical-schema-derivation.md"
+)
 
 EXPECTED_TOP_LEVEL_KEYS = {
     "metadata",
@@ -1255,15 +1261,15 @@ def test_canonical_docs_record_captured_blocked_inventories_and_one_human_gate()
         assert "decisao humana" in normalized
         assert "nao prova" in normalized
         assert "prefixo reconciliado" in normalized
-        assert "revisao offline" in normalized
-        assert "seguranca e arquitetura de banco" in normalized
+        assert "derivacao canonica" in normalized
+        assert "reproduzida e verificada somente offline" in normalized
+        assert "antes do merge" in normalized
+        assert "ci dedicado verde" in normalized
+        assert "separate_read_only_environment_attestation" in normalized
         assert "manifesto estatico" in normalized
-        assert (
-            "nao autoriza acesso a ambiente" in normalized
-            or "nada aqui autoriza acesso a ambiente" in normalized
-        )
-        assert "schema canonico em postgresql 17 descartavel" in normalized
-        assert "atestacao read-only de dev e prod permanece" in normalized
+        assert "nao autoriza dml" in normalized
+        assert "postgresql 17 descartavel" in normalized
+        assert "nao atesta dev, prod" in normalized
         assert "7f18f7e8b44cd50e6f6033867fb97bfa9eb9c9e6" in content
         assert "source_level_expectation_only" in normalized
         assert "operational_authorization=blocked" in normalized
@@ -1339,13 +1345,13 @@ def test_canonical_docs_record_captured_blocked_inventories_and_one_human_gate()
         assert "cross_package_ok" in normalized
         assert "163 passed" in normalized
         assert "2 skipped" in normalized
-        assert "revisao offline" in normalized
-        assert "seguranca e arquitetura de banco" in normalized
+        assert "derivacao canonica" in normalized
+        assert "reproduzida e verificada somente offline" in normalized
+        assert "antes do merge" in normalized
+        assert "ci dedicado verde" in normalized
+        assert "separate_read_only_environment_attestation" in normalized
         assert "manifesto estatico" in normalized
-        assert (
-            "nao autoriza acesso a ambiente" in normalized
-            or "nada aqui autoriza acesso a ambiente" in normalized
-        )
+        assert "nao autoriza dml" in normalized
         for stale_status in stale_candidate_statuses:
             assert stale_status not in normalized
         for stale_capture_claim in (
@@ -1370,6 +1376,7 @@ def test_canonical_docs_record_captured_blocked_inventories_and_one_human_gate()
     for path in gate_contracts:
         normalized = _normalized_prose(path.read_text(encoding="utf-8"))
         assert normalized.count("proximo gate unico") == 1
+        assert "separate_read_only_environment_attestation" in normalized
 
     reconciliation_contract = RECONCILIATION_CONTRACT_PATH.read_text(
         encoding="utf-8"
@@ -1427,10 +1434,7 @@ def test_canonical_docs_record_captured_blocked_inventories_and_one_human_gate()
         assert "decisao owner-01 registrada" in normalized
         assert "cross_package_ok" in normalized
         assert "163 passed, 2 skipped" in normalized
-        assert (
-            "nao autoriza acesso a ambiente" in normalized
-            or "nada aqui autoriza acesso a ambiente" in normalized
-        )
+        assert "nao autoriza dml" in normalized
         assert "runner" in normalized and "bloquead" in normalized
 
         for stale_claim in (
@@ -1845,6 +1849,67 @@ def test_reconciliation_candidate_docs_reject_consumed_gate_and_false_authority(
         for stale_claim in stale_claims:
             assert stale_claim not in normalized, f"stale claim in {path}"
         assert "operational_authorization=blocked" in normalized
+
+
+def test_canonical_schema_derivation_docs_preserve_offline_only_limits() -> None:
+    canonical_docs = {
+        REPO_ROOT / "docs" / "ai" / "AI-BOOTSTRAP.md",
+        REPO_ROOT / "docs" / "ai" / "PRD-COVERAGE.md",
+        REPO_ROOT / "docs" / "WIKI-IGREJA12.md",
+        REPO_ROOT / "docs" / "ops" / "POST-V1-MISSION-REGISTER.md",
+        REPO_ROOT / "SPEC_PROGRESS.md",
+        REPO_ROOT / "SPEC.md",
+        REPO_ROOT / "docs" / "Docs20260611_163530" / "PRD20260611_163530.md",
+        REPO_ROOT
+        / "docs"
+        / "decisions"
+        / "2026-08-28-d2b2b2-consent-decision-packet-contract.md",
+        REPO_ROOT
+        / "docs"
+        / "decisions"
+        / "2026-08-28-d2b2b3-master-governance-drafts.md",
+        REPO_ROOT / "backend" / "migrations" / "README.md",
+        REPO_ROOT / "deploy" / "STAGING.md",
+        REPO_ROOT / "docs" / "ops" / "PRODUCTION-RUNBOOK.md",
+        REPO_ROOT / "docs" / "security" / "2026-08-20-v1-ledger-hardening-gate.md",
+        RECONCILIATION_CONTRACT_PATH,
+        REPO_ROOT
+        / "docs"
+        / "decisions"
+        / "2026-08-29-migration-history-divergence-remediation.md",
+    }
+
+    common_required = {
+        "operational_authorization=blocked",
+        "separate_read_only_environment_attestation",
+    }
+    prohibited = {
+        "schema final de dev ou prod foi atestado",
+        "data api atestada",
+        "realtime atestado",
+        "runner liberado",
+        "reconciliacao de ledger aprovada",
+    }
+
+    for path in canonical_docs:
+        normalized = _normalized_prose(path.read_text(encoding="utf-8"))
+        assert all(item in normalized for item in common_required), (
+            f"offline derivation record missing in {path}"
+        )
+        assert "antes do merge" in normalized
+        assert "ci dedicado verde" in normalized
+        for claim in prohibited:
+            assert claim not in normalized, f"false authority in {path}"
+
+    adr = _normalized_prose(CANONICAL_SCHEMA_DERIVATION_ADR_PATH.read_text(encoding="utf-8"))
+    assert "derivacao canonica reproduzida e verificada somente offline em pg17 descartavel" in adr
+    assert "75/75 migrations" in adr
+    assert "388390 bytes identicos" in adr
+    assert "21 passed, 1 skipped" in adr
+    assert "286 passed, 48 skipped" in adr
+    assert "github actions usa o mapeamento host:container" in adr
+    assert "data api e realtime continuam nao atestados" in adr
+    assert "separate_read_only_environment_attestation" in adr
 
 
 def test_schema_expectation_manifest_is_source_only_and_keeps_environment_gate() -> None:

@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://igreja12.invalid/schemas/migration-history-canonical-schema-derivation-v1.json",
+  "title": "PastorAI offline canonical schema derivation artifact",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "artifact_id",
+    "artifact_state",
+    "canonical_schema_fingerprint_sha256",
+    "contract_version",
+    "data_api",
+    "derivation_target",
+    "domains",
+    "environment_attestation_complete",
+    "extension_version_semantics",
+    "operational_authorization",
+    "replay",
+    "scaffold",
+    "source_catalog"
+  ],
+  "properties": {
+    "artifact_id": {
+      "const": "migration-history-canonical-schema-derivation-v1"
+    },
+    "artifact_state": {
+      "const": "OFFLINE_CANONICAL_SCHEMA_DERIVED_ENVIRONMENTS_UNATTESTED"
+    },
+    "canonical_schema_fingerprint_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "contract_version": {
+      "const": "1.0"
+    },
+    "data_api": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["exposure_inferred", "state"],
+      "properties": {
+        "exposure_inferred": {"const": false},
+        "state": {"const": "NOT_EVALUATED_OFFLINE"}
+      }
+    },
+    "derivation_target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "container_image",
+        "disposable_database_required",
+        "loopback_required",
+        "postgresql_major",
+        "realtime_scaffolded"
+      ],
+      "properties": {
+        "container_image": {
+          "const": "postgres:17.6-trixie@sha256:00bc86618629af00d2937fdc5a5d63db3ff8450acf52f0636ec813c7f4902929"
+        },
+        "disposable_database_required": {"const": true},
+        "loopback_required": {"const": true},
+        "postgresql_major": {"const": 17},
+        "realtime_scaffolded": {"const": false}
+      }
+    },
+    "domains": {
+      "type": "array",
+      "minItems": 15,
+      "maxItems": 15,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["entry_count", "entries", "name", "sha256"],
+        "properties": {
+          "entry_count": {"type": "integer", "minimum": 0},
+          "entries": {"type": "array"},
+          "name": {"type": "string"},
+          "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        }
+      }
+    },
+    "environment_attestation_complete": {"const": false},
+    "extension_version_semantics": {
+      "const": "OBSERVATIONAL_NOT_PINNED_OR_OPERATIONAL"
+    },
+    "operational_authorization": {"const": false},
+    "replay": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "autocommit_per_file",
+        "complete",
+        "migration_count",
+        "native_ledger_absent",
+        "public_ledger_absent",
+        "raw_bytes_preserved"
+      ],
+      "properties": {
+        "autocommit_per_file": {"const": true},
+        "complete": {"const": true},
+        "migration_count": {"const": 75},
+        "native_ledger_absent": {"const": true},
+        "public_ledger_absent": {"const": true},
+        "raw_bytes_preserved": {"const": true}
+      }
+    },
+    "scaffold": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "owner_identity",
+        "path",
+        "roles",
+        "sha256"
+      ],
+      "properties": {
+        "owner_identity": {"const": "DERIVATION_OWNER"},
+        "path": {
+          "const": "docs/governance/migrations/migration-history-canonical-schema-scaffold-v1.sql"
+        },
+        "roles": {
+          "const": ["anon", "authenticated", "service_role"]
+        },
+        "sha256": {
+          "const": "9dcf654790e9787d218ec93f59c04d46d1aaab214f223b8ac5f4b2dd502ef3cc"
+        }
+      }
+    },
+    "source_catalog": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["algorithm", "digest_sha256", "migration_count", "path"],
+      "properties": {
+        "algorithm": {
+          "const": "basename-ascii-ascending+sha256-raw-bytes-v1"
+        },
+        "digest_sha256": {
+          "const": "84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f"
+        },
+        "migration_count": {"const": 75},
+        "path": {"const": "backend/migrations"}
+      }
+    }
+  }
+}

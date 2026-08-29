@@ -140,10 +140,15 @@ o único estado operacional válido.
 
 ## Próximo gate único
 
-Revisão offline independente, por segurança e arquitetura de banco, da proposta
-e do manifesto de expectativas da fonte. Esse gate pode aprovar somente o
-desenho de uma missão posterior e separada para derivar o schema canônico em
-PostgreSQL 17 descartável. A atestação read-only de DEV e PROD permanece um
-gate ainda posterior e independente. Nada aqui autoriza acesso a ambiente,
-captura, implementação de corte, alteração do runner, DML, migration,
-backfill, deploy, flag ou runtime.
+A derivação canônica prevista por esta proposta foi reproduzida e verificada
+somente offline, em PostgreSQL 17 descartável. A decisão, as duas execuções
+idênticas e suas limitações estão em
+[`2026-08-29-offline-canonical-schema-derivation.md`](2026-08-29-offline-canonical-schema-derivation.md).
+Ela não atesta DEV, PROD, Data API ou Realtime e não modifica esta proposta,
+os pacotes ou o runner. `OPERATIONAL_AUTHORIZATION=BLOCKED` permanece válido.
+
+Antes do merge, a exigência é revisão e CI dedicado verde desta PR.
+Depois da integração, o único gate será
+`SEPARATE_READ_ONLY_ENVIRONMENT_ATTESTATION`, em missão e autorização próprias.
+Ele não autoriza DML, reconciliação de ledger, corte de época, alteração ou
+execução do runner, migration, backfill, deploy, flag ou runtime.
