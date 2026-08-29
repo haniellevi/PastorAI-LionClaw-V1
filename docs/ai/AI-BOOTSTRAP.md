@@ -3,7 +3,7 @@ project: igreja12
 document_kind: ai-bootstrap
 status: canonical
 last_verified: 2026-08-28
-audited_repository_sha: 04e5c1720bf89313718c4159a2ac9d0eeeed3c25
+audited_repository_sha: 341f38a7f1c6993c74d85e99748cb60046cd4501
 ---
 
 # Bootstrap canônico para agentes de IA
@@ -36,7 +36,7 @@ externas com contratos e gates próprios.
 | Tema | Estado e proveniência | Leitura correta |
 |---|---|---|
 | V1 | `IMPLEMENTADO` | Encerrada como piloto controlado; não equivale ao produto amplo concluído |
-| Código | `VERIFICADO / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR INTEGRADOS / INVENTÁRIOS DEV E PROD CAPTURADOS, NÃO REVISADOS E BLOQUEADOS / DECISÕES HUMANAS PENDENTES / NÃO APLICADO / D2B2B3A INTEGRADA E INATIVA` | a PR #327 integrou o capturador/materializador e a PR #328 integrou o hotfix; seis artefatos sanitizados registram os dois ambientes em `EVIDENCE_CAPTURED_UNREVIEWED`, sem decisão humana nem autorização operacional; a captura somente leitura não aplicou migration, não executou runner, deploy ou runtime; D2B2B3A continua ausente nos bancos consultados e com flag `false` |
+| Código | `VERIFICADO / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR INTEGRADOS / ARTEFATOS INTEGRADOS E VERSIONADOS / INVENTÁRIOS DEV E PROD CAPTURADOS, NÃO REVISADOS E BLOQUEADOS / DECISÕES HUMANAS PENDENTES / NÃO APLICADO / D2B2B3A INTEGRADA E INATIVA` | as PRs #327 e #328 integraram o capturador/materializador e o hotfix; a PR #329 integrou e versionou os seis artefatos sanitizados em `EVIDENCE_CAPTURED_UNREVIEWED`, sem decisão humana nem autorização operacional; a captura somente leitura não aplicou migration, não executou runner, deploy ou runtime; D2B2B3A continua ausente nos bancos consultados e com flag `false` |
 | Produto WhatsApp-first | `PARCIAL` | A visão está aprovada; memória, conhecimento e ações profundas ainda faltam |
 | Agente Evolution | `PARCIAL / GATE OPERACIONAL` | Fundação, identidade e contenção existem; qualidade conversacional é insuficiente |
 | Canário ativo do agente | `PASS TÉCNICO / QUALIDADE INSUFICIENTE` | Evidência operacional reconciliada nesta missão, não prova previamente versionada em `ad4a272` |
@@ -358,6 +358,16 @@ A captura ocorreu somente em leitura e não executou DML, runner,
 `bootstrap-ledger`, `harden-ledger`, `status`, `apply`, deploy, flag ou runtime.
 Os seis artefatos permanecem bloqueados e não provam decisão humana, migration
 aplicada, prefixo reconciliado ou autorização operacional.
+
+A PR #329 integrou e versionou os seis artefatos, com HEAD
+`c5ae430aa865dbd6371953d43e4a4447ca8e6618`, no merge
+`341f38a7f1c6993c74d85e99748cb60046cd4501` em `2026-08-29T00:04:50Z`. Os
+cinco workflows da PR e os cinco pós-merge concluíram com `SUCCESS`. O merge
+gerou o deployment automático Vercel frontend Production `6150482852`, com
+`SUCCESS`, em `2026-08-29T00:05:33Z`. Essa metadata prova somente o frontend,
+sem provar deploy manual ou do backend, banco ou runtime. A integração versiona
+a evidência sanitizada já capturada, mas não revisa os inventários, não aplica
+migration e não libera o runner ou qualquer autorização operacional.
 
 O próximo gate único é uma revisão humana offline independente dos pacotes e
 das evidências, sem nova consulta a DEV ou PROD e sem liberar o runner. O gate

@@ -1,7 +1,7 @@
 # Wiki do projeto Igreja 12
 
 Snapshot documental no merge auditado
-`04e5c1720bf89313718c4159a2ac9d0eeeed3c25`. O `bootstrap-ledger` permanece
+`341f38a7f1c6993c74d85e99748cb60046cd4501`. O `bootstrap-ledger` permanece
 integrado pelo merge `3a5789c784017ab15a43e28c4270d25af8618359`. O preflight PROD histórico
 permanece fixado na baseline auditada
 `15deaf88fd4cab5b4bebdd1435a81c8b33c2b159`; a implementação D2B2b3A veio do
@@ -48,7 +48,7 @@ qualquer expansão do canário.
 | Agente e Evolution | `PARCIAL / GATE OPERACIONAL` | Corrigir memória, conhecimento e qualidade antes de novo canário |
 | Canário ativo | `PASS TÉCNICO / QUALIDADE INSUFICIENTE` | Avaliação conversacional humana após a nova fundação |
 | LangGraph | `IMPLEMENTADO STATELESS / D2B1 INTEGRADA` | Persistência, memória e subgrafos permanecem posteriores |
-| Consentimento | `PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR INTEGRADOS / INVENTÁRIOS DEV E PROD CAPTURADOS, NÃO REVISADOS E BLOQUEADOS / DECISÕES HUMANAS PENDENTES / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | Revisão humana offline independente dos pacotes e evidências, sem nova consulta aos ambientes e sem liberar runner; aprovações, catálogo, writers, Supabase e D2C permanecem bloqueados |
+| Consentimento | `PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR INTEGRADOS / ARTEFATOS INTEGRADOS E VERSIONADOS / INVENTÁRIOS DEV E PROD CAPTURADOS, NÃO REVISADOS E BLOQUEADOS / DECISÕES HUMANAS PENDENTES / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | Revisão humana offline independente dos pacotes e evidências, sem nova consulta aos ambientes e sem liberar runner; aprovações, catálogo, writers, Supabase e D2C permanecem bloqueados |
 | Conhecimento por igreja | `AUSENTE` | Ingestão aprovada, ACL, busca e ferramentas de dados vivos |
 | Relatório por WhatsApp | `PARCIAL` | Confirmar e gravar no relatório canônico |
 | Central de Células | `PARCIAL FORTE` | Operação e notificações principais pelo WhatsApp |
@@ -477,6 +477,16 @@ A captura ocorreu somente em leitura e não executou DML, runner,
 `bootstrap-ledger`, `harden-ledger`, `status`, `apply`, deploy, flag ou runtime.
 Os seis artefatos permanecem bloqueados e não provam decisão humana, migration
 aplicada, prefixo reconciliado ou autorização operacional.
+
+A PR #329 integrou e versionou os seis artefatos, com HEAD
+`c5ae430aa865dbd6371953d43e4a4447ca8e6618`, no merge
+`341f38a7f1c6993c74d85e99748cb60046cd4501` em `2026-08-29T00:04:50Z`. Os
+cinco workflows da PR e os cinco pós-merge concluíram com `SUCCESS`. O merge
+gerou o deployment automático Vercel frontend Production `6150482852`, com
+`SUCCESS`, em `2026-08-29T00:05:33Z`. Essa metadata prova somente o frontend,
+sem provar deploy manual ou do backend, banco ou runtime. A integração versiona
+a evidência sanitizada já capturada, mas não revisa os inventários, não aplica
+migration e não libera o runner ou qualquer autorização operacional.
 
 Revisão humana offline independente dos pacotes e das evidências, sem nova
 consulta a DEV ou PROD e sem liberar o runner. O gate não autoriza DML,

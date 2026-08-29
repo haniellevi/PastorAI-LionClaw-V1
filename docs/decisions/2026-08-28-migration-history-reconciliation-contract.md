@@ -215,6 +215,22 @@ A captura ocorreu somente em leitura e não executou DML, runner,
 Nenhuma linha capturada, ausência de ledger, contagem ou igualdade aparente
 prova aplicação, autoriza backfill ou reconcilia os históricos.
 
+A PR #329, HEAD `c5ae430aa865dbd6371953d43e4a4447ca8e6618`, integrou e
+versionou os seis artefatos no merge
+`341f38a7f1c6993c74d85e99748cb60046cd4501` em `2026-08-29T00:04:50Z`. Os
+workflows da PR concluíram com `SUCCESS`: Backend `33222301288`, E2E
+`33222301419`, Frontend `33222301331`, RLS `33222301296` e Tooling
+`33222301367`. Os pós-merge também concluíram com `SUCCESS`: Backend
+`33222447467`, E2E `33222447447`, Frontend `33222447518`, RLS `33222447506` e
+Tooling `33222447495`.
+
+O merge gerou o deployment automático Vercel frontend Production `6150482852`,
+com `SUCCESS`, em `2026-08-29T00:05:33Z`. Essa metadata prova somente o
+frontend, sem provar deploy manual ou do backend, banco ou runtime. A integração
+versiona a evidência sanitizada já capturada, mas não revisa os inventários,
+não altera `EVIDENCE_CAPTURED_UNREVIEWED` ou `HUMAN_EVIDENCE_BLOCKED`, não
+aplica migration e não libera o runner nem qualquer autorização operacional.
+
 ## Estado operacional preservado
 
 O `bootstrap-ledger` integrado pela PR #323 continua não aplicado. O preflight
