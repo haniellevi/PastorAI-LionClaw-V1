@@ -167,6 +167,16 @@ linhas no nativo.
 matriz focal offline pós-captura passou com `163 passed, 2 skipped` em `1.40s`,
 sem representar suíte integral ou reexecução PostgreSQL.
 
+A PR #329 integrou e versionou os seis artefatos, com HEAD
+`c5ae430aa865dbd6371953d43e4a4447ca8e6618`, no merge
+`341f38a7f1c6993c74d85e99748cb60046cd4501` em `2026-08-29T00:04:50Z`. Os
+cinco workflows da PR e os cinco pós-merge concluíram com `SUCCESS`. O merge
+gerou o deployment automático Vercel frontend Production `6150482852`, com
+`SUCCESS`, em `2026-08-29T00:05:33Z`. Essa metadata prova somente o frontend,
+sem provar deploy manual ou do backend, banco ou runtime. A integração versiona
+a evidência sanitizada já capturada, mas não revisa os inventários, não aplica
+migration e não libera o runner ou qualquer autorização operacional.
+
 O próximo gate é revisão humana offline independente dos pacotes e evidências,
 sem nova consulta a DEV ou PROD e sem liberar o runner. Não executar DML,
 `bootstrap-ledger`, `harden-ledger`, `status`, `apply`, deploy, flag ou runtime.

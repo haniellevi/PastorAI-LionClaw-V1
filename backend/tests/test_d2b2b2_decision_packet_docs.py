@@ -1198,6 +1198,16 @@ def test_canonical_docs_record_captured_blocked_inventories_and_one_human_gate()
         assert "#328" in content
         assert "2cbdfaf39ae11d984f0aa27dfcf0910c25984840" in content
         assert "04e5c1720bf89313718c4159a2ac9d0eeeed3c25" in content
+        assert "#329" in content
+        assert "c5ae430aa865dbd6371953d43e4a4447ca8e6618" in content
+        assert "341f38a7f1c6993c74d85e99748cb60046cd4501" in content
+        assert "2026-08-29t00:04:50z" in normalized
+        assert "6150482852" in content
+        assert "2026-08-29t00:05:33z" in normalized
+        assert "integrou e versionou os seis artefatos" in normalized
+        assert "deployment automatico vercel frontend production" in normalized
+        assert "prova somente o frontend" in normalized
+        assert "sem provar deploy manual ou do backend, banco ou runtime" in normalized
         assert "inventarios dev e prod capturados" in normalized
         assert "nao revisados" in normalized
         assert "bloqueados" in normalized
@@ -1275,6 +1285,15 @@ def test_canonical_docs_record_captured_blocked_inventories_and_one_human_gate()
         assert "#327" in normalized
         assert "#328" in normalized
         assert "04e5c1720bf89313718c4159a2ac9d0eeeed3c25" in normalized
+        assert "#329" in normalized
+        assert "c5ae430aa865dbd6371953d43e4a4447ca8e6618" in normalized
+        assert "341f38a7f1c6993c74d85e99748cb60046cd4501" in normalized
+        assert "2026-08-29t00:04:50z" in normalized
+        assert "6150482852" in normalized
+        assert "2026-08-29t00:05:33z" in normalized
+        assert "integrou e versionou os seis artefatos" in normalized
+        assert "prova somente o frontend" in normalized
+        assert "sem provar deploy manual ou do backend, banco ou runtime" in normalized
         assert "inventarios dev e prod capturados" in normalized
         assert "nao revisados" in normalized
         assert "bloquead" in normalized
@@ -1387,6 +1406,9 @@ def test_canonical_docs_record_captured_blocked_inventories_and_one_human_gate()
         "decisoes humanas concluidas",
         "runner liberado",
         "status e apply liberados",
+        "artefatos ainda nao integrados",
+        "artefatos ainda nao versionados",
+        "revisar e integrar a pr #329",
     }
     for path in gate_contracts | capture_primary_records:
         normalized = _normalized_prose(path.read_text(encoding="utf-8"))
@@ -1417,11 +1439,38 @@ def test_canonical_docs_record_captured_blocked_inventories_and_one_human_gate()
         "33207645362",
         "33207645399",
         "33207645340",
+        "33222301288",
+        "33222301419",
+        "33222301331",
+        "33222301296",
+        "33222301367",
+        "33222447467",
+        "33222447447",
+        "33222447518",
+        "33222447506",
+        "33222447495",
     ):
         assert workflow_id in mission_register
 
-    for deployment_id in ("6147914118", "6147952424"):
+    for deployment_id in ("6147914118", "6147952424", "6150482852"):
         assert deployment_id in mission_register
+
+    reconciliation_contract = RECONCILIATION_CONTRACT_PATH.read_text(
+        encoding="utf-8"
+    )
+    for workflow_id in (
+        "33222301288",
+        "33222301419",
+        "33222301331",
+        "33222301296",
+        "33222301367",
+        "33222447467",
+        "33222447447",
+        "33222447518",
+        "33222447506",
+        "33222447495",
+    ):
+        assert workflow_id in reconciliation_contract
 
     assert ADR_PATH.is_file()
     assert "TEMPLATE_ONLY / NOT_APPROVED" in ADR_PATH.read_text(

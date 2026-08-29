@@ -3,7 +3,7 @@ project: igreja12
 document_kind: prd-coverage
 status: canonical-audit
 last_verified: 2026-08-28
-audited_repository_sha: 04e5c1720bf89313718c4159a2ac9d0eeeed3c25
+audited_repository_sha: 341f38a7f1c6993c74d85e99748cb60046cd4501
 canonical_prd: docs/Docs20260611_163530/PRD20260611_163530.md
 ---
 
@@ -35,11 +35,11 @@ significa ativa em produção.
 | Pessoas e responsabilidades | `PARCIAL FORTE` | cadastro, papéis, vínculos, fila e escopos existentes | Fechar responsabilidades temporais, owner operacional e composição por setor |
 | Conexão WhatsApp | `IMPLEMENTADO / GATE OPERACIONAL` | Evolution, conexão por igreja, webhook e filas | Monitorar recibos, reconnect e capacidade antes de cada canário |
 | Conversas e handoff | `IMPLEMENTADO` | histórico, inbox, atribuição, transferência e estado IA/humano | Adicionar memória derivada, exclusão propagada e avaliação de naturalidade |
-| Fundação do agente | `IMPLEMENTADO / PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR INTEGRADOS / INVENTÁRIOS DEV E PROD CAPTURADOS, NÃO REVISADOS E BLOQUEADOS / DECISÕES HUMANAS PENDENTES / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | LangGraph stateless e contexto confiável D2B1 integrados; a PR #327 integrou o capturador/materializador e a PR #328 integrou o hotfix; os seis artefatos sanitizados permanecem `EVIDENCE_CAPTURED_UNREVIEWED` | Revisão humana offline independente dos pacotes e evidências, sem nova consulta aos ambientes e sem liberar runner; aprovações, catálogo, writer, memória, conhecimento, D2 e operação permanecem posteriores |
+| Fundação do agente | `IMPLEMENTADO / PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR INTEGRADOS / ARTEFATOS INTEGRADOS E VERSIONADOS / INVENTÁRIOS DEV E PROD CAPTURADOS, NÃO REVISADOS E BLOQUEADOS / DECISÕES HUMANAS PENDENTES / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | LangGraph stateless e contexto confiável D2B1 integrados; as PRs #327 e #328 integraram o capturador/materializador e o hotfix; a PR #329 integrou e versionou os seis artefatos sanitizados, que permanecem `EVIDENCE_CAPTURED_UNREVIEWED` | Revisão humana offline independente dos pacotes e evidências, sem nova consulta aos ambientes e sem liberar runner; aprovações, catálogo, writer, memória, conhecimento, D2 e operação permanecem posteriores |
 | Isolamento da memória | `AUSENTE / FUNDAÇÃO D2A INTEGRADA` | Nenhum checkpointer durável instalado; D2A cria somente role, schema, helper e factory privados ainda inativos | Tabelas com `igreja_id`, FORCE RLS, namespace server-side, exclusão e testes adversariais pertencem à D3 |
 | Conhecimento oficial | `AUSENTE` | Não há ingestão aprovada, embeddings ou recuperação institucional | Perfil da igreja, documentos versionados, audiência, RLS e busca híbrida |
 | Dados vivos como ferramentas | `PARCIAL` | Quatro ferramentas limitadas e queries determinísticas | Catálogo por especialista, capacidades e serviços compartilhados com o painel |
-| Consentimento | `PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR INTEGRADOS / INVENTÁRIOS DEV E PROD CAPTURADOS, NÃO REVISADOS E BLOQUEADOS / DECISÕES HUMANAS PENDENTES / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | Legado e opt-out continuam ativos; D2B2a adiciona ledger append-only sem caller ou aplicação em Supabase; os inventários sanitizados foram capturados, mas nenhuma decisão humana foi materializada | Revisão humana offline independente dos pacotes e evidências, sem nova consulta aos ambientes e sem liberar runner; D2, catálogo, prova, writer e operação permanecem bloqueados |
+| Consentimento | `PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR INTEGRADOS / ARTEFATOS INTEGRADOS E VERSIONADOS / INVENTÁRIOS DEV E PROD CAPTURADOS, NÃO REVISADOS E BLOQUEADOS / DECISÕES HUMANAS PENDENTES / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | Legado e opt-out continuam ativos; D2B2a adiciona ledger append-only sem caller ou aplicação em Supabase; os inventários sanitizados foram capturados e versionados, mas nenhuma decisão humana foi materializada | Revisão humana offline independente dos pacotes e evidências, sem nova consulta aos ambientes e sem liberar runner; D2, catálogo, prova, writer e operação permanecem bloqueados |
 | Propostas e confirmação | `AUSENTE COMO PLATAFORMA` | Confirmações existem apenas em fluxos específicos | Registro durável, expiração, idempotência, revalidação e comprovante |
 | Notificações proativas | `PARCIAL E FRAGMENTADO` | SLA, cron, Agenda, event notify e broadcast têm caminhos próprios | Outbox única, finalidade, quiet hours, retry, recibo e escalonamento |
 | Painel de Hoje | `IMPLEMENTADO / PARCIAL` | dashboard e work queue por responsabilidade | Compor todas as responsabilidades e as lacunas de conhecimento |
@@ -394,6 +394,16 @@ A captura ocorreu somente em leitura e não executou DML, runner,
 `bootstrap-ledger`, `harden-ledger`, `status`, `apply`, deploy, flag ou runtime.
 Os seis artefatos permanecem bloqueados e não provam decisão humana, migration
 aplicada, prefixo reconciliado ou autorização operacional.
+
+A PR #329 integrou e versionou os seis artefatos, com HEAD
+`c5ae430aa865dbd6371953d43e4a4447ca8e6618`, no merge
+`341f38a7f1c6993c74d85e99748cb60046cd4501` em `2026-08-29T00:04:50Z`. Os
+cinco workflows da PR e os cinco pós-merge concluíram com `SUCCESS`. O merge
+gerou o deployment automático Vercel frontend Production `6150482852`, com
+`SUCCESS`, em `2026-08-29T00:05:33Z`. Essa metadata prova somente o frontend,
+sem provar deploy manual ou do backend, banco ou runtime. A integração versiona
+a evidência sanitizada já capturada, mas não revisa os inventários, não aplica
+migration e não libera o runner ou qualquer autorização operacional.
 
 Revisão humana offline independente dos pacotes e das evidências, sem nova
 consulta a DEV ou PROD e sem liberar o runner. O gate não autoriza DML,
