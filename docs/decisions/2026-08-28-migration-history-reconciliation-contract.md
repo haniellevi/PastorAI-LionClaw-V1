@@ -249,3 +249,7 @@ Revisão humana offline independente dos seis artefatos e das evidências, sem
 nova consulta a DEV ou PROD e sem liberar o runner. Este gate não autoriza DML,
 `bootstrap-ledger`, `harden-ledger`, `status`, `apply`, deploy, flag ou runtime.
 Universidade da Vida e Capacitação Destino permanecem fora desta missão.
+
+O procedimento reproduzível e a separação entre proprietário e pessoa revisora
+estão em
+[`migration-history-human-review-guide-v1.md`](../governance/migrations/migration-history-human-review-guide-v1.md).

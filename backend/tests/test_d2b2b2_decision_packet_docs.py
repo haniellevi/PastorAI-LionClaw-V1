@@ -33,6 +33,13 @@ RECONCILIATION_CONTRACT_PATH = (
     / "decisions"
     / "2026-08-28-migration-history-reconciliation-contract.md"
 )
+HUMAN_REVIEW_GUIDE_PATH = (
+    REPO_ROOT
+    / "docs"
+    / "governance"
+    / "migrations"
+    / "migration-history-human-review-guide-v1.md"
+)
 
 EXPECTED_TOP_LEVEL_KEYS = {
     "metadata",
@@ -1576,6 +1583,56 @@ def test_captured_inventory_artifacts_are_unreviewed_and_blocked() -> None:
                 receipt["safety_contract"]["environment_operation"]
                 == "BLOCKED"
             )
+
+
+def test_migration_history_human_review_guide_is_sanitized_and_fail_closed() -> None:
+    guide = HUMAN_REVIEW_GUIDE_PATH.read_text(encoding="utf-8")
+    normalized = _normalized_prose(guide)
+
+    assert "owner-01" in normalized
+    assert "reviewer-01" in normalized
+    assert "operational_authorization=blocked" in normalized
+    assert "pessoas distintas" in normalized
+    assert "registro externo controlado" in normalized
+    assert "nao ocupa nenhum dos dois papeis" in normalized
+    assert "sem banco, rede, credencial" in normalized
+    assert "blocked_ledger_divergence" in normalized
+    assert "blocked_evidence_insufficient" in normalized
+    assert "sem backfill ou reaplicacao automatica" in normalized
+    assert "raniel" not in normalized
+    assert "sarah" not in normalized
+    assert "@" not in guide
+
+    expected_hashes = {
+        "136b3938c62c80b0882dd084abc43bfdc58465f957a1040502b0e40aa11481fa",
+        "aa79b4f52a2c152f8a1451596f37d0479f3e336bba304a8e34f579f1f39a767f",
+        "c2c9c29acaf469e1e560e9fb858c260b3fa8742c0b4b5fe692c6b763755db44c",
+        "34123027ab1b64108a9fb8d6c97da327306acd5ca49a11de2208eb699debc135",
+        "067377258893391c10a20da1e80c5b37154b2073d4060a8bda6c9628aa753524",
+        "a4ba967570985682bcff19ea5c0c9dc78f2ed96a07377cbdad3dcddf8f6dceda",
+    }
+    assert expected_hashes <= set(re.findall(r"\b[0-9a-f]{64}\b", guide))
+
+    packets_dir = HUMAN_REVIEW_GUIDE_PATH.parent / "packets"
+    dev_package = json.loads(
+        (
+            packets_dir / "migration-history-reconciliation-dev-evidence-v1.json"
+        ).read_text(encoding="utf-8"),
+        object_pairs_hook=_reject_duplicate_keys,
+    )
+    public_rows = dev_package["inventories"]["public_ledger"]["rows"]
+    catalog_entries = dev_package["catalog"]["entries"]
+    mismatches = [
+        position
+        for position, row in enumerate(public_rows)
+        if row["name"] != catalog_entries[position]["name"]
+    ]
+    assert mismatches == list(range(25, 33))
+    assert "oito posicoes" in normalized
+    assert "posicao 25" in normalized
+
+    contract = RECONCILIATION_CONTRACT_PATH.read_text(encoding="utf-8")
+    assert "migration-history-human-review-guide-v1.md" in contract
 
 
 def test_migration_operator_docs_reject_obsolete_generic_apply_contract() -> None:
