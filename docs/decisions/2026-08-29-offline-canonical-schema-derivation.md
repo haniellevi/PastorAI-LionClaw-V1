@@ -1,8 +1,8 @@
 # Derivação canônica offline do schema de migrations
 
-**Estado:** `DERIVAÇÃO CANÔNICA REPRODUZIDA E VERIFICADA SOMENTE OFFLINE EM
-PG17 DESCARTÁVEL / AMBIENTES NÃO ATESTADOS /
-OPERATIONAL_AUTHORIZATION=BLOCKED`
+**Estado:** `DERIVADOR E FINGERPRINT INTEGRADOS / CI VERDE / DERIVAÇÃO
+CANÔNICA REPRODUZIDA E VERIFICADA SOMENTE OFFLINE EM PG17 DESCARTÁVEL /
+AMBIENTES NÃO ATESTADOS / OPERATIONAL_AUTHORIZATION=BLOCKED`
 
 **Base versionada:** `07d2c05c687d1a0e8deeacbb7f8b16fbdd0e4e86`
 
@@ -40,6 +40,27 @@ patch técnico SHA-256
 Esses resultados não equivalem a uma suíte completa e os skips não são
 evidência positiva.
 
+## Integração versionada
+
+A PR #334, HEAD `a864730f0b678cca39cebfa6bb378243ba031cd6`, foi integrada no
+merge `c8427b1a505c0aad2a5f675d3bf456ee33716690`; o Git registra
+`commit date=2026-08-29T21:21:15Z`, e o GitHub registra
+`mergedAt=2026-08-29T21:21:16Z`. Os seis checks da PR concluíram com `SUCCESS`:
+Backend `33266660793`, Canonical Schema `33266660831`, E2E `33266660798`,
+Frontend `33266660804`, RLS `33266660852` e Tooling `33266660794`. Os seis
+checks pós-merge do SHA integrado também concluíram com `SUCCESS`: RLS
+`33275857135`, Backend `33275857158`, Canonical Schema `33275857195`, E2E
+`33275857144`, Tooling `33275857174` e Frontend `33275857154`.
+
+A superfície sanitizada da API `deployments/{deployment_id}` registrou o
+deployment automático Vercel frontend Production `6160229001` com
+`created_at=2026-08-29T21:22:00Z`; a superfície sanitizada
+`deployments/{deployment_id}/statuses` registrou `state=success`,
+`created_at=2026-08-29T21:22:01Z`. O intervalo entre esses registros não prova
+duração de build nem reuso de artefato. Os checks provam apenas o comportamento
+exercitado naquele SHA; a metadata do deployment prova somente o frontend e não
+prova backend, banco, migration, runtime ou atestação de ambiente.
+
 ## Limites preservados
 
 `OPERATIONAL_AUTHORIZATION=BLOCKED` permanece obrigatório. Esta missão não
@@ -56,8 +77,8 @@ não atestados.
 
 ## Próximo gate único
 
-Antes do merge, esta PR exige revisão e CI dedicado verde. Depois da integração,
-o único gate é `SEPARATE_READ_ONLY_ENVIRONMENT_ATTESTATION`. Ele exige missão e
-autorização próprias para comparar, somente em leitura, cada ambiente contra a
-derivação offline. Não autoriza DML, reconciliação de ledger, corte de época,
-runner, migration, backfill, deploy, flag ou runtime.
+`SEPARATE_READ_ONLY_ENVIRONMENT_ATTESTATION` exige missão e autorização próprias
+para comparar, somente em leitura, cada ambiente contra a derivação offline.
+Não autoriza DML, reconciliação de ledger, corte de época, runner, migration,
+`bootstrap-ledger`, `harden-ledger`, `status`, `apply`, backfill, deploy, flag
+ou runtime.
