@@ -159,12 +159,20 @@ Ele é `SOURCE_LEVEL_EXPECTATION_ONLY`, não prova o schema final de DEV ou PROD
 e permanece com `OPERATIONAL_AUTHORIZATION=BLOCKED`. A revisão técnica foi
 feita pelo mesmo executor e não é independente.
 
-O próximo gate é a revisão offline independente de segurança e arquitetura de
-banco da proposta e do manifesto. Ele pode aprovar somente o desenho de uma
-missão posterior e separada para derivar o schema canônico em PostgreSQL 17
-descartável. A atestação read-only de DEV e PROD permanece posterior e
-independente; nada aqui autoriza acesso a ambiente ou liberação do runner. UV e
-CD permanecem fora.
+A derivação canônica foi reproduzida e verificada somente offline, duas vezes,
+em PostgreSQL 17 descartável, sobre a base
+`07d2c05c687d1a0e8deeacbb7f8b16fbdd0e4e86`. A decisão, os 75/75 arquivos,
+as provas A/B idênticas e os limites estão em
+[`2026-08-29-offline-canonical-schema-derivation.md`](../../docs/decisions/2026-08-29-offline-canonical-schema-derivation.md).
+Ela não atesta DEV, PROD, Data API ou Realtime e não libera este executor.
+`OPERATIONAL_AUTHORIZATION=BLOCKED` permanece obrigatório.
+
+Antes do merge, a exigência é revisão e CI dedicado verde desta PR.
+Depois da integração, o único gate será
+`SEPARATE_READ_ONLY_ENVIRONMENT_ATTESTATION`, em missão e autorização próprias.
+Ele não autoriza DML, reconciliação de ledger, corte de época, runner,
+`bootstrap-ledger`, `harden-ledger`, `status`, `apply`, migration, backfill,
+deploy, flag ou runtime. UV e CD permanecem fora.
 
 ## Transações especiais
 

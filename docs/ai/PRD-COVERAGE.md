@@ -424,13 +424,24 @@ PROD. O verificador terminou em
 `ENVIRONMENT_ATTESTATION_COMPLETE=false`. A revisão técnica foi feita pelo
 mesmo executor e não é independente.
 
-Revisão offline independente, por segurança e arquitetura de banco, da proposta
-e do manifesto. O gate pode aprovar somente o desenho de uma missão posterior e
-separada para derivar o schema canônico em PostgreSQL 17 descartável. A
-atestação read-only de DEV e PROD permanece posterior e independente; nada aqui
-autoriza acesso a ambiente, DML, `bootstrap-ledger`, `harden-ledger`, `status`,
-`apply`, migration, backfill, deploy, flag ou runtime. Universidade da Vida e
-Capacitação Destino permanecem fora.
+A derivação canônica foi reproduzida e verificada somente offline, duas vezes,
+em PostgreSQL 17 descartável, sobre a base
+`07d2c05c687d1a0e8deeacbb7f8b16fbdd0e4e86`. As execuções A e B produziram os
+mesmos 388390 bytes, o SHA-256
+`7040a54d80c0ee4f37e1986ff0a579db275e45c129f4fdafcd66788e22a3eb3e` e o
+fingerprint `8ac17d4352a77fb3c5885f9c1a55813a5b7dfcd6fb84c4bd4e9117c1c7883370`.
+A evidência e os limites estão na
+[`decisão de derivação offline`](../decisions/2026-08-29-offline-canonical-schema-derivation.md).
+Isso não atesta DEV, PROD, Data API ou Realtime; `OPERATIONAL_AUTHORIZATION=BLOCKED`
+permanece obrigatório.
+
+Antes do merge, a exigência é revisão e CI dedicado verde desta PR.
+Depois da integração, o gate único será
+`SEPARATE_READ_ONLY_ENVIRONMENT_ATTESTATION`, em missão e autorização próprias.
+Ele não autoriza DML, reconciliação de ledger, corte de época, runner,
+`bootstrap-ledger`, `harden-ledger`, `status`, `apply`, migration, backfill,
+deploy, flag ou runtime. Universidade da Vida e Capacitação Destino permanecem
+fora.
 
 ## Fontes principais
 
