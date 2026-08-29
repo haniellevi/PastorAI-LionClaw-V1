@@ -48,7 +48,7 @@ qualquer expansão do canário.
 | Agente e Evolution | `PARCIAL / GATE OPERACIONAL` | Corrigir memória, conhecimento e qualidade antes de novo canário |
 | Canário ativo | `PASS TÉCNICO / QUALIDADE INSUFICIENTE` | Avaliação conversacional humana após a nova fundação |
 | LangGraph | `IMPLEMENTADO STATELESS / D2B1 INTEGRADA` | Persistência, memória e subgrafos permanecem posteriores |
-| Consentimento | `PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR INTEGRADOS / ARTEFATOS VERSIONADOS / REVISÃO INDEPENDENTE BLOQUEADA CONCLUÍDA / DECISÃO OWNER-01 REGISTRADA / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | Revisão offline de segurança e arquitetura de banco da proposta; manifesto, captura posterior, implementação, runner, Supabase e D2C permanecem bloqueados |
+| Consentimento | `PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR INTEGRADOS / ARTEFATOS VERSIONADOS / REVISÃO INDEPENDENTE BLOQUEADA CONCLUÍDA / DECISÃO OWNER-01 REGISTRADA / MANIFESTO DE FONTE CRIADO / REVISÃO TÉCNICA CONCLUÍDA / REVISÃO INDEPENDENTE DO MANIFESTO PENDENTE / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | O manifesto descreve somente a fonte versionada; revisão independente, atestação posterior, implementação, runner, Supabase e D2C permanecem bloqueados |
 | Conhecimento por igreja | `AUSENTE` | Ingestão aprovada, ACL, busca e ferramentas de dados vivos |
 | Relatório por WhatsApp | `PARCIAL` | Confirmar e gravar no relatório canônico |
 | Central de Células | `PARCIAL FORTE` | Operação e notificações principais pelo WhatsApp |
@@ -497,9 +497,20 @@ manteve `operational_authorization=false` e autorizou somente a proposta
 técnica offline. Os registros externos não foram versionados e os pacotes
 continuam bloqueados.
 
+O manifesto estático de expectativas da fonte foi criado sobre a base
+`7f18f7e8b44cd50e6f6033867fb97bfa9eb9c9e6`. Ele fixa 75 migrations e o
+digest `84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`,
+mas declara `SOURCE_LEVEL_EXPECTATION_ONLY`: não prova o schema final de DEV ou
+PROD. O verificador terminou em
+`SCHEMA_EXPECTATION_MANIFEST_VERIFIED_SOURCE_ONLY`, com
+`OPERATIONAL_AUTHORIZATION=BLOCKED` e
+`ENVIRONMENT_ATTESTATION_COMPLETE=false`. A revisão técnica foi feita pelo
+mesmo executor e não é independente.
+
 Revisão offline independente, por segurança e arquitetura de banco, da proposta
-de remediação da divergência. O gate pode aprovar somente a preparação de um
-manifesto estático de expectativas do schema; não autoriza nova consulta a DEV
-ou PROD, DML, `bootstrap-ledger`, `harden-ledger`, `status`, `apply`, migration,
-backfill, deploy, flag ou runtime. Universidade da Vida e Capacitação Destino
-permanecem fora.
+e do manifesto. O gate pode aprovar somente o desenho de uma missão posterior e
+separada para derivar o schema canônico em PostgreSQL 17 descartável. A
+atestação read-only de DEV e PROD permanece posterior e independente; nada aqui
+autoriza acesso a ambiente, DML, `bootstrap-ledger`, `harden-ledger`, `status`,
+`apply`, migration, backfill, deploy, flag ou runtime. Universidade da Vida e
+Capacitação Destino permanecem fora.

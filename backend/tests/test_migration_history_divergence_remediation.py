@@ -236,8 +236,8 @@ def test_remediation_proposal_requires_separate_fail_closed_gates() -> None:
     plan = _load_json(PLAN_PATH)
 
     assert plan["next_gates"] == [
-        "STATIC_SCHEMA_EXPECTATION_MANIFEST",
         "INDEPENDENT_SECURITY_AND_DATABASE_ARCHITECTURE_REVIEW",
+        "SEPARATE_OFFLINE_CANONICAL_SCHEMA_DERIVATION",
         "SEPARATE_READ_ONLY_ENVIRONMENT_ATTESTATION",
         "HUMAN_CUTOVER_DECISION",
         "SEPARATE_IMPLEMENTATION_PR",

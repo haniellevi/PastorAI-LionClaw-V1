@@ -255,13 +255,21 @@ bloqueados.
 
 ## Próximo gate único
 
+O manifesto estático de expectativas da fonte foi criado sobre a base
+`7f18f7e8b44cd50e6f6033867fb97bfa9eb9c9e6`, com 75 migrations e digest
+`84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`.
+Ele é `SOURCE_LEVEL_EXPECTATION_ONLY`, não prova o schema final de DEV ou PROD
+e permanece com `OPERATIONAL_AUTHORIZATION=BLOCKED`. A revisão técnica foi
+feita pelo mesmo executor e não é independente.
+
 Revisão offline independente, por segurança e arquitetura de banco, da
-[`proposta de remediação da divergência`](2026-08-29-migration-history-divergence-remediation.md).
-O gate pode aprovar somente a preparação de um manifesto estático de
-expectativas do schema. Ele não autoriza nova consulta a DEV ou PROD, DML,
-`bootstrap-ledger`, `harden-ledger`, `status`, `apply`, migration, backfill,
-deploy, flag ou runtime. Universidade da Vida e Capacitação Destino permanecem
-fora desta missão.
+[`proposta de remediação da divergência`](2026-08-29-migration-history-divergence-remediation.md)
+e do manifesto. O gate pode aprovar somente o desenho de uma missão posterior e
+separada para derivar o schema canônico em PostgreSQL 17 descartável. A
+atestação read-only de DEV e PROD permanece posterior e independente. Ele não
+autoriza acesso a ambiente, DML, `bootstrap-ledger`, `harden-ledger`,
+`status`, `apply`, migration, backfill, deploy, flag ou runtime. Universidade
+da Vida e Capacitação Destino permanecem fora desta missão.
 
 O procedimento reproduzível e a separação entre proprietário e pessoa revisora
 estão em

@@ -1,7 +1,8 @@
 # Proposta offline para remediar a divergência do histórico de migrations
 
-**Estado:** `PROPOSTA OFFLINE / REVISÃO HUMANA BLOQUEADA CONCLUÍDA /
-DECISÃO DO OWNER REGISTRADA / NÃO APROVADA PARA IMPLEMENTAÇÃO / NÃO APLICADA`
+**Estado:** `PROPOSTA OFFLINE / MANIFESTO DE FONTE CRIADO / REVISÃO TÉCNICA
+CONCLUÍDA / REVISÃO INDEPENDENTE PENDENTE / AMBIENTES NÃO ATESTADOS / NÃO
+APLICADA`
 
 **Base:** `f73a631c632a1b37cea07073c91fe6ad2a81e995`
 
@@ -80,6 +81,31 @@ O verificador offline também permanece inalterado, no SHA-256
 `9451cbe5054d8c0d7e2754d09dea7f3a9761e8585269ca783eea943dd785dfae`.
 Nenhum novo subcomando, migration, marker ou bypass é criado.
 
+## Manifesto de expectativas da fonte
+
+O arquivo
+[`migration-history-schema-expectation-manifest-v1.json`](../governance/migrations/migration-history-schema-expectation-manifest-v1.json)
+fixa o catálogo versionado de 75 migrations, seu digest
+`84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`,
+âncoras críticas e os domínios que uma atestação futura precisará comparar. O
+verificador offline
+`backend/scripts/verify_migration_history_schema_expectation_manifest.py`
+termina com `SCHEMA_EXPECTATION_MANIFEST_VERIFIED_SOURCE_ONLY`, mantendo
+`OPERATIONAL_AUTHORIZATION=BLOCKED` e
+`ENVIRONMENT_ATTESTATION_COMPLETE=false`.
+
+Esse manifesto descreve somente o que a fonte versionada espera. SQL dinâmico,
+condicional e mutações históricas impedem que uma leitura estática prove o
+schema final de DEV ou PROD. Nenhum ambiente foi consultado nesta missão.
+
+## Revisão técnica desta missão
+
+A revisão técnica concluiu `PASS_FOR_SOURCE_MANIFEST_ONLY`: o desenho permanece
+fail-closed, não altera o runner e não aprova o corte de época. Esta revisão foi
+feita pelo mesmo executor que preparou o manifesto e está registrada como
+`TECHNICAL_SELF_REVIEW_NOT_INDEPENDENT`; portanto, ela não substitui a revisão
+independente de segurança e arquitetura de banco.
+
 ## Limites desta missão
 
 Esta preparação não acessa DEV ou PROD, não usa rede, não executa SQL ou DML,
@@ -89,7 +115,10 @@ o único estado operacional válido.
 
 ## Próximo gate único
 
-Revisar esta proposta offline por segurança e arquitetura de banco. O gate pode
-aprovar apenas a preparação do manifesto estático de expectativas do schema.
-Ele não autoriza captura de ambiente, implementação de corte, alteração do
-runner, migration, backfill, deploy, flag ou runtime.
+Revisão offline independente, por segurança e arquitetura de banco, da proposta
+e do manifesto de expectativas da fonte. Esse gate pode aprovar somente o
+desenho de uma missão posterior e separada para derivar o schema canônico em
+PostgreSQL 17 descartável. A atestação read-only de DEV e PROD permanece um
+gate ainda posterior e independente. Nada aqui autoriza acesso a ambiente,
+captura, implementação de corte, alteração do runner, DML, migration,
+backfill, deploy, flag ou runtime.

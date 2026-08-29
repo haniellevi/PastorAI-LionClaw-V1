@@ -40,6 +40,13 @@ HUMAN_REVIEW_GUIDE_PATH = (
     / "migrations"
     / "migration-history-human-review-guide-v1.md"
 )
+SCHEMA_EXPECTATION_MANIFEST_PATH = (
+    REPO_ROOT
+    / "docs"
+    / "governance"
+    / "migrations"
+    / "migration-history-schema-expectation-manifest-v1.json"
+)
 
 EXPECTED_TOP_LEVEL_KEYS = {
     "metadata",
@@ -1251,7 +1258,19 @@ def test_canonical_docs_record_captured_blocked_inventories_and_one_human_gate()
         assert "revisao offline" in normalized
         assert "seguranca e arquitetura de banco" in normalized
         assert "manifesto estatico" in normalized
-        assert "nao autoriza nova consulta a dev ou prod" in normalized
+        assert (
+            "nao autoriza acesso a ambiente" in normalized
+            or "nada aqui autoriza acesso a ambiente" in normalized
+        )
+        assert "schema canonico em postgresql 17 descartavel" in normalized
+        assert "atestacao read-only de dev e prod permanece" in normalized
+        assert "7f18f7e8b44cd50e6f6033867fb97bfa9eb9c9e6" in content
+        assert "source_level_expectation_only" in normalized
+        assert "operational_authorization=blocked" in normalized
+        assert "schema_expectation_manifest_verified_source_only" in normalized
+        assert "environment_attestation_complete=false" in normalized
+        assert "revisao tecnica" in normalized
+        assert "nao e independente" in normalized
         assert "preparar uma missao separada" not in normalized
         assert "revisar e integrar esta pr" not in normalized
         assert "inventarios dev/prod ainda nao capturados" not in normalized
@@ -1323,7 +1342,10 @@ def test_canonical_docs_record_captured_blocked_inventories_and_one_human_gate()
         assert "revisao offline" in normalized
         assert "seguranca e arquitetura de banco" in normalized
         assert "manifesto estatico" in normalized
-        assert "nao autoriza nova consulta a dev ou prod" in normalized
+        assert (
+            "nao autoriza acesso a ambiente" in normalized
+            or "nada aqui autoriza acesso a ambiente" in normalized
+        )
         for stale_status in stale_candidate_statuses:
             assert stale_status not in normalized
         for stale_capture_claim in (
@@ -1405,7 +1427,10 @@ def test_canonical_docs_record_captured_blocked_inventories_and_one_human_gate()
         assert "decisao owner-01 registrada" in normalized
         assert "cross_package_ok" in normalized
         assert "163 passed, 2 skipped" in normalized
-        assert "nao autoriza nova consulta a dev ou prod" in normalized
+        assert (
+            "nao autoriza acesso a ambiente" in normalized
+            or "nada aqui autoriza acesso a ambiente" in normalized
+        )
         assert "runner" in normalized and "bloquead" in normalized
 
         for stale_claim in (
@@ -1809,6 +1834,10 @@ def test_reconciliation_candidate_docs_reject_consumed_gate_and_false_authority(
         "ledgers sincronizados",
         "status e apply liberados",
         "delta atual tambem implementa",
+        "pode aprovar somente a preparacao de um manifesto estatico",
+        "pode aprovar apenas a preparacao do manifesto estatico",
+        "pode aprovar somente um manifesto estatico do schema",
+        "desenho de uma missao posterior e separada de atestacao read-only",
     }
 
     for path in candidate_docs:
@@ -1816,3 +1845,30 @@ def test_reconciliation_candidate_docs_reject_consumed_gate_and_false_authority(
         for stale_claim in stale_claims:
             assert stale_claim not in normalized, f"stale claim in {path}"
         assert "operational_authorization=blocked" in normalized
+
+
+def test_schema_expectation_manifest_is_source_only_and_keeps_environment_gate() -> None:
+    manifest = json.loads(SCHEMA_EXPECTATION_MANIFEST_PATH.read_text(encoding="utf-8"))
+
+    assert manifest["artifact_state"] == (
+        "SOURCE_EXPECTATION_VERIFIED_ENVIRONMENT_UNATTESTED"
+    )
+    assert manifest["operational_authorization"] is False
+    assert manifest["source_expectation"]["manifest_scope"] == (
+        "SOURCE_LEVEL_EXPECTATION_ONLY"
+    )
+    assert manifest["source_expectation"]["final_schema_claim"] is False
+    assert manifest["review"]["review_type"] == (
+        "TECHNICAL_SELF_REVIEW_NOT_INDEPENDENT"
+    )
+    assert manifest["review"]["independent_review_complete"] is False
+    assert manifest["next_gates"][0] == (
+        "INDEPENDENT_SECURITY_AND_DATABASE_ARCHITECTURE_REVIEW"
+    )
+    assert manifest["next_gates"][1] == (
+        "SEPARATE_OFFLINE_CANONICAL_SCHEMA_DERIVATION"
+    )
+    assert manifest["next_gates"][2] == (
+        "SEPARATE_READ_ONLY_ENVIRONMENT_ATTESTATION"
+    )
+    assert "STATIC_SCHEMA_EXPECTATION_MANIFEST" not in manifest["next_gates"]

@@ -364,12 +364,23 @@ manteve `operational_authorization=false` e autorizou somente a proposta
 técnica offline. Os registros externos não foram versionados e os pacotes
 continuam bloqueados.
 
+O manifesto estático de expectativas da fonte foi criado sobre a base
+`7f18f7e8b44cd50e6f6033867fb97bfa9eb9c9e6`. Ele fixa 75 migrations e o
+digest `84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`,
+mas declara `SOURCE_LEVEL_EXPECTATION_ONLY`: não prova o schema final de DEV ou
+PROD. O verificador terminou em
+`SCHEMA_EXPECTATION_MANIFEST_VERIFIED_SOURCE_ONLY`, com
+`OPERATIONAL_AUTHORIZATION=BLOCKED` e
+`ENVIRONMENT_ATTESTATION_COMPLETE=false`. A revisão técnica foi feita pelo
+mesmo executor e não é independente.
+
 Revisão offline independente, por segurança e arquitetura de banco, da proposta
-de remediação da divergência. O gate pode aprovar somente a preparação de um
-manifesto estático de expectativas do schema; não autoriza nova consulta a DEV
-ou PROD, DML, `bootstrap-ledger`, `harden-ledger`, `status`, `apply`, migration,
-backfill, deploy, flag ou runtime. Universidade da Vida e Capacitação Destino
-permanecem fora.
+e do manifesto. O gate pode aprovar somente o desenho de uma missão posterior e
+separada para derivar o schema canônico em PostgreSQL 17 descartável. A
+atestação read-only de DEV e PROD permanece posterior e independente; nada aqui
+autoriza acesso a ambiente, DML, `bootstrap-ledger`, `harden-ledger`, `status`,
+`apply`, migration, backfill, deploy, flag ou runtime. Universidade da Vida e
+Capacitação Destino permanecem fora.
 
 A PR #320 já integrou a D2B2b3A no merge
 `947d891c2ea278b7a3231fecd9ca1c90cfe29a1f`; o deployment automático

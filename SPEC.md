@@ -578,12 +578,24 @@ manteve `operational_authorization=false` e autorizou somente a proposta
 tecnica offline. Os registros externos nao foram versionados e os pacotes
 continuam bloqueados.
 
+O manifesto estatico de expectativas da fonte foi criado sobre a base
+`7f18f7e8b44cd50e6f6033867fb97bfa9eb9c9e6`. Ele fixa 75 migrations e o
+digest `84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f`,
+mas declara `SOURCE_LEVEL_EXPECTATION_ONLY`: nao prova o schema final de DEV ou
+PROD. O verificador terminou em
+`SCHEMA_EXPECTATION_MANIFEST_VERIFIED_SOURCE_ONLY`, com
+`OPERATIONAL_AUTHORIZATION=BLOCKED` e
+`ENVIRONMENT_ATTESTATION_COMPLETE=false`. A revisao tecnica foi feita pelo
+mesmo executor e nao e independente.
+
 **Proximo gate unico:** revisao offline independente, por seguranca e
-arquitetura de banco, da proposta de remediacao da divergencia. O gate pode
-aprovar somente a preparacao de um manifesto estatico de expectativas do
-schema; nao autoriza nova consulta a DEV ou PROD, DML, `bootstrap-ledger`,
-`harden-ledger`, `status`, `apply`, migration, backfill, deploy, flag ou
-runtime. Universidade da Vida e Capacitacao Destino permanecem fora.
+arquitetura de banco, da proposta e do manifesto. O gate pode aprovar somente o
+desenho de uma missao posterior e separada para derivar o schema canonico em
+PostgreSQL 17 descartavel. A atestacao read-only de DEV e PROD permanece
+posterior e independente; nada aqui autoriza acesso a ambiente, DML,
+`bootstrap-ledger`, `harden-ledger`, `status`, `apply`, migration, backfill,
+deploy, flag ou runtime. Universidade da Vida e Capacitacao Destino permanecem
+fora.
 
 A evolucao aprovada mantem uma unica politica global e adiciona especialistas por dominio de forma incremental. Atendimento, Central de Celulas, Agenda e Consolidacao integram a missao atual; Universidade da Vida e Capacitacao Destino permanecem na visao futura e dependem de PRDs e missoes proprias. Especialistas nunca enviam mensagens diretamente e nunca recebem IDs de tenant escolhidos pelo modelo ou pelo cliente.
 
