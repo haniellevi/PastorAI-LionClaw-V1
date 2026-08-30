@@ -160,15 +160,27 @@ runtime ou atestação de ambiente.
 
 O tooling posterior de atestação somente leitura foi implementado no commit
 `be958ce96e65d3d497923b7f5f912676634e9587`, sobre a base
-`1072e6a8e85d201a1c82f37a8ddeac5417300c49`. O estado corrente é
-`IMPLEMENTADO E COMPROVADO OFFLINE / AINDA NÃO INTEGRADO / AMBIENTES NÃO CONSULTADOS / OPERAÇÃO BLOQUEADA`.
-O tooling está documentado em
+`1072e6a8e85d201a1c82f37a8ddeac5417300c49`. O tooling está documentado em
 [`2026-08-30-read-only-environment-attestation-tooling.md`](2026-08-30-read-only-environment-attestation-tooling.md).
 As provas terminaram em `81 passed` de `81` no foco offline,
 `367 passed, 47 skipped` na seleção relacionada e `82 passed` de `82` no foco
 PostgreSQL 17 TLS descartável. Sarah/Terra concluiu `GO`; o healthcheck de
 Claude Opus passou, mas a revisão completa travou com `Execution error` e não
 conta como revisão concluída.
+
+A PR #337, HEAD `abf6f823336b81e93ec1c942dcd5a357d8ac797c`, integrou o tooling
+no merge `278afb205a3b4735d4aeb66e2e585f71fd562ef7`, com
+`mergedAt=2026-08-30T11:38:16Z`. Os sete workflows do push em `main`
+concluíram com `SUCCESS`: Environment Attestation PG17 `33309430738`, Frontend
+CI `33309430763`, Canonical Schema Derivation `33309430775`, Backend Tests
+`33309430797`, Tooling Static Checks `33309430744`, E2E Critical `33309430731`
+e RLS Integration `33309430799`.
+
+A Vercel registrou o deployment frontend Production `6166209567`, com
+`state=success`; o deployment e seu status registraram
+`created_at=2026-08-30T11:39:02Z`. Essa metadata prova somente o frontend e não
+prova backend, banco ou runtime. O estado corrente é
+`INTEGRADO E COMPROVADO OFFLINE / AMBIENTES NÃO CONSULTADOS / OPERAÇÃO BLOQUEADA`.
 
 Nenhum DEV ou PROD foi consultado e nenhum artefato ambiental foi produzido.
 O JSON Schema valida somente o envelope e exige o verificador Python; o HMAC é
@@ -178,11 +190,8 @@ project ref. Data API e Realtime permanecem
 `environment_attestation_complete=false`.
 
 O único gate seguinte é
-`REVIEW_AND_INTEGRATE_READ_ONLY_ENVIRONMENT_ATTESTATION_PR`. Ele autoriza
-somente revisão, CI dedicado PostgreSQL 17 TLS e integração desta PR com checks
-verdes. Não autoriza preflight nominal, captura, materialização, DML,
-reconciliação de ledger, corte de época, alteração ou execução do runner,
-migration, backfill, deploy, flag ou runtime. Somente depois do merge poderá
-nascer o gate operacional
-`SEPARATE_NOMINAL_DEV_READ_ONLY_PREFLIGHT_AUTHORIZATION`, ainda restrito a DEV.
-PROD está explicitamente fora nos dois gates.
+`SEPARATE_NOMINAL_DEV_READ_ONLY_PREFLIGHT_AUTHORIZATION`. Ele pode autorizar
+somente o preflight de identidade de DEV, em leitura e com autorização
+separada. Não autoriza captura, materialização de artefato, DML, reconciliação
+de ledger, corte de época, alteração ou execução do runner, migration,
+backfill, deploy, flag ou runtime. PROD está explicitamente fora.

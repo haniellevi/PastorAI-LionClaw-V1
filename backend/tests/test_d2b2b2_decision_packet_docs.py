@@ -59,9 +59,9 @@ ENVIRONMENT_ATTESTATION_ADR_PATH = (
     / "decisions"
     / "2026-08-30-read-only-environment-attestation-tooling.md"
 )
-ENVIRONMENT_ATTESTATION_PREMERGE_STATE = (
-    "IMPLEMENTADO E COMPROVADO OFFLINE / AINDA NÃO INTEGRADO / "
-    "AMBIENTES NÃO CONSULTADOS / OPERAÇÃO BLOQUEADA"
+ENVIRONMENT_ATTESTATION_POSTMERGE_STATE = (
+    "INTEGRADO E COMPROVADO OFFLINE / AMBIENTES NÃO CONSULTADOS / "
+    "OPERAÇÃO BLOQUEADA"
 )
 
 CONSUMED_PREMERGE_DERIVATION_GATE_CLAIMS = frozenset(
@@ -74,6 +74,7 @@ CONSUMED_PREMERGE_DERIVATION_GATE_CLAIMS = frozenset(
         "gate unico sera",
         "o unico gate sera",
         "o proximo gate unico sera",
+        "review_and_integrate_read_only_environment_attestation_pr",
     }
 )
 
@@ -1291,7 +1292,6 @@ def test_canonical_docs_record_captured_blocked_inventories_and_one_human_gate()
         assert "6160229001" in normalized
         assert "metadata do deployment prova somente o frontend" in normalized
         assert "separate_nominal_dev_read_only_preflight_authorization" in normalized
-        assert "review_and_integrate_read_only_environment_attestation_pr" in normalized
         assert "manifesto estatico" in normalized
         assert "nao autoriza" in normalized and "dml" in normalized
         assert "postgresql 17 descartavel" in normalized
@@ -1378,7 +1378,6 @@ def test_canonical_docs_record_captured_blocked_inventories_and_one_human_gate()
         assert "6160229001" in normalized
         assert "metadata do deployment prova somente o frontend" in normalized
         assert "separate_nominal_dev_read_only_preflight_authorization" in normalized
-        assert "review_and_integrate_read_only_environment_attestation_pr" in normalized
         assert "manifesto estatico" in normalized
         assert "nao autoriza" in normalized and "dml" in normalized
         for stale_status in stale_candidate_statuses:
@@ -1406,13 +1405,11 @@ def test_canonical_docs_record_captured_blocked_inventories_and_one_human_gate()
         normalized = _normalized_prose(path.read_text(encoding="utf-8"))
         assert normalized.count("proximo gate unico") == 1
         assert normalized.count(
-            "review_and_integrate_read_only_environment_attestation_pr"
-        ) == 1
-        assert normalized.count(
             "separate_nominal_dev_read_only_preflight_authorization"
         ) == 1
+        assert "review_and_integrate_read_only_environment_attestation_pr" not in normalized
         assert "separate_read_only_environment_attestation" not in normalized
-        assert _normalized_prose(ENVIRONMENT_ATTESTATION_PREMERGE_STATE) in normalized
+        assert _normalized_prose(ENVIRONMENT_ATTESTATION_POSTMERGE_STATE) in normalized
         assert "be958ce96e65d3d497923b7f5f912676634e9587" in normalized
         assert "1072e6a8e85d201a1c82f37a8ddeac5417300c49" in normalized
         assert "367 passed, 47 skipped" in normalized
@@ -1937,8 +1934,13 @@ def test_canonical_schema_derivation_docs_preserve_offline_only_limits() -> None
 
     common_required = {
         "operational_authorization=blocked",
-        "review_and_integrate_read_only_environment_attestation_pr",
         "separate_nominal_dev_read_only_preflight_authorization",
+        "pr #337",
+        "abf6f823336b81e93ec1c942dcd5a357d8ac797c",
+        "278afb205a3b4735d4aeb66e2e585f71fd562ef7",
+        "mergedat=2026-08-30t11:38:16z",
+        "6166209567",
+        "created_at=2026-08-30t11:39:02z",
         "pr #334",
         "a864730f0b678cca39cebfa6bb378243ba031cd6",
         "c8427b1a505c0aad2a5f675d3bf456ee33716690",
@@ -1975,8 +1977,8 @@ def test_canonical_schema_derivation_docs_preserve_offline_only_limits() -> None
     assert "286 passed, 48 skipped" in adr
     assert "github actions usa o mapeamento host:container" in adr
     assert "data api e realtime continuam nao atestados" in adr
-    assert "review_and_integrate_read_only_environment_attestation_pr" in adr
     assert "separate_nominal_dev_read_only_preflight_authorization" in adr
+    assert "review_and_integrate_read_only_environment_attestation_pr" not in adr
     assert "pr #334" in adr
     assert "a864730f0b678cca39cebfa6bb378243ba031cd6" in adr
     assert "c8427b1a505c0aad2a5f675d3bf456ee33716690" in adr
@@ -2009,7 +2011,7 @@ def test_canonical_schema_derivation_docs_preserve_offline_only_limits() -> None
     assert "nao prova backend, banco, migration, runtime ou atestacao de ambiente" in adr
 
 
-def test_environment_attestation_tooling_docs_preserve_offline_deny_state() -> None:
+def test_environment_attestation_tooling_docs_record_postmerge_deny_state() -> None:
     canonical_docs = {
         REPO_ROOT / "docs" / "ai" / "AI-BOOTSTRAP.md",
         REPO_ROOT / "docs" / "ai" / "PRD-COVERAGE.md",
@@ -2061,9 +2063,24 @@ def test_environment_attestation_tooling_docs_preserve_offline_deny_state() -> N
         "platform_surfaces_unattested",
         "operational_authorization=blocked",
         "environment_attestation_complete=false",
-        "review_and_integrate_read_only_environment_attestation_pr",
         "separate_nominal_dev_read_only_preflight_authorization",
         "prod esta explicitamente fora",
+        "pr #337",
+        "abf6f823336b81e93ec1c942dcd5a357d8ac797c",
+        "278afb205a3b4735d4aeb66e2e585f71fd562ef7",
+        "mergedat=2026-08-30t11:38:16z",
+        "33309430738",
+        "33309430763",
+        "33309430775",
+        "33309430797",
+        "33309430744",
+        "33309430731",
+        "33309430799",
+        "6166209567",
+        "state=success",
+        "created_at=2026-08-30t11:39:02z",
+        "prova somente o frontend",
+        "nao prova backend, banco ou runtime",
     }
     blocked_operations = {
         "runner",
@@ -2079,6 +2096,7 @@ def test_environment_attestation_tooling_docs_preserve_offline_deny_state() -> N
     for path in canonical_docs | supporting_docs:
         normalized = _normalized_prose(path.read_text(encoding="utf-8"))
         assert all(item in normalized for item in required), f"deny-state missing in {path}"
+        assert "separate_read_only_environment_attestation" not in normalized
         assert (
             "nenhum dev ou prod foi consultado" in normalized
             or "nenhuma consulta foi feita a dev ou prod" in normalized
@@ -2089,9 +2107,8 @@ def test_environment_attestation_tooling_docs_preserve_offline_deny_state() -> N
         assert "schema" in normalized and "envelope" in normalized
         assert "81/81" in normalized or "81 passed" in normalized
         assert "82/82" in normalized or "82 passed" in normalized
-        assert _normalized_prose(ENVIRONMENT_ATTESTATION_PREMERGE_STATE) in normalized
-        assert "ci dedicado postgresql 17 tls" in normalized
-        assert "checks verdes" in normalized
+        assert _normalized_prose(ENVIRONMENT_ATTESTATION_POSTMERGE_STATE) in normalized
+        assert "review_and_integrate_read_only_environment_attestation_pr" not in normalized
         be958ce_index = normalized.index("be958ce96e65d3d497923b7f5f912676634e9587")
         be958ce_context = normalized[max(0, be958ce_index - 160) : be958ce_index + 160]
         assert "foi integrada" not in be958ce_context
@@ -2103,11 +2120,9 @@ def test_environment_attestation_tooling_docs_preserve_offline_deny_state() -> N
         normalized = _normalized_prose(path.read_text(encoding="utf-8"))
         assert normalized.count("proximo gate unico") == 1
         assert normalized.count(
-            "review_and_integrate_read_only_environment_attestation_pr"
-        ) == 1
-        assert normalized.count(
             "separate_nominal_dev_read_only_preflight_authorization"
         ) == 1
+        assert "review_and_integrate_read_only_environment_attestation_pr" not in normalized
         assert "separate_read_only_environment_attestation" not in normalized
 
     adr = _normalized_prose(ENVIRONMENT_ATTESTATION_ADR_PATH.read_text(encoding="utf-8"))
@@ -2117,8 +2132,9 @@ def test_environment_attestation_tooling_docs_preserve_offline_deny_state() -> N
     assert "canal transitorio privado" in adr
     assert "nao concede autorizacao humana" in adr
     assert "nao prova observacao direta do project ref" in adr
-    assert _normalized_prose(ENVIRONMENT_ATTESTATION_PREMERGE_STATE) in adr
+    assert _normalized_prose(ENVIRONMENT_ATTESTATION_POSTMERGE_STATE) in adr
     assert "foi implementado um capturador" in adr
+    assert "integracao e ci pos-merge" in adr
 
 
 def test_schema_expectation_manifest_is_source_only_and_keeps_environment_gate() -> None:
