@@ -137,11 +137,32 @@ FORBIDDEN_ARG_FRAGMENTS = (
     "system_identifier",
     "database_name",
 )
+PREFLIGHT_FAILURE_PHASES = (
+    "PRECONNECT_GUARDS",
+    "CONNECT_TLS_AUTH",
+    "SERVER_VERSION",
+    "SESSION_GUARDS",
+    "IDENTITY_VALIDATION",
+    "ROLLBACK",
+    "CURSOR_CLOSE",
+    "CONNECTION_CLOSE",
+    "POSTCONNECT_TLS_CA_REVALIDATION",
+    "POST_IDENTITY_FINALIZATION",
+)
 
 
 class PreflightError(RuntimeError):
     exit_code = 10
     reason = "INTERNAL_ERROR"
+
+    def __init__(self, *, failure_phase: str | None = None) -> None:
+        super().__init__()
+        if (
+            failure_phase is not None
+            and failure_phase not in PREFLIGHT_FAILURE_PHASES
+        ):
+            raise ValueError("invalid preflight failure phase")
+        self.failure_phase = failure_phase
 
 
 class UsageError(PreflightError):
@@ -496,6 +517,17 @@ def _close_descriptors(descriptors: tuple[int, ...]) -> None:
             pass
 
 
+def _with_failure_phase(
+    error: PreflightError,
+    failure_phase: str,
+) -> PreflightError:
+    if failure_phase not in PREFLIGHT_FAILURE_PHASES:
+        raise ValueError("invalid preflight failure phase")
+    if error.failure_phase is None:
+        error.failure_phase = failure_phase
+    return error
+
+
 def _validate_hash_bytes(raw: bytes, error: type[PreflightError] = InputError) -> str:
     try:
         value = raw.decode("ascii")
@@ -833,12 +865,14 @@ def _run_database_preflight(
     rollback_confirmed = False
     pending: PreflightError | None = None
     identity: tuple[str, str] | None = None
+    failure_phase = "PRECONNECT_GUARDS"
     try:
         if (
             getattr(psycopg2, "__libpq_version__", 0) < 170_000
             or extensions.libpq_version() < 170_000
         ):
             raise ContractError
+        failure_phase = "CONNECT_TLS_AUTH"
         connection = psycopg2.connect(
             dsn,
             application_name=APPLICATION_NAME,
@@ -848,8 +882,10 @@ def _run_database_preflight(
         )
         cleanup.connection_opened = True
         cleanup.connection_closed = False
+        failure_phase = "SERVER_VERSION"
         if type(connection.server_version) is not int or connection.server_version // 10_000 != 17:
             raise DatabaseError
+        failure_phase = "SESSION_GUARDS"
         connection.autocommit = True
         cursor = connection.cursor()
         begin_attempted = True
@@ -858,8 +894,10 @@ def _run_database_preflight(
         for statement in sql_contract.statements[1:-1]:
             cursor.execute(statement)
             _fetch_single_value(cursor)
+        failure_phase = "IDENTITY_VALIDATION"
         cursor.execute(sql_contract.statements[-1])
         identity = _validate_identity(_fetch_single_value(cursor), target)
+        failure_phase = "ROLLBACK"
         cursor.execute(sql_contract.rollback)
         transaction_open = False
         cleanup.rollback_attempted = True
@@ -870,9 +908,9 @@ def _run_database_preflight(
         if not rollback_confirmed:
             raise RollbackError
     except PreflightError as exc:
-        pending = exc
+        pending = _with_failure_phase(exc, failure_phase)
     except Exception:
-        pending = DatabaseError()
+        pending = DatabaseError(failure_phase=failure_phase)
     finally:
         if connection is not None and cursor is not None and begin_attempted and not rollback_confirmed:
             cleanup.rollback_attempted = True
@@ -917,15 +955,15 @@ def _run_database_preflight(
             except Exception:
                 connection_close_failed = True
         if (transaction_open or (begin_attempted and not rollback_confirmed)) and pending is None:
-            pending = RollbackError()
+            pending = RollbackError(failure_phase="ROLLBACK")
         if cursor_close_failed and pending is None:
-            pending = DatabaseError()
+            pending = DatabaseError(failure_phase="CURSOR_CLOSE")
         if connection_close_failed and pending is None:
-            pending = ConnectionCloseError()
+            pending = ConnectionCloseError(failure_phase="CONNECTION_CLOSE")
     if pending is not None:
         raise pending
     if not rollback_confirmed or identity is None:
-        raise RollbackError
+        raise RollbackError(failure_phase="ROLLBACK")
     return identity
 
 
@@ -954,11 +992,18 @@ def _deny_lines() -> tuple[str, ...]:
     )
 
 
-def _print_blocked(reason: str, cleanup: CleanupState) -> None:
+def _print_blocked(
+    reason: str,
+    cleanup: CleanupState,
+    failure_phase: str,
+) -> None:
+    if failure_phase not in PREFLIGHT_FAILURE_PHASES:
+        raise ValueError("invalid preflight failure phase")
     for line in _deny_lines():
         print(line)
     print(f"ROLLBACK_CONFIRMED={str(cleanup.rollback_confirmed).lower()}")
     print(f"CONNECTION_CLOSED={str(cleanup.connection_closed).lower()}")
+    print(f"PREFLIGHT_FAILURE_PHASE={failure_phase}")
     print(f"RESULT=BLOCKED_{reason}")
 
 
@@ -976,6 +1021,7 @@ def main(argv: list[str] | None = None) -> int:
     tls_ca_witness: TlsCaCertificateWitness | None = None
     tls_ca_revalidated = False
     cleanup = CleanupState()
+    failure_phase = "PRECONNECT_GUARDS"
     try:
         _assert_sanitized_argv(arguments)
         args = _build_parser().parse_args(arguments)
@@ -1044,6 +1090,8 @@ def main(argv: list[str] | None = None) -> int:
             expected_database_name_sha256=expected_database_name_sha256,
         )
         _revalidate_tls_ca_certificate_fd(tls_ca_witness)
+        database_error: Exception | None = None
+        failure_phase = "CONNECT_TLS_AUTH"
         try:
             system_identifier, database_name = _run_database_preflight(
                 dsn=dsn,
@@ -1052,9 +1100,18 @@ def main(argv: list[str] | None = None) -> int:
                 tls_ca_certificate_fd=tls_ca_witness.descriptor,
                 cleanup=cleanup,
             )
-        finally:
+        except Exception as exc:
+            database_error = exc
+        failure_phase = "POSTCONNECT_TLS_CA_REVALIDATION"
+        try:
             _revalidate_tls_ca_certificate_fd(tls_ca_witness)
             tls_ca_revalidated = True
+        except PreflightError as exc:
+            if database_error is None:
+                raise _with_failure_phase(exc, failure_phase)
+        if database_error is not None:
+            raise database_error
+        failure_phase = "POST_IDENTITY_FINALIZATION"
         observed_system_identifier_sha256 = _component_sha256(
             "SYSTEM_IDENTIFIER", system_identifier
         )
@@ -1101,10 +1158,14 @@ def main(argv: list[str] | None = None) -> int:
         print("RESULT=PREFLIGHT_IDENTITY_OBSERVED_NOT_ATTESTED")
         return 0
     except PreflightError as exc:
-        _print_blocked(exc.reason, cleanup)
+        _print_blocked(
+            exc.reason,
+            cleanup,
+            exc.failure_phase or failure_phase,
+        )
         return exc.exit_code
     except Exception:
-        _print_blocked("INTERNAL_ERROR", cleanup)
+        _print_blocked("INTERNAL_ERROR", cleanup, failure_phase)
         return 10
     finally:
         if tls_ca_witness is not None and not tls_ca_revalidated:

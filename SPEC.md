@@ -722,16 +722,41 @@ intactos. Estado: `INTEGRADO E COMPROVADO OFFLINE / DUAS INVOCACOES DEV
 BLOQUEADAS / CAUSA NAO DETERMINADA / PROD NAO CONSULTADO / OPERACAO
 BLOQUEADA`.
 
+Sobre a base `3685bbcaf11d5a20b3492953d897cb6a459701a8`, o candidato
+pre-merge adiciona o enum estatico `PREFLIGHT_FAILURE_PHASE` com dez valores:
+`PRECONNECT_GUARDS`, `CONNECT_TLS_AUTH`, `SERVER_VERSION`, `SESSION_GUARDS`,
+`IDENTITY_VALIDATION`, `ROLLBACK`, `CURSOR_CLOSE`, `CONNECTION_CLOSE`,
+`POSTCONNECT_TLS_CA_REVALIDATION` e `POST_IDENTITY_FINALIZATION`. A fase e
+somente a ultima fronteira operacional iniciada, nunca a causa; em especial,
+`CONNECT_TLS_AUTH` nao prova nem separa rede, TLS ou credencial. Cada saida
+`BLOCKED` contem exatamente uma linha de fase, o sucesso nao a contem e a
+primeira falha vence quando ha falhas posteriores.
+
+Os SHA-256 congelados sao runner
+`8da631fbb602488bb8c82ce1529c9d8ba17acbae8a318ea9b0fc24cdd8f65cd2`,
+unitarios `c55726f0ad8abf7680de868cba155388f7e56773aa8054e556be89dc87aa90a8` e
+PG17 `d86037d759d254581d2259026585ac768e4b2d68595473371ec65daf6c6de5a9`.
+Passaram `109 passed, 2 skipped` offline, `2/2` em PostgreSQL 17 TLS
+descartavel e `222 passed, 2 skipped` no agregado relevante; `pycompile` e
+`diff-check` ficaram verdes, os recursos temporarios foram removidos e
+Sarah concluiu `GO`, sem P0, P1 ou P2. As duas execucoes DEV historicas com
+exit `7` nao podem ser retroclassificadas. A unica `query_logs` anterior
+retornou vazio e continua `EVIDENCE_INSUFFICIENT`. Esta missao nao repetiu a
+consulta e nao acessou DEV ou PROD. A evidencia detalhada esta em
+[`2026-08-30-dev-preflight-failure-phase-diagnostics.md`](docs/decisions/2026-08-30-dev-preflight-failure-phase-diagnostics.md).
+
+O hash novo invalida a autorizacao anterior; uma invocacao futura exige nova
+autorizacao nominal. `OPERATIONAL_AUTHORIZATION=false` e
+`NEXT_STAGE_AUTHORIZED=false` permanecem obrigatorios.
+
 **Próximo gate único:**
-`SEPARATE_NOMINAL_DEV_FAILURE_LOGS_READ_ONLY_REVIEW_AUTHORIZATION`. Ele exige
-uma autorizacao humana nova, nominal, exclusiva e separada para uma unica
-revisao read-only e sanitizada dos logs da falha DEV. A fonte, os filtros e a
-janela temporal minima ainda nao foram delimitados e precisam constar da nova
-autorizacao antes de qualquer acesso; nenhum horario e inferido. Nenhum log foi
-acessado nesta PR. Este gate nao autoriza retry, nova invocacao DEV, consulta a
-PROD, banco ou SQL, exportacao ou persistencia de logs, captura,
-materializacao, DML, migration, reconciliacao, backfill, deploy, flag ou
-runtime. Universidade da Vida e Capacitacao Destino permanecem fora.
+`REVIEW_AND_CI_DEV_PREFLIGHT_PHASE_DIAGNOSTICS_PR`. Ele autoriza somente abrir
+e revisar a PR e executar o CI do mesmo SHA. Nao autoriza merge nem integracao.
+O merge em `main` e o deployment automatico frontend Vercel Production exigem
+autorizacao humana posterior especifica que nomeie e aceite ambos. Nao ha retry
+implicito. Consulta de logs e qualquer efeito em backend, banco, DEV, PROD,
+SQL, captura, materializacao, DML, migration, reconciliacao, backfill, deploy,
+flag ou runtime continuam bloqueados.
 
 A evolucao aprovada mantem uma unica politica global e adiciona especialistas por dominio de forma incremental. Atendimento, Central de Celulas, Agenda e Consolidacao integram a missao atual; Universidade da Vida e Capacitacao Destino permanecem na visao futura e dependem de PRDs e missoes proprias. Especialistas nunca enviam mensagens diretamente e nunca recebem IDs de tenant escolhidos pelo modelo ou pelo cliente.
 

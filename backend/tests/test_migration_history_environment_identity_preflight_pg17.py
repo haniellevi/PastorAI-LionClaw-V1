@@ -328,6 +328,7 @@ def test_dev_identity_preflight_full_main_uses_seven_fds_and_zero_write(
     output = _output_map(capsys.readouterr().out)
     assert result == 0
     assert before == after
+    assert "PREFLIGHT_FAILURE_PHASE" not in output
     assert output["RESULT"] == "PREFLIGHT_IDENTITY_OBSERVED_NOT_ATTESTED"
     assert output["TLS_MODE"] == "VERIFY_FULL_EXPLICIT_CA"
     assert output["POSTGRES_MAJOR_17"] == "true"
