@@ -610,12 +610,37 @@ Os checks provam apenas o comportamento exercitado naquele SHA; a metadata do
 deployment prova somente o frontend e não prova backend, banco, migration,
 runtime ou atestação de ambiente.
 
-**Próximo gate único:** `SEPARATE_READ_ONLY_ENVIRONMENT_ATTESTATION`, em missao e autorizacao proprias,
-somente leitura.
-Ele nao autoriza DML, reconciliacao de ledger, corte de epoca, runner,
-`bootstrap-ledger`, `harden-ledger`, `status`, `apply`, migration, backfill,
-deploy, flag ou runtime. Universidade da Vida e Capacitacao Destino permanecem
-fora.
+A ferramenta separada de atestacao read-only foi implementada no commit tecnico
+`be958ce96e65d3d497923b7f5f912676634e9587`, sobre a base
+`1072e6a8e85d201a1c82f37a8ddeac5417300c49`. O estado corrente e
+`IMPLEMENTADO E COMPROVADO OFFLINE / AINDA NÃO INTEGRADO / AMBIENTES NÃO CONSULTADOS / OPERAÇÃO BLOQUEADA`.
+A prova focal offline passou em
+`81/81`, a selecao relacionada terminou em `367 passed, 47 skipped` e a prova
+focal em PostgreSQL 17 TLS descartavel passou em `82/82`. Sarah/Terra concluiu
+`GO`; o healthcheck do Claude Opus passou, mas a revisao completa travou com
+`Execution error` e nao foi reclassificada como revisao concluida.
+
+Este commit implementa somente tooling tecnico fail-closed, conforme a
+[`decisao de atestacao read-only`](docs/decisions/2026-08-30-read-only-environment-attestation-tooling.md).
+Nenhum DEV ou PROD foi consultado e nenhum artefato ambiental foi produzido.
+O schema JSON valida somente o envelope; o verificador Python continua
+obrigatorio. O HMAC serve para correlacao e anti-swap, sem substituir
+autorizacao humana nem observar diretamente o project ref. Data API e Realtime
+permanecem `PLATFORM_SURFACES_UNATTESTED`.
+
+`OPERATIONAL_AUTHORIZATION=BLOCKED` e
+`environment_attestation_complete=false` permanecem invariantes. Runner, DML,
+migration, reconciliacao, backfill, deploy, flag e runtime continuam
+bloqueados.
+
+**Próximo gate único:** `REVIEW_AND_INTEGRATE_READ_ONLY_ENVIRONMENT_ATTESTATION_PR`.
+Ele autoriza somente revisao, CI dedicado PostgreSQL 17 TLS e integracao desta
+PR com checks verdes. Nao autoriza preflight nominal, captura, materializacao,
+runner, DML, migration, reconciliacao, backfill, deploy, flag ou runtime.
+Somente depois do merge podera nascer o gate operacional
+`SEPARATE_NOMINAL_DEV_READ_ONLY_PREFLIGHT_AUTHORIZATION`, ainda restrito a DEV.
+PROD esta explicitamente fora nos dois gates. Universidade da Vida e
+Capacitacao Destino permanecem fora.
 
 A evolucao aprovada mantem uma unica politica global e adiciona especialistas por dominio de forma incremental. Atendimento, Central de Celulas, Agenda e Consolidacao integram a missao atual; Universidade da Vida e Capacitacao Destino permanecem na visao futura e dependem de PRDs e missoes proprias. Especialistas nunca enviam mensagens diretamente e nunca recebem IDs de tenant escolhidos pelo modelo ou pelo cliente.
 
