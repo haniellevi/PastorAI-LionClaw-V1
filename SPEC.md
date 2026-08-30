@@ -706,14 +706,32 @@ evidencia detalhada esta em
 Estado: `DUAS INVOCACOES DEV BLOQUEADAS / CAUSA NAO DETERMINADA / PROD NAO
 CONSULTADO / OPERACAO BLOQUEADA`.
 
+A PR #342, HEAD `5076c47b19fffe503e823d68c6dadfc59b11ed5d`, integrou a
+prova diagnostica no merge `bc202da6c0ef83e03ded4392e508441cd4d6a188`, com
+`mergedAt=2026-08-30T15:24:45Z`. Os sete workflows pos-merge concluiram com
+`SUCCESS`: Canonical `33319560819`, Environment Attestation PG17
+`33319560923`, E2E `33319560908`, RLS `33319560769`, Backend `33319560836`,
+Frontend `33319560781` e Tooling `33319560786`. A Vercel registrou o
+deployment frontend Production `6168185324`, com status `17531418022`,
+`state=success` e `created_at=updated_at=2026-08-30T15:25:32Z`. Essa metadata
+prova somente o frontend e nao prova backend, banco ou runtime.
+
+A integracao nao repetiu o preflight, nao consultou logs, nao fez novo acesso a
+DEV ou PROD e nao determinou a causa do exit `7`. Runner e workflow permanecem
+intactos. Estado: `INTEGRADO E COMPROVADO OFFLINE / DUAS INVOCACOES DEV
+BLOQUEADAS / CAUSA NAO DETERMINADA / PROD NAO CONSULTADO / OPERACAO
+BLOQUEADA`.
+
 **Próximo gate único:**
-`REVIEW_AND_INTEGRATE_DEV_IDENTITY_PREFLIGHT_DIAGNOSTICS_PR`. Ele autoriza
-somente revisar e integrar a prova diagnostica offline e sua documentacao. Nao
-autoriza retry, nova invocacao DEV, consulta a PROD, captura, materializacao,
-DML, migration, reconciliacao, backfill, deploy, flag ou runtime. Uma eventual
-nova tentativa exige outra autorizacao humana nominal, exclusiva e separada,
-que este gate nao concede. Universidade da Vida e Capacitacao Destino
-permanecem fora.
+`SEPARATE_NOMINAL_DEV_FAILURE_LOGS_READ_ONLY_REVIEW_AUTHORIZATION`. Ele exige
+uma autorizacao humana nova, nominal, exclusiva e separada para uma unica
+revisao read-only e sanitizada dos logs da falha DEV. A fonte, os filtros e a
+janela temporal minima ainda nao foram delimitados e precisam constar da nova
+autorizacao antes de qualquer acesso; nenhum horario e inferido. Nenhum log foi
+acessado nesta PR. Este gate nao autoriza retry, nova invocacao DEV, consulta a
+PROD, banco ou SQL, exportacao ou persistencia de logs, captura,
+materializacao, DML, migration, reconciliacao, backfill, deploy, flag ou
+runtime. Universidade da Vida e Capacitacao Destino permanecem fora.
 
 A evolucao aprovada mantem uma unica politica global e adiciona especialistas por dominio de forma incremental. Atendimento, Central de Celulas, Agenda e Consolidacao integram a missao atual; Universidade da Vida e Capacitacao Destino permanecem na visao futura e dependem de PRDs e missoes proprias. Especialistas nunca enviam mensagens diretamente e nunca recebem IDs de tenant escolhidos pelo modelo ou pelo cliente.
 

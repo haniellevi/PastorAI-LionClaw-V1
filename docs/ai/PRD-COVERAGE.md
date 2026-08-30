@@ -3,7 +3,7 @@ project: igreja12
 document_kind: prd-coverage
 status: canonical-audit
 last_verified: 2026-08-30
-audited_repository_sha: 64cc157d649256a4a9819741f4276c0420590fd1
+audited_repository_sha: bc202da6c0ef83e03ded4392e508441cd4d6a188
 canonical_prd: docs/Docs20260611_163530/PRD20260611_163530.md
 ---
 
@@ -542,14 +542,32 @@ evidência detalhada está em
 Estado: `DUAS INVOCACOES DEV BLOQUEADAS / CAUSA NAO DETERMINADA / PROD NAO
 CONSULTADO / OPERACAO BLOQUEADA`.
 
+A PR #342, HEAD `5076c47b19fffe503e823d68c6dadfc59b11ed5d`, integrou a
+prova diagnóstica no merge `bc202da6c0ef83e03ded4392e508441cd4d6a188`, com
+`mergedAt=2026-08-30T15:24:45Z`. Os sete workflows pós-merge concluíram com
+`SUCCESS`: Canonical `33319560819`, Environment Attestation PG17
+`33319560923`, E2E `33319560908`, RLS `33319560769`, Backend `33319560836`,
+Frontend `33319560781` e Tooling `33319560786`. A Vercel registrou o
+deployment frontend Production `6168185324`, com status `17531418022`,
+`state=success` e `created_at=updated_at=2026-08-30T15:25:32Z`. Essa metadata
+prova somente o frontend e não prova backend, banco ou runtime.
+
+A integração não repetiu o preflight, não consultou logs, não fez novo acesso a
+DEV ou PROD e não determinou a causa do exit `7`. Runner e workflow permanecem
+intactos. Estado: `INTEGRADO E COMPROVADO OFFLINE / DUAS INVOCACOES DEV
+BLOQUEADAS / CAUSA NAO DETERMINADA / PROD NAO CONSULTADO / OPERACAO
+BLOQUEADA`.
+
 O gate único corrente é
-`REVIEW_AND_INTEGRATE_DEV_IDENTITY_PREFLIGHT_DIAGNOSTICS_PR`. Ele autoriza
-somente revisar e integrar a prova diagnóstica offline e sua documentação. Não
-autoriza retry, nova invocação DEV, consulta a PROD, captura, materialização,
-DML, migration, reconciliação, backfill, deploy, flag ou runtime. Uma eventual
-nova tentativa exige outra autorização humana nominal, exclusiva e separada,
-que este gate não concede. Universidade da Vida e Capacitação Destino
-permanecem fora.
+`SEPARATE_NOMINAL_DEV_FAILURE_LOGS_READ_ONLY_REVIEW_AUTHORIZATION`. Ele exige
+uma autorização humana nova, nominal, exclusiva e separada para uma única
+revisão read-only e sanitizada dos logs da falha DEV. A fonte, os filtros e a
+janela temporal mínima ainda não foram delimitados e precisam constar da nova
+autorização antes de qualquer acesso; nenhum horário é inferido. Nenhum log foi
+acessado nesta PR. Este gate não autoriza retry, nova invocação DEV, consulta a
+PROD, banco ou SQL, exportação ou persistência de logs, captura,
+materialização, DML, migration, reconciliação, backfill, deploy, flag ou
+runtime. Universidade da Vida e Capacitação Destino permanecem fora.
 
 ## Fontes principais
 
