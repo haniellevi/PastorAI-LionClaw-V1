@@ -63,14 +63,11 @@ ENVIRONMENT_ATTESTATION_POSTMERGE_STATE = (
     "INTEGRADO E COMPROVADO OFFLINE / AMBIENTES NÃO CONSULTADOS / "
     "OPERAÇÃO BLOQUEADA"
 )
-DEV_IDENTITY_PREFLIGHT_RUNNER_PREMERGE_STATE = (
-    "RUNNER IMPLEMENTADO E COMPROVADO OFFLINE / AINDA NÃO INTEGRADO / "
-    "DEV/PROD NÃO CONSULTADOS / OPERAÇÃO BLOQUEADA"
+DEV_IDENTITY_PREFLIGHT_RUNNER_POSTMERGE_STATE = (
+    "INTEGRADO E COMPROVADO OFFLINE / DEV/PROD NÃO CONSULTADOS / "
+    "OPERAÇÃO BLOQUEADA"
 )
 DEV_IDENTITY_PREFLIGHT_RUNNER_CURRENT_GATE = (
-    "REVIEW_AND_INTEGRATE_DEV_IDENTITY_PREFLIGHT_RUNNER_PR"
-)
-DEV_IDENTITY_PREFLIGHT_RUNNER_FUTURE_GATE = (
     "SEPARATE_NOMINAL_DEV_READ_ONLY_PREFLIGHT_AUTHORIZATION"
 )
 
@@ -2147,7 +2144,7 @@ def test_environment_attestation_tooling_docs_record_postmerge_deny_state() -> N
     assert "integracao e ci pos-merge" in adr
 
 
-def test_dev_identity_preflight_runner_docs_record_premerge_deny_state() -> None:
+def test_dev_identity_preflight_runner_docs_record_postmerge_deny_state() -> None:
     canonical_docs = {
         REPO_ROOT / "SPEC.md",
         REPO_ROOT / "SPEC_PROGRESS.md",
@@ -2182,7 +2179,7 @@ def test_dev_identity_preflight_runner_docs_record_premerge_deny_state() -> None
         ENVIRONMENT_ATTESTATION_ADR_PATH,
     }
     required = {
-        _normalized_prose(DEV_IDENTITY_PREFLIGHT_RUNNER_PREMERGE_STATE),
+        _normalized_prose(DEV_IDENTITY_PREFLIGHT_RUNNER_POSTMERGE_STATE),
         "fe7dcd394bd1cfdc96204ad994bcba9f0c96adb4",
         "1973aab6c6af09105acfbfe03396b048c389d059ae87ff1b673198ba35fb280f",
         "d96fab1afe99531e3cee0f84bc285876de303ed0265fa41c51f8da9a7bcab0a0",
@@ -2208,11 +2205,28 @@ def test_dev_identity_preflight_runner_docs_record_premerge_deny_state() -> None
         "descritores sao fechados",
         "certificados tls temporarios",
         "removidos apos a prova",
-        "ci ainda nao foi executado",
+        "pr #340",
+        "b29d3f494eabc3a04fe7f2c434758ad274f03930",
+        "82413edb884125d4d8f6e7946ffcaaf48ed8491c",
+        "mergedat=2026-08-30t13:55:11z",
+        "33315460948",
+        "33315460933",
+        "33315460941",
+        "33315460942",
+        "33315460949",
+        "33315460934",
+        "33315460939",
+        "6167369343",
+        "state=success",
+        "2026-08-30t13:55:56z",
+        "prova somente o frontend",
+        "nao prova backend, banco ou runtime",
         "dev e prod nao foram consultados",
         "prod continua fora",
+        "autorizacao humana nova e exclusiva",
+        "uma invocacao process-only",
+        "preflight de identidade de dev",
         DEV_IDENTITY_PREFLIGHT_RUNNER_CURRENT_GATE.casefold(),
-        DEV_IDENTITY_PREFLIGHT_RUNNER_FUTURE_GATE.casefold(),
     }
 
     for path in canonical_docs | supporting_docs:
@@ -2220,10 +2234,13 @@ def test_dev_identity_preflight_runner_docs_record_premerge_deny_state() -> None
         assert all(item in normalized for item in required), (
             f"DEV identity preflight runner deny-state missing in {path}"
         )
-        assert "ci pg17 tls verde" in normalized
+        assert "sete workflows pos-merge" in normalized
         assert "captura executada" not in normalized
         assert "materializacao executada" not in normalized
         assert "preflight dev executado" not in normalized
+        assert "ci ainda nao foi executado" not in normalized
+        assert "ainda nao integrado" not in normalized
+        assert "review_and_integrate_dev_identity_preflight_runner_pr" not in normalized
 
     for path in canonical_docs:
         normalized = _normalized_prose(path.read_text(encoding="utf-8"))
@@ -2231,16 +2248,7 @@ def test_dev_identity_preflight_runner_docs_record_premerge_deny_state() -> None
         assert normalized.count(
             DEV_IDENTITY_PREFLIGHT_RUNNER_CURRENT_GATE.casefold()
         ) == 1
-        assert normalized.count(
-            DEV_IDENTITY_PREFLIGHT_RUNNER_FUTURE_GATE.casefold()
-        ) == 1
-        current_gate_index = normalized.index(
-            DEV_IDENTITY_PREFLIGHT_RUNNER_CURRENT_GATE.casefold()
-        )
-        future_gate_index = normalized.index(
-            DEV_IDENTITY_PREFLIGHT_RUNNER_FUTURE_GATE.casefold()
-        )
-        assert current_gate_index < future_gate_index
+        assert "review_and_integrate_dev_identity_preflight_runner_pr" not in normalized
 
 
 def test_schema_expectation_manifest_is_source_only_and_keeps_environment_gate() -> None:

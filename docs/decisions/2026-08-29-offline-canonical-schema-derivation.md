@@ -109,7 +109,8 @@ provar observação direta do project ref. Data API e Realtime permanecem
 `environment_attestation_complete=false`.
 
 Sobre a base versionada `fe7dcd394bd1cfdc96204ad994bcba9f0c96adb4`, o runner
-DEV preflight-only foi implementado, mas ainda não foi integrado. Os SHA-256
+DEV preflight-only foi implementado e comprovado offline antes da integração.
+Os SHA-256
 congelados são: runner
 `1973aab6c6af09105acfbfe03396b048c389d059ae87ff1b673198ba35fb280f`, testes
 unitários `d96fab1afe99531e3cee0f84bc285876de303ed0265fa41c51f8da9a7bcab0a0`,
@@ -119,8 +120,17 @@ testes de atestação existentes
 workflow `80c53134e91a4221201052ff6c6782f76cdcaa9968c3406a46c3bca16e878ddf`.
 Os unitários passaram em `210/210`; duas provas locais sequenciais no
 PostgreSQL 17 TLS passaram em `1/1` para a atestação existente e `1/1` para o
-runner com CA por FD. O CI ainda não foi executado, portanto CI PG17 TLS verde
-continua critério de integração.
+runner com CA por FD.
+
+A PR #340, HEAD `b29d3f494eabc3a04fe7f2c434758ad274f03930`, integrou o
+runner no merge `82413edb884125d4d8f6e7946ffcaaf48ed8491c`, com
+`mergedAt=2026-08-30T13:55:11Z`. Os sete workflows pós-merge concluíram com
+`SUCCESS`: E2E `33315460948`, Frontend `33315460933`, Tooling
+`33315460941`, RLS `33315460942`, Backend `33315460949`, Environment
+Attestation PG17 `33315460934` e Canonical Schema Derivation `33315460939`.
+A Vercel registrou o deployment frontend Production `6167369343`, com
+`state=success`, em `2026-08-30T13:55:56Z`. Essa metadata prova somente o
+frontend e não prova backend, banco ou runtime.
 
 O contrato usa `TLS_MODE=VERIFY_FULL_EXPLICIT_CA` e exige que o digest da CA,
 `TLS_CA_CERTIFICATE_SHA256`, esteja vinculado à autorização. O escopo
@@ -131,13 +141,12 @@ materialização. Os buffers de chave e nonce são zerados, os descritores são
 fechados e os certificados TLS temporários são removidos após a prova. DEV e
 PROD não foram consultados. PROD está explicitamente
 fora. PROD continua fora. Estado:
-`RUNNER IMPLEMENTADO E COMPROVADO OFFLINE / AINDA NÃO INTEGRADO / DEV/PROD NÃO
-CONSULTADOS / OPERAÇÃO BLOQUEADA`.
+`INTEGRADO E COMPROVADO OFFLINE / DEV/PROD NÃO CONSULTADOS / OPERAÇÃO
+BLOQUEADA`.
 
-`REVIEW_AND_INTEGRATE_DEV_IDENTITY_PREFLIGHT_RUNNER_PR` é o gate seguinte. Ele
-exige revisão independente e CI PG17 TLS verde antes da integração e não
-autoriza executar o preflight. O gate futuro, somente depois do merge, é
-`SEPARATE_NOMINAL_DEV_READ_ONLY_PREFLIGHT_AUTHORIZATION`, limitado a uma única
-tentativa DEV preflight-only. Não autoriza captura, materialização, DML,
+`SEPARATE_NOMINAL_DEV_READ_ONLY_PREFLIGHT_AUTHORIZATION` é o gate seguinte. Ele
+exige uma autorização humana nova e exclusiva para uma invocação process-only
+(`PROCESS_INVOCATION_ONLY`) do preflight de identidade de DEV. Não autoriza
+captura, materialização, DML,
 migration, reconciliação, backfill, deploy, flag ou runtime. PROD continua
 fora.
