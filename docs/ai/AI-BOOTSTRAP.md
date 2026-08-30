@@ -2,8 +2,8 @@
 project: igreja12
 document_kind: ai-bootstrap
 status: canonical
-last_verified: 2026-08-28
-audited_repository_sha: 341f38a7f1c6993c74d85e99748cb60046cd4501
+last_verified: 2026-08-30
+audited_repository_sha: 278afb205a3b4735d4aeb66e2e585f71fd562ef7
 ---
 
 # Bootstrap canônico para agentes de IA
@@ -412,15 +412,27 @@ runtime ou atestação de ambiente.
 
 A ferramenta separada de atestação read-only foi implementada no commit técnico
 `be958ce96e65d3d497923b7f5f912676634e9587`, sobre a base
-`1072e6a8e85d201a1c82f37a8ddeac5417300c49`. O estado corrente é
-`IMPLEMENTADO E COMPROVADO OFFLINE / AINDA NÃO INTEGRADO / AMBIENTES NÃO CONSULTADOS / OPERAÇÃO BLOQUEADA`.
-A prova focal offline passou em
+`1072e6a8e85d201a1c82f37a8ddeac5417300c49`. A prova focal offline passou em
 `81/81`, a seleção relacionada terminou em `367 passed, 47 skipped` e a prova
 focal em PostgreSQL 17 TLS descartável passou em `82/82`. Sarah/Terra concluiu
 `GO`; o healthcheck do Claude Opus passou, mas a revisão completa travou com
 `Execution error` e não foi reclassificada como revisão concluída.
 
-Este commit implementa somente tooling técnico fail-closed, conforme a
+A PR #337, HEAD `abf6f823336b81e93ec1c942dcd5a357d8ac797c`, integrou o tooling
+no merge `278afb205a3b4735d4aeb66e2e585f71fd562ef7`, com
+`mergedAt=2026-08-30T11:38:16Z`. Os sete workflows do push em `main`
+concluíram com `SUCCESS`: Environment Attestation PG17 `33309430738`, Frontend
+CI `33309430763`, Canonical Schema Derivation `33309430775`, Backend Tests
+`33309430797`, Tooling Static Checks `33309430744`, E2E Critical `33309430731`
+e RLS Integration `33309430799`.
+
+A Vercel registrou o deployment frontend Production `6166209567`, com
+`state=success`; o deployment e seu status registraram
+`created_at=2026-08-30T11:39:02Z`. Essa metadata prova somente o frontend e não
+prova backend, banco ou runtime. O estado corrente é
+`INTEGRADO E COMPROVADO OFFLINE / AMBIENTES NÃO CONSULTADOS / OPERAÇÃO BLOQUEADA`.
+
+O tooling integrado permanece fail-closed, conforme a
 [`decisão de atestação read-only`](../decisions/2026-08-30-read-only-environment-attestation-tooling.md).
 Nenhum DEV ou PROD foi consultado e nenhum artefato ambiental foi produzido.
 O schema JSON valida somente o envelope; o verificador Python continua
@@ -433,14 +445,12 @@ permanecem `PLATFORM_SURFACES_UNATTESTED`.
 migration, reconciliação, backfill, deploy, flag e runtime continuam
 bloqueados.
 
-**Próximo gate único:** `REVIEW_AND_INTEGRATE_READ_ONLY_ENVIRONMENT_ATTESTATION_PR`.
-Ele autoriza somente revisão, CI dedicado PostgreSQL 17 TLS e integração desta
-PR com checks verdes. Não autoriza preflight nominal, captura, materialização,
-runner, DML, migration, reconciliação, backfill, deploy, flag ou runtime.
-Somente depois do merge poderá nascer o gate operacional
-`SEPARATE_NOMINAL_DEV_READ_ONLY_PREFLIGHT_AUTHORIZATION`, ainda restrito a DEV.
-PROD está explicitamente fora nos dois gates. Universidade da Vida e
-Capacitação Destino permanecem fora.
+**Próximo gate único:** `SEPARATE_NOMINAL_DEV_READ_ONLY_PREFLIGHT_AUTHORIZATION`.
+Ele pode autorizar somente o preflight de identidade de DEV, em leitura e com
+autorização separada. Não autoriza captura, materialização de artefato, runner,
+DML, migration, reconciliação, backfill, deploy, flag ou runtime. PROD está
+explicitamente fora. Universidade da Vida e Capacitação Destino permanecem
+fora.
 
 ## Roteiro de leitura
 

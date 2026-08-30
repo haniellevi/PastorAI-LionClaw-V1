@@ -2,7 +2,7 @@
 
 **Data:** 2026-08-30
 
-**Estado:** `IMPLEMENTADO E COMPROVADO OFFLINE / AINDA NÃO INTEGRADO / AMBIENTES NÃO CONSULTADOS / OPERAÇÃO BLOQUEADA`
+**Estado:** `INTEGRADO E COMPROVADO OFFLINE / AMBIENTES NÃO CONSULTADOS / OPERAÇÃO BLOQUEADA`
 
 **Base técnica:** `1072e6a8e85d201a1c82f37a8ddeac5417300c49`
 
@@ -89,12 +89,27 @@ Opus passou, porém a revisão completa travou com `Execution error`; portanto,
 ela não conta como revisão concluída e não substitui o parecer Sarah/Terra.
 Skips não são evidência positiva e nenhuma dessas provas atesta DEV ou PROD.
 
+## Integração e CI pós-merge
+
+A PR #337, HEAD `abf6f823336b81e93ec1c942dcd5a357d8ac797c`, integrou o tooling
+no merge `278afb205a3b4735d4aeb66e2e585f71fd562ef7`, com
+`mergedAt=2026-08-30T11:38:16Z`. Os sete workflows do push em `main`
+concluíram com `SUCCESS`: Environment Attestation PG17 `33309430738`, Frontend
+CI `33309430763`, Canonical Schema Derivation `33309430775`, Backend Tests
+`33309430797`, Tooling Static Checks `33309430744`, E2E Critical `33309430731`
+e RLS Integration `33309430799`.
+
+A Vercel registrou o deployment frontend Production `6166209567`, com
+`state=success`; o deployment e seu status registraram
+`created_at=2026-08-30T11:39:02Z`. Essa metadata prova somente o frontend e não
+prova backend, banco ou runtime. Nenhum DEV ou PROD foi consultado e nenhum
+artefato ambiental foi produzido. `OPERATIONAL_AUTHORIZATION=BLOCKED` e
+`environment_attestation_complete=false` permanecem obrigatórios.
+
 ## Próximo gate único
 
-`REVIEW_AND_INTEGRATE_READ_ONLY_ENVIRONMENT_ATTESTATION_PR` autoriza somente a
-revisão desta PR, o CI dedicado PostgreSQL 17 TLS e sua integração com checks
-verdes. Não autoriza preflight nominal, captura, materialização, runner, DML,
-migration, reconciliação, backfill, deploy, flag ou runtime. Somente depois do
-merge poderá nascer o gate operacional
-`SEPARATE_NOMINAL_DEV_READ_ONLY_PREFLIGHT_AUTHORIZATION`, ainda restrito a DEV.
-PROD está explicitamente fora nos dois gates.
+`SEPARATE_NOMINAL_DEV_READ_ONLY_PREFLIGHT_AUTHORIZATION` pode autorizar somente
+o preflight de identidade de DEV, em leitura e com autorização separada. Não
+autoriza captura, materialização de artefato, runner, DML, migration,
+reconciliação, backfill, deploy, flag ou runtime. PROD está explicitamente
+fora.

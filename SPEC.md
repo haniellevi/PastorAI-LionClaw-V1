@@ -612,15 +612,27 @@ runtime ou atestação de ambiente.
 
 A ferramenta separada de atestacao read-only foi implementada no commit tecnico
 `be958ce96e65d3d497923b7f5f912676634e9587`, sobre a base
-`1072e6a8e85d201a1c82f37a8ddeac5417300c49`. O estado corrente e
-`IMPLEMENTADO E COMPROVADO OFFLINE / AINDA NÃO INTEGRADO / AMBIENTES NÃO CONSULTADOS / OPERAÇÃO BLOQUEADA`.
-A prova focal offline passou em
+`1072e6a8e85d201a1c82f37a8ddeac5417300c49`. A prova focal offline passou em
 `81/81`, a selecao relacionada terminou em `367 passed, 47 skipped` e a prova
 focal em PostgreSQL 17 TLS descartavel passou em `82/82`. Sarah/Terra concluiu
 `GO`; o healthcheck do Claude Opus passou, mas a revisao completa travou com
 `Execution error` e nao foi reclassificada como revisao concluida.
 
-Este commit implementa somente tooling tecnico fail-closed, conforme a
+A PR #337, HEAD `abf6f823336b81e93ec1c942dcd5a357d8ac797c`, integrou o tooling
+no merge `278afb205a3b4735d4aeb66e2e585f71fd562ef7`, com
+`mergedAt=2026-08-30T11:38:16Z`. Os sete workflows do push em `main`
+concluiram com `SUCCESS`: Environment Attestation PG17 `33309430738`, Frontend
+CI `33309430763`, Canonical Schema Derivation `33309430775`, Backend Tests
+`33309430797`, Tooling Static Checks `33309430744`, E2E Critical `33309430731`
+e RLS Integration `33309430799`.
+
+A Vercel registrou o deployment frontend Production `6166209567`, com
+`state=success`; o deployment e seu status registraram
+`created_at=2026-08-30T11:39:02Z`. Essa metadata prova somente o frontend e nao
+prova backend, banco ou runtime. O estado corrente e
+`INTEGRADO E COMPROVADO OFFLINE / AMBIENTES NÃO CONSULTADOS / OPERAÇÃO BLOQUEADA`.
+
+O tooling integrado permanece fail-closed, conforme a
 [`decisao de atestacao read-only`](docs/decisions/2026-08-30-read-only-environment-attestation-tooling.md).
 Nenhum DEV ou PROD foi consultado e nenhum artefato ambiental foi produzido.
 O schema JSON valida somente o envelope; o verificador Python continua
@@ -633,14 +645,12 @@ permanecem `PLATFORM_SURFACES_UNATTESTED`.
 migration, reconciliacao, backfill, deploy, flag e runtime continuam
 bloqueados.
 
-**Próximo gate único:** `REVIEW_AND_INTEGRATE_READ_ONLY_ENVIRONMENT_ATTESTATION_PR`.
-Ele autoriza somente revisao, CI dedicado PostgreSQL 17 TLS e integracao desta
-PR com checks verdes. Nao autoriza preflight nominal, captura, materializacao,
-runner, DML, migration, reconciliacao, backfill, deploy, flag ou runtime.
-Somente depois do merge podera nascer o gate operacional
-`SEPARATE_NOMINAL_DEV_READ_ONLY_PREFLIGHT_AUTHORIZATION`, ainda restrito a DEV.
-PROD esta explicitamente fora nos dois gates. Universidade da Vida e
-Capacitacao Destino permanecem fora.
+**Próximo gate único:** `SEPARATE_NOMINAL_DEV_READ_ONLY_PREFLIGHT_AUTHORIZATION`.
+Ele pode autorizar somente o preflight de identidade de DEV, em leitura e com
+autorizacao separada. Nao autoriza captura, materializacao de artefato, runner,
+DML, migration, reconciliacao, backfill, deploy, flag ou runtime. PROD esta
+explicitamente fora. Universidade da Vida e Capacitacao Destino permanecem
+fora.
 
 A evolucao aprovada mantem uma unica politica global e adiciona especialistas por dominio de forma incremental. Atendimento, Central de Celulas, Agenda e Consolidacao integram a missao atual; Universidade da Vida e Capacitacao Destino permanecem na visao futura e dependem de PRDs e missoes proprias. Especialistas nunca enviam mensagens diretamente e nunca recebem IDs de tenant escolhidos pelo modelo ou pelo cliente.
 
