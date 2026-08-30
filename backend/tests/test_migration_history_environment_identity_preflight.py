@@ -41,6 +41,9 @@ DATABASE_NAME = "postgres"
 SYSTEM_IDENTIFIER = "1234567890123456789"
 KEY = b"k" * 32
 NONCE = b"n" * 32
+PRE_PHASE_DIAGNOSTICS_RUNNER_SHA256 = (
+    "1973aab6c6af09105acfbfe03396b048c389d059ae87ff1b673198ba35fb280f"
+)
 NOW = datetime(2026, 8, 30, 12, 0, 0, tzinfo=timezone.utc)
 TLS_CA_CERTIFICATE = (
     b"-----BEGIN CERTIFICATE-----\n"
@@ -441,6 +444,17 @@ def _output_map(text: str) -> dict[str, str]:
     return result
 
 
+def _assert_blocked_phase(text: str, expected: str) -> None:
+    phase_lines = [
+        line
+        for line in text.splitlines()
+        if line.startswith("PREFLIGHT_FAILURE_PHASE=")
+    ]
+    assert phase_lines == [f"PREFLIGHT_FAILURE_PHASE={expected}"]
+    assert expected in preflight.PREFLIGHT_FAILURE_PHASES
+    assert "RESULT=BLOCKED_" in text
+
+
 def test_runner_and_sql_contracts_are_byte_pinned_and_exact() -> None:
     assert hashlib.sha256(RUNNER_PATH.read_bytes()).hexdigest() == preflight._runner_sha256()
     assert preflight.PREFLIGHT_SQL_SHA256 == (
@@ -469,6 +483,29 @@ def test_runner_and_sql_contracts_are_byte_pinned_and_exact() -> None:
         r"(?im)^\s*(insert|update|delete|merge|copy|call|do|create|alter|drop|"
         r"truncate|grant|revoke|vacuum|analyze|refresh|cluster|reindex)\b",
         normalized,
+    )
+    assert preflight.PREFLIGHT_FAILURE_PHASES == (
+        "PRECONNECT_GUARDS",
+        "CONNECT_TLS_AUTH",
+        "SERVER_VERSION",
+        "SESSION_GUARDS",
+        "IDENTITY_VALIDATION",
+        "ROLLBACK",
+        "CURSOR_CLOSE",
+        "CONNECTION_CLOSE",
+        "POSTCONNECT_TLS_CA_REVALIDATION",
+        "POST_IDENTITY_FINALIZATION",
+    )
+
+
+def test_failure_phase_rejects_dynamic_or_unknown_values() -> None:
+    with pytest.raises(ValueError, match="invalid preflight failure phase"):
+        preflight.DatabaseError(failure_phase="SECRET_DRIVER_EXCEPTION")
+
+    error = preflight.DatabaseError(failure_phase="SESSION_GUARDS")
+    assert (
+        preflight._with_failure_phase(error, "ROLLBACK").failure_phase
+        == "SESSION_GUARDS"
     )
 
 
@@ -1082,6 +1119,7 @@ def test_success_uses_one_session_verify_full_explicit_ca_and_emits_correlation_
     assert output["ROLLBACK_CONFIRMED"] == "true"
     assert output["CONNECTION_CLOSED"] == "true"
     assert output["RESULT"] == "PREFLIGHT_IDENTITY_OBSERVED_NOT_ATTESTED"
+    assert "PREFLIGHT_FAILURE_PHASE" not in output
     assert output["OPERATIONAL_AUTHORIZATION"] == "false"
     assert output["NEXT_STAGE_AUTHORIZED"] == "false"
     assert output["CAPTURE_EXECUTED"] == "false"
@@ -1109,6 +1147,91 @@ def test_success_uses_one_session_verify_full_explicit_ca_and_emits_correlation_
         assert raw_secret not in text
 
 
+def test_old_authorization_runner_hash_is_invalidated_before_connect(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert preflight._runner_sha256() != PRE_PHASE_DIAGNOSTICS_RUNNER_SHA256
+    connect = _FakeConnect()
+    result, _, _ = _invoke_main(
+        monkeypatch,
+        connect=connect,
+        authorization_overrides={
+            "runner_sha256": PRE_PHASE_DIAGNOSTICS_RUNNER_SHA256,
+        },
+    )
+    text = _output(capsys)
+    assert result == preflight.AuthorizationError.exit_code
+    assert connect.calls == []
+    _assert_blocked_phase(text, "PRECONNECT_GUARDS")
+    assert PRE_PHASE_DIAGNOSTICS_RUNNER_SHA256 not in text
+
+
+@pytest.mark.parametrize(
+    ("case", "expected_phase"),
+    [
+        ("connect", "CONNECT_TLS_AUTH"),
+        ("server_version", "SERVER_VERSION"),
+        ("session", "SESSION_GUARDS"),
+        ("identity", "IDENTITY_VALIDATION"),
+        ("rollback", "ROLLBACK"),
+        ("cursor_close", "CURSOR_CLOSE"),
+        ("connection_close", "CONNECTION_CLOSE"),
+        ("postconnect_ca", "POSTCONNECT_TLS_CA_REVALIDATION"),
+        ("post_identity", "POST_IDENTITY_FINALIZATION"),
+    ],
+)
+def test_blocked_output_reports_one_static_sanitized_operational_phase(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    case: str,
+    expected_phase: str,
+) -> None:
+    secret = "phase-secret-private-password"
+    kwargs: dict[str, Any] = {}
+    if case == "connect":
+        kwargs["connect"] = _FakeConnect(failure=SecretDatabaseFailure(secret))
+    elif case == "server_version":
+        kwargs["connect"] = _FakeConnect(_FakeConnection(server_version=160_010))
+    elif case == "session":
+        kwargs["connect"] = _FakeConnect(_FakeConnection(fail_execute_at=1))
+    elif case == "identity":
+        kwargs["connect"] = _FakeConnect(
+            _FakeConnection(identity=_identity(tls=False))
+        )
+    elif case == "rollback":
+        kwargs["connect"] = _FakeConnect(_FakeConnection(fail_execute_at=7))
+    elif case == "cursor_close":
+        kwargs["connect"] = _FakeConnect(
+            _FakeConnection(cursor_close_failure=True)
+        )
+    elif case == "connection_close":
+        kwargs["connect"] = _FakeConnect(
+            _FakeConnection(connection_close_failure=True)
+        )
+    elif case == "postconnect_ca":
+        kwargs["connect"] = _FakeConnect(
+            _FakeConnection(),
+            mutate_tls_ca_on_connect=TLS_CA_CERTIFICATE + secret.encode("ascii"),
+        )
+    else:
+        monkeypatch.setattr(
+            preflight,
+            "_binding_hmac",
+            lambda **_kwargs: (_ for _ in ()).throw(SecretDatabaseFailure(secret)),
+        )
+    result, _, _ = _invoke_main(monkeypatch, **kwargs)
+    text = _output(capsys)
+    assert result != 0
+    _assert_blocked_phase(text, expected_phase)
+    assert secret not in text
+    assert DIRECT_DSN not in text
+    assert PROJECT_REF not in text
+    assert SYSTEM_IDENTIFIER not in text
+    assert "TLS_MODE=" not in text
+    assert "PREFLIGHT_IDENTITY_OBSERVED_NOT_ATTESTED" not in text
+
+
 @pytest.mark.parametrize(
     "tls_ca_action",
     ["drift_before_connect", "close_before_connect"],
@@ -1130,6 +1253,7 @@ def test_tls_ca_drift_or_close_before_connect_blocks_without_connect(
     assert "ROLLBACK_CONFIRMED=false" in text
     assert "CONNECTION_CLOSED=true" in text
     assert "RESULT=BLOCKED_TRANSIENT_INPUT_INVALID" in text
+    _assert_blocked_phase(text, "PRECONNECT_GUARDS")
     assert "TLS_MODE=" not in text
     assert "PREFLIGHT_IDENTITY_OBSERVED_NOT_ATTESTED" not in text
 
@@ -1154,6 +1278,7 @@ def test_tls_ca_drift_after_connect_blocks_without_success_output(
     assert "ROLLBACK_CONFIRMED=true" in text
     assert "CONNECTION_CLOSED=true" in text
     assert "RESULT=BLOCKED_TRANSIENT_INPUT_INVALID" in text
+    _assert_blocked_phase(text, "POSTCONNECT_TLS_CA_REVALIDATION")
     assert "TLS_MODE=" not in text
     assert "PREFLIGHT_IDENTITY_OBSERVED_NOT_ATTESTED" not in text
 
@@ -1283,22 +1408,51 @@ def test_prior_sql_error_survives_rollback_and_close_failures_without_false_clea
     assert "ROLLBACK_CONFIRMED=false" in text
     assert "CONNECTION_CLOSED=false" in text
     assert "RESULT=BLOCKED_DATABASE_PREFLIGHT_FAILED" in text
+    _assert_blocked_phase(text, "SESSION_GUARDS")
     assert "TLS_MODE=" not in text
     assert "SQLERRM" not in text
 
 
+def test_primary_identity_failure_survives_later_ca_and_close_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    connection = _FakeConnection(
+        identity=_identity(tls=False),
+        connection_close_failure=True,
+    )
+    connect = _FakeConnect(
+        connection,
+        mutate_tls_ca_on_connect=TLS_CA_CERTIFICATE + b"later-secret-drift",
+    )
+    result, _, _ = _invoke_main(monkeypatch, connect=connect)
+    text = _output(capsys)
+    assert result == preflight.DatabaseError.exit_code
+    assert "RESULT=BLOCKED_DATABASE_PREFLIGHT_FAILED" in text
+    assert "CONNECTION_CLOSED=false" in text
+    _assert_blocked_phase(text, "IDENTITY_VALIDATION")
+    assert "later-secret-drift" not in text
+
+
 @pytest.mark.parametrize(
-    ("connection_kwargs", "expected_result", "connection_closed"),
+    (
+        "connection_kwargs",
+        "expected_result",
+        "connection_closed",
+        "expected_phase",
+    ),
     [
         (
             {"cursor_close_failure": True},
             "BLOCKED_DATABASE_PREFLIGHT_FAILED",
             True,
+            "CURSOR_CLOSE",
         ),
         (
             {"connection_close_failure": True},
             "BLOCKED_CONNECTION_CLOSE_FAILED",
             False,
+            "CONNECTION_CLOSE",
         ),
     ],
 )
@@ -1308,6 +1462,7 @@ def test_isolated_close_failure_never_emits_tls_or_success(
     connection_kwargs: dict[str, bool],
     expected_result: str,
     connection_closed: bool,
+    expected_phase: str,
 ) -> None:
     connection = _FakeConnection(**connection_kwargs)
     result, _, _ = _invoke_main(
@@ -1322,6 +1477,7 @@ def test_isolated_close_failure_never_emits_tls_or_success(
     assert "ROLLBACK_CONFIRMED=true" in text
     assert f"CONNECTION_CLOSED={str(connection_closed).lower()}" in text
     assert f"RESULT={expected_result}" in text
+    _assert_blocked_phase(text, expected_phase)
     assert "TLS_MODE=" not in text
     assert "PREFLIGHT_IDENTITY_OBSERVED_NOT_ATTESTED" not in text
 
