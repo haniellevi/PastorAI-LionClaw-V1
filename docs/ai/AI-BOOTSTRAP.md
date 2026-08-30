@@ -3,7 +3,7 @@ project: igreja12
 document_kind: ai-bootstrap
 status: canonical
 last_verified: 2026-08-30
-audited_repository_sha: 82413edb884125d4d8f6e7946ffcaaf48ed8491c
+audited_repository_sha: 64cc157d649256a4a9819741f4276c0420590fd1
 ---
 
 # Bootstrap canônico para agentes de IA
@@ -481,13 +481,39 @@ fora. PROD continua fora. Estado:
 `INTEGRADO E COMPROVADO OFFLINE / DEV/PROD NÃO CONSULTADOS / OPERAÇÃO
 BLOQUEADA`.
 
+Em 2026-08-30, já no `main`
+`64cc157d649256a4a9819741f4276c0420590fd1`, duas invocações DEV foram feitas
+sob autorizações humanas nominais distintas e exclusivas, cada uma limitada a
+`PROCESS_INVOCATION_ONLY`. O timestamp operacional preciso não foi preservado;
+nenhum horário UTC foi inferido. Ambas terminaram com exit `7`,
+`RESULT=BLOCKED_DATABASE_PREFLIGHT_FAILED`, `ROLLBACK_CONFIRMED=false` e
+`CONNECTION_CLOSED=true`. Em ambas, `OPERATIONAL_AUTHORIZATION=false`,
+`NEXT_STAGE_AUTHORIZED=false`, `CAPTURE_EXECUTED=false`,
+`MATERIALIZATION_EXECUTED=false` e `PROD_ACCESSED=false`. Esses campos não
+provam se houve conexão, não provam sucesso ou falha de autenticação e não
+identificam a causa raiz.
+
+O diagnóstico posterior passou em `2/2` no caminho full-main sobre PostgreSQL
+17 TLS descartável e em `97/97` no foco offline. O runner permaneceu intacto,
+SHA-256 `1973aab6c6af09105acfbfe03396b048c389d059ae87ff1b673198ba35fb280f`,
+assim como o workflow, SHA-256
+`80c53134e91a4221201052ff6c6782f76cdcaa9968c3406a46c3bca16e878ddf`.
+A prova PG17 ampliada tem SHA-256
+`ddbc092216604e65cf86070d409837c7d328da96116ae5ea8d0947195b421b9e`.
+Essa prova local não reclassifica DEV nem determina a causa do bloqueio. A
+evidência detalhada está em
+[`diagnóstico do preflight de identidade de DEV`](../decisions/2026-08-30-dev-identity-preflight-diagnostics.md).
+Estado: `DUAS INVOCACOES DEV BLOQUEADAS / CAUSA NAO DETERMINADA / PROD NAO
+CONSULTADO / OPERACAO BLOQUEADA`.
+
 **Próximo gate único:**
-`SEPARATE_NOMINAL_DEV_READ_ONLY_PREFLIGHT_AUTHORIZATION`. Ele exige uma
-autorização humana nova e exclusiva para uma invocação process-only
-(`PROCESS_INVOCATION_ONLY`) do preflight de identidade de DEV. Não autoriza
-captura, materialização, DML, migration, reconciliação, backfill, deploy, flag
-ou runtime. O resultado permanece em zero captura e zero materialização. PROD
-continua fora. Universidade da Vida e Capacitação Destino permanecem fora.
+`REVIEW_AND_INTEGRATE_DEV_IDENTITY_PREFLIGHT_DIAGNOSTICS_PR`. Ele autoriza
+somente revisar e integrar a prova diagnóstica offline e sua documentação. Não
+autoriza retry, nova invocação DEV, consulta a PROD, captura, materialização,
+DML, migration, reconciliação, backfill, deploy, flag ou runtime. Uma eventual
+nova tentativa exige outra autorização humana nominal, exclusiva e separada,
+que este gate não concede. Universidade da Vida e Capacitação Destino
+permanecem fora.
 
 ## Roteiro de leitura
 

@@ -348,14 +348,41 @@ fora. PROD continua fora. Estado:
 `INTEGRADO E COMPROVADO OFFLINE / DEV/PROD NÃO CONSULTADOS / OPERAÇÃO
 BLOQUEADA`.
 
+Em 2026-08-30, já no `main`
+`64cc157d649256a4a9819741f4276c0420590fd1`, duas invocações DEV foram feitas
+sob autorizações humanas nominais distintas e exclusivas, cada uma limitada a
+`PROCESS_INVOCATION_ONLY`. O timestamp operacional preciso não foi preservado;
+nenhum horário UTC foi inferido. Ambas terminaram com exit `7`,
+`RESULT=BLOCKED_DATABASE_PREFLIGHT_FAILED`, `ROLLBACK_CONFIRMED=false` e
+`CONNECTION_CLOSED=true`. Em ambas, `OPERATIONAL_AUTHORIZATION=false`,
+`NEXT_STAGE_AUTHORIZED=false`, `CAPTURE_EXECUTED=false`,
+`MATERIALIZATION_EXECUTED=false` e `PROD_ACCESSED=false`. Esses campos não
+provam se houve conexão, não provam sucesso ou falha de autenticação e não
+identificam a causa raiz.
+
+O diagnóstico posterior passou em `2/2` no caminho full-main sobre PostgreSQL
+17 TLS descartável e em `97/97` no foco offline. O runner permaneceu intacto,
+SHA-256 `1973aab6c6af09105acfbfe03396b048c389d059ae87ff1b673198ba35fb280f`,
+assim como o workflow, SHA-256
+`80c53134e91a4221201052ff6c6782f76cdcaa9968c3406a46c3bca16e878ddf`.
+A prova PG17 ampliada tem SHA-256
+`ddbc092216604e65cf86070d409837c7d328da96116ae5ea8d0947195b421b9e`.
+Essa prova local não reclassifica DEV nem determina a causa do bloqueio. A
+evidência detalhada está em
+[`diagnóstico do preflight de identidade de DEV`](2026-08-30-dev-identity-preflight-diagnostics.md).
+Estado: `DUAS INVOCACOES DEV BLOQUEADAS / CAUSA NAO DETERMINADA / PROD NAO
+CONSULTADO / OPERACAO BLOQUEADA`.
+
 O único gate seguinte é
-`SEPARATE_NOMINAL_DEV_READ_ONLY_PREFLIGHT_AUTHORIZATION`. Ele exige uma
-autorização humana nova e exclusiva para uma invocação process-only
-(`PROCESS_INVOCATION_ONLY`) do preflight de identidade de DEV. Não autoriza
-captura, materialização, DML,
+`REVIEW_AND_INTEGRATE_DEV_IDENTITY_PREFLIGHT_DIAGNOSTICS_PR`. Ele autoriza
+somente revisar e integrar a prova diagnóstica offline e sua documentação. Não
+autoriza retry, nova invocação DEV, consulta a PROD, captura, materialização,
+DML,
 reconciliação de ledger, corte de época, `bootstrap-ledger`, `harden-ledger`,
 `status`, `apply`, migration, backfill, deploy, flag ou runtime. PROD continua
-fora. Universidade da Vida e Capacitação Destino permanecem fora desta missão.
+fora. Uma eventual nova tentativa exige outra autorização humana nominal,
+exclusiva e separada, que este gate não concede. Universidade da Vida e
+Capacitação Destino permanecem fora desta missão.
 
 O procedimento reproduzível e a separação entre proprietário e pessoa revisora
 estão em
