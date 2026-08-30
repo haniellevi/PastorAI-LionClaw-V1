@@ -386,10 +386,37 @@ permanecem `PLATFORM_SURFACES_UNATTESTED`.
 migration, reconciliacao, backfill, deploy, flag e runtime continuam
 bloqueados.
 
+Sobre a base versionada `fe7dcd394bd1cfdc96204ad994bcba9f0c96adb4`, o runner
+DEV preflight-only foi implementado, mas ainda nao foi integrado. Os SHA-256
+congelados sao: runner
+`1973aab6c6af09105acfbfe03396b048c389d059ae87ff1b673198ba35fb280f`, testes
+unitarios `d96fab1afe99531e3cee0f84bc285876de303ed0265fa41c51f8da9a7bcab0a0`,
+prova PG17 `ceecfe9afa09066e4863e93be556b8f92c00a2992e0a0aef3b4253458f6fc318`,
+testes de atestacao existentes
+`68f9790a734f8adf78db8a716a5c2d99adad165f00737f922db90afa614b4ed8` e
+workflow `80c53134e91a4221201052ff6c6782f76cdcaa9968c3406a46c3bca16e878ddf`.
+Os unitarios passaram em `210/210`; duas provas locais sequenciais no
+PostgreSQL 17 TLS passaram em `1/1` para a atestacao existente e `1/1` para o
+runner com CA por FD. O CI ainda nao foi executado, portanto CI PG17 TLS verde
+continua criterio de integracao.
+
+O contrato usa `TLS_MODE=VERIFY_FULL_EXPLICIT_CA` e exige que o digest da CA,
+`TLS_CA_CERTIFICATE_SHA256`, esteja vinculado a autorizacao. O escopo
+`PROCESS_INVOCATION_ONLY` exige nova autorizacao nominal para cada invocacao.
+O HMAC serve somente correlacao e anti-swap e nao substitui autorizacao humana.
+O resultado produz zero arquivo, zero recibo, zero captura e zero
+materializacao. Os buffers de chave e nonce sao zerados, os descritores sao
+fechados e os certificados TLS temporarios sao removidos apos a prova. DEV e
+PROD nao foram consultados. PROD esta explicitamente
+fora. PROD continua fora. Estado:
+`RUNNER IMPLEMENTADO E COMPROVADO OFFLINE / AINDA NÃO INTEGRADO / DEV/PROD NÃO
+CONSULTADOS / OPERAÇÃO BLOQUEADA`.
+
 O gate unico corrente e
-`SEPARATE_NOMINAL_DEV_READ_ONLY_PREFLIGHT_AUTHORIZATION`. Ele pode autorizar
-somente o preflight de identidade de DEV, em leitura e com autorizacao
-separada. Nao autoriza captura, materializacao de artefato, runner, DML,
-migration, reconciliacao, backfill, deploy, flag ou runtime. PROD esta
-explicitamente fora. Universidade da Vida e Capacitacao Destino permanecem
-fora.
+`REVIEW_AND_INTEGRATE_DEV_IDENTITY_PREFLIGHT_RUNNER_PR`. Ele exige revisao
+independente e CI PG17 TLS verde antes da integracao e nao autoriza executar o
+preflight. O gate futuro, somente depois do merge, e
+`SEPARATE_NOMINAL_DEV_READ_ONLY_PREFLIGHT_AUTHORIZATION`, limitado a uma unica
+tentativa DEV preflight-only. Nao autoriza captura, materializacao, DML,
+migration, reconciliacao, backfill, deploy, flag ou runtime. PROD continua
+fora. Universidade da Vida e Capacitacao Destino permanecem fora.

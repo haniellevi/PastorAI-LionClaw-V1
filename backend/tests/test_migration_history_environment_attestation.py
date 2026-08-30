@@ -861,26 +861,75 @@ def test_pg17_workflow_is_digest_pinned_loopback_tls_and_dedicated() -> None:
         "00bc86618629af00d2937fdc5a5d63db3ff8450acf52f0636ec813c7f4902929"
     )
     assert workflow.count(image) == 1
-    assert workflow.count("--publish 127.0.0.1:55434:5432") == 1
+    assert workflow.count("--publish 127.0.0.1:6543:5432") == 1
     assert workflow.count(
-        "postgresql://postgres:postgres@127.0.0.1:55434/"
+        "postgresql://postgres:postgres@127.0.0.1:6543/"
         "canonical_schema_disposable_test"
+    ) == 1
+    assert workflow.count(
+        "postgresql://postgres.abcdefghijklmnopqrst:"
+        "preflight_test_password@127.0.0.1:6543/postgres"
     ) == 1
     assert workflow.count("POSTGRES_DB=canonical_schema_disposable_test") == 1
     assert workflow.count("PGSSLMODE: require") == 1
     assert "?sslmode=" not in workflow
+    assert "55434" not in workflow
     assert (
         'sudo chown 999:999 \\\n'
         '            "$RUNNER_TEMP/environment-attestation-tls" \\\n'
     ) in workflow
+    assert (
+        'install -m 600 \\\n'
+        '            "$RUNNER_TEMP/environment-attestation-tls/ca.crt" \\\n'
+        '            "$RUNNER_TEMP/dev-identity-preflight-ca.crt"'
+    ) in workflow
+    assert workflow.count(
+        "DEV_IDENTITY_PREFLIGHT_TEST_TLS_CA_CERT_PATH: "
+        "${{ runner.temp }}/dev-identity-preflight-ca.crt"
+    ) == 1
+    assert "update-ca-certificates" not in workflow
+    assert "/usr/local/share/ca-certificates" not in workflow
+    assert 'sslrootcert="system"' not in workflow
+    assert "SSL_CERT_FILE" not in workflow
     assert re.findall(r"tests/test_[A-Za-z0-9_]+\.py", workflow) == [
         "tests/test_migration_history_environment_attestation.py",
         "tests/test_migration_history_environment_attestation_pg17.py",
+        "tests/test_migration_history_environment_identity_preflight_pg17.py",
     ]
-    assert workflow.count("-m pytest") == 2
-    assert "if: always()" in workflow
-    assert "docker rm --force pastorai-environment-attestation-pg17" in workflow
-    assert re.search(r"\b(?:DEV|PROD)\b", workflow) is None
+    assert workflow.count("-m pytest") == 3
+    old_pg17_step = workflow.index(
+        "- name: Executar prova de atestação PG17 TLS sem skips"
+    )
+    role_step = workflow.index("- name: Criar role sintética do preflight DEV")
+    identity_step = workflow.index(
+        "- name: Executar preflight DEV PG17 TLS sem skips"
+    )
+    cleanup_step = workflow.index("- name: Remover PostgreSQL 17 descartável")
+    assert old_pg17_step < role_step < identity_step < cleanup_step
+    identity_segment = workflow[identity_step:cleanup_step]
+    assert "DEV_IDENTITY_PREFLIGHT_TEST_DATABASE_URL:" in identity_segment
+    assert "DEV_IDENTITY_PREFLIGHT_TEST_TLS_CA_CERT_PATH:" in identity_segment
+    assert "PGSSLMODE" not in identity_segment
+    cleanup_segment = workflow[cleanup_step:]
+    assert cleanup_segment.count("if: always()") == 1
+    assert cleanup_segment.count(
+        "docker rm --force pastorai-environment-attestation-pg17"
+    ) == 1
+    assert cleanup_segment.count(
+        'rm -f "$RUNNER_TEMP/dev-identity-preflight-ca.crt"'
+    ) == 1
+    assert cleanup_segment.count(
+        'sudo find "$RUNNER_TEMP/environment-attestation-tls" \\\n'
+        "            -mindepth 1 -maxdepth 1 -type f -delete"
+    ) == 1
+    assert cleanup_segment.count(
+        'sudo rmdir "$RUNNER_TEMP/environment-attestation-tls"'
+    ) == 1
+    assert "rm -rf" not in cleanup_segment
+    assert 'find "$RUNNER_TEMP"' not in cleanup_segment
+    assert 'rmdir "$RUNNER_TEMP"' not in cleanup_segment
+    assert "find / " not in cleanup_segment
+    assert re.search(r"\bPROD\b", workflow) is None
     assert "54322" not in workflow
 
 
