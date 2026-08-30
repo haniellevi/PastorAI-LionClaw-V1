@@ -77,8 +77,12 @@ DEV_IDENTITY_PREFLIGHT_DIAGNOSTICS_STATE = (
     "DUAS INVOCACOES DEV BLOQUEADAS / CAUSA NAO DETERMINADA / "
     "PROD NAO CONSULTADO / OPERACAO BLOQUEADA"
 )
+DEV_IDENTITY_PREFLIGHT_DIAGNOSTICS_POSTMERGE_STATE = (
+    "INTEGRADO E COMPROVADO OFFLINE / DUAS INVOCACOES DEV BLOQUEADAS / "
+    "CAUSA NAO DETERMINADA / PROD NAO CONSULTADO / OPERACAO BLOQUEADA"
+)
 DEV_IDENTITY_PREFLIGHT_RUNNER_CURRENT_GATE = (
-    "REVIEW_AND_INTEGRATE_DEV_IDENTITY_PREFLIGHT_DIAGNOSTICS_PR"
+    "SEPARATE_NOMINAL_DEV_FAILURE_LOGS_READ_ONLY_REVIEW_AUTHORIZATION"
 )
 
 CONSUMED_PREMERGE_DERIVATION_GATE_CLAIMS = frozenset(
@@ -2282,9 +2286,44 @@ def test_dev_identity_preflight_docs_record_blocked_live_diagnostics() -> None:
         DEV_IDENTITY_PREFLIGHT_RUNNER_CURRENT_GATE.casefold(),
         "nao autoriza retry",
         "nova invocacao dev",
-        "outra autorizacao humana nominal",
-        "exclusiva e separada",
-        "este gate nao concede",
+        "autorizacao humana nova, nominal, exclusiva e separada",
+        "revisao read-only e sanitizada",
+        "fonte",
+        "filtros",
+        "janela temporal minima",
+        "ainda nao foram delimitados",
+        "precisam constar da nova autorizacao antes de qualquer acesso",
+        "nenhum log foi acessado nesta pr",
+        "consulta a prod",
+        "banco ou sql",
+        "exportacao ou persistencia de logs",
+    }
+
+    postmerge_required = {
+        _normalized_prose(DEV_IDENTITY_PREFLIGHT_DIAGNOSTICS_POSTMERGE_STATE),
+        "pr #342",
+        "5076c47b19fffe503e823d68c6dadfc59b11ed5d",
+        "bc202da6c0ef83e03ded4392e508441cd4d6a188",
+        "mergedat=2026-08-30t15:24:45z",
+        "sete workflows pos-merge",
+        "33319560819",
+        "33319560923",
+        "33319560908",
+        "33319560769",
+        "33319560836",
+        "33319560781",
+        "33319560786",
+        "6168185324",
+        "17531418022",
+        "state=success",
+        "created_at=updated_at=2026-08-30t15:25:32z",
+        "prova somente o frontend",
+        "nao prova backend, banco ou runtime",
+        "nao repetiu o preflight",
+        "nao consultou logs",
+        "nao fez novo acesso a dev ou prod",
+        "nao determinou a causa do exit `7`",
+        "runner e workflow permanecem intactos",
     }
 
     diagnostic_records = canonical_docs | supporting_docs
@@ -2294,7 +2333,17 @@ def test_dev_identity_preflight_docs_record_blocked_live_diagnostics() -> None:
         assert not missing, (
             f"DEV identity preflight diagnostics missing in {path}: {missing}"
         )
+        postmerge_missing = sorted(
+            item for item in postmerge_required if item not in normalized
+        )
+        assert not postmerge_missing, (
+            f"DEV identity preflight postmerge evidence missing in {path}: "
+            f"{postmerge_missing}"
+        )
         assert "separate_nominal_dev_read_only_preflight_authorization" not in normalized
+        assert "review_and_integrate_dev_identity_preflight_diagnostics_pr" not in normalized
+        assert "review_and_integrate_dev_identity_preflight_diagnostics_postmerge_pr" not in normalized
+        assert "nova reconciliacao documental pos-merge" not in normalized
         assert "conexao falhou" not in normalized
         assert "autenticacao falhou" not in normalized
         assert "causa raiz confirmada" not in normalized
@@ -2310,6 +2359,7 @@ def test_dev_identity_preflight_docs_record_blocked_live_diagnostics() -> None:
             DEV_IDENTITY_PREFLIGHT_RUNNER_CURRENT_GATE.casefold()
         ) == 1
         assert "review_and_integrate_dev_identity_preflight_runner_pr" not in normalized
+        assert "review_and_integrate_dev_identity_preflight_diagnostics_pr" not in normalized
         assert "separate_nominal_dev_read_only_preflight_authorization" not in normalized
 
     diagnostics_adr = _normalized_prose(
@@ -2344,6 +2394,23 @@ def test_dev_identity_preflight_docs_record_blocked_live_diagnostics() -> None:
         "ddbc092216604e65cf86070d409837c7d328da96116ae5ea8d0947195b421b9e",
         DEV_IDENTITY_PREFLIGHT_RUNNER_CURRENT_GATE.casefold(),
         "nao autoriza retry",
+        _normalized_prose(DEV_IDENTITY_PREFLIGHT_DIAGNOSTICS_POSTMERGE_STATE),
+        "pr #342",
+        "5076c47b19fffe503e823d68c6dadfc59b11ed5d",
+        "bc202da6c0ef83e03ded4392e508441cd4d6a188",
+        "mergedat=2026-08-30t15:24:45z",
+        "33319560819",
+        "33319560923",
+        "33319560908",
+        "33319560769",
+        "33319560836",
+        "33319560781",
+        "33319560786",
+        "6168185324",
+        "17531418022",
+        "created_at=updated_at=2026-08-30t15:25:32z",
+        "nenhum log foi acessado nesta pr",
+        "janela temporal minima ainda nao foram delimitados",
     }
     assert all(item in diagnostics_adr for item in adr_required)
     assert diagnostics_adr.count("proximo gate unico") == 1

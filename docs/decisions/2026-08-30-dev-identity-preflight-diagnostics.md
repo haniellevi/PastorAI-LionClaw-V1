@@ -61,11 +61,44 @@ As duas autorizações foram consumidas e não podem ser reutilizadas. O estado
 permanece deny-by-default. Repetir o preflight de DEV não faz parte desta missão
 e exigiria uma autorização humana futura, nominal, exclusiva e separada.
 
+## Integração e evidência pós-merge
+
+A PR #342, HEAD `5076c47b19fffe503e823d68c6dadfc59b11ed5d`, integrou a
+prova diagnóstica no merge `bc202da6c0ef83e03ded4392e508441cd4d6a188`, com
+`mergedAt=2026-08-30T15:24:45Z`. Os sete workflows pós-merge concluíram com
+`SUCCESS`:
+
+- Canonical `33319560819`;
+- Environment Attestation PG17 `33319560923`;
+- E2E `33319560908`;
+- RLS `33319560769`;
+- Backend `33319560836`;
+- Frontend `33319560781`;
+- Tooling `33319560786`.
+
+A Vercel registrou o deployment frontend Production `6168185324`, com status
+`17531418022`, `state=success` e
+`created_at=updated_at=2026-08-30T15:25:32Z`. Essa metadata prova somente o
+frontend e não prova backend, banco ou runtime.
+
+A integração não repetiu o preflight, não consultou logs, não fez novo acesso a
+DEV ou PROD e não determinou a causa do exit `7`. Runner e workflow permanecem
+intactos. Estado: `INTEGRADO E COMPROVADO OFFLINE / DUAS INVOCACOES DEV
+BLOQUEADAS / CAUSA NAO DETERMINADA / PROD NAO CONSULTADO / OPERACAO
+BLOQUEADA`.
+
 ## Próximo gate único
 
-`REVIEW_AND_INTEGRATE_DEV_IDENTITY_PREFLIGHT_DIAGNOSTICS_PR`.
+`SEPARATE_NOMINAL_DEV_FAILURE_LOGS_READ_ONLY_REVIEW_AUTHORIZATION`.
 
-Esse gate autoriza somente revisar e integrar a prova diagnóstica offline e
-esta documentação. Ele não autoriza retry, nova invocação DEV, consulta a PROD,
-captura, materialização, DML, migration, reconciliação, backfill, deploy, flag,
-runtime, `status`, `apply`, `bootstrap-ledger` ou `harden-ledger`.
+Esse gate exige uma autorização humana nova, nominal, exclusiva e separada
+para uma única revisão read-only e sanitizada dos logs da falha DEV. A fonte,
+os filtros e a janela temporal mínima ainda não foram delimitados e precisam
+constar da nova autorização antes de qualquer acesso. Como o timestamp
+operacional preciso das tentativas não foi preservado, nenhum horário ou janela
+é inferido. Nenhum log foi acessado nesta PR.
+
+O gate não autoriza retry, nova invocação DEV, consulta a PROD, banco ou SQL,
+exportação ou persistência de logs, captura, materialização, DML, migration,
+reconciliação, backfill, deploy, flag, runtime, `status`, `apply`,
+`bootstrap-ledger` ou `harden-ledger`.
