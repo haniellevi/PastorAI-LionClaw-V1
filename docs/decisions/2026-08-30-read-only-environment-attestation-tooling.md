@@ -112,12 +112,12 @@ Sobre a base versionada `fe7dcd394bd1cfdc96204ad994bcba9f0c96adb4`, o runner
 DEV preflight-only foi implementado, mas ainda não foi integrado. Os SHA-256
 congelados são: runner
 `1973aab6c6af09105acfbfe03396b048c389d059ae87ff1b673198ba35fb280f`, testes
-unitários `b82dd7cbd6c782ce3de9e2f30883c1c63e66a18b740d6980e2ba1f650658d891`,
+unitários `d96fab1afe99531e3cee0f84bc285876de303ed0265fa41c51f8da9a7bcab0a0`,
 prova PG17 `ceecfe9afa09066e4863e93be556b8f92c00a2992e0a0aef3b4253458f6fc318`,
 testes de atestação existentes
 `68f9790a734f8adf78db8a716a5c2d99adad165f00737f922db90afa614b4ed8` e
 workflow `80c53134e91a4221201052ff6c6782f76cdcaa9968c3406a46c3bca16e878ddf`.
-Os unitários passaram em `209/209`; duas provas locais sequenciais no
+Os unitários passaram em `210/210`; duas provas locais sequenciais no
 PostgreSQL 17 TLS passaram em `1/1` para a atestação existente e `1/1` para o
 runner com CA por FD. O CI ainda não foi executado, portanto CI PG17 TLS verde
 continua critério de integração.
