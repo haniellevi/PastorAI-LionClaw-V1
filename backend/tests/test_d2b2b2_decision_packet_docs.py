@@ -59,6 +59,12 @@ ENVIRONMENT_ATTESTATION_ADR_PATH = (
     / "decisions"
     / "2026-08-30-read-only-environment-attestation-tooling.md"
 )
+DEV_IDENTITY_PREFLIGHT_DIAGNOSTICS_ADR_PATH = (
+    REPO_ROOT
+    / "docs"
+    / "decisions"
+    / "2026-08-30-dev-identity-preflight-diagnostics.md"
+)
 ENVIRONMENT_ATTESTATION_POSTMERGE_STATE = (
     "INTEGRADO E COMPROVADO OFFLINE / AMBIENTES NÃO CONSULTADOS / "
     "OPERAÇÃO BLOQUEADA"
@@ -67,8 +73,12 @@ DEV_IDENTITY_PREFLIGHT_RUNNER_POSTMERGE_STATE = (
     "INTEGRADO E COMPROVADO OFFLINE / DEV/PROD NÃO CONSULTADOS / "
     "OPERAÇÃO BLOQUEADA"
 )
+DEV_IDENTITY_PREFLIGHT_DIAGNOSTICS_STATE = (
+    "DUAS INVOCACOES DEV BLOQUEADAS / CAUSA NAO DETERMINADA / "
+    "PROD NAO CONSULTADO / OPERACAO BLOQUEADA"
+)
 DEV_IDENTITY_PREFLIGHT_RUNNER_CURRENT_GATE = (
-    "SEPARATE_NOMINAL_DEV_READ_ONLY_PREFLIGHT_AUTHORIZATION"
+    "REVIEW_AND_INTEGRATE_DEV_IDENTITY_PREFLIGHT_DIAGNOSTICS_PR"
 )
 
 CONSUMED_PREMERGE_DERIVATION_GATE_CLAIMS = frozenset(
@@ -1298,7 +1308,7 @@ def test_canonical_docs_record_captured_blocked_inventories_and_one_human_gate()
         assert "c8427b1a505c0aad2a5f675d3bf456ee33716690" in normalized
         assert "6160229001" in normalized
         assert "metadata do deployment prova somente o frontend" in normalized
-        assert "separate_nominal_dev_read_only_preflight_authorization" in normalized
+        assert DEV_IDENTITY_PREFLIGHT_RUNNER_CURRENT_GATE.casefold() in normalized
         assert "manifesto estatico" in normalized
         assert "nao autoriza" in normalized and "dml" in normalized
         assert "postgresql 17 descartavel" in normalized
@@ -1384,7 +1394,7 @@ def test_canonical_docs_record_captured_blocked_inventories_and_one_human_gate()
         assert "c8427b1a505c0aad2a5f675d3bf456ee33716690" in normalized
         assert "6160229001" in normalized
         assert "metadata do deployment prova somente o frontend" in normalized
-        assert "separate_nominal_dev_read_only_preflight_authorization" in normalized
+        assert DEV_IDENTITY_PREFLIGHT_RUNNER_CURRENT_GATE.casefold() in normalized
         assert "manifesto estatico" in normalized
         assert "nao autoriza" in normalized and "dml" in normalized
         for stale_status in stale_candidate_statuses:
@@ -1412,7 +1422,7 @@ def test_canonical_docs_record_captured_blocked_inventories_and_one_human_gate()
         normalized = _normalized_prose(path.read_text(encoding="utf-8"))
         assert normalized.count("proximo gate unico") == 1
         assert normalized.count(
-            "separate_nominal_dev_read_only_preflight_authorization"
+            DEV_IDENTITY_PREFLIGHT_RUNNER_CURRENT_GATE.casefold()
         ) == 1
         assert "review_and_integrate_read_only_environment_attestation_pr" not in normalized
         assert "separate_read_only_environment_attestation" not in normalized
@@ -1941,7 +1951,7 @@ def test_canonical_schema_derivation_docs_preserve_offline_only_limits() -> None
 
     common_required = {
         "operational_authorization=blocked",
-        "separate_nominal_dev_read_only_preflight_authorization",
+        DEV_IDENTITY_PREFLIGHT_RUNNER_CURRENT_GATE.casefold(),
         "pr #337",
         "abf6f823336b81e93ec1c942dcd5a357d8ac797c",
         "278afb205a3b4735d4aeb66e2e585f71fd562ef7",
@@ -1984,7 +1994,7 @@ def test_canonical_schema_derivation_docs_preserve_offline_only_limits() -> None
     assert "286 passed, 48 skipped" in adr
     assert "github actions usa o mapeamento host:container" in adr
     assert "data api e realtime continuam nao atestados" in adr
-    assert "separate_nominal_dev_read_only_preflight_authorization" in adr
+    assert DEV_IDENTITY_PREFLIGHT_RUNNER_CURRENT_GATE.casefold() in adr
     assert "review_and_integrate_read_only_environment_attestation_pr" not in adr
     assert "pr #334" in adr
     assert "a864730f0b678cca39cebfa6bb378243ba031cd6" in adr
@@ -2070,7 +2080,7 @@ def test_environment_attestation_tooling_docs_record_postmerge_deny_state() -> N
         "platform_surfaces_unattested",
         "operational_authorization=blocked",
         "environment_attestation_complete=false",
-        "separate_nominal_dev_read_only_preflight_authorization",
+        DEV_IDENTITY_PREFLIGHT_RUNNER_CURRENT_GATE.casefold(),
         "prod esta explicitamente fora",
         "pr #337",
         "abf6f823336b81e93ec1c942dcd5a357d8ac797c",
@@ -2127,7 +2137,7 @@ def test_environment_attestation_tooling_docs_record_postmerge_deny_state() -> N
         normalized = _normalized_prose(path.read_text(encoding="utf-8"))
         assert normalized.count("proximo gate unico") == 1
         assert normalized.count(
-            "separate_nominal_dev_read_only_preflight_authorization"
+            DEV_IDENTITY_PREFLIGHT_RUNNER_CURRENT_GATE.casefold()
         ) == 1
         assert "review_and_integrate_read_only_environment_attestation_pr" not in normalized
         assert "separate_read_only_environment_attestation" not in normalized
@@ -2144,7 +2154,7 @@ def test_environment_attestation_tooling_docs_record_postmerge_deny_state() -> N
     assert "integracao e ci pos-merge" in adr
 
 
-def test_dev_identity_preflight_runner_docs_record_postmerge_deny_state() -> None:
+def test_dev_identity_preflight_docs_record_blocked_live_diagnostics() -> None:
     canonical_docs = {
         REPO_ROOT / "SPEC.md",
         REPO_ROOT / "SPEC_PROGRESS.md",
@@ -2223,10 +2233,6 @@ def test_dev_identity_preflight_runner_docs_record_postmerge_deny_state() -> Non
         "nao prova backend, banco ou runtime",
         "dev e prod nao foram consultados",
         "prod continua fora",
-        "autorizacao humana nova e exclusiva",
-        "uma invocacao process-only",
-        "preflight de identidade de dev",
-        DEV_IDENTITY_PREFLIGHT_RUNNER_CURRENT_GATE.casefold(),
     }
 
     for path in canonical_docs | supporting_docs:
@@ -2242,6 +2248,61 @@ def test_dev_identity_preflight_runner_docs_record_postmerge_deny_state() -> Non
         assert "ainda nao integrado" not in normalized
         assert "review_and_integrate_dev_identity_preflight_runner_pr" not in normalized
 
+    diagnostic_required = {
+        _normalized_prose(DEV_IDENTITY_PREFLIGHT_DIAGNOSTICS_STATE),
+        "2026-08-30",
+        "64cc157d649256a4a9819741f4276c0420590fd1",
+        "duas invocacoes dev foram feitas",
+        "autorizacoes humanas nominais distintas e exclusivas",
+        "process_invocation_only",
+        "timestamp operacional preciso nao foi preservado",
+        "nenhum horario utc foi inferido",
+        "exit `7`",
+        "result=blocked_database_preflight_failed",
+        "rollback_confirmed=false",
+        "connection_closed=true",
+        "operational_authorization=false",
+        "next_stage_authorized=false",
+        "capture_executed=false",
+        "materialization_executed=false",
+        "prod_accessed=false",
+        "nao provam se houve conexao",
+        "nao provam sucesso ou falha de autenticacao",
+        "nao identificam a causa raiz",
+        "2/2",
+        "full-main",
+        "postgresql 17 tls descartavel",
+        "97/97",
+        "1973aab6c6af09105acfbfe03396b048c389d059ae87ff1b673198ba35fb280f",
+        "80c53134e91a4221201052ff6c6782f76cdcaa9968c3406a46c3bca16e878ddf",
+        "ddbc092216604e65cf86070d409837c7d328da96116ae5ea8d0947195b421b9e",
+        "runner permaneceu intacto",
+        "workflow",
+        "nao reclassifica dev",
+        DEV_IDENTITY_PREFLIGHT_RUNNER_CURRENT_GATE.casefold(),
+        "nao autoriza retry",
+        "nova invocacao dev",
+        "outra autorizacao humana nominal",
+        "exclusiva e separada",
+        "este gate nao concede",
+    }
+
+    diagnostic_records = canonical_docs | supporting_docs
+    for path in diagnostic_records:
+        normalized = _normalized_prose(path.read_text(encoding="utf-8"))
+        missing = sorted(item for item in diagnostic_required if item not in normalized)
+        assert not missing, (
+            f"DEV identity preflight diagnostics missing in {path}: {missing}"
+        )
+        assert "separate_nominal_dev_read_only_preflight_authorization" not in normalized
+        assert "conexao falhou" not in normalized
+        assert "autenticacao falhou" not in normalized
+        assert "causa raiz confirmada" not in normalized
+
+    for path in canonical_docs | supporting_docs:
+        normalized = _normalized_prose(path.read_text(encoding="utf-8"))
+        assert "2026-08-30-dev-identity-preflight-diagnostics.md" in normalized
+
     for path in canonical_docs:
         normalized = _normalized_prose(path.read_text(encoding="utf-8"))
         assert normalized.count("proximo gate unico") == 1
@@ -2249,6 +2310,46 @@ def test_dev_identity_preflight_runner_docs_record_postmerge_deny_state() -> Non
             DEV_IDENTITY_PREFLIGHT_RUNNER_CURRENT_GATE.casefold()
         ) == 1
         assert "review_and_integrate_dev_identity_preflight_runner_pr" not in normalized
+        assert "separate_nominal_dev_read_only_preflight_authorization" not in normalized
+
+    diagnostics_adr = _normalized_prose(
+        DEV_IDENTITY_PREFLIGHT_DIAGNOSTICS_ADR_PATH.read_text(encoding="utf-8")
+    )
+    adr_required = {
+        _normalized_prose(DEV_IDENTITY_PREFLIGHT_DIAGNOSTICS_STATE),
+        "2026-08-30",
+        "64cc157d649256a4a9819741f4276c0420590fd1",
+        "duas invocacoes",
+        "autorizacoes humanas nominais distintas e exclusivas",
+        "process_invocation_only",
+        "timestamp operacional preciso das duas invocacoes nao foi preservado",
+        "nenhum horario utc foi inferido",
+        "exit `7`",
+        "result=blocked_database_preflight_failed",
+        "rollback_confirmed=false",
+        "connection_closed=true",
+        "operational_authorization=false",
+        "next_stage_authorized=false",
+        "capture_executed=false",
+        "materialization_executed=false",
+        "prod_accessed=false",
+        "nao e permitido inferir",
+        "se houve ou nao conexao",
+        "autenticacao teve sucesso ou falhou",
+        "causa raiz",
+        "2/2",
+        "97/97",
+        "1973aab6c6af09105acfbfe03396b048c389d059ae87ff1b673198ba35fb280f",
+        "80c53134e91a4221201052ff6c6782f76cdcaa9968c3406a46c3bca16e878ddf",
+        "ddbc092216604e65cf86070d409837c7d328da96116ae5ea8d0947195b421b9e",
+        DEV_IDENTITY_PREFLIGHT_RUNNER_CURRENT_GATE.casefold(),
+        "nao autoriza retry",
+    }
+    assert all(item in diagnostics_adr for item in adr_required)
+    assert diagnostics_adr.count("proximo gate unico") == 1
+    assert diagnostics_adr.count(
+        DEV_IDENTITY_PREFLIGHT_RUNNER_CURRENT_GATE.casefold()
+    ) == 1
 
 
 def test_schema_expectation_manifest_is_source_only_and_keeps_environment_gate() -> None:
