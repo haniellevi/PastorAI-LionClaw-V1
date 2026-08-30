@@ -1,0 +1,61 @@
+{
+  "canonical_schema_fingerprint_sha256": "8ac17d4352a77fb3c5885f9c1a55813a5b7dfcd6fb84c4bd4e9117c1c7883370",
+  "contract_version": "1.0",
+  "data_invariants": [
+    {"allowlisted_tables": ["public.app_users", "public.consent_records", "public.consentimento_finalidade_evento", "public.conversations", "public.messages", "public.pessoas", "public.user_roles"], "checks_expected": 12, "id": "TENANT_FOREIGN_KEY_CONSISTENCY", "query_sha256": "3f496f1f6e1c6de13ea090bc2a94b5cc4c93631e53c232f3466ec8f27cada249"},
+    {"allowlisted_tables": ["public.agenda_alert_recipients", "public.agent_configs", "public.celula_membro", "public.celula_presenca", "public.celula_reuniao", "public.celula_solicitacao", "public.consolidacoes", "public.llm_credentials", "public.pessoas", "public.purpose_consent_governance_envelope", "public.subscriptions", "public.whatsapp_connections"], "checks_expected": 14, "id": "TENANT_UNIQUENESS_GUARDS", "query_sha256": "1751df2b678e04b887381f9a57a0a471800c20338f404af00dd87d6da0e8bd57"},
+    {"allowlisted_tables": ["public.celula_membro_evento", "public.celula_solicitacao_evento", "public.consentimento_finalidade_evento", "public.pessoa_arquivamento_evento", "public.platform_audit_log"], "checks_expected": 5, "id": "APPEND_ONLY_AUDIT_INTEGRITY", "query_sha256": "bc20dd223161a8a64d9df878644764baadc332701578aab286d0c39cab2165f2"},
+    {"allowlisted_tables": ["public.agent_conversation_logs", "public.asaas_webhook_receipts", "public.billing_payment_operations", "public.billing_plan_change_operations", "public.billing_subscription_operations", "public.broadcast_entregas", "public.broadcast_execucoes", "public.broadcasts", "public.calendar_oauth_flows", "public.consentimento_finalidade_evento", "public.events", "public.messages", "public.multiplicacoes", "public.password_reset_tokens"], "checks_expected": 24, "id": "IDEMPOTENCY_UNIQUENESS", "query_sha256": "475ff72be1f489ebc54caaac904fc12c4089ef19663996433189263060814bca"},
+    {"allowlisted_tables": ["public.app_users", "public.consentimento_finalidade_evento", "public.pessoas"], "checks_expected": 3, "id": "CONSENT_LEDGER_INTEGRITY", "query_sha256": "2645630cc04328101701eee6518b1a8e0a8297c58319c6203b2456462accac93"},
+    {"allowlisted_tables": ["public.asaas_webhook_receipts", "public.billing_payment_operations", "public.billing_plan_change_operations", "public.billing_subscription_operations", "public.subscriptions"], "checks_expected": 19, "id": "BILLING_ISOLATION_INTEGRITY", "query_sha256": "1d60238a8dec28e8416b543e6951d7729c6a5a4e3148ded467ec3f29473cf43c"},
+    {"allowlisted_tables": ["pg_catalog.pg_class", "pg_catalog.pg_namespace", "pg_catalog.pg_policy", "public._clerk_migration_rollback_20260823_032220", "recovery.encrypted_credentials_backup_20260805"], "checks_expected": 2, "id": "RECOVERY_ARTIFACT_RETENTION", "query_sha256": "85bc9b0f0e174cd84533d65f10bc15605afa0c250fa34c4991a5fcba899b19a3"},
+    {"allowlisted_tables": ["public.app_users", "public.purpose_consent_governance_envelope"], "checks_expected": 2, "id": "GOVERNANCE_DRAFT_INTEGRITY", "query_sha256": "50cce802faac9a6b5e008df1c9577ad9f402109c614463ee861e3b569501d1a5"}
+  ],
+  "domains": [
+    {"comparison": "NORMALIZED_REQUIRED_EXTENSION_PRESENCE", "entry_count": 2, "name": "EXTENSIONS", "sha256": "fb5851051ee1a45c804cec0720346b5ec71c79ddd1421d09de7652ff7c9378cd"},
+    {"comparison": "EXACT", "entry_count": 106, "name": "ENUM_TYPES_AND_VALUES", "sha256": "749f975f85c34803d824397a4b8372c62251af54d5c6a839abebda61964eefe4"},
+    {"comparison": "EXACT_WITH_OWNER_NORMALIZATION", "entry_count": 5, "name": "ROLES_AND_MEMBERSHIPS", "sha256": "f797cef5b7e745213469e5c7aacacacd8dc4eef0d34912c258078ead009b507e"},
+    {"comparison": "EXACT_WITH_OWNER_NORMALIZATION", "entry_count": 2, "name": "SCHEMAS_AND_OWNERS", "sha256": "fabfc491ca91d72786ed4b19e812aba74b7b5a1d61ca2306b13be9192b37e9ed"},
+    {"comparison": "EXACT_WITH_OWNER_NORMALIZATION", "entry_count": 57, "name": "RELATIONS_AND_PERSISTENCE", "sha256": "a50dd77b614991d605d74e3eeb1e7d95f10dee6b592f6aa20ce0ac7ea438c468"},
+    {"comparison": "EXACT", "entry_count": 586, "name": "COLUMNS_TYPES_DEFAULTS_IDENTITY_GENERATED", "sha256": "a56b080164df12a1e5b8f562da09560fcc850b000a1a1bf7cb3c7a438cb326fe"},
+    {"comparison": "EXACT", "entry_count": 274, "name": "CONSTRAINTS_AND_VALIDATION_STATE", "sha256": "c755655ecdb92568c1282c86bb50acc2eb7acb00d210db54cbc50fdfb252a262"},
+    {"comparison": "EXACT", "entry_count": 204, "name": "INDEXES_DEFINITIONS_AND_VALIDITY", "sha256": "4293040c22a8a69ad44334487672e669c8260957766b16430ef365adb40a550a"},
+    {"comparison": "EXACT_WITH_OWNER_NORMALIZATION", "entry_count": 15, "name": "FUNCTIONS_SIGNATURE_LANGUAGE_VOLATILITY_SECURITY_SEARCH_PATH", "sha256": "756349f0a52e28ae8064014735356ad148056f8bd05e95c69f862cb9073b12dd"},
+    {"comparison": "EXACT", "entry_count": 12, "name": "TRIGGERS_AND_REWRITE_RULES", "sha256": "1cb294828c021fad7d6f7f6d281e53e04c9270e70242c54f177c6827293e0aa9"},
+    {"comparison": "EXACT", "entry_count": 57, "name": "RLS_ENABLE_FORCE_FLAGS", "sha256": "71a38edfcb4fb479e51e00f7373acfb97ac351b8f2d0ec3c16e6615118e3539e"},
+    {"comparison": "EXACT_WITH_OWNER_NORMALIZATION", "entry_count": 59, "name": "POLICIES_COMMAND_ROLES_USING_WITH_CHECK", "sha256": "066a9eb905b9d5d98320ab8cf24884691e2ce426b87aa6c728f996c560b39793"},
+    {"comparison": "EXACT_WITH_OWNER_NORMALIZATION", "entry_count": 512, "name": "TABLE_COLUMN_FUNCTION_SCHEMA_PRIVILEGES", "sha256": "bb5bf6a67e1f12ae982c246188b6fd3130ee8907ccbd204023baa95bcffb6eb9"},
+    {"comparison": "EXACT_WITH_OWNER_NORMALIZATION", "entry_count": 0, "name": "DEFAULT_PRIVILEGES", "sha256": "356fef8a9e880dbbe50c666eec77a5ac5a4a26157804d5b6822309734c0a0b85"}
+  ],
+  "invariant_execution": {
+    "bundle_execution": "FORBIDDEN",
+    "concurrent_ddl_or_parse_failure": "ERROR",
+    "permission_or_timeout_failure": "ERROR",
+    "preflight_failure": "UNKNOWN_WITHOUT_PREPARING_DATA_QUERY",
+    "required_session": "SAME_CONNECTION_REPEATABLE_READ_READ_ONLY_SEARCH_PATH_PG_CATALOG_PUBLIC_AGENT_PRIVATE",
+    "selection": "EXACT_ALLOWLISTED_MARKER_AND_QUERY_SHA256"
+  },
+  "extension_semantics": {
+    "extra_platform_extensions": "OBSERVED_NOT_COMPARED",
+    "physical_schema": "OBSERVED_NOT_COMPARED",
+    "required_names": ["pgcrypto", "plpgsql"],
+    "version": "OBSERVATIONAL_NOT_COMPARED"
+  },
+  "owner_semantics": {
+    "allowed_literal_roles": ["PUBLIC", "agent_runtime", "anon", "authenticated", "service_role"],
+    "database_owner_class": "DERIVATION_OWNER",
+    "unknown_owner": "COUNT_HASH_AND_BLOCK"
+  },
+  "profile_id": "migration-history-environment-attestation-profile-v1",
+  "source_catalog_digest_sha256": "84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f",
+  "surfaces": {
+    "data_api": "PLATFORM_SURFACES_UNATTESTED",
+    "realtime": "PLATFORM_SURFACES_UNATTESTED"
+  },
+  "target_binding": {
+    "component_hash": "SHA256(length_framed_label_and_raw_value)",
+    "contract": "MIGRATION_HISTORY_EXPECTED_TARGET_BINDING_V1",
+    "digest": "SHA256(canonical_json_descriptor)",
+    "required_descriptor_fields": ["authorization_record_sha256", "environment", "expected_database_name_sha256", "expected_project_ref_sha256", "expected_system_identifier_sha256", "target_binding_contract"]
+  }
+}

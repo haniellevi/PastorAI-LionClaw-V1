@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://igreja12.invalid/schemas/migration-history-environment-attestation-v1.json",
+  "$defs": {
+    "sha256": {"pattern": "^[0-9a-f]{64}$", "type": "string"},
+    "invariant": {
+      "additionalProperties": false,
+      "allOf": [
+        {"if": {"properties": {"state": {"const": "PASS"}}, "required": ["state"]}, "then": {"properties": {"violation_count": {"const": 0}}}},
+        {"if": {"properties": {"state": {"const": "FAIL"}}, "required": ["state"]}, "then": {"properties": {"violation_count": {"minimum": 1}}}},
+        {"if": {"properties": {"state": {"enum": ["UNKNOWN", "ERROR"]}}, "required": ["state"]}, "then": {"properties": {"violation_count": {"const": 0}}}},
+        {"if": {"properties": {"state": {"const": "ERROR"}}, "required": ["state"]}, "then": {"properties": {"checks_executed": {"const": 0}}}}
+      ],
+      "properties": {
+        "checks_executed": {"minimum": 0, "type": "integer"},
+        "id": {"type": "string"},
+        "state": {"enum": ["PASS", "FAIL", "UNKNOWN", "ERROR"]},
+        "violation_count": {"minimum": 0, "type": "integer"}
+      },
+      "required": ["checks_executed", "id", "state", "violation_count"],
+      "type": "object"
+    },
+    "domain": {
+      "additionalProperties": false,
+      "properties": {
+        "comparison": {"type": "string"},
+        "expected_entry_count": {"minimum": 0, "type": "integer"},
+        "expected_sha256": {"$ref": "#/$defs/sha256"},
+        "name": {"type": "string"},
+        "observed_entry_count": {"minimum": 0, "type": "integer"},
+        "observed_sha256": {"$ref": "#/$defs/sha256"},
+        "state": {"enum": ["MATCH", "MISMATCH"]}
+      },
+      "required": ["comparison", "expected_entry_count", "expected_sha256", "name", "observed_entry_count", "observed_sha256", "state"],
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "artifact_id": {"pattern": "^migration-history-environment-attestation-(dev|prod)-v1$", "type": "string"},
+    "artifact_state": {"enum": ["BLOCKED_DATA_INVARIANTS", "BLOCKED_PLATFORM_SURFACES_UNATTESTED", "BLOCKED_SCHEMA_METADATA_DIVERGENCE"]},
+    "capture_record_sha256": {"$ref": "#/$defs/sha256"},
+    "contract_version": {"const": "1.0"},
+    "data_invariants": {
+      "items": false,
+      "maxItems": 8,
+      "minItems": 8,
+      "prefixItems": [
+        {"allOf": [{"$ref": "#/$defs/invariant"}, {"properties": {"checks_executed": {"enum": [0, 12]}, "id": {"const": "TENANT_FOREIGN_KEY_CONSISTENCY"}}}, {"if": {"properties": {"state": {"enum": ["PASS", "FAIL"]}}, "required": ["state"]}, "then": {"properties": {"checks_executed": {"const": 12}}}}]},
+        {"allOf": [{"$ref": "#/$defs/invariant"}, {"properties": {"checks_executed": {"enum": [0, 14]}, "id": {"const": "TENANT_UNIQUENESS_GUARDS"}}}, {"if": {"properties": {"state": {"enum": ["PASS", "FAIL"]}}, "required": ["state"]}, "then": {"properties": {"checks_executed": {"const": 14}}}}]},
+        {"allOf": [{"$ref": "#/$defs/invariant"}, {"properties": {"checks_executed": {"enum": [0, 5]}, "id": {"const": "APPEND_ONLY_AUDIT_INTEGRITY"}, "state": {"const": "UNKNOWN"}}}]},
+        {"allOf": [{"$ref": "#/$defs/invariant"}, {"properties": {"checks_executed": {"enum": [0, 24]}, "id": {"const": "IDEMPOTENCY_UNIQUENESS"}}}, {"if": {"properties": {"state": {"enum": ["PASS", "FAIL"]}}, "required": ["state"]}, "then": {"properties": {"checks_executed": {"const": 24}}}}]},
+        {"allOf": [{"$ref": "#/$defs/invariant"}, {"properties": {"checks_executed": {"enum": [0, 3]}, "id": {"const": "CONSENT_LEDGER_INTEGRITY"}}}, {"if": {"properties": {"state": {"enum": ["PASS", "FAIL"]}}, "required": ["state"]}, "then": {"properties": {"checks_executed": {"const": 3}}}}]},
+        {"allOf": [{"$ref": "#/$defs/invariant"}, {"properties": {"checks_executed": {"enum": [0, 19]}, "id": {"const": "BILLING_ISOLATION_INTEGRITY"}}}, {"if": {"properties": {"state": {"enum": ["PASS", "FAIL"]}}, "required": ["state"]}, "then": {"properties": {"checks_executed": {"const": 19}}}}]},
+        {"allOf": [{"$ref": "#/$defs/invariant"}, {"properties": {"checks_executed": {"enum": [0, 2]}, "id": {"const": "RECOVERY_ARTIFACT_RETENTION"}}}, {"if": {"properties": {"state": {"enum": ["PASS", "FAIL"]}}, "required": ["state"]}, "then": {"properties": {"checks_executed": {"const": 2}}}}]},
+        {"allOf": [{"$ref": "#/$defs/invariant"}, {"properties": {"checks_executed": {"enum": [0, 2]}, "id": {"const": "GOVERNANCE_DRAFT_INTEGRITY"}}}, {"if": {"properties": {"state": {"enum": ["PASS", "FAIL"]}}, "required": ["state"]}, "then": {"properties": {"checks_executed": {"const": 2}}}}]}
+      ],
+      "type": "array"
+    },
+    "domains": {
+      "items": false,
+      "maxItems": 14,
+      "minItems": 14,
+      "prefixItems": [
+        {"allOf": [{"$ref": "#/$defs/domain"}, {"properties": {"comparison": {"const": "NORMALIZED_REQUIRED_EXTENSION_PRESENCE"}, "expected_entry_count": {"const": 2}, "expected_sha256": {"const": "fb5851051ee1a45c804cec0720346b5ec71c79ddd1421d09de7652ff7c9378cd"}, "name": {"const": "EXTENSIONS"}}}]},
+        {"allOf": [{"$ref": "#/$defs/domain"}, {"properties": {"comparison": {"const": "EXACT"}, "expected_entry_count": {"const": 106}, "expected_sha256": {"const": "749f975f85c34803d824397a4b8372c62251af54d5c6a839abebda61964eefe4"}, "name": {"const": "ENUM_TYPES_AND_VALUES"}}}]},
+        {"allOf": [{"$ref": "#/$defs/domain"}, {"properties": {"comparison": {"const": "EXACT_WITH_OWNER_NORMALIZATION"}, "expected_entry_count": {"const": 5}, "expected_sha256": {"const": "f797cef5b7e745213469e5c7aacacacd8dc4eef0d34912c258078ead009b507e"}, "name": {"const": "ROLES_AND_MEMBERSHIPS"}}}]},
+        {"allOf": [{"$ref": "#/$defs/domain"}, {"properties": {"comparison": {"const": "EXACT_WITH_OWNER_NORMALIZATION"}, "expected_entry_count": {"const": 2}, "expected_sha256": {"const": "fabfc491ca91d72786ed4b19e812aba74b7b5a1d61ca2306b13be9192b37e9ed"}, "name": {"const": "SCHEMAS_AND_OWNERS"}}}]},
+        {"allOf": [{"$ref": "#/$defs/domain"}, {"properties": {"comparison": {"const": "EXACT_WITH_OWNER_NORMALIZATION"}, "expected_entry_count": {"const": 57}, "expected_sha256": {"const": "a50dd77b614991d605d74e3eeb1e7d95f10dee6b592f6aa20ce0ac7ea438c468"}, "name": {"const": "RELATIONS_AND_PERSISTENCE"}}}]},
+        {"allOf": [{"$ref": "#/$defs/domain"}, {"properties": {"comparison": {"const": "EXACT"}, "expected_entry_count": {"const": 586}, "expected_sha256": {"const": "a56b080164df12a1e5b8f562da09560fcc850b000a1a1bf7cb3c7a438cb326fe"}, "name": {"const": "COLUMNS_TYPES_DEFAULTS_IDENTITY_GENERATED"}}}]},
+        {"allOf": [{"$ref": "#/$defs/domain"}, {"properties": {"comparison": {"const": "EXACT"}, "expected_entry_count": {"const": 274}, "expected_sha256": {"const": "c755655ecdb92568c1282c86bb50acc2eb7acb00d210db54cbc50fdfb252a262"}, "name": {"const": "CONSTRAINTS_AND_VALIDATION_STATE"}}}]},
+        {"allOf": [{"$ref": "#/$defs/domain"}, {"properties": {"comparison": {"const": "EXACT"}, "expected_entry_count": {"const": 204}, "expected_sha256": {"const": "4293040c22a8a69ad44334487672e669c8260957766b16430ef365adb40a550a"}, "name": {"const": "INDEXES_DEFINITIONS_AND_VALIDITY"}}}]},
+        {"allOf": [{"$ref": "#/$defs/domain"}, {"properties": {"comparison": {"const": "EXACT_WITH_OWNER_NORMALIZATION"}, "expected_entry_count": {"const": 15}, "expected_sha256": {"const": "756349f0a52e28ae8064014735356ad148056f8bd05e95c69f862cb9073b12dd"}, "name": {"const": "FUNCTIONS_SIGNATURE_LANGUAGE_VOLATILITY_SECURITY_SEARCH_PATH"}}}]},
+        {"allOf": [{"$ref": "#/$defs/domain"}, {"properties": {"comparison": {"const": "EXACT"}, "expected_entry_count": {"const": 12}, "expected_sha256": {"const": "1cb294828c021fad7d6f7f6d281e53e04c9270e70242c54f177c6827293e0aa9"}, "name": {"const": "TRIGGERS_AND_REWRITE_RULES"}}}]},
+        {"allOf": [{"$ref": "#/$defs/domain"}, {"properties": {"comparison": {"const": "EXACT"}, "expected_entry_count": {"const": 57}, "expected_sha256": {"const": "71a38edfcb4fb479e51e00f7373acfb97ac351b8f2d0ec3c16e6615118e3539e"}, "name": {"const": "RLS_ENABLE_FORCE_FLAGS"}}}]},
+        {"allOf": [{"$ref": "#/$defs/domain"}, {"properties": {"comparison": {"const": "EXACT_WITH_OWNER_NORMALIZATION"}, "expected_entry_count": {"const": 59}, "expected_sha256": {"const": "066a9eb905b9d5d98320ab8cf24884691e2ce426b87aa6c728f996c560b39793"}, "name": {"const": "POLICIES_COMMAND_ROLES_USING_WITH_CHECK"}}}]},
+        {"allOf": [{"$ref": "#/$defs/domain"}, {"properties": {"comparison": {"const": "EXACT_WITH_OWNER_NORMALIZATION"}, "expected_entry_count": {"const": 512}, "expected_sha256": {"const": "bb5bf6a67e1f12ae982c246188b6fd3130ee8907ccbd204023baa95bcffb6eb9"}, "name": {"const": "TABLE_COLUMN_FUNCTION_SCHEMA_PRIVILEGES"}}}]},
+        {"allOf": [{"$ref": "#/$defs/domain"}, {"properties": {"comparison": {"const": "EXACT_WITH_OWNER_NORMALIZATION"}, "expected_entry_count": {"const": 0}, "expected_sha256": {"const": "356fef8a9e880dbbe50c666eec77a5ac5a4a26157804d5b6822309734c0a0b85"}, "name": {"const": "DEFAULT_PRIVILEGES"}}}]}
+      ],
+      "type": "array"
+    },
+    "environment_attestation_complete": {"const": false},
+    "ledgers": {"additionalProperties": false, "properties": {"native": {"enum": ["ABSENT", "PRESENT", "INVALID", "UNKNOWN"]}, "public": {"enum": ["ABSENT", "PRESENT", "INVALID", "UNKNOWN"]}}, "required": ["native", "public"], "type": "object"},
+    "operational_authorization": {"const": false},
+    "pre_capture_binding": {
+      "additionalProperties": false,
+      "properties": {
+        "authorization_record_sha256": {"$ref": "#/$defs/sha256"},
+        "environment": {"enum": ["DEV", "PROD"]},
+        "hmac_sha256": {"$ref": "#/$defs/sha256"},
+        "nonce_sha256": {"$ref": "#/$defs/sha256"},
+        "target_binding_contract": {"const": "MIGRATION_HISTORY_EXPECTED_TARGET_BINDING_V1"},
+        "target_binding_sha256": {"$ref": "#/$defs/sha256"}
+      },
+      "required": ["authorization_record_sha256", "environment", "hmac_sha256", "nonce_sha256", "target_binding_contract", "target_binding_sha256"],
+      "type": "object"
+    },
+    "profile_sha256": {"const": "0734ba9302bf9d20f0b5770745124390350d231650fdb95ef915ee1b526d5147"},
+    "source": {
+      "additionalProperties": false,
+      "properties": {
+        "canonical_schema_fingerprint_sha256": {"const": "8ac17d4352a77fb3c5885f9c1a55813a5b7dfcd6fb84c4bd4e9117c1c7883370"},
+        "capture_sql_sha256": {"const": "f06a8c6dd39bc137376ab5fb80699019d6d90912e0995ddda5c8253dd8e7ff24"},
+        "source_catalog_digest_sha256": {"const": "84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f"}
+      },
+      "required": ["canonical_schema_fingerprint_sha256", "capture_sql_sha256", "source_catalog_digest_sha256"],
+      "type": "object"
+    },
+    "surfaces": {"additionalProperties": false, "properties": {"data_api": {"const": "PLATFORM_SURFACES_UNATTESTED"}, "realtime": {"const": "PLATFORM_SURFACES_UNATTESTED"}}, "required": ["data_api", "realtime"], "type": "object"},
+    "unknown_owners": {"additionalProperties": false, "properties": {"count": {"minimum": 0, "type": "integer"}, "fingerprint_sha256": {"$ref": "#/$defs/sha256"}}, "required": ["count", "fingerprint_sha256"], "type": "object"}
+  },
+  "required": ["artifact_id", "artifact_state", "capture_record_sha256", "contract_version", "data_invariants", "domains", "environment_attestation_complete", "ledgers", "operational_authorization", "pre_capture_binding", "profile_sha256", "source", "surfaces", "unknown_owners"],
+  "title": "Migration history environment attestation artifact v1",
+  "type": "object"
+}

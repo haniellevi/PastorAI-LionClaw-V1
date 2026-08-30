@@ -178,11 +178,33 @@ Os checks provam apenas o comportamento exercitado naquele SHA; a metadata do
 deployment prova somente o frontend e não prova backend, banco, migration,
 runtime ou atestação de ambiente.
 
-O único gate é `SEPARATE_READ_ONLY_ENVIRONMENT_ATTESTATION`, em missão e autorização próprias,
-somente leitura.
-Ele não autoriza DML, reconciliação de ledger, corte de época, runner,
-`bootstrap-ledger`, `harden-ledger`, `status`, `apply`, migration, backfill,
-deploy, flag ou runtime. UV e CD permanecem fora.
+O tooling separado de atestação somente leitura foi implementado no commit
+`be958ce96e65d3d497923b7f5f912676634e9587`, sobre a base
+`1072e6a8e85d201a1c82f37a8ddeac5417300c49`. O estado corrente é
+`IMPLEMENTADO E COMPROVADO OFFLINE / AINDA NÃO INTEGRADO / AMBIENTES NÃO CONSULTADOS / OPERAÇÃO BLOQUEADA`.
+A decisão está em
+[`2026-08-30-read-only-environment-attestation-tooling.md`](../../docs/decisions/2026-08-30-read-only-environment-attestation-tooling.md).
+As provas terminaram em `81 passed` de `81` no foco offline,
+`367 passed, 47 skipped` na seleção relacionada e `82 passed` de `82` no foco
+PostgreSQL 17 TLS descartável. Sarah/Terra concluiu `GO`; Claude Opus passou no
+healthcheck, mas a revisão completa travou com `Execution error` e não conta
+como concluída.
+
+Nenhum DEV ou PROD foi consultado e nenhum artefato ambiental foi produzido.
+O JSON Schema valida somente o envelope; o verificador Python é obrigatório.
+O HMAC é correlação e anti-swap, não autorização humana nem observação direta
+do project ref. Data API e Realtime permanecem
+`PLATFORM_SURFACES_UNATTESTED`, `OPERATIONAL_AUTHORIZATION=BLOCKED` e
+`environment_attestation_complete=false`.
+
+O gate seguinte é `REVIEW_AND_INTEGRATE_READ_ONLY_ENVIRONMENT_ATTESTATION_PR`.
+Ele autoriza somente revisão, CI dedicado PostgreSQL 17 TLS e integração desta
+PR com checks verdes. Não autoriza preflight nominal, captura, materialização,
+DML, reconciliação de ledger, corte de época, runner, `bootstrap-ledger`,
+`harden-ledger`, `status`, `apply`, migration, backfill, deploy, flag ou
+runtime. Somente depois do merge poderá nascer o gate operacional
+`SEPARATE_NOMINAL_DEV_READ_ONLY_PREFLIGHT_AUTHORIZATION`, ainda restrito a DEV.
+PROD está explicitamente fora nos dois gates. UV e CD permanecem fora.
 
 ## Transações especiais
 
