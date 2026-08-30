@@ -63,6 +63,16 @@ ENVIRONMENT_ATTESTATION_POSTMERGE_STATE = (
     "INTEGRADO E COMPROVADO OFFLINE / AMBIENTES NÃO CONSULTADOS / "
     "OPERAÇÃO BLOQUEADA"
 )
+DEV_IDENTITY_PREFLIGHT_RUNNER_PREMERGE_STATE = (
+    "RUNNER IMPLEMENTADO E COMPROVADO OFFLINE / AINDA NÃO INTEGRADO / "
+    "DEV/PROD NÃO CONSULTADOS / OPERAÇÃO BLOQUEADA"
+)
+DEV_IDENTITY_PREFLIGHT_RUNNER_CURRENT_GATE = (
+    "REVIEW_AND_INTEGRATE_DEV_IDENTITY_PREFLIGHT_RUNNER_PR"
+)
+DEV_IDENTITY_PREFLIGHT_RUNNER_FUTURE_GATE = (
+    "SEPARATE_NOMINAL_DEV_READ_ONLY_PREFLIGHT_AUTHORIZATION"
+)
 
 CONSUMED_PREMERGE_DERIVATION_GATE_CLAIMS = frozenset(
     {
@@ -2135,6 +2145,102 @@ def test_environment_attestation_tooling_docs_record_postmerge_deny_state() -> N
     assert _normalized_prose(ENVIRONMENT_ATTESTATION_POSTMERGE_STATE) in adr
     assert "foi implementado um capturador" in adr
     assert "integracao e ci pos-merge" in adr
+
+
+def test_dev_identity_preflight_runner_docs_record_premerge_deny_state() -> None:
+    canonical_docs = {
+        REPO_ROOT / "SPEC.md",
+        REPO_ROOT / "SPEC_PROGRESS.md",
+        REPO_ROOT / "docs" / "Docs20260611_163530" / "PRD20260611_163530.md",
+        REPO_ROOT / "docs" / "WIKI-IGREJA12.md",
+        REPO_ROOT / "docs" / "ai" / "AI-BOOTSTRAP.md",
+        REPO_ROOT / "docs" / "ai" / "PRD-COVERAGE.md",
+        REPO_ROOT
+        / "docs"
+        / "decisions"
+        / "2026-08-28-d2b2b2-consent-decision-packet-contract.md",
+        REPO_ROOT
+        / "docs"
+        / "decisions"
+        / "2026-08-28-d2b2b3-master-governance-drafts.md",
+        REPO_ROOT / "docs" / "ops" / "POST-V1-MISSION-REGISTER.md",
+    }
+    supporting_docs = {
+        REPO_ROOT / "backend" / "migrations" / "README.md",
+        REPO_ROOT / "deploy" / "STAGING.md",
+        REPO_ROOT / "docs" / "ops" / "PRODUCTION-RUNBOOK.md",
+        REPO_ROOT
+        / "docs"
+        / "security"
+        / "2026-08-20-v1-ledger-hardening-gate.md",
+        RECONCILIATION_CONTRACT_PATH,
+        REPO_ROOT
+        / "docs"
+        / "decisions"
+        / "2026-08-29-migration-history-divergence-remediation.md",
+        CANONICAL_SCHEMA_DERIVATION_ADR_PATH,
+        ENVIRONMENT_ATTESTATION_ADR_PATH,
+    }
+    required = {
+        _normalized_prose(DEV_IDENTITY_PREFLIGHT_RUNNER_PREMERGE_STATE),
+        "fe7dcd394bd1cfdc96204ad994bcba9f0c96adb4",
+        "1973aab6c6af09105acfbfe03396b048c389d059ae87ff1b673198ba35fb280f",
+        "b82dd7cbd6c782ce3de9e2f30883c1c63e66a18b740d6980e2ba1f650658d891",
+        "ceecfe9afa09066e4863e93be556b8f92c00a2992e0a0aef3b4253458f6fc318",
+        "68f9790a734f8adf78db8a716a5c2d99adad165f00737f922db90afa614b4ed8",
+        "80c53134e91a4221201052ff6c6782f76cdcaa9968c3406a46c3bca16e878ddf",
+        "209/209",
+        "verify_full_explicit_ca",
+        "tls_ca_certificate_sha256",
+        "digest da ca",
+        "process_invocation_only",
+        "nova autorizacao nominal",
+        "cada invocacao",
+        "hmac",
+        "somente correlacao e anti-swap",
+        "nao substitui autorizacao humana",
+        "zero arquivo",
+        "zero recibo",
+        "zero captura",
+        "zero materializacao",
+        "buffers de chave e nonce",
+        "zerados",
+        "descritores sao fechados",
+        "certificados tls temporarios",
+        "removidos apos a prova",
+        "ci ainda nao foi executado",
+        "dev e prod nao foram consultados",
+        "prod continua fora",
+        DEV_IDENTITY_PREFLIGHT_RUNNER_CURRENT_GATE.casefold(),
+        DEV_IDENTITY_PREFLIGHT_RUNNER_FUTURE_GATE.casefold(),
+    }
+
+    for path in canonical_docs | supporting_docs:
+        normalized = _normalized_prose(path.read_text(encoding="utf-8"))
+        assert all(item in normalized for item in required), (
+            f"DEV identity preflight runner deny-state missing in {path}"
+        )
+        assert "ci pg17 tls verde" in normalized
+        assert "captura executada" not in normalized
+        assert "materializacao executada" not in normalized
+        assert "preflight dev executado" not in normalized
+
+    for path in canonical_docs:
+        normalized = _normalized_prose(path.read_text(encoding="utf-8"))
+        assert normalized.count("proximo gate unico") == 1
+        assert normalized.count(
+            DEV_IDENTITY_PREFLIGHT_RUNNER_CURRENT_GATE.casefold()
+        ) == 1
+        assert normalized.count(
+            DEV_IDENTITY_PREFLIGHT_RUNNER_FUTURE_GATE.casefold()
+        ) == 1
+        current_gate_index = normalized.index(
+            DEV_IDENTITY_PREFLIGHT_RUNNER_CURRENT_GATE.casefold()
+        )
+        future_gate_index = normalized.index(
+            DEV_IDENTITY_PREFLIGHT_RUNNER_FUTURE_GATE.casefold()
+        )
+        assert current_gate_index < future_gate_index
 
 
 def test_schema_expectation_manifest_is_source_only_and_keeps_environment_gate() -> None:

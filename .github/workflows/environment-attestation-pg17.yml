@@ -48,9 +48,27 @@ jobs:
         run: |
           install -d -m 700 "$RUNNER_TEMP/environment-attestation-tls"
           openssl req -x509 -newkey rsa:2048 -nodes \
+            -keyout "$RUNNER_TEMP/environment-attestation-tls/ca.key" \
+            -out "$RUNNER_TEMP/environment-attestation-tls/ca.crt" \
+            -days 1 -subj "/CN=PastorAI Environment Attestation Test CA"
+          openssl req -newkey rsa:2048 -nodes \
             -keyout "$RUNNER_TEMP/environment-attestation-tls/server.key" \
-            -out "$RUNNER_TEMP/environment-attestation-tls/server.crt" \
-            -days 1 -subj "/CN=localhost"
+            -out "$RUNNER_TEMP/environment-attestation-tls/server.csr" \
+            -subj "/CN=127.0.0.1"
+          printf '%s\n' \
+            'subjectAltName=IP:127.0.0.1' \
+            'extendedKeyUsage=serverAuth' \
+            > "$RUNNER_TEMP/environment-attestation-tls/server.ext"
+          openssl x509 -req \
+            -in "$RUNNER_TEMP/environment-attestation-tls/server.csr" \
+            -CA "$RUNNER_TEMP/environment-attestation-tls/ca.crt" \
+            -CAkey "$RUNNER_TEMP/environment-attestation-tls/ca.key" \
+            -CAcreateserial -days 1 \
+            -extfile "$RUNNER_TEMP/environment-attestation-tls/server.ext" \
+            -out "$RUNNER_TEMP/environment-attestation-tls/server.crt"
+          install -m 600 \
+            "$RUNNER_TEMP/environment-attestation-tls/ca.crt" \
+            "$RUNNER_TEMP/dev-identity-preflight-ca.crt"
           sudo chown 999:999 \
             "$RUNNER_TEMP/environment-attestation-tls" \
             "$RUNNER_TEMP/environment-attestation-tls/server.key" \
@@ -59,7 +77,7 @@ jobs:
           sudo chmod 644 "$RUNNER_TEMP/environment-attestation-tls/server.crt"
           docker run --detach \
             --name pastorai-environment-attestation-pg17 \
-            --publish 127.0.0.1:55434:5432 \
+            --publish 127.0.0.1:6543:5432 \
             --env POSTGRES_USER=postgres \
             --env POSTGRES_PASSWORD=postgres \
             --env POSTGRES_DB=canonical_schema_disposable_test \
@@ -78,9 +96,9 @@ jobs:
           docker logs pastorai-environment-attestation-pg17
           exit 1
 
-      - name: Executar prova PG17 TLS sem skips
+      - name: Executar prova de atestação PG17 TLS sem skips
         env:
-          ENVIRONMENT_ATTESTATION_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:55434/canonical_schema_disposable_test
+          ENVIRONMENT_ATTESTATION_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:6543/canonical_schema_disposable_test
           PGSSLMODE: require
         run: |
           PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
@@ -88,7 +106,29 @@ jobs:
             -p no:cacheprovider -o addopts= -q --tb=short -rs \
             tests/test_migration_history_environment_attestation_pg17.py
 
+      - name: Criar role sintética do preflight DEV
+        working-directory: .
+        run: |
+          docker exec pastorai-environment-attestation-pg17 \
+            psql -v ON_ERROR_STOP=1 -U postgres -d postgres \
+            -c "create role \"postgres.abcdefghijklmnopqrst\" login superuser password 'preflight_test_password'"
+
+      - name: Executar preflight DEV PG17 TLS sem skips
+        env:
+          DEV_IDENTITY_PREFLIGHT_TEST_DATABASE_URL: postgresql://postgres.abcdefghijklmnopqrst:preflight_test_password@127.0.0.1:6543/postgres
+          DEV_IDENTITY_PREFLIGHT_TEST_TLS_CA_CERT_PATH: ${{ runner.temp }}/dev-identity-preflight-ca.crt
+        run: |
+          PYTHONDONTWRITEBYTECODE=1 PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 \
+            "$RUNNER_TEMP/environment-attestation-venv/bin/python" -m pytest \
+            -p no:cacheprovider -o addopts= -q --tb=short -rs \
+            tests/test_migration_history_environment_identity_preflight_pg17.py
+
       - name: Remover PostgreSQL 17 descartável
         if: always()
         working-directory: .
-        run: docker rm --force pastorai-environment-attestation-pg17 2>/dev/null || true
+        run: |
+          docker rm --force pastorai-environment-attestation-pg17 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/dev-identity-preflight-ca.crt"
+          sudo find "$RUNNER_TEMP/environment-attestation-tls" \
+            -mindepth 1 -maxdepth 1 -type f -delete
+          sudo rmdir "$RUNNER_TEMP/environment-attestation-tls"

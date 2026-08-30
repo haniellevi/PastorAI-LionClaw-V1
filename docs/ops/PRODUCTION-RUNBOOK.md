@@ -209,13 +209,15 @@ Os checks provam apenas o comportamento exercitado naquele SHA; a metadata do
 deployment prova somente o frontend e não prova backend, banco, migration,
 runtime ou atestação de ambiente.
 
-O único gate é `SEPARATE_NOMINAL_DEV_READ_ONLY_PREFLIGHT_AUTHORIZATION`. Ele
-pode autorizar somente o preflight de identidade de DEV, em leitura e com
-autorização separada. Não autoriza captura, materialização de artefato, DML,
-reconciliação de ledger, corte de época, runner, `bootstrap-ledger`,
-`harden-ledger`, `status`, `apply`, SQL Editor, `apply_migration`, `db push`,
-MCP, deploy, flag ou runtime. PROD está explicitamente fora. UV e CD
-permanecem fora.
+O único gate corrente é
+`REVIEW_AND_INTEGRATE_DEV_IDENTITY_PREFLIGHT_RUNNER_PR`, condicionado a revisão
+independente e CI PG17 TLS verde. Ele não autoriza executar o preflight. O gate
+futuro pós-merge é `SEPARATE_NOMINAL_DEV_READ_ONLY_PREFLIGHT_AUTHORIZATION`,
+limitado a uma única tentativa DEV preflight-only. Nenhum dos dois autoriza
+captura, materialização, DML, reconciliação de ledger, corte de época,
+`bootstrap-ledger`, `harden-ledger`, `status`, `apply`, SQL Editor,
+`apply_migration`, `db push`, MCP, deploy, flag ou runtime. PROD continua fora.
+UV e CD permanecem fora.
 
 Antes de aplicar:
 
@@ -512,11 +514,39 @@ do project ref. Data API e Realtime permanecem
 `PLATFORM_SURFACES_UNATTESTED`, `OPERATIONAL_AUTHORIZATION=BLOCKED` e
 `environment_attestation_complete=false`.
 
-O gate seguinte é `SEPARATE_NOMINAL_DEV_READ_ONLY_PREFLIGHT_AUTHORIZATION`.
-Ele pode autorizar somente o preflight de identidade de DEV, em leitura e com
-autorização separada. Não autoriza captura, materialização de artefato, runner,
-DML, migration, reconciliação, backfill, deploy, flag ou runtime. PROD está
-explicitamente fora. Nenhum comando deste runbook é liberado por esse tooling.
+Sobre a base versionada `fe7dcd394bd1cfdc96204ad994bcba9f0c96adb4`, o runner
+DEV preflight-only foi implementado, mas ainda não foi integrado. Os SHA-256
+congelados são: runner
+`1973aab6c6af09105acfbfe03396b048c389d059ae87ff1b673198ba35fb280f`, testes
+unitários `b82dd7cbd6c782ce3de9e2f30883c1c63e66a18b740d6980e2ba1f650658d891`,
+prova PG17 `ceecfe9afa09066e4863e93be556b8f92c00a2992e0a0aef3b4253458f6fc318`,
+testes de atestação existentes
+`68f9790a734f8adf78db8a716a5c2d99adad165f00737f922db90afa614b4ed8` e
+workflow `80c53134e91a4221201052ff6c6782f76cdcaa9968c3406a46c3bca16e878ddf`.
+Os unitários passaram em `209/209`; duas provas locais sequenciais no
+PostgreSQL 17 TLS passaram em `1/1` para a atestação existente e `1/1` para o
+runner com CA por FD. O CI ainda não foi executado, portanto CI PG17 TLS verde
+continua critério de integração.
+
+O contrato usa `TLS_MODE=VERIFY_FULL_EXPLICIT_CA` e exige que o digest da CA,
+`TLS_CA_CERTIFICATE_SHA256`, esteja vinculado à autorização. O escopo
+`PROCESS_INVOCATION_ONLY` exige nova autorização nominal para cada invocação.
+O HMAC serve somente correlação e anti-swap e não substitui autorização humana.
+O resultado produz zero arquivo, zero recibo, zero captura e zero
+materialização. Os buffers de chave e nonce são zerados, os descritores são
+fechados e os certificados TLS temporários são removidos após a prova. DEV e
+PROD não foram consultados. PROD está explicitamente
+fora. PROD continua fora. Estado:
+`RUNNER IMPLEMENTADO E COMPROVADO OFFLINE / AINDA NÃO INTEGRADO / DEV/PROD NÃO
+CONSULTADOS / OPERAÇÃO BLOQUEADA`.
+
+O gate seguinte é `REVIEW_AND_INTEGRATE_DEV_IDENTITY_PREFLIGHT_RUNNER_PR`. Ele
+exige revisão independente e CI PG17 TLS verde antes da integração e não
+autoriza executar o preflight. O gate futuro, somente depois do merge, é
+`SEPARATE_NOMINAL_DEV_READ_ONLY_PREFLIGHT_AUTHORIZATION`, limitado a uma única
+tentativa DEV preflight-only. Não autoriza captura, materialização, DML,
+migration, reconciliação, backfill, deploy, flag ou runtime. PROD continua
+fora. Nenhum comando deste runbook é liberado por esse tooling.
 
 ## 10. Rollback
 
