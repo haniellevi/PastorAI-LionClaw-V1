@@ -186,9 +186,19 @@ e os limites estão em
 Ela não atesta DEV, PROD, Data API ou Realtime e não muda este procedimento de
 staging. `OPERATIONAL_AUTHORIZATION=BLOCKED` permanece obrigatório.
 
-Antes do merge, a exigência é revisão e CI dedicado verde desta PR.
-Depois da integração, o único gate será
-`SEPARATE_READ_ONLY_ENVIRONMENT_ATTESTATION`, em missão e autorização próprias.
+A PR #334, HEAD `a864730f0b678cca39cebfa6bb378243ba031cd6`, foi integrada no
+merge `c8427b1a505c0aad2a5f675d3bf456ee33716690`; o Git registra
+`commit date=2026-08-29T21:21:15Z`, e o GitHub registra
+`mergedAt=2026-08-29T21:21:16Z`. Os seis checks da PR e os seis pós-merge
+concluíram com `SUCCESS`; os detalhes da API do deployment automático Vercel
+frontend Production `6160229001` estão na evidência detalhada em
+[`2026-08-29-offline-canonical-schema-derivation.md`](../docs/decisions/2026-08-29-offline-canonical-schema-derivation.md).
+Os checks provam apenas o comportamento exercitado naquele SHA; a metadata do
+deployment prova somente o frontend e não prova backend, banco, migration,
+runtime ou atestação de ambiente.
+
+O único gate é `SEPARATE_READ_ONLY_ENVIRONMENT_ATTESTATION`, em missão e autorização próprias,
+somente leitura.
 Ele não autoriza DML, reconciliação de ledger, corte de época, runner,
 `bootstrap-ledger`, `harden-ledger`, `status`, `apply`, SQL Editor,
 `apply_migration`, `db push`, MCP, deploy, flag ou runtime. UV e CD permanecem

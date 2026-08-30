@@ -54,6 +54,19 @@ CANONICAL_SCHEMA_DERIVATION_ADR_PATH = (
     / "2026-08-29-offline-canonical-schema-derivation.md"
 )
 
+CONSUMED_PREMERGE_DERIVATION_GATE_CLAIMS = frozenset(
+    {
+        "antes do merge, esta pr exige",
+        "esta pr exige revisao",
+        "ci dedicado verde",
+        "depois da integracao, o unico gate e",
+        "depois da integracao, o proximo gate unico e",
+        "gate unico sera",
+        "o unico gate sera",
+        "o proximo gate unico sera",
+    }
+)
+
 EXPECTED_TOP_LEVEL_KEYS = {
     "metadata",
     "delivery_control",
@@ -1263,8 +1276,10 @@ def test_canonical_docs_record_captured_blocked_inventories_and_one_human_gate()
         assert "prefixo reconciliado" in normalized
         assert "derivacao canonica" in normalized
         assert "reproduzida e verificada somente offline" in normalized
-        assert "antes do merge" in normalized
-        assert "ci dedicado verde" in normalized
+        assert "pr #334" in normalized
+        assert "c8427b1a505c0aad2a5f675d3bf456ee33716690" in normalized
+        assert "6160229001" in normalized
+        assert "metadata do deployment prova somente o frontend" in normalized
         assert "separate_read_only_environment_attestation" in normalized
         assert "manifesto estatico" in normalized
         assert "nao autoriza dml" in normalized
@@ -1347,8 +1362,10 @@ def test_canonical_docs_record_captured_blocked_inventories_and_one_human_gate()
         assert "2 skipped" in normalized
         assert "derivacao canonica" in normalized
         assert "reproduzida e verificada somente offline" in normalized
-        assert "antes do merge" in normalized
-        assert "ci dedicado verde" in normalized
+        assert "pr #334" in normalized
+        assert "c8427b1a505c0aad2a5f675d3bf456ee33716690" in normalized
+        assert "6160229001" in normalized
+        assert "metadata do deployment prova somente o frontend" in normalized
         assert "separate_read_only_environment_attestation" in normalized
         assert "manifesto estatico" in normalized
         assert "nao autoriza dml" in normalized
@@ -1826,6 +1843,7 @@ def test_reconciliation_candidate_docs_reject_consumed_gate_and_false_authority(
         / "2026-08-20-v1-ledger-hardening-gate.md",
         REPO_ROOT / "docs" / "ops" / "PRODUCTION-RUNBOOK.md",
         RECONCILIATION_CONTRACT_PATH,
+        CANONICAL_SCHEMA_DERIVATION_ADR_PATH,
     }
     stale_claims = {
         "implementar e testar somente offline",
@@ -1842,7 +1860,7 @@ def test_reconciliation_candidate_docs_reject_consumed_gate_and_false_authority(
         "pode aprovar apenas a preparacao do manifesto estatico",
         "pode aprovar somente um manifesto estatico do schema",
         "desenho de uma missao posterior e separada de atestacao read-only",
-    }
+    } | CONSUMED_PREMERGE_DERIVATION_GATE_CLAIMS
 
     for path in candidate_docs:
         normalized = _normalized_prose(path.read_text(encoding="utf-8"))
@@ -1882,6 +1900,15 @@ def test_canonical_schema_derivation_docs_preserve_offline_only_limits() -> None
     common_required = {
         "operational_authorization=blocked",
         "separate_read_only_environment_attestation",
+        "pr #334",
+        "a864730f0b678cca39cebfa6bb378243ba031cd6",
+        "c8427b1a505c0aad2a5f675d3bf456ee33716690",
+        "commit date=2026-08-29t21:21:15z",
+        "mergedat=2026-08-29t21:21:16z",
+        "6160229001",
+        "os checks provam apenas o comportamento exercitado naquele sha",
+        "metadata do deployment prova somente o frontend",
+        "nao prova backend, banco, migration, runtime ou atestacao de ambiente",
     }
     prohibited = {
         "schema final de dev ou prod foi atestado",
@@ -1896,8 +1923,8 @@ def test_canonical_schema_derivation_docs_preserve_offline_only_limits() -> None
         assert all(item in normalized for item in common_required), (
             f"offline derivation record missing in {path}"
         )
-        assert "antes do merge" in normalized
-        assert "ci dedicado verde" in normalized
+        for stale_claim in CONSUMED_PREMERGE_DERIVATION_GATE_CLAIMS:
+            assert stale_claim not in normalized, f"stale pre-merge claim in {path}"
         for claim in prohibited:
             assert claim not in normalized, f"false authority in {path}"
 
@@ -1910,6 +1937,36 @@ def test_canonical_schema_derivation_docs_preserve_offline_only_limits() -> None
     assert "github actions usa o mapeamento host:container" in adr
     assert "data api e realtime continuam nao atestados" in adr
     assert "separate_read_only_environment_attestation" in adr
+    assert "pr #334" in adr
+    assert "a864730f0b678cca39cebfa6bb378243ba031cd6" in adr
+    assert "c8427b1a505c0aad2a5f675d3bf456ee33716690" in adr
+    assert "commit date=2026-08-29t21:21:15z" in adr
+    assert "mergedat=2026-08-29t21:21:16z" in adr
+    for run_id in {
+        "33266660793",
+        "33266660831",
+        "33266660798",
+        "33266660804",
+        "33266660852",
+        "33266660794",
+        "33275857135",
+        "33275857158",
+        "33275857195",
+        "33275857144",
+        "33275857174",
+        "33275857154",
+    }:
+        assert run_id in adr
+    assert "6160229001" in adr
+    assert "created_at=2026-08-29t21:22:00z" in adr
+    assert "superficie sanitizada da api `deployments/{deployment_id}` registrou" in adr
+    assert "superficie sanitizada `deployments/{deployment_id}/statuses` registrou" in adr
+    assert "state=success" in adr
+    assert "created_at=2026-08-29t21:22:01z" in adr
+    assert "intervalo entre esses registros nao prova duracao de build nem reuso de artefato" in adr
+    assert "os checks provam apenas o comportamento exercitado naquele sha" in adr
+    assert "metadata do deployment prova somente o frontend" in adr
+    assert "nao prova backend, banco, migration, runtime ou atestacao de ambiente" in adr
 
 
 def test_schema_expectation_manifest_is_source_only_and_keeps_environment_gate() -> None:
