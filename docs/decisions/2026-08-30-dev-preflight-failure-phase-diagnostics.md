@@ -170,16 +170,40 @@ não sua saúde funcional, e não prova backend, banco, DEV, PROD ou o probe. O
 estado é `IMPLEMENTADO / INTEGRADO / COMPROVADO OFFLINE / PROBE NÃO EXECUTADO
 / OPERAÇÃO BLOQUEADA`.
 
+## Gate transport-only consumido e diagnóstico seguinte
+
+A PR #349 foi integrada no merge
+`20d995c2cae643697fa86807bb478b546d61ac0c`. Seus sete workflows pós-merge e o
+deployment automático Vercel frontend Production `6184537013` terminaram com
+`SUCCESS`; essa metadata prova somente o frontend.
+
+O gate `SEPARATE_NOMINAL_DEV_CONNECT_TLS_AUTH_TRANSPORT_PROBE_AUTHORIZATION`
+foi consumido uma única vez. Exatamente uma invocação usou o contrato interno
+`source_main_git_sha=36f8d13284a8f4964d0258a2a3b845323a80fe7e`. Uma única
+invocação terminou com exit `7`,
+`TRANSPORT_PROBE_FAILURE_PHASE=TLS_HANDSHAKE` e
+`RESULT=BLOCKED_DEV_CONNECT_TLS_AUTH_TRANSPORT_PROBE:TRANSPORT_BLOCKED`.
+DNS, política de endereço, TCP e a resposta `S` ao SSLRequest foram
+confirmados; handshake e hostname não foram confirmados. Não houve retry,
+senha, autenticação, sessão de banco, SQL, logs ou PROD. A causa continua
+indeterminada. A causa permanece indeterminada e o resultado não recebe
+categoria retroativa. A evidência
+completa e os hashes efêmeros sanitizados estão na
+[`decisão de transporte`](2026-08-31-dev-connect-tls-auth-transport-probe.md).
+
+A evolução offline adiciona somente a categoria estática de falha TLS do
+handshake.
+O candidato tem runner SHA-256
+`0ac585b86dd1c96446622e9a46bccda8a1e43eb0bceb0dcc19226892cb88d191`,
+testes SHA-256
+`70334dfc33505ea0b5ddb85a6406672fe0d9154e105134da164c773978459489` e
+`95/95` testes verdes.
+
 ## Próximo gate único
 
-`SEPARATE_NOMINAL_DEV_CONNECT_TLS_AUTH_TRANSPORT_PROBE_AUTHORIZATION`.
-
-Seu consumo exige autorização humana nominal para exatamente uma invocação
-`PROCESS_INVOCATION_ONLY` no checkout de `main` `1e727cd2`, com runner SHA-256
-`4196e218e023f5ef16fe333f62b756b55239d0bdde1c11aed12e59af888f6cc9` e
-`source_main_git_sha=36f8d13284a8f4964d0258a2a3b845323a80fe7e` no contrato
-interno. O gate não autoriza retry, senha, autenticação, consulta de logs,
-acesso a PROD, sessão de banco, SQL,
-captura, materialização, DML, migration, reconciliação, backfill, deploy manual
-ou do backend, flag, runtime, `status`, `apply`, `bootstrap-ledger` ou
-`harden-ledger`.
+`REVIEW_AND_CI_DEV_TLS_HANDSHAKE_FAILURE_CATEGORY_PR`. Ele permite somente
+preparar revisão e CI após autorização humana específica para push, PR e
+Preview. Não autoriza merge, Vercel Production, nova execução, retry, senha,
+autenticação, logs, PROD, sessão de banco, SQL, captura, materialização, DML,
+migration, reconciliação, backfill, flag, runtime, `status`, `apply`,
+`bootstrap-ledger` ou `harden-ledger`.

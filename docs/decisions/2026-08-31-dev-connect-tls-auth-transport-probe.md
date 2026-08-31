@@ -230,19 +230,72 @@ O objeto remoto `1e727cd2` não foi baixado nesta missão porque rede permaneceu
 bloqueada. Isso limita somente a proveniência local da reconciliação, não muda
 os bytes técnicos já revisados.
 
+## Integração documental e primeira execução transport-only
+
+A PR #349, HEAD `9f2e1573efbbd0e9dc86bdee177a03399c4a118c`, foi integrada no
+merge `20d995c2cae643697fa86807bb478b546d61ac0c` em
+`2026-08-31T15:50:50Z`. Os sete workflows pós-merge terminaram com `SUCCESS`:
+Tooling `33410776855`, RLS `33410776858`, Backend `33410776869`, Environment
+Attestation PG17 `33410776921`, E2E `33410776885`, Frontend `33410776816` e
+Canonical `33410776874`. O deployment automático Vercel frontend Production
+`6184537013`, status `17576683669`, terminou com `state=success` em
+`2026-08-31T15:51:36Z`. Essa metadata prova somente o deployment do frontend,
+não sua saúde funcional, e não prova backend, banco, DEV, PROD ou o probe.
+
+O gate `SEPARATE_NOMINAL_DEV_CONNECT_TLS_AUTH_TRANSPORT_PROBE_AUTHORIZATION`
+foi consumido por exatamente uma invocação `PROCESS_INVOCATION_ONLY` no
+checkout `1e727cd2ea90ccfb68961174b802d595c71f355b`, usando o runner SHA-256
+`4196e218e023f5ef16fe333f62b756b55239d0bdde1c11aed12e59af888f6cc9` e o
+plano SHA-256
+`5d0b1e4d8f3609b5409b9007a7ffb94e4dbebc17bc3bf4a342d5a281dbfa7f36`.
+O registro preservou
+`source_main_git_sha=36f8d13284a8f4964d0258a2a3b845323a80fe7e`.
+O timestamp preciso não foi preservado; nenhuma hora foi inferida. O registro
+efêmero teve SHA-256
+`6c3af99ad3608f8de03098e47c2dc25bc1db1c16d4e78e96dd1ece44615526c7`,
+a CA explícita SHA-256
+`6602a85a36afc2e51c66a0df5ae3d383c5b7c2fed93339ccef7d37e01faf09e8`
+e o nonce SHA-256
+`fe6dfc97738fa193ca727e7ac7411cc1d3525ccb266cb5ef2dcfadcdcccfe2ad`.
+
+Uma única invocação terminou com exit `7`,
+`RESULT=BLOCKED_DEV_CONNECT_TLS_AUTH_TRANSPORT_PROBE:TRANSPORT_BLOCKED` e
+`TRANSPORT_PROBE_FAILURE_PHASE=TLS_HANDSHAKE`. A saída confirmou
+`DNS_RESOLVED=true`, `ADDRESS_POLICY_PASSED=true`, `TCP_CONNECTED=true`,
+`PG_SSL_NEGOTIATED=true`, `TLS_HANDSHAKE_COMPLETED=false`,
+`TLS_HOSTNAME_VERIFIED=false` e `SOCKET_CLOSED=true`. Também preservou
+`AUTHENTICATION_ATTEMPTED=false`, `DATABASE_SESSION_ESTABLISHED=false`,
+`SQL_EXECUTED=false`, `LOGS_QUERIED=false`, `PROD_ACCESSED=false`,
+`OPERATIONAL_AUTHORIZATION=false` e `NEXT_STAGE_AUTHORIZED=false`. O launcher,
+a worktree e os arquivos temporários foram removidos; `LOCAL_CLEANUP=true`.
+Não houve retry.
+
+Essa evidência comprova somente que, naquela invocação, DNS, política de
+endereço, TCP e a resposta `S` ao SSLRequest foram confirmados. Handshake e
+hostname não foram confirmados. A causa permanece indeterminada. Ela não
+identifica se a causa foi
+verificação de certificado, protocolo TLS, I/O, validação local ou prazo, não
+prova autenticação e não autoriza outra tentativa. O resultado histórico não
+pode receber categoria retroativa; o resultado não recebe categoria
+retroativa.
+
+Uma evolução exclusivamente offline adicionou a categoria estática de falha
+TLS `TLS_HANDSHAKE_FAILURE_CATEGORY`, limitada a `NOT_APPLICABLE`,
+`CERTIFICATE_VERIFICATION_ERROR`, `TLS_PROTOCOL_ERROR`, `TRANSPORT_IO_ERROR`,
+`LOCAL_VALIDATION_ERROR` ou `DEADLINE_EXCEEDED`. Nenhuma mensagem, SQLSTATE,
+host, endereço, certificado ou exceção dinâmica entra na saída. O candidato
+tem runner SHA-256
+`0ac585b86dd1c96446622e9a46bccda8a1e43eb0bceb0dcc19226892cb88d191` e
+teste SHA-256
+`70334dfc33505ea0b5ddb85a6406672fe0d9154e105134da164c773978459489`;
+`95/95` testes passaram, incluindo loopback TLS sintético.
+
 ## Próximo gate único
 
-`SEPARATE_NOMINAL_DEV_CONNECT_TLS_AUTH_TRANSPORT_PROBE_AUTHORIZATION`.
+`REVIEW_AND_CI_DEV_TLS_HANDSHAKE_FAILURE_CATEGORY_PR`.
 
-Seu consumo exige uma nova autorização humana nominal para exatamente uma
-invocação `PROCESS_INVOCATION_ONLY`, no checkout de `main`
-`1e727cd2ea90ccfb68961174b802d595c71f355b`, condicionada ao runner SHA-256
-`4196e218e023f5ef16fe333f62b756b55239d0bdde1c11aed12e59af888f6cc9`. O
-registro mecânico usa `source_main_git_sha=36f8d13284a8f4964d0258a2a3b845323a80fe7e`,
-como exigido pelo contrato interno do runner, sem substituir a proveniência do
-merge atual.
-
-O gate não autoriza retry, senha, autenticação, sessão de banco, consulta de
-logs, SQL, captura,
-materialização, DML, migration, reconciliação, backfill, deploy manual ou do
-backend, flag, runtime ou acesso a PROD.
+O gate permite somente preparar a revisão e o CI do mesmo candidato após nova
+autorização humana que nomeie push, PR e Preview. Não
+autoriza merge, Vercel Production, nova execução, retry, senha, autenticação,
+sessão de banco, logs, SQL, captura, materialização, DML, migration,
+reconciliação, backfill, flag, runtime ou acesso a PROD.

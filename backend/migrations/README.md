@@ -361,16 +361,28 @@ não prova saúde funcional, backend, banco, DEV, PROD ou o probe. O estado é
 `IMPLEMENTADO / INTEGRADO / COMPROVADO OFFLINE / PROBE NÃO EXECUTADO /
 OPERAÇÃO BLOQUEADA`.
 
-O gate único corrente é
-`SEPARATE_NOMINAL_DEV_CONNECT_TLS_AUTH_TRANSPORT_PROBE_AUTHORIZATION`. Seu
-consumo exige uma autorização humana nominal para exatamente uma invocação
-`PROCESS_INVOCATION_ONLY` no checkout de `main` `1e727cd2`, com runner SHA-256
-`4196e218e023f5ef16fe333f62b756b55239d0bdde1c11aed12e59af888f6cc9` e
-`source_main_git_sha=36f8d13284a8f4964d0258a2a3b845323a80fe7e` no registro
-interno. O gate não autoriza retry, senha, autenticação, logs, PROD, banco, SQL,
-captura, materialização, DML, reconciliação,
-`bootstrap-ledger`, `harden-ledger`, `status`, `apply`, migration, backfill,
-deploy manual ou Production, flag ou runtime. UV e CD permanecem fora.
+O gate `SEPARATE_NOMINAL_DEV_CONNECT_TLS_AUTH_TRANSPORT_PROBE_AUTHORIZATION`
+foi consumido por exatamente uma invocação no checkout `1e727cd2`, runner
+SHA-256 `4196e218e023f5ef16fe333f62b756b55239d0bdde1c11aed12e59af888f6cc9`
+e `source_main_git_sha=36f8d13284a8f4964d0258a2a3b845323a80fe7e`.
+Ela terminou com exit `7`, fase `TLS_HANDSHAKE` e
+`RESULT=BLOCKED_DEV_CONNECT_TLS_AUTH_TRANSPORT_PROBE:TRANSPORT_BLOCKED`.
+Resolução, política de endereço, TCP e a resposta `S` ao SSLRequest foram
+confirmados; handshake e hostname não foram confirmados. Não houve retry,
+senha, autenticação, sessão de banco, SQL, logs ou PROD. A causa permanece
+indeterminada e o resultado não recebe categoria retroativa.
+
+A evolução offline subsequente adiciona somente a categoria estática de falha
+do handshake. O candidato tem runner SHA-256
+`0ac585b86dd1c96446622e9a46bccda8a1e43eb0bceb0dcc19226892cb88d191`,
+testes SHA-256
+`70334dfc33505ea0b5ddb85a6406672fe0d9154e105134da164c773978459489` e
+`95/95` testes verdes. O gate único corrente é
+`REVIEW_AND_CI_DEV_TLS_HANDSHAKE_FAILURE_CATEGORY_PR`. Ele não autoriza nova
+execução, merge, deploy manual ou Production, Vercel Production, senha,
+autenticação, logs, PROD, banco,
+SQL, captura, materialização, DML, reconciliação, `bootstrap-ledger`,
+`harden-ledger`, `status`, `apply`, migration, backfill, flag ou runtime.
 
 ## Transações especiais
 

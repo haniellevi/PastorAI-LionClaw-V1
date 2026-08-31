@@ -734,7 +734,7 @@ não sua saúde funcional, e não prova backend, banco, DEV, PROD ou o probe. O
 estado agora é `IMPLEMENTADO / INTEGRADO / COMPROVADO OFFLINE / PROBE NÃO
 EXECUTADO / OPERAÇÃO BLOQUEADA`.
 
-O gate único corrente é
+O gate abaixo foi consumido em 2026-08-31:
 `SEPARATE_NOMINAL_DEV_CONNECT_TLS_AUTH_TRANSPORT_PROBE_AUTHORIZATION`. Seu
 consumo exige nova autorização humana nominal para exatamente uma invocação
 `PROCESS_INVOCATION_ONLY` no checkout de `main` `1e727cd2`, com runner SHA-256
@@ -744,3 +744,21 @@ contrato interno. Não autoriza retry, senha, autenticação, sessão de banco,
 SQL, logs,
 captura, materialização, DML, migration, reconciliação, backfill, deploy manual
 ou Production, flag, runtime e PROD continuam bloqueados.
+
+Uma única invocação terminou com exit `7`, fase `TLS_HANDSHAKE` e
+`RESULT=BLOCKED_DEV_CONNECT_TLS_AUTH_TRANSPORT_PROBE:TRANSPORT_BLOCKED`.
+DNS, política de endereço, TCP e a resposta `S` ao SSLRequest foram
+confirmados; handshake e hostname não foram confirmados. Não houve retry,
+senha, autenticação, sessão de banco, SQL, logs ou PROD. A causa permanece
+indeterminada e o resultado não recebe categoria retroativa. A evolução
+offline adiciona somente uma categoria estática de falha TLS, com runner
+SHA-256 `0ac585b86dd1c96446622e9a46bccda8a1e43eb0bceb0dcc19226892cb88d191`,
+testes SHA-256
+`70334dfc33505ea0b5ddb85a6406672fe0d9154e105134da164c773978459489` e
+`95/95` testes verdes.
+
+O gate único corrente é
+`REVIEW_AND_CI_DEV_TLS_HANDSHAKE_FAILURE_CATEGORY_PR`. Permite somente preparar
+revisão e CI depois de autorização humana específica para push, PR e Preview.
+Não autoriza merge, Vercel Production, nova execução, DEV adicional, PROD,
+banco, logs, SQL, migration, flag ou runtime.
