@@ -3015,10 +3015,10 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
 
     technical_files = {
         REPO_ROOT / "backend" / "scripts" / "probe_dev_connect_tls_auth_transport.py": (
-            "0ac585b86dd1c96446622e9a46bccda8a1e43eb0bceb0dcc19226892cb88d191"
+            "2e2208bfbca1214c0cec024c58716eeac7c05789c33ce36d812c0265c3810809"
         ),
         REPO_ROOT / "backend" / "tests" / "test_dev_connect_tls_auth_transport_probe.py": (
-            "70334dfc33505ea0b5ddb85a6406672fe0d9154e105134da164c773978459489"
+            "d7161cd7dd7c63935c07431193b0d916222e5341088edbdc6d4ef85ad3063689"
         ),
         REPO_ROOT / "backend" / "scripts" / "preflight_migration_history_environment_identity.py": (
             "8da631fbb602488bb8c82ce1529c9d8ba17acbae8a318ea9b0fc24cdd8f65cd2"
