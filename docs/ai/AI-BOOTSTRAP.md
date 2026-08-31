@@ -735,23 +735,55 @@ vincula o payload JSON canônico. O ordinal ainda exige um futuro plano
 determinístico e persistido, e a coleção é validada contra a identidade
 esperada de uma fonte confiável.
 
-O freeze vincula `backend/app/agent/turn_identity.py`, SHA-256
-`c0c3790cf05f38f0531876ba7171a8c456dd4ee911e3c56cb21900eccc0b7248`, e
+Na branch local, o commit
+`f82f76927ba8a6a265478ad7f21eae07b0d6504c` adiciona somente o adaptador
+confiável de entrada, protegido por
+`agent_trusted_inbound_identity_enabled=false` por padrão. O `Message.id` da
+entrada persistida agora chega em `IngestionOutcome` nos caminhos novo e
+duplicado. Antes de sessão, reserva, lease, runtime ou qualquer outro I/O, o
+worker constrói a identidade com igreja, conversa, mensagem e ID Evolution
+persistidos. Antes da primeira consulta, o runtime rederiva a identidade com
+quatro entradas confiáveis e separadas: `igreja_id`, `conversation_id`, o UUID
+inbound persistido de `Message.id` e o `provider_message_id` exato. Ele exige
+igualdade integral dos quatro vínculos com a identidade construída pelo worker;
+qualquer divergência aborta.
+`claim_id` permanece requisito separado de recuperação, nunca entra no
+`turn_id`; o caminho legacy é preservado somente com a flag desligada. O
+estado do grafo continua recusando aliases de autoridade e não recebe essa
+identidade.
+
+O mesmo lote incorpora em
+`7d1ed00d0add18162a89f3a9c39da6039e74017c` o contrato puro e inativo
+`turn_execution`, originalmente revisado em
+`576de558983622146a91417c65a85a2a321f585b`. Ele define plano canônico,
+ordem versionada de efeitos, escopo opaco por tenant e conversa, recibos
+estruturais, máquina pura da futura outbox de resposta e chave atual `v2`.
+Nada disso persiste plano ou recibo, autentica uma store, serializa turnos,
+garante FIFO ou cria atomicidade entre commit de domínio e outbox. `ACCEPTED`
+significa somente aceite do transporte; `AMBIGUOUS` é terminal. Evidência
+legacy `v1` ou `v0` não é derivada nem autenticada pelo contrato.
+
+Os pins atuais são `backend/app/agent/turn_identity.py`, SHA-256
+`5be323d7fafa4a51d5c954749c8d2d5991e33313e269ee0a3b63bdfc9fb3923d`;
 `backend/tests/test_agent_turn_identity.py`, SHA-256
-`7353b26d22574af132596f7b139b3ea290aacafb32a0e76d08530009eb874344`.
-A focal terminou em `104/104`, e `tests/test_agent*.py` terminou em
-`376 passed, 7 skipped`. Essa evidência é local e pré-PR. Os hashes não são
-autenticadores ou autoridade de tenant, e a proteção de `repr` não torna os
-IDs brutos seguros para log ou serialização. Não há import ou conexão com
-webhook, worker, runtime, banco ou LangGraph. Saver,
-migration, recibos duráveis, store, plano persistido, retomada, replay seguro e
-idempotência operacional continuam bloqueados. No runtime atual, `Message.id`
-ainda não é propagado à entrada do grafo; `claim_id`, a reply key e o lease não
-serializam a conversa; o caminho legacy continua presente; e receipts duráveis,
-ordenação persistida e fronteira atômica entre efeitos não existem. São
-bloqueadores do wiring futuro, não defeitos do contrato puro. Estado:
-`CONTRATO D3 DE IDENTIDADE CONGELADO OFFLINE /
-CANDIDATO NÃO INTEGRADO / RUNTIME BLOQUEADO`.
+`4072b76688552b6f870e89876426d3c608b34a362ec895315d733691dff101c5`;
+`backend/app/agent/turn_execution.py`, SHA-256
+`72a53515a835bac528280223e22f76a33f8606b5ce979dae11773d10ea6a1b2b`; e
+`backend/tests/test_agent_turn_execution.py`, SHA-256
+`40a8706b4036aaa0d091f62a9ab8c7a2e2d2a1a4f5417b31d1c34eb9185783d6`.
+O wiring passou em `245/245` e em `401 passed, 7 skipped` na seleção
+`tests/test_agent*.py`; o contrato de execução passou em `86/86`, na revisão
+independente `190/190` e em `462 passed, 7 skipped` na mesma seleção. As duas
+revisões terminaram `GO`, sem P0, P1 ou P2. A evidência é local e pré-PR.
+
+O lote permanece exclusivamente offline. Possui wiring de identidade no código,
+mas continua inativo porque a
+flag fica desligada por padrão e nenhuma ativação ocorreu. `turn_execution`
+não é importado pelo worker ou runtime e executa zero I/O. Não existem saver,
+checkpoint durável, migration, plano ou receipt persistido, FIFO, bloqueio
+serial real, atomicidade entre efeitos, retomada, replay seguro ou memória
+ativa. Estado: `LOTE D3 OFFLINE COMBINADO LOCALMENTE / FLAG DEFAULT FALSE /
+CANDIDATO NÃO INTEGRADO NO MAIN / RUNTIME NÃO ATIVADO`.
 
 O gate histórico `REVIEW_AND_CI_OFFLINE_AGENT_FOUNDATION_BATCH_PR` foi consumido
 pelo push, abertura, CI e Preview da PR #351. Ele não autorizou o merge
@@ -764,15 +796,17 @@ do frontend Production foram autorizados separadamente; esse gate não os
 autorizou. Após o consumo, ele permanece somente como evidência histórica e
 não é um segundo gate corrente.
 
+O gate anterior `REVIEW_AND_CI_D3_TURN_IDENTITY_OFFLINE_PR` foi substituído
+localmente, sem consumo, pelo lote combinado. Não houve push, PR, CI ou Preview
+sob esse gate, portanto ele não é evidência histórica de uma ação externa.
+
 **Próximo gate único:**
-`REVIEW_AND_CI_D3_TURN_IDENTITY_OFFLINE_PR`. O nome não constitui autorização
+`REVIEW_AND_CI_D3_TURN_EXECUTION_AND_TRUSTED_INBOUND_WIRING_OFFLINE_PR`. O nome não constitui autorização
 já concedida. Seu consumo exige autorização humana posterior e separada que
 nomeie push, abertura da PR e GitHub CI e aceite o Vercel Preview automático.
-A fatia candidata permanece exclusivamente offline e limita-se à identidade
-estável de mensagem e turno e à fundação determinística para o futuro contrato
-de idempotência. Este gate não
-autoriza merge, Vercel Production, saver, probe vivo, acesso a DEV ou PROD,
-banco, logs, SQL, DML, migration, deploy, flag, runtime ou execução externa.
+O gate cobre somente revisão e CI do lote offline. Não autoriza merge, Vercel
+Production, flag-on, runtime, saver, probe vivo, acesso a DEV ou PROD, banco,
+logs, SQL, DML, migration, deploy, mensagem, tool call ou qualquer efeito vivo.
 
 ## Roteiro de leitura
 

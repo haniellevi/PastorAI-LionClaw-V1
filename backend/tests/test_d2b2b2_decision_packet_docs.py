@@ -124,8 +124,14 @@ OFFLINE_AGENT_FOUNDATION_BATCH_CONSUMED_GATE = (
 D3_EPHEMERAL_EFFECT_STATE_CONSUMED_GATE = (
     "REVIEW_AND_CI_D3_EPHEMERAL_EFFECT_STATE_PR"
 )
-DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE = (
+D3_TURN_IDENTITY_SUPERSEDED_GATE = (
     "REVIEW_AND_CI_D3_TURN_IDENTITY_OFFLINE_PR"
+)
+D3_TURN_EXECUTION_TRUSTED_INBOUND_CURRENT_GATE = (
+    "REVIEW_AND_CI_D3_TURN_EXECUTION_AND_TRUSTED_INBOUND_WIRING_OFFLINE_PR"
+)
+DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE = (
+    D3_TURN_EXECUTION_TRUSTED_INBOUND_CURRENT_GATE
 )
 DEV_PREFLIGHT_PHASE_DIAGNOSTICS_STALE_GATE = (
     "REVIEW_AND_INTEGRATE_DEV_PREFLIGHT_PHASE_DIAGNOSTICS_PR"
@@ -479,6 +485,7 @@ def _assert_current_preflight_gate(path: Path, normalized: str) -> None:
 def _assert_reconciled_d3_gate(path: Path, normalized: str) -> None:
     foundation_consumed = OFFLINE_AGENT_FOUNDATION_BATCH_CONSUMED_GATE.casefold()
     d3_consumed = D3_EPHEMERAL_EFFECT_STATE_CONSUMED_GATE.casefold()
+    identity_superseded = D3_TURN_IDENTITY_SUPERSEDED_GATE.casefold()
     current = DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold()
     required = {
         "gate historico",
@@ -490,23 +497,28 @@ def _assert_reconciled_d3_gate(path: Path, normalized: str) -> None:
         "merge e o deployment automatico do frontend production foram autorizados separadamente",
         "esse gate nao os autorizou",
         "apos o consumo",
+        "gate anterior",
+        "foi substituido localmente, sem consumo, pelo lote combinado",
+        "nao houve push, pr, ci ou preview sob esse gate",
+        "nao e evidencia historica de uma acao externa",
         "nome nao constitui autorizacao ja concedida",
         "autorizacao humana posterior e separada",
         "nomeie push, abertura da pr e github ci",
         "aceite o vercel preview automatico",
-        "permanece exclusivamente offline",
-        "identidade estavel de mensagem e turno",
-        "contrato de idempotencia",
-        "este gate nao autoriza merge, vercel production, saver",
+        "cobre somente revisao e ci do lote offline",
+        "nao autoriza merge, vercel production, flag-on, runtime, saver",
+        "qualquer efeito vivo",
     }
     missing = sorted(item for item in required if item not in normalized)
     assert not missing, f"D3 gate reconciliation missing in {path}: {missing}"
     assert normalized.count("proximo gate unico") == 1
     assert normalized.count(foundation_consumed) == 1
     assert normalized.count(d3_consumed) == 1
+    assert normalized.count(identity_superseded) == 1
     assert normalized.count(current) == 1
     assert normalized.index(foundation_consumed) < normalized.index(d3_consumed)
-    assert normalized.index(d3_consumed) < normalized.index("proximo gate unico")
+    assert normalized.index(d3_consumed) < normalized.index(identity_superseded)
+    assert normalized.index(identity_superseded) < normalized.index("proximo gate unico")
     assert normalized.index("proximo gate unico") < normalized.index(current)
 
 
@@ -2808,14 +2820,17 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
         "foi consumido pelo push, abertura, ci e preview da pr #352",
         "merge e o deployment automatico do frontend production foram autorizados separadamente",
         "esse gate nao os autorizou",
+        D3_TURN_IDENTITY_SUPERSEDED_GATE.casefold(),
+        "foi substituido localmente, sem consumo, pelo lote combinado",
+        "nao houve push, pr, ci ou preview sob esse gate",
         DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold(),
         "nome nao constitui autorizacao ja concedida",
         "autorizacao humana posterior",
         "nomeie push, abertura da pr e github ci",
         "aceite o vercel preview automatico",
-        "identidade estavel de mensagem e turno",
-        "contrato de idempotencia",
-        "nao autoriza merge, vercel production, saver",
+        "cobre somente revisao e ci do lote offline",
+        "nao autoriza merge, vercel production, flag-on, runtime, saver",
+        "qualquer efeito vivo",
     }
 
     for path in DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CANONICAL_DOCS:
@@ -3254,94 +3269,143 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
         assert hashlib.sha256(path.read_bytes()).hexdigest() == expected_sha256
 
 
-def test_d3_turn_identity_offline_candidate_preserves_runtime_gate() -> None:
-    technical_commit = "14b3d7ba15e88032cd53714008d36badd4578e80"
-    implementation_sha256 = (
-        "c0c3790cf05f38f0531876ba7171a8c456dd4ee911e3c56cb21900eccc0b7248"
+def test_d3_offline_execution_and_trusted_inbound_preserves_runtime_gate() -> None:
+    identity_commit = "14b3d7ba15e88032cd53714008d36badd4578e80"
+    wiring_commit = "f82f76927ba8a6a265478ad7f21eae07b0d6504c"
+    execution_commit = "7d1ed00d0add18162a89f3a9c39da6039e74017c"
+    execution_source_commit = "576de558983622146a91417c65a85a2a321f585b"
+    turn_identity_sha256 = (
+        "5be323d7fafa4a51d5c954749c8d2d5991e33313e269ee0a3b63bdfc9fb3923d"
     )
-    test_sha256 = (
-        "7353b26d22574af132596f7b139b3ea290aacafb32a0e76d08530009eb874344"
+    identity_test_sha256 = (
+        "4072b76688552b6f870e89876426d3c608b34a362ec895315d733691dff101c5"
     )
-    required = {
-        technical_commit,
-        "contrato puro `agentturnidentity` e `agenteffectintent`",
-        "mensagem inbound persistida",
-        "provedor evolution",
-        "id do provedor exato",
-        "`claim_id` nao participa",
-        "`effect_id` deriva do turno",
-        "slot semantico versionado",
-        "ordinal estavel",
-        "digest separado",
-        "payload json canonico",
-        "futuro plano deterministico e persistido",
-        "identidade esperada de uma fonte confiavel",
-        "backend/app/agent/turn_identity.py",
-        implementation_sha256,
-        "backend/tests/test_agent_turn_identity.py",
-        test_sha256,
-        "104/104",
-        "376 passed, 7 skipped",
-        "evidencia e local e pre-pr",
-        "hashes nao sao autenticadores ou autoridade de tenant",
-        (
-            "protecao de `repr` nao torna os ids brutos seguros para log ou "
-            "serializacao"
-        ),
-        (
-            "nao ha import ou conexao com webhook, worker, runtime, banco ou "
-            "langgraph"
-        ),
-        (
-            "saver, migration, recibos duraveis, store, plano persistido, "
-            "retomada, replay seguro e idempotencia operacional continuam "
-            "bloqueados"
-        ),
-        "no runtime atual, `message.id` ainda nao e propagado a entrada do grafo",
-        "`claim_id`, a reply key e o lease nao serializam a conversa",
-        "caminho legacy continua presente",
-        (
-            "receipts duraveis, ordenacao persistida e fronteira atomica "
-            "entre efeitos nao existem"
-        ),
-        "sao bloqueadores do wiring futuro, nao defeitos do contrato puro",
-        (
-            "contrato d3 de identidade congelado offline / candidato nao "
-            "integrado / runtime bloqueado"
-        ),
-        "a fatia candidata permanece exclusivamente offline",
-        "fundacao deterministica para o futuro contrato de idempotencia",
+    turn_execution_sha256 = (
+        "72a53515a835bac528280223e22f76a33f8606b5ce979dae11773d10ea6a1b2b"
+    )
+    execution_test_sha256 = (
+        "40a8706b4036aaa0d091f62a9ab8c7a2e2d2a1a4f5417b31d1c34eb9185783d6"
+    )
+    four_input_rebinding_required = {
+        "antes da primeira consulta",
+        "runtime rederiva a identidade com quatro entradas confiaveis e separadas",
+        "`igreja_id`, `conversation_id`, o uuid inbound persistido de `message.id`",
+        "`provider_message_id` exato",
+        "igualdade integral dos quatro vinculos com a identidade construida pelo worker",
+        "qualquer divergencia aborta",
     }
+    required = {
+        identity_commit,
+        wiring_commit,
+        execution_commit,
+        execution_source_commit,
+        "contrato puro `agentturnidentity` e `agenteffectintent`",
+        "`agent_trusted_inbound_identity_enabled=false` por padrao",
+        "`message.id` da entrada persistida agora chega em `ingestionoutcome`",
+        "nos caminhos novo e duplicado",
+        "antes de sessao, reserva, lease, runtime ou qualquer outro i/o",
+        "`claim_id` permanece requisito separado de recuperacao",
+        "nunca entra no `turn_id`",
+        "caminho legacy e preservado somente com a flag desligada",
+        "estado do grafo continua recusando aliases de autoridade",
+        "nao recebe essa identidade",
+        "contrato puro e inativo `turn_execution`",
+        "plano canonico",
+        "ordem versionada de efeitos",
+        "escopo opaco por tenant e conversa",
+        "recibos estruturais",
+        "maquina pura da futura outbox de resposta",
+        "chave atual `v2`",
+        "nada disso persiste plano ou recibo",
+        "autentica uma store",
+        "garante fifo",
+        "atomicidade entre commit de dominio e outbox",
+        "`accepted` significa somente aceite do transporte",
+        "`ambiguous` e terminal",
+        "legacy `v1` ou `v0` nao e derivada nem autenticada pelo contrato",
+        "backend/app/agent/turn_identity.py",
+        turn_identity_sha256,
+        "backend/tests/test_agent_turn_identity.py",
+        identity_test_sha256,
+        "backend/app/agent/turn_execution.py",
+        turn_execution_sha256,
+        "backend/tests/test_agent_turn_execution.py",
+        execution_test_sha256,
+        "245/245",
+        "401 passed, 7 skipped",
+        "86/86",
+        "190/190",
+        "462 passed, 7 skipped",
+        "go`, sem p0, p1 ou p2",
+        "evidencia e local e pre-pr",
+        "wiring de identidade no codigo, mas continua inativo",
+        "flag fica desligada por padrao e nenhuma ativacao ocorreu",
+        "`turn_execution` nao e importado pelo worker ou runtime",
+        "executa zero i/o",
+        "nao existem saver, checkpoint duravel, migration",
+        "receipt persistido, fifo, bloqueio serial real",
+        "atomicidade entre efeitos, retomada, replay seguro ou memoria ativa",
+        (
+            "lote d3 offline combinado localmente / flag default false / "
+            "candidato nao integrado no main / runtime nao ativado"
+        ),
+        "foi substituido localmente, sem consumo, pelo lote combinado",
+        "nao houve push, pr, ci ou preview sob esse gate",
+        "cobre somente revisao e ci do lote offline",
+        "nao autoriza merge, vercel production, flag-on, runtime, saver",
+        "qualquer efeito vivo",
+    } | four_input_rebinding_required
     stale_claims = {
         "pr #353",
         "contrato d3 de identidade integrado",
         "idempotencia operacional implementada",
         "runtime conectado",
+        "flag-on autorizado",
         "ci da fatia candidata concluiu",
         "deployment da fatia candidata",
+        (
+            "nao ha import ou conexao com webhook, worker, runtime, banco ou "
+            "langgraph"
+        ),
+        "no runtime atual, `message.id` ainda nao e propagado",
+        (
+            "contrato d3 de identidade congelado offline / candidato nao "
+            "integrado / runtime bloqueado"
+        ),
     }
 
     for path in DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CANONICAL_DOCS:
         normalized = _normalized_prose(path.read_text(encoding="utf-8"))
         missing = sorted(item for item in required if item not in normalized)
-        assert not missing, f"D3 turn identity freeze missing in {path}: {missing}"
+        assert not missing, f"D3 combined offline freeze missing in {path}: {missing}"
         for stale_claim in stale_claims:
             assert stale_claim not in normalized
-        assert normalized.count(technical_commit) == 1
-        assert normalized.count(implementation_sha256) == 1
-        assert normalized.count(test_sha256) == 1
+        for pinned_value in (
+            identity_commit,
+            wiring_commit,
+            execution_commit,
+            execution_source_commit,
+            turn_identity_sha256,
+            identity_test_sha256,
+            turn_execution_sha256,
+            execution_test_sha256,
+        ):
+            assert normalized.count(pinned_value) == 1
         assert normalized.count(
             D3_EPHEMERAL_EFFECT_STATE_CONSUMED_GATE.casefold()
         ) == 1
+        assert normalized.count(D3_TURN_IDENTITY_SUPERSEDED_GATE.casefold()) == 1
         assert normalized.count(
             DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold()
         ) == 1
-        assert normalized.index("pr #352") < normalized.index(technical_commit)
-        assert normalized.index(technical_commit) < normalized.index(
-            D3_EPHEMERAL_EFFECT_STATE_CONSUMED_GATE.casefold()
+        assert normalized.index("pr #352") < normalized.index(identity_commit)
+        assert normalized.index(identity_commit) < normalized.index(wiring_commit)
+        assert normalized.index(wiring_commit) < normalized.index(execution_commit)
+        assert normalized.index(execution_commit) < normalized.index(
+            D3_TURN_IDENTITY_SUPERSEDED_GATE.casefold()
         )
         assert normalized.index(
-            D3_EPHEMERAL_EFFECT_STATE_CONSUMED_GATE.casefold()
+            D3_TURN_IDENTITY_SUPERSEDED_GATE.casefold()
         ) < normalized.index(
             DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold()
         )
@@ -3350,84 +3414,114 @@ def test_d3_turn_identity_offline_candidate_preserves_runtime_gate() -> None:
         WHATSAPP_FIRST_AGENT_ARCHITECTURE_ADR_PATH.read_text(encoding="utf-8")
     )
     architecture_required = {
-        technical_commit,
-        "backend/app/agent/turn_identity.py",
-        implementation_sha256,
-        "backend/tests/test_agent_turn_identity.py",
-        test_sha256,
-        "104/104",
-        "376 passed, 7 skipped",
-        "evidencia e local e pre-pr",
-        (
-            "contrato d3 de identidade congelado offline / candidato nao "
-            "integrado / runtime bloqueado"
-        ),
+        identity_commit,
+        wiring_commit,
+        execution_commit,
+        execution_source_commit,
         "preparacao d3 offline: identidade estavel e intencoes deterministicas",
         "agentturnidentity` vincula os uuids nao nulos",
         "mensagem inbound ja persistida",
         "provedor fechado `evolution`",
         "`provider_message_id` exato",
-        "enquadramento binario por comprimento",
         "`claim_id` fica deliberadamente fora dos campos e do hash",
         "agenteffectintent` separa a identidade do efeito de seu conteudo",
         "`effect_id` deriva do turno",
-        "slot semantico versionado",
-        (
-            "`payload_digest` vincula separadamente o efeito, o tipo e o json "
-            "canonico limitado"
-        ),
+        "`payload_digest` vincula separadamente o efeito",
         "`ordinal` devera vir de um plano futuro, deterministico e persistido",
-        "intake_update",
-        "apply_optout",
-        "apply_consent",
-        "tool_call",
-        "audit_event",
-        "outbound_reply",
-        "limita o turno a 256 intencoes",
         "identidade esperada de uma fonte confiavel",
-        (
-            "namespaces deterministicos, nao autenticadores, segredo ou "
-            "autoridade de tenant"
-        ),
-        "validador de `provider_message_id` e mais estrito que o ingresso vivo",
-        (
-            "modulo nao esta importado nem conectado ao webhook, worker, "
-            "runtime, banco ou langgraph"
-        ),
-        (
-            "nao ha recibo duravel, plano persistido de efeitos, saver, "
-            "migration, retomada ou replay seguro nem idempotencia operacional"
-        ),
-        "no runtime atual, `message.id` ainda nao e propagado a entrada do grafo",
-        (
-            "`claim_id`, a reply key e o lease existentes nao serializam a "
-            "conversa"
-        ),
-        "caminho legacy continua presente",
-        (
-            "nao existem receipts duraveis, ordenacao persistida ou fronteira "
-            "atomica entre efeitos"
-        ),
-        (
-            "esses pontos bloqueiam o wiring futuro, sem constituir defeitos "
-            "do contrato puro offline"
-        ),
-    }
+        "namespaces deterministicos, nao autenticadores",
+        "`agent_trusted_inbound_identity_enabled=false` por padrao",
+        "uuid de `message.id` ja persistido tanto no registro novo",
+        "nos caminhos de duplicata",
+        "`claim_id` utf-8 imprimivel de ate 128 bytes",
+        "claim permanece requisito separado de recuperacao",
+        "nunca altera o `turn_id`",
+        "identidade e construida antes de coercao de tenant",
+        "caminho ligado nunca volta ao fluxo legacy",
+        "com a flag desligada, a assinatura e o comportamento legacy sao preservados",
+        "`agentstate` continua recusando `turn_identity`",
+        "nao ao grafo, checkpointer ou modelo",
+        "wiring nao foi ativado nem testado em ambiente compartilhado",
+        "preflight de compatibilidade dos ids persistidos e requisito obrigatorio",
+        "preparacao d3 offline: plano estrutural de execucao",
+        "contrato puro `turn_execution`",
+        "nenhum codigo de producao o importa",
+        "ordena deterministicamente o conjunto completo de intencoes",
+        "por ultimo, no maximo uma resposta",
+        "efeitos singleton exigem ordinal zero",
+        "nao adquire lock, nao agenda turnos e nao garante fifo",
+        "valores estruturais imutaveis",
+        "nao sao linhas duraveis nem prova de uma store confiavel",
+        "`accepted` significa somente que transporte ou provedor aceitou",
+        "sem provar entrega ou leitura",
+        "`ambiguous` e terminal",
+        "compatibilidade `v2` deriva do `effect_id`",
+        "chaves vivas `v1` e `v0` incluem material instavel",
+        "nao as deriva, autentica ou aceita como correlacao suficiente",
+        "nao existe persistencia de plano, receipt ou outbox",
+        "fronteira atomica entre commit de dominio e outbox",
+        "runtime ativado",
+        turn_identity_sha256,
+        identity_test_sha256,
+        turn_execution_sha256,
+        execution_test_sha256,
+        "245/245",
+        "401 passed, 7 skipped",
+        "86/86",
+        "190/190",
+        "462 passed, 7 skipped",
+    } | four_input_rebinding_required
     architecture_missing = sorted(
         item for item in architecture_required if item not in architecture
     )
     assert not architecture_missing, (
-        f"D3 turn identity architecture missing: {architecture_missing}"
+        f"D3 combined offline architecture missing: {architecture_missing}"
     )
     for stale_claim in stale_claims:
         assert stale_claim not in architecture
 
+    for path in DEV_CONNECT_TLS_AUTH_CURRENT_DOCS | {
+        WHATSAPP_FIRST_AGENT_ARCHITECTURE_ADR_PATH
+    }:
+        normalized = _normalized_prose(path.read_text(encoding="utf-8"))
+        missing = sorted(
+            item for item in four_input_rebinding_required if item not in normalized
+        )
+        assert not missing, f"D3 four-input runtime rebinding missing in {path}: {missing}"
+
     technical_files = {
         REPO_ROOT / "backend" / "app" / "agent" / "turn_identity.py": (
-            implementation_sha256
+            turn_identity_sha256
         ),
         REPO_ROOT / "backend" / "tests" / "test_agent_turn_identity.py": (
-            test_sha256
+            identity_test_sha256
+        ),
+        REPO_ROOT / "backend" / "app" / "agent" / "turn_execution.py": (
+            turn_execution_sha256
+        ),
+        REPO_ROOT / "backend" / "tests" / "test_agent_turn_execution.py": (
+            execution_test_sha256
+        ),
+        REPO_ROOT / "backend" / "app" / "config.py": (
+            "c97f3c62c872b0e6a1d2e745f7effbdbb395617f5533abf7e4c82f6a681fcfe3"
+        ),
+        REPO_ROOT / "backend" / "app" / "workers" / "queue_worker.py": (
+            "54b15a3ceb60bf05eee66a88971d25cafb56f5b9e8e2d3d10ce7fcb8793a861c"
+        ),
+        REPO_ROOT / "backend" / "app" / "agent" / "runtime.py": (
+            "28208ccdd3dcfb13e24c48400cb8495d55e382c1af4829b6c68d6394d2903085"
+        ),
+        REPO_ROOT / "backend" / "app" / "agent" / "context.py": (
+            "35eee0c1ac36a983b9f28799dc7c0febb59989dc3378c94056b7f4765c199d08"
+        ),
+        REPO_ROOT / "backend" / "tests" / "test_agent_tenant_runtime.py": (
+            "bca0708077d6f3e065445c6b3ca97bb49c46461c8335ea871b045bbbd9cd437b"
+        ),
+        REPO_ROOT / "backend" / "tests" / "test_agent_trusted_context.py": (
+            "880f6f51eb77eaee38b26a9b77fb4c5a16b205044b3723ab2f9d4424312605e8"
+        ),
+        REPO_ROOT / "backend" / "tests" / "test_whatsapp_worker.py": (
+            "c1d2a0600e41fe44e23cba89929bbfa29f0e951312f1b6735124a2d39a1b08fd"
         ),
     }
     for path, expected_sha256 in technical_files.items():

@@ -337,7 +337,8 @@ A matriz nova passou `87/87`, a focal estável passou `138/138`, e o verificador
 terminou fail-closed com exit `8` e
 `RESULT=BLOCKED_MIGRATION_EPOCH_V3:PENDING_SEPARATE_EVIDENCE`. O estado é
 `RECOMMENDATION_ONLY_NOT_APPROVED`; isso comprova somente o desenho offline e
-não autoriza evidência viva, cutover, migration ou runtime.
+não autoriza evidência viva, cutover, migration ou runtime. O pacote permanece
+exclusivamente offline.
 
 No batch offline depois integrado pela PR #351, a correção de precedência classifica
 `TimeoutError` e `socket.timeout` como `DEADLINE_EXCEEDED` antes de `OSError`
@@ -381,6 +382,13 @@ saúde funcional, backend, banco, saver, migration, memória ativa, deploy do
 backend, flag ou runtime. O estado permanece `PREPARAÇÃO D3 INTEGRADA E
 INATIVA`.
 
+No lote D3 local, antes da primeira consulta, o runtime rederiva a identidade
+com quatro entradas confiáveis e separadas: `igreja_id`, `conversation_id`, o
+UUID inbound persistido de `Message.id` e o `provider_message_id` exato. Ele
+exige igualdade integral dos quatro vínculos com a identidade construída pelo
+worker; qualquer divergência aborta. A flag permanece desligada por padrão e
+nenhuma execução viva foi autorizada.
+
 O gate histórico `REVIEW_AND_CI_OFFLINE_AGENT_FOUNDATION_BATCH_PR` foi consumido
 pelo push, abertura, CI e Preview da PR #351. Ele não autorizou o merge
 posterior, permanece somente como evidência histórica e não é um segundo gate
@@ -392,14 +400,17 @@ do frontend Production foram autorizados separadamente; esse gate não os
 autorizou. Após o consumo, ele permanece somente como evidência histórica e
 não é um segundo gate corrente.
 
+O gate anterior `REVIEW_AND_CI_D3_TURN_IDENTITY_OFFLINE_PR` foi substituído
+localmente, sem consumo, pelo lote combinado. Não houve push, PR, CI ou Preview
+sob esse gate, portanto ele não é evidência histórica de uma ação externa.
+
 ## Próximo gate único
 
-`REVIEW_AND_CI_D3_TURN_IDENTITY_OFFLINE_PR`. O nome não constitui autorização
+`REVIEW_AND_CI_D3_TURN_EXECUTION_AND_TRUSTED_INBOUND_WIRING_OFFLINE_PR`. O nome não constitui autorização
 já concedida. Seu consumo exige autorização humana posterior e separada que
 nomeie push, abertura da PR e GitHub CI e aceite o Vercel Preview automático.
-A próxima fatia permanece exclusivamente offline e limita-se à identidade
-estável de mensagem e turno e ao contrato de idempotência. Este gate não
-autoriza merge, Vercel Production, saver, probe vivo, nova execução, retry,
-senha, autenticação, sessão de banco, acesso a DEV ou PROD, logs, SQL, captura,
-materialização, DML, migration, reconciliação, backfill, deploy, flag, runtime
-ou execução externa.
+O gate cobre somente revisão e CI do lote offline. Não autoriza merge, Vercel
+Production, flag-on, runtime, saver, probe vivo, nova execução, retry, senha,
+autenticação, sessão de banco, acesso a DEV ou PROD, logs, SQL, captura,
+materialização, DML, migration, reconciliação, backfill, deploy, mensagem, tool
+call, qualquer efeito vivo ou execução externa.

@@ -258,28 +258,98 @@ exatos, com limites explícitos de profundidade, nós, inteiros, strings e bytes
 Erros e `repr` expõem somente códigos estáticos, mas o objeto ainda contém IDs
 brutos: essa proteção não autoriza log, `asdict` ou serialização. Os hashes são
 namespaces determinísticos, não autenticadores, segredo ou autoridade de
-tenant. O validador de `provider_message_id` é mais estrito que o ingresso
-vivo; qualquer wiring futuro exige inventário e preflight de compatibilidade.
+tenant.
 
-O freeze exclusivamente offline vincula:
+O commit local `f82f76927ba8a6a265478ad7f21eae07b0d6504c` adiciona um
+adaptador confiável atrás de
+`agent_trusted_inbound_identity_enabled=false` por padrão. A ingestão propaga o
+UUID de `Message.id` já persistido tanto no registro novo quanto nos caminhos
+de duplicata. O worker exige uma mensagem inbound, UUIDs não nulos, o ID
+Evolution persistido e um `claim_id` UTF-8 imprimível de até 128 bytes. O claim
+permanece requisito separado de recuperação e nunca altera o `turn_id`.
+
+Com a flag ligada, a identidade é construída antes de coerção de tenant,
+callback de ownership, reserva durável, criação de sessão, lease, import do
+runtime ou qualquer efeito. Antes da primeira consulta, o runtime rederiva a
+identidade com quatro entradas confiáveis e separadas: `igreja_id`,
+`conversation_id`, o UUID inbound persistido de `Message.id` e o
+`provider_message_id` exato. Ele exige igualdade integral dos quatro vínculos
+com a identidade construída pelo worker; qualquer divergência aborta. Falhas
+expõem somente
+`TrustedInboundIdentityErrorCode` ou `AgentTurnContractErrorCode` sanitizados.
+O caminho ligado nunca volta ao fluxo legacy; com a flag desligada, a
+assinatura e o comportamento legacy são preservados. O `AgentState` continua
+recusando `turn_identity`, `inbound_message_id`, provider, claim e effect como
+aliases de autoridade. A identidade chega somente à fronteira confiável do
+runtime, não ao grafo, checkpointer ou modelo.
+
+Esse wiring não foi ativado nem testado em ambiente compartilhado. O validador
+de `provider_message_id` continua mais estrito que o ingresso histórico; um
+preflight de compatibilidade dos IDs persistidos é requisito obrigatório antes
+de qualquer flag-on futuro. A existência da flag ou o merge do código não
+autoriza sua ativação.
+
+### Preparação D3 offline: plano estrutural de execução
+
+O contrato puro `turn_execution`, originalmente revisado no commit
+`576de558983622146a91417c65a85a2a321f585b` e incorporado localmente em
+`7d1ed00d0add18162a89f3a9c39da6039e74017c`, é stdlib e depende somente do
+contrato congelado de identidade. Nenhum código de produção o importa.
+
+`AgentTurnExecutionPlan` ordena deterministicamente o conjunto completo de
+intenções: intake, opt-out, consentimento, tools, auditoria e, por último, no
+máximo uma resposta. Efeitos singleton exigem ordinal zero. O escopo opaco de
+serialização deriva somente de igreja e conversa; ele identifica a fronteira,
+mas não adquire lock, não agenda turnos e não garante FIFO.
+
+`AgentEffectReceipt`, `AgentReplyOutboxEntry` e as transições da outbox são
+valores estruturais imutáveis. Eles não são linhas duráveis nem prova de uma
+store confiável. `ACCEPTED` significa somente que transporte ou provedor
+aceitou a tentativa, sem provar entrega ou leitura. `AMBIGUOUS` é terminal; só
+uma falha pré-envio comprovada por futuro adaptador pode retornar de
+`IN_TRANSPORT` para `PENDING`.
+
+A compatibilidade `v2` deriva do `effect_id`. As chaves vivas `v1` e `v0`
+incluem material instável de claim ou resposta e só podem ser vinculadas como
+evidência exata carregada por futuro adaptador; o contrato não as deriva,
+autentica ou aceita como correlação suficiente. Texto, horário, telefone,
+proximidade e saída do modelo nunca são evidência de correspondência.
+
+O freeze local vincula:
 
 - `backend/app/agent/turn_identity.py`, SHA-256
-  `c0c3790cf05f38f0531876ba7171a8c456dd4ee911e3c56cb21900eccc0b7248`;
+  `5be323d7fafa4a51d5c954749c8d2d5991e33313e269ee0a3b63bdfc9fb3923d`;
 - `backend/tests/test_agent_turn_identity.py`, SHA-256
-  `7353b26d22574af132596f7b139b3ea290aacafb32a0e76d08530009eb874344`.
+  `4072b76688552b6f870e89876426d3c608b34a362ec895315d733691dff101c5`;
+- `backend/app/agent/turn_execution.py`, SHA-256
+  `72a53515a835bac528280223e22f76a33f8606b5ce979dae11773d10ea6a1b2b`;
+- `backend/tests/test_agent_turn_execution.py`, SHA-256
+  `40a8706b4036aaa0d091f62a9ab8c7a2e2d2a1a4f5417b31d1c34eb9185783d6`;
+- `backend/app/config.py`, SHA-256
+  `c97f3c62c872b0e6a1d2e745f7effbdbb395617f5533abf7e4c82f6a681fcfe3`;
+- `backend/app/workers/queue_worker.py`, SHA-256
+  `54b15a3ceb60bf05eee66a88971d25cafb56f5b9e8e2d3d10ce7fcb8793a861c`;
+- `backend/app/agent/runtime.py`, SHA-256
+  `28208ccdd3dcfb13e24c48400cb8495d55e382c1af4829b6c68d6394d2903085`;
+- `backend/app/agent/context.py`, SHA-256
+  `35eee0c1ac36a983b9f28799dc7c0febb59989dc3378c94056b7f4765c199d08`;
+- `backend/tests/test_agent_tenant_runtime.py`, SHA-256
+  `bca0708077d6f3e065445c6b3ca97bb49c46461c8335ea871b045bbbd9cd437b`;
+- `backend/tests/test_agent_trusted_context.py`, SHA-256
+  `880f6f51eb77eaee38b26a9b77fb4c5a16b205044b3723ab2f9d4424312605e8`;
+- `backend/tests/test_whatsapp_worker.py`, SHA-256
+  `c1d2a0600e41fe44e23cba89929bbfa29f0e951312f1b6735124a2d39a1b08fd`.
 
-A focal terminou em `104/104`, e `tests/test_agent*.py` terminou em
-`376 passed, 7 skipped`. A evidência é local e pré-PR. O módulo não está
-importado nem conectado ao webhook, worker, runtime, banco ou LangGraph. Não há
-recibo durável, plano persistido de efeitos, saver, migration, retomada ou
-replay seguro nem idempotência operacional; `outbound_reply` não substitui o
-ledger vivo. No runtime atual, `Message.id` ainda não é propagado à entrada do
-grafo; `claim_id`, a reply key e o lease existentes não serializam a conversa;
-o caminho legacy continua presente; e não existem receipts duráveis, ordenação
-persistida ou fronteira atômica entre efeitos. Esses pontos bloqueiam o wiring
-futuro, sem constituir defeitos do contrato puro offline. A classificação é
-`CONTRATO D3 DE IDENTIDADE CONGELADO OFFLINE / CANDIDATO NÃO INTEGRADO /
-RUNTIME BLOQUEADO`.
+O wiring passou em `245/245` e em `401 passed, 7 skipped` na seleção
+`tests/test_agent*.py`. O contrato de execução passou em `86/86`, na revisão
+independente `190/190` e em `462 passed, 7 skipped` na mesma seleção. As duas
+revisões terminaram `GO`, sem P0, P1 ou P2. A evidência é local e pré-PR.
+
+Não existe persistência de plano, receipt ou outbox, store autenticada, lock
+de conversa, FIFO, fronteira atômica entre commit de domínio e outbox, saver,
+checkpoint durável, migration, memória, retomada, replay seguro, flag-on ou
+runtime ativado. A classificação é `LOTE D3 OFFLINE COMBINADO LOCALMENTE /
+FLAG DEFAULT FALSE / CANDIDATO NÃO INTEGRADO NO MAIN / RUNTIME NÃO ATIVADO`.
 
 
 
