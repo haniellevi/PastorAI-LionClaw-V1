@@ -286,18 +286,44 @@ intactos. Estado: `INTEGRADO E COMPROVADO OFFLINE / DUAS INVOCACOES DEV
 BLOQUEADAS / CAUSA NAO DETERMINADA / PROD NAO CONSULTADO / OPERACAO
 BLOQUEADA`.
 
-O gate seguinte é
-`SEPARATE_NOMINAL_DEV_FAILURE_LOGS_READ_ONLY_REVIEW_AUTHORIZATION`. Ele exige
-uma autorização humana nova, nominal, exclusiva e separada para uma única
-revisão read-only e sanitizada dos logs da falha DEV. A fonte, os filtros e a
-janela temporal mínima ainda não foram delimitados e precisam constar da nova
-autorização antes de qualquer acesso; nenhum horário é inferido. Nenhum log foi
-acessado nesta PR. Este gate não autoriza retry, nova invocação DEV, consulta a
-PROD, banco ou SQL, exportação ou persistência de logs, captura,
-materialização, DML,
-reconciliação de ledger, corte de época, `bootstrap-ledger`, `harden-ledger`,
-`status`, `apply`, migration, backfill, deploy, flag ou runtime. PROD continua
-fora. UV e CD permanecem fora.
+A PR #344 integrou o enum sanitizado no `main`
+`bab031a7e0067a257eedb4a24c786cc925801463`. Em `2026-08-31`, uma terceira e
+única invocação DEV `PROCESS_INVOCATION_ONLY`, feita nesse `main`, terminou com
+exit `7`, `RESULT=BLOCKED_DATABASE_PREFLIGHT_FAILED` e
+`PREFLIGHT_FAILURE_PHASE=CONNECT_TLS_AUTH`. A autorização nominal ficou válida
+entre `2026-08-31T11:03:30Z` e `2026-08-31T11:18:30Z`; essa janela não é o
+timestamp da execução. O horário operacional preciso não foi preservado e não
+foi inferido.
+
+DNS, TCP, TLS, CA, senha, autenticação, endpoint, disponibilidade, conexão,
+transação e identidade permanecem `UNKNOWN`. `ROLLBACK_CONFIRMED=false` não
+prova falha de rollback, e `CONNECTION_CLOSED=true` não prova que uma conexão
+foi estabelecida. A autorização foi consumida. Nenhum log foi consultado e não
+houve retry, captura, materialização, DML, migration, backfill, deploy, flag,
+runtime ou acesso a PROD.
+A limpeza removeu o diretório temporário de autorização, o launcher e a
+worktree operacionais temporários; o checkout ficou limpo, sem `__pycache__` ou
+`.pyc`, e o registro Git obsoleto da worktree foi removido.
+
+O plano versionado do probe de transporte está em
+[`dev-connect-tls-auth-transport-probe-plan-v1.json`](../../docs/governance/migrations/dev-connect-tls-auth-transport-probe-plan-v1.json)
+e permanece `execution_disabled=true`. Esta missão somente preparou o contrato
+offline: nenhum DNS foi resolvido, nenhum socket foi aberto e nenhum tráfego
+TCP ou TLS foi produzido. O probe futuro deverá encerrar antes de qualquer
+`StartupMessage`, usuário, banco, senha, autenticação ou SQL. A decisão e os
+limites completos estão em
+[`2026-08-31-dev-connect-tls-auth-transport-probe.md`](../../docs/decisions/2026-08-31-dev-connect-tls-auth-transport-probe.md).
+
+O gate único corrente é
+`REVIEW_AND_CI_DEV_CONNECT_TLS_AUTH_OFFLINE_DIAGNOSTICS_PR`. Ele autoriza
+somente abrir e revisar a PR offline e executar o CI do mesmo SHA. Não
+autoriza merge nem integração. O merge em `main` e qualquer deployment
+automático frontend Vercel Production exigem autorização humana posterior
+específica que nomeie e aceite ambos. O gate não autoriza executar o probe,
+retry, nova invocação DEV, DNS, TCP, TLS, senha, autenticação, logs, PROD, banco,
+SQL, captura, materialização, DML, reconciliação, `bootstrap-ledger`,
+`harden-ledger`, `status`, `apply`, migration, backfill, deploy, flag ou
+runtime. UV e CD permanecem fora.
 
 ## Transações especiais
 
