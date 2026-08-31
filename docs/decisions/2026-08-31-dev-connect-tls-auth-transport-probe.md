@@ -287,7 +287,7 @@ host, endereço, certificado ou exceção dinâmica entra na saída. O candidato
 tem runner SHA-256
 `0ac585b86dd1c96446622e9a46bccda8a1e43eb0bceb0dcc19226892cb88d191` e
 teste SHA-256
-`ef1e23ea13b0469ae4561191c8f46bd34516b94288cce302d41cb5046b2104df`;
+`70334dfc33505ea0b5ddb85a6406672fe0d9154e105134da164c773978459489`;
 `95/95` testes passaram, incluindo loopback TLS sintético.
 
 ## Próximo gate único

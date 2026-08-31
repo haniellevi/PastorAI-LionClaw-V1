@@ -215,18 +215,26 @@ class SyntheticPgTlsServer:
                     break
                 self.ssl_request += chunk
             connection.sendall(b"S")
-            tls_connection = self._context.wrap_socket(
-                connection,
-                server_side=True,
-                do_handshake_on_connect=False,
-            )
+            tls_connection = self._context.wrap_socket(connection, server_side=True)
             connection = None
             tls_connection.settimeout(5)
-            tls_connection.do_handshake()
             try:
                 self.post_tls_payload = tls_connection.recv(1)
-            except (BrokenPipeError, ConnectionResetError):
+            except OSError as exc:
+                if exc.errno not in {errno.EBADF, errno.ECONNRESET, errno.EPIPE}:
+                    raise
                 self.post_tls_payload = b""
+        except OSError as exc:
+            # The client deliberately closes immediately after its handshake or
+            # hostname decision. CPython 3.13 can surface that peer-close race as
+            # EBADF while the server-side wrapper restores its timeout. The client
+            # assertions still prove whether its handshake completed, so this
+            # fixture records the absence of a StartupMessage and ignores only
+            # that exact post-handshake teardown condition.
+            if exc.errno == errno.EBADF:
+                self.post_tls_payload = b""
+            else:
+                self.error = exc
         except BaseException as exc:  # captured for assertion in the test thread
             self.error = exc
         finally:

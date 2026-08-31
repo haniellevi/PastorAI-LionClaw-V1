@@ -376,7 +376,7 @@ A evolução offline subsequente adiciona somente a categoria estática de falha
 do handshake. O candidato tem runner SHA-256
 `0ac585b86dd1c96446622e9a46bccda8a1e43eb0bceb0dcc19226892cb88d191`,
 testes SHA-256
-`ef1e23ea13b0469ae4561191c8f46bd34516b94288cce302d41cb5046b2104df` e
+`70334dfc33505ea0b5ddb85a6406672fe0d9154e105134da164c773978459489` e
 `95/95` testes verdes. O gate único corrente é
 `REVIEW_AND_CI_DEV_TLS_HANDSHAKE_FAILURE_CATEGORY_PR`. Ele não autoriza nova
 execução, merge, deploy manual ou Production, Vercel Production, senha,

@@ -2641,7 +2641,7 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
     tls_category_candidate_required = {
         "categoria estatica de falha tls",
         "0ac585b86dd1c96446622e9a46bccda8a1e43eb0bceb0dcc19226892cb88d191",
-        "ef1e23ea13b0469ae4561191c8f46bd34516b94288cce302d41cb5046b2104df",
+        "70334dfc33505ea0b5ddb85a6406672fe0d9154e105134da164c773978459489",
         "95/95",
         DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold(),
         "push, pr e preview",
@@ -2890,7 +2890,7 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
             "0ac585b86dd1c96446622e9a46bccda8a1e43eb0bceb0dcc19226892cb88d191"
         ),
         REPO_ROOT / "backend" / "tests" / "test_dev_connect_tls_auth_transport_probe.py": (
-            "ef1e23ea13b0469ae4561191c8f46bd34516b94288cce302d41cb5046b2104df"
+            "70334dfc33505ea0b5ddb85a6406672fe0d9154e105134da164c773978459489"
         ),
         REPO_ROOT / "backend" / "scripts" / "preflight_migration_history_environment_identity.py": (
             "8da631fbb602488bb8c82ce1529c9d8ba17acbae8a318ea9b0fc24cdd8f65cd2"
@@ -2925,7 +2925,7 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
     assert "b79ff9d7473fdafd0a4fcd6ceba98b2c46f5470ef517b6663898812fe8b1296e" in readme
     assert "90/90" in readme
     assert "0ac585b86dd1c96446622e9a46bccda8a1e43eb0bceb0dcc19226892cb88d191" in readme
-    assert "ef1e23ea13b0469ae4561191c8f46bd34516b94288cce302d41cb5046b2104df" in readme
+    assert "70334dfc33505ea0b5ddb85a6406672fe0d9154e105134da164c773978459489" in readme
     assert "95/95" in readme
     assert readme.count(DEV_CONNECT_TLS_AUTH_PLAN_REVIEW_GATE.casefold()) == 1
     assert readme.count(DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold()) == 1
