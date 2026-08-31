@@ -351,14 +351,23 @@ inalterado e seus campos `implementation_present=false` e
 `network_capability_present=false` descrevem somente o estágio anterior. Não
 houve execução real, acesso a DEV, PROD, banco ou logs.
 
+A PR #348, HEAD `af91e5218f9317a730aa29ad8d8c645312b30f19`, integrou esse
+runner no merge `1e727cd2ea90ccfb68961174b802d595c71f355b`, com
+`mergedAt=2026-08-31T15:22:49Z`. Os sete workflows pós-merge ficaram em
+`SUCCESS`. A Vercel registrou o deployment automático frontend Production
+`6184050276`, status `17575418445`, `state=success`, em
+`2026-08-31T15:23:35Z`; essa metadata prova somente o deployment do frontend e
+não prova saúde funcional, backend, banco, DEV, PROD ou o probe. O estado é
+`IMPLEMENTADO / INTEGRADO / COMPROVADO OFFLINE / PROBE NÃO EXECUTADO /
+OPERAÇÃO BLOQUEADA`.
+
 O gate único corrente é
-`REVIEW_AND_CI_DEV_CONNECT_TLS_AUTH_TRANSPORT_PROBE_IMPLEMENTATION_PR`. Ele
-autoriza somente o push do candidato, abrir e revisar a PR e executar o CI do
-mesmo SHA.
-Seu consumo exige autorização humana que nomeie o push e a abertura da PR e
-aceite o Vercel Preview automático do frontend. Não autoriza merge nem
-integração. O gate não autoriza executar o probe, retry, nova
-invocação DEV, DNS, TCP, TLS, senha, autenticação, logs, PROD, banco, SQL,
+`SEPARATE_NOMINAL_DEV_CONNECT_TLS_AUTH_TRANSPORT_PROBE_AUTHORIZATION`. Seu
+consumo exige uma autorização humana nominal para exatamente uma invocação
+`PROCESS_INVOCATION_ONLY` no checkout de `main` `1e727cd2`, com runner SHA-256
+`4196e218e023f5ef16fe333f62b756b55239d0bdde1c11aed12e59af888f6cc9` e
+`source_main_git_sha=36f8d13284a8f4964d0258a2a3b845323a80fe7e` no registro
+interno. O gate não autoriza retry, senha, autenticação, logs, PROD, banco, SQL,
 captura, materialização, DML, reconciliação,
 `bootstrap-ledger`, `harden-ledger`, `status`, `apply`, migration, backfill,
 deploy manual ou Production, flag ou runtime. UV e CD permanecem fora.

@@ -158,15 +158,28 @@ descrevem a etapa anterior já consumida. A única rede desta rodada foi o `git 
 nominal autorizado; nenhum probe vivo, DEV, PROD, banco ou log foi acessado.
 `operational_authorization=false` e `next_stage_authorized=false` permanecem.
 
+A PR #348, HEAD `af91e5218f9317a730aa29ad8d8c645312b30f19`, integrou o probe no
+merge `1e727cd2ea90ccfb68961174b802d595c71f355b`, com
+`mergedAt=2026-08-31T15:22:49Z`. Os sete workflows pós-merge concluíram com
+`SUCCESS`: Tooling `33408103314`, Environment Attestation PG17 `33408103217`,
+Canonical `33408103386`, Frontend `33408103193`, E2E `33408103279`, Backend
+`33408103254` e RLS `33408103282`. A Vercel registrou o deployment automático frontend Production
+`6184050276`, status `17575418445`, `state=success`, em
+`2026-08-31T15:23:35Z`; essa metadata prova somente o deployment do frontend,
+não sua saúde funcional, e não prova backend, banco, DEV, PROD ou o probe. O
+estado é `IMPLEMENTADO / INTEGRADO / COMPROVADO OFFLINE / PROBE NÃO EXECUTADO
+/ OPERAÇÃO BLOQUEADA`.
+
 ## Próximo gate único
 
-`REVIEW_AND_CI_DEV_CONNECT_TLS_AUTH_TRANSPORT_PROBE_IMPLEMENTATION_PR`.
+`SEPARATE_NOMINAL_DEV_CONNECT_TLS_AUTH_TRANSPORT_PROBE_AUTHORIZATION`.
 
-O gate exige autorização humana separada que nomeie o push, a abertura da PR,
-o CI do mesmo SHA e o Vercel Preview automático do frontend. Não autoriza
-merge nem integração. O gate também não autoriza executar o probe, retry, nova
-invocação DEV, DNS, TCP, TLS,
-senha, autenticação, consulta de logs, acesso a DEV ou PROD, banco, SQL,
+Seu consumo exige autorização humana nominal para exatamente uma invocação
+`PROCESS_INVOCATION_ONLY` no checkout de `main` `1e727cd2`, com runner SHA-256
+`4196e218e023f5ef16fe333f62b756b55239d0bdde1c11aed12e59af888f6cc9` e
+`source_main_git_sha=36f8d13284a8f4964d0258a2a3b845323a80fe7e` no contrato
+interno. O gate não autoriza retry, senha, autenticação, consulta de logs,
+acesso a PROD, sessão de banco, SQL,
 captura, materialização, DML, migration, reconciliação, backfill, deploy manual
 ou do backend, flag, runtime, `status`, `apply`, `bootstrap-ledger` ou
 `harden-ledger`.

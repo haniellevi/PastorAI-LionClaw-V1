@@ -3,8 +3,8 @@
 Data: `2026-08-31`
 
 Estado: `PLANO OFFLINE INTEGRADO / RESULTADO SANITIZADO REGISTRADO / CAUSA
-INDETERMINADA / CANDIDATO DE PROBE IMPLEMENTADO E COMPROVADO OFFLINE / AINDA
-NÃO INTEGRADO / PROBE NÃO EXECUTADO / OPERAÇÃO BLOQUEADA`.
+INDETERMINADA / PROBE IMPLEMENTADO, INTEGRADO E COMPROVADO OFFLINE / PROBE NÃO
+EXECUTADO / OPERAÇÃO BLOQUEADA`.
 
 Base versionada: `bab031a7e0067a257eedb4a24c786cc925801463`.
 
@@ -203,19 +203,46 @@ sanitizada, mantém `ROOT_CAUSE=UNDETERMINED`,
 O plano JSON permanece histórico e byte-idêntico. Seus campos
 `implementation_present=false` e `network_capability_present=false` descrevem
 somente a etapa anterior já consumida, integrada pela PR #346; eles não descrevem
-o candidato ainda não integrado. Nenhum registro nominal de execução foi
+o runner integrado pela PR #348. Nenhum registro nominal de execução foi
 emitido e nenhum resultado local autoriza uma execução viva.
+
+## Integração da implementação na PR #348
+
+A PR #348, HEAD `af91e5218f9317a730aa29ad8d8c645312b30f19`, foi integrada no
+merge `1e727cd2ea90ccfb68961174b802d595c71f355b`, com
+`mergedAt=2026-08-31T15:22:49Z`. Os sete workflows pós-merge concluíram com
+`SUCCESS`: Tooling `33408103314`, Environment Attestation PG17 `33408103217`,
+Canonical `33408103386`, Frontend `33408103193`, E2E `33408103279`, Backend
+`33408103254` e RLS `33408103282`.
+
+A Vercel registrou o deployment automático frontend Production `6184050276`,
+status `17575418445`, `state=success`, em `2026-08-31T15:23:35Z`. Essa metadata
+prova somente o deployment do frontend, não sua saúde funcional, e não prova
+backend, banco, DEV, PROD ou o probe. O estado da implementação é
+`IMPLEMENTADO / INTEGRADO / COMPROVADO OFFLINE / PROBE NÃO EXECUTADO /
+OPERAÇÃO BLOQUEADA`.
+
+O conteúdo do merge foi validado offline: a árvore calculada dos pais conhecidos
+`36f8d13284a8f4964d0258a2a3b845323a80fe7e` e
+`af91e5218f9317a730aa29ad8d8c645312b30f19` é
+`11d282f20f81a0b6b0885929be19852e34d15f70`, idêntica à árvore do HEAD da PR.
+O objeto remoto `1e727cd2` não foi baixado nesta missão porque rede permaneceu
+bloqueada. Isso limita somente a proveniência local da reconciliação, não muda
+os bytes técnicos já revisados.
 
 ## Próximo gate único
 
-`REVIEW_AND_CI_DEV_CONNECT_TLS_AUTH_TRANSPORT_PROBE_IMPLEMENTATION_PR`.
+`SEPARATE_NOMINAL_DEV_CONNECT_TLS_AUTH_TRANSPORT_PROBE_AUTHORIZATION`.
 
-Esse gate autoriza somente o push do candidato, a abertura e revisão da PR e o
-CI do mesmo SHA. Seu consumo exige autorização humana que nomeie o push e a
-abertura da PR e aceite o Vercel Preview automático do frontend. Não autoriza
-merge nem integração ou deployment Production.
+Seu consumo exige uma nova autorização humana nominal para exatamente uma
+invocação `PROCESS_INVOCATION_ONLY`, no checkout de `main`
+`1e727cd2ea90ccfb68961174b802d595c71f355b`, condicionada ao runner SHA-256
+`4196e218e023f5ef16fe333f62b756b55239d0bdde1c11aed12e59af888f6cc9`. O
+registro mecânico usa `source_main_git_sha=36f8d13284a8f4964d0258a2a3b845323a80fe7e`,
+como exigido pelo contrato interno do runner, sem substituir a proveniência do
+merge atual.
 
-O gate não autoriza executar o probe, retry, nova invocação
-DEV, DNS, TCP, TLS, senha, autenticação, consulta de logs, banco, SQL, captura,
+O gate não autoriza retry, senha, autenticação, sessão de banco, consulta de
+logs, SQL, captura,
 materialização, DML, migration, reconciliação, backfill, deploy manual ou do
 backend, flag, runtime ou acesso a PROD.

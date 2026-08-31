@@ -486,12 +486,26 @@ nominal autorizado para obter o merge; nenhum probe vivo, DEV, PROD, banco ou
 log foi acessado. `operational_authorization=false` e
 `next_stage_authorized=false` permanecem.
 
+A PR #348, HEAD `af91e5218f9317a730aa29ad8d8c645312b30f19`, foi integrada no
+merge `1e727cd2ea90ccfb68961174b802d595c71f355b`, com
+`mergedAt=2026-08-31T15:22:49Z`. Os sete workflows pos-merge concluiram com
+`SUCCESS`: Tooling `33408103314`, Environment Attestation PG17 `33408103217`,
+Canonical `33408103386`, Frontend `33408103193`, E2E `33408103279`, Backend
+`33408103254` e RLS `33408103282`. A Vercel registrou o deployment automatico
+frontend Production `6184050276`, status `17575418445`, `state=success`, em
+`2026-08-31T15:23:35Z`. Essa metadata prova somente o deployment do frontend,
+nao sua saude funcional, e nao prova backend, banco, DEV, PROD ou o probe. O
+estado agora e `IMPLEMENTADO / INTEGRADO / COMPROVADO OFFLINE / PROBE NAO
+EXECUTADO / OPERACAO BLOQUEADA`.
+
 **Próximo gate único:**
-`REVIEW_AND_CI_DEV_CONNECT_TLS_AUTH_TRANSPORT_PROBE_IMPLEMENTATION_PR`. Ele
-exige autorizacao humana separada que nomeie o push, a abertura da PR, o CI do
-mesmo SHA e o Vercel Preview automatico do frontend. Nao autoriza merge nem
-integracao. Execucao do probe, retry,
-nova invocacao DEV, DNS, TCP, TLS, senha, autenticacao, logs, banco, SQL,
+`SEPARATE_NOMINAL_DEV_CONNECT_TLS_AUTH_TRANSPORT_PROBE_AUTHORIZATION`. Seu
+consumo exige nova autorizacao humana nominal para exatamente uma invocacao
+`PROCESS_INVOCATION_ONLY` no checkout de `main` `1e727cd2`, com runner SHA-256
+`4196e218e023f5ef16fe333f62b756b55239d0bdde1c11aed12e59af888f6cc9` e o
+`source_main_git_sha=36f8d13284a8f4964d0258a2a3b845323a80fe7e` exigido pelo
+contrato interno. Nao autoriza retry, senha, autenticacao, sessao de banco,
+SQL, logs,
 captura, materializacao, DML, migration, reconciliacao, backfill, deploy manual
 ou Production, flag, runtime e PROD continuam bloqueados.
 

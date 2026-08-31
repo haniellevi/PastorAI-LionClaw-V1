@@ -107,7 +107,7 @@ DEV_CONNECT_TLS_AUTH_PLAN_REVIEW_GATE = (
     "REVIEW_AND_CI_DEV_CONNECT_TLS_AUTH_OFFLINE_DIAGNOSTICS_PR"
 )
 DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE = (
-    "REVIEW_AND_CI_DEV_CONNECT_TLS_AUTH_TRANSPORT_PROBE_IMPLEMENTATION_PR"
+    "SEPARATE_NOMINAL_DEV_CONNECT_TLS_AUTH_TRANSPORT_PROBE_AUTHORIZATION"
 )
 DEV_PREFLIGHT_PHASE_DIAGNOSTICS_STALE_GATE = (
     "REVIEW_AND_INTEGRATE_DEV_PREFLIGHT_PHASE_DIAGNOSTICS_PR"
@@ -116,6 +116,7 @@ DEV_PREFLIGHT_PHASE_DIAGNOSTICS_STALE_CLAIMS = {
     DEV_PREFLIGHT_PHASE_DIAGNOSTICS_STALE_GATE.casefold(),
     DEV_CONNECT_TLS_AUTH_PLAN_REVIEW_GATE.casefold(),
     "review_and_ci_dev_connect_tls_auth_postmerge_reconciliation_pr",
+    "review_and_ci_dev_connect_tls_auth_transport_probe_implementation_pr",
     "review_and_ci_dev_preflight_phase_diagnostics_pr",
     DEV_IDENTITY_PREFLIGHT_RUNNER_CURRENT_GATE.casefold(),
     "eventual integracao",
@@ -2533,11 +2534,12 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
         "operational_authorization=false",
         "next_stage_authorized=false",
         DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold(),
-        "autorizacao humana separada que nomeie o push",
-        "abertura da pr",
-        "ci do mesmo sha",
-        "vercel preview automatico do frontend",
-        "nao autoriza merge nem integracao",
+        "nova autorizacao humana nominal",
+        "exatamente uma invocacao",
+        "process_invocation_only",
+        "checkout de `main` `1e727cd2`",
+        "source_main_git_sha=36f8d13284a8f4964d0258a2a3b845323a80fe7e",
+        "nao autoriza retry, senha, autenticacao, sessao de banco",
         "deploy manual ou production",
     }
 
@@ -2599,6 +2601,29 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
         "next_stage_authorized=false",
     }
 
+    implementation_integration_required = {
+        "pr #348",
+        "af91e5218f9317a730aa29ad8d8c645312b30f19",
+        "1e727cd2ea90ccfb68961174b802d595c71f355b",
+        "mergedat=2026-08-31t15:22:49z",
+        "sete workflows pos-merge",
+        "33408103314",
+        "33408103217",
+        "33408103386",
+        "33408103193",
+        "33408103279",
+        "33408103254",
+        "33408103282",
+        "6184050276",
+        "17575418445",
+        "state=success",
+        "2026-08-31t15:23:35z",
+        "prova somente o deployment do frontend",
+        "nao sua saude funcional",
+        "nao prova backend, banco, dev, prod ou o probe",
+        "implementado / integrado / comprovado offline / probe nao executado / operacao bloqueada",
+    }
+
     for path in DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CANONICAL_DOCS:
         normalized = _normalized_prose(path.read_text(encoding="utf-8"))
         missing = sorted(item for item in canonical_required if item not in normalized)
@@ -2616,6 +2641,15 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
         assert not candidate_missing, (
             f"CONNECT_TLS_AUTH candidate evidence missing in {path}: "
             f"{candidate_missing}"
+        )
+        integration_missing = sorted(
+            item
+            for item in implementation_integration_required
+            if item not in normalized
+        )
+        assert not integration_missing, (
+            f"CONNECT_TLS_AUTH implementation integration missing in {path}: "
+            f"{integration_missing}"
         )
         assert normalized.count("proximo gate unico") == 1
         assert normalized.count(
@@ -2650,9 +2684,12 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
         "diretorio temporario de autorizacao",
         "checkout ficou limpo",
         DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold(),
-        "nao autoriza merge nem integracao",
+        "exatamente uma invocacao",
+        "source_main_git_sha=36f8d13284a8f4964d0258a2a3b845323a80fe7e",
     }
-    phase_required |= postmerge_required | candidate_required
+    phase_required |= (
+        postmerge_required | candidate_required | implementation_integration_required
+    )
     phase_missing = sorted(item for item in phase_required if item not in phase_adr)
     assert not phase_missing, f"preflight phase ADR missing: {phase_missing}"
     assert phase_adr.count("proximo gate unico") == 1
@@ -2669,8 +2706,7 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
         "plano offline integrado",
         "resultado sanitizado registrado",
         "causa indeterminada",
-        "candidato de probe implementado e comprovado offline",
-        "ainda nao integrado",
+        "probe implementado, integrado e comprovado offline",
         "probe nao executado",
         "bab031a7e0067a257eedb4a24c786cc925801463",
         "8da631fbb602488bb8c82ce1529c9d8ba17acbae8a318ea9b0fc24cdd8f65cd2",
@@ -2704,7 +2740,8 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
         "startupmessage",
         "telemetria de dns e rede",
         DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold(),
-        "nao autoriza merge nem integracao",
+        "exatamente uma invocacao",
+        "source_main_git_sha=36f8d13284a8f4964d0258a2a3b845323a80fe7e",
         "implementation_present=false",
         "network_capability_present=false",
         "gate consumido pela abertura, revisao, ci e integracao da pr #346",
@@ -2716,6 +2753,7 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
         "probe nao executado",
     }
     diagnostics_required |= candidate_required
+    diagnostics_required |= implementation_integration_required
     diagnostics_missing = sorted(
         item for item in diagnostics_required if item not in diagnostics_adr
     )
@@ -2794,9 +2832,12 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
     assert "conserva como evidencia historica" in readme
     assert "consumido pela pr #346" in readme
     assert "nao e um segundo gate corrente" in readme
-    assert "aceite o vercel preview automatico do frontend" in readme
     assert "deploy manual ou production" in readme
     assert DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold() in readme
+    assert "pr #348" in readme
+    assert "1e727cd2ea90ccfb68961174b802d595c71f355b" in readme
+    assert "exatamente uma invocacao" in readme
+    assert "source_main_git_sha=36f8d13284a8f4964d0258a2a3b845323a80fe7e" in readme
     assert "4196e218e023f5ef16fe333f62b756b55239d0bdde1c11aed12e59af888f6cc9" in readme
     assert "b79ff9d7473fdafd0a4fcd6ceba98b2c46f5470ef517b6663898812fe8b1296e" in readme
     assert "90/90" in readme
