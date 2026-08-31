@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import datetime as dt
 import uuid
+from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
@@ -48,6 +49,7 @@ from app.db.models import (
 )
 from app.db.session import get_db
 from app.deps import CurrentUser
+from app.domain.cell_report_snapshot import build_cell_report_snapshot_v2
 from app.services.clerk import get_clerk_client
 from tests.conftest import FakeClerk, make_app_user
 
@@ -1084,8 +1086,126 @@ def test_report_frozen_after_submit_via_snapshot(app) -> None:
     assert rep.status_code == 200, rep.text
     body = rep.json()
     assert body["relatorio_status"] == "enviado"
+    assert "schema" not in body
+    assert "totals" not in body
+    assert "schema" not in reu.relatorio_snapshot
     assert len(body["presencas"]) == 1
     assert body["presencas"][0]["estado"] == "compareceu"  # congelado, não 'ausente'
+
+
+def test_get_report_projects_valid_v2_without_inventing_people(app) -> None:
+    snapshot = build_cell_report_snapshot_v2(
+        presentes=9,
+        visitantes=2,
+        decisoes=1,
+        oferta_valor=Decimal("45.60"),
+        observacoes="Resumo agregado.",
+        submission_effect_id="agent_effect_v1_" + ("a" * 64),
+    )
+    reu = make_reuniao(
+        reuniao_id=_REU,
+        tema="Tema canônico",
+        relatorio_status="enviado",
+        relatorio_snapshot=snapshot,
+    )
+    session = _leader_session(reunioes=[reu])
+
+    resp = _wire(app, session=session).get(_REP_PATH, headers=_AUTH)
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["schema"] == "cell-report/v2"
+    assert body["totals"] == {
+        "presentes": 9,
+        "visitantes": 2,
+        "decisoes": 1,
+    }
+    assert body["meeting_id"] == _REU
+    assert body["tema"] == "Tema canônico"
+    assert body["oferta_valor"] == 45.6
+    assert body["observacoes"] == "Resumo agregado."
+    assert body["presencas"] == []
+    assert body["visitantes"] == []
+    assert body["records"] == []
+    assert "submission_effect_id" not in body
+
+
+def test_get_report_malformed_v2_returns_static_500_without_fallback(app) -> None:
+    snapshot = build_cell_report_snapshot_v2(
+        presentes=1,
+        visitantes=0,
+        decisoes=0,
+        oferta_valor=None,
+        observacoes=None,
+        submission_effect_id="agent_effect_v1_" + ("b" * 64),
+    )
+    snapshot["presencas"] = [
+        {"pessoa_id": "private-forged-person", "estado": "compareceu"}
+    ]
+    reu = make_reuniao(
+        reuniao_id=_REU,
+        relatorio_status="enviado",
+        relatorio_snapshot=snapshot,
+    )
+    session = _leader_session(reunioes=[reu])
+
+    resp = _wire(app, session=session).get(_REP_PATH, headers=_AUTH)
+
+    assert resp.status_code == 500
+    assert resp.json() == {
+        "detail": {
+            "code": "INVALID_CELL_REPORT_SNAPSHOT",
+            "reason": "INDIVIDUAL_DATA_FORBIDDEN",
+        }
+    }
+    assert "private-forged-person" not in resp.text
+
+
+def test_get_report_unknown_schema_never_falls_back_to_legacy(app) -> None:
+    reu = make_reuniao(
+        reuniao_id=_REU,
+        relatorio_status="enviado",
+        relatorio_snapshot={
+            "schema": "cell-report/v3",
+            "presencas": [
+                {
+                    "pessoa_id": "private-forged-person",
+                    "estado": "compareceu",
+                }
+            ],
+        },
+    )
+    session = _leader_session(reunioes=[reu])
+
+    resp = _wire(app, session=session).get(_REP_PATH, headers=_AUTH)
+
+    assert resp.status_code == 500
+    assert resp.json() == {
+        "detail": {
+            "code": "INVALID_CELL_REPORT_SNAPSHOT",
+            "reason": "UNSUPPORTED_SCHEMA",
+        }
+    }
+    assert "private-forged-person" not in resp.text
+
+
+def test_get_report_malformed_legacy_returns_classified_500(app) -> None:
+    reu = make_reuniao(
+        reuniao_id=_REU,
+        relatorio_status="enviado",
+        relatorio_snapshot={"presencas": "not-a-list"},
+    )
+    session = _leader_session(reunioes=[reu])
+
+    resp = _wire(app, session=session).get(_REP_PATH, headers=_AUTH)
+
+    assert resp.status_code == 500
+    assert resp.json() == {
+        "detail": {
+            "code": "INVALID_CELL_REPORT_SNAPSHOT",
+            "reason": "INVALID_LEGACY_SNAPSHOT",
+        }
+    }
 
 
 def test_edit_meeting_409_after_report_sent(app) -> None:

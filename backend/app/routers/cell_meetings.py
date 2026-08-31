@@ -21,9 +21,10 @@ import datetime as dt
 import logging
 import re
 import uuid
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
 from sqlalchemy import nulls_last, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -47,6 +48,12 @@ from app.deps import (
     resolve_actor_pessoa_id,
 )
 from app.domain.cell_meetings_schedule import InvalidDiaReuniao, next_meeting_date
+from app.domain.cell_report_snapshot import (
+    CELL_REPORT_SNAPSHOT_SCHEMA_V2,
+    CellReportSnapshotValidationError,
+    has_cell_report_snapshot_schema_marker,
+    validate_cell_report_snapshot_v2,
+)
 from app.domain.hierarchy import is_leader_or_superior
 
 # Reuso dos helpers de cells.py (BK-DEC-01) — não reimplementar aqui.
@@ -903,6 +910,22 @@ class ReportOut(BaseModel):
     records: list[ReportRecord]
 
 
+class ReportTotals(BaseModel):
+    presentes: int
+    visitantes: int
+    decisoes: int
+
+
+class AggregateReportOut(ReportOut):
+    """Additive read projection for an aggregate ``cell-report/v2`` snapshot."""
+
+    schema_: Literal["cell-report/v2"] = Field(
+        default=CELL_REPORT_SNAPSHOT_SCHEMA_V2,
+        alias="schema",
+    )
+    totals: ReportTotals
+
+
 # ---------------------------------------------------------------------------
 # Schemas — members (gerenciar discípulos da própria célula)
 # ---------------------------------------------------------------------------
@@ -1519,12 +1542,15 @@ def submit_report(
 # ---------------------------------------------------------------------------
 # GET /cell-meetings/{id}/report — relatório consolidado (US-11) — líder/Central
 # ---------------------------------------------------------------------------
-@router.get("/cell-meetings/{reuniao_id}/report", response_model=ReportOut)
+@router.get(
+    "/cell-meetings/{reuniao_id}/report",
+    response_model=AggregateReportOut | ReportOut,
+)
 def get_report(
     reuniao_id: str,
     db: Session = Depends(get_db),
     current_user: CurrentUser = Depends(get_current_user),
-) -> ReportOut:
+) -> AggregateReportOut | ReportOut:
     """Relatório consolidado: presenças, visitantes, registros, oferta, observações
     e status. Visível a líder/Central (404 caso contrário)."""
     reuniao = _reader_meeting_or_404(db, current_user, reuniao_id)
@@ -1533,7 +1559,48 @@ def get_report(
     # Pós-envio (E10/E11): devolve o snapshot congelado no submit — não relê
     # celula_presenca ao vivo, que o endpoint PR2 pode ter mudado depois.
     if reuniao.relatorio_status == RELATORIO_ENVIADO and reuniao.relatorio_snapshot:
-        return ReportOut(**reuniao.relatorio_snapshot)
+        snapshot = reuniao.relatorio_snapshot
+        if has_cell_report_snapshot_schema_marker(snapshot):
+            try:
+                aggregate = validate_cell_report_snapshot_v2(snapshot)
+            except CellReportSnapshotValidationError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail={
+                        "code": "INVALID_CELL_REPORT_SNAPSHOT",
+                        "reason": exc.code.value,
+                    },
+                ) from None
+            return AggregateReportOut(
+                meeting_id=str(reuniao.id),
+                data=reuniao.data.isoformat(),
+                tema=reuniao.tema,
+                relatorio_status=reuniao.relatorio_status,
+                oferta_valor=(
+                    float(aggregate.oferta_valor)
+                    if aggregate.oferta_valor is not None
+                    else None
+                ),
+                observacoes=aggregate.observacoes,
+                presencas=[],
+                visitantes=[],
+                records=[],
+                totals=ReportTotals(
+                    presentes=aggregate.totals.presentes,
+                    visitantes=aggregate.totals.visitantes,
+                    decisoes=aggregate.totals.decisoes,
+                ),
+            )
+        try:
+            return ReportOut(**snapshot)
+        except (TypeError, ValidationError):
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail={
+                    "code": "INVALID_CELL_REPORT_SNAPSHOT",
+                    "reason": "INVALID_LEGACY_SNAPSHOT",
+                },
+            ) from None
 
     return _build_report_out(db, igreja_id, reuniao)
 

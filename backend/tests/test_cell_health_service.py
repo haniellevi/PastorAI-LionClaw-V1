@@ -11,7 +11,15 @@ exclusão de canceladas e a ordenação (vermelhos DESC, alertas DESC, nome ASC)
 from __future__ import annotations
 
 import uuid
+from decimal import Decimal
 
+import pytest
+
+from app.domain.cell_report_snapshot import (
+    CellReportSnapshotErrorCode,
+    CellReportSnapshotValidationError,
+    build_cell_report_snapshot_v2,
+)
 from app.services.cell_health_service import (
     COR_ALERTA,
     COR_VERDE,
@@ -38,6 +46,7 @@ from tests.cell_backend_fakes import (
 )
 
 _IGREJA = uuid.UUID(TENANT)
+_EFFECT_ID = "agent_effect_v1_" + ("d" * 64)
 
 
 def _session(**kwargs) -> CellSession:
@@ -160,6 +169,68 @@ def test_good_attendance_realized_meeting_is_green() -> None:
     assert health.sinais[0].cor == COR_VERDE
 
 
+def test_v2_totals_override_absent_individual_attendance() -> None:
+    reu = make_reuniao(
+        reuniao_id="r-v2-attendance",
+        data=PAST,
+        hora="19:30",
+        relatorio_status="enviado",
+        relatorio_snapshot=build_cell_report_snapshot_v2(
+            presentes=3,
+            visitantes=0,
+            decisoes=0,
+            oferta_valor=Decimal("0.00"),
+            observacoes=None,
+            submission_effect_id=_EFFECT_ID,
+        ),
+    )
+    membros = [make_member(pessoa_id=f"p{index}") for index in range(4)]
+    session = _session(reunioes=[reu], membros=membros, presencas=[])
+
+    health = compute_cell_health(session, _IGREJA, make_cell())
+
+    assert health.alertas == 0
+    assert health.sinais[0].cor == COR_VERDE
+    assert session.execute_count == 5
+
+
+def test_v2_zero_attendance_overrides_live_individual_rows() -> None:
+    reu = make_reuniao(
+        reuniao_id="r-v2-zero-attendance",
+        data=PAST,
+        hora="19:30",
+        relatorio_status="enviado",
+        relatorio_snapshot=build_cell_report_snapshot_v2(
+            presentes=0,
+            visitantes=1,
+            decisoes=0,
+            oferta_valor=None,
+            observacoes=None,
+            submission_effect_id="agent_effect_v1_" + ("e" * 64),
+        ),
+    )
+    membros = [
+        make_member(pessoa_id="p1"),
+        make_member(pessoa_id="p2"),
+    ]
+    presencas = [
+        make_presenca(
+            reuniao_id="r-v2-zero-attendance",
+            pessoa_id="p1",
+        ),
+        make_presenca(
+            reuniao_id="r-v2-zero-attendance",
+            pessoa_id="p2",
+        ),
+    ]
+    session = _session(reunioes=[reu], membros=membros, presencas=presencas)
+
+    health = compute_cell_health(session, _IGREJA, make_cell())
+
+    assert health.alertas == 1
+    assert health.sinais[0].cor == COR_ALERTA
+
+
 def test_attendance_signal_skipped_when_no_active_members() -> None:
     reu = make_reuniao(
         reuniao_id="r-nomembers",
@@ -205,6 +276,121 @@ def test_visitor_breaks_evangelism_streak() -> None:
     session = _session(reunioes=reunioes, membros=[], expectativas=expectativas)
     health = compute_cell_health(session, _IGREJA, make_cell())
     assert health.alertas == 0
+
+
+def test_v2_visitor_total_breaks_evangelism_streak_without_person_rows() -> None:
+    reunioes = [
+        make_reuniao(
+            reuniao_id=f"r-v2-visitor-{index}",
+            data=PAST,
+            hora=f"1{index}:00",
+            relatorio_status="enviado",
+            relatorio_snapshot=build_cell_report_snapshot_v2(
+                presentes=0,
+                visitantes=1 if index == 1 else 0,
+                decisoes=0,
+                oferta_valor=None,
+                observacoes=None,
+                submission_effect_id=(
+                    "agent_effect_v1_" + (f"{index + 1:x}" * 64)
+                ),
+            ),
+        )
+        for index in range(3)
+    ]
+    session = _session(
+        reunioes=reunioes,
+        membros=[],
+        expectativas=[],
+        visitantes=[],
+    )
+
+    health = compute_cell_health(session, _IGREJA, make_cell())
+
+    assert health.alertas == 0
+
+
+def test_v2_zero_visitors_override_live_rows_for_evangelism() -> None:
+    reunioes = [
+        make_reuniao(
+            reuniao_id=f"r-v2-no-visitor-{index}",
+            data=PAST,
+            hora=f"1{index}:00",
+            relatorio_status="enviado",
+            relatorio_snapshot=build_cell_report_snapshot_v2(
+                presentes=0,
+                visitantes=0,
+                decisoes=0,
+                oferta_valor=None,
+                observacoes=None,
+                submission_effect_id=(
+                    "agent_effect_v1_" + (f"{index + 4:x}" * 64)
+                ),
+            ),
+        )
+        for index in range(3)
+    ]
+    visitantes = [
+        make_visitante(reuniao_id=meeting.id) for meeting in reunioes
+    ]
+    session = _session(reunioes=reunioes, membros=[], visitantes=visitantes)
+
+    health = compute_cell_health(session, _IGREJA, make_cell())
+
+    assert health.alertas == 1
+
+
+def test_malformed_v2_snapshot_fails_closed_without_legacy_fallback() -> None:
+    snapshot = build_cell_report_snapshot_v2(
+        presentes=1,
+        visitantes=1,
+        decisoes=0,
+        oferta_valor=None,
+        observacoes=None,
+        submission_effect_id="agent_effect_v1_" + ("f" * 64),
+    )
+    snapshot["presencas"] = [{"pessoa_id": "forged"}]
+    reu = make_reuniao(
+        reuniao_id="r-v2-malformed",
+        data=PAST,
+        relatorio_status="enviado",
+        relatorio_snapshot=snapshot,
+    )
+    session = _session(
+        reunioes=[reu],
+        membros=[make_member()],
+        presencas=[make_presenca(reuniao_id="r-v2-malformed")],
+    )
+
+    with pytest.raises(CellReportSnapshotValidationError) as exc_info:
+        compute_cell_health(session, _IGREJA, make_cell())
+
+    assert (
+        exc_info.value.code
+        is CellReportSnapshotErrorCode.INDIVIDUAL_DATA_FORBIDDEN
+    )
+
+
+def test_unknown_snapshot_schema_fails_closed_without_live_fallback() -> None:
+    reu = make_reuniao(
+        reuniao_id="r-v3-unsupported",
+        data=PAST,
+        relatorio_status="enviado",
+        relatorio_snapshot={
+            "schema": "cell-report/v3",
+            "presencas": [{"pessoa_id": "private-forged-person"}],
+        },
+    )
+    session = _session(
+        reunioes=[reu],
+        membros=[make_member()],
+        presencas=[make_presenca(reuniao_id="r-v3-unsupported")],
+    )
+
+    with pytest.raises(CellReportSnapshotValidationError) as exc_info:
+        compute_cell_health(session, _IGREJA, make_cell())
+
+    assert exc_info.value.code is CellReportSnapshotErrorCode.UNSUPPORTED_SCHEMA
 
 
 def test_queries_aggregate_counts_and_distinct_visitor_ids() -> None:

@@ -505,6 +505,7 @@ def make_reuniao(
     hora: str = "19:30",
     status: str = "planejada",
     relatorio_status: str = "pendente",
+    relatorio_snapshot: dict | None = None,
 ):
     return SimpleNamespace(
         id=reuniao_id,
@@ -514,6 +515,7 @@ def make_reuniao(
         hora=hora,
         status=status,
         relatorio_status=relatorio_status,
+        relatorio_snapshot=relatorio_snapshot,
     )
 
 

@@ -40,6 +40,10 @@ from app.db.models import (
     CelulaReuniao,
     CelulaVisitante,
 )
+from app.domain.cell_report_snapshot import (
+    has_cell_report_snapshot_schema_marker,
+    validate_cell_report_snapshot_v2,
+)
 from app.domain.cell_meetings_schedule import meeting_has_passed
 
 # Cores dos sinais (bolinhas) por reunião.
@@ -194,6 +198,25 @@ def _load_health_data(
     meetings_with_visitor = set(expected_visitor_meeting_ids) | set(
         registered_visitor_meeting_ids
     )
+
+    # Um relatório agregado v2 enviado é a foto canônica da reunião. Ele não
+    # materializa pessoas individuais, portanto as contagens ao vivo seriam
+    # zero e produziriam alertas falsos. Para v2, os totals validados substituem
+    # presença e existência de visitante. Marcador v2 malformado falha fechado;
+    # nunca recua silenciosamente para os fatos individuais.
+    for meeting in meeting_rows:
+        snapshot = getattr(meeting, "relatorio_snapshot", None)
+        if (
+            meeting.relatorio_status != RELATORIO_ENVIADO
+            or not has_cell_report_snapshot_schema_marker(snapshot)
+        ):
+            continue
+        aggregate = validate_cell_report_snapshot_v2(snapshot)
+        attendance_by_meeting[meeting.id] = aggregate.totals.presentes
+        if aggregate.totals.visitantes > 0:
+            meetings_with_visitor.add(meeting.id)
+        else:
+            meetings_with_visitor.discard(meeting.id)
 
     return (
         dict(meetings_by_cell),
