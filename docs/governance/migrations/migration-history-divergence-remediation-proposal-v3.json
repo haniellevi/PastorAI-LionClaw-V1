@@ -1,0 +1,180 @@
+{
+  "amendment": {
+    "amendment_reason": "ATTESTATION_V1_RECLASSIFIED_AS_BLOCKED_ENVELOPE_AND_KNOWN_DEV_INDEX_DRIFT_REQUIRES_SEPARATE_EVIDENCE",
+    "historical_artifacts_remain_unchanged": true,
+    "prior_human_records_apply_to_proposal_id": "migration-history-divergence-remediation-proposal-v1",
+    "prior_human_records_reused_for_v3": false,
+    "supersedes_proposal_id": "migration-history-divergence-remediation-proposal-v2",
+    "supersedes_sha256": "f1db4a0f1b6a5045fefa674d6092ecb8afe90a0c03c70044b53a1d021b2b8340"
+  },
+  "artifact_state": "OFFLINE_EPOCH_CUTOVER_DECISION_PACKAGE_BLOCKED",
+  "contract_version": "3.0",
+  "current_permissions": {
+    "capture_allowed": false,
+    "database_access_allowed": false,
+    "database_mutation_allowed": false,
+    "deploy_allowed": false,
+    "environment_attestation_execution_allowed": false,
+    "environment_operation_allowed": false,
+    "index_change_allowed": false,
+    "ledger_backfill_allowed": false,
+    "migration_application_allowed": false,
+    "runner_change_allowed": false,
+    "runner_execution_allowed": false,
+    "runtime_change_allowed": false
+  },
+  "environment_tracks": {
+    "DEV": {
+      "append_only_behavior_evidence": "PENDING_SEPARATE_EVIDENCE",
+      "cutover_decision": "BLOCKED",
+      "data_api_evidence": "PENDING_SEPARATE_PLATFORM_EVIDENCE",
+      "environment_attestation": "NOT_COMPLETE_FOR_V3",
+      "legacy_evidence_classification": "BLOCKED_LEDGER_DIVERGENCE",
+      "legacy_ledgers_action": "PRESERVE_WITHOUT_BACKFILL_OR_REWRITE",
+      "manual_index_drift_reference": "manual_dev_index_drift",
+      "realtime_evidence": "PENDING_SEPARATE_PLATFORM_EVIDENCE",
+      "schema_and_data_evidence": "PENDING_SEPARATE_ENVIRONMENT_EVIDENCE"
+    },
+    "PROD": {
+      "append_only_behavior_evidence": "PENDING_SEPARATE_EVIDENCE",
+      "cutover_decision": "BLOCKED",
+      "data_api_evidence": "PENDING_SEPARATE_PLATFORM_EVIDENCE",
+      "environment_attestation": "NOT_COMPLETE_FOR_V3",
+      "legacy_evidence_classification": "BLOCKED_EVIDENCE_INSUFFICIENT",
+      "legacy_ledgers_action": "PRESERVE_WITHOUT_BACKFILL_OR_REWRITE",
+      "manual_dev_index_drift_inferred_in_prod": false,
+      "realtime_evidence": "PENDING_SEPARATE_PLATFORM_EVIDENCE",
+      "schema_and_data_evidence": "PENDING_SEPARATE_ENVIRONMENT_EVIDENCE"
+    }
+  },
+  "epoch_strategy": {
+    "automatic_backfill": "PROHIBITED",
+    "cross_environment_decision_reuse": "PROHIBITED",
+    "historical_inference": "PROHIBITED",
+    "legacy_ledgers": "PRESERVE_AS_INDEPENDENT_HISTORICAL_RECORDS",
+    "manual_dev_drift_treatment": "PRESERVE_AND_VERSION_FORWARD_ONLY_AFTER_SEPARATE_ATTESTATION_REVIEW_AND_HUMAN_DECISION",
+    "recommended": "CONTROLLED_EPOCH_CUTOVER_AFTER_COMPLETE_SEPARATE_EVIDENCE",
+    "status": "RECOMMENDATION_ONLY_NOT_APPROVED",
+    "target_implementation": "NOT_DESIGNED_OR_AUTHORIZED"
+  },
+  "evidence_gates": {
+    "APPEND_ONLY_BEHAVIOR": {
+      "environment_scope": [
+        "DEV",
+        "PROD"
+      ],
+      "snapshot_is_sufficient": false,
+      "state": "PENDING_SEPARATE_EVIDENCE"
+    },
+    "DATA_API": {
+      "environment_scope": [
+        "DEV",
+        "PROD"
+      ],
+      "inferred_from_database_schema": false,
+      "state": "PENDING_SEPARATE_PLATFORM_EVIDENCE"
+    },
+    "ENVIRONMENT_SCHEMA_AND_DATA": {
+      "environment_scope": [
+        "DEV",
+        "PROD"
+      ],
+      "one_environment_can_satisfy_another": false,
+      "state": "PENDING_SEPARATE_ENVIRONMENT_EVIDENCE"
+    },
+    "INDEPENDENT_REVIEW": {
+      "prior_review_reused": false,
+      "state": "PENDING_INDEPENDENT_REVIEW_OF_V3"
+    },
+    "MANUAL_DEV_INDEX_DRIFT": {
+      "definitions_attested": false,
+      "environment_scope": [
+        "DEV"
+      ],
+      "presence_attested": false,
+      "state": "KNOWN_UNVERIFIED_DRIFT"
+    },
+    "REALTIME": {
+      "environment_scope": [
+        "DEV",
+        "PROD"
+      ],
+      "inferred_from_database_schema": false,
+      "state": "PENDING_SEPARATE_PLATFORM_EVIDENCE"
+    }
+  },
+  "historical_evidence": {
+    "attestation_v1": {
+      "environment_attestation_complete": false,
+      "profile_id": "migration-history-environment-attestation-profile-v1",
+      "profile_sha256": "0734ba9302bf9d20f0b5770745124390350d231650fdb95ef915ee1b526d5147",
+      "role": "BLOCKED_ENVELOPE_ONLY_NOT_COMPLETION_EVIDENCE",
+      "schema_sha256": "6286f68864ff935156c4c19be74123bfdd06043d50bdfc4ad34844df321d9964",
+      "surfaces": {
+        "data_api": "PLATFORM_SURFACE_REQUIRES_SEPARATE_EVIDENCE",
+        "realtime": "PLATFORM_SURFACE_REQUIRES_SEPARATE_EVIDENCE"
+      }
+    },
+    "canonical_derivation": {
+      "artifact_sha256": "dfe84378ed13e7f8fe66210503d91f3c5015603cfd6a559b8862e7dc3e096c7a",
+      "canonical_schema_fingerprint_sha256": "8ac17d4352a77fb3c5885f9c1a55813a5b7dfcd6fb84c4bd4e9117c1c7883370",
+      "environment_attestation_complete": false,
+      "scope": "OFFLINE_PG17_LAB_SOURCE_EXPECTATION_ONLY"
+    },
+    "source_catalog": {
+      "digest_sha256": "84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f",
+      "migration_count": 75,
+      "scope": "VERSIONED_SOURCE_BASELINE_ONLY"
+    },
+    "v1_proposal_sha256": "84614e0b140e38d07c11ed4ceb10025b3dbc85b121684da1e1ebdca6d0104e7d",
+    "v2_proposal_sha256": "f1db4a0f1b6a5045fefa674d6092ecb8afe90a0c03c70044b53a1d021b2b8340"
+  },
+  "manual_dev_index_drift": {
+    "basenames": [
+      "idx_pessoas_igreja_ativa_created",
+      "idx_pessoas_igreja_ativa_tipo",
+      "idx_celulas_igreja_ativo_lider",
+      "idx_work_queue_igreja_status_responsavel",
+      "idx_conversations_igreja_assumido",
+      "idx_app_users_igreja_nome",
+      "idx_user_roles_igreja_user"
+    ],
+    "catalog_application_inferred": false,
+    "classification": "KNOWN_UNVERIFIED_DRIFT",
+    "current_presence_attested": false,
+    "definition_hashes_attested": false,
+    "environment": "DEV",
+    "forward_only_requirement": "PRESERVE_AND_VERSION_ONLY_AFTER_SEPARATE_EVIDENCE_AND_APPROVAL",
+    "prior_report_is_current_environment_proof": false,
+    "provenance": "PRIOR_OPERATOR_REPORT_ONLY",
+    "prod_presence_inferred": false
+  },
+  "next_gate": {
+    "authorized": false,
+    "id": "REVIEW_AND_CI_OFFLINE_AGENT_FOUNDATION_BATCH_PR",
+    "scope": "OFFLINE_BATCH_REVIEW_AND_CI_ONLY_NO_CUTOVER_AUTHORIZATION"
+  },
+  "next_stage_authorized": false,
+  "operational_authorization": false,
+  "proposal_id": "migration-history-divergence-remediation-proposal-v3",
+  "repository_base_sha": "0f8c6a77bf489f9080743ab3f7ce71097d361aea",
+  "review": {
+    "current_independent_review_complete": false,
+    "current_review_state": "PENDING_INDEPENDENT_REVIEW_OF_V3",
+    "human_cutover_decision": "NOT_MADE",
+    "prior_human_records_apply_to_proposal_id": "migration-history-divergence-remediation-proposal-v1",
+    "prior_human_records_reused_for_v3": false
+  },
+  "runner_contract": {
+    "apply_migrations_sha256": "36e63cde6751cd0cb33e1511091068b0b04f10029ace06703eead82e0e836c65",
+    "commands_remain_blocked": [
+      "bootstrap-ledger",
+      "harden-ledger",
+      "status",
+      "apply"
+    ],
+    "must_remain_unchanged_in_this_mission": true,
+    "proposal_is_not_a_runner_input": true,
+    "reconciliation_verifier_sha256": "9451cbe5054d8c0d7e2754d09dea7f3a9761e8585269ca783eea943dd785dfae"
+  }
+}
