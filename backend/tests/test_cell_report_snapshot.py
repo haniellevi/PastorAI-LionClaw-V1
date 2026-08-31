@@ -12,6 +12,7 @@ import pytest
 from app.domain.cell_report_snapshot import (
     CELL_REPORT_SNAPSHOT_SCHEMA_V2,
     MAX_CELL_REPORT_OBSERVACOES_BYTES,
+    MAX_CELL_REPORT_OBSERVACOES_LENGTH,
     MAX_CELL_REPORT_TOTAL,
     CellReportSnapshotErrorCode,
     CellReportSnapshotValidationError,
@@ -22,6 +23,7 @@ from app.domain.cell_report_snapshot import (
 )
 
 _EFFECT_ID = "agent_effect_v1_" + ("a" * 64)
+_PAYLOAD_DIGEST = "agent_payload_v1_" + ("b" * 64)
 
 
 def _snapshot(**overrides: object) -> dict[str, object]:
@@ -32,6 +34,7 @@ def _snapshot(**overrides: object) -> dict[str, object]:
         "oferta_valor": Decimal("150.50"),
         "observacoes": "Reunião concluída.",
         "submission_effect_id": _EFFECT_ID,
+        "submission_payload_digest": _PAYLOAD_DIGEST,
     }
     values.update(overrides)
     return build_cell_report_snapshot_v2(**values)  # type: ignore[arg-type]
@@ -53,6 +56,7 @@ def test_builder_emits_exact_jsonb_shape_without_individual_people() -> None:
         "oferta_valor": "150.50",
         "observacoes": "Reunião concluída.",
         "submission_effect_id": _EFFECT_ID,
+        "submission_payload_digest": _PAYLOAD_DIGEST,
         "presencas": [],
         "visitantes": [],
         "records": [],
@@ -161,6 +165,7 @@ def test_validator_returns_immutable_typed_aggregate() -> None:
     assert parsed.oferta_valor == Decimal("150.50")
     assert parsed.observacoes == "Reunião concluída."
     assert parsed.submission_effect_id == _EFFECT_ID
+    assert parsed.submission_payload_digest == _PAYLOAD_DIGEST
 
     with pytest.raises((AttributeError, TypeError)):
         parsed.totals.presentes = 99  # type: ignore[misc]
@@ -225,6 +230,13 @@ def test_validator_is_exact_about_schema_and_top_level_keys() -> None:
         lambda: validate_cell_report_snapshot_v2(missing),
     )
 
+    pre_binding_v2 = _snapshot()
+    pre_binding_v2.pop("submission_payload_digest")
+    _assert_code(
+        CellReportSnapshotErrorCode.INVALID_SNAPSHOT,
+        lambda: validate_cell_report_snapshot_v2(pre_binding_v2),
+    )
+
 
 def test_validator_is_exact_about_totals_and_canonical_money() -> None:
     extra_total = _snapshot()
@@ -264,9 +276,37 @@ def test_submission_effect_id_requires_the_public_content_free_grammar() -> None
         )
 
 
+def test_submission_payload_digest_requires_closed_content_free_grammar() -> None:
+    parsed = validate_cell_report_snapshot_v2(_snapshot())
+    assert parsed.submission_payload_digest == _PAYLOAD_DIGEST
+
+    invalid_values = (
+        "",
+        "future-format:not-a-digest/123",
+        "agent_payload_v1_" + ("B" * 64),
+        "agent_payload_v1_" + ("g" * 64),
+        "agent_payload_v1_" + ("b" * 63),
+        "agent_payload_v1_" + ("b" * 65),
+        "agent_effect_v1_" + ("b" * 64),
+        " " * 1_000_000,
+        "\ud800",
+    )
+    for value in invalid_values:
+        _assert_code(
+            CellReportSnapshotErrorCode.INVALID_SUBMISSION_PAYLOAD_DIGEST,
+            lambda value=value: _snapshot(submission_payload_digest=value),
+        )
+
+
 def test_observacoes_are_bounded_normalized_utf8_text() -> None:
     accepted = _snapshot(observacoes="  Reunia\u0303o\r\nlinha 2\r  ")
     assert accepted["observacoes"] == "Reunião\nlinha 2"
+    assert _snapshot(
+        observacoes="x" * MAX_CELL_REPORT_OBSERVACOES_LENGTH
+    )["observacoes"] == "x" * MAX_CELL_REPORT_OBSERVACOES_LENGTH
+    assert _snapshot(
+        observacoes="🙂" * MAX_CELL_REPORT_OBSERVACOES_LENGTH
+    )["observacoes"] == "🙂" * MAX_CELL_REPORT_OBSERVACOES_LENGTH
 
     controls = ("pastor\x00dados", "pastor\x1bdados", "pastor\u202edados")
     for value in controls:
@@ -276,7 +316,7 @@ def test_observacoes_are_bounded_normalized_utf8_text() -> None:
         )
 
     for value in (
-        "x" * 2001,
+        "x" * (MAX_CELL_REPORT_OBSERVACOES_LENGTH + 1),
         "🙂" * ((MAX_CELL_REPORT_OBSERVACOES_BYTES // 4) + 1),
         " " * 1_000_000,
         "\ud800",
@@ -370,14 +410,17 @@ def test_unknown_version_is_explicitly_unsupported() -> None:
 
 def test_error_and_snapshot_repr_do_not_expose_sensitive_text() -> None:
     secret_effect = "agent_effect_v1_" + ("b" * 64)
+    secret_payload_digest = "agent_payload_v1_" + ("c" * 64)
     secret_notes = "pastoral text must not appear"
     parsed = validate_cell_report_snapshot_v2(
         _snapshot(
             submission_effect_id=secret_effect,
+            submission_payload_digest=secret_payload_digest,
             observacoes=secret_notes,
         )
     )
     assert secret_effect not in repr(parsed)
+    assert secret_payload_digest not in repr(parsed)
     assert secret_notes not in repr(parsed)
 
     try:
@@ -413,6 +456,17 @@ def test_serializer_revalidates_low_level_field_forgery() -> None:
         forged_effect.to_jsonb,
     )
 
+    forged_payload_digest = validate_cell_report_snapshot_v2(_snapshot())
+    object.__setattr__(
+        forged_payload_digest,
+        "submission_payload_digest",
+        "free text",
+    )
+    _assert_code(
+        CellReportSnapshotErrorCode.INVALID_SUBMISSION_PAYLOAD_DIGEST,
+        forged_payload_digest.to_jsonb,
+    )
+
     forged_offer = validate_cell_report_snapshot_v2(_snapshot())
     object.__setattr__(forged_offer, "oferta_valor", "1.20")
     _assert_code(
@@ -429,4 +483,5 @@ def test_builder_contract_has_no_tenant_rbac_or_io_parameters() -> None:
         "oferta_valor",
         "observacoes",
         "submission_effect_id",
+        "submission_payload_digest",
     )

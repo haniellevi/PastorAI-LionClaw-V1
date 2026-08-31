@@ -47,6 +47,7 @@ from tests.cell_backend_fakes import (
 
 _IGREJA = uuid.UUID(TENANT)
 _EFFECT_ID = "agent_effect_v1_" + ("d" * 64)
+_PAYLOAD_DIGEST = "agent_payload_v1_" + ("e" * 64)
 
 
 def _session(**kwargs) -> CellSession:
@@ -182,6 +183,7 @@ def test_v2_totals_override_absent_individual_attendance() -> None:
             oferta_valor=Decimal("0.00"),
             observacoes=None,
             submission_effect_id=_EFFECT_ID,
+            submission_payload_digest=_PAYLOAD_DIGEST,
         ),
     )
     membros = [make_member(pessoa_id=f"p{index}") for index in range(4)]
@@ -207,6 +209,7 @@ def test_v2_zero_attendance_overrides_live_individual_rows() -> None:
             oferta_valor=None,
             observacoes=None,
             submission_effect_id="agent_effect_v1_" + ("e" * 64),
+            submission_payload_digest=_PAYLOAD_DIGEST,
         ),
     )
     membros = [
@@ -294,6 +297,7 @@ def test_v2_visitor_total_breaks_evangelism_streak_without_person_rows() -> None
                 submission_effect_id=(
                     "agent_effect_v1_" + (f"{index + 1:x}" * 64)
                 ),
+                submission_payload_digest=_PAYLOAD_DIGEST,
             ),
         )
         for index in range(3)
@@ -326,6 +330,7 @@ def test_v2_zero_visitors_override_live_rows_for_evangelism() -> None:
                 submission_effect_id=(
                     "agent_effect_v1_" + (f"{index + 4:x}" * 64)
                 ),
+                submission_payload_digest=_PAYLOAD_DIGEST,
             ),
         )
         for index in range(3)
@@ -348,6 +353,7 @@ def test_malformed_v2_snapshot_fails_closed_without_legacy_fallback() -> None:
         oferta_valor=None,
         observacoes=None,
         submission_effect_id="agent_effect_v1_" + ("f" * 64),
+        submission_payload_digest=_PAYLOAD_DIGEST,
     )
     snapshot["presencas"] = [{"pessoa_id": "forged"}]
     reu = make_reuniao(

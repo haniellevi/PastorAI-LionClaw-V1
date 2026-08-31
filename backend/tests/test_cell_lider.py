@@ -56,6 +56,7 @@ from app.services.clerk import get_clerk_client
 from tests.conftest import FakeClerk, make_app_user
 
 _AUTH = {"Authorization": "Bearer good"}
+_PAYLOAD_DIGEST = "agent_payload_v1_" + ("c" * 64)
 
 _APPUSER = "00000000-0000-0000-0000-0000000000a1"  # id de make_app_user()
 _TENANT = "00000000-0000-0000-0000-000000000001"
@@ -1113,6 +1114,7 @@ def test_get_report_projects_valid_v2_without_inventing_people(app) -> None:
         oferta_valor=Decimal("45.60"),
         observacoes="Resumo agregado.",
         submission_effect_id="agent_effect_v1_" + ("a" * 64),
+        submission_payload_digest=_PAYLOAD_DIGEST,
     )
     reu = make_reuniao(
         reuniao_id=_REU,
@@ -1140,6 +1142,7 @@ def test_get_report_projects_valid_v2_without_inventing_people(app) -> None:
     assert body["visitantes"] == []
     assert body["records"] == []
     assert "submission_effect_id" not in body
+    assert "submission_payload_digest" not in body
 
 
 def test_get_report_malformed_v2_returns_static_500_without_fallback(app) -> None:
@@ -1150,6 +1153,7 @@ def test_get_report_malformed_v2_returns_static_500_without_fallback(app) -> Non
         oferta_valor=None,
         observacoes=None,
         submission_effect_id="agent_effect_v1_" + ("b" * 64),
+        submission_payload_digest=_PAYLOAD_DIGEST,
     )
     snapshot["presencas"] = [
         {"pessoa_id": "private-forged-person", "estado": "compareceu"}

@@ -19,6 +19,7 @@ from app.domain.cell_report_workflow import (
     MAX_REPORT_CORRELATION_KEY_BYTES,
     MAX_REPORT_COUNT,
     MAX_REPORT_OBSERVATIONS_BYTES,
+    MAX_REPORT_OBSERVATIONS_LENGTH,
     MAX_REPORT_TEXT_BYTES,
     CellReportWorkflowError,
     CellReportWorkflowErrorCode,
@@ -716,6 +717,33 @@ def test_large_inputs_fail_before_unicode_normalization(
         CellReportWorkflowErrorCode.OBSERVATIONS_LIMIT_EXCEEDED
     )
     assert calls == 0
+
+
+def test_observations_share_the_human_2000_character_utf8_boundary() -> None:
+    ascii_boundary = "x" * MAX_REPORT_OBSERVATIONS_LENGTH
+    multibyte_boundary = "🙂" * MAX_REPORT_OBSERVATIONS_LENGTH
+
+    assert (
+        build_cell_report_candidate(observacoes=ascii_boundary).observacoes
+        == ascii_boundary
+    )
+    assert (
+        build_cell_report_candidate(observacoes=multibyte_boundary).observacoes
+        == multibyte_boundary
+    )
+    assert len(multibyte_boundary.encode("utf-8")) == (
+        MAX_REPORT_OBSERVATIONS_BYTES
+    )
+
+    for oversized in (
+        "x" * (MAX_REPORT_OBSERVATIONS_LENGTH + 1),
+        "🙂" * (MAX_REPORT_OBSERVATIONS_LENGTH + 1),
+    ):
+        with pytest.raises(CellReportWorkflowError) as exc_info:
+            build_cell_report_candidate(observacoes=oversized)
+        assert exc_info.value.code is (
+            CellReportWorkflowErrorCode.OBSERVATIONS_LIMIT_EXCEEDED
+        )
 
 
 @pytest.mark.parametrize(

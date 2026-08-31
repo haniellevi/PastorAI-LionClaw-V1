@@ -38,6 +38,8 @@ from typing import Final
 
 from app.domain.cell_report_limits import (
     MAX_CELL_REPORT_AGGREGATE_COUNT,
+    MAX_CELL_REPORT_OBSERVATIONS_BYTES,
+    MAX_CELL_REPORT_OBSERVATIONS_LENGTH,
     MAX_CELL_REPORT_OFFERING_CENTS,
 )
 
@@ -47,7 +49,8 @@ CELL_REPORT_WORKFLOW_SCHEMA_VERSION: Final = "v1"
 CELL_REPORT_CONFIRMATION_GRAMMAR_VERSION: Final = "v1"
 
 MAX_REPORT_TEXT_BYTES: Final = 16_384
-MAX_REPORT_OBSERVATIONS_BYTES: Final = 2_048
+MAX_REPORT_OBSERVATIONS_LENGTH: Final = MAX_CELL_REPORT_OBSERVATIONS_LENGTH
+MAX_REPORT_OBSERVATIONS_BYTES: Final = MAX_CELL_REPORT_OBSERVATIONS_BYTES
 MAX_REPORT_CORRELATION_KEY_BYTES: Final = 512
 MAX_REPORT_COUNT: Final = MAX_CELL_REPORT_AGGREGATE_COUNT
 MAX_REPORT_REVISION: Final = 1_000_000
@@ -84,6 +87,31 @@ _REQUIRED_FIELDS: Final = (
     "visitantes",
     "decisoes",
     "oferta",
+)
+
+_CANDIDATE_PAYLOAD_KEYS: Final = frozenset(
+    {
+        "schema_version",
+        "presentes",
+        "visitantes",
+        "decisoes",
+        "oferta",
+        "observacoes",
+    }
+)
+_WORKFLOW_PAYLOAD_KEYS: Final = frozenset(
+    {
+        "schema_version",
+        "scope_digest",
+        "revision",
+        "candidate",
+        "candidate_digest",
+        "previous_proposal_digest",
+        "proposal_digest",
+        "confirmation_code",
+        "state",
+        "accepted_proposal_digest",
+    }
 )
 
 
@@ -229,7 +257,7 @@ def _normalize_observations(value: object) -> str | None:
         return None
     if type(value) is not str:
         _raise(CellReportWorkflowErrorCode.INVALID_OBSERVATIONS)
-    if len(value) > MAX_REPORT_OBSERVATIONS_BYTES:
+    if len(value) > MAX_REPORT_OBSERVATIONS_LENGTH:
         _raise(CellReportWorkflowErrorCode.OBSERVATIONS_LIMIT_EXCEEDED)
     normalized = unicodedata.normalize("NFC", value).strip()
     if not normalized:
@@ -745,10 +773,16 @@ def _derive_confirmation_code(proposal_digest: str) -> str:
 
 
 def _is_prefixed_sha256(value: object, prefix: str) -> bool:
-    if type(value) is not str or not value.startswith(prefix):
+    if (
+        type(value) is not str
+        or len(value) != len(prefix) + 64
+        or not value.startswith(prefix)
+    ):
         return False
-    suffix = value[len(prefix) :]
-    return len(suffix) == 64 and all(character in "0123456789abcdef" for character in suffix)
+    return all(
+        value[index] in "0123456789abcdef"
+        for index in range(len(prefix), len(value))
+    )
 
 
 def _open_state(candidate: CellReportCandidate) -> CellReportWorkflowState:
@@ -943,6 +977,97 @@ def validate_cell_report_workflow(value: object) -> CellReportWorkflow:
     ):
         _raise(CellReportWorkflowErrorCode.INVALID_WORKFLOW)
     return value
+
+
+def cell_report_workflow_payload(
+    workflow: CellReportWorkflow,
+) -> dict[str, object]:
+    """Return the exact JSON-safe projection of one validated workflow.
+
+    Every derived digest and confirmation code is included so hydration can
+    compare persisted material with a fresh derivation.  The projection keeps
+    only the already opaque scope digest; the caller's correlation key is
+    never persisted.
+    """
+
+    current = validate_cell_report_workflow(workflow)
+    return {
+        "schema_version": current.schema_version,
+        "scope_digest": current.scope_digest,
+        "revision": current.revision,
+        "candidate": cell_report_candidate_payload(current.candidate),
+        "candidate_digest": current.candidate_digest,
+        "previous_proposal_digest": current.previous_proposal_digest,
+        "proposal_digest": current.proposal_digest,
+        "confirmation_code": current.confirmation_code,
+        "state": current.state.value,
+        "accepted_proposal_digest": current.accepted_proposal_digest,
+    }
+
+
+def rehydrate_cell_report_workflow(value: object) -> CellReportWorkflow:
+    """Hydrate one closed JSON object and recompute all derivable material."""
+
+    if (
+        type(value) is not dict
+        or len(value) != len(_WORKFLOW_PAYLOAD_KEYS)
+        or value.keys() != _WORKFLOW_PAYLOAD_KEYS
+    ):
+        _raise(CellReportWorkflowErrorCode.INVALID_WORKFLOW)
+
+    candidate_value = value.get("candidate")
+    if (
+        type(candidate_value) is not dict
+        or len(candidate_value) != len(_CANDIDATE_PAYLOAD_KEYS)
+        or candidate_value.keys() != _CANDIDATE_PAYLOAD_KEYS
+        or candidate_value.get("schema_version")
+        != CELL_REPORT_CANDIDATE_SCHEMA_VERSION
+    ):
+        _raise(CellReportWorkflowErrorCode.INVALID_WORKFLOW)
+    candidate = build_cell_report_candidate(
+        presentes=candidate_value.get("presentes"),
+        visitantes=candidate_value.get("visitantes"),
+        decisoes=candidate_value.get("decisoes"),
+        oferta=candidate_value.get("oferta"),
+        observacoes=candidate_value.get("observacoes"),
+    )
+
+    state_value = value.get("state")
+    if type(state_value) is not str:
+        _raise(CellReportWorkflowErrorCode.INVALID_WORKFLOW)
+    try:
+        state = CellReportWorkflowState(state_value)
+    except ValueError:
+        _raise(CellReportWorkflowErrorCode.INVALID_WORKFLOW)
+
+    workflow = object.__new__(CellReportWorkflow)
+    object.__setattr__(workflow, "schema_version", value.get("schema_version"))
+    object.__setattr__(workflow, "scope_digest", value.get("scope_digest"))
+    object.__setattr__(workflow, "revision", value.get("revision"))
+    object.__setattr__(workflow, "candidate", candidate)
+    object.__setattr__(
+        workflow,
+        "candidate_digest",
+        value.get("candidate_digest"),
+    )
+    object.__setattr__(
+        workflow,
+        "previous_proposal_digest",
+        value.get("previous_proposal_digest"),
+    )
+    object.__setattr__(workflow, "proposal_digest", value.get("proposal_digest"))
+    object.__setattr__(
+        workflow,
+        "confirmation_code",
+        value.get("confirmation_code"),
+    )
+    object.__setattr__(workflow, "state", state)
+    object.__setattr__(
+        workflow,
+        "accepted_proposal_digest",
+        value.get("accepted_proposal_digest"),
+    )
+    return validate_cell_report_workflow(workflow)
 
 
 def revise_cell_report_workflow(

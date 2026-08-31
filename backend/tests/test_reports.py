@@ -37,6 +37,7 @@ from app.services.clerk import get_clerk_client
 from tests.conftest import FakeClerk, make_app_user
 
 _AUTH = {"Authorization": "Bearer good"}
+_PAYLOAD_DIGEST = "agent_payload_v1_" + ("e" * 64)
 
 TENANT = "00000000-0000-0000-0000-000000000001"
 OTHER_TENANT = "00000000-0000-0000-0000-000000000002"
@@ -397,6 +398,7 @@ def test_sent_report_v2_prefers_validated_totals_with_empty_arrays(app) -> None:
             oferta_valor=Decimal("75.20"),
             observacoes="Agregado confirmado.",
             submission_effect_id="agent_effect_v1_" + ("a" * 64),
+            submission_payload_digest=_PAYLOAD_DIGEST,
         ),
     )
     session = _central(cells=[make_cell()], reunioes=[reu])
@@ -424,6 +426,7 @@ def test_sent_report_v2_preserves_explicit_zero_totals(app) -> None:
             oferta_valor=None,
             observacoes=None,
             submission_effect_id="agent_effect_v1_" + ("b" * 64),
+            submission_payload_digest=_PAYLOAD_DIGEST,
         ),
     )
     session = _central(cells=[make_cell()], reunioes=[reu])
@@ -447,6 +450,7 @@ def test_v2_marker_never_falls_back_to_forged_individual_arrays() -> None:
         oferta_valor=None,
         observacoes=None,
         submission_effect_id="agent_effect_v1_" + ("c" * 64),
+        submission_payload_digest=_PAYLOAD_DIGEST,
     )
     forged["presencas"] = [{"pessoa_id": "invented", "estado": "compareceu"}]
     reu = make_reuniao(
@@ -473,6 +477,7 @@ def test_malformed_v2_is_classified_by_reports_endpoint(app) -> None:
         oferta_valor=None,
         observacoes=None,
         submission_effect_id="agent_effect_v1_" + ("d" * 64),
+        submission_payload_digest=_PAYLOAD_DIGEST,
     )
     forged["records"] = [{"conteudo": "private-forged-value"}]
     reu = make_reuniao(

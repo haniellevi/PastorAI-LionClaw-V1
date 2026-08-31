@@ -49,7 +49,10 @@ from app.deps import (
     resolve_actor_pessoa_id,
 )
 from app.domain.cell_meetings_schedule import InvalidDiaReuniao, next_meeting_date
-from app.domain.cell_report_limits import MAX_CELL_REPORT_OFFERING_DECIMAL_TEXT
+from app.domain.cell_report_limits import (
+    MAX_CELL_REPORT_OBSERVATIONS_LENGTH,
+    MAX_CELL_REPORT_OFFERING_DECIMAL_TEXT,
+)
 from app.domain.cell_report_snapshot import (
     CELL_REPORT_SNAPSHOT_SCHEMA_V2,
     CellReportSnapshotValidationError,
@@ -98,7 +101,7 @@ RECORD_TIPOS = ("decisao", "oracao", "observacao")
 _TEMA_MAX = 120
 _NOME_VISITANTE_MAX = 120
 _CONTEUDO_MAX = 2000
-_OBSERVACOES_MAX = 2000
+_OBSERVACOES_MAX = MAX_CELL_REPORT_OBSERVATIONS_LENGTH
 # Valor da oferta (SPEC §6.2 / E2): 0 <= oferta_valor <= 999999.99.
 _OFERTA_MIN = 0
 _OFERTA_MAX = float(MAX_CELL_REPORT_OFFERING_DECIMAL_TEXT)

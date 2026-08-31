@@ -7,11 +7,11 @@ stores only aggregate counts.  The legacy individual arrays are present and
 must stay empty, so a WhatsApp aggregate can never invent people or leak
 person-level facts into the canonical meeting snapshot.
 
-``submission_effect_id`` is an opaque correlation value supplied by a future
-trusted caller.  Its public ``agent_effect_v1_`` grammar is validated so free
-text or PII cannot occupy the field, but this module neither recomputes nor
-authenticates it.  The value is not tenant identity, authorization proof, or a
-durable idempotency receipt.
+``submission_effect_id`` and ``submission_payload_digest`` preserve the exact
+planned effect identity and its canonical payload binding. Their public
+grammars are validated so free text or PII cannot occupy either field, but
+this module neither recomputes nor authenticates them. The pair is not tenant
+identity, authorization proof, provenance or a global durable receipt.
 """
 
 from __future__ import annotations
@@ -25,22 +25,33 @@ from typing import Final
 
 from app.domain.cell_report_limits import (
     MAX_CELL_REPORT_AGGREGATE_COUNT,
+    MAX_CELL_REPORT_OBSERVATIONS_BYTES,
+    MAX_CELL_REPORT_OBSERVATIONS_LENGTH,
     MAX_CELL_REPORT_OFFERING_DECIMAL_TEXT,
 )
 
 CELL_REPORT_SNAPSHOT_SCHEMA_V2: Final = "cell-report/v2"
 MAX_CELL_REPORT_TOTAL: Final = MAX_CELL_REPORT_AGGREGATE_COUNT
-MAX_CELL_REPORT_OBSERVACOES_LENGTH: Final = 2_000
-MAX_CELL_REPORT_OBSERVACOES_BYTES: Final = 4_096
+MAX_CELL_REPORT_OBSERVACOES_LENGTH: Final = (
+    MAX_CELL_REPORT_OBSERVATIONS_LENGTH
+)
+MAX_CELL_REPORT_OBSERVACOES_BYTES: Final = MAX_CELL_REPORT_OBSERVATIONS_BYTES
 MAX_CELL_REPORT_OFFER: Final = Decimal(MAX_CELL_REPORT_OFFERING_DECIMAL_TEXT)
 MAX_MONEY_INPUT_LENGTH: Final = 64
 
 SUBMISSION_EFFECT_ID_PREFIX: Final = "agent_effect_v1_"
 MAX_SUBMISSION_EFFECT_ID_BYTES: Final = len(SUBMISSION_EFFECT_ID_PREFIX) + 64
+SUBMISSION_PAYLOAD_DIGEST_PREFIX: Final = "agent_payload_v1_"
+MAX_SUBMISSION_PAYLOAD_DIGEST_BYTES: Final = (
+    len(SUBMISSION_PAYLOAD_DIGEST_PREFIX) + 64
+)
 
 _CANONICAL_MONEY_RE: Final = re.compile(r"(?:0|[1-9][0-9]{0,5})\.[0-9]{2}\Z")
 _SUBMISSION_EFFECT_ID_RE: Final = re.compile(
     rf"{re.escape(SUBMISSION_EFFECT_ID_PREFIX)}[0-9a-f]{{64}}\Z"
+)
+_SUBMISSION_PAYLOAD_DIGEST_RE: Final = re.compile(
+    rf"{re.escape(SUBMISSION_PAYLOAD_DIGEST_PREFIX)}[0-9a-f]{{64}}\Z"
 )
 _TOTAL_KEYS: Final = frozenset({"presentes", "visitantes", "decisoes"})
 _INDIVIDUAL_ARRAY_KEYS: Final = ("presencas", "visitantes", "records")
@@ -51,6 +62,7 @@ _SNAPSHOT_KEYS: Final = frozenset(
         "oferta_valor",
         "observacoes",
         "submission_effect_id",
+        "submission_payload_digest",
         *_INDIVIDUAL_ARRAY_KEYS,
     }
 )
@@ -66,6 +78,9 @@ class CellReportSnapshotErrorCode(str, Enum):
     INVALID_OFFER = "INVALID_OFFER"
     INVALID_OBSERVACOES = "INVALID_OBSERVACOES"
     INVALID_SUBMISSION_EFFECT_ID = "INVALID_SUBMISSION_EFFECT_ID"
+    INVALID_SUBMISSION_PAYLOAD_DIGEST = (
+        "INVALID_SUBMISSION_PAYLOAD_DIGEST"
+    )
     INDIVIDUAL_DATA_FORBIDDEN = "INDIVIDUAL_DATA_FORBIDDEN"
 
 
@@ -209,6 +224,18 @@ def _require_submission_effect_id(value: object) -> str:
     return value
 
 
+def _require_submission_payload_digest(value: object) -> str:
+    if (
+        type(value) is not str
+        or len(value) != MAX_SUBMISSION_PAYLOAD_DIGEST_BYTES
+        or _SUBMISSION_PAYLOAD_DIGEST_RE.fullmatch(value) is None
+    ):
+        _reject(
+            CellReportSnapshotErrorCode.INVALID_SUBMISSION_PAYLOAD_DIGEST
+        )
+    return value
+
+
 @dataclass(frozen=True, slots=True, repr=False)
 class CellReportTotals:
     """Validated aggregate counts, with no person-level material."""
@@ -234,6 +261,7 @@ class CellReportSnapshotV2:
     oferta_valor: Decimal | None = field(repr=False)
     observacoes: str | None = field(repr=False)
     submission_effect_id: str = field(repr=False)
+    submission_payload_digest: str = field(repr=False)
 
     def __post_init__(self) -> None:
         if type(self.totals) is not CellReportTotals:
@@ -248,6 +276,7 @@ class CellReportSnapshotV2:
             _reject(CellReportSnapshotErrorCode.INVALID_OFFER)
         _require_canonical_observacoes(self.observacoes)
         _require_submission_effect_id(self.submission_effect_id)
+        _require_submission_payload_digest(self.submission_payload_digest)
 
     def __repr__(self) -> str:
         return f"CellReportSnapshotV2(schema={CELL_REPORT_SNAPSHOT_SCHEMA_V2!r})"
@@ -270,6 +299,9 @@ class CellReportSnapshotV2:
         submission_effect_id = _require_submission_effect_id(
             self.submission_effect_id
         )
+        submission_payload_digest = _require_submission_payload_digest(
+            self.submission_payload_digest
+        )
         return {
             "schema": CELL_REPORT_SNAPSHOT_SCHEMA_V2,
             "totals": {
@@ -280,6 +312,7 @@ class CellReportSnapshotV2:
             "oferta_valor": oferta,
             "observacoes": observacoes,
             "submission_effect_id": submission_effect_id,
+            "submission_payload_digest": submission_payload_digest,
             "presencas": [],
             "visitantes": [],
             "records": [],
@@ -294,6 +327,7 @@ def build_cell_report_snapshot_v2(
     oferta_valor: Decimal | str | None,
     observacoes: str | None,
     submission_effect_id: str,
+    submission_payload_digest: str,
 ) -> dict[str, object]:
     """Build the canonical aggregate JSONB shape without persisting it."""
 
@@ -308,6 +342,9 @@ def build_cell_report_snapshot_v2(
         oferta_valor=Decimal(oferta) if oferta is not None else None,
         observacoes=_normalize_observacoes(observacoes),
         submission_effect_id=_require_submission_effect_id(submission_effect_id),
+        submission_payload_digest=_require_submission_payload_digest(
+            submission_payload_digest
+        ),
     )
     return snapshot.to_jsonb()
 
@@ -363,6 +400,9 @@ def validate_cell_report_snapshot_v2(value: object) -> CellReportSnapshotV2:
         observacoes=_require_canonical_observacoes(value.get("observacoes")),
         submission_effect_id=_require_submission_effect_id(
             value.get("submission_effect_id")
+        ),
+        submission_payload_digest=_require_submission_payload_digest(
+            value.get("submission_payload_digest")
         ),
     )
 
