@@ -127,11 +127,14 @@ D3_EPHEMERAL_EFFECT_STATE_CONSUMED_GATE = (
 D3_TURN_IDENTITY_SUPERSEDED_GATE = (
     "REVIEW_AND_CI_D3_TURN_IDENTITY_OFFLINE_PR"
 )
-D3_TURN_EXECUTION_TRUSTED_INBOUND_CURRENT_GATE = (
+D3_TURN_EXECUTION_TRUSTED_INBOUND_SUPERSEDED_GATE = (
     "REVIEW_AND_CI_D3_TURN_EXECUTION_AND_TRUSTED_INBOUND_WIRING_OFFLINE_PR"
 )
+D3_TURN_FOUNDATION_REPLAY_ONLY_CURRENT_GATE = (
+    "REVIEW_AND_CI_D3_TURN_FOUNDATION_REPLAY_ONLY_OFFLINE_PR"
+)
 DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE = (
-    D3_TURN_EXECUTION_TRUSTED_INBOUND_CURRENT_GATE
+    D3_TURN_FOUNDATION_REPLAY_ONLY_CURRENT_GATE
 )
 DEV_PREFLIGHT_PHASE_DIAGNOSTICS_STALE_GATE = (
     "REVIEW_AND_INTEGRATE_DEV_PREFLIGHT_PHASE_DIAGNOSTICS_PR"
@@ -170,6 +173,9 @@ DEV_CONNECT_TLS_AUTH_CURRENT_DOCS = DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CANONICAL_DO
     REPO_ROOT / "backend" / "migrations" / "README.md",
     DEV_PREFLIGHT_PHASE_DIAGNOSTICS_ADR_PATH,
     DEV_CONNECT_TLS_AUTH_DIAGNOSTICS_ADR_PATH,
+}
+D3_TURN_PLAN_ADAPTER_DOCS = DEV_CONNECT_TLS_AUTH_CURRENT_DOCS | {
+    WHATSAPP_FIRST_AGENT_ARCHITECTURE_ADR_PATH,
 }
 
 CONSUMED_PREMERGE_DERIVATION_GATE_CLAIMS = frozenset(
@@ -486,6 +492,9 @@ def _assert_reconciled_d3_gate(path: Path, normalized: str) -> None:
     foundation_consumed = OFFLINE_AGENT_FOUNDATION_BATCH_CONSUMED_GATE.casefold()
     d3_consumed = D3_EPHEMERAL_EFFECT_STATE_CONSUMED_GATE.casefold()
     identity_superseded = D3_TURN_IDENTITY_SUPERSEDED_GATE.casefold()
+    execution_superseded = (
+        D3_TURN_EXECUTION_TRUSTED_INBOUND_SUPERSEDED_GATE.casefold()
+    )
     current = DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold()
     required = {
         "gate historico",
@@ -501,11 +510,12 @@ def _assert_reconciled_d3_gate(path: Path, normalized: str) -> None:
         "foi substituido localmente, sem consumo, pelo lote combinado",
         "nao houve push, pr, ci ou preview sob esse gate",
         "nao e evidencia historica de uma acao externa",
+        "foi substituido localmente, sem consumo, pelo lote ampliado replay-only",
         "nome nao constitui autorizacao ja concedida",
         "autorizacao humana posterior e separada",
         "nomeie push, abertura da pr e github ci",
         "aceite o vercel preview automatico",
-        "cobre somente revisao e ci do lote offline",
+        "cobre somente revisao e ci do lote offline ampliado replay-only",
         "nao autoriza merge, vercel production, flag-on, runtime, saver",
         "qualquer efeito vivo",
     }
@@ -515,10 +525,17 @@ def _assert_reconciled_d3_gate(path: Path, normalized: str) -> None:
     assert normalized.count(foundation_consumed) == 1
     assert normalized.count(d3_consumed) == 1
     assert normalized.count(identity_superseded) == 1
+    assert normalized.count(execution_superseded) == 1
     assert normalized.count(current) == 1
     assert normalized.index(foundation_consumed) < normalized.index(d3_consumed)
     assert normalized.index(d3_consumed) < normalized.index(identity_superseded)
     assert normalized.index(identity_superseded) < normalized.index("proximo gate unico")
+    assert normalized.index(identity_superseded) < normalized.index(
+        execution_superseded
+    )
+    assert normalized.index(execution_superseded) < normalized.index(
+        "proximo gate unico"
+    )
     assert normalized.index("proximo gate unico") < normalized.index(current)
 
 
@@ -3269,11 +3286,12 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
         assert hashlib.sha256(path.read_bytes()).hexdigest() == expected_sha256
 
 
-def test_d3_offline_execution_and_trusted_inbound_preserves_runtime_gate() -> None:
+def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
     identity_commit = "14b3d7ba15e88032cd53714008d36badd4578e80"
     wiring_commit = "f82f76927ba8a6a265478ad7f21eae07b0d6504c"
     execution_commit = "7d1ed00d0add18162a89f3a9c39da6039e74017c"
     execution_source_commit = "576de558983622146a91417c65a85a2a321f585b"
+    plan_adapter_commit = "abafdffdc8252fa6dff7c9d1975cb6c241141971"
     turn_identity_sha256 = (
         "5be323d7fafa4a51d5c954749c8d2d5991e33313e269ee0a3b63bdfc9fb3923d"
     )
@@ -3284,7 +3302,13 @@ def test_d3_offline_execution_and_trusted_inbound_preserves_runtime_gate() -> No
         "72a53515a835bac528280223e22f76a33f8606b5ce979dae11773d10ea6a1b2b"
     )
     execution_test_sha256 = (
-        "40a8706b4036aaa0d091f62a9ab8c7a2e2d2a1a4f5417b31d1c34eb9185783d6"
+        "7e22814f1715b7bdfc7f83431bf4e15cdf6d8f7d13d0d8d3afaa6811e95e0b2d"
+    )
+    plan_adapter_sha256 = (
+        "c81dafec100734ee9a219d8c99a636636b6317b94c93c87cb89ba0f9af581002"
+    )
+    plan_adapter_test_sha256 = (
+        "328f3a2870fab8ea38f1901a02e640bec2f5bc9457c3d5261f350a45ef560d5e"
     )
     four_input_rebinding_required = {
         "antes da primeira consulta",
@@ -3299,6 +3323,7 @@ def test_d3_offline_execution_and_trusted_inbound_preserves_runtime_gate() -> No
         wiring_commit,
         execution_commit,
         execution_source_commit,
+        plan_adapter_commit,
         "contrato puro `agentturnidentity` e `agenteffectintent`",
         "`agent_trusted_inbound_identity_enabled=false` por padrao",
         "`message.id` da entrada persistida agora chega em `ingestionoutcome`",
@@ -3336,22 +3361,41 @@ def test_d3_offline_execution_and_trusted_inbound_preserves_runtime_gate() -> No
         "86/86",
         "190/190",
         "462 passed, 7 skipped",
+        "adaptador puro e replay-only `turn_plan_adapter`",
+        "nao oferece status `executable`, callback injetavel",
+        "plano armazenado ausente ou qualquer receipt terminal ausente",
+        "`first_execution_unsupported` e bloqueia a primeira execucao",
+        "plano armazenado estruturalmente exato e vinculado ao digest",
+        "receipt terminal valido para cada efeito",
+        "retorna `replay_terminal`",
+        "nao concede execucao, persistencia, transporte, retry ou mutacao de dominio",
+        "`tool_calls` permanecem bloqueados",
+        "finita, nao negativa e exata em centavos",
+        "inteiro `oferta_centavos`",
+        "backend/app/agent/turn_plan_adapter.py",
+        plan_adapter_sha256,
+        "backend/tests/test_agent_turn_plan_adapter.py",
+        plan_adapter_test_sha256,
+        "291/291",
+        "625 passed, 7 skipped",
+        "p0, p1 e p2 iguais a zero",
         "go`, sem p0, p1 ou p2",
         "evidencia e local e pre-pr",
-        "wiring de identidade no codigo, mas continua inativo",
+        "lote ampliado permanece exclusivamente offline",
         "flag fica desligada por padrao e nenhuma ativacao ocorreu",
-        "`turn_execution` nao e importado pelo worker ou runtime",
-        "executa zero i/o",
+        "`turn_execution` e `turn_plan_adapter` nao possuem consumer de runtime",
+        "executam zero i/o",
         "nao existem saver, checkpoint duravel, migration",
         "receipt persistido, fifo, bloqueio serial real",
-        "atomicidade entre efeitos, retomada, replay seguro ou memoria ativa",
+        "atomicidade entre efeitos, retomada, primeira execucao ou memoria ativa",
         (
-            "lote d3 offline combinado localmente / flag default false / "
-            "candidato nao integrado no main / runtime nao ativado"
+            "lote d3 offline ampliado localmente / replay-only / flag default "
+            "false / candidato nao integrado no main / runtime nao ativado"
         ),
         "foi substituido localmente, sem consumo, pelo lote combinado",
+        "foi substituido localmente, sem consumo, pelo lote ampliado replay-only",
         "nao houve push, pr, ci ou preview sob esse gate",
-        "cobre somente revisao e ci do lote offline",
+        "cobre somente revisao e ci do lote offline ampliado replay-only",
         "nao autoriza merge, vercel production, flag-on, runtime, saver",
         "qualquer efeito vivo",
     } | four_input_rebinding_required
@@ -3385,10 +3429,13 @@ def test_d3_offline_execution_and_trusted_inbound_preserves_runtime_gate() -> No
             wiring_commit,
             execution_commit,
             execution_source_commit,
+            plan_adapter_commit,
             turn_identity_sha256,
             identity_test_sha256,
             turn_execution_sha256,
             execution_test_sha256,
+            plan_adapter_sha256,
+            plan_adapter_test_sha256,
         ):
             assert normalized.count(pinned_value) == 1
         assert normalized.count(
@@ -3396,16 +3443,25 @@ def test_d3_offline_execution_and_trusted_inbound_preserves_runtime_gate() -> No
         ) == 1
         assert normalized.count(D3_TURN_IDENTITY_SUPERSEDED_GATE.casefold()) == 1
         assert normalized.count(
+            D3_TURN_EXECUTION_TRUSTED_INBOUND_SUPERSEDED_GATE.casefold()
+        ) == 1
+        assert normalized.count(
             DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold()
         ) == 1
         assert normalized.index("pr #352") < normalized.index(identity_commit)
         assert normalized.index(identity_commit) < normalized.index(wiring_commit)
         assert normalized.index(wiring_commit) < normalized.index(execution_commit)
-        assert normalized.index(execution_commit) < normalized.index(
+        assert normalized.index(execution_commit) < normalized.index(plan_adapter_commit)
+        assert normalized.index(plan_adapter_commit) < normalized.index(
             D3_TURN_IDENTITY_SUPERSEDED_GATE.casefold()
         )
         assert normalized.index(
             D3_TURN_IDENTITY_SUPERSEDED_GATE.casefold()
+        ) < normalized.index(
+            D3_TURN_EXECUTION_TRUSTED_INBOUND_SUPERSEDED_GATE.casefold()
+        )
+        assert normalized.index(
+            D3_TURN_EXECUTION_TRUSTED_INBOUND_SUPERSEDED_GATE.casefold()
         ) < normalized.index(
             DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold()
         )
@@ -3470,6 +3526,29 @@ def test_d3_offline_execution_and_trusted_inbound_preserves_runtime_gate() -> No
         "86/86",
         "190/190",
         "462 passed, 7 skipped",
+        plan_adapter_commit,
+        "preparacao d3 offline: adaptador replay-only da saida do turno",
+        "modulo puro `turn_plan_adapter`",
+        "nao oferece status `executable`, callback injetavel, i/o ou consumer de runtime",
+        "worker, grafo e runtime nao o importam",
+        "reconciliacao e exclusivamente replay-only",
+        "`first_execution_unsupported`, que bloqueia a primeira execucao",
+        "exatamente um receipt terminal valido por efeito",
+        "retorna `replay_terminal`",
+        "nao concede autoridade para executar, persistir, transportar, repetir ou mutar dominio",
+        "receipt sem plano, plano conflitante, recibo inesperado ou duplicado falham fechados",
+        "`tool_calls` sao bloqueados",
+        "precisa ser finito, nao negativo e exato em centavos",
+        "inteiro `oferta_centavos`",
+        plan_adapter_sha256,
+        plan_adapter_test_sha256,
+        "291/291",
+        "625 passed, 7 skipped",
+        "p0, p1 e p2 iguais a zero",
+        "lote d3 offline ampliado localmente / replay-only / flag default false",
+        D3_TURN_EXECUTION_TRUSTED_INBOUND_SUPERSEDED_GATE.casefold(),
+        D3_TURN_FOUNDATION_REPLAY_ONLY_CURRENT_GATE.casefold(),
+        "cobre somente revisao e ci do lote offline ampliado replay-only",
     } | four_input_rebinding_required
     architecture_missing = sorted(
         item for item in architecture_required if item not in architecture
@@ -3479,6 +3558,57 @@ def test_d3_offline_execution_and_trusted_inbound_preserves_runtime_gate() -> No
     )
     for stale_claim in stale_claims:
         assert stale_claim not in architecture
+    for pinned_value in (
+        plan_adapter_commit,
+        plan_adapter_sha256,
+        plan_adapter_test_sha256,
+        execution_test_sha256,
+        D3_TURN_EXECUTION_TRUSTED_INBOUND_SUPERSEDED_GATE.casefold(),
+        D3_TURN_FOUNDATION_REPLAY_ONLY_CURRENT_GATE.casefold(),
+    ):
+        assert architecture.count(pinned_value) == 1
+
+    replay_only_required = {
+        plan_adapter_commit,
+        plan_adapter_sha256,
+        plan_adapter_test_sha256,
+        execution_test_sha256,
+        "turn_plan_adapter",
+        "replay-only",
+        "`executable`",
+        "callback injetavel",
+        "consumer de runtime",
+        "first_execution_unsupported",
+        "replay_terminal",
+        "receipt terminal",
+        "tool_calls",
+        "oferta_centavos",
+        "291/291",
+        "625 passed, 7 skipped",
+        "p0, p1 e p2 iguais a zero",
+        D3_TURN_EXECUTION_TRUSTED_INBOUND_SUPERSEDED_GATE.casefold(),
+        "foi substituido localmente, sem consumo, pelo lote ampliado replay-only",
+        D3_TURN_FOUNDATION_REPLAY_ONLY_CURRENT_GATE.casefold(),
+        "nome nao constitui autorizacao ja concedida",
+        "cobre somente revisao e ci do lote offline ampliado replay-only",
+        "nao autoriza merge, vercel production, flag-on, runtime, saver",
+        "qualquer efeito vivo",
+    }
+    for path in D3_TURN_PLAN_ADAPTER_DOCS:
+        normalized = _normalized_prose(path.read_text(encoding="utf-8"))
+        missing = sorted(
+            item for item in replay_only_required if item not in normalized
+        )
+        assert not missing, f"D3 replay-only adapter stale in {path}: {missing}"
+        for pinned_value in (
+            plan_adapter_commit,
+            plan_adapter_sha256,
+            plan_adapter_test_sha256,
+            execution_test_sha256,
+            D3_TURN_EXECUTION_TRUSTED_INBOUND_SUPERSEDED_GATE.casefold(),
+            D3_TURN_FOUNDATION_REPLAY_ONLY_CURRENT_GATE.casefold(),
+        ):
+            assert normalized.count(pinned_value) == 1
 
     for path in DEV_CONNECT_TLS_AUTH_CURRENT_DOCS | {
         WHATSAPP_FIRST_AGENT_ARCHITECTURE_ADR_PATH
@@ -3501,6 +3631,12 @@ def test_d3_offline_execution_and_trusted_inbound_preserves_runtime_gate() -> No
         ),
         REPO_ROOT / "backend" / "tests" / "test_agent_turn_execution.py": (
             execution_test_sha256
+        ),
+        REPO_ROOT / "backend" / "app" / "agent" / "turn_plan_adapter.py": (
+            plan_adapter_sha256
+        ),
+        REPO_ROOT / "backend" / "tests" / "test_agent_turn_plan_adapter.py": (
+            plan_adapter_test_sha256
         ),
         REPO_ROOT / "backend" / "app" / "config.py": (
             "c97f3c62c872b0e6a1d2e745f7effbdbb395617f5533abf7e4c82f6a681fcfe3"

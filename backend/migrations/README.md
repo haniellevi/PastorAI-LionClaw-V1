@@ -474,6 +474,25 @@ exige igualdade integral dos quatro vínculos com a identidade construída pelo
 worker; qualquer divergência aborta. A flag permanece desligada por padrão e
 nenhuma execução viva foi autorizada.
 
+No mesmo lote local, o commit técnico
+`abafdffdc8252fa6dff7c9d1975cb6c241141971` adiciona o adaptador puro e
+replay-only `turn_plan_adapter`, sem status `EXECUTABLE`, callback injetável,
+I/O ou consumer de runtime. Plano armazenado ausente ou qualquer receipt
+terminal ausente produz `FIRST_EXECUTION_UNSUPPORTED`; somente plano
+estruturalmente exato e um receipt terminal válido por efeito retorna
+`REPLAY_TERMINAL`, sem conceder execução. `tool_calls` permanecem bloqueados e
+a oferta fechada do relatório é vinculada como inteiro `oferta_centavos`.
+Os pins são módulo SHA-256
+`c81dafec100734ee9a219d8c99a636636b6317b94c93c87cb89ba0f9af581002`, teste
+novo SHA-256
+`328f3a2870fab8ea38f1901a02e640bec2f5bc9457c3d5261f350a45ef560d5e` e teste
+de execução ajustado SHA-256
+`7e22814f1715b7bdfc7f83431bf4e15cdf6d8f7d13d0d8d3afaa6811e95e0b2d`.
+A revisão passou em `291/291`, a seleção `tests/test_agent*.py` terminou em
+`625 passed, 7 skipped` e o parecer foi `GO`, com P0, P1 e P2 iguais a zero.
+Não há plano ou receipt persistido, primeira execução, saver, migration,
+flag-on ou runtime ativado.
+
 O gate histórico `REVIEW_AND_CI_OFFLINE_AGENT_FOUNDATION_BATCH_PR` foi consumido
 pelo push, abertura, CI e Preview da PR #351. Ele não autorizou o merge
 posterior, permanece somente como evidência histórica e não é um segundo gate
@@ -489,11 +508,17 @@ O gate anterior `REVIEW_AND_CI_D3_TURN_IDENTITY_OFFLINE_PR` foi substituído
 localmente, sem consumo, pelo lote combinado. Não houve push, PR, CI ou Preview
 sob esse gate, portanto ele não é evidência histórica de uma ação externa.
 
+O gate anterior
+`REVIEW_AND_CI_D3_TURN_EXECUTION_AND_TRUSTED_INBOUND_WIRING_OFFLINE_PR` foi
+substituído localmente, sem consumo, pelo lote ampliado replay-only. Não houve
+push, PR, CI ou Preview sob esse gate, portanto ele não é evidência histórica
+de uma ação externa.
+
 **Próximo gate único:**
-`REVIEW_AND_CI_D3_TURN_EXECUTION_AND_TRUSTED_INBOUND_WIRING_OFFLINE_PR`. O nome não constitui autorização
+`REVIEW_AND_CI_D3_TURN_FOUNDATION_REPLAY_ONLY_OFFLINE_PR`. O nome não constitui autorização
 já concedida. Seu consumo exige autorização humana posterior e separada que
 nomeie push, abertura da PR e GitHub CI e aceite o Vercel Preview automático.
-O gate cobre somente revisão e CI do lote offline. Não autoriza merge, Vercel
+O gate cobre somente revisão e CI do lote offline ampliado replay-only. Não autoriza merge, Vercel
 Production, flag-on, runtime, saver, probe vivo, acesso a DEV ou PROD, banco,
 logs, SQL, DML, migration, reconciliação, backfill, deploy, mensagem, tool call,
 qualquer efeito vivo, `bootstrap-ledger`, `harden-ledger`, `status` ou `apply`.

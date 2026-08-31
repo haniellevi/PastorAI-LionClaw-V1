@@ -324,7 +324,7 @@ O freeze local vincula:
 - `backend/app/agent/turn_execution.py`, SHA-256
   `72a53515a835bac528280223e22f76a33f8606b5ce979dae11773d10ea6a1b2b`;
 - `backend/tests/test_agent_turn_execution.py`, SHA-256
-  `40a8706b4036aaa0d091f62a9ab8c7a2e2d2a1a4f5417b31d1c34eb9185783d6`;
+  `7e22814f1715b7bdfc7f83431bf4e15cdf6d8f7d13d0d8d3afaa6811e95e0b2d`;
 - `backend/app/config.py`, SHA-256
   `c97f3c62c872b0e6a1d2e745f7effbdbb395617f5533abf7e4c82f6a681fcfe3`;
 - `backend/app/workers/queue_worker.py`, SHA-256
@@ -348,8 +348,63 @@ revisões terminaram `GO`, sem P0, P1 ou P2. A evidência é local e pré-PR.
 Não existe persistência de plano, receipt ou outbox, store autenticada, lock
 de conversa, FIFO, fronteira atômica entre commit de domínio e outbox, saver,
 checkpoint durável, migration, memória, retomada, replay seguro, flag-on ou
-runtime ativado. A classificação é `LOTE D3 OFFLINE COMBINADO LOCALMENTE /
-FLAG DEFAULT FALSE / CANDIDATO NÃO INTEGRADO NO MAIN / RUNTIME NÃO ATIVADO`.
+runtime ativado.
+
+### Preparação D3 offline: adaptador replay-only da saída do turno
+
+Na mesma branch, o commit técnico local
+`abafdffdc8252fa6dff7c9d1975cb6c241141971` adiciona o módulo puro
+`turn_plan_adapter`. Ele aceita somente o envelope fechado e versionado da
+saída atual do grafo, revalida rota, resposta e eventos, projeta as intenções e
+constrói um `AgentTurnExecutionPlan` determinístico. O módulo não oferece
+status `EXECUTABLE`, callback injetável, I/O ou consumer de runtime; worker,
+grafo e runtime não o importam.
+
+A reconciliação é exclusivamente replay-only. Plano armazenado ausente ou
+qualquer receipt terminal ausente produz `FIRST_EXECUTION_UNSUPPORTED`, que
+bloqueia a primeira execução. Somente um plano armazenado estruturalmente exato
+e vinculado ao digest projetado, junto de exatamente um receipt terminal válido
+por efeito, retorna `REPLAY_TERMINAL`. O retorno não concede autoridade para
+executar, persistir, transportar, repetir ou mutar domínio. Receipt sem plano,
+plano conflitante, recibo inesperado ou duplicado falham fechados.
+
+`tool_calls` são bloqueados mesmo quando parecem estruturalmente plausíveis.
+O único `float` admitido fica no campo fechado
+`report_captured.relatorio.oferta`; ele precisa ser finito, não negativo e
+exato em centavos, sendo convertido e vinculado como inteiro
+`oferta_centavos`. Nenhum outro float entra no payload canônico.
+
+O freeze local ampliado vincula:
+
+- `backend/app/agent/turn_plan_adapter.py`, SHA-256
+  `c81dafec100734ee9a219d8c99a636636b6317b94c93c87cb89ba0f9af581002`;
+- `backend/tests/test_agent_turn_plan_adapter.py`, SHA-256
+  `328f3a2870fab8ea38f1901a02e640bec2f5bc9457c3d5261f350a45ef560d5e`.
+
+A revisão integrada passou em `291/291`, e a seleção
+`tests/test_agent*.py` terminou em `625 passed, 7 skipped`. A revisão concluiu
+`GO`, com P0, P1 e P2 iguais a zero. A evidência é local e pré-PR.
+
+O lote ampliado permanece sem plano ou receipt persistido, store autenticada,
+lock de conversa, FIFO, fronteira atômica, saver, checkpoint durável,
+migration, memória, primeira execução, flag-on ou runtime ativado. A
+classificação é `LOTE D3 OFFLINE AMPLIADO LOCALMENTE / REPLAY-ONLY / FLAG
+DEFAULT FALSE / CANDIDATO NÃO INTEGRADO NO MAIN / RUNTIME NÃO ATIVADO`.
+
+O gate anterior
+`REVIEW_AND_CI_D3_TURN_EXECUTION_AND_TRUSTED_INBOUND_WIRING_OFFLINE_PR` foi
+substituído localmente, sem consumo, pelo lote ampliado replay-only. Não houve
+push, PR, CI ou Preview sob esse gate, portanto ele não é evidência histórica
+de uma ação externa.
+
+**Próximo gate único:**
+`REVIEW_AND_CI_D3_TURN_FOUNDATION_REPLAY_ONLY_OFFLINE_PR`. O nome não constitui
+autorização já concedida. Seu consumo exige autorização humana posterior e
+separada que nomeie push, abertura da PR e GitHub CI e aceite o Vercel Preview
+automático. O gate cobre somente revisão e CI do lote offline ampliado
+replay-only. Não autoriza merge, Vercel Production, flag-on, runtime, saver,
+probe vivo, acesso a DEV ou PROD, banco, logs, SQL, DML, migration, deploy,
+mensagem, tool call ou qualquer efeito vivo.
 
 
 

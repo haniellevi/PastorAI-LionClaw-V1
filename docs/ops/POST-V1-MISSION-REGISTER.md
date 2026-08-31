@@ -1283,20 +1283,41 @@ Os pins atuais são `backend/app/agent/turn_identity.py`, SHA-256
 `backend/app/agent/turn_execution.py`, SHA-256
 `72a53515a835bac528280223e22f76a33f8606b5ce979dae11773d10ea6a1b2b`; e
 `backend/tests/test_agent_turn_execution.py`, SHA-256
-`40a8706b4036aaa0d091f62a9ab8c7a2e2d2a1a4f5417b31d1c34eb9185783d6`.
+`7e22814f1715b7bdfc7f83431bf4e15cdf6d8f7d13d0d8d3afaa6811e95e0b2d`.
 O wiring passou em `245/245` e em `401 passed, 7 skipped` na seleção
 `tests/test_agent*.py`; o contrato de execução passou em `86/86`, na revisão
 independente `190/190` e em `462 passed, 7 skipped` na mesma seleção. As duas
 revisões terminaram `GO`, sem P0, P1 ou P2. A evidência é local e pré-PR.
 
-O lote permanece exclusivamente offline. Possui wiring de identidade no código,
-mas continua inativo porque a
-flag fica desligada por padrão e nenhuma ativação ocorreu. `turn_execution`
-não é importado pelo worker ou runtime e executa zero I/O. Não existem saver,
-checkpoint durável, migration, plano ou receipt persistido, FIFO, bloqueio
-serial real, atomicidade entre efeitos, retomada, replay seguro ou memória
-ativa. Estado: `LOTE D3 OFFLINE COMBINADO LOCALMENTE / FLAG DEFAULT FALSE /
-CANDIDATO NÃO INTEGRADO NO MAIN / RUNTIME NÃO ATIVADO`.
+Na mesma branch, o commit técnico local
+`abafdffdc8252fa6dff7c9d1975cb6c241141971` adiciona o adaptador puro e
+replay-only `turn_plan_adapter`. Ele projeta a saída fechada do grafo em um
+plano determinístico, mas não oferece status `EXECUTABLE`, callback injetável
+ou consumer de runtime. Plano armazenado ausente ou qualquer receipt terminal
+ausente produz `FIRST_EXECUTION_UNSUPPORTED` e bloqueia a primeira execução.
+Somente um plano armazenado estruturalmente exato e vinculado ao digest, junto
+de um receipt terminal válido para cada efeito, retorna `REPLAY_TERMINAL`; esse
+resultado não concede execução, persistência, transporte, retry ou mutação de
+domínio. `tool_calls` permanecem bloqueados. A oferta do relatório é aceita
+somente quando finita, não negativa e exata em centavos, sendo vinculada como
+inteiro `oferta_centavos`.
+
+Os novos pins são `backend/app/agent/turn_plan_adapter.py`, SHA-256
+`c81dafec100734ee9a219d8c99a636636b6317b94c93c87cb89ba0f9af581002`;
+`backend/tests/test_agent_turn_plan_adapter.py`, SHA-256
+`328f3a2870fab8ea38f1901a02e640bec2f5bc9457c3d5261f350a45ef560d5e`.
+A revisão integrada passou em `291/291`; a seleção `tests/test_agent*.py`
+terminou em `625 passed, 7 skipped`. A revisão concluiu `GO`, com P0, P1 e P2
+iguais a zero. Essa evidência é local e pré-PR.
+
+O lote ampliado permanece exclusivamente offline. O wiring de identidade
+continua inativo porque a flag fica desligada por padrão e nenhuma ativação
+ocorreu. `turn_execution` e `turn_plan_adapter` não possuem consumer de runtime
+e executam zero I/O. Não existem saver, checkpoint durável, migration, plano ou
+receipt persistido, FIFO, bloqueio serial real, atomicidade entre efeitos,
+retomada, primeira execução ou memória ativa. Estado: `LOTE D3 OFFLINE
+AMPLIADO LOCALMENTE / REPLAY-ONLY / FLAG DEFAULT FALSE / CANDIDATO NÃO
+INTEGRADO NO MAIN / RUNTIME NÃO ATIVADO`.
 
 O gate histórico `REVIEW_AND_CI_OFFLINE_AGENT_FOUNDATION_BATCH_PR` foi consumido
 pelo push, abertura, CI e Preview da PR #351. Ele não autorizou o merge
@@ -1313,13 +1334,20 @@ O gate anterior `REVIEW_AND_CI_D3_TURN_IDENTITY_OFFLINE_PR` foi substituído
 localmente, sem consumo, pelo lote combinado. Não houve push, PR, CI ou Preview
 sob esse gate, portanto ele não é evidência histórica de uma ação externa.
 
+O gate anterior
+`REVIEW_AND_CI_D3_TURN_EXECUTION_AND_TRUSTED_INBOUND_WIRING_OFFLINE_PR` foi
+substituído localmente, sem consumo, pelo lote ampliado replay-only. Não houve
+push, PR, CI ou Preview sob esse gate, portanto ele não é evidência histórica
+de uma ação externa.
+
 **Próximo gate único:**
-`REVIEW_AND_CI_D3_TURN_EXECUTION_AND_TRUSTED_INBOUND_WIRING_OFFLINE_PR`. O nome não constitui autorização
+`REVIEW_AND_CI_D3_TURN_FOUNDATION_REPLAY_ONLY_OFFLINE_PR`. O nome não constitui autorização
 já concedida. Seu consumo exige autorização humana posterior e separada que
 nomeie push, abertura da PR e GitHub CI e aceite o Vercel Preview automático.
-O gate cobre somente revisão e CI do lote offline. Não autoriza merge, Vercel
-Production, flag-on, runtime, saver, probe vivo, acesso a DEV ou PROD, banco,
-logs, SQL, DML, migration, deploy, mensagem, tool call ou qualquer efeito vivo.
+O gate cobre somente revisão e CI do lote offline ampliado replay-only. Não
+autoriza merge, Vercel Production, flag-on, runtime, saver, probe vivo, acesso
+a DEV ou PROD, banco, logs, SQL, DML, migration, deploy, mensagem, tool call ou
+qualquer efeito vivo.
 
 ## Paralelismo seguro
 
