@@ -522,11 +522,79 @@ testes SHA-256
 `70334dfc33505ea0b5ddb85a6406672fe0d9154e105134da164c773978459489` e
 `95/95` testes verdes.
 
+A PR #350, HEAD `58af39b760b8b5be85723d3ea693abd20fe3f3cf`, foi integrada no
+merge `0f8c6a77bf489f9080743ab3f7ce71097d361aea`, com
+`mergedAt=2026-08-31T16:38:27Z`. Os sete workflows pos-merge concluiram com
+`SUCCESS`: Backend `33415223927`, Canonical `33415223885`, E2E `33415223922`,
+Environment Attestation PG17 `33415223904`, Frontend `33415223881`, RLS
+`33415223955` e Tooling `33415223892`. A Vercel registrou o deployment
+automatico frontend Production `6185328714`, status `17578739446`, com
+`SUCCESS`. Essa metadata prova somente o deployment do frontend, sem provar
+saude funcional, backend, banco, DEV, PROD, probe, migration ou runtime.
+
+O gate `REVIEW_AND_CI_DEV_TLS_HANDSHAKE_FAILURE_CATEGORY_PR` foi consumido pela
+PR #350. A categoria TLS esta integrada e comprovada offline; o resultado
+historico nao recebe categoria retroativa e a causa permanece indeterminada.
+A arvore do merge e identica a do HEAD da PR.
+
+O desenho `migration-epoch v3` devera tratar como `KNOWN_UNVERIFIED_DRIFT`, sem nova
+consulta nem inferencia de migration aplicada, os sete indices observados por
+evidencia operacional anterior: `idx_pessoas_igreja_ativa_created`,
+`idx_pessoas_igreja_ativa_tipo`, `idx_celulas_igreja_ativo_lider`,
+`idx_work_queue_igreja_status_responsavel`,
+`idx_conversations_igreja_assumido`, `idx_app_users_igreja_nome` e
+`idx_user_roles_igreja_user`. Essa observacao nao foi revalidada nesta missao
+e nao prova o estado atual de DEV. A atestacao v1 valida somente envelopes que
+continuam bloqueados; ela nao comprova conclusao e nao pode ser reinterpretada
+como `environment_attestation_complete=true`. Os artefatos historicos v1 e v2
+permanecem byte-identicos e fora do escopo.
+
+O pacote candidato `migration-epoch v3` esta congelado como
+`OFFLINE_EPOCH_CUTOVER_DECISION_PACKAGE_BLOCKED`. O verificador
+`backend/scripts/verify_migration_history_divergence_remediation_proposal_v3.py`
+tem SHA-256 `8d7712be4f63ead2eff2c9e7af236e610b0c148acb07c85ebcd81db1f6d0877d`;
+o teste `backend/tests/test_migration_history_divergence_remediation_v3.py`
+tem SHA-256 `b34bd0677feb9d4453477d7503dc19beffcaf6cc8648acb85be56113b7578e24`;
+a proposta
+`docs/governance/migrations/migration-history-divergence-remediation-proposal-v3.json`
+tem SHA-256 `076d04ed179c5128c4707c07cacd8240896101a9bea62e328d2d0569900cd10e`;
+e seu schema
+`docs/governance/migrations/migration-history-divergence-remediation-proposal-v3.schema.json`
+tem SHA-256 `88f7972780f07c7071bb4e4292e1f21c258fff47daf2ab207fc709ff34631b38`.
+A matriz nova passou `87/87`, a focal estavel passou `138/138`, e o verificador
+terminou fail-closed com exit `8` e
+`RESULT=BLOCKED_MIGRATION_EPOCH_V3:PENDING_SEPARATE_EVIDENCE`. O estado e
+`RECOMMENDATION_ONLY_NOT_APPROVED`; isso comprova somente o desenho offline e
+nao autoriza evidencia viva, cutover, migration ou runtime.
+
+No mesmo batch offline, a correcao de precedencia classifica `TimeoutError` e
+`socket.timeout` como `DEADLINE_EXCEEDED` antes de `OSError` generico em cada
+fronteira de rede. O candidato tem runner SHA-256
+`2e2208bfbca1214c0cec024c58716eeac7c05789c33ce36d812c0265c3810809`, teste
+SHA-256 `d7161cd7dd7c63935c07431193b0d916222e5341088edbdc6d4ef85ad3063689` e
+`102/102` testes verdes. Nenhum probe vivo foi executado. Os hashes da PR #350
+`0ac585b86dd1c96446622e9a46bccda8a1e43eb0bceb0dcc19226892cb88d191` e
+`70334dfc33505ea0b5ddb85a6406672fe0d9154e105134da164c773978459489`
+permanecem evidencia historica e nao sao substituidos.
+
+O contrato D3 fail-closed candidato usa
+`backend/app/agent/private_checkpoint.py`, SHA-256
+`098d7186d59b2be9c231e3ca41e328b69901d4bc3e3f9b09651b902c07768f33`,
+`backend/app/agent/context.py`, SHA-256
+`b8d9ccea0041a81021cb2b4cf8edcbd8af0457ebf4401b021bd974edd29eea7d`, e
+`backend/tests/test_agent_private_checkpoint_contract.py`, SHA-256
+`2f91523e6a5daacd7c3ac08b933c7d9f857c3eec2a72b9f962c09c98d39f3c8b`.
+A selecao `tests/test_agent*.py` terminou em `292 passed, 7 skipped`, com duas
+advertencias preexistentes. A classificacao e `CONTRATO OFFLINE INATIVO`: nao
+ha saver, migration ou wiring, e o LangGraph continua stateless.
+
 **Próximo gate único:**
-`REVIEW_AND_CI_DEV_TLS_HANDSHAKE_FAILURE_CATEGORY_PR`. Permite somente preparar
-revisao e CI depois de autorizacao humana especifica para push, PR e Preview.
-Nao autoriza merge, Vercel Production, nova execucao, DEV adicional, PROD,
-banco, logs, SQL, migration, flag ou runtime.
+`REVIEW_AND_CI_OFFLINE_AGENT_FOUNDATION_BATCH_PR`. O nome nao constitui
+autorizacao ja concedida. Seu consumo exige autorizacao humana posterior que
+nomeie push, abertura da PR e GitHub CI e aceite o Vercel Preview automatico.
+O batch permanece exclusivamente offline e nao autoriza merge, Vercel
+Production, probe vivo, acesso a DEV ou PROD, banco, logs, SQL, DML, migration,
+deploy, flag ou runtime.
 
 ---
 
