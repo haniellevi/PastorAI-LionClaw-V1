@@ -36,6 +36,10 @@ from app.agent.turn_plan_adapter import (
     reconcile_agent_turn_output_replay,
     validate_agent_turn_output_v1,
 )
+from app.domain.cell_report_workflow import (
+    MAX_REPORT_COUNT,
+    MAX_REPORT_OFFERING_CENTS,
+)
 
 
 IGREJA_ID = uuid.UUID("11111111-1111-4111-8111-111111111111")
@@ -329,6 +333,19 @@ def test_report_amount_normalization_is_deterministic(amount, cents):
 
 
 @pytest.mark.parametrize(
+    "amount, cents",
+    [
+        (MAX_REPORT_OFFERING_CENTS // 100, 999_999_999_900),
+        (9_999_999_999.99, MAX_REPORT_OFFERING_CENTS),
+    ],
+)
+def test_report_amount_accepts_numeric_12_2_boundary(amount, cents):
+    output = build_agent_turn_output_v1(_report_output(oferta=amount))
+    report = json.loads(output.events[-1].payload_json)["relatorio"]
+    assert report["oferta_centavos"] == cents
+
+
+@pytest.mark.parametrize(
     "precision, rounding, trapped_signals",
     [
         (2, ROUND_DOWN, ()),
@@ -377,6 +394,8 @@ def test_report_amount_and_hashes_ignore_decimal_context(
         float("-inf"),
         "50.25",
         object(),
+        10_000_000_000,
+        10_000_000_000.0,
         MAX_CANONICAL_INTEGER,
     ],
 )
@@ -901,6 +920,24 @@ def test_report_counts_are_exact_nonnegative_integers_or_null(field, value):
         AgentTurnPlanAdapterErrorCode.INVALID_TURN_OUTPUT,
         build_agent_turn_output_v1,
         raw,
+    )
+
+
+def test_report_counts_share_the_workflow_boundary():
+    accepted = _report_output()
+    report = accepted["turn_effects"]["events"][1]["payload"]["relatorio"]
+    report["presentes"] = MAX_REPORT_COUNT
+    output = build_agent_turn_output_v1(accepted)
+    normalized = json.loads(output.events[-1].payload_json)["relatorio"]
+    assert normalized["presentes"] == MAX_REPORT_COUNT
+
+    rejected = _report_output()
+    report = rejected["turn_effects"]["events"][1]["payload"]["relatorio"]
+    report["presentes"] = MAX_REPORT_COUNT + 1
+    _assert_error(
+        AgentTurnPlanAdapterErrorCode.INVALID_TURN_OUTPUT,
+        build_agent_turn_output_v1,
+        rejected,
     )
 
 

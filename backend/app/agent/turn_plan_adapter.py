@@ -58,6 +58,10 @@ from app.agent.turn_identity import (
     canonical_json_bytes,
     validate_agent_effect_intents,
 )
+from app.domain.cell_report_workflow import (
+    MAX_REPORT_COUNT,
+    MAX_REPORT_OFFERING_CENTS,
+)
 
 AGENT_TURN_OUTPUT_SCHEMA_VERSION: Final = "v1"
 TURN_PLAN_ADAPTER_VERSION: Final = "v1"
@@ -389,7 +393,7 @@ def _require_nonnegative_count(value: object) -> int | None:
     if (
         type(value) is not int
         or value < 0
-        or value > MAX_CANONICAL_INTEGER
+        or value > MAX_REPORT_COUNT
     ):
         _raise(AgentTurnPlanAdapterErrorCode.INVALID_TURN_OUTPUT)
     return value
@@ -399,7 +403,7 @@ def _offering_cents(value: object) -> int | None:
     if value is None:
         return None
     if type(value) is int:
-        if value < 0 or value > MAX_CANONICAL_INTEGER // 100:
+        if value < 0 or value > MAX_REPORT_OFFERING_CENTS // 100:
             _raise(AgentTurnPlanAdapterErrorCode.INVALID_REPORT_AMOUNT)
         return value * 100
     if (
@@ -442,7 +446,7 @@ def _offering_cents(value: object) -> int | None:
         )
         if remainder:
             _raise(AgentTurnPlanAdapterErrorCode.INVALID_REPORT_AMOUNT)
-    if cents_value < 0 or cents_value > MAX_CANONICAL_INTEGER:
+    if cents_value < 0 or cents_value > MAX_REPORT_OFFERING_CENTS:
         _raise(AgentTurnPlanAdapterErrorCode.INVALID_REPORT_AMOUNT)
     return cents_value
 
