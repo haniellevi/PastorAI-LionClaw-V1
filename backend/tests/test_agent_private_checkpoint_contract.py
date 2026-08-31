@@ -14,12 +14,13 @@ from app.agent.context import (
     validate_agent_input_state,
 )
 from app.agent.graph import get_compiled_graph
-from app.agent.nodes import AgentState
+from app.agent.nodes import AgentState, AgentTurnEffects
 from app.agent.private_checkpoint import (
     CHECKPOINT_NAMESPACE,
     CURRENT_EPHEMERAL_AGENT_STATE_KEYS,
     CURRENT_PRIVATE_CHECKPOINT_BLOCKERS,
     CURRENT_REPLAY_SENSITIVE_AGENT_STATE_KEYS,
+    CURRENT_TURN_EFFECT_KEYS,
     PrivateCheckpointActivationBlocker,
     PrivateCheckpointActivationError,
     build_private_checkpoint_binding,
@@ -158,13 +159,11 @@ def test_current_agent_state_is_explicitly_ephemeral_and_replay_sensitive() -> N
         "pessoa",
         "route",
         "response",
-        "events",
-        "tool_calls",
-        "apply_optout",
-        "apply_consent_version",
-        "intake_update",
+        "turn_effects",
     }
-    assert CURRENT_REPLAY_SENSITIVE_AGENT_STATE_KEYS == {
+    assert CURRENT_REPLAY_SENSITIVE_AGENT_STATE_KEYS == {"turn_effects"}
+    assert CURRENT_TURN_EFFECT_KEYS == set(AgentTurnEffects.__annotations__)
+    assert CURRENT_TURN_EFFECT_KEYS == {
         "events",
         "tool_calls",
         "apply_optout",
@@ -175,8 +174,10 @@ def test_current_agent_state_is_explicitly_ephemeral_and_replay_sensitive() -> N
     with pytest.raises(PrivateCheckpointActivationError) as raised:
         reject_current_agent_state_rehydration(
             {
-                "events": [{"evento": "example"}],
-                "apply_optout": True,
+                "turn_effects": {
+                    "events": [{"evento": "example"}],
+                    "apply_optout": True,
+                },
             }
         )
 
@@ -194,7 +195,7 @@ def test_activation_errors_never_echo_state_context_or_factory_values() -> None:
 
     with pytest.raises(PrivateCheckpointActivationError) as state_error:
         reject_current_agent_state_rehydration(
-            {"events": [{"payload": private_state_value}]}
+            {"turn_effects": {"events": [{"payload": private_state_value}]}}
         )
     with pytest.raises(TrustedContextError) as context_error:
         build_private_checkpoint_binding(

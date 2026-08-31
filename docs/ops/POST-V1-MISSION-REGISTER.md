@@ -1196,9 +1196,9 @@ terminou fail-closed com exit `8` e
 `RECOMMENDATION_ONLY_NOT_APPROVED`; isso comprova somente o desenho offline e
 não autoriza evidência viva, cutover, migration ou runtime.
 
-No mesmo batch offline, a correção de precedência classifica
+No batch offline depois integrado pela PR #351, a correção de precedência classifica
 `TimeoutError` e `socket.timeout` como `DEADLINE_EXCEEDED` antes de `OSError`
-genérico em cada fronteira de rede. O candidato tem runner SHA-256
+genérico em cada fronteira de rede. O batch integrado tem runner SHA-256
 `2e2208bfbca1214c0cec024c58716eeac7c05789c33ce36d812c0265c3810809`, teste
 SHA-256 `d7161cd7dd7c63935c07431193b0d916222e5341088edbdc6d4ef85ad3063689` e
 `102/102` testes verdes. Nenhum probe vivo foi executado. Os hashes da PR #350
@@ -1206,7 +1206,7 @@ SHA-256 `d7161cd7dd7c63935c07431193b0d916222e5341088edbdc6d4ef85ad3063689` e
 `70334dfc33505ea0b5ddb85a6406672fe0d9154e105134da164c773978459489`
 permanecem evidência histórica e não são substituídos.
 
-O contrato D3 fail-closed candidato usa
+O contrato D3 fail-closed integrado usa
 `backend/app/agent/private_checkpoint.py`, SHA-256
 `098d7186d59b2be9c231e3ca41e328b69901d4bc3e3f9b09651b902c07768f33`,
 `backend/app/agent/context.py`, SHA-256
@@ -1214,14 +1214,27 @@ O contrato D3 fail-closed candidato usa
 `backend/tests/test_agent_private_checkpoint_contract.py`, SHA-256
 `2f91523e6a5daacd7c3ac08b933c7d9f857c3eec2a72b9f962c09c98d39f3c8b`.
 A seleção `tests/test_agent*.py` terminou em `292 passed, 7 skipped`, com duas
-advertências preexistentes. A classificação é `CONTRATO OFFLINE INATIVO`: não
+advertências preexistentes. A classificação é `CONTRATO OFFLINE INTEGRADO E INATIVO`: não
 há saver, migration ou wiring, e o LangGraph continua stateless.
 
+A PR #351 foi integrada no merge
+`bc97dd4e6f2fc9024e85afe8d611708699c8983a`. Os `7/7` checks pós-merge
+concluíram com `SUCCESS`. A Vercel registrou o deployment automático do frontend
+Production `6187006353`, status `17583083885`, com `SUCCESS`. Essa metadata prova
+somente o frontend e não prova backend, banco ou runtime. A preparação D3 de
+estado efêmero desta branch permanece candidata offline, sem saver, migration
+ou retomada, e não integra a evidência pós-merge da PR #351.
+
+O gate histórico `REVIEW_AND_CI_OFFLINE_AGENT_FOUNDATION_BATCH_PR` foi consumido
+pelo push, abertura, CI e Preview da PR #351. Ele não autorizou o merge
+posterior, permanece somente como evidência histórica e não é um segundo gate
+corrente.
+
 **Próximo gate único:**
-`REVIEW_AND_CI_OFFLINE_AGENT_FOUNDATION_BATCH_PR`. O nome não constitui
-autorização já concedida. Seu consumo exige autorização humana posterior que
+`REVIEW_AND_CI_D3_EPHEMERAL_EFFECT_STATE_PR`. O nome não constitui autorização
+já concedida. Seu consumo exige autorização humana posterior e separada que
 nomeie push, abertura da PR e GitHub CI e aceite o Vercel Preview automático.
-O batch permanece exclusivamente offline e não autoriza merge, Vercel
+O batch permanece exclusivamente offline. Este gate não autoriza merge, Vercel
 Production, probe vivo, acesso a DEV ou PROD, banco, logs, SQL, DML, migration,
 deploy, flag ou runtime.
 

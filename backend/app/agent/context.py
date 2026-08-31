@@ -56,6 +56,12 @@ _ALLOWED_STATE_KEYS = frozenset(
         "pessoa",
         "route",
         "response",
+        "turn_effects",
+    }
+)
+
+_LEGACY_EFFECT_STATE_KEYS = frozenset(
+    {
         "events",
         "tool_calls",
         "apply_optout",
@@ -104,6 +110,10 @@ _RESERVED_STATE_KEYS = frozenset(
         "messages",
         "conversation_summary",
         "recent_context",
+        # Legacy effect aliases stay forbidden after the turn-local envelope
+        # split.  Accepting either representation would create two execution
+        # paths and could revive sticky/replayed effects.
+        *_LEGACY_EFFECT_STATE_KEYS,
     }
 )
 
@@ -111,6 +121,13 @@ _OUTPUT_STATE_KEYS = frozenset(
     {
         "route",
         "response",
+        "turn_effects",
+        *_LEGACY_EFFECT_STATE_KEYS,
+    }
+)
+
+_TURN_EFFECT_KEYS = frozenset(
+    {
         "events",
         "tool_calls",
         "apply_optout",
@@ -211,6 +228,36 @@ def context_from_runtime(
     return require_trusted_context(runtime.context)
 
 
+def _validate_turn_effects(value: object) -> None:
+    """Validate the complete internal envelope without echoing private data."""
+    if type(value) is not dict:
+        raise TrustedContextError("turn_effects must be a plain dict")
+    if any(type(key) is not str for key in value):
+        raise TrustedContextError("turn_effects keys must be strings")
+    if set(value) != _TURN_EFFECT_KEYS:
+        raise TrustedContextError("turn_effects envelope is incomplete or unknown")
+
+    for key in ("events", "tool_calls"):
+        items = value[key]
+        if type(items) is not list or any(type(item) is not dict for item in items):
+            raise TrustedContextError(f"turn_effects.{key} must be plain dicts")
+
+    if type(value["apply_optout"]) is not bool:  # noqa: E721
+        raise TrustedContextError("turn_effects.apply_optout must be a bool")
+    consent_version = value["apply_consent_version"]
+    if consent_version is not None and type(consent_version) is not str:
+        raise TrustedContextError(
+            "turn_effects.apply_consent_version must be a string or null"
+        )
+    if consent_version is not None:
+        _nonempty_exact_string(
+            consent_version,
+            "turn_effects.apply_consent_version",
+        )
+    if type(value["intake_update"]) is not dict:
+        raise TrustedContextError("turn_effects.intake_update must be a plain dict")
+
+
 def validate_agent_node_state(value: object) -> dict[str, Any]:
     """Validate an internal node state and reject authority injection."""
     if not isinstance(value, Mapping):
@@ -248,20 +295,12 @@ def validate_agent_node_state(value: object) -> dict[str, Any]:
             if field is not None and type(field) is not bool:  # noqa: E721
                 raise TrustedContextError(f"pessoa.{key} must be a bool")
 
-    for key in ("events", "tool_calls"):
-        field = value.get(key)
-        if field is not None and not isinstance(field, list):
-            raise TrustedContextError(f"{key} must be a list")
-    intake_update = value.get("intake_update")
-    if intake_update is not None and not isinstance(intake_update, Mapping):
-        raise TrustedContextError("intake_update must be a mapping")
-    for key in ("route", "response", "apply_consent_version"):
+    if "turn_effects" in value:
+        _validate_turn_effects(value["turn_effects"])
+    for key in ("route", "response"):
         field = value.get(key)
         if field is not None and not isinstance(field, str):
             raise TrustedContextError(f"{key} must be a string or null")
-    apply_optout = value.get("apply_optout")
-    if apply_optout is not None and type(apply_optout) is not bool:  # noqa: E721
-        raise TrustedContextError("apply_optout must be a bool")
 
     return cast(dict[str, Any], value)
 
@@ -274,17 +313,29 @@ def validate_agent_input_state(value: object) -> dict[str, Any]:
     """
     if type(value) is not dict:
         raise TrustedContextError("agent input state must be a plain dict")
+    preseeded = set(value) & _OUTPUT_STATE_KEYS
+    if preseeded:
+        raise TrustedContextError("preseeded agent output key is not allowed")
     pessoa = value.get("pessoa")
     if pessoa is not None and type(pessoa) is not dict:
         raise TrustedContextError("pessoa input snapshot must be a plain dict")
     state = validate_agent_node_state(value)
-    preseeded = sorted(set(state) & _OUTPUT_STATE_KEYS)
-    if preseeded:
-        raise TrustedContextError("preseeded agent output key is not allowed")
     if "texto" not in state or "pessoa" not in state:
         raise TrustedContextError("texto and pessoa are required agent inputs")
     if type(state["texto"]) is not str:
         raise TrustedContextError("texto input must be a string")
+    return state
+
+
+def validate_agent_output_state(value: object) -> dict[str, Any]:
+    """Require a complete current-turn output before any effect is applied."""
+    if type(value) is not dict:
+        raise TrustedContextError("agent turn output must be a plain dict")
+    required = {"route", "response", "turn_effects"}
+    if set(value) != required:
+        raise TrustedContextError("agent turn output is incomplete")
+    state = validate_agent_node_state(value)
+    _nonempty_exact_string(state["route"], "route")
     return state
 
 
@@ -296,4 +347,5 @@ __all__ = [
     "require_trusted_context",
     "validate_agent_input_state",
     "validate_agent_node_state",
+    "validate_agent_output_state",
 ]

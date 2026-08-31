@@ -25,6 +25,7 @@ from app.agent.nodes import (
     ROUTE_ONBOARDING,
     AgentState,
     consent_node,
+    empty_turn_effects,
     handoff_node,
     intake_node,
     onboarding_node,
@@ -362,6 +363,9 @@ def test_trusted_context_error_from_graph_never_uses_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class _FailingGraph:
+        checkpointer = None
+        store = None
+
         def invoke(self, *_args, **_kwargs):
             raise TrustedContextError("context rejected")
 
@@ -383,6 +387,9 @@ def test_general_graph_failure_reuses_one_runtime_and_context_in_fallback(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class _FailingGraph:
+        checkpointer = None
+        store = None
+
         def invoke(self, *_args, **_kwargs):
             raise RuntimeError("synthetic graph failure")
 
@@ -413,12 +420,19 @@ def test_graph_mutation_cannot_contaminate_fallback_or_caller_input(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     class _MutatingFailingGraph:
+        checkpointer = None
+        store = None
+
         def invoke(self, state, *_args, **_kwargs):
-            state["apply_consent_version"] = "forged"
-            state["apply_optout"] = True
-            state["tool_calls"] = [
-                {"ferramenta": "vincular_celula", "args": {}}
-            ]
+            state["turn_effects"] = {
+                "events": [{"evento": "forged"}],
+                "tool_calls": [
+                    {"ferramenta": "vincular_celula", "args": {}}
+                ],
+                "apply_optout": True,
+                "apply_consent_version": "forged",
+                "intake_update": {"origem": "forged"},
+            }
             state["route"] = "report_capture"
             state["pessoa"]["nome"] = "Contexto contaminado"
             raise RuntimeError("synthetic graph failure after mutation")
@@ -437,10 +451,10 @@ def test_graph_mutation_cannot_contaminate_fallback_or_caller_input(
 
     assert final == expected
     assert caller_input == caller_before
-    assert final.get("apply_consent_version") is None
-    assert final.get("apply_optout") is None
-    assert final.get("tool_calls") == []
-    assert final["pessoa"]["nome"] == "Pessoa Sintética"
+    assert final["turn_effects"]["apply_consent_version"] is None
+    assert final["turn_effects"]["apply_optout"] is False
+    assert final["turn_effects"]["tool_calls"] == []
+    assert set(final) == {"route", "response", "turn_effects"}
 
 
 def test_compiled_graph_preserves_context_and_privilege_identity(
@@ -450,7 +464,10 @@ def test_compiled_graph_preserves_context_and_privilege_identity(
 
     def fake_orchestrator(state, runtime):
         contexts.append(runtime.context)
-        return {"route": ROUTE_ONBOARDING}
+        return {
+            "route": ROUTE_ONBOARDING,
+            "turn_effects": empty_turn_effects(),
+        }
 
     def fake_onboarding(state, runtime):
         contexts.append(runtime.context)
@@ -524,13 +541,14 @@ def test_compiled_and_direct_paths_have_parity_without_duplicate_events(
     direct = run_turn_direct(dict(state), context=context)  # type: ignore[arg-type]
 
     assert compiled == direct
-    event_names = [event["evento"] for event in compiled["events"]]
+    effects = compiled["turn_effects"]
+    event_names = [event["evento"] for event in effects["events"]]
     assert event_names.count("intake") == 1
     assert len(event_names) == 2
     assert all(
         "pessoaId" not in event.get("payload", {})
         and "conversationId" not in event.get("payload", {})
-        for event in compiled["events"]
+        for event in effects["events"]
     )
     forbidden = {
         "igreja_id",
@@ -541,6 +559,7 @@ def test_compiled_and_direct_paths_have_parity_without_duplicate_events(
         "legacy_term",
     }
     assert forbidden.isdisjoint(compiled)
+    assert set(compiled) == {"route", "response", "turn_effects"}
 
 
 def _walk_result(value: object):
