@@ -109,6 +109,7 @@ def _normalize_money(value: object) -> str | None:
         _reject(CellReportSnapshotErrorCode.INVALID_OFFER)
     if (
         not parsed.is_finite()
+        or parsed.is_signed()
         or parsed < 0
         or parsed > MAX_CELL_REPORT_OFFER
     ):

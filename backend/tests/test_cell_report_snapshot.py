@@ -69,10 +69,7 @@ def test_builder_normalizes_money_and_optional_observacoes() -> None:
     assert snapshot["oferta_valor"] == "1.20"
     assert snapshot["observacoes"] == "encontro tranquilo"
 
-    empty = _snapshot(
-        oferta_valor=Decimal("-0.00"),
-        observacoes=" \n ",
-    )
+    empty = _snapshot(oferta_valor=Decimal("0.00"), observacoes=" \n ")
     assert empty["oferta_valor"] == "0.00"
     assert empty["observacoes"] is None
 
@@ -124,10 +121,12 @@ def test_money_matches_domain_e2_boundary() -> None:
         True,
         Decimal("1.001"),
         Decimal("-0.01"),
+        Decimal("-0.00"),
         Decimal("1000000.00"),
         Decimal("NaN"),
         Decimal("Infinity"),
         "not-money",
+        "-0.00",
     ],
 )
 def test_builder_rejects_unsafe_offer_input(value: object) -> None:
