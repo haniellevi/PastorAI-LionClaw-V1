@@ -103,14 +103,18 @@ DEV_IDENTITY_PREFLIGHT_DIAGNOSTICS_POSTMERGE_STATE = (
 DEV_IDENTITY_PREFLIGHT_RUNNER_CURRENT_GATE = (
     "SEPARATE_NOMINAL_DEV_FAILURE_LOGS_READ_ONLY_REVIEW_AUTHORIZATION"
 )
-DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE = (
+DEV_CONNECT_TLS_AUTH_PLAN_REVIEW_GATE = (
     "REVIEW_AND_CI_DEV_CONNECT_TLS_AUTH_OFFLINE_DIAGNOSTICS_PR"
+)
+DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE = (
+    "REVIEW_AND_CI_DEV_CONNECT_TLS_AUTH_POSTMERGE_RECONCILIATION_PR"
 )
 DEV_PREFLIGHT_PHASE_DIAGNOSTICS_STALE_GATE = (
     "REVIEW_AND_INTEGRATE_DEV_PREFLIGHT_PHASE_DIAGNOSTICS_PR"
 )
 DEV_PREFLIGHT_PHASE_DIAGNOSTICS_STALE_CLAIMS = {
     DEV_PREFLIGHT_PHASE_DIAGNOSTICS_STALE_GATE.casefold(),
+    DEV_CONNECT_TLS_AUTH_PLAN_REVIEW_GATE.casefold(),
     "review_and_ci_dev_preflight_phase_diagnostics_pr",
     DEV_IDENTITY_PREFLIGHT_RUNNER_CURRENT_GATE.casefold(),
     "eventual integracao",
@@ -2528,16 +2532,49 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
         "operational_authorization=false",
         "next_stage_authorized=false",
         DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold(),
-        "somente abrir e revisar a pr offline e executar o ci do mesmo sha",
+        "somente abrir e revisar a pr documental pos-merge e executar o ci do mesmo sha",
+        "autorizacao humana que nomeie o push e a abertura da pr",
+        "aceite o vercel preview automatico do frontend",
         "nao autoriza merge nem integracao",
-        "deployment automatico frontend vercel production",
-        "autorizacao humana posterior especifica que nomeie e aceite ambos",
+        "deploy manual ou production",
+    }
+
+    postmerge_required = {
+        "pr #346",
+        "0c63dc29dc903e0e7012b9fb811b7b2ddb05ab51",
+        "fb776e270bf3e2ffde0cbb28e400960591b74420",
+        "mergedat=2026-08-31t13:02:07z",
+        "sete workflows pos-merge",
+        "33394774001",
+        "33394774013",
+        "33394773986",
+        "33394774109",
+        "33394774063",
+        "33394773965",
+        "33394774029",
+        "6181597461",
+        "17569033825",
+        "state=success",
+        "2026-08-31t13:02:53z",
+        "prova somente o frontend",
+        "nao prova saude funcional, backend, banco, dev, prod, probe ou migration",
+        "execution_disabled=true",
+        "implementacao e capacidade de rede ausentes",
+        "probe nao executado",
+        "operacao bloqueada",
     }
 
     for path in DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CANONICAL_DOCS:
         normalized = _normalized_prose(path.read_text(encoding="utf-8"))
         missing = sorted(item for item in canonical_required if item not in normalized)
         assert not missing, f"CONNECT_TLS_AUTH diagnostics missing in {path}: {missing}"
+        postmerge_missing = sorted(
+            item for item in postmerge_required if item not in normalized
+        )
+        assert not postmerge_missing, (
+            f"CONNECT_TLS_AUTH postmerge evidence missing in {path}: "
+            f"{postmerge_missing}"
+        )
         assert normalized.count("proximo gate unico") == 1
         assert normalized.count(
             DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold()
@@ -2573,6 +2610,7 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
         DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold(),
         "nao autoriza merge nem integracao",
     }
+    phase_required |= postmerge_required
     phase_missing = sorted(item for item in phase_required if item not in phase_adr)
     assert not phase_missing, f"preflight phase ADR missing: {phase_missing}"
     assert phase_adr.count("proximo gate unico") == 1
@@ -2586,10 +2624,10 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
         DEV_CONNECT_TLS_AUTH_DIAGNOSTICS_ADR_PATH.read_text(encoding="utf-8")
     )
     diagnostics_required = {
+        "plano offline integrado",
         "resultado sanitizado registrado",
         "causa indeterminada",
-        "probe planejado offline e desabilitado",
-        "nao executado",
+        "probe nao implementado e nao executado",
         "bab031a7e0067a257eedb4a24c786cc925801463",
         "8da631fbb602488bb8c82ce1529c9d8ba17acbae8a318ea9b0fc24cdd8f65cd2",
         "2026-08-31t11:03:30z",
@@ -2623,6 +2661,15 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
         "telemetria de dns e rede",
         DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold(),
         "nao autoriza merge nem integracao",
+        "implementation_present=false",
+        "network_capability_present=false",
+        "gate consumido pela abertura, revisao, ci e integracao da pr #346",
+        "evidencia historica dos bytes integrados",
+        "nao e um segundo gate corrente",
+    }
+    diagnostics_required |= postmerge_required - {
+        "implementacao e capacidade de rede ausentes",
+        "probe nao executado",
     }
     diagnostics_missing = sorted(
         item for item in diagnostics_required if item not in diagnostics_adr
@@ -2635,14 +2682,20 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
         DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold()
     ) == 1
     for stale_claim in DEV_PREFLIGHT_PHASE_DIAGNOSTICS_STALE_CLAIMS:
+        if stale_claim == DEV_CONNECT_TLS_AUTH_PLAN_REVIEW_GATE.casefold():
+            continue
         assert stale_claim not in diagnostics_adr
+    assert diagnostics_adr.count(
+        DEV_CONNECT_TLS_AUTH_PLAN_REVIEW_GATE.casefold()
+    ) == 1
 
     plan = json.loads(DEV_CONNECT_TLS_AUTH_PROBE_PLAN_PATH.read_text(encoding="utf-8"))
     assert plan["execution_mode"] == "OFFLINE_PLAN_ONLY"
     assert plan["execution_disabled"] is True
     assert plan["operational_authorization"] is False
     assert plan["next_stage_authorized"] is False
-    assert plan["next_gate"] == DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE
+    assert plan["next_gate"] == DEV_CONNECT_TLS_AUTH_PLAN_REVIEW_GATE
+    assert plan["next_gate"] != DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE
     assert plan["historical_result"]["precise_timestamp_preserved"] is False
     assert plan["historical_result"]["exit_code"] == 7
     assert plan["historical_result"]["sanitized_output"][
@@ -2680,6 +2733,19 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
     }
     for path, expected_sha256 in technical_files.items():
         assert hashlib.sha256(path.read_bytes()).hexdigest() == expected_sha256
+
+    readme = _normalized_prose(
+        (REPO_ROOT / "backend" / "migrations" / "README.md").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert DEV_CONNECT_TLS_AUTH_PLAN_REVIEW_GATE.casefold() in readme
+    assert "conserva como evidencia historica" in readme
+    assert "consumido pela pr #346" in readme
+    assert "nao e um segundo gate corrente" in readme
+    assert "aceite o vercel preview automatico do frontend" in readme
+    assert "deploy manual ou production" in readme
+    assert readme.count(DEV_CONNECT_TLS_AUTH_PLAN_REVIEW_GATE.casefold()) == 1
 
 
 def test_schema_expectation_manifest_is_source_only_and_keeps_environment_gate() -> None:
