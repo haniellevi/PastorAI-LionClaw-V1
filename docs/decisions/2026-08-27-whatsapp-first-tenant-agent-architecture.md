@@ -391,20 +391,116 @@ migration, memória, primeira execução, flag-on ou runtime ativado. A
 classificação é `LOTE D3 OFFLINE AMPLIADO LOCALMENTE / REPLAY-ONLY / FLAG
 DEFAULT FALSE / CANDIDATO NÃO INTEGRADO NO MAIN / RUNTIME NÃO ATIVADO`.
 
+### Preparação D3 offline: snapshot e workflow do relatório de célula
+
+O commit técnico local `4988de11566f8f0675256b9958ca242e5a009fa3`
+integra ao lote o snapshot agregado `cell-report/v2`. O snapshot canônico
+guarda os totais de presentes, visitantes e decisões, a oferta decimal
+canônica, observações limitadas e um `submission_effect_id` opaco de
+correlação. Os arrays `presencas`, `visitantes` e `records` precisam ser listas
+vazias; qualquer material individual falha fechado. Assim, o snapshot não
+inventa pessoas nem converte uma contagem agregada em identidade ou presença
+individual. O identificador de correlação não é tenant, autorização, recibo
+durável ou prova de idempotência.
+
+O commit técnico local `452aa6ff591b80dcbd3da90f1e5c18367cffd72b`
+integra o workflow puro de coleta, revisão e confirmação, com valores
+imutáveis. Campos
+ausentes permanecem distintos de zero; cada revisão completa produz proposta e
+código novos, e somente o comando literal da revisão corrente pode chegar a
+`CONFIRMATION_ACCEPTED`. Essa confirmação apenas correlaciona valores, sem
+autenticar ator, consentimento, tenant ou capacidade e sem conceder execução.
+A confirmação literal apenas correlaciona a revisão corrente; não autentica o
+ator, não concede autoridade e não executa efeito. O estado `COMMITTED` projeta
+uma comprovação externa futura. `mark_cell_report_committed` somente projeta
+essa comprovação como valor; a função não grava, envia nem executa o efeito.
+
+Ainda não existe bridge ou wiring entre `turn_plan_adapter`, workflow e
+snapshot. `REPLAY_TERMINAL` não prova relatório persistido: o plano atual de
+`report_capture` contém somente intake, auditorias e resposta, sem efeito de
+gravação do relatório. Um adapter futuro, executado em código confiável,
+precisa derivar um escopo vinculado ao tenant, mapear centavos e string sob o
+mesmo limite de produto E2 do painel, revalidar autoridade e marcar
+`COMMITTED` somente depois do commit externo atômico do relatório.
+
+O freeze local dessas fatias vincula:
+
+- `backend/app/domain/cell_report_snapshot.py`, SHA-256
+  `19adb057c9f002776e3ad99d87de636de4975f5cf602a8fb06d2d8401a7d2aaa`;
+- `backend/tests/test_cell_report_snapshot.py`, SHA-256
+  `08464997fa55cb9319d095f672fe0d78693280104d8b4247390e3e75d80ad7f9`;
+- `backend/app/domain/cell_report_workflow.py`, SHA-256
+  `87ec5691774eab1b2711fea0f07f9f311ddacf7f321fe36646730742b02569b5`;
+- `backend/tests/test_cell_report_workflow.py`, SHA-256
+  `a5a542f6b0192964a0bdd238b8306a1b8ca162be4ec6e2f824773020300508c6`.
+
+O hardening posterior foi composto pelos commits
+`f40d39efeb847b84b30e495ba78f6d218437e8ad`,
+`a84bb7d5f00bae6bb472d02c4a33d14442a294a2`,
+`ef4aa00797e11bbbaa0189faa2c299bf9ace8a5b`,
+`9ea14000065117bda4aa8e7627e78c07dd5d1b2a` e
+`45323a64b17cd9f1fa4d4a86f3a32d769f525660`, sem reescrever os freezes
+anteriores. Os pins finais são adaptador SHA-256
+`2d2adde74dd2bea21aa7a1a3a0e3551ebc62ab269885531162ffc0681e3c7629`,
+teste do adaptador SHA-256
+`380bf43ea70020ad30134ac56b1ff42823c3219c1950ee3c46c508acdd3290b8`,
+snapshot SHA-256
+`95a9c4f5ea68b3027b42416d858c5cfc3eed858198bf38f8bab638c1b293a53f`,
+teste do snapshot SHA-256
+`21c9799aed4d79003c5b3d3018fa5c6c61ff11c6452409056309e5b74d3b76ee`,
+workflow SHA-256
+`3213bcc9949661bd3db56717492babfc7b9a9c0d79c20b8da9ddc039ab1b129d`
+e teste do workflow SHA-256
+`7887a930b8d2fbf7f508acae0d6b256927ab52534a726b2a54fec7224c897dd6`.
+
+O hardening de paridade local centraliza `MAX_REPORT_COUNT=1_000_000` e o
+limite E2 de oferta em `R$ 999.999,99`. O builder e a revalidação do snapshot
+persistido aplicam exatamente os mesmos limites. O writer humano e o snapshot
+recusam zero negativo; o writer também recusa `NaN`, infinito, booleano, string
+e mais de duas casas decimais. Isso ainda é constante compartilhada mais
+validação humana endurecida, não um serviço de aplicação compartilhado. Os
+pins finais adicionais são `backend/app/domain/cell_report_limits.py`, SHA-256
+`cb0acd562ebd4e91f2f3170d59ff67cea3ac45f9b4a73f370b1c78522b330412`;
+`backend/tests/test_cell_report_limits.py`, SHA-256
+`7f11003b18b0159815f54306002e87624045282d775de08d1ba47da1b6822e86`;
+`backend/app/routers/cell_meetings.py`, SHA-256
+`e72c1e8366a45ab487b38e1d04b110583b4825645daadaccf1957a04b913ddf5`;
+e `backend/tests/test_cell_lider.py`, SHA-256
+`07ffabd0260b573bad0fbd8ba572064d0acaaa3b361524dea06a35d8ac781b4d`.
+
+Na revisão integrada final do HEAD
+45323a64b17cd9f1fa4d4a86f3a32d769f525660, passaram 512 passed, 5 warnings;
+633 passed, 7 skipped, 2 warnings; 398 passed, 18 warnings; e 34 passed
+documentais. Links locais 89/89, matriz de pins e gates 13/13, py_compile,
+secret scan e git diff --check ficaram verdes. O parecer foi GO, com P0, P1 e
+P2 iguais a zero. A evidência é exclusivamente local e pré-PR; não prova
+runtime, DEV, PROD, banco, deploy ou efeito vivo.
+
+As duas fatias estão integradas somente ao lote local. Nenhum runtime ou worker
+foi acionado, e não houve acesso a banco, migration, rede, persistência,
+mensagem ou qualquer efeito vivo. A classificação é `FUNDAÇÃO OFFLINE DO RELATÓRIO DE
+CÉLULA AMPLIADA LOCALMENTE / SNAPSHOT V2 AGREGADO / WORKFLOW PURO / CANDIDATO
+NÃO INTEGRADO NO MAIN / EFEITOS VIVOS BLOQUEADOS`.
+
 O gate anterior
 `REVIEW_AND_CI_D3_TURN_EXECUTION_AND_TRUSTED_INBOUND_WIRING_OFFLINE_PR` foi
 substituído localmente, sem consumo, pelo lote ampliado replay-only. Não houve
 push, PR, CI ou Preview sob esse gate, portanto ele não é evidência histórica
 de uma ação externa.
 
+O gate anterior `REVIEW_AND_CI_D3_TURN_FOUNDATION_REPLAY_ONLY_OFFLINE_PR` foi
+substituído localmente, sem consumo, pela fundação offline do relatório de
+célula. Não houve push, PR, CI ou Preview sob esse gate, portanto ele não é
+evidência histórica de uma ação externa.
+
 **Próximo gate único:**
-`REVIEW_AND_CI_D3_TURN_FOUNDATION_REPLAY_ONLY_OFFLINE_PR`. O nome não constitui
+`REVIEW_AND_CI_D3_CELL_REPORT_OFFLINE_FOUNDATION_PR`. O nome não constitui
 autorização já concedida. Seu consumo exige autorização humana posterior e
 separada que nomeie push, abertura da PR e GitHub CI e aceite o Vercel Preview
-automático. O gate cobre somente revisão e CI do lote offline ampliado
-replay-only. Não autoriza merge, Vercel Production, flag-on, runtime, saver,
-probe vivo, acesso a DEV ou PROD, banco, logs, SQL, DML, migration, deploy,
-mensagem, tool call ou qualquer efeito vivo.
+automático. O gate cobre somente revisão e CI da fundação offline ampliada do
+relatório de célula. Não autoriza merge, Vercel Production, flag-on, runtime,
+worker, saver, probe vivo, acesso a DEV ou PROD, banco, logs, SQL, DML,
+migration, rede, deploy, mensagem, tool call ou qualquer efeito vivo.
 
 
 

@@ -130,11 +130,14 @@ D3_TURN_IDENTITY_SUPERSEDED_GATE = (
 D3_TURN_EXECUTION_TRUSTED_INBOUND_SUPERSEDED_GATE = (
     "REVIEW_AND_CI_D3_TURN_EXECUTION_AND_TRUSTED_INBOUND_WIRING_OFFLINE_PR"
 )
-D3_TURN_FOUNDATION_REPLAY_ONLY_CURRENT_GATE = (
+D3_TURN_FOUNDATION_REPLAY_ONLY_SUPERSEDED_GATE = (
     "REVIEW_AND_CI_D3_TURN_FOUNDATION_REPLAY_ONLY_OFFLINE_PR"
 )
+D3_CELL_REPORT_OFFLINE_FOUNDATION_CURRENT_GATE = (
+    "REVIEW_AND_CI_D3_CELL_REPORT_OFFLINE_FOUNDATION_PR"
+)
 DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE = (
-    D3_TURN_FOUNDATION_REPLAY_ONLY_CURRENT_GATE
+    D3_CELL_REPORT_OFFLINE_FOUNDATION_CURRENT_GATE
 )
 DEV_PREFLIGHT_PHASE_DIAGNOSTICS_STALE_GATE = (
     "REVIEW_AND_INTEGRATE_DEV_PREFLIGHT_PHASE_DIAGNOSTICS_PR"
@@ -177,6 +180,7 @@ DEV_CONNECT_TLS_AUTH_CURRENT_DOCS = DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CANONICAL_DO
 D3_TURN_PLAN_ADAPTER_DOCS = DEV_CONNECT_TLS_AUTH_CURRENT_DOCS | {
     WHATSAPP_FIRST_AGENT_ARCHITECTURE_ADR_PATH,
 }
+D3_CELL_REPORT_OFFLINE_FOUNDATION_DOCS = D3_TURN_PLAN_ADAPTER_DOCS
 
 CONSUMED_PREMERGE_DERIVATION_GATE_CLAIMS = frozenset(
     {
@@ -495,6 +499,7 @@ def _assert_reconciled_d3_gate(path: Path, normalized: str) -> None:
     execution_superseded = (
         D3_TURN_EXECUTION_TRUSTED_INBOUND_SUPERSEDED_GATE.casefold()
     )
+    replay_superseded = D3_TURN_FOUNDATION_REPLAY_ONLY_SUPERSEDED_GATE.casefold()
     current = DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold()
     required = {
         "gate historico",
@@ -511,12 +516,13 @@ def _assert_reconciled_d3_gate(path: Path, normalized: str) -> None:
         "nao houve push, pr, ci ou preview sob esse gate",
         "nao e evidencia historica de uma acao externa",
         "foi substituido localmente, sem consumo, pelo lote ampliado replay-only",
+        "foi substituido localmente, sem consumo, pela fundacao offline do relatorio de celula",
         "nome nao constitui autorizacao ja concedida",
         "autorizacao humana posterior e separada",
         "nomeie push, abertura da pr e github ci",
         "aceite o vercel preview automatico",
-        "cobre somente revisao e ci do lote offline ampliado replay-only",
-        "nao autoriza merge, vercel production, flag-on, runtime, saver",
+        "cobre somente revisao e ci da fundacao offline ampliada do relatorio de celula",
+        "nao autoriza merge, vercel production, flag-on, runtime, worker, saver",
         "qualquer efeito vivo",
     }
     missing = sorted(item for item in required if item not in normalized)
@@ -526,6 +532,7 @@ def _assert_reconciled_d3_gate(path: Path, normalized: str) -> None:
     assert normalized.count(d3_consumed) == 1
     assert normalized.count(identity_superseded) == 1
     assert normalized.count(execution_superseded) == 1
+    assert normalized.count(replay_superseded) == 1
     assert normalized.count(current) == 1
     assert normalized.index(foundation_consumed) < normalized.index(d3_consumed)
     assert normalized.index(d3_consumed) < normalized.index(identity_superseded)
@@ -533,6 +540,10 @@ def _assert_reconciled_d3_gate(path: Path, normalized: str) -> None:
     assert normalized.index(identity_superseded) < normalized.index(
         execution_superseded
     )
+    assert normalized.index(execution_superseded) < normalized.index(
+        replay_superseded
+    )
+    assert normalized.index(replay_superseded) < normalized.index(current)
     assert normalized.index(execution_superseded) < normalized.index(
         "proximo gate unico"
     )
@@ -2845,8 +2856,8 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
         "autorizacao humana posterior",
         "nomeie push, abertura da pr e github ci",
         "aceite o vercel preview automatico",
-        "cobre somente revisao e ci do lote offline",
-        "nao autoriza merge, vercel production, flag-on, runtime, saver",
+        "cobre somente revisao e ci da fundacao offline ampliada do relatorio de celula",
+        "nao autoriza merge, vercel production, flag-on, runtime, worker, saver",
         "qualquer efeito vivo",
     }
 
@@ -3292,6 +3303,15 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
     execution_commit = "7d1ed00d0add18162a89f3a9c39da6039e74017c"
     execution_source_commit = "576de558983622146a91417c65a85a2a321f585b"
     plan_adapter_commit = "abafdffdc8252fa6dff7c9d1975cb6c241141971"
+    snapshot_commit = "4988de11566f8f0675256b9958ca242e5a009fa3"
+    workflow_commit = "452aa6ff591b80dcbd3da90f1e5c18367cffd72b"
+    hardening_commits = (
+        "f40d39efeb847b84b30e495ba78f6d218437e8ad",
+        "a84bb7d5f00bae6bb472d02c4a33d14442a294a2",
+        "ef4aa00797e11bbbaa0189faa2c299bf9ace8a5b",
+        "9ea14000065117bda4aa8e7627e78c07dd5d1b2a",
+        "45323a64b17cd9f1fa4d4a86f3a32d769f525660",
+    )
     turn_identity_sha256 = (
         "5be323d7fafa4a51d5c954749c8d2d5991e33313e269ee0a3b63bdfc9fb3923d"
     )
@@ -3309,6 +3329,58 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
     )
     plan_adapter_test_sha256 = (
         "328f3a2870fab8ea38f1901a02e640bec2f5bc9457c3d5261f350a45ef560d5e"
+    )
+    snapshot_source_sha256 = (
+        "19adb057c9f002776e3ad99d87de636de4975f5cf602a8fb06d2d8401a7d2aaa"
+    )
+    snapshot_source_test_sha256 = (
+        "08464997fa55cb9319d095f672fe0d78693280104d8b4247390e3e75d80ad7f9"
+    )
+    workflow_source_sha256 = (
+        "87ec5691774eab1b2711fea0f07f9f311ddacf7f321fe36646730742b02569b5"
+    )
+    workflow_source_test_sha256 = (
+        "a5a542f6b0192964a0bdd238b8306a1b8ca162be4ec6e2f824773020300508c6"
+    )
+    plan_adapter_final_sha256 = (
+        "2d2adde74dd2bea21aa7a1a3a0e3551ebc62ab269885531162ffc0681e3c7629"
+    )
+    plan_adapter_final_test_sha256 = (
+        "380bf43ea70020ad30134ac56b1ff42823c3219c1950ee3c46c508acdd3290b8"
+    )
+    snapshot_final_sha256 = (
+        "95a9c4f5ea68b3027b42416d858c5cfc3eed858198bf38f8bab638c1b293a53f"
+    )
+    snapshot_final_test_sha256 = (
+        "21c9799aed4d79003c5b3d3018fa5c6c61ff11c6452409056309e5b74d3b76ee"
+    )
+    workflow_final_sha256 = (
+        "3213bcc9949661bd3db56717492babfc7b9a9c0d79c20b8da9ddc039ab1b129d"
+    )
+    workflow_final_test_sha256 = (
+        "7887a930b8d2fbf7f508acae0d6b256927ab52534a726b2a54fec7224c897dd6"
+    )
+    limits_sha256 = (
+        "cb0acd562ebd4e91f2f3170d59ff67cea3ac45f9b4a73f370b1c78522b330412"
+    )
+    limits_test_sha256 = (
+        "7f11003b18b0159815f54306002e87624045282d775de08d1ba47da1b6822e86"
+    )
+    cell_meetings_sha256 = (
+        "e72c1e8366a45ab487b38e1d04b110583b4825645daadaccf1957a04b913ddf5"
+    )
+    cell_lider_test_sha256 = (
+        "07ffabd0260b573bad0fbd8ba572064d0acaaa3b361524dea06a35d8ac781b4d"
+    )
+    final_review_evidence = (
+        "na revisao integrada final do head "
+        "45323a64b17cd9f1fa4d4a86f3a32d769f525660, passaram 512 passed, "
+        "5 warnings; 633 passed, 7 skipped, 2 warnings; 398 passed, "
+        "18 warnings; e 34 passed documentais. links locais 89/89, matriz "
+        "de pins e gates 13/13, py_compile, secret scan e git diff --check "
+        "ficaram verdes. o parecer foi go, com p0, p1 e p2 iguais a zero. "
+        "a evidencia e exclusivamente local e pre-pr; nao prova runtime, "
+        "dev, prod, banco, deploy ou efeito vivo."
     )
     four_input_rebinding_required = {
         "antes da primeira consulta",
@@ -3395,8 +3467,9 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
         "foi substituido localmente, sem consumo, pelo lote combinado",
         "foi substituido localmente, sem consumo, pelo lote ampliado replay-only",
         "nao houve push, pr, ci ou preview sob esse gate",
-        "cobre somente revisao e ci do lote offline ampliado replay-only",
-        "nao autoriza merge, vercel production, flag-on, runtime, saver",
+        "foi substituido localmente, sem consumo, pela fundacao offline do relatorio de celula",
+        "cobre somente revisao e ci da fundacao offline ampliada do relatorio de celula",
+        "nao autoriza merge, vercel production, flag-on, runtime, worker, saver",
         "qualquer efeito vivo",
     } | four_input_rebinding_required
     stale_claims = {
@@ -3446,6 +3519,9 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
             D3_TURN_EXECUTION_TRUSTED_INBOUND_SUPERSEDED_GATE.casefold()
         ) == 1
         assert normalized.count(
+            D3_TURN_FOUNDATION_REPLAY_ONLY_SUPERSEDED_GATE.casefold()
+        ) == 1
+        assert normalized.count(
             DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold()
         ) == 1
         assert normalized.index("pr #352") < normalized.index(identity_commit)
@@ -3462,6 +3538,11 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
         )
         assert normalized.index(
             D3_TURN_EXECUTION_TRUSTED_INBOUND_SUPERSEDED_GATE.casefold()
+        ) < normalized.index(
+            D3_TURN_FOUNDATION_REPLAY_ONLY_SUPERSEDED_GATE.casefold()
+        )
+        assert normalized.index(
+            D3_TURN_FOUNDATION_REPLAY_ONLY_SUPERSEDED_GATE.casefold()
         ) < normalized.index(
             DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold()
         )
@@ -3547,8 +3628,9 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
         "p0, p1 e p2 iguais a zero",
         "lote d3 offline ampliado localmente / replay-only / flag default false",
         D3_TURN_EXECUTION_TRUSTED_INBOUND_SUPERSEDED_GATE.casefold(),
-        D3_TURN_FOUNDATION_REPLAY_ONLY_CURRENT_GATE.casefold(),
-        "cobre somente revisao e ci do lote offline ampliado replay-only",
+        D3_TURN_FOUNDATION_REPLAY_ONLY_SUPERSEDED_GATE.casefold(),
+        D3_CELL_REPORT_OFFLINE_FOUNDATION_CURRENT_GATE.casefold(),
+        "cobre somente revisao e ci da fundacao offline ampliada do relatorio de celula",
     } | four_input_rebinding_required
     architecture_missing = sorted(
         item for item in architecture_required if item not in architecture
@@ -3564,7 +3646,8 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
         plan_adapter_test_sha256,
         execution_test_sha256,
         D3_TURN_EXECUTION_TRUSTED_INBOUND_SUPERSEDED_GATE.casefold(),
-        D3_TURN_FOUNDATION_REPLAY_ONLY_CURRENT_GATE.casefold(),
+        D3_TURN_FOUNDATION_REPLAY_ONLY_SUPERSEDED_GATE.casefold(),
+        D3_CELL_REPORT_OFFLINE_FOUNDATION_CURRENT_GATE.casefold(),
     ):
         assert architecture.count(pinned_value) == 1
 
@@ -3588,10 +3671,11 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
         "p0, p1 e p2 iguais a zero",
         D3_TURN_EXECUTION_TRUSTED_INBOUND_SUPERSEDED_GATE.casefold(),
         "foi substituido localmente, sem consumo, pelo lote ampliado replay-only",
-        D3_TURN_FOUNDATION_REPLAY_ONLY_CURRENT_GATE.casefold(),
+        D3_TURN_FOUNDATION_REPLAY_ONLY_SUPERSEDED_GATE.casefold(),
+        D3_CELL_REPORT_OFFLINE_FOUNDATION_CURRENT_GATE.casefold(),
         "nome nao constitui autorizacao ja concedida",
-        "cobre somente revisao e ci do lote offline ampliado replay-only",
-        "nao autoriza merge, vercel production, flag-on, runtime, saver",
+        "cobre somente revisao e ci da fundacao offline ampliada do relatorio de celula",
+        "nao autoriza merge, vercel production, flag-on, runtime, worker, saver",
         "qualquer efeito vivo",
     }
     for path in D3_TURN_PLAN_ADAPTER_DOCS:
@@ -3606,9 +3690,111 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
             plan_adapter_test_sha256,
             execution_test_sha256,
             D3_TURN_EXECUTION_TRUSTED_INBOUND_SUPERSEDED_GATE.casefold(),
-            D3_TURN_FOUNDATION_REPLAY_ONLY_CURRENT_GATE.casefold(),
+            D3_TURN_FOUNDATION_REPLAY_ONLY_SUPERSEDED_GATE.casefold(),
+            D3_CELL_REPORT_OFFLINE_FOUNDATION_CURRENT_GATE.casefold(),
         ):
             assert normalized.count(pinned_value) == 1
+
+    cell_report_required = {
+        snapshot_commit,
+        workflow_commit,
+        *hardening_commits,
+        snapshot_source_sha256,
+        snapshot_source_test_sha256,
+        workflow_source_sha256,
+        workflow_source_test_sha256,
+        plan_adapter_final_sha256,
+        plan_adapter_final_test_sha256,
+        snapshot_final_sha256,
+        snapshot_final_test_sha256,
+        workflow_final_sha256,
+        workflow_final_test_sha256,
+        limits_sha256,
+        limits_test_sha256,
+        cell_meetings_sha256,
+        cell_lider_test_sha256,
+        final_review_evidence,
+        "snapshot agregado `cell-report/v2`",
+        "snapshot nao inventa pessoas",
+        "workflow puro de coleta, revisao e confirmacao",
+        "nao autentica o ator, nao concede autoridade e nao executa efeito",
+        "`committed` projeta uma comprovacao externa futura",
+        "hardening posterior foi composto pelos commits",
+        "sem reescrever os freezes anteriores",
+        "`max_report_count=1_000_000`",
+        "limite e2 de oferta em `r$ 999.999,99`",
+        "ainda nao existe bridge ou wiring entre `turn_plan_adapter`, workflow e snapshot",
+        "`replay_terminal` nao prova relatorio persistido",
+        "plano atual de `report_capture` contem somente intake, auditorias e resposta",
+        "sem efeito de gravacao do relatorio",
+        "escopo vinculado ao tenant",
+        "mesmo limite de produto e2 do painel",
+        "marcar `committed` somente depois",
+        "commit externo atomico",
+        "nenhum runtime ou worker foi acionado",
+        "nao houve acesso a banco, migration, rede, persistencia, mensagem",
+        (
+            "fundacao offline do relatorio de celula ampliada localmente / "
+            "snapshot v2 agregado / workflow puro / candidato nao integrado "
+            "no main / efeitos vivos bloqueados"
+        ),
+        "foi substituido localmente, sem consumo, pela fundacao offline do relatorio de celula",
+        "cobre somente revisao e ci da fundacao offline ampliada do relatorio de celula",
+        "nao autoriza merge, vercel production, flag-on, runtime, worker, saver",
+    }
+    historical_and_final_pins = (
+        snapshot_commit,
+        workflow_commit,
+        *hardening_commits[:-1],
+        snapshot_source_sha256,
+        snapshot_source_test_sha256,
+        workflow_source_sha256,
+        workflow_source_test_sha256,
+        plan_adapter_final_sha256,
+        plan_adapter_final_test_sha256,
+        snapshot_final_sha256,
+        snapshot_final_test_sha256,
+        workflow_final_sha256,
+        workflow_final_test_sha256,
+        limits_sha256,
+        limits_test_sha256,
+        cell_meetings_sha256,
+        cell_lider_test_sha256,
+        D3_TURN_FOUNDATION_REPLAY_ONLY_SUPERSEDED_GATE.casefold(),
+        D3_CELL_REPORT_OFFLINE_FOUNDATION_CURRENT_GATE.casefold(),
+    )
+    for path in D3_CELL_REPORT_OFFLINE_FOUNDATION_DOCS:
+        normalized = _normalized_prose(path.read_text(encoding="utf-8"))
+        missing = sorted(item for item in cell_report_required if item not in normalized)
+        assert not missing, f"D3 cell report offline foundation stale in {path}: {missing}"
+        for pinned_value in historical_and_final_pins:
+            assert normalized.count(pinned_value) == 1
+        assert normalized.count(hardening_commits[-1]) == 2
+        assert normalized.count(final_review_evidence) == 1
+        assert normalized.index(snapshot_commit) < normalized.index(workflow_commit)
+        assert normalized.index(workflow_commit) < normalized.index(
+            hardening_commits[0]
+        )
+        assert normalized.index(hardening_commits[-1]) < normalized.index(
+            D3_TURN_FOUNDATION_REPLAY_ONLY_SUPERSEDED_GATE.casefold()
+        )
+        assert normalized.index(
+            D3_TURN_FOUNDATION_REPLAY_ONLY_SUPERSEDED_GATE.casefold()
+        ) < normalized.index(
+            D3_CELL_REPORT_OFFLINE_FOUNDATION_CURRENT_GATE.casefold()
+        )
+
+    architecture_cell_report_required = {
+        "submission_effect_id` opaco de correlacao",
+        "nao e tenant, autorizacao, recibo duravel ou prova de idempotencia",
+        "qualquer material individual falha fechado",
+        "sem autenticar ator, consentimento, tenant ou capacidade",
+        "revalidar autoridade",
+    }
+    missing = sorted(
+        item for item in architecture_cell_report_required if item not in architecture
+    )
+    assert not missing, f"D3 cell report architecture stale: {missing}"
 
     for path in DEV_CONNECT_TLS_AUTH_CURRENT_DOCS | {
         WHATSAPP_FIRST_AGENT_ARCHITECTURE_ADR_PATH
@@ -3633,10 +3819,34 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
             execution_test_sha256
         ),
         REPO_ROOT / "backend" / "app" / "agent" / "turn_plan_adapter.py": (
-            plan_adapter_sha256
+            plan_adapter_final_sha256
         ),
         REPO_ROOT / "backend" / "tests" / "test_agent_turn_plan_adapter.py": (
-            plan_adapter_test_sha256
+            plan_adapter_final_test_sha256
+        ),
+        REPO_ROOT / "backend" / "app" / "domain" / "cell_report_snapshot.py": (
+            snapshot_final_sha256
+        ),
+        REPO_ROOT / "backend" / "tests" / "test_cell_report_snapshot.py": (
+            snapshot_final_test_sha256
+        ),
+        REPO_ROOT / "backend" / "app" / "domain" / "cell_report_workflow.py": (
+            workflow_final_sha256
+        ),
+        REPO_ROOT / "backend" / "tests" / "test_cell_report_workflow.py": (
+            workflow_final_test_sha256
+        ),
+        REPO_ROOT / "backend" / "app" / "domain" / "cell_report_limits.py": (
+            limits_sha256
+        ),
+        REPO_ROOT / "backend" / "tests" / "test_cell_report_limits.py": (
+            limits_test_sha256
+        ),
+        REPO_ROOT / "backend" / "app" / "routers" / "cell_meetings.py": (
+            cell_meetings_sha256
+        ),
+        REPO_ROOT / "backend" / "tests" / "test_cell_lider.py": (
+            cell_lider_test_sha256
         ),
         REPO_ROOT / "backend" / "app" / "config.py": (
             "c97f3c62c872b0e6a1d2e745f7effbdbb395617f5533abf7e4c82f6a681fcfe3"
