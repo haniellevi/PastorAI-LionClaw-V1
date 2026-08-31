@@ -332,12 +332,32 @@ O `next_gate` embutido no plano JSON conserva como evidência histórica o gate
 técnico permanece byte a byte intacto; o único gate corrente é o definido a
 seguir e validado pelo teste documental.
 
+A PR #347, HEAD `0a257e9aa1985860d5ea0a4506d4f7e84c7b2312`, foi integrada no
+merge `36f8d13284a8f4964d0258a2a3b845323a80fe7e`, com
+`mergedAt=2026-08-31T14:26:10Z`. Os sete workflows pós-merge e o deployment
+automático frontend Vercel Production `6183047421`, status `17572803614`,
+`state=success`, ficaram verdes. Essa metadata prova somente o frontend.
+
+O candidato offline sobre esse `main` adiciona o runner de transporte, SHA-256
+`4196e218e023f5ef16fe333f62b756b55239d0bdde1c11aed12e59af888f6cc9`, e
+seus testes, SHA-256
+`b79ff9d7473fdafd0a4fcd6ceba98b2c46f5470ef517b6663898812fe8b1296e`.
+A matriz passou em `90/90`, com TLS sintético somente em loopback. O runner usa
+seis descritores privados, hash DEV fixo, registro de autorização byte-bound,
+CA explícita, um único DNS, endereço global determinístico e somente o
+SSLRequest PostgreSQL antes do TLS; fecha antes de qualquer `StartupMessage` e
+não recebe senha, usuário, banco, DSN ou SQL. O plano JSON histórico permanece
+inalterado e seus campos `implementation_present=false` e
+`network_capability_present=false` descrevem somente o estágio anterior. Não
+houve execução real, acesso a DEV, PROD, banco ou logs.
+
 O gate único corrente é
-`REVIEW_AND_CI_DEV_CONNECT_TLS_AUTH_POSTMERGE_RECONCILIATION_PR`. Ele autoriza
-somente abrir e revisar a PR documental pós-merge e executar o CI do mesmo SHA.
+`REVIEW_AND_CI_DEV_CONNECT_TLS_AUTH_TRANSPORT_PROBE_IMPLEMENTATION_PR`. Ele
+autoriza somente o push do candidato, abrir e revisar a PR e executar o CI do
+mesmo SHA.
 Seu consumo exige autorização humana que nomeie o push e a abertura da PR e
 aceite o Vercel Preview automático do frontend. Não autoriza merge nem
-integração. O gate não autoriza implementar ou executar o probe, retry, nova
+integração. O gate não autoriza executar o probe, retry, nova
 invocação DEV, DNS, TCP, TLS, senha, autenticação, logs, PROD, banco, SQL,
 captura, materialização, DML, reconciliação,
 `bootstrap-ledger`, `harden-ledger`, `status`, `apply`, migration, backfill,

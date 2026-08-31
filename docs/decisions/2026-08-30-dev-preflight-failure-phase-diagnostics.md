@@ -137,15 +137,35 @@ saúde funcional, backend, banco, DEV, PROD, probe ou migration. A integração
 versionou apenas o plano offline: `execution_disabled=true`, implementação e
 capacidade de rede ausentes, probe não executado e operação bloqueada.
 
+A PR #347, HEAD `0a257e9aa1985860d5ea0a4506d4f7e84c7b2312`, foi integrada no
+merge `36f8d13284a8f4964d0258a2a3b845323a80fe7e`, com
+`mergedAt=2026-08-31T14:26:10Z`. Os sete workflows pós-merge concluíram com
+`SUCCESS`, e o deployment automático Vercel frontend Production `6183047421`,
+status `17572803614`, terminou com `state=success` em
+`2026-08-31T14:26:57Z`. Essa metadata prova somente o frontend.
+
+Sobre esse merge, o candidato de transporte tem runner SHA-256
+`4196e218e023f5ef16fe333f62b756b55239d0bdde1c11aed12e59af888f6cc9` e teste
+SHA-256 `b79ff9d7473fdafd0a4fcd6ceba98b2c46f5470ef517b6663898812fe8b1296e`.
+Passaram `90/90` testes exclusivamente offline, incluindo loopback TLS
+sintético descartável. Seis descritores privados vinculam alvo,
+nonce e CA, fixam o hash do project-ref DEV e o registro de autorização; o
+wire envia somente o SSLRequest PostgreSQL de oito bytes, exige `S` e fecha
+antes de StartupMessage. O runner não recebe senha, usuário, banco ou DSN e
+não tenta autenticação nem SQL. O plano JSON permanece histórico e
+byte-idêntico; `execution_disabled=true` e `implementation_present=false`
+descrevem a etapa anterior já consumida. A única rede desta rodada foi o `git fetch`
+nominal autorizado; nenhum probe vivo, DEV, PROD, banco ou log foi acessado.
+`operational_authorization=false` e `next_stage_authorized=false` permanecem.
+
 ## Próximo gate único
 
-`REVIEW_AND_CI_DEV_CONNECT_TLS_AUTH_POSTMERGE_RECONCILIATION_PR`.
+`REVIEW_AND_CI_DEV_CONNECT_TLS_AUTH_TRANSPORT_PROBE_IMPLEMENTATION_PR`.
 
-O gate autoriza somente abrir e revisar a PR documental pós-merge e executar o
-CI do mesmo SHA. Seu consumo exige autorização humana que nomeie o push e a
-abertura da PR e aceite o Vercel Preview automático do frontend. Não autoriza
-merge nem integração. O gate também não autoriza implementar ou executar o
-probe, retry, nova invocação DEV, DNS, TCP, TLS,
+O gate exige autorização humana separada que nomeie o push, a abertura da PR,
+o CI do mesmo SHA e o Vercel Preview automático do frontend. Não autoriza
+merge nem integração. O gate também não autoriza executar o probe, retry, nova
+invocação DEV, DNS, TCP, TLS,
 senha, autenticação, consulta de logs, acesso a DEV ou PROD, banco, SQL,
 captura, materialização, DML, migration, reconciliação, backfill, deploy manual
 ou do backend, flag, runtime, `status`, `apply`, `bootstrap-ledger` ou

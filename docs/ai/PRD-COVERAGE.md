@@ -615,12 +615,35 @@ saúde funcional, backend, banco, DEV, PROD, probe ou migration. A integração
 versionou apenas o plano offline: `execution_disabled=true`, implementação e
 capacidade de rede ausentes, probe não executado e operação bloqueada.
 
+A PR #347, HEAD `0a257e9aa1985860d5ea0a4506d4f7e84c7b2312`, foi integrada no
+merge `36f8d13284a8f4964d0258a2a3b845323a80fe7e`, com
+`mergedAt=2026-08-31T14:26:10Z`. Os sete workflows pós-merge concluíram com
+`SUCCESS`, e o deployment automático Vercel frontend Production `6183047421`,
+status `17572803614`, terminou com `state=success` em
+`2026-08-31T14:26:57Z`. Essa metadata prova somente o frontend.
+
+Sobre esse merge, o candidato implementa o probe transport-only em
+`backend/scripts/probe_dev_connect_tls_auth_transport.py`, SHA-256
+`4196e218e023f5ef16fe333f62b756b55239d0bdde1c11aed12e59af888f6cc9`, e sua
+matriz adversarial, SHA-256
+`b79ff9d7473fdafd0a4fcd6ceba98b2c46f5470ef517b6663898812fe8b1296e`.
+Passaram `90/90` testes exclusivamente offline, incluindo loopback TLS
+sintético descartável. O runner recebe seis descritores privados, fixa o hash
+do project-ref DEV e do registro de autorização, envia somente o SSLRequest
+PostgreSQL de oito bytes, exige `S`, valida CA e hostname e fecha antes de
+StartupMessage. Não recebe senha, usuário, banco ou DSN e não tenta
+autenticação nem SQL. O plano JSON permanece histórico e byte-idêntico; seus
+campos `execution_disabled=true` e `implementation_present=false` descrevem a
+etapa anterior já consumida. A única rede desta rodada foi o `git fetch`
+nominal autorizado para obter o merge; nenhum probe vivo, DEV, PROD, banco ou
+log foi acessado. `operational_authorization=false` e
+`next_stage_authorized=false` permanecem.
+
 O gate único corrente é
-`REVIEW_AND_CI_DEV_CONNECT_TLS_AUTH_POSTMERGE_RECONCILIATION_PR`. Ele autoriza
-somente abrir e revisar a PR documental pós-merge e executar o CI do mesmo SHA.
-Seu consumo exige autorização humana que nomeie o push e a abertura da PR e
-aceite o Vercel Preview automático do frontend. Não autoriza merge nem
-integração. Implementação ou execução do probe, retry,
+`REVIEW_AND_CI_DEV_CONNECT_TLS_AUTH_TRANSPORT_PROBE_IMPLEMENTATION_PR`. Ele
+exige autorização humana separada que nomeie o push, a abertura da PR, o CI do
+mesmo SHA e o Vercel Preview automático do frontend. Não autoriza merge nem
+integração. Execução do probe, retry,
 nova invocação DEV, DNS, TCP, TLS, senha, autenticação, logs, banco, SQL,
 captura, materialização, DML, migration, reconciliação, backfill, deploy manual
 ou Production, flag, runtime e PROD continuam bloqueados.
