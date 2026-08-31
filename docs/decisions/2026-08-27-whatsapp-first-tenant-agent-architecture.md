@@ -493,14 +493,125 @@ substituído localmente, sem consumo, pela fundação offline do relatório de
 célula. Não houve push, PR, CI ou Preview sob esse gate, portanto ele não é
 evidência histórica de uma ação externa.
 
+### Preparação D6 offline: proposta pendente e serviço transacional
+
+O commit técnico original `c24b910bcd4bf4015eda14847e9695497b5b8ef6`
+foi consolidado localmente, sem alteração da árvore técnica, no HEAD
+`bcabbae0cf96a9b6e2cd47e8ff041b5aeaffbc84`, sobre a reconciliação documental
+`e0cb280`. A fatia acrescenta o envelope fechado
+`cell-report-pending-proposal/v1` e o serviço
+`cell_report_application`. O envelope ocupa `relatorio_snapshot` somente
+enquanto `relatorio_status=pendente`; ele contém o workflow reidratável,
+expiração UTC de no máximo 24 horas, até 32 operações estruturais, digest do
+estado-base e bindings separados de tenant, reunião, conversa e ator. Os UUIDs
+brutos não entram no JSONB, mas os hashes não são autenticadores. Observações
+continuam conteúdo privado e não podem aparecer em logs ou erros.
+
+O serviço exige uma transação tenant-scoped já ativa e pertencente ao caller.
+Dentro dela, fixa o tenant com `require_tenant_scope`, adquire locks em ordem
+canônica e revalida conversa oficial sem handoff humano, reunião passada e não
+cancelada. Novas propostas e materializações exigem relatório pendente,
+enquanto replay final exato é permitido para enviado. Célula e líder ativos,
+Pessoa não arquivada, sem `sem_interesse` e sem opt-out, exatamente um
+`AppUser` utilizável e ao menos um papel em
+`MINISTERIAL_ROLES`. A proposta e cada revisão são vinculadas a um
+`AgentTurnIdentity` e a um `AgentEffectIntent` do tipo `TOOL_CALL` com payload
+exato. Na confirmação literal corrente, o serviço substitui o envelope pelo
+`cell-report/v2`, atualiza os campos canônicos de `celula_reuniao` e executa
+somente `flush`. Ele nunca inicia, confirma ou reverte a transação; o resultado
+novo declara `requires_caller_commit=true`, e uma falha sanitizada ainda exige
+rollback pelo caller.
+
+O hardening final preserva no snapshot o `submission_effect_id` original e o
+`submission_payload_digest` separado. A dupla vincula identidade e conteúdo
+do efeito planejado, mas não prova proveniência, autorização, entrega,
+primeira execução ou unicidade global. O histórico de operações da proposta é
+limitado e vinculado à mesma linha; não substitui plano persistido, receipt
+durável autenticado ou outbox. Os limites compartilhados agora fixam
+`MAX_CELL_REPORT_OBSERVATIONS_LENGTH=2_000` caracteres e
+`MAX_CELL_REPORT_OBSERVATIONS_BYTES=8_000` bytes UTF-8, além dos limites de
+contagem e oferta já congelados. Fetch de rows, fetch de scalars e `flush`
+convertem `SQLAlchemyError` em categoria estática sem encadear a exceção
+privada.
+
+Essa fronteira tem capacidade ORM quando um caller futuro a invocar, portanto
+não é código puro. Mesmo assim, não existe caller no grafo, worker, webhook,
+router humano ou `turn_plan_adapter`; o adaptador replay-only continua
+recusando `tool_calls` e retornando `FIRST_EXECUTION_UNSUPPORTED` para a
+primeira execução do agente. `AgentConfig`, proveniência inbound, plano e
+receipts duráveis, outbox e resposta pós-commit continuam fora. O router web
+humano ainda não usa o serviço nem adquire o mesmo lock da reunião, condição
+obrigatória antes de ativação para eliminar corrida entre writers.
+
+A revalidação de liderança, papel e opt-out não equivale ao consentimento
+`tarefas_operacionais`. A fonte jurídica e do controlador continua não
+aprovada, o ledger D2B2a segue sem caller e sem aplicação em Supabase, e esta
+fatia não lê nem grava consentimento. Também não há transcrição de áudio,
+lembrete, escalonamento, migration, teste em banco compartilhado, acesso a DEV
+ou PROD, rede, mensagem ou efeito vivo.
+
+Os pins integrais do HEAD são:
+
+- `backend/app/domain/cell_report_limits.py`, SHA-256
+  `8c7a81ee9a8f0a14125c5918aba6f149582e6392d129c9b37744ac3a1d12bf42`;
+- `backend/app/domain/cell_report_pending_proposal.py`, SHA-256
+  `53769d79835803dc8c294928047d2d8766de491e17aecc9d57edb239f06c4056`;
+- `backend/app/domain/cell_report_snapshot.py`, SHA-256
+  `24e93a2b6e8cbe92a849ba3ccc081ff6fbd092a347a605494464fddc6aa3bc51`;
+- `backend/app/domain/cell_report_workflow.py`, SHA-256
+  `da16186dc28f18261967e10800c5f300dae2b11552ed6dff389cbe9d7a3bf877`;
+- `backend/app/routers/cell_meetings.py`, SHA-256
+  `59de2e7b9d12a4c9d36e16edf28c8a74ea590244b778dae8da44ac8f47f49067`;
+- `backend/app/services/cell_report_application.py`, SHA-256
+  `7dc9d0d9cc7bf09c3d8963e956bd60500038004c5e8d882c7d37dd30c3a3389b`;
+- `backend/tests/test_cell_health_service.py`, SHA-256
+  `19fbe602a4943fa76a3583e1e9e61a3e7979169caba5de15e157072262c8be69`;
+- `backend/tests/test_cell_lider.py`, SHA-256
+  `a0265297ec29895399bf4ea0bfac37f554ec935ae5fd6e157c4f348bd69cc6a5`;
+- `backend/tests/test_cell_report_application.py`, SHA-256
+  `30139bffee6be9c00f7068255c6150ee8507506a14ccb9649bebadbf39dc136e`;
+- `backend/tests/test_cell_report_limits.py`, SHA-256
+  `c1d4c2b89e3863e10fed7a3e84eb27b2cece6447c8a63e05237d24fff26196aa`;
+- `backend/tests/test_cell_report_pending_proposal.py`, SHA-256
+  `299b23c0795d9a1e70ac0e6ed46b4124c64a94e567f2e8a6d03732fde6165a3c`;
+- `backend/tests/test_cell_report_snapshot.py`, SHA-256
+  `7cbd65505095c7821bbb8328da9b6d22760fce0544ab80861ca765c82bbd87fb`;
+- `backend/tests/test_cell_report_workflow.py`, SHA-256
+  `704f036d1fd5632c7c33dd5c446e80e6f303fa712adacee892dde822b83f53a9`;
+- `backend/tests/test_reports.py`, SHA-256
+  `fb511601265dfa374a7d9fbec35f913a7e4bdbde615ce82c1c7996e2d51177d2`.
+
+No freeze técnico, a focal passou em `292 passed`; a seleção
+`tests/test_agent*.py` terminou em `633 passed, 7 skipped, 2 warnings`; e
+`tests/test_cell*.py tests/test_reports.py` terminou em
+`730 passed, 18 skipped, 35 warnings`. A suíte ampla do backend, com
+`migration_history` e Redis fora da seleção, chegou a
+`4601 passed, 325 skipped, 499 deselected, 66 warnings`, mas não foi
+classificada verde: restaram a asserção documental do pin anterior, corrigida
+por esta reconciliação, e duas falhas baseline dos verificadores causadas pelo
+modo group-writable `0664` dos artefatos no checkout `/tmp`. Após esta
+reconciliação, a matriz documental passou em `34 passed`. A revisão independente
+repetiu `729 passed` e `1363 passed, 25 skipped` e concluiu `GO`,
+com P0, P1 e P2 iguais a zero. Toda evidência é local e pré-PR.
+
+A classificação corrente é `FRONTEIRA TRANSACIONAL OFFLINE DO RELATÓRIO
+AMPLIADA LOCALMENTE / PROPOSTA PENDENTE FECHADA / FLUSH SEM COMMIT / CANDIDATO
+NÃO INTEGRADO NO MAIN / RUNTIME E EFEITOS VIVOS BLOQUEADOS`.
+
+O gate anterior `REVIEW_AND_CI_D3_CELL_REPORT_OFFLINE_FOUNDATION_PR` foi
+substituído localmente, sem consumo, pela fatia offline do serviço de aplicação
+do relatório. Não houve push, PR, CI ou Preview sob esse gate, portanto ele não
+é evidência histórica de uma ação externa.
+
 **Próximo gate único:**
-`REVIEW_AND_CI_D3_CELL_REPORT_OFFLINE_FOUNDATION_PR`. O nome não constitui
-autorização já concedida. Seu consumo exige autorização humana posterior e
-separada que nomeie push, abertura da PR e GitHub CI e aceite o Vercel Preview
-automático. O gate cobre somente revisão e CI da fundação offline ampliada do
-relatório de célula. Não autoriza merge, Vercel Production, flag-on, runtime,
-worker, saver, probe vivo, acesso a DEV ou PROD, banco, logs, SQL, DML,
-migration, rede, deploy, mensagem, tool call ou qualquer efeito vivo.
+`REVIEW_AND_CI_CELL_REPORT_APPLICATION_SERVICE_OFFLINE_PR`. O nome não
+constitui autorização já concedida. Seu consumo exige autorização humana
+posterior e separada que nomeie push, abertura da PR e GitHub CI e aceite o
+Vercel Preview automático. O gate cobre somente revisão e CI do lote offline
+ampliado com a fronteira transacional do relatório. Não autoriza merge, Vercel
+Production, flag-on, caller, primeira execução do agente, runtime, worker,
+consentimento, saver, probe vivo, acesso a DEV ou PROD, banco, logs, SQL, DML,
+migration, outra rede, deploy, mensagem, tool call ou qualquer efeito vivo.
 
 
 

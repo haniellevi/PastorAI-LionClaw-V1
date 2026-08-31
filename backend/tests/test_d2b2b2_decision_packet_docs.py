@@ -133,11 +133,14 @@ D3_TURN_EXECUTION_TRUSTED_INBOUND_SUPERSEDED_GATE = (
 D3_TURN_FOUNDATION_REPLAY_ONLY_SUPERSEDED_GATE = (
     "REVIEW_AND_CI_D3_TURN_FOUNDATION_REPLAY_ONLY_OFFLINE_PR"
 )
-D3_CELL_REPORT_OFFLINE_FOUNDATION_CURRENT_GATE = (
+D3_CELL_REPORT_OFFLINE_FOUNDATION_SUPERSEDED_GATE = (
     "REVIEW_AND_CI_D3_CELL_REPORT_OFFLINE_FOUNDATION_PR"
 )
+CELL_REPORT_APPLICATION_SERVICE_CURRENT_GATE = (
+    "REVIEW_AND_CI_CELL_REPORT_APPLICATION_SERVICE_OFFLINE_PR"
+)
 DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE = (
-    D3_CELL_REPORT_OFFLINE_FOUNDATION_CURRENT_GATE
+    CELL_REPORT_APPLICATION_SERVICE_CURRENT_GATE
 )
 DEV_PREFLIGHT_PHASE_DIAGNOSTICS_STALE_GATE = (
     "REVIEW_AND_INTEGRATE_DEV_PREFLIGHT_PHASE_DIAGNOSTICS_PR"
@@ -521,8 +524,8 @@ def _assert_reconciled_d3_gate(path: Path, normalized: str) -> None:
         "autorizacao humana posterior e separada",
         "nomeie push, abertura da pr e github ci",
         "aceite o vercel preview automatico",
-        "cobre somente revisao e ci da fundacao offline ampliada do relatorio de celula",
-        "nao autoriza merge, vercel production, flag-on, runtime, worker, saver",
+        "cobre somente revisao e ci do lote offline ampliado com a fronteira transacional do relatorio",
+        "nao autoriza merge, vercel production, flag-on, caller, primeira execucao do agente, runtime, worker",
         "qualquer efeito vivo",
     }
     missing = sorted(item for item in required if item not in normalized)
@@ -2856,8 +2859,8 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
         "autorizacao humana posterior",
         "nomeie push, abertura da pr e github ci",
         "aceite o vercel preview automatico",
-        "cobre somente revisao e ci da fundacao offline ampliada do relatorio de celula",
-        "nao autoriza merge, vercel production, flag-on, runtime, worker, saver",
+        "cobre somente revisao e ci do lote offline ampliado com a fronteira transacional do relatorio",
+        "nao autoriza merge, vercel production, flag-on, caller, primeira execucao do agente, runtime, worker",
         "qualquer efeito vivo",
     }
 
@@ -3382,6 +3385,53 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
         "a evidencia e exclusivamente local e pre-pr; nao prova runtime, "
         "dev, prod, banco, deploy ou efeito vivo."
     )
+    application_source_commit = "c24b910bcd4bf4015eda14847e9695497b5b8ef6"
+    application_head_commit = "bcabbae0cf96a9b6e2cd47e8ff041b5aeaffbc84"
+    application_docs_base_commit = "e0cb280"
+    application_file_sha256 = {
+        "backend/app/domain/cell_report_limits.py": (
+            "8c7a81ee9a8f0a14125c5918aba6f149582e6392d129c9b37744ac3a1d12bf42"
+        ),
+        "backend/app/domain/cell_report_pending_proposal.py": (
+            "53769d79835803dc8c294928047d2d8766de491e17aecc9d57edb239f06c4056"
+        ),
+        "backend/app/domain/cell_report_snapshot.py": (
+            "24e93a2b6e8cbe92a849ba3ccc081ff6fbd092a347a605494464fddc6aa3bc51"
+        ),
+        "backend/app/domain/cell_report_workflow.py": (
+            "da16186dc28f18261967e10800c5f300dae2b11552ed6dff389cbe9d7a3bf877"
+        ),
+        "backend/app/routers/cell_meetings.py": (
+            "59de2e7b9d12a4c9d36e16edf28c8a74ea590244b778dae8da44ac8f47f49067"
+        ),
+        "backend/app/services/cell_report_application.py": (
+            "7dc9d0d9cc7bf09c3d8963e956bd60500038004c5e8d882c7d37dd30c3a3389b"
+        ),
+        "backend/tests/test_cell_health_service.py": (
+            "19fbe602a4943fa76a3583e1e9e61a3e7979169caba5de15e157072262c8be69"
+        ),
+        "backend/tests/test_cell_lider.py": (
+            "a0265297ec29895399bf4ea0bfac37f554ec935ae5fd6e157c4f348bd69cc6a5"
+        ),
+        "backend/tests/test_cell_report_application.py": (
+            "30139bffee6be9c00f7068255c6150ee8507506a14ccb9649bebadbf39dc136e"
+        ),
+        "backend/tests/test_cell_report_limits.py": (
+            "c1d4c2b89e3863e10fed7a3e84eb27b2cece6447c8a63e05237d24fff26196aa"
+        ),
+        "backend/tests/test_cell_report_pending_proposal.py": (
+            "299b23c0795d9a1e70ac0e6ed46b4124c64a94e567f2e8a6d03732fde6165a3c"
+        ),
+        "backend/tests/test_cell_report_snapshot.py": (
+            "7cbd65505095c7821bbb8328da9b6d22760fce0544ab80861ca765c82bbd87fb"
+        ),
+        "backend/tests/test_cell_report_workflow.py": (
+            "704f036d1fd5632c7c33dd5c446e80e6f303fa712adacee892dde822b83f53a9"
+        ),
+        "backend/tests/test_reports.py": (
+            "fb511601265dfa374a7d9fbec35f913a7e4bdbde615ce82c1c7996e2d51177d2"
+        ),
+    }
     four_input_rebinding_required = {
         "antes da primeira consulta",
         "runtime rederiva a identidade com quatro entradas confiaveis e separadas",
@@ -3468,8 +3518,8 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
         "foi substituido localmente, sem consumo, pelo lote ampliado replay-only",
         "nao houve push, pr, ci ou preview sob esse gate",
         "foi substituido localmente, sem consumo, pela fundacao offline do relatorio de celula",
-        "cobre somente revisao e ci da fundacao offline ampliada do relatorio de celula",
-        "nao autoriza merge, vercel production, flag-on, runtime, worker, saver",
+        "cobre somente revisao e ci do lote offline ampliado com a fronteira transacional do relatorio",
+        "nao autoriza merge, vercel production, flag-on, caller, primeira execucao do agente, runtime, worker",
         "qualquer efeito vivo",
     } | four_input_rebinding_required
     stale_claims = {
@@ -3629,8 +3679,8 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
         "lote d3 offline ampliado localmente / replay-only / flag default false",
         D3_TURN_EXECUTION_TRUSTED_INBOUND_SUPERSEDED_GATE.casefold(),
         D3_TURN_FOUNDATION_REPLAY_ONLY_SUPERSEDED_GATE.casefold(),
-        D3_CELL_REPORT_OFFLINE_FOUNDATION_CURRENT_GATE.casefold(),
-        "cobre somente revisao e ci da fundacao offline ampliada do relatorio de celula",
+        D3_CELL_REPORT_OFFLINE_FOUNDATION_SUPERSEDED_GATE.casefold(),
+        "cobre somente revisao e ci do lote offline ampliado com a fronteira transacional do relatorio",
     } | four_input_rebinding_required
     architecture_missing = sorted(
         item for item in architecture_required if item not in architecture
@@ -3647,7 +3697,7 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
         execution_test_sha256,
         D3_TURN_EXECUTION_TRUSTED_INBOUND_SUPERSEDED_GATE.casefold(),
         D3_TURN_FOUNDATION_REPLAY_ONLY_SUPERSEDED_GATE.casefold(),
-        D3_CELL_REPORT_OFFLINE_FOUNDATION_CURRENT_GATE.casefold(),
+        D3_CELL_REPORT_OFFLINE_FOUNDATION_SUPERSEDED_GATE.casefold(),
     ):
         assert architecture.count(pinned_value) == 1
 
@@ -3672,10 +3722,10 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
         D3_TURN_EXECUTION_TRUSTED_INBOUND_SUPERSEDED_GATE.casefold(),
         "foi substituido localmente, sem consumo, pelo lote ampliado replay-only",
         D3_TURN_FOUNDATION_REPLAY_ONLY_SUPERSEDED_GATE.casefold(),
-        D3_CELL_REPORT_OFFLINE_FOUNDATION_CURRENT_GATE.casefold(),
+        D3_CELL_REPORT_OFFLINE_FOUNDATION_SUPERSEDED_GATE.casefold(),
         "nome nao constitui autorizacao ja concedida",
-        "cobre somente revisao e ci da fundacao offline ampliada do relatorio de celula",
-        "nao autoriza merge, vercel production, flag-on, runtime, worker, saver",
+        "cobre somente revisao e ci do lote offline ampliado com a fronteira transacional do relatorio",
+        "nao autoriza merge, vercel production, flag-on, caller, primeira execucao do agente, runtime, worker",
         "qualquer efeito vivo",
     }
     for path in D3_TURN_PLAN_ADAPTER_DOCS:
@@ -3691,7 +3741,7 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
             execution_test_sha256,
             D3_TURN_EXECUTION_TRUSTED_INBOUND_SUPERSEDED_GATE.casefold(),
             D3_TURN_FOUNDATION_REPLAY_ONLY_SUPERSEDED_GATE.casefold(),
-            D3_CELL_REPORT_OFFLINE_FOUNDATION_CURRENT_GATE.casefold(),
+            D3_CELL_REPORT_OFFLINE_FOUNDATION_SUPERSEDED_GATE.casefold(),
         ):
             assert normalized.count(pinned_value) == 1
 
@@ -3739,8 +3789,8 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
             "no main / efeitos vivos bloqueados"
         ),
         "foi substituido localmente, sem consumo, pela fundacao offline do relatorio de celula",
-        "cobre somente revisao e ci da fundacao offline ampliada do relatorio de celula",
-        "nao autoriza merge, vercel production, flag-on, runtime, worker, saver",
+        "cobre somente revisao e ci do lote offline ampliado com a fronteira transacional do relatorio",
+        "nao autoriza merge, vercel production, flag-on, caller, primeira execucao do agente, runtime, worker",
     }
     historical_and_final_pins = (
         snapshot_commit,
@@ -3761,7 +3811,7 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
         cell_meetings_sha256,
         cell_lider_test_sha256,
         D3_TURN_FOUNDATION_REPLAY_ONLY_SUPERSEDED_GATE.casefold(),
-        D3_CELL_REPORT_OFFLINE_FOUNDATION_CURRENT_GATE.casefold(),
+        D3_CELL_REPORT_OFFLINE_FOUNDATION_SUPERSEDED_GATE.casefold(),
     )
     for path in D3_CELL_REPORT_OFFLINE_FOUNDATION_DOCS:
         normalized = _normalized_prose(path.read_text(encoding="utf-8"))
@@ -3781,8 +3831,166 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
         assert normalized.index(
             D3_TURN_FOUNDATION_REPLAY_ONLY_SUPERSEDED_GATE.casefold()
         ) < normalized.index(
-            D3_CELL_REPORT_OFFLINE_FOUNDATION_CURRENT_GATE.casefold()
+            D3_CELL_REPORT_OFFLINE_FOUNDATION_SUPERSEDED_GATE.casefold()
         )
+
+    application_required = {
+        application_source_commit,
+        application_head_commit,
+        application_docs_base_commit,
+        "envelope fechado `cell-report-pending-proposal/v1`",
+        "servico `cell_report_application`",
+        "`relatorio_snapshot` apenas enquanto o relatorio esta pendente",
+        "bindings opacos de tenant, reuniao, conversa e ator",
+        "expiracao maxima de 24 horas",
+        "no maximo 32 operacoes estruturais",
+        "jsonb nao guarda uuids brutos",
+        "hashes nao sao autenticadores",
+        "transacao tenant-scoped ja ativa e pertencente ao caller",
+        "adquire locks em ordem canonica",
+        "conversa oficial sem handoff",
+        "reuniao passada e nao cancelada",
+        "novas propostas e materializacoes exigem relatorio pendente",
+        "replay final exato e permitido para enviado",
+        "exatamente um `appuser` utilizavel",
+        "ao menos um papel ministerial",
+        "`agentturnidentity` e `agenteffectintent` com payload exato",
+        "troca o envelope por `cell-report/v2`",
+        "faz somente `flush`",
+        "caller continua responsavel por commit ou rollback",
+        "`submission_effect_id` original",
+        "`submission_payload_digest` separado",
+        "nao prova proveniencia, autorizacao, primeira execucao nem unicidade global",
+        "nao substitui plano, receipt duravel autenticado ou outbox",
+        "`max_cell_report_observations_length=2_000`",
+        "`max_cell_report_observations_bytes=8_000`",
+        "fetch de rows, fetch de scalars e `flush` sanitizam `sqlalchemyerror`",
+        "nao existe caller no grafo, worker, webhook, router humano ou `turn_plan_adapter`",
+        "primeira execucao do agente e `tool_calls` continuam bloqueados",
+        "router humano ainda nao compartilha o servico nem o lock",
+        "nao substituem o consentimento `tarefas_operacionais`",
+        "fonte juridica e do controlador segue nao aprovada",
+        "esta fatia nao le nem grava consentimento",
+        "nao houve migration, banco compartilhado, dev, prod, rede, mensagem ou efeito vivo",
+        "292 passed",
+        "633 passed, 7 skipped, 2 warnings",
+        "730 passed, 18 skipped, 35 warnings",
+        "4601 passed, 325 skipped, 499 deselected, 66 warnings",
+        "suite ampla do backend, com `migration_history` e redis fora da selecao",
+        "uma assercao documental do pin anterior",
+        "duas falhas baseline de modo group-writable `0664`",
+        "apos esta reconciliacao, a matriz documental passou em `34 passed`",
+        "729 passed",
+        "1363 passed, 25 skipped",
+        "concluiu `go`, com p0, p1 e p2 iguais a zero",
+        (
+            "fronteira transacional offline do relatorio ampliada localmente / "
+            "proposta pendente fechada / flush sem commit / candidato nao "
+            "integrado no main / runtime e efeitos vivos bloqueados"
+        ),
+        "foi substituido localmente, sem consumo, pela fatia offline do servico de aplicacao",
+        "nao houve push, pr, ci ou preview sob esse gate",
+        D3_CELL_REPORT_OFFLINE_FOUNDATION_SUPERSEDED_GATE.casefold(),
+        CELL_REPORT_APPLICATION_SERVICE_CURRENT_GATE.casefold(),
+        "cobre somente revisao e ci do lote offline ampliado com a fronteira transacional do relatorio",
+        "nao autoriza merge, vercel production, flag-on, caller, primeira execucao do agente, runtime, worker",
+    }
+    for file_path, digest in application_file_sha256.items():
+        application_required.add(file_path)
+        application_required.add(digest)
+
+    architecture_application_required = {
+        application_source_commit,
+        application_head_commit,
+        application_docs_base_commit,
+        "preparacao d6 offline: proposta pendente e servico transacional",
+        "envelope fechado `cell-report-pending-proposal/v1`",
+        "servico `cell_report_application`",
+        "transacao tenant-scoped ja ativa e pertencente ao caller",
+        "locks em ordem canonica",
+        "reuniao passada e nao cancelada",
+        "novas propostas e materializacoes exigem relatorio pendente",
+        "replay final exato e permitido para enviado",
+        "exatamente um `appuser` utilizavel",
+        "ao menos um papel em `ministerial_roles`",
+        "`agentturnidentity`",
+        "`agenteffectintent` do tipo `tool_call` com payload exato",
+        "substitui o envelope pelo `cell-report/v2`",
+        "executa somente `flush`",
+        "nunca inicia, confirma ou reverte a transacao",
+        "`requires_caller_commit=true`",
+        "`submission_effect_id` original",
+        "`submission_payload_digest` separado",
+        "nao prova proveniencia",
+        "primeira execucao ou unicidade global",
+        "nao substitui plano persistido, receipt duravel autenticado ou outbox",
+        "`max_cell_report_observations_length=2_000`",
+        "`max_cell_report_observations_bytes=8_000`",
+        "fetch de rows, fetch de scalars e `flush`",
+        "nao existe caller no grafo, worker, webhook, router humano ou `turn_plan_adapter`",
+        "adaptador replay-only continua recusando `tool_calls`",
+        "`first_execution_unsupported`",
+        "nao equivale ao consentimento `tarefas_operacionais`",
+        "ledger d2b2a segue sem caller",
+        "esta fatia nao le nem grava consentimento",
+        "router web humano ainda nao usa o servico nem adquire o mesmo lock",
+        "4601 passed, 325 skipped, 499 deselected, 66 warnings",
+        "suite ampla do backend, com `migration_history` e redis fora da selecao",
+        "duas falhas baseline dos verificadores",
+        "modo group-writable `0664`",
+        "apos esta reconciliacao, a matriz documental passou em `34 passed`",
+        "729 passed",
+        "1363 passed, 25 skipped",
+        "concluiu `go`, com p0, p1 e p2 iguais a zero",
+        (
+            "fronteira transacional offline do relatorio ampliada localmente / "
+            "proposta pendente fechada / flush sem commit / candidato nao "
+            "integrado no main / runtime e efeitos vivos bloqueados"
+        ),
+        D3_CELL_REPORT_OFFLINE_FOUNDATION_SUPERSEDED_GATE.casefold(),
+        CELL_REPORT_APPLICATION_SERVICE_CURRENT_GATE.casefold(),
+        "cobre somente revisao e ci do lote offline ampliado com a fronteira transacional do relatorio",
+    }
+    for file_path, digest in application_file_sha256.items():
+        architecture_application_required.add(file_path)
+        architecture_application_required.add(digest)
+
+    for path in D3_CELL_REPORT_OFFLINE_FOUNDATION_DOCS:
+        normalized = _normalized_prose(path.read_text(encoding="utf-8"))
+        expected = (
+            architecture_application_required
+            if path == WHATSAPP_FIRST_AGENT_ARCHITECTURE_ADR_PATH
+            else application_required
+        )
+        missing = sorted(item for item in expected if item not in normalized)
+        assert not missing, f"Cell report application docs stale in {path}: {missing}"
+        for digest in application_file_sha256.values():
+            assert normalized.count(digest) == 1
+        assert normalized.count(application_source_commit) == 1
+        assert normalized.count(application_head_commit) == 1
+        assert normalized.count(
+            D3_CELL_REPORT_OFFLINE_FOUNDATION_SUPERSEDED_GATE.casefold()
+        ) == 1
+        assert normalized.count(
+            CELL_REPORT_APPLICATION_SERVICE_CURRENT_GATE.casefold()
+        ) == 1
+        assert normalized.index(application_source_commit) < normalized.index(
+            application_head_commit
+        )
+        assert normalized.index(application_head_commit) < normalized.index(
+            D3_CELL_REPORT_OFFLINE_FOUNDATION_SUPERSEDED_GATE.casefold()
+        )
+        assert normalized.index(
+            D3_CELL_REPORT_OFFLINE_FOUNDATION_SUPERSEDED_GATE.casefold()
+        ) < normalized.index(CELL_REPORT_APPLICATION_SERVICE_CURRENT_GATE.casefold())
+        for stale_claim in (
+            "servico conectado ao runtime",
+            "consentimento `tarefas_operacionais` aprovado",
+            "idempotencia global comprovada",
+            "suite integral verde",
+            "reuniao passada e pendente",
+        ):
+            assert stale_claim not in normalized
 
     architecture_cell_report_required = {
         "submission_effect_id` opaco de correlacao",
@@ -3825,28 +4033,81 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
             plan_adapter_final_test_sha256
         ),
         REPO_ROOT / "backend" / "app" / "domain" / "cell_report_snapshot.py": (
-            snapshot_final_sha256
+            application_file_sha256[
+                "backend/app/domain/cell_report_snapshot.py"
+            ]
         ),
         REPO_ROOT / "backend" / "tests" / "test_cell_report_snapshot.py": (
-            snapshot_final_test_sha256
+            application_file_sha256[
+                "backend/tests/test_cell_report_snapshot.py"
+            ]
         ),
         REPO_ROOT / "backend" / "app" / "domain" / "cell_report_workflow.py": (
-            workflow_final_sha256
+            application_file_sha256[
+                "backend/app/domain/cell_report_workflow.py"
+            ]
         ),
         REPO_ROOT / "backend" / "tests" / "test_cell_report_workflow.py": (
-            workflow_final_test_sha256
+            application_file_sha256[
+                "backend/tests/test_cell_report_workflow.py"
+            ]
         ),
         REPO_ROOT / "backend" / "app" / "domain" / "cell_report_limits.py": (
-            limits_sha256
+            application_file_sha256[
+                "backend/app/domain/cell_report_limits.py"
+            ]
         ),
         REPO_ROOT / "backend" / "tests" / "test_cell_report_limits.py": (
-            limits_test_sha256
+            application_file_sha256[
+                "backend/tests/test_cell_report_limits.py"
+            ]
         ),
         REPO_ROOT / "backend" / "app" / "routers" / "cell_meetings.py": (
-            cell_meetings_sha256
+            application_file_sha256[
+                "backend/app/routers/cell_meetings.py"
+            ]
         ),
         REPO_ROOT / "backend" / "tests" / "test_cell_lider.py": (
-            cell_lider_test_sha256
+            application_file_sha256["backend/tests/test_cell_lider.py"]
+        ),
+        REPO_ROOT
+        / "backend"
+        / "app"
+        / "domain"
+        / "cell_report_pending_proposal.py": (
+            application_file_sha256[
+                "backend/app/domain/cell_report_pending_proposal.py"
+            ]
+        ),
+        REPO_ROOT
+        / "backend"
+        / "app"
+        / "services"
+        / "cell_report_application.py": (
+            application_file_sha256[
+                "backend/app/services/cell_report_application.py"
+            ]
+        ),
+        REPO_ROOT / "backend" / "tests" / "test_cell_health_service.py": (
+            application_file_sha256[
+                "backend/tests/test_cell_health_service.py"
+            ]
+        ),
+        REPO_ROOT / "backend" / "tests" / "test_cell_report_application.py": (
+            application_file_sha256[
+                "backend/tests/test_cell_report_application.py"
+            ]
+        ),
+        REPO_ROOT
+        / "backend"
+        / "tests"
+        / "test_cell_report_pending_proposal.py": (
+            application_file_sha256[
+                "backend/tests/test_cell_report_pending_proposal.py"
+            ]
+        ),
+        REPO_ROOT / "backend" / "tests" / "test_reports.py": (
+            application_file_sha256["backend/tests/test_reports.py"]
         ),
         REPO_ROOT / "backend" / "app" / "config.py": (
             "c97f3c62c872b0e6a1d2e745f7effbdbb395617f5533abf7e4c82f6a681fcfe3"

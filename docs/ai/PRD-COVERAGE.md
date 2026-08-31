@@ -35,18 +35,18 @@ significa ativa em produção.
 | Pessoas e responsabilidades | `PARCIAL FORTE` | cadastro, papéis, vínculos, fila e escopos existentes | Fechar responsabilidades temporais, owner operacional e composição por setor |
 | Conexão WhatsApp | `IMPLEMENTADO / GATE OPERACIONAL` | Evolution, conexão por igreja, webhook e filas | Monitorar recibos, reconnect e capacidade antes de cada canário |
 | Conversas e handoff | `IMPLEMENTADO` | histórico, inbox, atribuição, transferência e estado IA/humano | Adicionar memória derivada, exclusão propagada e avaliação de naturalidade |
-| Fundação do agente | `IMPLEMENTADO / PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR INTEGRADOS / ARTEFATOS VERSIONADOS / REVISÃO INDEPENDENTE BLOQUEADA CONCLUÍDA / DECISÃO OWNER-01 REGISTRADA / MANIFESTO DE FONTE CRIADO / REVISÃO TÉCNICA CONCLUÍDA / REVISÃO INDEPENDENTE DO MANIFESTO PENDENTE / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA / FUNDAÇÃO D3 REPLAY-ONLY E CELL-REPORT CANDIDATAS OFFLINE` | LangGraph stateless e contexto confiável D2B1 integrados; a preparação D3 separa entrada e saída, usa `UntrackedValue`, e o lote local amplia identidade estável, plano puro, reconciliação replay-only, snapshot agregado e workflow de confirmação sem bridge ou consumer de runtime | Revisão independente do manifesto; atestação posterior, bridge transacional, saver, receipts duráveis, plano persistido, primeira execução, memória, conhecimento, D2 e operação permanecem bloqueados |
+| Fundação do agente | `IMPLEMENTADO / PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR INTEGRADOS / ARTEFATOS VERSIONADOS / REVISÃO INDEPENDENTE BLOQUEADA CONCLUÍDA / DECISÃO OWNER-01 REGISTRADA / MANIFESTO DE FONTE CRIADO / REVISÃO TÉCNICA CONCLUÍDA / REVISÃO INDEPENDENTE DO MANIFESTO PENDENTE / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA / FUNDAÇÃO D3 REPLAY-ONLY E CELL-REPORT CANDIDATAS OFFLINE` | LangGraph stateless e contexto confiável D2B1 integrados; o lote local amplia identidade, plano replay-only, snapshot, workflow, proposta pendente e uma fronteira ORM transacional sem caller | Revisão independente do manifesto; atestação posterior, caller confiável, consentimento operacional, lock comum com o writer web, commit e outbox, saver, receipts globais, primeira execução, memória, conhecimento e operação permanecem bloqueados |
 | Isolamento da memória | `AUSENTE / FUNDAÇÃO D2A INTEGRADA` | Nenhum checkpointer durável instalado; o envelope `UntrackedValue` é efêmero e não constitui memória, checkpoint ou retomada | Tabelas com `igreja_id`, FORCE RLS, namespace server-side, exclusão e testes adversariais pertencem à D3 |
 | Conhecimento oficial | `AUSENTE` | Não há ingestão aprovada, embeddings ou recuperação institucional | Perfil da igreja, documentos versionados, audiência, RLS e busca híbrida |
 | Dados vivos como ferramentas | `PARCIAL` | Quatro ferramentas limitadas e queries determinísticas | Catálogo por especialista, capacidades e serviços compartilhados com o painel |
 | Consentimento | `PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR INTEGRADOS / ARTEFATOS VERSIONADOS / REVISÃO INDEPENDENTE BLOQUEADA CONCLUÍDA / DECISÃO OWNER-01 REGISTRADA / MANIFESTO DE FONTE CRIADO / REVISÃO TÉCNICA CONCLUÍDA / REVISÃO INDEPENDENTE DO MANIFESTO PENDENTE / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | Legado e opt-out continuam ativos; D2B2a adiciona ledger append-only sem caller ou aplicação em Supabase; a revisão externa bloqueou DEV por divergência e PROD por evidência insuficiente | Revisão independente do manifesto; D2, catálogo, prova, writer e operação permanecem bloqueados |
-| Propostas e confirmação | `AUSENTE COMO PLATAFORMA` | Confirmações existem apenas em fluxos específicos | Registro durável, expiração, idempotência, revalidação e comprovante |
+| Propostas e confirmação | `AUSENTE COMO PLATAFORMA / FATIA ESPECÍFICA OFFLINE CANDIDATA` | O relatório possui envelope pendente fechado, expiração e revalidação locais sobre `celula_reuniao`; não existe plataforma D2C genérica nem caller | Plano e receipts duráveis autenticados, unicidade global, consentimento, outbox, commit e comprovante pós-commit |
 | Notificações proativas | `PARCIAL E FRAGMENTADO` | SLA, cron, Agenda, event notify e broadcast têm caminhos próprios | Outbox única, finalidade, quiet hours, retry, recibo e escalonamento |
 | Painel de Hoje | `IMPLEMENTADO / PARCIAL` | dashboard e work queue por responsabilidade | Compor todas as responsabilidades e as lacunas de conhecimento |
 | Minha Célula | `IMPLEMENTADO / PARCIAL` | reuniões, presenças, visitantes, relatórios e materiais | Completar operação WhatsApp e honestidade entre intenção e entrega |
 | Central de Células | `IMPLEMENTADO / PARCIAL` | gestão, solicitações, transferência, remoção e eventos append-only | Especialista WhatsApp, planejamento e comunicação pela outbox |
-| Relatório de célula web | `IMPLEMENTADO` | `celula_reuniao`, draft, submit e snapshot congelado | Extrair serviço de aplicação compartilhado com o WhatsApp |
-| Relatório pelo WhatsApp | `PARCIAL / FUNDAÇÃO OFFLINE CANDIDATA` | parser, evento `report_captured`, snapshot agregado `cell-report/v2` e workflow puro de coleta, revisão e confirmação | Não existe bridge transacional, gravação canônica, execução de efeito, transcrição de áudio ou idempotência operacional comprovada |
+| Relatório de célula web | `IMPLEMENTADO` | `celula_reuniao`, draft, submit e snapshot congelado | O router humano ainda não usa a fronteira candidata nem adquire o mesmo lock; o serviço ainda não é compartilhado |
+| Relatório pelo WhatsApp | `PARCIAL / FRONTEIRA TRANSACIONAL OFFLINE CANDIDATA` | parser, evento `report_captured`, snapshot `cell-report/v2`, workflow, envelope pendente e serviço ORM com locks e flush sem commit | Não existe caller no agente, consentimento `tarefas_operacionais`, commit/outbox, receipt global, resposta pós-commit, transcrição de áudio ou idempotência operacional comprovada |
 | Agenda | `PARCIAL` | CRUD, visões, confirmações, importação Google e alertas internos | Operação WhatsApp, envio futuro unificado e semântica de entrega |
 | Consolidação | `PARCIAL` | decisões, etapas, responsáveis, SLA e conclusão manual | Máquina de estados e read model duráveis, transações e elegibilidade |
 | Universidade da Vida | `AUSENTE COMO MÓDULO` | Placeholder e referências históricas | PRD, turmas, aulas, presenças, Encontro, batismo, papéis e APIs |
@@ -82,6 +82,8 @@ significa ativa em produção.
   conhecimento institucional;
 - o relatório é analisado e registrado como evento, mas não grava
   `celula_reuniao`;
+- a fronteira transacional candidata pode preparar e materializar o relatório
+  numa transação externa, mas nenhum caminho de runtime a importa ou invoca;
 - mensagens de áudio são armazenadas e exibidas, sem transcrição encontrada;
 - o runtime continua usando consentimento geral; o ledger D2B2a está integrado,
   inativo, não aplicado em Supabase e não possui caller;
@@ -92,7 +94,8 @@ significa ativa em produção.
 - checkpointer PostgreSQL conectado ao LangGraph;
 - resumo incremental e recuperação de memória privada;
 - RAG documental com publicação e ACL;
-- propostas de ação duráveis e genéricas;
+- plataforma de propostas de ação duráveis e genéricas; o envelope específico
+  do relatório não satisfaz D2C;
 - especialistas completos de Agenda, Consolidação, UV e CD;
 - indexação e recuperação automáticas e seguras de novos registros oficiais,
   sem treinamento ou fine-tuning por igreja;
@@ -976,14 +979,105 @@ substituído localmente, sem consumo, pela fundação offline do relatório de
 célula. Não houve push, PR, CI ou Preview sob esse gate, portanto ele não é
 evidência histórica de uma ação externa.
 
+A fatia offline posterior foi congelada no commit tecnico original
+`c24b910bcd4bf4015eda14847e9695497b5b8ef6` e consolidada, sem alteracao da
+arvore tecnica, no HEAD local
+`bcabbae0cf96a9b6e2cd47e8ff041b5aeaffbc84`, sobre a reconciliacao
+documental `e0cb280`. Ela acrescenta o envelope fechado
+`cell-report-pending-proposal/v1` e o servico
+`cell_report_application`. A proposta usa `relatorio_snapshot` apenas
+enquanto o relatorio esta pendente, com bindings opacos de tenant, reuniao,
+conversa e ator, expiracao maxima de 24 horas, no maximo 32 operacoes
+estruturais e digest do estado-base. O JSONB nao guarda UUIDs brutos, mas os
+hashes nao sao autenticadores e o conteudo privado nao pode ser logado.
+
+O servico exige transacao tenant-scoped ja ativa e pertencente ao caller,
+adquire locks em ordem canonica e revalida conversa oficial sem handoff,
+reuniao passada e nao cancelada; novas propostas e materializacoes exigem
+relatorio pendente, enquanto replay final exato e permitido para enviado;
+celula, lider e Pessoa ativos, opt-out,
+`sem_interesse`, exatamente um `AppUser` utilizavel e ao menos um papel
+ministerial. Proposta e confirmacao exigem `AgentTurnIdentity` e
+`AgentEffectIntent` com payload exato. A confirmacao literal corrente troca o
+envelope por `cell-report/v2`, atualiza `celula_reuniao` e faz somente
+`flush`. O caller continua responsavel por commit ou rollback.
+
+O hardening final persiste o `submission_effect_id` original e o
+`submission_payload_digest` separado. A dupla nao prova proveniencia,
+autorizacao, primeira execucao nem unicidade global, e o historico limitado da
+proposta nao substitui plano, receipt duravel autenticado ou outbox. Os limites
+compartilhados fixam `MAX_CELL_REPORT_OBSERVATIONS_LENGTH=2_000` caracteres e
+`MAX_CELL_REPORT_OBSERVATIONS_BYTES=8_000` bytes UTF-8. Fetch de rows, fetch
+de scalars e `flush` sanitizam `SQLAlchemyError` sem encadear a excecao
+privada.
+
+Nao existe caller no grafo, worker, webhook, router humano ou
+`turn_plan_adapter`; a primeira execucao do agente e `tool_calls` continuam
+bloqueados. O router humano ainda nao compartilha o servico nem o lock. Papel,
+lideranca e opt-out nao substituem o consentimento `tarefas_operacionais`: a
+fonte juridica e do controlador segue nao aprovada, o ledger D2B2a permanece
+sem caller e sem aplicacao, e esta fatia nao le nem grava consentimento. Nao
+houve migration, banco compartilhado, DEV, PROD, rede, mensagem ou efeito vivo.
+
+Pins integrais do HEAD: `backend/app/domain/cell_report_limits.py`
+`8c7a81ee9a8f0a14125c5918aba6f149582e6392d129c9b37744ac3a1d12bf42`;
+`backend/app/domain/cell_report_pending_proposal.py`
+`53769d79835803dc8c294928047d2d8766de491e17aecc9d57edb239f06c4056`;
+`backend/app/domain/cell_report_snapshot.py`
+`24e93a2b6e8cbe92a849ba3ccc081ff6fbd092a347a605494464fddc6aa3bc51`;
+`backend/app/domain/cell_report_workflow.py`
+`da16186dc28f18261967e10800c5f300dae2b11552ed6dff389cbe9d7a3bf877`;
+`backend/app/routers/cell_meetings.py`
+`59de2e7b9d12a4c9d36e16edf28c8a74ea590244b778dae8da44ac8f47f49067`;
+`backend/app/services/cell_report_application.py`
+`7dc9d0d9cc7bf09c3d8963e956bd60500038004c5e8d882c7d37dd30c3a3389b`;
+`backend/tests/test_cell_health_service.py`
+`19fbe602a4943fa76a3583e1e9e61a3e7979169caba5de15e157072262c8be69`;
+`backend/tests/test_cell_lider.py`
+`a0265297ec29895399bf4ea0bfac37f554ec935ae5fd6e157c4f348bd69cc6a5`;
+`backend/tests/test_cell_report_application.py`
+`30139bffee6be9c00f7068255c6150ee8507506a14ccb9649bebadbf39dc136e`;
+`backend/tests/test_cell_report_limits.py`
+`c1d4c2b89e3863e10fed7a3e84eb27b2cece6447c8a63e05237d24fff26196aa`;
+`backend/tests/test_cell_report_pending_proposal.py`
+`299b23c0795d9a1e70ac0e6ed46b4124c64a94e567f2e8a6d03732fde6165a3c`;
+`backend/tests/test_cell_report_snapshot.py`
+`7cbd65505095c7821bbb8328da9b6d22760fce0544ab80861ca765c82bbd87fb`;
+`backend/tests/test_cell_report_workflow.py`
+`704f036d1fd5632c7c33dd5c446e80e6f303fa712adacee892dde822b83f53a9`;
+e `backend/tests/test_reports.py`
+`fb511601265dfa374a7d9fbec35f913a7e4bdbde615ce82c1c7996e2d51177d2`.
+
+A focal passou em `292 passed`; `tests/test_agent*.py` terminou em
+`633 passed, 7 skipped, 2 warnings`; e
+`tests/test_cell*.py tests/test_reports.py` terminou em
+`730 passed, 18 skipped, 35 warnings`. A suite ampla do backend, com
+`migration_history` e Redis fora da selecao, chegou a
+`4601 passed, 325 skipped, 499 deselected, 66 warnings`, sem classificacao
+verde por uma assercao documental do pin anterior e duas falhas baseline de
+modo group-writable `0664` no checkout `/tmp`. Apos esta reconciliacao, a
+matriz documental passou em `34 passed`. A revisao independente repetiu
+`729 passed` e `1363 passed, 25 skipped` e concluiu `GO`, com P0,
+P1 e P2 iguais a zero. A evidencia e local e pre-PR.
+
+Estado: `FRONTEIRA TRANSACIONAL OFFLINE DO RELATORIO AMPLIADA LOCALMENTE /
+PROPOSTA PENDENTE FECHADA / FLUSH SEM COMMIT / CANDIDATO NAO INTEGRADO NO MAIN
+/ RUNTIME E EFEITOS VIVOS BLOQUEADOS`.
+
+O gate anterior `REVIEW_AND_CI_D3_CELL_REPORT_OFFLINE_FOUNDATION_PR` foi
+substituido localmente, sem consumo, pela fatia offline do servico de aplicacao
+do relatorio. Nao houve push, PR, CI ou Preview sob esse gate, portanto ele nao
+e evidencia historica de uma acao externa.
+
 **Próximo gate único:**
-`REVIEW_AND_CI_D3_CELL_REPORT_OFFLINE_FOUNDATION_PR`. O nome não constitui autorização
-já concedida. Seu consumo exige autorização humana posterior e separada que
-nomeie push, abertura da PR e GitHub CI e aceite o Vercel Preview automático.
-O gate cobre somente revisão e CI da fundação offline ampliada do relatório de
-célula. Não autoriza merge, Vercel Production, flag-on, runtime, worker, saver,
-probe vivo, acesso a DEV ou PROD, banco, logs, SQL, DML, migration, rede,
-deploy, mensagem, tool call ou qualquer efeito vivo.
+`REVIEW_AND_CI_CELL_REPORT_APPLICATION_SERVICE_OFFLINE_PR`. O nome nao
+constitui autorizacao ja concedida. Seu consumo exige autorizacao humana
+posterior e separada que nomeie push, abertura da PR e GitHub CI e aceite o
+Vercel Preview automatico. O gate cobre somente revisao e CI do lote offline
+ampliado com a fronteira transacional do relatorio. Nao autoriza merge, Vercel
+Production, flag-on, caller, primeira execucao do agente, runtime, worker,
+consentimento, saver, probe vivo, acesso a DEV ou PROD, banco, logs, SQL, DML,
+migration, outra rede, deploy, mensagem, tool call ou qualquer efeito vivo.
 
 ## Fontes principais
 
