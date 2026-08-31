@@ -71,6 +71,19 @@ DEV_PREFLIGHT_PHASE_DIAGNOSTICS_ADR_PATH = (
     / "decisions"
     / "2026-08-30-dev-preflight-failure-phase-diagnostics.md"
 )
+DEV_CONNECT_TLS_AUTH_DIAGNOSTICS_ADR_PATH = (
+    REPO_ROOT
+    / "docs"
+    / "decisions"
+    / "2026-08-31-dev-connect-tls-auth-transport-probe.md"
+)
+DEV_CONNECT_TLS_AUTH_PROBE_PLAN_PATH = (
+    REPO_ROOT
+    / "docs"
+    / "governance"
+    / "migrations"
+    / "dev-connect-tls-auth-transport-probe-plan-v1.json"
+)
 ENVIRONMENT_ATTESTATION_POSTMERGE_STATE = (
     "INTEGRADO E COMPROVADO OFFLINE / AMBIENTES NÃO CONSULTADOS / "
     "OPERAÇÃO BLOQUEADA"
@@ -91,13 +104,15 @@ DEV_IDENTITY_PREFLIGHT_RUNNER_CURRENT_GATE = (
     "SEPARATE_NOMINAL_DEV_FAILURE_LOGS_READ_ONLY_REVIEW_AUTHORIZATION"
 )
 DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE = (
-    "REVIEW_AND_CI_DEV_PREFLIGHT_PHASE_DIAGNOSTICS_PR"
+    "REVIEW_AND_CI_DEV_CONNECT_TLS_AUTH_OFFLINE_DIAGNOSTICS_PR"
 )
 DEV_PREFLIGHT_PHASE_DIAGNOSTICS_STALE_GATE = (
     "REVIEW_AND_INTEGRATE_DEV_PREFLIGHT_PHASE_DIAGNOSTICS_PR"
 )
 DEV_PREFLIGHT_PHASE_DIAGNOSTICS_STALE_CLAIMS = {
     DEV_PREFLIGHT_PHASE_DIAGNOSTICS_STALE_GATE.casefold(),
+    "review_and_ci_dev_preflight_phase_diagnostics_pr",
+    DEV_IDENTITY_PREFLIGHT_RUNNER_CURRENT_GATE.casefold(),
     "eventual integracao",
     "autoriza somente revisao e integracao",
     "integracao da pr com ci do mesmo sha",
@@ -119,6 +134,11 @@ DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CANONICAL_DOCS = {
     / "decisions"
     / "2026-08-28-d2b2b3-master-governance-drafts.md",
     REPO_ROOT / "docs" / "ops" / "POST-V1-MISSION-REGISTER.md",
+}
+DEV_CONNECT_TLS_AUTH_CURRENT_DOCS = DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CANONICAL_DOCS | {
+    REPO_ROOT / "backend" / "migrations" / "README.md",
+    DEV_PREFLIGHT_PHASE_DIAGNOSTICS_ADR_PATH,
+    DEV_CONNECT_TLS_AUTH_DIAGNOSTICS_ADR_PATH,
 }
 
 CONSUMED_PREMERGE_DERIVATION_GATE_CLAIMS = frozenset(
@@ -425,7 +445,7 @@ def _normalized_prose(value: str) -> str:
 def _assert_current_preflight_gate(path: Path, normalized: str) -> None:
     expected = (
         DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE
-        if path in DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CANONICAL_DOCS
+        if path in DEV_CONNECT_TLS_AUTH_CURRENT_DOCS
         else DEV_IDENTITY_PREFLIGHT_RUNNER_CURRENT_GATE
     ).casefold()
     assert expected in normalized, f"current preflight gate missing in {path}"
@@ -2388,7 +2408,7 @@ def test_dev_identity_preflight_docs_record_blocked_live_diagnostics() -> None:
             f"DEV identity preflight postmerge evidence missing in {path}: "
             f"{postmerge_missing}"
         )
-        if path in supporting_docs:
+        if path in supporting_docs and path not in DEV_CONNECT_TLS_AUTH_CURRENT_DOCS:
             historical_gate_missing = sorted(
                 item for item in historical_logs_gate_required if item not in normalized
             )
@@ -2475,125 +2495,177 @@ def test_dev_identity_preflight_docs_record_blocked_live_diagnostics() -> None:
     ) == 1
 
 
-def test_dev_preflight_failure_phase_docs_record_sanitized_premerge_candidate() -> None:
+def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
     canonical_required = {
-        "3685bbcaf11d5a20b3492953d897cb6a459701a8",
-        "candidato pre-merge",
-        "prefLIGHT_failure_phase".casefold(),
-        "preconnect_guards",
-        "connect_tls_auth",
-        "server_version",
-        "session_guards",
-        "identity_validation",
-        "rollback",
-        "cursor_close",
-        "connection_close",
-        "postconnect_tls_ca_revalidation",
-        "post_identity_finalization",
-        "ultima fronteira operacional iniciada",
-        "nunca a causa",
-        "nao prova nem separa rede, tls ou credencial",
-        "cada saida `blocked` contem exatamente uma linha de fase",
-        "o sucesso nao a contem",
-        "a primeira falha vence",
-        "8da631fbb602488bb8c82ce1529c9d8ba17acbae8a318ea9b0fc24cdd8f65cd2",
-        "c55726f0ad8abf7680de868cba155388f7e56773aa8054e556be89dc87aa90a8",
-        "d86037d759d254581d2259026585ac768e4b2d68595473371ec65daf6c6de5a9",
-        "109 passed, 2 skipped",
-        "2/2",
-        "postgresql 17 tls descartavel",
-        "222 passed, 2 skipped",
-        "pycompile",
-        "diff-check",
-        "sarah",
-        "`go`",
-        "as duas execucoes dev historicas com exit `7` nao podem ser retroclassificadas",
-        "a unica `query_logs` anterior retornou vazio",
-        "evidence_insufficient",
-        "nao repetiu a consulta",
-        "nao acessou dev ou prod",
-        "o hash novo invalida a autorizacao anterior",
-        "uma invocacao futura exige nova autorizacao nominal",
+        "bab031a7e0067a257eedb4a24c786cc925801463",
+        "pr #344",
+        "terceira",
+        "process_invocation_only",
+        "exit `7`",
+        "result=blocked_database_preflight_failed",
+        "preflight_failure_phase=connect_tls_auth",
+        "2026-08-31t11:03:30z",
+        "2026-08-31t11:18:30z",
+        "janela",
+        "nao e o horario",
+        "timestamp",
+        "nao foi preservado",
+        "inferido",
+        "dns, tcp, tls, ca, senha, autenticacao",
+        "permanecem `unknown`",
+        "autorizacao foi consumida",
+        "nenhum log foi consultado",
+        "nao houve retry",
+        "diretorio temporario de autorizacao",
+        "launcher",
+        "worktree operacionais temporarios",
+        "checkout ficou limpo",
+        "sem `__pycache__` ou `.pyc`",
+        "registro git obsoleto da worktree foi removido",
+        "execution_disabled=true",
+        "nao foi executado",
+        "2026-08-31-dev-connect-tls-auth-transport-probe.md",
         "operational_authorization=false",
         "next_stage_authorized=false",
-        "2026-08-30-dev-preflight-failure-phase-diagnostics.md",
         DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold(),
-        "autoriza somente abrir e revisar a pr e executar o ci do mesmo sha",
+        "somente abrir e revisar a pr offline e executar o ci do mesmo sha",
         "nao autoriza merge nem integracao",
-        "o merge em `main` e o deployment automatico frontend vercel production exigem",
+        "deployment automatico frontend vercel production",
         "autorizacao humana posterior especifica que nomeie e aceite ambos",
-        "nao ha retry implicito",
     }
 
     for path in DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CANONICAL_DOCS:
         normalized = _normalized_prose(path.read_text(encoding="utf-8"))
         missing = sorted(item for item in canonical_required if item not in normalized)
-        assert not missing, f"preflight phase candidate missing in {path}: {missing}"
+        assert not missing, f"CONNECT_TLS_AUTH diagnostics missing in {path}: {missing}"
         assert normalized.count("proximo gate unico") == 1
         assert normalized.count(
             DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold()
         ) == 1
-        assert DEV_IDENTITY_PREFLIGHT_RUNNER_CURRENT_GATE.casefold() not in normalized
         for stale_claim in DEV_PREFLIGHT_PHASE_DIAGNOSTICS_STALE_CLAIMS:
             assert stale_claim not in normalized
 
-    adr = _normalized_prose(
+    phase_adr = _normalized_prose(
         DEV_PREFLIGHT_PHASE_DIAGNOSTICS_ADR_PATH.read_text(encoding="utf-8")
     )
-    canonical_only_phrases = {
-        "2026-08-30-dev-preflight-failure-phase-diagnostics.md",
-        "a unica `query_logs` anterior retornou vazio",
-        "as duas execucoes dev historicas com exit `7` nao podem ser retroclassificadas",
-        "cada saida `blocked` contem exatamente uma linha de fase",
-        "nao acessou dev ou prod",
-        "nao ha retry implicito",
-        "nao prova nem separa rede, tls ou credencial",
-        "nunca a causa",
-        "o hash novo invalida a autorizacao anterior",
-        "o sucesso nao a contem",
-        "uma invocacao futura exige nova autorizacao nominal",
-        "autoriza somente abrir e revisar a pr e executar o ci do mesmo sha",
-    }
-    adr_required = (canonical_required - canonical_only_phrases) | {
-        "implementado e comprovado offline",
-        "revisao independente go",
-        "nao integrado",
-        "dev e prod nao consultados",
-        "operacao bloqueada",
-        "ultima fronteira operacional iniciada antes do bloqueio",
-        "nao identifica a causa raiz",
-        "nao prova conexao, autenticacao, identidade, transacao ou estado de ambiente",
-        "primeira falha vence",
-        "excecao",
-        "sqlstate",
-        "dsn",
-        "project ref",
-        "usuario",
-        "ip",
-        "zero achado p0, p1 ou p2",
-        "o conteiner e os certificados temporarios foram removidos",
-        "64cc157d649256a4a9819741f4276c0420590fd1",
-        "nao podem ser retroclassificadas com qualquer um dos dez valores",
-        "postgres_logs",
-        "pastorai_dev_identity_preflight_v1",
-        "2026-08-30t14:10:48z",
-        "2026-08-30t15:18:39z",
-        "retornou uma lista vazia e nenhum erro",
-        "nao usou fallback",
-        "nao acessou linhas brutas",
-        "o novo sha-256 do runner invalida qualquer autorizacao vinculada ao hash anterior",
-        "autoriza somente abrir e revisar uma pr propria e executar o ci do mesmo sha",
+    phase_required = {
+        "integrado",
+        "terceira invocacao dev bloqueada em connect_tls_auth",
+        "causa indeterminada",
+        "probe de transporte planejado offline e desabilitado",
+        "pr #344",
+        "bab031a7e0067a257eedb4a24c786cc925801463",
+        "exit `7`",
+        "result=blocked_database_preflight_failed",
+        "preflight_failure_phase=connect_tls_auth",
+        "2026-08-31t11:03:30z",
+        "2026-08-31t11:18:30z",
+        "timestamp operacional preciso nao foi preservado",
+        "dns, tcp, tls, ca, senha, autenticacao",
+        "permanecem `unknown`",
+        "autorizacao foi consumida",
+        "nenhum log foi consultado",
+        "execution_disabled=true",
+        "nao foi executado",
+        "2026-08-31-dev-connect-tls-auth-transport-probe.md",
+        "diretorio temporario de autorizacao",
+        "checkout ficou limpo",
+        DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold(),
         "nao autoriza merge nem integracao",
-        "o merge em `main` e o deployment automatico frontend vercel production exigem",
-        "autorizacao humana posterior especifica que nomeie e aceite ambos",
     }
-    adr_missing = sorted(item for item in adr_required if item not in adr)
-    assert not adr_missing, f"preflight phase ADR missing: {adr_missing}"
-    assert adr.count("proximo gate unico") == 1
-    assert adr.count(DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold()) == 1
-    assert DEV_IDENTITY_PREFLIGHT_RUNNER_CURRENT_GATE.casefold() not in adr
+    phase_missing = sorted(item for item in phase_required if item not in phase_adr)
+    assert not phase_missing, f"preflight phase ADR missing: {phase_missing}"
+    assert phase_adr.count("proximo gate unico") == 1
+    assert phase_adr.count(
+        DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold()
+    ) == 1
     for stale_claim in DEV_PREFLIGHT_PHASE_DIAGNOSTICS_STALE_CLAIMS:
-        assert stale_claim not in adr
+        assert stale_claim not in phase_adr
+
+    diagnostics_adr = _normalized_prose(
+        DEV_CONNECT_TLS_AUTH_DIAGNOSTICS_ADR_PATH.read_text(encoding="utf-8")
+    )
+    diagnostics_required = {
+        "resultado sanitizado registrado",
+        "causa indeterminada",
+        "probe planejado offline e desabilitado",
+        "nao executado",
+        "bab031a7e0067a257eedb4a24c786cc925801463",
+        "8da631fbb602488bb8c82ce1529c9d8ba17acbae8a318ea9b0fc24cdd8f65cd2",
+        "2026-08-31t11:03:30z",
+        "2026-08-31t11:18:30z",
+        "horario operacional preciso nao foi preservado",
+        "environment=dev",
+        "operational_authorization=false",
+        "next_stage_authorized=false",
+        "capture_executed=false",
+        "materialization_executed=false",
+        "prod_accessed=false",
+        "single_use_scope=process_invocation_only",
+        "rollback_confirmed=false",
+        "connection_closed=true",
+        "preflight_failure_phase=connect_tls_auth",
+        "result=blocked_database_preflight_failed",
+        "exit `7`",
+        "dns",
+        "tcp",
+        "tls e ca",
+        "credencial e autenticacao",
+        "`unknown`",
+        "autorizacao foi consumida",
+        "nao existe retry implicito",
+        "diretorio temporario de autorizacao",
+        "checkout usado para a missao ficou limpo",
+        "execution_disabled=true",
+        "nao resolve dns",
+        "nao abre socket",
+        "startupmessage",
+        "telemetria de dns e rede",
+        DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold(),
+        "nao autoriza merge nem integracao",
+    }
+    diagnostics_missing = sorted(
+        item for item in diagnostics_required if item not in diagnostics_adr
+    )
+    assert not diagnostics_missing, (
+        f"CONNECT_TLS_AUTH diagnostics ADR missing: {diagnostics_missing}"
+    )
+    assert diagnostics_adr.count("proximo gate unico") == 1
+    assert diagnostics_adr.count(
+        DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold()
+    ) == 1
+    for stale_claim in DEV_PREFLIGHT_PHASE_DIAGNOSTICS_STALE_CLAIMS:
+        assert stale_claim not in diagnostics_adr
+
+    plan = json.loads(DEV_CONNECT_TLS_AUTH_PROBE_PLAN_PATH.read_text(encoding="utf-8"))
+    assert plan["execution_mode"] == "OFFLINE_PLAN_ONLY"
+    assert plan["execution_disabled"] is True
+    assert plan["operational_authorization"] is False
+    assert plan["next_stage_authorized"] is False
+    assert plan["next_gate"] == DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE
+    assert plan["historical_result"]["precise_timestamp_preserved"] is False
+    assert plan["historical_result"]["exit_code"] == 7
+    assert plan["historical_result"]["sanitized_output"][
+        "PREFLIGHT_FAILURE_PHASE"
+    ] == "CONNECT_TLS_AUTH"
+    assert plan["interpretation_boundary"]["root_cause"] == "UNDETERMINED"
+    assert plan["future_probe_contract"]["implementation_present"] is False
+    assert plan["future_probe_contract"]["network_capability_present"] is False
+    assert plan["future_probe_contract"]["execution_disabled"] is True
+    assert plan["mission_evidence"] == {
+        "network_accessed": False,
+        "dns_queried": False,
+        "tcp_attempted": False,
+        "tls_attempted": False,
+        "password_accessed": False,
+        "sql_executed": False,
+        "database_session_established": False,
+        "logs_accessed": False,
+        "dev_accessed": False,
+        "prod_accessed": False,
+        "capture_executed": False,
+        "materialization_executed": False,
+    }
 
     technical_files = {
         REPO_ROOT / "backend" / "scripts" / "preflight_migration_history_environment_identity.py": (

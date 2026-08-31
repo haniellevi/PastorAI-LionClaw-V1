@@ -2,8 +2,8 @@
 project: igreja12
 document_kind: prd-coverage
 status: canonical-audit
-last_verified: 2026-08-30
-audited_repository_sha: bc202da6c0ef83e03ded4392e508441cd4d6a188
+last_verified: 2026-08-31
+audited_repository_sha: bab031a7e0067a257eedb4a24c786cc925801463
 canonical_prd: docs/Docs20260611_163530/PRD20260611_163530.md
 ---
 
@@ -581,18 +581,37 @@ e continua `EVIDENCE_INSUFFICIENT`. Esta missão não repetiu a consulta e não
 acessou DEV ou PROD. A evidência detalhada está na
 [`decisão de fase sanitizada`](../decisions/2026-08-30-dev-preflight-failure-phase-diagnostics.md).
 
-O hash novo invalida a autorização anterior; uma invocação futura exige nova
-autorização nominal. `OPERATIONAL_AUTHORIZATION=false` e
-`NEXT_STAGE_AUTHORIZED=false` permanecem obrigatórios.
+O enum sanitizado foi integrado pela PR #344 no `main`
+`bab031a7e0067a257eedb4a24c786cc925801463`. Em `2026-08-31`, uma terceira e
+única invocação DEV `PROCESS_INVOCATION_ONLY` nesse `main` terminou com exit
+`7`, `RESULT=BLOCKED_DATABASE_PREFLIGHT_FAILED` e
+`PREFLIGHT_FAILURE_PHASE=CONNECT_TLS_AUTH`. A autorização era válida entre
+`2026-08-31T11:03:30Z` e `2026-08-31T11:18:30Z`; essa janela não é o horário
+da execução. O timestamp operacional preciso não foi preservado nem inferido.
+DNS, TCP, TLS, CA, senha, autenticação, endpoint, disponibilidade, conexão,
+transação e identidade permanecem `UNKNOWN`. A autorização foi consumida;
+nenhum log foi consultado e não houve retry, captura, materialização, DML,
+migration, backfill, deploy, flag, runtime ou acesso a PROD.
+A limpeza removeu o diretório temporário de autorização, o launcher e a
+worktree operacionais temporários; o checkout ficou limpo, sem `__pycache__` ou
+`.pyc`, e o registro Git obsoleto da worktree foi removido.
+
+O probe para separar somente DNS, TCP e TLS foi preparado offline e permanece
+`execution_disabled=true`; ele não foi executado e não possui autorização viva.
+O contrato e os limites estão na
+[`decisão de 2026-08-31`](../decisions/2026-08-31-dev-connect-tls-auth-transport-probe.md).
+`OPERATIONAL_AUTHORIZATION=false` e `NEXT_STAGE_AUTHORIZED=false` permanecem
+obrigatórios.
 
 O gate único corrente é
-`REVIEW_AND_CI_DEV_PREFLIGHT_PHASE_DIAGNOSTICS_PR`. Ele autoriza somente abrir
-e revisar a PR e executar o CI do mesmo SHA. Não autoriza merge nem integração.
-O merge em `main` e o deployment automático frontend Vercel Production exigem
-autorização humana posterior específica que nomeie e aceite ambos. Não há retry
-implícito. Consulta de logs e qualquer efeito em backend, banco, DEV, PROD,
-SQL, captura, materialização, DML, migration, reconciliação, backfill, deploy,
-flag ou runtime continuam bloqueados.
+`REVIEW_AND_CI_DEV_CONNECT_TLS_AUTH_OFFLINE_DIAGNOSTICS_PR`. Ele autoriza
+somente abrir e revisar a PR offline e executar o CI do mesmo SHA. Não
+autoriza merge nem integração. O merge em `main` e qualquer deployment
+automático frontend Vercel Production exigem autorização humana posterior
+específica que nomeie e aceite ambos. Execução do probe, retry, nova invocação
+DEV, DNS, TCP, TLS, senha, autenticação, logs, banco, SQL, captura,
+materialização, DML, migration, reconciliação, backfill, deploy, flag, runtime
+e PROD continuam bloqueados.
 
 ## Fontes principais
 

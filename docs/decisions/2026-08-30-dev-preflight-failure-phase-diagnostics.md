@@ -2,8 +2,9 @@
 
 Data: `2026-08-30`
 
-Estado: `IMPLEMENTADO E COMPROVADO OFFLINE / REVISÃO INDEPENDENTE GO / NÃO
-INTEGRADO / DEV E PROD NÃO CONSULTADOS / OPERAÇÃO BLOQUEADA`.
+Estado: `INTEGRADO / TERCEIRA INVOCACAO DEV BLOQUEADA EM CONNECT_TLS_AUTH /
+CAUSA INDETERMINADA / PROBE DE TRANSPORTE PLANEJADO OFFLINE E DESABILITADO /
+PROD NÃO CONSULTADO / OPERAÇÃO BLOQUEADA`.
 
 ## Objetivo e limite
 
@@ -62,6 +63,12 @@ laboratório descartável. Nenhuma nova consulta, conexão ou invocação foi fe
 em DEV ou PROD. Não houve DML, migration, captura, materialização, backfill,
 deploy, flag ou runtime compartilhado.
 
+## Integração
+
+A PR #344 integrou o candidato no `main`
+`bab031a7e0067a257eedb4a24c786cc925801463`. A integração não retroclassifica
+as duas invocações históricas e não concede autorização operacional.
+
 ## História que permanece inalterada
 
 As duas invocações DEV históricas no `main`
@@ -77,25 +84,54 @@ determina a causa das duas tentativas. Esta missão não repetiu a consulta, nã
 usou fallback e não acessou linhas brutas, banco, tabelas, SQL da aplicação ou
 PROD.
 
+## Terceira invocação e diagnóstico preservado
+
+Em `2026-08-31`, uma única invocação `PROCESS_INVOCATION_ONLY` foi executada
+no `main` integrado. Sua autorização nominal era válida entre
+`2026-08-31T11:03:30Z` e `2026-08-31T11:18:30Z`; essa é a janela de validade,
+não o horário da execução. O timestamp operacional preciso não foi preservado
+e não foi inferido.
+
+A invocação terminou com exit `7`,
+`RESULT=BLOCKED_DATABASE_PREFLIGHT_FAILED` e
+`PREFLIGHT_FAILURE_PHASE=CONNECT_TLS_AUTH`. Permaneceram
+`OPERATIONAL_AUTHORIZATION=false`, `NEXT_STAGE_AUTHORIZED=false`,
+`CAPTURE_EXECUTED=false`, `MATERIALIZATION_EXECUTED=false` e
+`PROD_ACCESSED=false`. `ROLLBACK_CONFIRMED=false` não prova falha de rollback,
+e `CONNECTION_CLOSED=true` não prova que uma conexão foi estabelecida.
+
+DNS, TCP, TLS, CA, senha, autenticação, endpoint, disponibilidade, conexão,
+transação e identidade permanecem `UNKNOWN`. A autorização foi consumida e não
+pode ser reutilizada. Nenhum log foi consultado e não houve retry, captura,
+materialização, DML, migration, backfill, deploy, flag ou runtime.
+
+A causa histórica continua indeterminada. O plano para separar somente as
+fronteiras DNS, TCP e TLS foi preparado offline, permanece
+`execution_disabled=true` e não foi executado. Seu contrato e seus limites
+estão na
+[`decisão de 2026-08-31`](2026-08-31-dev-connect-tls-auth-transport-probe.md).
+Após a tentativa, o diretório temporário de autorização, o launcher e a
+worktree operacionais temporários foram removidos. O checkout ficou limpo, sem
+`__pycache__` ou `.pyc`, e o registro Git obsoleto da worktree foi removido.
+
 ## Autorização e próximo gate
 
-O novo SHA-256 do runner invalida qualquer autorização vinculada ao hash
-anterior. Uma eventual invocação futura exige autorização humana nominal nova,
-exclusiva, separada e vinculada ao novo SHA; integração, teste verde ou revisão
-não a concedem.
+Qualquer invocação futura exige autorização humana nominal nova, exclusiva,
+separada e vinculada ao artefato exato. Integração, teste verde ou revisão não
+a concedem.
 
 `OPERATIONAL_AUTHORIZATION=false` e `NEXT_STAGE_AUTHORIZED=false` permanecem
 obrigatórios.
 
 ## Próximo gate único
 
-`REVIEW_AND_CI_DEV_PREFLIGHT_PHASE_DIAGNOSTICS_PR`.
+`REVIEW_AND_CI_DEV_CONNECT_TLS_AUTH_OFFLINE_DIAGNOSTICS_PR`.
 
-O gate autoriza somente abrir e revisar uma PR própria e executar o CI do mesmo
-SHA. Não autoriza merge nem integração. O merge em `main` e o deployment
+O gate autoriza somente abrir e revisar a PR offline e executar o CI do
+mesmo SHA. Não autoriza merge nem integração. O merge em `main` e o deployment
 automático frontend Vercel Production exigem autorização humana posterior
-específica que nomeie e aceite ambos. O gate também não autoriza retry, nova
-invocação DEV, consulta de logs, acesso a DEV ou PROD, banco, SQL, captura,
-materialização, DML, migration, reconciliação, backfill, deploy manual ou do
-backend, flag, runtime, `status`, `apply`, `bootstrap-ledger` ou
-`harden-ledger`.
+específica que nomeie e aceite ambos. O gate também não autoriza executar o
+probe, retry, nova invocação DEV, DNS, TCP, TLS, senha, autenticação, consulta
+de logs, acesso a DEV ou PROD, banco, SQL, captura, materialização, DML,
+migration, reconciliação, backfill, deploy manual ou do backend, flag, runtime,
+`status`, `apply`, `bootstrap-ledger` ou `harden-ledger`.

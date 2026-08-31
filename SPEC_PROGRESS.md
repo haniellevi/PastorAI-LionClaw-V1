@@ -428,18 +428,37 @@ retornou vazio e continua `EVIDENCE_INSUFFICIENT`. Esta missao nao repetiu a
 consulta e nao acessou DEV ou PROD. A evidencia detalhada esta em
 [`2026-08-30-dev-preflight-failure-phase-diagnostics.md`](docs/decisions/2026-08-30-dev-preflight-failure-phase-diagnostics.md).
 
-O hash novo invalida a autorizacao anterior; uma invocacao futura exige nova
-autorizacao nominal. `OPERATIONAL_AUTHORIZATION=false` e
-`NEXT_STAGE_AUTHORIZED=false` permanecem obrigatorios.
+O enum foi integrado pela PR #344 no `main`
+`bab031a7e0067a257eedb4a24c786cc925801463`. Em `2026-08-31`, uma terceira e
+unica invocacao DEV `PROCESS_INVOCATION_ONLY` nesse `main` terminou com exit
+`7`, `RESULT=BLOCKED_DATABASE_PREFLIGHT_FAILED` e
+`PREFLIGHT_FAILURE_PHASE=CONNECT_TLS_AUTH`. A autorizacao era valida entre
+`2026-08-31T11:03:30Z` e `2026-08-31T11:18:30Z`; essa janela nao e o horario
+da execucao. O timestamp operacional preciso nao foi preservado nem inferido.
+DNS, TCP, TLS, CA, senha, autenticacao, endpoint, disponibilidade, conexao,
+transacao e identidade permanecem `UNKNOWN`. A autorizacao foi consumida;
+nenhum log foi consultado e nao houve retry, captura, materializacao, DML,
+migration, backfill, deploy, flag, runtime ou acesso a PROD.
+A limpeza removeu o diretorio temporario de autorizacao, o launcher e a
+worktree operacionais temporarios; o checkout ficou limpo, sem `__pycache__` ou
+`.pyc`, e o registro Git obsoleto da worktree foi removido.
+
+O probe para separar somente DNS, TCP e TLS foi preparado offline e permanece
+`execution_disabled=true`; ele nao foi executado e nao possui autorizacao viva.
+O contrato e os limites estao em
+[`2026-08-31-dev-connect-tls-auth-transport-probe.md`](docs/decisions/2026-08-31-dev-connect-tls-auth-transport-probe.md).
+`OPERATIONAL_AUTHORIZATION=false` e `NEXT_STAGE_AUTHORIZED=false` permanecem
+obrigatorios.
 
 **Próximo gate único:**
-`REVIEW_AND_CI_DEV_PREFLIGHT_PHASE_DIAGNOSTICS_PR`. Ele autoriza somente abrir
-e revisar a PR e executar o CI do mesmo SHA. Nao autoriza merge nem integracao.
-O merge em `main` e o deployment automatico frontend Vercel Production exigem
-autorizacao humana posterior especifica que nomeie e aceite ambos. Nao ha retry
-implicito. Consulta de logs e qualquer efeito em backend, banco, DEV, PROD,
-SQL, captura, materializacao, DML, migration, reconciliacao, backfill, deploy,
-flag ou runtime continuam bloqueados.
+`REVIEW_AND_CI_DEV_CONNECT_TLS_AUTH_OFFLINE_DIAGNOSTICS_PR`. Ele autoriza
+somente abrir e revisar a PR offline e executar o CI do mesmo SHA. Nao
+autoriza merge nem integracao. O merge em `main` e qualquer deployment
+automatico frontend Vercel Production exigem autorizacao humana posterior
+especifica que nomeie e aceite ambos. Execucao do probe, retry, nova invocacao
+DEV, DNS, TCP, TLS, senha, autenticacao, logs, banco, SQL, captura,
+materializacao, DML, migration, reconciliacao, backfill, deploy, flag, runtime
+e PROD continuam bloqueados.
 
 ---
 

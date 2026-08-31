@@ -1,0 +1,154 @@
+{
+  "$schema": "./dev-connect-tls-auth-transport-probe-plan.schema.json",
+  "artifact_kind": "DEV_CONNECT_TLS_AUTH_TRANSPORT_PROBE_PLAN",
+  "contract_version": 1,
+  "schema_binding": {
+    "algorithm": "SHA-256",
+    "sha256": "431b413ff8c14ea331269116b13e7ebf1f1f9cdb80ddf7b23c8182c2437648bb"
+  },
+  "execution_mode": "OFFLINE_PLAN_ONLY",
+  "execution_disabled": true,
+  "operational_authorization": false,
+  "next_stage_authorized": false,
+  "historical_result": {
+    "environment": "DEV",
+    "repository_main_sha": "bab031a7e0067a257eedb4a24c786cc925801463",
+    "runner_sha256": "8da631fbb602488bb8c82ce1529c9d8ba17acbae8a318ea9b0fc24cdd8f65cd2",
+    "sql_sha256": "001bfda9b4655d028abfb7d8f44ac6c4e5ab51861c9623dd54b1cdd0ab6ea336",
+    "precise_timestamp_preserved": false,
+    "exit_code": 7,
+    "sanitized_output": {
+      "ENVIRONMENT": "DEV",
+      "OPERATIONAL_AUTHORIZATION": false,
+      "NEXT_STAGE_AUTHORIZED": false,
+      "CAPTURE_EXECUTED": false,
+      "MATERIALIZATION_EXECUTED": false,
+      "PROD_ACCESSED": false,
+      "SINGLE_USE_SCOPE": "PROCESS_INVOCATION_ONLY",
+      "ROLLBACK_CONFIRMED": false,
+      "CONNECTION_CLOSED": true,
+      "PREFLIGHT_FAILURE_PHASE": "CONNECT_TLS_AUTH",
+      "RESULT": "BLOCKED_DATABASE_PREFLIGHT_FAILED"
+    }
+  },
+  "interpretation_boundary": {
+    "root_cause": "UNDETERMINED",
+    "establishes_only": [
+      "CONNECT_TLS_AUTH_FRONTIER_INITIATED_AND_INVOCATION_BLOCKED"
+    ],
+    "does_not_establish": [
+      "DNS_SUCCESS_OR_FAILURE",
+      "TCP_SUCCESS_OR_FAILURE",
+      "TLS_SUCCESS_OR_FAILURE",
+      "CA_VALIDITY_OR_INVALIDITY",
+      "ENDPOINT_AVAILABILITY",
+      "CONNECTION_ESTABLISHED",
+      "CREDENTIAL_VALIDITY_OR_INVALIDITY",
+      "AUTHENTICATION_ATTEMPTED",
+      "DATABASE_SESSION_ESTABLISHED",
+      "TRANSACTION_STARTED",
+      "PROJECT_IDENTITY"
+    ],
+    "rollback_false_means": "ROLLBACK_NOT_CONFIRMED_AND_TRANSACTION_MAY_NEVER_HAVE_STARTED",
+    "connection_closed_true_means": "COMPATIBLE_WITH_NO_CONNECTION_OPENED_OR_WITH_LATER_CLOSE"
+  },
+  "future_probe_contract": {
+    "implementation_present": false,
+    "network_capability_present": false,
+    "execution_disabled": true,
+    "separate_implementation_required": true,
+    "separate_nominal_execution_authorization_required": true,
+    "target_contract": {
+      "environment": "DEV",
+      "endpoint_kind": "DIRECT_POSTGRES_TRANSPORT_ONLY",
+      "port": 5432,
+      "raw_hostname_persisted": false,
+      "raw_project_ref_persisted": false,
+      "target_identity_claimed": false
+    },
+    "phase_allowlist": [
+      "PRECONNECT_GUARDS",
+      "DNS_RESOLUTION",
+      "ADDRESS_POLICY",
+      "TCP_CONNECT",
+      "PG_SSL_NEGOTIATION",
+      "TLS_HANDSHAKE",
+      "TLS_HOSTNAME_VERIFICATION",
+      "SOCKET_CLOSE"
+    ],
+    "wire_contract": {
+      "postgres_sslrequest_hex": "0000000804d2162f",
+      "required_server_response": "S",
+      "startup_message_allowed": false,
+      "authentication_allowed": false,
+      "database_session_allowed": false,
+      "sql_allowed": false
+    },
+    "dns_and_address_policy": {
+      "resolve_count_max": 1,
+      "all_resolved_addresses_must_be_global": true,
+      "connect_uses_numeric_address": true,
+      "original_hostname_used_only_for_sni_and_hostname_check": true,
+      "deterministic_single_address_selection": true,
+      "retry_allowed": false,
+      "fallback_allowed": false,
+      "overall_deadline_required": true,
+      "deadline_value_requires_future_authorization": true
+    },
+    "tls_policy": {
+      "mode": "VERIFY_FULL_EXPLICIT_CA",
+      "explicit_ca_required": true,
+      "system_ca_fallback_allowed": false,
+      "certificate_required": true,
+      "hostname_check_required": true,
+      "ca_sha256_authorization_binding_required": true
+    },
+    "input_policy": {
+      "private_descriptor_only": true,
+      "argv_secrets_allowed": false,
+      "environment_variable_secrets_allowed": false,
+      "password_allowed": false,
+      "database_user_allowed": false,
+      "database_name_allowed": false,
+      "dsn_allowed": false,
+      "authorization_binding_required": true
+    },
+    "output_policy": {
+      "sanitized_only": true,
+      "raw_hostname_allowed": false,
+      "ip_address_allowed": false,
+      "certificate_metadata_allowed": false,
+      "exception_text_allowed": false,
+      "logs_accessed": false,
+      "local_persistence_allowed": false,
+      "external_telemetry_may_exist_if_future_execution_is_authorized": true
+    },
+    "forbidden_actions": [
+      "PASSWORD_USE",
+      "POSTGRES_STARTUP_MESSAGE",
+      "AUTHENTICATION",
+      "DATABASE_SESSION",
+      "SQL",
+      "LOG_ACCESS",
+      "PROD_ACCESS",
+      "CAPTURE",
+      "MATERIALIZATION",
+      "RETRY_OR_FALLBACK"
+    ]
+  },
+  "mission_evidence": {
+    "network_accessed": false,
+    "dns_queried": false,
+    "tcp_attempted": false,
+    "tls_attempted": false,
+    "password_accessed": false,
+    "sql_executed": false,
+    "database_session_established": false,
+    "logs_accessed": false,
+    "dev_accessed": false,
+    "prod_accessed": false,
+    "capture_executed": false,
+    "materialization_executed": false
+  },
+  "next_gate": "REVIEW_AND_CI_DEV_CONNECT_TLS_AUTH_OFFLINE_DIAGNOSTICS_PR"
+}
