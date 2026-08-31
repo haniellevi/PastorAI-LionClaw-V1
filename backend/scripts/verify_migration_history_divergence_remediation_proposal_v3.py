@@ -61,6 +61,7 @@ RECONCILIATION_VERIFIER_PATH = (
 MAX_JSON_BYTES = 1_048_576
 MAX_MIGRATION_BYTES = 4_194_304
 MAX_CATALOG_BYTES = 67_108_864
+MAX_SCHEMA_DEPTH = 64
 BLOCKED_EXIT = 8
 OPERATIONAL_BLOCK = "OPERATIONAL_AUTHORIZATION=BLOCKED"
 NEXT_STAGE_BLOCK = "NEXT_STAGE_AUTHORIZED=false"
@@ -89,7 +90,7 @@ EXPECTED_HASHES = {
         "36e63cde6751cd0cb33e1511091068b0b04f10029ace06703eead82e0e836c65"
     ),
     "schema": (
-        "c6333437a6a0d8efb0b928241e729188e78234c57731d9cbb3c20953b2028114"
+        "88f7972780f07c7071bb4e4292e1f21c258fff47daf2ab207fc709ff34631b38"
     ),
     "v1_proposal": (
         "84614e0b140e38d07c11ed4ceb10025b3dbc85b121684da1e1ebdca6d0104e7d"
@@ -472,6 +473,18 @@ def validate_proposal(proposal: dict[str, Any]) -> None:
 
 
 def _validate_schema_document(schema: dict[str, Any]) -> None:
+    expected_keys = {
+        "$schema",
+        "$id",
+        "$defs",
+        "additionalProperties",
+        "properties",
+        "required",
+        "title",
+        "type",
+    }
+    if set(schema) != expected_keys:
+        raise VerificationError
     required = sorted(EXPECTED_TOP_LEVEL_KEYS)
     if schema.get("$schema") != "https://json-schema.org/draft/2020-12/schema":
         raise VerificationError
@@ -480,9 +493,23 @@ def _validate_schema_document(schema: dict[str, Any]) -> None:
         "migration-history-divergence-remediation-proposal-v3.json"
     ):
         raise VerificationError
-    if schema.get("type") != "object" or schema.get("additionalProperties") is not False:
+    if schema.get("title") != (
+        "Migration history divergence remediation proposal v3"
+    ):
+        raise VerificationError
+    if (
+        schema.get("type") != "object"
+        or schema.get("additionalProperties") is not False
+    ):
         raise VerificationError
     if schema.get("required") != required:
+        raise VerificationError
+    definitions = schema.get("$defs")
+    if type(definitions) is not dict or set(definitions) != {
+        "dev_environment_track",
+        "false_permissions",
+        "prod_environment_track",
+    }:
         raise VerificationError
     properties = schema.get("properties")
     if type(properties) is not dict or set(properties) != EXPECTED_TOP_LEVEL_KEYS:
@@ -502,6 +529,145 @@ def _validate_schema_document(schema: dict[str, Any]) -> None:
         "const": "KNOWN_UNVERIFIED_DRIFT"
     }:
         raise VerificationError
+
+
+def _resolve_schema_ref(
+    root_schema: dict[str, Any], reference: Any
+) -> dict[str, Any]:
+    prefix = "#/$defs/"
+    if (
+        type(reference) is not str
+        or not reference.startswith(prefix)
+        or "/" in reference[len(prefix) :]
+        or not reference[len(prefix) :]
+    ):
+        raise VerificationError
+    definitions = root_schema.get("$defs")
+    if type(definitions) is not dict:
+        raise VerificationError
+    target = definitions.get(reference[len(prefix) :])
+    if type(target) is not dict:
+        raise VerificationError
+    return target
+
+
+def _validate_schema_instance(
+    instance: Any,
+    schema_node: dict[str, Any],
+    root_schema: dict[str, Any],
+    *,
+    depth: int = 0,
+) -> None:
+    """Validate the proposal with the closed stdlib-only schema subset."""
+
+    if depth > MAX_SCHEMA_DEPTH or type(schema_node) is not dict:
+        raise VerificationError
+    if "$ref" in schema_node:
+        if set(schema_node) != {"$ref"}:
+            raise VerificationError
+        _validate_schema_instance(
+            instance,
+            _resolve_schema_ref(root_schema, schema_node["$ref"]),
+            root_schema,
+            depth=depth + 1,
+        )
+        return
+    if "const" in schema_node:
+        if set(schema_node) != {"const"} or not _exact_json(
+            instance, schema_node["const"]
+        ):
+            raise VerificationError
+        return
+    if schema_node.get("type") != "object" or type(instance) is not dict:
+        raise VerificationError
+    properties = schema_node.get("properties")
+    required = schema_node.get("required")
+    if (
+        type(properties) is not dict
+        or type(required) is not list
+        or any(type(key) is not str for key in required)
+        or len(required) != len(set(required))
+        or schema_node.get("additionalProperties") is not False
+    ):
+        raise VerificationError
+    required_keys = set(required)
+    if not required_keys.issubset(instance):
+        raise VerificationError
+    if not set(instance).issubset(properties):
+        raise VerificationError
+    for key, value in instance.items():
+        child_schema = properties.get(key)
+        if type(child_schema) is not dict:
+            raise VerificationError
+        _validate_schema_instance(
+            value,
+            child_schema,
+            root_schema,
+            depth=depth + 1,
+        )
+
+
+def _assert_schema_verifier_parity(
+    expected_instance: Any,
+    schema_node: dict[str, Any],
+    root_schema: dict[str, Any],
+    *,
+    depth: int = 0,
+    root: bool = False,
+) -> None:
+    """Require the schema to encode exactly the verifier's expected value."""
+
+    if depth > MAX_SCHEMA_DEPTH or type(schema_node) is not dict:
+        raise VerificationError
+    if "$ref" in schema_node:
+        if set(schema_node) != {"$ref"}:
+            raise VerificationError
+        _assert_schema_verifier_parity(
+            expected_instance,
+            _resolve_schema_ref(root_schema, schema_node["$ref"]),
+            root_schema,
+            depth=depth + 1,
+        )
+        return
+    if type(expected_instance) is not dict:
+        if set(schema_node) != {"const"} or not _exact_json(
+            schema_node["const"], expected_instance
+        ):
+            raise VerificationError
+        return
+
+    allowed_keys = {
+        "additionalProperties",
+        "properties",
+        "required",
+        "type",
+    }
+    if root:
+        allowed_keys.update({"$defs", "$id", "$schema", "title"})
+    if set(schema_node) != allowed_keys:
+        raise VerificationError
+    properties = schema_node.get("properties")
+    required = schema_node.get("required")
+    if (
+        schema_node.get("type") != "object"
+        or schema_node.get("additionalProperties") is not False
+        or type(properties) is not dict
+        or set(properties) != set(expected_instance)
+        or type(required) is not list
+        or len(required) != len(set(required))
+        or set(required) != set(expected_instance)
+    ):
+        raise VerificationError
+    for key, value in expected_instance.items():
+        child_schema = properties.get(key)
+        if type(child_schema) is not dict:
+            raise VerificationError
+        _assert_schema_verifier_parity(
+            value,
+            child_schema,
+            root_schema,
+            depth=depth + 1,
+        )
 
 
 def _validate_historical_contracts() -> None:
@@ -648,6 +814,8 @@ def verify_versioned_package() -> None:
     schema = _decode_json(schema_content)
     validate_proposal(proposal)
     _validate_schema_document(schema)
+    _assert_schema_verifier_parity(proposal, schema, schema, root=True)
+    _validate_schema_instance(proposal, schema, schema)
     _validate_historical_contracts()
     _validate_catalog_unchanged()
 

@@ -66,6 +66,10 @@ def _proposal() -> dict[str, Any]:
     return _load_json(PROPOSAL_PATH)
 
 
+def _schema() -> dict[str, Any]:
+    return _load_json(SCHEMA_PATH)
+
+
 def _set_path(value: dict[str, Any], path: tuple[str, ...], replacement: Any) -> None:
     target: dict[str, Any] = value
     for key in path[:-1]:
@@ -175,7 +179,7 @@ def test_legacy_ledgers_are_preserved_without_backfill_or_cross_environment_reus
 
 
 def test_schema_is_closed_and_cannot_express_authorization() -> None:
-    schema = _load_json(SCHEMA_PATH)
+    schema = _schema()
 
     assert schema["$schema"] == "https://json-schema.org/draft/2020-12/schema"
     assert schema["additionalProperties"] is False
@@ -192,6 +196,123 @@ def test_schema_is_closed_and_cannot_express_authorization() -> None:
             "properties"
         ].values()
     )
+
+
+def test_real_schema_and_semantic_verifier_are_in_exact_parity() -> None:
+    proposal = _proposal()
+    schema = _schema()
+
+    verifier._validate_schema_document(schema)
+    verifier._assert_schema_verifier_parity(
+        proposal, schema, schema, root=True
+    )
+    verifier._validate_schema_instance(proposal, schema, schema)
+
+
+@pytest.mark.parametrize(
+    ("path", "replacement"),
+    [
+        (("environment_tracks", "DEV", "cutover_decision"), "APPROVED"),
+        (("environment_tracks", "PROD", "cutover_decision"), "APPROVED"),
+        (
+            ("evidence_gates", "MANUAL_DEV_INDEX_DRIFT", "state"),
+            "VERIFIED",
+        ),
+        (("manual_dev_index_drift", "classification"), "VERIFIED"),
+        (
+            (
+                "historical_evidence",
+                "attestation_v1",
+                "environment_attestation_complete",
+            ),
+            True,
+        ),
+        (
+            (
+                "historical_evidence",
+                "canonical_derivation",
+                "environment_attestation_complete",
+            ),
+            True,
+        ),
+    ],
+)
+def test_real_schema_and_semantic_verifier_reject_critical_state_mutations(
+    path: tuple[str, ...], replacement: Any
+) -> None:
+    proposal = copy.deepcopy(_proposal())
+    schema = _schema()
+    _set_path(proposal, path, replacement)
+
+    with pytest.raises(verifier.VerificationError):
+        verifier._validate_schema_instance(proposal, schema, schema)
+    with pytest.raises(verifier.VerificationError):
+        verifier.validate_proposal(proposal)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        (
+            "environment_tracks",
+            "DEV",
+            "manual_index_drift_reference",
+        ),
+        (
+            "environment_tracks",
+            "PROD",
+            "manual_dev_index_drift_inferred_in_prod",
+        ),
+    ],
+)
+def test_real_schema_and_semantic_verifier_require_dev_prod_drift_bindings(
+    path: tuple[str, ...],
+) -> None:
+    proposal = copy.deepcopy(_proposal())
+    schema = _schema()
+    target: dict[str, Any] = proposal
+    for key in path[:-1]:
+        nested = target[key]
+        assert type(nested) is dict
+        target = nested
+    target.pop(path[-1])
+
+    with pytest.raises(verifier.VerificationError):
+        verifier._validate_schema_instance(proposal, schema, schema)
+    with pytest.raises(verifier.VerificationError):
+        verifier.validate_proposal(proposal)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        ("properties", "evidence_gates", "properties", "DATA_API"),
+        (
+            "properties",
+            "historical_evidence",
+            "properties",
+            "attestation_v1",
+        ),
+    ],
+)
+def test_schema_verifier_parity_rejects_generic_nested_objects(
+    path: tuple[str, ...],
+) -> None:
+    proposal = _proposal()
+    schema = copy.deepcopy(_schema())
+    target: dict[str, Any] = schema
+    for key in path[:-1]:
+        nested = target[key]
+        assert type(nested) is dict
+        target = nested
+    target[path[-1]] = {"type": "object"}
+
+    with pytest.raises(verifier.VerificationError):
+        verifier._assert_schema_verifier_parity(
+            proposal, schema, schema, root=True
+        )
+    with pytest.raises(verifier.VerificationError):
+        verifier._validate_schema_instance(proposal, schema, schema)
 
 
 def test_historical_inputs_runner_and_catalog_are_byte_stable() -> None:
