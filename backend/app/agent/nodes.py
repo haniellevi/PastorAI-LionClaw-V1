@@ -15,9 +15,9 @@ behaviour deterministic and unit-testable without a database or an LLM.
 
 from __future__ import annotations
 
-import operator
 from typing import Annotated, Any, TypedDict
 
+from langgraph.channels import UntrackedValue
 from langgraph.runtime import Runtime
 
 from app.agent.context import (
@@ -60,19 +60,74 @@ class PessoaSnapshot(TypedDict, total=False):
     primeiro_contato_set: bool
 
 
+class AgentTurnEffects(TypedDict):
+    """Complete, turn-local envelope of intents consumed by the runtime.
+
+    This envelope is replaced as one value and uses an untracked LangGraph
+    channel, never a reducer.  It is neither durable workflow state nor proof
+    that an effect was executed.  Durable checkpointing remains blocked until
+    effect idempotency and the persistence boundary are implemented.
+    """
+
+    events: list[dict[str, Any]]
+    tool_calls: list[dict[str, Any]]
+    apply_optout: bool
+    apply_consent_version: str | None
+    intake_update: dict[str, Any]
+
+
+class AgentTurnInput(TypedDict):
+    """Only caller-controlled values admitted at the graph input boundary."""
+
+    texto: str
+    pessoa: PessoaSnapshot
+
+
+class AgentTurnOutput(TypedDict):
+    """Only current-turn decisions returned to the effect-applying runtime."""
+
+    route: str
+    response: str | None
+    turn_effects: AgentTurnEffects
+
+
 class AgentState(TypedDict, total=False):
-    """Mutable LangGraph state, deliberately free of authority/context."""
+    """Internal working state, deliberately free of authority/context."""
 
     texto: str
     pessoa: PessoaSnapshot
     # Outputs produced along the graph:
     route: str
     response: str | None
-    events: Annotated[list[dict[str, Any]], operator.add]
-    tool_calls: Annotated[list[dict[str, Any]], operator.add]
-    apply_optout: bool
-    apply_consent_version: str | None
-    intake_update: dict[str, Any]
+    turn_effects: Annotated[
+        AgentTurnEffects,
+        UntrackedValue(AgentTurnEffects),
+    ]
+
+
+def empty_turn_effects() -> AgentTurnEffects:
+    """Return a fresh, complete effect envelope for exactly one turn."""
+    return {
+        "events": [],
+        "tool_calls": [],
+        "apply_optout": False,
+        "apply_consent_version": None,
+        "intake_update": {},
+    }
+
+
+def _copy_turn_effects(state: AgentState) -> AgentTurnEffects:
+    """Detach the current turn envelope before a node adds its own intent."""
+    current = state.get("turn_effects")
+    if current is None:
+        return empty_turn_effects()
+    return {
+        "events": list(current["events"]),
+        "tool_calls": list(current["tool_calls"]),
+        "apply_optout": current["apply_optout"],
+        "apply_consent_version": current["apply_consent_version"],
+        "intake_update": dict(current["intake_update"]),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -135,7 +190,15 @@ def orchestrator_node(
 ) -> AgentState:
     """Supervisor entry node: run intake then pick the route."""
     _trusted(state, runtime)
-    updates = intake_node(state, runtime)
+    # A future rehydrated state may carry a completed or partially completed
+    # envelope.  Reset it before any node emits this turn's intents.  The
+    # graph remains stateless today, but this replacement invariant prevents
+    # reducers or sticky scalar flags from becoming an accidental replay API.
+    fresh_state: AgentState = {
+        **state,
+        "turn_effects": empty_turn_effects(),
+    }
+    updates = intake_node(fresh_state, runtime)
     return {**updates, "route": route_intent(state, runtime)}
 
 
@@ -158,13 +221,15 @@ def intake_node(
         update["origem"] = "whatsapp"
     if not pessoa.get("primeiro_contato_set"):
         update["set_primeiro_contato"] = True
-    events = [
+    effects = _copy_turn_effects(state)
+    effects["intake_update"] = update
+    effects["events"].append(
         {
             "evento": "intake",
             "payload": {"update": update},
         }
-    ]
-    return {"intake_update": update, "events": events}
+    )
+    return {"turn_effects": effects}
 
 
 def consent_node(
@@ -182,38 +247,41 @@ def consent_node(
     texto = state.get("texto") or ""
     current = context.legacy_term.current_version
     igreja_nome = context.igreja_nome
+    effects = _copy_turn_effects(state)
 
     if consent_rules.needs_reaccept(
         context.legacy_term.accepted_version, current
     ) and consent_rules.is_acceptance(texto):
-        return {
-            "route": ROUTE_CONSENT,
-            "apply_consent_version": current,
-            "response": (
-                "Obrigado! Seu consentimento foi registrado. "
-                "Como posso te ajudar hoje?"
-            ),
-            "events": [
-                {
-                    "evento": "consent_accepted",
-                    "payload": {
-                        "termoVersao": current,
-                    },
-                }
-            ],
-        }
-
-    return {
-        "route": ROUTE_CONSENT,
-        "response": consent_rules.term_text(current, igreja_nome),
-        "events": [
+        effects["apply_consent_version"] = current
+        effects["events"].append(
             {
-                "evento": "consent_presented",
+                "evento": "consent_accepted",
                 "payload": {
                     "termoVersao": current,
                 },
             }
-        ],
+        )
+        return {
+            "route": ROUTE_CONSENT,
+            "response": (
+                "Obrigado! Seu consentimento foi registrado. "
+                "Como posso te ajudar hoje?"
+            ),
+            "turn_effects": effects,
+        }
+
+    effects["events"].append(
+        {
+            "evento": "consent_presented",
+            "payload": {
+                "termoVersao": current,
+            },
+        }
+    )
+    return {
+        "route": ROUTE_CONSENT,
+        "response": consent_rules.term_text(current, igreja_nome),
+        "turn_effects": effects,
     }
 
 
@@ -222,14 +290,16 @@ def optout_node(
 ) -> AgentState:
     """optout (US-32/RNF-06): flag the runtime to set pessoas.optout=true."""
     _trusted(state, runtime)
+    effects = _copy_turn_effects(state)
+    effects["apply_optout"] = True
+    effects["events"].append({"evento": "optout", "payload": {}})
     return {
         "route": ROUTE_OPTOUT,
-        "apply_optout": True,
         "response": (
             "Tudo certo. Você não receberá mais comunicados. "
             "Se mudar de ideia, é só nos enviar uma mensagem."
         ),
-        "events": [{"evento": "optout", "payload": {}}],
+        "turn_effects": effects,
     }
 
 
@@ -242,10 +312,14 @@ def handoff_node(
     flows exclusively through the official number when the human replies.
     """
     _trusted(state, runtime)
+    effects = _copy_turn_effects(state)
+    effects["events"].append(
+        {"evento": "handoff_suspended", "payload": {}}
+    )
     return {
         "route": ROUTE_HANDOFF,
         "response": None,
-        "events": [{"evento": "handoff_suspended", "payload": {}}],
+        "turn_effects": effects,
     }
 
 
@@ -269,9 +343,13 @@ def report_capture_node(
         "decisoes": report.decisoes,
         "oferta": report.oferta,
     }
+    effects = _copy_turn_effects(state)
+    effects["tool_calls"] = []
+    effects["events"].append(
+        {"evento": "report_captured", "payload": {"relatorio": resumo}}
+    )
     return {
         "route": ROUTE_REPORT,
-        "tool_calls": [],
         "response": (
             "Relatório recebido! Resumo informado: "
             f"{report.presentes or 0} presentes, "
@@ -279,9 +357,7 @@ def report_capture_node(
             f"{report.decisoes or 0} decisões. "
             "As decisões individuais precisam de confirmação humana antes do registro."
         ),
-        "events": [
-            {"evento": "report_captured", "payload": {"relatorio": resumo}}
-        ],
+        "turn_effects": effects,
     }
 
 
@@ -323,9 +399,11 @@ def onboarding_node(
     texto = state.get("texto") or ""
     cls = classify_contact(texto)
 
+    effects = _copy_turn_effects(state)
+
     # Mescla o CSIM no intake_update já produzido pelo intake_node
     # (origem/primeiro_contato), sem sobrescrevê-lo.
-    intake = dict(state.get("intake_update") or {})
+    intake = dict(effects["intake_update"])
     if cls.sem_interesse is not None:
         intake["sem_interesse"] = cls.sem_interesse
         intake["sem_interesse_motivo"] = cls.motivo
@@ -348,18 +426,19 @@ def onboarding_node(
         primeiro_nome = first_name_for_greeting(pessoa.get("nome"))
         resposta = f"Olá, {primeiro_nome}! {base}" if primeiro_nome else base
 
+    effects["intake_update"] = intake
+    effects["events"].append(
+        {
+            "evento": "onboarding",
+            "payload": {
+                "classificacao": classificacao,
+            },
+        }
+    )
     return {
         "route": ROUTE_ONBOARDING,
-        "intake_update": intake,
         "response": resposta,
-        "events": [
-            {
-                "evento": "onboarding",
-                "payload": {
-                    "classificacao": classificacao,
-                },
-            }
-        ],
+        "turn_effects": effects,
     }
 
 

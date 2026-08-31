@@ -27,6 +27,7 @@ from app.agent.context import (
     require_trusted_context,
     validate_agent_input_state,
     validate_agent_node_state,
+    validate_agent_output_state,
 )
 from app.agent.nodes import (
     ROUTE_HANDOFF,
@@ -35,6 +36,9 @@ from app.agent.nodes import (
     ROUTE_REPORT,
     SUBAGENTS,
     AgentState,
+    AgentTurnInput,
+    AgentTurnOutput,
+    empty_turn_effects,
     handoff_node,
     onboarding_node,
     optout_node,
@@ -50,6 +54,10 @@ from app.agent.nodes import (
 logger = logging.getLogger("pastorai.agent.graph")
 
 
+class AgentPersistenceBoundaryError(RuntimeError):
+    """Direct execution is unsafe while graph persistence may be present."""
+
+
 def _snapshot_agent_input(state: AgentState) -> AgentState:
     """Return a detached, canonical copy of the only accepted input fields."""
     validated = validate_agent_input_state(state)
@@ -60,26 +68,42 @@ def _snapshot_agent_input(state: AgentState) -> AgentState:
 
 
 def _merge_state(base: AgentState, updates: dict[str, Any]) -> AgentState:
-    """Merge a node's partial update, accumulating list fields (events/tools)."""
+    """Merge a node update with replacement semantics for every channel."""
     merged: AgentState = dict(base)  # type: ignore[assignment]
-    for key, value in updates.items():
-        if key in ("events", "tool_calls") and isinstance(value, list):
-            existing = list(merged.get(key, []) or [])
-            merged[key] = existing + value  # type: ignore[literal-required]
-        else:
-            merged[key] = value  # type: ignore[literal-required]
+    merged.update(updates)  # type: ignore[typeddict-item]
     return merged
+
+
+def _project_agent_output(state: AgentState | object) -> AgentTurnOutput:
+    """Validate and detach the only values the effect runtime may consume."""
+    working = validate_agent_node_state(state)
+    required = {"route", "response", "turn_effects"}
+    if not required.issubset(working):
+        raise TrustedContextError("agent turn output is incomplete")
+    effects = working["turn_effects"]
+    projected: AgentTurnOutput = {
+        "route": working["route"],
+        "response": working["response"],
+        "turn_effects": {
+            "events": list(effects["events"]),
+            "tool_calls": list(effects["tool_calls"]),
+            "apply_optout": effects["apply_optout"],
+            "apply_consent_version": effects["apply_consent_version"],
+            "intake_update": dict(effects["intake_update"]),
+        },
+    }
+    validate_agent_output_state(projected)
+    return projected
 
 
 def _run_turn_direct_validated(
     state: AgentState, context: TrustedAgentContext
-) -> AgentState:
+) -> AgentTurnOutput:
     """Run direct nodes after the untrusted input boundary was validated."""
     runtime = Runtime(context=context)
     working: AgentState = {
         **_snapshot_agent_input(state),
-        "events": [],
-        "tool_calls": [],
+        "turn_effects": empty_turn_effects(),
     }
     orchestrator_updates = orchestrator_node(working, runtime)
     after_orchestrator = _merge_state(working, orchestrator_updates)
@@ -88,15 +112,16 @@ def _run_turn_direct_validated(
     updates = subagent(after_orchestrator, runtime)
     final = _merge_state(after_orchestrator, updates)
     validate_agent_node_state(final)
-    return final
+    return _project_agent_output(final)
 
 
 def run_turn_direct(
     state: AgentState, *, context: TrustedAgentContext
-) -> AgentState:
+) -> AgentTurnOutput:
     """Execute one turn directly after validating context and input once."""
     trusted = require_trusted_context(context)
     pristine = _snapshot_agent_input(state)
+    _require_persistence_absent_for_direct_execution()
     return _run_turn_direct_validated(pristine, trusted)
 
 
@@ -110,18 +135,32 @@ class _TrustedCompiledGraph:
     def checkpointer(self) -> Any:
         return self._compiled.checkpointer
 
+    @property
+    def store(self) -> Any:
+        return self._compiled.store
+
     def invoke(
         self,
         state: AgentState,
         *,
         context: TrustedAgentContext | None = None,
         **kwargs: Any,
-    ) -> AgentState:
+    ) -> AgentTurnOutput:
         detached = _snapshot_agent_input(state)
         trusted = require_trusted_context(context)
-        result = self._compiled.invoke(detached, context=trusted, **kwargs)
-        validate_agent_node_state(result)
-        return result  # type: ignore[no-any-return]
+        # This value is server-created after the external input validation.
+        # The entry node resets it again, so compiled and direct paths both
+        # start from an explicit, complete, unexecuted effect envelope.
+        internal_input: AgentState = {
+            **detached,
+            "turn_effects": empty_turn_effects(),
+        }
+        result = self._compiled.invoke(
+            internal_input,
+            context=trusted,
+            **kwargs,
+        )
+        return _project_agent_output(result)
 
 
 @lru_cache
@@ -129,7 +168,12 @@ def get_compiled_graph() -> Any:
     """Build and compile the stateless LangGraph (cached per process)."""
     from langgraph.graph import END, START, StateGraph  # noqa: PLC0415
 
-    builder = StateGraph(AgentState, context_schema=TrustedAgentContext)
+    builder = StateGraph(
+        AgentState,
+        context_schema=TrustedAgentContext,
+        input_schema=AgentTurnInput,
+        output_schema=AgentTurnOutput,
+    )
     builder.add_node("orchestrator", orchestrator_node)
     builder.add_node(ROUTE_HANDOFF, handoff_node)
     builder.add_node(ROUTE_OPTOUT, optout_node)
@@ -186,27 +230,59 @@ def run_turn(
     *,
     context: TrustedAgentContext,
     use_graph: bool = True,
-) -> AgentState:
+) -> AgentTurnOutput:
     """Run a single orchestrator turn, returning the merged final state.
 
-    Backend execution failures fall back to the direct path. Trust-boundary
-    failures always propagate and never enter the fallback.
+    Backend execution failures fall back only while checkpointer and store are
+    proven absent. Trust-boundary failures and any persistent or indeterminate
+    graph boundary propagate without direct execution.
     """
     trusted = require_trusted_context(context)
     pristine = _snapshot_agent_input(state)
 
     if use_graph:
+        graph: Any | None = None
         try:
             graph = get_compiled_graph()
             result = graph.invoke(_snapshot_agent_input(pristine), context=trusted)
-            validate_agent_node_state(result)
-            return result  # type: ignore[return-value]
+            return _project_agent_output(result)
         except TrustedContextError:
             raise
         except Exception:  # noqa: BLE001 - resilience: never drop a turn
+            if graph is None or not _persistence_is_proven_absent(graph):
+                logger.exception(
+                    "LangGraph turn failed with a persistence boundary; "
+                    "direct fallback blocked"
+                )
+                raise
             logger.exception("LangGraph turn failed; using direct fallback")
+            return _run_turn_direct_validated(pristine, trusted)
+    _require_persistence_absent_for_direct_execution()
     return _run_turn_direct_validated(pristine, trusted)
 
 
+def _persistence_is_proven_absent(graph: object) -> bool:
+    """Allow direct fallback only for a graph with no saver and no store."""
+    try:
+        return graph.checkpointer is None and graph.store is None  # type: ignore[attr-defined]
+    except Exception:  # noqa: BLE001 - absence cannot be inferred on failure
+        return False
+
+
+def _require_persistence_absent_for_direct_execution() -> None:
+    """Fail closed unless the active compiled graph proves it is stateless."""
+    graph = get_compiled_graph()
+    if not _persistence_is_proven_absent(graph):
+        raise AgentPersistenceBoundaryError(
+            "direct agent execution requires checkpointer and store to be absent"
+        )
+
+
 # Re-export for callers that route by intent without running the graph.
-__all__ = ["run_turn", "run_turn_direct", "get_compiled_graph", "route_intent"]
+__all__ = [
+    "AgentPersistenceBoundaryError",
+    "run_turn",
+    "run_turn_direct",
+    "get_compiled_graph",
+    "route_intent",
+]

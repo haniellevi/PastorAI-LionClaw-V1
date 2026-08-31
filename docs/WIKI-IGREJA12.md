@@ -47,7 +47,7 @@ qualquer expansão do canário.
 | V1 | `IMPLEMENTADO` | Preservar o encerramento e tratar a visão ampla como nova fase |
 | Agente e Evolution | `PARCIAL / GATE OPERACIONAL` | Corrigir memória, conhecimento e qualidade antes de novo canário |
 | Canário ativo | `PASS TÉCNICO / QUALIDADE INSUFICIENTE` | Avaliação conversacional humana após a nova fundação |
-| LangGraph | `IMPLEMENTADO STATELESS / D2B1 INTEGRADA` | Persistência, memória e subgrafos permanecem posteriores |
+| LangGraph | `IMPLEMENTADO STATELESS / D2B1 INTEGRADA / PREPARAÇÃO D3 OFFLINE` | Projetar estado persistível, idempotência, saver privado, retenção e exclusão antes de ativar memória |
 | Consentimento | `PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR INTEGRADOS / ARTEFATOS VERSIONADOS / REVISÃO INDEPENDENTE BLOQUEADA CONCLUÍDA / DECISÃO OWNER-01 REGISTRADA / MANIFESTO DE FONTE CRIADO / REVISÃO TÉCNICA CONCLUÍDA / REVISÃO INDEPENDENTE DO MANIFESTO PENDENTE / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | O manifesto descreve somente a fonte versionada; revisão independente, atestação posterior, implementação, runner, Supabase e D2C permanecem bloqueados |
 | Conhecimento por igreja | `AUSENTE` | Ingestão aprovada, ACL, busca e ferramentas de dados vivos |
 | Relatório por WhatsApp | `PARCIAL` | Confirmar e gravar no relatório canônico |
@@ -93,6 +93,13 @@ respondidos e não consulta uma base oficial da igreja. O LLM é usado apenas
 para refinar parte de uma resposta determinística. Esse desenho é um fator
 tecnicamente compatível com a repetição vista no canário, mas a execução não
 prova que ele seja a causa única.
+
+A preparação D3 offline separa os schemas de entrada e saída e reúne as
+intenções em `AgentTurnEffects`, um canal `UntrackedValue` substituído a cada
+turno. Essa contenção reduz o risco de replay acidental, mas não preserva
+histórico, não retoma execução e não ativa memória. O fallback automático para
+o caminho direto só permanece disponível quando checkpointer e store estão
+comprovadamente ausentes.
 
 Mensagens ficam registradas e áudio pode ser armazenado, mas não foi encontrada
 transcrição operacional. O parser de relatório produz um evento de auditoria e
@@ -800,9 +807,9 @@ terminou fail-closed com exit `8` e
 `RECOMMENDATION_ONLY_NOT_APPROVED`; isso comprova somente o desenho offline e
 não autoriza evidência viva, cutover, migration ou runtime.
 
-No mesmo batch offline, a correção de precedência classifica
+No batch offline depois integrado pela PR #351, a correção de precedência classifica
 `TimeoutError` e `socket.timeout` como `DEADLINE_EXCEEDED` antes de `OSError`
-genérico em cada fronteira de rede. O candidato tem runner SHA-256
+genérico em cada fronteira de rede. O batch integrado tem runner SHA-256
 `2e2208bfbca1214c0cec024c58716eeac7c05789c33ce36d812c0265c3810809`, teste
 SHA-256 `d7161cd7dd7c63935c07431193b0d916222e5341088edbdc6d4ef85ad3063689` e
 `102/102` testes verdes. Nenhum probe vivo foi executado. Os hashes da PR #350
@@ -810,7 +817,7 @@ SHA-256 `d7161cd7dd7c63935c07431193b0d916222e5341088edbdc6d4ef85ad3063689` e
 `70334dfc33505ea0b5ddb85a6406672fe0d9154e105134da164c773978459489`
 permanecem evidência histórica e não são substituídos.
 
-O contrato D3 fail-closed candidato usa
+O contrato D3 fail-closed integrado usa
 `backend/app/agent/private_checkpoint.py`, SHA-256
 `098d7186d59b2be9c231e3ca41e328b69901d4bc3e3f9b09651b902c07768f33`,
 `backend/app/agent/context.py`, SHA-256
@@ -818,13 +825,52 @@ O contrato D3 fail-closed candidato usa
 `backend/tests/test_agent_private_checkpoint_contract.py`, SHA-256
 `2f91523e6a5daacd7c3ac08b933c7d9f857c3eec2a72b9f962c09c98d39f3c8b`.
 A seleção `tests/test_agent*.py` terminou em `292 passed, 7 skipped`, com duas
-advertências preexistentes. A classificação é `CONTRATO OFFLINE INATIVO`: não
+advertências preexistentes. A classificação é `CONTRATO OFFLINE INTEGRADO E INATIVO`: não
 há saver, migration ou wiring, e o LangGraph continua stateless.
 
+A PR #351 foi integrada no merge
+`bc97dd4e6f2fc9024e85afe8d611708699c8983a`. Os `7/7` checks pós-merge
+concluíram com `SUCCESS`. A Vercel registrou o deployment automático do frontend
+Production `6187006353`, status `17583083885`, com `SUCCESS`. Essa metadata prova
+somente o frontend e não prova backend, banco ou runtime. A preparação D3 de
+estado efêmero desta branch permanece candidata offline, sem saver, migration
+ou retomada, e não integra a evidência pós-merge da PR #351.
+
+A preparação D3 seguinte mantém esse estado inativo. `AgentTurnInput` e
+`AgentTurnOutput` delimitam a entrada e a saída, enquanto `AgentTurnEffects` é
+reinicializado por turno, substituído sem reducer acumulativo e mantido em
+`UntrackedValue`. Ele representa somente intenções efêmeras entregues ao runtime
+existente. Não há saver, migration, memória, resumo, recuperação ou retomada.
+O freeze técnico pré-merge e exclusivamente offline desta preparação vincula:
+
+- `backend/app/agent/context.py`, SHA-256
+  `b81afb549b6110553bd4ba5e6b861a9094278670d86c92b128e04fc081f3a729`;
+- `backend/app/agent/graph.py`, SHA-256
+  `2d0e729e9756e09b161c300fca032fb54e0ee30bc1c963fcaf538295eedcf2c9`;
+- `backend/app/agent/nodes.py`, SHA-256
+  `e16ffbab8163e58af96e192976f580e1a7690b0932eb720a3b3e2874443d6454`;
+- `backend/app/agent/private_checkpoint.py`, SHA-256
+  `aa54f4f474fb6aa40ef02b738c5ad1d82905cbd8a1745ce805e7a19a5991dcc6`;
+- `backend/app/agent/runtime.py`, SHA-256
+  `f3bc2404f9335e5846c9e8a1d70ca30dd4189cc2219bca59d9ec098e05cc1a9e`;
+- `backend/tests/test_agent_turn_effect_state.py`, SHA-256
+  `eb8b26c43bd958965564668f9763de368a310afa4f658161d7b04b906256fbf8`.
+
+A focal terminou em `144/144`, e a seleção `tests/test_agent*.py` terminou em
+`309 passed, 7 skipped`. Essa evidência é local e pré-merge; não prova CI,
+integração, saver, migration, memória ativa, deploy ou runtime.
+
+
+
+O gate histórico `REVIEW_AND_CI_OFFLINE_AGENT_FOUNDATION_BATCH_PR` foi consumido
+pelo push, abertura, CI e Preview da PR #351. Ele não autorizou o merge
+posterior, permanece somente como evidência histórica e não é um segundo gate
+corrente.
+
 **Próximo gate único:**
-`REVIEW_AND_CI_OFFLINE_AGENT_FOUNDATION_BATCH_PR`. O nome não constitui
-autorização já concedida. Seu consumo exige autorização humana posterior que
+`REVIEW_AND_CI_D3_EPHEMERAL_EFFECT_STATE_PR`. O nome não constitui autorização
+já concedida. Seu consumo exige autorização humana posterior e separada que
 nomeie push, abertura da PR e GitHub CI e aceite o Vercel Preview automático.
-O batch permanece exclusivamente offline e não autoriza merge, Vercel
+O batch permanece exclusivamente offline. Este gate não autoriza merge, Vercel
 Production, probe vivo, acesso a DEV ou PROD, banco, logs, SQL, DML, migration,
 deploy, flag ou runtime.

@@ -1,10 +1,12 @@
 """Fail-closed D3 contract for future private LangGraph checkpoints.
 
 This module deliberately does not install or build a saver.  The current
-``AgentState`` is turn-local and replay-unsafe: additive event/tool reducers,
-effect flags, and the stateless graph fallback must be redesigned before any
-state can be rehydrated.  The PostgreSQL adapter also still needs a private,
-tenant-bearing schema with forced RLS and strict serialization.
+``AgentState`` is still turn-local and replay-unsafe.  Effect intents now live
+in one complete, resettable, untracked ``turn_effects`` envelope, but they do
+not yet have durable command identity or idempotent replay semantics.  The
+direct fallback also cannot resume a persisted workflow.  The PostgreSQL
+adapter still needs a private, tenant-bearing schema with forced RLS and strict
+serialization.
 
 The opaque LangGraph ``thread_id`` derived here is only defense in depth.  Its
 unkeyed SHA-256 is a stable pseudonym/namespace, not a secret, authenticator, or
@@ -43,22 +45,20 @@ CURRENT_PRIVATE_CHECKPOINT_BLOCKERS: tuple[
     PrivateCheckpointActivationBlocker, ...
 ] = tuple(PrivateCheckpointActivationBlocker)
 
-# Every field in today's AgentState belongs to one turn.  In particular, the
-# effect flags and additive reducers cannot be replayed after rehydration.
+# Every field in today's AgentState belongs to one turn.  The effect envelope
+# is an untracked LangGraph channel and is therefore not durable workflow
+# state; its contents are unexecuted intents consumed by the runtime.
 CURRENT_EPHEMERAL_AGENT_STATE_KEYS = frozenset(
     {
         "texto",
         "pessoa",
         "route",
         "response",
-        "events",
-        "tool_calls",
-        "apply_optout",
-        "apply_consent_version",
-        "intake_update",
+        "turn_effects",
     }
 )
-CURRENT_REPLAY_SENSITIVE_AGENT_STATE_KEYS = frozenset(
+CURRENT_REPLAY_SENSITIVE_AGENT_STATE_KEYS = frozenset({"turn_effects"})
+CURRENT_TURN_EFFECT_KEYS = frozenset(
     {
         "events",
         "tool_calls",
@@ -172,6 +172,7 @@ __all__ = [
     "CURRENT_EPHEMERAL_AGENT_STATE_KEYS",
     "CURRENT_PRIVATE_CHECKPOINT_BLOCKERS",
     "CURRENT_REPLAY_SENSITIVE_AGENT_STATE_KEYS",
+    "CURRENT_TURN_EFFECT_KEYS",
     "PrivateCheckpointActivationBlocker",
     "PrivateCheckpointActivationError",
     "PrivateCheckpointBackendFactory",

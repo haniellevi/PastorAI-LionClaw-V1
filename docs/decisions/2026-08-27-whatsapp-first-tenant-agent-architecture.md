@@ -180,6 +180,45 @@ O filtro de autorização ocorre antes da recuperação e continua aplicado na
 consulta. Embeddings não contêm mensagens privadas sem uma base jurídica e uma
 decisão futura explícitas.
 
+### Preparação D3 offline: fronteira efêmera por turno
+
+A preparação D3 offline separa `AgentTurnInput`, `AgentState` e
+`AgentTurnOutput` por `input_schema` e `output_schema`. `AgentTurnEffects` é um
+envelope completo de intenções do turno, reinicializado antes do roteamento,
+substituído como um único valor e exposto por `UntrackedValue`. Ele não usa
+reducer acumulativo, não entra em checkpoint e não comprova nem autoriza a
+execução de efeito.
+
+Os nodes continuam puros, e o runtime recebe somente a saída validada para
+aplicar as intenções pelos serviços existentes. O fallback automático para o
+caminho direto só é permitido quando a ausência de checkpointer e store está
+comprovada; uma fronteira persistente ou indeterminada falha fechada.
+
+Esta preparação não instala saver, não cria migration ou schema e não oferece
+memória, resumo, recuperação ou retomada. O envelope é deliberadamente
+turn-local. A memória privada durável de D3 permanece ausente até existir o
+contrato de isolamento, idempotência, serialização, retenção e exclusão.
+O freeze técnico pré-merge e exclusivamente offline desta preparação vincula:
+
+- `backend/app/agent/context.py`, SHA-256
+  `b81afb549b6110553bd4ba5e6b861a9094278670d86c92b128e04fc081f3a729`;
+- `backend/app/agent/graph.py`, SHA-256
+  `2d0e729e9756e09b161c300fca032fb54e0ee30bc1c963fcaf538295eedcf2c9`;
+- `backend/app/agent/nodes.py`, SHA-256
+  `e16ffbab8163e58af96e192976f580e1a7690b0932eb720a3b3e2874443d6454`;
+- `backend/app/agent/private_checkpoint.py`, SHA-256
+  `aa54f4f474fb6aa40ef02b738c5ad1d82905cbd8a1745ce805e7a19a5991dcc6`;
+- `backend/app/agent/runtime.py`, SHA-256
+  `f3bc2404f9335e5846c9e8a1d70ca30dd4189cc2219bca59d9ec098e05cc1a9e`;
+- `backend/tests/test_agent_turn_effect_state.py`, SHA-256
+  `eb8b26c43bd958965564668f9763de368a310afa4f658161d7b04b906256fbf8`.
+
+A focal terminou em `144/144`, e a seleção `tests/test_agent*.py` terminou em
+`309 passed, 7 skipped`. Essa evidência é local e pré-merge; não prova CI,
+integração, saver, migration, memória ativa, deploy ou runtime.
+
+
+
 ## Configuração e ativação
 
 O master governa a política global e a versão do grafo. O admin alimenta dados

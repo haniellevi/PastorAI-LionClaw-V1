@@ -39,6 +39,7 @@ from app.agent.nodes import (
     ROUTE_ONBOARDING,
     ROUTE_OPTOUT,
     AgentState,
+    AgentTurnEffects,
 )
 from app.agent.tools import TOOL_ACTOR_ROLE_CONTEXT, TOOL_ARG_SCHEMA, TOOLS, ToolError
 from app.config import get_settings
@@ -637,31 +638,37 @@ def process_inbound_message(
 
     final = run_turn(state, context=context)
     route = final.get("route")
+    effects: AgentTurnEffects = final["turn_effects"]
 
     # Apply person backfill from intake (origem / primeiro_contato).
-    _apply_intake(pessoa, final.get("intake_update") or {})
+    _apply_intake(pessoa, effects["intake_update"])
 
     # Consent / opt-out persistence.
-    if final.get("apply_optout"):
+    if effects["apply_optout"]:
         _apply_optout(
             pessoa,
             igreja_id,
             session,
             context.legacy_term.current_version,
         )
-    if final.get("apply_consent_version"):
-        _apply_consent(pessoa, igreja_id, session, final["apply_consent_version"])
+    if effects["apply_consent_version"]:
+        _apply_consent(
+            pessoa,
+            igreja_id,
+            session,
+            effects["apply_consent_version"],
+        )
 
     # Execute tool calls (human-equivalent validations, tenant-scoped, gated by
     # the interlocutor's privilege — #10b Fase 2).
     executed, tool_audit = _execute_tools_for_context(
         session,
         context,
-        final.get("tool_calls") or [],
+        effects["tool_calls"],
     )
 
     # Audit every routing/sub-agent event + tool calls (masked payloads).
-    for ev in (final.get("events") or []) + tool_audit:
+    for ev in effects["events"] + tool_audit:
         log_agent_event(
             session,
             igreja_id=igreja_id,

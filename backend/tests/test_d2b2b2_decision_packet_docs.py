@@ -112,8 +112,11 @@ DEV_CONNECT_TLS_AUTH_CONSUMED_EXECUTION_GATE = (
 DEV_TLS_HANDSHAKE_FAILURE_CATEGORY_CONSUMED_GATE = (
     "REVIEW_AND_CI_DEV_TLS_HANDSHAKE_FAILURE_CATEGORY_PR"
 )
-DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE = (
+OFFLINE_AGENT_FOUNDATION_BATCH_CONSUMED_GATE = (
     "REVIEW_AND_CI_OFFLINE_AGENT_FOUNDATION_BATCH_PR"
+)
+DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE = (
+    "REVIEW_AND_CI_D3_EPHEMERAL_EFFECT_STATE_PR"
 )
 DEV_PREFLIGHT_PHASE_DIAGNOSTICS_STALE_GATE = (
     "REVIEW_AND_INTEGRATE_DEV_PREFLIGHT_PHASE_DIAGNOSTICS_PR"
@@ -462,6 +465,31 @@ def _assert_current_preflight_gate(path: Path, normalized: str) -> None:
         else DEV_IDENTITY_PREFLIGHT_RUNNER_CURRENT_GATE
     ).casefold()
     assert expected in normalized, f"current preflight gate missing in {path}"
+
+
+def _assert_reconciled_d3_gate(path: Path, normalized: str) -> None:
+    consumed = OFFLINE_AGENT_FOUNDATION_BATCH_CONSUMED_GATE.casefold()
+    current = DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold()
+    required = {
+        "gate historico",
+        "foi consumido pelo push, abertura, ci e preview da pr #351",
+        "nao autorizou o merge posterior",
+        "permanece somente como evidencia historica",
+        "nao e um segundo gate corrente",
+        "nome nao constitui autorizacao ja concedida",
+        "autorizacao humana posterior e separada",
+        "nomeie push, abertura da pr e github ci",
+        "aceite o vercel preview automatico",
+        "batch permanece exclusivamente offline",
+        "este gate nao autoriza merge, vercel production",
+    }
+    missing = sorted(item for item in required if item not in normalized)
+    assert not missing, f"D3 gate reconciliation missing in {path}: {missing}"
+    assert normalized.count("proximo gate unico") == 1
+    assert normalized.count(consumed) == 1
+    assert normalized.count(current) == 1
+    assert normalized.index(consumed) < normalized.index("proximo gate unico")
+    assert normalized.index("proximo gate unico") < normalized.index(current)
 
 
 def _assert_unique_string_list(
@@ -1390,7 +1418,7 @@ def test_canonical_docs_record_captured_blocked_inventories_and_one_human_gate()
         assert "c8427b1a505c0aad2a5f675d3bf456ee33716690" in normalized
         assert "6160229001" in normalized
         assert "metadata do deployment prova somente o frontend" in normalized
-        assert DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold() in normalized
+        _assert_current_preflight_gate(path, normalized)
         assert "manifesto estatico" in normalized
         assert "nao autoriza" in normalized and "dml" in normalized
         assert "postgresql 17 descartavel" in normalized
@@ -2540,7 +2568,7 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
         "2026-08-31-dev-connect-tls-auth-transport-probe.md",
         "operational_authorization=false",
         "next_stage_authorized=false",
-        DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold(),
+        OFFLINE_AGENT_FOUNDATION_BATCH_CONSUMED_GATE.casefold(),
         "nova autorizacao humana nominal",
         "exatamente uma invocacao",
         "process_invocation_only",
@@ -2707,7 +2735,7 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
         "result=blocked_migration_epoch_v3:pending_separate_evidence",
         "recommendation_only_not_approved",
         "comprova somente o desenho offline",
-        DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold(),
+        OFFLINE_AGENT_FOUNDATION_BATCH_CONSUMED_GATE.casefold(),
         "batch permanece exclusivamente offline",
         "nao autoriza merge",
         "acesso a dev ou prod",
@@ -2728,9 +2756,20 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
         "2f91523e6a5daacd7c3ac08b933c7d9f857c3eec2a72b9f962c09c98d39f3c8b",
         "292 passed, 7 skipped",
         "duas advertencias preexistentes",
-        "contrato offline inativo",
+        "batch integrado tem runner sha-256",
+        "contrato d3 fail-closed integrado usa",
+        "contrato offline integrado e inativo",
         "nao ha saver, migration ou wiring",
         "langgraph continua stateless",
+        "pr #351 foi integrada no merge",
+        "bc97dd4e6f2fc9024e85afe8d611708699c8983a",
+        "7/7` checks pos-merge concluiram com `success",
+        "6187006353",
+        "17583083885",
+        "metadata prova somente o frontend",
+        "nao prova backend, banco ou runtime",
+        "preparacao d3 de estado efemero desta branch permanece candidata offline",
+        "nao integra a evidencia pos-merge da pr #351",
         DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold(),
         "nome nao constitui autorizacao ja concedida",
         "autorizacao humana posterior",
@@ -2798,10 +2837,20 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
         assert not batch_missing, (
             f"offline foundation batch missing in {path}: {batch_missing}"
         )
+        for stale_batch_claim in (
+            "o candidato tem runner sha-256",
+            "contrato d3 fail-closed candidato usa",
+            "`contrato offline inativo`",
+            "contrato d3 agregados ao batch offline",
+        ):
+            assert stale_batch_claim not in normalized, (
+                f"stale PR #351 candidate claim in {path}: {stale_batch_claim}"
+            )
         assert normalized.count("proximo gate unico") == 1
         assert normalized.count(
             DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold()
         ) == 1
+        _assert_reconciled_d3_gate(path, normalized)
         assert normalized.count(
             DEV_TLS_HANDSHAKE_FAILURE_CATEGORY_CONSUMED_GATE.casefold()
         ) == 1
@@ -2836,7 +2885,7 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
         "2026-08-31-dev-connect-tls-auth-transport-probe.md",
         "diretorio temporario de autorizacao",
         "checkout ficou limpo",
-        DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold(),
+        OFFLINE_AGENT_FOUNDATION_BATCH_CONSUMED_GATE.casefold(),
         "exatamente uma invocacao",
         "source_main_git_sha=36f8d13284a8f4964d0258a2a3b845323a80fe7e",
     }
@@ -2854,8 +2903,12 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
     assert not phase_missing, f"preflight phase ADR missing: {phase_missing}"
     assert phase_adr.count("proximo gate unico") == 1
     assert phase_adr.count(
+        OFFLINE_AGENT_FOUNDATION_BATCH_CONSUMED_GATE.casefold()
+    ) == 1
+    assert phase_adr.count(
         DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold()
     ) == 1
+    _assert_reconciled_d3_gate(DEV_PREFLIGHT_PHASE_DIAGNOSTICS_ADR_PATH, phase_adr)
     assert phase_adr.count(
         DEV_TLS_HANDSHAKE_FAILURE_CATEGORY_CONSUMED_GATE.casefold()
     ) == 1
@@ -2905,7 +2958,7 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
         "nao abre socket",
         "startupmessage",
         "telemetria de dns e rede",
-        DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold(),
+        OFFLINE_AGENT_FOUNDATION_BATCH_CONSUMED_GATE.casefold(),
         "exatamente uma invocacao",
         "source_main_git_sha=36f8d13284a8f4964d0258a2a3b845323a80fe7e",
         "implementation_present=false",
@@ -2964,8 +3017,15 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
     )
     assert diagnostics_adr.count("proximo gate unico") == 1
     assert diagnostics_adr.count(
+        OFFLINE_AGENT_FOUNDATION_BATCH_CONSUMED_GATE.casefold()
+    ) == 1
+    assert diagnostics_adr.count(
         DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold()
     ) == 1
+    _assert_reconciled_d3_gate(
+        DEV_CONNECT_TLS_AUTH_DIAGNOSTICS_ADR_PATH,
+        diagnostics_adr,
+    )
     assert diagnostics_adr.count(
         DEV_TLS_HANDSHAKE_FAILURE_CATEGORY_CONSUMED_GATE.casefold()
     ) == 1
@@ -2987,6 +3047,7 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
     assert plan["next_stage_authorized"] is False
     assert plan["next_gate"] == DEV_CONNECT_TLS_AUTH_PLAN_REVIEW_GATE
     assert plan["next_gate"] != DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE
+    assert plan["next_gate"] != OFFLINE_AGENT_FOUNDATION_BATCH_CONSUMED_GATE
     assert plan["next_gate"] != DEV_CONNECT_TLS_AUTH_CONSUMED_EXECUTION_GATE
     assert plan["next_gate"] != DEV_TLS_HANDSHAKE_FAILURE_CATEGORY_CONSUMED_GATE
     assert plan["historical_result"]["precise_timestamp_preserved"] is False
@@ -3033,15 +3094,13 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
     for path, expected_sha256 in technical_files.items():
         assert hashlib.sha256(path.read_bytes()).hexdigest() == expected_sha256
 
-    readme = _normalized_prose(
-        (REPO_ROOT / "backend" / "migrations" / "README.md").read_text(
-            encoding="utf-8"
-        )
-    )
+    readme_path = REPO_ROOT / "backend" / "migrations" / "README.md"
+    readme = _normalized_prose(readme_path.read_text(encoding="utf-8"))
     assert DEV_CONNECT_TLS_AUTH_PLAN_REVIEW_GATE.casefold() in readme
     assert "conserva como evidencia historica" in readme
     assert "consumido pela pr #346" in readme
     assert "nao e um segundo gate corrente" in readme
+    assert OFFLINE_AGENT_FOUNDATION_BATCH_CONSUMED_GATE.casefold() in readme
     assert DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold() in readme
     assert DEV_CONNECT_TLS_AUTH_CONSUMED_EXECUTION_GATE.casefold() in readme
     assert "pr #348" in readme
@@ -3065,7 +3124,9 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
     )
     assert not readme_missing, f"migration README reconciliation missing: {readme_missing}"
     assert readme.count(DEV_CONNECT_TLS_AUTH_PLAN_REVIEW_GATE.casefold()) == 1
+    assert readme.count(OFFLINE_AGENT_FOUNDATION_BATCH_CONSUMED_GATE.casefold()) == 1
     assert readme.count(DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold()) == 1
+    _assert_reconciled_d3_gate(readme_path, readme)
     assert readme.count(DEV_CONNECT_TLS_AUTH_CONSUMED_EXECUTION_GATE.casefold()) == 1
     assert readme.count(
         DEV_TLS_HANDSHAKE_FAILURE_CATEGORY_CONSUMED_GATE.casefold()

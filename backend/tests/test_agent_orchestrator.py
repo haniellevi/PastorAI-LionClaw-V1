@@ -131,7 +131,7 @@ def test_handoff_suppresses_automatic_reply() -> None:
 def test_optout_turn_flags_persistence_and_replies_once() -> None:
     final = _turn(_state(texto="quero sair da lista"))
     assert final["route"] == ROUTE_OPTOUT
-    assert final["apply_optout"] is True
+    assert final["turn_effects"]["apply_optout"] is True
     assert isinstance(final["response"], str)
 
 
@@ -141,7 +141,7 @@ def test_consent_acceptance_flags_version_to_persist() -> None:
         _context(accepted_version=None, current_version="v2"),
     )
     assert final["route"] == ROUTE_CONSENT
-    assert final["apply_consent_version"] == "v2"
+    assert final["turn_effects"]["apply_consent_version"] == "v2"
 
 
 def test_aggregate_report_decision_emits_no_individual_tool_call() -> None:
@@ -150,7 +150,9 @@ def test_aggregate_report_decision_emits_no_individual_tool_call() -> None:
         _context(roles=frozenset({"pastor"})),
     )
     assert final["route"] == ROUTE_REPORT
-    names = [c["ferramenta"] for c in final.get("tool_calls", [])]
+    names = [
+        c["ferramenta"] for c in final["turn_effects"]["tool_calls"]
+    ]
     assert "registrar_decisao" not in names
     assert "Relatório recebido" in final["response"]
     assert "confirmação humana" in final["response"]
@@ -161,7 +163,9 @@ def test_report_decision_from_non_ministerial_emits_no_tool() -> None:
     # #10b Fase 2: contato comum não vira report nem emite registrar_decisao.
     final = _turn(_state(texto="Relatório: 5 presentes, 1 decisão"))
     assert final["route"] == ROUTE_ONBOARDING
-    names = [c["ferramenta"] for c in final.get("tool_calls", [])]
+    names = [
+        c["ferramenta"] for c in final["turn_effects"]["tool_calls"]
+    ]
     assert "registrar_decisao" not in names
 
 
@@ -196,9 +200,10 @@ def test_onboarding_flags_csim_and_closes_politely() -> None:
         )
     )
     assert final["route"] == ROUTE_ONBOARDING
-    assert final["intake_update"]["sem_interesse"] is True
-    assert final["intake_update"]["sem_interesse_motivo"] == "comercial/empresa"
-    ev = [e for e in final["events"] if e["evento"] == "onboarding"]
+    effects = final["turn_effects"]
+    assert effects["intake_update"]["sem_interesse"] is True
+    assert effects["intake_update"]["sem_interesse_motivo"] == "comercial/empresa"
+    ev = [e for e in effects["events"] if e["evento"] == "onboarding"]
     assert ev and ev[0]["payload"]["classificacao"] == "csim"
 
 
@@ -212,8 +217,8 @@ def test_onboarding_does_not_promote_on_attendance_claim() -> None:
         )
     )
     assert final["route"] == ROUTE_ONBOARDING
-    assert "subetapa" not in final["intake_update"]
-    assert "sem_interesse" not in final["intake_update"]
+    assert "subetapa" not in final["turn_effects"]["intake_update"]
+    assert "sem_interesse" not in final["turn_effects"]["intake_update"]
 
 
 # ---- Saudação nominal no onboarding (M7B-W1) ------------------------------
@@ -276,7 +281,7 @@ def test_onboarding_preserves_intake_basics_when_flagging_csim() -> None:
             },
         )
     )
-    upd = final["intake_update"]
+    upd = final["turn_effects"]["intake_update"]
     assert upd["origem"] == "whatsapp"
     assert upd["set_primeiro_contato"] is True
     assert upd["sem_interesse"] is True

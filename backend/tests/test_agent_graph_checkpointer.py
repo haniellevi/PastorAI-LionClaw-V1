@@ -55,6 +55,7 @@ def test_compiled_graph_does_not_instantiate_or_retain_memory_saver(
     graph = get_compiled_graph()
 
     assert graph.checkpointer is None
+    assert graph.store is None
 
 
 def test_stateless_graph_executes_independent_conversations_without_thread_config() -> None:
@@ -73,6 +74,8 @@ def test_stateless_graph_executes_independent_conversations_without_thread_confi
     forbidden = {"conversation_id", "pessoa_id", "igreja_id", "privilege"}
     assert forbidden.isdisjoint(first)
     assert forbidden.isdisjoint(second)
+    assert set(first) == {"route", "response", "turn_effects"}
+    assert set(second) == {"route", "response", "turn_effects"}
 
 
 def test_configured_checkpoint_url_warns_instead_of_claiming_durability(
@@ -88,4 +91,5 @@ def test_configured_checkpoint_url_warns_instead_of_claiming_durability(
     graph = get_compiled_graph()
 
     assert graph.checkpointer is None
+    assert graph.store is None
     assert "running without checkpoint persistence" in caplog.text
