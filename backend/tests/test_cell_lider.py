@@ -34,6 +34,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
+from pydantic import ValidationError
 from sqlalchemy.sql import operators
 
 from app.db.models import (
@@ -50,6 +51,7 @@ from app.db.models import (
 from app.db.session import get_db
 from app.deps import CurrentUser
 from app.domain.cell_report_snapshot import build_cell_report_snapshot_v2
+from app.routers.cell_meetings import SaveReportRequest
 from app.services.clerk import get_clerk_client
 from tests.conftest import FakeClerk, make_app_user
 
@@ -967,6 +969,10 @@ def test_save_report_keeps_pending(app) -> None:
     "payload",
     [
         {"oferta_valor": -1},
+        {"oferta_valor": -0.0},
+        {"oferta_valor": 1.001},
+        {"oferta_valor": True},
+        {"oferta_valor": "1.00"},
         {"oferta_valor": 1000000},
         {"observacoes": "x" * 2001},
     ],
@@ -986,6 +992,12 @@ def test_save_report_accepts_boundaries(app) -> None:
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["oferta_valor"] == 999999.99
+
+
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf")])
+def test_save_report_model_rejects_non_finite_amounts(value) -> None:
+    with pytest.raises(ValidationError):
+        SaveReportRequest.model_validate({"oferta_valor": value})
 
 
 def test_save_report_404_other_leader(app) -> None:

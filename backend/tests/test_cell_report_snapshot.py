@@ -105,7 +105,7 @@ def test_money_rejects_oversized_prebuilt_decimal_coefficient() -> None:
     )
 
 
-def test_money_matches_numeric_12_2_database_boundary() -> None:
+def test_money_matches_domain_e2_boundary() -> None:
     assert (
         _snapshot(oferta_valor="999999.99")["oferta_valor"]
         == "999999.99"

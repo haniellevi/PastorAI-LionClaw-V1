@@ -21,6 +21,7 @@ import datetime as dt
 import logging
 import re
 import uuid
+from decimal import Decimal, InvalidOperation
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -850,14 +851,28 @@ class SaveReportRequest(BaseModel):
     oferta_valor: float | None = None
     observacoes: str | None = None
 
-    @field_validator("oferta_valor")
+    @field_validator("oferta_valor", mode="before")
     @classmethod
-    def _oferta(cls, value: float | None) -> float | None:
+    def _oferta(cls, value: object) -> float | None:
         if value is None:
             return None
-        if value < _OFERTA_MIN or value > _OFERTA_MAX:
+        if type(value) not in {int, float}:
+            raise ValueError("oferta_valor deve ser um número em centavos exatos")
+        try:
+            amount = Decimal(str(value))
+        except (InvalidOperation, ValueError):
+            raise ValueError(
+                "oferta_valor deve ser um número em centavos exatos"
+            ) from None
+        if (
+            not amount.is_finite()
+            or amount < _OFERTA_MIN
+            or amount > Decimal(MAX_CELL_REPORT_OFFERING_DECIMAL_TEXT)
+            or amount.as_tuple().exponent < -2
+            or (amount.is_zero() and amount.is_signed())
+        ):
             raise ValueError("oferta_valor deve estar entre 0 e 999999.99")
-        return value
+        return float(amount)
 
     @field_validator("observacoes")
     @classmethod

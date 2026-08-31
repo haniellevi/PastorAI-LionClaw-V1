@@ -170,7 +170,7 @@ def test_decimal_context_mutation_cannot_change_amount_or_digests() -> None:
     assert mutated.confirmation_code == baseline.confirmation_code
 
 
-def test_offering_matches_numeric_12_2_boundary() -> None:
+def test_offering_matches_domain_e2_boundary() -> None:
     boundary = build_cell_report_candidate(oferta="999999.99")
     assert boundary.oferta == "999999.99"
 
