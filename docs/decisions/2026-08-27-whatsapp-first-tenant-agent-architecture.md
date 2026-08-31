@@ -233,6 +233,54 @@ não prova saúde funcional, backend, banco, saver, migration, memória ativa,
 deploy do backend, flag ou runtime. A classificação pós-merge permanece
 `PREPARAÇÃO D3 INTEGRADA E INATIVA`.
 
+### Preparação D3 offline: identidade estável e intenções determinísticas
+
+Sobre o merge integrado `6c807717010a41edf3bfd3d1b2405c2f3527a696`, o
+commit técnico local `14b3d7ba15e88032cd53714008d36badd4578e80`
+adiciona um contrato puro e ainda inativo. `AgentTurnIdentity` vincula os UUIDs
+não nulos de `igreja_id`, `conversation_id` e da mensagem inbound já persistida
+ao provedor fechado `evolution` e ao `provider_message_id` exato. A derivação
+usa domínio, versão e enquadramento binário por comprimento para produzir um
+`turn_id` estável. `claim_id` fica deliberadamente fora dos campos e do hash.
+
+`AgentEffectIntent` separa a identidade do efeito de seu conteúdo. O
+`effect_id` deriva do turno, do slot semântico versionado e de um `ordinal`
+estável; o `payload_digest` vincula separadamente o efeito, o tipo e o JSON
+canônico limitado. Os tipos mínimos são `intake_update`, `apply_optout`,
+`apply_consent`, `tool_call`, `audit_event` e `outbound_reply`. O `ordinal`
+deverá vir de um plano futuro, determinístico e persistido, nunca do modelo, da
+ordem transitória de uma lista, de retry ou de índice em memória.
+
+A validação recebe a identidade esperada de uma fonte confiável, limita o
+turno a 256 intenções e rejeita outro turno, slot duplicado, conflito de
+payload e colisão estrutural. O JSON canônico aceita somente valores JSON
+exatos, com limites explícitos de profundidade, nós, inteiros, strings e bytes.
+Erros e `repr` expõem somente códigos estáticos, mas o objeto ainda contém IDs
+brutos: essa proteção não autoriza log, `asdict` ou serialização. Os hashes são
+namespaces determinísticos, não autenticadores, segredo ou autoridade de
+tenant. O validador de `provider_message_id` é mais estrito que o ingresso
+vivo; qualquer wiring futuro exige inventário e preflight de compatibilidade.
+
+O freeze exclusivamente offline vincula:
+
+- `backend/app/agent/turn_identity.py`, SHA-256
+  `c0c3790cf05f38f0531876ba7171a8c456dd4ee911e3c56cb21900eccc0b7248`;
+- `backend/tests/test_agent_turn_identity.py`, SHA-256
+  `7353b26d22574af132596f7b139b3ea290aacafb32a0e76d08530009eb874344`.
+
+A focal terminou em `104/104`, e `tests/test_agent*.py` terminou em
+`376 passed, 7 skipped`. A evidência é local e pré-PR. O módulo não está
+importado nem conectado ao webhook, worker, runtime, banco ou LangGraph. Não há
+recibo durável, plano persistido de efeitos, saver, migration, retomada ou
+replay seguro nem idempotência operacional; `outbound_reply` não substitui o
+ledger vivo. No runtime atual, `Message.id` ainda não é propagado à entrada do
+grafo; `claim_id`, a reply key e o lease existentes não serializam a conversa;
+o caminho legacy continua presente; e não existem receipts duráveis, ordenação
+persistida ou fronteira atômica entre efeitos. Esses pontos bloqueiam o wiring
+futuro, sem constituir defeitos do contrato puro offline. A classificação é
+`CONTRATO D3 DE IDENTIDADE CONGELADO OFFLINE / CANDIDATO NÃO INTEGRADO /
+RUNTIME BLOQUEADO`.
+
 
 
 ## Configuração e ativação

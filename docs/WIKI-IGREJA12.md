@@ -47,7 +47,7 @@ qualquer expansão do canário.
 | V1 | `IMPLEMENTADO` | Preservar o encerramento e tratar a visão ampla como nova fase |
 | Agente e Evolution | `PARCIAL / GATE OPERACIONAL` | Corrigir memória, conhecimento e qualidade antes de novo canário |
 | Canário ativo | `PASS TÉCNICO / QUALIDADE INSUFICIENTE` | Avaliação conversacional humana após a nova fundação |
-| LangGraph | `IMPLEMENTADO STATELESS / D2B1 INTEGRADA / PREPARAÇÃO D3 OFFLINE` | Projetar estado persistível, idempotência, saver privado, retenção e exclusão antes de ativar memória |
+| LangGraph | `IMPLEMENTADO STATELESS / D2B1 INTEGRADA / PREPARAÇÃO D3 INTEGRADA / IDENTIDADE D3 CANDIDATA OFFLINE` | Revisar a identidade estável e, depois, projetar plano persistido, recibos, saver privado, retenção e exclusão antes de ativar memória |
 | Consentimento | `PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR INTEGRADOS / ARTEFATOS VERSIONADOS / REVISÃO INDEPENDENTE BLOQUEADA CONCLUÍDA / DECISÃO OWNER-01 REGISTRADA / MANIFESTO DE FONTE CRIADO / REVISÃO TÉCNICA CONCLUÍDA / REVISÃO INDEPENDENTE DO MANIFESTO PENDENTE / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | O manifesto descreve somente a fonte versionada; revisão independente, atestação posterior, implementação, runner, Supabase e D2C permanecem bloqueados |
 | Conhecimento por igreja | `AUSENTE` | Ingestão aprovada, ACL, busca e ferramentas de dados vivos |
 | Relatório por WhatsApp | `PARCIAL` | Confirmar e gravar no relatório canônico |
@@ -100,6 +100,12 @@ turno. Essa contenção reduz o risco de replay acidental, mas não preserva
 histórico, não retoma execução e não ativa memória. O fallback automático para
 o caminho direto só permanece disponível quando checkpointer e store estão
 comprovadamente ausentes.
+
+O candidato local seguinte adiciona `AgentTurnIdentity` e
+`AgentEffectIntent` como contrato puro para estabilizar o turno e nomear
+intenções com identidade determinística. Ele ainda não está importado pelo
+runtime, não implementa idempotência operacional e não torna o grafo retomável
+ou seguro para replay.
 
 Mensagens ficam registradas e áudio pode ser armazenado, mas não foi encontrada
 transcrição operacional. O parser de relatório produz um evento de auditoria e
@@ -873,6 +879,33 @@ saúde funcional, backend, banco, saver, migration, memória ativa, deploy do
 backend, flag ou runtime. O estado permanece `PREPARAÇÃO D3 INTEGRADA E
 INATIVA`.
 
+Sobre esse merge, o commit técnico local
+`14b3d7ba15e88032cd53714008d36badd4578e80` congela exclusivamente offline o
+contrato puro `AgentTurnIdentity` e `AgentEffectIntent`. A identidade vincula
+`igreja_id`, conversa, mensagem inbound persistida, provedor Evolution e ID do
+provedor exato; `claim_id` não participa. O `effect_id` deriva do turno, do
+slot semântico versionado e de um ordinal estável, enquanto um digest separado
+vincula o payload JSON canônico. O ordinal ainda exige um futuro plano
+determinístico e persistido, e a validação recebe a identidade esperada de uma
+fonte confiável.
+
+O freeze vincula `backend/app/agent/turn_identity.py`, SHA-256
+`c0c3790cf05f38f0531876ba7171a8c456dd4ee911e3c56cb21900eccc0b7248`, e
+`backend/tests/test_agent_turn_identity.py`, SHA-256
+`7353b26d22574af132596f7b139b3ea290aacafb32a0e76d08530009eb874344`.
+A focal terminou em `104/104`, e `tests/test_agent*.py` terminou em
+`376 passed, 7 skipped`. Essa evidência é local e pré-PR. Os hashes não são
+autenticadores ou autoridade de tenant, e a proteção de `repr` não torna os
+IDs brutos seguros para log ou serialização. Não há import ou conexão com
+webhook, worker, runtime, banco ou LangGraph. Saver, migration, recibos
+duráveis, store, plano persistido, retomada, replay seguro e idempotência
+operacional continuam bloqueados. No runtime atual, `Message.id` ainda não é
+propagado à entrada do grafo; `claim_id`, a reply key e o lease não serializam
+a conversa; o caminho legacy continua presente; e receipts duráveis, ordenação
+persistida e fronteira atômica entre efeitos não existem. São bloqueadores do
+wiring futuro, não defeitos do contrato puro. Estado: `CONTRATO D3 DE IDENTIDADE CONGELADO
+OFFLINE / CANDIDATO NÃO INTEGRADO / RUNTIME BLOQUEADO`.
+
 
 
 O gate histórico `REVIEW_AND_CI_OFFLINE_AGENT_FOUNDATION_BATCH_PR` foi consumido
@@ -890,7 +923,8 @@ não é um segundo gate corrente.
 `REVIEW_AND_CI_D3_TURN_IDENTITY_OFFLINE_PR`. O nome não constitui autorização
 já concedida. Seu consumo exige autorização humana posterior e separada que
 nomeie push, abertura da PR e GitHub CI e aceite o Vercel Preview automático.
-A próxima fatia permanece exclusivamente offline e limita-se à identidade
-estável de mensagem e turno e ao contrato de idempotência. Este gate não
+A fatia candidata permanece exclusivamente offline e limita-se à identidade
+estável de mensagem e turno e à fundação determinística para o futuro contrato
+de idempotência. Este gate não
 autoriza merge, Vercel Production, saver, probe vivo, acesso a DEV ou PROD,
 banco, logs, SQL, DML, migration, deploy, flag, runtime ou execução externa.

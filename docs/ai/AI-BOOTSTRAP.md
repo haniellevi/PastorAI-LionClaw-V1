@@ -40,7 +40,7 @@ externas com contratos e gates próprios.
 | Produto WhatsApp-first | `PARCIAL` | A visão está aprovada; memória, conhecimento e ações profundas ainda faltam |
 | Agente Evolution | `PARCIAL / GATE OPERACIONAL` | Fundação, identidade e contenção existem; qualidade conversacional é insuficiente |
 | Canário ativo do agente | `PASS TÉCNICO / QUALIDADE INSUFICIENTE` | Evidência operacional reconciliada nesta missão, não prova previamente versionada em `ad4a272` |
-| LangGraph | `IMPLEMENTADO STATELESS` | Grafo único e fallback determinístico, sem checkpoint durável |
+| LangGraph | `IMPLEMENTADO STATELESS / PREPARAÇÃO D3 INTEGRADA / IDENTIDADE D3 CANDIDATA OFFLINE` | Grafo único e fallback determinístico, sem checkpoint durável; identidade de turno e intenções com identidade determinística ainda não estão conectadas ao runtime |
 | Conhecimento institucional | `AUSENTE` | Não existe RAG com documentos aprovados nem consulta institucional ampla |
 | Governança de consentimento | `D2B2B3A INTEGRADA / DRAFT-ONLY INATIVA` | A superfície de rascunhos por igreja está integrada no código; o Master não pode decidir hipótese jurídica, atestar, aprovar ou registrar papéis nominais; esta missão não aplicou schema em banco compartilhado nem ativou backend ou runtime compartilhado, mas consultou metadados de DEV e PROD em modo somente leitura, sem mutação, e o merge gerou deployment automático do frontend Vercel Production |
 | Relatório de célula por WhatsApp | `PARCIAL` | O parser registra evento, mas não envia o relatório canônico |
@@ -725,6 +725,34 @@ saúde funcional, backend, banco, saver, migration, memória ativa, deploy do
 backend, flag ou runtime. O estado permanece `PREPARAÇÃO D3 INTEGRADA E
 INATIVA`.
 
+Sobre esse merge, o commit técnico local
+`14b3d7ba15e88032cd53714008d36badd4578e80` congela exclusivamente offline o
+contrato puro `AgentTurnIdentity` e `AgentEffectIntent`. A identidade vincula
+`igreja_id`, conversa, mensagem inbound persistida, provedor Evolution e ID do
+provedor exato; `claim_id` não participa. O `effect_id` deriva do turno, do
+slot semântico versionado e de um ordinal estável, enquanto um digest separado
+vincula o payload JSON canônico. O ordinal ainda exige um futuro plano
+determinístico e persistido, e a coleção é validada contra a identidade
+esperada de uma fonte confiável.
+
+O freeze vincula `backend/app/agent/turn_identity.py`, SHA-256
+`c0c3790cf05f38f0531876ba7171a8c456dd4ee911e3c56cb21900eccc0b7248`, e
+`backend/tests/test_agent_turn_identity.py`, SHA-256
+`7353b26d22574af132596f7b139b3ea290aacafb32a0e76d08530009eb874344`.
+A focal terminou em `104/104`, e `tests/test_agent*.py` terminou em
+`376 passed, 7 skipped`. Essa evidência é local e pré-PR. Os hashes não são
+autenticadores ou autoridade de tenant, e a proteção de `repr` não torna os
+IDs brutos seguros para log ou serialização. Não há import ou conexão com
+webhook, worker, runtime, banco ou LangGraph. Saver,
+migration, recibos duráveis, store, plano persistido, retomada, replay seguro e
+idempotência operacional continuam bloqueados. No runtime atual, `Message.id`
+ainda não é propagado à entrada do grafo; `claim_id`, a reply key e o lease não
+serializam a conversa; o caminho legacy continua presente; e receipts duráveis,
+ordenação persistida e fronteira atômica entre efeitos não existem. São
+bloqueadores do wiring futuro, não defeitos do contrato puro. Estado:
+`CONTRATO D3 DE IDENTIDADE CONGELADO OFFLINE /
+CANDIDATO NÃO INTEGRADO / RUNTIME BLOQUEADO`.
+
 O gate histórico `REVIEW_AND_CI_OFFLINE_AGENT_FOUNDATION_BATCH_PR` foi consumido
 pelo push, abertura, CI e Preview da PR #351. Ele não autorizou o merge
 posterior, permanece somente como evidência histórica e não é um segundo gate
@@ -740,8 +768,9 @@ não é um segundo gate corrente.
 `REVIEW_AND_CI_D3_TURN_IDENTITY_OFFLINE_PR`. O nome não constitui autorização
 já concedida. Seu consumo exige autorização humana posterior e separada que
 nomeie push, abertura da PR e GitHub CI e aceite o Vercel Preview automático.
-A próxima fatia permanece exclusivamente offline e limita-se à identidade
-estável de mensagem e turno e ao contrato de idempotência. Este gate não
+A fatia candidata permanece exclusivamente offline e limita-se à identidade
+estável de mensagem e turno e à fundação determinística para o futuro contrato
+de idempotência. Este gate não
 autoriza merge, Vercel Production, saver, probe vivo, acesso a DEV ou PROD,
 banco, logs, SQL, DML, migration, deploy, flag, runtime ou execução externa.
 

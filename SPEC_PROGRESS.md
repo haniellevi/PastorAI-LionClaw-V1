@@ -609,6 +609,33 @@ saude funcional, backend, banco, saver, migration, memoria ativa, deploy do
 backend, flag ou runtime. O estado permanece `PREPARACAO D3 INTEGRADA E
 INATIVA`.
 
+Sobre esse merge, o commit tecnico local
+`14b3d7ba15e88032cd53714008d36badd4578e80` congela exclusivamente offline o
+contrato puro `AgentTurnIdentity` e `AgentEffectIntent`. A identidade vincula
+`igreja_id`, conversa, mensagem inbound persistida, provedor Evolution e ID do
+provedor exato; `claim_id` nao participa. O `effect_id` deriva do turno, do
+slot semantico versionado e de um ordinal estavel, enquanto um digest separado
+vincula o payload JSON canonico. O ordinal ainda exige um futuro plano
+deterministico e persistido, e a validacao recebe a identidade esperada de uma
+fonte confiavel.
+
+O freeze vincula `backend/app/agent/turn_identity.py`, SHA-256
+`c0c3790cf05f38f0531876ba7171a8c456dd4ee911e3c56cb21900eccc0b7248`, e
+`backend/tests/test_agent_turn_identity.py`, SHA-256
+`7353b26d22574af132596f7b139b3ea290aacafb32a0e76d08530009eb874344`.
+A focal terminou em `104/104`, e `tests/test_agent*.py` terminou em
+`376 passed, 7 skipped`. Essa evidencia e local e pre-PR. Os hashes nao sao
+autenticadores ou autoridade de tenant, e a protecao de `repr` nao torna os IDs
+brutos seguros para log ou serializacao. Nao ha import ou conexao com webhook,
+worker, runtime, banco ou LangGraph. Saver, migration, recibos duraveis, store,
+plano persistido, retomada, replay seguro e idempotencia operacional continuam
+bloqueados. No runtime atual, `Message.id` ainda nao e propagado a entrada do
+grafo; `claim_id`, a reply key e o lease nao serializam a conversa; o caminho
+legacy continua presente; e receipts duraveis, ordenacao persistida e fronteira
+atomica entre efeitos nao existem. Sao bloqueadores do wiring futuro, nao
+defeitos do contrato puro. Estado: `CONTRATO D3 DE IDENTIDADE CONGELADO OFFLINE / CANDIDATO
+NAO INTEGRADO / RUNTIME BLOQUEADO`.
+
 O gate historico `REVIEW_AND_CI_OFFLINE_AGENT_FOUNDATION_BATCH_PR` foi consumido
 pelo push, abertura, CI e Preview da PR #351. Ele nao autorizou o merge
 posterior, permanece somente como evidencia historica e nao e um segundo gate
@@ -624,8 +651,9 @@ nao e um segundo gate corrente.
 `REVIEW_AND_CI_D3_TURN_IDENTITY_OFFLINE_PR`. O nome nao constitui autorizacao
 ja concedida. Seu consumo exige autorizacao humana posterior e separada que
 nomeie push, abertura da PR e GitHub CI e aceite o Vercel Preview automatico.
-A proxima fatia permanece exclusivamente offline e limita-se a identidade
-estavel de mensagem e turno e ao contrato de idempotencia. Este gate nao
+A fatia candidata permanece exclusivamente offline e limita-se a identidade
+estavel de mensagem e turno e a fundacao deterministica para o futuro contrato
+de idempotencia. Este gate nao
 autoriza merge, Vercel Production, saver, probe vivo, acesso a DEV ou PROD,
 banco, logs, SQL, DML, migration, deploy, flag, runtime ou execucao externa.
 

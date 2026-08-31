@@ -494,7 +494,7 @@ def _assert_reconciled_d3_gate(path: Path, normalized: str) -> None:
         "autorizacao humana posterior e separada",
         "nomeie push, abertura da pr e github ci",
         "aceite o vercel preview automatico",
-        "proxima fatia permanece exclusivamente offline",
+        "permanece exclusivamente offline",
         "identidade estavel de mensagem e turno",
         "contrato de idempotencia",
         "este gate nao autoriza merge, vercel production, saver",
@@ -2754,7 +2754,7 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
         "recommendation_only_not_approved",
         "comprova somente o desenho offline",
         OFFLINE_AGENT_FOUNDATION_BATCH_CONSUMED_GATE.casefold(),
-        "proxima fatia permanece exclusivamente offline",
+        "permanece exclusivamente offline",
         "nao autoriza merge",
         "acesso a dev ou prod",
     }
@@ -3251,6 +3251,186 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
         ),
     }
     for path, expected_sha256 in historical_artifacts.items():
+        assert hashlib.sha256(path.read_bytes()).hexdigest() == expected_sha256
+
+
+def test_d3_turn_identity_offline_candidate_preserves_runtime_gate() -> None:
+    technical_commit = "14b3d7ba15e88032cd53714008d36badd4578e80"
+    implementation_sha256 = (
+        "c0c3790cf05f38f0531876ba7171a8c456dd4ee911e3c56cb21900eccc0b7248"
+    )
+    test_sha256 = (
+        "7353b26d22574af132596f7b139b3ea290aacafb32a0e76d08530009eb874344"
+    )
+    required = {
+        technical_commit,
+        "contrato puro `agentturnidentity` e `agenteffectintent`",
+        "mensagem inbound persistida",
+        "provedor evolution",
+        "id do provedor exato",
+        "`claim_id` nao participa",
+        "`effect_id` deriva do turno",
+        "slot semantico versionado",
+        "ordinal estavel",
+        "digest separado",
+        "payload json canonico",
+        "futuro plano deterministico e persistido",
+        "identidade esperada de uma fonte confiavel",
+        "backend/app/agent/turn_identity.py",
+        implementation_sha256,
+        "backend/tests/test_agent_turn_identity.py",
+        test_sha256,
+        "104/104",
+        "376 passed, 7 skipped",
+        "evidencia e local e pre-pr",
+        "hashes nao sao autenticadores ou autoridade de tenant",
+        (
+            "protecao de `repr` nao torna os ids brutos seguros para log ou "
+            "serializacao"
+        ),
+        (
+            "nao ha import ou conexao com webhook, worker, runtime, banco ou "
+            "langgraph"
+        ),
+        (
+            "saver, migration, recibos duraveis, store, plano persistido, "
+            "retomada, replay seguro e idempotencia operacional continuam "
+            "bloqueados"
+        ),
+        "no runtime atual, `message.id` ainda nao e propagado a entrada do grafo",
+        "`claim_id`, a reply key e o lease nao serializam a conversa",
+        "caminho legacy continua presente",
+        (
+            "receipts duraveis, ordenacao persistida e fronteira atomica "
+            "entre efeitos nao existem"
+        ),
+        "sao bloqueadores do wiring futuro, nao defeitos do contrato puro",
+        (
+            "contrato d3 de identidade congelado offline / candidato nao "
+            "integrado / runtime bloqueado"
+        ),
+        "a fatia candidata permanece exclusivamente offline",
+        "fundacao deterministica para o futuro contrato de idempotencia",
+    }
+    stale_claims = {
+        "pr #353",
+        "contrato d3 de identidade integrado",
+        "idempotencia operacional implementada",
+        "runtime conectado",
+        "ci da fatia candidata concluiu",
+        "deployment da fatia candidata",
+    }
+
+    for path in DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CANONICAL_DOCS:
+        normalized = _normalized_prose(path.read_text(encoding="utf-8"))
+        missing = sorted(item for item in required if item not in normalized)
+        assert not missing, f"D3 turn identity freeze missing in {path}: {missing}"
+        for stale_claim in stale_claims:
+            assert stale_claim not in normalized
+        assert normalized.count(technical_commit) == 1
+        assert normalized.count(implementation_sha256) == 1
+        assert normalized.count(test_sha256) == 1
+        assert normalized.count(
+            D3_EPHEMERAL_EFFECT_STATE_CONSUMED_GATE.casefold()
+        ) == 1
+        assert normalized.count(
+            DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold()
+        ) == 1
+        assert normalized.index("pr #352") < normalized.index(technical_commit)
+        assert normalized.index(technical_commit) < normalized.index(
+            D3_EPHEMERAL_EFFECT_STATE_CONSUMED_GATE.casefold()
+        )
+        assert normalized.index(
+            D3_EPHEMERAL_EFFECT_STATE_CONSUMED_GATE.casefold()
+        ) < normalized.index(
+            DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold()
+        )
+
+    architecture = _normalized_prose(
+        WHATSAPP_FIRST_AGENT_ARCHITECTURE_ADR_PATH.read_text(encoding="utf-8")
+    )
+    architecture_required = {
+        technical_commit,
+        "backend/app/agent/turn_identity.py",
+        implementation_sha256,
+        "backend/tests/test_agent_turn_identity.py",
+        test_sha256,
+        "104/104",
+        "376 passed, 7 skipped",
+        "evidencia e local e pre-pr",
+        (
+            "contrato d3 de identidade congelado offline / candidato nao "
+            "integrado / runtime bloqueado"
+        ),
+        "preparacao d3 offline: identidade estavel e intencoes deterministicas",
+        "agentturnidentity` vincula os uuids nao nulos",
+        "mensagem inbound ja persistida",
+        "provedor fechado `evolution`",
+        "`provider_message_id` exato",
+        "enquadramento binario por comprimento",
+        "`claim_id` fica deliberadamente fora dos campos e do hash",
+        "agenteffectintent` separa a identidade do efeito de seu conteudo",
+        "`effect_id` deriva do turno",
+        "slot semantico versionado",
+        (
+            "`payload_digest` vincula separadamente o efeito, o tipo e o json "
+            "canonico limitado"
+        ),
+        "`ordinal` devera vir de um plano futuro, deterministico e persistido",
+        "intake_update",
+        "apply_optout",
+        "apply_consent",
+        "tool_call",
+        "audit_event",
+        "outbound_reply",
+        "limita o turno a 256 intencoes",
+        "identidade esperada de uma fonte confiavel",
+        (
+            "namespaces deterministicos, nao autenticadores, segredo ou "
+            "autoridade de tenant"
+        ),
+        "validador de `provider_message_id` e mais estrito que o ingresso vivo",
+        (
+            "modulo nao esta importado nem conectado ao webhook, worker, "
+            "runtime, banco ou langgraph"
+        ),
+        (
+            "nao ha recibo duravel, plano persistido de efeitos, saver, "
+            "migration, retomada ou replay seguro nem idempotencia operacional"
+        ),
+        "no runtime atual, `message.id` ainda nao e propagado a entrada do grafo",
+        (
+            "`claim_id`, a reply key e o lease existentes nao serializam a "
+            "conversa"
+        ),
+        "caminho legacy continua presente",
+        (
+            "nao existem receipts duraveis, ordenacao persistida ou fronteira "
+            "atomica entre efeitos"
+        ),
+        (
+            "esses pontos bloqueiam o wiring futuro, sem constituir defeitos "
+            "do contrato puro offline"
+        ),
+    }
+    architecture_missing = sorted(
+        item for item in architecture_required if item not in architecture
+    )
+    assert not architecture_missing, (
+        f"D3 turn identity architecture missing: {architecture_missing}"
+    )
+    for stale_claim in stale_claims:
+        assert stale_claim not in architecture
+
+    technical_files = {
+        REPO_ROOT / "backend" / "app" / "agent" / "turn_identity.py": (
+            implementation_sha256
+        ),
+        REPO_ROOT / "backend" / "tests" / "test_agent_turn_identity.py": (
+            test_sha256
+        ),
+    }
+    for path, expected_sha256 in technical_files.items():
         assert hashlib.sha256(path.read_bytes()).hexdigest() == expected_sha256
 
 

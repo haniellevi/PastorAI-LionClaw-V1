@@ -35,7 +35,7 @@ significa ativa em produção.
 | Pessoas e responsabilidades | `PARCIAL FORTE` | cadastro, papéis, vínculos, fila e escopos existentes | Fechar responsabilidades temporais, owner operacional e composição por setor |
 | Conexão WhatsApp | `IMPLEMENTADO / GATE OPERACIONAL` | Evolution, conexão por igreja, webhook e filas | Monitorar recibos, reconnect e capacidade antes de cada canário |
 | Conversas e handoff | `IMPLEMENTADO` | histórico, inbox, atribuição, transferência e estado IA/humano | Adicionar memória derivada, exclusão propagada e avaliação de naturalidade |
-| Fundação do agente | `IMPLEMENTADO / PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR INTEGRADOS / ARTEFATOS VERSIONADOS / REVISÃO INDEPENDENTE BLOQUEADA CONCLUÍDA / DECISÃO OWNER-01 REGISTRADA / MANIFESTO DE FONTE CRIADO / REVISÃO TÉCNICA CONCLUÍDA / REVISÃO INDEPENDENTE DO MANIFESTO PENDENTE / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | LangGraph stateless e contexto confiável D2B1 integrados; a preparação D3 offline separa entrada e saída, usa envelope de efeitos `UntrackedValue` por substituição e limita o fallback automático ao modo comprovadamente stateless | Revisão independente do manifesto; atestação posterior, implementação, runner, memória, conhecimento, D2 e operação permanecem bloqueados |
+| Fundação do agente | `IMPLEMENTADO / PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR INTEGRADOS / ARTEFATOS VERSIONADOS / REVISÃO INDEPENDENTE BLOQUEADA CONCLUÍDA / DECISÃO OWNER-01 REGISTRADA / MANIFESTO DE FONTE CRIADO / REVISÃO TÉCNICA CONCLUÍDA / REVISÃO INDEPENDENTE DO MANIFESTO PENDENTE / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA / IDENTIDADE D3 CANDIDATA OFFLINE` | LangGraph stateless e contexto confiável D2B1 integrados; a preparação D3 separa entrada e saída, usa `UntrackedValue`, e o candidato puro adiciona identidade estável de turno e intenções de efeito sem wiring | Revisão independente do manifesto; atestação posterior, saver, recibos duráveis, plano persistido, memória, conhecimento, D2 e operação permanecem bloqueados |
 | Isolamento da memória | `AUSENTE / FUNDAÇÃO D2A INTEGRADA` | Nenhum checkpointer durável instalado; o envelope `UntrackedValue` é efêmero e não constitui memória, checkpoint ou retomada | Tabelas com `igreja_id`, FORCE RLS, namespace server-side, exclusão e testes adversariais pertencem à D3 |
 | Conhecimento oficial | `AUSENTE` | Não há ingestão aprovada, embeddings ou recuperação institucional | Perfil da igreja, documentos versionados, audiência, RLS e busca híbrida |
 | Dados vivos como ferramentas | `PARCIAL` | Quatro ferramentas limitadas e queries determinísticas | Catálogo por especialista, capacidades e serviços compartilhados com o painel |
@@ -793,6 +793,34 @@ saúde funcional, backend, banco, saver, migration, memória ativa, deploy do
 backend, flag ou runtime. O estado permanece `PREPARAÇÃO D3 INTEGRADA E
 INATIVA`.
 
+Sobre esse merge, o commit técnico local
+`14b3d7ba15e88032cd53714008d36badd4578e80` congela exclusivamente offline o
+contrato puro `AgentTurnIdentity` e `AgentEffectIntent`. A identidade vincula
+`igreja_id`, conversa, mensagem inbound persistida, provedor Evolution e ID do
+provedor exato; `claim_id` não participa. O `effect_id` deriva do turno, do slot
+semântico versionado e de um ordinal estável, enquanto um digest separado
+vincula o payload JSON canônico. O ordinal ainda exige um futuro plano
+determinístico e persistido, e a validação recebe a identidade esperada de uma
+fonte confiável.
+
+O freeze vincula `backend/app/agent/turn_identity.py`, SHA-256
+`c0c3790cf05f38f0531876ba7171a8c456dd4ee911e3c56cb21900eccc0b7248`, e
+`backend/tests/test_agent_turn_identity.py`, SHA-256
+`7353b26d22574af132596f7b139b3ea290aacafb32a0e76d08530009eb874344`.
+A focal terminou em `104/104`, e `tests/test_agent*.py` terminou em
+`376 passed, 7 skipped`. Essa evidência é local e pré-PR. Os hashes não são
+autenticadores ou autoridade de tenant, e a proteção de `repr` não torna os
+IDs brutos seguros para log ou serialização. Não há
+import ou conexão com webhook, worker, runtime, banco ou LangGraph. Saver,
+migration, recibos duráveis, store, plano persistido, retomada, replay seguro e
+idempotência operacional continuam bloqueados. No runtime atual, `Message.id`
+ainda não é propagado à entrada do grafo; `claim_id`, a reply key e o lease não
+serializam a conversa; o caminho legacy continua presente; e receipts duráveis,
+ordenação persistida e fronteira atômica entre efeitos não existem. São
+bloqueadores do wiring futuro, não defeitos do contrato puro. Estado:
+`CONTRATO D3 DE IDENTIDADE CONGELADO OFFLINE /
+CANDIDATO NÃO INTEGRADO / RUNTIME BLOQUEADO`.
+
 O gate histórico `REVIEW_AND_CI_OFFLINE_AGENT_FOUNDATION_BATCH_PR` foi consumido
 pelo push, abertura, CI e Preview da PR #351. Ele não autorizou o merge
 posterior, permanece somente como evidência histórica e não é um segundo gate
@@ -808,8 +836,9 @@ não é um segundo gate corrente.
 `REVIEW_AND_CI_D3_TURN_IDENTITY_OFFLINE_PR`. O nome não constitui autorização
 já concedida. Seu consumo exige autorização humana posterior e separada que
 nomeie push, abertura da PR e GitHub CI e aceite o Vercel Preview automático.
-A próxima fatia permanece exclusivamente offline e limita-se à identidade
-estável de mensagem e turno e ao contrato de idempotência. Este gate não
+A fatia candidata permanece exclusivamente offline e limita-se à identidade
+estável de mensagem e turno e à fundação determinística para o futuro contrato
+de idempotência. Este gate não
 autoriza merge, Vercel Production, saver, probe vivo, acesso a DEV ou PROD,
 banco, logs, SQL, DML, migration, deploy, flag, runtime ou execução externa.
 
