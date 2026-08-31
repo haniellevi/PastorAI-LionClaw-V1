@@ -109,8 +109,11 @@ DEV_CONNECT_TLS_AUTH_PLAN_REVIEW_GATE = (
 DEV_CONNECT_TLS_AUTH_CONSUMED_EXECUTION_GATE = (
     "SEPARATE_NOMINAL_DEV_CONNECT_TLS_AUTH_TRANSPORT_PROBE_AUTHORIZATION"
 )
-DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE = (
+DEV_TLS_HANDSHAKE_FAILURE_CATEGORY_CONSUMED_GATE = (
     "REVIEW_AND_CI_DEV_TLS_HANDSHAKE_FAILURE_CATEGORY_PR"
+)
+DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE = (
+    "REVIEW_AND_CI_OFFLINE_AGENT_FOUNDATION_BATCH_PR"
 )
 DEV_PREFLIGHT_PHASE_DIAGNOSTICS_STALE_GATE = (
     "REVIEW_AND_INTEGRATE_DEV_PREFLIGHT_PHASE_DIAGNOSTICS_PR"
@@ -120,6 +123,7 @@ DEV_PREFLIGHT_PHASE_DIAGNOSTICS_STALE_CLAIMS = {
     DEV_CONNECT_TLS_AUTH_PLAN_REVIEW_GATE.casefold(),
     "review_and_ci_dev_connect_tls_auth_postmerge_reconciliation_pr",
     "review_and_ci_dev_connect_tls_auth_transport_probe_implementation_pr",
+    "review_and_ci_migration_epoch_v3_offline_design_pr",
     "review_and_ci_dev_preflight_phase_diagnostics_pr",
     DEV_IDENTITY_PREFLIGHT_RUNNER_CURRENT_GATE.casefold(),
     "eventual integracao",
@@ -2643,9 +2647,96 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
         "0ac585b86dd1c96446622e9a46bccda8a1e43eb0bceb0dcc19226892cb88d191",
         "70334dfc33505ea0b5ddb85a6406672fe0d9154e105134da164c773978459489",
         "95/95",
+        DEV_TLS_HANDSHAKE_FAILURE_CATEGORY_CONSUMED_GATE.casefold(),
+        "foi consumido pela pr #350",
+    }
+
+    pr350_integration_required = {
+        "pr #350",
+        "58af39b760b8b5be85723d3ea693abd20fe3f3cf",
+        "0f8c6a77bf489f9080743ab3f7ce71097d361aea",
+        "mergedat=2026-08-31t16:38:27z",
+        "sete workflows pos-merge",
+        "33415223927",
+        "33415223885",
+        "33415223922",
+        "33415223904",
+        "33415223881",
+        "33415223955",
+        "33415223892",
+        "6185328714",
+        "17578739446",
+        "prova somente o deployment do frontend",
+        "sem provar saude funcional, backend, banco, dev, prod, probe, migration ou runtime",
+        "categoria tls esta integrada e comprovada offline",
+        "resultado historico nao recebe categoria retroativa",
+        "causa permanece indeterminada",
+        "arvore do merge e identica a do head da pr",
+    }
+
+    migration_epoch_v3_required = {
+        "migration-epoch v3",
+        "known_unverified_drift",
+        "sem nova consulta nem inferencia de migration aplicada",
+        "evidencia operacional anterior",
+        "idx_pessoas_igreja_ativa_created",
+        "idx_pessoas_igreja_ativa_tipo",
+        "idx_celulas_igreja_ativo_lider",
+        "idx_work_queue_igreja_status_responsavel",
+        "idx_conversations_igreja_assumido",
+        "idx_app_users_igreja_nome",
+        "idx_user_roles_igreja_user",
+        "nao foi revalidada nesta missao",
+        "nao prova o estado atual de dev",
+        "atestacao v1 valida somente envelopes que continuam bloqueados",
+        "nao comprova conclusao",
+        "nao pode ser reinterpretada como `environment_attestation_complete=true`",
+        "artefatos historicos v1 e v2 permanecem byte-identicos e fora do escopo",
+        "offline_epoch_cutover_decision_package_blocked",
+        "backend/scripts/verify_migration_history_divergence_remediation_proposal_v3.py",
+        "8d7712be4f63ead2eff2c9e7af236e610b0c148acb07c85ebcd81db1f6d0877d",
+        "backend/tests/test_migration_history_divergence_remediation_v3.py",
+        "b34bd0677feb9d4453477d7503dc19beffcaf6cc8648acb85be56113b7578e24",
+        "docs/governance/migrations/migration-history-divergence-remediation-proposal-v3.json",
+        "076d04ed179c5128c4707c07cacd8240896101a9bea62e328d2d0569900cd10e",
+        "docs/governance/migrations/migration-history-divergence-remediation-proposal-v3.schema.json",
+        "88f7972780f07c7071bb4e4292e1f21c258fff47daf2ab207fc709ff34631b38",
+        "87/87",
+        "138/138",
+        "exit `8`",
+        "result=blocked_migration_epoch_v3:pending_separate_evidence",
+        "recommendation_only_not_approved",
+        "comprova somente o desenho offline",
         DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold(),
-        "push, pr e preview",
-        "nao autoriza merge, vercel production, nova execucao",
+        "batch permanece exclusivamente offline",
+        "nao autoriza merge",
+        "acesso a dev ou prod",
+    }
+
+    offline_batch_required = {
+        "correcao de precedencia classifica `timeouterror` e `socket.timeout` como `deadline_exceeded` antes de `oserror` generico",
+        "2e2208bfbca1214c0cec024c58716eeac7c05789c33ce36d812c0265c3810809",
+        "d7161cd7dd7c63935c07431193b0d916222e5341088edbdc6d4ef85ad3063689",
+        "102/102",
+        "nenhum probe vivo foi executado",
+        "permanecem evidencia historica e nao sao substituidos",
+        "backend/app/agent/private_checkpoint.py",
+        "098d7186d59b2be9c231e3ca41e328b69901d4bc3e3f9b09651b902c07768f33",
+        "backend/app/agent/context.py",
+        "b8d9ccea0041a81021cb2b4cf8edcbd8af0457ebf4401b021bd974edd29eea7d",
+        "backend/tests/test_agent_private_checkpoint_contract.py",
+        "2f91523e6a5daacd7c3ac08b933c7d9f857c3eec2a72b9f962c09c98d39f3c8b",
+        "292 passed, 7 skipped",
+        "duas advertencias preexistentes",
+        "contrato offline inativo",
+        "nao ha saver, migration ou wiring",
+        "langgraph continua stateless",
+        DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold(),
+        "nome nao constitui autorizacao ja concedida",
+        "autorizacao humana posterior",
+        "nomeie push, abertura da pr e github ci",
+        "aceite o vercel preview automatico",
+        "nao autoriza merge, vercel production, probe vivo",
     }
 
     for path in DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CANONICAL_DOCS:
@@ -2689,9 +2780,30 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
         assert not category_missing, (
             f"TLS category candidate missing in {path}: {category_missing}"
         )
+        pr350_missing = sorted(
+            item for item in pr350_integration_required if item not in normalized
+        )
+        assert not pr350_missing, (
+            f"PR #350 integration evidence missing in {path}: {pr350_missing}"
+        )
+        epoch_v3_missing = sorted(
+            item for item in migration_epoch_v3_required if item not in normalized
+        )
+        assert not epoch_v3_missing, (
+            f"migration-epoch v3 boundary missing in {path}: {epoch_v3_missing}"
+        )
+        batch_missing = sorted(
+            item for item in offline_batch_required if item not in normalized
+        )
+        assert not batch_missing, (
+            f"offline foundation batch missing in {path}: {batch_missing}"
+        )
         assert normalized.count("proximo gate unico") == 1
         assert normalized.count(
             DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold()
+        ) == 1
+        assert normalized.count(
+            DEV_TLS_HANDSHAKE_FAILURE_CATEGORY_CONSUMED_GATE.casefold()
         ) == 1
         assert normalized.count(
             DEV_CONNECT_TLS_AUTH_CONSUMED_EXECUTION_GATE.casefold()
@@ -2734,12 +2846,18 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
         | implementation_integration_required
         | live_transport_required
         | tls_category_candidate_required
+        | pr350_integration_required
+        | migration_epoch_v3_required
+        | offline_batch_required
     )
     phase_missing = sorted(item for item in phase_required if item not in phase_adr)
     assert not phase_missing, f"preflight phase ADR missing: {phase_missing}"
     assert phase_adr.count("proximo gate unico") == 1
     assert phase_adr.count(
         DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold()
+    ) == 1
+    assert phase_adr.count(
+        DEV_TLS_HANDSHAKE_FAILURE_CATEGORY_CONSUMED_GATE.casefold()
     ) == 1
     assert phase_adr.count(
         DEV_CONNECT_TLS_AUTH_CONSUMED_EXECUTION_GATE.casefold()
@@ -2802,7 +2920,13 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
     }
     diagnostics_required |= candidate_required
     diagnostics_required |= implementation_integration_required
-    diagnostics_required |= live_transport_required | tls_category_candidate_required
+    diagnostics_required |= (
+        live_transport_required
+        | tls_category_candidate_required
+        | pr350_integration_required
+        | migration_epoch_v3_required
+        | offline_batch_required
+    )
     diagnostics_required |= {
         "pr #349",
         "20d995c2cae643697fa86807bb478b546d61ac0c",
@@ -2843,6 +2967,9 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
         DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold()
     ) == 1
     assert diagnostics_adr.count(
+        DEV_TLS_HANDSHAKE_FAILURE_CATEGORY_CONSUMED_GATE.casefold()
+    ) == 1
+    assert diagnostics_adr.count(
         DEV_CONNECT_TLS_AUTH_CONSUMED_EXECUTION_GATE.casefold()
     ) == 1
     for stale_claim in DEV_PREFLIGHT_PHASE_DIAGNOSTICS_STALE_CLAIMS:
@@ -2861,6 +2988,7 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
     assert plan["next_gate"] == DEV_CONNECT_TLS_AUTH_PLAN_REVIEW_GATE
     assert plan["next_gate"] != DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE
     assert plan["next_gate"] != DEV_CONNECT_TLS_AUTH_CONSUMED_EXECUTION_GATE
+    assert plan["next_gate"] != DEV_TLS_HANDSHAKE_FAILURE_CATEGORY_CONSUMED_GATE
     assert plan["historical_result"]["precise_timestamp_preserved"] is False
     assert plan["historical_result"]["exit_code"] == 7
     assert plan["historical_result"]["sanitized_output"][
@@ -2887,10 +3015,10 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
 
     technical_files = {
         REPO_ROOT / "backend" / "scripts" / "probe_dev_connect_tls_auth_transport.py": (
-            "0ac585b86dd1c96446622e9a46bccda8a1e43eb0bceb0dcc19226892cb88d191"
+            "2e2208bfbca1214c0cec024c58716eeac7c05789c33ce36d812c0265c3810809"
         ),
         REPO_ROOT / "backend" / "tests" / "test_dev_connect_tls_auth_transport_probe.py": (
-            "70334dfc33505ea0b5ddb85a6406672fe0d9154e105134da164c773978459489"
+            "d7161cd7dd7c63935c07431193b0d916222e5341088edbdc6d4ef85ad3063689"
         ),
         REPO_ROOT / "backend" / "scripts" / "preflight_migration_history_environment_identity.py": (
             "8da631fbb602488bb8c82ce1529c9d8ba17acbae8a318ea9b0fc24cdd8f65cd2"
@@ -2914,7 +3042,6 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
     assert "conserva como evidencia historica" in readme
     assert "consumido pela pr #346" in readme
     assert "nao e um segundo gate corrente" in readme
-    assert "deploy manual ou production" in readme
     assert DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold() in readme
     assert DEV_CONNECT_TLS_AUTH_CONSUMED_EXECUTION_GATE.casefold() in readme
     assert "pr #348" in readme
@@ -2927,9 +3054,62 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
     assert "0ac585b86dd1c96446622e9a46bccda8a1e43eb0bceb0dcc19226892cb88d191" in readme
     assert "70334dfc33505ea0b5ddb85a6406672fe0d9154e105134da164c773978459489" in readme
     assert "95/95" in readme
+    readme_missing = sorted(
+        item
+        for item in (
+            pr350_integration_required
+            | migration_epoch_v3_required
+            | offline_batch_required
+        )
+        if item not in readme
+    )
+    assert not readme_missing, f"migration README reconciliation missing: {readme_missing}"
     assert readme.count(DEV_CONNECT_TLS_AUTH_PLAN_REVIEW_GATE.casefold()) == 1
     assert readme.count(DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold()) == 1
     assert readme.count(DEV_CONNECT_TLS_AUTH_CONSUMED_EXECUTION_GATE.casefold()) == 1
+    assert readme.count(
+        DEV_TLS_HANDSHAKE_FAILURE_CATEGORY_CONSUMED_GATE.casefold()
+    ) == 1
+
+    historical_artifacts = {
+        REPO_ROOT
+        / "docs"
+        / "governance"
+        / "migrations"
+        / "migration-history-divergence-remediation-proposal-v1.json": (
+            "84614e0b140e38d07c11ed4ceb10025b3dbc85b121684da1e1ebdca6d0104e7d"
+        ),
+        REPO_ROOT
+        / "docs"
+        / "governance"
+        / "migrations"
+        / "migration-history-divergence-remediation-proposal-v2.json": (
+            "f1db4a0f1b6a5045fefa674d6092ecb8afe90a0c03c70044b53a1d021b2b8340"
+        ),
+        REPO_ROOT
+        / "docs"
+        / "governance"
+        / "migrations"
+        / "migration-history-environment-attestation-profile-v1.json": (
+            "0734ba9302bf9d20f0b5770745124390350d231650fdb95ef915ee1b526d5147"
+        ),
+        REPO_ROOT
+        / "docs"
+        / "governance"
+        / "migrations"
+        / "migration-history-environment-attestation.schema.json": (
+            "6286f68864ff935156c4c19be74123bfdd06043d50bdfc4ad34844df321d9964"
+        ),
+        REPO_ROOT
+        / "docs"
+        / "governance"
+        / "migrations"
+        / "migration-history-environment-attestation-capture-v1.sql": (
+            "f06a8c6dd39bc137376ab5fb80699019d6d90912e0995ddda5c8253dd8e7ff24"
+        ),
+    }
+    for path, expected_sha256 in historical_artifacts.items():
+        assert hashlib.sha256(path.read_bytes()).hexdigest() == expected_sha256
 
 
 def test_schema_expectation_manifest_is_source_only_and_keeps_environment_gate() -> None:

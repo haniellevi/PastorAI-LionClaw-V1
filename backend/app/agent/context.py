@@ -93,6 +93,17 @@ _RESERVED_STATE_KEYS = frozenset(
         "channel",
         "context",
         "runtime",
+        # Future durable-memory/checkpoint configuration is derived only from
+        # TrustedAgentContext. It is never accepted in caller-controlled state.
+        "thread_id",
+        "checkpoint_id",
+        "checkpoint_ns",
+        "checkpoint_map",
+        "checkpoint",
+        "memory",
+        "messages",
+        "conversation_summary",
+        "recent_context",
     }
 )
 

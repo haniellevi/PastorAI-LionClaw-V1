@@ -1,0 +1,675 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://igreja12.invalid/schemas/migration-history-divergence-remediation-proposal-v3.json",
+  "$defs": {
+    "dev_environment_track": {
+      "additionalProperties": false,
+      "properties": {
+        "append_only_behavior_evidence": {
+          "const": "PENDING_SEPARATE_EVIDENCE"
+        },
+        "cutover_decision": {
+          "const": "BLOCKED"
+        },
+        "data_api_evidence": {
+          "const": "PENDING_SEPARATE_PLATFORM_EVIDENCE"
+        },
+        "environment_attestation": {
+          "const": "NOT_COMPLETE_FOR_V3"
+        },
+        "legacy_evidence_classification": {
+          "const": "BLOCKED_LEDGER_DIVERGENCE"
+        },
+        "legacy_ledgers_action": {
+          "const": "PRESERVE_WITHOUT_BACKFILL_OR_REWRITE"
+        },
+        "manual_index_drift_reference": {
+          "const": "manual_dev_index_drift"
+        },
+        "realtime_evidence": {
+          "const": "PENDING_SEPARATE_PLATFORM_EVIDENCE"
+        },
+        "schema_and_data_evidence": {
+          "const": "PENDING_SEPARATE_ENVIRONMENT_EVIDENCE"
+        }
+      },
+      "required": [
+        "append_only_behavior_evidence",
+        "cutover_decision",
+        "data_api_evidence",
+        "environment_attestation",
+        "legacy_evidence_classification",
+        "legacy_ledgers_action",
+        "manual_index_drift_reference",
+        "realtime_evidence",
+        "schema_and_data_evidence"
+      ],
+      "type": "object"
+    },
+    "prod_environment_track": {
+      "additionalProperties": false,
+      "properties": {
+        "append_only_behavior_evidence": {
+          "const": "PENDING_SEPARATE_EVIDENCE"
+        },
+        "cutover_decision": {
+          "const": "BLOCKED"
+        },
+        "data_api_evidence": {
+          "const": "PENDING_SEPARATE_PLATFORM_EVIDENCE"
+        },
+        "environment_attestation": {
+          "const": "NOT_COMPLETE_FOR_V3"
+        },
+        "legacy_evidence_classification": {
+          "const": "BLOCKED_EVIDENCE_INSUFFICIENT"
+        },
+        "legacy_ledgers_action": {
+          "const": "PRESERVE_WITHOUT_BACKFILL_OR_REWRITE"
+        },
+        "manual_dev_index_drift_inferred_in_prod": {
+          "const": false
+        },
+        "realtime_evidence": {
+          "const": "PENDING_SEPARATE_PLATFORM_EVIDENCE"
+        },
+        "schema_and_data_evidence": {
+          "const": "PENDING_SEPARATE_ENVIRONMENT_EVIDENCE"
+        }
+      },
+      "required": [
+        "append_only_behavior_evidence",
+        "cutover_decision",
+        "data_api_evidence",
+        "environment_attestation",
+        "legacy_evidence_classification",
+        "legacy_ledgers_action",
+        "manual_dev_index_drift_inferred_in_prod",
+        "realtime_evidence",
+        "schema_and_data_evidence"
+      ],
+      "type": "object"
+    },
+    "false_permissions": {
+      "additionalProperties": false,
+      "properties": {
+        "capture_allowed": {
+          "const": false
+        },
+        "database_access_allowed": {
+          "const": false
+        },
+        "database_mutation_allowed": {
+          "const": false
+        },
+        "deploy_allowed": {
+          "const": false
+        },
+        "environment_attestation_execution_allowed": {
+          "const": false
+        },
+        "environment_operation_allowed": {
+          "const": false
+        },
+        "index_change_allowed": {
+          "const": false
+        },
+        "ledger_backfill_allowed": {
+          "const": false
+        },
+        "migration_application_allowed": {
+          "const": false
+        },
+        "runner_change_allowed": {
+          "const": false
+        },
+        "runner_execution_allowed": {
+          "const": false
+        },
+        "runtime_change_allowed": {
+          "const": false
+        }
+      },
+      "required": [
+        "capture_allowed",
+        "database_access_allowed",
+        "database_mutation_allowed",
+        "deploy_allowed",
+        "environment_attestation_execution_allowed",
+        "environment_operation_allowed",
+        "index_change_allowed",
+        "ledger_backfill_allowed",
+        "migration_application_allowed",
+        "runner_change_allowed",
+        "runner_execution_allowed",
+        "runtime_change_allowed"
+      ],
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "amendment": {
+      "additionalProperties": false,
+      "properties": {
+        "amendment_reason": {
+          "const": "ATTESTATION_V1_RECLASSIFIED_AS_BLOCKED_ENVELOPE_AND_KNOWN_DEV_INDEX_DRIFT_REQUIRES_SEPARATE_EVIDENCE"
+        },
+        "historical_artifacts_remain_unchanged": {
+          "const": true
+        },
+        "prior_human_records_apply_to_proposal_id": {
+          "const": "migration-history-divergence-remediation-proposal-v1"
+        },
+        "prior_human_records_reused_for_v3": {
+          "const": false
+        },
+        "supersedes_proposal_id": {
+          "const": "migration-history-divergence-remediation-proposal-v2"
+        },
+        "supersedes_sha256": {
+          "const": "f1db4a0f1b6a5045fefa674d6092ecb8afe90a0c03c70044b53a1d021b2b8340"
+        }
+      },
+      "required": [
+        "amendment_reason",
+        "historical_artifacts_remain_unchanged",
+        "prior_human_records_apply_to_proposal_id",
+        "prior_human_records_reused_for_v3",
+        "supersedes_proposal_id",
+        "supersedes_sha256"
+      ],
+      "type": "object"
+    },
+    "artifact_state": {
+      "const": "OFFLINE_EPOCH_CUTOVER_DECISION_PACKAGE_BLOCKED"
+    },
+    "contract_version": {
+      "const": "3.0"
+    },
+    "current_permissions": {
+      "$ref": "#/$defs/false_permissions"
+    },
+    "environment_tracks": {
+      "additionalProperties": false,
+      "properties": {
+        "DEV": {
+          "$ref": "#/$defs/dev_environment_track"
+        },
+        "PROD": {
+          "$ref": "#/$defs/prod_environment_track"
+        }
+      },
+      "required": [
+        "DEV",
+        "PROD"
+      ],
+      "type": "object"
+    },
+    "epoch_strategy": {
+      "additionalProperties": false,
+      "properties": {
+        "automatic_backfill": {
+          "const": "PROHIBITED"
+        },
+        "cross_environment_decision_reuse": {
+          "const": "PROHIBITED"
+        },
+        "historical_inference": {
+          "const": "PROHIBITED"
+        },
+        "legacy_ledgers": {
+          "const": "PRESERVE_AS_INDEPENDENT_HISTORICAL_RECORDS"
+        },
+        "manual_dev_drift_treatment": {
+          "const": "PRESERVE_AND_VERSION_FORWARD_ONLY_AFTER_SEPARATE_ATTESTATION_REVIEW_AND_HUMAN_DECISION"
+        },
+        "recommended": {
+          "const": "CONTROLLED_EPOCH_CUTOVER_AFTER_COMPLETE_SEPARATE_EVIDENCE"
+        },
+        "status": {
+          "const": "RECOMMENDATION_ONLY_NOT_APPROVED"
+        },
+        "target_implementation": {
+          "const": "NOT_DESIGNED_OR_AUTHORIZED"
+        }
+      },
+      "required": [
+        "automatic_backfill",
+        "cross_environment_decision_reuse",
+        "historical_inference",
+        "legacy_ledgers",
+        "manual_dev_drift_treatment",
+        "recommended",
+        "status",
+        "target_implementation"
+      ],
+      "type": "object"
+    },
+    "evidence_gates": {
+      "additionalProperties": false,
+      "properties": {
+        "APPEND_ONLY_BEHAVIOR": {
+          "additionalProperties": false,
+          "properties": {
+            "environment_scope": {
+              "const": [
+                "DEV",
+                "PROD"
+              ]
+            },
+            "snapshot_is_sufficient": {
+              "const": false
+            },
+            "state": {
+              "const": "PENDING_SEPARATE_EVIDENCE"
+            }
+          },
+          "required": [
+            "environment_scope",
+            "snapshot_is_sufficient",
+            "state"
+          ],
+          "type": "object"
+        },
+        "DATA_API": {
+          "additionalProperties": false,
+          "properties": {
+            "environment_scope": {
+              "const": [
+                "DEV",
+                "PROD"
+              ]
+            },
+            "inferred_from_database_schema": {
+              "const": false
+            },
+            "state": {
+              "const": "PENDING_SEPARATE_PLATFORM_EVIDENCE"
+            }
+          },
+          "required": [
+            "environment_scope",
+            "inferred_from_database_schema",
+            "state"
+          ],
+          "type": "object"
+        },
+        "ENVIRONMENT_SCHEMA_AND_DATA": {
+          "additionalProperties": false,
+          "properties": {
+            "environment_scope": {
+              "const": [
+                "DEV",
+                "PROD"
+              ]
+            },
+            "one_environment_can_satisfy_another": {
+              "const": false
+            },
+            "state": {
+              "const": "PENDING_SEPARATE_ENVIRONMENT_EVIDENCE"
+            }
+          },
+          "required": [
+            "environment_scope",
+            "one_environment_can_satisfy_another",
+            "state"
+          ],
+          "type": "object"
+        },
+        "INDEPENDENT_REVIEW": {
+          "additionalProperties": false,
+          "properties": {
+            "prior_review_reused": {
+              "const": false
+            },
+            "state": {
+              "const": "PENDING_INDEPENDENT_REVIEW_OF_V3"
+            }
+          },
+          "required": [
+            "prior_review_reused",
+            "state"
+          ],
+          "type": "object"
+        },
+        "MANUAL_DEV_INDEX_DRIFT": {
+          "additionalProperties": false,
+          "properties": {
+            "definitions_attested": {
+              "const": false
+            },
+            "environment_scope": {
+              "const": [
+                "DEV"
+              ]
+            },
+            "presence_attested": {
+              "const": false
+            },
+            "state": {
+              "const": "KNOWN_UNVERIFIED_DRIFT"
+            }
+          },
+          "required": [
+            "definitions_attested",
+            "environment_scope",
+            "presence_attested",
+            "state"
+          ],
+          "type": "object"
+        },
+        "REALTIME": {
+          "additionalProperties": false,
+          "properties": {
+            "environment_scope": {
+              "const": [
+                "DEV",
+                "PROD"
+              ]
+            },
+            "inferred_from_database_schema": {
+              "const": false
+            },
+            "state": {
+              "const": "PENDING_SEPARATE_PLATFORM_EVIDENCE"
+            }
+          },
+          "required": [
+            "environment_scope",
+            "inferred_from_database_schema",
+            "state"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "APPEND_ONLY_BEHAVIOR",
+        "DATA_API",
+        "ENVIRONMENT_SCHEMA_AND_DATA",
+        "INDEPENDENT_REVIEW",
+        "MANUAL_DEV_INDEX_DRIFT",
+        "REALTIME"
+      ],
+      "type": "object"
+    },
+    "historical_evidence": {
+      "additionalProperties": false,
+      "properties": {
+        "attestation_v1": {
+          "additionalProperties": false,
+          "properties": {
+            "environment_attestation_complete": {
+              "const": false
+            },
+            "profile_id": {
+              "const": "migration-history-environment-attestation-profile-v1"
+            },
+            "profile_sha256": {
+              "const": "0734ba9302bf9d20f0b5770745124390350d231650fdb95ef915ee1b526d5147"
+            },
+            "role": {
+              "const": "BLOCKED_ENVELOPE_ONLY_NOT_COMPLETION_EVIDENCE"
+            },
+            "schema_sha256": {
+              "const": "6286f68864ff935156c4c19be74123bfdd06043d50bdfc4ad34844df321d9964"
+            },
+            "surfaces": {
+              "additionalProperties": false,
+              "properties": {
+                "data_api": {
+                  "const": "PLATFORM_SURFACE_REQUIRES_SEPARATE_EVIDENCE"
+                },
+                "realtime": {
+                  "const": "PLATFORM_SURFACE_REQUIRES_SEPARATE_EVIDENCE"
+                }
+              },
+              "required": [
+                "data_api",
+                "realtime"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "environment_attestation_complete",
+            "profile_id",
+            "profile_sha256",
+            "role",
+            "schema_sha256",
+            "surfaces"
+          ],
+          "type": "object"
+        },
+        "canonical_derivation": {
+          "additionalProperties": false,
+          "properties": {
+            "artifact_sha256": {
+              "const": "dfe84378ed13e7f8fe66210503d91f3c5015603cfd6a559b8862e7dc3e096c7a"
+            },
+            "canonical_schema_fingerprint_sha256": {
+              "const": "8ac17d4352a77fb3c5885f9c1a55813a5b7dfcd6fb84c4bd4e9117c1c7883370"
+            },
+            "environment_attestation_complete": {
+              "const": false
+            },
+            "scope": {
+              "const": "OFFLINE_PG17_LAB_SOURCE_EXPECTATION_ONLY"
+            }
+          },
+          "required": [
+            "artifact_sha256",
+            "canonical_schema_fingerprint_sha256",
+            "environment_attestation_complete",
+            "scope"
+          ],
+          "type": "object"
+        },
+        "source_catalog": {
+          "additionalProperties": false,
+          "properties": {
+            "digest_sha256": {
+              "const": "84ddbdb1a858c46e4cd6086698d4738574293fa4b72e122e413557a608f9097f"
+            },
+            "migration_count": {
+              "const": 75
+            },
+            "scope": {
+              "const": "VERSIONED_SOURCE_BASELINE_ONLY"
+            }
+          },
+          "required": [
+            "digest_sha256",
+            "migration_count",
+            "scope"
+          ],
+          "type": "object"
+        },
+        "v1_proposal_sha256": {
+          "const": "84614e0b140e38d07c11ed4ceb10025b3dbc85b121684da1e1ebdca6d0104e7d"
+        },
+        "v2_proposal_sha256": {
+          "const": "f1db4a0f1b6a5045fefa674d6092ecb8afe90a0c03c70044b53a1d021b2b8340"
+        }
+      },
+      "required": [
+        "attestation_v1",
+        "canonical_derivation",
+        "source_catalog",
+        "v1_proposal_sha256",
+        "v2_proposal_sha256"
+      ],
+      "type": "object"
+    },
+    "manual_dev_index_drift": {
+      "additionalProperties": false,
+      "properties": {
+        "basenames": {
+          "const": [
+            "idx_pessoas_igreja_ativa_created",
+            "idx_pessoas_igreja_ativa_tipo",
+            "idx_celulas_igreja_ativo_lider",
+            "idx_work_queue_igreja_status_responsavel",
+            "idx_conversations_igreja_assumido",
+            "idx_app_users_igreja_nome",
+            "idx_user_roles_igreja_user"
+          ]
+        },
+        "catalog_application_inferred": {
+          "const": false
+        },
+        "classification": {
+          "const": "KNOWN_UNVERIFIED_DRIFT"
+        },
+        "current_presence_attested": {
+          "const": false
+        },
+        "definition_hashes_attested": {
+          "const": false
+        },
+        "environment": {
+          "const": "DEV"
+        },
+        "forward_only_requirement": {
+          "const": "PRESERVE_AND_VERSION_ONLY_AFTER_SEPARATE_EVIDENCE_AND_APPROVAL"
+        },
+        "prior_report_is_current_environment_proof": {
+          "const": false
+        },
+        "provenance": {
+          "const": "PRIOR_OPERATOR_REPORT_ONLY"
+        },
+        "prod_presence_inferred": {
+          "const": false
+        }
+      },
+      "required": [
+        "basenames",
+        "catalog_application_inferred",
+        "classification",
+        "current_presence_attested",
+        "definition_hashes_attested",
+        "environment",
+        "forward_only_requirement",
+        "prior_report_is_current_environment_proof",
+        "provenance",
+        "prod_presence_inferred"
+      ],
+      "type": "object"
+    },
+    "next_gate": {
+      "additionalProperties": false,
+      "properties": {
+        "authorized": {
+          "const": false
+        },
+        "id": {
+          "const": "REVIEW_AND_CI_OFFLINE_AGENT_FOUNDATION_BATCH_PR"
+        },
+        "scope": {
+          "const": "OFFLINE_BATCH_REVIEW_AND_CI_ONLY_NO_CUTOVER_AUTHORIZATION"
+        }
+      },
+      "required": [
+        "authorized",
+        "id",
+        "scope"
+      ],
+      "type": "object"
+    },
+    "next_stage_authorized": {
+      "const": false
+    },
+    "operational_authorization": {
+      "const": false
+    },
+    "proposal_id": {
+      "const": "migration-history-divergence-remediation-proposal-v3"
+    },
+    "repository_base_sha": {
+      "const": "0f8c6a77bf489f9080743ab3f7ce71097d361aea"
+    },
+    "review": {
+      "additionalProperties": false,
+      "properties": {
+        "current_independent_review_complete": {
+          "const": false
+        },
+        "current_review_state": {
+          "const": "PENDING_INDEPENDENT_REVIEW_OF_V3"
+        },
+        "human_cutover_decision": {
+          "const": "NOT_MADE"
+        },
+        "prior_human_records_apply_to_proposal_id": {
+          "const": "migration-history-divergence-remediation-proposal-v1"
+        },
+        "prior_human_records_reused_for_v3": {
+          "const": false
+        }
+      },
+      "required": [
+        "current_independent_review_complete",
+        "current_review_state",
+        "human_cutover_decision",
+        "prior_human_records_apply_to_proposal_id",
+        "prior_human_records_reused_for_v3"
+      ],
+      "type": "object"
+    },
+    "runner_contract": {
+      "additionalProperties": false,
+      "properties": {
+        "apply_migrations_sha256": {
+          "const": "36e63cde6751cd0cb33e1511091068b0b04f10029ace06703eead82e0e836c65"
+        },
+        "commands_remain_blocked": {
+          "const": [
+            "bootstrap-ledger",
+            "harden-ledger",
+            "status",
+            "apply"
+          ]
+        },
+        "must_remain_unchanged_in_this_mission": {
+          "const": true
+        },
+        "proposal_is_not_a_runner_input": {
+          "const": true
+        },
+        "reconciliation_verifier_sha256": {
+          "const": "9451cbe5054d8c0d7e2754d09dea7f3a9761e8585269ca783eea943dd785dfae"
+        }
+      },
+      "required": [
+        "apply_migrations_sha256",
+        "commands_remain_blocked",
+        "must_remain_unchanged_in_this_mission",
+        "proposal_is_not_a_runner_input",
+        "reconciliation_verifier_sha256"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "amendment",
+    "artifact_state",
+    "contract_version",
+    "current_permissions",
+    "environment_tracks",
+    "epoch_strategy",
+    "evidence_gates",
+    "historical_evidence",
+    "manual_dev_index_drift",
+    "next_gate",
+    "next_stage_authorized",
+    "operational_authorization",
+    "proposal_id",
+    "repository_base_sha",
+    "review",
+    "runner_contract"
+  ],
+  "title": "Migration history divergence remediation proposal v3",
+  "type": "object"
+}

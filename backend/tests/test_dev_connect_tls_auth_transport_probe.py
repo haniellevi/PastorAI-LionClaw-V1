@@ -958,10 +958,14 @@ class FakeRawSocket:
         self,
         *,
         connect_error: BaseException | None = None,
+        send_error: BaseException | None = None,
+        recv_error: BaseException | None = None,
         response: bytes = b"S",
         close_error: bool = False,
     ) -> None:
         self.connect_error = connect_error
+        self.send_error = send_error
+        self.recv_error = recv_error
         self.response = response
         self.close_error = close_error
         self.connected_to: tuple[Any, ...] | None = None
@@ -977,9 +981,13 @@ class FakeRawSocket:
             raise self.connect_error
 
     def sendall(self, raw: bytes) -> None:
+        if self.send_error is not None:
+            raise self.send_error
         self.sent += raw
 
     def recv(self, _size: int) -> bytes:
+        if self.recv_error is not None:
+            raise self.recv_error
         return self.response
 
     def close(self) -> None:
@@ -1185,6 +1193,173 @@ def test_tls_handshake_failure_category_is_static_and_never_leaks_exception(
     output = "\n".join(probe._state_lines(state))
     assert output.count("TLS_HANDSHAKE_FAILURE_CATEGORY=") == 1
     assert "secret" not in output
+
+
+@pytest.mark.parametrize(
+    ("operation", "expected_phase", "expected_category"),
+    [
+        ("dns", "DNS_RESOLUTION", "NOT_APPLICABLE"),
+        ("tcp", "TCP_CONNECT", "NOT_APPLICABLE"),
+        ("ssl_request_send", "PG_SSL_NEGOTIATION", "NOT_APPLICABLE"),
+        ("ssl_request_recv", "PG_SSL_NEGOTIATION", "NOT_APPLICABLE"),
+        ("tls_handshake", "TLS_HANDSHAKE", "DEADLINE_EXCEEDED"),
+    ],
+)
+def test_socket_timeout_is_deadline_before_generic_oserror_at_each_boundary(
+    probe: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    operation: str,
+    expected_phase: str,
+    expected_category: str,
+) -> None:
+    timeout_error: TimeoutError
+    if operation in {"dns", "ssl_request_recv", "tls_handshake"}:
+        timeout_error = socket.timeout("secret timeout host credential")
+    else:
+        timeout_error = TimeoutError("secret timeout host credential")
+
+    resolver = _global_resolver
+    raw_socket = FakeRawSocket(
+        connect_error=timeout_error if operation == "tcp" else None,
+        send_error=timeout_error if operation == "ssl_request_send" else None,
+        recv_error=timeout_error if operation == "ssl_request_recv" else None,
+    )
+    if operation == "dns":
+
+        def timeout_resolver(*_args: Any) -> list[Any]:
+            raise timeout_error
+
+        resolver = timeout_resolver
+    handshake_error = timeout_error if operation == "tls_handshake" else None
+    monkeypatch.setattr(
+        probe,
+        "_build_tls_context",
+        lambda _ca: FakeTlsContext(handshake_error=handshake_error),
+    )
+    state = probe.ProbeState()
+
+    with pytest.raises(probe.DeadlineError) as exc_info:
+        probe._run_transport_probe(
+            hostname=HOST,
+            ca_witness=_dummy_ca(probe),
+            deadline_seconds=2,
+            state=state,
+            resolver=resolver,
+            socket_factory=lambda *_args: raw_socket,
+        )
+
+    assert exc_info.value.failure_phase == expected_phase
+    assert exc_info.value.reason == "DEADLINE_EXCEEDED"
+    assert str(exc_info.value) == ""
+    assert state.tls_handshake_failure_category == expected_category
+    probe._print_blocked(exc_info.value.reason, expected_phase, state)
+    output = capsys.readouterr().out
+    assert output.count("TLS_HANDSHAKE_FAILURE_CATEGORY=") == 1
+    assert f"TLS_HANDSHAKE_FAILURE_CATEGORY={expected_category}" in output
+    assert output.count("TRANSPORT_PROBE_FAILURE_PHASE=") == 1
+    assert f"TRANSPORT_PROBE_FAILURE_PHASE={expected_phase}" in output
+    assert output.endswith(
+        "RESULT=BLOCKED_DEV_CONNECT_TLS_AUTH_TRANSPORT_PROBE:DEADLINE_EXCEEDED\n"
+    )
+    assert "secret" not in output
+    assert HOST not in output
+    assert PROJECT_REF not in output
+
+
+def test_socket_timeout_during_hostname_verification_preserves_phase_and_sanitization(
+    probe: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    raw_socket = FakeRawSocket()
+    monkeypatch.setattr(probe, "_build_tls_context", lambda _ca: FakeTlsContext())
+
+    def timeout_hostname_verification(
+        _certificate: dict[str, Any],
+        _hostname: str,
+    ) -> None:
+        raise socket.timeout("secret hostname timeout credential")
+
+    monkeypatch.setattr(probe, "_verify_hostname", timeout_hostname_verification)
+    state = probe.ProbeState()
+
+    with pytest.raises(probe.DeadlineError) as exc_info:
+        probe._run_transport_probe(
+            hostname=HOST,
+            ca_witness=_dummy_ca(probe),
+            deadline_seconds=2,
+            state=state,
+            resolver=_global_resolver,
+            socket_factory=lambda *_args: raw_socket,
+        )
+
+    assert exc_info.value.failure_phase == "TLS_HOSTNAME_VERIFICATION"
+    assert exc_info.value.reason == "DEADLINE_EXCEEDED"
+    assert str(exc_info.value) == ""
+    assert state.tls_handshake_completed is True
+    assert state.tls_handshake_failure_category == "NOT_APPLICABLE"
+    assert state.tls_hostname_verified is False
+    assert state.socket_closed is True
+    probe._print_blocked(exc_info.value.reason, exc_info.value.failure_phase, state)
+    output = capsys.readouterr().out
+    assert "TRANSPORT_PROBE_FAILURE_PHASE=TLS_HOSTNAME_VERIFICATION" in output
+    assert "TLS_HANDSHAKE_FAILURE_CATEGORY=NOT_APPLICABLE" in output
+    assert output.endswith(
+        "RESULT=BLOCKED_DEV_CONNECT_TLS_AUTH_TRANSPORT_PROBE:DEADLINE_EXCEEDED\n"
+    )
+    assert "secret" not in output
+    assert HOST not in output
+    assert PROJECT_REF not in output
+
+
+def test_primary_handshake_timeout_wins_over_later_socket_close_failure(
+    probe: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    raw_socket = FakeRawSocket()
+    monkeypatch.setattr(
+        probe,
+        "_build_tls_context",
+        lambda _ca: FakeTlsContext(
+            handshake_error=socket.timeout("secret primary timeout credential"),
+            close_error=True,
+        ),
+    )
+    state = probe.ProbeState()
+
+    with pytest.raises(probe.DeadlineError) as exc_info:
+        probe._run_transport_probe(
+            hostname=HOST,
+            ca_witness=_dummy_ca(probe),
+            deadline_seconds=2,
+            state=state,
+            resolver=_global_resolver,
+            socket_factory=lambda *_args: raw_socket,
+        )
+
+    assert exc_info.value.failure_phase == "TLS_HANDSHAKE"
+    assert exc_info.value.reason == "DEADLINE_EXCEEDED"
+    assert str(exc_info.value) == ""
+    assert state.pg_ssl_negotiated is True
+    assert state.tls_handshake_completed is False
+    assert state.tls_handshake_failure_category == "DEADLINE_EXCEEDED"
+    assert state.tls_hostname_verified is False
+    assert state.socket_closed is False
+    probe._print_blocked(exc_info.value.reason, exc_info.value.failure_phase, state)
+    output = capsys.readouterr().out
+    assert output.count("TRANSPORT_PROBE_FAILURE_PHASE=") == 1
+    assert "TRANSPORT_PROBE_FAILURE_PHASE=TLS_HANDSHAKE" in output
+    assert "TRANSPORT_PROBE_FAILURE_PHASE=SOCKET_CLOSE" not in output
+    assert "TLS_HANDSHAKE_FAILURE_CATEGORY=DEADLINE_EXCEEDED" in output
+    assert "SOCKET_CLOSED=false" in output
+    assert output.endswith(
+        "RESULT=BLOCKED_DEV_CONNECT_TLS_AUTH_TRANSPORT_PROBE:DEADLINE_EXCEEDED\n"
+    )
+    assert "secret" not in output
+    assert HOST not in output
+    assert PROJECT_REF not in output
 
 
 def test_isolated_socket_close_failure_has_own_phase(

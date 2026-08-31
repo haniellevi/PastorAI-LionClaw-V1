@@ -890,6 +890,13 @@ def _run_transport_probe(
         if phase == "TLS_HANDSHAKE" and isinstance(exc, DeadlineError):
             state.tls_handshake_failure_category = "DEADLINE_EXCEEDED"
         pending = _with_phase(exc, phase)
+    except TimeoutError:
+        # ``socket.timeout`` is an alias of ``TimeoutError`` and both inherit
+        # from ``OSError``.  Keep deadline exhaustion ahead of generic
+        # transport I/O classification at every network boundary.
+        if phase == "TLS_HANDSHAKE":
+            state.tls_handshake_failure_category = "DEADLINE_EXCEEDED"
+        pending = DeadlineError(failure_phase=phase)
     except ssl.SSLCertVerificationError:
         if phase == "TLS_HANDSHAKE":
             state.tls_handshake_failure_category = "CERTIFICATE_VERIFICATION_ERROR"
