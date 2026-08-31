@@ -217,6 +217,22 @@ A focal terminou em `144/144`, e a seleção `tests/test_agent*.py` terminou em
 `309 passed, 7 skipped`. Essa evidência é local e pré-merge; não prova CI,
 integração, saver, migration, memória ativa, deploy ou runtime.
 
+A PR #352, HEAD
+`c5b2b4c775592641b308de6b2ac3cd069f34dcb3`, integrou a preparação D3 no
+merge `6c807717010a41edf3bfd3d1b2405c2f3527a696`. A árvore do merge é
+idêntica à árvore do HEAD da PR. Os sete workflows pós-merge concluíram com
+`SUCCESS`: Backend Tests `33428905043`, Canonical Schema Derivation
+`33428905057`, E2E Critical `33428905042`, Environment Attestation PG17
+`33428905234`, Frontend CI `33428905212`, RLS Integration `33428905114` e
+Tooling Static Checks `33428905041`.
+
+A Vercel registrou o deployment automático do frontend Production
+`6187746800`, status `17584957483`, com `SUCCESS`, em
+`2026-08-31T19:09:09Z`. Essa metadata prova somente o deployment do frontend;
+não prova saúde funcional, backend, banco, saver, migration, memória ativa,
+deploy do backend, flag ou runtime. A classificação pós-merge permanece
+`PREPARAÇÃO D3 INTEGRADA E INATIVA`.
+
 
 
 ## Configuração e ativação

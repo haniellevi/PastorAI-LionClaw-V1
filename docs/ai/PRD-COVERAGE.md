@@ -116,7 +116,7 @@ de consentimento, memória, conhecimento ou propostas.
 
 ### Preparação D3 offline, sem memória ativa
 
-A preparação D3 candidata separa `AgentTurnInput`, `AgentState` e
+A preparação D3 integrada separa `AgentTurnInput`, `AgentState` e
 `AgentTurnOutput` por `input_schema` e `output_schema`. As intenções ficam em um
 `AgentTurnEffects` completo, reinicializado por turno, substituído sem reducer
 acumulativo e mantido em canal `UntrackedValue`. O fallback automático para o
@@ -780,18 +780,38 @@ somente o frontend e não prova backend, banco ou runtime. A preparação D3 de
 estado efêmero desta branch permanece candidata offline, sem saver, migration
 ou retomada, e não integra a evidência pós-merge da PR #351.
 
+A PR #352, HEAD `c5b2b4c775592641b308de6b2ac3cd069f34dcb3`, integrou essa
+preparação no merge `6c807717010a41edf3bfd3d1b2405c2f3527a696`, cuja árvore é
+idêntica à do HEAD da PR. Os `7/7` workflows pós-merge concluíram com
+`SUCCESS`: Backend Tests `33428905043`, Canonical Schema Derivation
+`33428905057`, E2E Critical `33428905042`, Environment Attestation PG17
+`33428905234`, Frontend CI `33428905212`, RLS Integration `33428905114` e
+Tooling Static Checks `33428905041`. A Vercel registrou o deployment automático
+do frontend Production `6187746800`, status `17584957483`, com `SUCCESS`, em
+`2026-08-31T19:09:09Z`. Essa metadata prova somente o frontend e não prova
+saúde funcional, backend, banco, saver, migration, memória ativa, deploy do
+backend, flag ou runtime. O estado permanece `PREPARAÇÃO D3 INTEGRADA E
+INATIVA`.
+
 O gate histórico `REVIEW_AND_CI_OFFLINE_AGENT_FOUNDATION_BATCH_PR` foi consumido
 pelo push, abertura, CI e Preview da PR #351. Ele não autorizou o merge
 posterior, permanece somente como evidência histórica e não é um segundo gate
 corrente.
 
+O gate histórico `REVIEW_AND_CI_D3_EPHEMERAL_EFFECT_STATE_PR` foi consumido
+pelo push, abertura, CI e Preview da PR #352. O merge e o deployment automático
+do frontend Production foram autorizados separadamente; esse gate não os
+autorizou. Após o consumo, ele permanece somente como evidência histórica e
+não é um segundo gate corrente.
+
 **Próximo gate único:**
-`REVIEW_AND_CI_D3_EPHEMERAL_EFFECT_STATE_PR`. O nome não constitui autorização
+`REVIEW_AND_CI_D3_TURN_IDENTITY_OFFLINE_PR`. O nome não constitui autorização
 já concedida. Seu consumo exige autorização humana posterior e separada que
 nomeie push, abertura da PR e GitHub CI e aceite o Vercel Preview automático.
-O batch permanece exclusivamente offline. Este gate não autoriza merge, Vercel
-Production, probe vivo, acesso a DEV ou PROD, banco, logs, SQL, DML, migration,
-deploy, flag ou runtime.
+A próxima fatia permanece exclusivamente offline e limita-se à identidade
+estável de mensagem e turno e ao contrato de idempotência. Este gate não
+autoriza merge, Vercel Production, saver, probe vivo, acesso a DEV ou PROD,
+banco, logs, SQL, DML, migration, deploy, flag, runtime ou execução externa.
 
 ## Fontes principais
 

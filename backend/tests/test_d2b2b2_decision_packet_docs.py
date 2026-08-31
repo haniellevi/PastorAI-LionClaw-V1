@@ -77,6 +77,12 @@ DEV_CONNECT_TLS_AUTH_DIAGNOSTICS_ADR_PATH = (
     / "decisions"
     / "2026-08-31-dev-connect-tls-auth-transport-probe.md"
 )
+WHATSAPP_FIRST_AGENT_ARCHITECTURE_ADR_PATH = (
+    REPO_ROOT
+    / "docs"
+    / "decisions"
+    / "2026-08-27-whatsapp-first-tenant-agent-architecture.md"
+)
 DEV_CONNECT_TLS_AUTH_PROBE_PLAN_PATH = (
     REPO_ROOT
     / "docs"
@@ -115,8 +121,11 @@ DEV_TLS_HANDSHAKE_FAILURE_CATEGORY_CONSUMED_GATE = (
 OFFLINE_AGENT_FOUNDATION_BATCH_CONSUMED_GATE = (
     "REVIEW_AND_CI_OFFLINE_AGENT_FOUNDATION_BATCH_PR"
 )
-DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE = (
+D3_EPHEMERAL_EFFECT_STATE_CONSUMED_GATE = (
     "REVIEW_AND_CI_D3_EPHEMERAL_EFFECT_STATE_PR"
+)
+DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE = (
+    "REVIEW_AND_CI_D3_TURN_IDENTITY_OFFLINE_PR"
 )
 DEV_PREFLIGHT_PHASE_DIAGNOSTICS_STALE_GATE = (
     "REVIEW_AND_INTEGRATE_DEV_PREFLIGHT_PHASE_DIAGNOSTICS_PR"
@@ -468,7 +477,8 @@ def _assert_current_preflight_gate(path: Path, normalized: str) -> None:
 
 
 def _assert_reconciled_d3_gate(path: Path, normalized: str) -> None:
-    consumed = OFFLINE_AGENT_FOUNDATION_BATCH_CONSUMED_GATE.casefold()
+    foundation_consumed = OFFLINE_AGENT_FOUNDATION_BATCH_CONSUMED_GATE.casefold()
+    d3_consumed = D3_EPHEMERAL_EFFECT_STATE_CONSUMED_GATE.casefold()
     current = DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold()
     required = {
         "gate historico",
@@ -476,19 +486,27 @@ def _assert_reconciled_d3_gate(path: Path, normalized: str) -> None:
         "nao autorizou o merge posterior",
         "permanece somente como evidencia historica",
         "nao e um segundo gate corrente",
+        "foi consumido pelo push, abertura, ci e preview da pr #352",
+        "merge e o deployment automatico do frontend production foram autorizados separadamente",
+        "esse gate nao os autorizou",
+        "apos o consumo",
         "nome nao constitui autorizacao ja concedida",
         "autorizacao humana posterior e separada",
         "nomeie push, abertura da pr e github ci",
         "aceite o vercel preview automatico",
-        "batch permanece exclusivamente offline",
-        "este gate nao autoriza merge, vercel production",
+        "proxima fatia permanece exclusivamente offline",
+        "identidade estavel de mensagem e turno",
+        "contrato de idempotencia",
+        "este gate nao autoriza merge, vercel production, saver",
     }
     missing = sorted(item for item in required if item not in normalized)
     assert not missing, f"D3 gate reconciliation missing in {path}: {missing}"
     assert normalized.count("proximo gate unico") == 1
-    assert normalized.count(consumed) == 1
+    assert normalized.count(foundation_consumed) == 1
+    assert normalized.count(d3_consumed) == 1
     assert normalized.count(current) == 1
-    assert normalized.index(consumed) < normalized.index("proximo gate unico")
+    assert normalized.index(foundation_consumed) < normalized.index(d3_consumed)
+    assert normalized.index(d3_consumed) < normalized.index("proximo gate unico")
     assert normalized.index("proximo gate unico") < normalized.index(current)
 
 
@@ -2736,7 +2754,7 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
         "recommendation_only_not_approved",
         "comprova somente o desenho offline",
         OFFLINE_AGENT_FOUNDATION_BATCH_CONSUMED_GATE.casefold(),
-        "batch permanece exclusivamente offline",
+        "proxima fatia permanece exclusivamente offline",
         "nao autoriza merge",
         "acesso a dev ou prod",
     }
@@ -2770,12 +2788,34 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
         "nao prova backend, banco ou runtime",
         "preparacao d3 de estado efemero desta branch permanece candidata offline",
         "nao integra a evidencia pos-merge da pr #351",
+        "pr #352",
+        "c5b2b4c775592641b308de6b2ac3cd069f34dcb3",
+        "6c807717010a41edf3bfd3d1b2405c2f3527a696",
+        "arvore e identica a do head da pr",
+        "33428905043",
+        "33428905057",
+        "33428905042",
+        "33428905234",
+        "33428905212",
+        "33428905114",
+        "33428905041",
+        "6187746800",
+        "17584957483",
+        "2026-08-31t19:09:09z",
+        "nao prova saude funcional, backend, banco, saver, migration, memoria ativa",
+        "preparacao d3 integrada e inativa",
+        D3_EPHEMERAL_EFFECT_STATE_CONSUMED_GATE.casefold(),
+        "foi consumido pelo push, abertura, ci e preview da pr #352",
+        "merge e o deployment automatico do frontend production foram autorizados separadamente",
+        "esse gate nao os autorizou",
         DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold(),
         "nome nao constitui autorizacao ja concedida",
         "autorizacao humana posterior",
         "nomeie push, abertura da pr e github ci",
         "aceite o vercel preview automatico",
-        "nao autoriza merge, vercel production, probe vivo",
+        "identidade estavel de mensagem e turno",
+        "contrato de idempotencia",
+        "nao autoriza merge, vercel production, saver",
     }
 
     for path in DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CANONICAL_DOCS:
@@ -2859,6 +2899,44 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
         ) == 1
         for stale_claim in DEV_PREFLIGHT_PHASE_DIAGNOSTICS_STALE_CLAIMS:
             assert stale_claim not in normalized
+
+    architecture_adr = _normalized_prose(
+        WHATSAPP_FIRST_AGENT_ARCHITECTURE_ADR_PATH.read_text(encoding="utf-8")
+    )
+    architecture_required = {
+        "preparacao d3 offline: fronteira efemera por turno",
+        "agentturninput",
+        "agentturnoutput",
+        "agentturneffects",
+        "untrackedvalue",
+        "fallback automatico para o caminho direto",
+        "ausencia de checkpointer e store",
+        "nao instala saver",
+        "memoria privada duravel de d3 permanece ausente",
+        "pr #352",
+        "c5b2b4c775592641b308de6b2ac3cd069f34dcb3",
+        "6c807717010a41edf3bfd3d1b2405c2f3527a696",
+        "33428905043",
+        "33428905057",
+        "33428905042",
+        "33428905234",
+        "33428905212",
+        "33428905114",
+        "33428905041",
+        "6187746800",
+        "17584957483",
+        "2026-08-31t19:09:09z",
+        "prova somente o deployment do frontend",
+        "nao prova saude funcional, backend, banco, saver, migration, memoria ativa",
+        "preparacao d3 integrada e inativa",
+    }
+    architecture_missing = sorted(
+        item for item in architecture_required if item not in architecture_adr
+    )
+    assert not architecture_missing, (
+        "D3 architecture postmerge reconciliation missing: "
+        f"{architecture_missing}"
+    )
 
     phase_adr = _normalized_prose(
         DEV_PREFLIGHT_PHASE_DIAGNOSTICS_ADR_PATH.read_text(encoding="utf-8")
@@ -3048,6 +3126,7 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
     assert plan["next_gate"] == DEV_CONNECT_TLS_AUTH_PLAN_REVIEW_GATE
     assert plan["next_gate"] != DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE
     assert plan["next_gate"] != OFFLINE_AGENT_FOUNDATION_BATCH_CONSUMED_GATE
+    assert plan["next_gate"] != D3_EPHEMERAL_EFFECT_STATE_CONSUMED_GATE
     assert plan["next_gate"] != DEV_CONNECT_TLS_AUTH_CONSUMED_EXECUTION_GATE
     assert plan["next_gate"] != DEV_TLS_HANDSHAKE_FAILURE_CATEGORY_CONSUMED_GATE
     assert plan["historical_result"]["precise_timestamp_preserved"] is False
@@ -3101,6 +3180,7 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
     assert "consumido pela pr #346" in readme
     assert "nao e um segundo gate corrente" in readme
     assert OFFLINE_AGENT_FOUNDATION_BATCH_CONSUMED_GATE.casefold() in readme
+    assert D3_EPHEMERAL_EFFECT_STATE_CONSUMED_GATE.casefold() in readme
     assert DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold() in readme
     assert DEV_CONNECT_TLS_AUTH_CONSUMED_EXECUTION_GATE.casefold() in readme
     assert "pr #348" in readme
@@ -3125,6 +3205,7 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
     assert not readme_missing, f"migration README reconciliation missing: {readme_missing}"
     assert readme.count(DEV_CONNECT_TLS_AUTH_PLAN_REVIEW_GATE.casefold()) == 1
     assert readme.count(OFFLINE_AGENT_FOUNDATION_BATCH_CONSUMED_GATE.casefold()) == 1
+    assert readme.count(D3_EPHEMERAL_EFFECT_STATE_CONSUMED_GATE.casefold()) == 1
     assert readme.count(DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold()) == 1
     _assert_reconciled_d3_gate(readme_path, readme)
     assert readme.count(DEV_CONNECT_TLS_AUTH_CONSUMED_EXECUTION_GATE.casefold()) == 1

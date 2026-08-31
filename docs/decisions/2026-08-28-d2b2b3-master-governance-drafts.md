@@ -651,15 +651,35 @@ somente o frontend e nao prova backend, banco ou runtime. A preparacao D3 de
 estado efemero desta branch permanece candidata offline, sem saver, migration
 ou retomada, e nao integra a evidencia pos-merge da PR #351.
 
+A PR #352, HEAD `c5b2b4c775592641b308de6b2ac3cd069f34dcb3`, integrou essa
+preparacao no merge `6c807717010a41edf3bfd3d1b2405c2f3527a696`, cuja arvore e
+identica a do HEAD da PR. Os `7/7` workflows pos-merge concluiram com
+`SUCCESS`: Backend Tests `33428905043`, Canonical Schema Derivation
+`33428905057`, E2E Critical `33428905042`, Environment Attestation PG17
+`33428905234`, Frontend CI `33428905212`, RLS Integration `33428905114` e
+Tooling Static Checks `33428905041`. A Vercel registrou o deployment automatico
+do frontend Production `6187746800`, status `17584957483`, com `SUCCESS`, em
+`2026-08-31T19:09:09Z`. Essa metadata prova somente o frontend e nao prova
+saude funcional, backend, banco, saver, migration, memoria ativa, deploy do
+backend, flag ou runtime. O estado permanece `PREPARACAO D3 INTEGRADA E
+INATIVA`.
+
 O gate historico `REVIEW_AND_CI_OFFLINE_AGENT_FOUNDATION_BATCH_PR` foi consumido
 pelo push, abertura, CI e Preview da PR #351. Ele nao autorizou o merge
 posterior, permanece somente como evidencia historica e nao e um segundo gate
 corrente.
 
+O gate historico `REVIEW_AND_CI_D3_EPHEMERAL_EFFECT_STATE_PR` foi consumido
+pelo push, abertura, CI e Preview da PR #352. O merge e o deployment automatico
+do frontend Production foram autorizados separadamente; esse gate nao os
+autorizou. Apos o consumo, ele permanece somente como evidencia historica e
+nao e um segundo gate corrente.
+
 **Proximo gate unico:**
-`REVIEW_AND_CI_D3_EPHEMERAL_EFFECT_STATE_PR`. O nome nao constitui autorizacao
+`REVIEW_AND_CI_D3_TURN_IDENTITY_OFFLINE_PR`. O nome nao constitui autorizacao
 ja concedida. Seu consumo exige autorizacao humana posterior e separada que
 nomeie push, abertura da PR e GitHub CI e aceite o Vercel Preview automatico.
-O batch permanece exclusivamente offline. Este gate nao autoriza merge, Vercel
-Production, probe vivo, acesso a DEV ou PROD, banco, logs, SQL, DML, migration,
-deploy, flag ou runtime.
+A proxima fatia permanece exclusivamente offline e limita-se a identidade
+estavel de mensagem e turno e ao contrato de idempotencia. Este gate nao
+autoriza merge, Vercel Production, saver, probe vivo, acesso a DEV ou PROD,
+banco, logs, SQL, DML, migration, deploy, flag, runtime ou execucao externa.
