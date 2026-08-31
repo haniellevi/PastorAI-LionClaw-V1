@@ -663,7 +663,7 @@ def test_claim_id_is_absent_from_identity_fields_and_hash_contract() -> None:
     assert "claim_id" not in source
 
 
-def test_contract_is_stdlib_only_and_has_no_runtime_wiring() -> None:
+def test_contract_module_is_stdlib_only_and_keeps_io_outside() -> None:
     source_path = Path(__file__).parents[1] / "app/agent/turn_identity.py"
     source = source_path.read_text(encoding="utf-8")
     tree = ast.parse(source)

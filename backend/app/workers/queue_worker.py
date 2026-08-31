@@ -53,6 +53,12 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.agent.turn_identity import (
+    AgentInboundProvider,
+    AgentTurnIdentity,
+    AgentTurnIdentityError,
+    build_agent_turn_identity,
+)
 from app.config import get_settings
 from app.db.models import Conversation, Message, Pessoa, WhatsappConnection
 from app.db.rls_observability import require_tenant_scope
@@ -103,6 +109,7 @@ REDIS_CONNECT_TIMEOUT_SECONDS = 3
 # blocking Redis command returns normally.
 REDIS_SOCKET_TIMEOUT_SECONDS = BRPOP_TIMEOUT + 2
 REDIS_MAX_CONNECTIONS = 20
+MAX_AGENT_CLAIM_ID_BYTES = 128
 
 _PROCESSING_MARKER = "processing"
 _PROCESSED_MARKER = "done"
@@ -374,6 +381,21 @@ class AgentReplyRetryable(RuntimeError):
 
 class AgentTenantContextError(RuntimeError):
     """O turno do agente não possui um tenant UUID confiável."""
+
+
+class TrustedInboundIdentityErrorCode(str, Enum):
+    """Static fail-closed reasons that never echo inbound identifiers."""
+
+    INVALID_TRUSTED_INBOUND_IDENTITY = "INVALID_TRUSTED_INBOUND_IDENTITY"
+    INVALID_QUEUE_CLAIM = "INVALID_QUEUE_CLAIM"
+
+
+class TrustedInboundIdentityContractError(RuntimeError):
+    """Trusted inbound execution prerequisites are incomplete or ambiguous."""
+
+    def __init__(self, code: TrustedInboundIdentityErrorCode) -> None:
+        self.code = code
+        super().__init__(f"agent turn execution contract rejected: {code.value}")
 
 
 class AgentRunDisposition(str, Enum):
@@ -703,6 +725,8 @@ class IngestionOutcome:
     igreja_id: Any | None = None
     provider_message_id: str | None = None
     claim_id: str | None = None
+    # Additive tail field preserves positional compatibility for old callers.
+    inbound_message_id: uuid.UUID | None = None
 
 
 def ingest_message_event(db: Session, parsed: ParsedMessage) -> IngestionResult:
@@ -802,7 +826,8 @@ def ingest_message_event_ex(
             texto=parsed.texto,
             inbound=inbound,
             igreja_id=igreja_id,
-            provider_message_id=parsed.provider_message_id,
+            inbound_message_id=existing_message.id if inbound else None,
+            provider_message_id=existing_message.provider_message_id,
         )
 
     # The advisory lock above may have waited behind the current winner. Check
@@ -956,7 +981,16 @@ def ingest_message_event_ex(
             texto=parsed.texto,
             inbound=inbound,
             igreja_id=igreja_id,
-            provider_message_id=parsed.provider_message_id,
+            inbound_message_id=(
+                existing_message.id
+                if inbound and existing_message is not None
+                else None
+            ),
+            provider_message_id=(
+                existing_message.provider_message_id
+                if existing_message is not None
+                else parsed.provider_message_id
+            ),
         )
     return IngestionOutcome(
         result=IngestionResult.REGISTERED,
@@ -966,7 +1000,8 @@ def ingest_message_event_ex(
         texto=parsed.texto,
         inbound=inbound,
         igreja_id=igreja_id,
-        provider_message_id=parsed.provider_message_id,
+        inbound_message_id=message.id if inbound else None,
+        provider_message_id=message.provider_message_id,
     )
 
 
@@ -1696,6 +1731,63 @@ def _require_agent_igreja_id(outcome: IngestionOutcome) -> uuid.UUID:
         ) from None
 
 
+def _encode_agent_claim_id(claim_id: str) -> bytes:
+    """Encode only a claim whose cheap character bound already passed."""
+
+    return claim_id.encode("utf-8", "strict")
+
+
+def _build_trusted_inbound_turn_identity(
+    outcome: IngestionOutcome,
+) -> AgentTurnIdentity:
+    """Bind one queue-owned turn to its already-persisted inbound row.
+
+    All failures expose static codes only.  The queue claim remains a separate
+    recovery prerequisite and deliberately does not participate in turn_id.
+    """
+
+    if outcome.inbound is not True:
+        raise TrustedInboundIdentityContractError(
+            TrustedInboundIdentityErrorCode.INVALID_TRUSTED_INBOUND_IDENTITY
+        )
+
+    claim_id = outcome.claim_id
+    if (
+        type(claim_id) is not str
+        or not claim_id
+        or len(claim_id) > MAX_AGENT_CLAIM_ID_BYTES
+    ):
+        raise TrustedInboundIdentityContractError(
+            TrustedInboundIdentityErrorCode.INVALID_QUEUE_CLAIM
+        )
+    try:
+        claim_id_bytes = _encode_agent_claim_id(claim_id)
+    except UnicodeEncodeError:
+        claim_id_bytes = b""
+    if (
+        claim_id != claim_id.strip()
+        or not claim_id.isprintable()
+        or not claim_id_bytes
+        or len(claim_id_bytes) > MAX_AGENT_CLAIM_ID_BYTES
+    ):
+        raise TrustedInboundIdentityContractError(
+            TrustedInboundIdentityErrorCode.INVALID_QUEUE_CLAIM
+        )
+
+    try:
+        return build_agent_turn_identity(
+            igreja_id=outcome.igreja_id,
+            conversation_id=outcome.conversation_id,
+            inbound_message_id=outcome.inbound_message_id,
+            provider=AgentInboundProvider.EVOLUTION,
+            provider_message_id=outcome.provider_message_id,
+        )
+    except AgentTurnIdentityError:
+        raise TrustedInboundIdentityContractError(
+            TrustedInboundIdentityErrorCode.INVALID_TRUSTED_INBOUND_IDENTITY
+        ) from None
+
+
 def _agent_reply_idempotency_key(outcome: IngestionOutcome) -> str | None:
     """Return one stable durable key for an inbound event and its queue claim."""
 
@@ -2260,15 +2352,30 @@ def run_agent_for_message(
     the orchestrator because its tools may mutate tenant state.  An unresolved
     execution is quarantined rather than run a second time.
     """
-    from app.agent.runtime import process_inbound_message  # noqa: PLC0415
-
-    if outcome.conversation_id is None:
+    trusted_identity_enabled = (
+        get_settings().agent_trusted_inbound_identity_enabled
+    )
+    if outcome.conversation_id is None and not trusted_identity_enabled:
         return AgentRunDisposition.COMPLETED
+
+    turn_identity: AgentTurnIdentity | None = None
+    if trusted_identity_enabled:
+        # This is intentionally before tenant coercion, ownership callbacks,
+        # durable reply reservation, session creation and runtime import.
+        turn_identity = _build_trusted_inbound_turn_identity(outcome)
+
+    from app.agent.runtime import process_inbound_message  # noqa: PLC0415
 
     igreja_id = _require_agent_igreja_id(outcome)
 
     provider_message_id = _agent_reply_idempotency_key(outcome)
     if provider_message_id is None:
+        if turn_identity is not None:
+            # The trusted path must never fall back to an unreceipted legacy
+            # execution, even if a future refactor weakens the key helper.
+            raise TrustedInboundIdentityContractError(
+                TrustedInboundIdentityErrorCode.INVALID_QUEUE_CLAIM
+            )
         # Compatibility path for out-of-tree callers that predate durable queue
         # claims.  QueueWorker always reaches the durable path below.
         if ownership_guard is not None:
@@ -2276,12 +2383,23 @@ def run_agent_for_message(
         session: Session = session_factory()
         try:
             _scope_agent_session(session, outcome)
-            result = process_inbound_message(
-                session,
-                igreja_id=igreja_id,
-                conversation_id=outcome.conversation_id,
-                texto=outcome.texto,
-            )
+            if turn_identity is None:
+                result = process_inbound_message(
+                    session,
+                    igreja_id=igreja_id,
+                    conversation_id=outcome.conversation_id,
+                    texto=outcome.texto,
+                )
+            else:
+                result = process_inbound_message(
+                    session,
+                    igreja_id=igreja_id,
+                    conversation_id=outcome.conversation_id,
+                    texto=outcome.texto,
+                    turn_identity=turn_identity,
+                    inbound_message_id=outcome.inbound_message_id,
+                    provider_message_id=outcome.provider_message_id,
+                )
         finally:
             session.close()
         if result.handled and not result.suppressed and result.response:
@@ -2354,12 +2472,23 @@ def run_agent_for_message(
                     # — é aqui que tools, retrieval da KB e memória leem/escrevem
                     # dados do tenant.
                     _scope_agent_session(session, outcome)
-                    result = process_inbound_message(
-                        session,
-                        igreja_id=igreja_id,
-                        conversation_id=outcome.conversation_id,
-                        texto=outcome.texto,
-                    )
+                    if turn_identity is None:
+                        result = process_inbound_message(
+                            session,
+                            igreja_id=igreja_id,
+                            conversation_id=outcome.conversation_id,
+                            texto=outcome.texto,
+                        )
+                    else:
+                        result = process_inbound_message(
+                            session,
+                            igreja_id=igreja_id,
+                            conversation_id=outcome.conversation_id,
+                            texto=outcome.texto,
+                            turn_identity=turn_identity,
+                            inbound_message_id=outcome.inbound_message_id,
+                            provider_message_id=outcome.provider_message_id,
+                        )
                 except BaseException:
                     # A process failure after ``ia_executando`` may have crossed
                     # a non-transactional tool boundary.  Do not re-run it.

@@ -1,9 +1,12 @@
 """Pure, inactive D3 identity contract for one inbound agent turn.
 
-This module performs no I/O and is not wired to the worker, runtime, database,
-or LangGraph saver.  It gives a persisted inbound Evolution message one stable
-turn identity and gives each semantic effect slot one payload-independent ID.
-Payloads are represented only by a strict canonical-JSON digest.
+This module remains pure and performs no I/O.  Its identity contract is
+consumed only by the trusted worker adapter and revalidated by the agent
+runtime behind a default-off feature flag.  It is not connected to a database,
+LangGraph saver or effect executor.  It gives a persisted inbound Evolution
+message one stable turn identity and gives each semantic effect slot one
+payload-independent ID.  Payloads are represented only by a strict
+canonical-JSON digest.
 
 ``ordinal`` is an occurrence allocated by a future deterministic, persisted
 effect plan.  It must never come from model output, list order, retry count, or
@@ -23,9 +26,10 @@ logged, passed through ``dataclasses.asdict``, or serialized as an opaque
 LangGraph value.
 
 The provider-message validator is intentionally stricter than today's live
-ingress.  Future wiring must first inventory and preflight persisted Evolution
-IDs, then coordinate any compatibility hardening.  It must not silently drop
-or strand existing messages that are outside this inactive contract.
+ingress.  Before this default-off wiring can be enabled, persisted Evolution
+IDs must be inventoried and preflighted and any compatibility hardening must be
+coordinated.  Activation must not silently drop or strand existing messages
+that are outside this contract.
 """
 
 from __future__ import annotations

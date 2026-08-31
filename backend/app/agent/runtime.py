@@ -42,6 +42,12 @@ from app.agent.nodes import (
     AgentTurnEffects,
 )
 from app.agent.tools import TOOL_ACTOR_ROLE_CONTEXT, TOOL_ARG_SCHEMA, TOOLS, ToolError
+from app.agent.turn_identity import (
+    AgentTurnContractErrorCode,
+    AgentTurnIdentity,
+    AgentTurnIdentityError,
+    build_agent_turn_identity,
+)
 from app.config import get_settings
 from app.db.models import (
     AgentConfig,
@@ -82,6 +88,44 @@ class AgentTurnResult:
     suppressed: bool = False  # True when a human owns the chat (handoff)
     tools_executed: list[str] = field(default_factory=list)
     reason: str | None = None
+
+
+def _require_bound_turn_identity(
+    value: object,
+    *,
+    igreja_id: object,
+    conversation_id: object,
+    inbound_message_id: object,
+    provider_message_id: object,
+) -> AgentTurnIdentity:
+    """Revalidate one worker-built identity without touching session state."""
+
+    if (
+        type(value) is not AgentTurnIdentity
+        or type(igreja_id) is not uuid.UUID
+        or type(conversation_id) is not uuid.UUID
+        or type(inbound_message_id) is not uuid.UUID
+        or type(provider_message_id) is not str
+    ):
+        raise AgentTurnIdentityError(
+            AgentTurnContractErrorCode.INVALID_TURN_IDENTITY
+        )
+    try:
+        expected = build_agent_turn_identity(
+            igreja_id=igreja_id,
+            conversation_id=conversation_id,
+            inbound_message_id=inbound_message_id,
+            provider_message_id=provider_message_id,
+        )
+    except (AttributeError, AgentTurnIdentityError):
+        raise AgentTurnIdentityError(
+            AgentTurnContractErrorCode.INVALID_TURN_IDENTITY
+        ) from None
+    if expected != value:
+        raise AgentTurnIdentityError(
+            AgentTurnContractErrorCode.INVALID_TURN_IDENTITY
+        )
+    return value
 
 
 def _active_credential(session: Session, igreja_id: uuid.UUID) -> LlmCredential | None:
@@ -457,12 +501,26 @@ def process_inbound_message(
     igreja_id: str | uuid.UUID,
     conversation_id: str | uuid.UUID,
     texto: str | None,
+    turn_identity: AgentTurnIdentity | None = None,
+    inbound_message_id: uuid.UUID | None = None,
+    provider_message_id: str | None = None,
 ) -> AgentTurnResult:
     """Run one orchestrator turn for an inbound message and apply side effects.
 
     The caller commits the session and sends `response` via the official number.
     """
     settings = get_settings()
+    if settings.agent_trusted_inbound_identity_enabled:
+        # Defense in depth for direct/out-of-tree callers.  This executes
+        # before tenant scoping, the first query, opt-out writes, graph, tools,
+        # LLM or outbound delivery.
+        _require_bound_turn_identity(
+            turn_identity,
+            igreja_id=igreja_id,
+            conversation_id=conversation_id,
+            inbound_message_id=inbound_message_id,
+            provider_message_id=provider_message_id,
+        )
     try:
         tenant_uuid = (
             igreja_id

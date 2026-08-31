@@ -203,6 +203,14 @@ def test_repeated_validation_detects_tampered_frozen_context() -> None:
         "pessoa_id",
         "privilege",
         "term_current_version",
+        "turn_id",
+        "turn_identity",
+        "agent_turn_identity",
+        "inbound_message_id",
+        "provider",
+        "provider_message_id",
+        "claim_id",
+        "effect_id",
     ],
 )
 def test_input_rejects_authority_aliases(reserved: str) -> None:

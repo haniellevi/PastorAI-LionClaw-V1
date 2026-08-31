@@ -110,6 +110,16 @@ _RESERVED_STATE_KEYS = frozenset(
         "messages",
         "conversation_summary",
         "recent_context",
+        # Stable inbound-turn identity is built by the trusted worker adapter.
+        # These aliases must never enter caller-controlled graph state.
+        "turn_id",
+        "turn_identity",
+        "agent_turn_identity",
+        "inbound_message_id",
+        "provider",
+        "provider_message_id",
+        "claim_id",
+        "effect_id",
         # Legacy effect aliases stay forbidden after the turn-local envelope
         # split.  Accepting either representation would create two execution
         # paths and could revive sticky/replayed effects.
