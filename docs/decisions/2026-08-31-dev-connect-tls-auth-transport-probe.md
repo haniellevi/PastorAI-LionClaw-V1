@@ -3,7 +3,8 @@
 Data: `2026-08-31`
 
 Estado: `PLANO OFFLINE INTEGRADO / RESULTADO SANITIZADO REGISTRADO / CAUSA
-INDETERMINADA / PROBE NÃO IMPLEMENTADO E NÃO EXECUTADO / OPERAÇÃO BLOQUEADA`.
+INDETERMINADA / CANDIDATO DE PROBE IMPLEMENTADO E COMPROVADO OFFLINE / AINDA
+NÃO INTEGRADO / PROBE NÃO EXECUTADO / OPERAÇÃO BLOQUEADA`.
 
 Base versionada: `bab031a7e0067a257eedb4a24c786cc925801463`.
 
@@ -166,16 +167,55 @@ bytes integrados e não é um segundo gate corrente. Alterar esse campo agora
 mudaria o artefato técnico já revisado; o gate corrente é somente o definido
 abaixo e validado pelo teste documental.
 
+## Reconciliação da PR #347 e candidato de implementação
+
+A PR #347, HEAD `0a257e9aa1985860d5ea0a4506d4f7e84c7b2312`, foi integrada no
+merge `36f8d13284a8f4964d0258a2a3b845323a80fe7e`, com
+`mergedAt=2026-08-31T14:26:10Z`. Os sete workflows pós-merge concluíram com
+`SUCCESS`: Tooling `33402611962`, Environment Attestation PG17 `33402611967`,
+Canonical `33402611953`, Backend `33402611993`, E2E `33402611920`, Frontend
+`33402612121` e RLS `33402611951`. A Vercel registrou o deployment frontend
+Production `6183047421`, status `17572803614`, `state=success`, em
+`2026-08-31T14:26:57Z`. Essa metadata prova somente o frontend e não prova
+backend, banco, DEV, PROD ou o probe.
+
+Sobre esse `main`, o candidato adiciona somente o runner
+`backend/scripts/probe_dev_connect_tls_auth_transport.py` e sua matriz
+`backend/tests/test_dev_connect_tls_auth_transport_probe.py`. Os SHA-256
+congelados são, respectivamente,
+`4196e218e023f5ef16fe333f62b756b55239d0bdde1c11aed12e59af888f6cc9` e
+`b79ff9d7473fdafd0a4fcd6ceba98b2c46f5470ef517b6663898812fe8b1296e`.
+A prova focal passou em `90/90` usando fixtures e loopback TLS sintético
+descartável. A única rede desta rodada foi o `git fetch` nominalmente
+autorizado para obter o commit-base; nenhum probe vivo, DEV, PROD, banco ou log
+foi acessado.
+
+O runner recebe seis descritores privados, fixa no código somente o hash do
+project-ref DEV e exige o SHA esperado do registro de autorização em descritor
+independente. O caminho de transporte resolve uma vez, exige todos os endereços
+globais, escolhe um endereço deterministicamente, envia somente o SSLRequest
+PostgreSQL de oito bytes, exige `S`, valida a cadeia TLS com CA explícita e o
+hostname e fecha antes de StartupMessage. Não recebe senha, usuário, banco ou
+DSN e não tenta autenticação nem SQL. A saída é
+sanitizada, mantém `ROOT_CAUSE=UNDETERMINED`,
+`OPERATIONAL_AUTHORIZATION=false` e `NEXT_STAGE_AUTHORIZED=false`.
+
+O plano JSON permanece histórico e byte-idêntico. Seus campos
+`implementation_present=false` e `network_capability_present=false` descrevem
+somente a etapa anterior já consumida, integrada pela PR #346; eles não descrevem
+o candidato ainda não integrado. Nenhum registro nominal de execução foi
+emitido e nenhum resultado local autoriza uma execução viva.
+
 ## Próximo gate único
 
-`REVIEW_AND_CI_DEV_CONNECT_TLS_AUTH_POSTMERGE_RECONCILIATION_PR`.
+`REVIEW_AND_CI_DEV_CONNECT_TLS_AUTH_TRANSPORT_PROBE_IMPLEMENTATION_PR`.
 
-Esse gate autoriza somente abrir e revisar a PR documental pós-merge e executar
-o CI do mesmo SHA. Seu consumo exige autorização humana que nomeie o push e a
+Esse gate autoriza somente o push do candidato, a abertura e revisão da PR e o
+CI do mesmo SHA. Seu consumo exige autorização humana que nomeie o push e a
 abertura da PR e aceite o Vercel Preview automático do frontend. Não autoriza
 merge nem integração ou deployment Production.
 
-O gate não autoriza implementar ou executar o probe, retry, nova invocação
+O gate não autoriza executar o probe, retry, nova invocação
 DEV, DNS, TCP, TLS, senha, autenticação, consulta de logs, banco, SQL, captura,
 materialização, DML, migration, reconciliação, backfill, deploy manual ou do
 backend, flag, runtime ou acesso a PROD.
