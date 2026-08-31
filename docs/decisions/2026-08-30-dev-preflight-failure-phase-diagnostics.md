@@ -123,15 +123,30 @@ a concedem.
 `OPERATIONAL_AUTHORIZATION=false` e `NEXT_STAGE_AUTHORIZED=false` permanecem
 obrigatórios.
 
+## Integração do plano offline
+
+A PR #346, HEAD `0c63dc29dc903e0e7012b9fb811b7b2ddb05ab51`, foi integrada no
+merge `fb776e270bf3e2ffde0cbb28e400960591b74420`, com
+`mergedAt=2026-08-31T13:02:07Z`. Os sete workflows pós-merge concluíram com
+`SUCCESS`: Tooling `33394774001`, Environment Attestation PG17 `33394774013`,
+Canonical `33394773986`, E2E `33394774109`, Frontend `33394774063`, RLS
+`33394773965` e Backend `33394774029`. A Vercel registrou o deployment
+frontend Production `6181597461`, status `17569033825`, `state=success`, em
+`2026-08-31T13:02:53Z`. Essa metadata prova somente o frontend e não prova
+saúde funcional, backend, banco, DEV, PROD, probe ou migration. A integração
+versionou apenas o plano offline: `execution_disabled=true`, implementação e
+capacidade de rede ausentes, probe não executado e operação bloqueada.
+
 ## Próximo gate único
 
-`REVIEW_AND_CI_DEV_CONNECT_TLS_AUTH_OFFLINE_DIAGNOSTICS_PR`.
+`REVIEW_AND_CI_DEV_CONNECT_TLS_AUTH_POSTMERGE_RECONCILIATION_PR`.
 
-O gate autoriza somente abrir e revisar a PR offline e executar o CI do
-mesmo SHA. Não autoriza merge nem integração. O merge em `main` e o deployment
-automático frontend Vercel Production exigem autorização humana posterior
-específica que nomeie e aceite ambos. O gate também não autoriza executar o
-probe, retry, nova invocação DEV, DNS, TCP, TLS, senha, autenticação, consulta
-de logs, acesso a DEV ou PROD, banco, SQL, captura, materialização, DML,
-migration, reconciliação, backfill, deploy manual ou do backend, flag, runtime,
-`status`, `apply`, `bootstrap-ledger` ou `harden-ledger`.
+O gate autoriza somente abrir e revisar a PR documental pós-merge e executar o
+CI do mesmo SHA. Seu consumo exige autorização humana que nomeie o push e a
+abertura da PR e aceite o Vercel Preview automático do frontend. Não autoriza
+merge nem integração. O gate também não autoriza implementar ou executar o
+probe, retry, nova invocação DEV, DNS, TCP, TLS,
+senha, autenticação, consulta de logs, acesso a DEV ou PROD, banco, SQL,
+captura, materialização, DML, migration, reconciliação, backfill, deploy manual
+ou do backend, flag, runtime, `status`, `apply`, `bootstrap-ledger` ou
+`harden-ledger`.

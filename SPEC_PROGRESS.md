@@ -450,15 +450,27 @@ O contrato e os limites estao em
 `OPERATIONAL_AUTHORIZATION=false` e `NEXT_STAGE_AUTHORIZED=false` permanecem
 obrigatorios.
 
+A PR #346, HEAD `0c63dc29dc903e0e7012b9fb811b7b2ddb05ab51`, foi integrada no
+merge `fb776e270bf3e2ffde0cbb28e400960591b74420`, com
+`mergedAt=2026-08-31T13:02:07Z`. Os sete workflows pos-merge concluiram com
+`SUCCESS`: Tooling `33394774001`, Environment Attestation PG17 `33394774013`,
+Canonical `33394773986`, E2E `33394774109`, Frontend `33394774063`, RLS
+`33394773965` e Backend `33394774029`. A Vercel registrou o deployment
+frontend Production `6181597461`, status `17569033825`, `state=success`, em
+`2026-08-31T13:02:53Z`. Essa metadata prova somente o frontend e nao prova
+saude funcional, backend, banco, DEV, PROD, probe ou migration. A integracao
+versionou apenas o plano offline: `execution_disabled=true`, implementacao e
+capacidade de rede ausentes, probe nao executado e operacao bloqueada.
+
 **Próximo gate único:**
-`REVIEW_AND_CI_DEV_CONNECT_TLS_AUTH_OFFLINE_DIAGNOSTICS_PR`. Ele autoriza
-somente abrir e revisar a PR offline e executar o CI do mesmo SHA. Nao
-autoriza merge nem integracao. O merge em `main` e qualquer deployment
-automatico frontend Vercel Production exigem autorizacao humana posterior
-especifica que nomeie e aceite ambos. Execucao do probe, retry, nova invocacao
-DEV, DNS, TCP, TLS, senha, autenticacao, logs, banco, SQL, captura,
-materializacao, DML, migration, reconciliacao, backfill, deploy, flag, runtime
-e PROD continuam bloqueados.
+`REVIEW_AND_CI_DEV_CONNECT_TLS_AUTH_POSTMERGE_RECONCILIATION_PR`. Ele autoriza
+somente abrir e revisar a PR documental pos-merge e executar o CI do mesmo SHA.
+Seu consumo exige autorizacao humana que nomeie o push e a abertura da PR e
+aceite o Vercel Preview automatico do frontend. Nao autoriza merge nem
+integracao. Implementacao ou execucao do probe, retry,
+nova invocacao DEV, DNS, TCP, TLS, senha, autenticacao, logs, banco, SQL,
+captura, materializacao, DML, migration, reconciliacao, backfill, deploy manual
+ou Production, flag, runtime e PROD continuam bloqueados.
 
 ---
 
