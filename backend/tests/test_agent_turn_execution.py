@@ -56,6 +56,9 @@ from app.agent.turn_identity import (
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 MODULE_PATH = BACKEND_ROOT / "app" / "agent" / "turn_execution.py"
+TURN_PLAN_ADAPTER_PATH = (
+    BACKEND_ROOT / "app" / "agent" / "turn_plan_adapter.py"
+)
 APP_ROOT = BACKEND_ROOT / "app"
 
 
@@ -1567,15 +1570,25 @@ def test_module_uses_only_stdlib_and_the_frozen_identity_contract() -> None:
 
 
 def test_module_has_no_production_wiring() -> None:
-    matches: list[str] = []
+    execution_consumers: list[str] = []
     for path in APP_ROOT.rglob("*.py"):
         if path == MODULE_PATH:
             continue
         source = path.read_text(encoding="utf-8")
         if "turn_execution" in source:
-            matches.append(str(path.relative_to(BACKEND_ROOT)))
+            execution_consumers.append(str(path.relative_to(BACKEND_ROOT)))
 
-    assert matches == []
+    assert execution_consumers == ["app/agent/turn_plan_adapter.py"]
+
+    adapter_consumers: list[str] = []
+    for path in APP_ROOT.rglob("*.py"):
+        if path == TURN_PLAN_ADAPTER_PATH:
+            continue
+        source = path.read_text(encoding="utf-8")
+        if "turn_plan_adapter" in source:
+            adapter_consumers.append(str(path.relative_to(BACKEND_ROOT)))
+
+    assert adapter_consumers == []
 
 
 def test_module_documents_every_deferred_durable_boundary() -> None:
