@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+import app.agent.turn_plan_adapter as turn_plan_adapter_module
 from app.agent.turn_execution import (
     AgentEffectReceiptOutcome,
     build_agent_effect_receipt,
@@ -1049,6 +1050,41 @@ def test_forged_event_payload_is_rejected():
     object.__setattr__(output.events[0], "payload_json", b'{"update":{}} ')
     _assert_error(
         AgentTurnPlanAdapterErrorCode.INVALID_TURN_OUTPUT,
+        validate_agent_turn_output_v1,
+        output,
+    )
+
+
+def test_forged_report_amount_is_rejected_even_with_recomputed_digest():
+    output = build_agent_turn_output_v1(_report_output())
+    report_event = next(
+        event
+        for event in output.events
+        if event.name is AgentTurnOutputEventName.REPORT_CAPTURED
+    )
+    object.__setattr__(
+        report_event,
+        "payload_json",
+        (
+            b'{"relatorio":{"decisoes":1,"oferta_centavos":'
+            b'1000000000000,"presentes":12,"visitantes":2}}'
+        ),
+    )
+    material = turn_plan_adapter_module._output_material(
+        route=output.route,
+        response=output.response,
+        events=output.events,
+        apply_optout=output.apply_optout,
+        apply_consent_version=output.apply_consent_version,
+        intake_update=json.loads(output.intake_update_json),
+    )
+    object.__setattr__(
+        output,
+        "output_digest",
+        turn_plan_adapter_module._derive_output_digest(material),
+    )
+    _assert_error(
+        AgentTurnPlanAdapterErrorCode.INVALID_REPORT_AMOUNT,
         validate_agent_turn_output_v1,
         output,
     )

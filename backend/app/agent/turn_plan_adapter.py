@@ -864,7 +864,7 @@ def _validate_normalized_event_payload(
         if cents is not None and (
             type(cents) is not int
             or cents < 0
-            or cents > MAX_CANONICAL_INTEGER
+            or cents > MAX_REPORT_OFFERING_CENTS
         ):
             _raise(AgentTurnPlanAdapterErrorCode.INVALID_REPORT_AMOUNT)
         return
