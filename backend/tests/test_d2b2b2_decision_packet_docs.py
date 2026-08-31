@@ -106,8 +106,11 @@ DEV_IDENTITY_PREFLIGHT_RUNNER_CURRENT_GATE = (
 DEV_CONNECT_TLS_AUTH_PLAN_REVIEW_GATE = (
     "REVIEW_AND_CI_DEV_CONNECT_TLS_AUTH_OFFLINE_DIAGNOSTICS_PR"
 )
-DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE = (
+DEV_CONNECT_TLS_AUTH_CONSUMED_EXECUTION_GATE = (
     "SEPARATE_NOMINAL_DEV_CONNECT_TLS_AUTH_TRANSPORT_PROBE_AUTHORIZATION"
+)
+DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE = (
+    "REVIEW_AND_CI_DEV_TLS_HANDSHAKE_FAILURE_CATEGORY_PR"
 )
 DEV_PREFLIGHT_PHASE_DIAGNOSTICS_STALE_GATE = (
     "REVIEW_AND_INTEGRATE_DEV_PREFLIGHT_PHASE_DIAGNOSTICS_PR"
@@ -2624,6 +2627,27 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
         "implementado / integrado / comprovado offline / probe nao executado / operacao bloqueada",
     }
 
+    live_transport_required = {
+        "uma unica invocacao terminou com exit `7`",
+        "tls_handshake",
+        "result=blocked_dev_connect_tls_auth_transport_probe:transport_blocked",
+        "dns, politica de endereco, tcp e a resposta `s` ao sslrequest foram confirmados",
+        "handshake e hostname nao foram confirmados",
+        "nao houve retry",
+        "causa permanece indeterminada",
+        "resultado nao recebe categoria retroativa",
+    }
+
+    tls_category_candidate_required = {
+        "categoria estatica de falha tls",
+        "0ac585b86dd1c96446622e9a46bccda8a1e43eb0bceb0dcc19226892cb88d191",
+        "ef1e23ea13b0469ae4561191c8f46bd34516b94288cce302d41cb5046b2104df",
+        "95/95",
+        DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold(),
+        "push, pr e preview",
+        "nao autoriza merge, vercel production, nova execucao",
+    }
+
     for path in DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CANONICAL_DOCS:
         normalized = _normalized_prose(path.read_text(encoding="utf-8"))
         missing = sorted(item for item in canonical_required if item not in normalized)
@@ -2651,9 +2675,26 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
             f"CONNECT_TLS_AUTH implementation integration missing in {path}: "
             f"{integration_missing}"
         )
+        live_missing = sorted(
+            item for item in live_transport_required if item not in normalized
+        )
+        assert not live_missing, (
+            f"live transport result missing in {path}: {live_missing}"
+        )
+        category_missing = sorted(
+            item
+            for item in tls_category_candidate_required
+            if item not in normalized
+        )
+        assert not category_missing, (
+            f"TLS category candidate missing in {path}: {category_missing}"
+        )
         assert normalized.count("proximo gate unico") == 1
         assert normalized.count(
             DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold()
+        ) == 1
+        assert normalized.count(
+            DEV_CONNECT_TLS_AUTH_CONSUMED_EXECUTION_GATE.casefold()
         ) == 1
         for stale_claim in DEV_PREFLIGHT_PHASE_DIAGNOSTICS_STALE_CLAIMS:
             assert stale_claim not in normalized
@@ -2688,13 +2729,20 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
         "source_main_git_sha=36f8d13284a8f4964d0258a2a3b845323a80fe7e",
     }
     phase_required |= (
-        postmerge_required | candidate_required | implementation_integration_required
+        postmerge_required
+        | candidate_required
+        | implementation_integration_required
+        | live_transport_required
+        | tls_category_candidate_required
     )
     phase_missing = sorted(item for item in phase_required if item not in phase_adr)
     assert not phase_missing, f"preflight phase ADR missing: {phase_missing}"
     assert phase_adr.count("proximo gate unico") == 1
     assert phase_adr.count(
         DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold()
+    ) == 1
+    assert phase_adr.count(
+        DEV_CONNECT_TLS_AUTH_CONSUMED_EXECUTION_GATE.casefold()
     ) == 1
     for stale_claim in DEV_PREFLIGHT_PHASE_DIAGNOSTICS_STALE_CLAIMS:
         assert stale_claim not in phase_adr
@@ -2754,6 +2802,36 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
     }
     diagnostics_required |= candidate_required
     diagnostics_required |= implementation_integration_required
+    diagnostics_required |= live_transport_required | tls_category_candidate_required
+    diagnostics_required |= {
+        "pr #349",
+        "20d995c2cae643697fa86807bb478b546d61ac0c",
+        "33410776855",
+        "33410776858",
+        "33410776869",
+        "33410776921",
+        "33410776885",
+        "33410776816",
+        "33410776874",
+        "6184537013",
+        "17576683669",
+        "6c3af99ad3608f8de03098e47c2dc25bc1db1c16d4e78e96dd1ece44615526c7",
+        "6602a85a36afc2e51c66a0df5ae3d383c5b7c2fed93339ccef7d37e01faf09e8",
+        "fe6dfc97738fa193ca727e7ac7411cc1d3525ccb266cb5ef2dcfadcdcccfe2ad",
+        "dns_resolved=true",
+        "address_policy_passed=true",
+        "tcp_connected=true",
+        "pg_ssl_negotiated=true",
+        "tls_handshake_completed=false",
+        "tls_hostname_verified=false",
+        "socket_closed=true",
+        "local_cleanup=true",
+        "certificate_verification_error",
+        "tls_protocol_error",
+        "transport_io_error",
+        "local_validation_error",
+        "deadline_exceeded",
+    }
     diagnostics_missing = sorted(
         item for item in diagnostics_required if item not in diagnostics_adr
     )
@@ -2763,6 +2841,9 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
     assert diagnostics_adr.count("proximo gate unico") == 1
     assert diagnostics_adr.count(
         DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold()
+    ) == 1
+    assert diagnostics_adr.count(
+        DEV_CONNECT_TLS_AUTH_CONSUMED_EXECUTION_GATE.casefold()
     ) == 1
     for stale_claim in DEV_PREFLIGHT_PHASE_DIAGNOSTICS_STALE_CLAIMS:
         if stale_claim == DEV_CONNECT_TLS_AUTH_PLAN_REVIEW_GATE.casefold():
@@ -2779,6 +2860,7 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
     assert plan["next_stage_authorized"] is False
     assert plan["next_gate"] == DEV_CONNECT_TLS_AUTH_PLAN_REVIEW_GATE
     assert plan["next_gate"] != DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE
+    assert plan["next_gate"] != DEV_CONNECT_TLS_AUTH_CONSUMED_EXECUTION_GATE
     assert plan["historical_result"]["precise_timestamp_preserved"] is False
     assert plan["historical_result"]["exit_code"] == 7
     assert plan["historical_result"]["sanitized_output"][
@@ -2805,10 +2887,10 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
 
     technical_files = {
         REPO_ROOT / "backend" / "scripts" / "probe_dev_connect_tls_auth_transport.py": (
-            "4196e218e023f5ef16fe333f62b756b55239d0bdde1c11aed12e59af888f6cc9"
+            "0ac585b86dd1c96446622e9a46bccda8a1e43eb0bceb0dcc19226892cb88d191"
         ),
         REPO_ROOT / "backend" / "tests" / "test_dev_connect_tls_auth_transport_probe.py": (
-            "b79ff9d7473fdafd0a4fcd6ceba98b2c46f5470ef517b6663898812fe8b1296e"
+            "ef1e23ea13b0469ae4561191c8f46bd34516b94288cce302d41cb5046b2104df"
         ),
         REPO_ROOT / "backend" / "scripts" / "preflight_migration_history_environment_identity.py": (
             "8da631fbb602488bb8c82ce1529c9d8ba17acbae8a318ea9b0fc24cdd8f65cd2"
@@ -2834,6 +2916,7 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
     assert "nao e um segundo gate corrente" in readme
     assert "deploy manual ou production" in readme
     assert DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold() in readme
+    assert DEV_CONNECT_TLS_AUTH_CONSUMED_EXECUTION_GATE.casefold() in readme
     assert "pr #348" in readme
     assert "1e727cd2ea90ccfb68961174b802d595c71f355b" in readme
     assert "exatamente uma invocacao" in readme
@@ -2841,7 +2924,12 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
     assert "4196e218e023f5ef16fe333f62b756b55239d0bdde1c11aed12e59af888f6cc9" in readme
     assert "b79ff9d7473fdafd0a4fcd6ceba98b2c46f5470ef517b6663898812fe8b1296e" in readme
     assert "90/90" in readme
+    assert "0ac585b86dd1c96446622e9a46bccda8a1e43eb0bceb0dcc19226892cb88d191" in readme
+    assert "ef1e23ea13b0469ae4561191c8f46bd34516b94288cce302d41cb5046b2104df" in readme
+    assert "95/95" in readme
     assert readme.count(DEV_CONNECT_TLS_AUTH_PLAN_REVIEW_GATE.casefold()) == 1
+    assert readme.count(DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE.casefold()) == 1
+    assert readme.count(DEV_CONNECT_TLS_AUTH_CONSUMED_EXECUTION_GATE.casefold()) == 1
 
 
 def test_schema_expectation_manifest_is_source_only_and_keeps_environment_gate() -> None:

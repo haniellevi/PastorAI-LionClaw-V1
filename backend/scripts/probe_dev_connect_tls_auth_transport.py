@@ -71,6 +71,15 @@ PHASES = (
     "SOCKET_CLOSE",
 )
 
+TLS_HANDSHAKE_FAILURE_CATEGORIES = (
+    "NOT_APPLICABLE",
+    "CERTIFICATE_VERIFICATION_ERROR",
+    "TLS_PROTOCOL_ERROR",
+    "TRANSPORT_IO_ERROR",
+    "LOCAL_VALIDATION_ERROR",
+    "DEADLINE_EXCEEDED",
+)
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PLAN_PATH = (
     REPO_ROOT
@@ -208,6 +217,7 @@ class ProbeState:
     tcp_connected: bool = False
     pg_ssl_negotiated: bool = False
     tls_handshake_completed: bool = False
+    tls_handshake_failure_category: str = "NOT_APPLICABLE"
     tls_hostname_verified: bool = False
     socket_closed: bool = True
 
@@ -877,8 +887,24 @@ def _run_transport_probe(
             state.tls_hostname_verified = True
             deadline.remaining()
     except ProbeError as exc:
+        if phase == "TLS_HANDSHAKE" and isinstance(exc, DeadlineError):
+            state.tls_handshake_failure_category = "DEADLINE_EXCEEDED"
         pending = _with_phase(exc, phase)
-    except (OSError, ssl.SSLError, ValueError):
+    except ssl.SSLCertVerificationError:
+        if phase == "TLS_HANDSHAKE":
+            state.tls_handshake_failure_category = "CERTIFICATE_VERIFICATION_ERROR"
+        pending = TransportError(failure_phase=phase)
+    except ssl.SSLError:
+        if phase == "TLS_HANDSHAKE":
+            state.tls_handshake_failure_category = "TLS_PROTOCOL_ERROR"
+        pending = TransportError(failure_phase=phase)
+    except OSError:
+        if phase == "TLS_HANDSHAKE":
+            state.tls_handshake_failure_category = "TRANSPORT_IO_ERROR"
+        pending = TransportError(failure_phase=phase)
+    except ValueError:
+        if phase == "TLS_HANDSHAKE":
+            state.tls_handshake_failure_category = "LOCAL_VALIDATION_ERROR"
         pending = TransportError(failure_phase=phase)
     finally:
         phase = "SOCKET_CLOSE"
@@ -934,12 +960,15 @@ def _deny_lines() -> tuple[str, ...]:
 
 
 def _state_lines(state: ProbeState) -> tuple[str, ...]:
+    if state.tls_handshake_failure_category not in TLS_HANDSHAKE_FAILURE_CATEGORIES:
+        raise ValueError("invalid TLS handshake failure category")
     return (
         f"DNS_RESOLVED={str(state.dns_resolved).lower()}",
         f"ADDRESS_POLICY_PASSED={str(state.address_policy_passed).lower()}",
         f"TCP_CONNECTED={str(state.tcp_connected).lower()}",
         f"PG_SSL_NEGOTIATED={str(state.pg_ssl_negotiated).lower()}",
         f"TLS_HANDSHAKE_COMPLETED={str(state.tls_handshake_completed).lower()}",
+        f"TLS_HANDSHAKE_FAILURE_CATEGORY={state.tls_handshake_failure_category}",
         f"TLS_HOSTNAME_VERIFIED={str(state.tls_hostname_verified).lower()}",
         f"SOCKET_CLOSED={str(state.socket_closed).lower()}",
     )

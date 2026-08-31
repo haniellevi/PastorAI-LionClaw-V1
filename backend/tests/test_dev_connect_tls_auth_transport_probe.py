@@ -215,9 +215,14 @@ class SyntheticPgTlsServer:
                     break
                 self.ssl_request += chunk
             connection.sendall(b"S")
-            tls_connection = self._context.wrap_socket(connection, server_side=True)
+            tls_connection = self._context.wrap_socket(
+                connection,
+                server_side=True,
+                do_handshake_on_connect=False,
+            )
             connection = None
             tls_connection.settimeout(5)
+            tls_connection.do_handshake()
             try:
                 self.post_tls_payload = tls_connection.recv(1)
             except (BrokenPipeError, ConnectionResetError):
@@ -839,6 +844,7 @@ def test_full_main_loopback_sends_only_sslrequest_and_no_startup_message(
         assert output["TCP_CONNECTED"] == "true"
         assert output["PG_SSL_NEGOTIATED"] == "true"
         assert output["TLS_HANDSHAKE_COMPLETED"] == "true"
+        assert output["TLS_HANDSHAKE_FAILURE_CATEGORY"] == "NOT_APPLICABLE"
         assert output["TLS_HOSTNAME_VERIFIED"] == "true"
         assert output["SOCKET_CLOSED"] == "true"
         assert output["TRANSPORT_PROBE_PHASE"] == "SOCKET_CLOSE"
@@ -875,6 +881,7 @@ def test_hostname_mismatch_blocks_after_verified_chain_without_leaking(
         output = _parse_output(captured.out)
         assert output["TRANSPORT_PROBE_FAILURE_PHASE"] == "TLS_HOSTNAME_VERIFICATION"
         assert output["TLS_HANDSHAKE_COMPLETED"] == "true"
+        assert output["TLS_HANDSHAKE_FAILURE_CATEGORY"] == "NOT_APPLICABLE"
         assert output["TLS_HOSTNAME_VERIFIED"] == "false"
         assert output["SOCKET_CLOSED"] == "true"
         assert HOST not in captured.out
@@ -1121,8 +1128,55 @@ def test_tls_handshake_failure_is_separate_from_hostname_verification(
     assert exc_info.value.failure_phase == "TLS_HANDSHAKE"
     assert state.pg_ssl_negotiated is True
     assert state.tls_handshake_completed is False
+    assert state.tls_handshake_failure_category == "TLS_PROTOCOL_ERROR"
     assert state.tls_hostname_verified is False
     assert state.socket_closed is True
+
+
+@pytest.mark.parametrize(
+    ("error_kind", "expected_category"),
+    [
+        ("certificate", "CERTIFICATE_VERIFICATION_ERROR"),
+        ("protocol", "TLS_PROTOCOL_ERROR"),
+        ("transport", "TRANSPORT_IO_ERROR"),
+        ("local", "LOCAL_VALIDATION_ERROR"),
+        ("deadline", "DEADLINE_EXCEEDED"),
+    ],
+)
+def test_tls_handshake_failure_category_is_static_and_never_leaks_exception(
+    probe: ModuleType,
+    monkeypatch: pytest.MonkeyPatch,
+    error_kind: str,
+    expected_category: str,
+) -> None:
+    errors: dict[str, BaseException] = {
+        "certificate": ssl.SSLCertVerificationError(1, "secret certificate"),
+        "protocol": ssl.SSLError("secret protocol"),
+        "transport": OSError("secret endpoint"),
+        "local": ValueError("secret hostname"),
+        "deadline": probe.DeadlineError(),
+    }
+    raw_socket = FakeRawSocket()
+    monkeypatch.setattr(
+        probe,
+        "_build_tls_context",
+        lambda _ca: FakeTlsContext(handshake_error=errors[error_kind]),
+    )
+    state = probe.ProbeState()
+    with pytest.raises(probe.ProbeError) as exc_info:
+        probe._run_transport_probe(
+            hostname=HOST,
+            ca_witness=_dummy_ca(probe),
+            deadline_seconds=2,
+            state=state,
+            resolver=_global_resolver,
+            socket_factory=lambda *_args: raw_socket,
+        )
+    assert exc_info.value.failure_phase == "TLS_HANDSHAKE"
+    assert state.tls_handshake_failure_category == expected_category
+    output = "\n".join(probe._state_lines(state))
+    assert output.count("TLS_HANDSHAKE_FAILURE_CATEGORY=") == 1
+    assert "secret" not in output
 
 
 def test_isolated_socket_close_failure_has_own_phase(
@@ -1286,7 +1340,12 @@ def test_failure_phase_allowlist_and_output_never_accept_dynamic_exception(
     probe._print_blocked("TRANSPORT_BLOCKED", "TCP_CONNECT", probe.ProbeState())
     output = capsys.readouterr().out
     assert output.count("TRANSPORT_PROBE_FAILURE_PHASE=") == 1
+    assert output.count("TLS_HANDSHAKE_FAILURE_CATEGORY=NOT_APPLICABLE") == 1
     assert "exception" not in output
+
+    state = probe.ProbeState(tls_handshake_failure_category="dynamic-secret")
+    with pytest.raises(ValueError):
+        probe._state_lines(state)
 
 
 def test_deadline_scope_restores_handler_and_timer(probe: ModuleType) -> None:
