@@ -48,6 +48,7 @@ from app.deps import (
     resolve_actor_pessoa_id,
 )
 from app.domain.cell_meetings_schedule import InvalidDiaReuniao, next_meeting_date
+from app.domain.cell_report_limits import MAX_CELL_REPORT_OFFERING_DECIMAL_TEXT
 from app.domain.cell_report_snapshot import (
     CELL_REPORT_SNAPSHOT_SCHEMA_V2,
     CellReportSnapshotValidationError,
@@ -99,7 +100,7 @@ _CONTEUDO_MAX = 2000
 _OBSERVACOES_MAX = 2000
 # Valor da oferta (SPEC §6.2 / E2): 0 <= oferta_valor <= 999999.99.
 _OFERTA_MIN = 0
-_OFERTA_MAX = 999999.99
+_OFERTA_MAX = float(MAX_CELL_REPORT_OFFERING_DECIMAL_TEXT)
 # HH:MM (24h) — espelha o CHECK de celula_reuniao/celulas.horario.
 _HORA_RE = re.compile(r"^([01][0-9]|2[0-3]):[0-5][0-9]$")
 

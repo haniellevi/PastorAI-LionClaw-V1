@@ -171,10 +171,10 @@ def test_decimal_context_mutation_cannot_change_amount_or_digests() -> None:
 
 
 def test_offering_matches_numeric_12_2_boundary() -> None:
-    boundary = build_cell_report_candidate(oferta="9999999999.99")
-    assert boundary.oferta == "9999999999.99"
+    boundary = build_cell_report_candidate(oferta="999999.99")
+    assert boundary.oferta == "999999.99"
 
-    for overflow in ("10000000000.00", Decimal("10000000000")):
+    for overflow in ("1000000.00", Decimal("1000000")):
         with pytest.raises(CellReportWorkflowError) as exc:
             build_cell_report_candidate(oferta=overflow)
         assert exc.value.code is (

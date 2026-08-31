@@ -107,12 +107,12 @@ def test_money_rejects_oversized_prebuilt_decimal_coefficient() -> None:
 
 def test_money_matches_numeric_12_2_database_boundary() -> None:
     assert (
-        _snapshot(oferta_valor="9999999999.99")["oferta_valor"]
-        == "9999999999.99"
+        _snapshot(oferta_valor="999999.99")["oferta_valor"]
+        == "999999.99"
     )
     _assert_code(
         CellReportSnapshotErrorCode.INVALID_OFFER,
-        lambda: _snapshot(oferta_valor="10000000000.00"),
+        lambda: _snapshot(oferta_valor="1000000.00"),
     )
 
 
@@ -124,7 +124,7 @@ def test_money_matches_numeric_12_2_database_boundary() -> None:
         True,
         Decimal("1.001"),
         Decimal("-0.01"),
-        Decimal("10000000000.00"),
+        Decimal("1000000.00"),
         Decimal("NaN"),
         Decimal("Infinity"),
         "not-money",

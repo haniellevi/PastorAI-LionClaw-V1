@@ -23,17 +23,22 @@ from decimal import Decimal, InvalidOperation
 from enum import Enum
 from typing import Final
 
+from app.domain.cell_report_limits import (
+    MAX_CELL_REPORT_AGGREGATE_COUNT,
+    MAX_CELL_REPORT_OFFERING_DECIMAL_TEXT,
+)
+
 CELL_REPORT_SNAPSHOT_SCHEMA_V2: Final = "cell-report/v2"
-MAX_CELL_REPORT_TOTAL: Final = (1 << 31) - 1
+MAX_CELL_REPORT_TOTAL: Final = MAX_CELL_REPORT_AGGREGATE_COUNT
 MAX_CELL_REPORT_OBSERVACOES_LENGTH: Final = 2_000
 MAX_CELL_REPORT_OBSERVACOES_BYTES: Final = 4_096
-MAX_CELL_REPORT_OFFER: Final = Decimal("9999999999.99")
+MAX_CELL_REPORT_OFFER: Final = Decimal(MAX_CELL_REPORT_OFFERING_DECIMAL_TEXT)
 MAX_MONEY_INPUT_LENGTH: Final = 64
 
 SUBMISSION_EFFECT_ID_PREFIX: Final = "agent_effect_v1_"
 MAX_SUBMISSION_EFFECT_ID_BYTES: Final = len(SUBMISSION_EFFECT_ID_PREFIX) + 64
 
-_CANONICAL_MONEY_RE: Final = re.compile(r"(?:0|[1-9][0-9]{0,9})\.[0-9]{2}\Z")
+_CANONICAL_MONEY_RE: Final = re.compile(r"(?:0|[1-9][0-9]{0,5})\.[0-9]{2}\Z")
 _SUBMISSION_EFFECT_ID_RE: Final = re.compile(
     rf"{re.escape(SUBMISSION_EFFECT_ID_PREFIX)}[0-9a-f]{{64}}\Z"
 )

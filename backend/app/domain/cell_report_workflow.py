@@ -36,6 +36,11 @@ from decimal import Decimal, InvalidOperation
 from enum import Enum
 from typing import Final
 
+from app.domain.cell_report_limits import (
+    MAX_CELL_REPORT_AGGREGATE_COUNT,
+    MAX_CELL_REPORT_OFFERING_CENTS,
+)
+
 
 CELL_REPORT_CANDIDATE_SCHEMA_VERSION: Final = "v1"
 CELL_REPORT_WORKFLOW_SCHEMA_VERSION: Final = "v1"
@@ -44,13 +49,14 @@ CELL_REPORT_CONFIRMATION_GRAMMAR_VERSION: Final = "v1"
 MAX_REPORT_TEXT_BYTES: Final = 16_384
 MAX_REPORT_OBSERVATIONS_BYTES: Final = 2_048
 MAX_REPORT_CORRELATION_KEY_BYTES: Final = 512
-MAX_REPORT_COUNT: Final = 1_000_000
+MAX_REPORT_COUNT: Final = MAX_CELL_REPORT_AGGREGATE_COUNT
 MAX_REPORT_REVISION: Final = 1_000_000
 MAX_REPORT_MONEY_TOKEN_BYTES: Final = 32
 MAX_REPORT_DECIMAL_DIGITS: Final = 32
-# Mirrors ``celula_reuniao.oferta_valor numeric(12, 2)`` without consulting a
-# live database: ten integer digits and two fractional digits.
-MAX_REPORT_OFFERING_CENTS: Final = 999_999_999_999
+# Mirrors the reviewed E2 boundary used by the human report endpoint.  The
+# physical ``numeric(12, 2)`` column is deliberately wider than this product
+# rule and must not expand agent authority.
+MAX_REPORT_OFFERING_CENTS: Final = MAX_CELL_REPORT_OFFERING_CENTS
 CONFIRMATION_CODE_LENGTH: Final = 12
 CONFIRMATION_COMMAND_PREFIX: Final = "CONFIRMAR RELATORIO "
 CELL_REPORT_SCOPE_KEY_PREFIX: Final = (
