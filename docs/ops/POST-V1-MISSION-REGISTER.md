@@ -1639,6 +1639,31 @@ receipt global, saver, probe vivo, DEV, logs, SQL, DML, outra rede, deploy
 adicional, mensagem, tool call ou qualquer outro efeito vivo. Tambem nao
 autoriza `AgentConfig`.
 
+**Atualizacao pos-merge (2026-09-01):**
+A PR mencionada no gate acima foi mergeada via squash no commit
+`c24ea748ab5e484958590af481f08f1c2b185597`
+(`mergedAt=2026-09-01T02:27:21Z`), apos os sete workflows GitHub e o Vercel
+Preview do commit tecnico `12469fb7270206004fd1f7859f1a460e695dc05c`
+concluirem com `SUCCESS`. Esse commit tecnico corrigiu inconsistencias de
+sincronizacao entre documentos canonicos que quebravam
+`test_d2b2b2_decision_packet_docs.py` (5 testes), sem alterar codigo,
+migration ou comportamento.
+
+O merge disparou o deployment automatico Vercel Production
+`6193336784` (`ref=c24ea748ab5e484958590af481f08f1c2b185597`,
+`state=success`). Essa evidencia prova somente o frontend; nao prova backend,
+banco ou runtime. O conteudo mergeado (staging transacional offline) mantem
+caller, runtime, worker, `AgentConfig`, consentimento, banco e migration
+bloqueados.
+
+Nenhum proximo passo funcional foi nomeado nesta sessao; a sequencia de PRs
+D3/staging transacional (#337 a #354) nao define explicitamente a proxima
+fatia, e essa decisao cabe ao dono do projeto. Separadamente, a auditoria de
+reconciliacao de historico de migrations (contrato
+`2026-08-28-migration-history-reconciliation-contract.md`) permanece com seu
+proprio gate pendente, nao afetado por este merge: autorizacao para
+investigar a causa do `exit 7` nas duas tentativas de preflight DEV.
+
 ## Paralelismo seguro
 
 Auditorias somente leitura podem ocorrer em sessões separadas. Migrations,
