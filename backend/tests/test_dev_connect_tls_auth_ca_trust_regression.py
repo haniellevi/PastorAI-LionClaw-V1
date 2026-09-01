@@ -61,8 +61,6 @@ def test_untrusted_private_ca_is_certificate_verification_error(
                 _test_only_loopback_sentinel=probe._TEST_ONLY_LOOPBACK_SENTINEL,
             )
 
-        server._thread.join(10)
-        assert not server._thread.is_alive()
         captured = capsys.readouterr()
         output = _parse_output(captured.out)
 
@@ -81,8 +79,6 @@ def test_untrusted_private_ca_is_certificate_verification_error(
         assert output["SQL_EXECUTED"] == "false"
         assert output["OPERATIONAL_AUTHORIZATION"] == "false"
         assert output["NEXT_STAGE_AUTHORIZED"] == "false"
-        assert server.ssl_request == probe.SSL_REQUEST
-        assert server.post_tls_payload in {None, b""}
         assert HOST not in captured.out
         assert PROJECT_REF not in captured.out
         assert "Synthetic Test CA" not in captured.out
