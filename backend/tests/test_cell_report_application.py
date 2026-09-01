@@ -825,6 +825,7 @@ def test_human_legacy_submit_wins_then_agent_confirmation_is_report_conflict() -
         _confirm(
             db,
             command=proposal.confirmation_command,  # type: ignore[arg-type]
+            expected_replayed=True,
         )
 
     assert raised.value.code is (
@@ -999,6 +1000,7 @@ def test_human_writer_wins_then_agent_confirmation_conflicts(
         _confirm(
             agent_db,
             command=proposal.confirmation_command,  # type: ignore[arg-type]
+            expected_replayed=writer == "submit_report",
         )
     assert raised.value.code is (
         application.CellReportApplicationErrorCode.REPORT_CONFLICT
@@ -1016,7 +1018,11 @@ def test_malformed_schema_less_sent_snapshot_remains_data_integrity_failure() ->
     db = _authorized_session(meeting)
 
     with pytest.raises(application.CellReportApplicationError) as raised:
-        _confirm(db, command="CONFIRMAR RELATORIO AAAAAAAAAAAA")
+        _confirm(
+            db,
+            command="CONFIRMAR RELATORIO AAAAAAAAAAAA",
+            expected_replayed=True,
+        )
 
     assert raised.value.code is (
         application.CellReportApplicationErrorCode.DATA_INTEGRITY
@@ -1044,7 +1050,11 @@ def test_complete_legacy_shape_with_wrong_meeting_metadata_is_data_integrity() -
     db = _authorized_session(meeting)
 
     with pytest.raises(application.CellReportApplicationError) as raised:
-        _confirm(db, command="CONFIRMAR RELATORIO AAAAAAAAAAAA")
+        _confirm(
+            db,
+            command="CONFIRMAR RELATORIO AAAAAAAAAAAA",
+            expected_replayed=True,
+        )
 
     assert raised.value.code is (
         application.CellReportApplicationErrorCode.DATA_INTEGRITY
@@ -1112,7 +1122,11 @@ def test_nil_uuid_in_legacy_shape_is_data_integrity_not_report_conflict(
     db = _authorized_session(meeting)
 
     with pytest.raises(application.CellReportApplicationError) as raised:
-        _confirm(db, command="CONFIRMAR RELATORIO AAAAAAAAAAAA")
+        _confirm(
+            db,
+            command="CONFIRMAR RELATORIO AAAAAAAAAAAA",
+            expected_replayed=True,
+        )
 
     assert raised.value.code is (
         application.CellReportApplicationErrorCode.DATA_INTEGRITY
