@@ -603,15 +603,145 @@ substituído localmente, sem consumo, pela fatia offline do serviço de aplicaç
 do relatório. Não houve push, PR, CI ou Preview sob esse gate, portanto ele não
 é evidência histórica de uma ação externa.
 
+### Preparação D6 offline: reserva V2, writers serializados e staging atômico
+
+A composição técnica corrente está no HEAD local
+`dac3a14cdd2bf857f84609518dd96050e203b4b3`. A reserva V2 foi criada no
+commit original `4d08e783c2de1bb20dfeb29ffb8ee6a43c7a444f` e integrada
+como `d6ee2323d658a91bb92724aaa13adea7222538b4`; a UoW veio de
+`58b77a84e38ba7be4d3968d32834ef1b415b3a89` e foi integrada como
+`17305af54e52aea74948e275ad68fae50427ae67`; a serialização dos writers
+veio de `83b4810008f37250b9a9d00f9c9a83f04a3d0399` e foi integrada como
+`b6a763cbcab41a78815a7777f2c9b682a6af1ddb`. O commit
+`dac3a14cdd2bf857f84609518dd96050e203b4b3` reconciliou nos testes o
+`expected_replayed` explícito. A revisão técnica consolidada posterior
+concluiu `GO`; a evidência exata está registrada abaixo.
+
+`derive_agent_outbound_reply_effect_id` fixa o único slot
+`OUTBOUND_REPLY` ordinal zero a partir de `AgentTurnIdentity`.
+`build_agent_outbound_reply_reservation_v2` usa esse identificador para
+produzir, antes de payload e plano, a mesma chave que
+`build_agent_effect_compatibility_key` produzirá para o reply posterior. O
+vetor é claim-independent e separa tenant, conversa e inbound por meio da
+identidade confiável, mas continua sendo namespace determinístico, não
+autenticador. A reserva é somente valor puro: não cria linha, lease, outbox,
+receipt, unicidade global, aceite do provedor ou send.
+
+As chaves V1 e V0 continuam fora da derivação confiável porque carregam
+material instável de claim ou resposta. A UoW aceita esses formatos somente
+como evidência exata lida da `Message` legacy já bloqueada e vinculada ao mesmo
+reply planejado. Isso oferece um caminho de drain futuro, sem migrar linhas,
+promover formato antigo, inferir chave por texto ou ativar compatibilidade no
+runtime.
+
+Os seis writers humanos `edit_meeting`, `set_real_attendance`,
+`register_visitor`, `add_record`, `save_report` e `submit_report` agora passam
+por `_report_writer_storage_boundary`. Cada um bloqueia e revalida a reunião,
+a célula e o `AppUser` tenant-bound antes da escrita, usando
+`populate_existing` para não confiar no snapshot anterior da sessão. O painel
+pode assumir explicitamente um envelope `cell-report-pending-proposal/v1` e
+invalidá-lo; qualquer snapshot pendente desconhecido permanece intacto e gera
+conflito. Falhas SQLAlchemy são convertidas em erro estático, com rollback
+best-effort sem ecoar statement, parâmetro ou exceção privada.
+
+O reconhecedor puro `cell_report_legacy_snapshot` aceita somente a projeção
+schema-less completa que o submit humano pode construir. Chaves, metadados,
+limites, listas, identidades e UUIDs canônicos não nulos precisam coincidir.
+Quando um writer humano vence a corrida, a confirmação do agente retorna
+`REPORT_CONFLICT`; material parecido, incompleto ou com UUID nulo continua
+`DATA_INTEGRITY`. O reconhecedor nunca devolve o conteúdo. Os writers web
+continuam em endpoints próprios e não passaram a chamar o serviço de aplicação
+do agente; a mudança fecha a serialização compartilhada, não uma unificação de
+serviços.
+
+A `cell_report_turn_uow` recebe exatamente três efeitos do mesmo turno:
+`TOOL_CALL` para confirmar o relatório, `AUDIT_EVENT` sem conteúdo pastoral e
+`OUTBOUND_REPLY`. Ela reconstrói o plano canônico, exige transação tenant-scoped
+já ativa e bloqueia uma `Message` outbound de IA pré-reservada. Para V2, a
+chave esperada precisa coincidir antes de qualquer consulta; para V1/V0, a
+evidência exata é vinculada somente depois do lock da linha.
+
+O estado da `Message` e a existência do audit determinam a expectativa de
+replay sob lock. `confirm_cell_report` exige agora o booleano
+`expected_replayed` e falha antes de mutar se o estado oficial da reunião
+discordar. Um replay aceito exige simultaneamente snapshot final exato,
+`Message` `ia_pendente` com o mesmo texto e audit com os mesmos effect IDs,
+payload digests e `plan_digest`. Essa observação não prova commit anterior,
+pois pode enxergar escritas da transação atual.
+
+No caminho novo, a UoW agrupa o snapshot `cell-report/v2`, um
+`AgentConversationLog` sem texto pastoral e a transição da `Message` para
+`ia_pendente`. O resultado declara `requires_caller_commit=true` em todo
+sucesso, inclusive replay. A UoW faz somente `flush`: nunca inicia, confirma ou
+reverte transação, nunca chama runtime, worker, grafo ou provedor e nunca envia
+a mensagem. Depois de falha sanitizada, descartar a transação continua dever do
+caller futuro.
+
+Essa fronteira fecha staging atômico específico dentro de uma transação
+externa, sem criar outbox genérica, receipt global autenticado ou comprovante
+pós-commit. Não existe caller. Consentimento `tarefas_operacionais`,
+`AgentConfig`, proveniência operacional, commit, send, primeira execução
+genérica pelo `turn_plan_adapter`, migration e drain V1/V0 continuam
+bloqueados. Não houve banco compartilhado, DEV, PROD, rede, mensagem ou
+deployment.
+
+Os pins SHA-256 integrais do HEAD são:
+
+- `backend/app/agent/turn_execution.py`,
+  `b729c3b25024cff41aa42b39aecd9d30712bf229c8f635c40fbd306cf52ac351`;
+- `backend/app/agent/turn_identity.py`,
+  `59848ebee37c9be0c9488420c4634e1b323f611c22627328c8c4dd73d5e69998`;
+- `backend/app/domain/cell_report_legacy_snapshot.py`,
+  `22dc8e5992f5661a5c110d6a4cc1ebedf7babfabfd45a56490b484de4695f869`;
+- `backend/app/routers/cell_meetings.py`,
+  `9a04c1589f64179e7b60a8b18755a40ee21035a8e955f8ff5238c4c5eba3a18e`;
+- `backend/app/services/cell_report_application.py`,
+  `0c8ddd4040b83e09fd496eeea3594c68309f0446b97b2466d5f32204babcc347`;
+- `backend/app/services/cell_report_turn_uow.py`,
+  `1bdebab8fb70b081781fa0ace6152b1d83cdeb9161a125172b16ca5929795399`;
+- `backend/tests/test_agent_turn_execution.py`,
+  `911cc7743b073c78b6d5eaffc29eee1171bdf25d1526bd94a32542302c92420e`;
+- `backend/tests/test_agent_turn_identity.py`,
+  `6d60a2668810bf8c62e23658d95c54b886079e4e7ecf120f349e989de710e1cf`;
+- `backend/tests/test_cell_lider.py`,
+  `0732667504127fb4bcdc163187b9b137e77f645e81a743413d8a7c4332f1ee0e`;
+- `backend/tests/test_cell_report_application.py`,
+  `278e3d506ca5c0853b957529013991bb676320381727f33183afcadc7768f430`;
+- `backend/tests/test_cell_report_legacy_snapshot.py`,
+  `57586f81accd27145d5877ce91fa9d98f82f29b1ee4f73828768cfe93134c354`;
+- `backend/tests/test_cell_report_turn_uow.py`,
+  `5ce3d8b37f672adfeaf04839183d43f7f67b51f5cf6d81b37b663bf9c2128db9`.
+
+A revisão técnica integrada no HEAD
+`dac3a14cdd2bf857f84609518dd96050e203b4b3` concluiu `GO`, com P0, P1 e
+P2 iguais a zero. A focal integrada terminou em `682 passed, 5 warnings`;
+`tests/test_agent*.py` terminou em `649 passed, 7 skipped, 2 warnings`; e
+`tests/test_cell*.py tests/test_reports.py` terminou em
+`960 passed, 18 skipped, 35 warnings`. Também passaram 200 vetores da reserva
+V2 e 8 casos de corrupção legacy. As validações de AST e `git diff --check`
+para `d37d528..dac3a14` ficaram verdes. A evidência é local e pré-PR. Ela
+confirma ainda a ausência de caller em runtime, worker ou webhook, de migration,
+rede ou send e de `begin`, `commit` ou `rollback` na UoW.
+
+Estado: `STAGING TRANSACIONAL OFFLINE COMPOSTO E REVISADO LOCALMENTE / RESERVA
+V2 CLAIM-INDEPENDENT / WRITERS SERIALIZADOS / FLUSH SEM COMMIT / GO TÉCNICO
+P0=P1=P2=0 / SEM CALLER / RUNTIME E EFEITOS VIVOS BLOQUEADOS`.
+
+O gate anterior `REVIEW_AND_CI_CELL_REPORT_APPLICATION_SERVICE_OFFLINE_PR` foi
+substituído localmente, sem consumo, pelo lote de staging transacional. Não
+houve push, PR, CI ou Preview sob esse gate, portanto ele não é evidência
+histórica de uma ação externa.
+
 **Próximo gate único:**
-`REVIEW_AND_CI_CELL_REPORT_APPLICATION_SERVICE_OFFLINE_PR`. O nome não
+`REVIEW_AND_CI_CELL_REPORT_TRANSACTIONAL_STAGING_OFFLINE_PR`. O nome não
 constitui autorização já concedida. Seu consumo exige autorização humana
 posterior e separada que nomeie push, abertura da PR e GitHub CI e aceite o
-Vercel Preview automático. O gate cobre somente revisão e CI do lote offline
-ampliado com a fronteira transacional do relatório. Não autoriza merge, Vercel
-Production, flag-on, caller, primeira execução do agente, runtime, worker,
-consentimento, saver, probe vivo, acesso a DEV ou PROD, banco, logs, SQL, DML,
-migration, outra rede, deploy, mensagem, tool call ou qualquer efeito vivo.
+Vercel Preview automático. O gate cobre somente revisão e CI do lote offline de
+staging transacional. Não autoriza merge, Vercel Production, flag-on, caller,
+`AgentConfig`, primeira execução do agente, runtime, worker, consentimento,
+commit, send, drain V1/V0, receipt global, saver, probe vivo, acesso a DEV ou
+PROD, banco, logs, SQL, DML, migration, outra rede, deploy, mensagem, tool call
+ou qualquer efeito vivo.
 
 
 

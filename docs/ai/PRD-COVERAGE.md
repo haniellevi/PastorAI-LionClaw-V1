@@ -35,18 +35,18 @@ significa ativa em produção.
 | Pessoas e responsabilidades | `PARCIAL FORTE` | cadastro, papéis, vínculos, fila e escopos existentes | Fechar responsabilidades temporais, owner operacional e composição por setor |
 | Conexão WhatsApp | `IMPLEMENTADO / GATE OPERACIONAL` | Evolution, conexão por igreja, webhook e filas | Monitorar recibos, reconnect e capacidade antes de cada canário |
 | Conversas e handoff | `IMPLEMENTADO` | histórico, inbox, atribuição, transferência e estado IA/humano | Adicionar memória derivada, exclusão propagada e avaliação de naturalidade |
-| Fundação do agente | `IMPLEMENTADO / PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR INTEGRADOS / ARTEFATOS VERSIONADOS / REVISÃO INDEPENDENTE BLOQUEADA CONCLUÍDA / DECISÃO OWNER-01 REGISTRADA / MANIFESTO DE FONTE CRIADO / REVISÃO TÉCNICA CONCLUÍDA / REVISÃO INDEPENDENTE DO MANIFESTO PENDENTE / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA / FUNDAÇÃO D3 REPLAY-ONLY E CELL-REPORT CANDIDATAS OFFLINE` | LangGraph stateless e contexto confiável D2B1 integrados; o lote local amplia identidade, plano replay-only, snapshot, workflow, proposta pendente e uma fronteira ORM transacional sem caller | Revisão independente do manifesto; atestação posterior, caller confiável, consentimento operacional, lock comum com o writer web, commit e outbox, saver, receipts globais, primeira execução, memória, conhecimento e operação permanecem bloqueados |
+| Fundação do agente | `IMPLEMENTADO / PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR INTEGRADOS / ARTEFATOS VERSIONADOS / REVISÃO INDEPENDENTE BLOQUEADA CONCLUÍDA / DECISÃO OWNER-01 REGISTRADA / MANIFESTO DE FONTE CRIADO / REVISÃO TÉCNICA CONCLUÍDA / REVISÃO INDEPENDENTE DO MANIFESTO PENDENTE / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA / FUNDAÇÃO D3 REPLAY-ONLY E CELL-REPORT CANDIDATAS OFFLINE` | LangGraph stateless e contexto confiável D2B1 integrados; o lote local acrescenta reserva V2 pura, locks compatíveis nos writers web e uma UoW de staging transacional ainda sem caller | Revisão independente do manifesto; atestação posterior, caller confiável, consentimento operacional, commit externo, despacho, saver, receipts globais, primeira execução genérica, memória, conhecimento e operação permanecem bloqueados |
 | Isolamento da memória | `AUSENTE / FUNDAÇÃO D2A INTEGRADA` | Nenhum checkpointer durável instalado; o envelope `UntrackedValue` é efêmero e não constitui memória, checkpoint ou retomada | Tabelas com `igreja_id`, FORCE RLS, namespace server-side, exclusão e testes adversariais pertencem à D3 |
 | Conhecimento oficial | `AUSENTE` | Não há ingestão aprovada, embeddings ou recuperação institucional | Perfil da igreja, documentos versionados, audiência, RLS e busca híbrida |
 | Dados vivos como ferramentas | `PARCIAL` | Quatro ferramentas limitadas e queries determinísticas | Catálogo por especialista, capacidades e serviços compartilhados com o painel |
 | Consentimento | `PARCIAL / LEDGER-BOOTSTRAP INTEGRADO E COMPROVADO OFFLINE / RECONCILIATION INTEGRADO E COMPROVADO OFFLINE / CAPTURADOR E MATERIALIZADOR INTEGRADOS / ARTEFATOS VERSIONADOS / REVISÃO INDEPENDENTE BLOQUEADA CONCLUÍDA / DECISÃO OWNER-01 REGISTRADA / MANIFESTO DE FONTE CRIADO / REVISÃO TÉCNICA CONCLUÍDA / REVISÃO INDEPENDENTE DO MANIFESTO PENDENTE / NÃO APLICADO / D2B2B3A DRAFT-ONLY INTEGRADA E INATIVA` | Legado e opt-out continuam ativos; D2B2a adiciona ledger append-only sem caller ou aplicação em Supabase; a revisão externa bloqueou DEV por divergência e PROD por evidência insuficiente | Revisão independente do manifesto; D2, catálogo, prova, writer e operação permanecem bloqueados |
-| Propostas e confirmação | `AUSENTE COMO PLATAFORMA / FATIA ESPECÍFICA OFFLINE CANDIDATA` | O relatório possui envelope pendente fechado, expiração e revalidação locais sobre `celula_reuniao`; não existe plataforma D2C genérica nem caller | Plano e receipts duráveis autenticados, unicidade global, consentimento, outbox, commit e comprovante pós-commit |
+| Propostas e confirmação | `AUSENTE COMO PLATAFORMA / FATIA ESPECÍFICA OFFLINE CANDIDATA` | O relatório possui envelope pendente fechado e uma UoW que pode agrupar confirmação, auditoria sem conteúdo e reply pendente numa transação externa; não existe plataforma D2C genérica nem caller | Receipts duráveis autenticados, unicidade global, consentimento, caller, commit comprovado e resposta pós-commit |
 | Notificações proativas | `PARCIAL E FRAGMENTADO` | SLA, cron, Agenda, event notify e broadcast têm caminhos próprios | Outbox única, finalidade, quiet hours, retry, recibo e escalonamento |
 | Painel de Hoje | `IMPLEMENTADO / PARCIAL` | dashboard e work queue por responsabilidade | Compor todas as responsabilidades e as lacunas de conhecimento |
 | Minha Célula | `IMPLEMENTADO / PARCIAL` | reuniões, presenças, visitantes, relatórios e materiais | Completar operação WhatsApp e honestidade entre intenção e entrega |
 | Central de Células | `IMPLEMENTADO / PARCIAL` | gestão, solicitações, transferência, remoção e eventos append-only | Especialista WhatsApp, planejamento e comunicação pela outbox |
-| Relatório de célula web | `IMPLEMENTADO` | `celula_reuniao`, draft, submit e snapshot congelado | O router humano ainda não usa a fronteira candidata nem adquire o mesmo lock; o serviço ainda não é compartilhado |
-| Relatório pelo WhatsApp | `PARCIAL / FRONTEIRA TRANSACIONAL OFFLINE CANDIDATA` | parser, evento `report_captured`, snapshot `cell-report/v2`, workflow, envelope pendente e serviço ORM com locks e flush sem commit | Não existe caller no agente, consentimento `tarefas_operacionais`, commit/outbox, receipt global, resposta pós-commit, transcrição de áudio ou idempotência operacional comprovada |
+| Relatório de célula web | `IMPLEMENTADO / WRITERS SERIALIZADOS LOCALMENTE` | Os seis writers web mantêm o fluxo humano e agora usam locks tenant-bound de reunião, célula e acesso, takeover explícito e boundary sanitizado | O router humano ainda não usa o mesmo serviço de aplicação do agente; a composição consolidada continua candidata em revisão |
+| Relatório pelo WhatsApp | `PARCIAL / STAGING TRANSACIONAL OFFLINE CANDIDATO` | parser, snapshot, workflow, envelope, serviço ORM e UoW que agrupa relatório, auditoria e `Message` `ia_pendente` com flush sem commit | Não existe caller no agente, consentimento `tarefas_operacionais`, `AgentConfig`, commit, send, receipt global, resposta pós-commit, transcrição de áudio ou idempotência operacional comprovada |
 | Agenda | `PARCIAL` | CRUD, visões, confirmações, importação Google e alertas internos | Operação WhatsApp, envio futuro unificado e semântica de entrega |
 | Consolidação | `PARCIAL` | decisões, etapas, responsáveis, SLA e conclusão manual | Máquina de estados e read model duráveis, transações e elegibilidade |
 | Universidade da Vida | `AUSENTE COMO MÓDULO` | Placeholder e referências históricas | PRD, turmas, aulas, presenças, Encontro, batismo, papéis e APIs |
@@ -82,12 +82,14 @@ significa ativa em produção.
   conhecimento institucional;
 - o relatório é analisado e registrado como evento, mas não grava
   `celula_reuniao`;
-- a fronteira transacional candidata pode preparar e materializar o relatório
-  numa transação externa, mas nenhum caminho de runtime a importa ou invoca;
+- a fronteira transacional candidata pode preparar e materializar o relatório;
+  a UoW offline pode ainda agrupar auditoria e reply pendente na mesma transação
+  externa, mas nenhum caminho de runtime a importa ou invoca;
 - mensagens de áudio são armazenadas e exibidas, sem transcrição encontrada;
 - o runtime continua usando consentimento geral; o ledger D2B2a está integrado,
   inativo, não aplicado em Supabase e não possui caller;
-- serviços de notificação existem, mas não compartilham uma outbox geral.
+- a fatia do relatório possui staging específico numa `Message` pendente, mas
+  os serviços de notificação não compartilham uma outbox geral.
 
 ### Ausente
 
@@ -1069,15 +1071,115 @@ substituido localmente, sem consumo, pela fatia offline do servico de aplicacao
 do relatorio. Nao houve push, PR, CI ou Preview sob esse gate, portanto ele nao
 e evidencia historica de uma acao externa.
 
+A composicao transacional posterior esta no HEAD local
+`dac3a14cdd2bf857f84609518dd96050e203b4b3`. A reserva V2 foi criada no
+commit tecnico original `4d08e783c2de1bb20dfeb29ffb8ee6a43c7a444f` e
+integrada como `d6ee2323d658a91bb92724aaa13adea7222538b4`; a UoW veio de
+`58b77a84e38ba7be4d3968d32834ef1b415b3a89` e foi integrada como
+`17305af54e52aea74948e275ad68fae50427ae67`; os locks dos writers vieram
+de `83b4810008f37250b9a9d00f9c9a83f04a3d0399` e foram integrados como
+`b6a763cbcab41a78815a7777f2c9b682a6af1ddb`. O commit
+`dac3a14cdd2bf857f84609518dd96050e203b4b3` reconciliou nos testes o
+`expected_replayed` explicito. A revisao tecnica consolidada posterior
+concluiu `GO`; a evidencia exata esta registrada abaixo.
+
+A reserva `AgentOutboundReplyReservationV2` e um contrato puro derivado
+somente de `AgentTurnIdentity`, antes de payload ou plano. Ela fixa o slot
+`OUTBOUND_REPLY` ordinal zero e produz a mesma chave de compatibilidade V2 do
+efeito posterior, sem usar `claim_id`. O valor nao reserva linha, nao prova
+outbox, autenticacao, idempotencia global, aceite do provedor ou envio.
+Compatibilidade V1/V0 continua somente como drain: a UoW pode vincular a chave
+exata observada numa linha legacy ja bloqueada, sem deriva-la nem promove-la.
+
+Os seis writers humanos `edit_meeting`, `set_real_attendance`,
+`register_visitor`, `add_record`, `save_report` e `submit_report`
+passam pela mesma boundary sanitizada e serializam a reuniao, a celula e o
+acesso do lider com locks tenant-bound. Um envelope pendente reconhecido pode
+ser invalidado por takeover humano explicito; snapshot pendente desconhecido
+falha fechado. O reconhecedor puro do snapshot humano legacy exige shape
+completo, metadados coerentes e UUIDs canonicos nao nulos. Assim, um submit
+humano concorrente vira `REPORT_CONFLICT` para o agente, enquanto shape
+malformado continua `DATA_INTEGRITY`. Os writers web continuam separados do
+servico de aplicacao do agente; compartilhar locks nao equivale a compartilhar
+servico.
+
+A `cell_report_turn_uow` exige uma transacao tenant-scoped externa, um plano
+fechado com `TOOL_CALL`, `AUDIT_EVENT` e `OUTBOUND_REPLY`, e uma
+`Message` de reply pre-reservada. Ela bloqueia a mensagem, valida a chave V2
+antes do banco ou, para V1/V0, a evidencia exata depois do lock; exige
+`expected_replayed` booleano no servico de confirmacao; e requer concordancia
+entre relatorio, audit sem conteudo e reply em replay. No caminho novo, agrupa o
+snapshot, um `AgentConversationLog` sem texto pastoral e a `Message` com
+estado `ia_pendente` na transacao do caller. Todo sucesso da UoW retorna
+`requires_caller_commit=true`, inclusive replay observado na transacao atual.
+A boundary faz somente `flush`: nao inicia, confirma ou reverte transacao, nao
+envia mensagem e nao chama runtime, worker, grafo ou rede.
+
+Esta fatia especifica fecha parte do staging atomico, mas nao cria outbox
+generica, receipt global autenticado ou comprovante pos-commit. Nao existe
+caller; consentimento `tarefas_operacionais`, `AgentConfig`, proveniencia
+operacional, commit, send, primeira execucao generica pelo
+`turn_plan_adapter`, migration, drain V1/V0 e efeitos vivos continuam
+bloqueados. Nao houve banco compartilhado, DEV, PROD, rede, mensagem ou
+deployment.
+
+Pins SHA-256 integrais do HEAD:
+`backend/app/agent/turn_execution.py`
+`b729c3b25024cff41aa42b39aecd9d30712bf229c8f635c40fbd306cf52ac351`;
+`backend/app/agent/turn_identity.py`
+`59848ebee37c9be0c9488420c4634e1b323f611c22627328c8c4dd73d5e69998`;
+`backend/app/domain/cell_report_legacy_snapshot.py`
+`22dc8e5992f5661a5c110d6a4cc1ebedf7babfabfd45a56490b484de4695f869`;
+`backend/app/routers/cell_meetings.py`
+`9a04c1589f64179e7b60a8b18755a40ee21035a8e955f8ff5238c4c5eba3a18e`;
+`backend/app/services/cell_report_application.py`
+`0c8ddd4040b83e09fd496eeea3594c68309f0446b97b2466d5f32204babcc347`;
+`backend/app/services/cell_report_turn_uow.py`
+`1bdebab8fb70b081781fa0ace6152b1d83cdeb9161a125172b16ca5929795399`;
+`backend/tests/test_agent_turn_execution.py`
+`911cc7743b073c78b6d5eaffc29eee1171bdf25d1526bd94a32542302c92420e`;
+`backend/tests/test_agent_turn_identity.py`
+`6d60a2668810bf8c62e23658d95c54b886079e4e7ecf120f349e989de710e1cf`;
+`backend/tests/test_cell_lider.py`
+`0732667504127fb4bcdc163187b9b137e77f645e81a743413d8a7c4332f1ee0e`;
+`backend/tests/test_cell_report_application.py`
+`278e3d506ca5c0853b957529013991bb676320381727f33183afcadc7768f430`;
+`backend/tests/test_cell_report_legacy_snapshot.py`
+`57586f81accd27145d5877ce91fa9d98f82f29b1ee4f73828768cfe93134c354`;
+e `backend/tests/test_cell_report_turn_uow.py`
+`5ce3d8b37f672adfeaf04839183d43f7f67b51f5cf6d81b37b663bf9c2128db9`.
+
+A revisao tecnica integrada no HEAD
+`dac3a14cdd2bf857f84609518dd96050e203b4b3` concluiu `GO`, com P0, P1 e
+P2 iguais a zero. A focal integrada terminou em `682 passed, 5 warnings`;
+`tests/test_agent*.py` terminou em `649 passed, 7 skipped, 2 warnings`; e
+`tests/test_cell*.py tests/test_reports.py` terminou em
+`960 passed, 18 skipped, 35 warnings`. Tambem passaram 200 vetores da reserva
+V2 e 8 casos de corrupcao legacy. As validacoes de AST e `git diff --check`
+para `d37d528..dac3a14` ficaram verdes. A evidencia e local e pre-PR. Ela
+confirma ainda a ausencia de caller em runtime, worker ou webhook, de migration,
+rede ou send e de `begin`, `commit` ou `rollback` na UoW.
+
+Estado: `STAGING TRANSACIONAL OFFLINE COMPOSTO E REVISADO LOCALMENTE / RESERVA
+V2 CLAIM-INDEPENDENT / WRITERS SERIALIZADOS / FLUSH SEM COMMIT / GO TECNICO
+P0=P1=P2=0 / SEM CALLER / RUNTIME E EFEITOS VIVOS BLOQUEADOS`.
+
+O gate anterior
+`REVIEW_AND_CI_CELL_REPORT_APPLICATION_SERVICE_OFFLINE_PR` foi substituido
+localmente, sem consumo, pelo lote de staging transacional. Nao houve push, PR,
+CI ou Preview sob esse gate, portanto ele nao e evidencia historica de uma acao
+externa.
+
 **Próximo gate único:**
-`REVIEW_AND_CI_CELL_REPORT_APPLICATION_SERVICE_OFFLINE_PR`. O nome nao
+`REVIEW_AND_CI_CELL_REPORT_TRANSACTIONAL_STAGING_OFFLINE_PR`. O nome nao
 constitui autorizacao ja concedida. Seu consumo exige autorizacao humana
 posterior e separada que nomeie push, abertura da PR e GitHub CI e aceite o
-Vercel Preview automatico. O gate cobre somente revisao e CI do lote offline
-ampliado com a fronteira transacional do relatorio. Nao autoriza merge, Vercel
-Production, flag-on, caller, primeira execucao do agente, runtime, worker,
-consentimento, saver, probe vivo, acesso a DEV ou PROD, banco, logs, SQL, DML,
-migration, outra rede, deploy, mensagem, tool call ou qualquer efeito vivo.
+Vercel Preview automatico. O gate cobre somente revisao e CI do lote offline de
+staging transacional. Nao autoriza merge, Vercel Production, flag-on, caller,
+`AgentConfig`, primeira execucao do agente, runtime, worker, consentimento,
+commit, send, drain V1/V0, receipt global, saver, probe vivo, acesso a DEV ou
+PROD, banco, logs, SQL, DML, migration, outra rede, deploy, mensagem, tool call
+ou qualquer efeito vivo.
 
 ## Fontes principais
 

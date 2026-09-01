@@ -136,11 +136,14 @@ D3_TURN_FOUNDATION_REPLAY_ONLY_SUPERSEDED_GATE = (
 D3_CELL_REPORT_OFFLINE_FOUNDATION_SUPERSEDED_GATE = (
     "REVIEW_AND_CI_D3_CELL_REPORT_OFFLINE_FOUNDATION_PR"
 )
-CELL_REPORT_APPLICATION_SERVICE_CURRENT_GATE = (
+CELL_REPORT_APPLICATION_SERVICE_SUPERSEDED_GATE = (
     "REVIEW_AND_CI_CELL_REPORT_APPLICATION_SERVICE_OFFLINE_PR"
 )
+CELL_REPORT_TRANSACTIONAL_STAGING_CURRENT_GATE = (
+    "REVIEW_AND_CI_CELL_REPORT_TRANSACTIONAL_STAGING_OFFLINE_PR"
+)
 DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE = (
-    CELL_REPORT_APPLICATION_SERVICE_CURRENT_GATE
+    CELL_REPORT_TRANSACTIONAL_STAGING_CURRENT_GATE
 )
 DEV_PREFLIGHT_PHASE_DIAGNOSTICS_STALE_GATE = (
     "REVIEW_AND_INTEGRATE_DEV_PREFLIGHT_PHASE_DIAGNOSTICS_PR"
@@ -524,8 +527,8 @@ def _assert_reconciled_d3_gate(path: Path, normalized: str) -> None:
         "autorizacao humana posterior e separada",
         "nomeie push, abertura da pr e github ci",
         "aceite o vercel preview automatico",
-        "cobre somente revisao e ci do lote offline ampliado com a fronteira transacional do relatorio",
-        "nao autoriza merge, vercel production, flag-on, caller, primeira execucao do agente, runtime, worker",
+        "cobre somente revisao e ci do lote offline de staging transacional",
+        "nao autoriza merge, vercel production, flag-on, caller, `agentconfig`, primeira execucao do agente, runtime, worker",
         "qualquer efeito vivo",
     }
     missing = sorted(item for item in required if item not in normalized)
@@ -2859,8 +2862,8 @@ def test_dev_connect_tls_auth_docs_record_offline_diagnostics_plan() -> None:
         "autorizacao humana posterior",
         "nomeie push, abertura da pr e github ci",
         "aceite o vercel preview automatico",
-        "cobre somente revisao e ci do lote offline ampliado com a fronteira transacional do relatorio",
-        "nao autoriza merge, vercel production, flag-on, caller, primeira execucao do agente, runtime, worker",
+        "cobre somente revisao e ci do lote offline de staging transacional",
+        "nao autoriza merge, vercel production, flag-on, caller, `agentconfig`, primeira execucao do agente, runtime, worker",
         "qualquer efeito vivo",
     }
 
@@ -3432,6 +3435,59 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
             "fb511601265dfa374a7d9fbec35f913a7e4bdbde615ce82c1c7996e2d51177d2"
         ),
     }
+    reply_reservation_source_commit = (
+        "4d08e783c2de1bb20dfeb29ffb8ee6a43c7a444f"
+    )
+    reply_reservation_integrated_commit = (
+        "d6ee2323d658a91bb92724aaa13adea7222538b4"
+    )
+    turn_uow_source_commit = "58b77a84e38ba7be4d3968d32834ef1b415b3a89"
+    turn_uow_integrated_commit = "17305af54e52aea74948e275ad68fae50427ae67"
+    human_writers_source_commit = "83b4810008f37250b9a9d00f9c9a83f04a3d0399"
+    human_writers_integrated_commit = (
+        "b6a763cbcab41a78815a7777f2c9b682a6af1ddb"
+    )
+    transactional_staging_head_commit = (
+        "dac3a14cdd2bf857f84609518dd96050e203b4b3"
+    )
+    transactional_file_sha256 = {
+        "backend/app/agent/turn_execution.py": (
+            "b729c3b25024cff41aa42b39aecd9d30712bf229c8f635c40fbd306cf52ac351"
+        ),
+        "backend/app/agent/turn_identity.py": (
+            "59848ebee37c9be0c9488420c4634e1b323f611c22627328c8c4dd73d5e69998"
+        ),
+        "backend/app/domain/cell_report_legacy_snapshot.py": (
+            "22dc8e5992f5661a5c110d6a4cc1ebedf7babfabfd45a56490b484de4695f869"
+        ),
+        "backend/app/routers/cell_meetings.py": (
+            "9a04c1589f64179e7b60a8b18755a40ee21035a8e955f8ff5238c4c5eba3a18e"
+        ),
+        "backend/app/services/cell_report_application.py": (
+            "0c8ddd4040b83e09fd496eeea3594c68309f0446b97b2466d5f32204babcc347"
+        ),
+        "backend/app/services/cell_report_turn_uow.py": (
+            "1bdebab8fb70b081781fa0ace6152b1d83cdeb9161a125172b16ca5929795399"
+        ),
+        "backend/tests/test_agent_turn_execution.py": (
+            "911cc7743b073c78b6d5eaffc29eee1171bdf25d1526bd94a32542302c92420e"
+        ),
+        "backend/tests/test_agent_turn_identity.py": (
+            "6d60a2668810bf8c62e23658d95c54b886079e4e7ecf120f349e989de710e1cf"
+        ),
+        "backend/tests/test_cell_lider.py": (
+            "0732667504127fb4bcdc163187b9b137e77f645e81a743413d8a7c4332f1ee0e"
+        ),
+        "backend/tests/test_cell_report_application.py": (
+            "278e3d506ca5c0853b957529013991bb676320381727f33183afcadc7768f430"
+        ),
+        "backend/tests/test_cell_report_legacy_snapshot.py": (
+            "57586f81accd27145d5877ce91fa9d98f82f29b1ee4f73828768cfe93134c354"
+        ),
+        "backend/tests/test_cell_report_turn_uow.py": (
+            "5ce3d8b37f672adfeaf04839183d43f7f67b51f5cf6d81b37b663bf9c2128db9"
+        ),
+    }
     four_input_rebinding_required = {
         "antes da primeira consulta",
         "runtime rederiva a identidade com quatro entradas confiaveis e separadas",
@@ -3518,8 +3574,8 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
         "foi substituido localmente, sem consumo, pelo lote ampliado replay-only",
         "nao houve push, pr, ci ou preview sob esse gate",
         "foi substituido localmente, sem consumo, pela fundacao offline do relatorio de celula",
-        "cobre somente revisao e ci do lote offline ampliado com a fronteira transacional do relatorio",
-        "nao autoriza merge, vercel production, flag-on, caller, primeira execucao do agente, runtime, worker",
+        "cobre somente revisao e ci do lote offline de staging transacional",
+        "nao autoriza merge, vercel production, flag-on, caller, `agentconfig`, primeira execucao do agente, runtime, worker",
         "qualquer efeito vivo",
     } | four_input_rebinding_required
     stale_claims = {
@@ -3680,7 +3736,7 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
         D3_TURN_EXECUTION_TRUSTED_INBOUND_SUPERSEDED_GATE.casefold(),
         D3_TURN_FOUNDATION_REPLAY_ONLY_SUPERSEDED_GATE.casefold(),
         D3_CELL_REPORT_OFFLINE_FOUNDATION_SUPERSEDED_GATE.casefold(),
-        "cobre somente revisao e ci do lote offline ampliado com a fronteira transacional do relatorio",
+        "cobre somente revisao e ci do lote offline de staging transacional",
     } | four_input_rebinding_required
     architecture_missing = sorted(
         item for item in architecture_required if item not in architecture
@@ -3724,8 +3780,8 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
         D3_TURN_FOUNDATION_REPLAY_ONLY_SUPERSEDED_GATE.casefold(),
         D3_CELL_REPORT_OFFLINE_FOUNDATION_SUPERSEDED_GATE.casefold(),
         "nome nao constitui autorizacao ja concedida",
-        "cobre somente revisao e ci do lote offline ampliado com a fronteira transacional do relatorio",
-        "nao autoriza merge, vercel production, flag-on, caller, primeira execucao do agente, runtime, worker",
+        "cobre somente revisao e ci do lote offline de staging transacional",
+        "nao autoriza merge, vercel production, flag-on, caller, `agentconfig`, primeira execucao do agente, runtime, worker",
         "qualquer efeito vivo",
     }
     for path in D3_TURN_PLAN_ADAPTER_DOCS:
@@ -3789,8 +3845,8 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
             "no main / efeitos vivos bloqueados"
         ),
         "foi substituido localmente, sem consumo, pela fundacao offline do relatorio de celula",
-        "cobre somente revisao e ci do lote offline ampliado com a fronteira transacional do relatorio",
-        "nao autoriza merge, vercel production, flag-on, caller, primeira execucao do agente, runtime, worker",
+        "cobre somente revisao e ci do lote offline de staging transacional",
+        "nao autoriza merge, vercel production, flag-on, caller, `agentconfig`, primeira execucao do agente, runtime, worker",
     }
     historical_and_final_pins = (
         snapshot_commit,
@@ -3891,9 +3947,9 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
         "foi substituido localmente, sem consumo, pela fatia offline do servico de aplicacao",
         "nao houve push, pr, ci ou preview sob esse gate",
         D3_CELL_REPORT_OFFLINE_FOUNDATION_SUPERSEDED_GATE.casefold(),
-        CELL_REPORT_APPLICATION_SERVICE_CURRENT_GATE.casefold(),
-        "cobre somente revisao e ci do lote offline ampliado com a fronteira transacional do relatorio",
-        "nao autoriza merge, vercel production, flag-on, caller, primeira execucao do agente, runtime, worker",
+        CELL_REPORT_APPLICATION_SERVICE_SUPERSEDED_GATE.casefold(),
+        "cobre somente revisao e ci do lote offline de staging transacional",
+        "nao autoriza merge, vercel production, flag-on, caller, `agentconfig`, primeira execucao do agente, runtime, worker",
     }
     for file_path, digest in application_file_sha256.items():
         application_required.add(file_path)
@@ -3948,8 +4004,8 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
             "integrado no main / runtime e efeitos vivos bloqueados"
         ),
         D3_CELL_REPORT_OFFLINE_FOUNDATION_SUPERSEDED_GATE.casefold(),
-        CELL_REPORT_APPLICATION_SERVICE_CURRENT_GATE.casefold(),
-        "cobre somente revisao e ci do lote offline ampliado com a fronteira transacional do relatorio",
+        CELL_REPORT_APPLICATION_SERVICE_SUPERSEDED_GATE.casefold(),
+        "cobre somente revisao e ci do lote offline de staging transacional",
     }
     for file_path, digest in application_file_sha256.items():
         architecture_application_required.add(file_path)
@@ -3972,7 +4028,7 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
             D3_CELL_REPORT_OFFLINE_FOUNDATION_SUPERSEDED_GATE.casefold()
         ) == 1
         assert normalized.count(
-            CELL_REPORT_APPLICATION_SERVICE_CURRENT_GATE.casefold()
+            CELL_REPORT_APPLICATION_SERVICE_SUPERSEDED_GATE.casefold()
         ) == 1
         assert normalized.index(application_source_commit) < normalized.index(
             application_head_commit
@@ -3982,7 +4038,9 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
         )
         assert normalized.index(
             D3_CELL_REPORT_OFFLINE_FOUNDATION_SUPERSEDED_GATE.casefold()
-        ) < normalized.index(CELL_REPORT_APPLICATION_SERVICE_CURRENT_GATE.casefold())
+        ) < normalized.index(
+            CELL_REPORT_APPLICATION_SERVICE_SUPERSEDED_GATE.casefold()
+        )
         for stale_claim in (
             "servico conectado ao runtime",
             "consentimento `tarefas_operacionais` aprovado",
@@ -3991,6 +4049,234 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
             "reuniao passada e pendente",
         ):
             assert stale_claim not in normalized
+
+    transactional_staging_required = {
+        reply_reservation_source_commit,
+        reply_reservation_integrated_commit,
+        turn_uow_source_commit,
+        turn_uow_integrated_commit,
+        human_writers_source_commit,
+        human_writers_integrated_commit,
+        transactional_staging_head_commit,
+        "`expected_replayed` explicito",
+        "a revisao tecnica consolidada posterior concluiu `go`",
+        "`agentoutboundreplyreservationv2`",
+        "derivado somente de `agentturnidentity`",
+        "antes de payload ou plano",
+        "`outbound_reply` ordinal zero",
+        "mesma chave de compatibilidade v2",
+        "sem usar `claim_id`",
+        "nao reserva linha",
+        "nao prova outbox, autenticacao, idempotencia global",
+        "compatibilidade v1/v0 continua somente como drain",
+        "linha legacy ja bloqueada",
+        "sem deriva-la nem promove-la",
+        "`edit_meeting`",
+        "`set_real_attendance`",
+        "`register_visitor`",
+        "`add_record`",
+        "`save_report`",
+        "`submit_report`",
+        "boundary sanitizada",
+        "locks tenant-bound",
+        "takeover humano explicito",
+        "uuids canonicos nao nulos",
+        "`report_conflict`",
+        "`data_integrity`",
+        "compartilhar locks nao equivale a compartilhar servico",
+        "`cell_report_turn_uow`",
+        "transacao tenant-scoped externa",
+        "`tool_call`, `audit_event` e `outbound_reply`",
+        "`message` de reply pre-reservada",
+        "valida a chave v2 antes do banco",
+        "evidencia exata depois do lock",
+        "requer concordancia entre relatorio, audit sem conteudo e reply",
+        "`agentconversationlog` sem texto pastoral",
+        "estado `ia_pendente`",
+        "todo sucesso da uow retorna `requires_caller_commit=true`",
+        "faz somente `flush`",
+        "nao inicia, confirma ou reverte transacao",
+        "nao cria outbox generica, receipt global autenticado",
+        "nao existe caller",
+        "consentimento `tarefas_operacionais`, `agentconfig`",
+        "commit, send, primeira execucao generica",
+        "nao houve banco compartilhado, dev, prod, rede, mensagem ou deployment",
+        "`682 passed, 5 warnings`",
+        "`649 passed, 7 skipped, 2 warnings`",
+        "`960 passed, 18 skipped, 35 warnings`",
+        "200 vetores da reserva v2",
+        "8 casos de corrupcao legacy",
+        "`d37d528..dac3a14` ficaram verdes",
+        "ausencia de caller em runtime, worker ou webhook",
+        "de `begin`, `commit` ou `rollback` na uow",
+        "concluiu `go`, com p0, p1 e p2 iguais a zero",
+        (
+            "staging transacional offline composto e revisado localmente / reserva "
+            "v2 "
+            "claim-independent / writers serializados / flush sem commit / "
+            "go tecnico p0=p1=p2=0 / sem caller / runtime e efeitos vivos "
+            "bloqueados"
+        ),
+        "foi substituido localmente, sem consumo, pelo lote de staging transacional",
+        "nao houve push, pr, ci ou preview sob esse gate",
+        CELL_REPORT_APPLICATION_SERVICE_SUPERSEDED_GATE.casefold(),
+        CELL_REPORT_TRANSACTIONAL_STAGING_CURRENT_GATE.casefold(),
+        "cobre somente revisao e ci do lote offline de staging transacional",
+        "nao autoriza merge, vercel production, flag-on, caller, `agentconfig`",
+        "commit, send, drain v1/v0, receipt global",
+        "qualquer efeito vivo",
+    }
+    for file_path, digest in transactional_file_sha256.items():
+        transactional_staging_required.add(file_path)
+        transactional_staging_required.add(digest)
+
+    architecture_transactional_required = {
+        reply_reservation_source_commit,
+        reply_reservation_integrated_commit,
+        turn_uow_source_commit,
+        turn_uow_integrated_commit,
+        human_writers_source_commit,
+        human_writers_integrated_commit,
+        transactional_staging_head_commit,
+        (
+            "preparacao d6 offline: reserva v2, writers serializados e "
+            "staging atomico"
+        ),
+        "`derive_agent_outbound_reply_effect_id` fixa o unico slot",
+        "mesma chave que `build_agent_effect_compatibility_key` produzira",
+        "vetor e claim-independent",
+        "nao cria linha, lease, outbox, receipt, unicidade global",
+        "evidencia exata lida da `message` legacy ja bloqueada",
+        "os seis writers humanos",
+        "`_report_writer_storage_boundary`",
+        "`populate_existing`",
+        "snapshot pendente desconhecido permanece intacto",
+        "falhas sqlalchemy sao convertidas em erro estatico",
+        "rollback best-effort",
+        "`cell_report_legacy_snapshot` aceita somente a projecao schema-less completa",
+        "uuids canonicos nao nulos",
+        "`report_conflict`",
+        "`data_integrity`",
+        "nao uma unificacao de servicos",
+        "`cell_report_turn_uow` recebe exatamente tres efeitos",
+        "`tool_call` para confirmar o relatorio, `audit_event` sem conteudo pastoral",
+        "`outbound_reply`",
+        "transacao tenant-scoped ja ativa",
+        "`message` outbound de ia pre-reservada",
+        "a chave esperada precisa coincidir antes de qualquer consulta",
+        "evidencia exata e vinculada somente depois do lock da linha",
+        "`expected_replayed`",
+        "snapshot final exato",
+        "`message` `ia_pendente` com o mesmo texto",
+        "`plan_digest`",
+        "nao prova commit anterior",
+        "`requires_caller_commit=true` em todo sucesso",
+        "faz somente `flush`",
+        "nunca chama runtime, worker, grafo ou provedor",
+        "nunca envia a mensagem",
+        "sem criar outbox generica, receipt global autenticado",
+        "nao existe caller",
+        "`agentconfig`",
+        "primeira execucao generica pelo `turn_plan_adapter`",
+        "`682 passed, 5 warnings`",
+        "`649 passed, 7 skipped, 2 warnings`",
+        "`960 passed, 18 skipped, 35 warnings`",
+        "200 vetores da reserva v2",
+        "8 casos de corrupcao legacy",
+        "`d37d528..dac3a14` ficaram verdes",
+        "ausencia de caller em runtime, worker ou webhook",
+        "de `begin`, `commit` ou `rollback` na uow",
+        "concluiu `go`, com p0, p1 e p2 iguais a zero",
+        CELL_REPORT_APPLICATION_SERVICE_SUPERSEDED_GATE.casefold(),
+        CELL_REPORT_TRANSACTIONAL_STAGING_CURRENT_GATE.casefold(),
+        "cobre somente revisao e ci do lote offline de staging transacional",
+    }
+    for file_path, digest in transactional_file_sha256.items():
+        architecture_transactional_required.add(file_path)
+        architecture_transactional_required.add(digest)
+
+    for path in D3_CELL_REPORT_OFFLINE_FOUNDATION_DOCS:
+        normalized = _normalized_prose(path.read_text(encoding="utf-8"))
+        expected = (
+            architecture_transactional_required
+            if path == WHATSAPP_FIRST_AGENT_ARCHITECTURE_ADR_PATH
+            else transactional_staging_required
+        )
+        missing = sorted(item for item in expected if item not in normalized)
+        assert not missing, (
+            f"Cell report transactional staging stale in {path}: {missing}"
+        )
+        for digest in transactional_file_sha256.values():
+            assert normalized.count(digest) == 1
+        for commit in (
+            reply_reservation_source_commit,
+            reply_reservation_integrated_commit,
+            turn_uow_source_commit,
+            turn_uow_integrated_commit,
+            human_writers_source_commit,
+            human_writers_integrated_commit,
+        ):
+            assert normalized.count(commit) == 1
+        assert normalized.count(transactional_staging_head_commit) == 3
+        assert normalized.count(
+            CELL_REPORT_APPLICATION_SERVICE_SUPERSEDED_GATE.casefold()
+        ) == 1
+        assert normalized.count(
+            CELL_REPORT_TRANSACTIONAL_STAGING_CURRENT_GATE.casefold()
+        ) == 1
+        assert normalized.index(application_head_commit) < normalized.index(
+            reply_reservation_source_commit
+        )
+        assert normalized.index(
+            transactional_staging_head_commit
+        ) < normalized.index(reply_reservation_source_commit)
+        assert normalized.index(reply_reservation_source_commit) < normalized.index(
+            reply_reservation_integrated_commit
+        )
+        assert normalized.index(reply_reservation_integrated_commit) < normalized.index(
+            turn_uow_source_commit
+        )
+        assert normalized.index(turn_uow_source_commit) < normalized.index(
+            turn_uow_integrated_commit
+        )
+        assert normalized.index(turn_uow_integrated_commit) < normalized.index(
+            human_writers_source_commit
+        )
+        assert normalized.index(human_writers_source_commit) < normalized.index(
+            human_writers_integrated_commit
+        )
+        assert normalized.index(
+            human_writers_integrated_commit
+        ) < normalized.rindex(transactional_staging_head_commit)
+        assert normalized.index(
+            CELL_REPORT_APPLICATION_SERVICE_SUPERSEDED_GATE.casefold()
+        ) < normalized.index(
+            CELL_REPORT_TRANSACTIONAL_STAGING_CURRENT_GATE.casefold()
+        )
+        for stale_claim in (
+            "reserva v2 persistida",
+            "uow faz commit",
+            "runtime conectado ao staging",
+            "receipt global implementado",
+            "drain v1/v0 executado",
+            "revisao tecnica consolidada pendente",
+            "nao constitui freeze final",
+        ):
+            assert stale_claim not in normalized
+
+    prd_coverage = _normalized_prose(
+        (REPO_ROOT / "docs" / "ai" / "PRD-COVERAGE.md").read_text(
+            encoding="utf-8"
+        )
+    )
+    for current_claim in (
+        "relatorio de celula web | `implementado / writers serializados localmente`",
+        "os seis writers web mantem o fluxo humano",
+        "router humano ainda nao usa o mesmo servico de aplicacao do agente",
+        "relatorio pelo whatsapp | `parcial / staging transacional offline candidato`",
+        "`message` `ia_pendente` com flush sem commit",
+    ):
+        assert current_claim in prd_coverage
 
     architecture_cell_report_required = {
         "submission_effect_id` opaco de correlacao",
@@ -4015,16 +4301,22 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
 
     technical_files = {
         REPO_ROOT / "backend" / "app" / "agent" / "turn_identity.py": (
-            turn_identity_sha256
+            transactional_file_sha256["backend/app/agent/turn_identity.py"]
         ),
         REPO_ROOT / "backend" / "tests" / "test_agent_turn_identity.py": (
-            identity_test_sha256
+            transactional_file_sha256[
+                "backend/tests/test_agent_turn_identity.py"
+            ]
         ),
         REPO_ROOT / "backend" / "app" / "agent" / "turn_execution.py": (
-            turn_execution_sha256
+            transactional_file_sha256[
+                "backend/app/agent/turn_execution.py"
+            ]
         ),
         REPO_ROOT / "backend" / "tests" / "test_agent_turn_execution.py": (
-            execution_test_sha256
+            transactional_file_sha256[
+                "backend/tests/test_agent_turn_execution.py"
+            ]
         ),
         REPO_ROOT / "backend" / "app" / "agent" / "turn_plan_adapter.py": (
             plan_adapter_final_sha256
@@ -4063,12 +4355,12 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
             ]
         ),
         REPO_ROOT / "backend" / "app" / "routers" / "cell_meetings.py": (
-            application_file_sha256[
+            transactional_file_sha256[
                 "backend/app/routers/cell_meetings.py"
             ]
         ),
         REPO_ROOT / "backend" / "tests" / "test_cell_lider.py": (
-            application_file_sha256["backend/tests/test_cell_lider.py"]
+            transactional_file_sha256["backend/tests/test_cell_lider.py"]
         ),
         REPO_ROOT
         / "backend"
@@ -4084,7 +4376,7 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
         / "app"
         / "services"
         / "cell_report_application.py": (
-            application_file_sha256[
+            transactional_file_sha256[
                 "backend/app/services/cell_report_application.py"
             ]
         ),
@@ -4094,8 +4386,39 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
             ]
         ),
         REPO_ROOT / "backend" / "tests" / "test_cell_report_application.py": (
-            application_file_sha256[
+            transactional_file_sha256[
                 "backend/tests/test_cell_report_application.py"
+            ]
+        ),
+        REPO_ROOT
+        / "backend"
+        / "app"
+        / "domain"
+        / "cell_report_legacy_snapshot.py": (
+            transactional_file_sha256[
+                "backend/app/domain/cell_report_legacy_snapshot.py"
+            ]
+        ),
+        REPO_ROOT
+        / "backend"
+        / "app"
+        / "services"
+        / "cell_report_turn_uow.py": (
+            transactional_file_sha256[
+                "backend/app/services/cell_report_turn_uow.py"
+            ]
+        ),
+        REPO_ROOT
+        / "backend"
+        / "tests"
+        / "test_cell_report_legacy_snapshot.py": (
+            transactional_file_sha256[
+                "backend/tests/test_cell_report_legacy_snapshot.py"
+            ]
+        ),
+        REPO_ROOT / "backend" / "tests" / "test_cell_report_turn_uow.py": (
+            transactional_file_sha256[
+                "backend/tests/test_cell_report_turn_uow.py"
             ]
         ),
         REPO_ROOT
