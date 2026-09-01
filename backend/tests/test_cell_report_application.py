@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+import copy
 import datetime as dt
 import inspect
 import uuid
@@ -293,6 +294,7 @@ def _confirm(
     db: _FakeSession,
     *,
     command: str,
+    expected_replayed: bool,
     inbound: uuid.UUID = INBOUND_FINAL,
     turn_identity: AgentTurnIdentity | None = None,
     submission_intent: AgentEffectIntent | None = None,
@@ -327,6 +329,7 @@ def _confirm(
         turn_identity=identity,
         submission_intent=intent,
         now=now,
+        expected_replayed=expected_replayed,
     )
 
 
@@ -473,6 +476,7 @@ def test_human_draft_change_after_proposal_causes_conflict_not_overwrite(
         _confirm(
             db,
             command=proposal.confirmation_command,  # type: ignore[arg-type]
+            expected_replayed=False,
         )
     assert raised.value.code is (
         application.CellReportApplicationErrorCode.REPORT_CONFLICT
@@ -551,6 +555,7 @@ def test_confirmation_materializes_v2_and_leaves_commit_to_caller() -> None:
     result = _confirm(
         db,
         command=proposal.confirmation_command,  # type: ignore[arg-type]
+        expected_replayed=False,
         turn_identity=identity,
         submission_intent=expected_intent,
     )
@@ -600,6 +605,7 @@ def test_human_e2_offering_boundary_is_preserved_through_final_snapshot() -> Non
     result = _confirm(
         _authorized_session(meeting),
         command=proposal.confirmation_command,  # type: ignore[arg-type]
+        expected_replayed=False,
     )
     assert result.snapshot["oferta_valor"] == "999999.99"
     assert meeting.oferta_valor == Decimal("999999.99")
@@ -619,6 +625,7 @@ def test_human_observation_boundary_materializes_without_late_failure() -> None:
     result = _confirm(
         _authorized_session(meeting),
         command=proposal.confirmation_command,  # type: ignore[arg-type]
+        expected_replayed=False,
     )
 
     assert result.snapshot["observacoes"] == observations
@@ -651,12 +658,14 @@ def test_final_same_effect_replays_after_persistence_without_flush() -> None:
     _confirm(
         _authorized_session(meeting),
         command=proposal.confirmation_command,  # type: ignore[arg-type]
+        expected_replayed=False,
     )
 
     replay_db = _authorized_session(meeting)
     replay = _confirm(
         replay_db,
         command=proposal.confirmation_command,  # type: ignore[arg-type]
+        expected_replayed=True,
     )
     assert replay.replayed is True
     assert replay.requires_caller_commit is False
@@ -670,12 +679,111 @@ def test_final_same_effect_replays_after_persistence_without_flush() -> None:
     assert replay_db.flush_calls == 0
 
 
+def test_expected_replay_rejects_locked_pending_report_before_mutation() -> None:
+    meeting = _meeting()
+    proposal = _propose(_authorized_session(meeting))
+    before = (
+        meeting.relatorio_status,
+        copy.deepcopy(meeting.relatorio_snapshot),
+        meeting.oferta_valor,
+        meeting.observacoes,
+        meeting.relatorio_enviado_por,
+        meeting.relatorio_enviado_em,
+        meeting.updated_at,
+    )
+    db = _authorized_session(meeting)
+
+    with pytest.raises(application.CellReportApplicationError) as raised:
+        _confirm(
+            db,
+            command=proposal.confirmation_command,  # type: ignore[arg-type]
+            expected_replayed=True,
+        )
+
+    assert raised.value.code is (
+        application.CellReportApplicationErrorCode.REPLAY_EXPECTATION_MISMATCH
+    )
+    after = (
+        meeting.relatorio_status,
+        meeting.relatorio_snapshot,
+        meeting.oferta_valor,
+        meeting.observacoes,
+        meeting.relatorio_enviado_por,
+        meeting.relatorio_enviado_em,
+        meeting.updated_at,
+    )
+    assert after == before
+    assert db.flush_calls == 0
+    assert db.commit_calls == db.rollback_calls == 0
+    assert db.in_transaction() is True
+
+
+def test_expected_new_write_rejects_locked_final_report_before_mutation() -> None:
+    meeting = _meeting()
+    proposal = _propose(_authorized_session(meeting))
+    _confirm(
+        _authorized_session(meeting),
+        command=proposal.confirmation_command,  # type: ignore[arg-type]
+        expected_replayed=False,
+    )
+    before = (
+        meeting.relatorio_status,
+        copy.deepcopy(meeting.relatorio_snapshot),
+        meeting.oferta_valor,
+        meeting.observacoes,
+        meeting.relatorio_enviado_por,
+        meeting.relatorio_enviado_em,
+        meeting.updated_at,
+    )
+    db = _authorized_session(meeting)
+
+    with pytest.raises(application.CellReportApplicationError) as raised:
+        _confirm(
+            db,
+            command=proposal.confirmation_command,  # type: ignore[arg-type]
+            expected_replayed=False,
+        )
+
+    assert raised.value.code is (
+        application.CellReportApplicationErrorCode.REPLAY_EXPECTATION_MISMATCH
+    )
+    after = (
+        meeting.relatorio_status,
+        meeting.relatorio_snapshot,
+        meeting.oferta_valor,
+        meeting.observacoes,
+        meeting.relatorio_enviado_por,
+        meeting.relatorio_enviado_em,
+        meeting.updated_at,
+    )
+    assert after == before
+    assert db.flush_calls == 0
+    assert db.commit_calls == db.rollback_calls == 0
+    assert db.in_transaction() is True
+
+
+def test_expected_replayed_is_closed_and_rejects_non_bool_before_database() -> None:
+    db = _FakeSession([])
+    with pytest.raises(application.CellReportApplicationError) as raised:
+        _confirm(
+            db,
+            command="CONFIRMAR RELATORIO AAAAAAAAAAAA",
+            expected_replayed=1,  # type: ignore[arg-type]
+        )
+    assert raised.value.code is (
+        application.CellReportApplicationErrorCode.INVALID_ARGUMENT
+    )
+    assert db.statements == []
+    assert db.flush_calls == 0
+
+
 def test_final_different_effect_conflicts_instead_of_double_submit() -> None:
     meeting = _meeting()
     proposal = _propose(_authorized_session(meeting))
     _confirm(
         _authorized_session(meeting),
         command=proposal.confirmation_command,  # type: ignore[arg-type]
+        expected_replayed=False,
     )
     conflict_db = _authorized_session(meeting)
 
@@ -683,6 +791,7 @@ def test_final_different_effect_conflicts_instead_of_double_submit() -> None:
         _confirm(
             conflict_db,
             command=proposal.confirmation_command,  # type: ignore[arg-type]
+            expected_replayed=True,
             inbound=INBOUND_FINAL_2,
         )
     assert raised.value.code is (
@@ -701,7 +810,11 @@ def test_wrong_current_code_rejects_without_mutating_pending_proposal() -> None:
     db = _authorized_session(meeting)
 
     with pytest.raises(application.CellReportApplicationError) as raised:
-        _confirm(db, command=f"CONFIRMAR RELATORIO {wrong}")
+        _confirm(
+            db,
+            command=f"CONFIRMAR RELATORIO {wrong}",
+            expected_replayed=False,
+        )
     assert raised.value.code is (
         application.CellReportApplicationErrorCode.CONFIRMATION_REJECTED
     )
@@ -727,6 +840,7 @@ def test_confirmation_from_another_conversation_cannot_consume_proposal() -> Non
         _confirm(
             db,
             command=proposal.confirmation_command,  # type: ignore[arg-type]
+            expected_replayed=False,
             conversation=other_conversation,
         )
     assert raised.value.code is (
@@ -745,6 +859,7 @@ def test_expired_proposal_rejects_confirmation_at_exact_boundary() -> None:
         _confirm(
             db,
             command=proposal.confirmation_command,  # type: ignore[arg-type]
+            expected_replayed=False,
             now=EXPIRY,
         )
     assert raised.value.code is (
@@ -1033,6 +1148,7 @@ def test_input_and_persisted_expiry_are_bounded_fail_closed() -> None:
         _confirm(
             db,
             command=proposal.confirmation_command,  # type: ignore[arg-type]
+            expected_replayed=False,
         )
     assert raised.value.code is (
         application.CellReportApplicationErrorCode.PROPOSAL_CORRUPT
@@ -1170,6 +1286,7 @@ def test_final_replay_binds_exact_command_and_conversation() -> None:
     _confirm(
         _authorized_session(meeting),
         command=proposal.confirmation_command,  # type: ignore[arg-type]
+        expected_replayed=False,
     )
     wrong_code = "AAAAAAAAAAAA"
     if proposal.confirmation_command == f"CONFIRMAR RELATORIO {wrong_code}":
@@ -1199,6 +1316,7 @@ def test_final_replay_binds_exact_command_and_conversation() -> None:
         _confirm(
             wrong_command_db,
             command=wrong_command,
+            expected_replayed=True,
             turn_identity=identity,
             submission_intent=wrong_intent,
         )
@@ -1219,6 +1337,7 @@ def test_final_replay_binds_exact_command_and_conversation() -> None:
         _confirm(
             other_db,
             command=proposal.confirmation_command,  # type: ignore[arg-type]
+            expected_replayed=True,
             conversation=other_conversation,
         )
     assert raised.value.code is (
@@ -1341,7 +1460,11 @@ def test_invalid_input_and_missing_transaction_fail_before_domain_queries() -> N
 
     malformed_command = _FakeSession([])
     with pytest.raises(application.CellReportApplicationError) as raised:
-        _confirm(malformed_command, command="confirmar")
+        _confirm(
+            malformed_command,
+            command="confirmar",
+            expected_replayed=False,
+        )
     assert raised.value.code is (
         application.CellReportApplicationErrorCode.INVALID_ARGUMENT
     )
@@ -1448,3 +1571,11 @@ def test_application_module_never_owns_transaction_completion_or_runtime() -> No
     assert method_calls.isdisjoint({"begin", "commit", "rollback"})
     assert "app.agent.runtime" not in source
     assert "queue_worker" not in source
+
+
+def test_confirm_replay_expectation_is_required_and_keyword_only() -> None:
+    parameter = inspect.signature(application.confirm_cell_report).parameters[
+        "expected_replayed"
+    ]
+    assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
+    assert parameter.default is inspect.Parameter.empty

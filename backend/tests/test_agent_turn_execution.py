@@ -1747,7 +1747,10 @@ def test_module_has_no_production_wiring() -> None:
         if "turn_execution" in source:
             execution_consumers.append(str(path.relative_to(BACKEND_ROOT)))
 
-    assert execution_consumers == ["app/agent/turn_plan_adapter.py"]
+    assert sorted(execution_consumers) == [
+        "app/agent/turn_plan_adapter.py",
+        "app/services/cell_report_turn_uow.py",
+    ]
 
     adapter_consumers: list[str] = []
     for path in APP_ROOT.rglob("*.py"):
@@ -1757,7 +1760,7 @@ def test_module_has_no_production_wiring() -> None:
         if "turn_plan_adapter" in source:
             adapter_consumers.append(str(path.relative_to(BACKEND_ROOT)))
 
-    assert adapter_consumers == []
+    assert adapter_consumers == ["app/services/cell_report_turn_uow.py"]
 
 
 def test_module_documents_every_deferred_durable_boundary() -> None:

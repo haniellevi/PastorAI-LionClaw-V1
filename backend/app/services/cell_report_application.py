@@ -121,6 +121,7 @@ class CellReportApplicationErrorCode(str, Enum):
     EXPIRY_LIMIT_EXCEEDED = "EXPIRY_LIMIT_EXCEEDED"
     OPERATION_LIMIT_EXCEEDED = "OPERATION_LIMIT_EXCEEDED"
     IDEMPOTENCY_CONFLICT = "IDEMPOTENCY_CONFLICT"
+    REPLAY_EXPECTATION_MISMATCH = "REPLAY_EXPECTATION_MISMATCH"
     CONFIRMATION_REJECTED = "CONFIRMATION_REJECTED"
 
 
@@ -1003,14 +1004,17 @@ def confirm_cell_report(
     turn_identity: AgentTurnIdentity,
     submission_intent: AgentEffectIntent,
     now: dt.datetime,
+    expected_replayed: bool,
 ) -> CellReportConfirmationResult:
-    """Confirm and materialize one report without owning the final commit."""
+    """Confirm a report bound to the caller's locked replay classification."""
 
     tenant_id = _require_uuid(igreja_id)
     meeting_id = _require_uuid(reuniao_id)
     conversation_id = _require_uuid(conversa_id)
     actor_id = _require_uuid(ator_pessoa_id)
     current_time = _canonical_utc(now)
+    if type(expected_replayed) is not bool:
+        _reject(CellReportApplicationErrorCode.INVALID_ARGUMENT)
     bindings, effect_payload = _confirmation_material(
         igreja_id=tenant_id,
         reuniao_id=meeting_id,
@@ -1034,7 +1038,12 @@ def confirm_cell_report(
         ator_pessoa_id=actor_id,
         now=current_time,
     )
-    if meeting.relatorio_status == RELATORIO_ENVIADO:
+    replayed = meeting.relatorio_status == RELATORIO_ENVIADO
+    if expected_replayed is not replayed:
+        _reject(
+            CellReportApplicationErrorCode.REPLAY_EXPECTATION_MISMATCH
+        )
+    if replayed:
         snapshot = _validate_final_replay(
             meeting,
             ator_pessoa_id=actor_id,
