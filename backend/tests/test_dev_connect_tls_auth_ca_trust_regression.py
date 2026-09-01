@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import socket
 import tempfile
 from pathlib import Path
@@ -25,6 +26,13 @@ def test_untrusted_private_ca_is_certificate_verification_error(
 ) -> None:
     probe = _load_module()
     monkeypatch.setattr(probe, "_utc_now", lambda: FIXED_NOW)
+    for key in list(os.environ):
+        upper = key.upper()
+        if (
+            upper.startswith(("PG", "SSL", "OPENSSL", "DYLD_"))
+            or upper in probe.RELEVANT_ENV_NAMES
+        ):
+            monkeypatch.delenv(key, raising=False)
     with tempfile.TemporaryDirectory(prefix="pastorai-ca-trust-regression-") as raw_dir:
         directory = Path(raw_dir)
         server_directory = directory / "server"
