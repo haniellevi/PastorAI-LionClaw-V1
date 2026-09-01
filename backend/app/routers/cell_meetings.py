@@ -21,16 +21,19 @@ import datetime as dt
 import logging
 import re
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from decimal import Decimal, InvalidOperation
-from typing import Literal
+from typing import Literal, NoReturn
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field, ValidationError, field_validator
 from sqlalchemy import nulls_last, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.db.models import (
+    AppUser,
     Celula,
     CelulaExpectativaVisitante,
     CelulaMembro,
@@ -52,6 +55,9 @@ from app.domain.cell_meetings_schedule import InvalidDiaReuniao, next_meeting_da
 from app.domain.cell_report_limits import (
     MAX_CELL_REPORT_OBSERVATIONS_LENGTH,
     MAX_CELL_REPORT_OFFERING_DECIMAL_TEXT,
+)
+from app.domain.cell_report_pending_proposal import (
+    CELL_REPORT_PENDING_PROPOSAL_SCHEMA_V1,
 )
 from app.domain.cell_report_snapshot import (
     CELL_REPORT_SNAPSHOT_SCHEMA_V2,
@@ -1010,6 +1016,163 @@ def _leader_meeting_or_404(
     return reuniao
 
 
+def _rollback_report_writer_best_effort(db: Session) -> None:
+    """End a failed writer transaction without replacing its primary error."""
+
+    try:
+        db.rollback()
+    except Exception:
+        return
+
+
+def _raise_report_writer_storage_failure() -> NoReturn:
+    """Expose one static storage failure without echoing statement parameters."""
+
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail={"code": "CELL_REPORT_WRITE_FAILED"},
+    ) from None
+
+
+@contextmanager
+def _report_writer_storage_boundary(db: Session) -> Iterator[None]:
+    """Sanitize every SQLAlchemy failure across one human report write."""
+
+    try:
+        yield
+    except SQLAlchemyError:
+        _rollback_report_writer_best_effort(db)
+        _raise_report_writer_storage_failure()
+
+
+def _locked_leader_meeting_or_404(
+    db: Session, current_user: CurrentUser, reuniao_id: str
+) -> CelulaReuniao:
+    """Lock one tenant meeting and revalidate its human leader under lock.
+
+    The lock order intentionally matches the WhatsApp application service:
+    meeting, cell, then authenticated access. The locked AppUser row is read
+    again instead of trusting the earlier request snapshot, so a concurrent
+    tenant, identity or access-status change cannot authorize this write.
+    The existing 404 distinction between a missing meeting and an invalid
+    leader/access binding remains unchanged.
+    """
+
+    meeting_not_found = HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Reunião não encontrada",
+    )
+    cell_not_found = HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Célula não encontrada",
+    )
+    try:
+        meeting_uuid = uuid.UUID(reuniao_id)
+        tenant_uuid = uuid.UUID(current_user.igreja_id)
+        app_user_uuid = uuid.UUID(current_user.app_user_id)
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise meeting_not_found from exc
+
+    reuniao = db.execute(
+        select(CelulaReuniao)
+        .where(
+            CelulaReuniao.id == meeting_uuid,
+            CelulaReuniao.igreja_id == tenant_uuid,
+        )
+        .with_for_update(of=CelulaReuniao)
+        .execution_options(populate_existing=True)
+    ).scalar_one_or_none()
+    if (
+        reuniao is None
+        or str(reuniao.id) != str(meeting_uuid)
+        or str(reuniao.igreja_id) != str(tenant_uuid)
+    ):
+        raise meeting_not_found
+
+    try:
+        cell_uuid = uuid.UUID(str(reuniao.celula_id))
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise cell_not_found from exc
+    cell = db.execute(
+        select(Celula)
+        .where(
+            Celula.id == cell_uuid,
+            Celula.igreja_id == tenant_uuid,
+        )
+        .with_for_update(of=Celula)
+        .execution_options(populate_existing=True)
+    ).scalar_one_or_none()
+
+    access_rows = db.execute(
+        select(
+            AppUser.id,
+            AppUser.igreja_id,
+            AppUser.pessoa_id,
+            AppUser.clerk_user_id,
+            AppUser.status,
+        )
+        .where(
+            AppUser.id == app_user_uuid,
+            AppUser.igreja_id == tenant_uuid,
+        )
+        .limit(2)
+        .with_for_update(of=AppUser)
+        .execution_options(populate_existing=True)
+    ).all()
+    if len(access_rows) != 1:
+        raise cell_not_found
+    try:
+        (
+            access_id,
+            access_tenant_id,
+            actor_pessoa_id,
+            access_clerk_user_id,
+            access_status,
+        ) = access_rows[0]
+    except (TypeError, ValueError) as exc:
+        raise cell_not_found from exc
+
+    if (
+        cell is None
+        or str(cell.id) != str(cell_uuid)
+        or str(cell.igreja_id) != str(tenant_uuid)
+        or cell.lider_id is None
+        or str(access_id) != current_user.app_user_id
+        or str(access_tenant_id) != current_user.igreja_id
+        or actor_pessoa_id is None
+        or access_clerk_user_id != current_user.clerk_user_id
+        or access_status not in {None, "ativo"}
+        or str(cell.lider_id) != str(actor_pessoa_id)
+    ):
+        raise cell_not_found
+    return reuniao
+
+
+def _invalidate_pending_agent_report_for_human_takeover(
+    reuniao: CelulaReuniao,
+) -> bool:
+    """Explicitly let the authenticated panel replace one agent proposal.
+
+    The panel has no proposal-cancellation UI. A valid schema marker therefore
+    opts into an explicit human takeover; any other non-null pending snapshot
+    is left untouched and rejected instead of being silently overwritten.
+    """
+
+    snapshot = reuniao.relatorio_snapshot
+    if snapshot is None:
+        return False
+    if (
+        type(snapshot) is dict
+        and snapshot.get("schema") == CELL_REPORT_PENDING_PROPOSAL_SCHEMA_V1
+    ):
+        reuniao.relatorio_snapshot = None
+        return True
+    raise HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail="Relatório possui um rascunho incompatível",
+    )
+
+
 def _reader_meeting_or_404(
     db: Session, current_user: CurrentUser, reuniao_id: str
 ) -> CelulaReuniao:
@@ -1107,27 +1270,29 @@ def edit_meeting(
     campo sensível enviado é ignorado (RF-14). 404 se a reunião não é do
     líder/tenant. 409 se o novo slot colidir com outra reunião.
     """
-    reuniao = _leader_meeting_or_404(db, current_user, reuniao_id)
-    # E10/E11: após o relatório enviado, data/hora/tema da reunião ficam
-    # congelados (editar aqui alteraria o relatório já consolidado — get_report
-    # expõe data/tema). Mesmo gate dos demais endpoints de escrita do relatório.
-    _assert_report_open(reuniao)
+    with _report_writer_storage_boundary(db):
+        reuniao = _locked_leader_meeting_or_404(db, current_user, reuniao_id)
+        # E10/E11: após o relatório enviado, data/hora/tema da reunião ficam
+        # congelados (editar aqui alteraria o relatório já consolidado — get_report
+        # expõe data/tema). Mesmo gate dos demais endpoints de escrita do relatório.
+        _assert_report_open(reuniao)
+        _invalidate_pending_agent_report_for_human_takeover(reuniao)
 
-    reuniao.data = payload.data
-    reuniao.hora = payload.hora
-    reuniao.tema = payload.tema
-    reuniao.updated_at = dt.datetime.now(dt.timezone.utc)
-    try:
-        db.flush()
-        db.refresh(reuniao)
-        db.commit()
-    except IntegrityError as exc:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Já existe uma reunião nesta data/horário",
-        ) from exc
-    return LeaderMeetingOut.from_model(reuniao)
+        reuniao.data = payload.data
+        reuniao.hora = payload.hora
+        reuniao.tema = payload.tema
+        reuniao.updated_at = dt.datetime.now(dt.timezone.utc)
+        try:
+            db.flush()
+            db.refresh(reuniao)
+            db.commit()
+        except IntegrityError:
+            _rollback_report_writer_best_effort(db)
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Já existe uma reunião nesta data/horário",
+            ) from None
+        return LeaderMeetingOut.from_model(reuniao)
 
 
 # ---------------------------------------------------------------------------
@@ -1149,50 +1314,66 @@ def set_real_attendance(
     tenant (422) e ter vínculo ATIVO na célula da reunião (422, E11). Bloqueado
     após o relatório enviado (409, E10/E11). 404 se a reunião não é do líder/tenant.
     """
-    reuniao = _leader_meeting_or_404(db, current_user, reuniao_id)
-    _assert_report_open(reuniao)
-    igreja_id = uuid.UUID(current_user.igreja_id)
-    now = dt.datetime.now(dt.timezone.utc)
+    with _report_writer_storage_boundary(db):
+        reuniao = _locked_leader_meeting_or_404(db, current_user, reuniao_id)
+        _assert_report_open(reuniao)
+        igreja_id = uuid.UUID(current_user.igreja_id)
+        now = dt.datetime.now(dt.timezone.utc)
 
-    out: list[AttendanceEntryOut] = []
-    for entry in payload.presencas:
-        pessoa_uuid = uuid.UUID(entry.pessoa_id)
-        _assert_pessoa_tenant(db, pessoa_uuid, "pessoa_id")
-        if not _has_active_membership(db, igreja_id, reuniao.celula_id, pessoa_uuid):
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"pessoa_id {entry.pessoa_id}: sem vínculo ativo na célula",
-            )
-        estado = ESTADO_COMPARECEU if entry.compareceu else ESTADO_AUSENTE
-        existing = _find_presenca(db, igreja_id, reuniao.id, pessoa_uuid)
-        if existing is not None:
-            existing.estado = estado
-            existing.origem = ORIGEM_LIDER
-            existing.updated_at = now
-        else:
-            db.add(
-                CelulaPresenca(
-                    igreja_id=igreja_id,
-                    reuniao_id=reuniao.id,
-                    pessoa_id=pessoa_uuid,
-                    estado=estado,
-                    origem=ORIGEM_LIDER,
+        validated: list[tuple[AttendanceEntry, uuid.UUID]] = []
+        for entry in payload.presencas:
+            pessoa_uuid = uuid.UUID(entry.pessoa_id)
+            _assert_pessoa_tenant(db, pessoa_uuid, "pessoa_id")
+            if not _has_active_membership(
+                db,
+                igreja_id,
+                reuniao.celula_id,
+                pessoa_uuid,
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=(
+                        f"pessoa_id {entry.pessoa_id}: sem vínculo ativo na célula"
+                    ),
+                )
+            validated.append((entry, pessoa_uuid))
+
+        _invalidate_pending_agent_report_for_human_takeover(reuniao)
+        out: list[AttendanceEntryOut] = []
+        for entry, pessoa_uuid in validated:
+            estado = ESTADO_COMPARECEU if entry.compareceu else ESTADO_AUSENTE
+            existing = _find_presenca(db, igreja_id, reuniao.id, pessoa_uuid)
+            if existing is not None:
+                existing.estado = estado
+                existing.origem = ORIGEM_LIDER
+                existing.updated_at = now
+            else:
+                db.add(
+                    CelulaPresenca(
+                        igreja_id=igreja_id,
+                        reuniao_id=reuniao.id,
+                        pessoa_id=pessoa_uuid,
+                        estado=estado,
+                        origem=ORIGEM_LIDER,
+                    )
+                )
+            out.append(
+                AttendanceEntryOut(
+                    pessoa_id=entry.pessoa_id,
+                    compareceu=entry.compareceu,
                 )
             )
-        out.append(
-            AttendanceEntryOut(pessoa_id=entry.pessoa_id, compareceu=entry.compareceu)
-        )
 
-    try:
-        db.flush()
-        db.commit()
-    except IntegrityError as exc:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Conflito ao gravar presença; tente novamente",
-        ) from exc
-    return SetAttendanceOut(meeting_id=str(reuniao.id), presencas=out)
+        try:
+            db.flush()
+            db.commit()
+        except IntegrityError:
+            _rollback_report_writer_best_effort(db)
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Conflito ao gravar presença; tente novamente",
+            ) from None
+        return SetAttendanceOut(meeting_id=str(reuniao.id), presencas=out)
 
 
 # ---------------------------------------------------------------------------
@@ -1215,45 +1396,47 @@ def register_visitor(
     A expectativa vinculada precisa ser da MESMA reunião no tenant (422 caso
     contrário). Bloqueado após o relatório enviado (409). 404 fora do líder/tenant.
     """
-    reuniao = _leader_meeting_or_404(db, current_user, reuniao_id)
-    _assert_report_open(reuniao)
-    igreja_id = uuid.UUID(current_user.igreja_id)
+    with _report_writer_storage_boundary(db):
+        reuniao = _locked_leader_meeting_or_404(db, current_user, reuniao_id)
+        _assert_report_open(reuniao)
+        igreja_id = uuid.UUID(current_user.igreja_id)
 
-    expectativa_uuid: uuid.UUID | None = None
-    if payload.expectativa_id is not None:
-        expectativa_uuid = uuid.UUID(payload.expectativa_id)
-        exp = db.execute(
-            select(CelulaExpectativaVisitante).where(
-                CelulaExpectativaVisitante.id == expectativa_uuid,
-                CelulaExpectativaVisitante.igreja_id == igreja_id,
-                CelulaExpectativaVisitante.reuniao_id == reuniao.id,
-            )
-        ).scalar_one_or_none()
-        if exp is None:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="expectativa_id não encontrada para esta reunião",
-            )
+        expectativa_uuid: uuid.UUID | None = None
+        if payload.expectativa_id is not None:
+            expectativa_uuid = uuid.UUID(payload.expectativa_id)
+            exp = db.execute(
+                select(CelulaExpectativaVisitante).where(
+                    CelulaExpectativaVisitante.id == expectativa_uuid,
+                    CelulaExpectativaVisitante.igreja_id == igreja_id,
+                    CelulaExpectativaVisitante.reuniao_id == reuniao.id,
+                )
+            ).scalar_one_or_none()
+            if exp is None:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="expectativa_id não encontrada para esta reunião",
+                )
 
-    visitante = CelulaVisitante(
-        igreja_id=igreja_id,
-        reuniao_id=reuniao.id,
-        expectativa_id=expectativa_uuid,
-        nome_visitante=payload.nome_visitante,
-        observacao=payload.observacao,
-    )
-    db.add(visitante)
-    db.flush()
-    db.refresh(visitante)
-    db.commit()
-    return VisitorOut(
-        id=str(visitante.id),
-        reuniao_id=str(visitante.reuniao_id),
-        nome_visitante=visitante.nome_visitante,
-        expectativa_id=(
-            str(visitante.expectativa_id) if visitante.expectativa_id else None
-        ),
-    )
+        _invalidate_pending_agent_report_for_human_takeover(reuniao)
+        visitante = CelulaVisitante(
+            igreja_id=igreja_id,
+            reuniao_id=reuniao.id,
+            expectativa_id=expectativa_uuid,
+            nome_visitante=payload.nome_visitante,
+            observacao=payload.observacao,
+        )
+        db.add(visitante)
+        db.flush()
+        db.refresh(visitante)
+        db.commit()
+        return VisitorOut(
+            id=str(visitante.id),
+            reuniao_id=str(visitante.reuniao_id),
+            nome_visitante=visitante.nome_visitante,
+            expectativa_id=(
+                str(visitante.expectativa_id) if visitante.expectativa_id else None
+            ),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1328,38 +1511,40 @@ def add_record(
     `pessoa_id` (alvo) é opcional e, se presente, precisa existir no tenant (422).
     Só o líder da célula escreve (404 caso contrário). Bloqueado após enviado (409).
     """
-    reuniao = _leader_meeting_or_404(db, current_user, reuniao_id)
-    _assert_report_open(reuniao)
-    igreja_id = uuid.UUID(current_user.igreja_id)
+    with _report_writer_storage_boundary(db):
+        reuniao = _locked_leader_meeting_or_404(db, current_user, reuniao_id)
+        _assert_report_open(reuniao)
+        igreja_id = uuid.UUID(current_user.igreja_id)
 
-    actor = resolve_actor_pessoa_id(db, current_user)
-    autor_uuid = uuid.UUID(actor) if actor else None
+        actor = resolve_actor_pessoa_id(db, current_user)
+        autor_uuid = uuid.UUID(actor) if actor else None
 
-    pessoa_uuid: uuid.UUID | None = None
-    if payload.pessoa_id is not None:
-        pessoa_uuid = uuid.UUID(payload.pessoa_id)
-        _assert_pessoa_tenant(db, pessoa_uuid, "pessoa_id")
+        pessoa_uuid: uuid.UUID | None = None
+        if payload.pessoa_id is not None:
+            pessoa_uuid = uuid.UUID(payload.pessoa_id)
+            _assert_pessoa_tenant(db, pessoa_uuid, "pessoa_id")
 
-    registro = CelulaReuniaoRegistro(
-        igreja_id=igreja_id,
-        reuniao_id=reuniao.id,
-        tipo=payload.tipo,
-        conteudo=payload.conteudo,
-        pessoa_id=pessoa_uuid,
-        autor_id=autor_uuid,
-    )
-    db.add(registro)
-    db.flush()
-    db.refresh(registro)
-    db.commit()
-    return RecordOut(
-        id=str(registro.id),
-        reuniao_id=str(registro.reuniao_id),
-        tipo=registro.tipo,
-        conteudo=registro.conteudo,
-        pessoa_id=str(registro.pessoa_id) if registro.pessoa_id else None,
-        autor_id=str(registro.autor_id) if registro.autor_id else None,
-    )
+        _invalidate_pending_agent_report_for_human_takeover(reuniao)
+        registro = CelulaReuniaoRegistro(
+            igreja_id=igreja_id,
+            reuniao_id=reuniao.id,
+            tipo=payload.tipo,
+            conteudo=payload.conteudo,
+            pessoa_id=pessoa_uuid,
+            autor_id=autor_uuid,
+        )
+        db.add(registro)
+        db.flush()
+        db.refresh(registro)
+        db.commit()
+        return RecordOut(
+            id=str(registro.id),
+            reuniao_id=str(registro.reuniao_id),
+            tipo=registro.tipo,
+            conteudo=registro.conteudo,
+            pessoa_id=str(registro.pessoa_id) if registro.pessoa_id else None,
+            autor_id=str(registro.autor_id) if registro.autor_id else None,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1418,23 +1603,27 @@ def save_report(
     2000 (422 fora do intervalo). Bloqueado após enviado (409, E10/E11). 404 fora
     do líder/tenant.
     """
-    reuniao = _leader_meeting_or_404(db, current_user, reuniao_id)
-    _assert_report_open(reuniao)
+    with _report_writer_storage_boundary(db):
+        reuniao = _locked_leader_meeting_or_404(db, current_user, reuniao_id)
+        _assert_report_open(reuniao)
+        _invalidate_pending_agent_report_for_human_takeover(reuniao)
 
-    reuniao.oferta_valor = payload.oferta_valor
-    reuniao.observacoes = payload.observacoes
-    reuniao.updated_at = dt.datetime.now(dt.timezone.utc)
-    db.flush()
-    db.refresh(reuniao)
-    db.commit()
-    return SaveReportOut(
-        meeting_id=str(reuniao.id),
-        oferta_valor=(
-            float(reuniao.oferta_valor) if reuniao.oferta_valor is not None else None
-        ),
-        observacoes=reuniao.observacoes,
-        relatorio_status=reuniao.relatorio_status,
-    )
+        reuniao.oferta_valor = payload.oferta_valor
+        reuniao.observacoes = payload.observacoes
+        reuniao.updated_at = dt.datetime.now(dt.timezone.utc)
+        db.flush()
+        db.refresh(reuniao)
+        db.commit()
+        return SaveReportOut(
+            meeting_id=str(reuniao.id),
+            oferta_valor=(
+                float(reuniao.oferta_valor)
+                if reuniao.oferta_valor is not None
+                else None
+            ),
+            observacoes=reuniao.observacoes,
+            relatorio_status=reuniao.relatorio_status,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1519,43 +1708,44 @@ def submit_report(
     Grava relatorio_enviado_em (UTC) e relatorio_enviado_por (Pessoa do líder).
     409 se já enviado (sem reabertura no MVP). 404 fora do líder/tenant.
     """
-    reuniao = _leader_meeting_or_404(db, current_user, reuniao_id)
-    if reuniao.relatorio_status == RELATORIO_ENVIADO:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Relatório já enviado",
-        )
+    with _report_writer_storage_boundary(db):
+        reuniao = _locked_leader_meeting_or_404(db, current_user, reuniao_id)
+        if reuniao.relatorio_status == RELATORIO_ENVIADO:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Relatório já enviado",
+            )
+        _invalidate_pending_agent_report_for_human_takeover(reuniao)
 
-    actor = resolve_actor_pessoa_id(db, current_user)
-    now = dt.datetime.now(dt.timezone.utc)
-    reuniao.relatorio_status = RELATORIO_ENVIADO
-    reuniao.relatorio_enviado_em = now
-    reuniao.relatorio_enviado_por = uuid.UUID(actor) if actor else None
-    reuniao.updated_at = now
-    # Congela o consolidado (E10/E11): materializa presenças/visitantes/registros/
-    # oferta/observações num snapshot imutável. get_report passa a ler o snapshot,
-    # de modo que escritas posteriores em celula_presenca (endpoint PR2, upsert
-    # sempre-200) não alterem o relatório já enviado.
-    reuniao.relatorio_snapshot = _build_report_out(
-        db, uuid.UUID(current_user.igreja_id), reuniao
-    ).model_dump()
-    db.flush()
-    db.refresh(reuniao)
-    db.commit()
-    return SubmitReportOut(
-        meeting_id=str(reuniao.id),
-        relatorio_status=reuniao.relatorio_status,
-        relatorio_enviado_em=(
-            reuniao.relatorio_enviado_em.isoformat()
-            if reuniao.relatorio_enviado_em
-            else None
-        ),
-        relatorio_enviado_por=(
-            str(reuniao.relatorio_enviado_por)
-            if reuniao.relatorio_enviado_por
-            else None
-        ),
-    )
+        actor = resolve_actor_pessoa_id(db, current_user)
+        now = dt.datetime.now(dt.timezone.utc)
+        reuniao.relatorio_status = RELATORIO_ENVIADO
+        reuniao.relatorio_enviado_em = now
+        reuniao.relatorio_enviado_por = uuid.UUID(actor) if actor else None
+        reuniao.updated_at = now
+        # Congela o consolidado (E10/E11): materializa fatos num snapshot imutável.
+        reuniao.relatorio_snapshot = _build_report_out(
+            db,
+            uuid.UUID(current_user.igreja_id),
+            reuniao,
+        ).model_dump()
+        db.flush()
+        db.refresh(reuniao)
+        db.commit()
+        return SubmitReportOut(
+            meeting_id=str(reuniao.id),
+            relatorio_status=reuniao.relatorio_status,
+            relatorio_enviado_em=(
+                reuniao.relatorio_enviado_em.isoformat()
+                if reuniao.relatorio_enviado_em
+                else None
+            ),
+            relatorio_enviado_por=(
+                str(reuniao.relatorio_enviado_por)
+                if reuniao.relatorio_enviado_por
+                else None
+            ),
+        )
 
 
 # ---------------------------------------------------------------------------

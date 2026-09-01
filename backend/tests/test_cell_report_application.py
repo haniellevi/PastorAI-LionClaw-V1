@@ -19,8 +19,10 @@ from app.agent.turn_identity import (
     build_agent_turn_identity,
 )
 from app.db.models import CelulaReuniao
+from app.deps import CurrentUser
 from app.domain.cell_report_limits import MAX_CELL_REPORT_OBSERVATIONS_LENGTH
 from app.domain.cell_report_workflow import CellReportWorkflowState
+from app.routers import cell_meetings
 from app.services import cell_report_application as application
 
 
@@ -798,6 +800,324 @@ def test_final_different_effect_conflicts_instead_of_double_submit() -> None:
         application.CellReportApplicationErrorCode.REPORT_CONFLICT
     )
     assert conflict_db.flush_calls == 0
+
+
+def test_human_legacy_submit_wins_then_agent_confirmation_is_report_conflict() -> None:
+    meeting = _meeting()
+    proposal = _propose(_authorized_session(meeting))
+    meeting.relatorio_status = "enviado"
+    meeting.relatorio_enviado_em = NOW
+    meeting.relatorio_enviado_por = ACTOR
+    meeting.relatorio_snapshot = {
+        "meeting_id": str(MEETING),
+        "data": meeting.data.isoformat(),
+        "tema": None,
+        "relatorio_status": "enviado",
+        "oferta_valor": None,
+        "observacoes": None,
+        "presencas": [],
+        "visitantes": [],
+        "records": [],
+    }
+    db = _authorized_session(meeting)
+
+    with pytest.raises(application.CellReportApplicationError) as raised:
+        _confirm(
+            db,
+            command=proposal.confirmation_command,  # type: ignore[arg-type]
+        )
+
+    assert raised.value.code is (
+        application.CellReportApplicationErrorCode.REPORT_CONFLICT
+    )
+    assert meeting.relatorio_snapshot["relatorio_status"] == "enviado"
+    assert db.flush_calls == 0
+
+
+@pytest.mark.parametrize(
+    "writer",
+    [
+        "edit_meeting",
+        "set_real_attendance",
+        "register_visitor",
+        "add_record",
+        "save_report",
+        "submit_report",
+    ],
+)
+def test_human_writer_wins_then_agent_confirmation_conflicts(
+    monkeypatch: pytest.MonkeyPatch,
+    writer: str,
+) -> None:
+    meeting = _meeting()
+    proposal = _propose(_authorized_session(meeting))
+
+    class _HumanWriterSession:
+        def __init__(self) -> None:
+            self.flush_calls = 0
+            self.commit_calls = 0
+            self.added: list[object] = []
+
+        def add(self, value: object) -> None:
+            if getattr(value, "id", None) is None:
+                value.id = uuid.uuid4()
+            self.added.append(value)
+
+        def flush(self) -> None:
+            self.flush_calls += 1
+
+        def refresh(self, _value: object) -> None:
+            return None
+
+        def commit(self) -> None:
+            self.commit_calls += 1
+
+    human_db = _HumanWriterSession()
+    current_user = CurrentUser(
+        app_user_id=str(ACCESS),
+        clerk_user_id="clerk-human-writer",
+        igreja_id=str(TENANT),
+        email="human-writer@example.invalid",
+        nome="Human Writer",
+        roles=frozenset({"lider_celula"}),
+    )
+    monkeypatch.setattr(
+        cell_meetings,
+        "_locked_leader_meeting_or_404",
+        lambda *_args, **_kwargs: meeting,
+    )
+    monkeypatch.setattr(
+        cell_meetings,
+        "_assert_pessoa_tenant",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        cell_meetings,
+        "_has_active_membership",
+        lambda *_args, **_kwargs: True,
+    )
+    monkeypatch.setattr(
+        cell_meetings,
+        "_find_presenca",
+        lambda *_args, **_kwargs: None,
+    )
+    monkeypatch.setattr(
+        cell_meetings,
+        "resolve_actor_pessoa_id",
+        lambda *_args, **_kwargs: str(ACTOR),
+    )
+    monkeypatch.setattr(
+        cell_meetings,
+        "_build_report_out",
+        lambda *_args, **_kwargs: cell_meetings.ReportOut(
+            meeting_id=str(meeting.id),
+            data=meeting.data.isoformat(),
+            tema=meeting.tema,
+            relatorio_status=meeting.relatorio_status,
+            oferta_valor=(
+                float(meeting.oferta_valor)
+                if meeting.oferta_valor is not None
+                else None
+            ),
+            observacoes=meeting.observacoes,
+            presencas=[],
+            visitantes=[],
+            records=[],
+        ),
+    )
+
+    if writer == "edit_meeting":
+        cell_meetings.edit_meeting(
+            str(MEETING),
+            cell_meetings.EditMeetingRequest(
+                data=meeting.data,
+                hora="20:00",
+                tema="Revisado no painel",
+            ),
+            human_db,  # type: ignore[arg-type]
+            current_user,
+        )
+    elif writer == "set_real_attendance":
+        cell_meetings.set_real_attendance(
+            str(MEETING),
+            cell_meetings.SetAttendanceRequest(
+                presencas=[
+                    cell_meetings.AttendanceEntry(
+                        pessoa_id=str(ACTOR),
+                        compareceu=True,
+                    )
+                ]
+            ),
+            human_db,  # type: ignore[arg-type]
+            current_user,
+        )
+    elif writer == "register_visitor":
+        cell_meetings.register_visitor(
+            str(MEETING),
+            cell_meetings.RegisterVisitorRequest(nome_visitante="Visitante"),
+            human_db,  # type: ignore[arg-type]
+            current_user,
+        )
+    elif writer == "add_record":
+        cell_meetings.add_record(
+            str(MEETING),
+            cell_meetings.AddRecordRequest(
+                tipo="observacao",
+                conteudo="Registro",
+            ),
+            human_db,  # type: ignore[arg-type]
+            current_user,
+        )
+    elif writer == "save_report":
+        cell_meetings.save_report(
+            str(MEETING),
+            cell_meetings.SaveReportRequest(
+                oferta_valor=7.5,
+                observacoes="takeover explícito no painel",
+            ),
+            human_db,  # type: ignore[arg-type]
+            current_user,
+        )
+    else:
+        cell_meetings.submit_report(
+            str(MEETING),
+            human_db,  # type: ignore[arg-type]
+            current_user,
+        )
+
+    if writer == "submit_report":
+        assert meeting.relatorio_status == "enviado"
+        assert type(meeting.relatorio_snapshot) is dict
+        assert "schema" not in meeting.relatorio_snapshot
+    else:
+        assert meeting.relatorio_status == "pendente"
+        assert meeting.relatorio_snapshot is None
+    assert human_db.flush_calls == human_db.commit_calls == 1
+
+    agent_db = _authorized_session(meeting)
+    with pytest.raises(application.CellReportApplicationError) as raised:
+        _confirm(
+            agent_db,
+            command=proposal.confirmation_command,  # type: ignore[arg-type]
+        )
+    assert raised.value.code is (
+        application.CellReportApplicationErrorCode.REPORT_CONFLICT
+    )
+    assert agent_db.flush_calls == 0
+
+
+def test_malformed_schema_less_sent_snapshot_remains_data_integrity_failure() -> None:
+    meeting = _meeting(
+        relatorio_status="enviado",
+        relatorio_enviado_em=NOW,
+        relatorio_enviado_por=ACTOR,
+        relatorio_snapshot={"presencas": "not-a-legacy-report"},
+    )
+    db = _authorized_session(meeting)
+
+    with pytest.raises(application.CellReportApplicationError) as raised:
+        _confirm(db, command="CONFIRMAR RELATORIO AAAAAAAAAAAA")
+
+    assert raised.value.code is (
+        application.CellReportApplicationErrorCode.DATA_INTEGRITY
+    )
+    assert db.flush_calls == 0
+
+
+def test_complete_legacy_shape_with_wrong_meeting_metadata_is_data_integrity() -> None:
+    meeting = _meeting(
+        relatorio_status="enviado",
+        relatorio_enviado_em=NOW,
+        relatorio_enviado_por=ACTOR,
+        relatorio_snapshot={
+            "meeting_id": str(MEETING),
+            "data": dt.date(2026, 8, 29).isoformat(),
+            "tema": None,
+            "relatorio_status": "enviado",
+            "oferta_valor": None,
+            "observacoes": None,
+            "presencas": [],
+            "visitantes": [],
+            "records": [],
+        },
+    )
+    db = _authorized_session(meeting)
+
+    with pytest.raises(application.CellReportApplicationError) as raised:
+        _confirm(db, command="CONFIRMAR RELATORIO AAAAAAAAAAAA")
+
+    assert raised.value.code is (
+        application.CellReportApplicationErrorCode.DATA_INTEGRITY
+    )
+    assert db.flush_calls == 0
+
+
+@pytest.mark.parametrize(
+    ("collection", "field"),
+    [
+        (None, "meeting_id"),
+        ("presencas", "pessoa_id"),
+        ("visitantes", "id"),
+        ("visitantes", "expectativa_id"),
+        ("records", "id"),
+        ("records", "pessoa_id"),
+    ],
+)
+def test_nil_uuid_in_legacy_shape_is_data_integrity_not_report_conflict(
+    collection: str | None,
+    field: str,
+) -> None:
+    snapshot = {
+        "meeting_id": str(MEETING),
+        "data": dt.date(2026, 8, 30).isoformat(),
+        "tema": None,
+        "relatorio_status": "enviado",
+        "oferta_valor": None,
+        "observacoes": None,
+        "presencas": [
+            {
+                "pessoa_id": str(ACTOR),
+                "estado": "compareceu",
+                "origem": "lider",
+            }
+        ],
+        "visitantes": [
+            {
+                "id": str(ROLE),
+                "nome_visitante": "Visitante",
+                "expectativa_id": str(INBOUND_1),
+                "observacao": None,
+            }
+        ],
+        "records": [
+            {
+                "id": str(INBOUND_2),
+                "tipo": "observacao",
+                "conteudo": "Registro",
+                "pessoa_id": str(ACTOR),
+            }
+        ],
+    }
+    nil_uuid = str(uuid.UUID(int=0))
+    if collection is None:
+        snapshot[field] = nil_uuid
+    else:
+        snapshot[collection][0][field] = nil_uuid
+    meeting = _meeting(
+        relatorio_status="enviado",
+        relatorio_enviado_em=NOW,
+        relatorio_enviado_por=ACTOR,
+        relatorio_snapshot=snapshot,
+    )
+    db = _authorized_session(meeting)
+
+    with pytest.raises(application.CellReportApplicationError) as raised:
+        _confirm(db, command="CONFIRMAR RELATORIO AAAAAAAAAAAA")
+
+    assert raised.value.code is (
+        application.CellReportApplicationErrorCode.DATA_INTEGRITY
+    )
+    assert db.flush_calls == 0
 
 
 def test_wrong_current_code_rejects_without_mutating_pending_proposal() -> None:

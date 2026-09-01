@@ -52,7 +52,9 @@ from app.db.models import (
 from app.db.rls_observability import require_tenant_scope
 from app.domain.agent_authz import MINISTERIAL_ROLES
 from app.domain.cell_meetings_schedule import meeting_has_passed
-from app.domain.conversations import VALID_ESTADOS
+from app.domain.cell_report_legacy_snapshot import (
+    is_canonical_legacy_human_report_snapshot,
+)
 from app.domain.cell_report_pending_proposal import (
     CELL_REPORT_PENDING_PROPOSAL_SCHEMA_V1,
     MAX_CELL_REPORT_PROPOSAL_OPERATION_RECEIPTS,
@@ -85,6 +87,7 @@ from app.domain.cell_report_workflow import (
     revise_cell_report_workflow,
     start_cell_report_workflow,
 )
+from app.domain.conversations import VALID_ESTADOS
 
 
 RELATORIO_PENDENTE: Final = "pendente"
@@ -963,6 +966,22 @@ def _validate_final_replay(
     submission_effect_id: str,
     submission_payload_digest: str,
 ) -> dict[str, object]:
+    legacy = meeting.relatorio_snapshot
+    # Only the complete closed panel projection is a competing human writer.
+    # Malformed schema-less content remains a corruption signal.
+    if is_canonical_legacy_human_report_snapshot(
+        legacy,
+        meeting_id=meeting.id,
+        meeting_date=meeting.data,
+        meeting_tema=meeting.tema,
+        meeting_status=meeting.relatorio_status,
+        meeting_oferta_valor=meeting.oferta_valor,
+        meeting_observacoes=meeting.observacoes,
+        meeting_sent_at=meeting.relatorio_enviado_em,
+        meeting_sent_by=meeting.relatorio_enviado_por,
+        expected_actor_id=ator_pessoa_id,
+    ):
+        _reject(CellReportApplicationErrorCode.REPORT_CONFLICT)
     try:
         snapshot = validate_cell_report_snapshot_v2(meeting.relatorio_snapshot)
     except CellReportSnapshotValidationError:
