@@ -1171,15 +1171,26 @@ CI ou Preview sob esse gate, portanto ele nao e evidencia historica de uma acao
 externa.
 
 **Próximo gate único:**
-`REVIEW_AND_CI_CELL_REPORT_TRANSACTIONAL_STAGING_OFFLINE_PR`. O nome nao
-constitui autorizacao ja concedida. Seu consumo exige autorizacao humana
-posterior e separada que nomeie push, abertura da PR e GitHub CI e aceite o
-Vercel Preview automatico. O gate cobre somente revisao e CI do lote offline de
-staging transacional. Nao autoriza merge, Vercel Production, flag-on, caller,
-`AgentConfig`, primeira execucao do agente, runtime, worker, consentimento,
-commit, send, drain V1/V0, receipt global, saver, probe vivo, acesso a DEV ou
-PROD, banco, logs, SQL, DML, migration, outra rede, deploy, mensagem, tool call
-ou qualquer efeito vivo.
+O gate `REVIEW_AND_CI_CELL_REPORT_TRANSACTIONAL_STAGING_OFFLINE_PR` foi
+consumido pela autorizacao humana nominal da rodada de PR. Na PR #354, o head
+tecnico `69f9eecdfb95691b4633a42ef597452f63e82e48` contra `main`
+`6c807717010a41edf3bfd3d1b2405c2f3527a696` permaneceu aberto,
+`MERGEABLE/CLEAN`. Os sete workflows GitHub concluiram com `SUCCESS`: Backend
+Tests `33456753518`, Canonical Schema Derivation `33456753672`, E2E Critical
+`33456753444`, Environment Attestation PG17 `33456753406`, Frontend CI
+`33456753394`, RLS Integration `33456753452` e Tooling Static Checks
+`33456753430`. O Vercel Preview automatico do frontend, deployment
+`6192384421`, status `17596918017`, tambem concluiu com `success`. Preview nao
+e Vercel Production e esta evidencia nao prova runtime, banco ou efeito vivo.
+
+**Próximo gate único:**
+`REVIEW_AND_MERGE_CELL_REPORT_TRANSACTIONAL_STAGING_PR`. O nome nao constitui
+autorizacao ja concedida. Seu consumo exige autorizacao humana nominal,
+posterior e separada que autorize somente um merge futuro da PR #354 e o Vercel
+Production automatico decorrente. Nao autoriza caller, runtime, worker,
+`AgentConfig`, consentimento, banco, migration, commit, send, drain V1/V0,
+receipt global, saver, probe vivo, DEV, logs, SQL, DML, outra rede, deploy
+adicional, mensagem, tool call ou qualquer outro efeito vivo.
 
 ## Fontes principais
 

@@ -139,8 +139,11 @@ D3_CELL_REPORT_OFFLINE_FOUNDATION_SUPERSEDED_GATE = (
 CELL_REPORT_APPLICATION_SERVICE_SUPERSEDED_GATE = (
     "REVIEW_AND_CI_CELL_REPORT_APPLICATION_SERVICE_OFFLINE_PR"
 )
-CELL_REPORT_TRANSACTIONAL_STAGING_CURRENT_GATE = (
+CELL_REPORT_TRANSACTIONAL_STAGING_CONSUMED_GATE = (
     "REVIEW_AND_CI_CELL_REPORT_TRANSACTIONAL_STAGING_OFFLINE_PR"
+)
+CELL_REPORT_TRANSACTIONAL_STAGING_CURRENT_GATE = (
+    "REVIEW_AND_MERGE_CELL_REPORT_TRANSACTIONAL_STAGING_PR"
 )
 DEV_PREFLIGHT_PHASE_DIAGNOSTICS_CURRENT_GATE = (
     CELL_REPORT_TRANSACTIONAL_STAGING_CURRENT_GATE
@@ -4121,8 +4124,32 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
         "nao houve push, pr, ci ou preview sob esse gate",
         CELL_REPORT_APPLICATION_SERVICE_SUPERSEDED_GATE.casefold(),
         CELL_REPORT_TRANSACTIONAL_STAGING_CURRENT_GATE.casefold(),
-        "cobre somente revisao e ci do lote offline de staging transacional",
-        "nao autoriza merge, vercel production, flag-on, caller, `agentconfig`",
+        "foi consumido pela autorizacao humana nominal da rodada de pr",
+        "pr #354",
+        "69f9eecdfb95691b4633a42ef597452f63e82e48",
+        "6c807717010a41edf3bfd3d1b2405c2f3527a696",
+        "sete workflows github concluiram com `success`",
+        "33456753518",
+        "33456753672",
+        "33456753444",
+        "33456753406",
+        "33456753394",
+        "33456753452",
+        "33456753430",
+        "vercel preview automatico do frontend",
+        "6192384421",
+        "17596918017",
+        "preview nao e vercel production",
+        CELL_REPORT_TRANSACTIONAL_STAGING_CONSUMED_GATE.casefold(),
+        CELL_REPORT_TRANSACTIONAL_STAGING_CURRENT_GATE.casefold(),
+        (
+            "autoriza somente um merge futuro da pr #354 e o vercel production "
+            "automatico decorrente"
+        ),
+        (
+            "nao autoriza caller, runtime, worker, consentimento, banco, "
+            "migration, commit, send"
+        ),
         "commit, send, drain v1/v0, receipt global",
         "qualquer efeito vivo",
     }
@@ -4188,8 +4215,16 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
         "de `begin`, `commit` ou `rollback` na uow",
         "concluiu `go`, com p0, p1 e p2 iguais a zero",
         CELL_REPORT_APPLICATION_SERVICE_SUPERSEDED_GATE.casefold(),
+        CELL_REPORT_TRANSACTIONAL_STAGING_CONSUMED_GATE.casefold(),
         CELL_REPORT_TRANSACTIONAL_STAGING_CURRENT_GATE.casefold(),
-        "cobre somente revisao e ci do lote offline de staging transacional",
+        "foi consumido pela autorizacao humana nominal da rodada de pr",
+        "pr #354",
+        "sete workflows github concluiram com `success`",
+        "vercel preview automatico do frontend",
+        (
+            "autoriza somente um merge futuro da pr #354 e o vercel production "
+            "automatico decorrente"
+        ),
     }
     for file_path, digest in transactional_file_sha256.items():
         architecture_transactional_required.add(file_path)
@@ -4222,6 +4257,9 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
             CELL_REPORT_APPLICATION_SERVICE_SUPERSEDED_GATE.casefold()
         ) == 1
         assert normalized.count(
+            CELL_REPORT_TRANSACTIONAL_STAGING_CONSUMED_GATE.casefold()
+        ) == 1
+        assert normalized.count(
             CELL_REPORT_TRANSACTIONAL_STAGING_CURRENT_GATE.casefold()
         ) == 1
         assert normalized.index(application_head_commit) < normalized.index(
@@ -4250,6 +4288,11 @@ def test_d3_offline_replay_only_foundation_preserves_runtime_gate() -> None:
         ) < normalized.rindex(transactional_staging_head_commit)
         assert normalized.index(
             CELL_REPORT_APPLICATION_SERVICE_SUPERSEDED_GATE.casefold()
+        ) < normalized.index(
+            CELL_REPORT_TRANSACTIONAL_STAGING_CONSUMED_GATE.casefold()
+        )
+        assert normalized.index(
+            CELL_REPORT_TRANSACTIONAL_STAGING_CONSUMED_GATE.casefold()
         ) < normalized.index(
             CELL_REPORT_TRANSACTIONAL_STAGING_CURRENT_GATE.casefold()
         )
