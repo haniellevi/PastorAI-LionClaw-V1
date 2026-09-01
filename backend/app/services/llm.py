@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from typing import Final
 
 from app.services.outbound_guard import external_sends_allowed, log_suppressed
 
@@ -21,6 +22,28 @@ logger = logging.getLogger("pastorai.llm")
 SUPPORTED_PROVIDERS: frozenset[str] = frozenset({"openai"})
 DEFAULT_MODEL = "gpt-5.6-luna"
 PRICING_UPDATED_AT = "2026-08-25"
+
+# Transcrição de áudio (relatório de célula por voz). Modelo único e fixo —
+# não é uma escolha da igreja como o catálogo de chat acima, apenas a
+# credencial BYO é reaproveitada. Limite de tamanho é o hard limit real da
+# API de transcrição da OpenAI; menos que isso já preveniria custo/abuso.
+TRANSCRIPTION_MODEL: Final = "whisper-1"
+TRANSCRIPTION_USD_PER_MINUTE: Final = 0.006
+MAX_AUDIO_BYTES: Final = 25 * 1024 * 1024
+
+_AUDIO_EXTENSION_BY_MIME: Final[dict[str, str]] = {
+    "audio/ogg": "ogg",
+    "audio/opus": "ogg",
+    "audio/mpeg": "mp3",
+    "audio/mp3": "mp3",
+    "audio/mp4": "mp4",
+    "audio/m4a": "m4a",
+    "audio/x-m4a": "m4a",
+    "audio/wav": "wav",
+    "audio/x-wav": "wav",
+    "audio/webm": "webm",
+}
+SUPPORTED_AUDIO_MIME_TYPES: frozenset[str] = frozenset(_AUDIO_EXTENSION_BY_MIME)
 
 
 @dataclass(frozen=True)
@@ -95,6 +118,14 @@ class LLMModelUnavailableError(LLMError):
     """A selected model is unavailable and may use its cheaper fallback."""
 
 
+class UnsupportedAudioTypeError(LLMError):
+    """The audio mime type is outside the transcription allowlist."""
+
+
+class AudioTooLargeError(LLMError):
+    """The audio payload exceeds ``MAX_AUDIO_BYTES``."""
+
+
 @dataclass(frozen=True)
 class LLMUsage:
     """Token accounting + estimated cost for one completion."""
@@ -111,6 +142,15 @@ class LLMResult:
 
     texto: str
     usage: LLMUsage
+
+
+@dataclass(frozen=True)
+class AudioTranscriptionResult:
+    """One transcription: the recognized text plus duration/cost."""
+
+    texto: str
+    duracao_segundos: float
+    custo: float
 
 
 def _require_supported_model(model: str) -> str:
@@ -286,3 +326,80 @@ class LLMClient:
                 )
 
         raise LLMProviderError("Nenhum modelo LLM disponível")  # pragma: no cover
+
+
+def transcribe_audio(
+    provedor: str,
+    api_key: str,
+    *,
+    audio_bytes: bytes,
+    mime_type: str,
+    filename: str = "audio",
+) -> AudioTranscriptionResult:
+    """Transcribe one bounded audio clip with the igreja's BYO credential.
+
+    Scoped to private, transient uses (e.g. a spoken cell report) — the
+    transcript is not persisted as official knowledge by this function; that
+    decision belongs to the caller. Type and size are validated before any
+    network I/O so a malformed or oversized upload never reaches the
+    provider. Behind the same ``external_sends_allowed`` gate as
+    :meth:`LLMClient.complete`: a closed gate returns a clearly marked
+    simulated result instead of calling out.
+    """
+    provider = _require_supported(provedor)
+    if not api_key or not api_key.strip():
+        raise LLMProviderError("Credencial LLM ausente para transcrição")
+    normalized_mime = (mime_type or "").strip().lower()
+    if normalized_mime not in SUPPORTED_AUDIO_MIME_TYPES:
+        raise UnsupportedAudioTypeError(
+            f"Tipo de áudio não suportado: {mime_type!r}"
+        )
+    if not audio_bytes:
+        raise LLMProviderError("Áudio vazio")
+    if len(audio_bytes) > MAX_AUDIO_BYTES:
+        raise AudioTooLargeError(
+            f"Áudio excede o limite de {MAX_AUDIO_BYTES // (1024 * 1024)}MB"
+        )
+
+    if not external_sends_allowed():
+        log_suppressed("LLM", "transcribe_audio")
+        return AudioTranscriptionResult(
+            texto="[Transcrição simulada — envios externos desativados neste ambiente.]",
+            duracao_segundos=0.0,
+            custo=0.0,
+        )
+
+    if provider != "openai":
+        raise UnsupportedProviderError(provider)
+
+    from openai import (  # noqa: PLC0415 - lazy import by design
+        APIConnectionError,
+        APIStatusError,
+        AuthenticationError,
+    )
+
+    client = _build_openai_client(api_key)
+    extension = _AUDIO_EXTENSION_BY_MIME[normalized_mime]
+    try:
+        response = client.audio.transcriptions.create(
+            model=TRANSCRIPTION_MODEL,
+            file=(f"{filename}.{extension}", audio_bytes, normalized_mime),
+            response_format="verbose_json",
+        )
+    except AuthenticationError as exc:
+        raise LLMProviderError("Credencial LLM rejeitada pelo provedor") from exc
+    except APIStatusError as exc:
+        raise LLMProviderError(
+            f"Erro do provedor LLM: {exc.status_code}"
+        ) from exc
+    except APIConnectionError as exc:
+        raise LLMProviderError("Falha de conexão com o provedor LLM") from exc
+
+    texto = (getattr(response, "text", "") or "").strip()
+    duracao = float(getattr(response, "duration", 0.0) or 0.0)
+    if duracao < 0.0:
+        duracao = 0.0
+    custo = round((duracao / 60.0) * TRANSCRIPTION_USD_PER_MINUTE, 6)
+    return AudioTranscriptionResult(
+        texto=texto, duracao_segundos=duracao, custo=custo
+    )
